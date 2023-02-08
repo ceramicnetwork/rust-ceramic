@@ -1,0 +1,22 @@
+[package]
+name = "rust-ceramic"
+version = "0.1.0"
+edition = "2021"
+authors = ["Nathaniel Cook <nvcook42@gmail.com>"]
+license = "MIT OR Apache-2.0"
+description = "Implementation of Ceramic protocol in Rust"
+repository = "https://github.com/3box/rust-ceramic"
+
+[dependencies]
+anyhow = "1.0.69"
+clap = "4.1.4"
+iroh-p2p = { git = "https://github.com/nathanielc/iroh.git", branch = "expose-client" }
+iroh-rpc-client = { git = "https://github.com/nathanielc/iroh.git", branch = "expose-client" }
+iroh-rpc-types = { git = "https://github.com/nathanielc/iroh.git", branch = "expose-client" }
+iroh-util = { git = "https://github.com/nathanielc/iroh.git", branch = "expose-client" }
+iroh-metrics = { git = "https://github.com/nathanielc/iroh.git", branch = "expose-client" }
+libp2p = "0.50.0"
+tokio = "1.25.0"
+tracing = "0.1.37"
+hex = "0.4.3"
+libipld = "0.16.0"
