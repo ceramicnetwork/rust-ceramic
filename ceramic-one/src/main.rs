@@ -17,10 +17,15 @@ use libipld::codec::Decode;
 use libipld::json::DagJsonCodec;
 use libipld::Ipld;
 use tokio::task;
-use tracing::error;
+use tracing::{error, info};
 
 /// Starts daemon process
 fn main() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .init();
+    info!("tracing initialized");
+
     let mut lock = ProgramLock::new("iroh-p2p")?;
     lock.acquire_or_exit();
 
@@ -40,6 +45,7 @@ fn main() -> Result<()> {
         // TODO: configurable network
         let cfg_path = iroh_config_path(CONFIG_FILE_NAME)?;
         let sources = [Some(cfg_path.as_path()), args.cfg.as_deref()];
+        info!("config sources {:?}", sources);
         let network_config = make_config(
             // default
             ServerConfig::default(),
@@ -72,7 +78,8 @@ fn main() -> Result<()> {
         let rpc_addr = network_config
             .rpc_addr()
             .ok_or_else(|| anyhow!("missing p2p rpc addr"))?;
-        let mut p2p = Node::new(network_config, rpc_addr, kc).await?;
+        let behaviour = ceramic_set_rec::Behaviour::default();
+        let mut p2p = Node::new(network_config, rpc_addr, kc, Some(behaviour)).await?;
         let mut events = p2p.network_events();
         let client = p2p.client();
         let p2p_client = client.try_p2p()?;

@@ -1,22 +1,62 @@
 [package]
-name = "rust-ceramic"
+name = "ceramic"
+description = "Implementation of Ceramic protocol in Rust"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ceramic-set-rec = {path = "protocols/set_rec" }
+
+[workspace]
+members = [
+  "ceramic-one",
+  "examples/custom_protocol",
+  "protocols/set_rec",
+]
+# even if all crates are set to edition 2021, we still need to force the
+# resolver to 2
+# https://github.com/gfx-rs/wgpu/issues/2356#issuecomment-1005134986
+resolver = "2"
+
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
 authors = ["Nathaniel Cook <nvcook42@gmail.com>"]
 license = "MIT OR Apache-2.0"
-description = "Implementation of Ceramic protocol in Rust"
 repository = "https://github.com/3box/rust-ceramic"
 
-[dependencies]
-anyhow = "1.0.69"
+[workspace.dependencies]
+# We prefer to place all dependencies for our workspace crates here.
+# The should be added here with default features only so that each
+# crate explicitly enables the features they need.
+#
+# There are two execeptions to this:
+# - If a crate needs a dependency with `default-features=false` the
+#   default features must be disabled here.
+# - If we really want to uniformely enforce a feature in all crates,
+#   e.g. anyhow's backtrace feature.
+ceramic = {path = "."}
+ceramic-set-rec = {path = "protocols/set_rec"}
+anyhow = { version = "1", features = ["backtrace"] }
+#iroh-metrics = { git = "https://github.com/nathanielc/iroh.git", branch = "expose-client" }
+#iroh-p2p = { git = "https://github.com/nathanielc/iroh.git", branch = "expose-client" }
+#iroh-rpc-client = { git = "https://github.com/nathanielc/iroh.git", branch = "expose-client" }
+#iroh-rpc-types = { git = "https://github.com/nathanielc/iroh.git", branch = "expose-client" }
+#iroh-util = { git = "https://github.com/nathanielc/iroh.git", branch = "expose-client" }
 clap = "4.1.4"
-iroh-p2p = { git = "https://github.com/nathanielc/iroh.git", branch = "expose-client" }
-iroh-rpc-client = { git = "https://github.com/nathanielc/iroh.git", branch = "expose-client" }
-iroh-rpc-types = { git = "https://github.com/nathanielc/iroh.git", branch = "expose-client" }
-iroh-util = { git = "https://github.com/nathanielc/iroh.git", branch = "expose-client" }
-iroh-metrics = { git = "https://github.com/nathanielc/iroh.git", branch = "expose-client" }
-libp2p = "0.50.0"
-tokio = "1.25.0"
-tracing = "0.1.37"
-hex = "0.4.3"
+iroh-metrics = { path = "../iroh/iroh-metrics"}
+iroh-p2p = { path = "../iroh/iroh-p2p"}
+iroh-rpc-client = { path = "../iroh/iroh-rpc-client"}
+iroh-rpc-types = { path = "../iroh/iroh-rpc-types"}
+iroh-util = { path = "../iroh/iroh-util"}
 libipld = "0.16.0"
+libp2p = { version = "0.50", default-features = false }
+tokio = { version = "1.25.0", features = ["full"] }
+tracing = { version = "0.1.37", features = ["log"] }
+void = "1.0.2"
+
+tracing-subscriber = "0.3.16"
+rand = "0.8.5"

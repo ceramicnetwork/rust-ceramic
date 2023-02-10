@@ -1,0 +1,23 @@
+[package]
+name = "ceramic-one"
+description = "Single binary for Ceramic protocol node"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+clap.workspace = true
+anyhow.workspace = true
+iroh-p2p.workspace = true
+iroh-rpc-client.workspace = true
+iroh-rpc-types.workspace = true
+iroh-util.workspace = true
+iroh-metrics.workspace = true
+libipld.workspace = true
+libp2p.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+ceramic-set-rec.workspace = true
+tracing-subscriber.workspace = true

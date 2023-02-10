@@ -586,49 +586,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ceramic"
-version = "0.1.0"
-dependencies = [
- "ceramic-set-rec",
-]
-
-[[package]]
-name = "ceramic-one"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "ceramic-set-rec",
- "clap",
- "iroh-metrics",
- "iroh-p2p",
- "iroh-rpc-client",
- "iroh-rpc-types",
- "iroh-util",
- "libipld",
- "libp2p",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "ceramic-set-rec"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "iroh-metrics",
- "iroh-p2p",
- "iroh-rpc-client",
- "iroh-rpc-types",
- "iroh-util",
- "libp2p",
- "rand 0.8.5",
- "tokio",
- "tracing",
- "void",
-]
-
-[[package]]
 name = "cfg-if"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1034,18 +991,6 @@ dependencies = [
  "platforms",
  "subtle",
  "zeroize",
-]
-
-[[package]]
-name = "custom_protocol"
-version = "0.1.0"
-dependencies = [
- "ceramic",
- "libp2p",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "void",
 ]
 
 [[package]]
@@ -1776,9 +1721,9 @@ dependencies = [
 
 [[package]]
 name = "hermit-abi"
-version = "0.3.1"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fed44880c466736ef9a5c5b5facefb5ed0785676d0c02d612db14e54f0d84286"
+checksum = "856b5cb0902c2b6d65d5fd97dfa30f9b70c7538e770b98eab5ed52d8db923e01"
 
 [[package]]
 name = "hex"
@@ -2089,6 +2034,7 @@ checksum = "30e22bd8629359895450b59ea7a776c850561b96a3b1d31321c1949d9e6c9146"
 [[package]]
 name = "iroh-bitswap"
 version = "0.2.0"
+source = "git+https://github.com/nathanielc/iroh.git?branch=expose-client#d82c68efc5d5f34e0cb1fd1ed56306fa81f8aac4"
 dependencies = [
  "ahash 0.8.3",
  "anyhow",
@@ -2125,6 +2071,7 @@ dependencies = [
 [[package]]
 name = "iroh-metrics"
 version = "0.2.0"
+source = "git+https://github.com/nathanielc/iroh.git?branch=expose-client#d82c68efc5d5f34e0cb1fd1ed56306fa81f8aac4"
 dependencies = [
  "async-trait",
  "config",
@@ -2147,6 +2094,7 @@ dependencies = [
 [[package]]
 name = "iroh-p2p"
 version = "0.2.0"
+source = "git+https://github.com/nathanielc/iroh.git?branch=expose-client#d82c68efc5d5f34e0cb1fd1ed56306fa81f8aac4"
 dependencies = [
  "ahash 0.8.3",
  "anyhow",
@@ -2179,13 +2127,13 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
- "void",
  "zeroize",
 ]
 
 [[package]]
 name = "iroh-rpc-client"
 version = "0.2.0"
+source = "git+https://github.com/nathanielc/iroh.git?branch=expose-client#d82c68efc5d5f34e0cb1fd1ed56306fa81f8aac4"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -2208,6 +2156,7 @@ dependencies = [
 [[package]]
 name = "iroh-rpc-types"
 version = "0.2.0"
+source = "git+https://github.com/nathanielc/iroh.git?branch=expose-client#d82c68efc5d5f34e0cb1fd1ed56306fa81f8aac4"
 dependencies = [
  "anyhow",
  "bytes",
@@ -2225,6 +2174,7 @@ dependencies = [
 [[package]]
 name = "iroh-util"
 version = "0.2.0"
+source = "git+https://github.com/nathanielc/iroh.git?branch=expose-client#d82c68efc5d5f34e0cb1fd1ed56306fa81f8aac4"
 dependencies = [
  "anyhow",
  "cid 0.9.0",
@@ -2247,7 +2197,7 @@ version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "22e18b0a45d56fe973d6db23972bf5bc46f988a4a2385deac9cc29572f09daef"
 dependencies = [
- "hermit-abi 0.3.1",
+ "hermit-abi 0.3.0",
  "io-lifetimes",
  "rustix",
  "windows-sys 0.45.0",
@@ -3695,9 +3645,9 @@ checksum = "478c572c3d73181ff3c2539045f6eb99e5491218eae919370993b890cdbdd98e"
 
 [[package]]
 name = "pest"
-version = "2.5.5"
+version = "2.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "028accff104c4e513bad663bbcd2ad7cfd5304144404c31ed0a77ac103d00660"
+checksum = "4ab62d2fa33726dbe6321cc97ef96d8cde531e3eeaf858a058de53a8a6d40d8f"
 dependencies = [
  "thiserror",
  "ucd-trie",
@@ -3705,9 +3655,9 @@ dependencies = [
 
 [[package]]
 name = "pest_derive"
-version = "2.5.5"
+version = "2.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ac3922aac69a40733080f53c1ce7f91dcf57e1a5f6c52f421fadec7fbdc4b69"
+checksum = "8bf026e2d0581559db66d837fe5242320f525d85c76283c61f4d51a1238d65ea"
 dependencies = [
  "pest",
  "pest_generator",
@@ -3715,9 +3665,9 @@ dependencies = [
 
 [[package]]
 name = "pest_generator"
-version = "2.5.5"
+version = "2.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d06646e185566b5961b4058dd107e0a7f56e77c3f484549fb119867773c0f202"
+checksum = "2b27bd18aa01d91c8ed2b61ea23406a676b42d82609c6e2581fba42f0c15f17f"
 dependencies = [
  "pest",
  "pest_meta",
@@ -3728,9 +3678,9 @@ dependencies = [
 
 [[package]]
 name = "pest_meta"
-version = "2.5.5"
+version = "2.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e6f60b2ba541577e2a0c307c8f39d1439108120eb7903adeb6497fa880c59616"
+checksum = "9f02b677c1859756359fc9983c2e56a0237f18624a3789528804406b7e915e5d"
 dependencies = [
  "once_cell",
  "pest",
@@ -4423,6 +4373,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "rust-ceramic"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "hex",
+ "iroh-metrics",
+ "iroh-p2p",
+ "iroh-rpc-client",
+ "iroh-rpc-types",
+ "iroh-util",
+ "libipld",
+ "libp2p",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "rust-ini"
 version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4646,9 +4614,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.93"
+version = "1.0.92"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cad406b69c91885b5107daf2c29572f6c8cdb3c66826821e286c533490c0bc76"
+checksum = "7434af0dc1cbd59268aa98b4c22c131c0584d2232f6fb166efb993e2832e896a"
 dependencies = [
  "itoa",
  "ryu",

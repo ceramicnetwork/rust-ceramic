@@ -1,0 +1,21 @@
+[package]
+name = "ceramic-set-rec"
+description = "Libp2p network behavior for set reconciliation"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+iroh-p2p.workspace = true
+iroh-rpc-client.workspace = true
+iroh-rpc-types.workspace = true
+iroh-util.workspace = true
+iroh-metrics.workspace = true
+libp2p.workspace = true
+rand.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+void.workspace = true
