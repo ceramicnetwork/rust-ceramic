@@ -8,7 +8,6 @@ use libp2p::{
     },
 };
 
-use rand::{thread_rng, RngCore};
 use std::{
     collections::BTreeSet, error::Error, fmt, io, num::NonZeroU32, task::Poll, time::Duration,
 };

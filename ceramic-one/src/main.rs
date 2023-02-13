@@ -21,11 +21,6 @@ use tracing::{error, info};
 
 /// Starts daemon process
 fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::INFO)
-        .init();
-    info!("tracing initialized");
-
     let mut lock = ProgramLock::new("iroh-p2p")?;
     lock.acquire_or_exit();
 
@@ -78,8 +73,11 @@ fn main() -> Result<()> {
         let rpc_addr = network_config
             .rpc_addr()
             .ok_or_else(|| anyhow!("missing p2p rpc addr"))?;
+
+        // Inject custom libp2p behaviour (i.e. protocol) into iroh-p2p node.
         let behaviour = ceramic_set_rec::Behaviour::default();
         let mut p2p = Node::new(network_config, rpc_addr, kc, Some(behaviour)).await?;
+
         let mut events = p2p.network_events();
         let client = p2p.client();
         let p2p_client = client.try_p2p()?;

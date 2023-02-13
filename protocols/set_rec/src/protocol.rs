@@ -1,10 +1,10 @@
-use std::{collections::BTreeSet, i8::MAX, io};
+use std::{collections::BTreeSet, io};
 
 use libp2p::futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tracing::{info, instrument};
 
 pub const PROTOCOL_NAME: &[u8] = b"/ceramic/set_rec/0.1.0";
-const MAX_SET_SIZE: usize = 1024;
+const MAX_SET_SIZE: usize = 256;
 
 #[instrument(skip_all)]
 pub async fn send_set<S>(mut stream: S, mut set: BTreeSet<u8>) -> io::Result<(S, BTreeSet<u8>)>
