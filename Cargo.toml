@@ -47,6 +47,9 @@ anyhow = { version = "1", features = ["backtrace"] }
 #iroh-rpc-types = { git = "https://github.com/nathanielc/iroh.git", branch = "expose-client" }
 #iroh-util = { git = "https://github.com/nathanielc/iroh.git", branch = "expose-client" }
 clap = "4.1.4"
+futures-util = "0.3.26"
+iroh-api = { path = "../iroh/iroh-api"}
+iroh-embed = { path = "../iroh/iroh-embed"}
 iroh-metrics = { path = "../iroh/iroh-metrics"}
 iroh-p2p = { path = "../iroh/iroh-p2p"}
 iroh-rpc-client = { path = "../iroh/iroh-rpc-client"}
@@ -54,9 +57,8 @@ iroh-rpc-types = { path = "../iroh/iroh-rpc-types"}
 iroh-util = { path = "../iroh/iroh-util"}
 libipld = "0.16.0"
 libp2p = { version = "0.50", default-features = false }
+rand = "0.8.5"
 tokio = { version = "1.25.0", features = ["full"] }
 tracing = { version = "0.1.37", features = ["log"] }
-void = "1.0.2"
-
 tracing-subscriber = "0.3.16"
-rand = "0.8.5"
+void = "1.0.2"

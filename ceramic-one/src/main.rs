@@ -1,127 +1,57 @@
 #![deny(warnings)]
+use std::path::PathBuf;
 
-use std::io::Cursor;
-
-use anyhow::{anyhow, Context, Result};
-use clap::Parser;
-use iroh_metrics::MetricsHandle;
-use iroh_p2p::ServerConfig;
-use iroh_p2p::{cli::Args, metrics, DiskStorage, Keychain, Node};
-use iroh_p2p::{
-    config::{Config, CONFIG_FILE_NAME, ENV_PREFIX},
-    IdentTopic,
+use anyhow::{bail, Result};
+use futures_util::StreamExt;
+use iroh_api::{IpfsPath, OutType};
+use iroh_embed::{
+    IrohBuilder, Libp2pConfig, P2pServiceBuilder, P2pServiceBuilderVanilla, RocksStoreService,
 };
-use iroh_util::lock::ProgramLock;
-use iroh_util::{iroh_config_path, make_config};
-use libipld::codec::Decode;
-use libipld::json::DagJsonCodec;
-use libipld::Ipld;
-use tokio::task;
-use tracing::{error, info};
 
-/// Starts daemon process
-fn main() -> Result<()> {
-    let mut lock = ProgramLock::new("iroh-p2p")?;
-    lock.acquire_or_exit();
+#[tokio::main(flavor = "multi_thread")]
+async fn main() -> Result<()> {
+    let dir = PathBuf::from("/tmp/rust-ceramic");
+    println!("Using directory: {}", dir.display());
 
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .max_blocking_threads(2048)
-        .thread_stack_size(16 * 1024 * 1024)
-        .enable_all()
-        .build()
-        .unwrap();
+    println!("Starting iroh system...");
+    let store = RocksStoreService::new(dir.join("store")).await?;
 
-    runtime.block_on(async move {
-        let version = option_env!("IROH_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"));
-        println!("Starting iroh-p2p, version {version}");
+    let mut p2p_config = Libp2pConfig::default();
+    p2p_config.listening_multiaddrs = vec![
+        "/ip4/0.0.0.0/tcp/0".parse().unwrap(),
+        "/ip4/0.0.0.0/udp/0/quic-v1".parse().unwrap(),
+    ];
+    let behaviour = ceramic_set_rec::Behaviour::default();
+    let p2p_builder = P2pServiceBuilderVanilla::new(p2p_config, dir, store.addr())
+        .with_custom_behaviour(Some(behaviour));
+    let p2p = p2p_builder.build().await?;
 
-        let args = Args::parse();
+    // Note by default this is configured with an indexer, but not with http resolvers.
+    let iroh = IrohBuilder::new().store(store).p2p(p2p).build().await?;
+    println!("done");
 
-        // TODO: configurable network
-        let cfg_path = iroh_config_path(CONFIG_FILE_NAME)?;
-        let sources = [Some(cfg_path.as_path()), args.cfg.as_deref()];
-        info!("config sources {:?}", sources);
-        let network_config = make_config(
-            // default
-            ServerConfig::default(),
-            // potential config files
-            &sources,
-            // env var prefix for this config
-            ENV_PREFIX,
-            // map of present command line arguments
-            args.make_overrides_map(),
-        )
-        .context("invalid config")?;
+    let quick_start: IpfsPath =
+        "/ipfs/QmQPeNsJPyVWPFDVHb77w8G42Fvo15z4bG2X8D2GhfbSXc/quick-start".parse()?;
+    println!("Fetching quick start: {quick_start}");
+    let mut stream = iroh.api().get(&quick_start)?;
 
-        let metrics_config =
-            metrics::metrics_config_with_compile_time_info(network_config.metrics.clone());
-
-        let metrics_handle = MetricsHandle::new(metrics_config)
-            .await
-            .map_err(|e| anyhow!("metrics init failed: {:?}", e))?;
-
-        #[cfg(unix)]
-        {
-            match iroh_util::increase_fd_limit() {
-                Ok(soft) => tracing::debug!("NOFILE limit: soft = {}", soft),
-                Err(err) => error!("Error increasing NOFILE limit: {}", err),
+    // We only expect a single item here.
+    while let Some(item) = stream.next().await {
+        let (rel_path, data) = item?;
+        println!("PATH: {rel_path}");
+        println!("----");
+        match data {
+            OutType::Dir => bail!("found unexpected dir"),
+            OutType::Symlink(_) => bail!("found unexpected symlink"),
+            OutType::Reader(mut reader) => {
+                let mut stdout = tokio::io::stdout();
+                tokio::io::copy(&mut reader, &mut stdout).await?;
             }
         }
+    }
 
-        let network_config = Config::from(network_config);
-        let kc = Keychain::<DiskStorage>::new(network_config.key_store_path.clone()).await?;
-        let rpc_addr = network_config
-            .rpc_addr()
-            .ok_or_else(|| anyhow!("missing p2p rpc addr"))?;
+    // Stop the system gracefully.
+    iroh.stop().await?;
 
-        // Inject custom libp2p behaviour (i.e. protocol) into iroh-p2p node.
-        let behaviour = ceramic_set_rec::Behaviour::default();
-        let mut p2p = Node::new(network_config, rpc_addr, kc, Some(behaviour)).await?;
-
-        let mut events = p2p.network_events();
-        let client = p2p.client();
-        let p2p_client = client.try_p2p()?;
-
-        // Start services
-        let p2p_task = task::spawn(async move {
-            if let Err(err) = p2p.run().await {
-                error!("{:?}", err);
-            }
-        });
-
-        let topic = IdentTopic::new("/ceramic/testnet-clay");
-        let _new_sub = p2p_client.gossipsub_subscribe(topic.into()).await?;
-
-        let p2p_events = task::spawn(async move {
-            while let Some(ev) = events.recv().await {
-                match ev {
-                    iroh_p2p::NetworkEvent::Gossipsub(ev) => match ev {
-                        iroh_p2p::GossipsubEvent::Message {
-                            from: _,
-                            id: _,
-                            message,
-                        } => {
-                            //let jose = Jose::decode(DagJoseCodec, &mut Cursor::new(&message.data));
-                            let data = Ipld::decode(DagJsonCodec, &mut Cursor::new(&message.data));
-                            println!("data: {:?}", data);
-                        }
-                        _ => {}
-                    },
-                    _ => {}
-                }
-            }
-        });
-
-        iroh_util::block_until_sigint().await;
-
-        // Cancel all async services
-        p2p_task.abort();
-        p2p_task.await.ok();
-
-        p2p_events.abort();
-        p2p_events.await.ok();
-
-        metrics_handle.shutdown();
-        Ok(())
-    })
+    Ok(())
 }
