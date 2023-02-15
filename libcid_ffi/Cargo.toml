@@ -1,0 +1,15 @@
+[package]
+name = "libcid_ffi"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "cid"
+crate-type = ["cdylib"]
+
+[dependencies]
+futures = "0.3.26"
+libcid.workspace = true
+multibase.workspace = true
+tokio = {version = "1.25.0"}
+

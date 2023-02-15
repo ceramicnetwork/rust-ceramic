@@ -1,0 +1,9 @@
+{
+  "name": "libcid_ffi",
+  "version": "0.1.0",
+  "description": "",
+  "main": "index.js",
+  "dependencies": {
+    "koffi": "^2.3.4"
+  }
+}

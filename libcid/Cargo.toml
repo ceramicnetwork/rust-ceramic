@@ -1,0 +1,11 @@
+[package]
+name = "libcid"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+cid = "0.10.1"
+reqwest = { version = "0.11.14", features = ["multipart"] }
+libipld = "0.16.0"

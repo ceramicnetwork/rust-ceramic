@@ -1,0 +1,10 @@
+[workspace]
+members = [
+    "libcid",
+    "libcid_ffi",
+    "libcid_wasm",
+]
+
+[workspace.dependencies]
+libcid = { path = "libcid" }
+multibase = "0.9.1"
