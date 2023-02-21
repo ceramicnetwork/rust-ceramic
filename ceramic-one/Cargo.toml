@@ -1,0 +1,28 @@
+[package]
+name = "ceramic-one"
+description = "Single binary Ceramic node"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+
+[dependencies]
+anyhow.workspace = true
+ceramic-kubo-rpc.workspace = true
+futures-util.workspace = true
+home = "0.5.4"
+iroh-api.workspace = true
+iroh-embed.workspace = true
+iroh-metrics.workspace = true
+tokio = {version = "1.25.0", features = ["full"] }
+tracing-opentelemetry.workspace = true
+tracing-subscriber.workspace = true
+tracing.workspace = true
+git-version = "0.3.5"
+clap = { version = "4.1.6", features = ["derive"] }
+names = "0.14.0"
+opentelemetry = "0.18.0"
+opentelemetry-otlp = "0.11.0"
+

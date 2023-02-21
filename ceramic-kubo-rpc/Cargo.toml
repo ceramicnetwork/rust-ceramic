@@ -1,0 +1,30 @@
+[package]
+name = "ceramic-kubo-rpc"
+description = "Provides an http service that maps Kubo RPC calls to Iroh RPC calls"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+actix-multipart = "0.5"
+actix-web = "4.3"
+anyhow.workspace = true
+async-trait = "0.1"
+futures-util.workspace = true
+iroh-api.workspace = true
+iroh-embed.workspace = true
+iroh-rpc-client.workspace = true
+libipld.workspace = true
+libp2p.workspace =  true
+multiaddr.workspace = true
+serde = {version = "1", features = ["derive"] }
+serde_json = "1.0.93"
+thiserror = "1.0.38"
+tracing-actix-web = "0.7.2"
+tracing-opentelemetry.workspace = true
+tracing-test = "0.2.4"
+tracing.workspace = true
