@@ -1,5 +1,5 @@
 [workspace]
-members = ["ceramic-kubo-rpc", "ceramic-one"]
+members = ["ceramic-kubo-rpc", "ceramic-one", "ceramic-ffi"]
 
 [workspace.dependencies]
 anyhow = "1"

@@ -6,9 +6,16 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
+use futures_util::{future, StreamExt};
 use iroh_embed::{IrohBuilder, Libp2pConfig, P2pService, RocksStoreService};
 use iroh_metrics::config::Config as MetricsConfig;
+use tokio::task;
 use tracing::{debug, info};
+
+use crate::pubsub::Message;
+
+//mod metrics;
+mod pubsub;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -66,15 +73,45 @@ async fn daemon(opts: DaemonOpts) -> Result<()> {
         "/ip4/0.0.0.0/udp/0/quic-v1".parse().unwrap(),
     ];
     let p2p = P2pService::new(p2p_config, dir, store.addr()).await?;
-
     // Note by default this is configured with an indexer, but not with http resolvers.
     let iroh = IrohBuilder::new().store(store).p2p(p2p).build().await?;
+
+    let subscription = iroh
+        .api()
+        .p2p()?
+        .subscribe("/ceramic/testnet-clay".to_string())
+        .await?;
+
+    let p2p_events_handle = task::spawn(subscription.for_each(|event| {
+        match event.expect("should be a message") {
+            iroh_api::GossipsubEvent::Subscribed { .. } => {}
+            iroh_api::GossipsubEvent::Unsubscribed { .. } => {}
+            iroh_api::GossipsubEvent::Message {
+                from: _,
+                id: _,
+                message,
+                topic: _,
+            } => {
+                info!(
+                    "message data {}",
+                    String::from_utf8(message.data.clone()).unwrap()
+                );
+                let msg: Message = serde_json::from_slice(message.data.as_slice())
+                    .expect("should be json message");
+                info!(?msg)
+            }
+        }
+        future::ready(())
+    }));
 
     // Run the HTTP server
     ceramic_kubo_rpc::http::serve(iroh.api().clone(), opts.bind_address).await?;
 
     // Stop the system gracefully.
     iroh.stop().await?;
+
+    p2p_events_handle.abort();
+    p2p_events_handle.await.ok();
 
     metrics_handle.shutdown();
     Ok(())
