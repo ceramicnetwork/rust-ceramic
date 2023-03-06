@@ -1,5 +1,5 @@
 [workspace]
-members = ["ceramic-kubo-rpc", "ceramic-one"]
+members = ["ceramic-kubo-rpc", "ceramic-one", "ceramic-ffi"]
 
 [workspace.dependencies]
 anyhow = "1"
@@ -31,7 +31,7 @@ iroh-metrics = { path = "../beetle/iroh-metrics" }
 iroh-rpc-client = { path = "../beetle/iroh-rpc-client" }
 
 [patch.crates-io]
-libp2p = { path = "../rust-libp2p" }
+libp2p = { path = "../rust-libp2p/core" }
 
 [workspace.package]
 version = "0.1.0"

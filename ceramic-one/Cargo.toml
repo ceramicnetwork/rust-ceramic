@@ -11,19 +11,27 @@ repository.workspace = true
 [dependencies]
 anyhow.workspace = true
 ceramic-kubo-rpc = { path = "../ceramic-kubo-rpc", features = ["http"] }
+clap = { version = "4", features = ["derive", "env"] }
 futures-util.workspace = true
+git-version = "0.3"
 home = "0.5"
 iroh-api.workspace = true
 iroh-embed.workspace = true
 iroh-metrics.workspace = true
+libp2p.workspace = true
 multiaddr.workspace = true
+names = "0.14"
+opentelemetry-otlp.workspace = true
+opentelemetry.workspace = true
+prometheus-client = "0.18.0"
+serde = "1.0.154"
+serde_json = "1.0.94"
+serde_repr = "0.1.11"
+tempdir = "0.3.7"
 tokio.workspace = true
 tracing-opentelemetry.workspace = true
 tracing-subscriber.workspace = true
 tracing.workspace = true
-git-version = "0.3"
-clap = { version = "4", features = ["derive", "env"] }
-names = "0.14"
-opentelemetry.workspace = true
-opentelemetry-otlp.workspace = true
-tempdir = "0.3.7"
+
+[dev-dependencies]
+expect-test = "1.4.1"
