@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use anyhow::Result;
 use async_trait::async_trait;
 use iroh_api::{Api, Bytes, Cid, IpfsPath, Multiaddr, PeerId};
+use unimock::unimock;
 
 pub mod dag;
 pub mod error;
@@ -10,64 +10,64 @@ pub mod error;
 pub mod http;
 pub mod swarm;
 
+use crate::error::Error;
+
 /// Defines the behavior we need from Iroh in order to serve Kubo RPC calls.
 /// The trait serves two purposes:
 ///     1. We are explicit about the API surface area we consume from Iroh.
-///     2. We can provide an implementation for testing.
+///     2. We can provide a mock implementation for testing.
+#[unimock(api=IpfsDepMock)]
 #[async_trait]
-pub trait IrohClient: Clone {
-    type StoreClient: StoreClient;
-    type P2pClient: P2pClient;
-    fn try_store(&self) -> Result<Self::StoreClient>;
-    fn try_p2p(&self) -> Result<Self::P2pClient>;
-    async fn resolve(&self, ipfs_path: &IpfsPath) -> Result<Vec<Cid>>;
+pub trait IpfsDep: Clone {
+    async fn get(&self, cid: Cid) -> Result<Option<Bytes>, Error>;
+    async fn put(&self, cid: Cid, blob: Bytes, links: Vec<Cid>) -> Result<(), Error>;
+    async fn resolve(&self, ipfs_path: &IpfsPath) -> Result<Vec<Cid>, Error>;
+    async fn peers(&self) -> Result<HashMap<PeerId, Vec<Multiaddr>>, Error>;
+    async fn connect(&self, peer_id: PeerId, addrs: Vec<Multiaddr>) -> Result<(), Error>;
 }
 
 #[async_trait]
-pub trait StoreClient {
-    async fn get(&self, cid: Cid) -> Result<Option<Bytes>>;
-    async fn put(&self, cid: Cid, blob: Bytes, links: Vec<Cid>) -> Result<()>;
-}
-#[async_trait]
-pub trait P2pClient {
-    async fn peers(&self) -> Result<HashMap<PeerId, Vec<Multiaddr>>>;
-    async fn connect(&self, peer_id: PeerId, addrs: Vec<Multiaddr>) -> Result<()>;
-}
-
-#[async_trait]
-impl IrohClient for Api {
-    type StoreClient = iroh_rpc_client::StoreClient;
-    type P2pClient = iroh_rpc_client::P2pClient;
-
-    fn try_store(&self) -> Result<Self::StoreClient> {
-        self.client().try_store()
+impl IpfsDep for Api {
+    async fn get(&self, cid: Cid) -> Result<Option<Bytes>, Error> {
+        Ok(self
+            .client()
+            .try_store()
+            .map_err(|e| Error::Internal(e))?
+            .get(cid)
+            .await
+            .map_err(|e| Error::Internal(e))?)
     }
-
-    fn try_p2p(&self) -> Result<Self::P2pClient> {
-        self.client().try_p2p()
+    async fn put(&self, cid: Cid, blob: Bytes, links: Vec<Cid>) -> Result<(), Error> {
+        Ok(self
+            .client()
+            .try_store()
+            .map_err(|e| Error::Internal(e))?
+            .put(cid, blob, links)
+            .await
+            .map_err(|e| Error::Internal(e))?)
     }
-
-    async fn resolve(&self, ipfs_path: &IpfsPath) -> Result<Vec<Cid>> {
-        self.resolve(ipfs_path).await
+    async fn resolve(&self, ipfs_path: &IpfsPath) -> Result<Vec<Cid>, Error> {
+        Ok(self
+            .resolve(ipfs_path)
+            .await
+            .map_err(|e| Error::Internal(e))?)
     }
-}
-
-#[async_trait]
-impl StoreClient for iroh_rpc_client::StoreClient {
-    async fn get(&self, cid: Cid) -> Result<Option<Bytes>> {
-        self.get(cid).await
+    async fn peers(&self) -> Result<HashMap<PeerId, Vec<Multiaddr>>, Error> {
+        Ok(self
+            .client()
+            .try_p2p()
+            .map_err(|e| Error::Internal(e))?
+            .get_peers()
+            .await
+            .map_err(|e| Error::Internal(e))?)
     }
-    async fn put(&self, cid: Cid, blob: Bytes, links: Vec<Cid>) -> Result<()> {
-        self.put(cid, blob, links).await
-    }
-}
-#[async_trait]
-impl P2pClient for iroh_rpc_client::P2pClient {
-    async fn peers(&self) -> Result<HashMap<PeerId, Vec<Multiaddr>>> {
-        self.get_peers().await
-    }
-
-    async fn connect(&self, peer_id: PeerId, addrs: Vec<Multiaddr>) -> Result<()> {
-        self.connect(peer_id, addrs).await
+    async fn connect(&self, peer_id: PeerId, addrs: Vec<Multiaddr>) -> Result<(), Error> {
+        Ok(self
+            .client()
+            .try_p2p()
+            .map_err(|e| Error::Internal(e))?
+            .connect(peer_id, addrs)
+            .await
+            .map_err(|e| Error::Internal(e))?)
     }
 }
