@@ -67,7 +67,7 @@ async fn daemon(opts: DaemonOpts) -> Result<()> {
     let iroh = IrohBuilder::new().store(store).p2p(p2p).build().await?;
 
     // Run the HTTP server
-    ceramic_kubo_rpc::serve(iroh.api().clone(), opts.bind_address).await?;
+    ceramic_kubo_rpc::http::serve(iroh.api().clone(), opts.bind_address).await?;
 
     // Stop the system gracefully.
     iroh.stop().await?;
