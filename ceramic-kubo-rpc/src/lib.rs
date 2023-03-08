@@ -6,7 +6,7 @@ use iroh_api::{Api, Bytes, Cid, IpfsPath, Multiaddr, PeerId};
 
 pub mod dag;
 pub mod error;
-//TODO put behind feature
+#[cfg(feature = "http")]
 pub mod http;
 pub mod swarm;
 

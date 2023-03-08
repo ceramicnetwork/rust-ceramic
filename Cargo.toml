@@ -7,13 +7,12 @@ members = [
 
 [workspace.dependencies]
 anyhow = "1"
-ceramic-kubo-rpc = {path = "./ceramic-kubo-rpc" }
 ceramic-one = {path = "./ceramic-one" }
 futures-util = "0.3.26"
-iroh-api = { git = "https://github.com/nathanielc/iroh", branch = "expose-api-client" }
-iroh-embed = { git = "https://github.com/nathanielc/iroh", branch = "expose-api-client" }
-iroh-metrics = { git = "https://github.com/nathanielc/iroh", branch = "expose-api-client" }
-iroh-rpc-client = { git = "https://github.com/nathanielc/iroh", branch = "expose-api-client" }
+iroh-api = { git = "https://github.com/nathanielc/beetle", branch = "expose-api-client" }
+iroh-embed = { git = "https://github.com/nathanielc/beetle", branch = "expose-api-client" }
+iroh-metrics = { git = "https://github.com/nathanielc/beetle", branch = "expose-api-client" }
+iroh-rpc-client = { git = "https://github.com/nathanielc/beetle", branch = "expose-api-client" }
 libipld = "0.15" # use same version as Iroh
 libp2p = { version = "0.50", default-features = false } # use same version as Iroh
 multiaddr = "0.16" # use same version as Iroh
