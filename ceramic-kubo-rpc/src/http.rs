@@ -16,12 +16,12 @@ use serde::Deserialize;
 use serde::Serialize;
 use tracing_actix_web::TracingLogger;
 
-use crate::{dag, error::Error, swarm, IrohClient};
+use crate::{dag, error::Error, swarm, IpfsDep};
 
 #[derive(Clone)]
 struct AppState<T>
 where
-    T: IrohClient,
+    T: IpfsDep,
 {
     api: T,
 }
@@ -33,7 +33,7 @@ where
 /// See https://actix.rs/docs/server/#graceful-shutdown
 pub async fn serve<T, A>(api: T, addrs: A) -> std::io::Result<()>
 where
-    T: IrohClient + Send + Clone + 'static,
+    T: IpfsDep + Send + Clone + 'static,
     A: net::ToSocketAddrs,
 {
     HttpServer::new(move || {
@@ -53,7 +53,7 @@ where
 
 fn dag_scope<T>() -> Scope
 where
-    T: IrohClient + 'static,
+    T: IpfsDep + 'static,
 {
     web::scope("/dag")
         .service(web::resource("/get").route(web::post().to(dag_get::<T>)))
@@ -85,21 +85,21 @@ async fn dag_get<T>(
     query: web::Query<GetQuery>,
 ) -> Result<HttpResponse, Error>
 where
-    T: IrohClient,
+    T: IpfsDep,
 {
     let cid = Cid::from_str(query.arg.as_str()).map_err(|e| Error::Invalid(e.into()))?;
-    let body = match query.output_codec.as_str() {
-        DAG_JSON => dag::get(data.api.clone(), cid, DagJsonCodec).await?,
-        DAG_CBOR => dag::get(data.api.clone(), cid, DagCborCodec).await?,
-        _ => {
-            return Err(Error::Invalid(anyhow!(
-                "unsupported output-codec \"{}\"",
-                query.output_codec
-            )));
-        }
-    };
-
-    Ok(HttpResponse::Ok().body(body))
+    match query.output_codec.as_str() {
+        DAG_JSON => Ok(HttpResponse::Ok()
+            .content_type(ContentType::json())
+            .body(dag::get(data.api.clone(), cid, DagJsonCodec).await?)),
+        DAG_CBOR => Ok(HttpResponse::Ok()
+            .content_type(ContentType::octet_stream())
+            .body(dag::get(data.api.clone(), cid, DagCborCodec).await?)),
+        _ => Err(Error::Invalid(anyhow!(
+            "unsupported output-codec \"{}\"",
+            query.output_codec
+        ))),
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -117,7 +117,7 @@ async fn dag_put<T>(
     mut payload: Multipart,
 ) -> Result<HttpResponse, Error>
 where
-    T: IrohClient,
+    T: IpfsDep,
 {
     while let Some(item) = payload.next().await {
         let mut field = item.map_err(|e| Error::Internal(e.into()))?;
@@ -163,7 +163,7 @@ async fn resolve<T>(
     query: web::Query<ResolveQuery>,
 ) -> Result<HttpResponse, Error>
 where
-    T: IrohClient,
+    T: IpfsDep,
 {
     let path: IpfsPath = query.arg.parse().map_err(|e| Error::Invalid(e))?;
     let cid = dag::resolve(data.api.clone(), &path).await?;
@@ -172,6 +172,7 @@ where
         // TODO(nathanielc): What is this? Do we use it?
         "RemPath": "",
     });
+
     let mut data = Vec::new();
     resolved.encode(DagJsonCodec, &mut data).unwrap();
     Ok(HttpResponse::Ok()
@@ -181,37 +182,17 @@ where
 
 pub fn swarm_scope<T>() -> Scope
 where
-    T: IrohClient + 'static,
+    T: IpfsDep + 'static,
 {
     web::scope("/swarm")
-        .service(web::resource("/peers").route(web::post().to(peers::<T>)))
-        .service(web::resource("/connect").route(web::post().to(connect::<T>)))
-}
-
-#[derive(Serialize)]
-struct PeersResponse {
-    #[serde(rename = "Peers")]
-    peers: Vec<Peer>,
-}
-
-#[derive(Serialize)]
-struct Peer {
-    #[serde(rename = "Addr")]
-    addr: String,
-    #[serde(rename = "Direction")]
-    direction: i32,
-    #[serde(rename = "Latency")]
-    latency: String,
-    #[serde(rename = "Muxer")]
-    muxer: String,
-    #[serde(rename = "Peer")]
-    peer: String,
+        .service(web::resource("/peers").route(web::post().to(swarm_peers::<T>)))
+        .service(web::resource("/connect").route(web::post().to(swarm_connect::<T>)))
 }
 
 #[tracing::instrument(skip(data))]
-async fn peers<T>(data: web::Data<AppState<T>>) -> Result<HttpResponse, Error>
+async fn swarm_peers<T>(data: web::Data<AppState<T>>) -> Result<HttpResponse, Error>
 where
-    T: IrohClient,
+    T: IpfsDep,
 {
     let peers: Vec<Peer> = swarm::peers(data.api.clone())
         .await?
@@ -229,9 +210,31 @@ where
         })
         .collect();
 
+    #[derive(Serialize)]
+    struct PeersResponse {
+        #[serde(rename = "Peers")]
+        peers: Vec<Peer>,
+    }
+
+    #[derive(Serialize)]
+    struct Peer {
+        #[serde(rename = "Addr")]
+        addr: String,
+        #[serde(rename = "Direction")]
+        direction: i32,
+        #[serde(rename = "Latency")]
+        latency: String,
+        #[serde(rename = "Muxer")]
+        muxer: String,
+        #[serde(rename = "Peer")]
+        peer: String,
+    }
+
     let peers = PeersResponse { peers };
     let body = serde_json::to_vec(&peers).map_err(|e| Error::Internal(e.into()))?;
-    Ok(HttpResponse::Ok().body(body))
+    Ok(HttpResponse::Ok()
+        .content_type(ContentType::json())
+        .body(body))
 }
 
 #[derive(Debug, Deserialize)]
@@ -239,20 +242,15 @@ struct ConnectQuery {
     arg: String,
 }
 
-#[derive(Serialize)]
-struct ConnectResponse {
-    #[serde(rename = "Strings")]
-    strings: Vec<String>,
-}
-
 #[tracing::instrument(skip(data))]
-async fn connect<T>(
+async fn swarm_connect<T>(
     data: web::Data<AppState<T>>,
     query: web::Query<ConnectQuery>,
 ) -> Result<HttpResponse, Error>
 where
-    T: IrohClient,
+    T: IpfsDep,
 {
+    println!("address {}", query.arg);
     let ma = Multiaddr::from_str(query.arg.as_str()).map_err(|e| Error::Invalid(e.into()))?;
     let mh = ma
         .iter()
@@ -270,11 +268,19 @@ where
 
     swarm::connect(data.api.clone(), peer_id.clone(), vec![ma]).await?;
 
+    #[derive(Serialize)]
+    struct ConnectResponse {
+        #[serde(rename = "Strings")]
+        strings: Vec<String>,
+    }
+
     let connect_resp = ConnectResponse {
         strings: vec![format!("connect {} success", peer_id.to_string())],
     };
     let body = serde_json::to_vec(&connect_resp).map_err(|e| Error::Internal(e.into()))?;
-    Ok(HttpResponse::Ok().body(body))
+    Ok(HttpResponse::Ok()
+        .content_type(ContentType::json())
+        .body(body))
 }
 
 #[derive(Serialize)]
@@ -296,7 +302,7 @@ impl error::ResponseError for Error {
         };
         let data = serde_json::to_string(&err).unwrap();
         HttpResponse::build(self.status_code())
-            .insert_header(ContentType::json())
+            .content_type(ContentType::json())
             .body(data)
     }
 
@@ -315,65 +321,286 @@ mod tests {
 
     use super::*;
 
-    use actix_web::{test, web, App, HttpRequest};
-    use anyhow::Result;
-    use async_trait::async_trait;
+    use actix_web::{
+        body::{self, MessageBody},
+        test, web, App,
+    };
+    use expect_test::{expect, Expect};
     use iroh_api::Bytes;
+    use unimock::MockFn;
+    use unimock::{matching, Unimock};
 
-    use crate::{P2pClient, StoreClient};
+    use crate::IpfsDepMock;
 
-    #[derive(Clone)]
-    struct TestIrohClient {}
-
-    #[async_trait]
-    impl IrohClient for TestIrohClient {
-        type StoreClient = Self;
-
-        type P2pClient = Self;
-
-        fn try_store(&self) -> anyhow::Result<Self::StoreClient> {
-            Ok(self.clone())
-        }
-
-        fn try_p2p(&self) -> anyhow::Result<Self::P2pClient> {
-            Ok(self.clone())
-        }
-        async fn resolve(&self, ipfs_path: &IpfsPath) -> Result<Vec<Cid>> {
-            todo!()
-        }
+    async fn assert_body_json<B>(body: B, expect: Expect) -> ()
+    where
+        B: MessageBody,
+        <B as MessageBody>::Error: std::fmt::Debug,
+    {
+        let body_json: serde_json::Value =
+            serde_json::from_slice(body::to_bytes(body).await.unwrap().as_ref()).unwrap();
+        let pretty_json = serde_json::to_string_pretty(&body_json).unwrap();
+        expect.assert_eq(&pretty_json);
     }
-    #[async_trait]
-    impl StoreClient for TestIrohClient {
-        async fn get(&self, cid: Cid) -> Result<Option<Bytes>> {
-            todo!()
-        }
-        async fn put(&self, cid: Cid, blob: Bytes, links: Vec<Cid>) -> Result<()> {
-            todo!()
-        }
-    }
-    #[async_trait]
-    impl P2pClient for TestIrohClient {
-        async fn peers(&self) -> Result<HashMap<PeerId, Vec<Multiaddr>>> {
-            todo!()
-        }
-        async fn connect(&self, peer_id: PeerId, addrs: Vec<Multiaddr>) -> Result<()> {
-            todo!()
-        }
+
+    async fn assert_body_binary<B>(body: B, expect: Expect) -> ()
+    where
+        B: MessageBody,
+        <B as MessageBody>::Error: std::fmt::Debug,
+    {
+        let bytes = hex::encode(body::to_bytes(body).await.unwrap().to_vec());
+        expect.assert_eq(&bytes);
     }
 
     #[actix_web::test]
-    async fn test_dag_get() {
-        let client = TestIrohClient {};
+    async fn test_dag_get_json() {
+        // Test data from:
+        // https://ipld.io/specs/codecs/dag-pb/fixtures/cross-codec/#dagpb_data_some
+        let bytes: Bytes = hex::decode("0a050001020304")
+            .expect("should be valid hex data")
+            .into();
+        let mock = Unimock::new(
+            IpfsDepMock::get
+                .some_call(matching!(_))
+                .returns(Ok(Some(bytes))),
+        );
         let server = test::init_service(
             App::new()
-                .app_data(web::Data::new(AppState { api: client }))
-                .service(dag_scope::<TestIrohClient>()),
+                .app_data(web::Data::new(AppState { api: mock }))
+                .service(dag_scope::<Unimock>()),
         )
         .await;
+
         let req = test::TestRequest::post()
-            .uri("/dag/get?arg=QmPZ9gcCEpqKTo6aq61g2nXGUhM4iCL3ewB6LDXZCtioEB")
+            .uri("/dag/get?arg=bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom")
             .to_request();
         let resp = test::call_service(&server, req).await;
         assert!(resp.status().is_success());
+        assert_eq!(
+            "application/json",
+            resp.headers().get("Content-Type").unwrap()
+        );
+        assert_body_json(
+            resp.into_body(),
+            expect![[r#"
+                {
+                  "Data": {
+                    "/": {
+                      "bytes": "AAECAwQ"
+                    }
+                  },
+                  "Links": []
+                }"#]],
+        )
+        .await;
+    }
+
+    #[actix_web::test]
+    async fn test_dag_get_cbor() {
+        // Test data from:
+        // https://ipld.io/specs/codecs/dag-pb/fixtures/cross-codec/#dagpb_data_some
+        let bytes: Bytes = hex::decode("0a050001020304")
+            .expect("should be valid hex data")
+            .into();
+        let mock = Unimock::new(
+            IpfsDepMock::get
+                .some_call(matching!(_))
+                .returns(Ok(Some(bytes))),
+        );
+        let server = test::init_service(
+            App::new()
+                .app_data(web::Data::new(AppState { api: mock }))
+                .service(dag_scope::<Unimock>()),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/dag/get?arg=bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom&output-codec=dag-cbor")
+            .to_request();
+        let resp = test::call_service(&server, req).await;
+        assert!(resp.status().is_success());
+        assert_eq!(
+            "application/octet-stream",
+            resp.headers().get("Content-Type").unwrap()
+        );
+        assert_body_binary(
+            resp.into_body(),
+            expect!["a26444617461450001020304654c696e6b7380"],
+        )
+        .await;
+    }
+
+    #[actix_web::test]
+    async fn test_dag_put() {
+        // Test data from:
+        // https://ipld.io/specs/codecs/dag-pb/fixtures/cross-codec/#dagpb_data_some
+        let mock = Unimock::new(
+            IpfsDepMock::put
+                .next_call(matching!((c, _, _) if *c == Cid::from_str("bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom").unwrap()))
+                .returns(Ok(())),
+        );
+        let server = test::init_service(
+            App::new()
+                .app_data(web::Data::new(AppState { api: mock }))
+                .service(dag_scope::<Unimock>()),
+        )
+        .await;
+
+        let multipart = r#"--------------------------4fabe502a598ca3d
+Content-Disposition: form-data; name="file"; filename="test.txt"
+Content-Type: text/plain
+
+{"Data":{"/":{"bytes":"AAECAwQ"}},"Links":[]}
+--------------------------4fabe502a598ca3d--"#;
+        let req = test::TestRequest::post()
+            .uri("/dag/put")
+            .insert_header(("Content-Length", "231"))
+            .insert_header((
+                "Content-Type",
+                "multipart/form-data; boundary=------------------------4fabe502a598ca3d",
+            ))
+            .set_payload(multipart)
+            .to_request();
+        let resp = test::call_service(&server, req).await;
+        assert!(resp.status().is_success());
+        assert_eq!(
+            "application/octet-stream",
+            resp.headers().get("Content-Type").unwrap()
+        );
+        assert_body_json(
+            resp.into_body(),
+            expect!["a26444617461450001020304654c696e6b7380"],
+        )
+        .await;
+    }
+    #[actix_web::test]
+    async fn test_dag_resolve() {
+        // Test data from uses getting started guide for IPFS:
+        // ipfs://QmQPeNsJPyVWPFDVHb77w8G42Fvo15z4bG2X8D2GhfbSXc
+        let mock = Unimock::new(
+            IpfsDepMock::resolve
+                .next_call(matching!((p) if **p == IpfsPath::from_str("QmQPeNsJPyVWPFDVHb77w8G42Fvo15z4bG2X8D2GhfbSXc/ping").unwrap()))
+                .returns(Ok(vec![Cid::from_str("QmejvEPop4D7YUadeGqYWmZxHhLc4JBUCzJJHWMzdcMe2y").unwrap()])),
+        );
+        let server = test::init_service(
+            App::new()
+                .app_data(web::Data::new(AppState { api: mock }))
+                .service(dag_scope::<Unimock>()),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/dag/resolve?arg=QmQPeNsJPyVWPFDVHb77w8G42Fvo15z4bG2X8D2GhfbSXc/ping")
+            .to_request();
+        let resp = test::call_service(&server, req).await;
+        assert!(resp.status().is_success());
+        assert_eq!(
+            "application/json",
+            resp.headers().get("Content-Type").unwrap()
+        );
+        assert_body_json(
+            resp.into_body(),
+            expect![[r#"
+                {
+                  "Cid": {
+                    "/": "QmejvEPop4D7YUadeGqYWmZxHhLc4JBUCzJJHWMzdcMe2y"
+                  },
+                  "RemPath": ""
+                }"#]],
+        )
+        .await;
+    }
+
+    #[actix_web::test]
+    async fn test_swarm_connect() {
+        let mock = Unimock::new(
+            IpfsDepMock::connect
+                .next_call(matching!((p,_) if *p == PeerId::from_str("12D3KooWFtPWZ1uHShnbvmxYJGmygUfTVmcb6iSQfiAm4XnmsQ8t").unwrap()))
+                .returns(Ok(())),
+        );
+        let server = test::init_service(
+            App::new()
+                .app_data(web::Data::new(AppState { api: mock }))
+                .service(swarm_scope::<Unimock>()),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/swarm/connect?arg=/ip4/1.1.1.1/tcp/4001/p2p/12D3KooWFtPWZ1uHShnbvmxYJGmygUfTVmcb6iSQfiAm4XnmsQ8t")
+            .to_request();
+        let resp = test::call_service(&server, req).await;
+        println!("{:?}", resp);
+        assert!(resp.status().is_success());
+        assert_eq!(
+            "application/json",
+            resp.headers().get("Content-Type").unwrap()
+        );
+        assert_body_json(
+            resp.into_body(),
+            expect![[r#"
+                {
+                  "Strings": [
+                    "connect 12D3KooWFtPWZ1uHShnbvmxYJGmygUfTVmcb6iSQfiAm4XnmsQ8t success"
+                  ]
+                }"#]],
+        )
+        .await;
+    }
+    #[actix_web::test]
+    async fn test_swarm_peers() {
+        let mock = Unimock::new(
+            IpfsDepMock::peers
+                .next_call(matching!(()))
+                .returns(Ok(HashMap::from([
+                    (
+                        PeerId::from_str("12D3KooWRyGSRzzEBpHbHyRkGTgCpXuoRMQgYrqk7tFQzM3AFEWp")
+                            .unwrap(),
+                        vec![Multiaddr::from_str("/ip4/98.165.227.74/udp/15685/quic").unwrap()],
+                    ),
+                    (
+                        PeerId::from_str("12D3KooWBSyp3QZQBFakvXT2uqT2L5ZmTNnpYNXgyVZq5YB3P7DU")
+                            .unwrap(),
+                        vec![Multiaddr::from_str("/ip4/95.211.198.178/udp/4001/quic").unwrap()],
+                    ),
+                ]))),
+        );
+        let server = test::init_service(
+            App::new()
+                .app_data(web::Data::new(AppState { api: mock }))
+                .service(swarm_scope::<Unimock>()),
+        )
+        .await;
+
+        let req = test::TestRequest::post().uri("/swarm/peers").to_request();
+        let resp = test::call_service(&server, req).await;
+        println!("{:?}", resp);
+        assert!(resp.status().is_success());
+        assert_eq!(
+            "application/json",
+            resp.headers().get("Content-Type").unwrap()
+        );
+        assert_body_json(
+            resp.into_body(),
+            expect![[r#"
+                {
+                  "Peers": [
+                    {
+                      "Addr": "/ip4/95.211.198.178/udp/4001/quic",
+                      "Direction": 0,
+                      "Latency": "",
+                      "Muxer": "",
+                      "Peer": "12D3KooWBSyp3QZQBFakvXT2uqT2L5ZmTNnpYNXgyVZq5YB3P7DU"
+                    },
+                    {
+                      "Addr": "/ip4/98.165.227.74/udp/15685/quic",
+                      "Direction": 0,
+                      "Latency": "",
+                      "Muxer": "",
+                      "Peer": "12D3KooWRyGSRzzEBpHbHyRkGTgCpXuoRMQgYrqk7tFQzM3AFEWp"
+                    }
+                  ]
+                }"#]],
+        )
+        .await;
     }
 }

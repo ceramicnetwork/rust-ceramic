@@ -1,28 +1,29 @@
-//! Implements the /swarm/* endpoints.
-use std::collections::HashMap;
+//! Implements the swarm related endpoints.
+use std::collections::BTreeMap;
 
 use iroh_api::{Multiaddr, PeerId};
 
-use crate::{error::Error, IrohClient, P2pClient};
+use crate::{error::Error, IpfsDep};
 
 #[tracing::instrument(skip(client))]
-pub async fn peers<T>(client: T) -> Result<HashMap<PeerId, Vec<Multiaddr>>, Error>
+pub async fn peers<T>(client: T) -> Result<BTreeMap<PeerId, Vec<Multiaddr>>, Error>
 where
-    T: IrohClient,
+    T: IpfsDep,
 {
-    let p2p = client.try_p2p().map_err(|e| Error::Internal(e))?;
-    Ok(p2p.peers().await.map_err(|e| Error::Internal(e))?)
+    // Use a BTreeMap for consistent ordering of peers
+    Ok(client
+        .peers()
+        .await?
+        .into_iter()
+        .collect::<BTreeMap<_, _>>())
 }
 
 #[tracing::instrument(skip(client))]
 pub async fn connect<T>(client: T, peer_id: PeerId, addrs: Vec<Multiaddr>) -> Result<(), Error>
 where
-    T: IrohClient,
+    T: IpfsDep,
 {
-    let p2p = client.try_p2p().map_err(|e| Error::Internal(e))?;
-    p2p.connect(peer_id, addrs)
-        .await
-        .map_err(|e| Error::Internal(e))?;
+    client.connect(peer_id, addrs).await?;
 
     Ok(())
 }

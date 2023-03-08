@@ -11,35 +11,28 @@ use libipld::{
     Ipld,
 };
 
-use crate::{error::Error, IrohClient, StoreClient};
+use crate::{error::Error, IpfsDep};
 
 #[tracing::instrument(skip(client, output_codec))]
 pub async fn get<T, C>(client: T, cid: Cid, output_codec: C) -> Result<Vec<u8>, Error>
 where
-    T: IrohClient,
+    T: IpfsDep,
     C: Codec,
     Ipld: Encode<C>,
 {
-    let store = client.try_store().map_err(|e| Error::Internal(e))?;
-    let bytes = store
-        .get(cid)
-        .await
-        .map_err(|e| Error::Internal(e))?
-        .ok_or(Error::NotFound)?;
-    let dag_data = match cid.codec() {
-        // dag-pb
-        0x70 => Ipld::decode(DagPbCodec, &mut Cursor::new(&bytes))
-            .map_err(|e| Error::Internal(e))?,
-        // dag-cbor
-        0x71 => Ipld::decode(DagCborCodec, &mut Cursor::new(&bytes))
-            .map_err(|e| Error::Internal(e))?,
-        _ => {
-            return Err(Error::Invalid(anyhow!(
-                "unsupported codec {}",
-                cid.codec()
-            )));
-        }
-    };
+    let bytes = client.get(cid).await?.ok_or(Error::NotFound)?;
+    let dag_data =
+        match cid.codec() {
+            // dag-pb
+            0x70 => Ipld::decode(DagPbCodec, &mut Cursor::new(&bytes))
+                .map_err(|e| Error::Internal(e))?,
+            // dag-cbor
+            0x71 => Ipld::decode(DagCborCodec, &mut Cursor::new(&bytes))
+                .map_err(|e| Error::Internal(e))?,
+            _ => {
+                return Err(Error::Invalid(anyhow!("unsupported codec {}", cid.codec())));
+            }
+        };
     let mut data: Vec<u8> = Vec::new();
     dag_data
         .encode(output_codec, &mut data)
@@ -55,7 +48,7 @@ pub async fn put<T, I, S, R>(
     data: &mut R,
 ) -> Result<(), Error>
 where
-    T: IrohClient,
+    T: IpfsDep,
     I: Codec,
     S: Codec,
     Ipld: Decode<I>,
@@ -69,25 +62,18 @@ where
         .encode(store_codec, &mut blob)
         .map_err(|e| Error::Internal(e.into()))?;
 
-    let store = client.try_store().map_err(|e| Error::Internal(e))?;
     let hash = Code::Sha2_256.digest(&blob);
     let cid = Cid::new_v1(store_codec.into(), hash);
-    store
-        .put(cid, blob.into(), vec![])
-        .await
-        .map_err(|e| Error::Internal(e))?;
+    client.put(cid, blob.into(), vec![]).await?;
     Ok(())
 }
 
 #[tracing::instrument(skip(client))]
 pub async fn resolve<T>(client: T, path: &IpfsPath) -> Result<Cid, Error>
 where
-    T: IrohClient,
+    T: IpfsDep,
 {
-    let resolved_path = client
-        .resolve(&path)
-        .await
-        .map_err(|e| Error::Internal(e))?;
+    let resolved_path = client.resolve(&path).await?;
 
     Ok(resolved_path
         .iter()
