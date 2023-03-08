@@ -87,12 +87,12 @@ async fn dag_get<T>(
 where
     T: IrohClient,
 {
-    let cid = Cid::from_str(query.arg.as_str()).map_err(|e| Error::BadRequest(e.into()))?;
+    let cid = Cid::from_str(query.arg.as_str()).map_err(|e| Error::Invalid(e.into()))?;
     let body = match query.output_codec.as_str() {
         DAG_JSON => dag::get(data.api.clone(), cid, DagJsonCodec).await?,
         DAG_CBOR => dag::get(data.api.clone(), cid, DagCborCodec).await?,
         _ => {
-            return Err(Error::BadRequest(anyhow!(
+            return Err(Error::Invalid(anyhow!(
                 "unsupported output-codec \"{}\"",
                 query.output_codec
             )));
@@ -120,11 +120,11 @@ where
     T: IrohClient,
 {
     while let Some(item) = payload.next().await {
-        let mut field = item.map_err(|e| Error::InternalError(e.into()))?;
+        let mut field = item.map_err(|e| Error::Internal(e.into()))?;
         if field.name() == "file" {
             let mut input_bytes: Vec<u8> = Vec::new();
             while let Some(chunk) = field.next().await {
-                input_bytes.extend(&chunk.map_err(|e| Error::InternalError(e.into()))?.to_vec())
+                input_bytes.extend(&chunk.map_err(|e| Error::Internal(e.into()))?.to_vec())
             }
 
             match (query.input_codec.as_str(), query.store_codec.as_str()) {
@@ -138,7 +138,7 @@ where
                     .await?
                 }
                 _ => {
-                    return Err(Error::BadRequest(anyhow!(
+                    return Err(Error::Invalid(anyhow!(
                         "unsupported input-codec, store-codec combination \"{}\", \"{}\"",
                         query.input_codec,
                         query.store_codec,
@@ -149,7 +149,7 @@ where
             return Ok(HttpResponse::Ok().into());
         }
     }
-    Err(Error::BadRequest(anyhow!("missing multipart field 'file'")))
+    Err(Error::Invalid(anyhow!("missing multipart field 'file'")))
 }
 
 #[derive(Debug, Deserialize)]
@@ -165,7 +165,7 @@ async fn resolve<T>(
 where
     T: IrohClient,
 {
-    let path: IpfsPath = query.arg.parse().map_err(|e| Error::BadRequest(e))?;
+    let path: IpfsPath = query.arg.parse().map_err(|e| Error::Invalid(e))?;
     let cid = dag::resolve(data.api.clone(), &path).await?;
     let resolved = ipld!({
         "Cid": cid,
@@ -230,7 +230,7 @@ where
         .collect();
 
     let peers = PeersResponse { peers };
-    let body = serde_json::to_vec(&peers).map_err(|e| Error::InternalError(e.into()))?;
+    let body = serde_json::to_vec(&peers).map_err(|e| Error::Internal(e.into()))?;
     Ok(HttpResponse::Ok().body(body))
 }
 
@@ -253,7 +253,7 @@ async fn connect<T>(
 where
     T: IrohClient,
 {
-    let ma = Multiaddr::from_str(query.arg.as_str()).map_err(|e| Error::BadRequest(e.into()))?;
+    let ma = Multiaddr::from_str(query.arg.as_str()).map_err(|e| Error::Invalid(e.into()))?;
     let mh = ma
         .iter()
         .flat_map(|proto| {
@@ -264,16 +264,16 @@ where
             }
         })
         .next()
-        .ok_or_else(|| Error::BadRequest(anyhow!("multiaddr does not contain p2p peer Id")))?;
+        .ok_or_else(|| Error::Invalid(anyhow!("multiaddr does not contain p2p peer Id")))?;
     let peer_id =
-        PeerId::from_multihash(mh).map_err(|_e| Error::BadRequest(anyhow!("invalid peer Id")))?;
+        PeerId::from_multihash(mh).map_err(|_e| Error::Invalid(anyhow!("invalid peer Id")))?;
 
     swarm::connect(data.api.clone(), peer_id.clone(), vec![ma]).await?;
 
     let connect_resp = ConnectResponse {
         strings: vec![format!("connect {} success", peer_id.to_string())],
     };
-    let body = serde_json::to_vec(&connect_resp).map_err(|e| Error::InternalError(e.into()))?;
+    let body = serde_json::to_vec(&connect_resp).map_err(|e| Error::Internal(e.into()))?;
     Ok(HttpResponse::Ok().body(body))
 }
 
@@ -302,9 +302,78 @@ impl error::ResponseError for Error {
 
     fn status_code(&self) -> StatusCode {
         match *self {
-            Error::InternalError(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            Error::BadRequest(_) => StatusCode::BAD_REQUEST,
+            Error::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Error::Invalid(_) => StatusCode::BAD_REQUEST,
             Error::NotFound => StatusCode::NOT_FOUND,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::*;
+
+    use actix_web::{test, web, App, HttpRequest};
+    use anyhow::Result;
+    use async_trait::async_trait;
+    use iroh_api::Bytes;
+
+    use crate::{P2pClient, StoreClient};
+
+    #[derive(Clone)]
+    struct TestIrohClient {}
+
+    #[async_trait]
+    impl IrohClient for TestIrohClient {
+        type StoreClient = Self;
+
+        type P2pClient = Self;
+
+        fn try_store(&self) -> anyhow::Result<Self::StoreClient> {
+            Ok(self.clone())
+        }
+
+        fn try_p2p(&self) -> anyhow::Result<Self::P2pClient> {
+            Ok(self.clone())
+        }
+        async fn resolve(&self, ipfs_path: &IpfsPath) -> Result<Vec<Cid>> {
+            todo!()
+        }
+    }
+    #[async_trait]
+    impl StoreClient for TestIrohClient {
+        async fn get(&self, cid: Cid) -> Result<Option<Bytes>> {
+            todo!()
+        }
+        async fn put(&self, cid: Cid, blob: Bytes, links: Vec<Cid>) -> Result<()> {
+            todo!()
+        }
+    }
+    #[async_trait]
+    impl P2pClient for TestIrohClient {
+        async fn peers(&self) -> Result<HashMap<PeerId, Vec<Multiaddr>>> {
+            todo!()
+        }
+        async fn connect(&self, peer_id: PeerId, addrs: Vec<Multiaddr>) -> Result<()> {
+            todo!()
+        }
+    }
+
+    #[actix_web::test]
+    async fn test_dag_get() {
+        let client = TestIrohClient {};
+        let server = test::init_service(
+            App::new()
+                .app_data(web::Data::new(AppState { api: client }))
+                .service(dag_scope::<TestIrohClient>()),
+        )
+        .await;
+        let req = test::TestRequest::post()
+            .uri("/dag/get?arg=QmPZ9gcCEpqKTo6aq61g2nXGUhM4iCL3ewB6LDXZCtioEB")
+            .to_request();
+        let resp = test::call_service(&server, req).await;
+        assert!(resp.status().is_success());
     }
 }

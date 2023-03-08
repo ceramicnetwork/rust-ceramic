@@ -10,15 +10,15 @@ use thiserror::Error;
 /// would not be resolved with any amount of retries.
 #[derive(Debug, Error)]
 pub enum Error {
-    /// Represents a failure of the system,
-    /// clients will likely have no control over fixing such an error.
-    #[error("internal error: {0}")]
-    InternalError(anyhow::Error),
-    /// Represents a malformed request.
-    /// Client need to fix their request.
-    #[error("bad request: {0}")]
-    BadRequest(anyhow::Error),
-    // Represents the resource was not found.
+    // Represents a resource was not found.
     #[error("not found")]
     NotFound,
+    /// Represents a malformed request.
+    /// Consumers need to fix their request.
+    #[error("bad request: {0}")]
+    Invalid(anyhow::Error),
+    /// Represents a failure of the system,
+    /// Consumers will likely have no control over fixing such an error.
+    #[error("internal error: {0}")]
+    Internal(anyhow::Error),
 }

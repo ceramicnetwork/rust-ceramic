@@ -10,8 +10,8 @@ pub async fn peers<T>(client: T) -> Result<HashMap<PeerId, Vec<Multiaddr>>, Erro
 where
     T: IrohClient,
 {
-    let p2p = client.try_p2p().map_err(|e| Error::InternalError(e))?;
-    Ok(p2p.peers().await.map_err(|e| Error::InternalError(e))?)
+    let p2p = client.try_p2p().map_err(|e| Error::Internal(e))?;
+    Ok(p2p.peers().await.map_err(|e| Error::Internal(e))?)
 }
 
 #[tracing::instrument(skip(client))]
@@ -19,10 +19,10 @@ pub async fn connect<T>(client: T, peer_id: PeerId, addrs: Vec<Multiaddr>) -> Re
 where
     T: IrohClient,
 {
-    let p2p = client.try_p2p().map_err(|e| Error::InternalError(e))?;
+    let p2p = client.try_p2p().map_err(|e| Error::Internal(e))?;
     p2p.connect(peer_id, addrs)
         .await
-        .map_err(|e| Error::InternalError(e))?;
+        .map_err(|e| Error::Internal(e))?;
 
     Ok(())
 }

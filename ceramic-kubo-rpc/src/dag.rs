@@ -20,21 +20,21 @@ where
     C: Codec,
     Ipld: Encode<C>,
 {
-    let store = client.try_store().map_err(|e| Error::InternalError(e))?;
+    let store = client.try_store().map_err(|e| Error::Internal(e))?;
     let bytes = store
         .get(cid)
         .await
-        .map_err(|e| Error::InternalError(e))?
+        .map_err(|e| Error::Internal(e))?
         .ok_or(Error::NotFound)?;
     let dag_data = match cid.codec() {
         // dag-pb
         0x70 => Ipld::decode(DagPbCodec, &mut Cursor::new(&bytes))
-            .map_err(|e| Error::InternalError(e))?,
+            .map_err(|e| Error::Internal(e))?,
         // dag-cbor
         0x71 => Ipld::decode(DagCborCodec, &mut Cursor::new(&bytes))
-            .map_err(|e| Error::InternalError(e))?,
+            .map_err(|e| Error::Internal(e))?,
         _ => {
-            return Err(Error::BadRequest(anyhow!(
+            return Err(Error::Invalid(anyhow!(
                 "unsupported codec {}",
                 cid.codec()
             )));
@@ -43,7 +43,7 @@ where
     let mut data: Vec<u8> = Vec::new();
     dag_data
         .encode(output_codec, &mut data)
-        .map_err(|e| Error::InternalError(e.into()))?;
+        .map_err(|e| Error::Internal(e.into()))?;
     Ok(data)
 }
 
@@ -62,20 +62,20 @@ where
     Ipld: Encode<S>,
     R: Read + Seek,
 {
-    let dag_data = Ipld::decode(input_codec, data).map_err(|e| Error::BadRequest(e.into()))?;
+    let dag_data = Ipld::decode(input_codec, data).map_err(|e| Error::Invalid(e.into()))?;
 
     let mut blob: Vec<u8> = Vec::new();
     dag_data
         .encode(store_codec, &mut blob)
-        .map_err(|e| Error::InternalError(e.into()))?;
+        .map_err(|e| Error::Internal(e.into()))?;
 
-    let store = client.try_store().map_err(|e| Error::InternalError(e))?;
+    let store = client.try_store().map_err(|e| Error::Internal(e))?;
     let hash = Code::Sha2_256.digest(&blob);
     let cid = Cid::new_v1(store_codec.into(), hash);
     store
         .put(cid, blob.into(), vec![])
         .await
-        .map_err(|e| Error::InternalError(e))?;
+        .map_err(|e| Error::Internal(e))?;
     Ok(())
 }
 
@@ -87,12 +87,12 @@ where
     let resolved_path = client
         .resolve(&path)
         .await
-        .map_err(|e| Error::InternalError(e))?;
+        .map_err(|e| Error::Internal(e))?;
 
     Ok(resolved_path
         .iter()
         .last()
-        .ok_or(Error::InternalError(anyhow!(
+        .ok_or(Error::Internal(anyhow!(
             "resolved path should have at least one element"
         )))?
         .to_owned())
