@@ -975,14 +975,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ceramic-ffi"
-version = "0.1.0"
-dependencies = [
- "ceramic-kubo-rpc",
- "libipld",
-]
-
-[[package]]
 name = "ceramic-kubo-rpc"
 version = "0.1.0"
 dependencies = [
