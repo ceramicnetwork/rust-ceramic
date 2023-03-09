@@ -119,15 +119,30 @@ async fn dag_put<T>(
 where
     T: IpfsDep,
 {
+    println!("dag_put");
     while let Some(item) = payload.next().await {
-        let mut field = item.map_err(|e| Error::Internal(e.into()))?;
+        let mut field = item.map_err(|e| {
+            Error::Internal(Into::<anyhow::Error>::into(e).context("reading multipart field"))
+        })?;
         if field.name() == "file" {
             let mut input_bytes: Vec<u8> = Vec::new();
             while let Some(chunk) = field.next().await {
-                input_bytes.extend(&chunk.map_err(|e| Error::Internal(e.into()))?.to_vec())
+                input_bytes.extend(
+                    &chunk
+                        .map_err(|e| {
+                            Error::Internal(
+                                Into::<anyhow::Error>::into(e).context("reading multipart chunk"),
+                            )
+                        })?
+                        .to_vec(),
+                )
             }
 
-            match (query.input_codec.as_str(), query.store_codec.as_str()) {
+            println!(
+                "input bytes {}",
+                String::from_utf8(input_bytes.clone()).unwrap()
+            );
+            let cid = match (query.input_codec.as_str(), query.store_codec.as_str()) {
                 (DAG_JSON, DAG_CBOR) => {
                     dag::put(
                         data.api.clone(),
@@ -146,7 +161,15 @@ where
                 }
             };
 
-            return Ok(HttpResponse::Ok().into());
+            let response = ipld!({
+                "Cid": cid,
+            });
+
+            let mut data = Vec::new();
+            response.encode(DagJsonCodec, &mut data).unwrap();
+            return Ok(HttpResponse::Ok()
+                .content_type(ContentType::json())
+                .body(data));
         }
     }
     Err(Error::Invalid(anyhow!("missing multipart field 'file'")))
@@ -321,8 +344,10 @@ mod tests {
 
     use super::*;
 
+    use actix_multipart_rfc7578::client::multipart;
     use actix_web::{
         body::{self, MessageBody},
+        dev::ServiceResponse,
         test, web, App,
     };
     use expect_test::{expect, Expect};
@@ -332,13 +357,30 @@ mod tests {
 
     use crate::IpfsDepMock;
 
+    async fn build_server(
+        mock: impl IpfsDep + 'static,
+    ) -> impl actix_web::dev::Service<
+        actix_http::Request,
+        Response = ServiceResponse,
+        Error = actix_web::Error,
+    > {
+        test::init_service(
+            App::new()
+                .app_data(web::Data::new(AppState { api: mock }))
+                .service(dag_scope::<Unimock>())
+                .service(swarm_scope::<Unimock>()),
+        )
+        .await
+    }
+
     async fn assert_body_json<B>(body: B, expect: Expect) -> ()
     where
         B: MessageBody,
         <B as MessageBody>::Error: std::fmt::Debug,
     {
         let body_json: serde_json::Value =
-            serde_json::from_slice(body::to_bytes(body).await.unwrap().as_ref()).unwrap();
+            serde_json::from_slice(body::to_bytes(body).await.unwrap().as_ref())
+                .expect("response body should be valid json");
         let pretty_json = serde_json::to_string_pretty(&body_json).unwrap();
         expect.assert_eq(&pretty_json);
     }
@@ -364,13 +406,7 @@ mod tests {
                 .some_call(matching!(_))
                 .returns(Ok(Some(bytes))),
         );
-        let server = test::init_service(
-            App::new()
-                .app_data(web::Data::new(AppState { api: mock }))
-                .service(dag_scope::<Unimock>()),
-        )
-        .await;
-
+        let server = build_server(mock).await;
         let req = test::TestRequest::post()
             .uri("/dag/get?arg=bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom")
             .to_request();
@@ -407,13 +443,7 @@ mod tests {
                 .some_call(matching!(_))
                 .returns(Ok(Some(bytes))),
         );
-        let server = test::init_service(
-            App::new()
-                .app_data(web::Data::new(AppState { api: mock }))
-                .service(dag_scope::<Unimock>()),
-        )
-        .await;
-
+        let server = build_server(mock).await;
         let req = test::TestRequest::post()
             .uri("/dag/get?arg=bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom&output-codec=dag-cbor")
             .to_request();
@@ -433,62 +463,58 @@ mod tests {
     #[actix_web::test]
     async fn test_dag_put() {
         // Test data from:
-        // https://ipld.io/specs/codecs/dag-pb/fixtures/cross-codec/#dagpb_data_some
+        // https://ipld.io/specs/codecs/dag-json/fixtures/cross-codec/#array-mixed
         let mock = Unimock::new(
+            // Expect call to put with dag-cbor cid
             IpfsDepMock::put
-                .next_call(matching!((c, _, _) if *c == Cid::from_str("bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom").unwrap()))
+                .next_call(matching!((c, _, _) if *c == Cid::from_str("bafyreidufmzzejc3p7gmh6ivp4fjvca5jfazk57nu6vdkvki4c4vpja724").unwrap()))
                 .returns(Ok(())),
         );
-        let server = test::init_service(
-            App::new()
-                .app_data(web::Data::new(AppState { api: mock }))
-                .service(dag_scope::<Unimock>()),
-        )
-        .await;
+        let server = build_server(mock).await;
 
-        let multipart = r#"--------------------------4fabe502a598ca3d
-Content-Disposition: form-data; name="file"; filename="test.txt"
-Content-Type: text/plain
+        let mut form = multipart::Form::default();
 
-{"Data":{"/":{"bytes":"AAECAwQ"}},"Links":[]}
---------------------------4fabe502a598ca3d--"#;
+        let file_bytes = Cursor::new(
+            r#"[6433713753386423,65536,500,2,0,-1,-3,-256,-2784428724,-6433713753386424,{"/":{"bytes":"YTE"}},"Čaues ßvěte!"]"#,
+        );
+        form.add_reader_file("file", file_bytes, "");
+
+        let ct = form.content_type();
+        let body = body::to_bytes(multipart::Body::from(form)).await.unwrap();
+
         let req = test::TestRequest::post()
             .uri("/dag/put")
-            .insert_header(("Content-Length", "231"))
-            .insert_header((
-                "Content-Type",
-                "multipart/form-data; boundary=------------------------4fabe502a598ca3d",
-            ))
-            .set_payload(multipart)
+            .insert_header(("Content-Type", ct))
+            .set_payload(body)
             .to_request();
         let resp = test::call_service(&server, req).await;
         assert!(resp.status().is_success());
         assert_eq!(
-            "application/octet-stream",
+            "application/json",
             resp.headers().get("Content-Type").unwrap()
         );
         assert_body_json(
             resp.into_body(),
-            expect!["a26444617461450001020304654c696e6b7380"],
+            // Expect response with dag-cbor cid
+            expect![[r#"
+                {
+                  "Cid": {
+                    "/": "bafyreidufmzzejc3p7gmh6ivp4fjvca5jfazk57nu6vdkvki4c4vpja724"
+                  }
+                }"#]],
         )
         .await;
     }
     #[actix_web::test]
     async fn test_dag_resolve() {
-        // Test data from uses getting started guide for IPFS:
+        // Test data uses getting started guide for IPFS:
         // ipfs://QmQPeNsJPyVWPFDVHb77w8G42Fvo15z4bG2X8D2GhfbSXc
         let mock = Unimock::new(
             IpfsDepMock::resolve
                 .next_call(matching!((p) if **p == IpfsPath::from_str("QmQPeNsJPyVWPFDVHb77w8G42Fvo15z4bG2X8D2GhfbSXc/ping").unwrap()))
                 .returns(Ok(vec![Cid::from_str("QmejvEPop4D7YUadeGqYWmZxHhLc4JBUCzJJHWMzdcMe2y").unwrap()])),
         );
-        let server = test::init_service(
-            App::new()
-                .app_data(web::Data::new(AppState { api: mock }))
-                .service(dag_scope::<Unimock>()),
-        )
-        .await;
-
+        let server = build_server(mock).await;
         let req = test::TestRequest::post()
             .uri("/dag/resolve?arg=QmQPeNsJPyVWPFDVHb77w8G42Fvo15z4bG2X8D2GhfbSXc/ping")
             .to_request();
@@ -518,13 +544,7 @@ Content-Type: text/plain
                 .next_call(matching!((p,_) if *p == PeerId::from_str("12D3KooWFtPWZ1uHShnbvmxYJGmygUfTVmcb6iSQfiAm4XnmsQ8t").unwrap()))
                 .returns(Ok(())),
         );
-        let server = test::init_service(
-            App::new()
-                .app_data(web::Data::new(AppState { api: mock }))
-                .service(swarm_scope::<Unimock>()),
-        )
-        .await;
-
+        let server = build_server(mock).await;
         let req = test::TestRequest::post()
             .uri("/swarm/connect?arg=/ip4/1.1.1.1/tcp/4001/p2p/12D3KooWFtPWZ1uHShnbvmxYJGmygUfTVmcb6iSQfiAm4XnmsQ8t")
             .to_request();
@@ -564,13 +584,7 @@ Content-Type: text/plain
                     ),
                 ]))),
         );
-        let server = test::init_service(
-            App::new()
-                .app_data(web::Data::new(AppState { api: mock }))
-                .service(swarm_scope::<Unimock>()),
-        )
-        .await;
-
+        let server = build_server(mock).await;
         let req = test::TestRequest::post().uri("/swarm/peers").to_request();
         let resp = test::call_service(&server, req).await;
         println!("{:?}", resp);
