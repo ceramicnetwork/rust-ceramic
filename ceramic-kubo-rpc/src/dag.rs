@@ -1,4 +1,4 @@
-//! Implements the /dag/* endpoints.
+//! Implements the dag endpoints.
 use std::io::{Cursor, Read, Seek};
 
 use anyhow::anyhow;
@@ -13,6 +13,7 @@ use libipld::{
 
 use crate::{error::Error, IpfsDep};
 
+/// Get a DAG node from IPFS.
 #[tracing::instrument(skip(client, output_codec))]
 pub async fn get<T, C>(client: T, cid: Cid, output_codec: C) -> Result<Vec<u8>, Error>
 where
@@ -37,6 +38,7 @@ where
     Ok(data)
 }
 
+/// Store a DAG node into IFPS.
 #[tracing::instrument(skip_all)]
 pub async fn put<T, I, S, R>(
     client: T,
@@ -66,6 +68,7 @@ where
     Ok(cid)
 }
 
+/// Resolve an IPLD block.
 #[tracing::instrument(skip(client))]
 pub async fn resolve<T>(client: T, path: &IpfsPath) -> Result<Cid, Error>
 where

@@ -5,6 +5,7 @@ use iroh_api::{Multiaddr, PeerId};
 
 use crate::{error::Error, IpfsDep};
 
+/// Report all connected peers of the current node.
 #[tracing::instrument(skip(client))]
 pub async fn peers<T>(client: T) -> Result<BTreeMap<PeerId, Vec<Multiaddr>>, Error>
 where
@@ -18,6 +19,7 @@ where
         .collect::<BTreeMap<_, _>>())
 }
 
+/// Connect to a specific peer node.
 #[tracing::instrument(skip(client))]
 pub async fn connect<T>(client: T, peer_id: PeerId, addrs: Vec<Multiaddr>) -> Result<(), Error>
 where

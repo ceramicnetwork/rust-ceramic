@@ -975,10 +975,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ceramic"
-version = "0.1.0"
-
-[[package]]
 name = "ceramic-kubo-rpc"
 version = "0.1.0"
 dependencies = [

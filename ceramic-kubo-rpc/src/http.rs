@@ -203,7 +203,7 @@ where
         .body(data))
 }
 
-pub fn swarm_scope<T>() -> Scope
+fn swarm_scope<T>() -> Scope
 where
     T: IpfsDep + 'static,
 {
