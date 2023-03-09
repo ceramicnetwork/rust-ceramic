@@ -119,7 +119,6 @@ async fn dag_put<T>(
 where
     T: IpfsDep,
 {
-    println!("dag_put");
     while let Some(item) = payload.next().await {
         let mut field = item.map_err(|e| {
             Error::Internal(Into::<anyhow::Error>::into(e).context("reading multipart field"))
@@ -138,10 +137,6 @@ where
                 )
             }
 
-            println!(
-                "input bytes {}",
-                String::from_utf8(input_bytes.clone()).unwrap()
-            );
             let cid = match (query.input_codec.as_str(), query.store_codec.as_str()) {
                 (DAG_JSON, DAG_CBOR) => {
                     dag::put(
@@ -272,7 +267,6 @@ async fn swarm_connect<T>(
 where
     T: IpfsDep,
 {
-    println!("address {}", query.arg);
     let ma = Multiaddr::from_str(query.arg.as_str()).map_err(|e| Error::Invalid(e.into()))?;
     let mh = ma
         .iter()
@@ -548,7 +542,6 @@ mod tests {
             .uri("/swarm/connect?arg=/ip4/1.1.1.1/tcp/4001/p2p/12D3KooWFtPWZ1uHShnbvmxYJGmygUfTVmcb6iSQfiAm4XnmsQ8t")
             .to_request();
         let resp = test::call_service(&server, req).await;
-        println!("{:?}", resp);
         assert!(resp.status().is_success());
         assert_eq!(
             "application/json",
@@ -586,7 +579,6 @@ mod tests {
         let server = build_server(mock).await;
         let req = test::TestRequest::post().uri("/swarm/peers").to_request();
         let resp = test::call_service(&server, req).await;
-        println!("{:?}", resp);
         assert!(resp.status().is_success());
         assert_eq!(
             "application/json",

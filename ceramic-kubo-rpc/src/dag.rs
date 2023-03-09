@@ -63,7 +63,6 @@ where
 
     let hash = Code::Sha2_256.digest(&blob);
     let cid = Cid::new_v1(store_codec.into(), hash);
-    println!("cid {}", cid);
     client.put(cid, blob.into(), vec![]).await?;
     Ok(cid)
 }
