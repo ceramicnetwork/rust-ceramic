@@ -61,8 +61,8 @@ where
         .service(web::resource("/resolve").route(web::post().to(resolve::<T>)))
 }
 
-const DAG_CBOR: &'static str = "dag-cbor";
-const DAG_JSON: &'static str = "dag-json";
+const DAG_CBOR: &str = "dag-cbor";
+const DAG_JSON: &str = "dag-json";
 
 fn dag_cbor() -> String {
     DAG_CBOR.to_string()
@@ -188,7 +188,7 @@ async fn resolve<T>(
 where
     T: IpfsDep,
 {
-    let path: IpfsPath = query.arg.parse().map_err(|e| Error::Invalid(e))?;
+    let path: IpfsPath = query.arg.parse().map_err(Error::Invalid)?;
     let cid = dag::resolve(data.api.clone(), &path).await?;
     let resolved = ipld!({
         "Cid": cid,
@@ -222,8 +222,7 @@ where
         .into_iter()
         .map(|(k, v)| Peer {
             addr: v
-                .iter()
-                .nth(0)
+                .get(0)
                 .map(|a| a.to_string())
                 .unwrap_or_else(|| "".to_string()),
             direction: 0,
@@ -289,7 +288,7 @@ where
     let peer_id =
         PeerId::from_multihash(mh).map_err(|_e| Error::Invalid(anyhow!("invalid peer Id")))?;
 
-    swarm::connect(data.api.clone(), peer_id.clone(), vec![ma]).await?;
+    swarm::connect(data.api.clone(), peer_id, vec![ma]).await?;
 
     #[derive(Serialize)]
     struct ConnectResponse {
@@ -298,7 +297,7 @@ where
     }
 
     let connect_resp = ConnectResponse {
-        strings: vec![format!("connect {} success", peer_id.to_string())],
+        strings: vec![format!("connect {} success", peer_id)],
     };
     let body = serde_json::to_vec(&connect_resp).map_err(|e| Error::Internal(e.into()))?;
     Ok(HttpResponse::Ok()
@@ -373,7 +372,7 @@ mod tests {
         .await
     }
 
-    async fn assert_body_json<B>(body: B, expect: Expect) -> ()
+    async fn assert_body_json<B>(body: B, expect: Expect)
     where
         B: MessageBody,
         <B as MessageBody>::Error: std::fmt::Debug,
@@ -385,12 +384,12 @@ mod tests {
         expect.assert_eq(&pretty_json);
     }
 
-    async fn assert_body_binary<B>(body: B, expect: Expect) -> ()
+    async fn assert_body_binary<B>(body: B, expect: Expect)
     where
         B: MessageBody,
         <B as MessageBody>::Error: std::fmt::Debug,
     {
-        let bytes = hex::encode(body::to_bytes(body).await.unwrap().to_vec());
+        let bytes = hex::encode(&body::to_bytes(body).await.unwrap());
         expect.assert_eq(&bytes);
     }
 
