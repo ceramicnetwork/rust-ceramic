@@ -1,74 +1,120 @@
-use std::borrow::Cow;
-
+use iroh_api::PeerId;
 use libp2p::metrics::Recorder;
 use prometheus_client::metrics::counter::Counter;
 use prometheus_client::registry::Registry;
+use prometheus_client::{encoding::text::Encode, metrics::family::Family};
 
 use crate::pubsub;
 
+#[derive(Clone, Debug, Hash, PartialEq, Eq, Encode)]
+struct MsgLabels {
+    msg_type: MsgType,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, Encode)]
+enum MsgType {
+    Update,
+    Query,
+    Response,
+    Keepalive,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, Encode)]
+struct PeerLabels {
+    peer_id: String,
+    version: String,
+}
+
 pub struct Metrics {
-    update_messages: Counter,
-    query_messages: Counter,
-    response_messages: Counter,
-    keepalive_messages: Counter,
+    messages: Family<MsgLabels, Counter>,
+    peers: Family<PeerLabels, Counter>,
 }
 
 impl Metrics {
     pub fn new(registry: &mut Registry) -> Self {
-        let sub_registry = registry.sub_registry_with_prefix("pubsub");
+        let sub_registry = registry.sub_registry_with_prefix("ceramic");
 
-        let update_messages = Counter::default();
-        sub_registry
-            .sub_registry_with_label((Cow::Borrowed("msg_type"), Cow::Borrowed("update")))
-            .register(
-                "query",
-                "Number of response messages received",
-                Box::new(update_messages.clone()),
-            );
+        let messages = Family::<MsgLabels, Counter>::default();
 
-        let query_messages = Counter::default();
-        sub_registry
-            .sub_registry_with_label((Cow::Borrowed("msg_type"), Cow::Borrowed("query")))
-            .register(
-                "query",
-                "Number of query messages received",
-                Box::new(query_messages.clone()),
-            );
+        // Create each combination of labels so that we have explicit zeros reported
+        // until the first message arrives.
+        messages
+            .get_or_create(&MsgLabels {
+                msg_type: MsgType::Update,
+            })
+            .get();
+        messages
+            .get_or_create(&MsgLabels {
+                msg_type: MsgType::Query,
+            })
+            .get();
+        messages
+            .get_or_create(&MsgLabels {
+                msg_type: MsgType::Response,
+            })
+            .get();
+        messages
+            .get_or_create(&MsgLabels {
+                msg_type: MsgType::Keepalive,
+            })
+            .get();
 
-        let response_messages = Counter::default();
-        sub_registry
-            .sub_registry_with_label((Cow::Borrowed("msg_type"), Cow::Borrowed("response")))
-            .register(
-                "query",
-                "Number of response messages received",
-                Box::new(response_messages.clone()),
-            );
+        sub_registry.register(
+            "pubsub_messages",
+            "Number of ceramic pubsub messages received",
+            Box::new(messages.clone()),
+        );
 
-        let keepalive_messages = Counter::default();
-        sub_registry
-            .sub_registry_with_label((Cow::Borrowed("msg_type"), Cow::Borrowed("keepalive")))
-            .register(
-                "query",
-                "Number of keepalive messages received",
-                Box::new(keepalive_messages.clone()),
-            );
+        let peers = Family::<PeerLabels, Counter>::default();
+        sub_registry.register(
+            "peers",
+            "Number of keepalive messages from each peer, useful for understanding network topology",
+            Box::new(peers.clone()),
+        );
 
-        Self {
-            query_messages,
-            response_messages,
-            update_messages,
-            keepalive_messages,
-        }
+        Self { messages, peers }
     }
 }
 
-impl Recorder<pubsub::Message> for Metrics {
-    fn record(&self, event: &pubsub::Message) {
-        match event {
-            pubsub::Message::Update { .. } => self.update_messages.inc(),
-            pubsub::Message::Query { .. } => self.query_messages.inc(),
-            pubsub::Message::Response { .. } => self.response_messages.inc(),
-            pubsub::Message::Keepalive { .. } => self.keepalive_messages.inc(),
+impl Recorder<(PeerId, pubsub::Message)> for Metrics {
+    fn record(&self, event: &(PeerId, pubsub::Message)) {
+        let msg_type = match &event.1 {
+            pubsub::Message::Update { .. } => MsgType::Update,
+            pubsub::Message::Query { .. } => MsgType::Query,
+            pubsub::Message::Response { .. } => MsgType::Response,
+            pubsub::Message::Keepalive { ver, .. } => {
+                self.peers
+                    .get_or_create(&PeerLabels {
+                        peer_id: event.0.to_string(),
+                        version: ver.to_owned(),
+                    })
+                    .inc();
+                MsgType::Keepalive
+            }
         };
+        self.messages.get_or_create(&MsgLabels { msg_type }).inc();
     }
 }
+
+//pub struct MetricsInfo {
+//    pub config: Config,
+//    pub local_peer_id: PeerId,
+//}
+//pub fn register_info(info: MetricsInfo) -> impl FnOnce(&mut Registry) -> () {
+//    move |registry: &mut Registry| {
+//        let sub_registry = registry.sub_registry_with_prefix("ceramic_one");
+//        let info_metric = Info::new(vec![
+//            ("service_name", info.config.service_name),
+//            ("instance_id", info.config.instance_id),
+//            ("build", info.config.build),
+//            ("version", info.config.version),
+//            ("service_env", info.config.service_env),
+//            ("local_peer_id", info.local_peer_id.to_string()),
+//        ]);
+//        sub_registry.register(
+//            "info",
+//            "Information about the ceramic-one process",
+//            Box::new(info_metric),
+//        );
+//    }
+//}

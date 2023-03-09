@@ -10,12 +10,13 @@ use iroh_api::Multiaddr;
 use futures_util::{future, StreamExt};
 use iroh_embed::{IrohBuilder, Libp2pConfig, P2pService, RocksStoreService};
 use iroh_metrics::config::Config as MetricsConfig;
+use libp2p::metrics::Recorder;
 use tokio::task;
 use tracing::{debug, info};
 
-use crate::pubsub::Message;
+use crate::{ pubsub::Message};
 
-//mod metrics;
+mod metrics;
 mod pubsub;
 
 #[derive(Parser, Debug)]
@@ -74,7 +75,9 @@ async fn daemon(opts: DaemonOpts) -> Result<()> {
     metrics_config.tracing = opts.tracing;
     let service_name = metrics_config.service_name.clone();
     let instance_id = metrics_config.instance_id.clone();
-    let metrics_handle = iroh_metrics::MetricsHandle::new(metrics_config)
+    let metrics = iroh_metrics::MetricsHandle::register(crate::metrics::Metrics::new);
+
+    let metrics_handle = iroh_metrics::MetricsHandle::new(metrics_config.clone())
         .await
         .expect("failed to initialize metrics");
     info!(service_name, instance_id);
@@ -89,7 +92,6 @@ async fn daemon(opts: DaemonOpts) -> Result<()> {
     debug!("Using directory: {}", dir.display());
 
     let store = RocksStoreService::new(dir.join("store")).await?;
-
     let mut p2p_config = Libp2pConfig::default();
     p2p_config.mdns = false;
 
@@ -113,6 +115,15 @@ async fn daemon(opts: DaemonOpts) -> Result<()> {
         .map(|addr| addr.parse())
         .collect::<Result<Vec<Multiaddr>, multiaddr::Error>>()?;
     let p2p = P2pService::new(p2p_config, dir, store.addr()).await?;
+
+    // Register ceramic-one info
+    //let local_peer_id = p2p.local_peer_id();
+    //let info = MetricsInfo {
+    //    config: metrics_config,
+    //    local_peer_id,
+    //};
+    //iroh_metrics::MetricsHandle::register(crate::metrics::register_info(info));
+
     // Note by default this is configured with an indexer, but not with http resolvers.
     let iroh = IrohBuilder::new().store(store).p2p(p2p).build().await?;
 
@@ -122,12 +133,12 @@ async fn daemon(opts: DaemonOpts) -> Result<()> {
         .subscribe("/ceramic/testnet-clay".to_string())
         .await?;
 
-    let p2p_events_handle = task::spawn(subscription.for_each(|event| {
+    let p2p_events_handle = task::spawn(subscription.for_each(move |event| {
         match event.expect("should be a message") {
             iroh_api::GossipsubEvent::Subscribed { .. } => {}
             iroh_api::GossipsubEvent::Unsubscribed { .. } => {}
             iroh_api::GossipsubEvent::Message {
-                from: _,
+                from,
                 id: _,
                 message,
                 topic: _,
@@ -138,7 +149,8 @@ async fn daemon(opts: DaemonOpts) -> Result<()> {
                 );
                 let msg: Message = serde_json::from_slice(message.data.as_slice())
                     .expect("should be json message");
-                info!(?msg)
+                info!(?msg);
+                metrics.record(&(from, msg));
             }
         }
         future::ready(())
