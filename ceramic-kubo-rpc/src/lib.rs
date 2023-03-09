@@ -32,42 +32,39 @@ impl IpfsDep for Api {
         Ok(self
             .client()
             .try_store()
-            .map_err(|e| Error::Internal(e))?
+            .map_err(Error::Internal)?
             .get(cid)
             .await
-            .map_err(|e| Error::Internal(e))?)
+            .map_err(Error::Internal)?)
     }
     async fn put(&self, cid: Cid, blob: Bytes, links: Vec<Cid>) -> Result<(), Error> {
         Ok(self
             .client()
             .try_store()
-            .map_err(|e| Error::Internal(e))?
+            .map_err(Error::Internal)?
             .put(cid, blob, links)
             .await
-            .map_err(|e| Error::Internal(e))?)
+            .map_err(Error::Internal)?)
     }
     async fn resolve(&self, ipfs_path: &IpfsPath) -> Result<Vec<Cid>, Error> {
-        Ok(self
-            .resolve(ipfs_path)
-            .await
-            .map_err(|e| Error::Internal(e))?)
+        Ok(self.resolve(ipfs_path).await.map_err(Error::Internal)?)
     }
     async fn peers(&self) -> Result<HashMap<PeerId, Vec<Multiaddr>>, Error> {
         Ok(self
             .client()
             .try_p2p()
-            .map_err(|e| Error::Internal(e))?
+            .map_err(Error::Internal)?
             .get_peers()
             .await
-            .map_err(|e| Error::Internal(e))?)
+            .map_err(Error::Internal)?)
     }
     async fn connect(&self, peer_id: PeerId, addrs: Vec<Multiaddr>) -> Result<(), Error> {
         Ok(self
             .client()
             .try_p2p()
-            .map_err(|e| Error::Internal(e))?
+            .map_err(Error::Internal)?
             .connect(peer_id, addrs)
             .await
-            .map_err(|e| Error::Internal(e))?)
+            .map_err(Error::Internal)?)
     }
 }

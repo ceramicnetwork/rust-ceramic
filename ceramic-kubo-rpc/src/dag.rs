@@ -21,22 +21,19 @@ where
     Ipld: Encode<C>,
 {
     let bytes = client.get(cid).await?.ok_or(Error::NotFound)?;
-    let dag_data =
-        match cid.codec() {
-            // dag-pb
-            0x70 => Ipld::decode(DagPbCodec, &mut Cursor::new(&bytes))
-                .map_err(|e| Error::Internal(e))?,
-            // dag-cbor
-            0x71 => Ipld::decode(DagCborCodec, &mut Cursor::new(&bytes))
-                .map_err(|e| Error::Internal(e))?,
-            _ => {
-                return Err(Error::Invalid(anyhow!("unsupported codec {}", cid.codec())));
-            }
-        };
+    let dag_data = match cid.codec() {
+        // dag-pb
+        0x70 => Ipld::decode(DagPbCodec, &mut Cursor::new(&bytes)).map_err(Error::Internal)?,
+        // dag-cbor
+        0x71 => Ipld::decode(DagCborCodec, &mut Cursor::new(&bytes)).map_err(Error::Internal)?,
+        _ => {
+            return Err(Error::Invalid(anyhow!("unsupported codec {}", cid.codec())));
+        }
+    };
     let mut data: Vec<u8> = Vec::new();
     dag_data
         .encode(output_codec, &mut data)
-        .map_err(|e| Error::Internal(e.into()))?;
+        .map_err(Error::Internal)?;
     Ok(data)
 }
 
@@ -55,17 +52,17 @@ where
     Ipld: Encode<S>,
     R: Read + Seek,
 {
-    let dag_data = Ipld::decode(input_codec, data).map_err(|e| Error::Invalid(e.into()))?;
+    let dag_data = Ipld::decode(input_codec, data).map_err(Error::Invalid)?;
 
     let mut blob: Vec<u8> = Vec::new();
     dag_data
         .encode(store_codec, &mut blob)
-        .map_err(|e| Error::Internal(e.into()))?;
+        .map_err(Error::Internal)?;
 
     let hash = Code::Sha2_256.digest(&blob);
     let cid = Cid::new_v1(store_codec.into(), hash);
     println!("cid {}", cid);
-    client.put(cid.clone(), blob.into(), vec![]).await?;
+    client.put(cid, blob.into(), vec![]).await?;
     Ok(cid)
 }
 
@@ -74,7 +71,7 @@ pub async fn resolve<T>(client: T, path: &IpfsPath) -> Result<Cid, Error>
 where
     T: IpfsDep,
 {
-    let resolved_path = client.resolve(&path).await?;
+    let resolved_path = client.resolve(path).await?;
 
     Ok(resolved_path
         .iter()
