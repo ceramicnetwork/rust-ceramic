@@ -46,7 +46,7 @@ pub async fn put<T, I, S, R>(
     input_codec: I,
     store_codec: S,
     data: &mut R,
-) -> Result<(), Error>
+) -> Result<Cid, Error>
 where
     T: IpfsDep,
     I: Codec,
@@ -64,8 +64,9 @@ where
 
     let hash = Code::Sha2_256.digest(&blob);
     let cid = Cid::new_v1(store_codec.into(), hash);
-    client.put(cid, blob.into(), vec![]).await?;
-    Ok(())
+    println!("cid {}", cid);
+    client.put(cid.clone(), blob.into(), vec![]).await?;
+    Ok(cid)
 }
 
 #[tracing::instrument(skip(client))]

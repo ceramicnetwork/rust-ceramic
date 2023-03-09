@@ -21,15 +21,15 @@ dependencies = [
 
 [[package]]
 name = "actix-http"
-version = "3.3.0"
+version = "3.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0070905b2c4a98d184c4e81025253cb192aa8a73827553f38e9410801ceb35bb"
+checksum = "c2079246596c18b4a33e274ae10c0e50613f4d32a4198e09c7b93771013fed74"
 dependencies = [
  "actix-codec",
  "actix-rt",
  "actix-service",
  "actix-utils",
- "ahash 0.7.6",
+ "ahash 0.8.3",
  "base64 0.21.0",
  "bitflags",
  "brotli",
@@ -84,6 +84,19 @@ dependencies = [
  "log",
  "memchr",
  "mime",
+]
+
+[[package]]
+name = "actix-multipart-rfc7578"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0707b3bee8cf0e786d29f384f8ba6a17005ef82d5b803a65aa3b153fda661fe7"
+dependencies = [
+ "actix-http",
+ "bytes",
+ "common-multipart-rfc7578",
+ "futures-core",
+ "thiserror",
 ]
 
 [[package]]
@@ -969,7 +982,9 @@ version = "0.1.0"
 name = "ceramic-kubo-rpc"
 version = "0.1.0"
 dependencies = [
+ "actix-http",
  "actix-multipart",
+ "actix-multipart-rfc7578",
  "actix-web",
  "anyhow",
  "async-trait",
@@ -1193,6 +1208,22 @@ checksum = "3538270d33cc669650c4b093848450d380def10c331d38c768e34cac80576e6e"
 dependencies = [
  "termcolor",
  "unicode-width",
+]
+
+[[package]]
+name = "common-multipart-rfc7578"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22328b3864f1d8dbe7036f3f2fdfdcb1f367af43dca418943d396fbf8c4b8021"
+dependencies = [
+ "bytes",
+ "futures-core",
+ "futures-util",
+ "http",
+ "mime",
+ "mime_guess",
+ "rand 0.8.5",
+ "thiserror",
 ]
 
 [[package]]
