@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use actix_web::{http::header::ContentType, web,  HttpResponse, Scope};
+use actix_web::{http::header::ContentType, web, HttpResponse, Scope};
 use anyhow::anyhow;
 use iroh_api::{Multiaddr, PeerId};
 use multiaddr::Protocol;
