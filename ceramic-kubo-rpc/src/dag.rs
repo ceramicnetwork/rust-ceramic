@@ -2,6 +2,7 @@
 use std::io::{Cursor, Read, Seek};
 
 use anyhow::anyhow;
+use dag_jose::DagJoseCodec;
 use iroh_api::{Cid, IpfsPath};
 use libipld::{
     cbor::DagCborCodec,
@@ -15,18 +16,20 @@ use crate::{error::Error, IpfsDep};
 
 /// Get a DAG node from IPFS.
 #[tracing::instrument(skip(client, output_codec))]
-pub async fn get<T, C>(client: T, cid: Cid, output_codec: C) -> Result<Vec<u8>, Error>
+pub async fn get<T, C>(client: T, ipfs_path: &IpfsPath, output_codec: C) -> Result<Vec<u8>, Error>
 where
     T: IpfsDep,
     C: Codec,
     Ipld: Encode<C>,
 {
-    let bytes = client.get(cid).await?.ok_or(Error::NotFound)?;
+    let (cid, bytes) = client.get(ipfs_path).await?;
     let dag_data = match cid.codec() {
         // dag-pb
         0x70 => Ipld::decode(DagPbCodec, &mut Cursor::new(&bytes)).map_err(Error::Internal)?,
         // dag-cbor
         0x71 => Ipld::decode(DagCborCodec, &mut Cursor::new(&bytes)).map_err(Error::Internal)?,
+        // dag-jose
+        0x85 => Ipld::decode(DagJoseCodec, &mut Cursor::new(&bytes)).map_err(Error::Internal)?,
         _ => {
             return Err(Error::Invalid(anyhow!("unsupported codec {}", cid.codec())));
         }

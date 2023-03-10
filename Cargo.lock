@@ -716,6 +716,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a4a4ddaa51a5bc52a6948f74c06d20aaaddb71924eab79b8c97a8c556e942d6a"
 
 [[package]]
+name = "base64-url"
+version = "1.4.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "67a99c239d0c7e77c85dddfa9cebce48704b3c49550fcd3b84dd637e4484899f"
+dependencies = [
+ "base64 0.13.1",
+]
+
+[[package]]
 name = "base64ct"
 version = "1.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -955,6 +964,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cbor4ii"
+version = "0.2.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b544cf8c89359205f4f990d0e6f3828db42df85b5dac95d09157a250eb0749c4"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "cc"
 version = "1.0.79"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -984,6 +1002,7 @@ dependencies = [
  "actix-web",
  "anyhow",
  "async-trait",
+ "dag-jose",
  "expect-test",
  "futures-util",
  "hex",
@@ -1075,6 +1094,20 @@ dependencies = [
  "num-traits",
  "serde",
  "winapi",
+]
+
+[[package]]
+name = "cid"
+version = "0.8.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f6ed9c8b2d17acb8110c46f1da5bf4a696d745e1474a16db0cd2b49cd0249bf2"
+dependencies = [
+ "core2",
+ "multibase",
+ "multihash 0.16.3",
+ "serde",
+ "serde_bytes",
+ "unsigned-varint",
 ]
 
 [[package]]
@@ -1551,6 +1584,20 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "dag-jose"
+version = "0.1.0"
+source = "git+https://github.com/ceramicnetwork/rust-dag-jose?branch=main#d0921cced8b75838c5d9e4eacf20ef508614461f"
+dependencies = [
+ "anyhow",
+ "base64-url",
+ "libipld",
+ "serde",
+ "serde_derive",
+ "serde_ipld_dagcbor",
+ "thiserror",
 ]
 
 [[package]]
@@ -2667,13 +2714,13 @@ checksum = "30e22bd8629359895450b59ea7a776c850561b96a3b1d31321c1949d9e6c9146"
 [[package]]
 name = "iroh-api"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#5b7bd07f79150ffce889cc29e0679d9e8a4b815e"
+source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#c0918b22d70e590a4de865a58b87266202abe8e9"
 dependencies = [
  "anyhow",
  "async-stream",
  "async-trait",
  "bytes",
- "cid",
+ "cid 0.9.0",
  "config",
  "futures",
  "iroh-metrics",
@@ -2693,7 +2740,7 @@ dependencies = [
 [[package]]
 name = "iroh-bitswap"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#5b7bd07f79150ffce889cc29e0679d9e8a4b815e"
+source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#c0918b22d70e590a4de865a58b87266202abe8e9"
 dependencies = [
  "ahash 0.8.3",
  "anyhow",
@@ -2703,7 +2750,7 @@ dependencies = [
  "async-trait",
  "asynchronous-codec",
  "bytes",
- "cid",
+ "cid 0.9.0",
  "deadqueue",
  "derivative",
  "futures",
@@ -2731,9 +2778,9 @@ dependencies = [
 [[package]]
 name = "iroh-car"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#5b7bd07f79150ffce889cc29e0679d9e8a4b815e"
+source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#c0918b22d70e590a4de865a58b87266202abe8e9"
 dependencies = [
- "cid",
+ "cid 0.9.0",
  "futures",
  "integer-encoding",
  "libipld",
@@ -2745,7 +2792,7 @@ dependencies = [
 [[package]]
 name = "iroh-embed"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#5b7bd07f79150ffce889cc29e0679d9e8a4b815e"
+source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#c0918b22d70e590a4de865a58b87266202abe8e9"
 dependencies = [
  "anyhow",
  "futures",
@@ -2766,7 +2813,7 @@ dependencies = [
 [[package]]
 name = "iroh-gateway"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#5b7bd07f79150ffce889cc29e0679d9e8a4b815e"
+source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#c0918b22d70e590a4de865a58b87266202abe8e9"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -2774,7 +2821,7 @@ dependencies = [
  "async-trait",
  "axum",
  "bytes",
- "cid",
+ "cid 0.9.0",
  "clap 4.1.6",
  "config",
  "futures",
@@ -2826,7 +2873,7 @@ dependencies = [
 [[package]]
 name = "iroh-metrics"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#5b7bd07f79150ffce889cc29e0679d9e8a4b815e"
+source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#c0918b22d70e590a4de865a58b87266202abe8e9"
 dependencies = [
  "async-trait",
  "config",
@@ -2849,13 +2896,13 @@ dependencies = [
 [[package]]
 name = "iroh-one"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#5b7bd07f79150ffce889cc29e0679d9e8a4b815e"
+source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#c0918b22d70e590a4de865a58b87266202abe8e9"
 dependencies = [
  "anyhow",
  "async-trait",
  "axum",
  "bytes",
- "cid",
+ "cid 0.9.0",
  "clap 4.1.6",
  "config",
  "futures",
@@ -2880,7 +2927,7 @@ dependencies = [
 [[package]]
 name = "iroh-p2p"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#5b7bd07f79150ffce889cc29e0679d9e8a4b815e"
+source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#c0918b22d70e590a4de865a58b87266202abe8e9"
 dependencies = [
  "ahash 0.8.3",
  "anyhow",
@@ -2888,7 +2935,7 @@ dependencies = [
  "async-trait",
  "asynchronous-codec",
  "bytes",
- "cid",
+ "cid 0.9.0",
  "clap 4.1.6",
  "config",
  "futures",
@@ -2919,7 +2966,7 @@ dependencies = [
 [[package]]
 name = "iroh-resolver"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#5b7bd07f79150ffce889cc29e0679d9e8a4b815e"
+source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#c0918b22d70e590a4de865a58b87266202abe8e9"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -2927,7 +2974,7 @@ dependencies = [
  "async-trait",
  "bs58",
  "bytes",
- "cid",
+ "cid 0.9.0",
  "fnv",
  "futures",
  "iroh-metrics",
@@ -2945,12 +2992,12 @@ dependencies = [
 [[package]]
 name = "iroh-rpc-client"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#5b7bd07f79150ffce889cc29e0679d9e8a4b815e"
+source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#c0918b22d70e590a4de865a58b87266202abe8e9"
 dependencies = [
  "anyhow",
  "async-stream",
  "bytes",
- "cid",
+ "cid 0.9.0",
  "config",
  "futures",
  "hyper",
@@ -2968,11 +3015,11 @@ dependencies = [
 [[package]]
 name = "iroh-rpc-types"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#5b7bd07f79150ffce889cc29e0679d9e8a4b815e"
+source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#c0918b22d70e590a4de865a58b87266202abe8e9"
 dependencies = [
  "anyhow",
  "bytes",
- "cid",
+ "cid 0.9.0",
  "derive_more",
  "futures",
  "libp2p",
@@ -2986,7 +3033,7 @@ dependencies = [
 [[package]]
 name = "iroh-store"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#5b7bd07f79150ffce889cc29e0679d9e8a4b815e"
+source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#c0918b22d70e590a4de865a58b87266202abe8e9"
 dependencies = [
  "ahash 0.8.3",
  "anyhow",
@@ -2994,7 +3041,7 @@ dependencies = [
  "async-trait",
  "bytecheck",
  "bytes",
- "cid",
+ "cid 0.9.0",
  "clap 4.1.6",
  "config",
  "ctrlc",
@@ -3020,7 +3067,7 @@ dependencies = [
 [[package]]
 name = "iroh-unixfs"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#5b7bd07f79150ffce889cc29e0679d9e8a4b815e"
+source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#c0918b22d70e590a4de865a58b87266202abe8e9"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -3029,7 +3076,7 @@ dependencies = [
  "async-trait",
  "base64 0.20.0",
  "bytes",
- "cid",
+ "cid 0.9.0",
  "config",
  "fastmurmur3",
  "futures",
@@ -3057,10 +3104,10 @@ dependencies = [
 [[package]]
 name = "iroh-util"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#5b7bd07f79150ffce889cc29e0679d9e8a4b815e"
+source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#c0918b22d70e590a4de865a58b87266202abe8e9"
 dependencies = [
  "anyhow",
- "cid",
+ "cid 0.9.0",
  "config",
  "ctrlc",
  "dirs-next",
@@ -3224,10 +3271,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b7a704ba3b25dee9e7a2361fae2c7c19defae2a92e69ae96ffb203996705cd7c"
 dependencies = [
  "anyhow",
- "cid",
+ "cid 0.9.0",
  "core2",
  "multibase",
  "multihash 0.17.0",
+ "serde",
  "thiserror",
 ]
 
@@ -5681,6 +5729,18 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "serde_ipld_dagcbor"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c1e23de7a4a18dff77ab9531f279a882500b8cf3549fde044d4e10481b411f1e"
+dependencies = [
+ "cbor4ii",
+ "cid 0.8.6",
+ "scopeguard",
+ "serde",
 ]
 
 [[package]]
