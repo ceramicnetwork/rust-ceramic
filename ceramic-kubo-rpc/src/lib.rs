@@ -8,6 +8,7 @@
 #![deny(missing_docs)]
 use std::collections::HashMap;
 
+use anyhow::anyhow;
 use async_trait::async_trait;
 use iroh_api::{Api, Bytes, Cid, IpfsPath, Multiaddr, PeerId};
 use unimock::unimock;
@@ -27,8 +28,8 @@ use crate::error::Error;
 #[unimock(api=IpfsDepMock)]
 #[async_trait]
 pub trait IpfsDep: Clone {
-    /// Get a DAG node from IPFS.
-    async fn get(&self, cid: Cid) -> Result<Option<Bytes>, Error>;
+    /// Get a DAG node from IPFS returning the Cid of the resolved path and the bytes of the node.
+    async fn get(&self, ipfs_path: &IpfsPath) -> Result<(Cid, Bytes), Error>;
     /// Store a DAG node into IFPS.
     async fn put(&self, cid: Cid, blob: Bytes, links: Vec<Cid>) -> Result<(), Error>;
     /// Resolve an IPLD block.
@@ -41,14 +42,22 @@ pub trait IpfsDep: Clone {
 
 #[async_trait]
 impl IpfsDep for Api {
-    async fn get(&self, cid: Cid) -> Result<Option<Bytes>, Error> {
-        Ok(self
-            .client()
-            .try_store()
-            .map_err(Error::Internal)?
-            .get(cid)
-            .await
-            .map_err(Error::Internal)?)
+    async fn get(&self, ipfs_path: &IpfsPath) -> Result<(Cid, Bytes), Error> {
+        // TODO(nathanielc): Iroh does not have support for DAG-JOSE,
+        // therefore it cannot traverse paths as it cannot decode the intermediate steps.
+        // We use `get_raw` below so that we can still get the data but as a result we do not support
+        // any path below the Cid.
+        if !ipfs_path.tail().is_empty() {
+            return Err(Error::Invalid(anyhow!(
+                "IPFS paths with path elements are not yet supported"
+            )));
+        }
+
+        if let Some(cid) = ipfs_path.cid() {
+            Ok((*cid, self.get_raw(*cid).await.map_err(Error::Internal)?))
+        } else {
+            Err(Error::Invalid(anyhow!("IPFS path does not refer to a CID")))
+        }
     }
     async fn put(&self, cid: Cid, blob: Bytes, links: Vec<Cid>) -> Result<(), Error> {
         Ok(self

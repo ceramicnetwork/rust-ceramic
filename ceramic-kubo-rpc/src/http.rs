@@ -9,7 +9,7 @@ use actix_web::{
 };
 use anyhow::anyhow;
 use futures_util::StreamExt;
-use iroh_api::{Cid, IpfsPath, Multiaddr, PeerId};
+use iroh_api::{IpfsPath, Multiaddr, PeerId};
 use libipld::{cbor::DagCborCodec, ipld, json::DagJsonCodec, prelude::Encode};
 use multiaddr::Protocol;
 use serde::Deserialize;
@@ -87,14 +87,14 @@ async fn dag_get<T>(
 where
     T: IpfsDep,
 {
-    let cid = Cid::from_str(query.arg.as_str()).map_err(|e| Error::Invalid(e.into()))?;
+    let ipfs_path = IpfsPath::from_str(query.arg.as_str()).map_err(|e| Error::Invalid(e.into()))?;
     match query.output_codec.as_str() {
         DAG_JSON => Ok(HttpResponse::Ok()
             .content_type(ContentType::json())
-            .body(dag::get(data.api.clone(), cid, DagJsonCodec).await?)),
+            .body(dag::get(data.api.clone(), &ipfs_path, DagJsonCodec).await?)),
         DAG_CBOR => Ok(HttpResponse::Ok()
             .content_type(ContentType::octet_stream())
-            .body(dag::get(data.api.clone(), cid, DagCborCodec).await?)),
+            .body(dag::get(data.api.clone(), &ipfs_path, DagCborCodec).await?)),
         _ => Err(Error::Invalid(anyhow!(
             "unsupported output-codec \"{}\"",
             query.output_codec
@@ -344,7 +344,7 @@ mod tests {
         test, web, App,
     };
     use expect_test::{expect, Expect};
-    use iroh_api::Bytes;
+    use iroh_api::{Bytes, Cid};
     use unimock::MockFn;
     use unimock::{matching, Unimock};
 
@@ -394,11 +394,10 @@ mod tests {
         let bytes: Bytes = hex::decode("0a050001020304")
             .expect("should be valid hex data")
             .into();
-        let mock = Unimock::new(
-            IpfsDepMock::get
-                .some_call(matching!(_))
-                .returns(Ok(Some(bytes))),
-        );
+        let mock = Unimock::new(IpfsDepMock::get.some_call(matching!(_)).returns(Ok((
+            Cid::try_from("bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom").unwrap(),
+            bytes,
+        ))));
         let server = build_server(mock).await;
         let req = test::TestRequest::post()
             .uri("/dag/get?arg=bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom")
@@ -431,11 +430,10 @@ mod tests {
         let bytes: Bytes = hex::decode("0a050001020304")
             .expect("should be valid hex data")
             .into();
-        let mock = Unimock::new(
-            IpfsDepMock::get
-                .some_call(matching!(_))
-                .returns(Ok(Some(bytes))),
-        );
+        let mock = Unimock::new(IpfsDepMock::get.some_call(matching!(_)).returns(Ok((
+            Cid::try_from("bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom").unwrap(),
+            bytes,
+        ))));
         let server = build_server(mock).await;
         let req = test::TestRequest::post()
             .uri("/dag/get?arg=bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom&output-codec=dag-cbor")

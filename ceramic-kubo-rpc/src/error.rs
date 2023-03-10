@@ -12,7 +12,7 @@ pub enum Error {
     NotFound,
     /// Represents a malformed request.
     /// Consumers need to fix their request.
-    #[error("bad request: {0}")]
+    #[error("invalid: {0}")]
     Invalid(anyhow::Error),
     /// Represents a failure of the system,
     /// Consumers will likely have no control over fixing such an error.

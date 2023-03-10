@@ -61,6 +61,12 @@ async fn daemon(opts: DaemonOpts) -> Result<()> {
     let store = RocksStoreService::new(dir.join("store")).await?;
 
     let mut p2p_config = Libp2pConfig::default();
+    p2p_config.bootstrap_peers = vec![
+        "/dns4/go-ipfs-ceramic-private-mainnet-external.3boxlabs.com/tcp/4011/ws/p2p/QmXALVsXZwPWTUbsT8G6VVzzgTJaAWRUD7FWL5f7d5ubAL".parse().unwrap(),
+        "/dns4/go-ipfs-ceramic-private-cas-mainnet-external.3boxlabs.com/tcp/4011/ws/p2p/QmUvEKXuorR7YksrVgA7yKGbfjWHuCRisw2cH9iqRVM9P8".parse().unwrap(),
+        "/dns4/go-ipfs-ceramic-elp-1-1-external.3boxlabs.com/tcp/4011/ws/p2p/QmUiF8Au7wjhAF9BYYMNQRW5KhY7o8fq4RUozzkWvHXQrZ".parse().unwrap(),
+        "/dns4/go-ipfs-ceramic-elp-1-2-external.3boxlabs.com/tcp/4011/ws/p2p/QmRNw9ZimjSwujzS3euqSYxDW9EHDU5LB3NbLQ5vJ13hwJ".parse().unwrap(),
+    ];
     p2p_config.listening_multiaddrs = vec![
         "/ip4/0.0.0.0/tcp/0".parse().unwrap(),
         "/ip4/0.0.0.0/udp/0/quic-v1".parse().unwrap(),
