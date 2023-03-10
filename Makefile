@@ -9,11 +9,17 @@ all: build check-fmt check-clippy test
 
 .PHONY: build
 build:
-	cargo build --all-features --locked
+	# Build with default features
+	cargo build --locked
+	# Build with all features
+	cargo build --locked --all-features
 
 .PHONY: test
 test:
-	cargo test --all-features --locked
+	# Test with default features
+	cargo test --locked
+	# Test with all features
+	cargo test --locked --all-features
 
 .PHONY: check-fmt
 check-fmt:
@@ -21,4 +27,7 @@ check-fmt:
 
 .PHONY: check-clippy
 check-clippy:
+	# Check with default features
 	cargo clippy --workspace --all-targets -- -D warnings
+	# Check with all features
+	cargo clippy --workspace --all-targets --all-features -- -D warnings
