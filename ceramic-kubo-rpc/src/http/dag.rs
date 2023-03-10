@@ -45,7 +45,7 @@ async fn dag_get<T>(
 where
     T: IpfsDep,
 {
-    let ipfs_path = IpfsPath::from_str(query.arg.as_str()).map_err(|e| Error::Invalid(e.into()))?;
+    let ipfs_path = IpfsPath::from_str(query.arg.as_str()).map_err(Error::Invalid)?;
     match query.output_codec.as_str() {
         DAG_JSON => Ok(HttpResponse::Ok()
             .content_type(ContentType::json())
