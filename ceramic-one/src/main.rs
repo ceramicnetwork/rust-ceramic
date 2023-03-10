@@ -14,7 +14,7 @@ use libp2p::metrics::Recorder;
 use tokio::task;
 use tracing::{debug, info};
 
-use crate::{ pubsub::Message};
+use crate::pubsub::Message;
 
 mod metrics;
 mod pubsub;

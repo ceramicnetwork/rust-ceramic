@@ -23,15 +23,14 @@ multiaddr.workspace = true
 names = "0.14"
 opentelemetry-otlp.workspace = true
 opentelemetry.workspace = true
-prometheus-client = "0.18.0"
-serde = "1.0.154"
-serde_json = "1.0.94"
-serde_repr = "0.1.11"
-tempdir = "0.3.7"
+prometheus-client = "0.18"
+serde = "1"
+serde_json = "1"
+serde_repr = "0.1"
 tokio.workspace = true
 tracing-opentelemetry.workspace = true
 tracing-subscriber.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
-expect-test = "1.4.1"
+expect-test = "1"
