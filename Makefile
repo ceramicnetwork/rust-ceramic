@@ -31,3 +31,7 @@ check-clippy:
 	cargo clippy --workspace --all-targets -- -D warnings
 	# Check with all features
 	cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+.PHONY: run
+run:
+	cargo run --all-features --locked --bin ceramic-one -- daemon -b 127.0.0.1:5001
