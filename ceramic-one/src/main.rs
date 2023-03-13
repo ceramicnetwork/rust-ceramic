@@ -2,17 +2,20 @@
 #![deny(warnings)]
 #![deny(missing_docs)]
 
-use std::path::PathBuf;
+use std::{path::PathBuf, str::FromStr, sync::Arc};
 
 use anyhow::Result;
+use ceramic_kubo_rpc::dag;
 use clap::{Args, Parser, Subcommand};
 use iroh_api::Multiaddr;
 use futures_util::{future, StreamExt};
+use iroh_api::IpfsPath;
 use iroh_embed::{IrohBuilder, Libp2pConfig, P2pService, RocksStoreService};
 use iroh_metrics::config::Config as MetricsConfig;
+use libipld::json::DagJsonCodec;
 use libp2p::metrics::Recorder;
 use tokio::task;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::pubsub::Message;
 
@@ -76,6 +79,7 @@ async fn daemon(opts: DaemonOpts) -> Result<()> {
     let service_name = metrics_config.service_name.clone();
     let instance_id = metrics_config.instance_id.clone();
     let metrics = iroh_metrics::MetricsHandle::register(crate::metrics::Metrics::new);
+    let metrics = Arc::new(metrics);
 
     let metrics_handle = iroh_metrics::MetricsHandle::new(metrics_config.clone())
         .await
@@ -133,6 +137,8 @@ async fn daemon(opts: DaemonOpts) -> Result<()> {
         .subscribe("/ceramic/testnet-clay".to_string())
         .await?;
 
+    let client = iroh.api().clone();
+
     let p2p_events_handle = task::spawn(subscription.for_each(move |event| {
         match event.expect("should be a message") {
             iroh_api::GossipsubEvent::Subscribed { .. } => {}
@@ -143,13 +149,33 @@ async fn daemon(opts: DaemonOpts) -> Result<()> {
                 message,
                 topic: _,
             } => {
-                info!(
-                    "message data {}",
-                    String::from_utf8(message.data.clone()).unwrap()
-                );
                 let msg: Message = serde_json::from_slice(message.data.as_slice())
                     .expect("should be json message");
                 info!(?msg);
+                match &msg {
+                    Message::Update {
+                        stream: _,
+                        tip,
+                        model: _,
+                    } => {
+                        if let Ok(ipfs_path) = IpfsPath::from_str(tip) {
+                            // Spawn task to get the data for a stream tip when we see one
+                            let client = client.clone();
+                            let metrics = metrics.clone();
+                            task::spawn(async move {
+                                let result = dag::get(client, &ipfs_path, DagJsonCodec).await;
+                                metrics.record(&result);
+                                match result {
+                                    Ok(_) => info!("succeed in loading stream tip: {}", ipfs_path),
+                                    Err(err) => warn!("failed to load stream tip: {}", err),
+                                };
+                            });
+                        } else {
+                            warn!("invalid update tip: {}", tip)
+                        }
+                    }
+                    _ => {}
+                };
                 metrics.record(&(from, msg));
             }
         }

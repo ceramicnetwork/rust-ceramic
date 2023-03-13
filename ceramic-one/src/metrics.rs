@@ -28,6 +28,18 @@ struct PeerLabels {
 pub struct Metrics {
     messages: Family<MsgLabels, Counter>,
     peers: Family<PeerLabels, Counter>,
+    tip_loads: Family<TipLoadLabels, Counter>,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, Encode)]
+struct TipLoadLabels {
+    result: TipLoadResult,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, Encode)]
+enum TipLoadResult {
+    Success,
+    Failure,
 }
 
 impl Metrics {
@@ -72,7 +84,14 @@ impl Metrics {
             Box::new(peers.clone()),
         );
 
-        Self { messages, peers }
+        let tip_loads = Family::<TipLoadLabels, Counter>::default();
+        sub_registry.register("tip_loads", "Number tip loads", Box::new(tip_loads.clone()));
+
+        Self {
+            messages,
+            peers,
+            tip_loads,
+        }
     }
 }
 
@@ -93,6 +112,18 @@ impl Recorder<(PeerId, pubsub::Message)> for Metrics {
             }
         };
         self.messages.get_or_create(&MsgLabels { msg_type }).inc();
+    }
+}
+
+impl<E> Recorder<Result<Vec<u8>, E>> for Metrics {
+    fn record(&self, event: &Result<Vec<u8>, E>) {
+        let result = match event {
+            Ok(_) => TipLoadResult::Success,
+            Err(_) => TipLoadResult::Failure,
+        };
+        self.tip_loads
+            .get_or_create(&TipLoadLabels { result })
+            .inc();
     }
 }
 

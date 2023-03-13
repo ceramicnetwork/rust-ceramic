@@ -1058,6 +1058,7 @@ dependencies = [
  "iroh-api",
  "iroh-embed",
  "iroh-metrics",
+ "libipld",
  "libp2p",
  "names",
  "opentelemetry",
