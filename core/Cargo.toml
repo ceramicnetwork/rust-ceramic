@@ -1,0 +1,31 @@
+[package]
+name = "ceramic-core"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow.workspace = true
+base64 = "0.21.0"
+cid.workspace = true
+did-method-key = "0.2.1"
+did-pkh = "0.2.1"
+hex.workspace = true
+int-enum = "0.5.0"
+multibase.workspace = true
+once_cell.workspace = true
+regex = "1.7.1"
+serde.workspace = true
+serde_json.workspace = true
+serde_ipld_dagcbor.workspace = true
+ssi.workspace = true
+unsigned-varint = "0.7"
+
+[dev-dependencies]
+env_logger.workspace = true
+tokio = { workspace = true, features = ["macros", "rt"] }
+tracing.workspace = true

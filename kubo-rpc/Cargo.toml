@@ -29,6 +29,7 @@ anyhow.workspace = true
 async-trait.workspace = true
 dag-jose.workspace = true
 futures-util.workspace = true
+hex.workspace = true
 iroh-api.workspace = true
 iroh-embed.workspace = true
 iroh-rpc-client.workspace = true
@@ -36,15 +37,13 @@ libipld.workspace = true
 libp2p.workspace = true
 mime = { version = "0.3.16", optional = true }
 multiaddr.workspace = true
-serde = { version = "1", features = ["derive"], optional = true }
-serde_json = { version = "1", optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
 thiserror = "1"
 tracing-actix-web = { version = "0.7", optional = true }
 tracing-opentelemetry.workspace = true
 tracing.workspace = true
 unimock.workspace = true
-hex = "0.4"
 
 [dev-dependencies]
 expect-test = "1"
-hex = "0.4"
