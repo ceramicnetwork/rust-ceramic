@@ -1,0 +1,63 @@
+use crate::recon::tests::{Recon,Record,Direction,MessageData,Set,Iteration,MessageItem};
+use lalrpop_util::ParseError;
+
+grammar;
+
+pub Record : Record = {
+    <cat:Cat> <dog:Dog> <iterations:Iteration*> => Record {
+        cat,
+        dog,
+        iterations,
+    },
+};
+Cat: Recon = {
+    "cat:" <Set> => Recon::from_set(<>),
+};
+Dog: Recon = {
+    "dog:" <Set> => Recon::from_set(<>),
+};
+
+Set: Set = {
+    "[" <SetInner> "]" => <>
+};
+
+SetInner: Set = {
+    <first:Word?> <rest:("," <Word>)*> => {
+        let mut set = Set::new();
+        set.extend(rest);
+        if let Some(first) = first {
+            set.insert(first);
+        }
+        set
+    }
+};
+
+Word : String = {
+    r"[a-z][a-z0-9]*"=> <>.to_string(),
+};
+
+Iteration : Iteration = {
+    <dir:Direction> <msg:Message> <set:Set> => Iteration {
+        dir,
+        msg,
+        set,
+    }
+};
+
+
+Direction : Direction = {
+    "->" => Direction::CatToDog,
+    "<-" => Direction::DogToCat,
+};
+
+Message : MessageData = {
+    "(" <MessageItem?> <("," <MessageItem>)*> ")" =>? (<>).try_into().map_err(|e: &'static str| ParseError::User{
+        error: e,
+    })
+};
+
+MessageItem : MessageItem = {
+    "h(" <SetInner> ")" => MessageItem::Hash(<>),
+    "0"                 => MessageItem::Hash(Set::new()),
+    Word                => MessageItem::Key(<>),
+};
