@@ -1,0 +1,28 @@
+[package]
+name = "ceramic-event"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow.workspace = true
+ceramic-core = { path = "../core" }
+multibase.workspace = true
+multihash.workspace = true
+once_cell.workspace = true
+rand = "0.8.5"
+serde.workspace = true
+ssi.workspace = true
+#ssi-jwk = { version = "0.1.0", features = ["ed25519"] }
+#ssi-jwt = "0.1.0"
+
+[dev-dependencies]
+env_logger.workspace = true
+serde_ipld_dagcbor.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["fs", "macros", "rt"] }
+tracing.workspace = true
