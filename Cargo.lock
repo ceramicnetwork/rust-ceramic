@@ -1606,7 +1606,7 @@ dependencies = [
 [[package]]
 name = "dag-jose"
 version = "0.1.0"
-source = "git+https://github.com/ceramicnetwork/rust-dag-jose?branch=main#d0921cced8b75838c5d9e4eacf20ef508614461f"
+source = "git+https://github.com/ceramicnetwork/rust-dag-jose?branch=main#5437cd030648d556ea1b725f6d381932b806328c"
 dependencies = [
  "anyhow",
  "base64-url",
