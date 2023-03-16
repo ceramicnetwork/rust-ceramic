@@ -34,4 +34,4 @@ check-clippy:
 
 .PHONY: run
 run:
-	cargo run --all-features --locked --bin ceramic-one -- daemon -b 127.0.0.1:5001
+	RUST_LOG=ERROR,ceramic_kubo_rpc=DEBUG,ceramic_one=DEBUG cargo run --all-features --locked --bin ceramic-one -- daemon -b 127.0.0.1:5001

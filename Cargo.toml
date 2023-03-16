@@ -3,6 +3,7 @@ members = ["ceramic-kubo-rpc", "ceramic-one"]
 
 [workspace.dependencies]
 anyhow = "1"
+async-stream = "0.3"
 async-trait = "0.1"
 ceramic-one = { path = "./ceramic-one" }
 dag-jose = { git = "https://github.com/ceramicnetwork/rust-dag-jose", branch = "main" }

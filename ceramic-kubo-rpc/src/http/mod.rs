@@ -12,6 +12,7 @@ use tracing_actix_web::TracingLogger;
 use crate::{error::Error, IpfsDep};
 
 mod dag;
+mod pubsub;
 mod swarm;
 
 #[derive(Clone)]
@@ -39,7 +40,8 @@ where
             .service(
                 web::scope("/api/v0")
                     .service(dag::scope::<T>())
-                    .service(swarm::scope::<T>()),
+                    .service(swarm::scope::<T>())
+                    .service(pubsub::scope::<T>()),
             )
     })
     .bind(addrs)?
@@ -81,6 +83,8 @@ impl error::ResponseError for Error {
 
 #[cfg(test)]
 mod tests {
+    use std::io::{BufRead, Cursor};
+
     use super::*;
 
     use actix_web::{
@@ -89,21 +93,24 @@ mod tests {
         test, web, App,
     };
     use expect_test::Expect;
-    use unimock::Unimock;
 
     /// Test helper function to build a application server
-    pub async fn build_server(
-        mock: impl IpfsDep + 'static,
+    pub async fn build_server<T>(
+        mock: T,
     ) -> impl actix_web::dev::Service<
         actix_http::Request,
         Response = ServiceResponse,
         Error = actix_web::Error,
-    > {
+    >
+    where
+        T: IpfsDep + 'static,
+    {
         test::init_service(
             App::new()
                 .app_data(web::Data::new(AppState { api: mock }))
-                .service(super::dag::scope::<Unimock>())
-                .service(super::swarm::scope::<Unimock>()),
+                .service(super::dag::scope::<T>())
+                .service(super::swarm::scope::<T>())
+                .service(super::pubsub::scope::<T>()),
         )
         .await
     }
@@ -119,6 +126,31 @@ mod tests {
                 .expect("response body should be valid json");
         let pretty_json = serde_json::to_string_pretty(&body_json).unwrap();
         expect.assert_eq(&pretty_json);
+    }
+    /// Test helper function to assert a newline delimited JSON reponse body
+    pub async fn assert_body_json_nl<B>(body: B, expect: Expect)
+    where
+        B: MessageBody,
+        <B as MessageBody>::Error: std::fmt::Debug,
+    {
+        let mut data = Vec::new();
+        let mut cursor = Cursor::new(body::to_bytes(body).await.unwrap());
+        let mut pretty_json = String::new();
+
+        loop {
+            data.clear();
+
+            let bytes_read = cursor.read_until(b'\n', &mut data).unwrap();
+            if bytes_read == 0 {
+                expect.assert_eq(&pretty_json);
+                return;
+            }
+            let body_json: serde_json::Value =
+                serde_json::from_slice(&data).expect("response body should be valid json");
+
+            pretty_json.push_str(serde_json::to_string_pretty(&body_json).unwrap().as_str());
+            pretty_json.push('\n')
+        }
     }
 
     /// Test helper function to assert a binary reponse body

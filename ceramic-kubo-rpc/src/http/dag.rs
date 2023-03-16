@@ -14,8 +14,8 @@ where
     T: IpfsDep + 'static,
 {
     web::scope("/dag")
-        .service(web::resource("/get").route(web::post().to(dag_get::<T>)))
-        .service(web::resource("/put").route(web::post().to(dag_put::<T>)))
+        .service(web::resource("/get").route(web::post().to(get::<T>)))
+        .service(web::resource("/put").route(web::post().to(put::<T>)))
         .service(web::resource("/resolve").route(web::post().to(resolve::<T>)))
 }
 
@@ -38,7 +38,7 @@ struct GetQuery {
 }
 
 #[tracing::instrument(skip(data))]
-async fn dag_get<T>(
+async fn get<T>(
     data: web::Data<AppState<T>>,
     query: web::Query<GetQuery>,
 ) -> Result<HttpResponse, Error>
@@ -69,7 +69,7 @@ struct PutQuery {
 }
 
 #[tracing::instrument(skip(data, payload))]
-async fn dag_put<T>(
+async fn put<T>(
     data: web::Data<AppState<T>>,
     query: web::Query<PutQuery>,
     mut payload: Multipart,

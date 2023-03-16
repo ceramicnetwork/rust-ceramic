@@ -13,12 +13,12 @@ where
     T: IpfsDep + 'static,
 {
     web::scope("/swarm")
-        .service(web::resource("/peers").route(web::post().to(swarm_peers::<T>)))
-        .service(web::resource("/connect").route(web::post().to(swarm_connect::<T>)))
+        .service(web::resource("/peers").route(web::post().to(peers::<T>)))
+        .service(web::resource("/connect").route(web::post().to(connect::<T>)))
 }
 
 #[tracing::instrument(skip(data))]
-async fn swarm_peers<T>(data: web::Data<AppState<T>>) -> Result<HttpResponse, Error>
+async fn peers<T>(data: web::Data<AppState<T>>) -> Result<HttpResponse, Error>
 where
     T: IpfsDep,
 {
@@ -70,7 +70,7 @@ struct ConnectQuery {
 }
 
 #[tracing::instrument(skip(data))]
-async fn swarm_connect<T>(
+async fn connect<T>(
     data: web::Data<AppState<T>>,
     query: web::Query<ConnectQuery>,
 ) -> Result<HttpResponse, Error>
