@@ -10,13 +10,15 @@ use std::collections::HashMap;
 
 use anyhow::anyhow;
 use async_trait::async_trait;
-use iroh_api::{Api, Bytes, Cid, IpfsPath, Multiaddr, PeerId};
+use futures_util::stream::BoxStream;
+use iroh_api::{Api, Bytes, Cid, GossipsubEvent, IpfsPath, Multiaddr, PeerId};
 use unimock::unimock;
 
 pub mod dag;
 pub mod error;
 #[cfg(feature = "http")]
 pub mod http;
+pub mod pubsub;
 pub mod swarm;
 
 use crate::error::Error;
@@ -38,6 +40,15 @@ pub trait IpfsDep: Clone {
     async fn peers(&self) -> Result<HashMap<PeerId, Vec<Multiaddr>>, Error>;
     /// Connect to a specific peer node.
     async fn connect(&self, peer_id: PeerId, addrs: Vec<Multiaddr>) -> Result<(), Error>;
+    /// Publish a message on a pub/sub Topic.
+    async fn publish(&self, topic: String, data: Bytes) -> Result<(), Error>;
+    /// Subscribe to a pub/sub Topic
+    async fn subscribe(
+        &self,
+        topic: String,
+    ) -> Result<BoxStream<'static, anyhow::Result<GossipsubEvent>>, Error>;
+    /// List topics to which, we are currently subscribed
+    async fn topics(&self) -> Result<Vec<String>, Error>;
 }
 
 #[async_trait]
@@ -88,5 +99,37 @@ impl IpfsDep for Api {
             .connect(peer_id, addrs)
             .await
             .map_err(Error::Internal)?)
+    }
+    async fn publish(&self, topic: String, data: Bytes) -> Result<(), Error> {
+        self.p2p()
+            .map_err(Error::Internal)?
+            .publish(topic, data)
+            .await
+            .map_err(Error::Internal)?;
+        Ok(())
+    }
+    async fn subscribe(
+        &self,
+        topic: String,
+    ) -> Result<BoxStream<'static, anyhow::Result<GossipsubEvent>>, Error> {
+        Ok(Box::pin(
+            self.p2p()
+                .map_err(Error::Internal)?
+                .subscribe(topic)
+                .await
+                .map_err(Error::Internal)?,
+        ))
+    }
+    async fn topics(&self) -> Result<Vec<String>, Error> {
+        Ok(self
+            .client()
+            .try_p2p()
+            .map_err(Error::Internal)?
+            .gossipsub_topics()
+            .await
+            .map_err(Error::Internal)?
+            .iter()
+            .map(|t| t.to_string())
+            .collect())
     }
 }
