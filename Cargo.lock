@@ -738,11 +738,11 @@ checksum = "a4a4ddaa51a5bc52a6948f74c06d20aaaddb71924eab79b8c97a8c556e942d6a"
 
 [[package]]
 name = "base64-url"
-version = "1.4.13"
+version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "67a99c239d0c7e77c85dddfa9cebce48704b3c49550fcd3b84dd637e4484899f"
+checksum = "9c5b0a88aa36e9f095ee2e2b13fb8c5e4313e022783aedacc123328c0084916d"
 dependencies = [
- "base64 0.13.1",
+ "base64 0.21.0",
 ]
 
 [[package]]
@@ -1605,8 +1605,9 @@ dependencies = [
 
 [[package]]
 name = "dag-jose"
-version = "0.1.0"
-source = "git+https://github.com/ceramicnetwork/rust-dag-jose?branch=main#d0921cced8b75838c5d9e4eacf20ef508614461f"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "66d43879cac9c48b2f934bc49947cb1a1f82b05e83175cf2eba1ced8496322f0"
 dependencies = [
  "anyhow",
  "base64-url",
@@ -5742,9 +5743,9 @@ dependencies = [
 
 [[package]]
 name = "serde_ipld_dagcbor"
-version = "0.2.2"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c1e23de7a4a18dff77ab9531f279a882500b8cf3549fde044d4e10481b411f1e"
+checksum = "2433e94ffb5977e67afbd75733abd6ada1c4f497125894a8c89b3fdc5fd6a058"
 dependencies = [
  "cbor4ii",
  "cid 0.8.6",

@@ -35,3 +35,16 @@ check-clippy:
 .PHONY: run
 run:
 	cargo run --all-features --locked --bin ceramic-one -- daemon -b 127.0.0.1:5001
+
+# Prepare a release PR.
+.PHONY: release-pr
+release-pr:
+	./scripts/release_pr.sh
+
+# Publish any unpublished releases.
+# A release PR must first be merged before this target
+# will have any effect.
+.PHONY: release
+release:
+	./scripts/release.sh
+

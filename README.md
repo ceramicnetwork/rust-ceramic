@@ -29,7 +29,18 @@ Use the provided `Makefile` for basic actions to ensure your changes are ready f
 Using the makefile is not necessary during your developement cycle, feel free to use the relvant cargo commands directly.
 However running `make` before publishing a PR will provide a good signal if you PR will pass CI.
 
+## Releasing
 
+Creating a new release of this project is a two step process.
+
+1. Create a release PR
+2. Merge and publish release
+
+You can use `make release-pr` to create a release PR.
+However we recommend you use the `Release PR` Github Action.
+Once the release PR is merged CI will automatically publish the release using `make release`.
+
+> NOTE: All crates in this repo use the same version number.
 
 ## License
 

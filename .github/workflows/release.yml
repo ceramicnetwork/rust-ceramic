@@ -1,0 +1,29 @@
+# Action that publishes a release
+# This action run on all commit to main.
+# The action checks if there are any unpublished releases
+# and if not exists.
+# See make release for details
+name: Release
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    container:
+      # See https://github.com/3box/rust-builder
+      image: public.ecr.aws/r5b3e0r5/3box/rust-builder:latest
+    env:
+      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - run: |
+          git config user.email "github@3box.io"
+          git config user.name "Github Automation"
+      - name: Perform release
+        run: make release

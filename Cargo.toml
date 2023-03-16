@@ -5,8 +5,11 @@ members = ["ceramic-kubo-rpc", "ceramic-one"]
 anyhow = "1"
 async-trait = "0.1"
 ceramic-one = { path = "./ceramic-one" }
-dag-jose = { git = "https://github.com/ceramicnetwork/rust-dag-jose", branch = "main" }
+dag-jose = "0.1"
 futures-util = "0.3"
+# Note we cannot publish ceramic to crates.io because of this:
+# https://users.rust-lang.org/t/publish-crate-that-has-a-dependency-version-unavailable-on-crates-io/55342
+# We will need to publish our fork of beetle before we can.
 iroh-api = { git = "https://github.com/nathanielc/beetle", branch = "expose-api-client" }
 iroh-embed = { git = "https://github.com/nathanielc/beetle", branch = "expose-api-client" }
 iroh-metrics = { git = "https://github.com/nathanielc/beetle", branch = "expose-api-client" }

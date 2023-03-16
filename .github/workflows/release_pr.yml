@@ -1,0 +1,28 @@
+# Action that creates a release PR
+# Must be manually triggered.
+# See make release-pr for details
+name: Release PR
+
+permissions:
+  contents: write
+  pull-requests: write
+
+on: workflow_dispatch
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    container:
+      # See https://github.com/3box/rust-builder
+      image: public.ecr.aws/r5b3e0r5/3box/rust-builder:latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - run: |
+          git config user.email "github@3box.io"
+          git config user.name "Github Automation"
+      - name: Create release PR
+        run: make release-pr
