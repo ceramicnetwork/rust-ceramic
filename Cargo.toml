@@ -5,7 +5,7 @@ members = ["ceramic-kubo-rpc", "ceramic-one"]
 anyhow = "1"
 async-trait = "0.1"
 ceramic-one = { path = "./ceramic-one" }
-dag-jose = { git = "https://github.com/ceramicnetwork/rust-dag-jose", branch = "main" }
+dag-jose = "0.1"
 futures-util = "0.3"
 iroh-api = { git = "https://github.com/nathanielc/beetle", branch = "expose-api-client" }
 iroh-embed = { git = "https://github.com/nathanielc/beetle", branch = "expose-api-client" }
