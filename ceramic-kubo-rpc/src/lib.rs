@@ -18,6 +18,7 @@ pub mod dag;
 pub mod error;
 #[cfg(feature = "http")]
 pub mod http;
+pub mod pin;
 pub mod pubsub;
 pub mod swarm;
 
@@ -31,6 +32,7 @@ use crate::error::Error;
 #[async_trait]
 pub trait IpfsDep: Clone {
     /// Get a DAG node from IPFS returning the Cid of the resolved path and the bytes of the node.
+    /// This will locally store the data as a result.
     async fn get(&self, ipfs_path: &IpfsPath) -> Result<(Cid, Bytes), Error>;
     /// Store a DAG node into IFPS.
     async fn put(&self, cid: Cid, blob: Bytes, links: Vec<Cid>) -> Result<(), Error>;
