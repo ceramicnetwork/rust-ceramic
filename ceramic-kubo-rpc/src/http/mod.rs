@@ -11,6 +11,7 @@ use tracing_actix_web::TracingLogger;
 
 use crate::{error::Error, IpfsDep};
 
+mod block;
 mod dag;
 mod pin;
 mod pubsub;
@@ -23,6 +24,13 @@ where
 {
     api: T,
 }
+
+/// Name for dag-cbor codec
+pub const DAG_CBOR: &str = "dag-cbor";
+/// Name for dag-json codec
+pub const DAG_JSON: &str = "dag-json";
+/// Name for dag-jose codec
+pub const DAG_JOSE: &str = "dag-jose";
 
 /// Start the Kubo RPC mimic server.
 ///
@@ -40,6 +48,7 @@ where
             .app_data(web::Data::new(AppState { api: api.clone() }))
             .service(
                 web::scope("/api/v0")
+                    .service(block::scope::<T>())
                     .service(dag::scope::<T>())
                     .service(pin::scope::<T>())
                     .service(pubsub::scope::<T>())
@@ -110,6 +119,7 @@ mod tests {
         test::init_service(
             App::new()
                 .app_data(web::Data::new(AppState { api: mock }))
+                .service(super::block::scope::<T>())
                 .service(super::dag::scope::<T>())
                 .service(super::pin::scope::<T>())
                 .service(super::pubsub::scope::<T>())

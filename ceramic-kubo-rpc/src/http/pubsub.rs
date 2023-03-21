@@ -240,6 +240,12 @@ mod tests {
         struct TestDeps {}
         #[async_trait]
         impl IpfsDep for TestDeps {
+            async fn block_size(&self, _cid: Cid) -> Result<u64, Error> {
+                todo!()
+            }
+            async fn block_get(&self, _cid: Cid) -> Result<Bytes, Error> {
+                todo!()
+            }
             async fn get(&self, _ipfs_path: &IpfsPath) -> Result<(Cid, Bytes), Error> {
                 todo!()
             }
