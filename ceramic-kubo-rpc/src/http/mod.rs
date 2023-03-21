@@ -12,6 +12,7 @@ use tracing_actix_web::TracingLogger;
 use crate::{error::Error, IpfsDep};
 
 mod dag;
+mod pin;
 mod pubsub;
 mod swarm;
 
@@ -40,8 +41,9 @@ where
             .service(
                 web::scope("/api/v0")
                     .service(dag::scope::<T>())
-                    .service(swarm::scope::<T>())
-                    .service(pubsub::scope::<T>()),
+                    .service(pin::scope::<T>())
+                    .service(pubsub::scope::<T>())
+                    .service(swarm::scope::<T>()),
             )
     })
     .bind(addrs)?
@@ -109,8 +111,9 @@ mod tests {
             App::new()
                 .app_data(web::Data::new(AppState { api: mock }))
                 .service(super::dag::scope::<T>())
-                .service(super::swarm::scope::<T>())
-                .service(super::pubsub::scope::<T>()),
+                .service(super::pin::scope::<T>())
+                .service(super::pubsub::scope::<T>())
+                .service(super::swarm::scope::<T>()),
         )
         .await
     }
