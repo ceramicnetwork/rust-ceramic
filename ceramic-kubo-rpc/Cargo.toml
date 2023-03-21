@@ -13,6 +13,7 @@ http = [
     "dep:actix-multipart",
     "dep:actix-multipart-rfc7578",
     "dep:actix-web",
+    "dep:mime",
     "dep:serde",
     "dep:serde_json",
     "dep:tracing-actix-web",
@@ -33,6 +34,7 @@ iroh-embed.workspace = true
 iroh-rpc-client.workspace = true
 libipld.workspace = true
 libp2p.workspace = true
+mime = { version = "0.3.16", optional = true }
 multiaddr.workspace = true
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }

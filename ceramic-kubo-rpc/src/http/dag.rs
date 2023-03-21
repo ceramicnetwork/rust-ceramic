@@ -8,7 +8,12 @@ use iroh_api::IpfsPath;
 use libipld::{cbor::DagCborCodec, ipld, json::DagJsonCodec, prelude::Encode};
 use serde::Deserialize;
 
-use crate::{dag, error::Error, http::AppState, IpfsDep};
+use crate::{
+    dag,
+    error::Error,
+    http::{AppState, DAG_CBOR, DAG_JSON},
+    IpfsDep,
+};
 pub fn scope<T>() -> Scope
 where
     T: IpfsDep + 'static,
@@ -18,9 +23,6 @@ where
         .service(web::resource("/put").route(web::post().to(put::<T>)))
         .service(web::resource("/resolve").route(web::post().to(resolve::<T>)))
 }
-
-const DAG_CBOR: &str = "dag-cbor";
-const DAG_JSON: &str = "dag-json";
 
 fn dag_cbor() -> String {
     DAG_CBOR.to_string()

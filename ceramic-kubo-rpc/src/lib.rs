@@ -14,6 +14,7 @@ use futures_util::stream::BoxStream;
 use iroh_api::{Api, Bytes, Cid, GossipsubEvent, IpfsPath, Multiaddr, PeerId};
 use unimock::unimock;
 
+pub mod block;
 pub mod dag;
 pub mod error;
 #[cfg(feature = "http")]
@@ -31,6 +32,10 @@ use crate::error::Error;
 #[unimock(api=IpfsDepMock)]
 #[async_trait]
 pub trait IpfsDep: Clone {
+    /// Get the size of an IPFS block.
+    async fn block_size(&self, cid: Cid) -> Result<u64, Error>;
+    /// Get a block from IPFS
+    async fn block_get(&self, cid: Cid) -> Result<Bytes, Error>;
     /// Get a DAG node from IPFS returning the Cid of the resolved path and the bytes of the node.
     /// This will locally store the data as a result.
     async fn get(&self, ipfs_path: &IpfsPath) -> Result<(Cid, Bytes), Error>;
@@ -55,6 +60,26 @@ pub trait IpfsDep: Clone {
 
 #[async_trait]
 impl IpfsDep for Api {
+    async fn block_size(&self, cid: Cid) -> Result<u64, Error> {
+        Ok(self
+            .client()
+            .try_store()
+            .map_err(Error::Internal)?
+            .get_size(cid)
+            .await
+            .map_err(Error::Internal)?
+            .ok_or(Error::NotFound)?)
+    }
+    async fn block_get(&self, cid: Cid) -> Result<Bytes, Error> {
+        Ok(self
+            .client()
+            .try_store()
+            .map_err(Error::Internal)?
+            .get(cid)
+            .await
+            .map_err(Error::Internal)?
+            .ok_or(Error::NotFound)?)
+    }
     async fn get(&self, ipfs_path: &IpfsPath) -> Result<(Cid, Bytes), Error> {
         // TODO(nathanielc): Iroh does not have support for DAG-JOSE,
         // therefore it cannot traverse paths as it cannot decode the intermediate steps.
