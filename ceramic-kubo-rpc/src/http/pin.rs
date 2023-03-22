@@ -99,11 +99,14 @@ where
 #[cfg(test)]
 mod tests {
 
+    use std::io::Cursor;
+
     use crate::http::tests::{assert_body_json, build_server};
 
     use actix_web::test;
     use expect_test::expect;
-    use iroh_api::{Bytes, Cid};
+    use iroh_api::Cid;
+    use libipld::{pb::DagPbCodec, prelude::Decode, Ipld};
     use unimock::MockFn;
     use unimock::{matching, Unimock};
 
@@ -113,12 +116,14 @@ mod tests {
     async fn test_add() {
         // Test data from:
         // https://ipld.io/specs/codecs/dag-pb/fixtures/cross-codec/#dagpb_data_some
-        let bytes: Bytes = hex::decode("0a050001020304")
-            .expect("should be valid hex data")
-            .into();
+        let data = Ipld::decode(
+            DagPbCodec,
+            &mut Cursor::new(hex::decode("0a050001020304").expect("should be valid hex data")),
+        )
+        .expect("should be valid dag-pb data");
         let mock = Unimock::new(IpfsDepMock::get.some_call(matching!(_)).returns(Ok((
             Cid::try_from("bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom").unwrap(),
-            bytes,
+            data,
         ))));
         let server = build_server(mock).await;
         let req = test::TestRequest::post()

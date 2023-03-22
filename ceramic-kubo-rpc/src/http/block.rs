@@ -90,11 +90,13 @@ where
         )));
     }
 
+    let mut fields = Vec::new();
     while let Some(item) = payload.next().await {
         let mut field = item.map_err(|e| {
             Error::Internal(Into::<anyhow::Error>::into(e).context("reading multipart field"))
         })?;
-        if field.name() == "data" {
+        fields.push(field.name().to_owned());
+        if field.name() == "file" {
             let mut input_bytes: Vec<u8> = Vec::new();
             while let Some(chunk) = field.next().await {
                 input_bytes.extend(
@@ -143,7 +145,10 @@ where
                 .body(body));
         }
     }
-    Err(Error::Invalid(anyhow!("missing multipart field 'file'")))
+    Err(Error::Invalid(anyhow!(
+        "block put: missing multipart field 'file' found fields: {:?}",
+        fields
+    )))
 }
 
 #[derive(Debug, Deserialize)]
@@ -234,7 +239,7 @@ mod tests {
         let file_bytes = Cursor::new(
             r#"[6433713753386423,65536,500,2,0,-1,-3,-256,-2784428724,-6433713753386424,{"/":{"bytes":"YTE"}},"Čaues ßvěte!"]"#,
         );
-        form.add_reader_file("data", file_bytes, "");
+        form.add_reader_file("file", file_bytes, "");
 
         let ct = form.content_type();
         let body = body::to_bytes(multipart::Body::from(form)).await.unwrap();

@@ -1,13 +1,9 @@
 //! Implements the dag endpoints.
-use std::io::{Cursor, Read, Seek};
+use std::io::{Read, Seek};
 
-use anyhow::anyhow;
-use dag_jose::DagJoseCodec;
 use iroh_api::{Cid, IpfsPath};
 use libipld::{
-    cbor::DagCborCodec,
     multihash::{Code, MultihashDigest},
-    pb::DagPbCodec,
     prelude::{Codec, Decode, Encode},
     Ipld,
 };
@@ -22,23 +18,11 @@ where
     C: Codec,
     Ipld: Encode<C>,
 {
-    let (cid, bytes) = client.get(ipfs_path).await?;
-    let dag_data = match cid.codec() {
-        // dag-pb
-        0x70 => Ipld::decode(DagPbCodec, &mut Cursor::new(&bytes)).map_err(Error::Internal)?,
-        // dag-cbor
-        0x71 => Ipld::decode(DagCborCodec, &mut Cursor::new(&bytes)).map_err(Error::Internal)?,
-        // dag-jose
-        0x85 => Ipld::decode(DagJoseCodec, &mut Cursor::new(&bytes)).map_err(Error::Internal)?,
-        _ => {
-            return Err(Error::Invalid(anyhow!("unsupported codec {}", cid.codec())));
-        }
-    };
-    let mut data: Vec<u8> = Vec::new();
-    dag_data
-        .encode(output_codec, &mut data)
+    let (_cid, data) = client.get(ipfs_path).await?;
+    let mut bytes: Vec<u8> = Vec::new();
+    data.encode(output_codec, &mut bytes)
         .map_err(Error::Internal)?;
-    Ok(data)
+    Ok(bytes)
 }
 
 /// Store a DAG node into IFPS.
@@ -70,19 +54,11 @@ where
     Ok(cid)
 }
 
-/// Resolve an IPLD block.
+/// Resolve an IPLD node
 #[tracing::instrument(skip(client))]
-pub async fn resolve<T>(client: T, path: &IpfsPath) -> Result<Cid, Error>
+pub async fn resolve<T>(client: T, path: &IpfsPath) -> Result<(Cid, String), Error>
 where
     T: IpfsDep,
 {
-    let resolved_path = client.resolve(path).await?;
-
-    Ok(resolved_path
-        .iter()
-        .last()
-        .ok_or(Error::Internal(anyhow!(
-            "resolved path should have at least one element"
-        )))?
-        .to_owned())
+    client.resolve(path).await
 }
