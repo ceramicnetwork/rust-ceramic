@@ -13,6 +13,7 @@ use crate::{error::Error, IpfsDep};
 
 mod block;
 mod dag;
+mod id;
 mod pin;
 mod pubsub;
 mod swarm;
@@ -50,6 +51,7 @@ where
                 web::scope("/api/v0")
                     .service(block::scope::<T>())
                     .service(dag::scope::<T>())
+                    .service(id::scope::<T>())
                     .service(pin::scope::<T>())
                     .service(pubsub::scope::<T>())
                     .service(swarm::scope::<T>()),
@@ -121,6 +123,7 @@ mod tests {
                 .app_data(web::Data::new(AppState { api: mock }))
                 .service(super::block::scope::<T>())
                 .service(super::dag::scope::<T>())
+                .service(id::scope::<T>())
                 .service(super::pin::scope::<T>())
                 .service(super::pubsub::scope::<T>())
                 .service(super::swarm::scope::<T>()),

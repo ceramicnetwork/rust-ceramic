@@ -56,10 +56,13 @@ where
     let topic = String::from_utf8(topic_bytes).map_err(|e| {
         Error::Internal(Into::<anyhow::Error>::into(e).context("decoding topic as utf8 string"))
     })?;
+
+    let mut fields = Vec::new();
     while let Some(item) = payload.next().await {
         let mut field = item.map_err(|e| {
             Error::Internal(Into::<anyhow::Error>::into(e).context("reading multipart field"))
         })?;
+        fields.push(field.name().to_owned());
         if field.name() == "file" {
             let mut input_bytes: Vec<u8> = Vec::new();
             while let Some(chunk) = field.next().await {
@@ -78,7 +81,10 @@ where
             return Ok(HttpResponse::Ok().into());
         }
     }
-    Err(Error::Invalid(anyhow!("missing multipart field 'file'")))
+    Err(Error::Invalid(anyhow!(
+        "pubsub publish: missing multipart field 'file' found fields: {:?}",
+        fields
+    )))
 }
 #[derive(Debug, Deserialize)]
 struct SubscribeQuery {
@@ -157,7 +163,7 @@ mod tests {
     use crate::{
         error::Error,
         http::tests::{assert_body_json, assert_body_json_nl, build_server},
-        IpfsDep,
+        IpfsDep, PeerInfo,
     };
 
     use actix_multipart_rfc7578::client::multipart;
@@ -168,7 +174,10 @@ mod tests {
     use expect_test::expect;
     use futures_util::{stream::BoxStream, StreamExt};
     use iroh_api::{Bytes, Cid, GossipsubEvent, IpfsPath, MessageId, Multiaddr, PeerId};
-    use libipld::multibase::{self, Base};
+    use libipld::{
+        multibase::{self, Base},
+        Ipld,
+    };
     use libp2p::gossipsub::{GossipsubMessage, TopicHash};
     use unimock::MockFn;
     use unimock::{matching, Unimock};
@@ -240,27 +249,44 @@ mod tests {
         struct TestDeps {}
         #[async_trait]
         impl IpfsDep for TestDeps {
+            /// Get information about the local peer.
+            async fn lookup_local(&self) -> Result<PeerInfo, Error> {
+                todo!()
+            }
+            /// Get information about a peer.
+            async fn lookup(&self, _peer_id: PeerId) -> Result<PeerInfo, Error> {
+                todo!()
+            }
+            /// Get the size of an IPFS block.
             async fn block_size(&self, _cid: Cid) -> Result<u64, Error> {
                 todo!()
             }
+            /// Get a block from IPFS
             async fn block_get(&self, _cid: Cid) -> Result<Bytes, Error> {
                 todo!()
             }
-            async fn get(&self, _ipfs_path: &IpfsPath) -> Result<(Cid, Bytes), Error> {
+            /// Get a DAG node from IPFS returning the Cid of the resolved path and the bytes of the node.
+            /// This will locally store the data as a result.
+            async fn get(&self, _ipfs_path: &IpfsPath) -> Result<(Cid, Ipld), Error> {
                 todo!()
             }
+            /// Store a DAG node into IFPS.
             async fn put(&self, _cid: Cid, _blob: Bytes, _links: Vec<Cid>) -> Result<(), Error> {
                 todo!()
             }
-            async fn resolve(&self, _ipfs_path: &IpfsPath) -> Result<Vec<Cid>, Error> {
+            /// Resolve an IPLD block.
+            async fn resolve(&self, _ipfs_path: &IpfsPath) -> Result<(Cid, String), Error> {
                 todo!()
             }
+            /// Report all connected peers of the current node.
             async fn peers(&self) -> Result<HashMap<PeerId, Vec<Multiaddr>>, Error> {
                 todo!()
             }
+            /// Connect to a specific peer node.
             async fn connect(&self, _peer_id: PeerId, _addrs: Vec<Multiaddr>) -> Result<(), Error> {
                 todo!()
             }
+            /// Publish a message on a pub/sub Topic.
             async fn publish(&self, _topic: String, _data: Bytes) -> Result<(), Error> {
                 todo!()
             }

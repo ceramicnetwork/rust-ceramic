@@ -14,7 +14,7 @@ where
     // Therefore we do not need to track which blocks are pinned.
 
     // Get the data, this will ensure its stored locally.
-    let (cid, _bytes) = client.get(ipfs_path).await?;
+    let (cid, _data) = client.get(ipfs_path).await?;
     Ok(cid)
 }
 

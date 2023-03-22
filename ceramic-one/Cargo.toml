@@ -25,3 +25,4 @@ clap = { version = "4", features = ["derive"] }
 names = "0.14"
 opentelemetry.workspace = true
 opentelemetry-otlp.workspace = true
+tempdir = "0.3.7"

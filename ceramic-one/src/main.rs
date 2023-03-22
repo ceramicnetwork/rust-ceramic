@@ -26,6 +26,8 @@ enum Command {
 struct DaemonOpts {
     #[arg(short, long, default_value = "127.0.0.1:5001")]
     bind_address: String,
+    #[arg(short, long)]
+    store_dir: Option<PathBuf>,
     #[arg(short, long, default_value_t = false)]
     metrics: bool,
     #[arg(short, long, default_value_t = false)]
@@ -52,9 +54,12 @@ async fn daemon(opts: DaemonOpts) -> Result<()> {
         .expect("failed to initialize metrics");
     info!(service_name, instance_id);
 
-    let dir = match home::home_dir() {
-        Some(home_dir) => home_dir.join(".ceramic-one"),
-        None => PathBuf::from(".ceramic-one"),
+    let dir = match opts.store_dir {
+        Some(dir) => dir,
+        None => match home::home_dir() {
+            Some(home_dir) => home_dir.join(".ceramic-one"),
+            None => PathBuf::from(".ceramic-one"),
+        },
     };
     debug!("Using directory: {}", dir.display());
 
