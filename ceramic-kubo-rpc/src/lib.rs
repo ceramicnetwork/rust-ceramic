@@ -247,7 +247,7 @@ impl Resolver {
             } else {
                 part.clone().into()
             };
-            current.path = current.path.join(part.to_owned());
+            current.path = current.path.join(part);
             current.data = current.data.take(index).map_err(|_| {
                 Error::Invalid(anyhow!(
                     "IPLD resolve error: Couldn't find part {} in path '{}'",

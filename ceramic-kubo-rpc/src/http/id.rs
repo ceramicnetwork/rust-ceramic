@@ -28,14 +28,14 @@ async fn id<T>(
 where
     T: IpfsDep,
 {
-    if let Some(_) = query.format {
+    if query.format.is_some() {
         return Err(Error::Invalid(anyhow!("format is not supported.")));
     }
-    if let Some(_) = query.peer_id_base {
+    if query.peer_id_base.is_some() {
         return Err(Error::Invalid(anyhow!("peerid-base is not supported.")));
     }
     let info = if let Some(id) = &query.arg {
-        let peer_id = PeerId::from_str(&id).map_err(|e| Error::Invalid(e.into()))?;
+        let peer_id = PeerId::from_str(id).map_err(|e| Error::Invalid(e.into()))?;
         id::lookup(data.api.clone(), peer_id).await?
     } else {
         id::lookup_local(data.api.clone()).await?
