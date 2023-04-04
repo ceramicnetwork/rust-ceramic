@@ -10,7 +10,7 @@ repository.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-ceramic-kubo-rpc = { path = "../ceramic-kubo-rpc", features = ["http"] }
+ceramic-kubo-rpc = { path = "../kubo-rpc", features = ["http"] }
 futures-util.workspace = true
 home = "0.5"
 iroh-api.workspace = true
