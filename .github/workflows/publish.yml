@@ -1,0 +1,15 @@
+name: Publish Docker Image
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+    steps:
+    - uses: actions/checkout@v3
+    - name: Build and Publish
+      run: make publish-docker

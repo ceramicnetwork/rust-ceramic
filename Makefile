@@ -14,6 +14,10 @@ build:
 	# Build with all features
 	cargo build --locked --all-features
 
+.PHONY: release
+release:
+	cargo build -p ceramic-one --locked --release
+
 .PHONY: test
 test:
 	# Test with default features
@@ -35,3 +39,8 @@ check-clippy:
 .PHONY: run
 run:
 	RUST_LOG=ERROR,ceramic_kubo_rpc=DEBUG,ceramic_one=DEBUG cargo run --all-features --locked --bin ceramic-one -- daemon -b 127.0.0.1:5001
+
+.PHONY: publish-docker
+publish-docker:
+	./ci-scripts/publish.sh
+
