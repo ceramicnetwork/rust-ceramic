@@ -1,11 +1,11 @@
 [workspace]
-members = ["ceramic-kubo-rpc", "ceramic-one"]
+members = ["kubo-rpc", "one"]
 
 [workspace.dependencies]
 anyhow = "1"
 async-stream = "0.3"
 async-trait = "0.1"
-ceramic-one = { path = "./ceramic-one" }
+ceramic-one = { path = "./one" }
 dag-jose = "0.1"
 futures-util = "0.3"
 iroh-api = { git = "https://github.com/nathanielc/beetle", branch = "expose-api-client" }
