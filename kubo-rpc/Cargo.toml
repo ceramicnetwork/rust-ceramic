@@ -35,6 +35,7 @@ iroh-rpc-client.workspace = true
 libipld.workspace = true
 libp2p.workspace = true
 mime = { version = "0.3.16", optional = true }
+libp2p-tls.workspace = true
 multiaddr.workspace = true
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
