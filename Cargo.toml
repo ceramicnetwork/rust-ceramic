@@ -24,11 +24,14 @@ tracing-subscriber = "0.3"
 unimock = "0.4"
 
 # Uncomment these lines to use a local copy of beetle
-#[patch."https://github.com/nathanielc/beetle"]
-#iroh-api = { path = "../beetle/iroh-api" }
-#iroh-embed = { path = "../beetle/iroh-embed" }
-#iroh-metrics = { path = "../beetle/iroh-metrics" }
-#iroh-rpc-client = { path = "../beetle/iroh-rpc-client" }
+[patch."https://github.com/nathanielc/beetle"]
+iroh-api = { path = "../beetle/iroh-api" }
+iroh-embed = { path = "../beetle/iroh-embed" }
+iroh-metrics = { path = "../beetle/iroh-metrics" }
+iroh-rpc-client = { path = "../beetle/iroh-rpc-client" }
+
+[patch.crates-io]
+libp2p = { path = "../rust-libp2p" }
 
 [workspace.package]
 version = "0.1.0"

@@ -1098,6 +1098,7 @@ dependencies = [
  "iroh-api",
  "iroh-embed",
  "iroh-metrics",
+ "multiaddr",
  "names",
  "opentelemetry",
  "opentelemetry-otlp",
@@ -2800,7 +2801,6 @@ checksum = "30e22bd8629359895450b59ea7a776c850561b96a3b1d31321c1949d9e6c9146"
 [[package]]
 name = "iroh-api"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -2826,7 +2826,6 @@ dependencies = [
 [[package]]
 name = "iroh-bitswap"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
 dependencies = [
  "ahash 0.8.3",
  "anyhow",
@@ -2864,7 +2863,6 @@ dependencies = [
 [[package]]
 name = "iroh-car"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
 dependencies = [
  "cid 0.9.0",
  "futures",
@@ -2878,7 +2876,6 @@ dependencies = [
 [[package]]
 name = "iroh-embed"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
 dependencies = [
  "anyhow",
  "futures",
@@ -2899,7 +2896,6 @@ dependencies = [
 [[package]]
 name = "iroh-gateway"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -2959,7 +2955,6 @@ dependencies = [
 [[package]]
 name = "iroh-metrics"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
 dependencies = [
  "async-trait",
  "config",
@@ -2982,7 +2977,6 @@ dependencies = [
 [[package]]
 name = "iroh-one"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3013,7 +3007,6 @@ dependencies = [
 [[package]]
 name = "iroh-p2p"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
 dependencies = [
  "ahash 0.8.3",
  "anyhow",
@@ -3052,7 +3045,6 @@ dependencies = [
 [[package]]
 name = "iroh-resolver"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -3078,7 +3070,6 @@ dependencies = [
 [[package]]
 name = "iroh-rpc-client"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -3101,7 +3092,6 @@ dependencies = [
 [[package]]
 name = "iroh-rpc-types"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
 dependencies = [
  "anyhow",
  "bytes",
@@ -3119,7 +3109,6 @@ dependencies = [
 [[package]]
 name = "iroh-store"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
 dependencies = [
  "ahash 0.8.3",
  "anyhow",
@@ -3153,7 +3142,6 @@ dependencies = [
 [[package]]
 name = "iroh-unixfs"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -3190,7 +3178,6 @@ dependencies = [
 [[package]]
 name = "iroh-util"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
 dependencies = [
  "anyhow",
  "cid 0.9.0",
@@ -3421,9 +3408,7 @@ checksum = "348108ab3fba42ec82ff6e9564fc4ca0247bdccdc68dd8af9764bbc79c3c8ffb"
 
 [[package]]
 name = "libp2p"
-version = "0.50.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c7b0104790be871edcf97db9bd2356604984e623a08d825c3f27852290266b8"
+version = "0.50.0"
 dependencies = [
  "bytes",
  "futures",
@@ -3458,9 +3443,7 @@ dependencies = [
 
 [[package]]
 name = "libp2p-autonat"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "705aa16b15f8438eea368b06cb0461ac885df35152b25ec31dfade1179a687cd"
+version = "0.9.0"
 dependencies = [
  "async-trait",
  "futures",
@@ -3478,8 +3461,6 @@ dependencies = [
 [[package]]
 name = "libp2p-core"
 version = "0.38.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6a8fcd392ff67af6cc3f03b1426c41f7f26b6b9aff2dc632c1c56dd649e571f"
 dependencies = [
  "asn1_der",
  "bs58",
@@ -3513,9 +3494,7 @@ dependencies = [
 
 [[package]]
 name = "libp2p-dcutr"
-version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c642470f6ca6301cb607806c7c045b1e70010659422ec775367fc334147fa28a"
+version = "0.8.0"
 dependencies = [
  "asynchronous-codec",
  "bytes",
@@ -3536,8 +3515,6 @@ dependencies = [
 [[package]]
 name = "libp2p-dns"
 version = "0.38.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e42a271c1b49f789b92f7fc87749fa79ce5c7bdc88cbdfacb818a4bca47fec5"
 dependencies = [
  "futures",
  "libp2p-core",
@@ -3550,8 +3527,6 @@ dependencies = [
 [[package]]
 name = "libp2p-gossipsub"
 version = "0.43.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a173171c71c29bb156f98886c7c4824596de3903dadf01e2e79d2ccdcf38cd9f"
 dependencies = [
  "asynchronous-codec",
  "base64 0.13.1",
@@ -3580,9 +3555,7 @@ dependencies = [
 
 [[package]]
 name = "libp2p-identify"
-version = "0.41.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c052d0026f4817b44869bfb6810f4e1112f43aec8553f2cb38881c524b563abf"
+version = "0.41.0"
 dependencies = [
  "asynchronous-codec",
  "futures",
@@ -3601,9 +3574,7 @@ dependencies = [
 
 [[package]]
 name = "libp2p-kad"
-version = "0.42.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2766dcd2be8c87d5e1f35487deb22d765f49c6ae1251b3633efe3b25698bd3d2"
+version = "0.42.0"
 dependencies = [
  "arrayvec",
  "asynchronous-codec",
@@ -3631,8 +3602,6 @@ dependencies = [
 [[package]]
 name = "libp2p-mdns"
 version = "0.42.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04f378264aade9872d6ccd315c0accc18be3a35d15fc1b9c36e5b6f983b62b5b"
 dependencies = [
  "data-encoding",
  "futures",
@@ -3651,8 +3620,6 @@ dependencies = [
 [[package]]
 name = "libp2p-metrics"
 version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ad8a64f29da86005c86a4d2728b8a0719e9b192f4092b609fd8790acb9dec55"
 dependencies = [
  "libp2p-core",
  "libp2p-dcutr",
@@ -3668,8 +3635,6 @@ dependencies = [
 [[package]]
 name = "libp2p-mplex"
 version = "0.38.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "03805b44107aa013e7cbbfa5627b31c36cbedfdfb00603c0311998882bc4bace"
 dependencies = [
  "asynchronous-codec",
  "bytes",
@@ -3686,8 +3651,6 @@ dependencies = [
 [[package]]
 name = "libp2p-noise"
 version = "0.41.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a978cb57efe82e892ec6f348a536bfbd9fee677adbe5689d7a93ad3a9bffbf2e"
 dependencies = [
  "bytes",
  "curve25519-dalek 3.2.0",
@@ -3709,8 +3672,6 @@ dependencies = [
 [[package]]
 name = "libp2p-ping"
 version = "0.41.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "929fcace45a112536e22b3dcfd4db538723ef9c3cb79f672b98be2cc8e25f37f"
 dependencies = [
  "futures",
  "futures-timer",
@@ -3725,8 +3686,6 @@ dependencies = [
 [[package]]
 name = "libp2p-quic"
 version = "0.7.0-alpha"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "01e7c867e95c8130667b24409d236d37598270e6da69b3baf54213ba31ffca59"
 dependencies = [
  "bytes",
  "futures",
@@ -3746,8 +3705,6 @@ dependencies = [
 [[package]]
 name = "libp2p-relay"
 version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dffb67f6b6cce19cfeab9b10b77fbff756a66a1c143cba7deb8c3f964fadcb59"
 dependencies = [
  "asynchronous-codec",
  "bytes",
@@ -3772,8 +3729,6 @@ dependencies = [
 [[package]]
 name = "libp2p-request-response"
 version = "0.23.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3236168796727bfcf4927f766393415361e2c644b08bedb6a6b13d957c9a4884"
 dependencies = [
  "async-trait",
  "bytes",
@@ -3789,9 +3744,7 @@ dependencies = [
 
 [[package]]
 name = "libp2p-swarm"
-version = "0.41.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2a35472fe3276b3855c00f1c032ea8413615e030256429ad5349cdf67c6e1a0"
+version = "0.41.0"
 dependencies = [
  "either",
  "fnv",
@@ -3811,9 +3764,7 @@ dependencies = [
 
 [[package]]
 name = "libp2p-swarm-derive"
-version = "0.31.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d527d5827582abd44a6d80c07ff8b50b4ee238a8979e05998474179e79dc400"
+version = "0.30.2"
 dependencies = [
  "heck",
  "quote",
@@ -3823,8 +3774,6 @@ dependencies = [
 [[package]]
 name = "libp2p-tcp"
 version = "0.38.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4b257baf6df8f2df39678b86c578961d48cc8b68642a12f0f763f56c8e5858d"
 dependencies = [
  "futures",
  "futures-timer",
@@ -3839,8 +3788,6 @@ dependencies = [
 [[package]]
 name = "libp2p-tls"
 version = "0.1.0-alpha"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7905ce0d040576634e8a3229a7587cc8beab83f79db6023800f1792895defa8"
 dependencies = [
  "futures",
  "futures-rustls",
@@ -3857,8 +3804,6 @@ dependencies = [
 [[package]]
 name = "libp2p-webrtc"
 version = "0.4.0-alpha"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cdb6cd86dd68cba72308ea05de1cebf3ba0ae6e187c40548167955d4e3970f6a"
 dependencies = [
  "async-trait",
  "asynchronous-codec",
@@ -3888,8 +3833,6 @@ dependencies = [
 [[package]]
 name = "libp2p-websocket"
 version = "0.40.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d705506030d5c0aaf2882437c70dab437605f21c5f9811978f694e6917a3b54"
 dependencies = [
  "either",
  "futures",
@@ -3907,8 +3850,6 @@ dependencies = [
 [[package]]
 name = "libp2p-yamux"
 version = "0.42.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4f63594a0aa818642d9d4915c791945053877253f08a3626f13416b5cd928a29"
 dependencies = [
  "futures",
  "libp2p-core",
@@ -4219,8 +4160,6 @@ checksum = "e5ce46fe64a9d73be07dcbe690a38ce1b293be448fd8ce1e6c1b8062c9f72c6a"
 [[package]]
 name = "multistream-select"
 version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8552ab875c1313b97b8d20cb857b9fd63e2d1d6a0a1b53ce9821e575405f27a"
 dependencies = [
  "bytes",
  "futures",
@@ -5096,8 +5035,6 @@ dependencies = [
 [[package]]
 name = "prost-codec"
 version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0dc34979ff898b6e141106178981ce2596c387ea6e62533facfc61a37fc879c0"
 dependencies = [
  "asynchronous-codec",
  "bytes",
@@ -5722,8 +5659,6 @@ checksum = "4f3208ce4d8448b3f3e7d168a73f5e0c43a61e32930de3bceeccedb388b6bf06"
 [[package]]
 name = "rw-stream-sink"
 version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26338f5e09bb721b85b135ea05af7767c90b52f6de4f087d4f4a3a9d64e7dc04"
 dependencies = [
  "futures",
  "pin-project",

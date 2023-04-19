@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
+use iroh_api::Multiaddr;
 use iroh_embed::{IrohBuilder, Libp2pConfig, P2pService, RocksStoreService};
 use iroh_metrics::config::Config as MetricsConfig;
 use tracing::{debug, info};
@@ -19,18 +20,35 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
+    /// Run a daemon process
     Daemon(DaemonOpts),
 }
 
 #[derive(Args, Debug)]
 struct DaemonOpts {
-    #[arg(short, long, default_value = "127.0.0.1:5001")]
+    /// Bind address of the RPC enpoint.
+    #[arg(
+        short,
+        long,
+        default_value = "127.0.0.1:5001",
+        env = "CERAMIC_ONE_BIND_ADDRESS"
+    )]
     bind_address: String,
-    #[arg(short, long)]
+    /// Listen address of the p2p swarm.
+    #[arg(
+        long,
+        default_values_t = vec!["/ip4/0.0.0.0/tcp/0".to_string(), "/ip4/0.0.0.0/udp/0/quic-v1".to_string()],
+        env = "CERAMIC_ONE_SWARM_ADDRESSES"
+    )]
+    swarm_addresses: Vec<String>,
+    /// Path to storage directory
+    #[arg(short, long, env = "CERAMIC_ONE_STORE_DIR")]
     store_dir: Option<PathBuf>,
-    #[arg(short, long, default_value_t = false)]
+    /// When true metrics will be exported
+    #[arg(short, long, default_value_t = false, env = "CERAMIC_ONE_METRICS")]
     metrics: bool,
-    #[arg(short, long, default_value_t = false)]
+    /// When true traces will be exported
+    #[arg(short, long, default_value_t = false, env = "CERAMIC_ONE_TRACING")]
     tracing: bool,
 }
 
@@ -66,13 +84,27 @@ async fn daemon(opts: DaemonOpts) -> Result<()> {
     let store = RocksStoreService::new(dir.join("store")).await?;
 
     let mut p2p_config = Libp2pConfig::default();
+    p2p_config.mdns = false;
+
+    p2p_config.bitswap_server = true;
+    p2p_config.bitswap_client = true;
+    p2p_config.kademlia = true;
+    p2p_config.autonat = true;
+    p2p_config.relay_server = true;
+    p2p_config.relay_client = true;
+    p2p_config.gossipsub = true;
+    p2p_config.max_conns_out = 200;
+    p2p_config.max_conns_in = 200;
+    //p2p_config.max_conns_pending_out = 5;
+    //p2p_config.max_conns_pending_in = 5;
     // Do not use any bootstrap_peers,
-    // js-ceramic will initialize the bootstrap_peers when it connects.
+    // clients should initialize the bootstrap_peers.
     p2p_config.bootstrap_peers = vec![];
-    p2p_config.listening_multiaddrs = vec![
-        "/ip4/0.0.0.0/tcp/0".parse().unwrap(),
-        "/ip4/0.0.0.0/udp/0/quic-v1".parse().unwrap(),
-    ];
+    p2p_config.listening_multiaddrs = opts
+        .swarm_addresses
+        .iter()
+        .map(|addr| addr.parse())
+        .collect::<Result<Vec<Multiaddr>, multiaddr::Error>>()?;
     let p2p = P2pService::new(p2p_config, dir, store.addr()).await?;
 
     // Note by default this is configured with an indexer, but not with http resolvers.
