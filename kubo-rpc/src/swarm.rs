@@ -26,6 +26,5 @@ where
     T: IpfsDep,
 {
     client.connect(peer_id, addrs).await?;
-
     Ok(())
 }
