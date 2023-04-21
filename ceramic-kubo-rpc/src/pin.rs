@@ -33,3 +33,12 @@ where
         Err(Error::Invalid(anyhow!("IPFS path does not have a CID")))
     }
 }
+
+/// List pinned blocks
+#[tracing::instrument(skip(client))]
+pub async fn list<T>(client: T) -> Result<Vec<Cid>, Error>
+where
+    T: IpfsDep,
+{
+    Ok(client.list().await?)
+}

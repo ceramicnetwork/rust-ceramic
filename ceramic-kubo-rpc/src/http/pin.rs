@@ -1,9 +1,12 @@
-use std::str::FromStr;
+use std::{str::FromStr, time::Duration};
 
 use actix_web::{http::header::ContentType, web, HttpResponse, Scope};
 use anyhow::anyhow;
-use iroh_api::IpfsPath;
+use iroh_api::{Cid, IpfsPath};
+use iroh_car::{CarHeader, CarWriter};
 use serde::{Deserialize, Serialize};
+use tokio::time::timeout;
+use tracing::warn;
 
 use crate::{error::Error, http::AppState, pin, IpfsDep};
 pub fn scope<T>() -> Scope
@@ -88,12 +91,65 @@ where
         .body(body))
 }
 
-#[tracing::instrument(skip(_data))]
-async fn list<T>(_data: web::Data<AppState<T>>) -> Result<HttpResponse, Error>
+#[tracing::instrument(skip(data))]
+async fn list<T>(data: web::Data<AppState<T>>) -> Result<HttpResponse, Error>
 where
     T: IpfsDep,
 {
-    Err(Error::Invalid(anyhow!("listing pins is not supported.")))
+    let cids = pin::list(data.api.clone()).await?;
+
+    let api = data.api.clone();
+    let mut valid_cids = Vec::with_capacity(cids.len());
+    for cid in &cids {
+        warn!(?cid, "checking cid for car");
+        if cid.codec() == 0x71 {
+            let bytes = timeout(Duration::from_millis(500), api.block_get(*cid))
+                .await
+                .ok()
+                .transpose()
+                .ok();
+            if let Some(Some(bytes)) = bytes {
+                valid_cids.push((*cid, bytes));
+            }
+        }
+    }
+    warn!("found {} cids", valid_cids.len());
+
+    let mut file = tokio::fs::File::create("/tmp/carquet/all.car")
+        .await
+        .map_err(|e| Error::Internal(e.into()))?;
+    let header: CarHeader = CarHeader::V1(
+        valid_cids
+            .iter()
+            .map(|(cid, _)| *cid)
+            .collect::<Vec<Cid>>()
+            .into(),
+    );
+    let mut writer = CarWriter::new(header, &mut file);
+    for (cid, bytes) in valid_cids {
+        let _ = writer
+            .write(cid, bytes)
+            .await
+            .map_err(|e| Error::Internal(e.into()))?;
+    }
+    let _ = writer
+        .finish()
+        .await
+        .map_err(|e| Error::Internal(e.into()))?;
+
+    #[derive(Serialize)]
+    struct ListResponse {
+        #[serde(rename = "Pins")]
+        pins: Vec<String>,
+    }
+    let pins = ListResponse {
+        pins: cids.into_iter().map(|cid| cid.to_string()).collect(),
+    };
+
+    let body = serde_json::to_vec(&pins).map_err(|e| Error::Internal(e.into()))?;
+    Ok(HttpResponse::Ok()
+        .content_type(ContentType::json())
+        .body(body))
 }
 
 #[cfg(test)]

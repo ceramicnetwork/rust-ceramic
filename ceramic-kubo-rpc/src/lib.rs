@@ -58,6 +58,8 @@ pub trait IpfsDep: Clone {
     async fn block_size(&self, cid: Cid) -> Result<u64, Error>;
     /// Get a block from IPFS
     async fn block_get(&self, cid: Cid) -> Result<Bytes, Error>;
+    /// List stored Cids
+    async fn list(&self) -> Result<Vec<Cid>, Error>;
     /// Get a DAG node from IPFS returning the Cid of the resolved path and the bytes of the node.
     /// This will locally store the data as a result.
     async fn get(&self, ipfs_path: &IpfsPath) -> Result<(Cid, Ipld), Error>;
@@ -128,6 +130,15 @@ impl IpfsDep for Api {
     }
     async fn block_get(&self, cid: Cid) -> Result<Bytes, Error> {
         Ok(self.get_raw(cid).await.map_err(Error::Internal)?)
+    }
+    async fn list(&self) -> Result<Vec<Cid>, Error> {
+        Ok(self
+            .client()
+            .try_store()
+            .map_err(Error::Internal)?
+            .list()
+            .await
+            .map_err(Error::Internal)?)
     }
     async fn get(&self, ipfs_path: &IpfsPath) -> Result<(Cid, Ipld), Error> {
         let resolver = Resolver {
