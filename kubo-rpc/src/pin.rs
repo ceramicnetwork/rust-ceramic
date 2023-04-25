@@ -1,8 +1,5 @@
 //! Implements the pin endpoints.
-use anyhow::anyhow;
-use iroh_api::{Cid, IpfsPath};
-
-use crate::{error::Error, IpfsDep};
+use crate::{error::Error, Cid, IpfsDep, IpfsPath};
 
 /// Add a DAG node to local store and mark it to not be garbaged collected.
 #[tracing::instrument(skip(client))]
@@ -24,12 +21,8 @@ pub async fn remove<T>(_client: T, ipfs_path: &IpfsPath) -> Result<Cid, Error>
 where
     T: IpfsDep,
 {
-    if let Some(cid) = ipfs_path.cid() {
-        // Beetle does not have any garbage collection for its store so everything is pinned.
-        // Therefore we do not need to track which blocks are pinned.
-        // Do nothing
-        Ok(*cid)
-    } else {
-        Err(Error::Invalid(anyhow!("IPFS path does not have a CID")))
-    }
+    // We do not have any garbage collection for its store so everything is pinned.
+    // Therefore we do not need to track which blocks are pinned.
+    // Do nothing
+    Ok(ipfs_path.cid())
 }

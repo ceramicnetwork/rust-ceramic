@@ -37,7 +37,7 @@ pub const DAG_JOSE: &str = "dag-jose";
 ///
 /// Block until shutdown.
 /// Automatically registers shutdown listeners for interrupt and kill signals.
-/// See https://actix.rs/docs/server/#graceful-shutdown
+/// See <https://actix.rs/docs/server/#graceful-shutdown>
 pub async fn serve<T, A>(api: T, addrs: A) -> std::io::Result<()>
 where
     T: IpfsDep + Send + Clone + 'static,
@@ -137,9 +137,14 @@ mod tests {
         B: MessageBody,
         <B as MessageBody>::Error: std::fmt::Debug,
     {
-        let body_json: serde_json::Value =
-            serde_json::from_slice(body::to_bytes(body).await.unwrap().as_ref())
-                .expect("response body should be valid json");
+        let body_bytes = body::to_bytes(body).await.unwrap();
+        let body_json: serde_json::Value = serde_json::from_slice(body_bytes.as_ref()).expect(
+            format!(
+                "response body should be valid json: {:?}",
+                String::from_utf8(body_bytes.as_ref().to_vec())
+            )
+            .as_str(),
+        );
         let pretty_json = serde_json::to_string_pretty(&body_json).unwrap();
         expect.assert_eq(&pretty_json);
     }

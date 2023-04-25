@@ -1,20 +1,36 @@
 //! Provides an API for performing the Kubo RPC calls consumed by js-ceramic.
 //!
 //! Both a Rust API is provided along with an HTTP server implementation that follows
-//! https://docs.ipfs.tech/reference/kubo/rpc/
+//! <https://docs.ipfs.tech/reference/kubo/rpc/>
 //!
 //! The http server implementation is behind the `http` feature.
 #![deny(warnings)]
 #![deny(missing_docs)]
-use std::{collections::HashMap, io::Cursor, path::PathBuf};
+use std::{
+    collections::HashMap,
+    fmt::{self, Display, Formatter},
+    io::Cursor,
+    path::PathBuf,
+};
+use std::{str::FromStr, sync::Arc};
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use async_trait::async_trait;
 use dag_jose::DagJoseCodec;
 use futures_util::stream::BoxStream;
-use iroh_api::{Api, Bytes, Cid, GossipsubEvent, IpfsPath, Multiaddr, PeerId};
-use libipld::{cbor::DagCborCodec, json::DagJsonCodec, prelude::Decode, Ipld};
+use iroh_rpc_client::{P2pClient, StoreClient};
+use libipld::{cbor::DagCborCodec, json::DagJsonCodec, prelude::Decode};
+use libp2p::gossipsub::TopicHash;
+use tracing::{error, trace};
 use unimock::unimock;
+
+// Pub use any types we export as part of an trait or struct
+pub use bytes::Bytes;
+pub use cid::Cid;
+pub use iroh_p2p::PeerId;
+pub use iroh_rpc_types::GossipsubEvent;
+pub use libipld::Ipld;
+pub use libp2p::Multiaddr;
 
 pub mod block;
 pub mod dag;
@@ -41,6 +57,75 @@ pub struct PeerInfo {
     pub listen_addrs: Vec<Multiaddr>,
     /// Protocols supported by the peer.
     pub protocols: Vec<String>,
+}
+
+/// An IPFS path {cid}/path/through/dag
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IpfsPath {
+    root: Cid,
+    tail: Vec<String>,
+}
+impl IpfsPath {
+    /// New path from a cid.
+    pub fn from_cid(cid: Cid) -> Self {
+        Self {
+            root: cid,
+            tail: Vec::new(),
+        }
+    }
+    fn cid(&self) -> Cid {
+        self.root
+    }
+    fn tail(&self) -> &[String] {
+        self.tail.as_slice()
+    }
+    // used only for string path manipulation
+    fn has_trailing_slash(&self) -> bool {
+        !self.tail.is_empty() && self.tail.last().unwrap().is_empty()
+    }
+}
+impl Display for IpfsPath {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "/{}", self.root)?;
+
+        for part in &self.tail {
+            if part.is_empty() {
+                continue;
+            }
+            write!(f, "/{part}")?;
+        }
+
+        if self.has_trailing_slash() {
+            write!(f, "/")?;
+        }
+
+        Ok(())
+    }
+}
+
+impl FromStr for IpfsPath {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut parts = s.split(&['/', '\\']).filter(|s| !s.is_empty());
+
+        let first_part = parts.next().ok_or_else(|| anyhow!("path too short"))?;
+        let root = if first_part.eq_ignore_ascii_case("ipfs") {
+            parts.next().ok_or_else(|| anyhow!("path too short"))?
+        } else {
+            first_part
+        };
+
+        let root = Cid::from_str(root).context("invalid cid")?;
+
+        let mut tail: Vec<String> = parts.map(Into::into).collect();
+
+        if s.ends_with('/') {
+            tail.push("".to_owned());
+        }
+
+        Ok(IpfsPath { root, tail })
+    }
 }
 
 /// Defines the behavior this crate needs from IPFS in order to serve Kubo RPC calls.
@@ -80,17 +165,33 @@ pub trait IpfsDep: Clone {
     async fn topics(&self) -> Result<Vec<String>, Error>;
 }
 
+/// Implemntation of IPFS APIs
+pub struct IpfsService {
+    p2p: P2pClient,
+    store: StoreClient,
+    resolver: Resolver,
+}
+
+impl IpfsService {
+    /// Create new IpfsService
+    pub fn new(p2p: P2pClient, store: StoreClient) -> Self {
+        let loader = Loader {
+            p2p: p2p.clone(),
+            store: store.clone(),
+        };
+        let resolver = Resolver::new(loader);
+        Self {
+            p2p,
+            store,
+            resolver,
+        }
+    }
+}
 #[async_trait]
-impl IpfsDep for Api {
+impl IpfsDep for Arc<IpfsService> {
     /// Get the ID of the local peer.
     async fn lookup_local(&self) -> Result<PeerInfo, Error> {
-        let l = self
-            .client()
-            .try_p2p()
-            .map_err(Error::Internal)?
-            .lookup_local()
-            .await
-            .map_err(Error::Internal)?;
+        let l = self.p2p.lookup_local().await.map_err(Error::Internal)?;
         Ok(PeerInfo {
             peer_id: l.peer_id,
             protocol_version: l.protocol_version,
@@ -102,9 +203,7 @@ impl IpfsDep for Api {
     /// Get information a peer.
     async fn lookup(&self, peer_id: PeerId) -> Result<PeerInfo, Error> {
         let l = self
-            .client()
-            .try_p2p()
-            .map_err(Error::Internal)?
+            .p2p
             .lookup(peer_id, None)
             .await
             .map_err(Error::Internal)?;
@@ -118,69 +217,51 @@ impl IpfsDep for Api {
     }
     async fn block_size(&self, cid: Cid) -> Result<u64, Error> {
         Ok(self
-            .client()
-            .try_store()
-            .map_err(Error::Internal)?
+            .store
             .get_size(cid)
             .await
             .map_err(Error::Internal)?
             .ok_or(Error::NotFound)?)
     }
     async fn block_get(&self, cid: Cid) -> Result<Bytes, Error> {
-        Ok(self.get_raw(cid).await.map_err(Error::Internal)?)
+        // TODO do we want to advertise on the DHT all Cids we have?
+        Ok(self.resolver.load_cid_bytes(cid).await?)
     }
     async fn get(&self, ipfs_path: &IpfsPath) -> Result<(Cid, Ipld), Error> {
-        let resolver = Resolver {
-            client: self.clone(),
-        };
-        let node = resolver.resolve(ipfs_path).await?;
+        // TODO do we want to advertise on the DHT all Cids we have?
+        let node = self.resolver.resolve(ipfs_path).await?;
         Ok((node.cid, node.data))
     }
     async fn put(&self, cid: Cid, blob: Bytes, links: Vec<Cid>) -> Result<(), Error> {
         // Advertise we provide the content
-        self.client()
-            .try_p2p()
-            .map_err(Error::Internal)?
+        self.p2p
             .start_providing(&cid)
             .await
             .map_err(Error::Internal)?;
         Ok(self
-            .client()
-            .try_store()
-            .map_err(Error::Internal)?
+            .store
             .put(cid, blob, links)
             .await
             .map_err(Error::Internal)?)
     }
     async fn resolve(&self, ipfs_path: &IpfsPath) -> Result<(Cid, String), Error> {
-        let resolver = Resolver {
-            client: self.clone(),
-        };
-        let node = resolver.resolve(ipfs_path).await?;
+        let node = self.resolver.resolve(ipfs_path).await?;
         Ok((node.cid, node.path.to_string_lossy().to_string()))
     }
     async fn peers(&self) -> Result<HashMap<PeerId, Vec<Multiaddr>>, Error> {
-        Ok(self
-            .client()
-            .try_p2p()
-            .map_err(Error::Internal)?
-            .get_peers()
-            .await
-            .map_err(Error::Internal)?)
+        Ok(self.p2p.get_peers().await.map_err(Error::Internal)?)
     }
     async fn connect(&self, peer_id: PeerId, addrs: Vec<Multiaddr>) -> Result<(), Error> {
         Ok(self
-            .client()
-            .try_p2p()
-            .map_err(Error::Internal)?
+            .p2p
             .connect(peer_id, addrs)
             .await
             .map_err(Error::Internal)?)
     }
     async fn publish(&self, topic: String, data: Bytes) -> Result<(), Error> {
-        self.p2p()
-            .map_err(Error::Internal)?
-            .publish(topic, data)
+        let topic = TopicHash::from_raw(topic);
+        self.p2p
+            .gossipsub_publish(topic, data)
             .await
             .map_err(Error::Internal)?;
         Ok(())
@@ -189,19 +270,17 @@ impl IpfsDep for Api {
         &self,
         topic: String,
     ) -> Result<BoxStream<'static, anyhow::Result<GossipsubEvent>>, Error> {
+        let topic = TopicHash::from_raw(topic);
         Ok(Box::pin(
-            self.p2p()
-                .map_err(Error::Internal)?
-                .subscribe(topic)
+            self.p2p
+                .gossipsub_subscribe(topic)
                 .await
                 .map_err(Error::Internal)?,
         ))
     }
     async fn topics(&self) -> Result<Vec<String>, Error> {
         Ok(self
-            .client()
-            .try_p2p()
-            .map_err(Error::Internal)?
+            .p2p
             .gossipsub_topics()
             .await
             .map_err(Error::Internal)?
@@ -217,7 +296,7 @@ impl IpfsDep for Api {
 // * dag-json
 // * dag-jose
 struct Resolver {
-    client: Api,
+    loader: Loader,
 }
 
 // Represents an IPFS DAG node
@@ -231,10 +310,11 @@ struct Node {
 }
 
 impl Resolver {
+    fn new(loader: Loader) -> Self {
+        Resolver { loader }
+    }
     async fn resolve(&self, path: &IpfsPath) -> Result<Node, Error> {
-        let root_cid = *path
-            .cid()
-            .ok_or_else(|| Error::Invalid(anyhow!("path must start with a CID")))?;
+        let root_cid = path.cid();
         let root = self.load_cid(root_cid).await?;
 
         let mut current = root;
@@ -272,8 +352,11 @@ impl Resolver {
         }
         Ok(current)
     }
+    async fn load_cid_bytes(&self, cid: Cid) -> Result<Bytes, Error> {
+        Ok(self.loader.load_cid(cid).await.map_err(Error::Internal)?)
+    }
     async fn load_cid(&self, cid: Cid) -> Result<Node, Error> {
-        let bytes = self.client.get_raw(cid).await.map_err(Error::Internal)?;
+        let bytes = self.load_cid_bytes(cid).await?;
         let data = match cid.codec() {
             //TODO(nathanielc): create constants for these
             // dag-cbor
@@ -292,5 +375,50 @@ impl Resolver {
         };
         let path = PathBuf::new();
         Ok(Node { cid, path, data })
+    }
+}
+
+/// Loader is responsible for fetching Cids.
+/// It tries local storage and then the network (via bitswap).
+struct Loader {
+    p2p: P2pClient,
+    store: StoreClient,
+}
+
+impl Loader {
+    // Load a Cid returning its bytes.
+    // If the Cid was not stored locally it will be added to the local store.
+    async fn load_cid(&self, cid: Cid) -> anyhow::Result<Bytes> {
+        trace!(%cid, "loading cid");
+
+        if let Some(loaded) = self.fetch_store(cid).await? {
+            return Ok(loaded);
+        }
+
+        let loaded = self.fetch_bitswap(cid).await?;
+
+        // Add loaded cid to the local store
+        self.store_data(cid, loaded.clone());
+        Ok(loaded)
+    }
+
+    async fn fetch_store(&self, cid: Cid) -> anyhow::Result<Option<Bytes>> {
+        Ok(self.store.get(cid).await?)
+    }
+    async fn fetch_bitswap(&self, cid: Cid) -> anyhow::Result<Bytes> {
+        // TODO can we check kad here and not use bitswap for content discovery?
+        Ok(self.p2p.fetch_bitswap(0, cid, Default::default()).await?)
+    }
+
+    fn store_data(&self, cid: Cid, data: Bytes) {
+        // trigger storage in the background
+        let store = self.store.clone();
+
+        tokio::spawn(async move {
+            match store.put(cid, data, vec![]).await {
+                Ok(_) => {}
+                Err(err) => error!(?err, "failed to put cid into local store"),
+            }
+        });
     }
 }

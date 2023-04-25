@@ -1,7 +1,5 @@
 //! Provides methods for looking up peer info.
-use iroh_api::PeerId;
-
-use crate::{error::Error, IpfsDep, PeerInfo};
+use crate::{error::Error, IpfsDep, PeerId, PeerInfo};
 
 /// Lookup information about a specific peer.
 #[tracing::instrument(skip(client))]
