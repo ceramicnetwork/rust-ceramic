@@ -1,7 +1,7 @@
 //! Implements the dag endpoints.
 use std::io::{Read, Seek};
 
-use iroh_api::{Cid, IpfsPath};
+use crate::{Cid, IpfsPath};
 use libipld::{
     multihash::{Code, MultihashDigest},
     prelude::{Codec, Decode, Encode},

@@ -1,12 +1,12 @@
-use crate::{error::Error, http::AppState, pubsub, IpfsDep};
 use actix_multipart::Multipart;
 use actix_web::{http::header::ContentType, web, HttpResponse, Scope};
 use anyhow::anyhow;
 use futures_util::StreamExt;
-use iroh_api::{Bytes, GossipsubEvent};
 use libipld::multibase::{self, Base};
 use libp2p::gossipsub::GossipsubMessage;
 use serde::{Deserialize, Serialize};
+
+use crate::{error::Error, http::AppState, pubsub, Bytes, GossipsubEvent, IpfsDep};
 
 pub fn scope<T>() -> Scope
 where
@@ -163,7 +163,7 @@ mod tests {
     use crate::{
         error::Error,
         http::tests::{assert_body_json, assert_body_json_nl, build_server},
-        IpfsDep, PeerInfo,
+        IpfsDep,
     };
 
     use actix_multipart_rfc7578::client::multipart;
@@ -173,11 +173,7 @@ mod tests {
     use async_trait::async_trait;
     use expect_test::expect;
     use futures_util::{stream::BoxStream, StreamExt};
-    use iroh_api::{Bytes, Cid, GossipsubEvent, IpfsPath, MessageId, Multiaddr, PeerId};
-    use libipld::{
-        multibase::{self, Base},
-        Ipld,
-    };
+    use libipld::multibase::{self, Base};
     use libp2p::gossipsub::{GossipsubMessage, TopicHash};
     use unimock::MockFn;
     use unimock::{matching, Unimock};
@@ -250,60 +246,80 @@ mod tests {
         #[async_trait]
         impl IpfsDep for TestDeps {
             /// Get information about the local peer.
-            async fn lookup_local(&self) -> Result<PeerInfo, Error> {
+            async fn lookup_local(&self) -> Result<crate::PeerInfo, Error> {
                 todo!()
             }
             /// Get information about a peer.
-            async fn lookup(&self, _peer_id: PeerId) -> Result<PeerInfo, Error> {
+            async fn lookup(&self, _peer_id: crate::PeerId) -> Result<crate::PeerInfo, Error> {
                 todo!()
             }
             /// Get the size of an IPFS block.
-            async fn block_size(&self, _cid: Cid) -> Result<u64, Error> {
+            async fn block_size(&self, _cid: crate::Cid) -> Result<u64, crate::Error> {
                 todo!()
             }
             /// Get a block from IPFS
-            async fn block_get(&self, _cid: Cid) -> Result<Bytes, Error> {
+            async fn block_get(&self, _cid: crate::Cid) -> Result<crate::Bytes, crate::Error> {
                 todo!()
             }
             /// Get a DAG node from IPFS returning the Cid of the resolved path and the bytes of the node.
             /// This will locally store the data as a result.
-            async fn get(&self, _ipfs_path: &IpfsPath) -> Result<(Cid, Ipld), Error> {
+            async fn get(
+                &self,
+                _ipfs_path: &crate::IpfsPath,
+            ) -> Result<(crate::Cid, crate::Ipld), crate::Error> {
                 todo!()
             }
             /// Store a DAG node into IFPS.
-            async fn put(&self, _cid: Cid, _blob: Bytes, _links: Vec<Cid>) -> Result<(), Error> {
+            async fn put(
+                &self,
+                _cid: crate::Cid,
+                _blob: crate::Bytes,
+                _links: Vec<crate::Cid>,
+            ) -> Result<(), crate::Error> {
                 todo!()
             }
             /// Resolve an IPLD block.
-            async fn resolve(&self, _ipfs_path: &IpfsPath) -> Result<(Cid, String), Error> {
+            async fn resolve(
+                &self,
+                _ipfs_path: &crate::IpfsPath,
+            ) -> Result<(crate::Cid, String), crate::Error> {
                 todo!()
             }
             /// Report all connected peers of the current node.
-            async fn peers(&self) -> Result<HashMap<PeerId, Vec<Multiaddr>>, Error> {
+            async fn peers(
+                &self,
+            ) -> Result<HashMap<crate::PeerId, Vec<crate::Multiaddr>>, crate::Error> {
                 todo!()
             }
             /// Connect to a specific peer node.
-            async fn connect(&self, _peer_id: PeerId, _addrs: Vec<Multiaddr>) -> Result<(), Error> {
+            async fn connect(
+                &self,
+                _peer_id: crate::PeerId,
+                _addrs: Vec<crate::Multiaddr>,
+            ) -> Result<(), Error> {
                 todo!()
             }
             /// Publish a message on a pub/sub Topic.
-            async fn publish(&self, _topic: String, _data: Bytes) -> Result<(), Error> {
+            async fn publish(&self, _topic: String, _data: crate::Bytes) -> Result<(), Error> {
                 todo!()
             }
             async fn subscribe(
                 &self,
                 topic: String,
-            ) -> Result<BoxStream<'static, anyhow::Result<GossipsubEvent>>, Error> {
+            ) -> Result<BoxStream<'static, anyhow::Result<crate::GossipsubEvent>>, Error>
+            {
                 if topic != "topicA" {
                     return Err(Error::Internal(anyhow!("unexpected topic")));
                 }
-                let first = Ok(GossipsubEvent::Message {
-                    from: PeerId::from_str("12D3KooWHUfjwiTRVV8jxFcKRSQTPatayC4nQCNX86oxRF5XWzGe")
-                        .unwrap(),
-                    id: MessageId::new(&[]),
+                let first = Ok(crate::GossipsubEvent::Message {
+                    from: crate::PeerId::from_str(
+                        "12D3KooWHUfjwiTRVV8jxFcKRSQTPatayC4nQCNX86oxRF5XWzGe",
+                    )
+                    .unwrap(),
+                    id: libp2p::gossipsub::MessageId::new(&[]),
                     message: GossipsubMessage {
                         source: Some(
-                            PeerId::from_str(
+                            crate::PeerId::from_str(
                                 "12D3KooWM68GyFKBT9JsuTRB6CYkF61PtMuSkynUauSQEGBX51JW",
                             )
                             .unwrap(),
@@ -313,13 +329,15 @@ mod tests {
                         topic: TopicHash::from_raw("topicA"),
                     },
                 });
-                let second = Ok(GossipsubEvent::Message {
-                    from: PeerId::from_str("12D3KooWGnKwtpSh2ZLTvoC8mjiexMNRLNkT92pxq7MDgyJHktNJ")
-                        .unwrap(),
-                    id: MessageId::new(&[]),
+                let second = Ok(crate::GossipsubEvent::Message {
+                    from: crate::PeerId::from_str(
+                        "12D3KooWGnKwtpSh2ZLTvoC8mjiexMNRLNkT92pxq7MDgyJHktNJ",
+                    )
+                    .unwrap(),
+                    id: libp2p::gossipsub::MessageId::new(&[]),
                     message: GossipsubMessage {
                         source: Some(
-                            PeerId::from_str(
+                            crate::PeerId::from_str(
                                 "12D3KooWQVU9Pv3BqD6bD9w96tJxLedKCj4VZ75oqX9Tav4R4rUS",
                             )
                             .unwrap(),

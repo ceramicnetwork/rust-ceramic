@@ -2,10 +2,10 @@ use std::str::FromStr;
 
 use actix_web::{http::header::ContentType, web, HttpResponse, Scope};
 use anyhow::anyhow;
-use iroh_api::PeerId;
 use serde::{Deserialize, Serialize};
 
-use crate::{error::Error, http::AppState, id, IpfsDep};
+use crate::{error::Error, http::AppState, id, IpfsDep, PeerId};
+
 pub fn scope<T>() -> Scope
 where
     T: IpfsDep + 'static,

@@ -1,9 +1,8 @@
 //! Publish Subscribe API
 
 use futures_util::stream::BoxStream;
-use iroh_api::{Bytes, GossipsubEvent};
 
-use crate::{error::Error, IpfsDep};
+use crate::{error::Error, Bytes, GossipsubEvent, IpfsDep};
 
 /// Publish a message to a topic
 #[tracing::instrument(skip(client, data))]

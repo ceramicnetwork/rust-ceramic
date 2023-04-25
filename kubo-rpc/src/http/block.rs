@@ -5,7 +5,6 @@ use actix_web::{http::header::ContentType, web, HttpResponse, Scope};
 use anyhow::anyhow;
 use dag_jose::DagJoseCodec;
 use futures_util::StreamExt;
-use iroh_api::Cid;
 use libipld::{cbor::DagCborCodec, json::DagJsonCodec};
 use serde::{Deserialize, Serialize};
 
@@ -13,7 +12,7 @@ use crate::{
     block,
     error::Error,
     http::{AppState, DAG_CBOR, DAG_JOSE, DAG_JSON},
-    IpfsDep,
+    Cid, IpfsDep,
 };
 pub fn scope<T>() -> Scope
 where
@@ -195,8 +194,8 @@ mod tests {
 
     use actix_multipart_rfc7578::client::multipart;
     use actix_web::{body, test};
+    use bytes::Bytes;
     use expect_test::expect;
-    use iroh_api::{Bytes, Cid};
     use unimock::MockFn;
     use unimock::{matching, Unimock};
 

@@ -1,13 +1,12 @@
-use std::str::FromStr;
+use std::{collections::HashSet, str::FromStr};
 
 use actix_web::{http::header::ContentType, web, HttpResponse, Scope};
 use anyhow::anyhow;
-use iroh_api::{Multiaddr, PeerId};
 use multiaddr::Protocol;
-use serde::Deserialize;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-use crate::{error::Error, http::AppState, swarm, IpfsDep};
+use crate::{error::Error, http::AppState, swarm, IpfsDep, Multiaddr, PeerId};
+
 pub fn scope<T>() -> Scope
 where
     T: IpfsDep + 'static,
@@ -64,12 +63,44 @@ where
         .body(body))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug)]
 struct ConnectQuery {
-    arg: String,
+    arg: Vec<String>,
 }
 
-#[tracing::instrument(skip(data))]
+// Custom deserialize impl for ConnectQuery to support multiple `arg` query parameters
+impl<'de> Deserialize<'de> for ConnectQuery {
+    fn deserialize<D>(deserializer: D) -> Result<ConnectQuery, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct FieldVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for FieldVisitor {
+            type Value = ConnectQuery;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("`arg`")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<ConnectQuery, V::Error>
+            where
+                V: serde::de::MapAccess<'de>,
+            {
+                let mut args: Vec<String> = Vec::default();
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        "arg" => args.push(map.next_value::<String>()?),
+                        _ => unreachable!(),
+                    }
+                }
+                Ok(ConnectQuery { arg: args })
+            }
+        }
+        deserializer.deserialize_identifier(FieldVisitor)
+    }
+}
+
 async fn connect<T>(
     data: web::Data<AppState<T>>,
     query: web::Query<ConnectQuery>,
@@ -77,22 +108,47 @@ async fn connect<T>(
 where
     T: IpfsDep,
 {
-    let ma = Multiaddr::from_str(query.arg.as_str()).map_err(|e| Error::Invalid(e.into()))?;
-    let mh = ma
+    // Iterate over each arg and parse it as a multiaddr and search for peer ids.
+    let iter = query
+        .arg
         .iter()
-        .flat_map(|proto| {
-            if let Protocol::P2p(mh) = proto {
-                vec![mh]
-            } else {
-                vec![]
-            }
-        })
-        .next()
-        .ok_or_else(|| Error::Invalid(anyhow!("multiaddr does not contain p2p peer Id")))?;
-    let peer_id =
-        PeerId::from_multihash(mh).map_err(|_e| Error::Invalid(anyhow!("invalid peer Id")))?;
+        .map(|addr| -> Result<(Multiaddr, Option<PeerId>), Error> {
+            let addr = Multiaddr::from_str(addr).map_err(|e| Error::Invalid(e.into()))?;
+            let peer_id = addr
+                .iter()
+                .flat_map(|proto| match proto {
+                    Protocol::P2p(mh) => vec![mh],
+                    _ => Vec::new(),
+                })
+                .next()
+                .map(|mh| -> Result<PeerId, Error> {
+                    PeerId::from_multihash(mh)
+                        .map_err(|_e| Error::Invalid(anyhow!("invalid peer Id")))
+                })
+                .transpose()?;
+            Ok((addr, peer_id))
+        });
 
-    swarm::connect(data.api.clone(), peer_id, vec![ma]).await?;
+    let (addrs, peer_ids) =
+        itertools::process_results(iter, |iter| iter.unzip::<_, _, Vec<_>, Vec<_>>())?;
+
+    // Check we found exactly one unique peer id.
+    let peer_ids: HashSet<PeerId> = peer_ids
+        .into_iter()
+        .flat_map(|p| if let Some(p) = p { vec![p] } else { Vec::new() })
+        .collect();
+    let peer_id = match peer_ids.len() {
+        0 => {
+            return Err(Error::Invalid(anyhow!(
+                "no peer id specificed in multiaddrs"
+            )))
+        }
+        1 => peer_ids.into_iter().next().unwrap(),
+        _ => return Err(Error::Invalid(anyhow!("found multiple distinct peer ids"))),
+    };
+
+    // Connect to the peer for all its addrs
+    swarm::connect(data.api.clone(), peer_id, addrs).await?;
 
     #[derive(Serialize)]
     struct ConnectResponse {

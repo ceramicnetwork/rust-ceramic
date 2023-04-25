@@ -2,10 +2,10 @@ use std::str::FromStr;
 
 use actix_web::{http::header::ContentType, web, HttpResponse, Scope};
 use anyhow::anyhow;
-use iroh_api::IpfsPath;
 use serde::{Deserialize, Serialize};
 
-use crate::{error::Error, http::AppState, pin, IpfsDep};
+use crate::{error::Error, http::AppState, pin, IpfsDep, IpfsPath};
+
 pub fn scope<T>() -> Scope
 where
     T: IpfsDep + 'static,
@@ -104,8 +104,8 @@ mod tests {
     use crate::http::tests::{assert_body_json, build_server};
 
     use actix_web::test;
+    use cid::Cid;
     use expect_test::expect;
-    use iroh_api::Cid;
     use libipld::{pb::DagPbCodec, prelude::Decode, Ipld};
     use unimock::MockFn;
     use unimock::{matching, Unimock};
