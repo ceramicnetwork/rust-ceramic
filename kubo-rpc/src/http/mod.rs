@@ -138,13 +138,15 @@ mod tests {
         <B as MessageBody>::Error: std::fmt::Debug,
     {
         let body_bytes = body::to_bytes(body).await.unwrap();
-        let body_json: serde_json::Value = serde_json::from_slice(body_bytes.as_ref())
-            .unwrap_or_else(|_| {
+        let body_json: serde_json::Value = match serde_json::from_slice(body_bytes.as_ref()) {
+            Ok(v) => v,
+            Err(_) => {
                 panic!(
                     "response body should be valid json: {:?}",
                     String::from_utf8(body_bytes.as_ref().to_vec())
                 )
-            });
+            }
+        };
         let pretty_json = serde_json::to_string_pretty(&body_json).unwrap();
         expect.assert_eq(&pretty_json);
     }
