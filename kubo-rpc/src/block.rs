@@ -1,6 +1,6 @@
 //! Implements the dag endpoints.
 
-use iroh_api::Cid;
+use crate::Cid;
 use libipld::{
     multihash::{Code, MultihashDigest},
     prelude::Codec,

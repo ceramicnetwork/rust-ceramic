@@ -3,7 +3,7 @@ use thiserror::Error;
 
 /// Error type for specific failures.
 /// These generally come from here
-/// https://grpc.github.io/grpc/core/md_doc_statuscodes.html
+/// <https://grpc.github.io/grpc/core/md_doc_statuscodes.html>
 /// However we start with a minimal set and can add more as needed.
 #[derive(Debug, Error)]
 pub enum Error {

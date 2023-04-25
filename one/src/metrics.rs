@@ -1,4 +1,8 @@
-use iroh_api::PeerId;
+use std::net;
+
+use actix_web::{dev::Server, get, http::header::ContentType, App, HttpResponse, HttpServer};
+use anyhow::Result;
+use ceramic_kubo_rpc::PeerId;
 use libp2p::metrics::Recorder;
 use prometheus_client::metrics::counter::Counter;
 use prometheus_client::registry::Registry;
@@ -25,21 +29,21 @@ struct PeerLabels {
     version: String,
 }
 
-pub struct Metrics {
-    messages: Family<MsgLabels, Counter>,
-    peers: Family<PeerLabels, Counter>,
-    tip_loads: Family<TipLoadLabels, Counter>,
-}
-
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Encode)]
 struct TipLoadLabels {
     result: TipLoadResult,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Encode)]
-enum TipLoadResult {
+pub enum TipLoadResult {
     Success,
     Failure,
+}
+
+pub struct Metrics {
+    messages: Family<MsgLabels, Counter>,
+    peers: Family<PeerLabels, Counter>,
+    tip_loads: Family<TipLoadLabels, Counter>,
 }
 
 impl Metrics {
@@ -95,34 +99,59 @@ impl Metrics {
     }
 }
 
-impl Recorder<(PeerId, pubsub::Message)> for Metrics {
-    fn record(&self, event: &(PeerId, pubsub::Message)) {
+impl Recorder<(Option<PeerId>, pubsub::Message)> for Metrics {
+    fn record(&self, event: &(Option<PeerId>, pubsub::Message)) {
         let msg_type = match &event.1 {
             pubsub::Message::Update { .. } => MsgType::Update,
             pubsub::Message::Query { .. } => MsgType::Query,
             pubsub::Message::Response { .. } => MsgType::Response,
             pubsub::Message::Keepalive { ver, .. } => {
-                self.peers
-                    .get_or_create(&PeerLabels {
-                        peer_id: event.0.to_string(),
-                        version: ver.to_owned(),
-                    })
-                    .inc();
+                // Record peers total
+                if let Some(source) = event.0 {
+                    self.peers
+                        .get_or_create(&PeerLabels {
+                            peer_id: source.to_string(),
+                            version: ver.to_owned(),
+                        })
+                        .inc();
+                }
                 MsgType::Keepalive
             }
         };
+        // Record messages total
         self.messages.get_or_create(&MsgLabels { msg_type }).inc();
     }
 }
 
-impl<E> Recorder<Result<Vec<u8>, E>> for Metrics {
-    fn record(&self, event: &Result<Vec<u8>, E>) {
-        let result = match event {
-            Ok(_) => TipLoadResult::Success,
-            Err(_) => TipLoadResult::Failure,
-        };
+impl Recorder<TipLoadResult> for Metrics {
+    fn record(&self, result: &TipLoadResult) {
         self.tip_loads
-            .get_or_create(&TipLoadLabels { result })
+            .get_or_create(&TipLoadLabels {
+                result: result.clone(),
+            })
             .inc();
     }
+}
+
+#[get("/metrics")]
+async fn metrics() -> HttpResponse {
+    let data = iroh_metrics::MetricsHandle::encode();
+    HttpResponse::Ok()
+        .content_type(ContentType::plaintext())
+        .body(data)
+}
+
+/// Create and start server for metrics endpoint.
+/// NOTE: The server must be awaited.
+///
+/// Automatically registers shutdown listeners for interrupt and kill signals.
+/// See <https://actix.rs/docs/server/#graceful-shutdown>
+pub fn server<A>(addrs: A) -> Result<Server>
+where
+    A: net::ToSocketAddrs,
+{
+    Ok(HttpServer::new(move || App::new().service(metrics))
+        .bind(addrs)?
+        .disable_signals()
+        .run())
 }

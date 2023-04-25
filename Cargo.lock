@@ -519,20 +519,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-compression"
-version = "0.3.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "942c7cd7ae39e91bde4820d74132e9862e62c2f386c3aa90ccf55949f5bad63a"
-dependencies = [
- "brotli",
- "flate2",
- "futures-core",
- "memchr",
- "pin-project-lite 0.2.9",
- "tokio",
-]
-
-[[package]]
 name = "async-io"
 version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -559,17 +545,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fa24f727524730b077666307f2734b4a1a1c57acb79193127dcc8914d5242dd7"
 dependencies = [
  "event-listener",
-]
-
-[[package]]
-name = "async-recursion"
-version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3b015a331cc64ebd1774ba119538573603427eaace0a1950c423ab971f903796"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]
@@ -663,11 +638,7 @@ dependencies = [
  "pin-project-lite 0.2.9",
  "rustversion",
  "serde",
- "serde_json",
- "serde_path_to_error",
- "serde_urlencoded",
  "sync_wrapper",
- "tokio",
  "tower",
  "tower-http",
  "tower-layer",
@@ -723,12 +694,6 @@ name = "base64"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e1b586273c5702936fe7b7d6896644d8be71e6314cfe09d3167c95f712589e8"
-
-[[package]]
-name = "base64"
-version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ea22880d78093b0cbe17c89f64a7d457941e65759157ec6cb31a31d652b05e5"
 
 [[package]]
 name = "base64"
@@ -961,37 +926,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "camino"
-version = "1.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c530edf18f37068ac2d977409ed5cd50d53d73bc653c7647b48eb78976ac9ae2"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "cargo-platform"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cbdb825da8a5df079a43676dbe042702f1707b1109f713a01420fbb4cc71fa27"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "cargo_metadata"
-version = "0.14.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4acbb09d9ee8e23699b9634375c72795d095bf268439da88562cf9b501f181fa"
-dependencies = [
- "camino",
- "cargo-platform",
- "semver",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "cbor4ii"
 version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1031,13 +965,18 @@ dependencies = [
  "anyhow",
  "async-stream",
  "async-trait",
+ "bytes",
+ "cid 0.9.0",
  "dag-jose",
  "expect-test",
  "futures-util",
  "hex",
- "iroh-api",
- "iroh-embed",
+ "iroh-metrics",
+ "iroh-p2p",
  "iroh-rpc-client",
+ "iroh-rpc-types",
+ "iroh-store",
+ "itertools",
  "libipld",
  "libp2p",
  "libp2p-tls",
@@ -1046,6 +985,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+ "tokio",
  "tracing",
  "tracing-actix-web",
  "tracing-opentelemetry",
@@ -1056,16 +996,21 @@ dependencies = [
 name = "ceramic-one"
 version = "0.1.0"
 dependencies = [
+ "actix-http",
+ "actix-web",
  "anyhow",
  "ceramic-kubo-rpc",
  "clap 4.1.11",
  "expect-test",
+ "futures",
  "futures-util",
  "git-version",
  "home",
- "iroh-api",
- "iroh-embed",
  "iroh-metrics",
+ "iroh-p2p",
+ "iroh-rpc-client",
+ "iroh-rpc-types",
+ "iroh-store",
  "libipld",
  "libp2p",
  "multiaddr",
@@ -2012,12 +1957,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fastmurmur3"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d922f481ae01f2a3f1fff7b9e0e789f18f0c755a38ec983a3e6f37762cdcc2a2"
-
-[[package]]
 name = "fastrand"
 version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2328,51 +2267,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "handlebars"
-version = "4.3.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "035ef95d03713f2c347a72547b7cd38cbc9af7cd51e6099fb62d586d4a6dee3a"
-dependencies = [
- "log",
- "pest",
- "pest_derive",
- "serde",
- "serde_json",
- "thiserror",
-]
-
-[[package]]
 name = "hashbrown"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a9ee70c43aaf417c914396645a0fa852624801b24ebb7ae78fe8272889ac888"
 dependencies = [
  "ahash 0.7.6",
-]
-
-[[package]]
-name = "headers"
-version = "0.3.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3e372db8e5c0d213e0cd0b9be18be2aca3d44cf2fe30a9d46a65581cd454584"
-dependencies = [
- "base64 0.13.1",
- "bitflags 1.3.2",
- "bytes",
- "headers-core",
- "http",
- "httpdate",
- "mime",
- "sha1",
-]
-
-[[package]]
-name = "headers-core"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7f66481bfee273957b1f20485a4ff3362987f85b2c236580d81b4eb7a326429"
-dependencies = [
- "http",
 ]
 
 [[package]]
@@ -2410,12 +2310,6 @@ name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
-
-[[package]]
-name = "hex-literal"
-version = "0.3.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ebdb29d2ea9ed0083cd8cece49bbd968021bd99b0849edb4a9a7ee0fdf6a4e0"
 
 [[package]]
 name = "hex_fmt"
@@ -2498,16 +2392,6 @@ name = "http-range-header"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0bfe8eed0a9285ef776bb792479ea3834e8b94e13d615c2f66d03dd50a435a29"
-
-[[package]]
-name = "http-serde"
-version = "1.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e272971f774ba29341db2f686255ff8a979365a26fb9e4277f6b6d9ec0cdd5e"
-dependencies = [
- "http",
- "serde",
-]
 
 [[package]]
 name = "httparse"
@@ -2689,16 +2573,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "integer-encoding"
-version = "3.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8bb03732005da905c88227371639bf1ad885cc712789c011c31c5fb3ab3ccf02"
-dependencies = [
- "async-trait",
- "tokio",
-]
-
-[[package]]
 name = "interceptor"
 version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2746,35 +2620,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "30e22bd8629359895450b59ea7a776c850561b96a3b1d31321c1949d9e6c9146"
 
 [[package]]
-name = "iroh-api"
-version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
-dependencies = [
- "anyhow",
- "async-stream",
- "async-trait",
- "bytes",
- "cid 0.9.0",
- "config",
- "futures",
- "iroh-metrics",
- "iroh-resolver",
- "iroh-rpc-client",
- "iroh-rpc-types",
- "iroh-unixfs",
- "iroh-util",
- "libp2p",
- "relative-path",
- "serde",
- "thiserror",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "iroh-bitswap"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
+source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#28f1ea735123e62b8ea2430dad66157010fbb763"
 dependencies = [
  "ahash 0.8.3",
  "anyhow",
@@ -2810,104 +2658,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "iroh-car"
-version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
-dependencies = [
- "cid 0.9.0",
- "futures",
- "integer-encoding",
- "libipld",
- "libipld-cbor",
- "thiserror",
- "tokio",
-]
-
-[[package]]
-name = "iroh-embed"
-version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
-dependencies = [
- "anyhow",
- "futures",
- "iroh-api",
- "iroh-gateway",
- "iroh-metrics",
- "iroh-one",
- "iroh-p2p",
- "iroh-resolver",
- "iroh-rpc-client",
- "iroh-rpc-types",
- "iroh-store",
- "iroh-unixfs",
- "reqwest",
- "tokio",
-]
-
-[[package]]
-name = "iroh-gateway"
-version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
-dependencies = [
- "anyhow",
- "async-recursion",
- "async-stream",
- "async-trait",
- "axum",
- "bytes",
- "cid 0.9.0",
- "clap 4.1.11",
- "config",
- "futures",
- "git-version",
- "handlebars",
- "headers",
- "hex",
- "hex-literal",
- "http",
- "http-body",
- "http-serde",
- "hyper",
- "iroh-car",
- "iroh-metrics",
- "iroh-resolver",
- "iroh-rpc-client",
- "iroh-rpc-types",
- "iroh-unixfs",
- "iroh-util",
- "libp2p",
- "mime",
- "mime_classifier",
- "mime_guess",
- "names",
- "once_cell",
- "opentelemetry",
- "phf",
- "rand 0.8.5",
- "reqwest",
- "serde",
- "serde_json",
- "serde_qs",
- "sha2 0.10.6",
- "testdir",
- "time",
- "tokio",
- "tokio-util",
- "toml",
- "tower",
- "tower-http",
- "tower-layer",
- "tracing",
- "tracing-opentelemetry",
- "tracing-subscriber",
- "url",
- "urlencoding",
-]
-
-[[package]]
 name = "iroh-metrics"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
+source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#28f1ea735123e62b8ea2430dad66157010fbb763"
 dependencies = [
  "async-trait",
  "config",
@@ -2928,40 +2681,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "iroh-one"
-version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
-dependencies = [
- "anyhow",
- "async-trait",
- "axum",
- "bytes",
- "cid 0.9.0",
- "clap 4.1.11",
- "config",
- "futures",
- "headers",
- "http-serde",
- "hyper",
- "iroh-gateway",
- "iroh-metrics",
- "iroh-p2p",
- "iroh-resolver",
- "iroh-rpc-client",
- "iroh-rpc-types",
- "iroh-store",
- "iroh-unixfs",
- "iroh-util",
- "reqwest",
- "serde",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "iroh-p2p"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
+source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#28f1ea735123e62b8ea2430dad66157010fbb763"
 dependencies = [
  "ahash 0.8.3",
  "anyhow",
@@ -2998,35 +2720,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "iroh-resolver"
-version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
-dependencies = [
- "anyhow",
- "async-channel",
- "async-stream",
- "async-trait",
- "bs58",
- "bytes",
- "cid 0.9.0",
- "fnv",
- "futures",
- "iroh-metrics",
- "iroh-rpc-client",
- "iroh-unixfs",
- "iroh-util",
- "libipld",
- "libp2p",
- "serde",
- "tokio",
- "tracing",
- "trust-dns-resolver",
-]
-
-[[package]]
 name = "iroh-rpc-client"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
+source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#28f1ea735123e62b8ea2430dad66157010fbb763"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -3049,7 +2745,7 @@ dependencies = [
 [[package]]
 name = "iroh-rpc-types"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
+source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#28f1ea735123e62b8ea2430dad66157010fbb763"
 dependencies = [
  "anyhow",
  "bytes",
@@ -3067,7 +2763,7 @@ dependencies = [
 [[package]]
 name = "iroh-store"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
+source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#28f1ea735123e62b8ea2430dad66157010fbb763"
 dependencies = [
  "ahash 0.8.3",
  "anyhow",
@@ -3099,46 +2795,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "iroh-unixfs"
-version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
-dependencies = [
- "anyhow",
- "async-channel",
- "async-recursion",
- "async-stream",
- "async-trait",
- "base64 0.20.0",
- "bytes",
- "cid 0.9.0",
- "config",
- "fastmurmur3",
- "futures",
- "iroh-metrics",
- "iroh-rpc-client",
- "iroh-util",
- "libipld",
- "libp2p",
- "multihash 0.17.0",
- "num_enum",
- "once_cell",
- "prost",
- "prost-build",
- "rand 0.8.5",
- "reqwest",
- "serde",
- "serde_json",
- "tokio",
- "tokio-util",
- "tracing",
- "unsigned-varint",
- "url",
-]
-
-[[package]]
 name = "iroh-util"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
+source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#28f1ea735123e62b8ea2430dad66157010fbb763"
 dependencies = [
  "anyhow",
  "cid 0.9.0",
@@ -3149,7 +2808,7 @@ dependencies = [
  "humansize",
  "rlimit",
  "serde",
- "sysinfo 0.27.8",
+ "sysinfo",
  "thiserror",
  "toml",
  "tracing",
@@ -4035,16 +3694,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2a60c7ce501c71e03a9c9c0d35b861413ae925bd979cc7a4e30d060069aaac8d"
 
 [[package]]
-name = "mime_classifier"
-version = "0.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e817cb34c89e147fcfbb8a4e88e4c1c064c1c9fcdab80191f94b55921b3cbbd4"
-dependencies = [
- "mime",
- "serde",
-]
-
-[[package]]
 name = "mime_guess"
 version = "2.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4745,48 +4394,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "phf"
-version = "0.11.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "928c6535de93548188ef63bb7c4036bd415cd8f36ad25af44b9789b2ee72a48c"
-dependencies = [
- "phf_macros",
- "phf_shared",
-]
-
-[[package]]
-name = "phf_generator"
-version = "0.11.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1181c94580fa345f50f19d738aaa39c0ed30a600d95cb2d3e23f94266f14fbf"
-dependencies = [
- "phf_shared",
- "rand 0.8.5",
-]
-
-[[package]]
-name = "phf_macros"
-version = "0.11.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92aacdc5f16768709a569e913f7451034034178b05bdc8acda226659a3dccc66"
-dependencies = [
- "phf_generator",
- "phf_shared",
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "phf_shared"
-version = "0.11.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e1fb5f6f826b772a8d4c0394209441e7d37cbbb967ae9c7e0e8134365c9ee676"
-dependencies = [
- "siphasher",
-]
-
-[[package]]
 name = "pin-project"
 version = "1.0.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5322,12 +4929,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "456c603be3e8d448b072f410900c09faf164fbce2d480456f50eea6e25f9c848"
 
 [[package]]
-name = "relative-path"
-version = "1.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4bf2521270932c3c7bed1a59151222bd7643c79310f2916f01925e1e16255698"
-
-[[package]]
 name = "rend"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5707,9 +5308,6 @@ name = "semver"
 version = "1.0.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "58bc9567378fc7690d6b2addae4e60ac2eeea07becb2c64b9f218b53865cba2a"
-dependencies = [
- "serde",
-]
 
 [[package]]
 name = "serde"
@@ -5779,26 +5377,6 @@ dependencies = [
  "itoa",
  "ryu",
  "serde",
-]
-
-[[package]]
-name = "serde_path_to_error"
-version = "0.1.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db0969fff533976baadd92e08b1d102c5a3d8a8049eadfd69d4d1e3c5b2ed189"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "serde_qs"
-version = "0.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8cac3f1e2ca2fe333923a1ae72caca910b98ed0630bb35ef6f8c8517d6e81afa"
-dependencies = [
- "percent-encoding",
- "serde",
- "thiserror",
 ]
 
 [[package]]
@@ -5949,12 +5527,6 @@ name = "simdutf8"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f27f6278552951f1f2b8cf9da965d10969b2efdea95a6ec47987ab46edfe263a"
-
-[[package]]
-name = "siphasher"
-version = "0.3.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7bd3e3206899af3f8b12af284fafc038cc1dc2b41d1b89dd17297221c5d225de"
 
 [[package]]
 name = "slab"
@@ -6145,20 +5717,6 @@ dependencies = [
 
 [[package]]
 name = "sysinfo"
-version = "0.26.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c18a6156d1f27a9592ee18c1a846ca8dd5c258b7179fc193ae87c74ebb666f5"
-dependencies = [
- "cfg-if",
- "core-foundation-sys",
- "libc",
- "ntapi",
- "once_cell",
- "winapi",
-]
-
-[[package]]
-name = "sysinfo"
 version = "0.27.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a902e9050fca0a5d6877550b769abd2bd1ce8c04634b941dbe2809735e1a1e33"
@@ -6213,20 +5771,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be55cf8942feac5c765c2c993422806843c9a9a45d4d5c407ad6dd2ea95eb9b6"
 dependencies = [
  "winapi-util",
-]
-
-[[package]]
-name = "testdir"
-version = "0.7.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a45fc921e7c4ad1aedb3484811514f3e5cd187886e0bbf1302c175f7578ef552"
-dependencies = [
- "anyhow",
- "backtrace",
- "cargo_metadata",
- "once_cell",
- "sysinfo 0.26.9",
- "whoami",
 ]
 
 [[package]]
@@ -6484,7 +6028,6 @@ version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f873044bf02dd1e8239e9c1293ea39dad76dc594ec16185d0a1bf31d8dc8d858"
 dependencies = [
- "async-compression",
  "bitflags 1.3.2",
  "bytes",
  "futures-core",
@@ -6493,12 +6036,9 @@ dependencies = [
  "http-body",
  "http-range-header",
  "pin-project-lite 0.2.9",
- "tokio",
- "tokio-util",
  "tower",
  "tower-layer",
  "tower-service",
- "tracing",
 ]
 
 [[package]]
@@ -6619,32 +6159,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4f7f83d1e4a0e4358ac54c5c3681e5d7da5efc5a7a632c90bb6d6669ddd9bc26"
 dependencies = [
  "async-trait",
- "bytes",
  "cfg-if",
  "data-encoding",
  "enum-as-inner",
  "futures-channel",
  "futures-io",
  "futures-util",
- "h2",
- "http",
  "idna 0.2.3",
  "ipnet",
  "lazy_static",
  "rand 0.8.5",
- "rustls 0.20.8",
- "rustls-pemfile",
- "serde",
  "smallvec",
  "socket2",
  "thiserror",
  "tinyvec",
  "tokio",
- "tokio-rustls",
  "tracing",
  "url",
- "webpki 0.22.0",
- "webpki-roots",
 ]
 
 [[package]]
@@ -6660,15 +6191,11 @@ dependencies = [
  "lru-cache",
  "parking_lot 0.12.1",
  "resolv-conf",
- "rustls 0.20.8",
- "serde",
  "smallvec",
  "thiserror",
  "tokio",
- "tokio-rustls",
  "tracing",
  "trust-dns-proto",
- "webpki-roots",
 ]
 
 [[package]]
@@ -6831,14 +6358,7 @@ dependencies = [
  "form_urlencoded",
  "idna 0.3.0",
  "percent-encoding",
- "serde",
 ]
-
-[[package]]
-name = "urlencoding"
-version = "2.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8db7427f936968176eaa7cdf81b7f98b980b18495ec28f1b5791ac3bfe3eea9"
 
 [[package]]
 name = "uuid"
@@ -7251,16 +6771,6 @@ dependencies = [
  "either",
  "libc",
  "once_cell",
-]
-
-[[package]]
-name = "whoami"
-version = "1.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "45dbc71f0cdca27dc261a9bd37ddec174e4a0af2b900b890f378460f745426e3"
-dependencies = [
- "wasm-bindgen",
- "web-sys",
 ]
 
 [[package]]

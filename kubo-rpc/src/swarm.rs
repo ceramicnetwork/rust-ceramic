@@ -1,9 +1,7 @@
 //! Implements the swarm related endpoints.
 use std::collections::BTreeMap;
 
-use iroh_api::{Multiaddr, PeerId};
-
-use crate::{error::Error, IpfsDep};
+use crate::{error::Error, IpfsDep, Multiaddr, PeerId};
 
 /// Report all connected peers of the current node.
 #[tracing::instrument(skip(client))]

@@ -5,14 +5,17 @@ members = ["kubo-rpc", "one"]
 anyhow = "1"
 async-stream = "0.3"
 async-trait = "0.1"
+bytes = "1.1"
 ceramic-one = { path = "./one" }
+cid = "0.9"
 dag-jose = "0.1"
+futures = "0.3"
 futures-util = "0.3"
-iroh-api = { git = "https://github.com/nathanielc/beetle", branch = "expose-api-client" }
-iroh-embed = { git = "https://github.com/nathanielc/beetle", branch = "expose-api-client" }
 iroh-metrics = { git = "https://github.com/nathanielc/beetle", branch = "expose-api-client" }
+iroh-p2p = { git = "https://github.com/nathanielc/beetle", branch = "expose-api-client" }
 iroh-rpc-client = { git = "https://github.com/nathanielc/beetle", branch = "expose-api-client" }
-iroh-car = { git = "https://github.com/nathanielc/beetle", branch = "expose-api-client" }
+iroh-rpc-types = { git = "https://github.com/nathanielc/beetle", branch = "expose-api-client" }
+iroh-store = { git = "https://github.com/nathanielc/beetle", branch = "expose-api-client" }
 libipld = "0.15"                                                                                 # use same version as Iroh
 libp2p = { version = "0.50", default-features = false }                                          # use same version as Iroh
 multiaddr = "0.16"                                                                               # use same version as Iroh
@@ -25,13 +28,14 @@ tracing-subscriber = "0.3"
 unimock = "0.4"
 libp2p-tls = { version = "=0.1.0-alpha", default-features = false }                              # use explicit version of dep to avoid conflict
 
+
 # Uncomment these lines to use a local copy of beetle
 #[patch."https://github.com/nathanielc/beetle"]
-#iroh-api = { path = "../beetle/iroh-api" }
-#iroh-embed = { path = "../beetle/iroh-embed" }
 #iroh-metrics = { path = "../beetle/iroh-metrics" }
+#iroh-p2p = { path = "../beetle/iroh-p2p" }
 #iroh-rpc-client = { path = "../beetle/iroh-rpc-client" }
-#iroh-car = { path = "../beetle/iroh-car" }
+#iroh-rpc-types = { path = "../beetle/iroh-rpc-types" }
+#iroh-store = { path = "../beetle/iroh-store" }
 
 #[patch.crates-io]
 #libp2p = { path = "../rust-libp2p/libp2p" }

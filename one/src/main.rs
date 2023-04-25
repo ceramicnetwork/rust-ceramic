@@ -2,23 +2,27 @@
 #![deny(warnings)]
 #![deny(missing_docs)]
 
-use std::{path::PathBuf, str::FromStr, sync::Arc};
+use std::{path::PathBuf, str::FromStr, sync::Arc, time::Duration};
 
 use anyhow::Result;
-use ceramic_kubo_rpc::dag;
+use ceramic_kubo_rpc::{dag, IpfsDep, IpfsPath, Multiaddr};
 use clap::{Args, Parser, Subcommand};
-use futures_util::{future, StreamExt};
-use iroh_api::IpfsPath;
-use iroh_api::Multiaddr;
-use iroh_embed::{Iroh, IrohBuilder, Libp2pConfig, P2pService, RocksStoreService};
+use futures::StreamExt;
+use futures_util::future;
 use iroh_metrics::{config::Config as MetricsConfig, MetricsHandle};
+use iroh_p2p::Libp2pConfig;
 use libipld::json::DagJsonCodec;
 use libp2p::metrics::Recorder;
-use tokio::task;
+use tokio::{task, time::timeout};
 use tracing::{debug, info, warn};
 
-use crate::{metrics::Metrics, pubsub::Message};
+use crate::{
+    ipfs::Ipfs,
+    metrics::{Metrics, TipLoadResult},
+    pubsub::Message,
+};
 
+mod ipfs;
 mod metrics;
 mod pubsub;
 
@@ -39,7 +43,7 @@ enum Command {
 
 #[derive(Args, Debug)]
 struct DaemonOpts {
-    /// Bind address of the RPC enpoint.
+    /// Bind address of the RPC endpoint.
     #[arg(
         short,
         long,
@@ -51,6 +55,8 @@ struct DaemonOpts {
     #[arg(
         long,
         default_values_t = vec!["/ip4/0.0.0.0/tcp/0".to_string(), "/ip4/0.0.0.0/udp/0/quic-v1".to_string()],
+        use_value_delimiter = true,
+        value_delimiter = ',',
         env = "CERAMIC_ONE_SWARM_ADDRESSES"
     )]
     swarm_addresses: Vec<String>,
@@ -61,6 +67,14 @@ struct DaemonOpts {
     /// Path to storage directory
     #[arg(short, long, env = "CERAMIC_ONE_STORE_DIR")]
     store_dir: Option<PathBuf>,
+    /// Bind address of the metrics endpoint.
+    #[arg(
+        short,
+        long,
+        default_value = "127.0.0.1:9090",
+        env = "CERAMIC_ONE_METRICS_BIND_ADDRESS"
+    )]
+    metrics_bind_address: String,
     /// When true metrics will be exported
     #[arg(long, default_value_t = false, env = "CERAMIC_ONE_METRICS")]
     metrics: bool,
@@ -99,7 +113,8 @@ async fn main() -> Result<()> {
 
 struct Daemon {
     bind_address: String,
-    iroh: Iroh,
+    metrics_bind_address: String,
+    ipfs: Ipfs,
     metrics_handle: MetricsHandle,
     metrics: Arc<Metrics>,
 }
@@ -109,16 +124,22 @@ impl Daemon {
         let mut metrics_config = MetricsConfig::default();
         metrics_config = metrics_config_with_compile_time_info(metrics_config);
         metrics_config.collect = opts.metrics;
+        // Do not push metrics to any endpoint.
+        metrics_config.export = false;
         metrics_config.tracing = opts.tracing;
         let service_name = metrics_config.service_name.clone();
         let instance_id = metrics_config.instance_id.clone();
+
         let metrics = iroh_metrics::MetricsHandle::register(crate::metrics::Metrics::new);
         let metrics = Arc::new(metrics);
 
+        // Logging Tracing and metrics are initialized here,
+        // debug,info etc will not work until after this line
         let metrics_handle = iroh_metrics::MetricsHandle::new(metrics_config.clone())
             .await
             .expect("failed to initialize metrics");
         info!(service_name, instance_id);
+        debug!(?opts, "using daemon options");
 
         let dir = match opts.store_dir {
             Some(dir) => dir,
@@ -127,12 +148,10 @@ impl Daemon {
                 None => PathBuf::from(".ceramic-one"),
             },
         };
-        debug!("Using directory: {}", dir.display());
+        debug!("using directory: {}", dir.display());
 
-        let store = RocksStoreService::new(dir.join("store")).await?;
         let mut p2p_config = Libp2pConfig::default();
         p2p_config.mdns = false;
-
         p2p_config.bitswap_server = true;
         p2p_config.bitswap_client = true;
         p2p_config.kademlia = true;
@@ -153,28 +172,57 @@ impl Daemon {
             .iter()
             .map(|addr| addr.parse())
             .collect::<Result<Vec<Multiaddr>, multiaddr::Error>>()?;
-        let p2p = P2pService::new(p2p_config, dir, store.addr()).await?;
+        debug!(?p2p_config, "using p2p config");
 
-        // Note by default this is configured with an indexer, but not with http resolvers.
-        let iroh = IrohBuilder::new().store(store).p2p(p2p).build().await?;
+        let ipfs = Ipfs::builder()
+            .with_store(dir.join("store"))
+            .await?
+            .with_p2p(p2p_config, dir)
+            .await?
+            .build()
+            .await?;
 
         Ok(Daemon {
             bind_address: opts.bind_address,
-            iroh,
+            metrics_bind_address: opts.metrics_bind_address,
+            ipfs,
             metrics_handle,
             metrics,
         })
     }
-    // Start the daemon, await does not return until the daemon is finished.
+    // Start the daemon, future does not return until the daemon is finished.
     async fn run(&self) -> Result<()> {
-        // Run the HTTP server, this blocks until the HTTP server is shutdown via a unix signal.
-        ceramic_kubo_rpc::http::serve(self.iroh.api().clone(), self.bind_address.clone()).await?;
+        // Start metrics server
+        debug!(
+            bind_addres = self.metrics_bind_address,
+            "starting prometheus metrics server"
+        );
+        let srv = metrics::server(self.metrics_bind_address.as_str())?;
+        let srv_handle = srv.handle();
+        tokio::spawn(srv);
+
+        // Run the Kubo RPC server, this blocks until the server is shutdown via a unix signal.
+        debug!(
+            bind_addres = self.bind_address,
+            "starting Kubo RPC API server"
+        );
+        ceramic_kubo_rpc::http::serve(self.ipfs.api(), self.bind_address.as_str()).await?;
+
+        // Shutdown metrics server
+        srv_handle.stop(false).await;
         Ok(())
     }
+    // Stop the system gracefully.
     async fn shutdown(self) -> Result<()> {
-        // Stop the system gracefully.
-        self.iroh.stop().await?;
+        // Stop IPFS before metrics
+        let res = self.ipfs.stop().await;
+
+        // Always shutdown metrics even if ipfs errors
         self.metrics_handle.shutdown();
+
+        // Check ipfs shutdown error
+        res?;
+
         Ok(())
     }
 }
@@ -183,24 +231,25 @@ async fn eye(opts: EyeOpts) -> Result<()> {
     let daemon = Daemon::build(opts.daemon).await?;
 
     // Start subscription
-    let subscription = daemon.iroh.api().p2p()?.subscribe(opts.topic).await?;
+    let subscription = daemon.ipfs.api().subscribe(opts.topic).await?;
 
-    let client = daemon.iroh.api().clone();
+    let client = daemon.ipfs.api();
     let metrics = daemon.metrics.clone();
 
     let p2p_events_handle = task::spawn(subscription.for_each(move |event| {
         match event.expect("should be a message") {
-            iroh_api::GossipsubEvent::Subscribed { .. } => {}
-            iroh_api::GossipsubEvent::Unsubscribed { .. } => {}
-            iroh_api::GossipsubEvent::Message {
-                from,
+            ceramic_kubo_rpc::GossipsubEvent::Subscribed { .. } => {}
+            ceramic_kubo_rpc::GossipsubEvent::Unsubscribed { .. } => {}
+            ceramic_kubo_rpc::GossipsubEvent::Message {
+                // From is the direct peer that forwarded the message
+                from: _,
                 id: _,
-                message,
+                message: pubsub_msg,
             } => {
-                let msg: Message = serde_json::from_slice(message.data.as_slice())
+                let ceramic_msg: Message = serde_json::from_slice(pubsub_msg.data.as_slice())
                     .expect("should be json message");
-                info!(?msg);
-                match &msg {
+                info!(?ceramic_msg);
+                match &ceramic_msg {
                     Message::Update {
                         stream: _,
                         tip,
@@ -210,14 +259,7 @@ async fn eye(opts: EyeOpts) -> Result<()> {
                             // Spawn task to get the data for a stream tip when we see one
                             let client = client.clone();
                             let metrics = metrics.clone();
-                            task::spawn(async move {
-                                let result = dag::get(client, &ipfs_path, DagJsonCodec).await;
-                                metrics.record(&result);
-                                match result {
-                                    Ok(_) => info!("succeed in loading stream tip: {}", ipfs_path),
-                                    Err(err) => warn!("failed to load stream tip: {}", err),
-                                };
-                            });
+                            task::spawn(async move { load_tip(client, metrics, &ipfs_path).await });
                         } else {
                             warn!("invalid update tip: {}", tip)
                         }
@@ -228,16 +270,9 @@ async fn eye(opts: EyeOpts) -> Result<()> {
                                 // Spawn task to get the data for a stream tip when we see one
                                 let client = client.clone();
                                 let metrics = metrics.clone();
-                                task::spawn(async move {
-                                    let result = dag::get(client, &ipfs_path, DagJsonCodec).await;
-                                    metrics.record(&result);
-                                    match result {
-                                        Ok(_) => {
-                                            info!("succeed in loading stream tip: {}", ipfs_path)
-                                        }
-                                        Err(err) => warn!("failed to load stream tip: {}", err),
-                                    };
-                                });
+                                task::spawn(
+                                    async move { load_tip(client, metrics, &ipfs_path).await },
+                                );
                             } else {
                                 warn!("invalid update tip: {}", tip)
                             }
@@ -245,7 +280,7 @@ async fn eye(opts: EyeOpts) -> Result<()> {
                     }
                     _ => {}
                 };
-                metrics.record(&(from, msg));
+                metrics.record(&(pubsub_msg.source, ceramic_msg));
             }
         }
         future::ready(())
@@ -257,6 +292,29 @@ async fn eye(opts: EyeOpts) -> Result<()> {
     p2p_events_handle.abort();
     p2p_events_handle.await.ok();
     Ok(())
+}
+
+async fn load_tip<T: IpfsDep>(client: T, metrics: Arc<Metrics>, ipfs_path: &IpfsPath) {
+    let result = timeout(
+        Duration::from_secs(60 * 60),
+        dag::get(client, ipfs_path, DagJsonCodec),
+    )
+    .await;
+    let lr = match result {
+        Ok(Ok(_)) => {
+            info!("succeed in loading stream tip: {}", ipfs_path);
+            TipLoadResult::Success
+        }
+        Ok(Err(err)) => {
+            warn!("failed to load stream tip: {}", err);
+            TipLoadResult::Failure
+        }
+        Err(_) => {
+            warn!("timeout loading stream tip");
+            TipLoadResult::Failure
+        }
+    };
+    metrics.record(&lr);
 }
 
 fn metrics_config_with_compile_time_info(cfg: MetricsConfig) -> MetricsConfig {
