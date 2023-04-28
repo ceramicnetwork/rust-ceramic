@@ -1250,7 +1250,6 @@ dependencies = [
  "cid 0.10.1",
  "did-method-key",
  "did-pkh",
- "env_logger",
  "hex",
  "int-enum",
  "multibase 0.9.1",
@@ -1260,8 +1259,10 @@ dependencies = [
  "serde_ipld_dagcbor",
  "serde_json",
  "ssi",
+ "test-log",
  "tokio",
  "tracing",
+ "tracing-subscriber",
  "unsigned-varint",
 ]
 
@@ -1271,7 +1272,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "ceramic-core",
- "env_logger",
  "multibase 0.9.1",
  "multihash 0.18.0",
  "once_cell",
@@ -2470,19 +2470,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "env_logger"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85cdab6a89accf66733ad5a1693a4dcced6aeff64602b634530dd73c1f3ee9f0"
-dependencies = [
- "humantime",
- "is-terminal",
- "log",
- "regex",
- "termcolor",
-]
-
-[[package]]
 name = "errno"
 version = "0.2.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3112,12 +3099,6 @@ checksum = "6cb51c9a029ddc91b07a787f1d86b53ccfa49b0e86688c946ebe8d3555685dd7"
 dependencies = [
  "libm 0.2.6",
 ]
-
-[[package]]
-name = "humantime"
-version = "2.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a3a5bfb195931eeb336b2a7b4d761daec841b97f947d34394601737a7bba5e4"
 
 [[package]]
 name = "hyper"
@@ -7890,6 +7871,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be55cf8942feac5c765c2c993422806843c9a9a45d4d5c407ad6dd2ea95eb9b6"
 dependencies = [
  "winapi-util",
+]
+
+[[package]]
+name = "test-log"
+version = "0.2.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "38f0c854faeb68a048f0f2dc410c5ddae3bf83854ef0e4977d58306a5edef50e"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
 ]
 
 [[package]]

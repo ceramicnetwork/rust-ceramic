@@ -113,7 +113,7 @@ impl TryInto<Bytes> for StreamId {
     type Error = anyhow::Error;
 
     fn try_into(self) -> Result<Bytes, Self::Error> {
-        Ok((&self).try_into()?)
+        (&self).try_into()
     }
 }
 
@@ -227,7 +227,7 @@ mod tests {
     fn can_serialize_and_deserialize_correctly() {
         let orig = "kjzl6kcym7w8y7nzgytqayf6aro12zt0mm01n6ydjomyvvklcspx9kr6gpbwd09";
         let stream = StreamId::from_str(orig).unwrap();
-        assert_eq!(stream.r#type, 3);
+        assert_eq!(stream.r#type, StreamIdType::Document);
         assert!(stream.commit.is_none());
         let s = stream.to_string();
         assert_eq!(&s, orig);

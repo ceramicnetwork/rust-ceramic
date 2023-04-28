@@ -126,8 +126,9 @@ mod tests {
     use super::*;
     use ssi::did::DIDMethod;
     use ssi::did::VerificationMethod;
+    use test_log::test;
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn should_convert_did_key_generated_without_vm() {
         let jwk = JWK::generate_ed25519().unwrap();
         let did = did_method_key::DIDKey
@@ -140,7 +141,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn should_convert_did_key_generated_with_vm() {
         let jwk = ssi::jwk::JWK::generate_ed25519().unwrap();
         let did = did_method_key::DIDKey
@@ -163,9 +164,8 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn should_convert_did_key_with_vm() {
-        let _ = env_logger::try_init();
         let did = DidDocument::new("did:key:zQ3shokFTS3brHcDQrn82RUDfCZESWL1ZdCEJwekUDPQiYBme#zQ3shokFTS3brHcDQrn82RUDfCZESWL1ZdCEJwekUDPQiYBme");
         let jwk = Jwk::new(&did).await.unwrap();
         tracing::debug!("JWK={:?}", jwk);
@@ -176,9 +176,8 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn should_fail_to_convert_did_pkh_with_vm() {
-        let _ = env_logger::try_init();
         let did = DidDocument::new("did:pkh:eip155:1:0xb9c5714089478a327f09197987f16f9e5d936e8a");
         if Jwk::new(&did).await.is_ok() {
             panic!("Should not get JWK from document");
