@@ -21,8 +21,11 @@ ssi.workspace = true
 #ssi-jwt = "0.1.0"
 
 [dev-dependencies]
-env_logger.workspace = true
 serde_ipld_dagcbor.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = ["fs", "macros", "rt"] }
 tracing.workspace = true
+tracing-subscriber.workspace = true
+test-log.workspace = true
+libipld.workspace = true
+expect-test.workspace = true

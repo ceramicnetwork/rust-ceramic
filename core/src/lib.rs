@@ -41,7 +41,7 @@ macro_rules! impl_multi_base {
             type Error = anyhow::Error;
 
             fn try_from(v: &StreamId) -> Result<Self, Self::Error> {
-                let v = v.as_vec()?;
+                let v = v.to_vec()?;
                 Ok(Self::from(v))
             }
         }

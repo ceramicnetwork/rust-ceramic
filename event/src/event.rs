@@ -40,8 +40,24 @@ impl Event {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::{DidDocument, EventArgs, StreamId};
+
+    use expect_test::expect;
+    use libipld::{cbor::DagCborCodec, json::DagJsonCodec, prelude::Codec, Ipld};
     use std::str::FromStr;
+    use test_log::test;
+
+    fn to_pretty_json(json_data: &[u8]) -> String {
+        let json: serde_json::Value = serde_json::from_slice(json_data).expect(
+            format!(
+                "input data should be valid json: {:?}",
+                String::from_utf8(json_data.to_vec())
+            )
+            .as_str(),
+        );
+        serde_json::to_string_pretty(&json).unwrap()
+    }
 
     #[test]
     fn should_roundtrip_json_data() {
@@ -58,15 +74,31 @@ mod tests {
         assert_eq!(decoded, data);
     }
 
-    #[tokio::test]
-    async fn should_roundtrip_init_event() {
+    #[test]
+    fn should_dag_json_init_event() {
         let did = DidDocument::new("did:key:blah");
         let model =
             StreamId::from_str("kjzl6kcym7w8y6of44g27v981fuutovbrnlw2ifbf8n26j2t4g5mmm6zc43nx1u")
                 .unwrap();
         let args = EventArgs::new_with_parent(&did, &model);
-        let evt = args.init().await.unwrap();
-        let _: serde_json::Value = serde_ipld_dagcbor::from_slice(evt.encoded.as_ref()).unwrap();
+        let evt = args.init().unwrap();
+        let data: Ipld = DagCborCodec.decode(evt.encoded.as_ref()).unwrap();
+        let encoded = DagJsonCodec.encode(&data).unwrap();
+        expect![[r#"
+            {
+              "header": {
+                "controllers": [
+                  "did:key:blah"
+                ],
+                "model": {
+                  "/": {
+                    "bytes": "zgEDAYUBEiBICac5WcThoeb40H49X/XNgN0enh/EJNtBhIMsTp36Eg"
+                  }
+                },
+                "sep": "model"
+              }
+            }"#]]
+        .assert_eq(&to_pretty_json(&encoded));
     }
 
     #[tokio::test]
@@ -97,8 +129,9 @@ mod tests {
         let protected: serde_json::Value = serde_json::from_slice(protected.as_ref()).unwrap();
         assert!(protected.as_object().unwrap().contains_key("kid"));
 
-        let post_data: serde_json::Value =
-            serde_ipld_dagcbor::from_slice(evt.linked_block.as_ref()).unwrap();
+        let post_data: Ipld = DagCborCodec.decode(evt.linked_block.as_ref()).unwrap();
+        let encoded = DagJsonCodec.encode(&post_data).unwrap();
+        let post_data: serde_json::Value = serde_json::from_slice(&encoded).unwrap();
         let post_data = post_data.as_object().unwrap().get("data").unwrap();
         assert_eq!(post_data, &data);
     }

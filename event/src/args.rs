@@ -51,7 +51,7 @@ impl<'a> EventArgs<'a> {
     }
 
     /// Create an init event from these arguments
-    pub async fn init(&self) -> Result<DeterministicEvent> {
+    pub fn init(&self) -> Result<DeterministicEvent> {
         let evt = UnsignedEvent::<()>::init(self)?;
         let evt = DeterministicEvent::new(&evt)?;
         Ok(evt)

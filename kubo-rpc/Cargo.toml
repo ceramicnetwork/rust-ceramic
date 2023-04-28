@@ -53,4 +53,4 @@ tracing.workspace = true
 unimock.workspace = true
 
 [dev-dependencies]
-expect-test = "1"
+expect-test.workspace = true

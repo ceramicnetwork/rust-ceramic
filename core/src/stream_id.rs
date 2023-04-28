@@ -40,7 +40,6 @@ pub struct StreamId {
     pub commit: Option<Cid>,
 }
 
-const U64_LEN: usize = 10;
 const STREAMID_CODEC: u64 = 206;
 
 impl StreamId {
@@ -72,40 +71,34 @@ impl StreamId {
         self.r#type == StreamIdType::Document
     }
 
-    fn len(&self) -> usize {
-        U64_LEN
-            + U64_LEN
-            + self.cid.encoded_len()
-            + self.commit.as_ref().map(|v| v.encoded_len()).unwrap_or(0)
-    }
+    // TODO re-add this logic once we can use cid@0.10
+    //fn len(&self) -> usize {
+    //    U64_LEN
+    //        + U64_LEN
+    //        + self.cid.encoded_len()
+    //        + self.commit.as_ref().map(|v| v.encoded_len()).unwrap_or(0)
+    //}
 
     /// Write the stream id to a writer
-    pub fn write<W: Write>(&self, mut writer: W) -> anyhow::Result<usize> {
-        let mut written = 0;
+    pub fn write<W: Write>(&self, mut writer: W) -> anyhow::Result<()> {
         let mut buf = encode::u64_buffer();
         let v = encode::u64(STREAMID_CODEC, &mut buf);
-        written += v.len();
         writer.write_all(v)?;
         let v = encode::u64(self.r#type.int_value(), &mut buf);
-        written += v.len();
         writer.write_all(v)?;
-        // When we get version 0.10 of cid correctly track bytes written
         self.cid.write_bytes(&mut writer)?;
         if let Some(cmt) = &self.commit {
             cmt.write_bytes(writer)?;
         }
-        Ok(written)
+        Ok(())
     }
 
     /// Convert the stream id to a vector
-    pub fn as_vec(&self) -> anyhow::Result<Vec<u8>> {
-        let buf = Vec::with_capacity(self.len());
+    pub fn to_vec(&self) -> anyhow::Result<Vec<u8>> {
+        // Use self.len() here when we have cid@0.10
+        let buf = Vec::new();
         let mut writer = std::io::BufWriter::new(buf);
-        let _written = self.write(&mut writer)?;
-        //let mut inner = writer.into_inner()?;
-        //if inner.len() != written {
-        //    inner.resize(written, 0);
-        //}
+        self.write(&mut writer)?;
         Ok(writer.into_inner()?)
     }
 }
@@ -114,7 +107,7 @@ impl TryInto<Bytes> for StreamId {
     type Error = anyhow::Error;
 
     fn try_into(self) -> Result<Bytes, Self::Error> {
-        Ok((&self).try_into()?)
+        (&self).try_into()
     }
 }
 
@@ -122,7 +115,7 @@ impl TryInto<Bytes> for &StreamId {
     type Error = anyhow::Error;
 
     fn try_into(self) -> Result<Bytes, Self::Error> {
-        Ok(Bytes::from(self.as_vec()?))
+        Ok(Bytes::from(self.to_vec()?))
     }
 }
 
@@ -137,7 +130,7 @@ impl std::str::FromStr for StreamId {
 
 impl std::fmt::Display for StreamId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        if let Ok(b) = self.as_vec() {
+        if let Ok(b) = self.to_vec() {
             let s = multibase::encode(Base::Base36Lower, b);
             write!(f, "{}", s)
         } else {
