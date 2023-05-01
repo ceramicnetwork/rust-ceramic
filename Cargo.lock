@@ -2742,7 +2742,7 @@ checksum = "30e22bd8629359895450b59ea7a776c850561b96a3b1d31321c1949d9e6c9146"
 [[package]]
 name = "iroh-api"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
+source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#28f1ea735123e62b8ea2430dad66157010fbb763"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -2768,7 +2768,7 @@ dependencies = [
 [[package]]
 name = "iroh-bitswap"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
+source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#28f1ea735123e62b8ea2430dad66157010fbb763"
 dependencies = [
  "ahash 0.8.3",
  "anyhow",
@@ -2806,7 +2806,7 @@ dependencies = [
 [[package]]
 name = "iroh-car"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
+source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#28f1ea735123e62b8ea2430dad66157010fbb763"
 dependencies = [
  "cid 0.9.0",
  "futures",
@@ -2820,7 +2820,7 @@ dependencies = [
 [[package]]
 name = "iroh-embed"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
+source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#28f1ea735123e62b8ea2430dad66157010fbb763"
 dependencies = [
  "anyhow",
  "futures",
@@ -2841,7 +2841,7 @@ dependencies = [
 [[package]]
 name = "iroh-gateway"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
+source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#28f1ea735123e62b8ea2430dad66157010fbb763"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -2901,7 +2901,7 @@ dependencies = [
 [[package]]
 name = "iroh-metrics"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
+source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#28f1ea735123e62b8ea2430dad66157010fbb763"
 dependencies = [
  "async-trait",
  "config",
@@ -2924,7 +2924,7 @@ dependencies = [
 [[package]]
 name = "iroh-one"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
+source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#28f1ea735123e62b8ea2430dad66157010fbb763"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2955,7 +2955,7 @@ dependencies = [
 [[package]]
 name = "iroh-p2p"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
+source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#28f1ea735123e62b8ea2430dad66157010fbb763"
 dependencies = [
  "ahash 0.8.3",
  "anyhow",
@@ -2994,7 +2994,7 @@ dependencies = [
 [[package]]
 name = "iroh-resolver"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
+source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#28f1ea735123e62b8ea2430dad66157010fbb763"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -3020,7 +3020,7 @@ dependencies = [
 [[package]]
 name = "iroh-rpc-client"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
+source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#28f1ea735123e62b8ea2430dad66157010fbb763"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -3043,7 +3043,7 @@ dependencies = [
 [[package]]
 name = "iroh-rpc-types"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
+source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#28f1ea735123e62b8ea2430dad66157010fbb763"
 dependencies = [
  "anyhow",
  "bytes",
@@ -3061,7 +3061,7 @@ dependencies = [
 [[package]]
 name = "iroh-store"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
+source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#28f1ea735123e62b8ea2430dad66157010fbb763"
 dependencies = [
  "ahash 0.8.3",
  "anyhow",
@@ -3095,7 +3095,7 @@ dependencies = [
 [[package]]
 name = "iroh-unixfs"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
+source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#28f1ea735123e62b8ea2430dad66157010fbb763"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -3132,7 +3132,7 @@ dependencies = [
 [[package]]
 name = "iroh-util"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#348a7390a99384a1664d14901aa8ea302e83b010"
+source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#28f1ea735123e62b8ea2430dad66157010fbb763"
 dependencies = [
  "anyhow",
  "cid 0.9.0",
