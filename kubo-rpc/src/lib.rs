@@ -65,6 +65,7 @@ pub struct IpfsPath {
     root: Cid,
     tail: Vec<String>,
 }
+
 impl IpfsPath {
     /// New path from a cid.
     pub fn from_cid(cid: Cid) -> Self {
@@ -84,6 +85,7 @@ impl IpfsPath {
         !self.tail.is_empty() && self.tail.last().unwrap().is_empty()
     }
 }
+
 impl Display for IpfsPath {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "/{}", self.root)?;

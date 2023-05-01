@@ -59,8 +59,11 @@ impl Builder<Init> {
         };
 
         let rpc_addr = addr.clone();
-        let task =
-            tokio::spawn(async move { iroh_store::rpc::new(rpc_addr, store).await.unwrap() });
+        let task = tokio::spawn(async move {
+            if let Err(err) = iroh_store::rpc::new(rpc_addr, store).await {
+                error!("{:?}", err);
+            }
+        });
 
         Ok(Builder {
             state: WithStore {

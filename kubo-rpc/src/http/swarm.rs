@@ -143,7 +143,10 @@ where
                 "no peer id specificed in multiaddrs"
             )))
         }
-        1 => peer_ids.into_iter().next().unwrap(),
+        1 => peer_ids
+            .into_iter()
+            .next()
+            .expect("unreachable: should be exactly one peer_id"),
         _ => return Err(Error::Invalid(anyhow!("found multiple distinct peer ids"))),
     };
 
