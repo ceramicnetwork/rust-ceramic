@@ -405,7 +405,7 @@ fn hello() {
 }
 
 #[test]
-fn abcd() {
+fn abcde() {
     recon_test(expect![[r#"
         cat: [b,c,d,e]
         dog: [a,e]
@@ -774,25 +774,10 @@ fn recon_do(recon: &str) -> Record {
     record.dog.keys = dog;
     record
 }
-fn recon_test(recon: &str) {
-    let mut record = parse_recon(recon);
-    let mut prev = None;
-    for iter in record.iterations.into_iter() {
-        if let Some(prev) = prev.as_ref() {
-            assert_eq!(prev, &iter.msg);
-        }
-        let (msg, set) = match iter.dir {
-            Direction::CatToDog => (record.dog.process_message(&iter.msg), &record.dog.keys),
-            Direction::DogToCat => (record.cat.process_message(&iter.msg), &record.cat.keys),
-        };
-        prev = Some(msg);
-        assert_eq!(set, &iter.set, "left:got, right:expected");
-    }
-    // Assert the last message is empty
-    // TODO have process_message return Option<Message>
-    // if let Some(prev) = prev.as_ref() {
-    //     assert!(prev.keys.is_empty())
-    // }
+
+fn recon_test(recon: Expect) {
+    let actual = format!("{}", recon_do(recon.data()));
+    recon.assert_eq(&actual)
 }
 
 #[test]
