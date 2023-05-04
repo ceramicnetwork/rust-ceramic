@@ -24,7 +24,7 @@ use std::fmt::Formatter;
 macro_rules! impl_multi_base {
     ($typname:ident, $base:expr) => {
         /// A string that is encoded with a multibase prefix
-        #[derive(Debug, Deserialize, Serialize)]
+        #[derive(Clone, Debug, Deserialize, Serialize)]
         #[serde(transparent)]
         pub struct $typname(String);
 
@@ -73,7 +73,7 @@ impl_multi_base!(MultiBase64String, multibase::Base::Base64);
 impl_multi_base!(MultiBase64UrlString, multibase::Base::Base64Url);
 
 /// Newtype to encapsulate a value that is DagCbor encoded
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(transparent)]
 pub struct DagCborEncoded(Vec<u8>);
 
@@ -99,7 +99,7 @@ impl std::fmt::Display for DagCborEncoded {
 }
 
 /// A string that is encoded with base64
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(transparent)]
 pub struct Base64String(String);
 
@@ -141,7 +141,7 @@ impl From<String> for Base64String {
 }
 
 /// A string that is encoded with base64url
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(transparent)]
 pub struct Base64UrlString(String);
 

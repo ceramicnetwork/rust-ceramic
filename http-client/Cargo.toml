@@ -1,0 +1,30 @@
+[package]
+name = "ceramic-http-client"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow.workspace = true
+ceramic-event = { path = "../event" }
+json-patch = "0.3.0"
+reqwest = { version = "0.11.14", features = ["json"], optional = true }
+schemars = "0.8.12"
+serde_json.workspace = true
+ssi.workspace = true
+serde.workspace = true
+url = { version = "2.2.2", optional = true }
+
+[features]
+default = ["remote"]
+remote = ["reqwest", "url"]
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+test-log.workspace = true
