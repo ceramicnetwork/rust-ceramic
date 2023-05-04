@@ -1,5 +1,5 @@
 [workspace]
-members = ["core", "event", "kubo-rpc", "one"]
+members = ["core", "event", "kubo-rpc", "one", "recon"]
 
 [workspace.dependencies]
 anyhow = "1"
@@ -10,7 +10,6 @@ ceramic-one = { path = "./one" }
 cid = { version = "0.9", features = ["serde-codec"] }
 dag-jose = "0.1"
 futures = "0.3"
-dag-jose = { git = "https://github.com/ceramicnetwork/rust-dag-jose", branch = "main" }
 futures-util = "0.3"
 hex = "0.4.3"
 iroh-api = { git = "https://github.com/nathanielc/beetle", branch = "expose-api-client" }
@@ -59,8 +58,8 @@ expect-test = "1"
 version = "0.1.0"
 edition = "2021"
 authors = [
-    "Nathaniel Cook <nvcook42@gmail.com>",
     "Danny Browning <dbrowning@3box.io>",
+    "Nathaniel Cook <nvcook42@gmail.com>",
     "Aaron D Goldman <goldmanaaron@gmail.com>",
 ]
 license = "MIT OR Apache-2.0"
