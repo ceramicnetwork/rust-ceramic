@@ -69,13 +69,14 @@ impl<'a> EventArgs<'a> {
     /// Create an update event from these arguments
     pub async fn update<T: Serialize>(
         &self,
-        data: &T,
-        private_key: &str,
+        current: &Cid,
         prev: &Cid,
+        private_key: &str,
+        data: &T,
     ) -> Result<Event> {
         let jwk = Jwk::new(self.signer).await?;
         let jwk = jwk.with_private_key(private_key)?;
-        let evt = UnsignedEvent::update(self, data, prev)?;
+        let evt = UnsignedEvent::update(self, current, prev, data)?;
         let evt = Event::new(&evt, self.signer, &jwk).await?;
         Ok(evt)
     }
@@ -130,15 +131,34 @@ impl<'a, T: Serialize> UnsignedEvent<'a, T> {
     }
 
     /// Create an update unsigned event from event arguments
-    pub fn update(args: &'a EventArgs, data: &'a T, prev: &'a Cid) -> Result<Self> {
-        create_unsigned_event(args, CreateArgs::Update { data, prev })
+    pub fn update(
+        args: &'a EventArgs,
+        current: &'a Cid,
+        prev: &'a Cid,
+        data: &'a T,
+    ) -> Result<Self> {
+        create_unsigned_event(
+            args,
+            CreateArgs::Update {
+                current,
+                prev,
+                data,
+            },
+        )
     }
 }
 
 enum CreateArgs<'a, T: Serialize> {
     Init,
-    InitWithData { data: &'a T, unique: Vec<u32> },
-    Update { data: &'a T, prev: &'a Cid },
+    InitWithData {
+        data: &'a T,
+        unique: Vec<u32>,
+    },
+    Update {
+        current: &'a Cid,
+        prev: &'a Cid,
+        data: &'a T,
+    },
 }
 
 fn create_unsigned_event<'a, T: Serialize>(
@@ -150,7 +170,7 @@ fn create_unsigned_event<'a, T: Serialize>(
         .iter()
         .map(|d| d.id.as_ref())
         .collect();
-    let (header, data, prev) = match create_args {
+    let (header, data, prev, id) = match create_args {
         CreateArgs::Init => (
             Some(UnsignedEventHeader {
                 controllers,
@@ -158,6 +178,7 @@ fn create_unsigned_event<'a, T: Serialize>(
                 sep: event_args.sep,
                 unique: None,
             }),
+            None,
             None,
             None,
         ),
@@ -170,13 +191,18 @@ fn create_unsigned_event<'a, T: Serialize>(
             }),
             Some(data),
             None,
+            None,
         ),
-        CreateArgs::Update { data, prev } => (None, Some(data), Some(prev)),
+        CreateArgs::Update {
+            current,
+            prev,
+            data,
+        } => (None, Some(data), Some(prev), Some(current)),
     };
     Ok(UnsignedEvent {
         data,
         header,
         prev,
-        id: prev,
+        id,
     })
 }

@@ -4,14 +4,14 @@ use serde::{Deserialize, Serialize};
 use ssi::jwk::Algorithm;
 
 /// The fields associated with the signature used to sign a JWS
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct JwsSignature {
     pub protected: Option<Base64String>,
     pub signature: Base64UrlString,
 }
 
 /// A JWS object
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Jws {
     /// Link to CID that contains encoded data
     pub link: MultiBase32String,
