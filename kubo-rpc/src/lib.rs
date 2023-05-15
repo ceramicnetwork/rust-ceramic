@@ -4,7 +4,6 @@
 //! <https://docs.ipfs.tech/reference/kubo/rpc/>
 //!
 //! The http server implementation is behind the `http` feature.
-#![deny(warnings)]
 #![deny(missing_docs)]
 use std::{
     collections::HashMap,

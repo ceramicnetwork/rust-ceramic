@@ -16,7 +16,7 @@ build:
 
 .PHONY: release
 release:
-	cargo build -p ceramic-one --locked --release
+	RUSTFLAGS="-D warnings" cargo build -p ceramic-one --locked --release
 
 .PHONY: test
 test:
