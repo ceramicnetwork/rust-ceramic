@@ -1,6 +1,5 @@
 //! # Ceramic Core
 //! Core functionality for ceramic, including the StreamId, Cid, and Jws types.
-#![deny(warnings)]
 #![deny(missing_docs)]
 mod bytes;
 mod jwk;

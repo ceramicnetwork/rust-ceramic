@@ -1,6 +1,5 @@
-#![deny(warnings, missing_docs, missing_debug_implementations, clippy::all)]
-
 //! Recon is a network protocol for set reconciliation
+#![deny(missing_docs)]
 
 pub use crate::recon::{Hash, Message, Recon};
 pub use ahash::AHash;

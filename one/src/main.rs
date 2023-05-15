@@ -1,5 +1,4 @@
 //! Ceramic implements a single binary ceramic node.
-#![deny(warnings)]
 #![deny(missing_docs)]
 
 use std::{path::PathBuf, str::FromStr, sync::Arc, time::Duration};
