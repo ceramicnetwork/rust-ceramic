@@ -30,7 +30,7 @@ impl Serialize for StreamIdType {
 }
 
 /// A stream id, which is a cid with a type
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StreamId {
     /// The type of the stream
     pub r#type: StreamIdType,
