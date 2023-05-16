@@ -10,6 +10,6 @@
 #
 # to login to docker. That password will be valid for 12h.
 
-docker buildx build -t 3box/ceramic-one .
+docker buildx build --load -t 3box/ceramic-one .
 docker tag 3box/ceramic-one:latest public.ecr.aws/r5b3e0r5/3box/ceramic-one:latest
 docker push public.ecr.aws/r5b3e0r5/3box/ceramic-one:latest
