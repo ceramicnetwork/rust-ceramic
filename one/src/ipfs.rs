@@ -6,6 +6,7 @@ use iroh_p2p::{Config as P2pConfig, DiskStorage, Keychain, Libp2pConfig, Node};
 use iroh_rpc_client::{P2pClient, StoreClient};
 use iroh_rpc_types::{p2p::P2pAddr, store::StoreAddr, Addr};
 use iroh_store::{Config as StoreConfig, Store};
+use libp2p::swarm::{behaviour::toggle::Toggle, dummy};
 use std::{path::PathBuf, sync::Arc};
 use tokio::task::{self, JoinHandle};
 use tracing::{error, info};
@@ -90,7 +91,7 @@ impl Builder<WithStore> {
 
         let kc = Keychain::<DiskStorage>::new(config.key_store_path.clone()).await?;
 
-        let mut p2p = Node::new(config, addr.clone(), kc).await?;
+        let mut p2p = Node::new(config, addr.clone(), kc, None::<Toggle<dummy::Behaviour>>).await?;
 
         let task = task::spawn(async move {
             if let Err(err) = p2p.run().await {
