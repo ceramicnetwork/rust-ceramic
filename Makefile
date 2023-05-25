@@ -18,6 +18,10 @@ build:
 release:
 	RUSTFLAGS="-D warnings" cargo build -p ceramic-one --locked --release
 
+.PHONY: debug
+debug:
+	cargo build -p ceramic-one --locked
+
 .PHONY: test
 test:
 	# Test with default features

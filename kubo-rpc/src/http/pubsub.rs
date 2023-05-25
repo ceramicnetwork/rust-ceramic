@@ -3,7 +3,7 @@ use actix_web::{http::header::ContentType, web, HttpResponse, Scope};
 use anyhow::anyhow;
 use futures_util::StreamExt;
 use libipld::multibase::{self, Base};
-use libp2p::gossipsub::GossipsubMessage;
+use libp2p::gossipsub::Message;
 use serde::{Deserialize, Serialize};
 
 use crate::{error::Error, http::AppState, pubsub, Bytes, GossipsubEvent, IpfsDep};
@@ -127,7 +127,7 @@ where
                     from: _,
                     id: _,
                     message:
-                        GossipsubMessage {
+                        Message {
                             source,
                             data,
                             sequence_number,
@@ -173,7 +173,7 @@ mod tests {
     use expect_test::expect;
     use futures_util::{stream::BoxStream, StreamExt};
     use libipld::multibase::{self, Base};
-    use libp2p::gossipsub::{GossipsubMessage, TopicHash};
+    use libp2p::gossipsub::{Message, TopicHash};
     use unimock::MockFn;
     use unimock::{matching, Unimock};
 
@@ -299,7 +299,7 @@ mod tests {
                     from: PeerId::from_str("12D3KooWHUfjwiTRVV8jxFcKRSQTPatayC4nQCNX86oxRF5XWzGe")
                         .unwrap(),
                     id: libp2p::gossipsub::MessageId::new(&[]),
-                    message: GossipsubMessage {
+                    message: Message {
                         source: Some(
                             PeerId::from_str(
                                 "12D3KooWM68GyFKBT9JsuTRB6CYkF61PtMuSkynUauSQEGBX51JW",
@@ -315,7 +315,7 @@ mod tests {
                     from: PeerId::from_str("12D3KooWGnKwtpSh2ZLTvoC8mjiexMNRLNkT92pxq7MDgyJHktNJ")
                         .unwrap(),
                     id: libp2p::gossipsub::MessageId::new(&[]),
-                    message: GossipsubMessage {
+                    message: Message {
                         source: Some(
                             PeerId::from_str(
                                 "12D3KooWQVU9Pv3BqD6bD9w96tJxLedKCj4VZ75oqX9Tav4R4rUS",

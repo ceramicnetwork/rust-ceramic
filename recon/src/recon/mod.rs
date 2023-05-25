@@ -79,19 +79,23 @@ impl Recon {
     }
 
     /// Generate a response message for a incoming message
-    pub fn process_message<H: Hash>(&mut self, received: &Message<H>) -> Message<H> {
+    pub fn process_message<H: Hash>(&mut self, received: &Message<H>) -> Response<H> {
+        let mut response = Response {
+            is_synchronized: true,
+            ..Default::default()
+        };
         // self.keys.extend(received.keys.clone()); // add received keys
         for key in &received.keys {
             let h = AHash::digest(key);
-            self.keys.insert(key.to_string(), h);
+            if self.keys.insert(key.to_string(), h).is_none() {
+                response.is_synchronized = false;
+            }
         }
         if self.keys.is_empty() {
-            return Message::<H>::default();
+            return response;
         }
         let mut received_keys = received.keys.iter();
         let mut received_hashs = received.ahashs.iter();
-
-        let mut response = Message::<H>::default(); // init the response empty
 
         let mut left_fencepost = self.keys.first_key_value().unwrap().0;
         let mut right_fencepost = received_keys
@@ -100,9 +104,12 @@ impl Recon {
         let mut received_hash = &H::identity();
         let zero = &H::identity();
 
-        response.keys.push(left_fencepost.to_string());
+        response.msg.keys.push(left_fencepost.to_string());
         while !received.keys.is_empty() && left_fencepost < received.keys.last().unwrap() {
-            response.process_range(left_fencepost, right_fencepost, received_hash, self);
+            response.is_synchronized &=
+                response
+                    .msg
+                    .process_range(left_fencepost, right_fencepost, received_hash, self);
             left_fencepost = right_fencepost;
             right_fencepost = received_keys
                 .next()
@@ -110,15 +117,39 @@ impl Recon {
             received_hash = received_hashs.next().unwrap_or(zero);
         }
         if !received.keys.is_empty() {
-            response.process_range(
+            response.is_synchronized &= response.msg.process_range(
                 received.keys.last().unwrap(),
                 self.keys.last_key_value().unwrap().0,
                 zero,
                 self,
             );
         }
-        response.end_streak(self.keys.last_key_value().unwrap().0, self);
         response
+            .msg
+            .end_streak(self.keys.last_key_value().unwrap().0, self);
+        response
+    }
+}
+
+// Response from processing a message
+#[derive(Debug, Default)]
+pub struct Response<H: Hash> {
+    msg: Message<H>,
+    is_synchronized: bool,
+}
+
+impl<H: Hash> Display for Response<H> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.msg)
+    }
+}
+
+impl<H: Hash> Response<H> {
+    pub fn into_message(self) -> Message<H> {
+        self.msg
+    }
+    pub fn is_synchronized(&self) -> bool {
+        self.is_synchronized
     }
 }
 
@@ -136,7 +167,10 @@ impl Recon {
 /// hashs[]
 /// with one more key then hashes
 #[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct Message<H: Hash> {
+pub struct Message<H>
+where
+    H: Hash,
+{
     /// keys must be 1 longer then ahashs unless both are empty
     #[serde(rename = "k")]
     pub keys: Vec<String>,
@@ -153,7 +187,7 @@ impl<H: Hash> Display for Message<H> {
             let hash_hex = if h.is_zero() {
                 "0".to_string()
             } else {
-                h.to_hex()[0..6].to_string()
+                format!("{}", &h.to_hex()[0..6])
             };
             write!(f, "{}, {}, ", k, hash_hex)?;
         }
@@ -188,7 +222,7 @@ pub trait Hash: std::ops::Add<Output = Self> + Clone + Default + PartialEq {
     fn to_hex(&self) -> String;
 
     /// set the accumulated value to the bytes
-    fn from_bytes(bytes: [u8; 32]) -> Self;
+    fn from_bytes(bytes: &[u8; 32]) -> Self;
 
     /// sum a iterator of strings and AHashes
     fn digest_many<'a, I>(keys: I) -> Self
@@ -218,9 +252,9 @@ impl<H: Hash> Message<H> {
         right_fencepost: &str,
         received_hash: &H,
         local_keys: &Recon,
-    ) {
+    ) -> bool {
         if left_fencepost == right_fencepost {
-            return; // no keys in range nothing to do
+            return true;
         }
 
         let l = Excluded(left_fencepost.to_string());
@@ -229,7 +263,7 @@ impl<H: Hash> Message<H> {
         let calculated_hash = local_keys.hash_range::<H>(left_fencepost, right_fencepost);
 
         if &calculated_hash == received_hash {
-            return; // keys in range match nothing to do
+            return true;
         }
 
         self.end_streak(left_fencepost, local_keys);
@@ -252,6 +286,7 @@ impl<H: Hash> Message<H> {
             // println!("split ({},{}) {}!={}", left_fencepost, right_fencepost, received_hash.to_hex(), calculated_hash.to_hex());
             self.send_split(left_fencepost, right_fencepost, local_keys);
         }
+        return false;
     }
 
     fn send_split(&mut self, left_fencepost: &str, right_fencepost: &str, local_keys: &Recon) {

@@ -8,12 +8,20 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
 hex = "0.4.3"
 multihash = "0.18.0"
 serde.workspace = true
 serde_bytes.workspace = true
 serde_ipld_dagcbor.workspace = true
 serde_json.workspace = true
+libp2p.workspace = true
+iroh-p2p.workspace = true
+asynchronous-codec = { version = "0.6.1", features = ["cbor", "json"] }
+libp2p-identity = "0.1.2"
+tracing.workspace = true
+rand = "0.8.5"
 
 [dev-dependencies]
 codespan-reporting = "0.11.1"
@@ -22,6 +30,7 @@ lalrpop-util = { version = "0.19.8", features = ["lexer"] }
 pretty = "0.11.3"
 regex = "1"
 rusqlite = "0.29.0"
+serde_cbor = "0.11.2"
 
 
 [build-dependencies]

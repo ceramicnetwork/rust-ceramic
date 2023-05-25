@@ -1,12 +1,13 @@
-use ::serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
+use ::serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use multihash::{Hasher, Sha2_256};
+use serde::de::Visitor;
 use std::fmt::{self, Debug, Display, Formatter};
 
 use crate::Hash;
 
 /// AHash an associative hash function for use in set reconciliation
-#[derive(Default, PartialEq, Clone, Copy, Deserialize)]
-pub struct AHash(#[serde(deserialize_with = "deserialize_from_bytes")] [u32; 8]);
+#[derive(Default, PartialEq, Clone, Copy)]
+pub struct AHash([u32; 8]);
 
 impl std::ops::Add for AHash {
     type Output = Self;
@@ -33,21 +34,74 @@ impl Serialize for AHash {
     }
 }
 
-fn deserialize_from_bytes<'de, D>(deserializer: D) -> Result<[u32; 8], D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let b: &serde_bytes::Bytes = Deserialize::deserialize(deserializer)?;
-    if b.len() == 0 {
-        Ok(AHash::identity().0)
-    } else {
+// de::Visitor that can handle bytes or a sequence of byte values.
+struct ByteVisitor;
+
+impl ByteVisitor {
+    fn length_error<E: de::Error>(len: usize) -> E {
+        E::invalid_length(len, &"hash must have a length of 32 bytes")
+    }
+}
+impl<'de> Visitor<'de> for ByteVisitor {
+    // Construct AHash directly to avoid unneccessary copies of the data.
+    type Value = AHash;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("bytes")
+    }
+
+    fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
         Ok(AHash::from_bytes(
-            b.to_vec()
-                .as_slice()
+            v.try_into()
+                .map_err(|_| ByteVisitor::length_error(v.len()))?,
+        ))
+    }
+    fn visit_byte_buf<E>(self, v: Vec<u8>) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        Ok(AHash::from_bytes(
+            v.as_slice()
                 .try_into()
-                .map_err(|_| D::Error::invalid_length(b.len(), &"hash must be len 32"))?,
-        )
-        .0)
+                .map_err(|_| ByteVisitor::length_error(v.len()))?,
+        ))
+    }
+    fn visit_borrowed_bytes<E>(self, v: &'de [u8]) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        Ok(AHash::from_bytes(
+            v.try_into()
+                .map_err(|_| ByteVisitor::length_error(v.len()))?,
+        ))
+    }
+    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: serde::de::SeqAccess<'de>,
+    {
+        let mut v = Vec::with_capacity(32);
+        while let Some(byte) = seq.next_element()? {
+            v.push(byte);
+            if v.len() > 32 {
+                return Err(ByteVisitor::length_error(seq.size_hint().unwrap_or(1) + 32));
+            }
+        }
+        Ok(AHash::from_bytes(
+            v.as_slice()
+                .try_into()
+                .map_err(|_| ByteVisitor::length_error(v.len()))?,
+        ))
+    }
+}
+impl<'de> Deserialize<'de> for AHash {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_bytes(ByteVisitor)
     }
 }
 
@@ -107,7 +161,7 @@ impl crate::recon::Hash for AHash {
         }
     }
 
-    fn from_bytes(bytes: [u8; 32]) -> AHash {
+    fn from_bytes(bytes: &[u8; 32]) -> AHash {
         AHash([
             // 4 byte slices safe to unwrap to [u8; 4]
             u32::from_le_bytes(bytes[0..4].try_into().unwrap()),
@@ -136,14 +190,14 @@ impl AHash {
 
     /// turn a string into a AHash
     pub fn digest(key: &str) -> AHash {
-        AHash::from_bytes(AHash::sha256_digest(key))
+        AHash::from_bytes(&AHash::sha256_digest(key))
     }
 
     /// allocate a new hash with the state from the hex string
     pub fn from_hex(hex_data: &String) -> Result<AHash, hex::FromHexError> {
         let mut bytes: [u8; 32] = [0u8; 32];
         hex::decode_to_slice(hex_data, &mut bytes)?;
-        Ok(AHash::from_bytes(bytes))
+        Ok(AHash::from_bytes(&bytes))
     }
 }
 
@@ -205,5 +259,23 @@ mod tests {
         push.push((&"hello".to_string(), &AHash::digest("hello")));
         push.push((&"world".to_string(), &AHash::digest("world")));
         assert_eq!(plus.to_hex(), push.to_hex())
+    }
+
+    #[test]
+    fn serde_json() {
+        // JSON doesn't have a first class bytes value so its serializes values as a sequence of
+        // integers.
+        // Validate we can roundtrip this kind of serialization.
+        let hello = AHash::digest("hello");
+        let data = serde_json::to_vec(&hello).unwrap();
+        let new_hello: AHash = serde_json::from_slice(&data).unwrap();
+        assert_eq!(hello, new_hello);
+    }
+    #[test]
+    fn serde_cbor() {
+        let hello = AHash::digest("hello");
+        let data = serde_cbor::to_vec(&hello).unwrap();
+        let new_hello: AHash = serde_cbor::from_slice(&data).unwrap();
+        assert_eq!(hello, new_hello);
     }
 }

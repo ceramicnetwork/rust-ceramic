@@ -6,6 +6,7 @@ use iroh_p2p::{Config as P2pConfig, DiskStorage, Keychain, Libp2pConfig, Node};
 use iroh_rpc_client::{P2pClient, StoreClient};
 use iroh_rpc_types::{p2p::P2pAddr, store::StoreAddr, Addr};
 use iroh_store::{Config as StoreConfig, Store};
+use libp2p::swarm::NetworkBehaviour;
 use std::{path::PathBuf, sync::Arc};
 use tokio::task::{self, JoinHandle};
 use tracing::{error, info};
@@ -75,11 +76,17 @@ impl Builder<Init> {
 
 /// Configure the p2p service
 impl Builder<WithStore> {
-    pub async fn with_p2p(
+    pub async fn with_p2p<B>(
         self,
         libp2p_config: Libp2pConfig,
         key_store_path: PathBuf,
-    ) -> anyhow::Result<Builder<WithP2p>> {
+        behvaiour: B,
+    ) -> anyhow::Result<Builder<WithP2p>>
+    where
+        B: NetworkBehaviour + Send,
+        // Any provided behavior must be able to construct an iroh event from its own events
+        iroh_p2p::Event<B>: From<<B as NetworkBehaviour>::OutEvent>,
+    {
         let addr = Addr::new_mem();
 
         let mut config = P2pConfig::default_with_rpc(addr.clone());
@@ -90,7 +97,7 @@ impl Builder<WithStore> {
 
         let kc = Keychain::<DiskStorage>::new(config.key_store_path.clone()).await?;
 
-        let mut p2p = Node::new(config, addr.clone(), kc).await?;
+        let mut p2p = Node::new(config, addr.clone(), kc, Some(behvaiour)).await?;
 
         let task = task::spawn(async move {
             if let Err(err) = p2p.run().await {
@@ -121,6 +128,7 @@ impl Builder<WithP2p> {
     }
 }
 
+// Provides Ipfs node implementation
 pub struct Ipfs {
     api: Arc<IpfsService>,
     p2p: Service<P2pAddr>,

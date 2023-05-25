@@ -1,6 +1,10 @@
 //! Ceramic implements a single binary ceramic node.
 #![deny(missing_docs)]
 
+mod metrics;
+mod network;
+mod pubsub;
+
 use std::{path::PathBuf, str::FromStr, sync::Arc, time::Duration};
 
 use anyhow::Result;
@@ -16,14 +20,10 @@ use tokio::{task, time::timeout};
 use tracing::{debug, info, warn};
 
 use crate::{
-    ipfs::Ipfs,
     metrics::{Metrics, TipLoadResult},
+    network::Ipfs,
     pubsub::Message,
 };
-
-mod ipfs;
-mod metrics;
-mod pubsub;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -173,10 +173,27 @@ impl Daemon {
             .collect::<Result<Vec<Multiaddr>, multiaddr::Error>>()?;
         debug!(?p2p_config, "using p2p config");
 
+        // TODO remove this demo code
+        // Generates a set of random keys to synchronize using Recon
+        let mut set = std::collections::BTreeSet::new();
+        for _ in 0..100 {
+            use rand::{distributions::Alphanumeric, Rng}; // 0.8
+            let s: String = rand::thread_rng()
+                .sample_iter(&Alphanumeric)
+                .take(12)
+                .map(char::from)
+                .collect();
+            set.insert(s);
+        }
+
+        // Construct a recon implementation.
+        let recon = Arc::new(std::sync::Mutex::new(recon::Recon::from_set(set)));
+        let recon = recon::libp2p::Behaviour::new(recon);
+
         let ipfs = Ipfs::builder()
             .with_store(dir.join("store"))
             .await?
-            .with_p2p(p2p_config, dir)
+            .with_p2p(p2p_config, dir, recon)
             .await?
             .build()
             .await?;

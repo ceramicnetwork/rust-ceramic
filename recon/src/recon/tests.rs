@@ -66,7 +66,7 @@ impl crate::recon::Hash for MemoryAHash {
     fn to_bytes(&self) -> Vec<u8> {
         self.ahash.to_bytes()
     }
-    fn from_bytes(bytes: [u8; 32]) -> Self {
+    fn from_bytes(bytes: &[u8; 32]) -> Self {
         MemoryAHash {
             ahash: AHash::from_bytes(bytes),
             set: BTreeSet::default(),
@@ -315,17 +315,17 @@ fn word_lists() {
                     println!(
                         "\t{}: <- {}[{}]",
                         k,
-                        if response.keys.len() < 10 {
-                            format!("{}", response)
+                        if response.msg.keys.len() < 10 {
+                            format!("{}", response.msg)
                         } else {
-                            format!("({})", response.keys.len())
+                            format!("({})", response.msg.keys.len())
                         },
                         peer.keys.len(),
                     );
 
-                    next = local.process_message(&response);
+                    next = local.process_message(&response.msg).msg;
 
-                    if response.keys.len() < 3 && next.keys.len() < 3 {
+                    if response.msg.keys.len() < 3 && next.keys.len() < 3 {
                         println!("\tpeers[{}] in sync", i);
                         break;
                     }
@@ -359,6 +359,33 @@ fn word_lists() {
 
     local.insert("ceramic");
     sync(&mut local, &mut peers);
+}
+#[test]
+fn response_is_synchronized() {
+    let mut a = Recon::from_set(BTreeSet::from_iter([
+        "a".to_owned(),
+        "b".to_owned(),
+        "c".to_owned(),
+        "n".to_owned(),
+    ]));
+    let mut x = Recon::from_set(BTreeSet::from_iter([
+        "x".to_owned(),
+        "y".to_owned(),
+        "z".to_owned(),
+        "n".to_owned(),
+    ]));
+    let response = x.process_message::<AHash>(&a.first_message());
+    assert!(!response.is_synchronized);
+    let response = a.process_message(&response.msg);
+    assert!(!response.is_synchronized);
+    let response = x.process_message(&response.msg);
+    assert!(!response.is_synchronized);
+
+    // After this message we should be synchronized
+    let response = a.process_message(&response.msg);
+    assert!(response.is_synchronized);
+    let response = x.process_message(&response.msg);
+    assert!(response.is_synchronized);
 }
 
 #[test]
@@ -749,7 +776,7 @@ fn recon_do(recon: &str) -> Record {
     let mut dir = Direction::CatToDog;
     let mut msg: Message<MemoryAHash> = record.cat.first_message();
     for _ in 0..n {
-        let (next_dir, next_msg, set) = match dir {
+        let (next_dir, response, set) = match dir {
             Direction::CatToDog => (
                 Direction::DogToCat,
                 record.dog.process_message(&msg),
@@ -767,7 +794,7 @@ fn recon_do(recon: &str) -> Record {
             set: set.iter().map(|entry| entry.0.to_string()).collect(),
         });
         dir = next_dir;
-        msg = next_msg;
+        msg = response.msg;
     }
     // Restore initial sets
     record.cat.keys = cat;

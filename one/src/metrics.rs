@@ -4,18 +4,18 @@ use actix_web::{dev::Server, get, http::header::ContentType, App, HttpResponse, 
 use anyhow::Result;
 use ceramic_kubo_rpc::PeerId;
 use libp2p::metrics::Recorder;
-use prometheus_client::metrics::counter::Counter;
 use prometheus_client::registry::Registry;
-use prometheus_client::{encoding::text::Encode, metrics::family::Family};
+use prometheus_client::{encoding::EncodeLabelSet, metrics::counter::Counter};
+use prometheus_client::{encoding::EncodeLabelValue, metrics::family::Family};
 
 use crate::pubsub;
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq, Encode)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
 struct MsgLabels {
     msg_type: MsgType,
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq, Encode)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelValue)]
 enum MsgType {
     Update,
     Query,
@@ -23,18 +23,18 @@ enum MsgType {
     Keepalive,
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq, Encode)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
 struct PeerLabels {
     peer_id: String,
     version: String,
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq, Encode)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
 struct TipLoadLabels {
     result: TipLoadResult,
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq, Encode)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelValue)]
 pub enum TipLoadResult {
     Success,
     Failure,
@@ -78,18 +78,18 @@ impl Metrics {
         sub_registry.register(
             "pubsub_messages",
             "Number of ceramic pubsub messages received",
-            Box::new(messages.clone()),
+            messages.clone(),
         );
 
         let peers = Family::<PeerLabels, Counter>::default();
         sub_registry.register(
             "peers",
             "Number of keepalive messages from each peer, useful for understanding network topology",
-            Box::new(peers.clone()),
+            peers.clone(),
         );
 
         let tip_loads = Family::<TipLoadLabels, Counter>::default();
-        sub_registry.register("tip_loads", "Number tip loads", Box::new(tip_loads.clone()));
+        sub_registry.register("tip_loads", "Number tip loads", tip_loads.clone());
 
         Self {
             messages,
