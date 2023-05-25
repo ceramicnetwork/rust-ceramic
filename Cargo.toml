@@ -12,17 +12,20 @@ dag-jose = "0.1"
 futures = "0.3"
 futures-util = "0.3"
 hex = "0.4.3"
-iroh-metrics = { git = "https://github.com/3box/beetle", branch = "main" }
-iroh-p2p = { git = "https://github.com/3box/beetle", branch = "main" }
-iroh-rpc-client = { git = "https://github.com/3box/beetle", branch = "main" }
-iroh-rpc-types = { git = "https://github.com/3box/beetle", branch = "main" }
-iroh-store = { git = "https://github.com/3box/beetle", branch = "main" }
-libipld = "0.15"                                                               # use same version as Iroh
-libp2p = { version = "0.50", default-features = false }                        # use same version as Iroh
-libp2p-tls = { version = "=0.1.0-alpha", default-features = false }            # use explicit version of dep to avoid conflict
-multiaddr = "0.16"                                                             # use same version as Iroh
+iroh-metrics = { git = "https://github.com/nathanielc/beetle", branch = "custom-behaviour" }
+iroh-p2p = { git = "https://github.com/nathanielc/beetle", branch = "custom-behaviour" }
+iroh-rpc-client = { git = "https://github.com/nathanielc/beetle", branch = "custom-behaviour" }
+iroh-rpc-types = { git = "https://github.com/nathanielc/beetle", branch = "custom-behaviour" }
+iroh-store = { git = "https://github.com/nathanielc/beetle", branch = "custom-behaviour" }
+libipld = "0.15" # use same version as Iroh
+libp2p = { version = "0.51", default-features = false, features = [
+    "request-response",
+] } # use same version as Iroh
+libp2p-tls = { version = "0.1.0", default-features = false } # use explicit version of dep to avoid conflict
+multiaddr = "0.17" # use same version as Iroh
 multibase = "0.9"
 multihash = "0.17"
+recon = { path = "./recon/" }
 once_cell = "1.17.1"
 opentelemetry = "0.18"
 opentelemetry-otlp = "0.11"

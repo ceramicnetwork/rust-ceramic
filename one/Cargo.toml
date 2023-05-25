@@ -27,7 +27,8 @@ multiaddr.workspace = true
 names = "0.14"
 opentelemetry-otlp.workspace = true
 opentelemetry.workspace = true
-prometheus-client = "0.18"
+prometheus-client = "0.19"
+recon.workspace = true
 serde = "1"
 serde_json = "1"
 serde_repr = "0.1"
@@ -37,6 +38,7 @@ tracing-subscriber.workspace = true
 tracing.workspace = true
 actix-http = { version = "3" }
 actix-web = { version = "4" }
+rand = "0.8.5"
 
 [dev-dependencies]
 expect-test = "1"

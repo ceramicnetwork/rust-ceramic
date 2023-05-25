@@ -1,5 +1,5 @@
 //! Recon is a network protocol for set reconciliation
-#![deny(missing_docs)]
+#![warn(missing_docs)]
 
 pub use crate::recon::{Hash, Message, Recon};
 pub use ahash::AHash;
@@ -7,6 +7,7 @@ pub use ahash::AHash;
 pub use recon::tests;
 
 mod ahash;
+pub mod libp2p;
 mod recon;
 
 #[cfg(test)]
