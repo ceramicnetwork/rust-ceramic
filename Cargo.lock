@@ -3316,7 +3316,7 @@ dependencies = [
 [[package]]
 name = "iroh-bitswap"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#28f1ea735123e62b8ea2430dad66157010fbb763"
+source = "git+https://github.com/3box/beetle?branch=main#c44aae931a9e4673890efb6e632a033f4ae70e82"
 dependencies = [
  "ahash 0.8.3",
  "anyhow",
@@ -3354,7 +3354,7 @@ dependencies = [
 [[package]]
 name = "iroh-metrics"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#28f1ea735123e62b8ea2430dad66157010fbb763"
+source = "git+https://github.com/3box/beetle?branch=main#c44aae931a9e4673890efb6e632a033f4ae70e82"
 dependencies = [
  "async-trait",
  "config",
@@ -3377,7 +3377,7 @@ dependencies = [
 [[package]]
 name = "iroh-p2p"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#28f1ea735123e62b8ea2430dad66157010fbb763"
+source = "git+https://github.com/3box/beetle?branch=main#c44aae931a9e4673890efb6e632a033f4ae70e82"
 dependencies = [
  "ahash 0.8.3",
  "anyhow",
@@ -3416,7 +3416,7 @@ dependencies = [
 [[package]]
 name = "iroh-rpc-client"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#28f1ea735123e62b8ea2430dad66157010fbb763"
+source = "git+https://github.com/3box/beetle?branch=main#c44aae931a9e4673890efb6e632a033f4ae70e82"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -3439,7 +3439,7 @@ dependencies = [
 [[package]]
 name = "iroh-rpc-types"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#28f1ea735123e62b8ea2430dad66157010fbb763"
+source = "git+https://github.com/3box/beetle?branch=main#c44aae931a9e4673890efb6e632a033f4ae70e82"
 dependencies = [
  "anyhow",
  "bytes",
@@ -3457,7 +3457,7 @@ dependencies = [
 [[package]]
 name = "iroh-store"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#28f1ea735123e62b8ea2430dad66157010fbb763"
+source = "git+https://github.com/3box/beetle?branch=main#c44aae931a9e4673890efb6e632a033f4ae70e82"
 dependencies = [
  "ahash 0.8.3",
  "anyhow",
@@ -3491,7 +3491,7 @@ dependencies = [
 [[package]]
 name = "iroh-util"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=expose-api-client#28f1ea735123e62b8ea2430dad66157010fbb763"
+source = "git+https://github.com/3box/beetle?branch=main#c44aae931a9e4673890efb6e632a033f4ae70e82"
 dependencies = [
  "anyhow",
  "cid 0.9.0",
