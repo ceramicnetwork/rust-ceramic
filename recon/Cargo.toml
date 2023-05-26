@@ -9,7 +9,7 @@ repository.workspace = true
 
 [dependencies]
 hex = "0.4.3"
-multihash = "0.18.0"
+multihash = "0.18.1"
 serde.workspace = true
 serde_bytes.workspace = true
 serde_ipld_dagcbor.workspace = true

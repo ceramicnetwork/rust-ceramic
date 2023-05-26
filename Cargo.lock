@@ -1247,7 +1247,7 @@ dependencies = [
  "expect-test",
  "libipld 0.15.0",
  "multibase 0.9.1",
- "multihash 0.17.0",
+ "multihash 0.18.1",
  "once_cell",
  "rand 0.8.5",
  "serde",

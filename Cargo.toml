@@ -22,7 +22,7 @@ libp2p = { version = "0.50", default-features = false }                        #
 libp2p-tls = { version = "=0.1.0-alpha", default-features = false }            # use explicit version of dep to avoid conflict
 multiaddr = "0.16"                                                             # use same version as Iroh
 multibase = "0.9"
-multihash = "0.17"
+multihash = "0.18"
 once_cell = "1.17.1"
 opentelemetry = "0.18"
 opentelemetry-otlp = "0.11"
