@@ -38,12 +38,16 @@ pub const PROTOCOL_NAME: &[u8] = b"/ceramic/recon/0.1.0";
 pub trait Recon {
     /// The specific Hash function to use.
     type Hash: Hash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de> + Send + 'static;
+
     /// Construct a message to send as the first message.
     fn initial_message(&self) -> Message<Self::Hash>;
     /// Process an incoming message and respond with a message reply.
     fn process_message(&mut self, msg: &Message<Self::Hash>) -> Response<Self::Hash>;
     /// Insert a new key into the key space.
     fn insert_key(&mut self, key: &str);
+    /// Reports the number of keys.
+    /// TODO: Remove this as it was only needed for the demo logic.
+    fn num_keys(&self) -> usize;
 }
 
 // Implement the  Recon trait using crate::recon::Recon
@@ -69,6 +73,12 @@ impl Recon for Arc<Mutex<crate::recon::Recon>> {
         self.lock()
             .expect("should be able to acquire lock")
             .process_message(msg)
+    }
+
+    fn num_keys(&self) -> usize {
+        self.lock()
+            .expect("should be able to acquire lock")
+            .num_keys()
     }
 }
 
@@ -168,7 +178,7 @@ impl<R: Recon + Clone + Send + 'static> NetworkBehaviour for Behaviour<R> {
             match info.status {
                 PeerStatus::Idle => {
                     let should_sync = if let Some(last_sync) = &info.last_sync {
-                        last_sync.elapsed() > Duration::from_millis(1000)
+                        last_sync.elapsed() > Duration::from_millis(5000)
                     } else {
                         true
                     };
@@ -187,13 +197,13 @@ impl<R: Recon + Clone + Send + 'static> NetworkBehaviour for Behaviour<R> {
         // TODO remove this demo code
         // Randomly insert a new key into the Recon key space.
         if rand::thread_rng().gen::<f64>() > 0.9 {
-            debug!("adding new key");
             let s: String = rand::thread_rng()
                 .sample_iter(&Alphanumeric)
                 .take(12)
                 .map(char::from)
                 .collect();
             self.recon.insert_key(&s);
+            debug!("added new key {s}, total keys {}", self.recon.num_keys());
         }
         Poll::Pending
     }
