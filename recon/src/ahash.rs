@@ -54,29 +54,41 @@ impl<'de> Visitor<'de> for ByteVisitor {
     where
         E: de::Error,
     {
-        Ok(AHash::from_bytes(
-            v.try_into()
-                .map_err(|_| ByteVisitor::length_error(v.len()))?,
-        ))
+        if v.is_empty() {
+            Ok(AHash::default())
+        } else {
+            Ok(AHash::from_bytes(
+                v.try_into()
+                    .map_err(|_| ByteVisitor::length_error(v.len()))?,
+            ))
+        }
     }
     fn visit_byte_buf<E>(self, v: Vec<u8>) -> Result<Self::Value, E>
     where
         E: de::Error,
     {
-        Ok(AHash::from_bytes(
-            v.as_slice()
-                .try_into()
-                .map_err(|_| ByteVisitor::length_error(v.len()))?,
-        ))
+        if v.is_empty() {
+            Ok(AHash::default())
+        } else {
+            Ok(AHash::from_bytes(
+                v.as_slice()
+                    .try_into()
+                    .map_err(|_| ByteVisitor::length_error(v.len()))?,
+            ))
+        }
     }
     fn visit_borrowed_bytes<E>(self, v: &'de [u8]) -> Result<Self::Value, E>
     where
         E: de::Error,
     {
-        Ok(AHash::from_bytes(
-            v.try_into()
-                .map_err(|_| ByteVisitor::length_error(v.len()))?,
-        ))
+        if v.is_empty() {
+            Ok(AHash::default())
+        } else {
+            Ok(AHash::from_bytes(
+                v.try_into()
+                    .map_err(|_| ByteVisitor::length_error(v.len()))?,
+            ))
+        }
     }
     fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
     where
@@ -89,11 +101,15 @@ impl<'de> Visitor<'de> for ByteVisitor {
                 return Err(ByteVisitor::length_error(seq.size_hint().unwrap_or(1) + 32));
             }
         }
-        Ok(AHash::from_bytes(
-            v.as_slice()
-                .try_into()
-                .map_err(|_| ByteVisitor::length_error(v.len()))?,
-        ))
+        if v.is_empty() {
+            Ok(AHash::default())
+        } else {
+            Ok(AHash::from_bytes(
+                v.as_slice()
+                    .try_into()
+                    .map_err(|_| ByteVisitor::length_error(v.len()))?,
+            ))
+        }
     }
 }
 impl<'de> Deserialize<'de> for AHash {

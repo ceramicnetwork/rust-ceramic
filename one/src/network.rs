@@ -80,7 +80,7 @@ impl Builder<WithStore> {
         self,
         libp2p_config: Libp2pConfig,
         key_store_path: PathBuf,
-        behvaiour: B,
+        behaviour: B,
     ) -> anyhow::Result<Builder<WithP2p>>
     where
         B: NetworkBehaviour + Send,
@@ -97,7 +97,7 @@ impl Builder<WithStore> {
 
         let kc = Keychain::<DiskStorage>::new(config.key_store_path.clone()).await?;
 
-        let mut p2p = Node::new(config, addr.clone(), kc, Some(behvaiour)).await?;
+        let mut p2p = Node::new(config, addr.clone(), kc, Some(behaviour)).await?;
 
         let task = task::spawn(async move {
             if let Err(err) = p2p.run().await {

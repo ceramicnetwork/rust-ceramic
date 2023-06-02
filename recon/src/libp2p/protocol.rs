@@ -33,6 +33,6 @@ pub async fn synchronize<S: AsyncRead + AsyncWrite + Unpin, R: Recon>(
         }
     }
     framed.close().await?;
-    debug!("finished synchronize");
+    debug!("finished synchronize: total keys {}", recon.num_keys());
     Ok(())
 }

@@ -78,6 +78,10 @@ impl Recon {
         response
     }
 
+    /// Report the number of keys.
+    pub fn num_keys(&self) -> usize {
+        self.keys.len()
+    }
     /// Generate a response message for a incoming message
     pub fn process_message<H: Hash>(&mut self, received: &Message<H>) -> Response<H> {
         let mut response = Response {
@@ -187,7 +191,7 @@ impl<H: Hash> Display for Message<H> {
             let hash_hex = if h.is_zero() {
                 "0".to_string()
             } else {
-                format!("{}", &h.to_hex()[0..6])
+                h.to_hex()[0..6].to_string()
             };
             write!(f, "{}, {}, ", k, hash_hex)?;
         }
@@ -246,6 +250,7 @@ impl<H: Hash> Message<H> {
         }
     }
 
+    // Process keys within a specific range. Returns true if the ranges were already insync.
     fn process_range(
         &mut self,
         left_fencepost: &str,
@@ -286,7 +291,7 @@ impl<H: Hash> Message<H> {
             // println!("split ({},{}) {}!={}", left_fencepost, right_fencepost, received_hash.to_hex(), calculated_hash.to_hex());
             self.send_split(left_fencepost, right_fencepost, local_keys);
         }
-        return false;
+        false
     }
 
     fn send_split(&mut self, left_fencepost: &str, right_fencepost: &str, local_keys: &Recon) {
