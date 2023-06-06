@@ -22,6 +22,7 @@ use tracing::debug;
 
 use crate::libp2p::{protocol, Recon, PROTOCOL_NAME};
 
+#[derive(Debug)]
 pub struct Handler<R> {
     remote_peer_id: PeerId,
     connection_id: ConnectionId,

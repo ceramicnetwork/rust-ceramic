@@ -1,4 +1,6 @@
-use crate::AHash;
+#![warn(missing_docs, missing_debug_implementations, clippy::all)]
+
+use crate::Sha256a;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Display;
@@ -15,8 +17,8 @@ pub mod tests;
 /// when processing messages
 #[derive(Debug, Default)]
 pub struct Recon {
-    /// The set of keys and their AHashes
-    keys: BTreeMap<String, AHash>, // this will be a b#tree at some point in the future
+    /// The set of keys and their Sha256a hashes
+    keys: BTreeMap<String, Sha256a>, // this will be a b#tree at some point in the future
 }
 
 impl Recon {
@@ -33,10 +35,10 @@ impl Recon {
 
     /// insert a new string into a recon
     pub fn insert(&mut self, key: &str) {
-        self.keys.insert(key.to_string(), AHash::digest(key));
+        self.keys.insert(key.to_string(), Sha256a::digest(key));
     }
 
-    fn hash_range<H: Hash>(&self, left_fencepost: &str, right_fencepost: &str) -> H {
+    fn hash_range<H: AssociativeHash>(&self, left_fencepost: &str, right_fencepost: &str) -> H {
         let l = Excluded(left_fencepost.to_string());
         let r = Excluded(right_fencepost.to_string());
         if l == r {
@@ -46,7 +48,7 @@ impl Recon {
     }
 
     /// generate a first message for the synchronization back and forth.
-    pub fn first_message<H: Hash>(&self) -> Message<H> {
+    pub fn first_message<H: AssociativeHash>(&self) -> Message<H> {
         let mut response = Message::<H>::default();
         if self.keys.len() == 1 {
             // -> (only_key)
@@ -83,14 +85,14 @@ impl Recon {
         self.keys.len()
     }
     /// Generate a response message for a incoming message
-    pub fn process_message<H: Hash>(&mut self, received: &Message<H>) -> Response<H> {
+    pub fn process_message<H: AssociativeHash>(&mut self, received: &Message<H>) -> Response<H> {
         let mut response = Response {
             is_synchronized: true,
             ..Default::default()
         };
         // self.keys.extend(received.keys.clone()); // add received keys
         for key in &received.keys {
-            let h = AHash::digest(key);
+            let h = Sha256a::digest(key);
             if self.keys.insert(key.to_string(), h).is_none() {
                 response.is_synchronized = false;
             }
@@ -137,18 +139,18 @@ impl Recon {
 
 // Response from processing a message
 #[derive(Debug, Default)]
-pub struct Response<H: Hash> {
+pub struct Response<H: AssociativeHash> {
     msg: Message<H>,
     is_synchronized: bool,
 }
 
-impl<H: Hash> Display for Response<H> {
+impl<H: AssociativeHash> Display for Response<H> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.msg)
     }
 }
 
-impl<H: Hash> Response<H> {
+impl<H: AssociativeHash> Response<H> {
     pub fn into_message(self) -> Message<H> {
         self.msg
     }
@@ -171,20 +173,17 @@ impl<H: Hash> Response<H> {
 /// hashs[]
 /// with one more key then hashes
 #[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct Message<H>
-where
-    H: Hash,
-{
-    /// keys must be 1 longer then ahashs unless both are empty
+pub struct Message<H: AssociativeHash> {
+    /// keys must be 1 longer then hashs unless both are empty
     #[serde(rename = "k")]
     pub keys: Vec<String>,
 
-    /// ahashs must be 1 shorter then keys
+    /// hashs must be 1 shorter then keys
     #[serde(rename = "h")]
     pub ahashs: Vec<H>,
 }
 
-impl<H: Hash> Display for Message<H> {
+impl<H: AssociativeHash> Display for Message<H> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "(")?;
         for (k, h) in self.keys.iter().zip(self.ahashs.iter()) {
@@ -201,7 +200,7 @@ impl<H: Hash> Display for Message<H> {
 }
 
 /// The generic trait for the associative hash function
-pub trait Hash: std::ops::Add<Output = Self> + Clone + Default + PartialEq {
+pub trait AssociativeHash: std::ops::Add<Output = Self> + Clone + Default + PartialEq {
     /// The value that when added to the Hash it dose not change
     fn identity() -> Self {
         Self::default()
@@ -214,7 +213,7 @@ pub trait Hash: std::ops::Add<Output = Self> + Clone + Default + PartialEq {
     fn clear(&mut self);
 
     /// Add a string to the accumulated hash
-    fn push(&mut self, key: (&String, &AHash));
+    fn push(&mut self, key: (&String, &Sha256a));
 
     /// convert the hash to bytes
     ///
@@ -225,18 +224,15 @@ pub trait Hash: std::ops::Add<Output = Self> + Clone + Default + PartialEq {
     /// export the bytes as a hex string
     fn to_hex(&self) -> String;
 
-    /// set the accumulated value to the bytes
-    fn from_bytes(bytes: &[u8; 32]) -> Self;
-
-    /// sum a iterator of strings and AHashes
+    /// sum a iterator of strings and Sha256a hashes
     fn digest_many<'a, I>(keys: I) -> Self
     where
-        I: Iterator<Item = (&'a String, &'a AHash)>;
+        I: Iterator<Item = (&'a String, &'a Sha256a)>;
 }
 
-impl<H: Hash> Message<H> {
+impl<H: AssociativeHash> Message<H> {
     // When a new key is added to the list of keys
-    // we add the accumulator to ahashs and clear it
+    // we add the accumulator to hashs and clear it
     // if it is the first key there is no range so we don't push the accumulator
     // keys must be pushed in lexical order
 
@@ -250,7 +246,7 @@ impl<H: Hash> Message<H> {
         }
     }
 
-    // Process keys within a specific range. Returns true if the ranges were already insync.
+    // Process keys within a specific range. Returns true if the ranges were already in sync.
     fn process_range(
         &mut self,
         left_fencepost: &str,

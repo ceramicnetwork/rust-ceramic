@@ -10,6 +10,8 @@ repository.workspace = true
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
+cbor = "0.4.1"
+cid.workspace = true
 hex = "0.4.3"
 multihash = "0.18.0"
 serde.workspace = true
@@ -22,6 +24,7 @@ asynchronous-codec = { version = "0.6.1", features = ["cbor", "json"] }
 libp2p-identity = { version = "0.1.2", features = ["peerid"] }
 tracing.workspace = true
 rand = "0.8.5"
+unsigned-varint = "0.7.1"
 
 [dev-dependencies]
 async-std = "1.12.0"

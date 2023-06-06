@@ -2,12 +2,12 @@
 //!
 //! There are various types within this module and its children.
 //!
-//! Behaviour - Responsible for coordiating the many concurrent Recon syncs
+//! Behavior - Responsible for coordinating the many concurrent Recon syncs
 //! handler::Handler - Manages performing a Recon sync with a single peer
 //! Recon - Manages the key space
 //!
-//! The Behaviour and Handler communicate via message passing. The Behaviour can instruct
-//! the Handler to start a sync and the Handler reports to the behaviour once it has
+//! The Behavior and Handler communicate via message passing. The Behavior can instruct
+//! the Handler to start a sync and the Handler reports to the behavior once it has
 //! completed a sync.
 
 mod handler;
@@ -32,7 +32,7 @@ use tracing::{debug, warn};
 use crate::{
     libp2p::handler::{FromBehaviour, FromHandler, Handler},
     recon::Response,
-    AHash, Hash, Message,
+    AssociativeHash, Message, Sha256a,
 };
 
 /// Name of the Recon protocol
@@ -41,7 +41,12 @@ pub const PROTOCOL_NAME: &[u8] = b"/ceramic/recon/0.1.0";
 /// Defines the Recon API.
 pub trait Recon {
     /// The specific Hash function to use.
-    type Hash: Hash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de> + Send + 'static;
+    type Hash: AssociativeHash
+        + std::fmt::Debug
+        + Serialize
+        + for<'de> Deserialize<'de>
+        + Send
+        + 'static;
 
     /// Construct a message to send as the first message.
     fn initial_message(&self) -> Message<Self::Hash>;
@@ -57,7 +62,7 @@ pub trait Recon {
 // logic within Recon itself, all async logic exists outside its scope.
 // We should use a tokio::sync::Mutex if we introduce any async logic into Recon.
 impl Recon for Arc<Mutex<crate::recon::Recon>> {
-    type Hash = AHash;
+    type Hash = Sha256a;
 
     fn insert_key(&mut self, key: &str) {
         self.lock()
@@ -77,13 +82,13 @@ impl Recon for Arc<Mutex<crate::recon::Recon>> {
     }
 }
 
-/// Config specifies the configurable properties of the Behaviour.
-#[derive(Clone)]
+/// Config specifies the configurable properties of the Behavior.
+#[derive(Clone, Debug)]
 pub struct Config {
     /// Start a new sync once the duration has past in the failed or synchronized state.
     /// Defaults to 1 second.
     pub per_peer_sync_timeout: Duration,
-    /// Duration to keep the connection alive, even when not inuse.
+    /// Duration to keep the connection alive, even when not in use.
     pub idle_keep_alive: Duration,
 }
 
@@ -98,9 +103,10 @@ impl Default for Config {
 
 /// Behaviour of Recon on the peer to peer network.
 ///
-/// The Behaviour tracks all peers on the network that speak the Recon protocol.
-/// It is reponsible for starting and stoping syncs with various peers depending on the needs of
+/// The Behavior tracks all peers on the network that speak the Recon protocol.
+/// It is responsible for starting and stopping syncs with various peers depending on the needs of
 /// the application.
+#[derive(Debug)]
 pub struct Behaviour<R> {
     recon: R,
     config: Config,
@@ -212,7 +218,7 @@ impl<R: Recon + Clone + Send + 'static> NetworkBehaviour for Behaviour<R> {
                 })
             }),
 
-            // The peer has synchronized with us, mark the time and record that the peer conneciton
+            // The peer has synchronized with us, mark the time and record that the peer connection
             // is now idle.
             FromHandler::Succeeded => self.peers.entry(peer_id).and_modify(|info| {
                 info.last_sync = Some(Instant::now());
@@ -223,7 +229,7 @@ impl<R: Recon + Clone + Send + 'static> NetworkBehaviour for Behaviour<R> {
                 })
             }),
 
-            // The peer has failed to synchronized with us, mark the time and record that the peer conneciton
+            // The peer has failed to synchronized with us, mark the time and record that the peer connection
             // is now failed.
             FromHandler::Failed(error) => self.peers.entry(peer_id).and_modify(|info| {
                 warn!(%peer_id, %error, "synchronization failed with peer");
@@ -315,7 +321,7 @@ impl<R: Recon + Clone + Send + 'static> NetworkBehaviour for Behaviour<R> {
     }
 }
 
-/// Events that the Behaviour can emit to the rest of the application.
+/// Events that the Behavior can emit to the rest of the application.
 #[derive(Debug)]
 pub enum Event {
     /// Event indicating we have synchronized with the specific peer.
@@ -328,7 +334,7 @@ pub enum Event {
     },
 }
 
-// Implement the converstion from Event to an iroh_p2p::Event.
+// Implement the conversion from Event to an iroh_p2p::Event.
 impl<R: Recon + Clone + Send + 'static> From<Event> for iroh_p2p::behaviour::Event<Behaviour<R>> {
     fn from(value: Event) -> Self {
         Self::Custom(value)

@@ -1046,7 +1046,7 @@ checksum = "c0940dc441f31689269e10ac70eb1002a3a1d3ad1390e030043662eb7fe4688b"
 dependencies = [
  "block-padding 0.1.5",
  "byte-tools",
- "byteorder",
+ "byteorder 1.4.3",
  "generic-array 0.12.4",
 ]
 
@@ -1174,6 +1174,12 @@ dependencies = [
 
 [[package]]
 name = "byteorder"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0fc10e8cc6b2580fda3f36eb6dc5316657f812a3df879a44a66fc9f0fdbc4855"
+
+[[package]]
+name = "byteorder"
 version = "1.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "14c189c53d098945499cdfa7ecc63567cf3886b3332b312a5b4585d8d3a6a610"
@@ -1234,6 +1240,16 @@ checksum = "af4dfac631a8e77b2f327f7852bb6172771f5279c4512efe79fad6067b37be3d"
 dependencies = [
  "hashbrown 0.11.2",
  "once_cell",
+]
+
+[[package]]
+name = "cbor"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e56053652b4b5c0ded5ae6183c7cd547ad2dd6bcce149658bef052a4995533bd"
+dependencies = [
+ "byteorder 0.5.3",
+ "rustc-serialize",
 ]
 
 [[package]]
@@ -1917,7 +1933,7 @@ version = "3.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b9fdf9972b2bd6af2d913799d9ebc165ea4d2e65878e329d9c6b372c4491b61"
 dependencies = [
- "byteorder",
+ "byteorder 1.4.3",
  "digest 0.9.0",
  "rand_core 0.5.1",
  "subtle",
@@ -4031,7 +4047,7 @@ version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8dd1ab68c9d26f20c7d0dfea6eecbae8c00359875210001b33ca27d4a02f3d09"
 dependencies = [
- "byteorder",
+ "byteorder 1.4.3",
  "libipld-core 0.14.0",
  "thiserror",
 ]
@@ -4042,7 +4058,7 @@ version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4b75370e27e0745910a9991c83f365cdae58027acf0502aa7987ac538a8a4744"
 dependencies = [
- "byteorder",
+ "byteorder 1.4.3",
  "libipld-core 0.15.0",
  "thiserror",
 ]
@@ -4331,7 +4347,7 @@ checksum = "70b34b6da8165c0bde35c82db8efda39b824776537e73973549e76cadb3a77c5"
 dependencies = [
  "asynchronous-codec",
  "base64 0.21.0",
- "byteorder",
+ "byteorder 1.4.3",
  "bytes",
  "either",
  "fnv",
@@ -5034,7 +5050,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b36f567c7099511fa8612bbbb52dda2419ce0bdbacf31714e3a5ffdb766d3bd"
 dependencies = [
  "arrayref",
- "byteorder",
+ "byteorder 1.4.3",
  "data-encoding",
  "log",
  "multibase 0.9.1",
@@ -5183,7 +5199,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "345b8ab5bd4e71a2986663e88c56856699d060e78e152e6e9d7966fcd5491297"
 dependencies = [
  "anyhow",
- "byteorder",
+ "byteorder 1.4.3",
  "libc",
  "netlink-packet-utils",
 ]
@@ -5196,7 +5212,7 @@ checksum = "d9ea4302b9759a7a88242299225ea3688e63c85ea136371bb6cf94fd674efaab"
 dependencies = [
  "anyhow",
  "bitflags 1.3.2",
- "byteorder",
+ "byteorder 1.4.3",
  "libc",
  "netlink-packet-core",
  "netlink-packet-utils",
@@ -5209,7 +5225,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ede8a08c71ad5a95cdd0e4e52facd37190977039a4704eb82a283f713747d34"
 dependencies = [
  "anyhow",
- "byteorder",
+ "byteorder 1.4.3",
  "paste",
  "thiserror",
 ]
@@ -5325,7 +5341,7 @@ version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2399c9463abc5f909349d8aa9ba080e0b88b3ce2885389b60b993f39b1a56905"
 dependencies = [
- "byteorder",
+ "byteorder 1.4.3",
  "lazy_static",
  "libm 0.2.6",
  "num-integer",
@@ -6164,7 +6180,7 @@ version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9d6da84cc204722a989e01ba2f6e1e276e190f22263d0cb6ce8526fcdb0d2e1f"
 dependencies = [
- "byteorder",
+ "byteorder 1.4.3",
 ]
 
 [[package]]
@@ -6374,6 +6390,8 @@ dependencies = [
  "async-std",
  "async-trait",
  "asynchronous-codec",
+ "cbor",
+ "cid 0.9.0",
  "codespan-reporting",
  "expect-test",
  "hex",
@@ -6396,6 +6414,7 @@ dependencies = [
  "serde_json",
  "tracing",
  "tracing-test",
+ "unsigned-varint",
 ]
 
 [[package]]
@@ -6615,7 +6634,7 @@ version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4cf22754c49613d2b3b119f0e5d46e34a2c628a937e3024b8762de4e7d8c710b"
 dependencies = [
- "byteorder",
+ "byteorder 1.4.3",
  "digest 0.10.6",
  "num-bigint-dig",
  "num-integer",
@@ -6635,7 +6654,7 @@ version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "094052d5470cbcef561cb848a7209968c9f12dfa6d668f4bca048ac5de51099c"
 dependencies = [
- "byteorder",
+ "byteorder 1.4.3",
  "digest 0.10.6",
  "num-bigint-dig",
  "num-integer",
@@ -6726,6 +6745,12 @@ name = "rustc-hash"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
+
+[[package]]
+name = "rustc-serialize"
+version = "0.3.24"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dcf128d1287d2ea9d80910b5f1120d0b8eede3fbf1abe91c40d39ea7d51e6fda"
 
 [[package]]
 name = "rustc_version"
@@ -7386,7 +7411,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c926cb006a77964474a13a86aa0135ea82c9fd43e6793a1151cc54143db6637c"
 dependencies = [
  "base64 0.12.3",
- "byteorder",
+ "byteorder 1.4.3",
  "sha2 0.8.2",
 ]
 
@@ -8407,7 +8432,7 @@ version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "76f64bba2c53b04fcab63c01a7d7427eadc821e3bc48c34dc9ba29c501164b52"
 dependencies = [
- "byteorder",
+ "byteorder 1.4.3",
  "crunchy",
  "hex",
  "static_assertions",
@@ -8815,7 +8840,7 @@ dependencies = [
  "async-trait",
  "bincode",
  "block-modes",
- "byteorder",
+ "byteorder 1.4.3",
  "ccm",
  "curve25519-dalek 3.2.0",
  "der-parser 8.2.0",
@@ -8888,7 +8913,7 @@ version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f72e1650a8ae006017d1a5280efb49e2610c19ccc3c0905b03b648aee9554991"
 dependencies = [
- "byteorder",
+ "byteorder 1.4.3",
  "bytes",
  "rand 0.8.5",
  "rtp",
@@ -8922,7 +8947,7 @@ dependencies = [
  "aes 0.7.5",
  "aes-gcm 0.9.4",
  "async-trait",
- "byteorder",
+ "byteorder 1.4.3",
  "bytes",
  "ctr 0.8.0",
  "hmac 0.11.0",
