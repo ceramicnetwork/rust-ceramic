@@ -37,18 +37,19 @@ tokio = { version = "1", default-features = false, features = ["rt"] }
 tracing = "0.1"
 tracing-opentelemetry = "0.18"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-test = { version = "0.2" }
 unimock = "0.4"
 unsigned-varint = "0.7"
 expect-test = "1"
 
 
 # Uncomment these lines to use a local copy of beetle
-#[patch."https://github.com/3box/beetle"]
-#iroh-metrics = { path = "../beetle/iroh-metrics" }
-#iroh-p2p = { path = "../beetle/iroh-p2p" }
-#iroh-rpc-client = { path = "../beetle/iroh-rpc-client" }
-#iroh-rpc-types = { path = "../beetle/iroh-rpc-types" }
-#iroh-store = { path = "../beetle/iroh-store" }
+[patch."https://github.com/nathanielc/beetle"]
+iroh-metrics = { path = "../beetle/iroh-metrics" }
+iroh-p2p = { path = "../beetle/iroh-p2p" }
+iroh-rpc-client = { path = "../beetle/iroh-rpc-client" }
+iroh-rpc-types = { path = "../beetle/iroh-rpc-types" }
+iroh-store = { path = "../beetle/iroh-store" }
 
 #[patch.crates-io]
 #libp2p = { path = "../rust-libp2p/libp2p" }
