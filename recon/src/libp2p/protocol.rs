@@ -1,6 +1,10 @@
 use anyhow::Result;
 use asynchronous_codec::{CborCodec, Framed};
-use libp2p::futures::{AsyncRead, AsyncWrite, SinkExt};
+use libp2p::{
+    futures::{AsyncRead, AsyncWrite, SinkExt},
+    swarm::ConnectionId,
+};
+use libp2p_identity::PeerId;
 use tracing::{debug, trace};
 
 use crate::{libp2p::Recon, Message};
@@ -8,7 +12,10 @@ use crate::{libp2p::Recon, Message};
 // Perform Recon synchronization with a peer over a stream.
 //
 // When initiate is true, send the initial message instead of waiting for one.
+#[tracing::instrument(skip(recon, stream))]
 pub async fn synchronize<S: AsyncRead + AsyncWrite + Unpin, R: Recon>(
+    remote_peer_id: PeerId,
+    connection_id: ConnectionId,
     mut recon: R,
     stream: S,
     initiate: bool,
@@ -20,6 +27,7 @@ pub async fn synchronize<S: AsyncRead + AsyncWrite + Unpin, R: Recon>(
     if initiate {
         let msg = recon.initial_message();
         framed.send(msg).await?;
+        debug!("sent initial message");
     }
 
     while let Some(request) = libp2p::futures::TryStreamExt::try_next(&mut framed).await? {
@@ -27,12 +35,16 @@ pub async fn synchronize<S: AsyncRead + AsyncWrite + Unpin, R: Recon>(
         trace!(%request, %response, "recon exchange");
 
         let is_synchronized = response.is_synchronized();
+        if is_synchronized && initiate {
+            // Do not send the last message if we initiated
+            break;
+        }
         framed.send(response.into_message()).await?;
         if is_synchronized {
             break;
         }
     }
     framed.close().await?;
-    debug!("finished synchronize: total keys {}", recon.num_keys());
+    debug!("finished synchronize");
     Ok(())
 }

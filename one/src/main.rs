@@ -173,22 +173,9 @@ impl Daemon {
             .collect::<Result<Vec<Multiaddr>, multiaddr::Error>>()?;
         debug!(?p2p_config, "using p2p config");
 
-        // TODO remove this demo code
-        // Generates a set of random keys to synchronize using Recon
-        let mut set = std::collections::BTreeSet::new();
-        for _ in 0..100 {
-            use rand::{distributions::Alphanumeric, Rng}; // 0.8
-            let s: String = rand::thread_rng()
-                .sample_iter(&Alphanumeric)
-                .take(12)
-                .map(char::from)
-                .collect();
-            set.insert(s);
-        }
-
         // Construct a recon implementation.
-        let recon = Arc::new(std::sync::Mutex::new(recon::Recon::from_set(set)));
-        let recon = recon::libp2p::Behaviour::new(recon);
+        let recon = Arc::new(std::sync::Mutex::new(recon::Recon::from_set([].into())));
+        let recon = recon::libp2p::Behaviour::new(recon, recon::libp2p::Config::default());
 
         let ipfs = Ipfs::builder()
             .with_store(dir.join("store"))
