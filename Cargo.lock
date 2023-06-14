@@ -3387,6 +3387,7 @@ dependencies = [
 [[package]]
 name = "iroh-bitswap"
 version = "0.2.0"
+source = "git+https://github.com/nathanielc/beetle?branch=custom-behaviour#e858d9813ae1538f52f9257dde832a920be064cf"
 dependencies = [
  "ahash 0.8.3",
  "anyhow",
@@ -3425,6 +3426,7 @@ dependencies = [
 [[package]]
 name = "iroh-metrics"
 version = "0.2.0"
+source = "git+https://github.com/nathanielc/beetle?branch=custom-behaviour#e858d9813ae1538f52f9257dde832a920be064cf"
 dependencies = [
  "async-trait",
  "config",
@@ -3447,6 +3449,7 @@ dependencies = [
 [[package]]
 name = "iroh-p2p"
 version = "0.2.0"
+source = "git+https://github.com/nathanielc/beetle?branch=custom-behaviour#e858d9813ae1538f52f9257dde832a920be064cf"
 dependencies = [
  "ahash 0.8.3",
  "anyhow",
@@ -3489,6 +3492,7 @@ dependencies = [
 [[package]]
 name = "iroh-rpc-client"
 version = "0.2.0"
+source = "git+https://github.com/nathanielc/beetle?branch=custom-behaviour#e858d9813ae1538f52f9257dde832a920be064cf"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -3511,6 +3515,7 @@ dependencies = [
 [[package]]
 name = "iroh-rpc-types"
 version = "0.2.0"
+source = "git+https://github.com/nathanielc/beetle?branch=custom-behaviour#e858d9813ae1538f52f9257dde832a920be064cf"
 dependencies = [
  "anyhow",
  "bytes",
@@ -3528,6 +3533,7 @@ dependencies = [
 [[package]]
 name = "iroh-store"
 version = "0.2.0"
+source = "git+https://github.com/nathanielc/beetle?branch=custom-behaviour#e858d9813ae1538f52f9257dde832a920be064cf"
 dependencies = [
  "ahash 0.8.3",
  "anyhow",
@@ -3561,6 +3567,7 @@ dependencies = [
 [[package]]
 name = "iroh-util"
 version = "0.2.0"
+source = "git+https://github.com/nathanielc/beetle?branch=custom-behaviour#e858d9813ae1538f52f9257dde832a920be064cf"
 dependencies = [
  "anyhow",
  "cid 0.9.0",
