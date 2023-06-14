@@ -10,20 +10,19 @@ repository.workspace = true
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
+asynchronous-codec = { version = "0.6.1", features = ["cbor", "json"] }
 cbor = "0.4.1"
 cid.workspace = true
 hex = "0.4.3"
+libp2p-identity = { version = "0.1.2", features = ["peerid"] }
+libp2p.workspace = true
 multihash = "0.18.0"
+rand = "0.8.5"
 serde.workspace = true
 serde_bytes.workspace = true
 serde_ipld_dagcbor.workspace = true
 serde_json.workspace = true
-libp2p.workspace = true
-iroh-p2p.workspace = true
-asynchronous-codec = { version = "0.6.1", features = ["cbor", "json"] }
-libp2p-identity = { version = "0.1.2", features = ["peerid"] }
 tracing.workspace = true
-rand = "0.8.5"
 unsigned-varint = "0.7.1"
 
 [dev-dependencies]
