@@ -44,12 +44,12 @@ expect-test = "1"
 
 
 # Uncomment these lines to use a local copy of beetle
-[patch."https://github.com/nathanielc/beetle"]
-iroh-metrics = { path = "../beetle/iroh-metrics" }
-iroh-p2p = { path = "../beetle/iroh-p2p" }
-iroh-rpc-client = { path = "../beetle/iroh-rpc-client" }
-iroh-rpc-types = { path = "../beetle/iroh-rpc-types" }
-iroh-store = { path = "../beetle/iroh-store" }
+#[patch."https://github.com/nathanielc/beetle"]
+#iroh-metrics = { path = "../beetle/iroh-metrics" }
+#iroh-p2p = { path = "../beetle/iroh-p2p" }
+#iroh-rpc-client = { path = "../beetle/iroh-rpc-client" }
+#iroh-rpc-types = { path = "../beetle/iroh-rpc-types" }
+#iroh-store = { path = "../beetle/iroh-store" }
 
 #[patch.crates-io]
 #libp2p = { path = "../rust-libp2p/libp2p" }
