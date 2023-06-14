@@ -39,7 +39,7 @@ use crate::{
 pub const PROTOCOL_NAME: &[u8] = b"/ceramic/recon/0.1.0";
 
 /// Defines the Recon API.
-pub trait Recon {
+pub trait Recon: Clone + Send + 'static {
     /// The specific Hash function to use.
     type Hash: AssociativeHash
         + std::fmt::Debug
@@ -153,7 +153,7 @@ impl<R> Behaviour<R> {
     }
 }
 
-impl<R: Recon + Clone + Send + 'static> NetworkBehaviour for Behaviour<R> {
+impl<R: Recon> NetworkBehaviour for Behaviour<R> {
     type ConnectionHandler = Handler<R>;
 
     type OutEvent = Event;
@@ -194,7 +194,7 @@ impl<R: Recon + Clone + Send + 'static> NetworkBehaviour for Behaviour<R> {
 
     fn on_connection_handler_event(
         &mut self,
-        peer_id: iroh_p2p::PeerId,
+        peer_id: libp2p_identity::PeerId,
         _connection_id: libp2p::swarm::ConnectionId,
         event: libp2p::swarm::THandlerOutEvent<Self>,
     ) {

@@ -9,11 +9,11 @@ use std::{path::PathBuf, str::FromStr, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use ceramic_kubo_rpc::{dag, IpfsDep, IpfsPath, Multiaddr};
+use ceramic_p2p::Libp2pConfig;
 use clap::{Args, Parser, Subcommand};
 use futures::StreamExt;
 use futures_util::future;
 use iroh_metrics::{config::Config as MetricsConfig, MetricsHandle};
-use iroh_p2p::Libp2pConfig;
 use libipld::json::DagJsonCodec;
 use libp2p::metrics::Recorder;
 use tokio::{task, time::timeout};
@@ -175,12 +175,11 @@ impl Daemon {
 
         // Construct a recon implementation.
         let recon = Arc::new(std::sync::Mutex::new(recon::Recon::from_set([].into())));
-        let recon = recon::libp2p::Behaviour::new(recon, recon::libp2p::Config::default());
 
         let ipfs = Ipfs::builder()
             .with_store(dir.join("store"))
             .await?
-            .with_p2p(p2p_config, dir, recon)
+            .with_p2p(p2p_config, dir, Some(recon))
             .await?
             .build()
             .await?;

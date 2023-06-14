@@ -33,7 +33,6 @@ dag-jose.workspace = true
 futures-util.workspace = true
 hex.workspace = true
 iroh-metrics.workspace = true
-iroh-p2p.workspace = true
 iroh-rpc-client.workspace = true
 iroh-rpc-types.workspace = true
 iroh-store.workspace = true
@@ -41,6 +40,7 @@ itertools = "0.10.5"
 libipld.workspace = true
 libp2p-tls.workspace = true
 libp2p.workspace = true
+libp2p-identity.workspace = true
 mime = { version = "0.3.16", optional = true }
 multiaddr.workspace = true
 serde = { workspace = true, optional = true }

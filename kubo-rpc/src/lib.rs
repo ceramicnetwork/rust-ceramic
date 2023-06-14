@@ -26,10 +26,10 @@ use unimock::unimock;
 // Pub use any types we export as part of an trait or struct
 pub use bytes::Bytes;
 pub use cid::Cid;
-pub use iroh_p2p::PeerId;
 pub use iroh_rpc_types::GossipsubEvent;
 pub use libipld::Ipld;
 pub use libp2p::Multiaddr;
+pub use libp2p_identity::PeerId;
 
 pub mod block;
 pub mod dag;
