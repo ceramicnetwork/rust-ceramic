@@ -1375,7 +1375,7 @@ dependencies = [
  "names",
  "opentelemetry",
  "opentelemetry-otlp",
- "prometheus-client",
+ "prometheus-client 0.21.1",
  "rand 0.8.5",
  "recon",
  "serde",
@@ -3437,7 +3437,7 @@ dependencies = [
  "opentelemetry",
  "opentelemetry-otlp",
  "paste",
- "prometheus-client",
+ "prometheus-client 0.19.0",
  "reqwest",
  "serde",
  "tokio",
@@ -4342,7 +4342,7 @@ dependencies = [
  "libp2p-identity",
  "libp2p-swarm",
  "log",
- "prometheus-client",
+ "prometheus-client 0.19.0",
  "quick-protobuf",
  "quick-protobuf-codec",
  "rand 0.8.5",
@@ -4463,7 +4463,7 @@ dependencies = [
  "libp2p-ping",
  "libp2p-relay",
  "libp2p-swarm",
- "prometheus-client",
+ "prometheus-client 0.19.0",
 ]
 
 [[package]]
@@ -6043,6 +6043,18 @@ name = "prometheus-client"
 version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d6fa99d535dd930d1249e6c79cb3c2915f9172a540fe2b02a4c8f9ca954721e"
+dependencies = [
+ "dtoa",
+ "itoa",
+ "parking_lot 0.12.1",
+ "prometheus-client-derive-encode",
+]
+
+[[package]]
+name = "prometheus-client"
+version = "0.21.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "78c2f43e8969d51935d2a7284878ae053ba30034cd563f673cde37ba5205685e"
 dependencies = [
  "dtoa",
  "itoa",
