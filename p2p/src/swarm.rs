@@ -17,8 +17,6 @@ use libp2p::{
     yamux::{self, WindowUpdateMode},
     PeerId, Swarm, Transport,
 };
-use libp2p_mplex;
-use libp2p_quic;
 use recon::libp2p::Recon;
 
 use crate::{behaviour::NodeBehaviour, Libp2pConfig};

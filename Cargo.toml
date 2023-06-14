@@ -64,13 +64,13 @@ zeroize = "1.4"
 
 
 # Uncomment these lines to use a local copy of beetle
-[patch."https://github.com/nathanielc/beetle"]
-iroh-bitswap = { path = "../beetle/iroh-bitswap" }
-iroh-metrics = { path = "../beetle/iroh-metrics" }
-iroh-rpc-client = { path = "../beetle/iroh-rpc-client" }
-iroh-rpc-types = { path = "../beetle/iroh-rpc-types" }
-iroh-store = { path = "../beetle/iroh-store" }
-iroh-util = { path = "../beetle/iroh-util" }
+#[patch."https://github.com/nathanielc/beetle"]
+#iroh-bitswap = { path = "../beetle/iroh-bitswap" }
+#iroh-metrics = { path = "../beetle/iroh-metrics" }
+#iroh-rpc-client = { path = "../beetle/iroh-rpc-client" }
+#iroh-rpc-types = { path = "../beetle/iroh-rpc-types" }
+#iroh-store = { path = "../beetle/iroh-store" }
+#iroh-util = { path = "../beetle/iroh-util" }
 
 
 [workspace.package]
