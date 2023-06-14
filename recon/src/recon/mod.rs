@@ -137,7 +137,7 @@ impl Recon {
     }
 }
 
-// Response from processing a message
+/// Response from processing a message
 #[derive(Debug, Default)]
 pub struct Response<H: AssociativeHash> {
     msg: Message<H>,
@@ -151,9 +151,11 @@ impl<H: AssociativeHash> Display for Response<H> {
 }
 
 impl<H: AssociativeHash> Response<H> {
+    /// Consume the reponse and produce a message
     pub fn into_message(self) -> Message<H> {
         self.msg
     }
+    /// Report if the reponse indicates that synchronization has completed
     pub fn is_synchronized(&self) -> bool {
         self.is_synchronized
     }

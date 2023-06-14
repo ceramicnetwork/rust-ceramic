@@ -333,10 +333,3 @@ pub enum Event {
         status: PeerStatus,
     },
 }
-
-// Implement the conversion from Event to an iroh_p2p::Event.
-impl<R: Recon + Clone + Send + 'static> From<Event> for iroh_p2p::behaviour::Event<Behaviour<R>> {
-    fn from(value: Event) -> Self {
-        Self::Custom(value)
-    }
-}

@@ -113,7 +113,7 @@ impl<R: Recon> NodeBehaviour<R> {
 
         let mdns = if config.mdns {
             info!("init mdns");
-            Some(Mdns::new(Default::default(), peer_id.clone())?)
+            Some(Mdns::new(Default::default(), peer_id)?)
         } else {
             None
         }
@@ -190,7 +190,7 @@ impl<R: Recon> NodeBehaviour<R> {
             info!("init relay client");
             let relay_client =
                 relay_client.expect("missing relay client even though it was enabled");
-            let dcutr = dcutr::Behaviour::new(peer_id.clone());
+            let dcutr = dcutr::Behaviour::new(peer_id);
             (Some(dcutr), Some(relay_client))
         } else {
             (None, None)

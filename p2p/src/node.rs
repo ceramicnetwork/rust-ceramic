@@ -119,6 +119,12 @@ impl<S: Storage, R: Recon> Drop for Node<S, R> {
     }
 }
 
+// Allow IntoConnectionHandler deprecated associated type.
+// We are not using IntoConnectionHandler directly only referencing the type as part of this event signature.
+#[allow(deprecated)]
+type NodeSwarmEvent<R> = SwarmEvent<
+            <NodeBehaviour<R> as NetworkBehaviour>::OutEvent,
+            <<<NodeBehaviour<R> as NetworkBehaviour>::ConnectionHandler as IntoConnectionHandler>::Handler as ConnectionHandler>::Error>;
 impl<S: Storage, R: Recon> Node<S, R> {
     pub async fn new(
         config: Config,
@@ -409,16 +415,7 @@ impl<S: Storage, R: Recon> Node<S, R> {
 
     // TODO fix skip_all
     #[tracing::instrument(skip_all)]
-    // Allow IntoConnectionHandler deprecated associated type.
-    // We are not using IntoConnectionHandler directly only referencing the type as part of this event signature.
-    #[allow(deprecated)]
-    fn handle_swarm_event(
-        &mut self,
-        event: SwarmEvent<
-            <NodeBehaviour<R> as NetworkBehaviour>::OutEvent,
-
-            <<<NodeBehaviour<R> as NetworkBehaviour>::ConnectionHandler as IntoConnectionHandler>::Handler as ConnectionHandler>::Error>,
-    ) -> Result<()>
+    fn handle_swarm_event(&mut self, event: NodeSwarmEvent<R>) -> Result<()>
     where
         R: Recon,
     {
@@ -1142,13 +1139,10 @@ mod tests {
     use futures::{future, TryStreamExt};
     use rand::prelude::*;
     use rand_chacha::ChaCha8Rng;
+    use recon::Sha256a;
     use ssh_key::private::Ed25519Keypair;
 
-    use libp2p::{
-        identity::Keypair as Libp2pKeypair,
-        kad::record::Key,
-        swarm::{behaviour::toggle::Toggle, dummy},
-    };
+    use libp2p::{identity::Keypair as Libp2pKeypair, kad::record::Key};
 
     use super::*;
     use anyhow::Result;
@@ -1207,21 +1201,25 @@ mod tests {
         keys: Option<Vec<Key>>,
     }
 
+    #[derive(Clone)]
     struct DummyRecon;
 
     impl Recon for DummyRecon {
-        type Hash= ;
+        type Hash = Sha256a;
 
         fn initial_message(&self) -> recon::Message<Self::Hash> {
-            todo!()
+            unreachable!()
         }
 
-        fn process_message(&mut self, msg: &recon::Message<Self::Hash>) -> Response<Self::Hash> {
-            todo!()
+        fn process_message(
+            &mut self,
+            _msg: &recon::Message<Self::Hash>,
+        ) -> recon::Response<Self::Hash> {
+            unreachable!()
         }
 
-        fn insert_key(&mut self, key: &str) {
-            todo!()
+        fn insert_key(&mut self, _key: &str) {
+            unreachable!()
         }
     }
 
@@ -1295,7 +1293,8 @@ mod tests {
             storage.put(keypair).await?;
             let kc = Keychain::from_storage(storage);
 
-            let mut p2p = Node::new(network_config, rpc_server_addr, kc, None).await?;
+            let mut p2p =
+                Node::new(network_config, rpc_server_addr, kc, None::<DummyRecon>).await?;
             let cfg = iroh_rpc_client::Config {
                 p2p_addr: Some(rpc_client_addr),
                 channels: Some(1),
