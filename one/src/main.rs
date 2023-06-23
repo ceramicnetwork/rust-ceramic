@@ -80,6 +80,13 @@ struct DaemonOpts {
     /// When true traces will be exported
     #[arg(long, default_value_t = false, env = "CERAMIC_ONE_TRACING")]
     tracing: bool,
+    /// Unique key used to find other Ceramic peers via the DHT
+    #[arg(
+        long,
+        default_value = "/ceramic/testnet-clay",
+        env = "CERAMIC_ONE_NETWORK_ID"
+    )]
+    network_id: String,
 }
 
 #[derive(Args, Debug)]
@@ -179,7 +186,7 @@ impl Daemon {
         let ipfs = Ipfs::builder()
             .with_store(dir.join("store"))
             .await?
-            .with_p2p(p2p_config, dir, Some(recon))
+            .with_p2p(p2p_config, dir, Some(recon), &opts.network_id)
             .await?
             .build()
             .await?;

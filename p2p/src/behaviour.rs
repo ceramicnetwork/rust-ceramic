@@ -5,8 +5,6 @@ use async_trait::async_trait;
 use cid::Cid;
 use iroh_bitswap::{Bitswap, Block, Config as BitswapConfig, Store};
 use iroh_rpc_client::Client;
-use libp2p::connection_limits::{self, ConnectionLimits};
-use libp2p::core::identity::Keypair;
 use libp2p::gossipsub::{self, MessageAuthenticity};
 use libp2p::identify;
 use libp2p::kad::store::{MemoryStore, MemoryStoreConfig};
@@ -18,6 +16,11 @@ use libp2p::relay;
 use libp2p::swarm::behaviour::toggle::Toggle;
 use libp2p::swarm::NetworkBehaviour;
 use libp2p::{autonat, dcutr};
+use libp2p::{
+    connection_limits::{self, ConnectionLimits},
+    kad::QueryId,
+};
+use libp2p::{core::identity::Keypair, kad::RecordKey};
 use libp2p_identity::PeerId;
 use tracing::{info, warn};
 
@@ -259,6 +262,17 @@ impl<R: Recon> NodeBehaviour<R> {
             kad.bootstrap()?;
         }
         Ok(())
+    }
+    pub fn discover_ceramic_peers(&mut self, key: &RecordKey) -> Option<QueryId> {
+        info!(?key, "discovering Ceramic peers");
+        if let Some(kad) = self.kad.as_mut() {
+            if let Err(err) = kad.start_providing(key.clone()) {
+                warn!(%err,"failed to start providing ceramic peers key");
+            }
+            Some(kad.get_providers(key.clone()))
+        } else {
+            None
+        }
     }
 }
 
