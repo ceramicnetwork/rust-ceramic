@@ -636,7 +636,6 @@ fn peer_info_from_lookup(l: Lookup) -> LookupResponse {
 
 #[derive(Debug)]
 pub enum ProviderRequestKey {
-    // TODO: potentially change this to Cid, as that is the only key we use for providers
     Dht(Key),
     Bitswap(u64, Cid),
 }

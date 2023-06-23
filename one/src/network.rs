@@ -81,6 +81,7 @@ impl Builder<WithStore> {
         libp2p_config: Libp2pConfig,
         key_store_path: PathBuf,
         recon: Option<R>,
+        ceramic_peers_key: &str,
     ) -> anyhow::Result<Builder<WithP2p>> {
         let addr = Addr::new_mem();
 
@@ -92,7 +93,7 @@ impl Builder<WithStore> {
 
         let kc = Keychain::<DiskStorage>::new(config.key_store_path.clone()).await?;
 
-        let mut p2p = Node::new(config, addr.clone(), kc, recon).await?;
+        let mut p2p = Node::new(config, addr.clone(), kc, recon, ceramic_peers_key).await?;
 
         let task = task::spawn(async move {
             if let Err(err) = p2p.run().await {

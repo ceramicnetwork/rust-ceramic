@@ -13,8 +13,6 @@ use iroh_metrics::{core::MRecorder, inc, libp2p_metrics, p2p::P2PMetrics};
 use iroh_rpc_client::Client as RpcClient;
 use iroh_rpc_types::p2p::P2pAddr;
 pub use libp2p::gossipsub::{IdentTopic, Topic};
-use libp2p::identify::{Event as IdentifyEvent, Info as IdentifyInfo};
-use libp2p::identity::Keypair;
 use libp2p::kad::kbucket::{Distance, NodeStatus};
 use libp2p::kad::{
     self, BootstrapOk, GetClosestPeersError, GetClosestPeersOk, GetProvidersOk, KademliaEvent,
@@ -29,6 +27,11 @@ use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
 use libp2p::swarm::IntoConnectionHandler;
 use libp2p::swarm::{ConnectionHandler, NetworkBehaviour, SwarmEvent};
 use libp2p::{core::Multiaddr, swarm::AddressScore};
+use libp2p::{
+    identify::{Event as IdentifyEvent, Info as IdentifyInfo},
+    kad::RecordKey,
+};
+use libp2p::{identity::Keypair, swarm::DialError};
 use libp2p::{PeerId, Swarm};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::oneshot::{self, Sender as OneShotSender};
@@ -81,6 +84,9 @@ pub struct Node<KeyStorage: Storage, R: Recon> {
     bitswap_sessions: BitswapSessions,
     providers: Providers,
     listen_addrs: Vec<Multiaddr>,
+
+    ceramic_peers_key: RecordKey,
+    ceramic_peers_query_id: Option<QueryId>,
 }
 
 impl<S: Storage, R: Recon> fmt::Debug for Node<S, R> {
@@ -112,6 +118,7 @@ pub(crate) const DEFAULT_PROVIDER_LIMIT: usize = 10;
 const NICE_INTERVAL: Duration = Duration::from_secs(6);
 const BOOTSTRAP_INTERVAL: Duration = Duration::from_secs(5 * 60);
 const EXPIRY_INTERVAL: Duration = Duration::from_secs(1);
+const DISCOVER_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
 impl<S: Storage, R: Recon> Drop for Node<S, R> {
     fn drop(&mut self) {
@@ -131,6 +138,7 @@ impl<S: Storage, R: Recon> Node<S, R> {
         rpc_addr: P2pAddr,
         mut keychain: Keychain<S>,
         recon: Option<R>,
+        ceramic_peers_key: impl AsRef<[u8]>,
     ) -> Result<Self> {
         let (network_sender_in, network_receiver_in) = channel(1024); // TODO: configurable
 
@@ -181,6 +189,8 @@ impl<S: Storage, R: Recon> Node<S, R> {
             bitswap_sessions: Default::default(),
             providers: Providers::new(4),
             listen_addrs,
+            ceramic_peers_key: RecordKey::new(&ceramic_peers_key),
+            ceramic_peers_query_id: None,
         })
     }
 
@@ -200,6 +210,7 @@ impl<S: Storage, R: Recon> Node<S, R> {
         let mut nice_interval = self.use_dht.then(|| tokio::time::interval(NICE_INTERVAL));
         let mut bootstrap_interval = tokio::time::interval(BOOTSTRAP_INTERVAL);
         let mut expiry_interval = tokio::time::interval(EXPIRY_INTERVAL);
+        let mut discover_interval = tokio::time::interval(DISCOVER_INTERVAL);
 
         loop {
             inc!(P2PMetrics::LoopCounter);
@@ -256,6 +267,9 @@ impl<S: Storage, R: Recon> Node<S, R> {
                     if let Err(err) = self.expiry() {
                         warn!("expiry error {:?}", err);
                     }
+                }
+                _ = discover_interval.tick() => {
+                    self.ceramic_peers_query_id = self.swarm.behaviour_mut().discover_ceramic_peers(&self.ceramic_peers_key);
                 }
             }
         }
@@ -546,25 +560,41 @@ impl<S: Storage, R: Recon> Node<S, R> {
                         QueryResult::GetProviders(Ok(p)) => {
                             match p {
                                 GetProvidersOk::FoundProviders { key, providers } => {
-                                    let swarm = self.swarm.behaviour_mut();
-                                    if let Some(kad) = swarm.kad.as_mut() {
+                                    let behaviour = self.swarm.behaviour_mut();
+                                    // Filter out bad providers.
+                                    let providers: HashSet<_> = providers
+                                        .into_iter()
+                                        .filter(|provider| {
+                                            let is_bad =
+                                                behaviour.peer_manager.is_bad_peer(provider);
+                                            if is_bad {
+                                                inc!(P2PMetrics::SkippedPeerKad);
+                                            }
+                                            !is_bad
+                                        })
+                                        .collect();
+
+                                    if self
+                                        .ceramic_peers_query_id
+                                        .map(|i| i == id)
+                                        .unwrap_or_default()
+                                    {
+                                        info!(peers = providers.len(), "discovered ceramic peers");
+                                        for peer in providers {
+                                            if let Err(err) = self.swarm.dial(peer) {
+                                                if !matches!(
+                                                    err,
+                                                    DialError::DialPeerConditionFalse(_)
+                                                ) {
+                                                    warn!(%err, "failed to dial ceramic peer")
+                                                }
+                                            }
+                                        }
+                                    } else if let Some(kad) = behaviour.kad.as_mut() {
                                         debug!(
                                             "provider results for {:?} last: {}",
                                             key, step.last
                                         );
-
-                                        // Filter out bad providers.
-                                        let providers: HashSet<_> = providers
-                                            .into_iter()
-                                            .filter(|provider| {
-                                                let is_bad =
-                                                    swarm.peer_manager.is_bad_peer(provider);
-                                                if is_bad {
-                                                    inc!(P2PMetrics::SkippedPeerKad);
-                                                }
-                                                !is_bad
-                                            })
-                                            .collect();
 
                                         self.providers.handle_get_providers_ok(
                                             id, step.last, key, providers, kad,
@@ -1293,8 +1323,14 @@ mod tests {
             storage.put(keypair).await?;
             let kc = Keychain::from_storage(storage);
 
-            let mut p2p =
-                Node::new(network_config, rpc_server_addr, kc, None::<DummyRecon>).await?;
+            let mut p2p = Node::new(
+                network_config,
+                rpc_server_addr,
+                kc,
+                None::<DummyRecon>,
+                "/ceramic-test",
+            )
+            .await?;
             let cfg = iroh_rpc_client::Config {
                 p2p_addr: Some(rpc_client_addr),
                 channels: Some(1),
