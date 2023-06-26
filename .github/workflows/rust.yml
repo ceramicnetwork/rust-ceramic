@@ -18,7 +18,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
-    - run: rustup toolchain install stable --profile minimal
+    - uses: dtolnay/rust-toolchain@stable
     # Cache rust/cargo build steps
     - uses: Swatinem/rust-cache@v2
       with:

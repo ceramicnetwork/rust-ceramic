@@ -38,6 +38,9 @@ impl P2p {
     }
 
     #[tracing::instrument(skip(self))]
+    // Clippy is getting a false positive for https://rust-lang.github.io/rust-clippy/master/index.html#/let_with_type_underscore
+    // when used with the tracing::instrument macro.
+    #[allow(clippy::let_with_type_underscore)]
     fn watch(self, _: WatchRequest) -> impl Stream<Item = WatchResponse> {
         async_stream::stream! {
             loop {
