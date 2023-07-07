@@ -1,0 +1,73 @@
+openapi: 3.0.0
+info:
+  description: >
+    This is the Ceramic API for working with streams and events
+  version: 0.1.0
+  title: Ceramic API
+    #license:
+    #  name: Apache 2.0
+    #  url: http://www.apache.org/licenses/LICENSE-2.0.html
+  license:
+    name: MIT
+    url: https://mit-license.org/
+
+paths:
+  '/ceramic/subscribe/{sort-value}':
+    get:
+      summary: Get events for a stream
+      parameters:
+        - name: sort-value
+          in: path
+          description: value associated with the sort key
+          schema:
+            type: string
+          required: true
+        - name: controller
+          in: query
+          description: the controller to subscribe to.
+          required: false
+          schema:
+            type: string
+        - name: streamId
+          in: query
+          description: the stream to subscribe to.
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Event'
+  /ceramic/events:
+    post:
+      summary: Creates a new event
+      requestBody:
+        $ref: '#/components/requestBodies/Event'
+      responses:
+        '204':
+          description: success
+components:
+  requestBodies:
+    Event:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Event'
+      description: Event to add to the node
+      required: true
+  schemas:
+    Event:
+      title: A Ceramic Event
+      description: A Ceramic event as part of a Ceramic Stream
+      type: object
+      required:
+        - eventId
+      properties:
+        eventId:
+          type: string
+          description: Multibase encodeding of event id bytes.

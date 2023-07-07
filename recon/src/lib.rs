@@ -3,12 +3,10 @@
 
 pub use crate::recon::{AssociativeHash, Message, Recon, Response};
 pub use ahash::Sha256a;
-pub use eventid::{EventId, Network};
 #[cfg(test)]
 pub use recon::tests;
 
 mod ahash;
-mod eventid;
 pub mod libp2p;
 mod recon;
 

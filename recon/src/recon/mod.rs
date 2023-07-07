@@ -1,10 +1,17 @@
 #![warn(missing_docs, missing_debug_implementations, clippy::all)]
 
-use crate::{EventId, Sha256a};
-use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Display;
 use std::ops::Bound::Excluded;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    ops::RangeBounds,
+};
+
+use serde::{Deserialize, Serialize};
+
+use ceramic_core::EventId;
+
+use crate::Sha256a;
 
 #[cfg(test)]
 pub mod tests;
@@ -145,6 +152,10 @@ impl Recon {
             .msg
             .end_streak(self.keys.last_key_value().unwrap().0, self);
         response
+    }
+    /// Construct an iterator over a range of keys.
+    pub fn range(&self, range: impl RangeBounds<EventId>) -> impl Iterator<Item = &EventId> {
+        self.keys.range(range).map(|(k, _)| k)
     }
 }
 

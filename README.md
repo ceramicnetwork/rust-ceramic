@@ -29,6 +29,10 @@ Use the provided `Makefile` for basic actions to ensure your changes are ready f
 Using the makefile is not necessary during your developement cycle, feel free to use the relvant cargo commands directly.
 However running `make` before publishing a PR will provide a good signal if you PR will pass CI.
 
+### Generating `ceramic-api-server`
+
+The `ceramic-api-server` crate is generated using OpenAPI.
+Install `@openapitools/openapi-generator-cli` and use the make target `api-server` to generate the code anytime `api/ceramic.yaml` is modified.
 
 
 ## License

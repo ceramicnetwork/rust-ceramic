@@ -1,5 +1,14 @@
 [workspace]
-members = ["core", "event", "kubo-rpc", "one", "p2p", "recon"]
+members = [
+    "api",
+    "api-server",
+    "core",
+    "event",
+    "kubo-rpc",
+    "one",
+    "p2p",
+    "recon",
+]
 
 [workspace.dependencies]
 ahash = "0.8"
@@ -8,8 +17,11 @@ async-stream = "0.3"
 async-trait = "0.1"
 asynchronous-codec = "0.6"
 bytes = "1.1"
+ceramic-core = { path = "./core" }
 ceramic-one = { path = "./one" }
 ceramic-p2p = { path = "./p2p" }
+ceramic-api = { path = "./api" }
+ceramic-api-server = { path = "./api-server" }
 cid = { version = "0.9", features = ["serde-codec"] }
 config = "0.13.1"
 criterion = "0.4"
@@ -50,7 +62,7 @@ ssh-key = { version = "0.5.1", default-features = false }
 ssi = { version = "0.6", features = ["ed25519"] }
 tempfile = "3.3"
 test-log = { version = "0.2", default-features = false, features = ["trace"] }
-tokio = { version = "1", default-features = false, features = ["rt"] }
+tokio = { version = "1", default-features = false, features = ["rt", "macros"] }
 tokio-stream = "0.1.11"
 toml = "0.5.9"
 tracing = "0.1"

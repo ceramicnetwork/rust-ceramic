@@ -1166,10 +1166,11 @@ mod tests {
     use crate::keys::{Keypair, MemoryStorage};
 
     use bytes::Bytes;
+    use ceramic_core::EventId;
     use futures::{future, TryStreamExt};
     use rand::prelude::*;
     use rand_chacha::ChaCha8Rng;
-    use recon::{EventId, Sha256a};
+    use recon::Sha256a;
     use ssh_key::private::Ed25519Keypair;
 
     use libp2p::{identity::Keypair as Libp2pKeypair, kad::record::Key};
@@ -1250,6 +1251,10 @@ mod tests {
         }
 
         fn insert_key(&mut self, _key: &EventId) {
+            unreachable!()
+        }
+
+        fn num_keys(&self) -> usize {
             unreachable!()
         }
     }

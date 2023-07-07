@@ -1,14 +1,18 @@
 //! # Ceramic Core
 //! Core functionality for ceramic, including the StreamId, Cid, and Jws types.
-#![deny(missing_docs)]
+#![warn(missing_docs)]
 mod bytes;
+mod event_id;
 mod jwk;
 mod jws;
+mod network;
 mod stream_id;
 
 pub use bytes::Bytes;
+pub use event_id::EventId;
 pub use jwk::Jwk;
 pub use jws::Jws;
+pub use network::Network;
 pub use stream_id::{StreamId, StreamIdType};
 
 pub use cid::Cid;

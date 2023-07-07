@@ -27,12 +27,14 @@ use std::{
     task::Poll,
     time::{Duration, Instant},
 };
-use tracing::{debug, warn};
+use tracing::{debug, trace, warn};
+
+use ceramic_core::EventId;
 
 use crate::{
     libp2p::handler::{FromBehaviour, FromHandler, Handler},
     recon::Response,
-    AssociativeHash, EventId, Message, Sha256a,
+    AssociativeHash, Message, Sha256a,
 };
 
 /// Name of the Recon protocol
@@ -54,6 +56,8 @@ pub trait Recon: Clone + Send + 'static {
     fn process_message(&mut self, msg: &Message<Self::Hash>) -> Response<Self::Hash>;
     /// Insert a new key into the key space.
     fn insert_key(&mut self, key: &EventId);
+    /// Reports total number of keys
+    fn num_keys(&self) -> usize;
 }
 
 // Implement the  Recon trait using crate::recon::Recon
@@ -79,6 +83,12 @@ impl Recon for Arc<Mutex<crate::recon::Recon>> {
         self.lock()
             .expect("should be able to acquire lock")
             .process_message(msg)
+    }
+
+    fn num_keys(&self) -> usize {
+        self.lock()
+            .expect("should be able to acquire lock")
+            .num_keys()
     }
 }
 
@@ -256,7 +266,7 @@ impl<R: Recon> NetworkBehaviour for Behaviour<R> {
         }
         // Check each peer and start synchronization as needed.
         for (peer_id, info) in &mut self.peers {
-            debug!(%peer_id, ?info, "polling peer state");
+            trace!(%peer_id, ?info, "polling peer state");
             // Expected the initial dialer to initiate a new synchronization.
             if info.dialer {
                 match info.status {

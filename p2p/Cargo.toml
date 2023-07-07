@@ -44,6 +44,7 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 tracing.workspace = true
 void.workspace = true
 zeroize.workspace = true
+ceramic-core.workspace = true
 
 
 [dependencies.libp2p]

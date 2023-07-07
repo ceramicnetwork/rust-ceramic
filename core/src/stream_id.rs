@@ -127,7 +127,7 @@ impl std::fmt::Display for StreamId {
             let s = multibase::encode(Base::Base36Lower, b);
             write!(f, "{}", s)
         } else {
-            Err(std::fmt::Error::default())
+            Err(std::fmt::Error)
         }
     }
 }

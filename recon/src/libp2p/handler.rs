@@ -165,7 +165,6 @@ impl<R: Recon + Clone + Send + 'static> ConnectionHandler for Handler<R> {
     }
 
     fn connection_keep_alive(&self) -> KeepAlive {
-        debug!(?self.keep_alive, "connection_keep_alive");
         self.keep_alive
     }
 
@@ -215,17 +214,14 @@ impl<R: Recon + Clone + Send + 'static> ConnectionHandler for Handler<R> {
 
     fn on_behaviour_event(&mut self, event: Self::InEvent) {
         match event {
-            FromBehaviour::StartSync => {
-                debug!(%self.remote_peer_id,  ?self.connection_id, "start sync from behavior");
-                match self.state {
-                    State::Idle => self.transition_state(State::RequestOutbound),
-                    State::RequestOutbound
-                    | State::WaitingOutbound
-                    | State::WaitingInbound
-                    | State::Outbound(_)
-                    | State::Inbound(_) => {}
-                }
-            }
+            FromBehaviour::StartSync => match self.state {
+                State::Idle => self.transition_state(State::RequestOutbound),
+                State::RequestOutbound
+                | State::WaitingOutbound
+                | State::WaitingInbound
+                | State::Outbound(_)
+                | State::Inbound(_) => {}
+            },
         }
     }
 
@@ -244,7 +240,6 @@ impl<R: Recon + Clone + Send + 'static> ConnectionHandler for Handler<R> {
                     protocol: stream, ..
                 },
             ) => {
-                debug!(%self.remote_peer_id, ?self.connection_id, "on_connection_event::FullyNegotiatedInbound");
                 match self.state {
                     State::Idle | State::WaitingInbound => {
                         self.behavior_events_queue.push_front(FromHandler::Started);
@@ -271,7 +266,6 @@ impl<R: Recon + Clone + Send + 'static> ConnectionHandler for Handler<R> {
                     protocol: stream, ..
                 },
             ) => {
-                debug!(%self.remote_peer_id, ?self.connection_id, "on_connection_event::FullyNegotiatedOutbound");
                 match self.state {
                     State::WaitingOutbound => {
                         self.behavior_events_queue.push_front(FromHandler::Started);
@@ -297,7 +291,6 @@ impl<R: Recon + Clone + Send + 'static> ConnectionHandler for Handler<R> {
             libp2p::swarm::handler::ConnectionEvent::AddressChange(_) => {}
             // We failed to upgrade the inbound connection.
             libp2p::swarm::handler::ConnectionEvent::ListenUpgradeError(_) => {
-                debug!(%self.remote_peer_id, ?self.connection_id, "on_connection_event::ListenUpgradeError");
                 match self.state {
                     State::WaitingInbound => {
                         // We have stopped synchronization and cannot attempt again as we are unable to
@@ -314,7 +307,6 @@ impl<R: Recon + Clone + Send + 'static> ConnectionHandler for Handler<R> {
             }
             // We failed to upgrade the outbound connection.
             libp2p::swarm::handler::ConnectionEvent::DialUpgradeError(_) => {
-                debug!(%self.remote_peer_id, ?self.connection_id, "on_connection_event::DialUpgradeError");
                 match self.state {
                     State::WaitingOutbound => {
                         // We have stopped synchronization and cannot attempt again as we are unable to

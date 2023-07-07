@@ -27,7 +27,6 @@ pub async fn synchronize<S: AsyncRead + AsyncWrite + Unpin, R: Recon>(
     if initiate {
         let msg = recon.initial_message();
         framed.send(msg).await?;
-        debug!("sent initial message");
     }
 
     while let Some(request) = libp2p::futures::TryStreamExt::try_next(&mut framed).await? {
@@ -45,6 +44,6 @@ pub async fn synchronize<S: AsyncRead + AsyncWrite + Unpin, R: Recon>(
         }
     }
     framed.close().await?;
-    debug!("finished synchronize");
+    debug!("finished synchronize, number of keys {}", recon.num_keys());
     Ok(())
 }

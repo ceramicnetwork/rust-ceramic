@@ -1,99 +1,69 @@
+//! EventId generates EventIDs from event data.
+//!
+//! varint(0xce) + // streamid, 1 byte
+//! varint(0x05) + // cip-124 EventID, 1 byte
+//! varint(networkId), // 1 byte (5 for local network)
+//! last8Bytes(sha256(separator_value)), // 16 bytes
+//! last8Bytes(sha256(stream_controller_DID)), // 16 bytes
+//! last4Bytes(init_event_CID) // 8 bytes
+//! cbor(eventHeight), // 1-3 bytes
+//! eventCID // 36 bytes
+//!   0x01 cidv1, 1 byte
+//!   0x71 dag-cbor, 1 byte
+//!   0x12 sha2-256, 1byte
+//!   0x20 varint(hash length), 1 byte
+//!   hash bytes, 32 bytes
 #![warn(missing_docs, missing_debug_implementations, clippy::all)]
 
 use cbor::Encoder;
-use cid::Cid;
-use multihash::{Hasher, Sha2_256};
+use cid::{
+    multihash::{Hasher, Sha2_256},
+    Cid,
+};
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::{Eq, Ord},
     fmt::Formatter,
 };
 use unsigned_varint::encode::u64 as varint;
-/// EventId generates EventIDs from event data.
-///
-/// varint(0xce) + // streamid, 1 byte
-/// varint(0x05) + // cip-124 EventID, 1 byte
-/// varint(networkId), // 1 byte (5 for local network)
-/// last8Bytes(sha256(separator_value)), // 16 bytes
-/// last8Bytes(sha256(stream_controller_DID)), // 16 bytes
-/// last4Bytes(init_event_CID) // 8 bytes
-/// cbor(eventHeight), // 1-3 bytes
-/// eventCID // 36 bytes
-///   0x01 cidv1, 1 byte
-///   0x71 dag-cbor, 1 byte
-///   0x12 sha2-256, 1byte
-///   0x20 varint(hash length), 1 byte
-///   hash bytes, 32 bytes
 
-/// Network values from https://cips.ceramic.network/tables/networkIds.csv
-/// Ceramic Pubsub Topic, Timestamp Authority
-#[derive(Debug)]
-pub enum Network {
-    /// /ceramic/mainnet Ethereum Mainnet (EIP155:1)
-    Mainnet,
-
-    /// /ceramic/testnet-clay Ethereum Gnosis Chain
-    TestnetClay,
-
-    /// /ceramic/dev-unstable Ethereum Gnosis Chain
-    DevUnstable,
-
-    /// /ceramic/local-$(randomNumber) Ethereum by Truffle Ganache
-    Local(u32),
-
-    /// None
-    InMemory,
-}
-
-impl Network {
-    /// network.to_u64() to get the network as a u64
-    pub fn to_u64(&self) -> u64 {
-        match self {
-            // https://github.com/ceramicnetwork/CIPs/blob/main/tables/networkIds.csv
-            Network::Mainnet => 0x00,
-            Network::TestnetClay => 0x01,
-            Network::DevUnstable => 0x02,
-            Network::InMemory => 0xff,
-            Network::Local(id) => 0x01_0000_0000_u64 + u64::from(*id),
-        }
-    }
-}
+use crate::network::Network;
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Serialize, Deserialize)]
 /// EventId is the event data as a recon key
 pub struct EventId(#[serde(with = "serde_bytes")] Vec<u8>);
 
 impl EventId {
+    /// Create a builder for constructing EventIds.
+    pub fn builder() -> Builder<Init> {
+        Builder { state: Init }
+    }
     /// EventId.new builds a Vec<u8> with the event id data.
     pub fn new(
-        network_id: Network,
-        separator: &str,
+        network: &Network,
+        sort_value: &str,
         controller: &str,
         init: &Cid,
         event_height: u64,
         event_cid: &Cid,
     ) -> EventId {
-        let mut event_height_cbor = Encoder::from_memory();
-        event_height_cbor.encode([event_height]).unwrap();
-        EventId(
-            [
-                varint(0xce, &mut [0_u8; 10]),                // streamid varint
-                varint(0x05, &mut [0_u8; 10]),                // cip-124 EventID varint
-                varint(network_id.to_u64(), &mut [0_u8; 10]), // network_id varint
-                last8_bytes(&sha256_digest(separator)),       // separator [u8; 8]
-                last8_bytes(&sha256_digest(controller)),      // controller [u8; 8]
-                last4_bytes(init.to_bytes().as_slice()),      // StreamID [u8; 4]
-                event_height_cbor.as_bytes(),                 // event_height cbor unsigned int
-                //varint(event_height, &mut [0_u8; 10]), // event_height varint
-                event_cid.to_bytes().as_slice(), // [u8]
-            ]
-            .concat(),
-        )
+        EventId::builder()
+            .with_network(network)
+            .with_sort_value(sort_value)
+            .with_controller(controller)
+            .with_init(init)
+            .with_event_height(event_height)
+            .with_event(event_cid)
+            .build()
     }
 
     /// Extract the raw bytes from an EventID as Vec<u8>
     pub fn to_bytes(&self) -> Vec<u8> {
         self.0.to_owned()
+    }
+    /// Extract the raw bytes from an EventID as Vec<u8>
+    pub fn as_slice(&self) -> &[u8] {
+        self.0.as_slice()
     }
 
     /// represent the the raw bytes as hex String
@@ -122,15 +92,14 @@ impl From<&[u8]> for EventId {
     }
 }
 
+impl From<Vec<u8>> for EventId {
+    fn from(bytes: Vec<u8>) -> Self {
+        EventId(bytes)
+    }
+}
 impl From<&Vec<u8>> for EventId {
     fn from(bytes: &Vec<u8>) -> Self {
         EventId(bytes.to_owned())
-    }
-}
-
-impl From<&str> for EventId {
-    fn from(s: &str) -> Self {
-        s.as_bytes().into()
     }
 }
 
@@ -149,9 +118,211 @@ fn last4_bytes(buf: &[u8]) -> &[u8] {
     &buf[(buf.len() - 4)..]
 }
 
+const ZEROS_8: &[u8] = &[0; 8];
+const FFS_8: &[u8] = &[0xFF; 8];
+const ZEROS_4: &[u8] = &[0; 4];
+const FFS_4: &[u8] = &[0xFF; 4];
+
+/// Builder provides an ordered API for constructing an EventId
+#[derive(Debug)]
+pub struct Builder<S: BuilderState> {
+    state: S,
+}
+/// The state of the builder
+pub trait BuilderState {}
+
+/// Initial state of the builder.
+#[derive(Debug)]
+pub struct Init;
+impl BuilderState for Init {}
+
+/// Builder with network set.
+#[derive(Debug)]
+pub struct WithNetwork {
+    bytes: Vec<u8>,
+}
+impl BuilderState for WithNetwork {}
+
+/// Builder with sort value set.
+#[derive(Debug)]
+pub struct WithSortValue {
+    bytes: Vec<u8>,
+}
+impl BuilderState for WithSortValue {}
+
+/// Builder with controller set.
+#[derive(Debug)]
+pub struct WithController {
+    bytes: Vec<u8>,
+}
+impl BuilderState for WithController {}
+
+/// Builder with init event CID set.
+#[derive(Debug)]
+pub struct WithInit {
+    bytes: Vec<u8>,
+}
+impl BuilderState for WithInit {}
+
+/// Builder with event height set.
+#[derive(Debug)]
+pub struct WithEventHeight {
+    bytes: Vec<u8>,
+}
+impl BuilderState for WithEventHeight {}
+
+/// Builder with event CID set.
+#[derive(Debug)]
+pub struct WithEvent {
+    bytes: Vec<u8>,
+}
+impl BuilderState for WithEvent {}
+
+impl Builder<Init> {
+    pub fn with_network(self, network: &Network) -> Builder<WithNetwork> {
+        // TODO what is max event id size?
+        let mut bytes = Vec::with_capacity(100);
+        // streamid varint
+        bytes.extend(varint(0xce, &mut [0_u8; 10]));
+        // cip-124 EventID varint
+        bytes.extend(varint(0x05, &mut [0_u8; 10]));
+        // network_id varint
+        bytes.extend(varint(network.id(), &mut [0_u8; 10]));
+        Builder {
+            state: WithNetwork { bytes },
+        }
+    }
+}
+impl Builder<WithNetwork> {
+    // TODO sort_value should be bytes not str
+    pub fn with_sort_value(mut self, sort_value: &str) -> Builder<WithSortValue> {
+        self.state
+            .bytes
+            .extend(last8_bytes(&sha256_digest(sort_value)));
+        Builder {
+            state: WithSortValue {
+                bytes: self.state.bytes,
+            },
+        }
+    }
+}
+impl Builder<WithSortValue> {
+    pub fn with_min_controller(mut self) -> Builder<WithController> {
+        self.state.bytes.extend(ZEROS_8);
+        Builder {
+            state: WithController {
+                bytes: self.state.bytes,
+            },
+        }
+    }
+    pub fn with_max_controller(mut self) -> Builder<WithController> {
+        self.state.bytes.extend(FFS_8);
+        Builder {
+            state: WithController {
+                bytes: self.state.bytes,
+            },
+        }
+    }
+    pub fn with_controller(mut self, controller: &str) -> Builder<WithController> {
+        self.state
+            .bytes
+            .extend(last8_bytes(&sha256_digest(controller)));
+        Builder {
+            state: WithController {
+                bytes: self.state.bytes,
+            },
+        }
+    }
+}
+impl Builder<WithController> {
+    pub fn with_min_init(mut self) -> Builder<WithInit> {
+        self.state.bytes.extend(ZEROS_4);
+        Builder {
+            state: WithInit {
+                bytes: self.state.bytes,
+            },
+        }
+    }
+    pub fn with_max_init(mut self) -> Builder<WithInit> {
+        self.state.bytes.extend(FFS_4);
+        Builder {
+            state: WithInit {
+                bytes: self.state.bytes,
+            },
+        }
+    }
+    pub fn with_init(mut self, init: &Cid) -> Builder<WithInit> {
+        self.state
+            .bytes
+            .extend(last4_bytes(init.to_bytes().as_slice()));
+        Builder {
+            state: WithInit {
+                bytes: self.state.bytes,
+            },
+        }
+    }
+}
+impl Builder<WithInit> {
+    pub fn with_min_event_height(mut self) -> Builder<WithEventHeight> {
+        let mut event_height_cbor = Encoder::from_memory();
+        event_height_cbor.encode([0]).unwrap();
+        // event_height cbor unsigned int
+        self.state.bytes.extend(event_height_cbor.as_bytes());
+        Builder {
+            state: WithEventHeight {
+                bytes: self.state.bytes,
+            },
+        }
+    }
+    pub fn with_max_event_height(mut self) -> Builder<WithEventHeight> {
+        let mut event_height_cbor = Encoder::from_memory();
+        // TODO: Use a smarter value here instead of u64::MAX to keep the event height length
+        // smaller.
+        event_height_cbor.encode([u64::MAX]).unwrap();
+        // event_height cbor unsigned int
+        self.state.bytes.extend(event_height_cbor.as_bytes());
+        Builder {
+            state: WithEventHeight {
+                bytes: self.state.bytes,
+            },
+        }
+    }
+    pub fn with_event_height(mut self, event_height: u64) -> Builder<WithEventHeight> {
+        let mut event_height_cbor = Encoder::from_memory();
+        event_height_cbor.encode([event_height]).unwrap();
+        // event_height cbor unsigned int
+        self.state.bytes.extend(event_height_cbor.as_bytes());
+        Builder {
+            state: WithEventHeight {
+                bytes: self.state.bytes,
+            },
+        }
+    }
+}
+impl Builder<WithEventHeight> {
+    /// Builds the final EventId as a fencepost
+    pub fn build_fencepost(self) -> EventId {
+        EventId(self.state.bytes)
+    }
+    pub fn with_event(mut self, event: &Cid) -> Builder<WithEvent> {
+        self.state.bytes.extend(event.to_bytes());
+        Builder {
+            state: WithEvent {
+                bytes: self.state.bytes,
+            },
+        }
+    }
+}
+impl Builder<WithEvent> {
+    /// Builds the final EventId
+    pub fn build(self) -> EventId {
+        EventId(self.state.bytes)
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::eventid::{Cid, EventId, Network};
+    use super::*;
     use cid::multibase::{self, Base};
     use expect_test::expect;
     use std::str::FromStr;
@@ -167,7 +338,7 @@ mod tests {
             Cid::from_str("bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy").unwrap(); // cspell:disable-line
 
         let eid = EventId::new(
-            Network::Mainnet,
+            &Network::Mainnet,
             &separator,
             &controller,
             &init,
@@ -180,7 +351,7 @@ mod tests {
         .assert_eq(&multibase::encode(Base::Base16Lower, eid.0));
 
         let eid = EventId::new(
-            Network::TestnetClay,
+            &Network::TestnetClay,
             &separator,
             &controller,
             &init,
@@ -193,7 +364,7 @@ mod tests {
         .assert_eq(&multibase::encode(Base::Base16Lower, eid.0));
 
         let eid = EventId::new(
-            Network::DevUnstable,
+            &Network::DevUnstable,
             &separator,
             &controller,
             &init,
@@ -206,7 +377,7 @@ mod tests {
         .assert_eq(&multibase::encode(Base::Base16Lower, eid.0));
 
         let eid = EventId::new(
-            Network::InMemory,
+            &Network::InMemory,
             &separator,
             &controller,
             &init,
@@ -218,7 +389,7 @@ mod tests {
         ]].assert_eq(&multibase::encode(Base::Base16Lower, eid.0));
 
         let eid = EventId::new(
-            Network::Local(0xce4a441c),
+            &Network::Local(0xce4a441c),
             &separator,
             &controller,
             &init,
@@ -241,7 +412,7 @@ mod tests {
             Cid::from_str("bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy").unwrap(); // cspell:disable-line
 
         let received = EventId::new(
-            Network::Mainnet,
+            &Network::Mainnet,
             &separator,
             &controller,
             &init,
