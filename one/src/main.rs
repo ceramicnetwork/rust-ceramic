@@ -5,17 +5,23 @@ mod metrics;
 mod network;
 mod pubsub;
 
-use std::{path::PathBuf, str::FromStr, sync::Arc, time::Duration};
+use std::{
+    path::PathBuf,
+    str::FromStr,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use ceramic_kubo_rpc::{dag, IpfsDep, IpfsPath, Multiaddr};
 use ceramic_p2p::Libp2pConfig;
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use futures::StreamExt;
 use futures_util::future;
 use iroh_metrics::{config::Config as MetricsConfig, MetricsHandle};
 use libipld::json::DagJsonCodec;
 use libp2p::metrics::Recorder;
+use recon::Recon;
 use tokio::{task, time::timeout};
 use tracing::{debug, info, warn};
 
@@ -50,6 +56,14 @@ struct DaemonOpts {
         env = "CERAMIC_ONE_BIND_ADDRESS"
     )]
     bind_address: String,
+    /// Bind address of the Ceramic endpoint.
+    #[arg(
+        short,
+        long,
+        default_value = "127.0.0.1:6001",
+        env = "CERAMIC_ONE_API_BIND_ADDRESS"
+    )]
+    api_bind_address: String,
     /// Listen address of the p2p swarm.
     #[arg(
         long,
@@ -81,27 +95,50 @@ struct DaemonOpts {
     #[arg(long, default_value_t = false, env = "CERAMIC_ONE_TRACING")]
     tracing: bool,
     /// Unique key used to find other Ceramic peers via the DHT
-    #[arg(
-        long,
-        default_value = "/ceramic/testnet-clay",
-        env = "CERAMIC_ONE_NETWORK_ID"
-    )]
-    network_id: String,
+    #[arg(long, default_value = "testnet-clay", env = "CERAMIC_ONE_NETWORK")]
+    network: Network,
+
+    /// Unique key used to find other Ceramic peers via the DHT
+    #[arg(long, env = "CERAMIC_ONE_LOCAL_NETWORK_ID")]
+    local_network_id: Option<u32>,
+
+    /// When true mdns will be used to discover peers.
+    #[arg(long, default_value_t = false, env = "CERAMIC_ONE_MDNS")]
+    mdns: bool,
+}
+
+#[derive(ValueEnum, Debug, Clone)]
+enum Network {
+    /// Production network
+    Mainnet,
+    /// Test network
+    TestnetClay,
+    /// Developement network
+    DevUnstable,
+    /// Local network with unique id
+    Local,
+    /// Singleton network in memory
+    InMemory,
+}
+
+impl Network {
+    fn to_network(&self, local_id: &Option<u32>) -> Result<ceramic_core::Network> {
+        Ok(match self {
+            Network::Mainnet => ceramic_core::Network::Mainnet,
+            Network::TestnetClay => ceramic_core::Network::TestnetClay,
+            Network::DevUnstable => ceramic_core::Network::DevUnstable,
+            Network::Local => ceramic_core::Network::Local(
+                local_id.ok_or_else(|| anyhow!("must provide a local network id"))?,
+            ),
+            Network::InMemory => ceramic_core::Network::InMemory,
+        })
+    }
 }
 
 #[derive(Args, Debug)]
 struct EyeOpts {
     #[command(flatten)]
     daemon: DaemonOpts,
-
-    /// Topic to listen for tip updates
-    #[arg(
-        short,
-        long,
-        default_value = "/ceramic/testnet-clay",
-        env = "CERAMIC_ONE_TOPIC"
-    )]
-    topic: String,
 }
 
 #[tokio::main(flavor = "multi_thread")]
@@ -118,15 +155,20 @@ async fn main() -> Result<()> {
 }
 
 struct Daemon {
+    network: ceramic_core::Network,
     bind_address: String,
+    api_bind_address: String,
     metrics_bind_address: String,
     ipfs: Ipfs,
     metrics_handle: MetricsHandle,
     metrics: Arc<Metrics>,
+    recon: Arc<Mutex<Recon>>,
 }
 
 impl Daemon {
     async fn build(opts: DaemonOpts) -> Result<Self> {
+        let network = opts.network.to_network(&opts.local_network_id)?;
+
         let mut metrics_config = MetricsConfig::default();
         metrics_config = metrics_config_with_compile_time_info(metrics_config);
         metrics_config.collect = opts.metrics;
@@ -157,7 +199,7 @@ impl Daemon {
         debug!("using directory: {}", dir.display());
 
         let mut p2p_config = Libp2pConfig::default();
-        p2p_config.mdns = false;
+        p2p_config.mdns = opts.mdns;
         p2p_config.bitswap_server = true;
         p2p_config.bitswap_client = true;
         p2p_config.kademlia = true;
@@ -181,22 +223,25 @@ impl Daemon {
         debug!(?p2p_config, "using p2p config");
 
         // Construct a recon implementation.
-        let recon = Arc::new(std::sync::Mutex::new(recon::Recon::from_set([].into())));
+        let recon = Arc::new(Mutex::new(Recon::from_set([].into())));
 
         let ipfs = Ipfs::builder()
             .with_store(dir.join("store"))
             .await?
-            .with_p2p(p2p_config, dir, Some(recon), &opts.network_id)
+            .with_p2p(p2p_config, dir, Some(recon.clone()), &network.name())
             .await?
             .build()
             .await?;
 
         Ok(Daemon {
+            network,
             bind_address: opts.bind_address,
+            api_bind_address: opts.api_bind_address,
             metrics_bind_address: opts.metrics_bind_address,
             ipfs,
             metrics_handle,
             metrics,
+            recon,
         })
     }
     // Start the daemon, future does not return until the daemon is finished.
@@ -209,6 +254,15 @@ impl Daemon {
         let srv = metrics::server(self.metrics_bind_address.as_str())?;
         let srv_handle = srv.handle();
         tokio::spawn(srv);
+
+        let api_bind_address = self.api_bind_address.clone();
+        // Start Ceramic API
+        let network = self.network.clone();
+        tokio::spawn(ceramic_api::start(
+            network,
+            api_bind_address,
+            self.recon.clone(),
+        ));
 
         // Run the Kubo RPC server, this blocks until the server is shutdown via a unix signal.
         debug!(
@@ -240,7 +294,11 @@ async fn eye(opts: EyeOpts) -> Result<()> {
     let daemon = Daemon::build(opts.daemon).await?;
 
     // Start subscription
-    let subscription = daemon.ipfs.api().subscribe(opts.topic).await?;
+    let subscription = daemon
+        .ipfs
+        .api()
+        .subscribe(daemon.network.name().clone())
+        .await?;
 
     let client = daemon.ipfs.api();
     let metrics = daemon.metrics.clone();

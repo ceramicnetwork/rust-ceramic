@@ -4,7 +4,9 @@ use serde::de::Visitor;
 use std::convert::From;
 use std::fmt::{self, Debug, Display, Formatter};
 
-use crate::{AssociativeHash, EventId};
+use ceramic_core::EventId;
+
+use crate::AssociativeHash;
 
 /// Sha256a an associative hash function for use in set reconciliation
 #[derive(Default, PartialEq, Clone, Copy)]
