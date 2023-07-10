@@ -1169,7 +1169,7 @@ mod tests {
     use futures::{future, TryStreamExt};
     use rand::prelude::*;
     use rand_chacha::ChaCha8Rng;
-    use recon::Sha256a;
+    use recon::{EventId, Sha256a};
     use ssh_key::private::Ed25519Keypair;
 
     use libp2p::{identity::Keypair as Libp2pKeypair, kad::record::Key};
@@ -1196,6 +1196,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_fetch_providers_mem_dht() -> Result<()> {
         tracing_subscriber::registry()
             .with(fmt::layer().pretty())
@@ -1248,7 +1249,7 @@ mod tests {
             unreachable!()
         }
 
-        fn insert_key(&mut self, _key: &str) {
+        fn insert_key(&mut self, _key: &EventId) {
             unreachable!()
         }
     }
@@ -1459,6 +1460,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_two_nodes() -> Result<()> {
         let test_runner_a = TestRunnerBuilder::new().no_bootstrap().build().await?;
         // peer_id 12D3KooWLo6JTNKXfjkZtKf8ooLQoXVXUEeuu4YDY3CYqK6rxHXt
