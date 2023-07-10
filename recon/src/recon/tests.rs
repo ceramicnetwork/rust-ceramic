@@ -24,7 +24,7 @@ pub type Set = BTreeSet<String>;
 #[derive(Debug, Clone, Default, PartialEq)]
 struct MemoryAHash {
     ahash: Sha256a,
-    set: BTreeSet<String>,
+    set: BTreeSet<EventId>,
 }
 
 impl std::ops::Add for MemoryAHash {
@@ -47,14 +47,14 @@ impl crate::recon::AssociativeHash for MemoryAHash {
         self.set.clear();
     }
 
-    fn push(&mut self, key: (&String, &Sha256a)) {
+    fn push(&mut self, key: (&EventId, &Sha256a)) {
         self.ahash.push(key);
-        self.set.insert(key.0.to_string());
+        self.set.insert(key.0.to_owned());
     }
 
     fn digest_many<'a, I>(keys: I) -> Self
     where
-        I: Iterator<Item = (&'a String, &'a Sha256a)>,
+        I: Iterator<Item = (&'a EventId, &'a Sha256a)>,
     {
         let mut hash = Self::default();
         for i in keys {
@@ -75,8 +75,12 @@ impl crate::recon::AssociativeHash for MemoryAHash {
 impl From<Message<MemoryAHash>> for MessageData {
     fn from(value: Message<MemoryAHash>) -> Self {
         Self {
-            keys: value.keys,
-            ahashs: value.ahashs.into_iter().map(|h| h.set).collect(),
+            keys: value.keys.iter().map(|key| key.to_string()).collect(),
+            ahashs: value
+                .ahashs
+                .into_iter()
+                .map(|h| h.set.iter().map(|key| key.to_string()).collect())
+                .collect(),
         }
     }
 }
@@ -95,12 +99,13 @@ where
     D::Doc: Clone,
 {
     fn pretty(self, allocator: &'a D) -> DocBuilder<'a, D, A> {
-        let peer = |name, set: &BTreeMap<String, Sha256a>| {
+        let peer = |name, set: &BTreeMap<EventId, Sha256a>| {
             let separator = allocator.text(",").append(allocator.softline_());
             allocator.text(name).append(allocator.text(": ")).append(
                 allocator
                     .intersperse(
-                        set.iter().map(|x| allocator.text(x.0.to_owned())),
+                        set.iter()
+                            .map(|x: (&EventId, &Sha256a)| allocator.text(x.0.to_string())),
                         separator,
                     )
                     .brackets(),
@@ -141,7 +146,7 @@ where
 {
     fn from(value: MessageData) -> Self {
         Self {
-            keys: value.keys,
+            keys: value.keys.iter().map(|key| key.as_bytes().into()).collect(),
             ahashs: value
                 .ahashs
                 .into_iter()
@@ -250,7 +255,7 @@ fn word_lists() {
         let mut r = Recon::default();
         for key in s.split([' ', '\n']).map(|s| s.to_string()) {
             if !s.is_empty() {
-                r.insert(&key);
+                r.insert(&key.as_bytes().into());
             }
         }
         r
@@ -348,11 +353,18 @@ fn word_lists() {
             "zymic",
         ]
     "#]]
-    .assert_debug_eq(&local.first_message::<Sha256a>().keys);
+    .assert_debug_eq(
+        &local
+            .first_message::<Sha256a>()
+            .keys
+            .iter()
+            .map(|k| k.to_string())
+            .collect::<Vec<String>>(),
+    );
     expect![["13BA255FBD4C2566CB2564EFA0C1782ABA61604AC07A8789D1DF9E391D73584E"]]
         .assert_eq(&local.first_message::<Sha256a>().ahashs[0].to_hex());
 
-    local.insert("ceramic");
+    local.insert(&b"ceramic".as_slice().into());
     sync(&mut local, &mut peers);
 }
 #[test]
@@ -387,42 +399,58 @@ fn response_is_synchronized() {
 fn hello() {
     let other_hash = Recon {
         keys: BTreeMap::from([
-            ("hello".to_owned(), Sha256a::digest("hello")),
-            ("world".to_owned(), Sha256a::digest("world")),
+            (b"hello".as_slice().into(), Sha256a::digest("hello")),
+            (b"world".as_slice().into(), Sha256a::digest("world")),
         ]),
     };
     expect![[r#"
-        Recon {
-            keys: {
-                "hello": Sha256a {
-                    hex: "2CF24DBA5FB0A30E26E83B2AC5B9E29E1B161E5C1FA7425E73043362938B9824",
-                    u32_8: [
-                        3125670444,
-                        245608543,
-                        708569126,
-                        2665658821,
-                        1545475611,
-                        1581426463,
-                        1647510643,
-                        613976979,
-                    ],
-                },
-                "world": Sha256a {
-                    hex: "486EA46224D1BB4FB680F34F7C9AD96A8F24EC88BE73EA8E5A6C65260E9CB8A7",
-                    u32_8: [
-                        1654943304,
-                        1337708836,
-                        1341358262,
-                        1792645756,
-                        2297177231,
-                        2397729726,
-                        644181082,
-                        2813893646,
-                    ],
-                },
+    Recon {
+        keys: {
+            EventId(
+                [
+                    104,
+                    101,
+                    108,
+                    108,
+                    111,
+                ],
+            ): Sha256a {
+                hex: "2CF24DBA5FB0A30E26E83B2AC5B9E29E1B161E5C1FA7425E73043362938B9824",
+                u32_8: [
+                    3125670444,
+                    245608543,
+                    708569126,
+                    2665658821,
+                    1545475611,
+                    1581426463,
+                    1647510643,
+                    613976979,
+                ],
             },
-        }
-        "#]]
+            EventId(
+                [
+                    119,
+                    111,
+                    114,
+                    108,
+                    100,
+                ],
+            ): Sha256a {
+                hex: "486EA46224D1BB4FB680F34F7C9AD96A8F24EC88BE73EA8E5A6C65260E9CB8A7",
+                u32_8: [
+                    1654943304,
+                    1337708836,
+                    1341358262,
+                    1792645756,
+                    2297177231,
+                    2397729726,
+                    644181082,
+                    2813893646,
+                ],
+            },
+        },
+    }
+    "#]]
     .assert_debug_eq(&other_hash)
 }
 
@@ -464,7 +492,11 @@ fn test_parse_recon() {
     Record {
         cat: Recon {
             keys: {
-                "a": Sha256a {
+                EventId(
+                    [
+                        97,
+                    ],
+                ): Sha256a {
                     hex: "CA978112CA1BBDCAFAC231B39A23DC4DA786EFF8147C4E72B9807785AFEE48BB",
                     u32_8: [
                         310482890,
@@ -477,7 +509,11 @@ fn test_parse_recon() {
                         3142119087,
                     ],
                 },
-                "b": Sha256a {
+                EventId(
+                    [
+                        98,
+                    ],
+                ): Sha256a {
                     hex: "3E23E8160039594A33894F6564E1B1348BBD7A0088D42C4ACB73EEAED59C009D",
                     u32_8: [
                         384312126,
@@ -490,7 +526,11 @@ fn test_parse_recon() {
                         2634063061,
                     ],
                 },
-                "c": Sha256a {
+                EventId(
+                    [
+                        99,
+                    ],
+                ): Sha256a {
                     hex: "2E7D2C03A9507AE265ECF5B5356885A53393A2029D241394997265A1A25AEFC6",
                     u32_8: [
                         53247278,
@@ -507,7 +547,11 @@ fn test_parse_recon() {
         },
         dog: Recon {
             keys: {
-                "e": Sha256a {
+                EventId(
+                    [
+                        101,
+                    ],
+                ): Sha256a {
                     hex: "3F79BB7B435B05321651DAEFD374CDC681DC06FAA65E374E38337B88CA046DEA",
                     u32_8: [
                         2075883839,
@@ -520,7 +564,11 @@ fn test_parse_recon() {
                         3933013194,
                     ],
                 },
-                "f": Sha256a {
+                EventId(
+                    [
+                        102,
+                    ],
+                ): Sha256a {
                     hex: "252F10C83610EBCA1A059C0BAE8255EBA2F95BE4D1D7BCFA89D7248A82D9F111",
                     u32_8: [
                         3356503845,
@@ -533,7 +581,11 @@ fn test_parse_recon() {
                         301062530,
                     ],
                 },
-                "g": Sha256a {
+                EventId(
+                    [
+                        103,
+                    ],
+                ): Sha256a {
                     hex: "CD0AA9856147B6C5B4FF2B7DFEE5DA20AA38253099EF1B4A64ACED233C9AFE29",
                     u32_8: [
                         2242448077,
@@ -664,7 +716,11 @@ dog: []
     Record {
         cat: Recon {
             keys: {
-                "a": Sha256a {
+                EventId(
+                    [
+                        97,
+                    ],
+                ): Sha256a {
                     hex: "CA978112CA1BBDCAFAC231B39A23DC4DA786EFF8147C4E72B9807785AFEE48BB",
                     u32_8: [
                         310482890,
@@ -786,7 +842,10 @@ fn recon_do(recon: &str) -> Record {
         record.iterations.push(Iteration {
             dir,
             msg: msg.into(),
-            set: set.iter().map(|entry| entry.0.to_string()).collect(),
+            set: set
+                .iter()
+                .map(|entry: (&EventId, &Sha256a)| entry.0.to_string())
+                .collect(),
         });
         dir = next_dir;
         msg = response.msg;
@@ -954,20 +1013,28 @@ fn message_cbor_serialize_test() {
         .into();
     let received_cbor = hex::encode(serde_ipld_dagcbor::ser::to_vec(&received).unwrap());
     println!("serde_json {}", serde_json::to_string(&received).unwrap()); // Message as json
-    expect![["a2616b826161616361688158203e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d"]].assert_eq(&received_cbor);
+    expect![["a2616b824161416361688158203e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d"]].assert_eq(&received_cbor);
 }
 
 #[test]
 fn message_cbor_deserialize_test() {
-    let bytes = hex::decode("a2616b826161616361688158203e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d").unwrap();
+    let bytes = hex::decode("a2616b824161416361688158203e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d").unwrap();
     let x = serde_ipld_dagcbor::de::from_slice(bytes.as_slice());
     println!("{:?}", x);
     let received: Message<Sha256a> = x.unwrap();
     expect![[r#"
         Message {
             keys: [
-                "a",
-                "c",
+                EventId(
+                    [
+                        97,
+                    ],
+                ),
+                EventId(
+                    [
+                        99,
+                    ],
+                ),
             ],
             ahashs: [
                 Sha256a {
@@ -996,19 +1063,62 @@ fn sqlite3_test() {
     // remember to take the mod 2^32 before reconstructing AHash.
     fn store() -> Result<()> {
         let conn = Connection::open(":memory:")?; // "my_database.db"
-        conn.execute("CREATE TABLE data (key TEXT, h0 INTEGER, h1 INTEGER, h2 INTEGER, h3 INTEGER, h4 INTEGER, h5 INTEGER, h6 INTEGER, h7 INTEGER)", ())?;
+        conn.execute(
+            r#"
+        CREATE TABLE data (
+            key TEXT,
+            h0 INTEGER, h1 INTEGER, h2 INTEGER, h3 INTEGER,
+            h4 INTEGER, h5 INTEGER, h6 INTEGER, h7 INTEGER
+        )
+        "#,
+            (),
+        )?;
 
         println!("key2 {:?}", Sha256a::digest("key2"));
         // Insert the data into the table
         let r1 = conn.execute(
-            "INSERT INTO data (key, h0, h1, h2, h3, h4, h5, h6, h7) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            ("key1", 2517202049_u32, 56037440_u32, 3620594420_u32, 3669165004_u32, 3107969998_u32, 442180962_u32, 3392393391_u32, 806716350_u32),
+            r#"
+            INSERT INTO data (
+                key, 
+                h0, h1, h2, h3, h4, h5, h6, h7
+            ) VALUES (
+                ?, ?, ?, ?, ?, ?, ?, ?, ?
+            )"#,
+            (
+                "key1",
+                2517202049_u32,
+                56037440_u32,
+                3620594420_u32,
+                3669165004_u32,
+                3107969998_u32,
+                442180962_u32,
+                3392393391_u32,
+                806716350_u32,
+            ),
         )?;
         let r2 = conn.execute(
-            "INSERT INTO data (key, h0, h1, h2, h3, h4, h5, h6, h7) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            ("key2", 1985151665_u32, 1059294028_u32, 3796006323_u32, 3032940852_u32, 4188464464_u32, 1513824117_u32, 1735347969_u32, 2644098280_u32),
+            r#"
+              INSERT INTO data (key, h0, h1, h2, h3, h4, h5, h6, h7) 
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+            (
+                "key2",
+                1985151665_u32,
+                1059294028_u32,
+                3796006323_u32,
+                3032940852_u32,
+                4188464464_u32,
+                1513824117_u32,
+                1735347969_u32,
+                2644098280_u32,
+            ),
         )?;
-        let mut stmt = conn.prepare("SELECT key, h0, h1, h2, h3, h4, h5, h6, h7 FROM data")?;
+        let mut stmt = conn.prepare(
+            r#"
+        SELECT key, h0, h1, h2, h3, h4, h5, h6, h7 
+        FROM data
+        "#,
+        )?;
         let r3 = stmt.query_map([], |row| {
             Ok((
                 row.get::<_, String>(0).unwrap(),
@@ -1027,7 +1137,14 @@ fn sqlite3_test() {
             println!("{:?}", row.unwrap())
         }
 
-        let mut stmt2 = conn.prepare("SELECT sum(h0), sum(h1), sum(h2), sum(h3), sum(h4), sum(h5), sum(h6), sum(h7) FROM data WHERE key > 'k' AND key < 'l'")?;
+        let mut stmt2 = conn.prepare(
+            r#"
+            SELECT
+              sum(h0), sum(h1), sum(h2), sum(h3), sum(h4), sum(h5), sum(h6), sum(h7)
+            FROM data
+            WHERE key > 'k' AND key < 'l';
+            "#,
+        )?;
         let r4 = stmt2.query_map([], |row| {
             Ok((
                 // here be the integer overflow dragon

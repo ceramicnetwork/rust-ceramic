@@ -3,6 +3,11 @@
 use cbor::Encoder;
 use cid::Cid;
 use multihash::{Hasher, Sha2_256};
+use serde::{Deserialize, Serialize};
+use std::{
+    cmp::{Eq, Ord},
+    fmt::Formatter,
+};
 use unsigned_varint::encode::u64 as varint;
 /// EventId generates EventIDs from event data.
 ///
@@ -54,9 +59,9 @@ impl Network {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Serialize, Deserialize)]
 /// EventId is the event data as a recon key
-pub struct EventId(Vec<u8>);
+pub struct EventId(#[serde(with = "serde_bytes")] Vec<u8>);
 
 impl EventId {
     /// EventId.new builds a Vec<u8> with the event id data.
@@ -84,6 +89,48 @@ impl EventId {
             ]
             .concat(),
         )
+    }
+
+    /// Extract the raw bytes from an EventID as Vec<u8>
+    pub fn to_bytes(&self) -> Vec<u8> {
+        self.0.to_owned()
+    }
+
+    /// represent the the raw bytes as hex String
+    pub fn to_hex(&self) -> String {
+        hex::encode(&self.0)
+    }
+}
+
+impl std::fmt::Display for EventId {
+    /// represent the the raw bytes as String
+    ///
+    /// If the bytes are valid utf8 it will cast to a string without allocating
+    /// Else it will convert represent the raw bytes as a hex String
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            String::from_utf8(self.0.clone()).unwrap_or(self.to_hex())
+        )
+    }
+}
+
+impl From<&[u8]> for EventId {
+    fn from(bytes: &[u8]) -> Self {
+        EventId(bytes.to_owned())
+    }
+}
+
+impl From<&Vec<u8>> for EventId {
+    fn from(bytes: &Vec<u8>) -> Self {
+        EventId(bytes.to_owned())
+    }
+}
+
+impl From<&str> for EventId {
+    fn from(s: &str) -> Self {
+        s.as_bytes().into()
     }
 }
 
@@ -181,5 +228,106 @@ mod tests {
         expect![[
             r#"fce01059c88a9f21c2a30541a6fbdca4645cc7c072ff729ea683b751718ff01711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"#
         ]].assert_eq(&multibase::encode(Base::Base16Lower, eid.0));
+    }
+
+    #[test]
+    fn test_serialize() {
+        let separator = "kh4q0ozorrgaq2mezktnrmdwleo1d".to_string(); // cspell:disable-line
+        let controller = "did:key:z6MkgSV3tAuw7gUWqKCUY7ae6uWNxqYgdwPhUJbJhF9EFXm9".to_string();
+        let init =
+            Cid::from_str("bagcqceraplay4erv6l32qrki522uhiz7rf46xccwniw7ypmvs3cvu2b3oulq").unwrap(); // cspell:disable-line
+        let event_height = 255; // so we get 2 bytes b'\x18\xff'
+        let event_cid =
+            Cid::from_str("bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy").unwrap(); // cspell:disable-line
+
+        let received = EventId::new(
+            Network::Mainnet,
+            &separator,
+            &controller,
+            &init,
+            event_height,
+            &event_cid,
+        );
+
+        let received_cbor = hex::encode(serde_ipld_dagcbor::ser::to_vec(&received).unwrap());
+        println!("serde_json {}", serde_json::to_string(&received).unwrap()); // Message as json
+        expect![["583ece0105002a30541a6fbdca4645cc7c072ff729ea683b751718ff01711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"]].assert_eq(&received_cbor);
+    }
+
+    #[test]
+    fn test_deserialize() {
+        let bytes = hex::decode("583ece0105002a30541a6fbdca4645cc7c072ff729ea683b751718ff01711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86").unwrap();
+        let x = serde_ipld_dagcbor::de::from_slice(bytes.as_slice());
+        println!("{:?}", x);
+        let received: EventId = x.unwrap();
+        expect![[r#"
+        EventId(
+            [
+                206,
+                1,
+                5,
+                0,
+                42,
+                48,
+                84,
+                26,
+                111,
+                189,
+                202,
+                70,
+                69,
+                204,
+                124,
+                7,
+                47,
+                247,
+                41,
+                234,
+                104,
+                59,
+                117,
+                23,
+                24,
+                255,
+                1,
+                113,
+                18,
+                32,
+                244,
+                239,
+                126,
+                194,
+                8,
+                148,
+                77,
+                37,
+                112,
+                37,
+                64,
+                139,
+                182,
+                71,
+                148,
+                158,
+                107,
+                114,
+                147,
+                5,
+                32,
+                188,
+                128,
+                243,
+                77,
+                139,
+                251,
+                175,
+                210,
+                100,
+                61,
+                134,
+            ],
+        )
+        "#]]
+        .assert_debug_eq(&received);
     }
 }

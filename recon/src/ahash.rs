@@ -4,7 +4,7 @@ use serde::de::Visitor;
 use std::convert::From;
 use std::fmt::{self, Debug, Display, Formatter};
 
-use crate::AssociativeHash;
+use crate::{AssociativeHash, EventId};
 
 /// Sha256a an associative hash function for use in set reconciliation
 #[derive(Default, PartialEq, Clone, Copy)]
@@ -137,7 +137,7 @@ impl crate::recon::AssociativeHash for Sha256a {
         self.0[6] = 0;
         self.0[7] = 0;
     }
-    fn push(&mut self, key: (&String, &Sha256a)) {
+    fn push(&mut self, key: (&EventId, &Sha256a)) {
         // Add a key to the accumulated associative hash
         self.0[0] = self.0[0].wrapping_add(key.1 .0[0]);
         self.0[1] = self.0[1].wrapping_add(key.1 .0[1]);
@@ -151,7 +151,7 @@ impl crate::recon::AssociativeHash for Sha256a {
 
     fn digest_many<'a, I>(keys: I) -> Sha256a
     where
-        I: Iterator<Item = (&'a String, &'a Sha256a)>,
+        I: Iterator<Item = (&'a EventId, &'a Sha256a)>,
     {
         let mut total = Sha256a::identity();
         for key in keys {
@@ -221,6 +221,15 @@ impl Sha256a {
         bytes.into()
     }
 
+    /// turn a &[u8] into a Sha256a
+    pub fn digest_bytes(input: &[u8]) -> Sha256a {
+        let mut hasher = Sha2_256::default();
+        hasher.update(input);
+        // sha256 is 32 bytes safe to unwrap to [u8; 32]
+        let bytes: &[u8; 32] = hasher.finalize().try_into().unwrap();
+        bytes.into()
+    }
+
     /// allocate a new hash with the state from the hex string
     pub fn from_hex(hex_data: &String) -> Result<Sha256a, hex::FromHexError> {
         let mut bytes: [u8; 32] = [0u8; 32];
@@ -284,8 +293,8 @@ mod tests {
     fn push_add() {
         let plus = Sha256a::digest("hello") + Sha256a::digest("world");
         let mut push = Sha256a::identity();
-        push.push((&"hello".to_string(), &Sha256a::digest("hello")));
-        push.push((&"world".to_string(), &Sha256a::digest("world")));
+        push.push((&b"hello".as_slice().into(), &Sha256a::digest("hello")));
+        push.push((&b"world".as_slice().into(), &Sha256a::digest("world")));
         assert_eq!(plus.to_hex(), push.to_hex())
     }
 

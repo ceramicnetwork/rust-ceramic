@@ -32,7 +32,7 @@ use tracing::{debug, warn};
 use crate::{
     libp2p::handler::{FromBehaviour, FromHandler, Handler},
     recon::Response,
-    AssociativeHash, Message, Sha256a,
+    AssociativeHash, Message, Sha256a, EventId,
 };
 
 /// Name of the Recon protocol
@@ -53,7 +53,7 @@ pub trait Recon: Clone + Send + 'static {
     /// Process an incoming message and respond with a message reply.
     fn process_message(&mut self, msg: &Message<Self::Hash>) -> Response<Self::Hash>;
     /// Insert a new key into the key space.
-    fn insert_key(&mut self, key: &str);
+    fn insert_key(&mut self, key: &EventId);
 }
 
 // Implement the  Recon trait using crate::recon::Recon
@@ -64,7 +64,7 @@ pub trait Recon: Clone + Send + 'static {
 impl Recon for Arc<Mutex<crate::recon::Recon>> {
     type Hash = Sha256a;
 
-    fn insert_key(&mut self, key: &str) {
+    fn insert_key(&mut self, key: &EventId) {
         self.lock()
             .expect("should be able to acquire lock")
             .insert(key)

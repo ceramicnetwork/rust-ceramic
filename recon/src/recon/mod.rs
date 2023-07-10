@@ -1,6 +1,6 @@
 #![warn(missing_docs, missing_debug_implementations, clippy::all)]
 
-use crate::Sha256a;
+use crate::{EventId, Sha256a};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Display;
@@ -18,7 +18,7 @@ pub mod tests;
 #[derive(Debug, Default)]
 pub struct Recon {
     /// The set of keys and their Sha256a hashes
-    keys: BTreeMap<String, Sha256a>, // this will be a b#tree at some point in the future
+    keys: BTreeMap<EventId, Sha256a>, // this will be a b#tree at some point in the future
 }
 
 impl Recon {
@@ -28,19 +28,26 @@ impl Recon {
             keys: BTreeMap::default(),
         };
         for key in s {
-            r.insert(&key);
+            r.insert(&key.as_bytes().into());
         }
         r
     }
 
     /// insert a new string into a recon
-    pub fn insert(&mut self, key: &str) {
-        self.keys.insert(key.to_string(), Sha256a::digest(key));
+    pub fn insert(&mut self, key: &EventId) {
+        self.keys.insert(
+            key.to_owned(),
+            Sha256a::digest_bytes(key.to_bytes().as_slice()),
+        );
     }
 
-    fn hash_range<H: AssociativeHash>(&self, left_fencepost: &str, right_fencepost: &str) -> H {
-        let l = Excluded(left_fencepost.to_string());
-        let r = Excluded(right_fencepost.to_string());
+    fn hash_range<H: AssociativeHash>(
+        &self,
+        left_fencepost: &EventId,
+        right_fencepost: &EventId,
+    ) -> H {
+        let l = Excluded(left_fencepost.to_owned());
+        let r = Excluded(right_fencepost.to_owned());
         if l == r {
             return H::identity();
         }
@@ -54,28 +61,28 @@ impl Recon {
             // -> (only_key)
             response
                 .keys
-                .push(self.keys.first_key_value().unwrap().0.to_string());
+                .push(self.keys.first_key_value().unwrap().0.to_owned());
         } else if self.keys.len() == 2 {
             // -> (first 0 last)
             response
                 .keys
-                .push(self.keys.first_key_value().unwrap().0.to_string());
+                .push(self.keys.first_key_value().unwrap().0.to_owned());
             response.ahashs.push(H::identity());
             response
                 .keys
-                .push(self.keys.last_key_value().unwrap().0.to_string());
+                .push(self.keys.last_key_value().unwrap().0.to_owned());
         } else if self.keys.len() > 2 {
             // -> (first h(middle) last)
             response
                 .keys
-                .push(self.keys.first_key_value().unwrap().0.to_string());
+                .push(self.keys.first_key_value().unwrap().0.to_owned());
             response.ahashs.push(self.hash_range(
                 self.keys.first_key_value().unwrap().0,
                 self.keys.last_key_value().unwrap().0,
             ));
             response
                 .keys
-                .push(self.keys.last_key_value().unwrap().0.to_string());
+                .push(self.keys.last_key_value().unwrap().0.to_owned());
         }
         response
     }
@@ -92,8 +99,8 @@ impl Recon {
         };
         // self.keys.extend(received.keys.clone()); // add received keys
         for key in &received.keys {
-            let h = Sha256a::digest(key);
-            if self.keys.insert(key.to_string(), h).is_none() {
+            let h = Sha256a::digest_bytes(key.to_bytes().as_slice());
+            if self.keys.insert(key.to_owned(), h).is_none() {
                 response.is_synchronized = false;
             }
         }
@@ -103,23 +110,27 @@ impl Recon {
         let mut received_keys = received.keys.iter();
         let mut received_hashs = received.ahashs.iter();
 
-        let mut left_fencepost = self.keys.first_key_value().unwrap().0;
-        let mut right_fencepost = received_keys
+        let mut left_fencepost: EventId = self.keys.first_key_value().unwrap().0.to_owned();
+        let mut right_fencepost: EventId = received_keys
             .next()
-            .unwrap_or(self.keys.last_key_value().unwrap().0);
+            .map_or(self.keys.last_key_value().unwrap().0.to_owned(), |key| {
+                key.to_owned()
+            });
         let mut received_hash = &H::identity();
         let zero = &H::identity();
 
-        response.msg.keys.push(left_fencepost.to_string());
-        while !received.keys.is_empty() && left_fencepost < received.keys.last().unwrap() {
+        response.msg.keys.push(left_fencepost.clone());
+        while !received.keys.is_empty() && left_fencepost < *received.keys.last().unwrap() {
             response.is_synchronized &=
                 response
                     .msg
-                    .process_range(left_fencepost, right_fencepost, received_hash, self);
+                    .process_range(&left_fencepost, &right_fencepost, received_hash, self);
             left_fencepost = right_fencepost;
             right_fencepost = received_keys
                 .next()
-                .unwrap_or(self.keys.last_key_value().unwrap().0);
+                .map_or(self.keys.last_key_value().unwrap().0.to_owned(), |key| {
+                    key.to_owned()
+                });
             received_hash = received_hashs.next().unwrap_or(zero);
         }
         if !received.keys.is_empty() {
@@ -151,11 +162,11 @@ impl<H: AssociativeHash> Display for Response<H> {
 }
 
 impl<H: AssociativeHash> Response<H> {
-    /// Consume the reponse and produce a message
+    /// Consume the response and produce a message
     pub fn into_message(self) -> Message<H> {
         self.msg
     }
-    /// Report if the reponse indicates that synchronization has completed
+    /// Report if the response indicates that synchronization has completed
     pub fn is_synchronized(&self) -> bool {
         self.is_synchronized
     }
@@ -178,7 +189,7 @@ impl<H: AssociativeHash> Response<H> {
 pub struct Message<H: AssociativeHash> {
     /// keys must be 1 longer then hashs unless both are empty
     #[serde(rename = "k")]
-    pub keys: Vec<String>,
+    pub keys: Vec<EventId>,
 
     /// hashs must be 1 shorter then keys
     #[serde(rename = "h")]
@@ -197,7 +208,13 @@ impl<H: AssociativeHash> Display for Message<H> {
             write!(f, "{}, {}, ", k, hash_hex)?;
         }
 
-        write!(f, "{})", self.keys.last().unwrap_or(&"".to_string()))
+        write!(
+            f,
+            "{})",
+            self.keys
+                .last()
+                .map_or(String::default(), |key| key.to_string(),)
+        )
     }
 }
 
@@ -215,7 +232,7 @@ pub trait AssociativeHash: std::ops::Add<Output = Self> + Clone + Default + Part
     fn clear(&mut self);
 
     /// Add a string to the accumulated hash
-    fn push(&mut self, key: (&String, &Sha256a));
+    fn push(&mut self, key: (&EventId, &Sha256a));
 
     /// convert the hash to bytes
     ///
@@ -229,7 +246,7 @@ pub trait AssociativeHash: std::ops::Add<Output = Self> + Clone + Default + Part
     /// sum a iterator of strings and Sha256a hashes
     fn digest_many<'a, I>(keys: I) -> Self
     where
-        I: Iterator<Item = (&'a String, &'a Sha256a)>;
+        I: Iterator<Item = (&'a EventId, &'a Sha256a)>;
 }
 
 impl<H: AssociativeHash> Message<H> {
@@ -238,12 +255,12 @@ impl<H: AssociativeHash> Message<H> {
     // if it is the first key there is no range so we don't push the accumulator
     // keys must be pushed in lexical order
 
-    fn end_streak(&mut self, left_fencepost: &str, local_keys: &Recon) {
+    fn end_streak(&mut self, left_fencepost: &EventId, local_keys: &Recon) {
         let h = local_keys.hash_range::<H>(self.keys.last().unwrap(), left_fencepost);
         // If the left fencepost has not been sent send it now
         if self.keys.last().unwrap() != left_fencepost {
             // Add the left_fencepost to end the match streak.
-            self.keys.push(left_fencepost.to_string());
+            self.keys.push(left_fencepost.to_owned());
             self.ahashs.push(h);
         }
     }
@@ -251,8 +268,8 @@ impl<H: AssociativeHash> Message<H> {
     // Process keys within a specific range. Returns true if the ranges were already in sync.
     fn process_range(
         &mut self,
-        left_fencepost: &str,
-        right_fencepost: &str,
+        left_fencepost: &EventId,
+        right_fencepost: &EventId,
         received_hash: &H,
         local_keys: &Recon,
     ) -> bool {
@@ -260,8 +277,8 @@ impl<H: AssociativeHash> Message<H> {
             return true;
         }
 
-        let l = Excluded(left_fencepost.to_string());
-        let r = Excluded(right_fencepost.to_string());
+        let l = Excluded(left_fencepost.to_owned());
+        let r = Excluded(right_fencepost.to_owned());
 
         let calculated_hash = local_keys.hash_range::<H>(left_fencepost, right_fencepost);
 
@@ -274,13 +291,13 @@ impl<H: AssociativeHash> Message<H> {
         if calculated_hash.is_zero() {
             // we are missing all keys in range
             // send a 0
-            self.keys.push(right_fencepost.to_string());
+            self.keys.push(right_fencepost.to_owned());
             self.ahashs.push(H::identity());
         } else if received_hash.is_zero() {
             // they are missing all keys in range
             // send all the keys
-            for key in local_keys.keys.range::<String, _>((l, r)) {
-                self.keys.push(key.0.to_string());
+            for key in local_keys.keys.range::<EventId, _>((l, r)) {
+                self.keys.push(key.0.to_owned());
                 self.ahashs.push(H::identity());
             }
         } else {
@@ -292,25 +309,30 @@ impl<H: AssociativeHash> Message<H> {
         false
     }
 
-    fn send_split(&mut self, left_fencepost: &str, right_fencepost: &str, local_keys: &Recon) {
-        let range = local_keys.keys.range::<String, _>((
-            Excluded(left_fencepost.to_string()),
-            Excluded(right_fencepost.to_string()),
+    fn send_split(
+        &mut self,
+        left_fencepost: &EventId,
+        right_fencepost: &EventId,
+        local_keys: &Recon,
+    ) {
+        let range = local_keys.keys.range::<EventId, _>((
+            Excluded(left_fencepost.to_owned()),
+            Excluded(right_fencepost.to_owned()),
         ));
         let count = range.clone().count();
 
         if count <= 3 {
             for key in range {
-                self.keys.push(key.0.clone());
+                self.keys.push(key.0.to_owned());
                 self.ahashs.push(H::identity());
             }
         } else {
             let mid_key = range.clone().nth((count - 1) / 2).unwrap().0;
-            self.keys.push(mid_key.to_string());
+            self.keys.push(mid_key.to_owned());
             self.ahashs
                 .push(local_keys.hash_range(left_fencepost, mid_key));
 
-            self.keys.push(right_fencepost.to_string());
+            self.keys.push(right_fencepost.to_owned());
             self.ahashs
                 .push(local_keys.hash_range(mid_key, right_fencepost));
         }
