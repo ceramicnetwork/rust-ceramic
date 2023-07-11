@@ -30,7 +30,7 @@ ceramic-core.workspace = true
 async-std = "1.12.0"
 codespan-reporting = "0.11.1"
 expect-test = "1.4.1"
-lalrpop-util = { version = "0.19.8", features = ["lexer"] }
+lalrpop-util = { version = "0.20.0", features = ["lexer"] }
 libp2p-swarm-test = "0.1.0"
 pretty = "0.11.3"
 quickcheck = "1.0.3"
