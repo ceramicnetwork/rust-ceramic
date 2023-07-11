@@ -32,7 +32,7 @@ use tracing::{debug, warn};
 use crate::{
     libp2p::handler::{FromBehaviour, FromHandler, Handler},
     recon::Response,
-    AssociativeHash, Message, Sha256a, EventId,
+    AssociativeHash, EventId, Message, Sha256a,
 };
 
 /// Name of the Recon protocol
