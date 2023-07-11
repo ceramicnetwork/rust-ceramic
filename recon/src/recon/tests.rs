@@ -783,7 +783,7 @@ fn parse_recon(recon: &str) -> Record {
                         .with_message("invalid token")
                         .with_labels(vec![Label::primary(file_id, location..location)]);
                 }
-                ParseError::UnrecognizedEOF { location, expected } => {
+                ParseError::UnrecognizedEof { location, expected } => {
                     diagnostic = diagnostic
                         .with_message("unrecognized EOF")
                         .with_labels(vec![Label::primary(file_id, location..location)])
