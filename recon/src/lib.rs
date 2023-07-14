@@ -2,9 +2,10 @@
 #![warn(missing_docs, missing_debug_implementations, clippy::all)]
 
 pub use crate::recon::{
-    btree::BTreeStore, AssociativeHash, FullInterests, InterestProvider, Key, Message, Recon,
-    Response, Store,
+    btree::BTreeStore, durability::SQLiteStore, AssociativeHash, FullInterests, InterestProvider,
+    Key, Message, Recon, Response, Store,
 };
+
 pub use sha256a::Sha256a;
 
 pub mod libp2p;

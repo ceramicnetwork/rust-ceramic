@@ -5,6 +5,7 @@ use std::convert::From;
 use std::fmt::{self, Debug, Display, Formatter};
 
 use crate::{recon::Key, AssociativeHash};
+use ceramic_core::Bytes;
 
 /// Sha256a an associative hash function for use in set reconciliation
 #[derive(Default, PartialEq, Clone, Copy)]
@@ -142,9 +143,15 @@ impl AssociativeHash for Sha256a {
         }
         res
     }
+
+    /// unpack the raw ints from a Sha256a
+    fn as_u32s(&self) -> &[u32; 8] {
+        &self.0
+    }
 }
 
 impl From<&[u8; 32]> for Sha256a {
+    /// new Sha256a with bytes as the internal state
     fn from(bytes: &[u8; 32]) -> Self {
         Sha256a([
             // 4 byte slices safe to unwrap to [u8; 4]
@@ -160,6 +167,27 @@ impl From<&[u8; 32]> for Sha256a {
     }
 }
 
+impl From<[u32; 8]> for Sha256a {
+    /// new Sha256a with bytes as the internal state
+    fn from(bytes: [u32; 8]) -> Self {
+        Sha256a(bytes)
+    }
+}
+
+impl From<String> for Sha256a {
+    /// new Sha256a with digest of input
+    fn from(input: String) -> Self {
+        Sha256a::digest(&Bytes::from(input))
+    }
+}
+
+impl From<&str> for Sha256a {
+    /// new Sha256a with digest of input
+    fn from(input: &str) -> Self {
+        Sha256a::digest(&Bytes::from(input))
+    }
+}
+
 impl Debug for Sha256a {
     fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         f.debug_struct("Sha256a")
@@ -172,6 +200,29 @@ impl Debug for Sha256a {
 impl Display for Sha256a {
     fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         write!(f, "{}", self.to_hex())
+    }
+}
+
+impl Key for Bytes {
+    fn min_value() -> Self {
+        Vec::new().into()
+    }
+
+    fn max_value() -> Self {
+        // We need a value that sorts greater than any multiformat.
+        // Multiformats start with a multiformats.varint
+        // (https://github.com/multiformats/unsigned-varint)
+        // the max_value for a multiformat varint is 0x7fffffff_ffffffff (2^63-1)
+        // multiformats.varint.encode(0x7fffffff_ffffffff)
+        // b'\xff\xff\xff\xff\xff\xff\xff\xff\x7f'
+        // therefore all multiformat data will be less then
+        // b'\xff\xff\xff\xff\xff\xff\xff\xff\x80'
+        // [0xFF, 9]
+        [0xFF; 9].as_slice().into()
+    }
+
+    fn as_bytes(&self) -> &[u8] {
+        self.as_slice()
     }
 }
 

@@ -421,7 +421,7 @@ where
             let worker = tokio::task::spawn(async move {
                 tokio::select! {
                     _ = closer_r => {
-                        // Explicit sesssion stop.
+                        // Explicit session stop.
                         debug!("session {}: stopped: closed", ctx);
                     }
                     _ = chan.closed() => {
@@ -906,7 +906,7 @@ where
                     response_channel.send(Ok(())).ok();
                 } else {
                     response_channel
-                        .send(Err(anyhow!("kademlia is not availalbe")))
+                        .send(Err(anyhow!("kademlia is not available")))
                         .ok();
                 }
             }
@@ -1176,7 +1176,7 @@ async fn load_identity<S: Storage>(kc: &mut Keychain<S>) -> Result<Keypair> {
         return Ok(keypair);
     }
 
-    Err(anyhow!("inconsistent keystate"))
+    Err(anyhow!("inconsistent key state"))
 }
 
 #[cfg(test)]
@@ -1246,7 +1246,7 @@ mod tests {
         /// Otherwise, don't provide any addresses from which to bootstrap.
         bootstrap: bool,
         /// An optional seed to use when building a peer_id.
-        /// When `None`, it will use a previously derived peer_id `12D3KooWFma2D63TG9ToSiRsjFkoNm2tTihScTBAEdXxinYk5rwE`.
+        /// When `None`, it will use a previously derived peer_id `12D3KooWFma2D63TG9ToSiRsjFkoNm2tTihScTBAEdXxinYk5rwE`. // cspell:disable-line
         seed: Option<ChaCha8Rng>,
         /// Optional `Keys` the node should provide to the DHT on start up.
         keys: Option<Vec<Key>>,
@@ -1452,7 +1452,7 @@ mod tests {
         {
             // Make sure we are bootstrapped.
             tokio::time::sleep(Duration::from_millis(2500)).await;
-            let c = "QmbWqxBEKC3P8tqsKc98xmWNzrzDtRLMiMPL8wBuTGsMnR"
+            let c = "QmbWqxBEKC3P8tqsKc98xmWNzrzDtRLMiMPL8wBuTGsMnR" // cspell:disable-line
                 .parse()
                 .unwrap();
 
@@ -1757,7 +1757,7 @@ mod tests {
         // set up three nodes
         // two connect to one
         // try to connect via id
-        let cid: Cid = "bafkreieq5jui4j25lacwomsqgjeswwl3y5zcdrresptwgmfylxo2depppq"
+        let cid: Cid = "bafkreieq5jui4j25lacwomsqgjeswwl3y5zcdrresptwgmfylxo2depppq" // cspell:disable-line
             .parse()
             .unwrap();
 

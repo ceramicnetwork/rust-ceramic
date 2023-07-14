@@ -25,22 +25,6 @@ use crate::{
 
 type Set = BTreeSet<Bytes>;
 
-impl Key for Bytes {
-    fn min_value() -> Self {
-        Vec::new().into()
-    }
-
-    fn max_value() -> Self {
-        // We need a value that sorts greater than any other byte slice.
-        // As this is test specific code that only uses UTF-8 we can use a 0xFF byte array.
-        [0xFF; 1].as_slice().into()
-    }
-
-    fn as_bytes(&self) -> &[u8] {
-        self.as_slice()
-    }
-}
-
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct MemoryAHash {
     ahash: Sha256a,
@@ -58,15 +42,29 @@ impl std::ops::Add for MemoryAHash {
 }
 
 impl AssociativeHash for MemoryAHash {
-    fn as_bytes(&self) -> [u8; 32] {
-        self.ahash.as_bytes()
-    }
-
     fn digest<K: Key>(key: &K) -> Self {
         Self {
             ahash: Sha256a::digest(key),
             // Note we do not preserve the original key type and always use a generic Bytes key
             set: BTreeSet::from_iter([key.as_bytes().into()]),
+        }
+    }
+
+    fn as_bytes(&self) -> [u8; 32] {
+        self.ahash.as_bytes()
+    }
+
+    /// unpack the raw ints from a MemoryAHash
+    fn as_u32s(&self) -> &[u32; 8] {
+        self.ahash.as_u32s()
+    }
+}
+
+impl From<[u32; 8]> for MemoryAHash {
+    fn from(state: [u32; 8]) -> Self {
+        Self {
+            set: BTreeSet::default(),
+            ahash: Sha256a::from(state),
         }
     }
 }
@@ -162,7 +160,7 @@ where
             } else {
                 allocator.softline()
             };
-            let set: Vec<&Bytes> = recon.full_range().collect();
+            let set: Vec<Bytes> = recon.full_range().collect();
             allocator
                 .text(name)
                 .append(allocator.text(":"))
@@ -625,7 +623,7 @@ fn test_parse_recon() {
                                 "",
                             ),
                             end: Bytes(
-                                "0xFF",
+                                "0xFFFFFFFFFFFFFFFFFF",
                             ),
                         },
                     ],
@@ -709,7 +707,7 @@ fn test_parse_recon() {
                                 "",
                             ),
                             end: Bytes(
-                                "0xFF",
+                                "0xFFFFFFFFFFFFFFFFFF",
                             ),
                         },
                     ],
@@ -973,7 +971,7 @@ dog: []
                                 "",
                             ),
                             end: Bytes(
-                                "0xFF",
+                                "0xFFFFFFFFFFFFFFFFFF",
                             ),
                         },
                     ],
@@ -1013,7 +1011,7 @@ dog: []
                                 "",
                             ),
                             end: Bytes(
-                                "0xFF",
+                                "0xFFFFFFFFFFFFFFFFFF",
                             ),
                         },
                     ],
@@ -1138,7 +1136,7 @@ fn recon_do(recon: &str) -> Record {
         record.iterations.push(Iteration {
             dir,
             messages: messages.into_iter().map(MessageData::from).collect(),
-            set: set.full_range().cloned().collect(),
+            set: set.full_range().collect(),
         });
         dir = next_dir;
         messages = response.messages
