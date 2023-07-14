@@ -5,7 +5,7 @@ use std::{
 
 use crate::recon::{AssociativeHash, Key, MaybeHashedKey, Store};
 
-/// An implemetation of a Store that stores keys in an in-memory BTree
+/// An implementation of a Store that stores keys in an in-memory BTree
 #[derive(Clone, Debug)]
 pub struct BTreeStore<K, H>
 where
@@ -79,7 +79,7 @@ where
         right_fencepost: &Self::Key,
         offset: usize,
         limit: usize,
-    ) -> Box<dyn Iterator<Item = &Self::Key> + '_> {
+    ) -> Box<dyn Iterator<Item = Self::Key> + '_> {
         let range = (
             Bound::Excluded(left_fencepost),
             Bound::Excluded(right_fencepost),
@@ -89,23 +89,27 @@ where
                 .range(range)
                 .skip(offset)
                 .take(limit)
-                .map(|(key, _hash)| key),
+                .map(|(key, _hash)| key)
+                .cloned(),
         )
     }
 
-    fn last(&self, left_fencepost: &Self::Key, right_fencepost: &Self::Key) -> Option<&Self::Key> {
+    fn last(&self, left_fencepost: &Self::Key, right_fencepost: &Self::Key) -> Option<Self::Key> {
         let range = (
             Bound::Excluded(left_fencepost),
             Bound::Excluded(right_fencepost),
         );
-        self.keys.range(range).next_back().map(|(k, _)| k)
+        self.keys
+            .range(range)
+            .next_back()
+            .map(|(k, _)| k.to_owned())
     }
 
     fn first_and_last(
         &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
-    ) -> Option<(&Self::Key, &Self::Key)> {
+    ) -> Option<(Self::Key, Self::Key)> {
         let range = (
             Bound::Excluded(left_fencepost),
             Bound::Excluded(right_fencepost),
@@ -114,9 +118,9 @@ where
         let first = range.next().map(|(k, _)| k);
         if let Some(first) = first {
             if let Some(last) = range.next_back().map(|(k, _)| k) {
-                Some((first, last))
+                Some((first.to_owned(), last.to_owned()))
             } else {
-                Some((first, first))
+                Some((first.to_owned(), first.to_owned()))
             }
         } else {
             None

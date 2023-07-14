@@ -468,15 +468,18 @@ mod tests {
 
         let received_cbor = hex::encode(serde_ipld_dagcbor::ser::to_vec(&received).unwrap());
         println!("serde_json {}", serde_json::to_string(&received).unwrap()); // Message as json
-        expect![["583ece0105002a30541a6fbdca4645cc7c072ff729ea683b751718ff01711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"]].assert_eq(&received_cbor);
+        expect![[
+            "583ece0105002a30541a6fbdca4645cc7c072ff729ea683b751718ff01711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"
+        ]].assert_eq(&received_cbor);
     }
 
     #[test]
     fn test_deserialize() {
         let bytes = hex::decode("583ece0105002a30541a6fbdca4645cc7c072ff729ea683b751718ff01711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86").unwrap();
         let x = serde_ipld_dagcbor::de::from_slice(bytes.as_slice());
-        println!("{:?}", x);
         let received: EventId = x.unwrap();
+        let cid = received.cid();
+        println!("{:?}, {:?}", &received, &cid);
         expect![[r#"
         EventId(
             [
@@ -546,6 +549,9 @@ mod tests {
         )
         "#]]
         .assert_debug_eq(&received);
+
+        expect![["bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy"]] // cspell:disable-line
+            .assert_eq(cid.unwrap().to_string().as_str());
     }
     #[test]
     fn cid() {

@@ -1,6 +1,7 @@
 pub mod btree;
+pub mod durability;
 #[cfg(test)]
-mod tests;
+pub mod tests;
 
 use std::{
     fmt::Display,
@@ -74,7 +75,7 @@ where
                     _ => {
                         // -> (first h(middle) last)
                         response.keys.push(first.to_owned());
-                        response.hashes.push(self.store.hash_range(first, last));
+                        response.hashes.push(self.store.hash_range(&first, &last));
                         response.keys.push(last.to_owned());
                     }
                 }
@@ -119,36 +120,40 @@ where
             if let Some(mut left_fencepost) = self.store.first(&range.start, &range.end) {
                 let mut received_hashs = received.hashes.iter();
                 let mut received_keys = received.keys.iter();
-
-                let mut right_fencepost: &K = received_keys.next().unwrap_or_else(|| {
-                    self.store
+                let mut right_fencepost: K = match received_keys.next() {
+                    Some(k) => k.to_owned(),
+                    None => self
+                        .store
                         .last(&range.start, &range.end)
-                        .expect("should be at least one key")
-                });
+                        .expect("should be at least one key"),
+                };
 
                 let mut received_hash = &H::identity();
                 let zero = &H::identity();
 
                 response_message.keys.push(left_fencepost.clone());
-                while !received.keys.is_empty() && left_fencepost < received.keys.last().unwrap() {
+                while !received.keys.is_empty() && left_fencepost < *received.keys.last().unwrap() {
                     response.is_synchronized &= response_message.process_range(
-                        left_fencepost,
-                        right_fencepost,
+                        &left_fencepost,
+                        &right_fencepost,
                         received_hash,
                         &self.store,
                     )?;
                     left_fencepost = right_fencepost;
-                    right_fencepost = received_keys.next().unwrap_or_else(|| {
-                        self.store
+                    right_fencepost = match received_keys.next() {
+                        Some(k) => k.to_owned(),
+                        None => self
+                            .store
                             .last(&range.start, &range.end)
-                            .expect("should be at least one key")
-                    });
+                            .expect("should be at least one key"),
+                    };
                     received_hash = received_hashs.next().unwrap_or(zero);
                 }
                 if !received.keys.is_empty() {
                     response.is_synchronized &= response_message.process_range(
                         received.keys.last().unwrap(),
-                        self.store
+                        &self
+                            .store
                             .last(&range.start, &range.end)
                             .expect("should be at least one key"),
                         zero,
@@ -156,7 +161,8 @@ where
                     )?;
                 }
                 response_message.end_streak(
-                    self.store
+                    &self
+                        .store
                         .last(&range.start, &range.end)
                         .expect("should be at least one key"),
                     &self.store,
@@ -193,13 +199,13 @@ where
         right_fencepost: &K,
         offset: usize,
         limit: usize,
-    ) -> Box<dyn Iterator<Item = &K> + '_> {
+    ) -> Box<dyn Iterator<Item = K> + '_> {
         self.store
             .range(left_fencepost, right_fencepost, offset, limit)
     }
 
     /// Return all keys.
-    pub fn full_range(&self) -> Box<dyn Iterator<Item = &K> + '_> {
+    pub fn full_range(&self) -> Box<dyn Iterator<Item = K> + '_> {
         self.store.full_range()
     }
 
@@ -233,10 +239,10 @@ pub trait Store: std::fmt::Debug {
         right_fencepost: &Self::Key,
         offset: usize,
         limit: usize,
-    ) -> Box<dyn Iterator<Item = &Self::Key> + '_>;
+    ) -> Box<dyn Iterator<Item = Self::Key> + '_>;
 
     /// Return all keys.
-    fn full_range(&self) -> Box<dyn Iterator<Item = &Self::Key> + '_> {
+    fn full_range(&self) -> Box<dyn Iterator<Item = Self::Key> + '_> {
         self.range(
             &Self::Key::min_value(),
             &Self::Key::max_value(),
@@ -246,14 +252,10 @@ pub trait Store: std::fmt::Debug {
     }
 
     /// Return a key that is approximately in the middle of the range.
-    /// An exact middle is not neccessary but performance will be better with a better approximation.
+    /// An exact middle is not necessary but performance will be better with a better approximation.
     ///
     /// The default implementation will count all elements and then find the middle.
-    fn middle(
-        &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Option<&Self::Key> {
+    fn middle(&self, left_fencepost: &Self::Key, right_fencepost: &Self::Key) -> Option<Self::Key> {
         let count = self.count(left_fencepost, right_fencepost);
         self.range(left_fencepost, right_fencepost, (count - 1) / 2, usize::MAX)
             .next()
@@ -264,12 +266,12 @@ pub trait Store: std::fmt::Debug {
             .count()
     }
     /// Return the first key within the range.
-    fn first(&self, left_fencepost: &Self::Key, right_fencepost: &Self::Key) -> Option<&Self::Key> {
+    fn first(&self, left_fencepost: &Self::Key, right_fencepost: &Self::Key) -> Option<Self::Key> {
         self.range(left_fencepost, right_fencepost, 0, usize::MAX)
             .next()
     }
     /// Return the last key within the range.
-    fn last(&self, left_fencepost: &Self::Key, right_fencepost: &Self::Key) -> Option<&Self::Key> {
+    fn last(&self, left_fencepost: &Self::Key, right_fencepost: &Self::Key) -> Option<Self::Key> {
         self.range(left_fencepost, right_fencepost, 0, usize::MAX)
             .last()
     }
@@ -280,14 +282,14 @@ pub trait Store: std::fmt::Debug {
         &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
-    ) -> Option<(&Self::Key, &Self::Key)> {
+    ) -> Option<(Self::Key, Self::Key)> {
         let mut range = self.range(left_fencepost, right_fencepost, 0, usize::MAX);
         let first = range.next();
         if let Some(first) = first {
             if let Some(last) = range.last() {
                 Some((first, last))
             } else {
-                Some((first, first))
+                Some((first.clone(), first))
             }
         } else {
             None
@@ -321,7 +323,7 @@ pub trait Key: From<Vec<u8>> + Ord + Clone + Display + std::fmt::Debug {
 /// Associativity means the order in which items are hashed is unimportant and that hashes can be
 /// accumulated by summing.
 pub trait AssociativeHash:
-    std::ops::Add<Output = Self> + Clone + Default + PartialEq + std::fmt::Debug
+    std::ops::Add<Output = Self> + Clone + Default + PartialEq + std::fmt::Debug + From<[u32; 8]>
 {
     /// The value that when added to the Hash it does not change
     fn identity() -> Self {
@@ -348,6 +350,9 @@ pub trait AssociativeHash:
 
     /// Return the current bytes of the hash
     fn as_bytes(&self) -> [u8; 32];
+
+    /// Return the current ints of the hash
+    fn as_u32s(&self) -> &[u32; 8];
 
     /// Return the bytes of the hash as a hex encoded string
     fn to_hex(&self) -> String {
@@ -383,7 +388,7 @@ where
 
 /// InterestProvider describes a set of interests
 pub trait InterestProvider {
-    /// The type of Key overwhich we are interested.
+    /// The type of Key over which we are interested.
     type Key: Key;
     /// Report a set of interests.
     fn interests(&self) -> Result<Vec<RangeOpen<Self::Key>>>;
@@ -458,7 +463,7 @@ pub struct Message<K, H> {
     hashes: Vec<H>,
 }
 
-// Explicitly implement default so that K and H do not have an uneccessary Default constraint.
+// Explicitly implement default so that K and H do not have an unnecessary Default constraint.
 impl<K: Key, H> Default for Message<K, H> {
     fn default() -> Self {
         Self {
@@ -603,7 +608,7 @@ where
         // If less than SPLIT_THRESHOLD exist just send them, do not split.
         const SPLIT_THRESHOLD: usize = 4;
         let mut range = local_store.range(left_fencepost, right_fencepost, 0, usize::MAX);
-        let head: Vec<&K> = range.by_ref().take(SPLIT_THRESHOLD).collect();
+        let head: Vec<K> = range.by_ref().take(SPLIT_THRESHOLD).collect();
 
         if head.len() < SPLIT_THRESHOLD {
             trace!("sending all keys");
@@ -617,11 +622,11 @@ where
             if let Some(mid_key) = mid_key {
                 self.keys.push(mid_key.to_owned());
                 self.hashes
-                    .push(local_store.hash_range(left_fencepost, mid_key));
+                    .push(local_store.hash_range(left_fencepost, &mid_key));
 
                 self.keys.push(right_fencepost.to_owned());
                 self.hashes
-                    .push(local_store.hash_range(mid_key, right_fencepost));
+                    .push(local_store.hash_range(&mid_key, right_fencepost));
             } else {
                 bail!("unable to find a split key")
             };
@@ -651,7 +656,7 @@ where
             })
             .take_while(|key| *key < &range.end)
             .cloned()
-            // Collect the keys to ensure side effects of iteratation have been applied.
+            // Collect the keys to ensure side effects of iteration have been applied.
             .collect();
 
         // Collect the hashes up to the last key.
@@ -672,7 +677,7 @@ where
     }
 }
 
-// A derivative message that has had its keys and hashes bouned to a specific start and end range.
+// A derivative message that has had its keys and hashes bounded to a specific start and end range.
 #[derive(Debug)]
 struct BoundedMessage<K, H> {
     keys: Vec<K>,
