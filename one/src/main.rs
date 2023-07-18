@@ -223,7 +223,7 @@ impl Daemon {
         debug!(?p2p_config, "using p2p config");
 
         // Construct a recon implementation.
-        let recon = Arc::new(Mutex::new(Recon::from_set([].into())));
+        let recon = Arc::new(Mutex::new(Recon::default()));
 
         let ipfs = Ipfs::builder()
             .with_store(dir.join("store"))
