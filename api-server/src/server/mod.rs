@@ -293,12 +293,50 @@ where
                         }
                         None => None,
                     };
+                    let param_offset = query_params
+                        .iter()
+                        .filter(|e| e.0 == "offset")
+                        .map(|e| e.1.clone())
+                        .next();
+                    let param_offset = match param_offset {
+                        Some(param_offset) => {
+                            let param_offset = <f64 as std::str::FromStr>::from_str(&param_offset);
+                            match param_offset {
+                            Ok(param_offset) => Some(param_offset),
+                            Err(e) => return Ok(Response::builder()
+                                .status(StatusCode::BAD_REQUEST)
+                                .body(Body::from(format!("Couldn't parse query parameter offset - doesn't match schema: {}", e)))
+                                .expect("Unable to create Bad Request response for invalid query parameter offset")),
+                        }
+                        }
+                        None => None,
+                    };
+                    let param_limit = query_params
+                        .iter()
+                        .filter(|e| e.0 == "limit")
+                        .map(|e| e.1.clone())
+                        .next();
+                    let param_limit = match param_limit {
+                        Some(param_limit) => {
+                            let param_limit = <f64 as std::str::FromStr>::from_str(&param_limit);
+                            match param_limit {
+                            Ok(param_limit) => Some(param_limit),
+                            Err(e) => return Ok(Response::builder()
+                                .status(StatusCode::BAD_REQUEST)
+                                .body(Body::from(format!("Couldn't parse query parameter limit - doesn't match schema: {}", e)))
+                                .expect("Unable to create Bad Request response for invalid query parameter limit")),
+                        }
+                        }
+                        None => None,
+                    };
 
                     let result = api_impl
                         .ceramic_subscribe_sort_value_get(
                             param_sort_value,
                             param_controller,
                             param_stream_id,
+                            param_offset,
+                            param_limit,
                             &context,
                         )
                         .await;

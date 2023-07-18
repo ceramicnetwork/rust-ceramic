@@ -58,6 +58,8 @@ pub trait Api<C: Send + Sync> {
         sort_value: String,
         controller: Option<String>,
         stream_id: Option<String>,
+        offset: Option<f64>,
+        limit: Option<f64>,
         context: &C,
     ) -> Result<CeramicSubscribeSortValueGetResponse, ApiError>;
 }
@@ -85,6 +87,8 @@ pub trait ApiNoContext<C: Send + Sync> {
         sort_value: String,
         controller: Option<String>,
         stream_id: Option<String>,
+        offset: Option<f64>,
+        limit: Option<f64>,
     ) -> Result<CeramicSubscribeSortValueGetResponse, ApiError>;
 }
 
@@ -128,10 +132,14 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
         sort_value: String,
         controller: Option<String>,
         stream_id: Option<String>,
+        offset: Option<f64>,
+        limit: Option<f64>,
     ) -> Result<CeramicSubscribeSortValueGetResponse, ApiError> {
         let context = self.context().clone();
         self.api()
-            .ceramic_subscribe_sort_value_get(sort_value, controller, stream_id, &context)
+            .ceramic_subscribe_sort_value_get(
+                sort_value, controller, stream_id, offset, limit, &context,
+            )
             .await
     }
 }

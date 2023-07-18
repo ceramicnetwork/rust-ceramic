@@ -37,6 +37,23 @@ paths:
         schema:
           type: string
         style: form
+      - description: "the number of events to skip in the given range, default is\
+          \ 0."
+        explode: true
+        in: query
+        name: offset
+        required: false
+        schema:
+          type: number
+        style: form
+      - description: "the maximum number of events to return, default is no limit."
+        explode: true
+        in: query
+        name: limit
+        required: false
+        schema:
+          type: number
+        style: form
       responses:
         "200":
           content:

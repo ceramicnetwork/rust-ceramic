@@ -53,7 +53,7 @@ pub async fn create(network: Network, addr: &str, recon: impl Recon) {
 
 pub trait Recon: Clone + Send + Sync {
     fn insert_key(&self, key: &EventId);
-    fn range<R>(&self, range: R) -> Vec<EventId>
+    fn range<R>(&self, range: R, offset: usize, limit: usize) -> Vec<EventId>
     where
         R: RangeBounds<EventId> + 'static;
 }
@@ -65,13 +65,13 @@ impl Recon for Arc<Mutex<recon::Recon>> {
             .insert(key)
     }
 
-    fn range<R>(&self, range: R) -> Vec<EventId>
+    fn range<R>(&self, range: R, offset: usize, limit: usize) -> Vec<EventId>
     where
         R: RangeBounds<EventId> + 'static,
     {
         self.lock()
             .expect("should be able to acquire lock")
-            .range(range)
+            .range(range, offset, limit)
             .map(|event| event.to_owned())
             .collect()
     }
@@ -121,8 +121,32 @@ where
         sort_value: String,
         controller: Option<String>,
         stream_id: Option<String>,
+        offset: Option<f64>,
+        limit: Option<f64>,
         _context: &C,
     ) -> Result<CeramicSubscribeSortValueGetResponse, ApiError> {
+        let offset = offset
+            .map(|float| {
+                let int = float as usize;
+                if int as f64 == float {
+                    Ok(int)
+                } else {
+                    Err(ApiError("offset must be an integer".to_owned()))
+                }
+            })
+            .transpose()?
+            .unwrap_or(0usize);
+        let limit = limit
+            .map(|float| {
+                let int = float as usize;
+                if int as f64 == float {
+                    Ok(int)
+                } else {
+                    Err(ApiError("limit must be an integer".to_owned()))
+                }
+            })
+            .transpose()?
+            .unwrap_or(usize::MAX);
         // Construct start and stop event id based on provided data.
         let start_builder = EventId::builder()
             .with_network(&self.network)
@@ -168,7 +192,11 @@ where
         debug!(%start, %stop, "subscribe");
         Ok(CeramicSubscribeSortValueGetResponse::Success(
             self.recon
-                .range((Bound::Included(start), Bound::Excluded(stop)))
+                .range(
+                    (Bound::Included(start), Bound::Excluded(stop)),
+                    offset,
+                    limit,
+                )
                 .into_iter()
                 .map(|id| Event {
                     event_id: multibase::encode(multibase::Base::Base16Lower, id.as_slice()),
@@ -202,7 +230,7 @@ mod tests {
         impl Recon for ReconTest {
             fn insert_key(&self, key: &EventId);
 
-            fn range<R>(&self, range: R) -> Vec<EventId>
+            fn range<R>(&self, range: R, offset: usize, limit: usize) -> Vec<EventId>
             where
                 R: RangeBounds<EventId> + 'static;
         }
@@ -286,15 +314,16 @@ mod tests {
         // Setup mock expectations
         let mut mock = MockReconTest::new();
         mock.expect_range()
-            .with(predicate::eq((
-                Bound::Included(start),
-                Bound::Excluded(end),
-            )))
+            .with(
+                predicate::eq((Bound::Included(start), Bound::Excluded(end))),
+                predicate::eq(0),
+                predicate::eq(usize::MAX),
+            )
             .times(1)
-            .returning(move |_| vec![event_id.clone()]);
+            .returning(move |_, _, _| vec![event_id.clone()]);
         let server = Server::new(network, mock);
         let resp = server
-            .ceramic_subscribe_sort_value_get(model.to_owned(), None, None, &Context)
+            .ceramic_subscribe_sort_value_get(model.to_owned(), None, None, None, None, &Context)
             .await
             .unwrap();
         assert_eq!(
@@ -324,17 +353,20 @@ mod tests {
             .build_fencepost();
         let mut mock = MockReconTest::new();
         mock.expect_range()
-            .with(predicate::eq((
-                Bound::Included(start),
-                Bound::Excluded(end),
-            )))
+            .with(
+                predicate::eq((Bound::Included(start), Bound::Excluded(end))),
+                predicate::eq(0),
+                predicate::eq(usize::MAX),
+            )
             .times(1)
-            .returning(|_| vec![]);
+            .returning(|_, _, _| vec![]);
         let server = Server::new(network, mock);
         let resp = server
             .ceramic_subscribe_sort_value_get(
                 model.to_owned(),
                 Some(controller.to_owned()),
+                None,
+                None,
                 None,
                 &Context,
             )
@@ -367,18 +399,67 @@ mod tests {
             .build_fencepost();
         let mut mock = MockReconTest::new();
         mock.expect_range()
-            .with(predicate::eq((
-                Bound::Included(start),
-                Bound::Excluded(end),
-            )))
+            .with(
+                predicate::eq((Bound::Included(start), Bound::Excluded(end))),
+                predicate::eq(0),
+                predicate::eq(usize::MAX),
+            )
             .times(1)
-            .returning(|_| vec![]);
+            .returning(|_, _, _| vec![]);
         let server = Server::new(network, mock);
         let resp = server
             .ceramic_subscribe_sort_value_get(
                 model.to_owned(),
                 Some(controller.to_owned()),
                 Some(stream.to_string()),
+                None,
+                None,
+                &Context,
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp, CeramicSubscribeSortValueGetResponse::Success(vec![]));
+    }
+    #[tokio::test]
+    #[traced_test]
+    async fn subscribe_sort_value_controller_stream_offset_limit() {
+        let network = Network::InMemory;
+        let model = "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9";
+        let controller = "did:key:zGs1Det7LHNeu7DXT4nvoYrPfj3n6g7d6bj2K4AMXEvg1";
+        let stream =
+            StreamId::from_str("k2t6wz4ylx0qs435j9oi1s6469uekyk6qkxfcb21ikm5ag2g1cook14ole90aw")
+                .unwrap();
+        let start = EventId::builder()
+            .with_network(&network)
+            .with_sort_value(model)
+            .with_controller(controller)
+            .with_init(&stream.cid)
+            .with_min_event_height()
+            .build_fencepost();
+        let end = EventId::builder()
+            .with_network(&network)
+            .with_sort_value(model)
+            .with_controller(controller)
+            .with_init(&stream.cid)
+            .with_max_event_height()
+            .build_fencepost();
+        let mut mock = MockReconTest::new();
+        mock.expect_range()
+            .with(
+                predicate::eq((Bound::Included(start), Bound::Excluded(end))),
+                predicate::eq(100),
+                predicate::eq(200),
+            )
+            .times(1)
+            .returning(|_, _, _| vec![]);
+        let server = Server::new(network, mock);
+        let resp = server
+            .ceramic_subscribe_sort_value_get(
+                model.to_owned(),
+                Some(controller.to_owned()),
+                Some(stream.to_string()),
+                Some(100f64),
+                Some(200f64),
                 &Context,
             )
             .await

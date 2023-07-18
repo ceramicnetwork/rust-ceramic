@@ -154,8 +154,17 @@ impl Recon {
         response
     }
     /// Construct an iterator over a range of keys.
-    pub fn range(&self, range: impl RangeBounds<EventId>) -> impl Iterator<Item = &EventId> {
-        self.keys.range(range).map(|(k, _)| k)
+    pub fn range(
+        &self,
+        range: impl RangeBounds<EventId>,
+        offset: usize,
+        limit: usize,
+    ) -> impl Iterator<Item = &EventId> {
+        self.keys
+            .range(range)
+            .map(|(k, _)| k)
+            .skip(offset)
+            .take(limit)
     }
 }
 
