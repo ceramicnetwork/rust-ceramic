@@ -5,7 +5,7 @@ mod tests;
 use std::fmt::Display;
 
 use anyhow::{bail, Result};
-use ceramic_core::EventId;
+use ceramic_core::{EventId, Interest};
 use serde::{Deserialize, Serialize};
 use tracing::{instrument, trace};
 
@@ -556,6 +556,21 @@ impl Key for EventId {
 
     fn max_value() -> Self {
         // No EventId starts with an 0xFF byte
+        vec![0xFF].into()
+    }
+
+    fn as_bytes(&self) -> &[u8] {
+        self.as_slice()
+    }
+}
+
+impl Key for Interest {
+    fn min_value() -> Self {
+        Vec::new().into()
+    }
+
+    fn max_value() -> Self {
+        // No Interest starts with an 0xFF byte
         vec![0xFF].into()
     }
 

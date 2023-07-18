@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use anyhow::Result;
+use ceramic_core::{EventId, Interest};
 use futures::future::Either;
 use iroh_rpc_client::Client;
 use libp2p::{
@@ -17,7 +18,7 @@ use libp2p::{
     yamux::{self, WindowUpdateMode},
     PeerId, Swarm, Transport,
 };
-use recon::libp2p::Recon;
+use recon::{libp2p::Recon, Sha256a};
 
 use crate::{behaviour::NodeBehaviour, Libp2pConfig};
 
@@ -105,16 +106,20 @@ async fn build_transport(
     (transport, relay_client)
 }
 
-pub(crate) async fn build_swarm<R: Recon>(
+pub(crate) async fn build_swarm<IR, MR>(
     config: &Libp2pConfig,
     keypair: &Keypair,
     rpc_client: Client,
-    recon: Option<R>,
-) -> Result<Swarm<NodeBehaviour<R>>> {
+    recons: Option<(IR, MR)>,
+) -> Result<Swarm<NodeBehaviour<IR, MR>>>
+where
+    IR: Recon<Key = Interest, Hash = Sha256a>,
+    MR: Recon<Key = EventId, Hash = Sha256a>,
+{
     let peer_id = keypair.public().to_peer_id();
 
     let (transport, relay_client) = build_transport(keypair, config).await;
-    let behaviour = NodeBehaviour::new(keypair, config, relay_client, rpc_client, recon).await?;
+    let behaviour = NodeBehaviour::new(keypair, config, relay_client, rpc_client, recons).await?;
 
     let swarm = SwarmBuilder::with_executor(transport, behaviour, peer_id, Tokio)
         .notify_handler_buffer_size(config.notify_handler_buffer_size.try_into()?)

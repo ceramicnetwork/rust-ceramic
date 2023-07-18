@@ -7,6 +7,7 @@ use std::{sync::atomic::Ordering, time::Duration};
 
 use ahash::AHashMap;
 use anyhow::{anyhow, bail, Context, Result};
+use ceramic_core::{EventId, Interest};
 use cid::Cid;
 use futures_util::stream::StreamExt;
 use iroh_metrics::{core::MRecorder, inc, libp2p_metrics, p2p::P2PMetrics};
@@ -41,7 +42,7 @@ use tracing::{debug, error, info, trace, warn};
 use iroh_bitswap::{BitswapEvent, Block};
 use iroh_rpc_client::Lookup;
 
-use recon::libp2p::Recon;
+use recon::{libp2p::Recon, Sha256a};
 
 use crate::keys::{Keychain, Storage};
 use crate::providers::Providers;
@@ -66,8 +67,13 @@ pub enum NetworkEvent {
 /// Node implements a peer to peer node that participates on the Ceramic network.
 ///
 /// Node provides an external API via RpcMessages.
-pub struct Node<KeyStorage: Storage, R: Recon> {
-    swarm: Swarm<NodeBehaviour<R>>,
+pub struct Node<KeyStorage, IR, MR>
+where
+    KeyStorage: Storage,
+    IR: Recon<Key = Interest, Hash = Sha256a>,
+    MR: Recon<Key = EventId, Hash = Sha256a>,
+{
+    swarm: Swarm<NodeBehaviour<IR, MR>>,
     net_receiver_in: Receiver<RpcMessage>,
     dial_queries: AHashMap<PeerId, Vec<OneShotSender<Result<()>>>>,
     lookup_queries: AHashMap<PeerId, Vec<oneshot::Sender<Result<IdentifyInfo>>>>,
@@ -89,7 +95,12 @@ pub struct Node<KeyStorage: Storage, R: Recon> {
     ceramic_peers_query_id: Option<QueryId>,
 }
 
-impl<S: Storage, R: Recon> fmt::Debug for Node<S, R> {
+impl<S, IR, MR> fmt::Debug for Node<S, IR, MR>
+where
+    S: Storage,
+    IR: Recon<Key = Interest, Hash = Sha256a>,
+    MR: Recon<Key = EventId, Hash = Sha256a>,
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Node")
             .field("swarm", &"Swarm<NodeBehaviour>")
@@ -120,7 +131,12 @@ const BOOTSTRAP_INTERVAL: Duration = Duration::from_secs(5 * 60);
 const EXPIRY_INTERVAL: Duration = Duration::from_secs(1);
 const DISCOVER_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
-impl<S: Storage, R: Recon> Drop for Node<S, R> {
+impl<S, IR, MR> Drop for Node<S, IR, MR>
+where
+    S: Storage,
+    IR: Recon<Key = Interest, Hash = Sha256a>,
+    MR: Recon<Key = EventId, Hash = Sha256a>,
+{
     fn drop(&mut self) {
         self.rpc_task.abort();
     }
@@ -129,15 +145,20 @@ impl<S: Storage, R: Recon> Drop for Node<S, R> {
 // Allow IntoConnectionHandler deprecated associated type.
 // We are not using IntoConnectionHandler directly only referencing the type as part of this event signature.
 #[allow(deprecated)]
-type NodeSwarmEvent<R> = SwarmEvent<
-            <NodeBehaviour<R> as NetworkBehaviour>::OutEvent,
-            <<<NodeBehaviour<R> as NetworkBehaviour>::ConnectionHandler as IntoConnectionHandler>::Handler as ConnectionHandler>::Error>;
-impl<S: Storage, R: Recon> Node<S, R> {
+type NodeSwarmEvent<IR,MR> = SwarmEvent<
+            <NodeBehaviour<IR,MR> as NetworkBehaviour>::OutEvent,
+            <<<NodeBehaviour<IR,MR> as NetworkBehaviour>::ConnectionHandler as IntoConnectionHandler>::Handler as ConnectionHandler>::Error>;
+impl<S, IR, MR> Node<S, IR, MR>
+where
+    S: Storage,
+    IR: Recon<Key = Interest, Hash = Sha256a>,
+    MR: Recon<Key = EventId, Hash = Sha256a>,
+{
     pub async fn new(
         config: Config,
         rpc_addr: P2pAddr,
         mut keychain: Keychain<S>,
-        recon: Option<R>,
+        recons: Option<(IR, MR)>,
         ceramic_peers_key: impl AsRef<[u8]>,
     ) -> Result<Self> {
         let (network_sender_in, network_receiver_in) = channel(1024); // TODO: configurable
@@ -160,7 +181,7 @@ impl<S: Storage, R: Recon> Node<S, R> {
             .context("failed to create rpc client")?;
 
         let keypair = load_identity(&mut keychain).await?;
-        let mut swarm = build_swarm(&libp2p_config, &keypair, rpc_client.clone(), recon).await?;
+        let mut swarm = build_swarm(&libp2p_config, &keypair, rpc_client.clone(), recons).await?;
         info!("iroh-p2p peerid: {}", swarm.local_peer_id());
 
         for addr in &libp2p_config.external_multiaddrs {
@@ -429,10 +450,7 @@ impl<S: Storage, R: Recon> Node<S, R> {
 
     // TODO fix skip_all
     #[tracing::instrument(skip_all)]
-    fn handle_swarm_event(&mut self, event: NodeSwarmEvent<R>) -> Result<()>
-    where
-        R: Recon,
-    {
+    fn handle_swarm_event(&mut self, event: NodeSwarmEvent<IR, MR>) -> Result<()> {
         libp2p_metrics().record(&event);
         match event {
             // outbound events
@@ -1163,6 +1181,8 @@ async fn load_identity<S: Storage>(kc: &mut Keychain<S>) -> Result<Keypair> {
 
 #[cfg(test)]
 mod tests {
+    use std::marker::PhantomData;
+
     use crate::keys::{Keypair, MemoryStorage};
 
     use bytes::Bytes;
@@ -1233,10 +1253,18 @@ mod tests {
     }
 
     #[derive(Clone)]
-    struct DummyRecon;
+    struct DummyRecon<K>(PhantomData<K>);
 
-    impl Recon for DummyRecon {
-        type Key = ceramic_core::EventId;
+    impl<K> Recon for DummyRecon<K>
+    where
+        K: recon::Key
+            + std::fmt::Debug
+            + serde::Serialize
+            + for<'de> serde::Deserialize<'de>
+            + Send
+            + 'static,
+    {
+        type Key = K;
         type Hash = Sha256a;
 
         fn initial_message(&self) -> recon::Message<Self::Key, Self::Hash> {
@@ -1333,7 +1361,7 @@ mod tests {
                 network_config,
                 rpc_server_addr,
                 kc,
-                None::<DummyRecon>,
+                None::<(DummyRecon<Interest>, DummyRecon<EventId>)>,
                 "/ceramic-test",
             )
             .await?;

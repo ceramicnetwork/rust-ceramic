@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use anyhow::Result;
 use asynchronous_codec::{CborCodec, Framed};
 use libp2p::{
@@ -5,45 +7,104 @@ use libp2p::{
     swarm::ConnectionId,
 };
 use libp2p_identity::PeerId;
+use serde::{Deserialize, Serialize};
 use tracing::{debug, trace};
 
-use crate::{libp2p::Recon, Message};
+use crate::{
+    libp2p::{stream_set::StreamSet, Recon},
+    AssociativeHash, Key, Message, Store,
+};
 
-// Perform Recon synchronization with a peer over a stream.
-//
-// When initiate is true, send the initial message instead of waiting for one.
+#[derive(Serialize, Deserialize)]
+struct Envelope<K: Key, H: AssociativeHash> {
+    message: Message<K, H>,
+    sort_key: String,
+}
+
+impl<K: Key, H: AssociativeHash> Display for Envelope<K, H> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{{{}: {}}}", self.sort_key, self.message)
+    }
+}
+
+// Intiate Recon synchronization with a peer over a stream.
 #[tracing::instrument(skip(recon, stream))]
-pub async fn synchronize<S: AsyncRead + AsyncWrite + Unpin, R: Recon>(
+pub async fn initiate_synchronize<S: AsyncRead + AsyncWrite + Unpin, R: Recon>(
     remote_peer_id: PeerId,
     connection_id: ConnectionId,
+    stream_set: StreamSet,
     mut recon: R,
     stream: S,
-    initiate: bool,
-) -> Result<()> {
+) -> Result<StreamSet> {
     debug!("start synchronize");
-    let codec = CborCodec::<Message<R::Key, R::Hash>, Message<R::Key, R::Hash>>::new();
+    let codec = CborCodec::<Envelope<R::Key, R::Hash>, Envelope<R::Key, R::Hash>>::new();
     let mut framed = Framed::new(stream, codec);
 
-    if initiate {
-        let msg = recon.initial_message();
-        framed.send(msg).await?;
-    }
+    let message = recon.initial_message();
+    framed
+        .send(Envelope {
+            message,
+            sort_key: stream_set.sort_key().to_owned(),
+        })
+        .await?;
 
     while let Some(request) = libp2p::futures::TryStreamExt::try_next(&mut framed).await? {
-        let response = recon.process_message(&request)?;
+        debug_assert_eq!(stream_set.sort_key(), request.sort_key.as_str());
+        let response = recon.process_message(&request.message)?;
         trace!(%request, %response, "recon exchange");
 
         let is_synchronized = response.is_synchronized();
-        if is_synchronized && initiate {
-            // Do not send the last message if we initiated
+        if is_synchronized {
+            // Do not send the last message since we initiated
             break;
         }
-        framed.send(response.into_message()).await?;
+        framed
+            .send(Envelope {
+                sort_key: stream_set.sort_key().to_owned(),
+                message: response.into_message(),
+            })
+            .await?;
         if is_synchronized {
             break;
         }
     }
     framed.close().await?;
     debug!("finished synchronize, number of keys {}", recon.len());
-    Ok(())
+    Ok(stream_set)
+}
+
+// Perform Recon synchronization with a peer over a stream.
+// Expect the remote peer to initiate the communication.
+#[tracing::instrument(skip(stream, recon))]
+pub async fn accept_synchronize<S: AsyncRead + AsyncWrite + Unpin, R: Recon>(
+    remote_peer_id: PeerId,
+    connection_id: ConnectionId,
+    stream_set: StreamSet,
+    mut recon: R,
+    stream: S,
+) -> Result<StreamSet> {
+    debug!("accept_synchronize_interests");
+    let codec = CborCodec::<Envelope<R::Key, R::Hash>, Envelope<R::Key, R::Hash>>::new();
+    let mut framed = Framed::new(stream, codec);
+
+    while let Some(request) = libp2p::futures::TryStreamExt::try_next(&mut framed).await? {
+        debug_assert_eq!(stream_set.sort_key(), request.sort_key.as_str());
+        let response = recon.process_message(&request.message)?;
+        trace!(%request, %response, "recon exchange");
+
+        let is_synchronized = response.is_synchronized();
+        framed
+            .send(Envelope {
+                sort_key: request.sort_key,
+                message: response.into_message(),
+            })
+            .await?;
+        if is_synchronized {
+            debug!("finished synchronize, number of keys {}", recon.len());
+            break;
+        }
+    }
+    framed.close().await?;
+
+    Ok(stream_set)
 }

@@ -1406,6 +1406,7 @@ dependencies = [
  "expect-test",
  "hex",
  "int-enum",
+ "libp2p-identity",
  "minicbor",
  "multibase 0.9.1",
  "once_cell",
@@ -7029,6 +7030,7 @@ dependencies = [
  "tracing",
  "tracing-test",
  "unsigned-varint",
+ "void",
 ]
 
 [[package]]

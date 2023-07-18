@@ -20,10 +20,12 @@
 
 //! Integration tests for the `Ping` network behaviour.
 
-use ceramic_core::Bytes;
+use ceramic_core::{Cid, EventId, Interest, Network, PeerId};
+use cid::multihash::{Code, MultihashDigest};
 use libp2p::swarm::{keep_alive, Swarm, SwarmEvent};
 use libp2p_swarm_test::SwarmExt;
 use quickcheck::QuickCheck;
+use rand::{thread_rng, Rng};
 use std::{
     num::NonZeroU8,
     sync::{Arc, Mutex},
@@ -33,11 +35,70 @@ use tracing::debug;
 use tracing_test::traced_test;
 
 use crate::{
-    libp2p::{Behaviour, Config, Event, PeerStatus},
+    libp2p::{stream_set::StreamSet, Behaviour, Config, Event, PeerEvent, PeerStatus},
     BTreeStore, Recon, Sha256a,
 };
 
-type ReconTest = Recon<Bytes, Sha256a, BTreeStore<Bytes, Sha256a>>;
+type ReconInterest = Recon<Interest, Sha256a, BTreeStore<Interest, Sha256a>>;
+type ReconModel = Recon<EventId, Sha256a, BTreeStore<EventId, Sha256a>>;
+
+fn random_cid() -> Cid {
+    let mut data = [0u8; 64];
+    thread_rng().fill(&mut data);
+    let hash = Code::Sha2_256.digest(&data);
+    Cid::new_v1(0x12, hash)
+}
+
+fn build_swarm(
+    name: &str,
+    config: Config,
+) -> Swarm<Behaviour<Arc<Mutex<ReconInterest>>, Arc<Mutex<ReconModel>>>> {
+    Swarm::new_ephemeral(|identity| {
+        let peer_id = PeerId::from(identity.public());
+        Behaviour::new(
+            Arc::new(Mutex::new(ReconInterest::new(BTreeStore::from_set(
+                [Interest::builder()
+                    .with_sort_key("model")
+                    .with_peer_id(peer_id)
+                    .with_range(&[]..&[0xFF])
+                    .with_not_after(100)
+                    .build()]
+                .into(),
+            )))),
+            Arc::new(Mutex::new(ReconModel::new(BTreeStore::from_set(
+                [
+                    // Initialize with three events
+                    EventId::new(
+                        &Network::Mainnet,
+                        &format!("{}_model", name),
+                        &format!("{}_controller", name),
+                        &random_cid(),
+                        10,
+                        &random_cid(),
+                    ),
+                    EventId::new(
+                        &Network::Mainnet,
+                        &format!("{}_model", name),
+                        &format!("{}_controller", name),
+                        &random_cid(),
+                        10,
+                        &random_cid(),
+                    ),
+                    EventId::new(
+                        &Network::Mainnet,
+                        &format!("{}_model", name),
+                        &format!("{}_controller", name),
+                        &random_cid(),
+                        10,
+                        &random_cid(),
+                    ),
+                ]
+                .into(),
+            )))),
+            config.clone(),
+        )
+    })
+}
 
 #[test]
 #[traced_test]
@@ -51,22 +112,8 @@ fn recon_sync() {
             per_peer_sync_timeout: Duration::from_millis(0),
             ..Default::default()
         };
-        let mut swarm1 = Swarm::new_ephemeral(|_| {
-            Behaviour::new(
-                Arc::new(Mutex::new(ReconTest::new(BTreeStore::from_set(
-                    [Bytes::from("swarm1")].into(),
-                )))),
-                config.clone(),
-            )
-        });
-        let mut swarm2 = Swarm::new_ephemeral(|_| {
-            Behaviour::new(
-                Arc::new(Mutex::new(ReconTest::new(BTreeStore::from_set(
-                    [Bytes::from("swarm2")].into(),
-                )))),
-                config,
-            )
-        });
+        let mut swarm1 = build_swarm("swarm1", config.clone());
+        let mut swarm2 = build_swarm("swarm2", config);
 
         async_std::task::block_on(async {
             swarm1.listen().await;
@@ -74,38 +121,111 @@ fn recon_sync() {
 
             for _ in 0..drive_count.get() {
                 debug!("start drive");
-                let (swarm1_events, swarm2_events) =
-                    match libp2p_swarm_test::drive(&mut swarm1, &mut swarm2).await {
-                        (
-                            [Event::PeerEvent {
-                                remote_peer_id: p1_started,
-                                status: PeerStatus::Started,
-                                ..
-                            }, Event::PeerEvent {
-                                remote_peer_id: p1_synced,
-                                status: PeerStatus::Synchronized,
-                            }],
-                            [Event::PeerEvent {
-                                remote_peer_id: p2_started,
-                                status: PeerStatus::Started,
-                                ..
-                            }, Event::PeerEvent {
-                                remote_peer_id: p2_synced,
-                                status: PeerStatus::Synchronized,
-                            }],
-                        ) => ((p1_started, p1_synced), (p2_started, p2_synced)),
-                        events => panic!("unexpected swarm events {events:?}"),
-                    };
+                let (swarm1_events, swarm2_events) = match libp2p_swarm_test::drive(
+                    &mut swarm1,
+                    &mut swarm2,
+                )
+                .await
+                {
+                    (
+                        // Sequence of events from swarm1
+                        [Event::PeerEvent(swarm1_event0), Event::PeerEvent(swarm1_event1), Event::PeerEvent(swarm1_event2), Event::PeerEvent(swarm1_event3)],
+                        // Sequence of events from swarm2
+                        [Event::PeerEvent(swarm2_event0), Event::PeerEvent(swarm2_event1), Event::PeerEvent(swarm2_event2), Event::PeerEvent(swarm2_event3)],
+                    ) => (
+                        (swarm1_event0, swarm1_event1, swarm1_event2, swarm1_event3),
+                        (swarm2_event0, swarm2_event1, swarm2_event2, swarm2_event3),
+                    ),
+                };
 
                 debug!("drive finished");
 
-                // Assert both events are about the same peer id, per swarm
-                assert_eq!(swarm1_events.0, swarm1_events.1);
-                assert_eq!(swarm2_events.0, swarm2_events.1);
+                // Assert all events are about the same peer id, per swarm
+                assert_eq!(
+                    swarm1_events.0.remote_peer_id,
+                    swarm1_events.1.remote_peer_id
+                );
+                assert_eq!(
+                    swarm1_events.0.remote_peer_id,
+                    swarm1_events.2.remote_peer_id
+                );
+                assert_eq!(
+                    swarm1_events.0.remote_peer_id,
+                    swarm1_events.3.remote_peer_id
+                );
+
+                assert_eq!(
+                    swarm2_events.0.remote_peer_id,
+                    swarm2_events.1.remote_peer_id
+                );
+                assert_eq!(
+                    swarm2_events.0.remote_peer_id,
+                    swarm2_events.2.remote_peer_id
+                );
+                assert_eq!(
+                    swarm2_events.0.remote_peer_id,
+                    swarm2_events.3.remote_peer_id
+                );
 
                 // Assert that swarms have synchronized with the opposite peers
-                assert_eq!(&swarm1_events.0, swarm2.local_peer_id());
-                assert_eq!(&swarm2_events.0, swarm1.local_peer_id());
+                assert_eq!(&swarm1_events.0.remote_peer_id, swarm2.local_peer_id());
+                assert_eq!(&swarm2_events.0.remote_peer_id, swarm1.local_peer_id());
+
+                // Assert event0 status
+                assert_eq!(
+                    PeerStatus::Started {
+                        stream_set: StreamSet::Interest
+                    },
+                    swarm1_events.0.status
+                );
+                assert_eq!(
+                    PeerStatus::Started {
+                        stream_set: StreamSet::Interest
+                    },
+                    swarm2_events.0.status
+                );
+
+                // Assert event1 status
+                assert_eq!(
+                    PeerStatus::Synchronized {
+                        stream_set: StreamSet::Interest
+                    },
+                    swarm1_events.1.status
+                );
+                assert_eq!(
+                    PeerStatus::Synchronized {
+                        stream_set: StreamSet::Interest
+                    },
+                    swarm2_events.1.status
+                );
+
+                // Assert event2 status
+                assert_eq!(
+                    PeerStatus::Started {
+                        stream_set: StreamSet::Model
+                    },
+                    swarm1_events.2.status
+                );
+                assert_eq!(
+                    PeerStatus::Started {
+                        stream_set: StreamSet::Model
+                    },
+                    swarm2_events.2.status
+                );
+
+                // Assert event3 status
+                assert_eq!(
+                    PeerStatus::Synchronized {
+                        stream_set: StreamSet::Model
+                    },
+                    swarm1_events.3.status
+                );
+                assert_eq!(
+                    PeerStatus::Synchronized {
+                        stream_set: StreamSet::Model
+                    },
+                    swarm2_events.3.status
+                );
             }
         });
     }
@@ -117,13 +237,7 @@ fn recon_sync() {
 #[traced_test]
 fn unsupported_doesnt_fail() {
     let mut swarm1 = Swarm::new_ephemeral(|_| keep_alive::Behaviour);
-    let mut swarm2 = Swarm::new_ephemeral(|_| {
-        Behaviour::new(
-            Arc::new(Mutex::new(ReconTest::new(BTreeStore::default()))),
-            Config::default(),
-        )
-    });
-
+    let mut swarm2 = build_swarm("swarm2", Config::default());
     let result = async_std::task::block_on(async {
         swarm1.listen().await;
         swarm2.connect(&mut swarm1).await;
@@ -131,10 +245,10 @@ fn unsupported_doesnt_fail() {
 
         loop {
             match swarm2.next_swarm_event().await {
-                SwarmEvent::Behaviour(Event::PeerEvent {
+                SwarmEvent::Behaviour(Event::PeerEvent(PeerEvent {
                     status: PeerStatus::Stopped,
                     ..
-                }) => break Ok(()),
+                })) => break Ok(()),
                 SwarmEvent::ConnectionClosed { cause: Some(e), .. } => {
                     break Err(e);
                 }

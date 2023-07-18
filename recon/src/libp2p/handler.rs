@@ -9,8 +9,8 @@ use std::{
 };
 
 use anyhow::Result;
+use ceramic_core::{EventId, Interest};
 use libp2p::{
-    core::upgrade::ReadyUpgrade,
     futures::FutureExt,
     swarm::{
         handler::{FullyNegotiatedInbound, FullyNegotiatedOutbound},
@@ -20,31 +20,41 @@ use libp2p::{
 use libp2p_identity::PeerId;
 use tracing::debug;
 
-use crate::libp2p::{protocol, Recon, PROTOCOL_NAME};
+use crate::{
+    libp2p::{protocol, stream_set::StreamSet, upgrade::MultiReadyUpgrade, Recon},
+    Sha256a,
+};
 
 #[derive(Debug)]
-pub struct Handler<R> {
+pub struct Handler<IR, MR> {
     remote_peer_id: PeerId,
     connection_id: ConnectionId,
-    recon: R,
+    interest: IR,
+    model: MR,
     state: State,
     keep_alive_duration: Duration,
     keep_alive: KeepAlive,
     behavior_events_queue: VecDeque<FromHandler>,
 }
 
-impl<R> Handler<R> {
+impl<IR, MR> Handler<IR, MR>
+where
+    IR: Recon<Key = Interest, Hash = Sha256a>,
+    MR: Recon<Key = EventId, Hash = Sha256a>,
+{
     pub fn new(
         peer_id: PeerId,
         connection_id: ConnectionId,
         state: State,
         keep_alive_duration: Duration,
-        recon: R,
+        interest: IR,
+        model: MR,
     ) -> Self {
         Self {
             remote_peer_id: peer_id,
             connection_id,
-            recon,
+            interest,
+            model,
             state,
             keep_alive_duration,
             keep_alive: KeepAlive::Yes,
@@ -68,16 +78,16 @@ impl<R> Handler<R> {
         self.keep_alive = match (&self.state, self.keep_alive) {
             (State::Idle, k @ KeepAlive::Until(_)) => k,
             (State::Idle, _) => KeepAlive::Until(Instant::now() + self.keep_alive_duration),
-            (State::RequestOutbound, _)
+            (State::RequestOutbound { .. }, _)
             | (State::WaitingInbound, _)
-            | (State::WaitingOutbound, _)
+            | (State::WaitingOutbound { .. }, _)
             | (State::Outbound(_), _)
             | (State::Inbound(_), _) => KeepAlive::Yes,
         };
     }
 }
 
-type SyncFuture = libp2p::futures::future::BoxFuture<'static, Result<()>>;
+type SyncFuture = libp2p::futures::future::BoxFuture<'static, Result<StreamSet>>;
 
 /// Current state of the handler.
 ///
@@ -101,8 +111,8 @@ type SyncFuture = libp2p::futures::future::BoxFuture<'static, Result<()>>;
 pub enum State {
     Idle,
     WaitingInbound,
-    RequestOutbound,
-    WaitingOutbound,
+    RequestOutbound { stream_set: StreamSet },
+    WaitingOutbound { stream_set: StreamSet },
     Outbound(SyncFuture),
     Inbound(SyncFuture),
 }
@@ -111,9 +121,15 @@ impl std::fmt::Debug for State {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Idle => write!(f, "Idle"),
-            Self::RequestOutbound => write!(f, "RequestOutbound"),
             Self::WaitingInbound => write!(f, "WaitingInbound"),
-            Self::WaitingOutbound => write!(f, "WaitingOutbound"),
+            Self::RequestOutbound { stream_set } => f
+                .debug_struct("RequestOutbound")
+                .field("stream_set", stream_set)
+                .finish(),
+            Self::WaitingOutbound { stream_set } => f
+                .debug_struct("WaitingOutbound")
+                .field("stream_set", stream_set)
+                .finish(),
             Self::Outbound(_) => f.debug_tuple("Outbound").field(&"_").finish(),
             Self::Inbound(_) => f.debug_tuple("Inbound").field(&"_").finish(),
         }
@@ -122,12 +138,12 @@ impl std::fmt::Debug for State {
 
 #[derive(Debug)]
 pub enum FromBehaviour {
-    StartSync,
+    StartSync { stream_set: StreamSet },
 }
 #[derive(Debug)]
 pub enum FromHandler {
-    Started,
-    Succeeded,
+    Started { stream_set: StreamSet },
+    Succeeded { stream_set: StreamSet },
     Stopped,
     Failed(anyhow::Error),
 }
@@ -149,19 +165,26 @@ impl std::error::Error for Failure {
     }
 }
 
-impl<R: Recon + Clone + Send + 'static> ConnectionHandler for Handler<R> {
+impl<IR, MR> ConnectionHandler for Handler<IR, MR>
+where
+    IR: Recon<Key = Interest, Hash = Sha256a> + Clone + Send + 'static,
+    MR: Recon<Key = EventId, Hash = Sha256a> + Clone + Send + 'static,
+{
     type InEvent = FromBehaviour;
     type OutEvent = FromHandler;
     type Error = Failure;
-    type InboundProtocol = ReadyUpgrade<&'static [u8]>;
-    type OutboundProtocol = ReadyUpgrade<&'static [u8]>;
+    type InboundProtocol = MultiReadyUpgrade<StreamSet>;
+    type OutboundProtocol = MultiReadyUpgrade<StreamSet>;
     type OutboundOpenInfo = ();
     type InboundOpenInfo = ();
 
     fn listen_protocol(
         &self,
     ) -> libp2p::swarm::SubstreamProtocol<Self::InboundProtocol, Self::InboundOpenInfo> {
-        SubstreamProtocol::new(ReadyUpgrade::new(PROTOCOL_NAME), ())
+        SubstreamProtocol::new(
+            MultiReadyUpgrade::new(vec![StreamSet::Interest, StreamSet::Model]),
+            (),
+        )
     }
 
     fn connection_keep_alive(&self) -> KeepAlive {
@@ -183,21 +206,23 @@ impl<R: Recon + Clone + Send + 'static> ConnectionHandler for Handler<R> {
             return Poll::Ready(ConnectionHandlerEvent::Custom(event));
         }
         match &mut self.state {
-            State::Idle | State::WaitingOutbound | State::WaitingInbound => {}
-            State::RequestOutbound => {
-                self.transition_state(State::WaitingOutbound);
+            State::Idle | State::WaitingOutbound { .. } | State::WaitingInbound => {}
+            State::RequestOutbound { stream_set } => {
+                let stream_set = *stream_set;
+                self.transition_state(State::WaitingOutbound { stream_set });
+
                 // Start outbound connection
-                let protocol = SubstreamProtocol::new(ReadyUpgrade::new(PROTOCOL_NAME), ());
+                let protocol = SubstreamProtocol::new(MultiReadyUpgrade::new(vec![stream_set]), ());
                 return Poll::Ready(ConnectionHandlerEvent::OutboundSubstreamRequest { protocol });
             }
             State::Outbound(stream) | State::Inbound(stream) => {
                 if let Poll::Ready(result) = stream.poll_unpin(cx) {
                     self.transition_state(State::Idle);
                     match result {
-                        Ok(_) => {
+                        Ok(stream_set) => {
                             return Poll::Ready(ConnectionHandlerEvent::Custom(
-                                FromHandler::Succeeded,
-                            ))
+                                FromHandler::Succeeded { stream_set },
+                            ));
                         }
                         Err(e) => {
                             return Poll::Ready(ConnectionHandlerEvent::Custom(
@@ -214,14 +239,17 @@ impl<R: Recon + Clone + Send + 'static> ConnectionHandler for Handler<R> {
 
     fn on_behaviour_event(&mut self, event: Self::InEvent) {
         match event {
-            FromBehaviour::StartSync => match self.state {
-                State::Idle => self.transition_state(State::RequestOutbound),
-                State::RequestOutbound
-                | State::WaitingOutbound
-                | State::WaitingInbound
-                | State::Outbound(_)
-                | State::Inbound(_) => {}
-            },
+            FromBehaviour::StartSync { stream_set } => {
+                debug!("starting sync: {:?}", stream_set);
+                match self.state {
+                    State::Idle => self.transition_state(State::RequestOutbound { stream_set }),
+                    State::RequestOutbound { .. }
+                    | State::WaitingOutbound { .. }
+                    | State::WaitingInbound
+                    | State::Outbound(_)
+                    | State::Inbound(_) => {}
+                }
+            }
         }
     }
 
@@ -237,26 +265,37 @@ impl<R: Recon + Clone + Send + 'static> ConnectionHandler for Handler<R> {
         match event {
             libp2p::swarm::handler::ConnectionEvent::FullyNegotiatedInbound(
                 FullyNegotiatedInbound {
-                    protocol: stream, ..
+                    protocol: (stream_set, stream),
+                    ..
                 },
             ) => {
                 match self.state {
                     State::Idle | State::WaitingInbound => {
-                        self.behavior_events_queue.push_front(FromHandler::Started);
-                        self.transition_state(State::Inbound(
-                            protocol::synchronize(
+                        self.behavior_events_queue
+                            .push_front(FromHandler::Started { stream_set });
+                        let stream = match stream_set {
+                            StreamSet::Interest => protocol::accept_synchronize(
                                 self.remote_peer_id,
                                 self.connection_id,
-                                self.recon.clone(),
+                                stream_set,
+                                self.interest.clone(),
                                 stream,
-                                false,
                             )
                             .boxed(),
-                        ));
+                            StreamSet::Model => protocol::accept_synchronize(
+                                self.remote_peer_id,
+                                self.connection_id,
+                                stream_set,
+                                self.model.clone(),
+                                stream,
+                            )
+                            .boxed(),
+                        };
+                        self.transition_state(State::Inbound(stream));
                     }
                     // Ignore inbound connection when we are not expecting it
-                    State::RequestOutbound
-                    | State::WaitingOutbound
+                    State::RequestOutbound { .. }
+                    | State::WaitingOutbound { .. }
                     | State::Inbound(_)
                     | State::Outbound(_) => {}
                 }
@@ -266,24 +305,35 @@ impl<R: Recon + Clone + Send + 'static> ConnectionHandler for Handler<R> {
                     protocol: stream, ..
                 },
             ) => {
-                match self.state {
-                    State::WaitingOutbound => {
-                        self.behavior_events_queue.push_front(FromHandler::Started);
-                        self.transition_state(State::Outbound(
-                            protocol::synchronize(
+                match &self.state {
+                    State::WaitingOutbound { stream_set } => {
+                        self.behavior_events_queue.push_front(FromHandler::Started {
+                            stream_set: *stream_set,
+                        });
+                        let stream = match stream_set {
+                            StreamSet::Interest => protocol::initiate_synchronize(
                                 self.remote_peer_id,
                                 self.connection_id,
-                                self.recon.clone(),
+                                *stream_set,
+                                self.interest.clone(),
                                 stream,
-                                true,
                             )
                             .boxed(),
-                        ));
+                            StreamSet::Model => protocol::initiate_synchronize(
+                                self.remote_peer_id,
+                                self.connection_id,
+                                *stream_set,
+                                self.model.clone(),
+                                stream,
+                            )
+                            .boxed(),
+                        };
+                        self.transition_state(State::Outbound(stream));
                     }
                     // Ignore outbound connection when we are not expecting it
                     State::Idle
                     | State::WaitingInbound
-                    | State::RequestOutbound
+                    | State::RequestOutbound { .. }
                     | State::Outbound(_)
                     | State::Inbound(_) => {}
                 }
@@ -299,8 +349,8 @@ impl<R: Recon + Clone + Send + 'static> ConnectionHandler for Handler<R> {
                         self.transition_state(State::Idle)
                     }
                     State::Idle
-                    | State::WaitingOutbound
-                    | State::RequestOutbound
+                    | State::WaitingOutbound { .. }
+                    | State::RequestOutbound { .. }
                     | State::Outbound(_)
                     | State::Inbound(_) => {}
                 }
@@ -308,7 +358,7 @@ impl<R: Recon + Clone + Send + 'static> ConnectionHandler for Handler<R> {
             // We failed to upgrade the outbound connection.
             libp2p::swarm::handler::ConnectionEvent::DialUpgradeError(_) => {
                 match self.state {
-                    State::WaitingOutbound => {
+                    State::WaitingOutbound { .. } => {
                         // We have stopped synchronization and cannot attempt again as we are unable to
                         // negotiate a protocol.
                         self.behavior_events_queue.push_front(FromHandler::Stopped);
@@ -316,7 +366,7 @@ impl<R: Recon + Clone + Send + 'static> ConnectionHandler for Handler<R> {
                     }
                     State::Idle
                     | State::WaitingInbound
-                    | State::RequestOutbound
+                    | State::RequestOutbound { .. }
                     | State::Outbound(_)
                     | State::Inbound(_) => {}
                 }

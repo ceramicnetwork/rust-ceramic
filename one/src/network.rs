@@ -1,13 +1,14 @@
 //! API to create and manage an IPFS service.
 
 use anyhow::{Context, Result};
+use ceramic_core::{EventId, Interest};
 use ceramic_kubo_rpc::IpfsService;
 use ceramic_p2p::{Config as P2pConfig, DiskStorage, Keychain, Libp2pConfig, Node};
 use iroh_rpc_client::{P2pClient, StoreClient};
 use iroh_rpc_types::{p2p::P2pAddr, store::StoreAddr, Addr};
 use iroh_store::{Config as StoreConfig, Store};
-use recon::libp2p::Recon;
-use std::{path::PathBuf, sync::Arc};
+use recon::{libp2p::Recon, Sha256a};
+use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 use tokio::task::{self, JoinHandle};
 use tracing::{error, info};
 
@@ -76,13 +77,17 @@ impl Builder<Init> {
 
 /// Configure the p2p service
 impl Builder<WithStore> {
-    pub async fn with_p2p<R: Recon>(
+    pub async fn with_p2p<IR, MR>(
         self,
         libp2p_config: Libp2pConfig,
         key_store_path: PathBuf,
-        recon: Option<R>,
+        recons: Option<(IR, MR)>,
         ceramic_peers_key: &str,
-    ) -> anyhow::Result<Builder<WithP2p>> {
+    ) -> anyhow::Result<Builder<WithP2p>>
+    where
+        IR: Recon<Key = Interest, Hash = Sha256a>,
+        MR: Recon<Key = EventId, Hash = Sha256a>,
+    {
         let addr = Addr::new_mem();
 
         let mut config = P2pConfig::default_with_rpc(addr.clone());
@@ -93,7 +98,7 @@ impl Builder<WithStore> {
 
         let kc = Keychain::<DiskStorage>::new(config.key_store_path.clone()).await?;
 
-        let mut p2p = Node::new(config, addr.clone(), kc, recon, ceramic_peers_key).await?;
+        let mut p2p = Node::new(config, addr.clone(), kc, recons, ceramic_peers_key).await?;
 
         let task = task::spawn(async move {
             if let Err(err) = p2p.run().await {
