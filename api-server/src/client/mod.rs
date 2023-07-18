@@ -481,6 +481,8 @@ where
         param_sort_value: String,
         param_controller: Option<String>,
         param_stream_id: Option<String>,
+        param_offset: Option<f64>,
+        param_limit: Option<f64>,
         context: &C,
     ) -> Result<CeramicSubscribeSortValueGetResponse, ApiError> {
         let mut client_service = self.client_service.clone();
@@ -498,6 +500,12 @@ where
             }
             if let Some(param_stream_id) = param_stream_id {
                 query_string.append_pair("streamId", &param_stream_id);
+            }
+            if let Some(param_offset) = param_offset {
+                query_string.append_pair("offset", &param_offset.to_string());
+            }
+            if let Some(param_limit) = param_limit {
+                query_string.append_pair("limit", &param_limit.to_string());
             }
             query_string.finish()
         };

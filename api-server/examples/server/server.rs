@@ -130,14 +130,18 @@ where
         sort_value: String,
         controller: Option<String>,
         stream_id: Option<String>,
+        offset: Option<f64>,
+        limit: Option<f64>,
         context: &C,
     ) -> Result<CeramicSubscribeSortValueGetResponse, ApiError> {
         let context = context.clone();
         info!(
-            "ceramic_subscribe_sort_value_get(\"{}\", {:?}, {:?}) - X-Span-ID: {:?}",
+            "ceramic_subscribe_sort_value_get(\"{}\", {:?}, {:?}, {:?}, {:?}) - X-Span-ID: {:?}",
             sort_value,
             controller,
             stream_id,
+            offset,
+            limit,
             context.get().0.clone()
         );
         Err(ApiError("Generic failure".into()))

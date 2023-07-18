@@ -52,6 +52,8 @@ Name | Type | Description  | Notes
  **sort_value** | **String**| value associated with the sort key | 
  **controller** | **String**| the controller to subscribe to. | 
  **stream_id** | **String**| the stream to subscribe to. | 
+ **offset** | **f64**| the number of events to skip in the given range, default is 0. | 
+ **limit** | **f64**| the maximum number of events to return, default is no limit. | 
 
 ### Return type
 

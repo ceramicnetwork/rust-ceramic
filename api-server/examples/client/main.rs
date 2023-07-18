@@ -100,6 +100,8 @@ fn main() {
                 "sort_value_example".to_string(),
                 Some("controller_example".to_string()),
                 Some("stream_id_example".to_string()),
+                Some(8.14),
+                Some(8.14),
             ));
             info!(
                 "{:?} (X-Span-ID: {:?})",

@@ -34,6 +34,18 @@ paths:
           required: false
           schema:
             type: string
+        - name: offset
+          in: query
+          description: the number of events to skip in the given range, default is 0.
+          required: false
+          schema:
+            type: number
+        - name: limit
+          in: query
+          description: the maximum number of events to return, default is no limit.
+          required: false
+          schema:
+            type: number
       responses:
         '200':
           description: success
