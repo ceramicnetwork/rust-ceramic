@@ -25,7 +25,7 @@ use std::{
     cmp::{Eq, Ord},
     fmt::Formatter,
 };
-use unsigned_varint::encode::u64 as varint;
+use unsigned_varint::{decode::u64 as de_varint, encode::u64 as varint};
 
 use crate::network::Network;
 
@@ -69,6 +69,49 @@ impl EventId {
     /// represent the the raw bytes as hex String
     pub fn to_hex(&self) -> String {
         hex::encode(&self.0)
+    }
+
+    /// try to parse a CID out of a CIP-124 EventID
+    pub fn cid(&self) -> Option<Cid> {
+        let (streamid, remainder) = de_varint(&self.0).unwrap_or_default();
+        if streamid != 0xce {
+            return None; // not a streamid
+        };
+
+        let (typeid, remainder) = de_varint(remainder).unwrap_or_default();
+        if typeid != 0x05 {
+            return None; // not a CIP-124 EventID
+        };
+
+        let (_network_id, mut remainder) = de_varint(remainder).unwrap_or_default();
+
+        // strip separator [u8; 8] controller [u8; 8] StreamID [u8; 4]
+        remainder = &remainder[(8 + 8 + 4)..];
+
+        // height cbor unsigned integer
+        if remainder[0] <= 23 {
+            // 0 - 23
+            remainder = &remainder[1..]
+        } else if remainder[0] == 24 {
+            // u8
+            remainder = &remainder[2..]
+        } else if remainder[0] == 25 {
+            // u16
+            remainder = &remainder[3..]
+        } else if remainder[0] == 26 {
+            // u32
+            remainder = &remainder[5..]
+        } else if remainder[0] == 27 {
+            // u64
+            remainder = &remainder[9..]
+        } else {
+            // not a cbor unsigned int
+            return None;
+        };
+        match Cid::read_bytes(remainder) {
+            Ok(v) => Some(v),
+            Err(_) => None, // not a CID
+        }
     }
 }
 
@@ -180,8 +223,18 @@ impl BuilderState for WithEvent {}
 
 impl Builder<Init> {
     pub fn with_network(self, network: &Network) -> Builder<WithNetwork> {
-        // TODO what is max event id size?
-        let mut bytes = Vec::with_capacity(100);
+        // Maximum EventId size is 72.
+        //
+        // varint(0xce) + // streamid, 1 byte
+        // varint(0x05) + // cip-124 EventID, 1 byte
+        // varint(networkId), // 5 bytes for local network
+        // last8Bytes(sha256(separator_value)), // 8 bytes
+        // last8Bytes(sha256(stream_controller_DID)), // 8 bytes
+        // last4Bytes(init_event_CID) // 4 bytes
+        // cbor(eventHeight), // u64_max 9 bytes
+        // eventCID // mostly 36 bytes but could be inline CID
+
+        let mut bytes = Vec::with_capacity(72);
         // streamid varint
         bytes.extend(varint(0xce, &mut [0_u8; 10]));
         // cip-124 EventID varint
@@ -264,10 +317,8 @@ impl Builder<WithController> {
 }
 impl Builder<WithInit> {
     pub fn with_min_event_height(mut self) -> Builder<WithEventHeight> {
-        let mut event_height_cbor = Encoder::from_memory();
-        event_height_cbor.encode([0]).unwrap();
-        // event_height cbor unsigned int
-        self.state.bytes.extend(event_height_cbor.as_bytes());
+        // 0x00 is the cbor encoding of 0.
+        self.state.bytes.push(0x00);
         Builder {
             state: WithEventHeight {
                 bytes: self.state.bytes,
@@ -275,12 +326,9 @@ impl Builder<WithInit> {
         }
     }
     pub fn with_max_event_height(mut self) -> Builder<WithEventHeight> {
-        let mut event_height_cbor = Encoder::from_memory();
-        // TODO: Use a smarter value here instead of u64::MAX to keep the event height length
-        // smaller.
-        event_height_cbor.encode([u64::MAX]).unwrap();
-        // event_height cbor unsigned int
-        self.state.bytes.extend(event_height_cbor.as_bytes());
+        // 0xFF is the break stop code in CBOR, and will sort higher than any cbor encoded unsigned
+        // integer.
+        self.state.bytes.push(0xFF);
         Builder {
             state: WithEventHeight {
                 bytes: self.state.bytes,
@@ -500,5 +548,52 @@ mod tests {
         )
         "#]]
         .assert_debug_eq(&received);
+    }
+    #[test]
+    fn cid() {
+        let separator = "kh4q0ozorrgaq2mezktnrmdwleo1d".to_string(); // cspell:disable-line
+        let controller = "did:key:z6MkgSV3tAuw7gUWqKCUY7ae6uWNxqYgdwPhUJbJhF9EFXm9".to_string();
+        let init =
+            Cid::from_str("bagcqceraplay4erv6l32qrki522uhiz7rf46xccwniw7ypmvs3cvu2b3oulq").unwrap(); // cspell:disable-line
+        let event_height = 255; // so we get 2 bytes b'\x18\xff'
+        let event_cid =
+            Cid::from_str("bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy").unwrap(); // cspell:disable-line
+
+        let event_id = EventId::new(
+            &Network::Mainnet,
+            &separator,
+            &controller,
+            &init,
+            event_height,
+            &event_cid,
+        );
+        assert_eq!(Some(event_cid), event_id.cid());
+    }
+    #[test]
+    fn no_cid() {
+        let separator = "kh4q0ozorrgaq2mezktnrmdwleo1d".to_string(); // cspell:disable-line
+        let controller = "did:key:z6MkgSV3tAuw7gUWqKCUY7ae6uWNxqYgdwPhUJbJhF9EFXm9".to_string();
+        let init =
+            Cid::from_str("bagcqceraplay4erv6l32qrki522uhiz7rf46xccwniw7ypmvs3cvu2b3oulq").unwrap(); // cspell:disable-line
+
+        // Max event height
+        let event_id = EventId::builder()
+            .with_network(&Network::Mainnet)
+            .with_sort_value(&separator)
+            .with_controller(&controller)
+            .with_init(&init)
+            .with_max_event_height()
+            .build_fencepost();
+        assert_eq!(None, event_id.cid());
+
+        // Min event height
+        let event_id = EventId::builder()
+            .with_network(&Network::Mainnet)
+            .with_sort_value(&separator)
+            .with_controller(&controller)
+            .with_init(&init)
+            .with_min_event_height()
+            .build_fencepost();
+        assert_eq!(None, event_id.cid());
     }
 }
