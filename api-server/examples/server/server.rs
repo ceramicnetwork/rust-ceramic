@@ -100,7 +100,9 @@ impl<C> Server<C> {
 }
 
 use ceramic_api_server::server::MakeService;
-use ceramic_api_server::{Api, CeramicEventsPostResponse, CeramicSubscribeSortValueGetResponse};
+use ceramic_api_server::{
+    Api, CeramicEventsPostResponse, CeramicSubscribeSortKeySortValueGetResponse,
+};
 use std::error::Error;
 use swagger::ApiError;
 
@@ -125,25 +127,18 @@ where
     }
 
     /// Get events for a stream
-    async fn ceramic_subscribe_sort_value_get(
+    async fn ceramic_subscribe_sort_key_sort_value_get(
         &self,
+        sort_key: String,
         sort_value: String,
         controller: Option<String>,
         stream_id: Option<String>,
         offset: Option<f64>,
         limit: Option<f64>,
         context: &C,
-    ) -> Result<CeramicSubscribeSortValueGetResponse, ApiError> {
+    ) -> Result<CeramicSubscribeSortKeySortValueGetResponse, ApiError> {
         let context = context.clone();
-        info!(
-            "ceramic_subscribe_sort_value_get(\"{}\", {:?}, {:?}, {:?}, {:?}) - X-Span-ID: {:?}",
-            sort_value,
-            controller,
-            stream_id,
-            offset,
-            limit,
-            context.get().0.clone()
-        );
+        info!("ceramic_subscribe_sort_key_sort_value_get(\"{}\", \"{}\", {:?}, {:?}, {:?}, {:?}) - X-Span-ID: {:?}", sort_key, sort_value, controller, stream_id, offset, limit, context.get().0.clone());
         Err(ApiError("Generic failure".into()))
     }
 }

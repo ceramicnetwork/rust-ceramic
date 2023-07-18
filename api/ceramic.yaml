@@ -12,10 +12,16 @@ info:
     url: https://mit-license.org/
 
 paths:
-  '/ceramic/subscribe/{sort-value}':
+  '/ceramic/subscribe/{sort-key}/{sort-value}':
     get:
       summary: Get events for a stream
       parameters:
+        - name: sort-key
+          in: path
+          description: name of the sort-key
+          schema:
+            type: string
+          required: true
         - name: sort-value
           in: path
           description: value associated with the sort key

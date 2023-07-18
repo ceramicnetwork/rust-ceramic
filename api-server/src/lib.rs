@@ -29,7 +29,7 @@ pub enum CeramicEventsPostResponse {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub enum CeramicSubscribeSortValueGetResponse {
+pub enum CeramicSubscribeSortKeySortValueGetResponse {
     /// success
     Success(Vec<models::Event>),
 }
@@ -53,15 +53,16 @@ pub trait Api<C: Send + Sync> {
     ) -> Result<CeramicEventsPostResponse, ApiError>;
 
     /// Get events for a stream
-    async fn ceramic_subscribe_sort_value_get(
+    async fn ceramic_subscribe_sort_key_sort_value_get(
         &self,
+        sort_key: String,
         sort_value: String,
         controller: Option<String>,
         stream_id: Option<String>,
         offset: Option<f64>,
         limit: Option<f64>,
         context: &C,
-    ) -> Result<CeramicSubscribeSortValueGetResponse, ApiError>;
+    ) -> Result<CeramicSubscribeSortKeySortValueGetResponse, ApiError>;
 }
 
 /// API where `Context` isn't passed on every API call
@@ -82,14 +83,15 @@ pub trait ApiNoContext<C: Send + Sync> {
     ) -> Result<CeramicEventsPostResponse, ApiError>;
 
     /// Get events for a stream
-    async fn ceramic_subscribe_sort_value_get(
+    async fn ceramic_subscribe_sort_key_sort_value_get(
         &self,
+        sort_key: String,
         sort_value: String,
         controller: Option<String>,
         stream_id: Option<String>,
         offset: Option<f64>,
         limit: Option<f64>,
-    ) -> Result<CeramicSubscribeSortValueGetResponse, ApiError>;
+    ) -> Result<CeramicSubscribeSortKeySortValueGetResponse, ApiError>;
 }
 
 /// Trait to extend an API to make it easy to bind it to a context.
@@ -127,18 +129,19 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
     }
 
     /// Get events for a stream
-    async fn ceramic_subscribe_sort_value_get(
+    async fn ceramic_subscribe_sort_key_sort_value_get(
         &self,
+        sort_key: String,
         sort_value: String,
         controller: Option<String>,
         stream_id: Option<String>,
         offset: Option<f64>,
         limit: Option<f64>,
-    ) -> Result<CeramicSubscribeSortValueGetResponse, ApiError> {
+    ) -> Result<CeramicSubscribeSortKeySortValueGetResponse, ApiError> {
         let context = self.context().clone();
         self.api()
-            .ceramic_subscribe_sort_value_get(
-                sort_value, controller, stream_id, offset, limit, &context,
+            .ceramic_subscribe_sort_key_sort_value_get(
+                sort_key, sort_value, controller, stream_id, offset, limit, &context,
             )
             .await
     }
