@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use async_trait::async_trait;
+use ceramic_core::{EventId, Interest};
 use cid::Cid;
 use iroh_bitswap::{Bitswap, Block, Config as BitswapConfig, Store};
 use iroh_rpc_client::Client;
@@ -22,9 +23,8 @@ use libp2p::{
 };
 use libp2p::{core::identity::Keypair, kad::RecordKey};
 use libp2p_identity::PeerId;
+use recon::{libp2p::Recon, Sha256a};
 use tracing::{info, warn};
-
-use recon::libp2p::Recon;
 
 pub use self::event::Event;
 use self::peer_manager::PeerManager;
@@ -39,7 +39,7 @@ pub const AGENT_VERSION: &str = concat!("iroh/", env!("CARGO_PKG_VERSION"));
 /// Libp2p behaviour for the node.
 #[derive(NetworkBehaviour)]
 #[behaviour(out_event = "Event")]
-pub(crate) struct NodeBehaviour<R> {
+pub(crate) struct NodeBehaviour<IR, MR> {
     ping: Ping,
     identify: identify::Behaviour,
     pub(crate) bitswap: Toggle<Bitswap<BitswapStore>>,
@@ -52,7 +52,7 @@ pub(crate) struct NodeBehaviour<R> {
     pub(crate) gossipsub: Toggle<gossipsub::Behaviour>,
     pub(crate) peer_manager: PeerManager,
     limits: connection_limits::Behaviour,
-    recon: Toggle<recon::libp2p::Behaviour<R>>,
+    recon: Toggle<recon::libp2p::Behaviour<IR, MR>>,
 }
 
 #[derive(Debug, Clone)]
@@ -88,13 +88,17 @@ impl Store for BitswapStore {
     }
 }
 
-impl<R: Recon> NodeBehaviour<R> {
+impl<IR, MR> NodeBehaviour<IR, MR>
+where
+    IR: Recon<Key = Interest, Hash = Sha256a>,
+    MR: Recon<Key = EventId, Hash = Sha256a>,
+{
     pub async fn new(
         local_key: &Keypair,
         config: &Libp2pConfig,
         relay_client: Option<relay::client::Behaviour>,
         rpc_client: Client,
-        recon: Option<R>,
+        recons: Option<(IR, MR)>,
     ) -> Result<Self> {
         let peer_manager = PeerManager::default();
         let pub_key = local_key.public();
@@ -227,8 +231,9 @@ impl<R: Recon> NodeBehaviour<R> {
                 .with_max_pending_incoming(Some(config.max_conns_pending_in))
                 .with_max_established_per_peer(Some(config.max_conns_per_peer)),
         );
-        let recon =
-            recon.map(|r| recon::libp2p::Behaviour::new(r, recon::libp2p::Config::default()));
+        let recon = recons.map(|(interest, model)| {
+            recon::libp2p::Behaviour::new(interest, model, recon::libp2p::Config::default())
+        });
         Ok(NodeBehaviour {
             ping: Ping::default(),
             identify,
@@ -287,7 +292,7 @@ mod tests {
     #[test]
     fn test_traits() {
         assert_send::<Bitswap<BitswapStore>>();
-        assert_send::<NodeBehaviour<Toggle<dummy::Behaviour>>>();
+        assert_send::<NodeBehaviour<Toggle<dummy::Behaviour>, Toggle<dummy::Behaviour>>>();
         assert_send::<&Bitswap<BitswapStore>>();
     }
 }

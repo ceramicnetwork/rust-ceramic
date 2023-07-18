@@ -6,6 +6,7 @@ mod network;
 mod pubsub;
 
 use std::{
+    collections::BTreeMap,
     path::PathBuf,
     str::FromStr,
     sync::{Arc, Mutex},
@@ -13,7 +14,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
-use ceramic_core::EventId;
+use ceramic_core::{EventId, Interest};
 use ceramic_kubo_rpc::{dag, IpfsDep, IpfsPath, Multiaddr};
 use ceramic_p2p::Libp2pConfig;
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -22,7 +23,7 @@ use futures_util::future;
 use iroh_metrics::{config::Config as MetricsConfig, MetricsHandle};
 use libipld::json::DagJsonCodec;
 use libp2p::metrics::Recorder;
-use recon::{BTreeStore, Recon, Sha256a};
+use recon::{BTreeStore, Recon, Sha256a, Store};
 use tokio::{task, time::timeout};
 use tracing::{debug, info, warn};
 
@@ -155,7 +156,8 @@ async fn main() -> Result<()> {
     }
 }
 
-type ReconEvents = Recon<EventId, Sha256a, BTreeStore<EventId, Sha256a>>;
+type ReconInterest = Recon<Interest, Sha256a, BTreeStore<Interest, Sha256a>>;
+type ReconModel = Recon<EventId, Sha256a, BTreeStore<EventId, Sha256a>>;
 
 struct Daemon {
     network: ceramic_core::Network,
@@ -165,7 +167,8 @@ struct Daemon {
     ipfs: Ipfs,
     metrics_handle: MetricsHandle,
     metrics: Arc<Metrics>,
-    recon: Arc<Mutex<ReconEvents>>,
+    recon_interest: Arc<Mutex<ReconInterest>>,
+    recon_model: Arc<Mutex<ReconModel>>,
 }
 
 impl Daemon {
@@ -226,12 +229,18 @@ impl Daemon {
         debug!(?p2p_config, "using p2p config");
 
         // Construct a recon implementation.
-        let recon = Arc::new(Mutex::new(ReconEvents::new(BTreeStore::default())));
+        let recon_model = Arc::new(Mutex::new(Recon::new(BTreeStore::default())));
+        let recon_interest = Arc::new(Mutex::new(Recon::new(BTreeStore::default())));
 
         let ipfs = Ipfs::builder()
             .with_store(dir.join("store"))
             .await?
-            .with_p2p(p2p_config, dir, Some(recon.clone()), &network.name())
+            .with_p2p(
+                p2p_config,
+                dir,
+                Some((recon_interest.clone(), recon_model.clone())),
+                &network.name(),
+            )
             .await?
             .build()
             .await?;
@@ -244,7 +253,8 @@ impl Daemon {
             ipfs,
             metrics_handle,
             metrics,
-            recon,
+            recon_interest,
+            recon_model,
         })
     }
     // Start the daemon, future does not return until the daemon is finished.
@@ -264,7 +274,7 @@ impl Daemon {
         tokio::spawn(ceramic_api::start(
             network,
             api_bind_address,
-            self.recon.clone(),
+            self.recon_model.clone(),
         ));
 
         // Run the Kubo RPC server, this blocks until the server is shutdown via a unix signal.

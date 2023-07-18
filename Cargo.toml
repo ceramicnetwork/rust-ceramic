@@ -41,7 +41,7 @@ iroh-util = { git = "https://github.com/3box/beetle", branch = "main" }
 lazy_static = "1.4"
 libipld = "0.15"                                                                 # use same version as Iroh
 libp2p = { version = "0.51", default-features = false }                          # use same version as Iroh
-libp2p-identity = { version = "0.1.2", features = ["ed25519"] }
+libp2p-identity = { version = "0.1.2", features = ["peerid", "ed25519"] }
 libp2p-tls = { version = "0.1.0", default-features = false }                     # use explicit version of dep to avoid conflict
 lru = "0.10"
 minicbor = { version = "0.19.1", features = ["alloc"] }

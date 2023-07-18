@@ -3,6 +3,7 @@
 #![warn(missing_docs)]
 mod bytes;
 mod event_id;
+mod interest;
 mod jwk;
 mod jws;
 mod network;
@@ -10,6 +11,7 @@ mod stream_id;
 
 pub use bytes::Bytes;
 pub use event_id::EventId;
+pub use interest::{Interest, PeerId};
 pub use jwk::Jwk;
 pub use jws::Jws;
 pub use network::Network;

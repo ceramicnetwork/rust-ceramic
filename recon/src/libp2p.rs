@@ -12,10 +12,13 @@
 
 mod handler;
 mod protocol;
+mod stream_set;
 #[cfg(test)]
 mod tests;
+mod upgrade;
 
 use anyhow::Result;
+use ceramic_core::{EventId, Interest};
 use libp2p::{
     core::ConnectedPoint,
     swarm::{ConnectionId, NetworkBehaviour, NotifyHandler, ToSwarm},
@@ -31,13 +34,18 @@ use std::{
 use tracing::{debug, trace, warn};
 
 use crate::{
-    libp2p::handler::{FromBehaviour, FromHandler, Handler},
+    libp2p::{
+        handler::{FromBehaviour, FromHandler, Handler},
+        stream_set::StreamSet,
+    },
     recon::{Key, Response, Store},
-    AssociativeHash, Message,
+    AssociativeHash, Message, Sha256a,
 };
 
-/// Name of the Recon protocol
-pub const PROTOCOL_NAME: &[u8] = b"/ceramic/recon/0.1.0";
+/// Name of the Recon protocol for synchronizing interests
+pub const PROTOCOL_NAME_INTEREST: &[u8] = b"/ceramic/recon/0.1.0/interest";
+/// Name of the Recon protocol for synchronizing models
+pub const PROTOCOL_NAME_MODEL: &[u8] = b"/ceramic/recon/0.1.0/model";
 
 /// Defines the Recon API.
 pub trait Recon: Clone + Send + 'static {
@@ -136,8 +144,9 @@ impl Default for Config {
 /// It is responsible for starting and stopping syncs with various peers depending on the needs of
 /// the application.
 #[derive(Debug)]
-pub struct Behaviour<R> {
-    recon: R,
+pub struct Behaviour<IR, MR> {
+    interest: IR,
+    model: MR,
     config: Config,
     peers: BTreeMap<PeerId, PeerInfo>,
     swarm_events_queue: VecDeque<Event>,
@@ -155,11 +164,19 @@ struct PeerInfo {
 /// Status of any synchronization operation with a remote peer.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum PeerStatus {
+    /// Waiting on remote peer
+    Waiting,
     /// Local peer has synchronized with the remote peer at one point.
     /// There is no ongoing sync operation with the remote peer.
-    Synchronized,
+    Synchronized {
+        /// The stream_set that was synchronized
+        stream_set: StreamSet,
+    },
     /// Local peer has started to synchronize with the remote peer.
-    Started,
+    Started {
+        /// The stream_set that has begun synchronizing.
+        stream_set: StreamSet,
+    },
     /// The last attempt to synchronize with the remote peer resulted in an error.
     Failed,
     /// Local peer has stopped synchronizing with the remote peer and will not attempt to
@@ -167,14 +184,16 @@ pub enum PeerStatus {
     Stopped,
 }
 
-impl<R> Behaviour<R> {
+impl<IR, MR> Behaviour<IR, MR> {
     /// Create a new Behavior with the provided Recon implementation.
-    pub fn new(recon: R, config: Config) -> Self
+    pub fn new(interest: IR, model: MR, config: Config) -> Self
     where
-        R: Recon,
+        IR: Recon<Key = Interest, Hash = Sha256a>,
+        MR: Recon<Key = EventId, Hash = Sha256a>,
     {
         Self {
-            recon,
+            interest,
+            model,
             config,
             peers: BTreeMap::new(),
             swarm_events_queue: VecDeque::new(),
@@ -182,23 +201,22 @@ impl<R> Behaviour<R> {
     }
 }
 
-impl<R: Recon> NetworkBehaviour for Behaviour<R> {
-    type ConnectionHandler = Handler<R>;
+impl<IR, MR> NetworkBehaviour for Behaviour<IR, MR>
+where
+    IR: Recon<Key = Interest, Hash = Sha256a>,
+    MR: Recon<Key = EventId, Hash = Sha256a>,
+{
+    type ConnectionHandler = Handler<IR, MR>;
 
     type OutEvent = Event;
 
     fn on_swarm_event(&mut self, event: libp2p::swarm::FromSwarm<Self::ConnectionHandler>) {
         match event {
             libp2p::swarm::FromSwarm::ConnectionEstablished(info) => {
-                let status = PeerStatus::Started;
-                self.swarm_events_queue.push_front(Event::PeerEvent {
-                    remote_peer_id: info.peer_id,
-                    status,
-                });
                 self.peers.insert(
                     info.peer_id,
                     PeerInfo {
-                        status,
+                        status: PeerStatus::Waiting,
                         connection_id: info.connection_id,
                         last_sync: None,
                         dialer: matches!(info.endpoint, ConnectedPoint::Dialer { .. }),
@@ -229,33 +247,34 @@ impl<R: Recon> NetworkBehaviour for Behaviour<R> {
     ) {
         match event {
             // The peer has started to synchronize with us.
-            FromHandler::Started => self.peers.entry(peer_id).and_modify(|info| {
-                if info.status != PeerStatus::Started {
-                    info.status = PeerStatus::Started;
-                    self.swarm_events_queue.push_front(Event::PeerEvent {
+            FromHandler::Started { stream_set } => self.peers.entry(peer_id).and_modify(|info| {
+                info.status = PeerStatus::Started { stream_set };
+                self.swarm_events_queue
+                    .push_front(Event::PeerEvent(PeerEvent {
                         remote_peer_id: peer_id,
                         status: info.status,
-                    })
-                }
+                    }))
             }),
             // The peer has stopped synchronization and will never be able to resume.
             FromHandler::Stopped => self.peers.entry(peer_id).and_modify(|info| {
                 info.status = PeerStatus::Stopped;
-                self.swarm_events_queue.push_front(Event::PeerEvent {
-                    remote_peer_id: peer_id,
-                    status: info.status,
-                })
+                self.swarm_events_queue
+                    .push_front(Event::PeerEvent(PeerEvent {
+                        remote_peer_id: peer_id,
+                        status: info.status,
+                    }))
             }),
 
             // The peer has synchronized with us, mark the time and record that the peer connection
             // is now idle.
-            FromHandler::Succeeded => self.peers.entry(peer_id).and_modify(|info| {
+            FromHandler::Succeeded { stream_set } => self.peers.entry(peer_id).and_modify(|info| {
                 info.last_sync = Some(Instant::now());
-                info.status = PeerStatus::Synchronized;
-                self.swarm_events_queue.push_front(Event::PeerEvent {
-                    remote_peer_id: peer_id,
-                    status: info.status,
-                })
+                info.status = PeerStatus::Synchronized { stream_set };
+                self.swarm_events_queue
+                    .push_front(Event::PeerEvent(PeerEvent {
+                        remote_peer_id: peer_id,
+                        status: info.status,
+                    }));
             }),
 
             // The peer has failed to synchronized with us, mark the time and record that the peer connection
@@ -264,10 +283,11 @@ impl<R: Recon> NetworkBehaviour for Behaviour<R> {
                 warn!(%peer_id, %error, "synchronization failed with peer");
                 info.last_sync = Some(Instant::now());
                 info.status = PeerStatus::Failed;
-                self.swarm_events_queue.push_front(Event::PeerEvent {
-                    remote_peer_id: peer_id,
-                    status: info.status,
-                })
+                self.swarm_events_queue
+                    .push_front(Event::PeerEvent(PeerEvent {
+                        remote_peer_id: peer_id,
+                        status: info.status,
+                    }))
             }),
         };
     }
@@ -285,30 +305,53 @@ impl<R: Recon> NetworkBehaviour for Behaviour<R> {
         }
         // Check each peer and start synchronization as needed.
         for (peer_id, info) in &mut self.peers {
-            trace!(%peer_id, ?info, "polling peer state");
+            trace!(remote_peer_id = %peer_id, ?info, "polling peer state");
             // Expected the initial dialer to initiate a new synchronization.
             if info.dialer {
                 match info.status {
-                    PeerStatus::Failed | PeerStatus::Synchronized => {
+                    PeerStatus::Waiting | PeerStatus::Started { .. } | PeerStatus::Stopped => {}
+                    PeerStatus::Failed => {
+                        // Sync if its been a while since we last synchronized
                         let should_sync = if let Some(last_sync) = &info.last_sync {
                             last_sync.elapsed() > self.config.per_peer_sync_timeout
                         } else {
                             false
                         };
                         if should_sync {
-                            info.status = PeerStatus::Started;
-                            self.swarm_events_queue.push_front(Event::PeerEvent {
-                                remote_peer_id: *peer_id,
-                                status: info.status,
-                            });
+                            info.status = PeerStatus::Waiting;
                             return Poll::Ready(ToSwarm::NotifyHandler {
                                 peer_id: *peer_id,
                                 handler: NotifyHandler::One(info.connection_id),
-                                event: FromBehaviour::StartSync,
+                                event: FromBehaviour::StartSync {
+                                    stream_set: StreamSet::Interest,
+                                },
                             });
                         }
                     }
-                    PeerStatus::Started | PeerStatus::Stopped => {}
+                    PeerStatus::Synchronized { stream_set } => {
+                        // Sync if we just finished an interest sync or its been a while since we
+                        // last synchronized.
+                        let should_sync = stream_set == StreamSet::Interest
+                            || if let Some(last_sync) = &info.last_sync {
+                                last_sync.elapsed() > self.config.per_peer_sync_timeout
+                            } else {
+                                false
+                            };
+                        if should_sync {
+                            info.status = PeerStatus::Waiting;
+                            let next_stream_set = match stream_set {
+                                StreamSet::Interest => StreamSet::Model,
+                                StreamSet::Model => StreamSet::Interest,
+                            };
+                            return Poll::Ready(ToSwarm::NotifyHandler {
+                                peer_id: *peer_id,
+                                handler: NotifyHandler::One(info.connection_id),
+                                event: FromBehaviour::StartSync {
+                                    stream_set: next_stream_set,
+                                },
+                            });
+                        }
+                    }
                 }
             }
         }
@@ -328,7 +371,8 @@ impl<R: Recon> NetworkBehaviour for Behaviour<R> {
             connection_id,
             handler::State::WaitingInbound,
             self.config.idle_keep_alive,
-            self.recon.clone(),
+            self.interest.clone(),
+            self.model.clone(),
         ))
     }
 
@@ -343,9 +387,13 @@ impl<R: Recon> NetworkBehaviour for Behaviour<R> {
         Ok(Handler::new(
             peer,
             connection_id,
-            handler::State::RequestOutbound,
+            // Start synchronizing interests
+            handler::State::RequestOutbound {
+                stream_set: StreamSet::Interest,
+            },
             self.config.idle_keep_alive,
-            self.recon.clone(),
+            self.interest.clone(),
+            self.model.clone(),
         ))
     }
 }
@@ -354,11 +402,14 @@ impl<R: Recon> NetworkBehaviour for Behaviour<R> {
 #[derive(Debug)]
 pub enum Event {
     /// Event indicating we have synchronized with the specific peer.
-    PeerEvent {
-        /// Id of remote peer
-        remote_peer_id: PeerId,
+    PeerEvent(PeerEvent),
+}
 
-        /// New status of the peer
-        status: PeerStatus,
-    },
+#[derive(Debug)]
+pub struct PeerEvent {
+    /// Id of remote peer
+    remote_peer_id: PeerId,
+
+    /// New status of the peer
+    status: PeerStatus,
 }

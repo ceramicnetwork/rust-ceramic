@@ -25,6 +25,7 @@ serde_json.workspace = true
 tracing.workspace = true
 unsigned-varint = "0.7.1"
 ceramic-core.workspace = true
+void.workspace = true
 
 [dev-dependencies]
 async-std = "1.12.0"
