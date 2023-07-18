@@ -1,4 +1,5 @@
 //! Main library entry point for ceramic_api_server implementation.
+//! o
 
 #![allow(unused_imports)]
 
@@ -26,7 +27,7 @@ use unimock::unimock;
 
 use ceramic_api_server::{
     models::{self, Event},
-    CeramicEventsPostResponse, CeramicSubscribeSortValueGetResponse,
+    CeramicEventsPostResponse, CeramicSubscribeSortKeySortValueGetResponse,
 };
 use ceramic_core::{EventId, Network, StreamId};
 
@@ -116,15 +117,16 @@ where
         Ok(CeramicEventsPostResponse::Success)
     }
 
-    async fn ceramic_subscribe_sort_value_get(
+    async fn ceramic_subscribe_sort_key_sort_value_get(
         &self,
+        _sort_key: String,
         sort_value: String,
         controller: Option<String>,
         stream_id: Option<String>,
         offset: Option<f64>,
         limit: Option<f64>,
         _context: &C,
-    ) -> Result<CeramicSubscribeSortValueGetResponse, ApiError> {
+    ) -> Result<CeramicSubscribeSortKeySortValueGetResponse, ApiError> {
         let offset = offset
             .map(|float| {
                 let int = float as usize;
@@ -190,7 +192,7 @@ where
         let stop = stop_builder.with_max_event_height().build_fencepost();
 
         debug!(%start, %stop, "subscribe");
-        Ok(CeramicSubscribeSortValueGetResponse::Success(
+        Ok(CeramicSubscribeSortKeySortValueGetResponse::Success(
             self.recon
                 .range(
                     (Bound::Included(start), Bound::Excluded(stop)),
@@ -323,12 +325,20 @@ mod tests {
             .returning(move |_, _, _| vec![event_id.clone()]);
         let server = Server::new(network, mock);
         let resp = server
-            .ceramic_subscribe_sort_value_get(model.to_owned(), None, None, None, None, &Context)
+            .ceramic_subscribe_sort_key_sort_value_get(
+                "model".to_string(),
+                model.to_owned(),
+                None,
+                None,
+                None,
+                None,
+                &Context,
+            )
             .await
             .unwrap();
         assert_eq!(
             resp,
-            CeramicSubscribeSortValueGetResponse::Success(vec![event])
+            CeramicSubscribeSortKeySortValueGetResponse::Success(vec![event])
         );
     }
     #[tokio::test]
@@ -362,7 +372,8 @@ mod tests {
             .returning(|_, _, _| vec![]);
         let server = Server::new(network, mock);
         let resp = server
-            .ceramic_subscribe_sort_value_get(
+            .ceramic_subscribe_sort_key_sort_value_get(
+                "model".to_string(),
                 model.to_owned(),
                 Some(controller.to_owned()),
                 None,
@@ -372,7 +383,10 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(resp, CeramicSubscribeSortValueGetResponse::Success(vec![]));
+        assert_eq!(
+            resp,
+            CeramicSubscribeSortKeySortValueGetResponse::Success(vec![])
+        );
     }
     #[tokio::test]
     #[traced_test]
@@ -408,7 +422,8 @@ mod tests {
             .returning(|_, _, _| vec![]);
         let server = Server::new(network, mock);
         let resp = server
-            .ceramic_subscribe_sort_value_get(
+            .ceramic_subscribe_sort_key_sort_value_get(
+                "model".to_string(),
                 model.to_owned(),
                 Some(controller.to_owned()),
                 Some(stream.to_string()),
@@ -418,7 +433,10 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(resp, CeramicSubscribeSortValueGetResponse::Success(vec![]));
+        assert_eq!(
+            resp,
+            CeramicSubscribeSortKeySortValueGetResponse::Success(vec![])
+        );
     }
     #[tokio::test]
     #[traced_test]
@@ -454,7 +472,8 @@ mod tests {
             .returning(|_, _, _| vec![]);
         let server = Server::new(network, mock);
         let resp = server
-            .ceramic_subscribe_sort_value_get(
+            .ceramic_subscribe_sort_key_sort_value_get(
+                "model".to_string(),
                 model.to_owned(),
                 Some(controller.to_owned()),
                 Some(stream.to_string()),
@@ -464,6 +483,9 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(resp, CeramicSubscribeSortValueGetResponse::Success(vec![]));
+        assert_eq!(
+            resp,
+            CeramicSubscribeSortKeySortValueGetResponse::Success(vec![])
+        );
     }
 }
