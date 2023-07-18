@@ -32,8 +32,10 @@ However running `make` before publishing a PR will provide a good signal if you 
 ### Generating `ceramic-api-server`
 
 The `ceramic-api-server` crate is generated using OpenAPI.
-Install `@openapitools/openapi-generator-cli` and use the make target `api-server` to generate the code anytime `api/ceramic.yaml` is modified.
+Install `@openapitools/openapi-generator-cli` and use the make target `gen-api-server` to generate the code anytime `api/ceramic.yaml` is modified.
 
+      npm install @openapitools/openapi-generator-cli@2.6.0 -g
+      make gen-api-server
 
 ## License
 

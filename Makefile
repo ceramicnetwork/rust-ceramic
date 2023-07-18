@@ -15,15 +15,14 @@ build:
 	cargo build --locked --all-features
 
 # Generates api-server crate from ceramic.yaml OpenAPI spec
-.PHONY: api-server
-api-server: api/ceramic.yaml
-	# Generate crate
-	npx @openapitools/openapi-generator-cli generate -i api/ceramic.yaml -g rust-server  --additional-properties=packageName=ceramic-api-server -o api-server
-	# Add missing clippy allow directive to example code
-	echo "#![allow(suspicious_double_ref_op)]" | cat - ./api-server/examples/server/server.rs > ./api-server/examples/server/server.rs.tmp
-	mv ./api-server/examples/server/server.rs.tmp ./api-server/examples/server/server.rs
-	# Format the generated code
-	cargo fmt -p ceramic-api-server
+.PHONY: gen-api-server
+gen-api-server: api/ceramic.yaml
+	./ci-scripts/gen_api_server.sh
+
+# Checks api-server crate is up-to-date with ceramic.yaml
+.PHONY: check-api-server
+check-api-server: api/ceramic.yaml
+	./ci-scripts/check_api_server.sh
 
 .PHONY: release
 release:
