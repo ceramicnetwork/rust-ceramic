@@ -3,12 +3,12 @@ lalrpop_mod!(
     pub parser, "/recon/parser.rs"
 ); // synthesized by LALRPOP
 
-use crate::Sha256a;
+use ceramic_core::Bytes;
 use rusqlite::{Connection, Result};
 use std::collections::BTreeSet;
 use std::fmt::Display;
+use tracing_test::traced_test;
 
-use super::*;
 use codespan_reporting::{
     diagnostic::{Diagnostic, Label},
     files::SimpleFiles,
@@ -18,13 +18,30 @@ use expect_test::{expect, Expect};
 use lalrpop_util::ParseError;
 use pretty::{Arena, DocAllocator, DocBuilder, Pretty};
 
-pub use super::Recon;
-pub type Set = BTreeSet<String>;
+use crate::{AssociativeHash, BTreeStore, Key, Message, Recon, Sha256a, Store};
+
+type Set = BTreeSet<Bytes>;
+
+impl Key for Bytes {
+    fn min_value() -> Self {
+        Vec::new().into()
+    }
+
+    fn max_value() -> Self {
+        // We need a value that sorts greater than any other byte slice.
+        // As this is test specific code we can use a sufficiently large 0xFF byte array.
+        [0xFF; 1024].as_slice().into()
+    }
+
+    fn as_bytes(&self) -> &[u8] {
+        self.as_slice()
+    }
+}
 
 #[derive(Debug, Clone, Default, PartialEq)]
-struct MemoryAHash {
+pub struct MemoryAHash {
     ahash: Sha256a,
-    set: BTreeSet<EventId>,
+    set: BTreeSet<Bytes>,
 }
 
 impl std::ops::Add for MemoryAHash {
@@ -37,58 +54,39 @@ impl std::ops::Add for MemoryAHash {
     }
 }
 
-impl crate::recon::AssociativeHash for MemoryAHash {
-    fn is_zero(&self) -> bool {
-        self.ahash.is_zero()
+impl AssociativeHash for MemoryAHash {
+    fn as_bytes(&self) -> [u8; 32] {
+        self.ahash.as_bytes()
     }
 
-    fn clear(&mut self) {
-        self.ahash.clear();
-        self.set.clear();
-    }
-
-    fn push(&mut self, key: (&EventId, &Sha256a)) {
-        self.ahash.push(key);
-        self.set.insert(key.0.to_owned());
-    }
-
-    fn digest_many<'a, I>(keys: I) -> Self
-    where
-        I: Iterator<Item = (&'a EventId, &'a Sha256a)>,
-    {
-        let mut hash = Self::default();
-        for i in keys {
-            hash.push(i);
+    fn digest<K: Key>(key: &K) -> Self {
+        Self {
+            ahash: Sha256a::digest(key),
+            // Note we do not preserve the original key type and always use a generic Bytes key
+            set: BTreeSet::from_iter([key.as_bytes().into()]),
         }
-        hash
-    }
-
-    fn to_bytes(&self) -> Vec<u8> {
-        self.ahash.to_bytes()
-    }
-
-    fn to_hex(&self) -> String {
-        self.ahash.to_hex()
     }
 }
 
-impl From<Message<MemoryAHash>> for MessageData {
-    fn from(value: Message<MemoryAHash>) -> Self {
+impl From<Message<Bytes, MemoryAHash>> for MessageData {
+    fn from(value: Message<Bytes, MemoryAHash>) -> Self {
         Self {
             keys: value.keys.iter().map(|key| key.to_string()).collect(),
-            ahashs: value
-                .ahashs
-                .into_iter()
-                .map(|h| h.set.iter().map(|key| key.to_string()).collect())
-                .collect(),
+            ahashs: value.hashes.into_iter().map(|h| h.set).collect(),
         }
     }
 }
+
+/// Recon type that uses Bytes for a Key and MemoryAHash for the Hash
+pub type ReconMemoryBytes = Recon<Bytes, MemoryAHash, BTreeStore<Bytes, MemoryAHash>>;
+
+/// Recon type that uses Bytes for a Key and Sha256a for the Hash
+pub type ReconBytes = Recon<Bytes, Sha256a, BTreeStore<Bytes, Sha256a>>;
 
 #[derive(Debug)]
 pub struct Record {
-    cat: Recon,
-    dog: Recon,
+    cat: ReconMemoryBytes,
+    dog: ReconMemoryBytes,
     iterations: Vec<Iteration>,
 }
 
@@ -99,13 +97,12 @@ where
     D::Doc: Clone,
 {
     fn pretty(self, allocator: &'a D) -> DocBuilder<'a, D, A> {
-        let peer = |name, set: &BTreeMap<EventId, Sha256a>| {
+        let peer = |name, set: Vec<&Bytes>| {
             let separator = allocator.text(",").append(allocator.softline_());
             allocator.text(name).append(allocator.text(": ")).append(
                 allocator
                     .intersperse(
-                        set.iter()
-                            .map(|x: (&EventId, &Sha256a)| allocator.text(x.0.to_string())),
+                        set.iter().map(|data| allocator.text(data.to_string())),
                         separator,
                     )
                     .brackets(),
@@ -114,10 +111,10 @@ where
 
         allocator
             .nil()
-            .append(peer("cat", &self.cat.keys))
+            .append(peer("cat", self.cat.full_range().collect()))
             .group()
             .append(allocator.hardline())
-            .append(peer("dog", &self.dog.keys))
+            .append(peer("dog", self.dog.full_range().collect()))
             .group()
             .append(allocator.hardline())
             .append(allocator.intersperse(self.iterations.iter(), allocator.hardline()))
@@ -137,20 +134,22 @@ impl Display for Record {
 #[derive(Debug, Clone)]
 pub struct MessageData {
     pub keys: Vec<String>, // keys must be 1 longer then ahashs unless both are empty
-    pub ahashs: Vec<BTreeSet<String>>, // ahashs must be 1 shorter then keys
+    pub ahashs: Vec<Set>,  // ahashs must be 1 shorter then keys
 }
 
-impl<H> From<MessageData> for Message<H>
+impl<H> From<MessageData> for Message<Bytes, H>
 where
     H: AssociativeHash,
 {
     fn from(value: MessageData) -> Self {
         Self {
-            keys: value.keys.iter().map(|key| key.as_bytes().into()).collect(),
-            ahashs: value
+            keys: value.keys.iter().map(Bytes::from).collect(),
+            hashes: value
                 .ahashs
                 .into_iter()
-                .map(|set| H::digest_many(Recon::from_set(set).keys.iter()))
+                .map(|set| {
+                    BTreeStore::from_set(set).hash_range(&Bytes::min_value(), &Bytes::max_value())
+                })
                 .collect(),
         }
     }
@@ -190,17 +189,24 @@ where
                 } else {
                     msg = msg
                         .append(allocator.text("h("))
-                        .append(allocator.intersperse(
-                            self.msg.ahashs[i].iter().map(|s| allocator.text(s)),
-                            no_space_sep.clone(),
-                        ))
+                        .append(
+                            allocator.intersperse(
+                                self.msg.ahashs[i]
+                                    .iter()
+                                    .map(|s| allocator.text(s.to_string())),
+                                no_space_sep.clone(),
+                            ),
+                        )
                         .append(allocator.text(")"))
                         .append(space_sep.clone());
                 }
             }
         }
         // Construct doc for set
-        let set = allocator.intersperse(self.set.iter().map(|s| allocator.text(s)), no_space_sep);
+        let set = allocator.intersperse(
+            self.set.iter().map(|s| allocator.text(s.to_string())),
+            no_space_sep,
+        );
 
         // Put it all together
         dir.append(msg.parens())
@@ -251,11 +257,11 @@ impl TryFrom<(Option<MessageItem>, Vec<MessageItem>)> for MessageData {
 
 #[test]
 fn word_lists() {
-    fn recon_from_string(s: &str) -> Recon {
-        let mut r = Recon::default();
+    fn recon_from_string(s: &str) -> ReconBytes {
+        let mut r = ReconBytes::new(BTreeStore::default());
         for key in s.split([' ', '\n']).map(|s| s.to_string()) {
             if !s.is_empty() {
-                r.insert(&key.as_bytes().into());
+                r.insert(&key.as_bytes().into()).unwrap();
             }
         }
         r
@@ -280,24 +286,28 @@ fn word_lists() {
     for peer in &peers {
         println!(
             "peer  {} {} {}",
-            peer.keys.first_key_value().unwrap().0,
-            peer.keys.len(),
-            peer.keys.last_key_value().unwrap().0,
+            peer.store
+                .first(&Bytes::min_value(), &Bytes::max_value())
+                .unwrap(),
+            peer.store.len(),
+            peer.store
+                .last(&Bytes::min_value(), &Bytes::max_value())
+                .unwrap(),
         )
     }
 
-    let mut local = Recon::default();
-    fn sync(local: &mut Recon, peers: &mut [Recon]) {
+    let mut local = ReconBytes::new(BTreeStore::default());
+    fn sync(local: &mut ReconBytes, peers: &mut [ReconBytes]) {
         for j in 0..3 {
             for (i, peer) in peers.iter_mut().enumerate() {
                 println!(
                     "round:{} peer:{}\n\t[{}]\n\t[{}]",
                     j,
                     i,
-                    local.keys.len(),
-                    peer.keys.len()
+                    local.store.len(),
+                    peer.store.len()
                 );
-                let mut next = local.first_message();
+                let mut next = local.initial_message();
                 for k in 0..50 {
                     println!(
                         "\t{}: -> {}[{}]",
@@ -307,10 +317,10 @@ fn word_lists() {
                         } else {
                             format!("({})", next.keys.len())
                         },
-                        local.keys.len()
+                        local.store.len()
                     );
 
-                    let response = peer.process_message::<Sha256a>(&next);
+                    let response = peer.process_message(&next).unwrap();
 
                     println!(
                         "\t{}: <- {}[{}]",
@@ -320,10 +330,10 @@ fn word_lists() {
                         } else {
                             format!("({})", response.msg.keys.len())
                         },
-                        peer.keys.len(),
+                        peer.store.len(),
                     );
 
-                    next = local.process_message(&response.msg).msg;
+                    next = local.process_message(&response.msg).unwrap().msg;
 
                     if response.msg.keys.len() < 3 && next.keys.len() < 3 {
                         println!("\tpeers[{}] in sync", i);
@@ -337,15 +347,19 @@ fn word_lists() {
     for peer in &peers {
         println!(
             "after {} {} {}",
-            peer.keys.first_key_value().unwrap().0,
-            peer.keys.len(),
-            peer.keys.last_key_value().unwrap().0,
-        )
+            peer.store
+                .first(&Bytes::min_value(), &Bytes::max_value())
+                .unwrap(),
+            peer.store.len(),
+            peer.store
+                .last(&Bytes::min_value(), &Bytes::max_value())
+                .unwrap(),
+        );
     }
 
-    assert_eq!(local.keys.len(), keys_len);
+    assert_eq!(local.store.len(), keys_len);
     for peer in &peers {
-        assert_eq!(peer.keys.len(), keys_len)
+        assert_eq!(peer.store.len(), keys_len)
     }
     expect![[r#"
         [
@@ -355,101 +369,89 @@ fn word_lists() {
     "#]]
     .assert_debug_eq(
         &local
-            .first_message::<Sha256a>()
+            .initial_message()
             .keys
             .iter()
             .map(|k| k.to_string())
             .collect::<Vec<String>>(),
     );
     expect![["13BA255FBD4C2566CB2564EFA0C1782ABA61604AC07A8789D1DF9E391D73584E"]]
-        .assert_eq(&local.first_message::<Sha256a>().ahashs[0].to_hex());
+        .assert_eq(&local.initial_message().hashes[0].to_hex());
 
-    local.insert(&b"ceramic".as_slice().into());
+    local.insert(&b"ceramic".as_slice().into()).unwrap();
     sync(&mut local, &mut peers);
 }
 #[test]
 fn response_is_synchronized() {
-    let mut a = Recon::from_set(BTreeSet::from_iter([
-        "a".to_owned(),
-        "b".to_owned(),
-        "c".to_owned(),
-        "n".to_owned(),
-    ]));
-    let mut x = Recon::from_set(BTreeSet::from_iter([
-        "x".to_owned(),
-        "y".to_owned(),
-        "z".to_owned(),
-        "n".to_owned(),
-    ]));
-    let response = x.process_message::<Sha256a>(&a.first_message());
+    let mut a = ReconMemoryBytes::new(BTreeStore::from_set(BTreeSet::from_iter([
+        Bytes::from("a"),
+        Bytes::from("b"),
+        Bytes::from("c"),
+        Bytes::from("n"),
+    ])));
+    let mut x = ReconMemoryBytes::new(BTreeStore::from_set(BTreeSet::from_iter([
+        Bytes::from("x"),
+        Bytes::from("y"),
+        Bytes::from("z"),
+        Bytes::from("n"),
+    ])));
+    let response = x.process_message(&a.initial_message()).unwrap();
     assert!(!response.is_synchronized);
-    let response = a.process_message(&response.msg);
+    let response = a.process_message(&response.msg).unwrap();
     assert!(!response.is_synchronized);
-    let response = x.process_message(&response.msg);
+    let response = x.process_message(&response.msg).unwrap();
     assert!(!response.is_synchronized);
 
     // After this message we should be synchronized
-    let response = a.process_message(&response.msg);
+    let response = a.process_message(&response.msg).unwrap();
     assert!(response.is_synchronized);
-    let response = x.process_message(&response.msg);
+    let response = x.process_message(&response.msg).unwrap();
     assert!(response.is_synchronized);
 }
 
 #[test]
 fn hello() {
-    let other_hash = Recon {
-        keys: BTreeMap::from([
-            (b"hello".as_slice().into(), Sha256a::digest("hello")),
-            (b"world".as_slice().into(), Sha256a::digest("world")),
-        ]),
-    };
+    let other_hash = ReconBytes::new(BTreeStore::from_set(BTreeSet::from_iter([
+        Bytes::from("hello"),
+        Bytes::from("world"),
+    ])));
     expect![[r#"
-    Recon {
-        keys: {
-            EventId(
-                [
-                    104,
-                    101,
-                    108,
-                    108,
-                    111,
-                ],
-            ): Sha256a {
-                hex: "2CF24DBA5FB0A30E26E83B2AC5B9E29E1B161E5C1FA7425E73043362938B9824",
-                u32_8: [
-                    3125670444,
-                    245608543,
-                    708569126,
-                    2665658821,
-                    1545475611,
-                    1581426463,
-                    1647510643,
-                    613976979,
-                ],
+        Recon {
+            store: BTreeStore {
+                keys: {
+                    Bytes(
+                        "hello",
+                    ): Sha256a {
+                        hex: "2CF24DBA5FB0A30E26E83B2AC5B9E29E1B161E5C1FA7425E73043362938B9824",
+                        u32_8: [
+                            3125670444,
+                            245608543,
+                            708569126,
+                            2665658821,
+                            1545475611,
+                            1581426463,
+                            1647510643,
+                            613976979,
+                        ],
+                    },
+                    Bytes(
+                        "world",
+                    ): Sha256a {
+                        hex: "486EA46224D1BB4FB680F34F7C9AD96A8F24EC88BE73EA8E5A6C65260E9CB8A7",
+                        u32_8: [
+                            1654943304,
+                            1337708836,
+                            1341358262,
+                            1792645756,
+                            2297177231,
+                            2397729726,
+                            644181082,
+                            2813893646,
+                        ],
+                    },
+                },
             },
-            EventId(
-                [
-                    119,
-                    111,
-                    114,
-                    108,
-                    100,
-                ],
-            ): Sha256a {
-                hex: "486EA46224D1BB4FB680F34F7C9AD96A8F24EC88BE73EA8E5A6C65260E9CB8A7",
-                u32_8: [
-                    1654943304,
-                    1337708836,
-                    1341358262,
-                    1792645756,
-                    2297177231,
-                    2397729726,
-                    644181082,
-                    2813893646,
-                ],
-            },
-        },
-    }
+        }
     "#]]
     .assert_debug_eq(&other_hash)
 }
@@ -489,216 +491,300 @@ fn test_parse_recon() {
     let record = parser::RecordParser::new().parse(recon).unwrap();
 
     expect![[r#"
-    Record {
-        cat: Recon {
-            keys: {
-                EventId(
-                    [
-                        97,
-                    ],
-                ): Sha256a {
-                    hex: "CA978112CA1BBDCAFAC231B39A23DC4DA786EFF8147C4E72B9807785AFEE48BB",
-                    u32_8: [
-                        310482890,
-                        3401391050,
-                        3006382842,
-                        1306272666,
-                        4176447143,
-                        1917746196,
-                        2239201465,
-                        3142119087,
-                    ],
-                },
-                EventId(
-                    [
-                        98,
-                    ],
-                ): Sha256a {
-                    hex: "3E23E8160039594A33894F6564E1B1348BBD7A0088D42C4ACB73EEAED59C009D",
-                    u32_8: [
-                        384312126,
-                        1247361280,
-                        1699711283,
-                        884072804,
-                        8043915,
-                        1244451976,
-                        2934862795,
-                        2634063061,
-                    ],
-                },
-                EventId(
-                    [
-                        99,
-                    ],
-                ): Sha256a {
-                    hex: "2E7D2C03A9507AE265ECF5B5356885A53393A2029D241394997265A1A25AEFC6",
-                    u32_8: [
-                        53247278,
-                        3799666857,
-                        3052792933,
-                        2776983605,
-                        44208947,
-                        2484282525,
-                        2707780249,
-                        3337575074,
-                    ],
-                },
-            },
-        },
-        dog: Recon {
-            keys: {
-                EventId(
-                    [
-                        101,
-                    ],
-                ): Sha256a {
-                    hex: "3F79BB7B435B05321651DAEFD374CDC681DC06FAA65E374E38337B88CA046DEA",
-                    u32_8: [
-                        2075883839,
-                        839211843,
-                        4024062230,
-                        3335353555,
-                        4194753665,
-                        1312251558,
-                        2289775416,
-                        3933013194,
-                    ],
-                },
-                EventId(
-                    [
-                        102,
-                    ],
-                ): Sha256a {
-                    hex: "252F10C83610EBCA1A059C0BAE8255EBA2F95BE4D1D7BCFA89D7248A82D9F111",
-                    u32_8: [
-                        3356503845,
-                        3404402742,
-                        194774298,
-                        3948249774,
-                        3831232930,
-                        4206680017,
-                        2317670281,
-                        301062530,
-                    ],
-                },
-                EventId(
-                    [
-                        103,
-                    ],
-                ): Sha256a {
-                    hex: "CD0AA9856147B6C5B4FF2B7DFEE5DA20AA38253099EF1B4A64ACED233C9AFE29",
-                    u32_8: [
-                        2242448077,
-                        3317057377,
-                        2100035508,
-                        551216638,
-                        807745706,
-                        1243344793,
-                        602778724,
-                        704551484,
-                    ],
-                },
-            },
-        },
-        iterations: [
-            Iteration {
-                dir: CatToDog,
-                msg: MessageData {
-                    keys: [
-                        "a",
-                        "c",
-                    ],
-                    ahashs: [
-                        {
-                            "b",
+        Record {
+            cat: Recon {
+                store: BTreeStore {
+                    keys: {
+                        Bytes(
+                            "a",
+                        ): MemoryAHash {
+                            ahash: Sha256a {
+                                hex: "CA978112CA1BBDCAFAC231B39A23DC4DA786EFF8147C4E72B9807785AFEE48BB",
+                                u32_8: [
+                                    310482890,
+                                    3401391050,
+                                    3006382842,
+                                    1306272666,
+                                    4176447143,
+                                    1917746196,
+                                    2239201465,
+                                    3142119087,
+                                ],
+                            },
+                            set: {
+                                Bytes(
+                                    "a",
+                                ),
+                            },
                         },
-                    ],
-                },
-                set: {
-                    "a",
-                    "c",
-                    "e",
-                    "f",
-                    "g",
+                        Bytes(
+                            "b",
+                        ): MemoryAHash {
+                            ahash: Sha256a {
+                                hex: "3E23E8160039594A33894F6564E1B1348BBD7A0088D42C4ACB73EEAED59C009D",
+                                u32_8: [
+                                    384312126,
+                                    1247361280,
+                                    1699711283,
+                                    884072804,
+                                    8043915,
+                                    1244451976,
+                                    2934862795,
+                                    2634063061,
+                                ],
+                            },
+                            set: {
+                                Bytes(
+                                    "b",
+                                ),
+                            },
+                        },
+                        Bytes(
+                            "c",
+                        ): MemoryAHash {
+                            ahash: Sha256a {
+                                hex: "2E7D2C03A9507AE265ECF5B5356885A53393A2029D241394997265A1A25AEFC6",
+                                u32_8: [
+                                    53247278,
+                                    3799666857,
+                                    3052792933,
+                                    2776983605,
+                                    44208947,
+                                    2484282525,
+                                    2707780249,
+                                    3337575074,
+                                ],
+                            },
+                            set: {
+                                Bytes(
+                                    "c",
+                                ),
+                            },
+                        },
+                    },
                 },
             },
-            Iteration {
-                dir: DogToCat,
-                msg: MessageData {
-                    keys: [
-                        "a",
-                        "c",
-                        "g",
-                    ],
-                    ahashs: [
-                        {},
-                        {
+            dog: Recon {
+                store: BTreeStore {
+                    keys: {
+                        Bytes(
+                            "e",
+                        ): MemoryAHash {
+                            ahash: Sha256a {
+                                hex: "3F79BB7B435B05321651DAEFD374CDC681DC06FAA65E374E38337B88CA046DEA",
+                                u32_8: [
+                                    2075883839,
+                                    839211843,
+                                    4024062230,
+                                    3335353555,
+                                    4194753665,
+                                    1312251558,
+                                    2289775416,
+                                    3933013194,
+                                ],
+                            },
+                            set: {
+                                Bytes(
+                                    "e",
+                                ),
+                            },
+                        },
+                        Bytes(
+                            "f",
+                        ): MemoryAHash {
+                            ahash: Sha256a {
+                                hex: "252F10C83610EBCA1A059C0BAE8255EBA2F95BE4D1D7BCFA89D7248A82D9F111",
+                                u32_8: [
+                                    3356503845,
+                                    3404402742,
+                                    194774298,
+                                    3948249774,
+                                    3831232930,
+                                    4206680017,
+                                    2317670281,
+                                    301062530,
+                                ],
+                            },
+                            set: {
+                                Bytes(
+                                    "f",
+                                ),
+                            },
+                        },
+                        Bytes(
+                            "g",
+                        ): MemoryAHash {
+                            ahash: Sha256a {
+                                hex: "CD0AA9856147B6C5B4FF2B7DFEE5DA20AA38253099EF1B4A64ACED233C9AFE29",
+                                u32_8: [
+                                    2242448077,
+                                    3317057377,
+                                    2100035508,
+                                    551216638,
+                                    807745706,
+                                    1243344793,
+                                    602778724,
+                                    704551484,
+                                ],
+                            },
+                            set: {
+                                Bytes(
+                                    "g",
+                                ),
+                            },
+                        },
+                    },
+                },
+            },
+            iterations: [
+                Iteration {
+                    dir: CatToDog,
+                    msg: MessageData {
+                        keys: [
+                            "a",
+                            "c",
+                        ],
+                        ahashs: [
+                            {
+                                Bytes(
+                                    "b",
+                                ),
+                            },
+                        ],
+                    },
+                    set: {
+                        Bytes(
+                            "a",
+                        ),
+                        Bytes(
+                            "c",
+                        ),
+                        Bytes(
+                            "e",
+                        ),
+                        Bytes(
+                            "f",
+                        ),
+                        Bytes(
+                            "g",
+                        ),
+                    },
+                },
+                Iteration {
+                    dir: DogToCat,
+                    msg: MessageData {
+                        keys: [
+                            "a",
+                            "c",
+                            "g",
+                        ],
+                        ahashs: [
+                            {},
+                            {
+                                Bytes(
+                                    "e",
+                                ),
+                                Bytes(
+                                    "f",
+                                ),
+                            },
+                        ],
+                    },
+                    set: {
+                        Bytes(
+                            "a",
+                        ),
+                        Bytes(
+                            "b",
+                        ),
+                        Bytes(
+                            "c",
+                        ),
+                        Bytes(
+                            "g",
+                        ),
+                    },
+                },
+                Iteration {
+                    dir: CatToDog,
+                    msg: MessageData {
+                        keys: [
+                            "a",
+                            "b",
+                            "c",
+                            "g",
+                        ],
+                        ahashs: [
+                            {},
+                            {},
+                            {},
+                        ],
+                    },
+                    set: {
+                        Bytes(
+                            "a",
+                        ),
+                        Bytes(
+                            "b",
+                        ),
+                        Bytes(
+                            "c",
+                        ),
+                        Bytes(
+                            "e",
+                        ),
+                        Bytes(
+                            "f",
+                        ),
+                        Bytes(
+                            "g",
+                        ),
+                    },
+                },
+                Iteration {
+                    dir: DogToCat,
+                    msg: MessageData {
+                        keys: [
+                            "a",
+                            "c",
                             "e",
                             "f",
-                        },
-                    ],
-                },
-                set: {
-                    "a",
-                    "b",
-                    "c",
-                    "g",
-                },
-            },
-            Iteration {
-                dir: CatToDog,
-                msg: MessageData {
-                    keys: [
-                        "a",
-                        "b",
-                        "c",
-                        "g",
-                    ],
-                    ahashs: [
-                        {},
-                        {},
-                        {},
-                    ],
-                },
-                set: {
-                    "a",
-                    "b",
-                    "c",
-                    "e",
-                    "f",
-                    "g",
-                },
-            },
-            Iteration {
-                dir: DogToCat,
-                msg: MessageData {
-                    keys: [
-                        "a",
-                        "c",
-                        "e",
-                        "f",
-                        "g",
-                    ],
-                    ahashs: [
-                        {
+                            "g",
+                        ],
+                        ahashs: [
+                            {
+                                Bytes(
+                                    "b",
+                                ),
+                            },
+                            {},
+                            {},
+                            {},
+                        ],
+                    },
+                    set: {
+                        Bytes(
+                            "a",
+                        ),
+                        Bytes(
                             "b",
-                        },
-                        {},
-                        {},
-                        {},
-                    ],
+                        ),
+                        Bytes(
+                            "c",
+                        ),
+                        Bytes(
+                            "e",
+                        ),
+                        Bytes(
+                            "f",
+                        ),
+                        Bytes(
+                            "g",
+                        ),
+                    },
                 },
-                set: {
-                    "a",
-                    "b",
-                    "c",
-                    "e",
-                    "f",
-                    "g",
-                },
-            },
-        ],
-    }
+            ],
+        }
     "#]]
     .assert_debug_eq(&record);
 }
@@ -713,58 +799,71 @@ dog: []
     let record = parser::RecordParser::new().parse(recon).unwrap();
 
     expect![[r#"
-    Record {
-        cat: Recon {
-            keys: {
-                EventId(
-                    [
-                        97,
-                    ],
-                ): Sha256a {
-                    hex: "CA978112CA1BBDCAFAC231B39A23DC4DA786EFF8147C4E72B9807785AFEE48BB",
-                    u32_8: [
-                        310482890,
-                        3401391050,
-                        3006382842,
-                        1306272666,
-                        4176447143,
-                        1917746196,
-                        2239201465,
-                        3142119087,
-                    ],
+        Record {
+            cat: Recon {
+                store: BTreeStore {
+                    keys: {
+                        Bytes(
+                            "a",
+                        ): MemoryAHash {
+                            ahash: Sha256a {
+                                hex: "CA978112CA1BBDCAFAC231B39A23DC4DA786EFF8147C4E72B9807785AFEE48BB",
+                                u32_8: [
+                                    310482890,
+                                    3401391050,
+                                    3006382842,
+                                    1306272666,
+                                    4176447143,
+                                    1917746196,
+                                    2239201465,
+                                    3142119087,
+                                ],
+                            },
+                            set: {
+                                Bytes(
+                                    "a",
+                                ),
+                            },
+                        },
+                    },
                 },
             },
-        },
-        dog: Recon {
-            keys: {},
-        },
-        iterations: [
-            Iteration {
-                dir: CatToDog,
-                msg: MessageData {
-                    keys: [
-                        "a",
-                    ],
-                    ahashs: [],
-                },
-                set: {
-                    "a",
+            dog: Recon {
+                store: BTreeStore {
+                    keys: {},
                 },
             },
-            Iteration {
-                dir: DogToCat,
-                msg: MessageData {
-                    keys: [
-                        "a",
-                    ],
-                    ahashs: [],
+            iterations: [
+                Iteration {
+                    dir: CatToDog,
+                    msg: MessageData {
+                        keys: [
+                            "a",
+                        ],
+                        ahashs: [],
+                    },
+                    set: {
+                        Bytes(
+                            "a",
+                        ),
+                    },
                 },
-                set: {
-                    "a",
+                Iteration {
+                    dir: DogToCat,
+                    msg: MessageData {
+                        keys: [
+                            "a",
+                        ],
+                        ahashs: [],
+                    },
+                    set: {
+                        Bytes(
+                            "a",
+                        ),
+                    },
                 },
-            },
-        ],
-    }
+            ],
+        }
     "#]]
     .assert_debug_eq(&record);
 }
@@ -817,42 +916,39 @@ fn parse_recon(recon: &str) -> Record {
 fn recon_do(recon: &str) -> Record {
     let mut record = parse_recon(recon);
     // Remember initial state
-    let cat = record.cat.keys.clone();
-    let dog = record.dog.keys.clone();
+    let cat = record.cat.store.clone();
+    let dog = record.dog.store.clone();
 
     let n = record.iterations.len();
     record.iterations.clear();
 
     // Run simulation for the number of iterations in the original record
     let mut dir = Direction::CatToDog;
-    let mut msg: Message<MemoryAHash> = record.cat.first_message();
+    let mut msg: Message<Bytes, MemoryAHash> = record.cat.initial_message();
     for _ in 0..n {
         let (next_dir, response, set) = match dir {
             Direction::CatToDog => (
                 Direction::DogToCat,
-                record.dog.process_message(&msg),
-                record.dog.keys.clone(),
+                record.dog.process_message(&msg).unwrap(),
+                record.dog.store.clone(),
             ),
             Direction::DogToCat => (
                 Direction::CatToDog,
-                record.cat.process_message(&msg),
-                record.cat.keys.clone(),
+                record.cat.process_message(&msg).unwrap(),
+                record.cat.store.clone(),
             ),
         };
         record.iterations.push(Iteration {
             dir,
             msg: msg.into(),
-            set: set
-                .iter()
-                .map(|entry: (&EventId, &Sha256a)| entry.0.to_string())
-                .collect(),
+            set: set.full_range().cloned().collect(),
         });
         dir = next_dir;
         msg = response.msg;
     }
     // Restore initial sets
-    record.cat.keys = cat;
-    record.dog.keys = dog;
+    record.cat.store = cat;
+    record.dog.store = dog;
     record
 }
 
@@ -989,6 +1085,7 @@ fn test_alternating() {
 }
 
 #[test]
+#[traced_test]
 fn test_small_diff_zz() {
     recon_test(expect![[r#"
         cat: [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z,zz]
@@ -1003,7 +1100,7 @@ fn test_small_diff_zz() {
 
 #[test]
 fn message_cbor_serialize_test() {
-    let received: Message<Sha256a> = parse_recon(
+    let received: Message<Bytes, Sha256a> = parse_recon(
         r#"cat: [] dog: []
         -> (a, h(b), c) []"#,
     )
@@ -1013,30 +1110,26 @@ fn message_cbor_serialize_test() {
         .into();
     let received_cbor = hex::encode(serde_ipld_dagcbor::ser::to_vec(&received).unwrap());
     println!("serde_json {}", serde_json::to_string(&received).unwrap()); // Message as json
-    expect![["a2616b824161416361688158203e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d"]].assert_eq(&received_cbor);
+    expect!["a2646b6579738241614163666861736865738158203e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d"].assert_eq(&received_cbor);
 }
 
 #[test]
 fn message_cbor_deserialize_test() {
-    let bytes = hex::decode("a2616b824161416361688158203e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d").unwrap();
+    let bytes = hex::decode("a2646b6579738241614163666861736865738158203e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d").unwrap();
     let x = serde_ipld_dagcbor::de::from_slice(bytes.as_slice());
     println!("{:?}", x);
-    let received: Message<Sha256a> = x.unwrap();
+    let received: Message<Bytes, Sha256a> = x.unwrap();
     expect![[r#"
         Message {
             keys: [
-                EventId(
-                    [
-                        97,
-                    ],
+                Bytes(
+                    "a",
                 ),
-                EventId(
-                    [
-                        99,
-                    ],
+                Bytes(
+                    "c",
                 ),
             ],
-            ahashs: [
+            hashes: [
                 Sha256a {
                     hex: "3E23E8160039594A33894F6564E1B1348BBD7A0088D42C4ACB73EEAED59C009D",
                     u32_8: [
@@ -1052,7 +1145,57 @@ fn message_cbor_deserialize_test() {
                 },
             ],
         }
-        "#]]
+    "#]]
+    .assert_debug_eq(&received);
+}
+
+#[test]
+fn message_cbor_serialize_zero_hash() {
+    let received: Message<Bytes, Sha256a> = parse_recon(
+        r#"cat: [] dog: []
+        -> (a, 0, c) []"#,
+    )
+    .iterations[0]
+        .msg
+        .clone()
+        .into();
+    let received_cbor = hex::encode(serde_ipld_dagcbor::ser::to_vec(&received).unwrap());
+    println!("serde_json {}", serde_json::to_string(&received).unwrap()); // Message as json
+    expect!["a2646b6579738241614163666861736865738140"].assert_eq(&received_cbor);
+}
+#[test]
+fn message_cbor_deserialize_zero_hash() {
+    let bytes = hex::decode("a2646b6579738241614163666861736865738140").unwrap();
+    let x = serde_ipld_dagcbor::de::from_slice(bytes.as_slice());
+    println!("{:?}", x);
+    let received: Message<Bytes, Sha256a> = x.unwrap();
+    expect![[r#"
+        Message {
+            keys: [
+                Bytes(
+                    "a",
+                ),
+                Bytes(
+                    "c",
+                ),
+            ],
+            hashes: [
+                Sha256a {
+                    hex: "0000000000000000000000000000000000000000000000000000000000000000",
+                    u32_8: [
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                    ],
+                },
+            ],
+        }
+    "#]]
     .assert_debug_eq(&received);
 }
 
@@ -1074,12 +1217,12 @@ fn sqlite3_test() {
             (),
         )?;
 
-        println!("key2 {:?}", Sha256a::digest("key2"));
+        println!("key2 {:?}", Sha256a::digest(&Bytes::from("key2")));
         // Insert the data into the table
         let r1 = conn.execute(
             r#"
             INSERT INTO data (
-                key, 
+                key,
                 h0, h1, h2, h3, h4, h5, h6, h7
             ) VALUES (
                 ?, ?, ?, ?, ?, ?, ?, ?, ?
@@ -1098,7 +1241,7 @@ fn sqlite3_test() {
         )?;
         let r2 = conn.execute(
             r#"
-              INSERT INTO data (key, h0, h1, h2, h3, h4, h5, h6, h7) 
+              INSERT INTO data (key, h0, h1, h2, h3, h4, h5, h6, h7)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
             (
@@ -1115,7 +1258,7 @@ fn sqlite3_test() {
         )?;
         let mut stmt = conn.prepare(
             r#"
-        SELECT key, h0, h1, h2, h3, h4, h5, h6, h7 
+        SELECT key, h0, h1, h2, h3, h4, h5, h6, h7
         FROM data
         "#,
         )?;

@@ -13,6 +13,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
+use ceramic_core::EventId;
 use ceramic_kubo_rpc::{dag, IpfsDep, IpfsPath, Multiaddr};
 use ceramic_p2p::Libp2pConfig;
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -21,7 +22,7 @@ use futures_util::future;
 use iroh_metrics::{config::Config as MetricsConfig, MetricsHandle};
 use libipld::json::DagJsonCodec;
 use libp2p::metrics::Recorder;
-use recon::Recon;
+use recon::{BTreeStore, Recon, Sha256a};
 use tokio::{task, time::timeout};
 use tracing::{debug, info, warn};
 
@@ -154,6 +155,8 @@ async fn main() -> Result<()> {
     }
 }
 
+type ReconEvents = Recon<EventId, Sha256a, BTreeStore<EventId, Sha256a>>;
+
 struct Daemon {
     network: ceramic_core::Network,
     bind_address: String,
@@ -162,7 +165,7 @@ struct Daemon {
     ipfs: Ipfs,
     metrics_handle: MetricsHandle,
     metrics: Arc<Metrics>,
-    recon: Arc<Mutex<Recon>>,
+    recon: Arc<Mutex<ReconEvents>>,
 }
 
 impl Daemon {
@@ -223,7 +226,7 @@ impl Daemon {
         debug!(?p2p_config, "using p2p config");
 
         // Construct a recon implementation.
-        let recon = Arc::new(Mutex::new(Recon::default()));
+        let recon = Arc::new(Mutex::new(ReconEvents::new(BTreeStore::default())));
 
         let ipfs = Ipfs::builder()
             .with_store(dir.join("store"))

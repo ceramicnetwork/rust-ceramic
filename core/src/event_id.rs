@@ -57,11 +57,11 @@ impl EventId {
             .build()
     }
 
-    /// Extract the raw bytes from an EventID as Vec<u8>
+    /// Extract the raw bytes from an EventId
     pub fn to_bytes(&self) -> Vec<u8> {
         self.0.to_owned()
     }
-    /// Extract the raw bytes from an EventID as Vec<u8>
+    /// Expose the raw bytes of the EventId
     pub fn as_slice(&self) -> &[u8] {
         self.0.as_slice()
     }

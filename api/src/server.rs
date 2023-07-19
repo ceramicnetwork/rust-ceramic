@@ -3,11 +3,12 @@
 
 #![allow(unused_imports)]
 
-use anyhow::bail;
+use anyhow::{bail, Result};
 use async_trait::async_trait;
 use futures::{future, Stream, StreamExt, TryFutureExt, TryStreamExt};
 use hyper::server::conn::Http;
 use hyper::service::Service;
+use recon::{AssociativeHash, Key, Store};
 use std::{future::Future, ops::Range};
 use std::{marker::PhantomData, ops::RangeBounds};
 use std::{net::SocketAddr, ops::Bound};
@@ -32,7 +33,7 @@ use ceramic_api_server::{
 use ceramic_core::{EventId, Network, StreamId};
 
 /// Builds an SSL implementation for Simple HTTPS from some hard-coded file names
-pub async fn create(network: Network, addr: &str, recon: impl Recon) {
+pub async fn create(network: Network, addr: &str, recon: impl Recon<Key = EventId>) {
     let addr = addr.parse().expect("Failed to parse bind address");
 
     let server = Server::new(network, recon);
@@ -53,26 +54,41 @@ pub async fn create(network: Network, addr: &str, recon: impl Recon) {
 }
 
 pub trait Recon: Clone + Send + Sync {
-    fn insert_key(&self, key: &EventId);
-    fn range<R>(&self, range: R, offset: usize, limit: usize) -> Vec<EventId>
-    where
-        R: RangeBounds<EventId> + 'static;
+    type Key: Key;
+    fn insert(&self, key: &Self::Key) -> Result<()>;
+    fn range(
+        &self,
+        start: &Self::Key,
+        end: &Self::Key,
+        offset: usize,
+        limit: usize,
+    ) -> Vec<Self::Key>;
 }
 
-impl Recon for Arc<Mutex<recon::Recon>> {
-    fn insert_key(&self, key: &EventId) {
+impl<K, H, S> Recon for Arc<Mutex<recon::Recon<K, H, S>>>
+where
+    K: Key,
+    H: AssociativeHash,
+    S: Store<Key = K, Hash = H> + Send,
+{
+    type Key = K;
+
+    fn insert(&self, key: &Self::Key) -> Result<()> {
         self.lock()
             .expect("should be able to acquire lock")
             .insert(key)
     }
 
-    fn range<R>(&self, range: R, offset: usize, limit: usize) -> Vec<EventId>
-    where
-        R: RangeBounds<EventId> + 'static,
-    {
+    fn range(
+        &self,
+        start: &Self::Key,
+        end: &Self::Key,
+        offset: usize,
+        limit: usize,
+    ) -> Vec<Self::Key> {
         self.lock()
             .expect("should be able to acquire lock")
-            .range(range, offset, limit)
+            .range(start, end, offset, limit)
             .map(|event| event.to_owned())
             .collect()
     }
@@ -104,7 +120,7 @@ use swagger::ApiError;
 impl<C, R> Api<C> for Server<C, R>
 where
     C: Send + Sync,
-    R: Recon + Sync,
+    R: Recon<Key = EventId> + Sync,
 {
     async fn ceramic_events_post(
         &self,
@@ -113,7 +129,9 @@ where
     ) -> Result<CeramicEventsPostResponse, ApiError> {
         debug!(event_id = event.event_id, "ceramic_events_post");
         let event_id = decode_event_id(&event.event_id)?;
-        self.recon.insert_key(&event_id);
+        self.recon
+            .insert(&event_id)
+            .map_err(|err| ApiError(format!("failed to insert key: {}", err)))?;
         Ok(CeramicEventsPostResponse::Success)
     }
 
@@ -194,14 +212,10 @@ where
         debug!(%start, %stop, "subscribe");
         Ok(CeramicSubscribeSortKeySortValueGetResponse::Success(
             self.recon
-                .range(
-                    (Bound::Included(start), Bound::Excluded(stop)),
-                    offset,
-                    limit,
-                )
+                .range(&start, &stop, offset, limit)
                 .into_iter()
                 .map(|id| Event {
-                    event_id: multibase::encode(multibase::Base::Base16Lower, id.as_slice()),
+                    event_id: multibase::encode(multibase::Base::Base16Lower, id.as_bytes()),
                 })
                 .collect(),
         ))
@@ -230,11 +244,17 @@ mod tests {
     mock! {
         ReconTest {}
         impl Recon for ReconTest {
-            fn insert_key(&self, key: &EventId);
+            type Key = EventId;
 
-            fn range<R>(&self, range: R, offset: usize, limit: usize) -> Vec<EventId>
-            where
-                R: RangeBounds<EventId> + 'static;
+            fn insert(&self, key: &EventId) -> Result<()>;
+
+            fn range(
+                &self,
+                start: &EventId,
+                end: &EventId,
+                offset: usize,
+                limit: usize,
+            ) -> Vec<EventId>;
         }
         impl Clone for ReconTest {
             fn clone(&self) -> Self;
@@ -255,10 +275,10 @@ mod tests {
         );
         let event_id_str = multibase::encode(Base::Base16Lower, event_id.to_bytes());
         let mut mock = MockReconTest::new();
-        mock.expect_insert_key()
+        mock.expect_insert()
             .with(predicate::eq(event_id))
             .times(1)
-            .returning(|_| ());
+            .returning(|_| Ok(()));
         let server = Server::new(network, mock);
         let resp = server
             .ceramic_events_post(
@@ -317,12 +337,13 @@ mod tests {
         let mut mock = MockReconTest::new();
         mock.expect_range()
             .with(
-                predicate::eq((Bound::Included(start), Bound::Excluded(end))),
+                predicate::eq(start),
+                predicate::eq(end),
                 predicate::eq(0),
                 predicate::eq(usize::MAX),
             )
             .times(1)
-            .returning(move |_, _, _| vec![event_id.clone()]);
+            .returning(move |_, _, _, _| vec![event_id.clone()]);
         let server = Server::new(network, mock);
         let resp = server
             .ceramic_subscribe_sort_key_sort_value_get(
@@ -364,12 +385,13 @@ mod tests {
         let mut mock = MockReconTest::new();
         mock.expect_range()
             .with(
-                predicate::eq((Bound::Included(start), Bound::Excluded(end))),
+                predicate::eq(start),
+                predicate::eq(end),
                 predicate::eq(0),
                 predicate::eq(usize::MAX),
             )
             .times(1)
-            .returning(|_, _, _| vec![]);
+            .returning(|_, _, _, _| vec![]);
         let server = Server::new(network, mock);
         let resp = server
             .ceramic_subscribe_sort_key_sort_value_get(
@@ -414,12 +436,13 @@ mod tests {
         let mut mock = MockReconTest::new();
         mock.expect_range()
             .with(
-                predicate::eq((Bound::Included(start), Bound::Excluded(end))),
+                predicate::eq(start),
+                predicate::eq(end),
                 predicate::eq(0),
                 predicate::eq(usize::MAX),
             )
             .times(1)
-            .returning(|_, _, _| vec![]);
+            .returning(|_, _, _, _| vec![]);
         let server = Server::new(network, mock);
         let resp = server
             .ceramic_subscribe_sort_key_sort_value_get(
@@ -464,12 +487,13 @@ mod tests {
         let mut mock = MockReconTest::new();
         mock.expect_range()
             .with(
-                predicate::eq((Bound::Included(start), Bound::Excluded(end))),
+                predicate::eq(start),
+                predicate::eq(end),
                 predicate::eq(100),
                 predicate::eq(200),
             )
             .times(1)
-            .returning(|_, _, _| vec![]);
+            .returning(|_, _, _, _| vec![]);
         let server = Server::new(network, mock);
         let resp = server
             .ceramic_subscribe_sort_key_sort_value_get(

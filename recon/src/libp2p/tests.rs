@@ -20,6 +20,7 @@
 
 //! Integration tests for the `Ping` network behaviour.
 
+use ceramic_core::Bytes;
 use libp2p::swarm::{keep_alive, Swarm, SwarmEvent};
 use libp2p_swarm_test::SwarmExt;
 use quickcheck::QuickCheck;
@@ -33,8 +34,10 @@ use tracing_test::traced_test;
 
 use crate::{
     libp2p::{Behaviour, Config, Event, PeerStatus},
-    Recon,
+    BTreeStore, Recon, Sha256a,
 };
+
+type ReconTest = Recon<Bytes, Sha256a, BTreeStore<Bytes, Sha256a>>;
 
 #[test]
 #[traced_test]
@@ -50,13 +53,17 @@ fn recon_sync() {
         };
         let mut swarm1 = Swarm::new_ephemeral(|_| {
             Behaviour::new(
-                Arc::new(Mutex::new(Recon::from_set(["swarm1".to_string()].into()))),
+                Arc::new(Mutex::new(ReconTest::new(BTreeStore::from_set(
+                    [Bytes::from("swarm1")].into(),
+                )))),
                 config.clone(),
             )
         });
         let mut swarm2 = Swarm::new_ephemeral(|_| {
             Behaviour::new(
-                Arc::new(Mutex::new(Recon::from_set(["swarm2".to_string()].into()))),
+                Arc::new(Mutex::new(ReconTest::new(BTreeStore::from_set(
+                    [Bytes::from("swarm2")].into(),
+                )))),
                 config,
             )
         });
@@ -112,7 +119,7 @@ fn unsupported_doesnt_fail() {
     let mut swarm1 = Swarm::new_ephemeral(|_| keep_alive::Behaviour);
     let mut swarm2 = Swarm::new_ephemeral(|_| {
         Behaviour::new(
-            Arc::new(Mutex::new(Recon::from_set([].into()))),
+            Arc::new(Mutex::new(ReconTest::new(BTreeStore::default()))),
             Config::default(),
         )
     });
