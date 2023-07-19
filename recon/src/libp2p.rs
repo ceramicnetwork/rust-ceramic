@@ -15,6 +15,7 @@ mod protocol;
 #[cfg(test)]
 mod tests;
 
+use anyhow::Result;
 use libp2p::{
     core::ConnectedPoint,
     swarm::{ConnectionId, NetworkBehaviour, NotifyHandler, ToSwarm},
@@ -29,12 +30,10 @@ use std::{
 };
 use tracing::{debug, trace, warn};
 
-use ceramic_core::EventId;
-
 use crate::{
     libp2p::handler::{FromBehaviour, FromHandler, Handler},
-    recon::Response,
-    AssociativeHash, Message, Sha256a,
+    recon::{Key, Response, Store},
+    AssociativeHash, Message,
 };
 
 /// Name of the Recon protocol
@@ -42,7 +41,9 @@ pub const PROTOCOL_NAME: &[u8] = b"/ceramic/recon/0.1.0";
 
 /// Defines the Recon API.
 pub trait Recon: Clone + Send + 'static {
-    /// The specific Hash function to use.
+    /// The type of Key to communicate.
+    type Key: Key + std::fmt::Debug + Serialize + for<'de> Deserialize<'de> + Send + 'static;
+    /// The type of Hash to compute over the keys.
     type Hash: AssociativeHash
         + std::fmt::Debug
         + Serialize
@@ -51,13 +52,24 @@ pub trait Recon: Clone + Send + 'static {
         + 'static;
 
     /// Construct a message to send as the first message.
-    fn initial_message(&self) -> Message<Self::Hash>;
+    fn initial_message(&self) -> Message<Self::Key, Self::Hash>;
+
     /// Process an incoming message and respond with a message reply.
-    fn process_message(&mut self, msg: &Message<Self::Hash>) -> Response<Self::Hash>;
+    fn process_message(
+        &mut self,
+        msg: &Message<Self::Key, Self::Hash>,
+    ) -> Result<Response<Self::Key, Self::Hash>>;
+
     /// Insert a new key into the key space.
-    fn insert_key(&mut self, key: &EventId);
+    fn insert(&mut self, key: &Self::Key) -> Result<()>;
+
     /// Reports total number of keys
-    fn num_keys(&self) -> usize;
+    fn len(&self) -> usize;
+
+    /// Reports if the set is empty.
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 // Implement the  Recon trait using crate::recon::Recon
@@ -65,30 +77,37 @@ pub trait Recon: Clone + Send + 'static {
 // NOTE: We use a std::sync::Mutex because we are not doing any async
 // logic within Recon itself, all async logic exists outside its scope.
 // We should use a tokio::sync::Mutex if we introduce any async logic into Recon.
-impl Recon for Arc<Mutex<crate::recon::Recon>> {
-    type Hash = Sha256a;
+impl<S, K, H> Recon for Arc<Mutex<crate::recon::Recon<K, H, S>>>
+where
+    K: Key + std::fmt::Debug + Serialize + for<'de> Deserialize<'de> + Send + 'static,
+    H: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de> + Send + 'static,
+    S: Store<Key = K, Hash = H> + Send + 'static,
+{
+    type Key = K;
+    type Hash = H;
 
-    fn insert_key(&mut self, key: &EventId) {
+    fn insert(&mut self, key: &Self::Key) -> Result<()> {
         self.lock()
             .expect("should be able to acquire lock")
             .insert(key)
     }
-    fn initial_message(&self) -> Message<Self::Hash> {
+    fn initial_message(&self) -> Message<Self::Key, Self::Hash> {
         self.lock()
             .expect("should be able to acquire lock")
-            .first_message()
+            .initial_message()
     }
 
-    fn process_message(&mut self, msg: &Message<Self::Hash>) -> Response<Self::Hash> {
+    fn process_message(
+        &mut self,
+        msg: &Message<Self::Key, Self::Hash>,
+    ) -> Result<Response<Self::Key, Self::Hash>> {
         self.lock()
             .expect("should be able to acquire lock")
             .process_message(msg)
     }
 
-    fn num_keys(&self) -> usize {
-        self.lock()
-            .expect("should be able to acquire lock")
-            .num_keys()
+    fn len(&self) -> usize {
+        self.lock().expect("should be able to acquire lock").len()
     }
 }
 

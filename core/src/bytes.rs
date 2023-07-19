@@ -1,3 +1,5 @@
+use std::fmt::{Debug, Display};
+
 use serde::de::Error;
 use serde::{
     de::{self, Visitor},
@@ -5,7 +7,7 @@ use serde::{
 };
 
 /// Sequence of byte values.
-#[derive(PartialEq, Default, Debug)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct Bytes(Vec<u8>);
 
 impl Bytes {
@@ -24,6 +26,21 @@ impl From<&[u8]> for Bytes {
 impl From<Vec<u8>> for Bytes {
     fn from(value: Vec<u8>) -> Self {
         Self(value)
+    }
+}
+impl From<&str> for Bytes {
+    fn from(value: &str) -> Self {
+        Self(value.as_bytes().to_vec())
+    }
+}
+impl From<&String> for Bytes {
+    fn from(value: &String) -> Self {
+        Self(value.clone().into_bytes())
+    }
+}
+impl From<String> for Bytes {
+    fn from(value: String) -> Self {
+        Self(value.into_bytes())
     }
 }
 
@@ -72,5 +89,24 @@ impl<'de> Visitor<'de> for BytesVisitor {
         E: Error,
     {
         Ok(Bytes(v.to_vec()))
+    }
+}
+
+impl Display for Bytes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Display bytes as utf-8 if possible otherwise as hex
+        write!(
+            f,
+            "{}",
+            String::from_utf8(self.0.clone())
+                .unwrap_or_else(|_| format!("0x{}", hex::encode_upper(&self.0)))
+        )
+    }
+}
+
+impl Debug for Bytes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Format bytes field as utf-8 if possible otherwise as hex
+        f.debug_tuple("Bytes").field(&format!("{}", &self)).finish()
     }
 }

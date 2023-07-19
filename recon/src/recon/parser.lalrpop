@@ -1,4 +1,14 @@
-use crate::recon::tests::{Recon,Record,Direction,MessageData,Set,Iteration,MessageItem};
+use crate::recon::tests::{
+    BTreeStore,
+    Direction,
+    Iteration,
+    MessageData,
+    MessageItem,
+    Record,
+    ReconMemoryBytes,
+    Set,
+};
+use ceramic_core::Bytes;
 use lalrpop_util::ParseError;
 
 grammar;
@@ -10,11 +20,11 @@ pub Record : Record = {
         iterations,
     },
 };
-Cat: Recon = {
-    "cat:" <Set> => Recon::from_set(<>),
+Cat: ReconMemoryBytes = {
+    "cat:" <Set> => ReconMemoryBytes::new(BTreeStore::from_set(<>)),
 };
-Dog: Recon = {
-    "dog:" <Set> => Recon::from_set(<>),
+Dog: ReconMemoryBytes = {
+    "dog:" <Set> => ReconMemoryBytes::new(BTreeStore::from_set(<>)),
 };
 
 Set: Set = {
@@ -24,9 +34,9 @@ Set: Set = {
 SetInner: Set = {
     <first:Word?> <rest:("," <Word>)*> => {
         let mut set = Set::new();
-        set.extend(rest);
+        set.extend(rest.iter().map(Bytes::from));
         if let Some(first) = first {
-            set.insert(first);
+            set.insert(Bytes::from(first));
         }
         set
     }

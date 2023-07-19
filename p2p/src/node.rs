@@ -1166,7 +1166,6 @@ mod tests {
     use crate::keys::{Keypair, MemoryStorage};
 
     use bytes::Bytes;
-    use ceramic_core::EventId;
     use futures::{future, TryStreamExt};
     use rand::prelude::*;
     use rand_chacha::ChaCha8Rng;
@@ -1237,24 +1236,25 @@ mod tests {
     struct DummyRecon;
 
     impl Recon for DummyRecon {
+        type Key = ceramic_core::EventId;
         type Hash = Sha256a;
 
-        fn initial_message(&self) -> recon::Message<Self::Hash> {
+        fn initial_message(&self) -> recon::Message<Self::Key, Self::Hash> {
             unreachable!()
         }
 
         fn process_message(
             &mut self,
-            _msg: &recon::Message<Self::Hash>,
-        ) -> recon::Response<Self::Hash> {
+            _msg: &recon::Message<Self::Key, Self::Hash>,
+        ) -> Result<recon::Response<Self::Key, Self::Hash>> {
             unreachable!()
         }
 
-        fn insert_key(&mut self, _key: &EventId) {
+        fn insert(&mut self, _key: &Self::Key) -> Result<()> {
             unreachable!()
         }
 
-        fn num_keys(&self) -> usize {
+        fn len(&self) -> usize {
             unreachable!()
         }
     }

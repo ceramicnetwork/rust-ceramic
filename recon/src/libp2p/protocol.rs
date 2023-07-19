@@ -21,7 +21,7 @@ pub async fn synchronize<S: AsyncRead + AsyncWrite + Unpin, R: Recon>(
     initiate: bool,
 ) -> Result<()> {
     debug!("start synchronize");
-    let codec = CborCodec::<Message<R::Hash>, Message<R::Hash>>::new();
+    let codec = CborCodec::<Message<R::Key, R::Hash>, Message<R::Key, R::Hash>>::new();
     let mut framed = Framed::new(stream, codec);
 
     if initiate {
@@ -30,7 +30,7 @@ pub async fn synchronize<S: AsyncRead + AsyncWrite + Unpin, R: Recon>(
     }
 
     while let Some(request) = libp2p::futures::TryStreamExt::try_next(&mut framed).await? {
-        let response = recon.process_message(&request);
+        let response = recon.process_message(&request)?;
         trace!(%request, %response, "recon exchange");
 
         let is_synchronized = response.is_synchronized();
@@ -44,6 +44,6 @@ pub async fn synchronize<S: AsyncRead + AsyncWrite + Unpin, R: Recon>(
         }
     }
     framed.close().await?;
-    debug!("finished synchronize, number of keys {}", recon.num_keys());
+    debug!("finished synchronize, number of keys {}", recon.len());
     Ok(())
 }
