@@ -8,15 +8,17 @@ mod jwk;
 mod jws;
 mod network;
 mod range;
+mod signer;
 mod stream_id;
 
 pub use bytes::Bytes;
 pub use event_id::EventId;
 pub use interest::{Interest, PeerId};
 pub use jwk::Jwk;
-pub use jws::Jws;
+pub use jws::{Jws, JwsSignature};
 pub use network::Network;
 pub use range::RangeOpen;
+pub use signer::{JwkSigner, Signer};
 pub use stream_id::{StreamId, StreamIdType};
 
 pub use cid::Cid;
@@ -26,7 +28,6 @@ pub use ssi::did::Document as DidDocument;
 use base64::Engine;
 use multibase::Base;
 use serde::{Deserialize, Serialize};
-use std::fmt::Formatter;
 
 macro_rules! impl_multi_base {
     ($typname:ident, $base:expr) => {
@@ -99,7 +100,7 @@ impl DagCborEncoded {
 }
 
 impl std::fmt::Display for DagCborEncoded {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = multibase::encode(Base::Base64, &self.0);
         write!(f, "{}", s)
     }
@@ -119,6 +120,12 @@ impl Base64String {
     pub fn to_vec(&self) -> anyhow::Result<Vec<u8>> {
         let v = base64::engine::general_purpose::STANDARD_NO_PAD.decode(&self.0)?;
         Ok(v)
+    }
+}
+
+impl std::fmt::Display for Base64String {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 
@@ -161,6 +168,12 @@ impl Base64UrlString {
     pub fn to_vec(&self) -> anyhow::Result<Vec<u8>> {
         let v = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(&self.0)?;
         Ok(v)
+    }
+}
+
+impl std::fmt::Display for Base64UrlString {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 

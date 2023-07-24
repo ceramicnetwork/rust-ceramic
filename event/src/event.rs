@@ -1,7 +1,6 @@
 use crate::args::UnsignedEvent;
-use crate::DidDocument;
 use anyhow::Result;
-use ceramic_core::{Cid, DagCborEncoded, Jwk, Jws};
+use ceramic_core::{Cid, DagCborEncoded, Jws, Signer};
 use multihash::{Code, MultihashDigest};
 use serde::Serialize;
 
@@ -22,13 +21,12 @@ impl Event {
     /// Create a new event from an unsigned event, signer, and jwk
     pub async fn new<'a, T: Serialize>(
         unsigned: &'a UnsignedEvent<'a, T>,
-        signer: &'a DidDocument,
-        jwk: &'a Jwk,
+        signer: &impl Signer,
     ) -> Result<Self> {
         // encode our event with dag cbor, hashing that to create cid
         let linked_block = DagCborEncoded::new(&unsigned)?;
         let cid = Cid::new_v1(DAG_CBOR_CODEC, Code::Sha2_256.digest(linked_block.as_ref()));
-        let jws = Jws::new(jwk, signer, &cid)?;
+        let jws = Jws::for_cid(signer, &cid).await?;
         Ok(Self {
             cid,
             linked_block,
@@ -43,6 +41,7 @@ mod tests {
 
     use crate::{DidDocument, EventArgs, StreamId};
 
+    use ceramic_core::JwkSigner;
     use expect_test::expect;
     use libipld::{cbor::DagCborCodec, json::DagJsonCodec, prelude::Codec, Ipld};
     use std::str::FromStr;
@@ -61,6 +60,15 @@ mod tests {
         serde_json::to_string_pretty(&json).unwrap()
     }
 
+    async fn signer() -> JwkSigner {
+        JwkSigner::new(
+            DidDocument::new("did:key:z6Mkk3rtfoKDMMG4zyarNGwCQs44GSQ49pcYKQspHJPXSnVw"),
+            "810d51e02cb63066b7d2d2ec67e05e18c29b938412050bdd3c04d878d8001f3c",
+        )
+        .await
+        .unwrap()
+    }
+
     #[test]
     fn should_roundtrip_json_data() {
         let did_str = "some_did";
@@ -76,13 +84,13 @@ mod tests {
         assert_eq!(decoded, data);
     }
 
-    #[test]
-    fn should_dag_json_init_event() {
-        let did = DidDocument::new("did:key:blah");
+    #[tokio::test]
+    async fn should_dag_json_init_event() {
+        let signer = signer().await;
         let model =
             StreamId::from_str("kjzl6kcym7w8y6of44g27v981fuutovbrnlw2ifbf8n26j2t4g5mmm6zc43nx1u")
                 .unwrap();
-        let args = EventArgs::new_with_parent(&did, &model);
+        let args = EventArgs::new_with_parent(&signer, &model);
         let evt = args.init().unwrap();
         let data: Ipld = DagCborCodec.decode(evt.encoded.as_ref()).unwrap();
         let encoded = DagJsonCodec.encode(&data).unwrap();
@@ -90,7 +98,7 @@ mod tests {
             {
               "header": {
                 "controllers": [
-                  "did:key:blah"
+                  "did:key:z6Mkk3rtfoKDMMG4zyarNGwCQs44GSQ49pcYKQspHJPXSnVw"
                 ],
                 "model": {
                   "/": {
@@ -108,23 +116,16 @@ mod tests {
         let mid =
             StreamId::from_str("kjzl6kcym7w8y7nzgytqayf6aro12zt0mm01n6ydjomyvvklcspx9kr6gpbwd09")
                 .unwrap();
-        let did = DidDocument::new("did:key:z6MkeqMVHDo67GE1CDMDXGvFK2eG98Ta2c2WB18m7SVXDb6f");
-        let did_str = &did.id;
+        let signer = signer().await;
         let data = serde_json::json!({
-            "creator": did_str,
+            "creator": signer.id().id,
             "radius": 1,
             "red": 2,
             "green": 3,
             "blue": 4,
         });
-        let args = EventArgs::new_with_parent(&did, &mid);
-        let evt = args
-            .init_with_data(
-                &data,
-                "3224d39677c03d4c3d83d6ede051db0f2c1df16f422ed509731dd6592a906d9c",
-            )
-            .await
-            .unwrap();
+        let args = EventArgs::new_with_parent(&signer, &mid);
+        let evt = args.init_with_data(&data).await.unwrap();
 
         let protected = evt.jws.signatures[0].protected.as_ref().unwrap();
         let protected = protected.to_vec().unwrap();
