@@ -3,7 +3,7 @@ use crate::event::Event;
 use crate::{DidDocument, StreamId};
 
 use anyhow::Result;
-use ceramic_core::{Bytes, Cid, Jwk};
+use ceramic_core::{Bytes, Cid, Signer};
 use once_cell::sync::Lazy;
 use rand::Fill;
 use serde::Serialize;
@@ -17,29 +17,29 @@ pub static PARENT_STREAM_ID: Lazy<StreamId> =
     Lazy::new(|| StreamId::from_str("kh4q0ozorrgaq2mezktnrmdwleo1d").unwrap());
 
 /// Arguments for creating an event
-pub struct EventArgs<'a> {
-    signer: &'a DidDocument,
+pub struct EventArgs<'a, S: Signer> {
+    signer: &'a S,
     controllers: Vec<&'a DidDocument>,
     parent: &'a StreamId,
     sep: &'a str,
 }
 
-impl<'a> EventArgs<'a> {
+impl<'a, S: Signer> EventArgs<'a, S> {
     /// Create a new event args object from a DID document
-    pub fn new(signer: &'a DidDocument) -> Self {
+    pub fn new(signer: &'a S) -> Self {
         Self {
             signer,
-            controllers: vec![signer],
+            controllers: vec![signer.id()],
             parent: &PARENT_STREAM_ID,
             sep: SEP,
         }
     }
 
     /// Create a new event args object from a DID document and a parent stream id
-    pub fn new_with_parent(signer: &'a DidDocument, parent: &'a StreamId) -> Self {
+    pub fn new_with_parent(signer: &'a S, parent: &'a StreamId) -> Self {
         Self {
             signer,
-            controllers: vec![signer],
+            controllers: vec![signer.id()],
             parent,
             sep: SEP,
         }
@@ -58,26 +58,16 @@ impl<'a> EventArgs<'a> {
     }
 
     /// Create an init event from these arguments with data
-    pub async fn init_with_data<T: Serialize>(&self, data: &T, private_key: &str) -> Result<Event> {
-        let jwk = Jwk::new(self.signer).await?;
-        let jwk = jwk.with_private_key(private_key)?;
+    pub async fn init_with_data<T: Serialize>(&self, data: &T) -> Result<Event> {
         let evt = UnsignedEvent::init_with_data(self, data)?;
-        let evt = Event::new(&evt, self.signer, &jwk).await?;
+        let evt = Event::new(&evt, self.signer).await?;
         Ok(evt)
     }
 
     /// Create an update event from these arguments
-    pub async fn update<T: Serialize>(
-        &self,
-        current: &Cid,
-        prev: &Cid,
-        private_key: &str,
-        data: &T,
-    ) -> Result<Event> {
-        let jwk = Jwk::new(self.signer).await?;
-        let jwk = jwk.with_private_key(private_key)?;
+    pub async fn update<T: Serialize>(&self, current: &Cid, prev: &Cid, data: &T) -> Result<Event> {
         let evt = UnsignedEvent::update(self, current, prev, data)?;
-        let evt = Event::new(&evt, self.signer, &jwk).await?;
+        let evt = Event::new(&evt, self.signer).await?;
         Ok(evt)
     }
 
@@ -112,12 +102,12 @@ pub struct UnsignedEvent<'a, T: Serialize> {
 
 impl<'a, T: Serialize> UnsignedEvent<'a, T> {
     /// Initialize a new unsigned event from event arguments
-    pub fn init(args: &'a EventArgs) -> Result<Self> {
+    pub fn init<S: Signer>(args: &'a EventArgs<S>) -> Result<Self> {
         create_unsigned_event(args, CreateArgs::Init)
     }
 
     /// Initialize a new unsigned event from event arguments with data
-    pub fn init_with_data(args: &'a EventArgs, data: &'a T) -> Result<Self> {
+    pub fn init_with_data<S: Signer>(args: &'a EventArgs<S>, data: &'a T) -> Result<Self> {
         let mut rng = rand::thread_rng();
         let mut unique = [0u32; 12];
         unique.try_fill(&mut rng)?;
@@ -131,8 +121,8 @@ impl<'a, T: Serialize> UnsignedEvent<'a, T> {
     }
 
     /// Create an update unsigned event from event arguments
-    pub fn update(
-        args: &'a EventArgs,
+    pub fn update<S: Signer>(
+        args: &'a EventArgs<S>,
         current: &'a Cid,
         prev: &'a Cid,
         data: &'a T,
@@ -161,8 +151,8 @@ enum CreateArgs<'a, T: Serialize> {
     },
 }
 
-fn create_unsigned_event<'a, T: Serialize>(
-    event_args: &'a EventArgs<'a>,
+fn create_unsigned_event<'a, S: Signer, T: Serialize>(
+    event_args: &'a EventArgs<'a, S>,
     create_args: CreateArgs<'a, T>,
 ) -> Result<UnsignedEvent<'a, T>> {
     let controllers: Vec<&str> = event_args
