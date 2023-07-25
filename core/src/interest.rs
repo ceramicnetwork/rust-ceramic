@@ -52,7 +52,7 @@ impl Interest {
         // Skip end
         decoder.items().next();
 
-        Ok(decode_u64(&mut decoder)?)
+        decode_u64(&mut decoder)
     }
 
     /// Return the interest as a slice of bytes.
@@ -61,23 +61,23 @@ impl Interest {
     }
 }
 
-fn decode_bytes<'a>(decoder: &'a mut Decoder<Cursor<Vec<u8>>>) -> Result<Vec<u8>> {
+fn decode_bytes(decoder: &mut Decoder<Cursor<Vec<u8>>>) -> Result<Vec<u8>> {
     if let Some(item) = decoder.items().next() {
         let item = item?;
         match item {
             cbor::Cbor::Bytes(data) => Ok(data.0),
-            item @ _ => Err(anyhow!("expected cbor bytes, found: {:?}", item)),
+            item => Err(anyhow!("expected cbor bytes, found: {:?}", item)),
         }
     } else {
         Err(anyhow!("expected top level cbor value, found nothing"))
     }
 }
-fn decode_u64<'a>(decoder: &'a mut Decoder<Cursor<Vec<u8>>>) -> Result<u64> {
+fn decode_u64(decoder: &mut Decoder<Cursor<Vec<u8>>>) -> Result<u64> {
     if let Some(item) = decoder.items().next() {
         let item = item?;
         match item {
             cbor::Cbor::Unsigned(data) => Ok(data.into_u64()),
-            item @ _ => Err(anyhow!("expected cbor unsigned integer, found: {:?}", item)),
+            item => Err(anyhow!("expected cbor unsigned integer, found: {:?}", item)),
         }
     } else {
         Err(anyhow!("expected top level cbor value, found nothing"))
@@ -153,7 +153,7 @@ impl Builder<Init> {
     }
 }
 impl Builder<WithSortKey> {
-    pub fn with_peer_id(mut self, peer_id: PeerId) -> Builder<WithPeerId> {
+    pub fn with_peer_id(mut self, peer_id: &PeerId) -> Builder<WithPeerId> {
         self.state
             .encoder
             .encode([peer_id.to_bytes()])
@@ -170,7 +170,7 @@ impl Builder<WithPeerId> {
         self.state
             .encoder
             .encode([range.start, range.end])
-            .expect("range should cbor encode");
+            .expect("peer id should cbor encode");
         Builder {
             state: WithRange {
                 encoder: self.state.encoder,
@@ -228,8 +228,8 @@ mod tests {
         let peer_id = PeerId::from_str("1AZtAkWrrQrsXMQuBEcBget2vGAPbdQ2Wn4bESe9QEVypJ").unwrap();
         let interest = Interest::builder()
             .with_sort_key("model")
-            .with_peer_id(peer_id)
-            .with_range(&vec![0, 1, 2]..&vec![0, 1, 9])
+            .with_peer_id(&peer_id)
+            .with_range(&[0, 1, 2]..&[0, 1, 9])
             .with_not_after(0)
             .build();
         expect!["zNKny8dER58V97oWgQS2cb7JCuQtpLjgm3qbobm7QU4N6sUHbX5szR9i8T8RdJgvnEHfTG1gL7FJmgwiTvaCDFiNGbWVjKt6aaX2mP3X38mrdtw8sU9SqJjwRQAT"].assert_eq(&interest.to_string());

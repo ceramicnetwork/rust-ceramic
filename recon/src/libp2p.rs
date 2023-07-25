@@ -406,10 +406,12 @@ pub enum Event {
 }
 
 #[derive(Debug)]
+
+/// Event about a remote peer
 pub struct PeerEvent {
     /// Id of remote peer
-    remote_peer_id: PeerId,
+    pub remote_peer_id: PeerId,
 
-    /// New status of the peer
-    status: PeerStatus,
+    /// Status of the peer
+    pub status: PeerStatus,
 }

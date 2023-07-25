@@ -41,6 +41,7 @@ use crate::{
 
 type ReconInterest = Recon<Interest, Sha256a, BTreeStore<Interest, Sha256a>>;
 type ReconModel = Recon<EventId, Sha256a, BTreeStore<EventId, Sha256a>>;
+type SwarmTest = Swarm<Behaviour<Arc<Mutex<ReconInterest>>, Arc<Mutex<ReconModel>>>>;
 
 fn random_cid() -> Cid {
     let mut data = [0u8; 64];
@@ -49,18 +50,15 @@ fn random_cid() -> Cid {
     Cid::new_v1(0x12, hash)
 }
 
-fn build_swarm(
-    name: &str,
-    config: Config,
-) -> Swarm<Behaviour<Arc<Mutex<ReconInterest>>, Arc<Mutex<ReconModel>>>> {
+fn build_swarm(name: &str, config: Config) -> SwarmTest {
     Swarm::new_ephemeral(|identity| {
         let peer_id = PeerId::from(identity.public());
         Behaviour::new(
             Arc::new(Mutex::new(ReconInterest::new(BTreeStore::from_set(
                 [Interest::builder()
                     .with_sort_key("model")
-                    .with_peer_id(peer_id)
-                    .with_range(&[]..&[0xFF])
+                    .with_peer_id(&peer_id)
+                    .with_range(&[]..&[0xFF; 1024])
                     .with_not_after(100)
                     .build()]
                 .into(),
