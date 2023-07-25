@@ -12,7 +12,7 @@ use tracing::{debug, trace};
 
 use crate::{
     libp2p::{stream_set::StreamSet, Recon},
-    AssociativeHash, Key, Message, Store,
+    AssociativeHash, Key, Message,
 };
 
 #[derive(Serialize, Deserialize)]

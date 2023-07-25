@@ -30,13 +30,19 @@ use ceramic_api_server::{
     models::{self, Event},
     CeramicEventsPostResponse, CeramicSubscribeSortKeySortValueGetResponse,
 };
-use ceramic_core::{EventId, Network, StreamId};
+use ceramic_core::{EventId, Interest, Network, PeerId, StreamId};
 
 /// Builds an SSL implementation for Simple HTTPS from some hard-coded file names
-pub async fn create(network: Network, addr: &str, recon: impl Recon<Key = EventId>) {
+pub async fn create(
+    peer_id: PeerId,
+    network: Network,
+    addr: &str,
+    interest: impl Recon<Key = Interest>,
+    model: impl Recon<Key = EventId>,
+) {
     let addr = addr.parse().expect("Failed to parse bind address");
 
-    let server = Server::new(network, recon);
+    let server = Server::new(peer_id, network, interest, model);
 
     let service = MakeService::new(server);
 
@@ -54,7 +60,7 @@ pub async fn create(network: Network, addr: &str, recon: impl Recon<Key = EventI
 }
 
 pub trait Recon: Clone + Send + Sync {
-    type Key: Key;
+    type Key: Key + Send;
     fn insert(&self, key: &Self::Key) -> Result<()>;
     fn range(
         &self,
@@ -67,7 +73,7 @@ pub trait Recon: Clone + Send + Sync {
 
 impl<K, H, S> Recon for Arc<Mutex<recon::Recon<K, H, S>>>
 where
-    K: Key,
+    K: Key + Send,
     H: AssociativeHash,
     S: Store<Key = K, Hash = H> + Send,
 {
@@ -95,17 +101,25 @@ where
 }
 
 #[derive(Clone)]
-pub struct Server<C, R> {
+pub struct Server<C, IR, MR> {
+    peer_id: PeerId,
     network: Network,
-    recon: R,
+    interest: IR,
+    model: MR,
     marker: PhantomData<C>,
 }
 
-impl<C, R: Recon> Server<C, R> {
-    pub fn new(network: Network, recon: R) -> Self {
+impl<C, IR, MR> Server<C, IR, MR>
+where
+    IR: Recon<Key = Interest>,
+    MR: Recon<Key = EventId>,
+{
+    pub fn new(peer_id: PeerId, network: Network, interest: IR, model: MR) -> Self {
         Server {
+            peer_id,
             network,
-            recon,
+            interest,
+            model,
             marker: PhantomData,
         }
     }
@@ -117,10 +131,11 @@ use std::error::Error;
 use swagger::ApiError;
 
 #[async_trait]
-impl<C, R> Api<C> for Server<C, R>
+impl<C, IR, MR> Api<C> for Server<C, IR, MR>
 where
     C: Send + Sync,
-    R: Recon<Key = EventId> + Sync,
+    IR: Recon<Key = Interest> + Sync,
+    MR: Recon<Key = EventId> + Sync,
 {
     async fn ceramic_events_post(
         &self,
@@ -129,15 +144,15 @@ where
     ) -> Result<CeramicEventsPostResponse, ApiError> {
         debug!(event_id = event.event_id, "ceramic_events_post");
         let event_id = decode_event_id(&event.event_id)?;
-        self.recon
+        self.model
             .insert(&event_id)
-            .map_err(|err| ApiError(format!("failed to insert key: {}", err)))?;
+            .map_err(|err| ApiError(format!("failed to insert key: {err}")))?;
         Ok(CeramicEventsPostResponse::Success)
     }
 
     async fn ceramic_subscribe_sort_key_sort_value_get(
         &self,
-        _sort_key: String,
+        sort_key: String,
         sort_value: String,
         controller: Option<String>,
         stream_id: Option<String>,
@@ -177,7 +192,7 @@ where
         let (start_builder, stop_builder) = if let Some(controller) = controller {
             if let Some(stream_id) = stream_id {
                 let stream_id = StreamId::from_str(&stream_id)
-                    .map_err(|err| ApiError(format!("stream_id: {}", err)))?;
+                    .map_err(|err| ApiError(format!("stream_id: {err}")))?;
                 // We have both controller and stream id
                 (
                     start_builder
@@ -209,9 +224,20 @@ where
         let start = start_builder.with_min_event_height().build_fencepost();
         let stop = stop_builder.with_max_event_height().build_fencepost();
 
+        // Update interest ranges to include this new subscription.
+        let interest = Interest::builder()
+            .with_sort_key(&sort_key)
+            .with_peer_id(&self.peer_id)
+            .with_range(start.as_slice()..stop.as_slice())
+            .with_not_after(0)
+            .build();
+        self.interest
+            .insert(&interest)
+            .map_err(|err| ApiError(format!("failed to update interest: {err}")))?;
+
         debug!(%start, %stop, "subscribe");
         Ok(CeramicSubscribeSortKeySortValueGetResponse::Success(
-            self.recon
+            self.model
                 .range(&start, &stop, offset, limit)
                 .into_iter()
                 .map(|id| Event {
@@ -224,7 +250,7 @@ where
 
 fn decode_event_id(value: &str) -> Result<EventId, ApiError> {
     Ok(multibase::decode(value)
-        .map_err(|err| ApiError(format!("multibase error: {}", err)))?
+        .map_err(|err| ApiError(format!("multibase error: {err}")))?
         .1
         .into())
 }
@@ -242,8 +268,29 @@ mod tests {
 
     struct Context;
     mock! {
-        ReconTest {}
-        impl Recon for ReconTest {
+        ReconInterestTest {}
+        impl Recon for ReconInterestTest
+        {
+            type Key = Interest;
+
+            fn insert(&self, key: &Interest) -> Result<()>;
+
+            fn range(
+                &self,
+                start: &Interest,
+                end: &Interest,
+                offset: usize,
+                limit: usize,
+            ) -> Vec<Interest>;
+        }
+        impl Clone for ReconInterestTest {
+            fn clone(&self) -> Self;
+        }
+    }
+    mock! {
+        ReconModelTest {}
+        impl Recon for ReconModelTest
+        {
             type Key = EventId;
 
             fn insert(&self, key: &EventId) -> Result<()>;
@@ -256,7 +303,7 @@ mod tests {
                 limit: usize,
             ) -> Vec<EventId>;
         }
-        impl Clone for ReconTest {
+        impl Clone for ReconModelTest {
             fn clone(&self) -> Self;
         }
     }
@@ -264,6 +311,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn create_event() {
+        let peer_id = PeerId::random();
         let network = Network::InMemory;
         let event_id = EventId::new(
             &network,
@@ -274,12 +322,14 @@ mod tests {
             &Cid::from_str("baejbeicqtpe5si4qvbffs2s7vtbk5ccbsfg6owmpidfj3zeluqz4hlnz6m").unwrap(),
         );
         let event_id_str = multibase::encode(Base::Base16Lower, event_id.to_bytes());
-        let mut mock = MockReconTest::new();
-        mock.expect_insert()
+        let mock_interest = MockReconInterestTest::new();
+        let mut mock_model = MockReconModelTest::new();
+        mock_model
+            .expect_insert()
             .with(predicate::eq(event_id))
             .times(1)
             .returning(|_| Ok(()));
-        let server = Server::new(network, mock);
+        let server = Server::new(peer_id, network, mock_interest, mock_model);
         let resp = server
             .ceramic_events_post(
                 models::Event {
@@ -294,6 +344,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn subscribe_sort_value() {
+        let peer_id = PeerId::random();
         let network = Network::InMemory;
         let model = "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9";
         // Construct start and end event ids
@@ -334,8 +385,22 @@ mod tests {
             event_id: multibase::encode(multibase::Base::Base16Lower, event_id.as_slice()),
         };
         // Setup mock expectations
-        let mut mock = MockReconTest::new();
-        mock.expect_range()
+        let mut mock_interest = MockReconInterestTest::new();
+        mock_interest
+            .expect_insert()
+            .with(predicate::eq(
+                Interest::builder()
+                    .with_sort_key("model")
+                    .with_peer_id(&peer_id)
+                    .with_range(start.as_slice()..end.as_slice())
+                    .with_not_after(0)
+                    .build(),
+            ))
+            .times(1)
+            .returning(|_| Ok(()));
+        let mut mock_model = MockReconModelTest::new();
+        mock_model
+            .expect_range()
             .with(
                 predicate::eq(start),
                 predicate::eq(end),
@@ -344,7 +409,7 @@ mod tests {
             )
             .times(1)
             .returning(move |_, _, _, _| vec![event_id.clone()]);
-        let server = Server::new(network, mock);
+        let server = Server::new(peer_id, network, mock_interest, mock_model);
         let resp = server
             .ceramic_subscribe_sort_key_sort_value_get(
                 "model".to_string(),
@@ -365,6 +430,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn subscribe_sort_value_controller() {
+        let peer_id = PeerId::random();
         let network = Network::InMemory;
         let model = "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9";
         let controller = "did:key:zGs1Det7LHNeu7DXT4nvoYrPfj3n6g7d6bj2K4AMXEvg1";
@@ -382,8 +448,22 @@ mod tests {
             .with_max_init()
             .with_max_event_height()
             .build_fencepost();
-        let mut mock = MockReconTest::new();
-        mock.expect_range()
+        let mut mock_interest = MockReconInterestTest::new();
+        mock_interest
+            .expect_insert()
+            .with(predicate::eq(
+                Interest::builder()
+                    .with_sort_key("model")
+                    .with_peer_id(&peer_id)
+                    .with_range(start.as_slice()..end.as_slice())
+                    .with_not_after(0)
+                    .build(),
+            ))
+            .times(1)
+            .returning(|_| Ok(()));
+        let mut mock_model = MockReconModelTest::new();
+        mock_model
+            .expect_range()
             .with(
                 predicate::eq(start),
                 predicate::eq(end),
@@ -392,7 +472,7 @@ mod tests {
             )
             .times(1)
             .returning(|_, _, _, _| vec![]);
-        let server = Server::new(network, mock);
+        let server = Server::new(peer_id, network, mock_interest, mock_model);
         let resp = server
             .ceramic_subscribe_sort_key_sort_value_get(
                 "model".to_string(),
@@ -413,6 +493,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn subscribe_sort_value_controller_stream() {
+        let peer_id = PeerId::random();
         let network = Network::InMemory;
         let model = "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9";
         let controller = "did:key:zGs1Det7LHNeu7DXT4nvoYrPfj3n6g7d6bj2K4AMXEvg1";
@@ -433,8 +514,22 @@ mod tests {
             .with_init(&stream.cid)
             .with_max_event_height()
             .build_fencepost();
-        let mut mock = MockReconTest::new();
-        mock.expect_range()
+        let mut mock_interest = MockReconInterestTest::new();
+        mock_interest
+            .expect_insert()
+            .with(predicate::eq(
+                Interest::builder()
+                    .with_sort_key("model")
+                    .with_peer_id(&peer_id)
+                    .with_range(start.as_slice()..end.as_slice())
+                    .with_not_after(0)
+                    .build(),
+            ))
+            .times(1)
+            .returning(|_| Ok(()));
+        let mut mock_model = MockReconModelTest::new();
+        mock_model
+            .expect_range()
             .with(
                 predicate::eq(start),
                 predicate::eq(end),
@@ -443,7 +538,7 @@ mod tests {
             )
             .times(1)
             .returning(|_, _, _, _| vec![]);
-        let server = Server::new(network, mock);
+        let server = Server::new(peer_id, network, mock_interest, mock_model);
         let resp = server
             .ceramic_subscribe_sort_key_sort_value_get(
                 "model".to_string(),
@@ -464,6 +559,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn subscribe_sort_value_controller_stream_offset_limit() {
+        let peer_id = PeerId::random();
         let network = Network::InMemory;
         let model = "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9";
         let controller = "did:key:zGs1Det7LHNeu7DXT4nvoYrPfj3n6g7d6bj2K4AMXEvg1";
@@ -484,8 +580,22 @@ mod tests {
             .with_init(&stream.cid)
             .with_max_event_height()
             .build_fencepost();
-        let mut mock = MockReconTest::new();
-        mock.expect_range()
+        let mut mock_interest = MockReconInterestTest::new();
+        mock_interest
+            .expect_insert()
+            .with(predicate::eq(
+                Interest::builder()
+                    .with_sort_key("model")
+                    .with_peer_id(&peer_id)
+                    .with_range(start.as_slice()..end.as_slice())
+                    .with_not_after(0)
+                    .build(),
+            ))
+            .times(1)
+            .returning(|_| Ok(()));
+        let mut mock_model = MockReconModelTest::new();
+        mock_model
+            .expect_range()
             .with(
                 predicate::eq(start),
                 predicate::eq(end),
@@ -494,7 +604,7 @@ mod tests {
             )
             .times(1)
             .returning(|_, _, _, _| vec![]);
-        let server = Server::new(network, mock);
+        let server = Server::new(peer_id, network, mock_interest, mock_model);
         let resp = server
             .ceramic_subscribe_sort_key_sort_value_get(
                 "model".to_string(),

@@ -6,7 +6,6 @@ mod network;
 mod pubsub;
 
 use std::{
-    collections::BTreeMap,
     path::PathBuf,
     str::FromStr,
     sync::{Arc, Mutex},
@@ -14,7 +13,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
-use ceramic_core::{EventId, Interest};
+use ceramic_core::{EventId, Interest, PeerId};
 use ceramic_kubo_rpc::{dag, IpfsDep, IpfsPath, Multiaddr};
 use ceramic_p2p::Libp2pConfig;
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -23,7 +22,7 @@ use futures_util::future;
 use iroh_metrics::{config::Config as MetricsConfig, MetricsHandle};
 use libipld::json::DagJsonCodec;
 use libp2p::metrics::Recorder;
-use recon::{BTreeStore, Recon, Sha256a, Store};
+use recon::{BTreeStore, Recon, Sha256a};
 use tokio::{task, time::timeout};
 use tracing::{debug, info, warn};
 
@@ -160,6 +159,7 @@ type ReconInterest = Recon<Interest, Sha256a, BTreeStore<Interest, Sha256a>>;
 type ReconModel = Recon<EventId, Sha256a, BTreeStore<EventId, Sha256a>>;
 
 struct Daemon {
+    peer_id: PeerId,
     network: ceramic_core::Network,
     bind_address: String,
     api_bind_address: String,
@@ -246,6 +246,7 @@ impl Daemon {
             .await?;
 
         Ok(Daemon {
+            peer_id: ipfs.peer_id(),
             network,
             bind_address: opts.bind_address,
             api_bind_address: opts.api_bind_address,
@@ -272,8 +273,10 @@ impl Daemon {
         // Start Ceramic API
         let network = self.network.clone();
         tokio::spawn(ceramic_api::start(
+            self.peer_id,
             network,
             api_bind_address,
+            self.recon_interest.clone(),
             self.recon_model.clone(),
         ));
 
