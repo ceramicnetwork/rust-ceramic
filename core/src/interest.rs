@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use cbor::{Decoder, Encoder};
+use cbor::{CborBytes, Decoder, Encoder};
 use cid::multihash::{Hasher, Sha2_256};
 use multibase::Base;
 use serde::{Deserialize, Serialize};
@@ -33,8 +33,11 @@ impl Interest {
     }
 
     /// Report the range value
+    /// TODO do not use Range type as it uses an inclusive lower bound, we want exclusive bounds.
     pub fn range(&self) -> Result<Range<Vec<u8>>> {
         let mut decoder = Decoder::from_bytes(self.0.as_slice());
+        // Skip sort key
+        decoder.items().next();
         // Skip peer_id
         decoder.items().next();
         let start = decode_bytes(&mut decoder)?;
@@ -145,7 +148,7 @@ impl Builder<Init> {
         let mut encoder = Encoder::from_memory();
         encoder
             // Encode last 8 bytes of the sort_key hash
-            .encode([&hash[hash.len() - 8..]])
+            .encode([CborBytes(hash[hash.len() - 8..].to_vec())])
             .expect("sort_key should cbor encode");
         Builder {
             state: WithSortKey { encoder },
@@ -156,7 +159,7 @@ impl Builder<WithSortKey> {
     pub fn with_peer_id(mut self, peer_id: &PeerId) -> Builder<WithPeerId> {
         self.state
             .encoder
-            .encode([peer_id.to_bytes()])
+            .encode([CborBytes(peer_id.to_bytes())])
             .expect("peer id should cbor encode");
         Builder {
             state: WithPeerId {
@@ -169,7 +172,10 @@ impl Builder<WithPeerId> {
     pub fn with_range(mut self, range: Range<&[u8]>) -> Builder<WithRange> {
         self.state
             .encoder
-            .encode([range.start, range.end])
+            .encode([
+                CborBytes(range.start.to_vec()),
+                CborBytes(range.end.to_vec()),
+            ])
             .expect("peer id should cbor encode");
         Builder {
             state: WithRange {
@@ -232,8 +238,33 @@ mod tests {
             .with_range(&[0, 1, 2]..&[0, 1, 9])
             .with_not_after(0)
             .build();
-        expect!["zNKny8dER58V97oWgQS2cb7JCuQtpLjgm3qbobm7QU4N6sUHbX5szR9i8T8RdJgvnEHfTG1gL7FJmgwiTvaCDFiNGbWVjKt6aaX2mP3X38mrdtw8sU9SqJjwRQAT"].assert_eq(&interest.to_string());
+        expect!["z6oybn5exQL8GmN4GWBvRVZx5hbxgPMKwrhU7bsYzgwYJs9ygqJDriYNxfuxXdBHFV1vuURkiWK"]
+            .assert_eq(&interest.to_string());
 
         assert_eq!(interest, Interest::from_str(&interest.to_string()).unwrap());
+    }
+
+    #[test]
+    fn range() {
+        let peer_id = PeerId::from_str("1AZtAkWrrQrsXMQuBEcBget2vGAPbdQ2Wn4bESe9QEVypJ").unwrap();
+        let interest = Interest::builder()
+            .with_sort_key("model")
+            .with_peer_id(&peer_id)
+            .with_range(&[0x00, 0x01, 0x02]..&[0x00, 0x01, 0x09])
+            .with_not_after(0)
+            .build();
+
+        expect![[r#"
+            [
+                0,
+                1,
+                2,
+            ]..[
+                0,
+                1,
+                9,
+            ]
+        "#]]
+        .assert_debug_eq(&interest.range().unwrap());
     }
 }

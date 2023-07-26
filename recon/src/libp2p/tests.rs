@@ -36,12 +36,16 @@ use tracing_test::traced_test;
 
 use crate::{
     libp2p::{stream_set::StreamSet, Behaviour, Config, Event, PeerEvent, PeerStatus},
+    recon::FullInterests,
     BTreeStore, Recon, Sha256a,
 };
 
-type ReconInterest = Recon<Interest, Sha256a, BTreeStore<Interest, Sha256a>>;
-type ReconModel = Recon<EventId, Sha256a, BTreeStore<EventId, Sha256a>>;
-type SwarmTest = Swarm<Behaviour<Arc<Mutex<ReconInterest>>, Arc<Mutex<ReconModel>>>>;
+type ReconInterest =
+    Recon<Interest, Sha256a, BTreeStore<Interest, Sha256a>, FullInterests<Interest>>;
+type ArcReconInterest = Arc<Mutex<ReconInterest>>;
+type ReconModel = Recon<EventId, Sha256a, BTreeStore<EventId, Sha256a>, ArcReconInterest>;
+type ArcReconModel = Arc<Mutex<ReconModel>>;
+type SwarmTest = Swarm<Behaviour<ArcReconInterest, ArcReconModel>>;
 
 fn random_cid() -> Cid {
     let mut data = [0u8; 64];
@@ -53,46 +57,53 @@ fn random_cid() -> Cid {
 fn build_swarm(name: &str, config: Config) -> SwarmTest {
     Swarm::new_ephemeral(|identity| {
         let peer_id = PeerId::from(identity.public());
-        Behaviour::new(
-            Arc::new(Mutex::new(ReconInterest::new(BTreeStore::from_set(
+        let interest = Arc::new(Mutex::new(ReconInterest::new(
+            BTreeStore::from_set(
                 [Interest::builder()
                     .with_sort_key("model")
                     .with_peer_id(&peer_id)
-                    .with_range(&[]..&[0xFF; 1024])
+                    .with_range(&[]..&[0xFF; 1])
                     .with_not_after(100)
                     .build()]
                 .into(),
-            )))),
-            Arc::new(Mutex::new(ReconModel::new(BTreeStore::from_set(
-                [
-                    // Initialize with three events
-                    EventId::new(
-                        &Network::Mainnet,
-                        &format!("{}_model", name),
-                        &format!("{}_controller", name),
-                        &random_cid(),
-                        10,
-                        &random_cid(),
-                    ),
-                    EventId::new(
-                        &Network::Mainnet,
-                        &format!("{}_model", name),
-                        &format!("{}_controller", name),
-                        &random_cid(),
-                        10,
-                        &random_cid(),
-                    ),
-                    EventId::new(
-                        &Network::Mainnet,
-                        &format!("{}_model", name),
-                        &format!("{}_controller", name),
-                        &random_cid(),
-                        10,
-                        &random_cid(),
-                    ),
-                ]
-                .into(),
-            )))),
+            ),
+            FullInterests::default(),
+        )));
+        Behaviour::new(
+            interest.clone(),
+            Arc::new(Mutex::new(ReconModel::new(
+                BTreeStore::from_set(
+                    [
+                        // Initialize with three events
+                        EventId::new(
+                            &Network::Mainnet,
+                            &format!("{}_model", name),
+                            &format!("{}_controller", name),
+                            &random_cid(),
+                            10,
+                            &random_cid(),
+                        ),
+                        EventId::new(
+                            &Network::Mainnet,
+                            &format!("{}_model", name),
+                            &format!("{}_controller", name),
+                            &random_cid(),
+                            10,
+                            &random_cid(),
+                        ),
+                        EventId::new(
+                            &Network::Mainnet,
+                            &format!("{}_model", name),
+                            &format!("{}_controller", name),
+                            &random_cid(),
+                            10,
+                            &random_cid(),
+                        ),
+                    ]
+                    .into(),
+                ),
+                interest,
+            ))),
             config.clone(),
         )
     })

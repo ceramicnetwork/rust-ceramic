@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use futures::{future, Stream, StreamExt, TryFutureExt, TryStreamExt};
 use hyper::server::conn::Http;
 use hyper::service::Service;
-use recon::{AssociativeHash, Key, Store};
+use recon::{AssociativeHash, InterestProvider, Key, Store};
 use std::{future::Future, ops::Range};
 use std::{marker::PhantomData, ops::RangeBounds};
 use std::{net::SocketAddr, ops::Bound};
@@ -71,11 +71,12 @@ pub trait Recon: Clone + Send + Sync {
     ) -> Vec<Self::Key>;
 }
 
-impl<K, H, S> Recon for Arc<Mutex<recon::Recon<K, H, S>>>
+impl<K, H, S, I> Recon for Arc<Mutex<recon::Recon<K, H, S, I>>>
 where
     K: Key + Send,
     H: AssociativeHash,
     S: Store<Key = K, Hash = H> + Send,
+    I: InterestProvider<Key = K> + Send,
 {
     type Key = K;
 

@@ -1262,18 +1262,19 @@ mod tests {
             + serde::Serialize
             + for<'de> serde::Deserialize<'de>
             + Send
+            + Sync
             + 'static,
     {
         type Key = K;
         type Hash = Sha256a;
 
-        fn initial_message(&self) -> recon::Message<Self::Key, Self::Hash> {
+        fn initial_messages(&self) -> Result<Vec<recon::Message<Self::Key, Self::Hash>>> {
             unreachable!()
         }
 
-        fn process_message(
+        fn process_messages(
             &mut self,
-            _msg: &recon::Message<Self::Key, Self::Hash>,
+            _msg: &[recon::Message<Self::Key, Self::Hash>],
         ) -> Result<recon::Response<Self::Key, Self::Hash>> {
             unreachable!()
         }

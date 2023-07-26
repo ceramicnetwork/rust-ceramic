@@ -38,7 +38,7 @@ use crate::{
         handler::{FromBehaviour, FromHandler, Handler},
         stream_set::StreamSet,
     },
-    recon::{Key, Response, Store},
+    recon::{InterestProvider, Key, Response, Store},
     AssociativeHash, Message, Sha256a,
 };
 
@@ -48,7 +48,7 @@ pub const PROTOCOL_NAME_INTEREST: &[u8] = b"/ceramic/recon/0.1.0/interest";
 pub const PROTOCOL_NAME_MODEL: &[u8] = b"/ceramic/recon/0.1.0/model";
 
 /// Defines the Recon API.
-pub trait Recon: Clone + Send + 'static {
+pub trait Recon: Clone + Send + Sync + 'static {
     /// The type of Key to communicate.
     type Key: Key + std::fmt::Debug + Serialize + for<'de> Deserialize<'de> + Send + 'static;
     /// The type of Hash to compute over the keys.
@@ -60,12 +60,12 @@ pub trait Recon: Clone + Send + 'static {
         + 'static;
 
     /// Construct a message to send as the first message.
-    fn initial_message(&self) -> Message<Self::Key, Self::Hash>;
+    fn initial_messages(&self) -> Result<Vec<Message<Self::Key, Self::Hash>>>;
 
     /// Process an incoming message and respond with a message reply.
-    fn process_message(
+    fn process_messages(
         &mut self,
-        msg: &Message<Self::Key, Self::Hash>,
+        msg: &[Message<Self::Key, Self::Hash>],
     ) -> Result<Response<Self::Key, Self::Hash>>;
 
     /// Insert a new key into the key space.
@@ -85,33 +85,35 @@ pub trait Recon: Clone + Send + 'static {
 // NOTE: We use a std::sync::Mutex because we are not doing any async
 // logic within Recon itself, all async logic exists outside its scope.
 // We should use a tokio::sync::Mutex if we introduce any async logic into Recon.
-impl<S, K, H> Recon for Arc<Mutex<crate::recon::Recon<K, H, S>>>
+impl<S, K, H, I> Recon for Arc<Mutex<crate::recon::Recon<K, H, S, I>>>
 where
     K: Key + std::fmt::Debug + Serialize + for<'de> Deserialize<'de> + Send + 'static,
     H: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de> + Send + 'static,
     S: Store<Key = K, Hash = H> + Send + 'static,
+    I: InterestProvider<Key = K> + Send + 'static,
 {
     type Key = K;
     type Hash = H;
+
+    fn initial_messages(&self) -> Result<Vec<Message<Self::Key, Self::Hash>>> {
+        self.lock()
+            .expect("should be able to acquire lock")
+            .initial_messages()
+    }
+
+    fn process_messages(
+        &mut self,
+        messages: &[Message<Self::Key, Self::Hash>],
+    ) -> Result<Response<Self::Key, Self::Hash>> {
+        self.lock()
+            .expect("should be able to acquire lock")
+            .process_messages(messages)
+    }
 
     fn insert(&mut self, key: &Self::Key) -> Result<()> {
         self.lock()
             .expect("should be able to acquire lock")
             .insert(key)
-    }
-    fn initial_message(&self) -> Message<Self::Key, Self::Hash> {
-        self.lock()
-            .expect("should be able to acquire lock")
-            .initial_message()
-    }
-
-    fn process_message(
-        &mut self,
-        msg: &Message<Self::Key, Self::Hash>,
-    ) -> Result<Response<Self::Key, Self::Hash>> {
-        self.lock()
-            .expect("should be able to acquire lock")
-            .process_message(msg)
     }
 
     fn len(&self) -> usize {

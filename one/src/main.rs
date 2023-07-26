@@ -22,7 +22,7 @@ use futures_util::future;
 use iroh_metrics::{config::Config as MetricsConfig, MetricsHandle};
 use libipld::json::DagJsonCodec;
 use libp2p::metrics::Recorder;
-use recon::{BTreeStore, Recon, Sha256a};
+use recon::{BTreeStore, FullInterests, Recon, Sha256a};
 use tokio::{task, time::timeout};
 use tracing::{debug, info, warn};
 
@@ -155,8 +155,12 @@ async fn main() -> Result<()> {
     }
 }
 
-type ReconInterest = Recon<Interest, Sha256a, BTreeStore<Interest, Sha256a>>;
-type ReconModel = Recon<EventId, Sha256a, BTreeStore<EventId, Sha256a>>;
+type ReconInterest =
+    Recon<Interest, Sha256a, BTreeStore<Interest, Sha256a>, FullInterests<Interest>>;
+type ArcReconInterest = Arc<Mutex<ReconInterest>>;
+
+type ReconModel = Recon<EventId, Sha256a, BTreeStore<EventId, Sha256a>, ArcReconInterest>;
+type ArcReconModel = Arc<Mutex<ReconModel>>;
 
 struct Daemon {
     peer_id: PeerId,
@@ -167,8 +171,8 @@ struct Daemon {
     ipfs: Ipfs,
     metrics_handle: MetricsHandle,
     metrics: Arc<Metrics>,
-    recon_interest: Arc<Mutex<ReconInterest>>,
-    recon_model: Arc<Mutex<ReconModel>>,
+    recon_interest: ArcReconInterest,
+    recon_model: ArcReconModel,
 }
 
 impl Daemon {
@@ -229,8 +233,15 @@ impl Daemon {
         debug!(?p2p_config, "using p2p config");
 
         // Construct a recon implementation.
-        let recon_model = Arc::new(Mutex::new(Recon::new(BTreeStore::default())));
-        let recon_interest = Arc::new(Mutex::new(Recon::new(BTreeStore::default())));
+        let recon_interest = Arc::new(Mutex::new(Recon::new(
+            BTreeStore::default(),
+            FullInterests::default(),
+        )));
+        let recon_model = Arc::new(Mutex::new(Recon::new(
+            BTreeStore::default(),
+            // Use recon_interest as the InterestProvider for recon_model
+            recon_interest.clone(),
+        )));
 
         let ipfs = Ipfs::builder()
             .with_store(dir.join("store"))
