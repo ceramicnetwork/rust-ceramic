@@ -229,7 +229,7 @@ where
         let interest = Interest::builder()
             .with_sort_key(&sort_key)
             .with_peer_id(&self.peer_id)
-            .with_range(start.as_slice()..stop.as_slice())
+            .with_range((start.as_slice(), stop.as_slice()))
             .with_not_after(0)
             .build();
         self.interest
@@ -393,7 +393,7 @@ mod tests {
                 Interest::builder()
                     .with_sort_key("model")
                     .with_peer_id(&peer_id)
-                    .with_range(start.as_slice()..end.as_slice())
+                    .with_range((start.as_slice(), end.as_slice()))
                     .with_not_after(0)
                     .build(),
             ))
@@ -456,7 +456,7 @@ mod tests {
                 Interest::builder()
                     .with_sort_key("model")
                     .with_peer_id(&peer_id)
-                    .with_range(start.as_slice()..end.as_slice())
+                    .with_range((start.as_slice(), end.as_slice()))
                     .with_not_after(0)
                     .build(),
             ))
@@ -522,7 +522,7 @@ mod tests {
                 Interest::builder()
                     .with_sort_key("model")
                     .with_peer_id(&peer_id)
-                    .with_range(start.as_slice()..end.as_slice())
+                    .with_range((start.as_slice(), end.as_slice()))
                     .with_not_after(0)
                     .build(),
             ))
@@ -588,7 +588,7 @@ mod tests {
                 Interest::builder()
                     .with_sort_key("model")
                     .with_peer_id(&peer_id)
-                    .with_range(start.as_slice()..end.as_slice())
+                    .with_range((start.as_slice(), end.as_slice()))
                     .with_not_after(0)
                     .build(),
             ))

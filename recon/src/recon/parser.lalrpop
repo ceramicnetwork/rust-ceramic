@@ -1,5 +1,5 @@
 use super::*;
-use ceramic_core::Bytes;
+use ceramic_core::{Bytes,RangeOpen};
 use lalrpop_util::ParseError;
 
 grammar;
@@ -29,8 +29,8 @@ Interests: FixedInterests = {
     }
 };
 
-Interest: (Bytes,Bytes) = {
-    "(" <start:Word> "," <end:Word> ")" => (Bytes::from(start), Bytes::from(end))
+Interest: RangeOpen<Bytes> = {
+    "(" <start:Word> "," <end:Word> ")" => (Bytes::from(start), Bytes::from(end)).into()
 };
 
 Set: Set = {

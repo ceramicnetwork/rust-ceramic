@@ -62,7 +62,7 @@ fn build_swarm(name: &str, config: Config) -> SwarmTest {
                 [Interest::builder()
                     .with_sort_key("model")
                     .with_peer_id(&peer_id)
-                    .with_range(&[]..&[0xFF; 1])
+                    .with_range((&[][..], &[0xFF; 1][..]))
                     .with_not_after(100)
                     .build()]
                 .into(),

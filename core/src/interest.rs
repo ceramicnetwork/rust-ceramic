@@ -3,9 +3,11 @@ use cbor::{CborBytes, Decoder, Encoder};
 use cid::multihash::{Hasher, Sha2_256};
 use multibase::Base;
 use serde::{Deserialize, Serialize};
-use std::{fmt::Display, io::Cursor, ops::Range, str::FromStr};
+use std::{fmt::Display, io::Cursor, str::FromStr};
 
 pub use libp2p_identity::PeerId;
+
+use crate::RangeOpen;
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Serialize, Deserialize)]
 /// Interest declares an interest in a keyspace for a given peer.
@@ -33,8 +35,7 @@ impl Interest {
     }
 
     /// Report the range value
-    /// TODO do not use Range type as it uses an inclusive lower bound, we want exclusive bounds.
-    pub fn range(&self) -> Result<Range<Vec<u8>>> {
+    pub fn range(&self) -> Result<RangeOpen<Vec<u8>>> {
         let mut decoder = Decoder::from_bytes(self.0.as_slice());
         // Skip sort key
         decoder.items().next();
@@ -42,7 +43,7 @@ impl Interest {
         decoder.items().next();
         let start = decode_bytes(&mut decoder)?;
         let end = decode_bytes(&mut decoder)?;
-        Ok(Range { start, end })
+        Ok(RangeOpen { start, end })
     }
 
     /// Report the not after value
@@ -169,7 +170,8 @@ impl Builder<WithSortKey> {
     }
 }
 impl Builder<WithPeerId> {
-    pub fn with_range(mut self, range: Range<&[u8]>) -> Builder<WithRange> {
+    pub fn with_range<'a>(mut self, range: impl Into<RangeOpen<&'a [u8]>>) -> Builder<WithRange> {
+        let range = range.into();
         self.state
             .encoder
             .encode([
@@ -235,7 +237,7 @@ mod tests {
         let interest = Interest::builder()
             .with_sort_key("model")
             .with_peer_id(&peer_id)
-            .with_range(&[0, 1, 2]..&[0, 1, 9])
+            .with_range((&[0, 1, 2][..], &[0, 1, 9][..]))
             .with_not_after(0)
             .build();
         expect!["z6oybn5exQL8GmN4GWBvRVZx5hbxgPMKwrhU7bsYzgwYJs9ygqJDriYNxfuxXdBHFV1vuURkiWK"]
@@ -250,20 +252,23 @@ mod tests {
         let interest = Interest::builder()
             .with_sort_key("model")
             .with_peer_id(&peer_id)
-            .with_range(&[0x00, 0x01, 0x02]..&[0x00, 0x01, 0x09])
+            .with_range((&[0x00, 0x01, 0x02][..], &[0x00, 0x01, 0x09][..]))
             .with_not_after(0)
             .build();
 
         expect![[r#"
-            [
-                0,
-                1,
-                2,
-            ]..[
-                0,
-                1,
-                9,
-            ]
+            RangeOpen {
+                start: [
+                    0,
+                    1,
+                    2,
+                ],
+                end: [
+                    0,
+                    1,
+                    9,
+                ],
+            }
         "#]]
         .assert_debug_eq(&interest.range().unwrap());
     }
