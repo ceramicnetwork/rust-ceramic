@@ -31,19 +31,19 @@ futures = "0.3"
 futures-util = "0.3"
 git-version = "0.3.5"
 hex = "0.4.3"
-iroh-bitswap = { git = "https://github.com/nathanielc/beetle", branch = "remove-p2p" }
-iroh-metrics = { git = "https://github.com/nathanielc/beetle", branch = "remove-p2p" }
-iroh-rpc-client = { git = "https://github.com/nathanielc/beetle", branch = "remove-p2p" }
-iroh-rpc-types = { git = "https://github.com/nathanielc/beetle", branch = "remove-p2p" }
-iroh-store = { git = "https://github.com/nathanielc/beetle", branch = "remove-p2p" }
-iroh-util = { git = "https://github.com/nathanielc/beetle", branch = "remove-p2p" }
+iroh-bitswap = { git = "https://github.com/3box/beetle", branch = "main" }
+iroh-metrics = { git = "https://github.com/3box/beetle", branch = "main" }
+iroh-rpc-client = { git = "https://github.com/3box/beetle", branch = "main" }
+iroh-rpc-types = { git = "https://github.com/3box/beetle", branch = "main" }
+iroh-store = { git = "https://github.com/3box/beetle", branch = "main" }
+iroh-util = { git = "https://github.com/3box/beetle", branch = "main" }
 lazy_static = "1.4"
-libipld = "0.15"                                                                          # use same version as Iroh
-libp2p = { version = "0.51", default-features = false }                                   # use same version as Iroh
+libipld = "0.15"                                                                 # use same version as Iroh
+libp2p = { version = "0.51", default-features = false }                          # use same version as Iroh
 libp2p-identity = { version = "0.1.2", features = ["ed25519"] }
-libp2p-tls = { version = "0.1.0", default-features = false }                              # use explicit version of dep to avoid conflict
+libp2p-tls = { version = "0.1.0", default-features = false }                     # use explicit version of dep to avoid conflict
 lru = "0.8"
-multiaddr = "0.17"                                                                        # use same version as Iroh
+multiaddr = "0.17"                                                               # use same version as Iroh
 multibase = "0.9"
 multihash = "0.17"
 names = { version = "0.14.0", default-features = false }

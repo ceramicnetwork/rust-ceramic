@@ -3845,7 +3845,7 @@ dependencies = [
 [[package]]
 name = "iroh-bitswap"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=remove-p2p#98bd3a26143bfb33a04656462c03b1d7179d9b13"
+source = "git+https://github.com/3box/beetle?branch=main#0b6f98fba6547c87b187d888cb7e02a946736e76"
 dependencies = [
  "ahash 0.8.3",
  "anyhow",
@@ -3884,7 +3884,7 @@ dependencies = [
 [[package]]
 name = "iroh-metrics"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=remove-p2p#98bd3a26143bfb33a04656462c03b1d7179d9b13"
+source = "git+https://github.com/3box/beetle?branch=main#0b6f98fba6547c87b187d888cb7e02a946736e76"
 dependencies = [
  "async-trait",
  "config",
@@ -3907,7 +3907,7 @@ dependencies = [
 [[package]]
 name = "iroh-rpc-client"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=remove-p2p#98bd3a26143bfb33a04656462c03b1d7179d9b13"
+source = "git+https://github.com/3box/beetle?branch=main#0b6f98fba6547c87b187d888cb7e02a946736e76"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -3930,7 +3930,7 @@ dependencies = [
 [[package]]
 name = "iroh-rpc-types"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=remove-p2p#98bd3a26143bfb33a04656462c03b1d7179d9b13"
+source = "git+https://github.com/3box/beetle?branch=main#0b6f98fba6547c87b187d888cb7e02a946736e76"
 dependencies = [
  "anyhow",
  "bytes 1.4.0",
@@ -3948,7 +3948,7 @@ dependencies = [
 [[package]]
 name = "iroh-store"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=remove-p2p#98bd3a26143bfb33a04656462c03b1d7179d9b13"
+source = "git+https://github.com/3box/beetle?branch=main#0b6f98fba6547c87b187d888cb7e02a946736e76"
 dependencies = [
  "ahash 0.8.3",
  "anyhow",
@@ -3982,7 +3982,7 @@ dependencies = [
 [[package]]
 name = "iroh-util"
 version = "0.2.0"
-source = "git+https://github.com/nathanielc/beetle?branch=remove-p2p#98bd3a26143bfb33a04656462c03b1d7179d9b13"
+source = "git+https://github.com/3box/beetle?branch=main#0b6f98fba6547c87b187d888cb7e02a946736e76"
 dependencies = [
  "anyhow",
  "cid 0.9.0",
