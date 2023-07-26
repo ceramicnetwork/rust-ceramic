@@ -42,7 +42,7 @@ libipld = "0.15"                                                                
 libp2p = { version = "0.51", default-features = false }                          # use same version as Iroh
 libp2p-identity = { version = "0.1.2", features = ["ed25519"] }
 libp2p-tls = { version = "0.1.0", default-features = false }                     # use explicit version of dep to avoid conflict
-lru = "0.8"
+lru = "0.10"
 multiaddr = "0.17"                                                               # use same version as Iroh
 multibase = "0.9"
 multihash = "0.17"
