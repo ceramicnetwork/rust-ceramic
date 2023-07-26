@@ -24,7 +24,8 @@ serde_json.workspace = true
 serde_ipld_dagcbor.workspace = true
 ssi.workspace = true
 unsigned-varint.workspace = true
-cbor = "0.4.1"
+minicbor.workspace = true
+
 serde_bytes = "0.11.11"
 
 [dev-dependencies]

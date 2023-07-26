@@ -15,7 +15,6 @@
 //!   hash bytes, 32 bytes
 #![warn(missing_docs, missing_debug_implementations, clippy::all)]
 
-use cbor::Encoder;
 use cid::{
     multihash::{Hasher, Sha2_256},
     Cid,
@@ -336,10 +335,9 @@ impl Builder<WithInit> {
         }
     }
     pub fn with_event_height(mut self, event_height: u64) -> Builder<WithEventHeight> {
-        let mut event_height_cbor = Encoder::from_memory();
-        event_height_cbor.encode([event_height]).unwrap();
+        let event_height_cbor = minicbor::to_vec(event_height).unwrap();
         // event_height cbor unsigned int
-        self.state.bytes.extend(event_height_cbor.as_bytes());
+        self.state.bytes.extend(event_height_cbor);
         Builder {
             state: WithEventHeight {
                 bytes: self.state.bytes,
