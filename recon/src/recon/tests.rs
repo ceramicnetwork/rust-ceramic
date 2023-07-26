@@ -18,7 +18,10 @@ use expect_test::{expect, Expect};
 use lalrpop_util::ParseError;
 use pretty::{Arena, DocAllocator, DocBuilder, Pretty};
 
-use crate::{AssociativeHash, BTreeStore, Key, Message, Recon, Sha256a, Store};
+use crate::{
+    recon::{FullInterests, InterestProvider},
+    AssociativeHash, BTreeStore, Key, Message, Recon, Sha256a, Store,
+};
 
 type Set = BTreeSet<Bytes>;
 
@@ -29,8 +32,8 @@ impl Key for Bytes {
 
     fn max_value() -> Self {
         // We need a value that sorts greater than any other byte slice.
-        // As this is test specific code we can use a sufficiently large 0xFF byte array.
-        [0xFF; 1024].as_slice().into()
+        // As this is test specific code that only uses UTF-8 we can use a 0xFF byte array.
+        [0xFF; 1].as_slice().into()
     }
 
     fn as_bytes(&self) -> &[u8] {
@@ -71,6 +74,27 @@ impl AssociativeHash for MemoryAHash {
 impl From<Message<Bytes, MemoryAHash>> for MessageData {
     fn from(value: Message<Bytes, MemoryAHash>) -> Self {
         Self {
+            // Treat min/max values as None
+            start: value
+                .start
+                .map(|start| {
+                    if start == Bytes::min_value() {
+                        None
+                    } else {
+                        Some(start.to_string())
+                    }
+                })
+                .unwrap_or_default(),
+            end: value
+                .end
+                .map(|end| {
+                    if end == Bytes::max_value() {
+                        None
+                    } else {
+                        Some(end.to_string())
+                    }
+                })
+                .unwrap_or_default(),
             keys: value.keys.iter().map(|key| key.to_string()).collect(),
             ahashs: value.hashes.into_iter().map(|h| h.set).collect(),
         }
@@ -78,15 +102,35 @@ impl From<Message<Bytes, MemoryAHash>> for MessageData {
 }
 
 /// Recon type that uses Bytes for a Key and MemoryAHash for the Hash
-pub type ReconMemoryBytes = Recon<Bytes, MemoryAHash, BTreeStore<Bytes, MemoryAHash>>;
+pub type ReconMemoryBytes<I> = Recon<Bytes, MemoryAHash, BTreeStore<Bytes, MemoryAHash>, I>;
 
 /// Recon type that uses Bytes for a Key and Sha256a for the Hash
-pub type ReconBytes = Recon<Bytes, Sha256a, BTreeStore<Bytes, Sha256a>>;
+pub type ReconBytes = Recon<Bytes, Sha256a, BTreeStore<Bytes, Sha256a>, FullInterests<Bytes>>;
+
+/// Implement InterestProvider for a fixed set of interests.
+#[derive(Debug, PartialEq)]
+pub struct FixedInterests(Vec<(Bytes, Bytes)>);
+
+impl FixedInterests {
+    pub fn full() -> Self {
+        Self(vec![(Bytes::min_value(), Bytes::max_value())])
+    }
+    pub fn is_full(&self) -> bool {
+        self == &Self::full()
+    }
+}
+impl InterestProvider for FixedInterests {
+    type Key = Bytes;
+
+    fn interests(&self) -> anyhow::Result<Vec<(Self::Key, Self::Key)>> {
+        Ok(self.0.clone())
+    }
+}
 
 #[derive(Debug)]
 pub struct Record {
-    cat: ReconMemoryBytes,
-    dog: ReconMemoryBytes,
+    cat: ReconMemoryBytes<FixedInterests>,
+    dog: ReconMemoryBytes<FixedInterests>,
     iterations: Vec<Iteration>,
 }
 
@@ -97,24 +141,48 @@ where
     D::Doc: Clone,
 {
     fn pretty(self, allocator: &'a D) -> DocBuilder<'a, D, A> {
-        let peer = |name, set: Vec<&Bytes>| {
+        let peer = |name, recon: &ReconMemoryBytes<FixedInterests>| {
             let separator = allocator.text(",").append(allocator.softline_());
-            allocator.text(name).append(allocator.text(": ")).append(
-                allocator
-                    .intersperse(
-                        set.iter().map(|data| allocator.text(data.to_string())),
-                        separator,
-                    )
-                    .brackets(),
-            )
+            let interests = if !recon.interests.is_full() {
+                allocator.softline().append(
+                    allocator
+                        .intersperse(
+                            recon.interests().unwrap().iter().map(|(start, end)| {
+                                allocator
+                                    .text(start.to_string())
+                                    .append(separator.clone())
+                                    .append(allocator.text(end.to_string()))
+                                    .parens()
+                            }),
+                            separator.clone(),
+                        )
+                        .enclose("<", ">")
+                        .append(allocator.softline()),
+                )
+            } else {
+                allocator.softline()
+            };
+            let set: Vec<&Bytes> = recon.full_range().collect();
+            allocator
+                .text(name)
+                .append(allocator.text(":"))
+                .append(interests)
+                .append(
+                    allocator
+                        .intersperse(
+                            set.iter().map(|data| allocator.text(data.to_string())),
+                            separator,
+                        )
+                        .brackets(),
+                )
         };
 
         allocator
             .nil()
-            .append(peer("cat", self.cat.full_range().collect()))
+            .append(peer("cat", &self.cat))
             .group()
             .append(allocator.hardline())
-            .append(peer("dog", self.dog.full_range().collect()))
+            .append(peer("dog", &self.dog))
             .group()
             .append(allocator.hardline())
             .append(allocator.intersperse(self.iterations.iter(), allocator.hardline()))
@@ -133,6 +201,8 @@ impl Display for Record {
 
 #[derive(Debug, Clone)]
 pub struct MessageData {
+    pub start: Option<String>,
+    pub end: Option<String>,
     pub keys: Vec<String>, // keys must be 1 longer then ahashs unless both are empty
     pub ahashs: Vec<Set>,  // ahashs must be 1 shorter then keys
 }
@@ -143,6 +213,8 @@ where
 {
     fn from(value: MessageData) -> Self {
         Self {
+            start: value.start.map(Bytes::from),
+            end: value.end.map(Bytes::from),
             keys: value.keys.iter().map(Bytes::from).collect(),
             hashes: value
                 .ahashs
@@ -158,7 +230,7 @@ where
 #[derive(Debug)]
 pub struct Iteration {
     dir: Direction,
-    msg: MessageData,
+    messages: Vec<MessageData>,
     set: Set,
 }
 
@@ -177,31 +249,8 @@ where
             Direction::CatToDog => allocator.text("-> "),
             Direction::DogToCat => allocator.text("<- "),
         };
-        // Construct doc for msg
-        let mut msg = allocator.nil();
-        let l = self.msg.keys.len();
-        for i in 0..l {
-            msg = msg.append(allocator.text(self.msg.keys[i].as_str()));
-            if i < l - 1 {
-                msg = msg.append(space_sep.clone());
-                if self.msg.ahashs[i].is_empty() {
-                    msg = msg.append(allocator.text("0")).append(space_sep.clone());
-                } else {
-                    msg = msg
-                        .append(allocator.text("h("))
-                        .append(
-                            allocator.intersperse(
-                                self.msg.ahashs[i]
-                                    .iter()
-                                    .map(|s| allocator.text(s.to_string())),
-                                no_space_sep.clone(),
-                            ),
-                        )
-                        .append(allocator.text(")"))
-                        .append(space_sep.clone());
-                }
-            }
-        }
+        let messages = allocator.intersperse(self.messages.iter(), space_sep);
+
         // Construct doc for set
         let set = allocator.intersperse(
             self.set.iter().map(|s| allocator.text(s.to_string())),
@@ -209,10 +258,57 @@ where
         );
 
         // Put it all together
-        dir.append(msg.parens())
+        dir.append(messages)
             .append(allocator.softline())
             .append(set.brackets())
             .hang(4)
+    }
+}
+
+impl<'a, D, A> Pretty<'a, D, A> for &'a MessageData
+where
+    A: 'a + Clone,
+    D: DocAllocator<'a, A>,
+    D::Doc: Clone,
+{
+    fn pretty(self, allocator: &'a D) -> DocBuilder<'a, D, A> {
+        let space_sep = allocator.text(",").append(allocator.softline());
+        let no_space_sep = allocator.text(",");
+        // Construct doc for msg
+        let mut msg = allocator.nil();
+        if let Some(start) = &self.start {
+            msg = msg
+                .append(allocator.text("<"))
+                .append(start)
+                .append(space_sep.clone());
+        }
+        let l = self.keys.len();
+        for i in 0..l {
+            msg = msg.append(allocator.text(self.keys[i].as_str()));
+            if i < l - 1 {
+                msg = msg.append(space_sep.clone());
+                if self.ahashs[i].is_empty() {
+                    msg = msg.append(allocator.text("0")).append(space_sep.clone());
+                } else {
+                    msg = msg
+                        .append(allocator.text("h("))
+                        .append(allocator.intersperse(
+                            self.ahashs[i].iter().map(|s| allocator.text(s.to_string())),
+                            no_space_sep.clone(),
+                        ))
+                        .append(allocator.text(")"))
+                        .append(space_sep.clone());
+                }
+            }
+        }
+        if let Some(end) = &self.end {
+            if l > 0 {
+                msg = msg.append(space_sep);
+            }
+            msg = msg.append(end).append(allocator.text(">"));
+        }
+
+        msg.parens()
     }
 }
 
@@ -226,6 +322,8 @@ pub enum Direction {
 pub enum MessageItem {
     Key(String),
     Hash(Set),
+    Start(String),
+    End(String),
 }
 
 // Help implementation to construct a message from parsed [`MessageItem`]
@@ -233,32 +331,46 @@ impl TryFrom<(Option<MessageItem>, Vec<MessageItem>)> for MessageData {
     type Error = &'static str;
 
     fn try_from(value: (Option<MessageItem>, Vec<MessageItem>)) -> Result<Self, Self::Error> {
+        let mut start = None;
+        let mut end = None;
         let mut keys = Vec::new();
         let mut ahashs = Vec::new();
         match value.0 {
+            Some(MessageItem::Start(k)) => start = Some(k),
             Some(MessageItem::Key(k)) => keys.push(k),
             Some(MessageItem::Hash(_)) => return Err("message cannot begin with a hash"),
+            Some(MessageItem::End(_)) => return Err("message cannot begin with an end bound"),
             None => {}
         };
         for item in value.1 {
+            if end.is_some() {
+                return Err("end bound must be the final message item");
+            }
             match item {
                 MessageItem::Key(k) => keys.push(k),
                 MessageItem::Hash(set) => {
                     ahashs.push(set);
                 }
+                MessageItem::Start(_) => return Err("start bound must start the message"),
+                MessageItem::End(k) => end = Some(k),
             }
         }
         if !keys.is_empty() && keys.len() - 1 != ahashs.len() {
             return Err("invalid message, unmatched keys and hashes");
         }
-        Ok(MessageData { keys, ahashs })
+        Ok(MessageData {
+            start,
+            end,
+            keys,
+            ahashs,
+        })
     }
 }
 
 #[test]
 fn word_lists() {
     fn recon_from_string(s: &str) -> ReconBytes {
-        let mut r = ReconBytes::new(BTreeStore::default());
+        let mut r = ReconBytes::new(BTreeStore::default(), FullInterests::default());
         for key in s.split([' ', '\n']).map(|s| s.to_string()) {
             if !s.is_empty() {
                 r.insert(&key.as_bytes().into()).unwrap();
@@ -296,7 +408,8 @@ fn word_lists() {
         )
     }
 
-    let mut local = ReconBytes::new(BTreeStore::default());
+    // We are using a FullInterest so we can assume there is only ever one message per exchange.
+    let mut local = ReconBytes::new(BTreeStore::default(), FullInterests::default());
     fn sync(local: &mut ReconBytes, peers: &mut [ReconBytes]) {
         for j in 0..3 {
             for (i, peer) in peers.iter_mut().enumerate() {
@@ -307,35 +420,35 @@ fn word_lists() {
                     local.store.len(),
                     peer.store.len()
                 );
-                let mut next = local.initial_message();
+                let mut next = local.initial_messages().unwrap();
                 for k in 0..50 {
                     println!(
                         "\t{}: -> {}[{}]",
                         k,
-                        if next.keys.len() < 10 {
-                            format!("{}", next)
+                        if next[0].keys.len() < 10 {
+                            format!("{}", next[0])
                         } else {
-                            format!("({})", next.keys.len())
+                            format!("({})", next[0].keys.len())
                         },
                         local.store.len()
                     );
 
-                    let response = peer.process_message(&next).unwrap();
+                    let response = peer.process_messages(&next).unwrap();
 
                     println!(
                         "\t{}: <- {}[{}]",
                         k,
-                        if response.msg.keys.len() < 10 {
-                            format!("{}", response.msg)
+                        if response.messages[0].keys.len() < 10 {
+                            format!("{}", response.messages[0])
                         } else {
-                            format!("({})", response.msg.keys.len())
+                            format!("({})", response.messages[0].keys.len())
                         },
                         peer.store.len(),
                     );
 
-                    next = local.process_message(&response.msg).unwrap().msg;
+                    next = local.process_messages(&response.messages).unwrap().messages;
 
-                    if response.msg.keys.len() < 3 && next.keys.len() < 3 {
+                    if response.messages[0].keys.len() < 3 && next[0].keys.len() < 3 {
                         println!("\tpeers[{}] in sync", i);
                         break;
                     }
@@ -369,54 +482,66 @@ fn word_lists() {
     "#]]
     .assert_debug_eq(
         &local
-            .initial_message()
-            .keys
+            .initial_messages()
+            .unwrap()
             .iter()
-            .map(|k| k.to_string())
+            .flat_map(|msg| msg.keys.iter().map(|k| k.to_string()))
             .collect::<Vec<String>>(),
     );
     expect![["13BA255FBD4C2566CB2564EFA0C1782ABA61604AC07A8789D1DF9E391D73584E"]]
-        .assert_eq(&local.initial_message().hashes[0].to_hex());
+        .assert_eq(&local.initial_messages().unwrap()[0].hashes[0].to_hex());
 
     local.insert(&b"ceramic".as_slice().into()).unwrap();
     sync(&mut local, &mut peers);
 }
 #[test]
 fn response_is_synchronized() {
-    let mut a = ReconMemoryBytes::new(BTreeStore::from_set(BTreeSet::from_iter([
-        Bytes::from("a"),
-        Bytes::from("b"),
-        Bytes::from("c"),
-        Bytes::from("n"),
-    ])));
-    let mut x = ReconMemoryBytes::new(BTreeStore::from_set(BTreeSet::from_iter([
-        Bytes::from("x"),
-        Bytes::from("y"),
-        Bytes::from("z"),
-        Bytes::from("n"),
-    ])));
-    let response = x.process_message(&a.initial_message()).unwrap();
+    let mut a = ReconMemoryBytes::new(
+        BTreeStore::from_set(BTreeSet::from_iter([
+            Bytes::from("a"),
+            Bytes::from("b"),
+            Bytes::from("c"),
+            Bytes::from("n"),
+        ])),
+        FullInterests::default(),
+    );
+    let mut x = ReconMemoryBytes::new(
+        BTreeStore::from_set(BTreeSet::from_iter([
+            Bytes::from("x"),
+            Bytes::from("y"),
+            Bytes::from("z"),
+            Bytes::from("n"),
+        ])),
+        FullInterests::default(),
+    );
+    let response = x.process_messages(&a.initial_messages().unwrap()).unwrap();
     assert!(!response.is_synchronized);
-    let response = a.process_message(&response.msg).unwrap();
+    let response = a.process_messages(&response.messages).unwrap();
     assert!(!response.is_synchronized);
-    let response = x.process_message(&response.msg).unwrap();
+    let response = x.process_messages(&response.messages).unwrap();
     assert!(!response.is_synchronized);
 
     // After this message we should be synchronized
-    let response = a.process_message(&response.msg).unwrap();
+    let response = a.process_messages(&response.messages).unwrap();
     assert!(response.is_synchronized);
-    let response = x.process_message(&response.msg).unwrap();
+    let response = x.process_messages(&response.messages).unwrap();
     assert!(response.is_synchronized);
 }
 
 #[test]
 fn hello() {
-    let other_hash = ReconBytes::new(BTreeStore::from_set(BTreeSet::from_iter([
-        Bytes::from("hello"),
-        Bytes::from("world"),
-    ])));
+    let other_hash = ReconBytes::new(
+        BTreeStore::from_set(BTreeSet::from_iter([
+            Bytes::from("hello"),
+            Bytes::from("world"),
+        ])),
+        FullInterests::default(),
+    );
     expect![[r#"
         Recon {
+            interests: FullInterests(
+                PhantomData<ceramic_core::bytes::Bytes>,
+            ),
             store: BTreeStore {
                 keys: {
                     Bytes(
@@ -493,6 +618,18 @@ fn test_parse_recon() {
     expect![[r#"
         Record {
             cat: Recon {
+                interests: FixedInterests(
+                    [
+                        (
+                            Bytes(
+                                "",
+                            ),
+                            Bytes(
+                                "0xFF",
+                            ),
+                        ),
+                    ],
+                ),
                 store: BTreeStore {
                     keys: {
                         Bytes(
@@ -565,6 +702,18 @@ fn test_parse_recon() {
                 },
             },
             dog: Recon {
+                interests: FixedInterests(
+                    [
+                        (
+                            Bytes(
+                                "",
+                            ),
+                            Bytes(
+                                "0xFF",
+                            ),
+                        ),
+                    ],
+                ),
                 store: BTreeStore {
                     keys: {
                         Bytes(
@@ -639,19 +788,23 @@ fn test_parse_recon() {
             iterations: [
                 Iteration {
                     dir: CatToDog,
-                    msg: MessageData {
-                        keys: [
-                            "a",
-                            "c",
-                        ],
-                        ahashs: [
-                            {
-                                Bytes(
-                                    "b",
-                                ),
-                            },
-                        ],
-                    },
+                    messages: [
+                        MessageData {
+                            start: None,
+                            end: None,
+                            keys: [
+                                "a",
+                                "c",
+                            ],
+                            ahashs: [
+                                {
+                                    Bytes(
+                                        "b",
+                                    ),
+                                },
+                            ],
+                        },
+                    ],
                     set: {
                         Bytes(
                             "a",
@@ -672,24 +825,28 @@ fn test_parse_recon() {
                 },
                 Iteration {
                     dir: DogToCat,
-                    msg: MessageData {
-                        keys: [
-                            "a",
-                            "c",
-                            "g",
-                        ],
-                        ahashs: [
-                            {},
-                            {
-                                Bytes(
-                                    "e",
-                                ),
-                                Bytes(
-                                    "f",
-                                ),
-                            },
-                        ],
-                    },
+                    messages: [
+                        MessageData {
+                            start: None,
+                            end: None,
+                            keys: [
+                                "a",
+                                "c",
+                                "g",
+                            ],
+                            ahashs: [
+                                {},
+                                {
+                                    Bytes(
+                                        "e",
+                                    ),
+                                    Bytes(
+                                        "f",
+                                    ),
+                                },
+                            ],
+                        },
+                    ],
                     set: {
                         Bytes(
                             "a",
@@ -707,19 +864,23 @@ fn test_parse_recon() {
                 },
                 Iteration {
                     dir: CatToDog,
-                    msg: MessageData {
-                        keys: [
-                            "a",
-                            "b",
-                            "c",
-                            "g",
-                        ],
-                        ahashs: [
-                            {},
-                            {},
-                            {},
-                        ],
-                    },
+                    messages: [
+                        MessageData {
+                            start: None,
+                            end: None,
+                            keys: [
+                                "a",
+                                "b",
+                                "c",
+                                "g",
+                            ],
+                            ahashs: [
+                                {},
+                                {},
+                                {},
+                            ],
+                        },
+                    ],
                     set: {
                         Bytes(
                             "a",
@@ -743,25 +904,29 @@ fn test_parse_recon() {
                 },
                 Iteration {
                     dir: DogToCat,
-                    msg: MessageData {
-                        keys: [
-                            "a",
-                            "c",
-                            "e",
-                            "f",
-                            "g",
-                        ],
-                        ahashs: [
-                            {
-                                Bytes(
-                                    "b",
-                                ),
-                            },
-                            {},
-                            {},
-                            {},
-                        ],
-                    },
+                    messages: [
+                        MessageData {
+                            start: None,
+                            end: None,
+                            keys: [
+                                "a",
+                                "c",
+                                "e",
+                                "f",
+                                "g",
+                            ],
+                            ahashs: [
+                                {
+                                    Bytes(
+                                        "b",
+                                    ),
+                                },
+                                {},
+                                {},
+                                {},
+                            ],
+                        },
+                    ],
                     set: {
                         Bytes(
                             "a",
@@ -801,6 +966,18 @@ dog: []
     expect![[r#"
         Record {
             cat: Recon {
+                interests: FixedInterests(
+                    [
+                        (
+                            Bytes(
+                                "",
+                            ),
+                            Bytes(
+                                "0xFF",
+                            ),
+                        ),
+                    ],
+                ),
                 store: BTreeStore {
                     keys: {
                         Bytes(
@@ -829,6 +1006,18 @@ dog: []
                 },
             },
             dog: Recon {
+                interests: FixedInterests(
+                    [
+                        (
+                            Bytes(
+                                "",
+                            ),
+                            Bytes(
+                                "0xFF",
+                            ),
+                        ),
+                    ],
+                ),
                 store: BTreeStore {
                     keys: {},
                 },
@@ -836,12 +1025,16 @@ dog: []
             iterations: [
                 Iteration {
                     dir: CatToDog,
-                    msg: MessageData {
-                        keys: [
-                            "a",
-                        ],
-                        ahashs: [],
-                    },
+                    messages: [
+                        MessageData {
+                            start: None,
+                            end: None,
+                            keys: [
+                                "a",
+                            ],
+                            ahashs: [],
+                        },
+                    ],
                     set: {
                         Bytes(
                             "a",
@@ -850,12 +1043,16 @@ dog: []
                 },
                 Iteration {
                     dir: DogToCat,
-                    msg: MessageData {
-                        keys: [
-                            "a",
-                        ],
-                        ahashs: [],
-                    },
+                    messages: [
+                        MessageData {
+                            start: None,
+                            end: None,
+                            keys: [
+                                "a",
+                            ],
+                            ahashs: [],
+                        },
+                    ],
                     set: {
                         Bytes(
                             "a",
@@ -924,27 +1121,27 @@ fn recon_do(recon: &str) -> Record {
 
     // Run simulation for the number of iterations in the original record
     let mut dir = Direction::CatToDog;
-    let mut msg: Message<Bytes, MemoryAHash> = record.cat.initial_message();
+    let mut messages: Vec<Message<Bytes, MemoryAHash>> = record.cat.initial_messages().unwrap();
     for _ in 0..n {
         let (next_dir, response, set) = match dir {
             Direction::CatToDog => (
                 Direction::DogToCat,
-                record.dog.process_message(&msg).unwrap(),
+                record.dog.process_messages(&messages).unwrap(),
                 record.dog.store.clone(),
             ),
             Direction::DogToCat => (
                 Direction::CatToDog,
-                record.cat.process_message(&msg).unwrap(),
+                record.cat.process_messages(&messages).unwrap(),
                 record.cat.store.clone(),
             ),
         };
         record.iterations.push(Iteration {
             dir,
-            msg: msg.into(),
+            messages: messages.into_iter().map(MessageData::from).collect(),
             set: set.full_range().cloned().collect(),
         });
         dir = next_dir;
-        msg = response.msg;
+        messages = response.messages
     }
     // Restore initial sets
     record.cat.store = cat;
@@ -999,6 +1196,7 @@ fn test_one_them() {
 }
 
 #[test]
+#[traced_test]
 fn test_none() {
     recon_test(expect![[r#"
         cat: []
@@ -1099,18 +1297,42 @@ fn test_small_diff_zz() {
 }
 
 #[test]
+#[traced_test]
+fn test_subset_interest() {
+    recon_test(expect![[r#"
+        cat: <(b,i),(m,r)> [c,f,g]
+        dog: <(a,z)> [b,c,d,e,f,g,h,i,j,k,l,m,n]
+        -> (<b, c, h(f), g, i>), (<m, r>) [b,c,d,e,f,g,h,i,j,k,l,m,n]
+        <- (<b, c, 0, d, 0, e, 0, f, h(g), h, i>), (<m, n, r>) [c,d,e,f,g,h,n]
+        -> (<b, c, h(d,e,f,g), h, i>), (<m, n, r>) [b,c,d,e,f,g,h,i,j,k,l,m,n]
+        <- (<b, c, h(d,e,f,g), h, i>), (<m, n, r>) [c,d,e,f,g,h,n]"#]]);
+}
+
+#[test]
+fn test_partial_interest() {
+    recon_test(expect![[r#"
+        cat: <(b,g),(i,q)> [a,b,c,d,e,f,g,h,i,j,k,l,m,o,p,q]
+        dog: <(k,t),(u,z)> [j,k,n,o,p,q,r,s,t,u,w,x,y,z]
+        -> (<b, c, h(d,e), f, g>), (<i, j, h(k,l,m,o), p, q>) [j,k,n,o,p,q,r,s,t,u,w,x,y,z]
+        <- (<k, n, 0, o, 0, p, q>) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q]
+        -> (<k, l, 0, m, h(n,o), p, q>) [j,k,l,m,n,o,p,q,r,s,t,u,w,x,y,z]
+        <- (<k, l, h(m,n,o), p, q>) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q]
+        -> (<k, l, h(m,n,o), p, q>) [j,k,l,m,n,o,p,q,r,s,t,u,w,x,y,z]"#]]);
+}
+
+#[test]
 fn message_cbor_serialize_test() {
     let received: Message<Bytes, Sha256a> = parse_recon(
         r#"cat: [] dog: []
         -> (a, h(b), c) []"#,
     )
     .iterations[0]
-        .msg
+        .messages[0]
         .clone()
         .into();
     let received_cbor = hex::encode(serde_ipld_dagcbor::ser::to_vec(&received).unwrap());
     println!("serde_json {}", serde_json::to_string(&received).unwrap()); // Message as json
-    expect!["a2646b6579738241614163666861736865738158203e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d"].assert_eq(&received_cbor);
+    expect!["a4657374617274f663656e64f6646b6579738241614163666861736865738158203e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d"].assert_eq(&received_cbor);
 }
 
 #[test]
@@ -1121,6 +1343,8 @@ fn message_cbor_deserialize_test() {
     let received: Message<Bytes, Sha256a> = x.unwrap();
     expect![[r#"
         Message {
+            start: None,
+            end: None,
             keys: [
                 Bytes(
                     "a",
@@ -1156,12 +1380,13 @@ fn message_cbor_serialize_zero_hash() {
         -> (a, 0, c) []"#,
     )
     .iterations[0]
-        .msg
+        .messages[0]
         .clone()
         .into();
     let received_cbor = hex::encode(serde_ipld_dagcbor::ser::to_vec(&received).unwrap());
     println!("serde_json {}", serde_json::to_string(&received).unwrap()); // Message as json
-    expect!["a2646b6579738241614163666861736865738140"].assert_eq(&received_cbor);
+    expect!["a4657374617274f663656e64f6646b6579738241614163666861736865738140"]
+        .assert_eq(&received_cbor);
 }
 #[test]
 fn message_cbor_deserialize_zero_hash() {
@@ -1171,6 +1396,8 @@ fn message_cbor_deserialize_zero_hash() {
     let received: Message<Bytes, Sha256a> = x.unwrap();
     expect![[r#"
         Message {
+            start: None,
+            end: None,
             keys: [
                 Bytes(
                     "a",

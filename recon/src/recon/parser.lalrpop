@@ -11,11 +11,26 @@ pub Record : Record = {
         iterations,
     },
 };
-Cat: ReconMemoryBytes = {
-    "cat:" <Set> => ReconMemoryBytes::new(BTreeStore::from_set(<>)),
+Cat: ReconMemoryBytes<FixedInterests> = {
+    "cat:" <interests:Interests?> <set:Set> => ReconMemoryBytes::new(BTreeStore::from_set(set), interests.unwrap_or_else(|| FixedInterests::full())),
 };
-Dog: ReconMemoryBytes = {
-    "dog:" <Set> => ReconMemoryBytes::new(BTreeStore::from_set(<>)),
+Dog: ReconMemoryBytes<FixedInterests> = {
+    "dog:" <interests:Interests?> <set:Set> => ReconMemoryBytes::new(BTreeStore::from_set(set), interests.unwrap_or_else(|| FixedInterests::full())),
+};
+
+Interests: FixedInterests = {
+    "<" <first:Interest?> <rest:("," <Interest>)*> ">" => {
+        let mut interests = Vec::new();
+        if let Some(first) = first {
+            interests.push(first);
+        }
+        interests.extend(rest.into_iter());
+        FixedInterests(interests)
+    }
+};
+
+Interest: (Bytes,Bytes) = {
+    "(" <start:Word> "," <end:Word> ")" => (Bytes::from(start), Bytes::from(end))
 };
 
 Set: Set = {
@@ -38,9 +53,9 @@ Word : String = {
 };
 
 Iteration : Iteration = {
-    <dir:Direction> <msg:Message> <set:Set> => Iteration {
+    <dir:Direction> <messages:Messages> <set:Set> => Iteration {
         dir,
-        msg,
+        messages,
         set,
     }
 };
@@ -51,6 +66,16 @@ Direction : Direction = {
     "<-" => Direction::DogToCat,
 };
 
+Messages : Vec<MessageData> = {
+    <first:Message?> <rest:("," <Message>)*> => {
+        let mut messages = Vec::new();
+        if let Some(first) = first {
+            messages.push(first);
+        }
+        messages.extend(rest.into_iter());
+        messages
+    }
+}
 Message : MessageData = {
     "(" <MessageItem?> <("," <MessageItem>)*> ")" =>? (<>).try_into().map_err(|e: &'static str| ParseError::User{
         error: e,
@@ -60,5 +85,7 @@ Message : MessageData = {
 MessageItem : MessageItem = {
     "h(" <SetInner> ")" => MessageItem::Hash(<>),
     "0"                 => MessageItem::Hash(Set::new()),
+    "<" <Word>          => MessageItem::Start(<>),
+    <Word> ">"          => MessageItem::End(<>),
     Word                => MessageItem::Key(<>),
 };

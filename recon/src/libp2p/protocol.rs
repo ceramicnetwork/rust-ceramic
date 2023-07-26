@@ -1,5 +1,3 @@
-use std::fmt::Display;
-
 use anyhow::Result;
 use asynchronous_codec::{CborCodec, Framed};
 use libp2p::{
@@ -15,16 +13,9 @@ use crate::{
     AssociativeHash, Key, Message,
 };
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Envelope<K: Key, H: AssociativeHash> {
-    message: Message<K, H>,
-    sort_key: String,
-}
-
-impl<K: Key, H: AssociativeHash> Display for Envelope<K, H> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{{{}: {}}}", self.sort_key, self.message)
-    }
+    messages: Vec<Message<K, H>>,
 }
 
 // Intiate Recon synchronization with a peer over a stream.
@@ -40,18 +31,12 @@ pub async fn initiate_synchronize<S: AsyncRead + AsyncWrite + Unpin, R: Recon>(
     let codec = CborCodec::<Envelope<R::Key, R::Hash>, Envelope<R::Key, R::Hash>>::new();
     let mut framed = Framed::new(stream, codec);
 
-    let message = recon.initial_message();
-    framed
-        .send(Envelope {
-            message,
-            sort_key: stream_set.sort_key().to_owned(),
-        })
-        .await?;
+    let messages = recon.initial_messages()?;
+    framed.send(Envelope { messages }).await?;
 
     while let Some(request) = libp2p::futures::TryStreamExt::try_next(&mut framed).await? {
-        debug_assert_eq!(stream_set.sort_key(), request.sort_key.as_str());
-        let response = recon.process_message(&request.message)?;
-        trace!(%request, %response, "recon exchange");
+        let response = recon.process_messages(&request.messages)?;
+        trace!(?request, ?response, "recon exchange");
 
         let is_synchronized = response.is_synchronized();
         if is_synchronized {
@@ -60,8 +45,7 @@ pub async fn initiate_synchronize<S: AsyncRead + AsyncWrite + Unpin, R: Recon>(
         }
         framed
             .send(Envelope {
-                sort_key: stream_set.sort_key().to_owned(),
-                message: response.into_message(),
+                messages: response.into_messages(),
             })
             .await?;
         if is_synchronized {
@@ -88,15 +72,13 @@ pub async fn accept_synchronize<S: AsyncRead + AsyncWrite + Unpin, R: Recon>(
     let mut framed = Framed::new(stream, codec);
 
     while let Some(request) = libp2p::futures::TryStreamExt::try_next(&mut framed).await? {
-        debug_assert_eq!(stream_set.sort_key(), request.sort_key.as_str());
-        let response = recon.process_message(&request.message)?;
-        trace!(%request, %response, "recon exchange");
+        let response = recon.process_messages(&request.messages)?;
+        trace!(?request, ?response, "recon exchange");
 
         let is_synchronized = response.is_synchronized();
         framed
             .send(Envelope {
-                sort_key: request.sort_key,
-                message: response.into_message(),
+                messages: response.into_messages(),
             })
             .await?;
         if is_synchronized {

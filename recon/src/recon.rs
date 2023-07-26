@@ -2,15 +2,20 @@ pub mod btree;
 #[cfg(test)]
 mod tests;
 
-use std::fmt::Display;
+use std::{
+    fmt::Display,
+    marker::PhantomData,
+    ops::Range,
+    sync::{Arc, Mutex},
+};
 
 use anyhow::{bail, Result};
 use ceramic_core::{EventId, Interest};
 use serde::{Deserialize, Serialize};
-use tracing::{instrument, trace};
+use tracing::{debug, instrument, trace};
 
 /// Recon is a protocol for set reconciliation via a message passing paradigm.
-/// An initial_message can be created and then messages are exchanged between two Recon instances
+/// An initial message can be created and then messages are exchanged between two Recon instances
 /// until their sets are reconciled.
 ///
 /// Recon is
@@ -21,114 +26,145 @@ use tracing::{instrument, trace};
 /// Recon is generic over its Key, Hash and Store implementations.
 /// This type provides the core protocol implementation.
 #[derive(Debug)]
-pub struct Recon<K, H, S>
+pub struct Recon<K, H, S, I>
 where
     K: Key,
     H: AssociativeHash,
     S: Store<Key = K, Hash = H>,
+    I: InterestProvider<Key = K>,
 {
+    interests: I,
     store: S,
 }
 
-impl<K, H, S> Recon<K, H, S>
+impl<K, H, S, I> Recon<K, H, S, I>
 where
     K: Key,
     H: AssociativeHash,
     S: Store<Key = K, Hash = H>,
+    I: InterestProvider<Key = K>,
 {
     /// Construct a new Recon instance.
-    pub fn new(store: S) -> Self {
-        Self { store }
+    pub fn new(store: S, interests: I) -> Self {
+        Self { store, interests }
     }
+
     /// Construct a message to send as the first message.
-    pub fn initial_message(&self) -> Message<K, H> {
-        let mut response = Message::<K, H>::default();
-        if let Some((first, last)) = self.store.first_and_last(&K::min_value(), &K::max_value()) {
-            let len = self.store.len();
-            match len {
-                0 => {
-                    // this should be unreachable, but we explicitly add this case to be clear.
-                }
-                1 => {
-                    // -> (only_key)
-                    response.keys.push(first.to_owned());
-                }
-                2 => {
-                    // -> (first 0 last)
-                    response.keys.push(first.to_owned());
-                    response.hashes.push(H::identity());
-                    response.keys.push(last.to_owned());
-                }
-                _ => {
-                    // -> (first h(middle) last)
-                    response.keys.push(first.to_owned());
-                    response.hashes.push(self.store.hash_range(first, last));
-                    response.keys.push(last.to_owned());
+    pub fn initial_messages(&self) -> Result<Vec<Message<K, H>>> {
+        let interests = self.interests()?;
+        let mut messages = Vec::with_capacity(interests.len());
+        for (start, end) in interests {
+            let mut response = Message::new(&start, &end);
+            if let Some((first, last)) = self.store.first_and_last(&start, &end) {
+                // Cannot use store.len, we need the count between first and last
+                let len = self.store.len();
+                match len {
+                    0 => {
+                        // this should be unreachable, but we explicitly add this case to be clear.
+                    }
+                    1 => {
+                        // -> (only_key)
+                        response.keys.push(first.to_owned());
+                    }
+                    2 => {
+                        // -> (first 0 last)
+                        response.keys.push(first.to_owned());
+                        response.hashes.push(H::identity());
+                        response.keys.push(last.to_owned());
+                    }
+                    _ => {
+                        // -> (first h(middle) last)
+                        response.keys.push(first.to_owned());
+                        response.hashes.push(self.store.hash_range(first, last));
+                        response.keys.push(last.to_owned());
+                    }
                 }
             }
+            messages.push(response)
         }
-        response
+        Ok(messages)
     }
 
     /// Process an incoming message and respond with a message reply.
-    pub fn process_message(&mut self, received: &Message<K, H>) -> Result<Response<K, H>> {
+    #[instrument(skip_all, ret)]
+    pub fn process_messages(&mut self, received: &[Message<K, H>]) -> Result<Response<K, H>> {
+        // First we must find the intersection of interests.
+        // Then reply with a message per intersection.
+        let mut intersections: Vec<(K, K, BoundedMessage<K, H>)> = Vec::new();
+        let min_value = K::min_value();
+        let max_value = K::max_value();
+        for (start, end) in self.interests.interests()? {
+            for msg in received {
+                debug!(?msg.start, ?msg.end, "message");
+                let start = std::cmp::max(&start, msg.start.as_ref().unwrap_or(&min_value));
+                let end = std::cmp::min(&end, msg.end.as_ref().unwrap_or(&max_value));
+                if start < end {
+                    intersections.push((start.clone(), end.clone(), msg.bound(start, end)))
+                }
+            }
+        }
+        debug!(?intersections, "computed intersections");
+
         let mut response = Response {
             is_synchronized: true,
             ..Default::default()
         };
-        // self.keys.extend(received.keys.clone()); // add received keys
-        for key in &received.keys {
-            if self.store.insert(key)? {
-                response.is_synchronized = false;
+        for (start, end, received) in intersections {
+            let mut response_message = Message::new(&start, &end);
+            for key in &received.keys {
+                if self.store.insert(key)? {
+                    response.is_synchronized = false;
+                }
             }
-        }
 
-        if let Some(mut left_fencepost) = self.store.first(&K::min_value(), &K::max_value()) {
-            let mut received_keys = received.keys.iter();
-            let mut received_hashs = received.hashes.iter();
+            if let Some(mut left_fencepost) = self.store.first(&start, &end) {
+                let mut received_hashs = received.hashes.iter();
+                let mut received_keys = received.keys.iter();
 
-            let mut right_fencepost: &K = received_keys.next().unwrap_or_else(|| {
-                self.store
-                    .last(&K::min_value(), &K::max_value())
-                    .expect("should be at least one key")
-            });
-
-            let mut received_hash = &H::identity();
-            let zero = &H::identity();
-
-            response.msg.keys.push(left_fencepost.clone());
-            while !received.keys.is_empty() && left_fencepost < received.keys.last().unwrap() {
-                response.is_synchronized &= response.msg.process_range(
-                    left_fencepost,
-                    right_fencepost,
-                    received_hash,
-                    &self.store,
-                )?;
-                left_fencepost = right_fencepost;
-                right_fencepost = received_keys.next().unwrap_or_else(|| {
+                let mut right_fencepost: &K = received_keys.next().unwrap_or_else(|| {
                     self.store
-                        .last(&K::min_value(), &K::max_value())
+                        .last(&start, &end)
                         .expect("should be at least one key")
                 });
-                received_hash = received_hashs.next().unwrap_or(zero);
-            }
-            if !received.keys.is_empty() {
-                response.is_synchronized &= response.msg.process_range(
-                    received.keys.last().unwrap(),
+
+                let mut received_hash = &H::identity();
+                let zero = &H::identity();
+
+                response_message.keys.push(left_fencepost.clone());
+                while !received.keys.is_empty() && left_fencepost < received.keys.last().unwrap() {
+                    response.is_synchronized &= response_message.process_range(
+                        left_fencepost,
+                        right_fencepost,
+                        received_hash,
+                        &self.store,
+                    )?;
+                    left_fencepost = right_fencepost;
+                    right_fencepost = received_keys.next().unwrap_or_else(|| {
+                        self.store
+                            .last(&start, &end)
+                            .expect("should be at least one key")
+                    });
+                    received_hash = received_hashs.next().unwrap_or(zero);
+                }
+                if !received.keys.is_empty() {
+                    response.is_synchronized &= response_message.process_range(
+                        received.keys.last().unwrap(),
+                        self.store
+                            .last(&start, &end)
+                            .expect("should be at least one key"),
+                        zero,
+                        &self.store,
+                    )?;
+                }
+                response_message.end_streak(
                     self.store
-                        .last(&K::min_value(), &K::max_value())
+                        .last(&start, &end)
                         .expect("should be at least one key"),
-                    zero,
                     &self.store,
-                )?;
-            }
-            response.msg.end_streak(
-                self.store
-                    .last(&K::min_value(), &K::max_value())
-                    .expect("should be at least one key"),
-                &self.store,
-            );
-        };
+                );
+            };
+            response.messages.push(response_message);
+        }
         Ok(response)
     }
 
@@ -166,6 +202,10 @@ where
     /// Return all keys.
     pub fn full_range(&self) -> Box<dyn Iterator<Item = &K> + '_> {
         self.store.full_range()
+    }
+
+    fn interests(&self) -> Result<Vec<(K, K)>> {
+        self.interests.interests()
     }
 }
 
@@ -266,7 +306,7 @@ pub trait Store: std::fmt::Debug {
 }
 
 /// Represents a key that can be reconciled via Recon.
-pub trait Key: Ord + Clone + Display + std::fmt::Debug {
+pub trait Key: From<Vec<u8>> + Ord + Clone + Display + std::fmt::Debug {
     /// Produce the key that is less than all other keys.
     fn min_value() -> Self;
 
@@ -342,6 +382,58 @@ where
     }
 }
 
+/// InterestProvider describes a set of interests
+pub trait InterestProvider {
+    /// The type of Key overwhich we are interested.
+    type Key: Key;
+    /// Report a set of interests.
+    fn interests(&self) -> Result<Vec<(Self::Key, Self::Key)>>;
+}
+
+/// InterestProvider that is interested in everything.
+#[derive(Debug)]
+pub struct FullInterests<K>(PhantomData<K>);
+
+impl<K> Default for FullInterests<K> {
+    fn default() -> Self {
+        Self(Default::default())
+    }
+}
+
+impl<K: Key> InterestProvider for FullInterests<K> {
+    type Key = K;
+
+    fn interests(&self) -> Result<Vec<(K, K)>> {
+        Ok(vec![(K::min_value(), K::max_value())])
+    }
+}
+
+// Implement InterestProvider for a Recon of interests.
+impl<H, S, I> InterestProvider for Arc<Mutex<Recon<Interest, H, S, I>>>
+where
+    H: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de> + Send + 'static,
+    S: Store<Key = Interest, Hash = H> + Send + 'static,
+    I: InterestProvider<Key = Interest>,
+{
+    type Key = EventId;
+
+    fn interests(&self) -> Result<Vec<(EventId, EventId)>> {
+        self.lock()
+            .expect("should be able to acquire lock")
+            .range(
+                &Interest::min_value(),
+                &Interest::max_value(),
+                0,
+                usize::MAX,
+            )
+            .map(|interest| {
+                let Range { start, end } = interest.range()?;
+                Ok((EventId::from(start), EventId::from(end)))
+            })
+            .collect::<Result<Vec<(EventId, EventId)>>>()
+    }
+}
+
 /// Messages are alternating keys and hashes.
 /// The hashes are of all keys in range from left to right.
 ///
@@ -356,6 +448,10 @@ where
 /// with one more key then hashes.
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct Message<K, H> {
+    // Exclusive start bound, a value of None implies K::min_value
+    start: Option<K>,
+    // Exclusive end bound, a value of None implies K::max_value
+    end: Option<K>,
     // keys must be 1 longer then hashs unless both are empty
     keys: Vec<K>,
 
@@ -364,9 +460,11 @@ pub struct Message<K, H> {
 }
 
 // Explicitly implement default so that K and H do not have an uneccessary Default constraint.
-impl<K, H> Default for Message<K, H> {
+impl<K: Key, H> Default for Message<K, H> {
     fn default() -> Self {
         Self {
+            start: Default::default(),
+            end: Default::default(),
             keys: Default::default(),
             hashes: Default::default(),
         }
@@ -380,6 +478,9 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "(")?;
+        if let Some(start) = &self.start {
+            write!(f, "<{start}")?;
+        }
         for (k, h) in self.keys.iter().zip(self.hashes.iter()) {
             let hash_hex = if h.is_zero() {
                 "0".to_string()
@@ -387,6 +488,9 @@ where
                 h.to_hex()[0..6].to_string()
             };
             write!(f, "{}, {}, ", k, hash_hex)?;
+        }
+        if let Some(end) = &self.end {
+            write!(f, ">{end}")?;
         }
 
         write!(
@@ -404,6 +508,21 @@ where
     K: Key,
     H: AssociativeHash,
 {
+    fn new(start: &K, end: &K) -> Self {
+        Message {
+            start: if start == &K::min_value() {
+                None
+            } else {
+                Some(start.clone())
+            },
+            end: if end == &K::max_value() {
+                None
+            } else {
+                Some(end.clone())
+            },
+            ..Default::default()
+        }
+    }
     // When a new key is added to the list of keys
     // we add the accumulator to hashes and clear it
     // if it is the first key there is no range so we don't push the accumulator
@@ -510,38 +629,70 @@ where
         }
         Ok(())
     }
+
+    fn bound(&self, start: &K, end: &K) -> BoundedMessage<K, H> {
+        // TODO: Can we do this without allocating?
+        // Some challenges that make this hard currently:
+        //  1. The process_messages method iterates over the keys twice
+        //  2. We need to be sure we do not produce too many hashes
+
+        debug!(?self.keys, "bound keys");
+        let mut hashes = self.hashes.iter();
+        let keys: Vec<K> = self
+            .keys
+            .iter()
+            .skip_while(|key| {
+                if *key <= start {
+                    // Advance hashes
+                    hashes.next();
+                    true
+                } else {
+                    false
+                }
+            })
+            .take_while(|key| *key < end)
+            .cloned()
+            // Collect the keys to ensure side effects of iteratation have been applied.
+            .collect();
+
+        // Collect the hashes up to the last key.
+        let hashes = if keys.len() <= 1 {
+            Vec::new()
+        } else {
+            hashes.take(keys.len() - 1).cloned().collect()
+        };
+
+        BoundedMessage { keys, hashes }
+    }
+}
+
+// A derivative message that has had its keys and hashes bouned to a specific start and end range.
+#[derive(Debug)]
+struct BoundedMessage<K, H> {
+    keys: Vec<K>,
+    hashes: Vec<H>,
 }
 
 /// Response from processing a message
 #[derive(Debug)]
 pub struct Response<K, H> {
-    msg: Message<K, H>,
+    messages: Vec<Message<K, H>>,
     is_synchronized: bool,
 }
 
-impl<K, H> Default for Response<K, H> {
+impl<K: Key, H> Default for Response<K, H> {
     fn default() -> Self {
         Self {
-            msg: Default::default(),
+            messages: Default::default(),
             is_synchronized: Default::default(),
         }
     }
 }
 
-impl<K, H> Display for Response<K, H>
-where
-    K: Key,
-    H: AssociativeHash,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.msg)
-    }
-}
-
 impl<K, H> Response<K, H> {
     /// Consume the response and produce a message
-    pub fn into_message(self) -> Message<K, H> {
-        self.msg
+    pub fn into_messages(self) -> Vec<Message<K, H>> {
+        self.messages
     }
     /// Report if the response indicates that synchronization has completed
     pub fn is_synchronized(&self) -> bool {
