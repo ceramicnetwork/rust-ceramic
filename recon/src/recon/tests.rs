@@ -1,4 +1,4 @@
-lalrpop_mod!(
+lalrpop_util::lalrpop_mod!(
     #[allow(clippy::all, missing_debug_implementations)]
     pub parser, "/recon/parser.rs"
 ); // synthesized by LALRPOP
@@ -786,7 +786,7 @@ fn test_parse_recon() {
             ],
         }
     "#]]
-    .assert_debug_eq(&record);
+        .assert_debug_eq(&record);
 }
 #[test]
 fn test_parse_recon_empty_set() {
@@ -865,7 +865,7 @@ dog: []
             ],
         }
     "#]]
-    .assert_debug_eq(&record);
+        .assert_debug_eq(&record);
 }
 
 fn parse_recon(recon: &str) -> Record {

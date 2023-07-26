@@ -2,14 +2,8 @@
 #![warn(missing_docs, missing_debug_implementations, clippy::all)]
 
 pub use crate::recon::{btree::BTreeStore, AssociativeHash, Key, Message, Recon, Response, Store};
-#[cfg(test)]
-pub use recon::tests;
 pub use sha256a::Sha256a;
 
 pub mod libp2p;
 mod recon;
 mod sha256a;
-
-#[cfg(test)]
-#[macro_use]
-extern crate lalrpop_util;
