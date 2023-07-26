@@ -3,7 +3,7 @@ lalrpop_util::lalrpop_mod!(
     pub parser, "/recon/parser.rs"
 ); // synthesized by LALRPOP
 
-use ceramic_core::Bytes;
+use ceramic_core::{Bytes, RangeOpen};
 use rusqlite::{Connection, Result};
 use std::collections::BTreeSet;
 use std::fmt::Display;
@@ -109,11 +109,11 @@ pub type ReconBytes = Recon<Bytes, Sha256a, BTreeStore<Bytes, Sha256a>, FullInte
 
 /// Implement InterestProvider for a fixed set of interests.
 #[derive(Debug, PartialEq)]
-pub struct FixedInterests(Vec<(Bytes, Bytes)>);
+pub struct FixedInterests(Vec<RangeOpen<Bytes>>);
 
 impl FixedInterests {
     pub fn full() -> Self {
-        Self(vec![(Bytes::min_value(), Bytes::max_value())])
+        Self(vec![(Bytes::min_value(), Bytes::max_value()).into()])
     }
     pub fn is_full(&self) -> bool {
         self == &Self::full()
@@ -122,7 +122,7 @@ impl FixedInterests {
 impl InterestProvider for FixedInterests {
     type Key = Bytes;
 
-    fn interests(&self) -> anyhow::Result<Vec<(Self::Key, Self::Key)>> {
+    fn interests(&self) -> anyhow::Result<Vec<RangeOpen<Self::Key>>> {
         Ok(self.0.clone())
     }
 }
@@ -147,11 +147,11 @@ where
                 allocator.softline().append(
                     allocator
                         .intersperse(
-                            recon.interests().unwrap().iter().map(|(start, end)| {
+                            recon.interests().unwrap().iter().map(|range| {
                                 allocator
-                                    .text(start.to_string())
+                                    .text(range.start.to_string())
                                     .append(separator.clone())
-                                    .append(allocator.text(end.to_string()))
+                                    .append(allocator.text(range.end.to_string()))
                                     .parens()
                             }),
                             separator.clone(),
@@ -620,14 +620,14 @@ fn test_parse_recon() {
             cat: Recon {
                 interests: FixedInterests(
                     [
-                        (
-                            Bytes(
+                        RangeOpen {
+                            start: Bytes(
                                 "",
                             ),
-                            Bytes(
+                            end: Bytes(
                                 "0xFF",
                             ),
-                        ),
+                        },
                     ],
                 ),
                 store: BTreeStore {
@@ -704,14 +704,14 @@ fn test_parse_recon() {
             dog: Recon {
                 interests: FixedInterests(
                     [
-                        (
-                            Bytes(
+                        RangeOpen {
+                            start: Bytes(
                                 "",
                             ),
-                            Bytes(
+                            end: Bytes(
                                 "0xFF",
                             ),
-                        ),
+                        },
                     ],
                 ),
                 store: BTreeStore {
@@ -968,14 +968,14 @@ dog: []
             cat: Recon {
                 interests: FixedInterests(
                     [
-                        (
-                            Bytes(
+                        RangeOpen {
+                            start: Bytes(
                                 "",
                             ),
-                            Bytes(
+                            end: Bytes(
                                 "0xFF",
                             ),
-                        ),
+                        },
                     ],
                 ),
                 store: BTreeStore {
@@ -1008,14 +1008,14 @@ dog: []
             dog: Recon {
                 interests: FixedInterests(
                     [
-                        (
-                            Bytes(
+                        RangeOpen {
+                            start: Bytes(
                                 "",
                             ),
-                            Bytes(
+                            end: Bytes(
                                 "0xFF",
                             ),
-                        ),
+                        },
                     ],
                 ),
                 store: BTreeStore {

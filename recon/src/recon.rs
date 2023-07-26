@@ -5,12 +5,11 @@ mod tests;
 use std::{
     fmt::Display,
     marker::PhantomData,
-    ops::Range,
     sync::{Arc, Mutex},
 };
 
 use anyhow::{bail, Result};
-use ceramic_core::{EventId, Interest};
+use ceramic_core::{EventId, Interest, RangeOpen};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, instrument, trace};
 
@@ -53,9 +52,9 @@ where
     pub fn initial_messages(&self) -> Result<Vec<Message<K, H>>> {
         let interests = self.interests()?;
         let mut messages = Vec::with_capacity(interests.len());
-        for (start, end) in interests {
-            let mut response = Message::new(&start, &end);
-            if let Some((first, last)) = self.store.first_and_last(&start, &end) {
+        for range in interests {
+            let mut response = Message::new(&range.start, &range.end);
+            if let Some((first, last)) = self.store.first_and_last(&range.start, &range.end) {
                 // Cannot use store.len, we need the count between first and last
                 let len = self.store.len();
                 match len {
@@ -90,16 +89,12 @@ where
     pub fn process_messages(&mut self, received: &[Message<K, H>]) -> Result<Response<K, H>> {
         // First we must find the intersection of interests.
         // Then reply with a message per intersection.
-        let mut intersections: Vec<(K, K, BoundedMessage<K, H>)> = Vec::new();
-        let min_value = K::min_value();
-        let max_value = K::max_value();
-        for (start, end) in self.interests.interests()? {
+        let mut intersections: Vec<(RangeOpen<K>, BoundedMessage<K, H>)> = Vec::new();
+        for range in self.interests.interests()? {
             for msg in received {
-                debug!(?msg.start, ?msg.end, "message");
-                let start = std::cmp::max(&start, msg.start.as_ref().unwrap_or(&min_value));
-                let end = std::cmp::min(&end, msg.end.as_ref().unwrap_or(&max_value));
-                if start < end {
-                    intersections.push((start.clone(), end.clone(), msg.bound(start, end)))
+                if let Some(intersection) = range.intersect(&msg.range()) {
+                    let bounded = msg.bound(&intersection);
+                    intersections.push((intersection, bounded))
                 }
             }
         }
@@ -109,21 +104,21 @@ where
             is_synchronized: true,
             ..Default::default()
         };
-        for (start, end, received) in intersections {
-            let mut response_message = Message::new(&start, &end);
+        for (range, received) in intersections {
+            let mut response_message = Message::new(&range.start, &range.end);
             for key in &received.keys {
                 if self.store.insert(key)? {
                     response.is_synchronized = false;
                 }
             }
 
-            if let Some(mut left_fencepost) = self.store.first(&start, &end) {
+            if let Some(mut left_fencepost) = self.store.first(&range.start, &range.end) {
                 let mut received_hashs = received.hashes.iter();
                 let mut received_keys = received.keys.iter();
 
                 let mut right_fencepost: &K = received_keys.next().unwrap_or_else(|| {
                     self.store
-                        .last(&start, &end)
+                        .last(&range.start, &range.end)
                         .expect("should be at least one key")
                 });
 
@@ -141,7 +136,7 @@ where
                     left_fencepost = right_fencepost;
                     right_fencepost = received_keys.next().unwrap_or_else(|| {
                         self.store
-                            .last(&start, &end)
+                            .last(&range.start, &range.end)
                             .expect("should be at least one key")
                     });
                     received_hash = received_hashs.next().unwrap_or(zero);
@@ -150,7 +145,7 @@ where
                     response.is_synchronized &= response_message.process_range(
                         received.keys.last().unwrap(),
                         self.store
-                            .last(&start, &end)
+                            .last(&range.start, &range.end)
                             .expect("should be at least one key"),
                         zero,
                         &self.store,
@@ -158,7 +153,7 @@ where
                 }
                 response_message.end_streak(
                     self.store
-                        .last(&start, &end)
+                        .last(&range.start, &range.end)
                         .expect("should be at least one key"),
                     &self.store,
                 );
@@ -204,7 +199,7 @@ where
         self.store.full_range()
     }
 
-    fn interests(&self) -> Result<Vec<(K, K)>> {
+    fn interests(&self) -> Result<Vec<RangeOpen<K>>> {
         self.interests.interests()
     }
 }
@@ -387,7 +382,7 @@ pub trait InterestProvider {
     /// The type of Key overwhich we are interested.
     type Key: Key;
     /// Report a set of interests.
-    fn interests(&self) -> Result<Vec<(Self::Key, Self::Key)>>;
+    fn interests(&self) -> Result<Vec<RangeOpen<Self::Key>>>;
 }
 
 /// InterestProvider that is interested in everything.
@@ -403,8 +398,8 @@ impl<K> Default for FullInterests<K> {
 impl<K: Key> InterestProvider for FullInterests<K> {
     type Key = K;
 
-    fn interests(&self) -> Result<Vec<(K, K)>> {
-        Ok(vec![(K::min_value(), K::max_value())])
+    fn interests(&self) -> Result<Vec<RangeOpen<K>>> {
+        Ok(vec![(K::min_value(), K::max_value()).into()])
     }
 }
 
@@ -417,7 +412,7 @@ where
 {
     type Key = EventId;
 
-    fn interests(&self) -> Result<Vec<(EventId, EventId)>> {
+    fn interests(&self) -> Result<Vec<RangeOpen<EventId>>> {
         self.lock()
             .expect("should be able to acquire lock")
             .range(
@@ -427,10 +422,10 @@ where
                 usize::MAX,
             )
             .map(|interest| {
-                let Range { start, end } = interest.range()?;
-                Ok((EventId::from(start), EventId::from(end)))
+                let RangeOpen { start, end } = interest.range()?;
+                Ok((EventId::from(start), EventId::from(end)).into())
             })
-            .collect::<Result<Vec<(EventId, EventId)>>>()
+            .collect::<Result<Vec<RangeOpen<EventId>>>>()
     }
 }
 
@@ -630,7 +625,7 @@ where
         Ok(())
     }
 
-    fn bound(&self, start: &K, end: &K) -> BoundedMessage<K, H> {
+    fn bound(&self, range: &RangeOpen<K>) -> BoundedMessage<K, H> {
         // TODO: Can we do this without allocating?
         // Some challenges that make this hard currently:
         //  1. The process_messages method iterates over the keys twice
@@ -642,7 +637,7 @@ where
             .keys
             .iter()
             .skip_while(|key| {
-                if *key <= start {
+                if *key <= &range.start {
                     // Advance hashes
                     hashes.next();
                     true
@@ -650,7 +645,7 @@ where
                     false
                 }
             })
-            .take_while(|key| *key < end)
+            .take_while(|key| *key < &range.end)
             .cloned()
             // Collect the keys to ensure side effects of iteratation have been applied.
             .collect();
@@ -663,6 +658,13 @@ where
         };
 
         BoundedMessage { keys, hashes }
+    }
+
+    fn range(&self) -> RangeOpen<K> {
+        RangeOpen {
+            start: self.start.to_owned().unwrap_or_else(|| K::min_value()),
+            end: self.end.to_owned().unwrap_or_else(|| K::max_value()),
+        }
     }
 }
 

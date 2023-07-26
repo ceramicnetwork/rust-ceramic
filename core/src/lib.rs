@@ -7,6 +7,7 @@ mod interest;
 mod jwk;
 mod jws;
 mod network;
+mod range;
 mod stream_id;
 
 pub use bytes::Bytes;
@@ -15,6 +16,7 @@ pub use interest::{Interest, PeerId};
 pub use jwk::Jwk;
 pub use jws::Jws;
 pub use network::Network;
+pub use range::RangeOpen;
 pub use stream_id::{StreamId, StreamIdType};
 
 pub use cid::Cid;
