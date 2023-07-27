@@ -40,4 +40,4 @@ serde_cbor = "0.11.2"
 tracing-test.workspace = true
 
 [build-dependencies]
-lalrpop = "0.19.8"
+lalrpop = "0.20.0"
