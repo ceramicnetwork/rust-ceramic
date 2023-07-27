@@ -79,16 +79,16 @@ impl Builder<Init> {
 
 /// Configure the p2p service
 impl Builder<WithStore> {
-    pub async fn with_p2p<IR, MR>(
+    pub async fn with_p2p<I, M>(
         self,
         libp2p_config: Libp2pConfig,
         key_store_path: PathBuf,
-        recons: Option<(IR, MR)>,
+        recons: Option<(I, M)>,
         ceramic_peers_key: &str,
     ) -> anyhow::Result<Builder<WithP2p>>
     where
-        IR: Recon<Key = Interest, Hash = Sha256a>,
-        MR: Recon<Key = EventId, Hash = Sha256a>,
+        I: Recon<Key = Interest, Hash = Sha256a>,
+        M: Recon<Key = EventId, Hash = Sha256a>,
     {
         let addr = Addr::new_mem();
 

@@ -39,7 +39,7 @@ pub const AGENT_VERSION: &str = concat!("iroh/", env!("CARGO_PKG_VERSION"));
 /// Libp2p behaviour for the node.
 #[derive(NetworkBehaviour)]
 #[behaviour(out_event = "Event")]
-pub(crate) struct NodeBehaviour<IR, MR> {
+pub(crate) struct NodeBehaviour<I, M> {
     ping: Ping,
     identify: identify::Behaviour,
     pub(crate) bitswap: Toggle<Bitswap<BitswapStore>>,
@@ -52,7 +52,7 @@ pub(crate) struct NodeBehaviour<IR, MR> {
     pub(crate) gossipsub: Toggle<gossipsub::Behaviour>,
     pub(crate) peer_manager: PeerManager,
     limits: connection_limits::Behaviour,
-    recon: Toggle<recon::libp2p::Behaviour<IR, MR>>,
+    recon: Toggle<recon::libp2p::Behaviour<I, M>>,
 }
 
 #[derive(Debug, Clone)]
@@ -88,17 +88,17 @@ impl Store for BitswapStore {
     }
 }
 
-impl<IR, MR> NodeBehaviour<IR, MR>
+impl<I, M> NodeBehaviour<I, M>
 where
-    IR: Recon<Key = Interest, Hash = Sha256a>,
-    MR: Recon<Key = EventId, Hash = Sha256a>,
+    I: Recon<Key = Interest, Hash = Sha256a>,
+    M: Recon<Key = EventId, Hash = Sha256a>,
 {
     pub async fn new(
         local_key: &Keypair,
         config: &Libp2pConfig,
         relay_client: Option<relay::client::Behaviour>,
         rpc_client: Client,
-        recons: Option<(IR, MR)>,
+        recons: Option<(I, M)>,
     ) -> Result<Self> {
         let peer_manager = PeerManager::default();
         let pub_key = local_key.public();

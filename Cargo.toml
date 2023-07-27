@@ -18,11 +18,11 @@ async-stream = "0.3"
 async-trait = "0.1"
 asynchronous-codec = "0.6"
 bytes = "1.1"
+ceramic-api = { path = "./api" }
+ceramic-api-server = { path = "./api-server" }
 ceramic-core = { path = "./core" }
 ceramic-one = { path = "./one" }
 ceramic-p2p = { path = "./p2p" }
-ceramic-api = { path = "./api" }
-ceramic-api-server = { path = "./api-server" }
 cid = { version = "0.9", features = ["serde-codec"] }
 config = "0.13.1"
 criterion = "0.4"
@@ -44,8 +44,8 @@ libp2p = { version = "0.51", default-features = false }                         
 libp2p-identity = { version = "0.1.2", features = ["peerid", "ed25519"] }
 libp2p-tls = { version = "0.1.0", default-features = false }                     # use explicit version of dep to avoid conflict
 lru = "0.10"
-minicbor = { version = "0.19.1", features = ["alloc"] }
-multiaddr = "0.17"                                                                        # use same version as Iroh
+minicbor = { version = "0.19.1", features = ["alloc", "std"] }
+multiaddr = "0.17"                                                               # use same version as Iroh
 multibase = "0.9"
 multihash = "0.17"
 names = { version = "0.14.0", default-features = false }
@@ -75,7 +75,6 @@ unimock = "0.4"
 unsigned-varint = "0.7"
 void = "1.0"
 zeroize = "1.4"
-
 
 # Uncomment these lines to use a local copy of beetle
 #[patch."https://github.com/nathanielc/beetle"]

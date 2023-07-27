@@ -106,15 +106,15 @@ async fn build_transport(
     (transport, relay_client)
 }
 
-pub(crate) async fn build_swarm<IR, MR>(
+pub(crate) async fn build_swarm<I, M>(
     config: &Libp2pConfig,
     keypair: &Keypair,
     rpc_client: Client,
-    recons: Option<(IR, MR)>,
-) -> Result<Swarm<NodeBehaviour<IR, MR>>>
+    recons: Option<(I, M)>,
+) -> Result<Swarm<NodeBehaviour<I, M>>>
 where
-    IR: Recon<Key = Interest, Hash = Sha256a>,
-    MR: Recon<Key = EventId, Hash = Sha256a>,
+    I: Recon<Key = Interest, Hash = Sha256a>,
+    M: Recon<Key = EventId, Hash = Sha256a>,
 {
     let peer_id = keypair.public().to_peer_id();
 

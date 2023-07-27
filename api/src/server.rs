@@ -102,20 +102,20 @@ where
 }
 
 #[derive(Clone)]
-pub struct Server<C, IR, MR> {
+pub struct Server<C, I, M> {
     peer_id: PeerId,
     network: Network,
-    interest: IR,
-    model: MR,
+    interest: I,
+    model: M,
     marker: PhantomData<C>,
 }
 
-impl<C, IR, MR> Server<C, IR, MR>
+impl<C, I, M> Server<C, I, M>
 where
-    IR: Recon<Key = Interest>,
-    MR: Recon<Key = EventId>,
+    I: Recon<Key = Interest>,
+    M: Recon<Key = EventId>,
 {
-    pub fn new(peer_id: PeerId, network: Network, interest: IR, model: MR) -> Self {
+    pub fn new(peer_id: PeerId, network: Network, interest: I, model: M) -> Self {
         Server {
             peer_id,
             network,
@@ -132,11 +132,11 @@ use std::error::Error;
 use swagger::ApiError;
 
 #[async_trait]
-impl<C, IR, MR> Api<C> for Server<C, IR, MR>
+impl<C, I, M> Api<C> for Server<C, I, M>
 where
     C: Send + Sync,
-    IR: Recon<Key = Interest> + Sync,
-    MR: Recon<Key = EventId> + Sync,
+    I: Recon<Key = Interest> + Sync,
+    M: Recon<Key = EventId> + Sync,
 {
     async fn ceramic_events_post(
         &self,
