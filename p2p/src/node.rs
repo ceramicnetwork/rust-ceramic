@@ -67,13 +67,13 @@ pub enum NetworkEvent {
 /// Node implements a peer to peer node that participates on the Ceramic network.
 ///
 /// Node provides an external API via RpcMessages.
-pub struct Node<KeyStorage, IR, MR>
+pub struct Node<KeyStorage, I, M>
 where
     KeyStorage: Storage,
-    IR: Recon<Key = Interest, Hash = Sha256a>,
-    MR: Recon<Key = EventId, Hash = Sha256a>,
+    I: Recon<Key = Interest, Hash = Sha256a>,
+    M: Recon<Key = EventId, Hash = Sha256a>,
 {
-    swarm: Swarm<NodeBehaviour<IR, MR>>,
+    swarm: Swarm<NodeBehaviour<I, M>>,
     net_receiver_in: Receiver<RpcMessage>,
     dial_queries: AHashMap<PeerId, Vec<OneShotSender<Result<()>>>>,
     lookup_queries: AHashMap<PeerId, Vec<oneshot::Sender<Result<IdentifyInfo>>>>,
@@ -95,11 +95,11 @@ where
     ceramic_peers_query_id: Option<QueryId>,
 }
 
-impl<S, IR, MR> fmt::Debug for Node<S, IR, MR>
+impl<S, I, M> fmt::Debug for Node<S, I, M>
 where
     S: Storage,
-    IR: Recon<Key = Interest, Hash = Sha256a>,
-    MR: Recon<Key = EventId, Hash = Sha256a>,
+    I: Recon<Key = Interest, Hash = Sha256a>,
+    M: Recon<Key = EventId, Hash = Sha256a>,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Node")
@@ -131,11 +131,11 @@ const BOOTSTRAP_INTERVAL: Duration = Duration::from_secs(5 * 60);
 const EXPIRY_INTERVAL: Duration = Duration::from_secs(1);
 const DISCOVER_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
-impl<S, IR, MR> Drop for Node<S, IR, MR>
+impl<S, I, M> Drop for Node<S, I, M>
 where
     S: Storage,
-    IR: Recon<Key = Interest, Hash = Sha256a>,
-    MR: Recon<Key = EventId, Hash = Sha256a>,
+    I: Recon<Key = Interest, Hash = Sha256a>,
+    M: Recon<Key = EventId, Hash = Sha256a>,
 {
     fn drop(&mut self) {
         self.rpc_task.abort();
@@ -145,20 +145,20 @@ where
 // Allow IntoConnectionHandler deprecated associated type.
 // We are not using IntoConnectionHandler directly only referencing the type as part of this event signature.
 #[allow(deprecated)]
-type NodeSwarmEvent<IR,MR> = SwarmEvent<
-            <NodeBehaviour<IR,MR> as NetworkBehaviour>::OutEvent,
-            <<<NodeBehaviour<IR,MR> as NetworkBehaviour>::ConnectionHandler as IntoConnectionHandler>::Handler as ConnectionHandler>::Error>;
-impl<S, IR, MR> Node<S, IR, MR>
+type NodeSwarmEvent<I,M> = SwarmEvent<
+            <NodeBehaviour<I,M> as NetworkBehaviour>::OutEvent,
+            <<<NodeBehaviour<I,M> as NetworkBehaviour>::ConnectionHandler as IntoConnectionHandler>::Handler as ConnectionHandler>::Error>;
+impl<S, I, M> Node<S, I, M>
 where
     S: Storage,
-    IR: Recon<Key = Interest, Hash = Sha256a>,
-    MR: Recon<Key = EventId, Hash = Sha256a>,
+    I: Recon<Key = Interest, Hash = Sha256a>,
+    M: Recon<Key = EventId, Hash = Sha256a>,
 {
     pub async fn new(
         config: Config,
         rpc_addr: P2pAddr,
         mut keychain: Keychain<S>,
-        recons: Option<(IR, MR)>,
+        recons: Option<(I, M)>,
         ceramic_peers_key: impl AsRef<[u8]>,
     ) -> Result<Self> {
         let (network_sender_in, network_receiver_in) = channel(1024); // TODO: configurable
@@ -450,7 +450,7 @@ where
 
     // TODO fix skip_all
     #[tracing::instrument(skip_all)]
-    fn handle_swarm_event(&mut self, event: NodeSwarmEvent<IR, MR>) -> Result<()> {
+    fn handle_swarm_event(&mut self, event: NodeSwarmEvent<I, M>) -> Result<()> {
         libp2p_metrics().record(&event);
         match event {
             // outbound events

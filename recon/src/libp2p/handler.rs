@@ -26,29 +26,29 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct Handler<IR, MR> {
+pub struct Handler<I, M> {
     remote_peer_id: PeerId,
     connection_id: ConnectionId,
-    interest: IR,
-    model: MR,
+    interest: I,
+    model: M,
     state: State,
     keep_alive_duration: Duration,
     keep_alive: KeepAlive,
     behavior_events_queue: VecDeque<FromHandler>,
 }
 
-impl<IR, MR> Handler<IR, MR>
+impl<I, M> Handler<I, M>
 where
-    IR: Recon<Key = Interest, Hash = Sha256a>,
-    MR: Recon<Key = EventId, Hash = Sha256a>,
+    I: Recon<Key = Interest, Hash = Sha256a>,
+    M: Recon<Key = EventId, Hash = Sha256a>,
 {
     pub fn new(
         peer_id: PeerId,
         connection_id: ConnectionId,
         state: State,
         keep_alive_duration: Duration,
-        interest: IR,
-        model: MR,
+        interest: I,
+        model: M,
     ) -> Self {
         Self {
             remote_peer_id: peer_id,
@@ -165,10 +165,10 @@ impl std::error::Error for Failure {
     }
 }
 
-impl<IR, MR> ConnectionHandler for Handler<IR, MR>
+impl<I, M> ConnectionHandler for Handler<I, M>
 where
-    IR: Recon<Key = Interest, Hash = Sha256a> + Clone + Send + 'static,
-    MR: Recon<Key = EventId, Hash = Sha256a> + Clone + Send + 'static,
+    I: Recon<Key = Interest, Hash = Sha256a> + Clone + Send + 'static,
+    M: Recon<Key = EventId, Hash = Sha256a> + Clone + Send + 'static,
 {
     type InEvent = FromBehaviour;
     type OutEvent = FromHandler;

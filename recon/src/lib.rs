@@ -5,8 +5,6 @@ pub use crate::recon::{
     btree::BTreeStore, AssociativeHash, FullInterests, InterestProvider, Key, Message, Recon,
     Response, Store,
 };
-#[cfg(test)]
-use recon::tests;
 pub use sha256a::Sha256a;
 
 pub mod libp2p;

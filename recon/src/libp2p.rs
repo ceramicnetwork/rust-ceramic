@@ -146,9 +146,9 @@ impl Default for Config {
 /// It is responsible for starting and stopping syncs with various peers depending on the needs of
 /// the application.
 #[derive(Debug)]
-pub struct Behaviour<IR, MR> {
-    interest: IR,
-    model: MR,
+pub struct Behaviour<I, M> {
+    interest: I,
+    model: M,
     config: Config,
     peers: BTreeMap<PeerId, PeerInfo>,
     swarm_events_queue: VecDeque<Event>,
@@ -186,12 +186,12 @@ pub enum PeerStatus {
     Stopped,
 }
 
-impl<IR, MR> Behaviour<IR, MR> {
+impl<I, M> Behaviour<I, M> {
     /// Create a new Behavior with the provided Recon implementation.
-    pub fn new(interest: IR, model: MR, config: Config) -> Self
+    pub fn new(interest: I, model: M, config: Config) -> Self
     where
-        IR: Recon<Key = Interest, Hash = Sha256a>,
-        MR: Recon<Key = EventId, Hash = Sha256a>,
+        I: Recon<Key = Interest, Hash = Sha256a>,
+        M: Recon<Key = EventId, Hash = Sha256a>,
     {
         Self {
             interest,
@@ -203,12 +203,12 @@ impl<IR, MR> Behaviour<IR, MR> {
     }
 }
 
-impl<IR, MR> NetworkBehaviour for Behaviour<IR, MR>
+impl<I, M> NetworkBehaviour for Behaviour<I, M>
 where
-    IR: Recon<Key = Interest, Hash = Sha256a>,
-    MR: Recon<Key = EventId, Hash = Sha256a>,
+    I: Recon<Key = Interest, Hash = Sha256a>,
+    M: Recon<Key = EventId, Hash = Sha256a>,
 {
-    type ConnectionHandler = Handler<IR, MR>;
+    type ConnectionHandler = Handler<I, M>;
 
     type OutEvent = Event;
 

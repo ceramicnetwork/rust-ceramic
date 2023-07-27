@@ -89,6 +89,11 @@ where
     pub fn process_messages(&mut self, received: &[Message<K, H>]) -> Result<Response<K, H>> {
         // First we must find the intersection of interests.
         // Then reply with a message per intersection.
+        //
+        // TODO: This is O(n^2) over the number of interests.
+        // We should make this more efficient in the future.
+        // Potentially we could use a variant of https://en.wikipedia.org/wiki/Bounding_volume_hierarchy
+        // to quickly find intersections.
         let mut intersections: Vec<(RangeOpen<K>, BoundedMessage<K, H>)> = Vec::new();
         for range in self.interests.interests()? {
             for msg in received {
@@ -98,7 +103,6 @@ where
                 }
             }
         }
-        debug!(?intersections, "computed intersections");
 
         let mut response = Response {
             is_synchronized: true,
@@ -629,7 +633,7 @@ where
         // TODO: Can we do this without allocating?
         // Some challenges that make this hard currently:
         //  1. The process_messages method iterates over the keys twice
-        //  2. We need to be sure we do not produce too many hashes
+        //  2. We have to keep keys and hashes properly aligned
 
         debug!(?self.keys, "bound keys");
         let mut hashes = self.hashes.iter();

@@ -1,9 +1,9 @@
-use anyhow::{anyhow, Result};
-use cbor::{CborBytes, Decoder, Encoder};
+use anyhow::Result;
 use cid::multihash::{Hasher, Sha2_256};
+use minicbor::{Decoder, Encoder};
 use multibase::Base;
 use serde::{Deserialize, Serialize};
-use std::{fmt::Display, io::Cursor, str::FromStr};
+use std::{fmt::Display, str::FromStr};
 
 pub use libp2p_identity::PeerId;
 
@@ -21,70 +21,50 @@ impl Interest {
     }
 
     /// Report the sort key
-    pub fn sort_key(&self) -> Result<String> {
-        let mut decoder = Decoder::from_bytes(self.0.as_slice());
-        let sort_key_bytes = decode_bytes(&mut decoder)?;
-        Ok(String::from_utf8(sort_key_bytes)?)
+    pub fn sort_key_hash(&self) -> Result<&[u8]> {
+        let mut decoder = Decoder::new(&self.0);
+        Ok(decoder.bytes()?)
     }
 
     /// Report the PeerId value
     pub fn peer_id(&self) -> Result<PeerId> {
-        let mut decoder = Decoder::from_bytes(self.0.as_slice());
-        let peer_id_bytes = decode_bytes(&mut decoder)?;
-        Ok(PeerId::from_bytes(&peer_id_bytes)?)
+        let mut decoder = Decoder::new(&self.0);
+        // Skip sort key
+        decoder.skip()?;
+        let peer_id_bytes = decoder.bytes()?;
+        Ok(PeerId::from_bytes(peer_id_bytes)?)
     }
 
     /// Report the range value
     pub fn range(&self) -> Result<RangeOpen<Vec<u8>>> {
-        let mut decoder = Decoder::from_bytes(self.0.as_slice());
+        let mut decoder = Decoder::new(&self.0);
         // Skip sort key
-        decoder.items().next();
+        decoder.skip()?;
         // Skip peer_id
-        decoder.items().next();
-        let start = decode_bytes(&mut decoder)?;
-        let end = decode_bytes(&mut decoder)?;
+        decoder.skip()?;
+        let start = decoder.bytes()?.to_vec();
+        let end = decoder.bytes()?.to_vec();
         Ok(RangeOpen { start, end })
     }
 
     /// Report the not after value
     pub fn not_after(&self) -> Result<u64> {
-        let mut decoder = Decoder::from_bytes(self.0.as_slice());
+        let mut decoder = Decoder::new(&self.0);
+        // Skip sort key
+        decoder.skip()?;
         // Skip peer_id
-        decoder.items().next();
-        // Skip start
-        decoder.items().next();
-        // Skip end
-        decoder.items().next();
+        decoder.skip()?;
+        // Skip start_key
+        decoder.skip()?;
+        // Skip end_key
+        decoder.skip()?;
 
-        decode_u64(&mut decoder)
+        Ok(decoder.u64()?)
     }
 
     /// Return the interest as a slice of bytes.
     pub fn as_slice(&self) -> &[u8] {
         self.0.as_slice()
-    }
-}
-
-fn decode_bytes(decoder: &mut Decoder<Cursor<Vec<u8>>>) -> Result<Vec<u8>> {
-    if let Some(item) = decoder.items().next() {
-        let item = item?;
-        match item {
-            cbor::Cbor::Bytes(data) => Ok(data.0),
-            item => Err(anyhow!("expected cbor bytes, found: {:?}", item)),
-        }
-    } else {
-        Err(anyhow!("expected top level cbor value, found nothing"))
-    }
-}
-fn decode_u64(decoder: &mut Decoder<Cursor<Vec<u8>>>) -> Result<u64> {
-    if let Some(item) = decoder.items().next() {
-        let item = item?;
-        match item {
-            cbor::Cbor::Unsigned(data) => Ok(data.into_u64()),
-            item => Err(anyhow!("expected cbor unsigned integer, found: {:?}", item)),
-        }
-    } else {
-        Err(anyhow!("expected top level cbor value, found nothing"))
     }
 }
 
@@ -142,14 +122,26 @@ impl BuilderState for WithNotAfter {}
 
 impl Builder<Init> {
     pub fn with_sort_key(self, sort_key: &str) -> Builder<WithSortKey> {
+        // A typical interest contains:
+        //
+        // - sort_key : 8 bytes
+        // - peer_id: ~66 bytes
+        // - start_key: ~72 bytes
+        // - end_key: ~72 bytes
+        // - not_after: ~8 bytes
+        //
+        // with some cbor overhead that is about 256 bytes
+        //
+        // TODO: Emperically measure performance of this size.
+        const INITIAL_VEC_CAPACITY: usize = 256;
         let mut hasher = Sha2_256::default();
         hasher.update(sort_key.as_bytes());
         // sha256 is 32 bytes safe to unwrap to [u8; 32]
         let hash: [u8; 32] = hasher.finalize().try_into().unwrap();
-        let mut encoder = Encoder::from_memory();
+        let mut encoder = Encoder::new(Vec::with_capacity(INITIAL_VEC_CAPACITY));
         encoder
             // Encode last 8 bytes of the sort_key hash
-            .encode([CborBytes(hash[hash.len() - 8..].to_vec())])
+            .bytes(&hash[hash.len() - 8..])
             .expect("sort_key should cbor encode");
         Builder {
             state: WithSortKey { encoder },
@@ -160,8 +152,8 @@ impl Builder<WithSortKey> {
     pub fn with_peer_id(mut self, peer_id: &PeerId) -> Builder<WithPeerId> {
         self.state
             .encoder
-            .encode([CborBytes(peer_id.to_bytes())])
-            .expect("peer id should cbor encode");
+            .bytes(&peer_id.to_bytes())
+            .expect("peer_id should cbor encode");
         Builder {
             state: WithPeerId {
                 encoder: self.state.encoder,
@@ -174,11 +166,10 @@ impl Builder<WithPeerId> {
         let range = range.into();
         self.state
             .encoder
-            .encode([
-                CborBytes(range.start.to_vec()),
-                CborBytes(range.end.to_vec()),
-            ])
-            .expect("peer id should cbor encode");
+            .bytes(range.start)
+            .expect("start_key should cbor encode")
+            .bytes(range.end)
+            .expect("end_key should cbor encode");
         Builder {
             state: WithRange {
                 encoder: self.state.encoder,
@@ -190,8 +181,8 @@ impl Builder<WithRange> {
     pub fn with_not_after(mut self, not_after: u64) -> Builder<WithNotAfter> {
         self.state
             .encoder
-            .encode([not_after])
-            .expect("not after should cbor encode");
+            .u64(not_after)
+            .expect("not_after should cbor encode");
         Builder {
             state: WithNotAfter {
                 encoder: self.state.encoder,
@@ -201,8 +192,8 @@ impl Builder<WithRange> {
 }
 
 impl Builder<WithNotAfter> {
-    pub fn build(mut self) -> Interest {
-        Interest(self.state.encoder.as_bytes().to_vec())
+    pub fn build(self) -> Interest {
+        Interest(self.state.encoder.into_writer())
     }
 }
 
@@ -247,15 +238,23 @@ mod tests {
     }
 
     #[test]
-    fn range() {
+    fn accessors() {
         let peer_id = PeerId::from_str("1AZtAkWrrQrsXMQuBEcBget2vGAPbdQ2Wn4bESe9QEVypJ").unwrap();
         let interest = Interest::builder()
             .with_sort_key("model")
             .with_peer_id(&peer_id)
             .with_range((&[0x00, 0x01, 0x02][..], &[0x00, 0x01, 0x09][..]))
-            .with_not_after(0)
+            .with_not_after(123456789)
             .build();
 
+        expect![[r#"
+            "0F70D652B6B825E4"
+        "#]]
+        .assert_debug_eq(&hex::encode_upper(interest.sort_key_hash().unwrap()));
+        expect![[r#"
+            "1AZtAkWrrQrsXMQuBEcBget2vGAPbdQ2Wn4bESe9QEVypJ"
+        "#]]
+        .assert_debug_eq(&interest.peer_id().unwrap().to_string());
         expect![[r#"
             RangeOpen {
                 start: [
@@ -271,5 +270,9 @@ mod tests {
             }
         "#]]
         .assert_debug_eq(&interest.range().unwrap());
+        expect![[r#"
+            123456789
+        "#]]
+        .assert_debug_eq(&interest.not_after().unwrap());
     }
 }
