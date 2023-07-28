@@ -18,6 +18,7 @@ mod tests;
 mod upgrade;
 
 use anyhow::Result;
+use async_trait::async_trait;
 use ceramic_core::{EventId, Interest};
 use libp2p::{
     core::ConnectedPoint,
@@ -27,7 +28,6 @@ use libp2p_identity::PeerId;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, VecDeque},
-    sync::{Arc, Mutex},
     task::Poll,
     time::{Duration, Instant},
 };
@@ -38,8 +38,8 @@ use crate::{
         handler::{FromBehaviour, FromHandler, Handler},
         stream_set::StreamSet,
     },
-    recon::{InterestProvider, Key, Response, Store},
-    AssociativeHash, Message, Sha256a,
+    recon::{Key, Response},
+    AssociativeHash, Client, Message, Sha256a,
 };
 
 /// Name of the Recon protocol for synchronizing interests
@@ -48,35 +48,31 @@ pub const PROTOCOL_NAME_INTEREST: &[u8] = b"/ceramic/recon/0.1.0/interest";
 pub const PROTOCOL_NAME_MODEL: &[u8] = b"/ceramic/recon/0.1.0/model";
 
 /// Defines the Recon API.
+#[async_trait]
 pub trait Recon: Clone + Send + Sync + 'static {
     /// The type of Key to communicate.
-    type Key: Key + std::fmt::Debug + Serialize + for<'de> Deserialize<'de> + Send + 'static;
+    type Key: Key + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>;
     /// The type of Hash to compute over the keys.
-    type Hash: AssociativeHash
-        + std::fmt::Debug
-        + Serialize
-        + for<'de> Deserialize<'de>
-        + Send
-        + 'static;
+    type Hash: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>;
 
     /// Construct a message to send as the first message.
-    fn initial_messages(&self) -> Result<Vec<Message<Self::Key, Self::Hash>>>;
+    async fn initial_messages(&self) -> Result<Vec<Message<Self::Key, Self::Hash>>>;
 
     /// Process an incoming message and respond with a message reply.
-    fn process_messages(
-        &mut self,
-        msg: &[Message<Self::Key, Self::Hash>],
+    async fn process_messages(
+        &self,
+        msg: Vec<Message<Self::Key, Self::Hash>>,
     ) -> Result<Response<Self::Key, Self::Hash>>;
 
     /// Insert a new key into the key space.
-    fn insert(&mut self, key: &Self::Key) -> Result<()>;
+    async fn insert(&self, key: Self::Key) -> Result<()>;
 
     /// Reports total number of keys
-    fn len(&self) -> usize;
+    async fn len(&self) -> Result<usize>;
 
     /// Reports if the set is empty.
-    fn is_empty(&self) -> bool {
-        self.len() == 0
+    async fn is_empty(&self) -> Result<bool> {
+        Ok(self.len().await? == 0)
     }
 }
 
@@ -85,39 +81,33 @@ pub trait Recon: Clone + Send + Sync + 'static {
 // NOTE: We use a std::sync::Mutex because we are not doing any async
 // logic within Recon itself, all async logic exists outside its scope.
 // We should use a tokio::sync::Mutex if we introduce any async logic into Recon.
-impl<S, K, H, I> Recon for Arc<Mutex<crate::recon::Recon<K, H, S, I>>>
+#[async_trait]
+impl<K, H> Recon for Client<K, H>
 where
-    K: Key + std::fmt::Debug + Serialize + for<'de> Deserialize<'de> + Send + 'static,
-    H: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de> + Send + 'static,
-    S: Store<Key = K, Hash = H> + Send + 'static,
-    I: InterestProvider<Key = K> + Send + 'static,
+    K: Key + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>,
+    H: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>,
 {
     type Key = K;
     type Hash = H;
 
-    fn initial_messages(&self) -> Result<Vec<Message<Self::Key, Self::Hash>>> {
-        self.lock()
-            .expect("should be able to acquire lock")
-            .initial_messages()
+    async fn initial_messages(&self) -> Result<Vec<Message<Self::Key, Self::Hash>>> {
+        Client::initial_messages(self).await
     }
 
-    fn process_messages(
-        &mut self,
-        messages: &[Message<Self::Key, Self::Hash>],
+    async fn process_messages(
+        &self,
+        messages: Vec<Message<Self::Key, Self::Hash>>,
     ) -> Result<Response<Self::Key, Self::Hash>> {
-        self.lock()
-            .expect("should be able to acquire lock")
-            .process_messages(messages)
+        Client::process_messages(self, messages).await
     }
 
-    fn insert(&mut self, key: &Self::Key) -> Result<()> {
-        self.lock()
-            .expect("should be able to acquire lock")
-            .insert(key)
+    async fn insert(&self, key: Self::Key) -> Result<()> {
+        let _ = Client::insert(self, key).await?;
+        Ok(())
     }
 
-    fn len(&self) -> usize {
-        self.lock().expect("should be able to acquire lock").len()
+    async fn len(&self) -> Result<usize> {
+        Client::len(self).await
     }
 }
 
@@ -228,16 +218,41 @@ where
             libp2p::swarm::FromSwarm::ConnectionClosed(info) => {
                 self.peers.remove(&info.peer_id);
             }
-            libp2p::swarm::FromSwarm::AddressChange(_) => {}
-            libp2p::swarm::FromSwarm::DialFailure(_) => {}
-            libp2p::swarm::FromSwarm::ListenFailure(_) => {}
-            libp2p::swarm::FromSwarm::NewListener(_) => {}
-            libp2p::swarm::FromSwarm::NewListenAddr(_) => {}
-            libp2p::swarm::FromSwarm::ExpiredListenAddr(_) => {}
-            libp2p::swarm::FromSwarm::ListenerError(_) => {}
-            libp2p::swarm::FromSwarm::ListenerClosed(_) => {}
-            libp2p::swarm::FromSwarm::NewExternalAddr(_) => {}
-            libp2p::swarm::FromSwarm::ExpiredExternalAddr(_) => {}
+            libp2p::swarm::FromSwarm::AddressChange(_) => {
+                debug!(kind = "AddressChange", "ignored swarm event")
+            }
+            libp2p::swarm::FromSwarm::DialFailure(df) => {
+                debug!(
+                    kind = "DialFailure",
+                    connection_id = ?df.connection_id,
+                    error = ?df.error,
+                    "ignored swarm event"
+                )
+            }
+            libp2p::swarm::FromSwarm::ListenFailure(_) => {
+                debug!(kind = "ListenFailure", "ignored swarm event")
+            }
+            libp2p::swarm::FromSwarm::NewListener(_) => {
+                debug!(kind = "NewListener", "ignored swarm event")
+            }
+            libp2p::swarm::FromSwarm::NewListenAddr(_) => {
+                debug!(kind = "NewListenAddr", "ignored swarm event")
+            }
+            libp2p::swarm::FromSwarm::ExpiredListenAddr(_) => {
+                debug!(kind = "ExpiredListenAddr", "ignored swarm event")
+            }
+            libp2p::swarm::FromSwarm::ListenerError(_) => {
+                debug!(kind = "ListenerError", "ignored swarm event")
+            }
+            libp2p::swarm::FromSwarm::ListenerClosed(_) => {
+                debug!(kind = "ListenerClosed", "ignored swarm event")
+            }
+            libp2p::swarm::FromSwarm::NewExternalAddr(_) => {
+                debug!(kind = "NewExternalAddr", "ignored swarm event")
+            }
+            libp2p::swarm::FromSwarm::ExpiredExternalAddr(_) => {
+                debug!(kind = "ExpiredExternalAddr", "ignored swarm event")
+            }
         }
     }
 

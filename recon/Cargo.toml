@@ -12,24 +12,24 @@ anyhow.workspace = true
 async-trait.workspace = true
 asynchronous-codec = { version = "0.6.1", features = ["cbor", "json"] }
 cbor = "0.4.1"
+ceramic-core.workspace = true
 cid.workspace = true
 hex = "0.4.3"
 libp2p-identity = { version = "0.1.2", features = ["peerid"] }
 libp2p.workspace = true
 multihash = "0.18.0"
 rand = "0.8.5"
-rusqlite.workspace = true
 serde.workspace = true
 serde_bytes.workspace = true
 serde_ipld_dagcbor.workspace = true
 serde_json.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
 tracing.workspace = true
 unsigned-varint = "0.7.1"
-ceramic-core.workspace = true
 void.workspace = true
 
 [dev-dependencies]
-async-std = "1.12.0"
 codespan-reporting = "0.11.1"
 expect-test = "1.4.1"
 lalrpop-util = { version = "0.20.0", features = ["lexer"] }

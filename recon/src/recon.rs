@@ -3,16 +3,15 @@ pub mod sqlitestore;
 #[cfg(test)]
 pub mod tests;
 
-use std::{
-    fmt::Display,
-    marker::PhantomData,
-    sync::{Arc, Mutex},
-};
+use std::{fmt::Display, marker::PhantomData};
 
 use anyhow::{anyhow, bail, Result};
+use async_trait::async_trait;
 use ceramic_core::{EventId, Interest, PeerId, RangeOpen};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, instrument, trace};
+
+use crate::{Client, Sha256a};
 
 /// Recon is a protocol for set reconciliation via a message passing paradigm.
 /// An initial message can be created and then messages are exchanged between two Recon instances
@@ -30,7 +29,7 @@ pub struct Recon<K, H, S, I>
 where
     K: Key,
     H: AssociativeHash,
-    S: Store<Key = K, Hash = H>,
+    S: Store<Key = K, Hash = H> + Send,
     I: InterestProvider<Key = K>,
 {
     interests: I,
@@ -41,7 +40,7 @@ impl<K, H, S, I> Recon<K, H, S, I>
 where
     K: Key,
     H: AssociativeHash,
-    S: Store<Key = K, Hash = H>,
+    S: Store<Key = K, Hash = H> + Send,
     I: InterestProvider<Key = K>,
 {
     /// Construct a new Recon instance.
@@ -50,15 +49,15 @@ where
     }
 
     /// Construct a message to send as the first message.
-    pub fn initial_messages(&self) -> Result<Vec<Message<K, H>>> {
-        let interests = self.interests()?;
+    pub async fn initial_messages(&mut self) -> Result<Vec<Message<K, H>>> {
+        let interests = self.interests().await?;
         let mut messages = Vec::with_capacity(interests.len());
         for range in interests {
             let mut response = Message::new(&range.start, &range.end);
-            if let Some((first, last)) = self.store.first_and_last(&range.start, &range.end) {
-                // Cannot use store.len, we need the count between first and last
-                let len = self.store.len();
-                match len {
+            if let Some((first, last)) = self.store.first_and_last(&range.start, &range.end).await?
+            {
+                let count = self.store.count(&range.start, &range.end).await?;
+                match count {
                     0 => {
                         // this should be unreachable, but we explicitly add this case to be clear.
                     }
@@ -75,7 +74,9 @@ where
                     _ => {
                         // -> (first h(middle) last)
                         response.keys.push(first.to_owned());
-                        response.hashes.push(self.store.hash_range(&first, &last));
+                        response
+                            .hashes
+                            .push(self.store.hash_range(&first, &last).await?);
                         response.keys.push(last.to_owned());
                     }
                 }
@@ -87,7 +88,7 @@ where
 
     /// Process an incoming message and respond with a message reply.
     #[instrument(skip_all, ret)]
-    pub fn process_messages(&mut self, received: &[Message<K, H>]) -> Result<Response<K, H>> {
+    pub async fn process_messages(&mut self, received: &[Message<K, H>]) -> Result<Response<K, H>> {
         // First we must find the intersection of interests.
         // Then reply with a message per intersection.
         //
@@ -96,7 +97,7 @@ where
         // Potentially we could use a variant of https://en.wikipedia.org/wiki/Bounding_volume_hierarchy
         // to quickly find intersections.
         let mut intersections: Vec<(RangeOpen<K>, BoundedMessage<K, H>)> = Vec::new();
-        for range in self.interests.interests()? {
+        for range in self.interests().await? {
             for msg in received {
                 if let Some(intersection) = range.intersect(&msg.range()) {
                     let bounded = msg.bound(&intersection);
@@ -113,12 +114,12 @@ where
             trace!(?range, "processing range");
             let mut response_message = Message::new(&range.start, &range.end);
             for key in &received.keys {
-                if self.store.insert(key)? {
+                if self.insert(key).await? {
                     response.is_synchronized = false;
                 }
             }
 
-            if let Some(mut left_fencepost) = self.store.first(&range.start, &range.end) {
+            if let Some(mut left_fencepost) = self.store.first(&range.start, &range.end).await? {
                 let mut received_hashs = received.hashes.iter();
                 let mut received_keys = received.keys.iter();
                 let mut right_fencepost: K = match received_keys.next() {
@@ -126,6 +127,7 @@ where
                     None => self
                         .store
                         .last(&range.start, &range.end)
+                        .await?
                         .expect("should be at least one key"),
                 };
 
@@ -137,40 +139,49 @@ where
                     && left_fencepost < *received.keys.last().unwrap()
                     && (response_message.keys.len() < 32 * 1024)
                 {
-                    response.is_synchronized &= response_message.process_range(
-                        &left_fencepost,
-                        &right_fencepost,
-                        received_hash,
-                        &self.store,
-                    )?;
+                    response.is_synchronized &= response_message
+                        .process_range(
+                            &left_fencepost,
+                            &right_fencepost,
+                            received_hash,
+                            &mut self.store,
+                        )
+                        .await?;
                     left_fencepost = right_fencepost;
                     right_fencepost = match received_keys.next() {
                         Some(k) => k.to_owned(),
                         None => self
                             .store
                             .last(&range.start, &range.end)
+                            .await?
                             .expect("should be at least one key"),
                     };
                     received_hash = received_hashs.next().unwrap_or(zero);
                 }
                 if !received.keys.is_empty() {
-                    response.is_synchronized &= response_message.process_range(
-                        received.keys.last().unwrap(),
+                    response.is_synchronized &= response_message
+                        .process_range(
+                            received.keys.last().unwrap(),
+                            &self
+                                .store
+                                .last(&range.start, &range.end)
+                                .await?
+                                .expect("should be at least one key"),
+                            zero,
+                            &mut self.store,
+                        )
+                        .await?;
+                }
+                response_message
+                    .end_streak(
                         &self
                             .store
                             .last(&range.start, &range.end)
+                            .await?
                             .expect("should be at least one key"),
-                        zero,
-                        &self.store,
-                    )?;
-                }
-                response_message.end_streak(
-                    &self
-                        .store
-                        .last(&range.start, &range.end)
-                        .expect("should be at least one key"),
-                    &self.store,
-                );
+                        &mut self.store,
+                    )
+                    .await?;
             };
             response.messages.push(response_message);
         }
@@ -178,47 +189,50 @@ where
     }
 
     /// Insert a new key into the key space.
-    pub fn insert(&mut self, key: &K) -> Result<()> {
-        self.store.insert(key)?;
-        Ok(())
+    /// Returns true if the key did not previously exist.
+    pub async fn insert(&mut self, key: &K) -> Result<bool> {
+        let new_key = self.store.insert(key).await?;
+        Ok(new_key)
     }
 
     /// Reports total number of keys
-    pub fn len(&self) -> usize {
-        self.store.len()
+    pub async fn len(&mut self) -> Result<usize> {
+        self.store.len().await
     }
 
     /// Reports if the set is empty
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
+    pub async fn is_empty(&mut self) -> Result<bool> {
+        self.store.is_empty().await
     }
 
     /// Return all keys in the range between left_fencepost and right_fencepost.
     /// Both range bounds are exclusive.
     ///
     /// Offset and limit values are applied within the range of keys.
-    pub fn range(
-        &self,
+    pub async fn range(
+        &mut self,
         left_fencepost: &K,
         right_fencepost: &K,
         offset: usize,
         limit: usize,
-    ) -> Box<dyn Iterator<Item = K> + '_> {
+    ) -> Result<Box<dyn Iterator<Item = K> + Send + 'static>> {
         self.store
             .range(left_fencepost, right_fencepost, offset, limit)
+            .await
     }
 
     /// Return all keys.
-    pub fn full_range(&self) -> Box<dyn Iterator<Item = K> + '_> {
-        self.store.full_range()
+    pub async fn full_range(&mut self) -> Result<Box<dyn Iterator<Item = K> + Send + 'static>> {
+        self.store.full_range().await
     }
 
-    fn interests(&self) -> Result<Vec<RangeOpen<K>>> {
-        self.interests.interests()
+    async fn interests(&self) -> Result<Vec<RangeOpen<K>>> {
+        self.interests.interests().await
     }
 }
 
 /// Store defines the API needed to store the Recon set.
+#[async_trait]
 pub trait Store: std::fmt::Debug {
     /// Type of the Key being stored.
     type Key: Key;
@@ -227,32 +241,37 @@ pub trait Store: std::fmt::Debug {
 
     /// Insert a new key into the key space.
     /// Returns true if the key did not previously exist.
-    fn insert(&mut self, key: &Self::Key) -> Result<bool>;
+    async fn insert(&mut self, key: &Self::Key) -> Result<bool>;
 
     /// Return the hash of all keys in the range between left_fencepost and right_fencepost.
     /// Both range bounds are exclusive.
-    fn hash_range(&self, left_fencepost: &Self::Key, right_fencepost: &Self::Key) -> Self::Hash;
+    async fn hash_range(
+        &mut self,
+        left_fencepost: &Self::Key,
+        right_fencepost: &Self::Key,
+    ) -> Result<Self::Hash>;
 
     /// Return all keys in the range between left_fencepost and right_fencepost.
     /// Both range bounds are exclusive.
     ///
     /// Offset and limit values are applied within the range of keys.
-    fn range(
-        &self,
+    async fn range(
+        &mut self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
         offset: usize,
         limit: usize,
-    ) -> Box<dyn Iterator<Item = Self::Key> + '_>;
+    ) -> Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>>;
 
     /// Return all keys.
-    fn full_range(&self) -> Box<dyn Iterator<Item = Self::Key> + '_> {
+    async fn full_range(&mut self) -> Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
         self.range(
             &Self::Key::min_value(),
             &Self::Key::max_value(),
             0,
             usize::MAX,
         )
+        .await
     }
 
     /// Return a key that is approximately in the middle of the range.
@@ -260,65 +279,95 @@ pub trait Store: std::fmt::Debug {
     ///
     /// The default implementation will count all elements and then find the middle.
     #[instrument(skip(self), ret)]
-    fn middle(&self, left_fencepost: &Self::Key, right_fencepost: &Self::Key) -> Option<Self::Key> {
-        let count = self.count(left_fencepost, right_fencepost);
+    async fn middle(
+        &mut self,
+        left_fencepost: &Self::Key,
+        right_fencepost: &Self::Key,
+    ) -> Result<Option<Self::Key>> {
+        let count = self.count(left_fencepost, right_fencepost).await?;
         if count == 0 {
-            None
+            Ok(None)
         } else {
-            self.range(left_fencepost, right_fencepost, (count - 1) / 2, 1)
-                .next()
+            Ok(self
+                .range(left_fencepost, right_fencepost, (count - 1) / 2, 1)
+                .await?
+                .next())
         }
     }
     /// Return the number of keys within the range.
     #[instrument(skip(self), ret)]
-    fn count(&self, left_fencepost: &Self::Key, right_fencepost: &Self::Key) -> usize {
-        self.range(left_fencepost, right_fencepost, 0, usize::MAX)
-            .count()
+    async fn count(
+        &mut self,
+        left_fencepost: &Self::Key,
+        right_fencepost: &Self::Key,
+    ) -> Result<usize> {
+        Ok(self
+            .range(left_fencepost, right_fencepost, 0, usize::MAX)
+            .await?
+            .count())
     }
     /// Return the first key within the range.
     #[instrument(skip(self), ret)]
-    fn first(&self, left_fencepost: &Self::Key, right_fencepost: &Self::Key) -> Option<Self::Key> {
-        self.range(left_fencepost, right_fencepost, 0, 1).next()
+    async fn first(
+        &mut self,
+        left_fencepost: &Self::Key,
+        right_fencepost: &Self::Key,
+    ) -> Result<Option<Self::Key>> {
+        Ok(self
+            .range(left_fencepost, right_fencepost, 0, 1)
+            .await?
+            .next())
     }
     /// Return the last key within the range.
     #[instrument(skip(self), ret)]
-    fn last(&self, left_fencepost: &Self::Key, right_fencepost: &Self::Key) -> Option<Self::Key> {
-        self.range(left_fencepost, right_fencepost, 0, usize::MAX)
-            .last()
+    async fn last(
+        &mut self,
+        left_fencepost: &Self::Key,
+        right_fencepost: &Self::Key,
+    ) -> Result<Option<Self::Key>> {
+        Ok(self
+            .range(left_fencepost, right_fencepost, 0, usize::MAX)
+            .await?
+            .last())
     }
 
     /// Return the first and last keys within the range.
     /// If the range contains only a single key it will be returned as both first and last.
-    fn first_and_last(
-        &self,
+    async fn first_and_last(
+        &mut self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
-    ) -> Option<(Self::Key, Self::Key)> {
-        let mut range = self.range(left_fencepost, right_fencepost, 0, usize::MAX);
+    ) -> Result<Option<(Self::Key, Self::Key)>> {
+        let mut range = self
+            .range(left_fencepost, right_fencepost, 0, usize::MAX)
+            .await?;
         let first = range.next();
         if let Some(first) = first {
             if let Some(last) = range.last() {
-                Some((first, last))
+                Ok(Some((first, last)))
             } else {
-                Some((first.clone(), first))
+                Ok(Some((first.clone(), first)))
             }
         } else {
-            None
+            Ok(None)
         }
     }
 
     /// Reports total number of keys
-    fn len(&self) -> usize {
+    async fn len(&mut self) -> Result<usize> {
         self.count(&Self::Key::min_value(), &Self::Key::max_value())
+            .await
     }
     /// Reports of there are no keys stored.
-    fn is_empty(&self) -> bool {
-        self.len() == 0
+    async fn is_empty(&mut self) -> Result<bool> {
+        Ok(self.len().await? == 0)
     }
 }
 
 /// Represents a key that can be reconciled via Recon.
-pub trait Key: From<Vec<u8>> + Ord + Clone + Display + std::fmt::Debug {
+pub trait Key:
+    From<Vec<u8>> + Ord + Clone + Display + std::fmt::Debug + Send + Sync + 'static
+{
     /// Produce the key that is less than all other keys.
     fn min_value() -> Self;
 
@@ -339,7 +388,15 @@ pub trait Key: From<Vec<u8>> + Ord + Clone + Display + std::fmt::Debug {
 /// Associativity means the order in which items are hashed is unimportant and that hashes can be
 /// accumulated by summing.
 pub trait AssociativeHash:
-    std::ops::Add<Output = Self> + Clone + Default + PartialEq + std::fmt::Debug + From<[u32; 8]>
+    std::ops::Add<Output = Self>
+    + Clone
+    + Default
+    + PartialEq
+    + std::fmt::Debug
+    + From<[u32; 8]>
+    + Send
+    + Sync
+    + 'static
 {
     /// The value that when added to the Hash it does not change
     fn identity() -> Self {
@@ -403,11 +460,12 @@ where
 }
 
 /// InterestProvider describes a set of interests
+#[async_trait]
 pub trait InterestProvider {
     /// The type of Key over which we are interested.
     type Key: Key;
     /// Report a set of interests.
-    fn interests(&self) -> Result<Vec<RangeOpen<Self::Key>>>;
+    async fn interests(&self) -> Result<Vec<RangeOpen<Self::Key>>>;
 }
 
 /// InterestProvider that is interested in everything.
@@ -420,35 +478,32 @@ impl<K> Default for FullInterests<K> {
     }
 }
 
+#[async_trait]
 impl<K: Key> InterestProvider for FullInterests<K> {
     type Key = K;
 
-    fn interests(&self) -> Result<Vec<RangeOpen<K>>> {
+    async fn interests(&self) -> Result<Vec<RangeOpen<K>>> {
         Ok(vec![(K::min_value(), K::max_value()).into()])
     }
 }
 
 /// An implementation of [`InterestProvider`] backed by a Recon instance.
 #[derive(Debug)]
-pub struct ReconInterestProvider<H, S, I>
+pub struct ReconInterestProvider<H = Sha256a>
 where
-    H: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de> + Send + 'static,
-    S: Store<Key = Interest, Hash = H> + Send + 'static,
-    I: InterestProvider<Key = Interest>,
+    H: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>,
 {
     start: Interest,
     end: Interest,
-    recon: Arc<Mutex<Recon<Interest, H, S, I>>>,
+    recon: Client<Interest, H>,
 }
 
-impl<H, S, I> ReconInterestProvider<H, S, I>
+impl<H> ReconInterestProvider<H>
 where
-    H: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de> + Send + 'static,
-    S: Store<Key = Interest, Hash = H> + Send + 'static,
-    I: InterestProvider<Key = Interest>,
+    H: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>,
 {
-    /// Construct an [`InterestProvider`] from [`Recon`] and a [`PeerId`].
-    pub fn new(peer_id: PeerId, recon: Arc<Mutex<Recon<Interest, H, S, I>>>) -> Self {
+    /// Construct an [`InterestProvider`] from a Recon [`Client`] and a [`PeerId`].
+    pub fn new(peer_id: PeerId, recon: Client<Interest, H>) -> Self {
         let sort_key = "model";
         let start = Interest::builder()
             .with_sort_key(sort_key)
@@ -466,19 +521,17 @@ where
 }
 
 // Implement InterestProvider for a Recon of interests.
-impl<H, S, I> InterestProvider for ReconInterestProvider<H, S, I>
+#[async_trait]
+impl<H> InterestProvider for ReconInterestProvider<H>
 where
-    H: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de> + Send + 'static,
-    S: Store<Key = Interest, Hash = H> + Send + 'static,
-    I: InterestProvider<Key = Interest>,
+    H: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>,
 {
     type Key = EventId;
 
-    fn interests(&self) -> Result<Vec<RangeOpen<EventId>>> {
+    async fn interests(&self) -> Result<Vec<RangeOpen<EventId>>> {
         self.recon
-            .lock()
-            .expect("should be able to acquire lock")
-            .range(&self.start, &self.end, 0, usize::MAX)
+            .range(self.start.clone(), self.end.clone(), 0, usize::MAX)
+            .await?
             .map(|interest| {
                 if let Some(RangeOpen { start, end }) = interest.range()? {
                     let range = (EventId::from(start), EventId::from(end)).into();
@@ -608,41 +661,46 @@ where
     // if it is the first key there is no range so we don't push the accumulator
     // keys must be pushed in lexical order
 
-    fn end_streak<S>(&mut self, left_fencepost: &K, local_store: &S)
+    async fn end_streak<S>(&mut self, left_fencepost: &K, local_store: &mut S) -> Result<()>
     where
         S: Store<Key = K, Hash = H>,
     {
-        let h = local_store.hash_range(self.keys.last().unwrap(), left_fencepost);
+        let h = local_store
+            .hash_range(self.keys.last().unwrap(), left_fencepost)
+            .await?;
         // If the left fencepost has not been sent send it now
         if self.keys.last().unwrap() != left_fencepost {
             // Add the left_fencepost to end the match streak.
             self.keys.push(left_fencepost.to_owned());
             self.hashes.push(h);
-        }
+        };
+        Ok(())
     }
 
     // Process keys within a specific range. Returns true if the ranges were already in sync.
-    fn process_range<S>(
+    async fn process_range<S>(
         &mut self,
         left_fencepost: &K,
         right_fencepost: &K,
         received_hash: &H,
-        local_store: &S,
+        local_store: &mut S,
     ) -> Result<bool>
     where
-        S: Store<Key = K, Hash = H>,
+        S: Store<Key = K, Hash = H> + Send,
     {
         if left_fencepost == right_fencepost {
             return Ok(true);
         }
 
-        let calculated_hash = local_store.hash_range(left_fencepost, right_fencepost);
+        let calculated_hash = local_store
+            .hash_range(left_fencepost, right_fencepost)
+            .await?;
 
         if &calculated_hash == received_hash {
             return Ok(true);
         }
 
-        self.end_streak(left_fencepost, local_store);
+        self.end_streak(left_fencepost, local_store).await?;
 
         if calculated_hash.is_zero() {
             // we are missing all keys in range
@@ -656,7 +714,10 @@ where
                 right_fencepost = right_fencepost.to_hex(),
                 "sending all keys in range"
             );
-            for key in local_store.range(left_fencepost, right_fencepost, 0, usize::MAX) {
+            for key in local_store
+                .range(left_fencepost, right_fencepost, 0, usize::MAX)
+                .await?
+            {
                 self.keys.push(key.to_owned());
                 self.hashes.push(H::identity());
             }
@@ -670,24 +731,27 @@ where
                 received_hash.to_hex(),
                 calculated_hash.to_hex()
             );
-            self.send_split(left_fencepost, right_fencepost, local_store)?;
+            self.send_split(left_fencepost, right_fencepost, local_store)
+                .await?;
         }
         Ok(false)
     }
 
     #[instrument(skip(self, local_store))]
-    fn send_split<S>(
+    async fn send_split<S>(
         &mut self,
         left_fencepost: &K,
         right_fencepost: &K,
-        local_store: &S,
+        local_store: &mut S,
     ) -> Result<()>
     where
-        S: Store<Key = K, Hash = H>,
+        S: Store<Key = K, Hash = H> + Send,
     {
         // If less than SPLIT_THRESHOLD exist just send them, do not split.
         const SPLIT_THRESHOLD: usize = 4;
-        let mut range = local_store.range(left_fencepost, right_fencepost, 0, usize::MAX);
+        let mut range = local_store
+            .range(left_fencepost, right_fencepost, 0, usize::MAX)
+            .await?;
         let head: Vec<K> = range.by_ref().take(SPLIT_THRESHOLD).collect();
 
         if head.len() < SPLIT_THRESHOLD {
@@ -697,16 +761,16 @@ where
                 self.hashes.push(H::identity());
             }
         } else {
-            let mid_key = local_store.middle(left_fencepost, right_fencepost);
-            trace!("splitting on {:?}", mid_key);
+            let mid_key = local_store.middle(left_fencepost, right_fencepost).await?;
+            trace!(?mid_key, "splitting on key");
             if let Some(mid_key) = mid_key {
                 self.keys.push(mid_key.to_owned());
                 self.hashes
-                    .push(local_store.hash_range(left_fencepost, &mid_key));
+                    .push(local_store.hash_range(left_fencepost, &mid_key).await?);
 
                 self.keys.push(right_fencepost.to_owned());
                 self.hashes
-                    .push(local_store.hash_range(&mid_key, right_fencepost));
+                    .push(local_store.hash_range(&mid_key, right_fencepost).await?);
             } else {
                 bail!("unable to find a split key")
             };

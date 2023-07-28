@@ -59,45 +59,42 @@ pub async fn create(
         .unwrap()
 }
 
+#[async_trait]
 pub trait Recon: Clone + Send + Sync {
-    type Key: Key + Send;
-    fn insert(&self, key: &Self::Key) -> Result<()>;
-    fn range(
+    type Key: Key;
+    async fn insert(&self, key: Self::Key) -> Result<()>;
+    async fn range(
         &self,
-        start: &Self::Key,
-        end: &Self::Key,
+        start: Self::Key,
+        end: Self::Key,
         offset: usize,
         limit: usize,
-    ) -> Vec<Self::Key>;
+    ) -> Result<Vec<Self::Key>>;
 }
 
-impl<K, H, S, I> Recon for Arc<Mutex<recon::Recon<K, H, S, I>>>
+#[async_trait]
+impl<K, H> Recon for recon::Client<K, H>
 where
-    K: Key + Send,
+    K: Key,
     H: AssociativeHash,
-    S: Store<Key = K, Hash = H> + Send,
-    I: InterestProvider<Key = K> + Send,
 {
     type Key = K;
 
-    fn insert(&self, key: &Self::Key) -> Result<()> {
-        self.lock()
-            .expect("should be able to acquire lock")
-            .insert(key)
+    async fn insert(&self, key: Self::Key) -> Result<()> {
+        let _ = recon::Client::insert(self, key).await?;
+        Ok(())
     }
 
-    fn range(
+    async fn range(
         &self,
-        start: &Self::Key,
-        end: &Self::Key,
+        start: Self::Key,
+        end: Self::Key,
         offset: usize,
         limit: usize,
-    ) -> Vec<Self::Key> {
-        self.lock()
-            .expect("should be able to acquire lock")
-            .range(start, end, offset, limit)
-            .map(|event| event.to_owned())
-            .collect()
+    ) -> Result<Vec<Self::Key>> {
+        Ok(recon::Client::range(self, start, end, offset, limit)
+            .await?
+            .collect())
     }
 }
 
@@ -146,7 +143,8 @@ where
         debug!(event_id = event.event_id, "ceramic_events_post");
         let event_id = decode_event_id(&event.event_id)?;
         self.model
-            .insert(&event_id)
+            .insert(event_id)
+            .await
             .map_err(|err| ApiError(format!("failed to insert key: {err}")))?;
         Ok(CeramicEventsPostResponse::Success)
     }
@@ -236,17 +234,16 @@ where
             .with_range((start.as_slice(), stop.as_slice()))
             .with_not_after(0)
             .build();
-        debug!(
-            ?interest,
-            ?sort_key, ?self.peer_id, ?start, ?stop, "saving interest"
-        );
         self.interest
-            .insert(&interest)
+            .insert(interest)
+            .await
             .map_err(|err| ApiError(format!("failed to update interest: {err}")))?;
 
         Ok(CeramicSubscribeSortKeySortValueGetResponse::Success(
             self.model
-                .range(&start, &stop, offset, limit)
+                .range(start, stop, offset, limit)
+                .await
+                .map_err(|err| ApiError(format!("failed to get keys: {err}")))?
                 .into_iter()
                 .map(|id| Event {
                     event_id: multibase::encode(multibase::Base::Base16Lower, id.as_bytes()),
@@ -276,43 +273,69 @@ mod tests {
 
     struct Context;
     mock! {
-        ReconInterestTest {}
-        impl Recon for ReconInterestTest
-        {
-            type Key = Interest;
-
-            fn insert(&self, key: &Interest) -> Result<()>;
-
+        pub ReconInterestTest {
+            fn insert(&self, key: Interest) -> Result<()>;
             fn range(
                 &self,
-                start: &Interest,
-                end: &Interest,
+                start: Interest,
+                end: Interest,
                 offset: usize,
                 limit: usize,
-            ) -> Vec<Interest>;
+            ) -> Result<Vec<Interest>>;
         }
+
         impl Clone for ReconInterestTest {
             fn clone(&self) -> Self;
         }
     }
+
+    #[async_trait]
+    impl Recon for MockReconInterestTest {
+        type Key = Interest;
+        async fn insert(&self, key: Self::Key) -> Result<()> {
+            self.insert(key)
+        }
+        async fn range(
+            &self,
+            start: Self::Key,
+            end: Self::Key,
+            offset: usize,
+            limit: usize,
+        ) -> Result<Vec<Self::Key>> {
+            self.range(start, end, offset, limit)
+        }
+    }
+
     mock! {
-        ReconModelTest {}
-        impl Recon for ReconModelTest
-        {
-            type Key = EventId;
-
-            fn insert(&self, key: &EventId) -> Result<()>;
-
+        pub ReconModelTest {
+            fn insert(&self, key: EventId) -> Result<()>;
             fn range(
                 &self,
-                start: &EventId,
-                end: &EventId,
+                start: EventId,
+                end: EventId,
                 offset: usize,
                 limit: usize,
-            ) -> Vec<EventId>;
+            ) -> Result<Vec<EventId>>;
         }
         impl Clone for ReconModelTest {
             fn clone(&self) -> Self;
+        }
+    }
+
+    #[async_trait]
+    impl Recon for MockReconModelTest {
+        type Key = EventId;
+        async fn insert(&self, key: Self::Key) -> Result<()> {
+            self.insert(key)
+        }
+        async fn range(
+            &self,
+            start: Self::Key,
+            end: Self::Key,
+            offset: usize,
+            limit: usize,
+        ) -> Result<Vec<Self::Key>> {
+            self.range(start, end, offset, limit)
         }
     }
 
@@ -418,7 +441,7 @@ mod tests {
                 predicate::eq(usize::MAX),
             )
             .times(1)
-            .returning(move |_, _, _, _| vec![event_id.clone()]);
+            .returning(move |_, _, _, _| Ok(vec![event_id.clone()]));
         let server = Server::new(peer_id, network, mock_interest, mock_model);
         let resp = server
             .ceramic_subscribe_sort_key_sort_value_get(
@@ -481,7 +504,7 @@ mod tests {
                 predicate::eq(usize::MAX),
             )
             .times(1)
-            .returning(|_, _, _, _| vec![]);
+            .returning(|_, _, _, _| Ok(vec![]));
         let server = Server::new(peer_id, network, mock_interest, mock_model);
         let resp = server
             .ceramic_subscribe_sort_key_sort_value_get(
@@ -547,7 +570,7 @@ mod tests {
                 predicate::eq(usize::MAX),
             )
             .times(1)
-            .returning(|_, _, _, _| vec![]);
+            .returning(|_, _, _, _| Ok(vec![]));
         let server = Server::new(peer_id, network, mock_interest, mock_model);
         let resp = server
             .ceramic_subscribe_sort_key_sort_value_get(
@@ -613,7 +636,7 @@ mod tests {
                 predicate::eq(200),
             )
             .times(1)
-            .returning(|_, _, _, _| vec![]);
+            .returning(|_, _, _, _| Ok(vec![]));
         let server = Server::new(peer_id, network, mock_interest, mock_model);
         let resp = server
             .ceramic_subscribe_sort_key_sort_value_get(
