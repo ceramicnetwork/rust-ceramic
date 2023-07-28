@@ -26,43 +26,44 @@ use libp2p::swarm::{keep_alive, Swarm, SwarmEvent};
 use libp2p_swarm_test::SwarmExt;
 use quickcheck::QuickCheck;
 use rand::{thread_rng, Rng};
-use std::{
-    num::NonZeroU8,
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::{num::NonZeroU8, time::Duration};
+use tokio::runtime::Runtime;
 use tracing::debug;
 use tracing_test::traced_test;
 
 use crate::{
     libp2p::{stream_set::StreamSet, Behaviour, Config, Event, PeerEvent, PeerStatus},
     recon::{FullInterests, ReconInterestProvider},
-    BTreeStore, Recon, Sha256a,
+    BTreeStore, Client, Recon, Server, Sha256a,
 };
 
 type InterestStore = BTreeStore<Interest, Sha256a>;
 type InterestInterest = FullInterests<Interest>;
 type ReconInterest = Recon<Interest, Sha256a, InterestStore, InterestInterest>;
-type ArcReconInterest = Arc<Mutex<ReconInterest>>;
+type ReconInterestClient = Client<Interest, Sha256a>;
 
-type ModelInterest = ReconInterestProvider<Sha256a, InterestStore, InterestInterest>;
 type ModelStore = BTreeStore<EventId, Sha256a>;
+type ModelInterest = ReconInterestProvider;
 type ReconModel = Recon<EventId, Sha256a, ModelStore, ModelInterest>;
-type ArcReconModel = Arc<Mutex<ReconModel>>;
+type ReconModelClient = Client<EventId, Sha256a>;
 
-type SwarmTest = Swarm<Behaviour<ArcReconInterest, ArcReconModel>>;
+type SwarmTest = Swarm<Behaviour<ReconInterestClient, ReconModelClient>>;
 
 fn random_cid() -> Cid {
-    let mut data = [0u8; 64];
+    let mut data = [0u8; 8];
     thread_rng().fill(&mut data);
     let hash = Code::Sha2_256.digest(&data);
-    Cid::new_v1(0x12, hash)
+    Cid::new_v1(0x00, hash)
 }
 
-fn build_swarm(name: &str, config: Config) -> SwarmTest {
+// Build an ephemeral swarm for testing.
+//
+// Using the property based testing means we have multipleS tokio runtimes.
+// So we expect to be passed the runtime directly instead of assuming a singleton runtime.
+fn build_swarm(runtime: &Runtime, name: &str, config: Config) -> SwarmTest {
     Swarm::new_ephemeral(|identity| {
         let peer_id = PeerId::from(identity.public());
-        let interest = Arc::new(Mutex::new(ReconInterest::new(
+        let mut interest = Server::new(ReconInterest::new(
             BTreeStore::from_set(
                 [Interest::builder()
                     .with_sort_key("model")
@@ -73,47 +74,48 @@ fn build_swarm(name: &str, config: Config) -> SwarmTest {
                 .into(),
             ),
             FullInterests::default(),
-        )));
-        Behaviour::new(
-            interest.clone(),
-            Arc::new(Mutex::new(ReconModel::new(
-                BTreeStore::from_set(
-                    [
-                        // Initialize with three events
-                        EventId::new(
-                            &Network::Mainnet,
-                            "model",
-                            &format!("{}_model", name),
-                            &format!("{}_controller", name),
-                            &random_cid(),
-                            10,
-                            &random_cid(),
-                        ),
-                        EventId::new(
-                            &Network::Mainnet,
-                            "model",
-                            &format!("{}_model", name),
-                            &format!("{}_controller", name),
-                            &random_cid(),
-                            10,
-                            &random_cid(),
-                        ),
-                        EventId::new(
-                            &Network::Mainnet,
-                            "model",
-                            &format!("{}_model", name),
-                            &format!("{}_controller", name),
-                            &random_cid(),
-                            10,
-                            &random_cid(),
-                        ),
-                    ]
-                    .into(),
-                ),
-                ReconInterestProvider::new(peer_id, interest),
-            ))),
-            config.clone(),
-        )
+        ));
+
+        let mut model = Server::new(ReconModel::new(
+            BTreeStore::from_set(
+                [
+                    // Initialize with three events
+                    EventId::new(
+                        &Network::Mainnet,
+                        "model",
+                        &format!("{}_model", name),
+                        &format!("{}_controller", name),
+                        &random_cid(),
+                        10,
+                        &random_cid(),
+                    ),
+                    EventId::new(
+                        &Network::Mainnet,
+                        "model",
+                        &format!("{}_model", name),
+                        &format!("{}_controller", name),
+                        &random_cid(),
+                        10,
+                        &random_cid(),
+                    ),
+                    EventId::new(
+                        &Network::Mainnet,
+                        "model",
+                        &format!("{}_model", name),
+                        &format!("{}_controller", name),
+                        &random_cid(),
+                        10,
+                        &random_cid(),
+                    ),
+                ]
+                .into(),
+            ),
+            ModelInterest::new(peer_id, interest.client()),
+        ));
+        let b = Behaviour::new(interest.client(), model.client(), config.clone());
+        runtime.spawn(interest.run());
+        runtime.spawn(model.run());
+        b
     })
 }
 
@@ -123,16 +125,22 @@ fn recon_sync() {
     // Synchronizing Recon should be invariant to the number of times we drive the swarms.
     // Driving a swarm effectively starts a new sync.
     fn prop(drive_count: NonZeroU8) {
+        // Explicitly create tokio runtime.
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
         debug!("count: {drive_count}");
         let config = Config {
             // Immediately start a new sync once the previous has finished.
             per_peer_sync_timeout: Duration::from_millis(0),
             ..Default::default()
         };
-        let mut swarm1 = build_swarm("swarm1", config.clone());
-        let mut swarm2 = build_swarm("swarm2", config);
+        let mut swarm1 = build_swarm(&runtime, "swarm1", config.clone());
+        let mut swarm2 = build_swarm(&runtime, "swarm2", config);
 
-        async_std::task::block_on(async {
+        runtime.block_on(async {
             swarm1.listen().await;
             swarm2.connect(&mut swarm1).await;
 
@@ -253,12 +261,18 @@ fn recon_sync() {
 #[test]
 #[traced_test]
 fn unsupported_does_not_fail() {
+    // Explicitly create tokio runtime.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+
     let mut swarm1 = Swarm::new_ephemeral(|_| keep_alive::Behaviour);
-    let mut swarm2 = build_swarm("swarm2", Config::default());
-    let result = async_std::task::block_on(async {
+    let mut swarm2 = build_swarm(&runtime, "swarm2", Config::default());
+    let result = runtime.block_on(async {
         swarm1.listen().await;
         swarm2.connect(&mut swarm1).await;
-        async_std::task::spawn(swarm1.loop_on_next());
+        runtime.spawn(swarm1.loop_on_next());
 
         loop {
             match swarm2.next_swarm_event().await {

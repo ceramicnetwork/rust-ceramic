@@ -39,13 +39,13 @@ iroh-rpc-types = { git = "https://github.com/3box/beetle", branch = "main" }
 iroh-store = { git = "https://github.com/3box/beetle", branch = "main" }
 iroh-util = { git = "https://github.com/3box/beetle", branch = "main" }
 lazy_static = "1.4"
-libipld = "0.15"                                                                 # use same version as Iroh
-libp2p = { version = "0.51", default-features = false }                          # use same version as Iroh
+libipld = "0.15" # use same version as Iroh
+libp2p = { version = "0.51", default-features = false } # use same version as Iroh
 libp2p-identity = { version = "0.1.2", features = ["peerid", "ed25519"] }
-libp2p-tls = { version = "0.1.0", default-features = false }                     # use explicit version of dep to avoid conflict
+libp2p-tls = { version = "0.1.0", default-features = false } # use explicit version of dep to avoid conflict
 lru = "0.10"
 minicbor = { version = "0.19.1", features = ["alloc", "std"] }
-multiaddr = "0.17"                                                               # use same version as Iroh
+multiaddr = "0.17" # use same version as Iroh
 multibase = "0.9"
 multihash = "0.17"
 names = { version = "0.14.0", default-features = false }
@@ -55,7 +55,6 @@ opentelemetry-otlp = "0.11"
 rand = "0.8.5"
 rand_chacha = "0.3.1"
 recon = { path = "./recon/" }
-rusqlite = "0.29.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_bytes = "0.11"
 serde_ipld_dagcbor = "0.3"
@@ -63,9 +62,14 @@ serde_json = "1.0"
 smallvec = "1.10"
 ssh-key = { version = "0.5.1", default-features = false }
 ssi = { version = "0.6", features = ["ed25519"] }
+sqlx = { version = "0.7", features = ["sqlite", "runtime-tokio"] }
 tempfile = "3.3"
 test-log = { version = "0.2", default-features = false, features = ["trace"] }
-tokio = { version = "1", default-features = false, features = ["rt", "macros"] }
+tokio = { version = "1", default-features = false, features = [
+    "rt",
+    "macros",
+    "sync",
+] }
 tokio-stream = "0.1.11"
 toml = "0.5.9"
 tracing = "0.1"

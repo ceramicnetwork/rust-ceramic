@@ -24,19 +24,20 @@ pub async fn initiate_synchronize<S: AsyncRead + AsyncWrite + Unpin, R: Recon>(
     remote_peer_id: PeerId,
     connection_id: ConnectionId,
     stream_set: StreamSet,
-    mut recon: R,
+    recon: R,
     stream: S,
 ) -> Result<StreamSet> {
     debug!("start synchronize");
     let codec = CborCodec::<Envelope<R::Key, R::Hash>, Envelope<R::Key, R::Hash>>::new();
     let mut framed = Framed::new(stream, codec);
 
-    let messages = recon.initial_messages()?;
+    let messages = recon.initial_messages().await?;
     framed.send(Envelope { messages }).await?;
 
     while let Some(request) = libp2p::futures::TryStreamExt::try_next(&mut framed).await? {
-        let response = recon.process_messages(&request.messages)?;
-        trace!(?request, ?response, "recon exchange");
+        trace!(?request, "recon request");
+        let response = recon.process_messages(request.messages).await?;
+        trace!(?response, "recon response");
 
         let is_synchronized = response.is_synchronized();
         if is_synchronized {
@@ -48,12 +49,12 @@ pub async fn initiate_synchronize<S: AsyncRead + AsyncWrite + Unpin, R: Recon>(
                 messages: response.into_messages(),
             })
             .await?;
-        if is_synchronized {
-            break;
-        }
     }
     framed.close().await?;
-    debug!("finished synchronize, number of keys {}", recon.len());
+    debug!(
+        "finished synchronize, number of keys {}",
+        recon.len().await?
+    );
     Ok(stream_set)
 }
 
@@ -64,7 +65,7 @@ pub async fn accept_synchronize<S: AsyncRead + AsyncWrite + Unpin, R: Recon>(
     remote_peer_id: PeerId,
     connection_id: ConnectionId,
     stream_set: StreamSet,
-    mut recon: R,
+    recon: R,
     stream: S,
 ) -> Result<StreamSet> {
     debug!("accept_synchronize_interests");
@@ -72,8 +73,9 @@ pub async fn accept_synchronize<S: AsyncRead + AsyncWrite + Unpin, R: Recon>(
     let mut framed = Framed::new(stream, codec);
 
     while let Some(request) = libp2p::futures::TryStreamExt::try_next(&mut framed).await? {
-        let response = recon.process_messages(&request.messages)?;
-        trace!(?request, ?response, "recon exchange");
+        trace!(?request, "recon request");
+        let response = recon.process_messages(request.messages).await?;
+        trace!(?response, "recon response");
 
         let is_synchronized = response.is_synchronized();
         framed
@@ -82,11 +84,13 @@ pub async fn accept_synchronize<S: AsyncRead + AsyncWrite + Unpin, R: Recon>(
             })
             .await?;
         if is_synchronized {
-            debug!("finished synchronize, number of keys {}", recon.len());
             break;
         }
     }
     framed.close().await?;
-
+    debug!(
+        "finished synchronize, number of keys {}",
+        recon.len().await?
+    );
     Ok(stream_set)
 }

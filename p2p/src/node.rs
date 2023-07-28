@@ -1177,6 +1177,7 @@ mod tests {
 
     use crate::keys::Keypair;
 
+    use async_trait::async_trait;
     use bytes::Bytes;
     use futures::{future, TryStreamExt};
     use rand::prelude::*;
@@ -1247,6 +1248,7 @@ mod tests {
     #[derive(Clone)]
     struct DummyRecon<K>(PhantomData<K>);
 
+    #[async_trait]
     impl<K> Recon for DummyRecon<K>
     where
         K: recon::Key
@@ -1260,22 +1262,22 @@ mod tests {
         type Key = K;
         type Hash = Sha256a;
 
-        fn initial_messages(&self) -> Result<Vec<recon::Message<Self::Key, Self::Hash>>> {
+        async fn initial_messages(&self) -> Result<Vec<recon::Message<Self::Key, Self::Hash>>> {
             unreachable!()
         }
 
-        fn process_messages(
-            &mut self,
-            _msg: &[recon::Message<Self::Key, Self::Hash>],
+        async fn process_messages(
+            &self,
+            _msg: Vec<recon::Message<Self::Key, Self::Hash>>,
         ) -> Result<recon::Response<Self::Key, Self::Hash>> {
             unreachable!()
         }
 
-        fn insert(&mut self, _key: &Self::Key) -> Result<()> {
+        async fn insert(&self, _key: Self::Key) -> Result<()> {
             unreachable!()
         }
 
-        fn len(&self) -> usize {
+        async fn len(&self) -> Result<usize> {
             unreachable!()
         }
     }

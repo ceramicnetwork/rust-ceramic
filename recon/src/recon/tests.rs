@@ -3,8 +3,9 @@ lalrpop_util::lalrpop_mod!(
     pub parser, "/recon/parser.rs"
 ); // synthesized by LALRPOP
 
+use anyhow::Result;
+use async_trait::async_trait;
 use ceramic_core::{Bytes, RangeOpen};
-use rusqlite::{Connection, Result};
 use std::collections::BTreeSet;
 use std::fmt::Display;
 use tracing_test::traced_test;
@@ -117,10 +118,11 @@ impl FixedInterests {
         self == &Self::full()
     }
 }
+#[async_trait]
 impl InterestProvider for FixedInterests {
     type Key = Bytes;
 
-    fn interests(&self) -> anyhow::Result<Vec<RangeOpen<Self::Key>>> {
+    async fn interests(&self) -> anyhow::Result<Vec<RangeOpen<Self::Key>>> {
         Ok(self.0.clone())
     }
 }
@@ -145,7 +147,10 @@ where
                 allocator.softline().append(
                     allocator
                         .intersperse(
-                            recon.interests().unwrap().iter().map(|range| {
+                            // The call to get interests is async so we can't easily call it
+                            // here. However we have a FixedInterests so we can access the
+                            // interests vector directly.
+                            recon.interests.0.iter().map(|range| {
                                 allocator
                                     .text(range.start.to_string())
                                     .append(separator.clone())
@@ -160,7 +165,11 @@ where
             } else {
                 allocator.softline()
             };
-            let set: Vec<Bytes> = recon.full_range().collect();
+            let set: Vec<Bytes> = recon
+                .store
+                .range(&Bytes::min_value(), &Bytes::max_value(), 0, usize::MAX)
+                .unwrap()
+                .collect();
             allocator
                 .text(name)
                 .append(allocator.text(":"))
@@ -218,7 +227,9 @@ where
                 .ahashs
                 .into_iter()
                 .map(|set| {
-                    BTreeStore::from_set(set).hash_range(&Bytes::min_value(), &Bytes::max_value())
+                    BTreeStore::from_set(set)
+                        .hash_range(&Bytes::min_value(), &Bytes::max_value())
+                        .unwrap()
                 })
                 .collect(),
         }
@@ -365,60 +376,64 @@ impl TryFrom<(Option<MessageItem>, Vec<MessageItem>)> for MessageData {
     }
 }
 
-#[test]
-fn word_lists() {
-    fn recon_from_string(s: &str) -> ReconBytes {
+#[tokio::test]
+async fn word_lists() {
+    async fn recon_from_string(s: &str) -> ReconBytes {
         let mut r = ReconBytes::new(BTreeStore::default(), FullInterests::default());
         for key in s.split([' ', '\n']).map(|s| s.to_string()) {
             if !s.is_empty() {
-                r.insert(&key.as_bytes().into()).unwrap();
+                r.insert(&key.as_bytes().into()).await.unwrap();
             }
         }
         r
     }
     let mut peers = vec![
-        recon_from_string(include_str!("../tests/bip_39.txt")),
-        recon_from_string(include_str!("../tests/eff_large_wordlist.txt")),
-        recon_from_string(include_str!("../tests/eff_short_wordlist_1.txt")),
-        recon_from_string(include_str!("../tests/eff_short_wordlist_2.txt")),
-        recon_from_string(include_str!("../tests/wordle_words5_big.txt")),
-        recon_from_string(include_str!("../tests/wordle_words5.txt")),
-        // recon_from_string(include_str!("../tests/connectives.txt")),
-        // recon_from_string(include_str!("../tests/propernames.txt")),
-        // recon_from_string(include_str!("../tests/web2.txt")),
-        // recon_from_string(include_str!("../tests/web2a.txt")),
+        recon_from_string(include_str!("../tests/bip_39.txt")).await,
+        recon_from_string(include_str!("../tests/eff_large_wordlist.txt")).await,
+        recon_from_string(include_str!("../tests/eff_short_wordlist_1.txt")).await,
+        recon_from_string(include_str!("../tests/eff_short_wordlist_2.txt")).await,
+        recon_from_string(include_str!("../tests/wordle_words5_big.txt")).await,
+        recon_from_string(include_str!("../tests/wordle_words5.txt")).await,
+        // recon_from_string(include_str!("../tests/connectives.txt")).await,
+        // recon_from_string(include_str!("../tests/propernames.txt")).await,
+        // recon_from_string(include_str!("../tests/web2.txt")).await,
+        // recon_from_string(include_str!("../tests/web2a.txt")).await,
     ];
     let keys_len = 21139;
     // let expected_first = "aahed";
     // let expected_last = "zythum";
     // let expected_ahash = "13BA255FBD4C2566CB2564EFA0C1782ABA61604AC07A8789D1DF9E391D73584E";
 
-    for peer in &peers {
+    for peer in &mut peers {
         println!(
             "peer  {} {} {}",
             peer.store
                 .first(&Bytes::min_value(), &Bytes::max_value())
+                .await
+                .unwrap()
                 .unwrap(),
-            peer.store.len(),
+            peer.store.len().await.unwrap(),
             peer.store
                 .last(&Bytes::min_value(), &Bytes::max_value())
+                .await
+                .unwrap()
                 .unwrap(),
         )
     }
 
     // We are using a FullInterest so we can assume there is only ever one message per exchange.
     let mut local = ReconBytes::new(BTreeStore::default(), FullInterests::default());
-    fn sync(local: &mut ReconBytes, peers: &mut [ReconBytes]) {
+    async fn sync(local: &mut ReconBytes, peers: &mut [ReconBytes]) {
         for j in 0..3 {
             for (i, peer) in peers.iter_mut().enumerate() {
                 println!(
                     "round:{} peer:{}\n\t[{}]\n\t[{}]",
                     j,
                     i,
-                    local.store.len(),
-                    peer.store.len()
+                    local.store.len().await.unwrap(),
+                    peer.store.len().await.unwrap(),
                 );
-                let mut next = local.initial_messages().unwrap();
+                let mut next = local.initial_messages().await.unwrap();
                 for k in 0..50 {
                     println!(
                         "\t{}: -> {}[{}]",
@@ -428,10 +443,10 @@ fn word_lists() {
                         } else {
                             format!("({})", next[0].keys.len())
                         },
-                        local.store.len()
+                        local.store.len().await.unwrap(),
                     );
 
-                    let response = peer.process_messages(&next).unwrap();
+                    let response = peer.process_messages(&next).await.unwrap();
 
                     println!(
                         "\t{}: <- {}[{}]",
@@ -441,10 +456,14 @@ fn word_lists() {
                         } else {
                             format!("({})", response.messages[0].keys.len())
                         },
-                        peer.store.len(),
+                        peer.store.len().await.unwrap(),
                     );
 
-                    next = local.process_messages(&response.messages).unwrap().messages;
+                    next = local
+                        .process_messages(&response.messages)
+                        .await
+                        .unwrap()
+                        .messages;
 
                     if response.messages[0].keys.len() < 3 && next[0].keys.len() < 3 {
                         println!("\tpeers[{}] in sync", i);
@@ -454,23 +473,27 @@ fn word_lists() {
             }
         }
     }
-    sync(&mut local, &mut peers);
-    for peer in &peers {
+    sync(&mut local, &mut peers).await;
+    for peer in &mut peers {
         println!(
             "after {} {} {}",
             peer.store
                 .first(&Bytes::min_value(), &Bytes::max_value())
+                .await
+                .unwrap()
                 .unwrap(),
-            peer.store.len(),
+            peer.store.len().await.unwrap(),
             peer.store
                 .last(&Bytes::min_value(), &Bytes::max_value())
+                .await
+                .unwrap()
                 .unwrap(),
         );
     }
 
-    assert_eq!(local.store.len(), keys_len);
-    for peer in &peers {
-        assert_eq!(peer.store.len(), keys_len)
+    assert_eq!(local.store.len().await.unwrap(), keys_len);
+    for peer in &mut peers {
+        assert_eq!(peer.store.len().await.unwrap(), keys_len)
     }
     expect![[r#"
         [
@@ -481,19 +504,20 @@ fn word_lists() {
     .assert_debug_eq(
         &local
             .initial_messages()
+            .await
             .unwrap()
             .iter()
             .flat_map(|msg| msg.keys.iter().map(|k| k.to_string()))
             .collect::<Vec<String>>(),
     );
     expect![["13BA255FBD4C2566CB2564EFA0C1782ABA61604AC07A8789D1DF9E391D73584E"]]
-        .assert_eq(&local.initial_messages().unwrap()[0].hashes[0].to_hex());
+        .assert_eq(&local.initial_messages().await.unwrap()[0].hashes[0].to_hex());
 
-    local.insert(&b"ceramic".as_slice().into()).unwrap();
-    sync(&mut local, &mut peers);
+    local.insert(&b"ceramic".as_slice().into()).await.unwrap();
+    sync(&mut local, &mut peers).await;
 }
-#[test]
-fn response_is_synchronized() {
+#[tokio::test]
+async fn response_is_synchronized() {
     let mut a = ReconMemoryBytes::new(
         BTreeStore::from_set(BTreeSet::from_iter([
             Bytes::from("a"),
@@ -512,17 +536,20 @@ fn response_is_synchronized() {
         ])),
         FullInterests::default(),
     );
-    let response = x.process_messages(&a.initial_messages().unwrap()).unwrap();
+    let response = x
+        .process_messages(&a.initial_messages().await.unwrap())
+        .await
+        .unwrap();
     assert!(!response.is_synchronized);
-    let response = a.process_messages(&response.messages).unwrap();
+    let response = a.process_messages(&response.messages).await.unwrap();
     assert!(!response.is_synchronized);
-    let response = x.process_messages(&response.messages).unwrap();
+    let response = x.process_messages(&response.messages).await.unwrap();
     assert!(!response.is_synchronized);
 
     // After this message we should be synchronized
-    let response = a.process_messages(&response.messages).unwrap();
+    let response = a.process_messages(&response.messages).await.unwrap();
     assert!(response.is_synchronized);
-    let response = x.process_messages(&response.messages).unwrap();
+    let response = x.process_messages(&response.messages).await.unwrap();
     assert!(response.is_synchronized);
 }
 
@@ -579,8 +606,8 @@ fn hello() {
     .assert_debug_eq(&other_hash)
 }
 
-#[test]
-fn abcde() {
+#[tokio::test]
+async fn abcde() {
     recon_test(expect![[r#"
         cat: [b,c,d,e]
         dog: [a,e]
@@ -588,10 +615,11 @@ fn abcde() {
         <- (a, 0, b, 0, e) [a,b,c,d,e]
         -> (a, 0, b, 0, c, 0, d, 0, e) [a,b,c,d,e]
         <- (a, h(b,c,d), e) [a,b,c,d,e]"#]])
+    .await
 }
 
-#[test]
-fn two_in_a_row() {
+#[tokio::test]
+async fn two_in_a_row() {
     recon_test(expect![[r#"
     cat: [a,b,c,d,e]
     dog: [a,d,e]
@@ -599,6 +627,7 @@ fn two_in_a_row() {
     <- (a, 0, d, 0, e) [a,b,c,d,e]
     -> (a, 0, b, 0, c, h(d), e) [a,b,c,d,e]
     <- (a, h(b,c,d), e) [a,b,c,d,e]"#]])
+    .await
 }
 
 #[test]
@@ -1108,8 +1137,9 @@ fn parse_recon(recon: &str) -> Record {
 }
 
 // Run the recon simulation ignoring the expected iterations
-fn recon_do(recon: &str) -> Record {
+async fn recon_do(recon: &str) -> Record {
     let mut record = parse_recon(recon);
+
     // Remember initial state
     let cat = record.cat.store.clone();
     let dog = record.dog.store.clone();
@@ -1119,24 +1149,25 @@ fn recon_do(recon: &str) -> Record {
 
     // Run simulation for the number of iterations in the original record
     let mut dir = Direction::CatToDog;
-    let mut messages: Vec<Message<Bytes, MemoryAHash>> = record.cat.initial_messages().unwrap();
+    let mut messages: Vec<Message<Bytes, MemoryAHash>> =
+        record.cat.initial_messages().await.unwrap();
     for _ in 0..n {
-        let (next_dir, response, set) = match dir {
+        let (next_dir, response, mut set) = match dir {
             Direction::CatToDog => (
                 Direction::DogToCat,
-                record.dog.process_messages(&messages).unwrap(),
+                record.dog.process_messages(&messages).await.unwrap(),
                 record.dog.store.clone(),
             ),
             Direction::DogToCat => (
                 Direction::CatToDog,
-                record.cat.process_messages(&messages).unwrap(),
+                record.cat.process_messages(&messages).await.unwrap(),
                 record.cat.store.clone(),
             ),
         };
         record.iterations.push(Iteration {
             dir,
             messages: messages.into_iter().map(MessageData::from).collect(),
-            set: set.full_range().collect(),
+            set: set.full_range().await.unwrap().collect(),
         });
         dir = next_dir;
         messages = response.messages
@@ -1147,13 +1178,13 @@ fn recon_do(recon: &str) -> Record {
     record
 }
 
-fn recon_test(recon: Expect) {
-    let actual = format!("{}", recon_do(recon.data()));
+async fn recon_test(recon: Expect) {
+    let actual = format!("{}", recon_do(recon.data()).await);
     recon.assert_eq(&actual)
 }
 
-#[test]
-fn abcd() {
+#[tokio::test]
+async fn abcd() {
     recon_test(expect![[r#"
         cat: [b,c,d,e]
         dog: [a,e]
@@ -1161,60 +1192,66 @@ fn abcd() {
         <- (a, 0, b, 0, e) [a,b,c,d,e]
         -> (a, 0, b, 0, c, 0, d, 0, e) [a,b,c,d,e]
         <- (a, h(b,c,d), e) [a,b,c,d,e]"#]])
+    .await
 }
-#[test]
-fn test_letters() {
+#[tokio::test]
+async fn test_letters() {
     recon_test(expect![[r#"
         cat: [a,b,c]
         dog: [e,f,g]
         -> (a, h(b), c) [a,c,e,f,g]
         <- (a, 0, c, 0, e, 0, f, 0, g) [a,b,c,e,f,g]
         -> (a, 0, b, h(c,e,f), g) [a,b,c,e,f,g]
-        <- (a, h(b,c,e,f), g) [a,b,c,e,f,g]"#]]);
+        <- (a, h(b,c,e,f), g) [a,b,c,e,f,g]"#]])
+    .await
 }
 
-#[test]
-fn test_one_us() {
+#[tokio::test]
+async fn test_one_us() {
     // if there is only one key it is its own message
     recon_test(expect![[r#"
         cat: [a]
         dog: []
         -> (a) [a]
         <- (a) [a]"#]])
+    .await
 }
 
-#[test]
-fn test_one_them() {
+#[tokio::test]
+async fn test_one_them() {
     recon_test(expect![[r#"
         cat: []
         dog: [a]
         -> () [a]
         <- (a) [a]
         -> (a) [a]"#]])
+    .await
 }
 
-#[test]
+#[tokio::test]
 #[traced_test]
-fn test_none() {
+async fn test_none() {
     recon_test(expect![[r#"
         cat: []
         dog: []
         -> () []
         <- () []
         -> () []"#]])
+    .await
 }
 
-#[test]
-fn test_two() {
+#[tokio::test]
+async fn test_two() {
     recon_test(expect![[r#"
         cat: [a,z]
         dog: [a,z]
         -> (a, 0, z) [a,z]
         <- (a, 0, z) [a,z]"#]])
+    .await
 }
 
-#[test]
-fn paper() {
+#[tokio::test]
+async fn paper() {
     recon_test(expect![[r#"
         cat: [ape,eel,fox,gnu]
         dog: [bee,cat,doe,eel,fox,hog]
@@ -1223,11 +1260,12 @@ fn paper() {
         -> (ape, 0, doe, h(eel,fox,gnu), hog) [ape,bee,cat,doe,eel,fox,gnu,hog]
         <- (ape, 0, bee, 0, cat, h(doe,eel,fox,gnu), hog) [ape,bee,cat,doe,eel,fox,gnu,hog]
         -> (ape, h(bee,cat,doe,eel,fox,gnu), hog) [ape,bee,cat,doe,eel,fox,gnu,hog]
-        <- (ape, h(bee,cat,doe,eel,fox,gnu), hog) [ape,bee,cat,doe,eel,fox,gnu,hog]"#]]);
+        <- (ape, h(bee,cat,doe,eel,fox,gnu), hog) [ape,bee,cat,doe,eel,fox,gnu,hog]"#]])
+    .await;
 }
 
-#[test]
-fn test_small_diff() {
+#[tokio::test]
+async fn test_small_diff() {
     recon_test(expect![[r#"
         cat: [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z]
         dog: [a,b,c,d,e,f,g,h,i,j,k,l,m,o,p,q,r,s,t,u,w,x,y,z]
@@ -1236,11 +1274,11 @@ fn test_small_diff() {
         -> (a, h(b,c,d,e,f,g,h,i,j,k), l, h(m,n,o,p,q,r), s, h(t,u,v,w,x,y), z) [a,b,c,d,e,f,g,h,i,j,k,l,m,o,p,q,r,s,t,u,w,x,y,z]
         <- (a, h(b,c,d,e,f,g,h,i,j,k), l, h(m,o), p, h(q,r), s, h(t,u), w, h(x,y), z) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z]
         -> (a, h(b,c,d,e,f,g,h,i,j,k), l, 0, m, 0, n, 0, o, h(p,q,r), s, 0, t, 0, u, 0, v, h(w,x,y), z) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z]
-        <- (a, h(b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y), z) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z]"#]]);
+        <- (a, h(b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y), z) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z]"#]]).await;
 }
 
-#[test]
-fn test_small_example() {
+#[tokio::test]
+async fn test_small_example() {
     recon_test(expect![[r#"
     cat: [ape,eel,fox,gnu]
     dog: [bee,cat,doe,eel,fox,hog]
@@ -1249,11 +1287,12 @@ fn test_small_example() {
     -> (ape, 0, doe, h(eel,fox,gnu), hog) [ape,bee,cat,doe,eel,fox,gnu,hog]
     <- (ape, 0, bee, 0, cat, h(doe,eel,fox,gnu), hog) [ape,bee,cat,doe,eel,fox,gnu,hog]
     -> (ape, h(bee,cat,doe,eel,fox,gnu), hog) [ape,bee,cat,doe,eel,fox,gnu,hog]
-    <- (ape, h(bee,cat,doe,eel,fox,gnu), hog) [ape,bee,cat,doe,eel,fox,gnu,hog]"#]]);
+    <- (ape, h(bee,cat,doe,eel,fox,gnu), hog) [ape,bee,cat,doe,eel,fox,gnu,hog]"#]])
+    .await;
 }
 
-#[test]
-fn test_small_diff_off_by_one() {
+#[tokio::test]
+async fn test_small_diff_off_by_one() {
     recon_test(expect![[r#"
         cat: [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z]
         dog: [a,b,c,d,e,f,g,h,i,j,k,l,m,n,p,q,r,s,t,u,w,x,y,z]
@@ -1262,11 +1301,11 @@ fn test_small_diff_off_by_one() {
         -> (a, h(b,c,d,e,f,g,h,i,j,k), l, h(m,n,o,p,q,r), s, h(t,u,v,w,x,y), z) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,p,q,r,s,t,u,w,x,y,z]
         <- (a, h(b,c,d,e,f,g,h,i,j,k), l, h(m,n), p, h(q,r), s, h(t,u), w, h(x,y), z) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z]
         -> (a, h(b,c,d,e,f,g,h,i,j,k), l, 0, m, 0, n, 0, o, h(p,q,r), s, 0, t, 0, u, 0, v, h(w,x,y), z) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z]
-        <- (a, h(b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y), z) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z]"#]]);
+        <- (a, h(b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y), z) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z]"#]]).await;
 }
 
-#[test]
-fn test_alternating() {
+#[tokio::test]
+async fn test_alternating() {
     recon_test(expect![[r#"
         cat: [a,b,c,e,g,i,k,m,o,p,r,t,v,x,z]
         dog: [a,c,d,f,h,j,l,n,p,q,s,u,w,y,z]
@@ -1277,12 +1316,12 @@ fn test_alternating() {
         -> (a, 0, b, h(c), d, 0, e, h(f,g), h, 0, i, 0, j, 0, k, 0, l, 0, m, 0, n, 0, o, h(p,q), r, 0, t, 0, u, 0, v, 0, x, 0, z) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z]
         <- (a, h(b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q), r, 0, s, h(t,u), v, 0, w, 0, x, 0, y, 0, z) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z]
         -> (a, h(b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y), z) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z]
-        <- (a, h(b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y), z) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z]"#]]);
+        <- (a, h(b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y), z) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z]"#]]).await;
 }
 
-#[test]
+#[tokio::test]
 #[traced_test]
-fn test_small_diff_zz() {
+async fn test_small_diff_zz() {
     recon_test(expect![[r#"
         cat: [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z,zz]
         dog: [a,b,c,d,e,f,g,h,i,j,k,l,m,n,p,q,r,s,t,u,w,x,y,z]
@@ -1291,23 +1330,24 @@ fn test_small_diff_zz() {
         -> (a, h(b,c,d,e,f,g,h,i,j,k,l), m, h(n,o,p,q,r,s), t, h(u,v,w,x,y,z), zz) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,p,q,r,s,t,u,w,x,y,z,zz]
         <- (a, h(b,c,d,e,f,g,h,i,j,k,l), m, h(n,p), q, h(r,s), t, h(u,w), x, h(y,z), zz) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z,zz]
         -> (a, h(b,c,d,e,f,g,h,i,j,k,l), m, 0, n, 0, o, 0, p, h(q,r,s), t, 0, u, 0, v, 0, w, h(x,y,z), zz) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z,zz]
-        <- (a, h(b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z), zz) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z,zz]"#]]);
+        <- (a, h(b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z), zz) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z,zz]"#]]).await;
 }
 
-#[test]
+#[tokio::test]
 #[traced_test]
-fn test_subset_interest() {
+async fn test_subset_interest() {
     recon_test(expect![[r#"
         cat: <(b,i),(m,r)> [c,f,g]
         dog: <(a,z)> [b,c,d,e,f,g,h,i,j,k,l,m,n]
         -> (<b, c, h(f), g, i>), (<m, r>) [b,c,d,e,f,g,h,i,j,k,l,m,n]
         <- (<b, c, 0, d, 0, e, 0, f, h(g), h, i>), (<m, n, r>) [c,d,e,f,g,h,n]
         -> (<b, c, h(d,e,f,g), h, i>), (<m, n, r>) [b,c,d,e,f,g,h,i,j,k,l,m,n]
-        <- (<b, c, h(d,e,f,g), h, i>), (<m, n, r>) [c,d,e,f,g,h,n]"#]]);
+        <- (<b, c, h(d,e,f,g), h, i>), (<m, n, r>) [c,d,e,f,g,h,n]"#]])
+    .await;
 }
 
-#[test]
-fn test_partial_interest() {
+#[tokio::test]
+async fn test_partial_interest() {
     recon_test(expect![[r#"
         cat: <(b,g),(i,q)> [a,b,c,d,e,f,g,h,i,j,k,l,m,o,p,q]
         dog: <(k,t),(u,z)> [j,k,n,o,p,q,r,s,t,u,w,x,y,z]
@@ -1315,11 +1355,12 @@ fn test_partial_interest() {
         <- (<k, n, 0, o, 0, p, q>) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q]
         -> (<k, l, 0, m, h(n,o), p, q>) [j,k,l,m,n,o,p,q,r,s,t,u,w,x,y,z]
         <- (<k, l, h(m,n,o), p, q>) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q]
-        -> (<k, l, h(m,n,o), p, q>) [j,k,l,m,n,o,p,q,r,s,t,u,w,x,y,z]"#]]);
+        -> (<k, l, h(m,n,o), p, q>) [j,k,l,m,n,o,p,q,r,s,t,u,w,x,y,z]"#]])
+    .await;
 }
 
-#[test]
-fn message_cbor_serialize_test() {
+#[tokio::test]
+async fn message_cbor_serialize_test() {
     let received: Message<Bytes, Sha256a> = parse_recon(
         r#"cat: [] dog: []
         -> (a, h(b), c) []"#,
@@ -1422,116 +1463,4 @@ fn message_cbor_deserialize_zero_hash() {
         }
     "#]]
     .assert_debug_eq(&received);
-}
-
-#[test]
-fn sqlite3_test() {
-    // If we store all the Recon keys in sqlite
-    // then we can use the sum function to calculate ahashs for the ranges
-    // remember to take the mod 2^32 before reconstructing AHash.
-    fn store() -> Result<()> {
-        let conn = Connection::open(":memory:")?; // "my_database.db"
-        conn.execute(
-            r#"
-        CREATE TABLE data (
-            key TEXT,
-            h0 INTEGER, h1 INTEGER, h2 INTEGER, h3 INTEGER,
-            h4 INTEGER, h5 INTEGER, h6 INTEGER, h7 INTEGER
-        )
-        "#,
-            (),
-        )?;
-
-        println!("key2 {:?}", Sha256a::digest(&Bytes::from("key2")));
-        // Insert the data into the table
-        let r1 = conn.execute(
-            r#"
-            INSERT INTO data (
-                key,
-                h0, h1, h2, h3, h4, h5, h6, h7
-            ) VALUES (
-                ?, ?, ?, ?, ?, ?, ?, ?, ?
-            )"#,
-            (
-                "key1",
-                2517202049_u32,
-                56037440_u32,
-                3620594420_u32,
-                3669165004_u32,
-                3107969998_u32,
-                442180962_u32,
-                3392393391_u32,
-                806716350_u32,
-            ),
-        )?;
-        let r2 = conn.execute(
-            r#"
-              INSERT INTO data (key, h0, h1, h2, h3, h4, h5, h6, h7)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            "#,
-            (
-                "key2",
-                1985151665_u32,
-                1059294028_u32,
-                3796006323_u32,
-                3032940852_u32,
-                4188464464_u32,
-                1513824117_u32,
-                1735347969_u32,
-                2644098280_u32,
-            ),
-        )?;
-        let mut stmt = conn.prepare(
-            r#"
-        SELECT key, h0, h1, h2, h3, h4, h5, h6, h7
-        FROM data
-        "#,
-        )?;
-        let r3 = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0).unwrap(),
-                row.get::<_, u32>(1).unwrap(),
-                row.get::<_, u32>(2).unwrap(),
-                row.get::<_, u32>(3).unwrap(),
-                row.get::<_, u32>(4).unwrap(),
-                row.get::<_, u32>(5).unwrap(),
-                row.get::<_, u32>(6).unwrap(),
-                row.get::<_, u32>(7).unwrap(),
-                row.get::<_, u32>(8).unwrap(),
-            ))
-        });
-        println!("{:?} {:?}", r1, r2);
-        for row in r3? {
-            println!("{:?}", row.unwrap())
-        }
-
-        let mut stmt2 = conn.prepare(
-            r#"
-            SELECT
-              sum(h0), sum(h1), sum(h2), sum(h3), sum(h4), sum(h5), sum(h6), sum(h7)
-            FROM data
-            WHERE key > 'k' AND key < 'l';
-            "#,
-        )?;
-        let r4 = stmt2.query_map([], |row| {
-            Ok((
-                // here be the integer overflow dragon
-                // if there are more then 2^32 ints we risk u64 overflow
-                row.get::<_, u64>(0).unwrap() & 0xFFFFFFFF,
-                row.get::<_, u64>(1).unwrap() & 0xFFFFFFFF,
-                row.get::<_, u64>(2).unwrap() & 0xFFFFFFFF,
-                row.get::<_, u64>(3).unwrap() & 0xFFFFFFFF,
-                row.get::<_, u64>(4).unwrap() & 0xFFFFFFFF,
-                row.get::<_, u64>(5).unwrap() & 0xFFFFFFFF,
-                row.get::<_, u64>(6).unwrap() & 0xFFFFFFFF,
-                row.get::<_, u64>(7).unwrap() & 0xFFFFFFFF,
-            ))
-        });
-        for row in r4? {
-            println!("{:?}", row.unwrap())
-        }
-
-        Ok(())
-    }
-    store().unwrap();
 }

@@ -4,13 +4,9 @@
 mod metrics;
 mod network;
 mod pubsub;
+mod sql;
 
-use std::{
-    path::PathBuf,
-    str::FromStr,
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::{path::PathBuf, str::FromStr, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Result};
 use ceramic_core::{EventId, Interest, PeerId};
@@ -22,8 +18,11 @@ use futures_util::future;
 use iroh_metrics::{config::Config as MetricsConfig, MetricsHandle};
 use libipld::json::DagJsonCodec;
 use libp2p::metrics::Recorder;
-use recon::{FullInterests, Recon, ReconInterestProvider, SQLiteStore, Sha256a};
-use tokio::{task, time::timeout};
+use recon::{FullInterests, Recon, ReconInterestProvider, SQLiteStore, Server, Sha256a};
+use tokio::{
+    task::{self, JoinHandle},
+    time::timeout,
+};
 use tracing::{debug, info, warn};
 
 use crate::{
@@ -147,7 +146,7 @@ async fn main() -> Result<()> {
     let args = Cli::parse();
     match args.command {
         Command::Daemon(opts) => {
-            let daemon = Daemon::build(opts).await?;
+            let mut daemon = Daemon::build(opts).await?;
             daemon.run().await?;
             daemon.shutdown().await
         }
@@ -157,13 +156,11 @@ async fn main() -> Result<()> {
 
 type InterestStore = SQLiteStore<Interest, Sha256a>;
 type InterestInterest = FullInterests<Interest>;
-type ReconInterest = Recon<Interest, Sha256a, InterestStore, InterestInterest>;
-type ArcReconInterest = Arc<Mutex<ReconInterest>>;
+type ReconInterest = Server<Interest, Sha256a, InterestStore, InterestInterest>;
 
 type ModelStore = SQLiteStore<EventId, Sha256a>;
-type ModelInterest = ReconInterestProvider<Sha256a, InterestStore, InterestInterest>;
-type ReconModel = Recon<EventId, Sha256a, ModelStore, ModelInterest>;
-type ArcReconModel = Arc<Mutex<ReconModel>>;
+type ModelInterest = ReconInterestProvider<Sha256a>;
+type ReconModel = Server<EventId, Sha256a, ModelStore, ModelInterest>;
 
 struct Daemon {
     peer_id: PeerId,
@@ -174,8 +171,10 @@ struct Daemon {
     ipfs: Ipfs,
     metrics_handle: MetricsHandle,
     metrics: Arc<Metrics>,
-    recon_interest: ArcReconInterest,
-    recon_model: ArcReconModel,
+    recon_interest: Option<ReconInterest>,
+    recon_model: Option<ReconModel>,
+    recon_interest_handle: Option<JoinHandle<()>>,
+    recon_model_handle: Option<JoinHandle<()>>,
 }
 
 impl Daemon {
@@ -242,30 +241,27 @@ impl Daemon {
         let keypair = load_identity(&mut kc).await?;
         let peer_id = keypair.public().to_peer_id();
 
+        // Connect to sqlite
+        let sql_pool = sql::connect(&sql_db_path).await?;
+
         // Create recon store for interests.
-        let mut recon_store_interest = SQLiteStore::<Interest, Sha256a>::new(
-            InterestStore::conn_for_filename(&sql_db_path)?,
-            "interest".to_string(),
-        );
-        recon_store_interest.create_table();
+        let interest_store = InterestStore::new(sql_pool.clone(), "interest".to_string()).await?;
 
         // Create second recon store for models.
-        let recon_store_model = SQLiteStore::<EventId, Sha256a>::new(
-            ModelStore::conn_for_filename(&sql_db_path)?,
-            "model".to_string(),
-        );
+        let model_store = ModelStore::new(sql_pool.clone(), "model".to_string()).await?;
 
         // Construct a recon implementation for interests.
-        let recon_interest = Arc::new(Mutex::new(Recon::new(
-            recon_store_interest,
-            InterestInterest::default(),
-        )));
+        let mut recon_interest =
+            Server::new(Recon::new(interest_store, InterestInterest::default()));
+        let recon_interest_client = recon_interest.client();
+
         // Construct a recon implementation for models.
-        let recon_model = Arc::new(Mutex::new(Recon::new(
-            recon_store_model,
-            // Use recon_interest as the InterestProvider for recon_model
-            ModelInterest::new(peer_id, recon_interest.clone()),
-        )));
+        let mut recon_model = Server::new(Recon::new(
+            model_store,
+            // Use recon interests as the InterestProvider for recon_model
+            ModelInterest::new(peer_id, recon_interest_client.clone()),
+        ));
+        let recon_model_client = recon_model.client();
 
         let ipfs = Ipfs::builder()
             .with_store(dir.join("store"))
@@ -273,7 +269,7 @@ impl Daemon {
             .with_p2p(
                 p2p_config,
                 keypair,
-                Some((recon_interest.clone(), recon_model.clone())),
+                Some((recon_interest_client, recon_model_client)),
                 &network.name(),
             )
             .await?
@@ -289,12 +285,14 @@ impl Daemon {
             ipfs,
             metrics_handle,
             metrics,
-            recon_interest,
-            recon_model,
+            recon_interest: Some(recon_interest),
+            recon_model: Some(recon_model),
+            recon_interest_handle: None,
+            recon_model_handle: None,
         })
     }
     // Start the daemon, future does not return until the daemon is finished.
-    async fn run(&self) -> Result<()> {
+    async fn run(&mut self) -> Result<()> {
         // Start metrics server
         debug!(
             bind_address = self.metrics_bind_address,
@@ -305,15 +303,28 @@ impl Daemon {
         tokio::spawn(srv);
 
         let api_bind_address = self.api_bind_address.clone();
+
+        let mut recon_interest = self
+            .recon_interest
+            .take()
+            .expect("recon_interest should always be present");
+        let mut recon_model = self
+            .recon_model
+            .take()
+            .expect("recon_model should always be present");
+
         // Start Ceramic API
         let network = self.network.clone();
         tokio::spawn(ceramic_api::start(
             self.peer_id,
             network,
             api_bind_address,
-            self.recon_interest.clone(),
-            self.recon_model.clone(),
+            recon_interest.client(),
+            recon_model.client(),
         ));
+
+        self.recon_interest_handle = Some(tokio::spawn(recon_interest.run()));
+        self.recon_model_handle = Some(tokio::spawn(recon_model.run()));
 
         // Run the Kubo RPC server, this blocks until the server is shutdown via a unix signal.
         debug!(
@@ -334,6 +345,15 @@ impl Daemon {
         // Always shutdown metrics even if ipfs errors
         self.metrics_handle.shutdown();
 
+        // TODO ensure all clients are dropped otherwise server task will not finish
+        // Drop recon_model first as it contains a client into recon_interest.
+        //if let Some(recon_model_handle) = self.recon_model_handle {
+        //    recon_model_handle.await;
+        //}
+        //if let Some(recon_interest_handle) = self.recon_interest_handle {
+        //    recon_interest_handle.await;
+        //}
+
         // Check ipfs shutdown error
         res?;
 
@@ -342,7 +362,7 @@ impl Daemon {
 }
 
 async fn eye(opts: EyeOpts) -> Result<()> {
-    let daemon = Daemon::build(opts.daemon).await?;
+    let mut daemon = Daemon::build(opts.daemon).await?;
 
     // Start subscription
     let subscription = daemon

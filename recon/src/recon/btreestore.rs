@@ -3,6 +3,8 @@ use std::{
     ops::Bound,
 };
 
+use async_trait::async_trait;
+
 use crate::recon::{AssociativeHash, Key, MaybeHashedKey, Store};
 
 /// An implementation of a Store that stores keys in an in-memory BTree
@@ -44,8 +46,52 @@ where
         }
         r
     }
+
+    /// Return the hash of all keys in the range between left_fencepost and right_fencepost.
+    /// Both range bounds are exclusive.
+    pub fn hash_range(&self, left_fencepost: &K, right_fencepost: &K) -> anyhow::Result<H> {
+        if left_fencepost >= right_fencepost {
+            return Ok(H::identity());
+        }
+        let range = (
+            Bound::Excluded(left_fencepost),
+            Bound::Excluded(right_fencepost),
+        );
+        Ok(H::identity().digest_many(
+            self.keys
+                .range(range)
+                .map(|(key, hash)| MaybeHashedKey::new(key, Some(hash))),
+        ))
+    }
+
+    /// Return all keys in the range between left_fencepost and right_fencepost.
+    /// Both range bounds are exclusive.
+    ///
+    /// Offset and limit values are applied within the range of keys.
+    pub fn range(
+        &self,
+        left_fencepost: &K,
+        right_fencepost: &K,
+        offset: usize,
+        limit: usize,
+    ) -> anyhow::Result<Box<dyn Iterator<Item = K> + Send + 'static>> {
+        let range = (
+            Bound::Excluded(left_fencepost),
+            Bound::Excluded(right_fencepost),
+        );
+        let keys: Vec<K> = self
+            .keys
+            .range(range)
+            .skip(offset)
+            .take(limit)
+            .map(|(key, _hash)| key)
+            .cloned()
+            .collect();
+        Ok(Box::new(keys.into_iter()))
+    }
 }
 
+#[async_trait]
 impl<K, H> Store for BTreeStore<K, H>
 where
     K: Key,
@@ -54,62 +100,53 @@ where
     type Key = K;
     type Hash = H;
 
-    fn insert(&mut self, key: &Self::Key) -> anyhow::Result<bool> {
+    async fn insert(&mut self, key: &Self::Key) -> anyhow::Result<bool> {
         Ok(self.keys.insert(key.to_owned(), H::digest(key)).is_none())
     }
 
-    fn hash_range(&self, left_fencepost: &Self::Key, right_fencepost: &Self::Key) -> Self::Hash {
-        if left_fencepost >= right_fencepost {
-            return H::identity();
-        }
-        let range = (
-            Bound::Excluded(left_fencepost),
-            Bound::Excluded(right_fencepost),
-        );
-        H::identity().digest_many(
-            self.keys
-                .range(range)
-                .map(|(key, hash)| MaybeHashedKey::new(key, Some(hash))),
-        )
+    async fn hash_range(
+        &mut self,
+        left_fencepost: &Self::Key,
+        right_fencepost: &Self::Key,
+    ) -> anyhow::Result<Self::Hash> {
+        // Self does not need async to implement hash_range, so it exposes a pub non async hash_range function
+        // and we delegate to its implementation here.
+        BTreeStore::hash_range(self, left_fencepost, right_fencepost)
     }
 
-    fn range(
-        &self,
+    async fn range(
+        &mut self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
         offset: usize,
         limit: usize,
-    ) -> Box<dyn Iterator<Item = Self::Key> + '_> {
-        let range = (
-            Bound::Excluded(left_fencepost),
-            Bound::Excluded(right_fencepost),
-        );
-        Box::new(
-            self.keys
-                .range(range)
-                .skip(offset)
-                .take(limit)
-                .map(|(key, _hash)| key)
-                .cloned(),
-        )
+    ) -> anyhow::Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
+        // Self does not need async to implement range, so it exposes a pub non async range function
+        // and we delegate to its implementation here.
+        BTreeStore::range(self, left_fencepost, right_fencepost, offset, limit)
     }
 
-    fn last(&self, left_fencepost: &Self::Key, right_fencepost: &Self::Key) -> Option<Self::Key> {
-        let range = (
-            Bound::Excluded(left_fencepost),
-            Bound::Excluded(right_fencepost),
-        );
-        self.keys
-            .range(range)
-            .next_back()
-            .map(|(k, _)| k.to_owned())
-    }
-
-    fn first_and_last(
-        &self,
+    async fn last(
+        &mut self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
-    ) -> Option<(Self::Key, Self::Key)> {
+    ) -> anyhow::Result<Option<Self::Key>> {
+        let range = (
+            Bound::Excluded(left_fencepost),
+            Bound::Excluded(right_fencepost),
+        );
+        Ok(self
+            .keys
+            .range(range)
+            .next_back()
+            .map(|(k, _)| k.to_owned()))
+    }
+
+    async fn first_and_last(
+        &mut self,
+        left_fencepost: &Self::Key,
+        right_fencepost: &Self::Key,
+    ) -> anyhow::Result<Option<(Self::Key, Self::Key)>> {
         let range = (
             Bound::Excluded(left_fencepost),
             Bound::Excluded(right_fencepost),
@@ -118,12 +155,12 @@ where
         let first = range.next().map(|(k, _)| k);
         if let Some(first) = first {
             if let Some(last) = range.next_back().map(|(k, _)| k) {
-                Some((first.to_owned(), last.to_owned()))
+                Ok(Some((first.to_owned(), last.to_owned())))
             } else {
-                Some((first.to_owned(), first.to_owned()))
+                Ok(Some((first.to_owned(), first.to_owned())))
             }
         } else {
-            None
+            Ok(None)
         }
     }
 }
