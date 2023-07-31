@@ -4,6 +4,7 @@ use crate::{AssociativeHash, Key, Store};
 use anyhow::anyhow;
 use rusqlite::{Connection, ErrorCode};
 use std::marker::PhantomData;
+use tracing::{debug, instrument};
 
 /// ReconSQLite is a implementation of Recon store
 #[derive(Debug)]
@@ -59,7 +60,7 @@ where
         const CREATE_RECON_TABLE: &str = "CREATE TABLE IF NOT EXISTS recon (
             sort_key TEXT, -- the field in the event header to sort by e.g. model
             event_id BLOB, -- network_id sort_value controller StreamID height event_cid
-            ahash_0 INTEGER, -- the ahash is decomposed as [u32; 8] 
+            ahash_0 INTEGER, -- the ahash is decomposed as [u32; 8]
             ahash_1 INTEGER,
             ahash_2 INTEGER,
             ahash_3 INTEGER,
@@ -92,6 +93,7 @@ where
     // Ok(true): inserted the key
     // Ok(false): did not insert the key ConstraintViolation
     // Err(e): sql error
+    #[instrument(skip(self), ret)]
     fn insert(&mut self, key: &Self::Key) -> anyhow::Result<bool> {
         let hash = H::digest(key);
 
@@ -108,7 +110,7 @@ where
                 ?
             )",
             (
-                &self.sort_key.as_bytes(),
+                &self.sort_key,
                 key.as_bytes(),
                 hash.as_u32s()[0],
                 hash.as_u32s()[1],
@@ -133,6 +135,7 @@ where
         }
     }
 
+    #[instrument(skip(self), ret)]
     fn hash_range(&self, left_fencepost: &Self::Key, right_fencepost: &Self::Key) -> Self::Hash {
         let query = "
         SELECT
@@ -144,12 +147,12 @@ where
             recon
         WHERE
             sort_key = ? AND
-            event_id > ? AND event_id < ?; 
+            event_id > ? AND event_id < ?;
         ";
         let mut stmt = self.conn.prepare(query).unwrap();
         let mut rows = stmt
             .query((
-                self.sort_key.as_bytes(),
+                &self.sort_key,
                 left_fencepost.as_bytes(),
                 right_fencepost.as_bytes(),
             ))
@@ -168,6 +171,7 @@ where
         H::from(bytes)
     }
 
+    #[instrument(skip(self))]
     fn range(
         &self,
         left_fencepost: &Self::Key,
@@ -175,6 +179,14 @@ where
         offset: usize,
         limit: usize,
     ) -> Box<dyn Iterator<Item = Self::Key> + '_> {
+        debug!(
+            self.sort_key,
+            left_fencepost = left_fencepost.to_hex(),
+            right_fencepost = right_fencepost.to_hex(),
+            offset,
+            limit,
+            "range"
+        );
         let query = "
         SELECT
             event_id
@@ -186,13 +198,13 @@ where
         LIMIT
             ?
         OFFSET
-            ?; 
+            ?;
         ";
         let mut stmt = self.conn.prepare(query).unwrap();
         let rows = stmt
             .query_map(
                 (
-                    self.sort_key.as_bytes(),
+                    &self.sort_key,
                     left_fencepost.as_bytes(),
                     right_fencepost.as_bytes(),
                     limit as i64,
@@ -205,7 +217,87 @@ where
             .unwrap()
             .map(|row| row.unwrap().clone());
         let rows = rows.collect::<Vec<Self::Key>>();
+        debug!(count = rows.len(), "rows");
         Box::new(rows.into_iter())
+    }
+    /// Return the number of keys within the range.
+    #[instrument(skip(self), ret)]
+    fn count(&self, left_fencepost: &Self::Key, right_fencepost: &Self::Key) -> usize {
+        let query = "
+        SELECT
+            count(event_id)
+        FROM
+            recon
+        WHERE
+            sort_key = ? AND
+            event_id > ? AND event_id < ?
+        ; ";
+        let mut stmt = self.conn.prepare(query).unwrap();
+        let rows = stmt
+            .query_map(
+                (
+                    &self.sort_key,
+                    left_fencepost.as_bytes(),
+                    right_fencepost.as_bytes(),
+                ),
+                |row| -> Result<usize, rusqlite::Error> { Ok(row.get::<usize, usize>(0).unwrap()) },
+            )
+            .unwrap()
+            .map(|row| row.unwrap().clone());
+        let rows = rows.collect::<Vec<usize>>();
+        rows.get(0).cloned().unwrap()
+    }
+
+    #[instrument(skip(self), ret)]
+    fn last(&self, left_fencepost: &Self::Key, right_fencepost: &Self::Key) -> Option<Self::Key> {
+        let query = "
+        SELECT
+            event_id
+        FROM
+            recon
+        WHERE
+            sort_key = ? AND
+            event_id > ? AND event_id < ?
+        ORDER BY
+            event_id DESC
+        LIMIT
+            1
+        ; ";
+        let mut stmt = self.conn.prepare(query).unwrap();
+        let rows = stmt
+            .query_map(
+                (
+                    &self.sort_key,
+                    left_fencepost.as_bytes(),
+                    right_fencepost.as_bytes(),
+                ),
+                |row| -> Result<Self::Key, rusqlite::Error> {
+                    Ok(K::from(row.get::<usize, Vec<u8>>(0).unwrap()))
+                },
+            )
+            .unwrap()
+            .map(|row| row.unwrap().clone());
+        let rows = rows.collect::<Vec<Self::Key>>();
+        rows.get(0).cloned()
+    }
+
+    #[instrument(skip(self), ret)]
+    fn first_and_last(
+        &self,
+        left_fencepost: &Self::Key,
+        right_fencepost: &Self::Key,
+    ) -> Option<(Self::Key, Self::Key)> {
+        let first = self.first(left_fencepost, right_fencepost);
+        if let Some(first) = first {
+            let last = self.last(left_fencepost, right_fencepost);
+            if let Some(last) = last {
+                Some((first, last))
+            } else {
+                Some((first.clone(), first))
+            }
+        } else {
+            None
+        }
     }
 }
 

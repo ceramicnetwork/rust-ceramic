@@ -88,6 +88,7 @@ where
     /// Process an incoming message and respond with a message reply.
     #[instrument(skip_all, ret)]
     pub fn process_messages(&mut self, received: &[Message<K, H>]) -> Result<Response<K, H>> {
+        debug!("process_messages");
         // First we must find the intersection of interests.
         // Then reply with a message per intersection.
         //
@@ -104,12 +105,14 @@ where
                 }
             }
         }
+        debug!(?intersections, "intersections");
 
         let mut response = Response {
             is_synchronized: true,
             ..Default::default()
         };
         for (range, received) in intersections {
+            trace!(?range, ?received, "processing range");
             let mut response_message = Message::new(&range.start, &range.end);
             for key in &received.keys {
                 if self.store.insert(key)? {
@@ -255,22 +258,25 @@ pub trait Store: std::fmt::Debug {
     /// An exact middle is not necessary but performance will be better with a better approximation.
     ///
     /// The default implementation will count all elements and then find the middle.
+    #[instrument(skip(self), ret)]
     fn middle(&self, left_fencepost: &Self::Key, right_fencepost: &Self::Key) -> Option<Self::Key> {
         let count = self.count(left_fencepost, right_fencepost);
-        self.range(left_fencepost, right_fencepost, (count - 1) / 2, usize::MAX)
+        self.range(left_fencepost, right_fencepost, (count - 1) / 2, 1)
             .next()
     }
     /// Return the number of keys within the range.
+    #[instrument(skip(self), ret)]
     fn count(&self, left_fencepost: &Self::Key, right_fencepost: &Self::Key) -> usize {
         self.range(left_fencepost, right_fencepost, 0, usize::MAX)
             .count()
     }
     /// Return the first key within the range.
+    #[instrument(skip(self), ret)]
     fn first(&self, left_fencepost: &Self::Key, right_fencepost: &Self::Key) -> Option<Self::Key> {
-        self.range(left_fencepost, right_fencepost, 0, usize::MAX)
-            .next()
+        self.range(left_fencepost, right_fencepost, 0, 1).next()
     }
     /// Return the last key within the range.
+    #[instrument(skip(self), ret)]
     fn last(&self, left_fencepost: &Self::Key, right_fencepost: &Self::Key) -> Option<Self::Key> {
         self.range(left_fencepost, right_fencepost, 0, usize::MAX)
             .last()
@@ -316,6 +322,11 @@ pub trait Key: From<Vec<u8>> + Ord + Clone + Display + std::fmt::Debug {
 
     /// Produce a byte representation of the key.
     fn as_bytes(&self) -> &[u8];
+
+    /// Construct a hex encoded representation of the key.
+    fn to_hex(&self) -> String {
+        hex::encode_upper(self.as_bytes())
+    }
 }
 
 /// Associative hash function that is 32 bytes long.
@@ -576,6 +587,11 @@ where
         } else if received_hash.is_zero() {
             // they are missing all keys in range
             // send all the keys
+            debug!(
+                left_fencepost = left_fencepost.to_hex(),
+                right_fencepost = right_fencepost.to_hex(),
+                "sending all keys in range"
+            );
             for key in local_store.range(left_fencepost, right_fencepost, 0, usize::MAX) {
                 self.keys.push(key.to_owned());
                 self.hashes.push(H::identity());
