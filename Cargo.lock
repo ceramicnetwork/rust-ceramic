@@ -6537,12 +6537,11 @@ dependencies = [
 
 [[package]]
 name = "pretty"
-version = "0.11.3"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83f3aa1e3ca87d3b124db7461265ac176b40c277f37e503eaa29c9c75c037846"
+checksum = "563c9d701c3a31dfffaaf9ce23507ba09cbe0b9125ba176d15e629b0235e9acc"
 dependencies = [
  "arrayvec 0.5.2",
- "log",
  "typed-arena",
  "unicode-segmentation",
 ]

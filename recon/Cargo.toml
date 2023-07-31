@@ -33,7 +33,7 @@ codespan-reporting = "0.11.1"
 expect-test = "1.4.1"
 lalrpop-util = { version = "0.20.0", features = ["lexer"] }
 libp2p-swarm-test = "0.1.0"
-pretty = "0.11.3"
+pretty = "0.12.1"
 quickcheck = "1.0.3"
 regex = "1"
 rusqlite = "0.29.0"
