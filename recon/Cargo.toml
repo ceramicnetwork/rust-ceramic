@@ -18,7 +18,7 @@ libp2p-identity = { version = "0.1.2", features = ["peerid"] }
 libp2p.workspace = true
 multihash = "0.18.0"
 rand = "0.8.5"
-rusqlite = "0.29.0"
+rusqlite.workspace = true
 serde.workspace = true
 serde_bytes.workspace = true
 serde_ipld_dagcbor.workspace = true
