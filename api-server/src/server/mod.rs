@@ -21,7 +21,7 @@ pub use crate::context;
 
 type ServiceFuture = BoxFuture<'static, Result<Response<Body>, crate::ServiceError>>;
 
-use crate::{Api, CeramicEventsPostResponse, CeramicSubscribeSortKeySortValueGetResponse};
+use crate::{Api, CeramicEventsPostResponse, CeramicSubscribeSortkeySortvalueGetResponse};
 
 mod paths {
     use lazy_static::lazy_static;
@@ -29,19 +29,17 @@ mod paths {
     lazy_static! {
         pub static ref GLOBAL_REGEX_SET: regex::RegexSet = regex::RegexSet::new(vec![
             r"^/ceramic/events$",
-            r"^/ceramic/subscribe/(?P<sort-key>[^/?#]*)/(?P<sort-value>[^/?#]*)$"
+            r"^/ceramic/subscribe/(?P<sortkey>[^/?#]*)/(?P<sortvalue>[^/?#]*)$"
         ])
         .expect("Unable to create global regex set");
     }
     pub(crate) static ID_CERAMIC_EVENTS: usize = 0;
-    pub(crate) static ID_CERAMIC_SUBSCRIBE_SORT_KEY_SORT_VALUE: usize = 1;
+    pub(crate) static ID_CERAMIC_SUBSCRIBE_SORTKEY_SORTVALUE: usize = 1;
     lazy_static! {
-        pub static ref REGEX_CERAMIC_SUBSCRIBE_SORT_KEY_SORT_VALUE: regex::Regex =
+        pub static ref REGEX_CERAMIC_SUBSCRIBE_SORTKEY_SORTVALUE: regex::Regex =
             #[allow(clippy::invalid_regex)]
-            regex::Regex::new(
-                r"^/ceramic/subscribe/(?P<sort-key>[^/?#]*)/(?P<sort-value>[^/?#]*)$"
-            )
-            .expect("Unable to create regex for CERAMIC_SUBSCRIBE_SORT_KEY_SORT_VALUE");
+            regex::Regex::new(r"^/ceramic/subscribe/(?P<sortkey>[^/?#]*)/(?P<sortvalue>[^/?#]*)$")
+                .expect("Unable to create regex for CERAMIC_SUBSCRIBE_SORTKEY_SORTVALUE");
     }
 }
 
@@ -228,44 +226,44 @@ where
                         }
                 }
 
-                // CeramicSubscribeSortKeySortValueGet - GET /ceramic/subscribe/{sort-key}/{sort-value}
+                // CeramicSubscribeSortkeySortvalueGet - GET /ceramic/subscribe/{sortkey}/{sortvalue}
                 hyper::Method::GET
-                    if path.matched(paths::ID_CERAMIC_SUBSCRIBE_SORT_KEY_SORT_VALUE) =>
+                    if path.matched(paths::ID_CERAMIC_SUBSCRIBE_SORTKEY_SORTVALUE) =>
                 {
                     // Path parameters
                     let path: &str = uri.path();
                     let path_params =
-                    paths::REGEX_CERAMIC_SUBSCRIBE_SORT_KEY_SORT_VALUE
+                    paths::REGEX_CERAMIC_SUBSCRIBE_SORTKEY_SORTVALUE
                     .captures(path)
                     .unwrap_or_else(||
-                        panic!("Path {} matched RE CERAMIC_SUBSCRIBE_SORT_KEY_SORT_VALUE in set but failed match against \"{}\"", path, paths::REGEX_CERAMIC_SUBSCRIBE_SORT_KEY_SORT_VALUE.as_str())
+                        panic!("Path {} matched RE CERAMIC_SUBSCRIBE_SORTKEY_SORTVALUE in set but failed match against \"{}\"", path, paths::REGEX_CERAMIC_SUBSCRIBE_SORTKEY_SORTVALUE.as_str())
                     );
 
-                    let param_sort_key = match percent_encoding::percent_decode(path_params["sort-key"].as_bytes()).decode_utf8() {
-                    Ok(param_sort_key) => match param_sort_key.parse::<String>() {
-                        Ok(param_sort_key) => param_sort_key,
+                    let param_sortkey = match percent_encoding::percent_decode(path_params["sortkey"].as_bytes()).decode_utf8() {
+                    Ok(param_sortkey) => match param_sortkey.parse::<String>() {
+                        Ok(param_sortkey) => param_sortkey,
                         Err(e) => return Ok(Response::builder()
                                         .status(StatusCode::BAD_REQUEST)
-                                        .body(Body::from(format!("Couldn't parse path parameter sort-key: {}", e)))
+                                        .body(Body::from(format!("Couldn't parse path parameter sortkey: {}", e)))
                                         .expect("Unable to create Bad Request response for invalid path parameter")),
                     },
                     Err(_) => return Ok(Response::builder()
                                         .status(StatusCode::BAD_REQUEST)
-                                        .body(Body::from(format!("Couldn't percent-decode path parameter as UTF-8: {}", &path_params["sort-key"])))
+                                        .body(Body::from(format!("Couldn't percent-decode path parameter as UTF-8: {}", &path_params["sortkey"])))
                                         .expect("Unable to create Bad Request response for invalid percent decode"))
                 };
 
-                    let param_sort_value = match percent_encoding::percent_decode(path_params["sort-value"].as_bytes()).decode_utf8() {
-                    Ok(param_sort_value) => match param_sort_value.parse::<String>() {
-                        Ok(param_sort_value) => param_sort_value,
+                    let param_sortvalue = match percent_encoding::percent_decode(path_params["sortvalue"].as_bytes()).decode_utf8() {
+                    Ok(param_sortvalue) => match param_sortvalue.parse::<String>() {
+                        Ok(param_sortvalue) => param_sortvalue,
                         Err(e) => return Ok(Response::builder()
                                         .status(StatusCode::BAD_REQUEST)
-                                        .body(Body::from(format!("Couldn't parse path parameter sort-value: {}", e)))
+                                        .body(Body::from(format!("Couldn't parse path parameter sortvalue: {}", e)))
                                         .expect("Unable to create Bad Request response for invalid path parameter")),
                     },
                     Err(_) => return Ok(Response::builder()
                                         .status(StatusCode::BAD_REQUEST)
-                                        .body(Body::from(format!("Couldn't percent-decode path parameter as UTF-8: {}", &path_params["sort-value"])))
+                                        .body(Body::from(format!("Couldn't percent-decode path parameter as UTF-8: {}", &path_params["sortvalue"])))
                                         .expect("Unable to create Bad Request response for invalid percent decode"))
                 };
 
@@ -349,9 +347,9 @@ where
                     };
 
                     let result = api_impl
-                        .ceramic_subscribe_sort_key_sort_value_get(
-                            param_sort_key,
-                            param_sort_value,
+                        .ceramic_subscribe_sortkey_sortvalue_get(
+                            param_sortkey,
+                            param_sortvalue,
                             param_controller,
                             param_stream_id,
                             param_offset,
@@ -374,13 +372,13 @@ where
 
                     match result {
                         Ok(rsp) => match rsp {
-                            CeramicSubscribeSortKeySortValueGetResponse::Success(body) => {
+                            CeramicSubscribeSortkeySortvalueGetResponse::Success(body) => {
                                 *response.status_mut() = StatusCode::from_u16(200)
                                     .expect("Unable to turn 200 into a StatusCode");
                                 response.headers_mut().insert(
                                                         CONTENT_TYPE,
                                                         HeaderValue::from_str("application/json")
-                                                            .expect("Unable to create Content-Type header for CERAMIC_SUBSCRIBE_SORT_KEY_SORT_VALUE_GET_SUCCESS"));
+                                                            .expect("Unable to create Content-Type header for CERAMIC_SUBSCRIBE_SORTKEY_SORTVALUE_GET_SUCCESS"));
                                 let body = serde_json::to_string(&body)
                                     .expect("impossible to fail to serialize");
                                 *response.body_mut() = Body::from(body);
@@ -398,7 +396,7 @@ where
                 }
 
                 _ if path.matched(paths::ID_CERAMIC_EVENTS) => method_not_allowed(),
-                _ if path.matched(paths::ID_CERAMIC_SUBSCRIBE_SORT_KEY_SORT_VALUE) => {
+                _ if path.matched(paths::ID_CERAMIC_SUBSCRIBE_SORTKEY_SORTVALUE) => {
                     method_not_allowed()
                 }
                 _ => Ok(Response::builder()
@@ -421,9 +419,9 @@ impl<T> RequestParser<T> for ApiRequestParser {
             hyper::Method::POST if path.matched(paths::ID_CERAMIC_EVENTS) => {
                 Some("CeramicEventsPost")
             }
-            // CeramicSubscribeSortKeySortValueGet - GET /ceramic/subscribe/{sort-key}/{sort-value}
-            hyper::Method::GET if path.matched(paths::ID_CERAMIC_SUBSCRIBE_SORT_KEY_SORT_VALUE) => {
-                Some("CeramicSubscribeSortKeySortValueGet")
+            // CeramicSubscribeSortkeySortvalueGet - GET /ceramic/subscribe/{sortkey}/{sortvalue}
+            hyper::Method::GET if path.matched(paths::ID_CERAMIC_SUBSCRIBE_SORTKEY_SORTVALUE) => {
+                Some("CeramicSubscribeSortkeySortvalueGet")
             }
             _ => None,
         }

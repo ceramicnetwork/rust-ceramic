@@ -10,13 +10,13 @@ info:
 servers:
 - url: /
 paths:
-  /ceramic/subscribe/{sort-key}/{sort-value}:
+  /ceramic/subscribe/{sortkey}/{sortvalue}:
     get:
       parameters:
       - description: name of the sort-key
         explode: false
         in: path
-        name: sort-key
+        name: sortkey
         required: true
         schema:
           type: string
@@ -24,7 +24,7 @@ paths:
       - description: value associated with the sort key
         explode: false
         in: path
-        name: sort-value
+        name: sortvalue
         required: true
         schema:
           type: string
