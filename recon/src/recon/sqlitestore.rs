@@ -35,19 +35,25 @@ where
     }
 
     /// create a SQLite Connection to the provided path
-    pub fn conn_for_filename<P>(path: P) -> Result<Connection>
+    pub fn conn_for_filename<P>(path: P) -> anyhow::Result<Connection>
     where
         P: AsRef<Path>,
     {
         debug!("sqlite path: {:?}", &path.as_ref().display());
-
         let conn = Connection::open(path)?;
 
         // set the WAL PRAGMA for faster writes
-        const SET_WAL_PRAGMA: &str = "PRAGMA journal_mode=WAL;";
-        conn.query_row(SET_WAL_PRAGMA, (), |row| row.get::<usize, String>(0))?;
+        const SET_WAL_PRAGMA: &str = "PRAGMA journal_mode=wal;";
+        const WAL: &str = "wal";
+        let mode = conn.query_row_and_then(SET_WAL_PRAGMA, (), |row| -> Result<String> {
+            row.get::<_, String>(0)
+        })?;
 
-        Ok(conn)
+        if mode == WAL {
+            Ok(conn)
+        } else {
+            Err(anyhow!("failed to set journal_mode to wal: mode {}", mode))
+        }
     }
 }
 
