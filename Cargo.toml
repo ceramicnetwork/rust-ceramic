@@ -55,6 +55,7 @@ opentelemetry-otlp = "0.11"
 rand = "0.8.5"
 rand_chacha = "0.3.1"
 recon = { path = "./recon/" }
+rusqlite = "0.29.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_bytes = "0.11"
 serde_ipld_dagcbor = "0.3"
