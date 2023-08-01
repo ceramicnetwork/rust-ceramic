@@ -1,5 +1,5 @@
-pub mod btree;
-pub mod durability;
+pub mod btreestore;
+pub mod sqlitestore;
 #[cfg(test)]
 pub mod tests;
 

@@ -41,6 +41,7 @@ actix-http = { version = "3" }
 actix-web = { version = "4" }
 rand = "0.8.5"
 ceramic-core.workspace = true
+rusqlite.workspace = true
 
 [dev-dependencies]
 expect-test = "1"

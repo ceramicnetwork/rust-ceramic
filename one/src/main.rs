@@ -22,7 +22,7 @@ use futures_util::future;
 use iroh_metrics::{config::Config as MetricsConfig, MetricsHandle};
 use libipld::json::DagJsonCodec;
 use libp2p::metrics::Recorder;
-use recon::{BTreeStore, FullInterests, Recon, Sha256a};
+use recon::{FullInterests, Recon, SQLiteStore, Sha256a};
 use tokio::{task, time::timeout};
 use tracing::{debug, info, warn};
 
@@ -114,7 +114,7 @@ enum Network {
     Mainnet,
     /// Test network
     TestnetClay,
-    /// Developement network
+    /// Development network
     DevUnstable,
     /// Local network with unique id
     Local,
@@ -156,10 +156,10 @@ async fn main() -> Result<()> {
 }
 
 type ReconInterest =
-    Recon<Interest, Sha256a, BTreeStore<Interest, Sha256a>, FullInterests<Interest>>;
+    Recon<Interest, Sha256a, SQLiteStore<Interest, Sha256a>, FullInterests<Interest>>;
 type ArcReconInterest = Arc<Mutex<ReconInterest>>;
 
-type ReconModel = Recon<EventId, Sha256a, BTreeStore<EventId, Sha256a>, ArcReconInterest>;
+type ReconModel = Recon<EventId, Sha256a, SQLiteStore<EventId, Sha256a>, ArcReconInterest>;
 type ArcReconModel = Arc<Mutex<ReconModel>>;
 
 struct Daemon {
@@ -232,13 +232,26 @@ impl Daemon {
             .collect::<Result<Vec<Multiaddr>, multiaddr::Error>>()?;
         debug!(?p2p_config, "using p2p config");
 
+        // open the db.sqlite
+        // STORE_DIR/db.sqlite3
+        let db_path = dir.join("db.sqlite3");
+
         // Construct a recon implementation.
         let recon_interest = Arc::new(Mutex::new(Recon::new(
-            BTreeStore::default(),
+            // BTreeStore::default(),
+            SQLiteStore::<Interest, Sha256a>::new(
+                SQLiteStore::<Interest, Sha256a>::conn_for_filename(&db_path).unwrap(),
+                "interest".to_owned(),
+            ),
             FullInterests::default(),
         )));
+
         let recon_model = Arc::new(Mutex::new(Recon::new(
-            BTreeStore::default(),
+            // BTreeStore::default(),
+            SQLiteStore::<EventId, Sha256a>::new(
+                SQLiteStore::<EventId, Sha256a>::conn_for_filename(&db_path).unwrap(),
+                "model".to_owned(),
+            ),
             // Use recon_interest as the InterestProvider for recon_model
             recon_interest.clone(),
         )));
@@ -273,7 +286,7 @@ impl Daemon {
     async fn run(&self) -> Result<()> {
         // Start metrics server
         debug!(
-            bind_addres = self.metrics_bind_address,
+            bind_address = self.metrics_bind_address,
             "starting prometheus metrics server"
         );
         let srv = metrics::server(self.metrics_bind_address.as_str())?;
@@ -293,7 +306,7 @@ impl Daemon {
 
         // Run the Kubo RPC server, this blocks until the server is shutdown via a unix signal.
         debug!(
-            bind_addres = self.bind_address,
+            bind_address = self.bind_address,
             "starting Kubo RPC API server"
         );
         ceramic_kubo_rpc::http::serve(self.ipfs.api(), self.bind_address.as_str()).await?;
