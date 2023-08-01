@@ -28,7 +28,7 @@ use unimock::unimock;
 
 use ceramic_api_server::{
     models::{self, Event},
-    CeramicEventsPostResponse, CeramicSubscribeSortkeySortvalueGetResponse,
+    CeramicEventsPostResponse, CeramicSubscribeSortKeySortValueGetResponse,
 };
 use ceramic_core::{EventId, Interest, Network, PeerId, StreamId};
 
@@ -151,7 +151,7 @@ where
         Ok(CeramicEventsPostResponse::Success)
     }
 
-    async fn ceramic_subscribe_sortkey_sortvalue_get(
+    async fn ceramic_subscribe_sort_key_sort_value_get(
         &self,
         sort_key: String,
         sort_value: String,
@@ -160,7 +160,7 @@ where
         offset: Option<f64>,
         limit: Option<f64>,
         _context: &C,
-    ) -> Result<CeramicSubscribeSortkeySortvalueGetResponse, ApiError> {
+    ) -> Result<CeramicSubscribeSortKeySortValueGetResponse, ApiError> {
         let offset = offset
             .map(|float| {
                 let int = float as usize;
@@ -237,7 +237,7 @@ where
             .map_err(|err| ApiError(format!("failed to update interest: {err}")))?;
 
         debug!(%start, %stop, "subscribe");
-        Ok(CeramicSubscribeSortkeySortvalueGetResponse::Success(
+        Ok(CeramicSubscribeSortKeySortValueGetResponse::Success(
             self.model
                 .range(&start, &stop, offset, limit)
                 .into_iter()
@@ -412,7 +412,7 @@ mod tests {
             .returning(move |_, _, _, _| vec![event_id.clone()]);
         let server = Server::new(peer_id, network, mock_interest, mock_model);
         let resp = server
-            .ceramic_subscribe_sortkey_sortvalue_get(
+            .ceramic_subscribe_sort_key_sort_value_get(
                 "model".to_string(),
                 model.to_owned(),
                 None,
@@ -425,7 +425,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             resp,
-            CeramicSubscribeSortkeySortvalueGetResponse::Success(vec![event])
+            CeramicSubscribeSortKeySortValueGetResponse::Success(vec![event])
         );
     }
     #[tokio::test]
@@ -475,7 +475,7 @@ mod tests {
             .returning(|_, _, _, _| vec![]);
         let server = Server::new(peer_id, network, mock_interest, mock_model);
         let resp = server
-            .ceramic_subscribe_sortkey_sortvalue_get(
+            .ceramic_subscribe_sort_key_sort_value_get(
                 "model".to_string(),
                 model.to_owned(),
                 Some(controller.to_owned()),
@@ -488,7 +488,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             resp,
-            CeramicSubscribeSortkeySortvalueGetResponse::Success(vec![])
+            CeramicSubscribeSortKeySortValueGetResponse::Success(vec![])
         );
     }
     #[tokio::test]
@@ -541,7 +541,7 @@ mod tests {
             .returning(|_, _, _, _| vec![]);
         let server = Server::new(peer_id, network, mock_interest, mock_model);
         let resp = server
-            .ceramic_subscribe_sortkey_sortvalue_get(
+            .ceramic_subscribe_sort_key_sort_value_get(
                 "model".to_string(),
                 model.to_owned(),
                 Some(controller.to_owned()),
@@ -554,7 +554,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             resp,
-            CeramicSubscribeSortkeySortvalueGetResponse::Success(vec![])
+            CeramicSubscribeSortKeySortValueGetResponse::Success(vec![])
         );
     }
     #[tokio::test]
@@ -607,7 +607,7 @@ mod tests {
             .returning(|_, _, _, _| vec![]);
         let server = Server::new(peer_id, network, mock_interest, mock_model);
         let resp = server
-            .ceramic_subscribe_sortkey_sortvalue_get(
+            .ceramic_subscribe_sort_key_sort_value_get(
                 "model".to_string(),
                 model.to_owned(),
                 Some(controller.to_owned()),
@@ -620,7 +620,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             resp,
-            CeramicSubscribeSortkeySortvalueGetResponse::Success(vec![])
+            CeramicSubscribeSortKeySortValueGetResponse::Success(vec![])
         );
     }
 }
