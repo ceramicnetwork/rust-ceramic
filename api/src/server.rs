@@ -161,6 +161,10 @@ where
         limit: Option<f64>,
         _context: &C,
     ) -> Result<CeramicSubscribeSortKeySortValueGetResponse, ApiError> {
+        debug!(
+            ?self.network,
+            sort_key, sort_value, controller, "subscribe params"
+        );
         let offset = offset
             .map(|float| {
                 let int = float as usize;
@@ -232,11 +236,14 @@ where
             .with_range((start.as_slice(), stop.as_slice()))
             .with_not_after(0)
             .build();
+        debug!(
+            ?interest,
+            ?sort_key, ?self.peer_id, ?start, ?stop, "saving interest"
+        );
         self.interest
             .insert(&interest)
             .map_err(|err| ApiError(format!("failed to update interest: {err}")))?;
 
-        debug!(%start, %stop, "subscribe");
         Ok(CeramicSubscribeSortKeySortValueGetResponse::Success(
             self.model
                 .range(&start, &stop, offset, limit)

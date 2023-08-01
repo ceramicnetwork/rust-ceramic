@@ -9,9 +9,15 @@ pub use libp2p_identity::PeerId;
 
 use crate::RangeOpen;
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Serialize, Deserialize)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Serialize, Deserialize)]
 /// Interest declares an interest in a keyspace for a given peer.
-/// cbor([sort_key, peer_id, start_key, stop_key, not after])
+/// cbor seq:
+///     sort_key, the stream set identifier e.g. "model"
+///     peer_id,  the libp2p address of the interested node
+///     indicator, an indicator of whether we have a min(0), range(1), or max(2)
+///     start_key, Inclusive start of the range
+///     stop_key, Exclusive end of the range
+///     not after, Expiration of the interest or 0 to indicate indefinite
 pub struct Interest(#[serde(with = "serde_bytes")] Vec<u8>);
 
 impl Interest {
@@ -31,20 +37,29 @@ impl Interest {
         let mut decoder = Decoder::new(&self.0);
         // Skip sort key
         decoder.skip()?;
-        let peer_id_bytes = decoder.bytes()?;
-        Ok(PeerId::from_bytes(peer_id_bytes)?)
+        let peer_id_bytes = decoder.bytes();
+        Ok(PeerId::from_bytes(peer_id_bytes?)?)
     }
 
-    /// Report the range value
-    pub fn range(&self) -> Result<RangeOpen<Vec<u8>>> {
+    /// Report the range value.
+    ///
+    /// Returns an error when the Interest is invalid.
+    /// Returns Ok(None) when the Interest does not contain a range.
+    pub fn range(&self) -> Result<Option<RangeOpen<Vec<u8>>>> {
         let mut decoder = Decoder::new(&self.0);
         // Skip sort key
         decoder.skip()?;
         // Skip peer_id
         decoder.skip()?;
-        let start = decoder.bytes()?.to_vec();
-        let end = decoder.bytes()?.to_vec();
-        Ok(RangeOpen { start, end })
+        let indicator = decoder.u8()?;
+        if indicator != 1 {
+            // No range encoded
+            Ok(None)
+        } else {
+            let start = decoder.bytes()?.to_vec();
+            let end = decoder.bytes()?.to_vec();
+            Ok(Some(RangeOpen { start, end }))
+        }
     }
 
     /// Report the not after value
@@ -53,6 +68,8 @@ impl Interest {
         // Skip sort key
         decoder.skip()?;
         // Skip peer_id
+        decoder.skip()?;
+        // Skip start_key indicator
         decoder.skip()?;
         // Skip start_key
         decoder.skip()?;
@@ -65,6 +82,25 @@ impl Interest {
     /// Return the interest as a slice of bytes.
     pub fn as_slice(&self) -> &[u8] {
         self.0.as_slice()
+    }
+}
+
+impl std::fmt::Debug for Interest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if f.alternate() {
+            f.debug_struct("Interest")
+                .field("bytes", &hex::encode(&self.0))
+                .field(
+                    "sort_key_hash",
+                    &hex::encode(self.sort_key_hash().map_err(|_| std::fmt::Error)?),
+                )
+                .field("peer_id", &self.peer_id().map_err(|_| std::fmt::Error)?)
+                .field("range", &self.range().map_err(|_| std::fmt::Error)?)
+                .field("not_after", &self.not_after().map_err(|_| std::fmt::Error)?)
+                .finish()
+        } else {
+            write!(f, "{}", hex::encode_upper(self.as_slice()))
+        }
     }
 }
 
@@ -162,10 +198,28 @@ impl Builder<WithSortKey> {
     }
 }
 impl Builder<WithPeerId> {
+    pub fn with_min_range(mut self) -> Builder<WithRange> {
+        self.state.encoder.u8(0).expect("min range should encode");
+        Builder {
+            state: WithRange {
+                encoder: self.state.encoder,
+            },
+        }
+    }
+    pub fn with_max_range(mut self) -> Builder<WithRange> {
+        self.state.encoder.u8(2).expect("min range should encode");
+        Builder {
+            state: WithRange {
+                encoder: self.state.encoder,
+            },
+        }
+    }
     pub fn with_range<'a>(mut self, range: impl Into<RangeOpen<&'a [u8]>>) -> Builder<WithRange> {
         let range = range.into();
         self.state
             .encoder
+            .u8(1)
+            .expect("range start indicator should cbor encode")
             .bytes(range.start)
             .expect("start_key should cbor encode")
             .bytes(range.end)
@@ -178,6 +232,9 @@ impl Builder<WithPeerId> {
     }
 }
 impl Builder<WithRange> {
+    pub fn build_fencepost(self) -> Interest {
+        Interest(self.state.encoder.into_writer())
+    }
     pub fn with_not_after(mut self, not_after: u64) -> Builder<WithNotAfter> {
         self.state
             .encoder
@@ -231,7 +288,7 @@ mod tests {
             .with_range((&[0, 1, 2][..], &[0, 1, 9][..]))
             .with_not_after(0)
             .build();
-        expect!["z6oybn5exQL8GmN4GWBvRVZx5hbxgPMKwrhU7bsYzgwYJs9ygqJDriYNxfuxXdBHFV1vuURkiWK"]
+        expect!["zSeLpVyYXXyR6aowRRqCo76S7kDJkqeid8Mcg8v8DdHjBrNdCpB1kSMVvikk6AcgWg7rTgQ7ocLP"]
             .assert_eq(&interest.to_string());
 
         assert_eq!(interest, Interest::from_str(&interest.to_string()).unwrap());
@@ -256,18 +313,20 @@ mod tests {
         "#]]
         .assert_debug_eq(&interest.peer_id().unwrap().to_string());
         expect![[r#"
-            RangeOpen {
-                start: [
-                    0,
-                    1,
-                    2,
-                ],
-                end: [
-                    0,
-                    1,
-                    9,
-                ],
-            }
+            Some(
+                RangeOpen {
+                    start: [
+                        0,
+                        1,
+                        2,
+                    ],
+                    end: [
+                        0,
+                        1,
+                        9,
+                    ],
+                },
+            )
         "#]]
         .assert_debug_eq(&interest.range().unwrap());
         expect![[r#"

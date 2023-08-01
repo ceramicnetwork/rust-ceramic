@@ -15,14 +15,14 @@ use std::{
 use anyhow::{anyhow, Result};
 use ceramic_core::{EventId, Interest, PeerId};
 use ceramic_kubo_rpc::{dag, IpfsDep, IpfsPath, Multiaddr};
-use ceramic_p2p::Libp2pConfig;
+use ceramic_p2p::{load_identity, DiskStorage, Keychain, Libp2pConfig};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use futures::StreamExt;
 use futures_util::future;
 use iroh_metrics::{config::Config as MetricsConfig, MetricsHandle};
 use libipld::json::DagJsonCodec;
 use libp2p::metrics::Recorder;
-use recon::{FullInterests, Recon, SQLiteStore, Sha256a};
+use recon::{FullInterests, Recon, ReconInterestProvider, SQLiteStore, Sha256a};
 use tokio::{task, time::timeout};
 use tracing::{debug, info, warn};
 
@@ -155,11 +155,14 @@ async fn main() -> Result<()> {
     }
 }
 
-type ReconInterest =
-    Recon<Interest, Sha256a, SQLiteStore<Interest, Sha256a>, FullInterests<Interest>>;
+type InterestStore = SQLiteStore<Interest, Sha256a>;
+type InterestInterest = FullInterests<Interest>;
+type ReconInterest = Recon<Interest, Sha256a, InterestStore, InterestInterest>;
 type ArcReconInterest = Arc<Mutex<ReconInterest>>;
 
-type ReconModel = Recon<EventId, Sha256a, SQLiteStore<EventId, Sha256a>, ArcReconInterest>;
+type ModelStore = SQLiteStore<EventId, Sha256a>;
+type ModelInterest = ReconInterestProvider<Sha256a, InterestStore, InterestInterest>;
+type ReconModel = Recon<EventId, Sha256a, ModelStore, ModelInterest>;
 type ArcReconModel = Arc<Mutex<ReconModel>>;
 
 struct Daemon {
@@ -232,28 +235,36 @@ impl Daemon {
             .collect::<Result<Vec<Multiaddr>, multiaddr::Error>>()?;
         debug!(?p2p_config, "using p2p config");
 
-        // open the db.sqlite
-        // STORE_DIR/db.sqlite3
-        let db_path = dir.join("db.sqlite3");
+        let sql_db_path = dir.join("db.sqlite3");
 
-        // Construct a recon implementation.
+        // Load p2p identity
+        let mut kc = Keychain::<DiskStorage>::new(dir.clone()).await?;
+        let keypair = load_identity(&mut kc).await?;
+        let peer_id = keypair.public().to_peer_id();
+
+        // Create recon store for interests.
+        let mut recon_store_interest = SQLiteStore::<Interest, Sha256a>::new(
+            InterestStore::conn_for_filename(&sql_db_path)?,
+            "interest".to_string(),
+        );
+        recon_store_interest.create_table();
+
+        // Create second recon store for models.
+        let recon_store_model = SQLiteStore::<EventId, Sha256a>::new(
+            ModelStore::conn_for_filename(&sql_db_path)?,
+            "model".to_string(),
+        );
+
+        // Construct a recon implementation for interests.
         let recon_interest = Arc::new(Mutex::new(Recon::new(
-            // BTreeStore::default(),
-            SQLiteStore::<Interest, Sha256a>::new(
-                SQLiteStore::<Interest, Sha256a>::conn_for_filename(&db_path).unwrap(),
-                "interest".to_owned(),
-            ),
-            FullInterests::default(),
+            recon_store_interest,
+            InterestInterest::default(),
         )));
-
+        // Construct a recon implementation for models.
         let recon_model = Arc::new(Mutex::new(Recon::new(
-            // BTreeStore::default(),
-            SQLiteStore::<EventId, Sha256a>::new(
-                SQLiteStore::<EventId, Sha256a>::conn_for_filename(&db_path).unwrap(),
-                "model".to_owned(),
-            ),
+            recon_store_model,
             // Use recon_interest as the InterestProvider for recon_model
-            recon_interest.clone(),
+            ModelInterest::new(peer_id, recon_interest.clone()),
         )));
 
         let ipfs = Ipfs::builder()
@@ -261,7 +272,7 @@ impl Daemon {
             .await?
             .with_p2p(
                 p2p_config,
-                dir,
+                keypair,
                 Some((recon_interest.clone(), recon_model.clone())),
                 &network.name(),
             )
@@ -270,7 +281,7 @@ impl Daemon {
             .await?;
 
         Ok(Daemon {
-            peer_id: ipfs.peer_id(),
+            peer_id,
             network,
             bind_address: opts.bind_address,
             api_bind_address: opts.api_bind_address,

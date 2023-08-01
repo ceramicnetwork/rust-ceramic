@@ -9,8 +9,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use anyhow::{bail, Result};
-use ceramic_core::{EventId, Interest, RangeOpen};
+use anyhow::{anyhow, bail, Result};
+use ceramic_core::{EventId, Interest, PeerId, RangeOpen};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, instrument, trace};
 
@@ -88,7 +88,6 @@ where
     /// Process an incoming message and respond with a message reply.
     #[instrument(skip_all, ret)]
     pub fn process_messages(&mut self, received: &[Message<K, H>]) -> Result<Response<K, H>> {
-        debug!("process_messages");
         // First we must find the intersection of interests.
         // Then reply with a message per intersection.
         //
@@ -105,14 +104,13 @@ where
                 }
             }
         }
-        debug!(?intersections, "intersections");
 
         let mut response = Response {
             is_synchronized: true,
             ..Default::default()
         };
         for (range, received) in intersections {
-            trace!(?range, ?received, "processing range");
+            trace!(?range, "processing range");
             let mut response_message = Message::new(&range.start, &range.end);
             for key in &received.keys {
                 if self.store.insert(key)? {
@@ -261,8 +259,12 @@ pub trait Store: std::fmt::Debug {
     #[instrument(skip(self), ret)]
     fn middle(&self, left_fencepost: &Self::Key, right_fencepost: &Self::Key) -> Option<Self::Key> {
         let count = self.count(left_fencepost, right_fencepost);
-        self.range(left_fencepost, right_fencepost, (count - 1) / 2, 1)
-            .next()
+        if count == 0 {
+            None
+        } else {
+            self.range(left_fencepost, right_fencepost, (count - 1) / 2, 1)
+                .next()
+        }
     }
     /// Return the number of keys within the range.
     #[instrument(skip(self), ret)]
@@ -423,8 +425,45 @@ impl<K: Key> InterestProvider for FullInterests<K> {
     }
 }
 
+/// An implementation of [`InterestProvider`] backed by a Recon instance.
+#[derive(Debug)]
+pub struct ReconInterestProvider<H, S, I>
+where
+    H: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de> + Send + 'static,
+    S: Store<Key = Interest, Hash = H> + Send + 'static,
+    I: InterestProvider<Key = Interest>,
+{
+    start: Interest,
+    end: Interest,
+    recon: Arc<Mutex<Recon<Interest, H, S, I>>>,
+}
+
+impl<H, S, I> ReconInterestProvider<H, S, I>
+where
+    H: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de> + Send + 'static,
+    S: Store<Key = Interest, Hash = H> + Send + 'static,
+    I: InterestProvider<Key = Interest>,
+{
+    /// Construct an [`InterestProvider`] from [`Recon`] and a [`PeerId`].
+    pub fn new(peer_id: PeerId, recon: Arc<Mutex<Recon<Interest, H, S, I>>>) -> Self {
+        let sort_key = "model";
+        let start = Interest::builder()
+            .with_sort_key(sort_key)
+            .with_peer_id(&peer_id)
+            .with_min_range()
+            .build_fencepost();
+        let end = Interest::builder()
+            .with_sort_key(sort_key)
+            .with_peer_id(&peer_id)
+            .with_max_range()
+            .build_fencepost();
+
+        Self { start, end, recon }
+    }
+}
+
 // Implement InterestProvider for a Recon of interests.
-impl<H, S, I> InterestProvider for Arc<Mutex<Recon<Interest, H, S, I>>>
+impl<H, S, I> InterestProvider for ReconInterestProvider<H, S, I>
 where
     H: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de> + Send + 'static,
     S: Store<Key = Interest, Hash = H> + Send + 'static,
@@ -433,17 +472,17 @@ where
     type Key = EventId;
 
     fn interests(&self) -> Result<Vec<RangeOpen<EventId>>> {
-        self.lock()
+        self.recon
+            .lock()
             .expect("should be able to acquire lock")
-            .range(
-                &Interest::min_value(),
-                &Interest::max_value(),
-                0,
-                usize::MAX,
-            )
+            .range(&self.start, &self.end, 0, usize::MAX)
             .map(|interest| {
-                let RangeOpen { start, end } = interest.range()?;
-                Ok((EventId::from(start), EventId::from(end)).into())
+                if let Some(RangeOpen { start, end }) = interest.range()? {
+                    let range = (EventId::from(start), EventId::from(end)).into();
+                    Ok(range)
+                } else {
+                    Err(anyhow!("stored interest does not contain a range"))
+                }
             })
             .collect::<Result<Vec<RangeOpen<EventId>>>>()
     }
@@ -461,7 +500,7 @@ where
 ///   keys[]
 ///   hashes[]
 /// with one more key then hashes.
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(PartialEq, Serialize, Deserialize)]
 pub struct Message<K, H> {
     // Exclusive start bound, a value of None implies K::min_value
     start: Option<K>,
@@ -486,35 +525,58 @@ impl<K: Key, H> Default for Message<K, H> {
     }
 }
 
-impl<K, H> Display for Message<K, H>
+impl<K, H> std::fmt::Debug for Message<K, H>
 where
     K: Key,
-    H: AssociativeHash,
+    H: AssociativeHash + std::fmt::Debug,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "(")?;
-        if let Some(start) = &self.start {
-            write!(f, "<{start}")?;
-        }
-        for (k, h) in self.keys.iter().zip(self.hashes.iter()) {
-            let hash_hex = if h.is_zero() {
-                "0".to_string()
+        if f.alternate() {
+            f.debug_struct("Message")
+                .field("start", &self.start)
+                .field("end", &self.end)
+                .field("keys", &self.keys)
+                .field("hashes", &self.hashes)
+                .finish()
+        } else {
+            write!(f, "(")?;
+            if let Some(start) = &self.start {
+                write!(f, "<{start} ")?;
+            }
+            if self.keys.is_empty() {
+                // Do nothing
+            } else if self.keys.len() > 4 {
+                let zeros = self
+                    .hashes
+                    .iter()
+                    .fold(0, |sum, hash| if hash.is_zero() { sum + 1 } else { sum });
+                write!(
+                    f,
+                    "{}, keys: {}, hashes: {}, zeros: {}, {}",
+                    self.keys[0],
+                    self.keys.len(),
+                    self.hashes.len() - zeros,
+                    zeros,
+                    self.keys[self.keys.len() - 1]
+                )?;
             } else {
-                h.to_hex()[0..6].to_string()
-            };
-            write!(f, "{}, {}, ", k, hash_hex)?;
-        }
-        if let Some(end) = &self.end {
-            write!(f, ">{end}")?;
-        }
+                for (k, h) in self.keys.iter().zip(self.hashes.iter()) {
+                    let hash_hex = if h.is_zero() {
+                        "0".to_string()
+                    } else {
+                        format!("{:?}", h)
+                    };
+                    write!(f, "{}, {}, ", k, hash_hex)?;
+                }
+                // Write final trailing key
+                write!(f, "{}", self.keys[self.keys.len() - 1])?;
+            }
+            if let Some(end) = &self.end {
+                write!(f, " {end}>")?;
+            }
 
-        write!(
-            f,
-            "{})",
-            self.keys
-                .last()
-                .map_or(String::default(), |key| key.to_string(),)
-        )
+            write!(f, ")",)
+        }
     }
 }
 
@@ -585,8 +647,7 @@ where
             self.keys.push(right_fencepost.to_owned());
             self.hashes.push(H::identity());
         } else if received_hash.is_zero() {
-            // they are missing all keys in range
-            // send all the keys
+            // remote is missing all keys in range send all the keys
             debug!(
                 left_fencepost = left_fencepost.to_hex(),
                 right_fencepost = right_fencepost.to_hex(),
@@ -656,7 +717,6 @@ where
         //  1. The process_messages method iterates over the keys twice
         //  2. We have to keep keys and hashes properly aligned
 
-        debug!(?self.keys, "bound keys");
         let mut hashes = self.hashes.iter();
         let keys: Vec<K> = self
             .keys
@@ -701,12 +761,30 @@ struct BoundedMessage<K, H> {
 }
 
 /// Response from processing a message
-#[derive(Debug)]
 pub struct Response<K, H> {
     messages: Vec<Message<K, H>>,
     is_synchronized: bool,
 }
 
+impl<K, H> std::fmt::Debug for Response<K, H>
+where
+    Message<K, H>: std::fmt::Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if f.alternate() {
+            f.debug_struct("Response")
+                .field("messages", &self.messages)
+                .field("is_synchronized", &self.is_synchronized)
+                .finish()
+        } else {
+            write!(f, "[ is_synchronized: {} ", self.is_synchronized)?;
+            for m in &self.messages {
+                write!(f, "{:?}", m)?;
+            }
+            write!(f, "]")
+        }
+    }
+}
 impl<K: Key, H> Default for Response<K, H> {
     fn default() -> Self {
         Self {

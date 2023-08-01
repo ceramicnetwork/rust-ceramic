@@ -36,15 +36,20 @@ use tracing_test::traced_test;
 
 use crate::{
     libp2p::{stream_set::StreamSet, Behaviour, Config, Event, PeerEvent, PeerStatus},
-    recon::FullInterests,
+    recon::{FullInterests, ReconInterestProvider},
     BTreeStore, Recon, Sha256a,
 };
 
-type ReconInterest =
-    Recon<Interest, Sha256a, BTreeStore<Interest, Sha256a>, FullInterests<Interest>>;
+type InterestStore = BTreeStore<Interest, Sha256a>;
+type InterestInterest = FullInterests<Interest>;
+type ReconInterest = Recon<Interest, Sha256a, InterestStore, InterestInterest>;
 type ArcReconInterest = Arc<Mutex<ReconInterest>>;
-type ReconModel = Recon<EventId, Sha256a, BTreeStore<EventId, Sha256a>, ArcReconInterest>;
+
+type ModelInterest = ReconInterestProvider<Sha256a, InterestStore, InterestInterest>;
+type ModelStore = BTreeStore<EventId, Sha256a>;
+type ReconModel = Recon<EventId, Sha256a, ModelStore, ModelInterest>;
 type ArcReconModel = Arc<Mutex<ReconModel>>;
+
 type SwarmTest = Swarm<Behaviour<ArcReconInterest, ArcReconModel>>;
 
 fn random_cid() -> Cid {
@@ -102,7 +107,7 @@ fn build_swarm(name: &str, config: Config) -> SwarmTest {
                     ]
                     .into(),
                 ),
-                interest,
+                ReconInterestProvider::new(peer_id, interest),
             ))),
             config.clone(),
         )

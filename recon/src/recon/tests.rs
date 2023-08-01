@@ -424,7 +424,7 @@ fn word_lists() {
                         "\t{}: -> {}[{}]",
                         k,
                         if next[0].keys.len() < 10 {
-                            format!("{}", next[0])
+                            format!("{:?}", next[0])
                         } else {
                             format!("({})", next[0].keys.len())
                         },
@@ -437,7 +437,7 @@ fn word_lists() {
                         "\t{}: <- {}[{}]",
                         k,
                         if response.messages[0].keys.len() < 10 {
-                            format!("{}", response.messages[0])
+                            format!("{:?}", response.messages[0])
                         } else {
                             format!("({})", response.messages[0].keys.len())
                         },

@@ -67,9 +67,8 @@ pub enum NetworkEvent {
 /// Node implements a peer to peer node that participates on the Ceramic network.
 ///
 /// Node provides an external API via RpcMessages.
-pub struct Node<KeyStorage, I, M>
+pub struct Node<I, M>
 where
-    KeyStorage: Storage,
     I: Recon<Key = Interest, Hash = Sha256a>,
     M: Recon<Key = EventId, Hash = Sha256a>,
 {
@@ -82,7 +81,6 @@ where
     network_events: Vec<(Arc<AtomicBool>, Sender<NetworkEvent>)>,
     #[allow(dead_code)]
     rpc_client: RpcClient,
-    _keychain: Keychain<KeyStorage>,
     #[allow(dead_code)]
     kad_last_range: Option<(Distance, Distance)>,
     rpc_task: JoinHandle<()>,
@@ -95,9 +93,8 @@ where
     ceramic_peers_query_id: Option<QueryId>,
 }
 
-impl<S, I, M> fmt::Debug for Node<S, I, M>
+impl<I, M> fmt::Debug for Node<I, M>
 where
-    S: Storage,
     I: Recon<Key = Interest, Hash = Sha256a>,
     M: Recon<Key = EventId, Hash = Sha256a>,
 {
@@ -110,7 +107,6 @@ where
             .field("find_on_dht_queries", &self.find_on_dht_queries)
             .field("network_events", &self.network_events)
             .field("rpc_client", &self.rpc_client)
-            .field("_keychain", &self._keychain)
             .field("kad_last_range", &self.kad_last_range)
             .field("rpc_task", &self.rpc_task)
             .field("use_dht", &self.use_dht)
@@ -131,9 +127,8 @@ const BOOTSTRAP_INTERVAL: Duration = Duration::from_secs(5 * 60);
 const EXPIRY_INTERVAL: Duration = Duration::from_secs(1);
 const DISCOVER_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
-impl<S, I, M> Drop for Node<S, I, M>
+impl<I, M> Drop for Node<I, M>
 where
-    S: Storage,
     I: Recon<Key = Interest, Hash = Sha256a>,
     M: Recon<Key = EventId, Hash = Sha256a>,
 {
@@ -148,16 +143,15 @@ where
 type NodeSwarmEvent<I,M> = SwarmEvent<
             <NodeBehaviour<I,M> as NetworkBehaviour>::OutEvent,
             <<<NodeBehaviour<I,M> as NetworkBehaviour>::ConnectionHandler as IntoConnectionHandler>::Handler as ConnectionHandler>::Error>;
-impl<S, I, M> Node<S, I, M>
+impl<I, M> Node<I, M>
 where
-    S: Storage,
     I: Recon<Key = Interest, Hash = Sha256a>,
     M: Recon<Key = EventId, Hash = Sha256a>,
 {
     pub async fn new(
         config: Config,
         rpc_addr: P2pAddr,
-        mut keychain: Keychain<S>,
+        keypair: Keypair,
         recons: Option<(I, M)>,
         ceramic_peers_key: impl AsRef<[u8]>,
     ) -> Result<Self> {
@@ -180,7 +174,6 @@ where
             .await
             .context("failed to create rpc client")?;
 
-        let keypair = load_identity(&mut keychain).await?;
         let mut swarm = build_swarm(&libp2p_config, &keypair, rpc_client.clone(), recons).await?;
         info!("iroh-p2p peerid: {}", swarm.local_peer_id());
 
@@ -203,7 +196,6 @@ where
             find_on_dht_queries: Default::default(),
             network_events: Vec::new(),
             rpc_client,
-            _keychain: keychain,
             kad_last_range: None,
             rpc_task,
             use_dht: libp2p_config.kademlia,
@@ -1162,7 +1154,7 @@ where
     }
 }
 
-async fn load_identity<S: Storage>(kc: &mut Keychain<S>) -> Result<Keypair> {
+pub async fn load_identity<S: Storage>(kc: &mut Keychain<S>) -> Result<Keypair> {
     if kc.is_empty().await? {
         info!("no identity found, creating",);
         kc.create_ed25519_key().await?;
@@ -1183,7 +1175,7 @@ async fn load_identity<S: Storage>(kc: &mut Keychain<S>) -> Result<Keypair> {
 mod tests {
     use std::marker::PhantomData;
 
-    use crate::keys::{Keypair, MemoryStorage};
+    use crate::keys::Keypair;
 
     use bytes::Bytes;
     use futures::{future, TryStreamExt};
@@ -1354,14 +1346,11 @@ mod tests {
             let keypair = Keypair::Ed25519(keypair);
             let libp2p_keypair: Libp2pKeypair = keypair.clone().into();
             let peer_id = PeerId::from(libp2p_keypair.public());
-            let mut storage = MemoryStorage::default();
-            storage.put(keypair).await?;
-            let kc = Keychain::from_storage(storage);
 
             let mut p2p = Node::new(
                 network_config,
                 rpc_server_addr,
-                kc,
+                keypair.into(),
                 None::<(DummyRecon<Interest>, DummyRecon<EventId>)>,
                 "/ceramic-test",
             )

@@ -3,7 +3,7 @@
 
 pub use crate::recon::{
     btreestore::BTreeStore, sqlitestore::SQLiteStore, AssociativeHash, FullInterests,
-    InterestProvider, Key, Message, Recon, Response, Store,
+    InterestProvider, Key, Message, Recon, ReconInterestProvider, Response, Store,
 };
 
 pub use sha256a::Sha256a;

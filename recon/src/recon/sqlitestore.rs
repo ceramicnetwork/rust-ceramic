@@ -115,7 +115,7 @@ where
     // Ok(true): inserted the key
     // Ok(false): did not insert the key ConstraintViolation
     // Err(e): sql error
-    #[instrument(skip(self), ret)]
+    #[instrument(skip(self))]
     fn insert(&mut self, key: &Self::Key) -> anyhow::Result<bool> {
         let hash = H::digest(key);
 
@@ -157,7 +157,7 @@ where
         }
     }
 
-    #[instrument(skip(self), ret)]
+    #[instrument(skip(self))]
     fn hash_range(&self, left_fencepost: &Self::Key, right_fencepost: &Self::Key) -> Self::Hash {
         let query = "
         SELECT
@@ -201,14 +201,6 @@ where
         offset: usize,
         limit: usize,
     ) -> Box<dyn Iterator<Item = Self::Key> + '_> {
-        debug!(
-            self.sort_key,
-            left_fencepost = left_fencepost.to_hex(),
-            right_fencepost = right_fencepost.to_hex(),
-            offset,
-            limit,
-            "range"
-        );
         let query = "
         SELECT
             key
@@ -245,7 +237,7 @@ where
         Box::new(rows.into_iter())
     }
     /// Return the number of keys within the range.
-    #[instrument(skip(self), ret)]
+    #[instrument(skip(self))]
     fn count(&self, left_fencepost: &Self::Key, right_fencepost: &Self::Key) -> usize {
         let query = "
         SELECT
@@ -273,7 +265,7 @@ where
     }
 
     /// Return the first key within the range.
-    #[instrument(skip(self), ret)]
+    #[instrument(skip(self))]
     fn first(&self, left_fencepost: &Self::Key, right_fencepost: &Self::Key) -> Option<Self::Key> {
         let query = "
     SELECT
@@ -306,7 +298,7 @@ where
         rows.get(0).cloned()
     }
 
-    #[instrument(skip(self), ret)]
+    #[instrument(skip(self))]
     fn last(&self, left_fencepost: &Self::Key, right_fencepost: &Self::Key) -> Option<Self::Key> {
         let query = "
         SELECT
@@ -339,7 +331,7 @@ where
         rows.get(0).cloned()
     }
 
-    #[instrument(skip(self), ret)]
+    #[instrument(skip(self))]
     fn first_and_last(
         &self,
         left_fencepost: &Self::Key,
@@ -370,7 +362,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::SQLiteStore;
-    use crate::{Sha256a, Store};
+    use crate::{AssociativeHash, Sha256a, Store};
     use ceramic_core::Bytes;
     use expect_test::expect;
 
@@ -382,7 +374,7 @@ mod tests {
         let _ = recon.insert(&b"world".as_slice().into());
         let hash: Sha256a = recon.hash_range(&b"a".as_slice().into(), &b"z".as_slice().into());
         expect![[r#"7460F21C83815F5EDC682F7A4154BC09AA3A0AE5DD1A2DEDCD709888A12751CC"#]]
-            .assert_eq(&hash.to_string())
+            .assert_eq(&hash.to_hex())
     }
 
     #[test]

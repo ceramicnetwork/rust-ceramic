@@ -19,7 +19,7 @@ struct Envelope<K: Key, H: AssociativeHash> {
 }
 
 // Intiate Recon synchronization with a peer over a stream.
-#[tracing::instrument(skip(recon, stream))]
+#[tracing::instrument(skip(recon, stream), ret)]
 pub async fn initiate_synchronize<S: AsyncRead + AsyncWrite + Unpin, R: Recon>(
     remote_peer_id: PeerId,
     connection_id: ConnectionId,
@@ -59,7 +59,7 @@ pub async fn initiate_synchronize<S: AsyncRead + AsyncWrite + Unpin, R: Recon>(
 
 // Perform Recon synchronization with a peer over a stream.
 // Expect the remote peer to initiate the communication.
-#[tracing::instrument(skip(stream, recon))]
+#[tracing::instrument(skip(stream, recon), ret)]
 pub async fn accept_synchronize<S: AsyncRead + AsyncWrite + Unpin, R: Recon>(
     remote_peer_id: PeerId,
     connection_id: ConnectionId,
