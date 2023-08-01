@@ -45,7 +45,7 @@ where
 
         // set the WAL PRAGMA for faster writes
         const SET_WAL_PRAGMA: &str = "PRAGMA journal_mode=WAL;";
-        conn.query_row(SET_WAL_PRAGMA, (), |row|row.get::<usize, String>(0))?;
+        conn.query_row(SET_WAL_PRAGMA, (), |row| row.get::<usize, String>(0))?;
 
         Ok(conn)
     }
