@@ -39,12 +39,13 @@ where
     where
         P: AsRef<Path>,
     {
+        debug!("sqlite path: {:?}", &path.as_ref().display());
+
         let conn = Connection::open(path)?;
 
         // set the WAL PRAGMA for faster writes
         const SET_WAL_PRAGMA: &str = "PRAGMA journal_mode=WAL;";
-        conn.execute(SET_WAL_PRAGMA, ())
-            .expect("todo: what do we want to do when the database file fails?");
+        conn.query_row(SET_WAL_PRAGMA, (), |row|row.get::<usize, String>(0))?;
 
         Ok(conn)
     }
