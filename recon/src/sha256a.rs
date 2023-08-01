@@ -1,8 +1,8 @@
 use ::serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use multihash::{Hasher, Sha2_256};
 use serde::de::Visitor;
-use std::convert::From;
-use std::fmt::{self, Debug, Display, Formatter};
+use std::fmt::{self, Debug};
+use std::{convert::From, fmt::Formatter};
 
 use crate::{recon::Key, AssociativeHash};
 use ceramic_core::Bytes;
@@ -190,16 +190,15 @@ impl From<&str> for Sha256a {
 
 impl Debug for Sha256a {
     fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
-        f.debug_struct("Sha256a")
-            .field("hex", &self.to_hex())
-            .field("u32_8", &self.0)
-            .finish()
-    }
-}
-
-impl Display for Sha256a {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
-        write!(f, "{}", self.to_hex())
+        if f.alternate() {
+            f.debug_struct("Sha256a")
+                .field("hex", &self.to_hex())
+                .field("u32_8", &self.0)
+                .finish()
+        } else {
+            let bytes = self.as_bytes();
+            write!(f, "{}", hex::encode_upper(&bytes[0..6]),)
+        }
     }
 }
 

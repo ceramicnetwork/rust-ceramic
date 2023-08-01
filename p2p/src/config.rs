@@ -1,11 +1,9 @@
-use std::path::PathBuf;
-
 use anyhow::Result;
 use config::{ConfigError, Map, Source, Value};
 use iroh_metrics::config::Config as MetricsConfig;
 use iroh_rpc_client::Config as RpcClientConfig;
 use iroh_rpc_types::p2p::P2pAddr;
-use iroh_util::{insert_into_config_map, iroh_data_root};
+use iroh_util::insert_into_config_map;
 use libp2p::Multiaddr;
 use serde::{Deserialize, Serialize};
 
@@ -112,13 +110,6 @@ pub struct Config {
     pub libp2p: Libp2pConfig,
     /// Configuration of RPC to other iroh services.
     pub rpc_client: RpcClientConfig,
-    /// Directory where cryptographic keys are stored.
-    ///
-    /// The p2p node needs to have an identity consisting of a cryptographic key pair.  As
-    /// it is useful to have the same identity across restarts this is stored on disk in a
-    /// format compatible with how ssh stores keys.  This points to a directory where these
-    /// keypairs are stored.
-    pub key_store_path: PathBuf,
 }
 
 impl From<ServerConfig> for Config {
@@ -205,7 +196,6 @@ impl Source for Config {
         let mut map: Map<String, Value> = Map::new();
         insert_into_config_map(&mut map, "libp2p", self.libp2p.collect()?);
         insert_into_config_map(&mut map, "rpc_client", self.rpc_client.collect()?);
-        insert_into_config_map(&mut map, "key_store_path", self.key_store_path.to_str());
         Ok(map)
     }
 }
@@ -252,7 +242,6 @@ impl Config {
                 p2p_addr: Some(client_addr),
                 ..Default::default()
             },
-            key_store_path: iroh_data_root().unwrap(),
         }
     }
 
@@ -262,7 +251,6 @@ impl Config {
         Self {
             libp2p: Libp2pConfig::default(),
             rpc_client,
-            key_store_path: iroh_data_root().unwrap(),
         }
     }
 

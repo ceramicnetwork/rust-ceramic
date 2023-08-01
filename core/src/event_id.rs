@@ -22,13 +22,13 @@ use cid::{
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::{Eq, Ord},
-    fmt::Formatter,
+    fmt::Display,
 };
 use unsigned_varint::{decode::u64 as de_varint, encode::u64 as varint};
 
 use crate::network::Network;
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Serialize, Deserialize)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Serialize, Deserialize)]
 /// EventId is the event data as a recon key
 pub struct EventId(#[serde(with = "serde_bytes")] Vec<u8>);
 
@@ -64,11 +64,6 @@ impl EventId {
     /// Expose the raw bytes of the EventId
     pub fn as_slice(&self) -> &[u8] {
         self.0.as_slice()
-    }
-
-    /// represent the the raw bytes as hex String
-    pub fn to_hex(&self) -> String {
-        hex::encode(&self.0)
     }
 
     /// try to parse a CID out of a CIP-124 EventID
@@ -115,17 +110,19 @@ impl EventId {
     }
 }
 
-impl std::fmt::Display for EventId {
-    /// represent the the raw bytes as String
-    ///
-    /// If the bytes are valid utf8 it will cast to a string without allocating
-    /// Else it will convert represent the raw bytes as a hex String
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            String::from_utf8(self.0.clone()).unwrap_or(self.to_hex())
-        )
+impl std::fmt::Debug for EventId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if f.alternate() {
+            f.debug_tuple("EventId").field(&self.0).finish()
+        } else {
+            write!(f, "{}", hex::encode_upper(self.as_slice()))
+        }
+    }
+}
+
+impl Display for EventId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", hex::encode_upper(self.as_slice()))
     }
 }
 
