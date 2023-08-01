@@ -213,12 +213,11 @@ impl Key for Bytes {
         // Multiformats start with a multiformats.varint
         // (https://github.com/multiformats/unsigned-varint)
         // the max_value for a multiformat varint is 0x7fffffff_ffffffff (2^63-1)
-        // multiformats.varint.encode(0x7fffffff_ffffffff)
-        // b'\xff\xff\xff\xff\xff\xff\xff\xff\x7f'
+        //   multiformats.varint.encode(0x7fffffff_ffffffff)
+        //   b"\xff\xff\xff\xff\xff\xff\xff\xff\x7f"
         // therefore all multiformat data will be less then
-        // b'\xff\xff\xff\xff\xff\xff\xff\xff\x80'
-        // [0xFF, 9]
-        [0xFF; 9].as_slice().into()
+        //   b"\xff\xff\xff\xff\xff\xff\xff\xff\x80"
+        b"\xff\xff\xff\xff\xff\xff\xff\xff\xff".as_slice().into()
     }
 
     fn as_bytes(&self) -> &[u8] {
