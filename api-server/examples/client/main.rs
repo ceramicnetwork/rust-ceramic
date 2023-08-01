@@ -3,7 +3,7 @@
 #[allow(unused_imports)]
 use ceramic_api_server::{
     models, Api, ApiNoContext, CeramicEventsPostResponse,
-    CeramicSubscribeSortkeySortvalueGetResponse, Client, ContextWrapperExt,
+    CeramicSubscribeSortKeySortValueGetResponse, Client, ContextWrapperExt,
 };
 use clap::{App, Arg};
 #[allow(unused_imports)]
@@ -32,7 +32,7 @@ fn main() {
         .arg(
             Arg::with_name("operation")
                 .help("Sets the operation to run")
-                .possible_values(&["CeramicSubscribeSortkeySortvalueGet"])
+                .possible_values(&["CeramicSubscribeSortKeySortValueGet"])
                 .required(true)
                 .index(1),
         )
@@ -95,10 +95,10 @@ fn main() {
             info!("{:?} (X-Span-ID: {:?})", result, (client.context() as &dyn Has<XSpanIdString>).get().clone());
         },
         */
-        Some("CeramicSubscribeSortkeySortvalueGet") => {
-            let result = rt.block_on(client.ceramic_subscribe_sortkey_sortvalue_get(
-                "sortkey_example".to_string(),
-                "sortvalue_example".to_string(),
+        Some("CeramicSubscribeSortKeySortValueGet") => {
+            let result = rt.block_on(client.ceramic_subscribe_sort_key_sort_value_get(
+                "sort_key_example".to_string(),
+                "sort_value_example".to_string(),
                 Some("controller_example".to_string()),
                 Some("stream_id_example".to_string()),
                 Some(8.14),

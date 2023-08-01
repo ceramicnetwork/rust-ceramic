@@ -5,7 +5,7 @@ All URIs are relative to *http://localhost*
 Method | HTTP request | Description
 ------------- | ------------- | -------------
 ****](default_api.md#) | **POST** /ceramic/events | Creates a new event
-****](default_api.md#) | **GET** /ceramic/subscribe/{sortkey}/{sortvalue} | Get events for a stream
+****](default_api.md#) | **GET** /ceramic/subscribe/{sort_key}/{sort_value} | Get events for a stream
 
 
 # ****
@@ -34,15 +34,15 @@ No authorization required
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
 # ****
-> Vec<models::Event> (sortkey, sortvalue, optional)
+> Vec<models::Event> (sort_key, sort_value, optional)
 Get events for a stream
 
 ### Required Parameters
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
-  **sortkey** | **String**| name of the sort-key | 
-  **sortvalue** | **String**| value associated with the sort key | 
+  **sort_key** | **String**| name of the sort_key | 
+  **sort_value** | **String**| value associated with the sort key | 
  **optional** | **map[string]interface{}** | optional parameters | nil if no parameters
 
 ### Optional Parameters
@@ -50,8 +50,8 @@ Optional parameters are passed through a map[string]interface{}.
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **sortkey** | **String**| name of the sort-key | 
- **sortvalue** | **String**| value associated with the sort key | 
+ **sort_key** | **String**| name of the sort_key | 
+ **sort_value** | **String**| value associated with the sort key | 
  **controller** | **String**| the controller to subscribe to. | 
  **stream_id** | **String**| the stream to subscribe to. | 
  **offset** | **f64**| the number of events to skip in the given range, default is 0. | 

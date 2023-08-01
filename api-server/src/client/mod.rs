@@ -41,7 +41,7 @@ const FRAGMENT_ENCODE_SET: &AsciiSet = &percent_encoding::CONTROLS
 #[allow(dead_code)]
 const ID_ENCODE_SET: &AsciiSet = &FRAGMENT_ENCODE_SET.add(b'|');
 
-use crate::{Api, CeramicEventsPostResponse, CeramicSubscribeSortkeySortvalueGetResponse};
+use crate::{Api, CeramicEventsPostResponse, CeramicSubscribeSortKeySortValueGetResponse};
 
 /// Convert input into a base path, e.g. "http://example:123". Also checks the scheme as it goes.
 fn into_base_path(
@@ -476,22 +476,22 @@ where
         }
     }
 
-    async fn ceramic_subscribe_sortkey_sortvalue_get(
+    async fn ceramic_subscribe_sort_key_sort_value_get(
         &self,
-        param_sortkey: String,
-        param_sortvalue: String,
+        param_sort_key: String,
+        param_sort_value: String,
         param_controller: Option<String>,
         param_stream_id: Option<String>,
         param_offset: Option<f64>,
         param_limit: Option<f64>,
         context: &C,
-    ) -> Result<CeramicSubscribeSortkeySortvalueGetResponse, ApiError> {
+    ) -> Result<CeramicSubscribeSortKeySortValueGetResponse, ApiError> {
         let mut client_service = self.client_service.clone();
         let mut uri = format!(
-            "{}/ceramic/subscribe/{sortkey}/{sortvalue}",
+            "{}/ceramic/subscribe/{sort_key}/{sort_value}",
             self.base_path,
-            sortkey = utf8_percent_encode(&param_sortkey.to_string(), ID_ENCODE_SET),
-            sortvalue = utf8_percent_encode(&param_sortvalue.to_string(), ID_ENCODE_SET)
+            sort_key = utf8_percent_encode(&param_sort_key.to_string(), ID_ENCODE_SET),
+            sort_value = utf8_percent_encode(&param_sort_value.to_string(), ID_ENCODE_SET)
         );
 
         // Query parameters
@@ -561,7 +561,7 @@ where
                 let body = serde_json::from_str::<Vec<models::Event>>(body).map_err(|e| {
                     ApiError(format!("Response body did not match the schema: {}", e))
                 })?;
-                Ok(CeramicSubscribeSortkeySortvalueGetResponse::Success(body))
+                Ok(CeramicSubscribeSortKeySortValueGetResponse::Success(body))
             }
             code => {
                 let headers = response.headers().clone();
