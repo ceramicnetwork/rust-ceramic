@@ -3,7 +3,7 @@
 //! varint(0xce) + // streamid, 1 byte
 //! varint(0x05) + // cip-124 EventID, 1 byte
 //! varint(networkId), // 1 byte (5 for local network)
-//! last8Bytes(sha256(separator_value)), // 16 bytes
+//! last8Bytes(sha256(separator_key + "|" + separator_value)), // 16 bytes
 //! last8Bytes(sha256(stream_controller_DID)), // 16 bytes
 //! last4Bytes(init_event_CID) // 8 bytes
 //! cbor(eventHeight), // 1-3 bytes
@@ -40,6 +40,7 @@ impl EventId {
     /// EventId.new builds a Vec<u8> with the event id data.
     pub fn new(
         network: &Network,
+        sort_key: &str,
         sort_value: &str,
         controller: &str,
         init: &Cid,
@@ -48,7 +49,7 @@ impl EventId {
     ) -> EventId {
         EventId::builder()
             .with_network(network)
-            .with_sort_value(sort_value)
+            .with_sort_value(sort_key, sort_value)
             .with_controller(controller)
             .with_init(init)
             .with_event_height(event_height)
@@ -227,7 +228,7 @@ impl Builder<Init> {
         // varint(0xce) + // streamid, 1 byte
         // varint(0x05) + // cip-124 EventID, 1 byte
         // varint(networkId), // 5 bytes for local network
-        // last8Bytes(sha256(separator_value)), // 8 bytes
+        //! last8Bytes(sha256(separator_key + "|" + separator_value)), // 16 bytes
         // last8Bytes(sha256(stream_controller_DID)), // 8 bytes
         // last4Bytes(init_event_CID) // 4 bytes
         // cbor(eventHeight), // u64_max 9 bytes
@@ -247,10 +248,10 @@ impl Builder<Init> {
 }
 impl Builder<WithNetwork> {
     // TODO sort_value should be bytes not str
-    pub fn with_sort_value(mut self, sort_value: &str) -> Builder<WithSortValue> {
-        self.state
-            .bytes
-            .extend(last8_bytes(&sha256_digest(sort_value)));
+    pub fn with_sort_value(mut self, sort_key: &str, sort_value: &str) -> Builder<WithSortValue> {
+        self.state.bytes.extend(last8_bytes(&sha256_digest(
+            &(sort_key.to_owned() + "|" + sort_value),
+        )));
         Builder {
             state: WithSortValue {
                 bytes: self.state.bytes,
@@ -375,6 +376,7 @@ mod tests {
 
     #[test]
     fn blessing() {
+        let sort_key = "model".to_string();
         let separator = "kh4q0ozorrgaq2mezktnrmdwleo1d".to_string(); // cspell:disable-line
         let controller = "did:key:z6MkgSV3tAuw7gUWqKCUY7ae6uWNxqYgdwPhUJbJhF9EFXm9".to_string();
         let init =
@@ -385,6 +387,7 @@ mod tests {
 
         let eid = EventId::new(
             &Network::Mainnet,
+            &sort_key,
             &separator,
             &controller,
             &init,
@@ -392,63 +395,60 @@ mod tests {
             &event_cid,
         );
         expect![[
-            "fce0105002a30541a6fbdca4645cc7c072ff729ea683b751718ff01711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"
+            "fce0105007e710e217fa0e25945cc7c072ff729ea683b751718ff01711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"
         ]]
         .assert_eq(&multibase::encode(Base::Base16Lower, eid.0));
 
         let eid = EventId::new(
             &Network::TestnetClay,
+            &sort_key,
             &separator,
             &controller,
             &init,
             event_height,
             &event_cid,
         );
-        expect![[
-            r#"fce0105012a30541a6fbdca4645cc7c072ff729ea683b751718ff01711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"#
-        ]]
+        expect!["fce0105017e710e217fa0e25945cc7c072ff729ea683b751718ff01711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"]
         .assert_eq(&multibase::encode(Base::Base16Lower, eid.0));
 
         let eid = EventId::new(
             &Network::DevUnstable,
+            &sort_key,
             &separator,
             &controller,
             &init,
             event_height,
             &event_cid,
         );
-        expect![[
-            r#"fce0105022a30541a6fbdca4645cc7c072ff729ea683b751718ff01711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"#
-        ]]
+        expect!["fce0105027e710e217fa0e25945cc7c072ff729ea683b751718ff01711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"]
         .assert_eq(&multibase::encode(Base::Base16Lower, eid.0));
 
         let eid = EventId::new(
             &Network::InMemory,
+            &sort_key,
             &separator,
             &controller,
             &init,
             event_height,
             &event_cid,
         );
-        expect![[
-            r#"fce0105ff012a30541a6fbdca4645cc7c072ff729ea683b751718ff01711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"#
-        ]].assert_eq(&multibase::encode(Base::Base16Lower, eid.0));
+        expect!["fce0105ff017e710e217fa0e25945cc7c072ff729ea683b751718ff01711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"].assert_eq(&multibase::encode(Base::Base16Lower, eid.0));
 
         let eid = EventId::new(
             &Network::Local(0xce4a441c),
+            &sort_key,
             &separator,
             &controller,
             &init,
             event_height,
             &event_cid,
         );
-        expect![[
-            r#"fce01059c88a9f21c2a30541a6fbdca4645cc7c072ff729ea683b751718ff01711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"#
-        ]].assert_eq(&multibase::encode(Base::Base16Lower, eid.0));
+        expect!["fce01059c88a9f21c7e710e217fa0e25945cc7c072ff729ea683b751718ff01711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"].assert_eq(&multibase::encode(Base::Base16Lower, eid.0));
     }
 
     #[test]
     fn test_serialize() {
+        let sort_key = "model".to_string();
         let separator = "kh4q0ozorrgaq2mezktnrmdwleo1d".to_string(); // cspell:disable-line
         let controller = "did:key:z6MkgSV3tAuw7gUWqKCUY7ae6uWNxqYgdwPhUJbJhF9EFXm9".to_string();
         let init =
@@ -459,6 +459,7 @@ mod tests {
 
         let received = EventId::new(
             &Network::Mainnet,
+            &sort_key,
             &separator,
             &controller,
             &init,
@@ -469,84 +470,84 @@ mod tests {
         let received_cbor = hex::encode(serde_ipld_dagcbor::ser::to_vec(&received).unwrap());
         println!("serde_json {}", serde_json::to_string(&received).unwrap()); // Message as json
         expect![[
-            "583ece0105002a30541a6fbdca4645cc7c072ff729ea683b751718ff01711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"
+            "583ece0105007e710e217fa0e25945cc7c072ff729ea683b751718ff01711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"
         ]].assert_eq(&received_cbor);
     }
 
     #[test]
     fn test_deserialize() {
-        let bytes = hex::decode("583ece0105002a30541a6fbdca4645cc7c072ff729ea683b751718ff01711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86").unwrap();
+        let bytes = hex::decode("583ece0105007e710e217fa0e25945cc7c072ff729ea683b751718ff01711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86").unwrap();
         let x = serde_ipld_dagcbor::de::from_slice(bytes.as_slice());
         let received: EventId = x.unwrap();
         let cid = received.cid();
         println!("{:?}, {:?}", &received, &cid);
         expect![[r#"
-        EventId(
-            [
-                206,
-                1,
-                5,
-                0,
-                42,
-                48,
-                84,
-                26,
-                111,
-                189,
-                202,
-                70,
-                69,
-                204,
-                124,
-                7,
-                47,
-                247,
-                41,
-                234,
-                104,
-                59,
-                117,
-                23,
-                24,
-                255,
-                1,
-                113,
-                18,
-                32,
-                244,
-                239,
-                126,
-                194,
-                8,
-                148,
-                77,
-                37,
-                112,
-                37,
-                64,
-                139,
-                182,
-                71,
-                148,
-                158,
-                107,
-                114,
-                147,
-                5,
-                32,
-                188,
-                128,
-                243,
-                77,
-                139,
-                251,
-                175,
-                210,
-                100,
-                61,
-                134,
-            ],
-        )
+            EventId(
+                [
+                    206,
+                    1,
+                    5,
+                    0,
+                    126,
+                    113,
+                    14,
+                    33,
+                    127,
+                    160,
+                    226,
+                    89,
+                    69,
+                    204,
+                    124,
+                    7,
+                    47,
+                    247,
+                    41,
+                    234,
+                    104,
+                    59,
+                    117,
+                    23,
+                    24,
+                    255,
+                    1,
+                    113,
+                    18,
+                    32,
+                    244,
+                    239,
+                    126,
+                    194,
+                    8,
+                    148,
+                    77,
+                    37,
+                    112,
+                    37,
+                    64,
+                    139,
+                    182,
+                    71,
+                    148,
+                    158,
+                    107,
+                    114,
+                    147,
+                    5,
+                    32,
+                    188,
+                    128,
+                    243,
+                    77,
+                    139,
+                    251,
+                    175,
+                    210,
+                    100,
+                    61,
+                    134,
+                ],
+            )
         "#]]
         .assert_debug_eq(&received);
 
@@ -555,6 +556,7 @@ mod tests {
     }
     #[test]
     fn cid() {
+        let sort_key = "model".to_string();
         let separator = "kh4q0ozorrgaq2mezktnrmdwleo1d".to_string(); // cspell:disable-line
         let controller = "did:key:z6MkgSV3tAuw7gUWqKCUY7ae6uWNxqYgdwPhUJbJhF9EFXm9".to_string();
         let init =
@@ -565,6 +567,7 @@ mod tests {
 
         let event_id = EventId::new(
             &Network::Mainnet,
+            &sort_key,
             &separator,
             &controller,
             &init,
@@ -575,6 +578,7 @@ mod tests {
     }
     #[test]
     fn no_cid() {
+        let sort_key = "model".to_string();
         let separator = "kh4q0ozorrgaq2mezktnrmdwleo1d".to_string(); // cspell:disable-line
         let controller = "did:key:z6MkgSV3tAuw7gUWqKCUY7ae6uWNxqYgdwPhUJbJhF9EFXm9".to_string();
         let init =
@@ -583,7 +587,7 @@ mod tests {
         // Max event height
         let event_id = EventId::builder()
             .with_network(&Network::Mainnet)
-            .with_sort_value(&separator)
+            .with_sort_value(&sort_key, &separator)
             .with_controller(&controller)
             .with_init(&init)
             .with_max_event_height()
@@ -593,7 +597,7 @@ mod tests {
         // Min event height
         let event_id = EventId::builder()
             .with_network(&Network::Mainnet)
-            .with_sort_value(&separator)
+            .with_sort_value(&sort_key, &separator)
             .with_controller(&controller)
             .with_init(&init)
             .with_min_event_height()
