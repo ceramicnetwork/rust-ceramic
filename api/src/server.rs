@@ -186,10 +186,10 @@ where
         // Construct start and stop event id based on provided data.
         let start_builder = EventId::builder()
             .with_network(&self.network)
-            .with_sort_value(&sort_value);
+            .with_sort_value(&sort_key, &sort_value);
         let stop_builder = EventId::builder()
             .with_network(&self.network)
-            .with_sort_value(&sort_value);
+            .with_sort_value(&sort_key, &sort_value);
         let (start_builder, stop_builder) = if let Some(controller) = controller {
             if let Some(stream_id) = stream_id {
                 let stream_id = StreamId::from_str(&stream_id)
@@ -316,11 +316,12 @@ mod tests {
         let network = Network::InMemory;
         let event_id = EventId::new(
             &network,
-            "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9",
-            "did:key:zGs1Det7LHNeu7DXT4nvoYrPfj3n6g7d6bj2K4AMXEvg1",
-            &Cid::from_str("baejbeihyr3kf77etqdccjfoc33dmko2ijyugn6qk6yucfkioasjssz3bbu").unwrap(),
+            "model",
+            "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9", // cspell:disable-line
+            "did:key:zGs1Det7LHNeu7DXT4nvoYrPfj3n6g7d6bj2K4AMXEvg1",          // cspell:disable-line
+            &Cid::from_str("baejbeihyr3kf77etqdccjfoc33dmko2ijyugn6qk6yucfkioasjssz3bbu").unwrap(), // cspell:disable-line
             0,
-            &Cid::from_str("baejbeicqtpe5si4qvbffs2s7vtbk5ccbsfg6owmpidfj3zeluqz4hlnz6m").unwrap(),
+            &Cid::from_str("baejbeicqtpe5si4qvbffs2s7vtbk5ccbsfg6owmpidfj3zeluqz4hlnz6m").unwrap(), // cspell:disable-line
         );
         let event_id_str = multibase::encode(Base::Base16Lower, event_id.to_bytes());
         let mock_interest = MockReconInterestTest::new();
@@ -347,18 +348,19 @@ mod tests {
     async fn subscribe_sort_value() {
         let peer_id = PeerId::random();
         let network = Network::InMemory;
-        let model = "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9";
+        let model = "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9"; // cspell:disable-line
+
         // Construct start and end event ids
         let start = EventId::builder()
             .with_network(&network)
-            .with_sort_value(model)
+            .with_sort_value("model", model)
             .with_min_controller()
             .with_min_init()
             .with_min_event_height()
             .build_fencepost();
         let end = EventId::builder()
             .with_network(&network)
-            .with_sort_value(model)
+            .with_sort_value("model", model)
             .with_max_controller()
             .with_max_init()
             .with_max_event_height()
@@ -367,18 +369,18 @@ mod tests {
         // Construct event to be returned
         let event_id = EventId::builder()
             .with_network(&network)
-            .with_sort_value(model)
+            .with_sort_value("model", model)
             .with_controller("did:key:zH3RdYVn3WtYR3LXmXk8wA6XWUjWMLgRa5ia1tgR3uR9D")
             .with_init(
                 &StreamId::from_str(
-                    "k2t6wz4ylx0qmwkzy91072jnjj1w0jvxlvyatf5jox9om5wp69euipjoqdejkd",
+                    "k2t6wz4ylx0qmwkzy91072jnjj1w0jvxlvyatf5jox9om5wp69euipjoqdejkd", // cspell:disable-line
                 )
                 .unwrap()
                 .cid,
             )
             .with_event_height(9)
             .with_event(
-                &Cid::from_str("baejbeibmbnp2ffyug3cfamsw7cno3plz5qkwfednrkyse6azcz7fycdym4")
+                &Cid::from_str("baejbeibmbnp2ffyug3cfamsw7cno3plz5qkwfednrkyse6azcz7fycdym4") // cspell:disable-line
                     .unwrap(),
             )
             .build();
@@ -433,18 +435,18 @@ mod tests {
     async fn subscribe_sort_value_controller() {
         let peer_id = PeerId::random();
         let network = Network::InMemory;
-        let model = "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9";
+        let model = "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9"; // cspell:disable-line
         let controller = "did:key:zGs1Det7LHNeu7DXT4nvoYrPfj3n6g7d6bj2K4AMXEvg1";
         let start = EventId::builder()
             .with_network(&network)
-            .with_sort_value(model)
+            .with_sort_value("model", model)
             .with_controller(controller)
             .with_min_init()
             .with_min_event_height()
             .build_fencepost();
         let end = EventId::builder()
             .with_network(&network)
-            .with_sort_value(model)
+            .with_sort_value("model", model)
             .with_controller(controller)
             .with_max_init()
             .with_max_event_height()
@@ -496,21 +498,21 @@ mod tests {
     async fn subscribe_sort_value_controller_stream() {
         let peer_id = PeerId::random();
         let network = Network::InMemory;
-        let model = "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9";
+        let model = "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9"; // cspell:disable-line
         let controller = "did:key:zGs1Det7LHNeu7DXT4nvoYrPfj3n6g7d6bj2K4AMXEvg1";
         let stream =
-            StreamId::from_str("k2t6wz4ylx0qs435j9oi1s6469uekyk6qkxfcb21ikm5ag2g1cook14ole90aw")
+            StreamId::from_str("k2t6wz4ylx0qs435j9oi1s6469uekyk6qkxfcb21ikm5ag2g1cook14ole90aw") // cspell:disable-line
                 .unwrap();
         let start = EventId::builder()
             .with_network(&network)
-            .with_sort_value(model)
+            .with_sort_value("model", model)
             .with_controller(controller)
             .with_init(&stream.cid)
             .with_min_event_height()
             .build_fencepost();
         let end = EventId::builder()
             .with_network(&network)
-            .with_sort_value(model)
+            .with_sort_value("model", model)
             .with_controller(controller)
             .with_init(&stream.cid)
             .with_max_event_height()
@@ -562,21 +564,21 @@ mod tests {
     async fn subscribe_sort_value_controller_stream_offset_limit() {
         let peer_id = PeerId::random();
         let network = Network::InMemory;
-        let model = "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9";
+        let model = "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9"; // cspell:disable-line
         let controller = "did:key:zGs1Det7LHNeu7DXT4nvoYrPfj3n6g7d6bj2K4AMXEvg1";
         let stream =
-            StreamId::from_str("k2t6wz4ylx0qs435j9oi1s6469uekyk6qkxfcb21ikm5ag2g1cook14ole90aw")
+            StreamId::from_str("k2t6wz4ylx0qs435j9oi1s6469uekyk6qkxfcb21ikm5ag2g1cook14ole90aw") // cspell:disable-line
                 .unwrap();
         let start = EventId::builder()
             .with_network(&network)
-            .with_sort_value(model)
+            .with_sort_value("model", model)
             .with_controller(controller)
             .with_init(&stream.cid)
             .with_min_event_height()
             .build_fencepost();
         let end = EventId::builder()
             .with_network(&network)
-            .with_sort_value(model)
+            .with_sort_value("model", model)
             .with_controller(controller)
             .with_init(&stream.cid)
             .with_max_event_height()

@@ -77,6 +77,7 @@ fn build_swarm(name: &str, config: Config) -> SwarmTest {
                         // Initialize with three events
                         EventId::new(
                             &Network::Mainnet,
+                            "model",
                             &format!("{}_model", name),
                             &format!("{}_controller", name),
                             &random_cid(),
@@ -85,6 +86,7 @@ fn build_swarm(name: &str, config: Config) -> SwarmTest {
                         ),
                         EventId::new(
                             &Network::Mainnet,
+                            "model",
                             &format!("{}_model", name),
                             &format!("{}_controller", name),
                             &random_cid(),
@@ -93,6 +95,7 @@ fn build_swarm(name: &str, config: Config) -> SwarmTest {
                         ),
                         EventId::new(
                             &Network::Mainnet,
+                            "model",
                             &format!("{}_model", name),
                             &format!("{}_controller", name),
                             &random_cid(),
@@ -244,7 +247,7 @@ fn recon_sync() {
 
 #[test]
 #[traced_test]
-fn unsupported_doesnt_fail() {
+fn unsupported_does_not_fail() {
     let mut swarm1 = Swarm::new_ephemeral(|_| keep_alive::Behaviour);
     let mut swarm2 = build_swarm("swarm2", Config::default());
     let result = async_std::task::block_on(async {
