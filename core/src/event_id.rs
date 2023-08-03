@@ -249,9 +249,10 @@ impl Builder<Init> {
 impl Builder<WithNetwork> {
     // TODO sort_value should be bytes not str
     pub fn with_sort_value(mut self, sort_key: &str, sort_value: &str) -> Builder<WithSortValue> {
-        self.state.bytes.extend(last8_bytes(&sha256_digest(
-            &(sort_key.to_owned() + "|" + sort_value),
-        )));
+        self.state.bytes.extend(last8_bytes(&sha256_digest(&format!(
+            "{}|{}",
+            sort_key, sort_value,
+        ))));
         Builder {
             state: WithSortValue {
                 bytes: self.state.bytes,
