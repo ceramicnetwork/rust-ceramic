@@ -133,7 +133,10 @@ where
                 let zero = &H::identity();
 
                 response_message.keys.push(left_fencepost.clone());
-                while !received.keys.is_empty() && left_fencepost < *received.keys.last().unwrap() {
+                while !received.keys.is_empty()
+                    && left_fencepost < *received.keys.last().unwrap()
+                    && (response_message.keys.len() < 32 * 1024)
+                {
                     response.is_synchronized &= response_message.process_range(
                         &left_fencepost,
                         &right_fencepost,
