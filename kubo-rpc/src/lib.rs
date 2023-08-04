@@ -147,7 +147,7 @@ pub trait IpfsDep: Clone {
     /// Get a DAG node from IPFS returning the Cid of the resolved path and the bytes of the node.
     /// This will locally store the data as a result.
     async fn get(&self, ipfs_path: &IpfsPath) -> Result<(Cid, Ipld), Error>;
-    /// Store a DAG node into IFPS.
+    /// Store a DAG node into IPFS.
     async fn put(&self, cid: Cid, blob: Bytes, links: Vec<Cid>) -> Result<(), Error>;
     /// Resolve an IPLD block.
     async fn resolve(&self, ipfs_path: &IpfsPath) -> Result<(Cid, String), Error>;
@@ -166,7 +166,7 @@ pub trait IpfsDep: Clone {
     async fn topics(&self) -> Result<Vec<String>, Error>;
 }
 
-/// Implemntation of IPFS APIs
+/// Implementation of IPFS APIs
 pub struct IpfsService {
     p2p: P2pClient,
     store: StoreClient,
@@ -292,7 +292,7 @@ impl IpfsDep for Arc<IpfsService> {
 }
 
 // Resolves IPFS paths to their DAG node
-// Suppots the following codecs:
+// Supports the following codecs:
 // * dag-cbor
 // * dag-json
 // * dag-jose
