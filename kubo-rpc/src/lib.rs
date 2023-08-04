@@ -17,7 +17,7 @@ use anyhow::{anyhow, Context};
 use async_trait::async_trait;
 use dag_jose::DagJoseCodec;
 use futures_util::stream::BoxStream;
-use iroh_rpc_client::{P2pClient, StoreClient};
+use iroh_rpc_client::P2pClient;
 use libipld::{cbor::DagCborCodec, json::DagJsonCodec, prelude::Decode};
 use libp2p::gossipsub::TopicHash;
 use tracing::{error, trace};
@@ -43,6 +43,7 @@ pub mod swarm;
 pub mod version;
 
 use crate::error::Error;
+use ceramic_p2p::SQLiteBlockStore;
 
 /// Information about a peer
 #[derive(Debug)]
@@ -171,13 +172,13 @@ pub trait IpfsDep: Clone {
 /// Implementation of IPFS APIs
 pub struct IpfsService {
     p2p: P2pClient,
-    store: StoreClient,
+    store: SQLiteBlockStore,
     resolver: Resolver,
 }
 
 impl IpfsService {
     /// Create new IpfsService
-    pub fn new(p2p: P2pClient, store: StoreClient) -> Self {
+    pub fn new(p2p: P2pClient, store: SQLiteBlockStore) -> Self {
         let loader = Loader {
             p2p: p2p.clone(),
             store: store.clone(),
@@ -190,6 +191,7 @@ impl IpfsService {
         }
     }
 }
+
 #[async_trait]
 impl IpfsDep for Arc<IpfsService> {
     /// Get the ID of the local peer.
@@ -388,7 +390,7 @@ impl Resolver {
 /// It tries local storage and then the network (via bitswap).
 struct Loader {
     p2p: P2pClient,
-    store: StoreClient,
+    store: SQLiteBlockStore,
 }
 
 impl Loader {

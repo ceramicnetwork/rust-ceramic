@@ -126,7 +126,7 @@ impl Source for Libp2pConfig {
     fn collect(&self) -> Result<Map<String, Value>, ConfigError> {
         let mut map: Map<String, Value> = Map::new();
         // `config` package converts all unsigned integers into U64, which then has problems
-        // downcasting to, in this case, u32. To get it to allow the convertion between the
+        // downcasting to, in this case, u32. To get it to allow the conversion between the
         // config::Config and the p2p::Config, we need to cast it as a signed int
         insert_into_config_map(&mut map, "max_conns_in", self.max_conns_in as i64);
         insert_into_config_map(&mut map, "max_conns_out", self.max_conns_out as i64);

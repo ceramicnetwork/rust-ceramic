@@ -1,18 +1,18 @@
 //! API to create and manage an IPFS service.
 
-use std::{path::PathBuf, sync::Arc};
+use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use ceramic_core::{EventId, Interest};
 use ceramic_kubo_rpc::IpfsService;
-use ceramic_p2p::{Config as P2pConfig, Libp2pConfig, Node};
-use iroh_rpc_client::{P2pClient, StoreClient};
-use iroh_rpc_types::{p2p::P2pAddr, store::StoreAddr, Addr};
-use iroh_store::{Config as StoreConfig, Store};
+use ceramic_p2p::{Config as P2pConfig, Libp2pConfig, Node, SQLiteBlockStore};
+use iroh_rpc_client::P2pClient;
+use iroh_rpc_types::{p2p::P2pAddr, Addr};
 use libp2p::identity::Keypair;
 use recon::{libp2p::Recon, Sha256a};
+use sqlx::SqlitePool;
 use tokio::task::{self, JoinHandle};
-use tracing::{error, info};
+use tracing::error;
 
 /// Builder provides an ordered API for constructing an Ipfs service.
 pub struct Builder<S: BuilderState> {
@@ -26,65 +26,21 @@ pub trait BuilderState {}
 pub struct Init {}
 impl BuilderState for Init {}
 
-/// A builder that has been configured with its store service.
-pub struct WithStore {
-    store: Service<StoreAddr>,
-}
-impl BuilderState for WithStore {}
-
 /// A builder that has been configured with its p2p service.
 pub struct WithP2p {
-    store: Service<StoreAddr>,
     p2p: Service<P2pAddr>,
 }
 impl BuilderState for WithP2p {}
 
-/// Configure the local block store
-impl Builder<Init> {
-    pub async fn with_store(self, path: PathBuf) -> Result<Builder<WithStore>> {
-        let addr = Addr::new_mem();
-        let config = StoreConfig::with_rpc_addr(path, addr.clone());
-
-        // This is the file RocksDB itself is looking for to determine if the database already
-        // exists or not.  Just knowing the directory exists does not mean the database is
-        // created.
-        let marker = config.path.join("CURRENT");
-
-        let store = if marker.exists() {
-            info!("Opening store at {}", config.path.display());
-            Store::open(config)
-                .await
-                .context("failed to open existing store")?
-        } else {
-            info!("Creating store at {}", config.path.display());
-            Store::create(config)
-                .await
-                .context("failed to create new store")?
-        };
-
-        let rpc_addr = addr.clone();
-        let task = tokio::spawn(async move {
-            if let Err(err) = iroh_store::rpc::new(rpc_addr, store).await {
-                error!("{:?}", err);
-            }
-        });
-
-        Ok(Builder {
-            state: WithStore {
-                store: Service { addr, task },
-            },
-        })
-    }
-}
-
 /// Configure the p2p service
-impl Builder<WithStore> {
+impl Builder<Init> {
     pub async fn with_p2p<I, M>(
         self,
         libp2p_config: Libp2pConfig,
         keypair: Keypair,
         recons: Option<(I, M)>,
         ceramic_peers_key: &str,
+        sql_pool: SqlitePool,
     ) -> anyhow::Result<Builder<WithP2p>>
     where
         I: Recon<Key = Interest, Hash = Sha256a>,
@@ -94,10 +50,17 @@ impl Builder<WithStore> {
 
         let mut config = P2pConfig::default_with_rpc(addr.clone());
 
-        config.rpc_client.store_addr = Some(self.state.store.addr.clone());
         config.libp2p = libp2p_config;
 
-        let mut p2p = Node::new(config, addr.clone(), keypair, recons, ceramic_peers_key).await?;
+        let mut p2p = Node::new(
+            config,
+            addr.clone(),
+            keypair,
+            recons,
+            ceramic_peers_key,
+            sql_pool,
+        )
+        .await?;
 
         let task = task::spawn(async move {
             if let Err(err) = p2p.run().await {
@@ -107,7 +70,6 @@ impl Builder<WithStore> {
 
         Ok(Builder {
             state: WithP2p {
-                store: self.state.store,
                 p2p: Service { addr, task },
             },
         })
@@ -116,13 +78,12 @@ impl Builder<WithStore> {
 
 /// Finish the build
 impl Builder<WithP2p> {
-    pub async fn build(self) -> Result<Ipfs> {
+    pub async fn build(self, sql_pool: SqlitePool) -> Result<Ipfs> {
         Ok(Ipfs {
             api: Arc::new(IpfsService::new(
                 P2pClient::new(self.state.p2p.addr.clone()).await?,
-                StoreClient::new(self.state.store.addr.clone()).await?,
+                SQLiteBlockStore::new(sql_pool).await?,
             )),
-            store: self.state.store,
             p2p: self.state.p2p,
         })
     }
@@ -132,7 +93,6 @@ impl Builder<WithP2p> {
 pub struct Ipfs {
     api: Arc<IpfsService>,
     p2p: Service<P2pAddr>,
-    store: Service<StoreAddr>,
 }
 
 impl Ipfs {
@@ -143,14 +103,8 @@ impl Ipfs {
         self.api.clone()
     }
     pub async fn stop(self) -> Result<()> {
-        let p2p_res = self.p2p.stop().await;
-        let store_res = self.store.stop().await;
-
-        match (p2p_res, store_res) {
-            (Ok(_), Ok(_)) => Ok(()),
-            (e @ Err(_), _) => e,
-            (_, e @ Err(_)) => e,
-        }
+        self.p2p.stop().await?;
+        Ok(())
     }
 }
 

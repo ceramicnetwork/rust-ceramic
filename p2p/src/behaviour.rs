@@ -24,11 +24,13 @@ use libp2p::{
 use libp2p::{core::identity::Keypair, kad::RecordKey};
 use libp2p_identity::PeerId;
 use recon::{libp2p::Recon, Sha256a};
+use sqlx::SqlitePool;
 use tracing::{info, warn};
 
 pub use self::event::Event;
 use self::peer_manager::PeerManager;
 use crate::config::Libp2pConfig;
+use crate::sqliteblockstore::SQLiteBlockStore;
 
 mod event;
 mod peer_manager;
@@ -42,7 +44,7 @@ pub const AGENT_VERSION: &str = concat!("iroh/", env!("CARGO_PKG_VERSION"));
 pub(crate) struct NodeBehaviour<I, M> {
     ping: Ping,
     identify: identify::Behaviour,
-    pub(crate) bitswap: Toggle<Bitswap<BitswapStore>>,
+    pub(crate) bitswap: Toggle<Bitswap<SQLiteBlockStore>>,
     pub(crate) kad: Toggle<Kademlia<MemoryStore>>,
     mdns: Toggle<Mdns>,
     pub(crate) autonat: Toggle<autonat::Behaviour>,
@@ -97,8 +99,8 @@ where
         local_key: &Keypair,
         config: &Libp2pConfig,
         relay_client: Option<relay::client::Behaviour>,
-        rpc_client: Client,
         recons: Option<(I, M)>,
+        sql_pool: SqlitePool,
     ) -> Result<Self> {
         let peer_manager = PeerManager::default();
         let pub_key = local_key.public();
@@ -112,7 +114,8 @@ where
             } else {
                 BitswapConfig::default_client_mode()
             };
-            Some(Bitswap::new(peer_id, BitswapStore(rpc_client), bs_config).await)
+            let store: SQLiteBlockStore = SQLiteBlockStore::new(sql_pool).await?;
+            Some(Bitswap::<SQLiteBlockStore>::new(peer_id, store, bs_config).await)
         } else {
             None
         }

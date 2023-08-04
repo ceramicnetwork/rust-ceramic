@@ -4,3 +4,6 @@
 
 .DS_Store
 .idea
+
+peer*
+sync_test.sh

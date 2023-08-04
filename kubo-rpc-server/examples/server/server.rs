@@ -150,7 +150,7 @@ where
         Err(ApiError("Generic failure".into()))
     }
 
-    /// Report statisitics about a block
+    /// Report statistics about a block
     async fn block_stat_post(
         &self,
         arg: String,

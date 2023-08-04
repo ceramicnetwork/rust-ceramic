@@ -6,7 +6,7 @@ Method | HTTP request | Description
 ------------- | ------------- | -------------
 ****](default_api.md#) | **POST** /block/get | Get a single IPFS block
 ****](default_api.md#) | **POST** /block/put | Put a single IPFS block
-****](default_api.md#) | **POST** /block/stat | Report statisitics about a block
+****](default_api.md#) | **POST** /block/stat | Report statistics about a block
 ****](default_api.md#) | **POST** /dag/get | Get an IPLD node from IPFS
 ****](default_api.md#) | **POST** /dag/import | Import a CAR file of IPLD nodes into IPFS
 ****](default_api.md#) | **POST** /dag/put | Put an IPLD node into IPFS
@@ -66,7 +66,7 @@ Name | Type | Description  | Notes
  **file** | **swagger::ByteArray**|  | 
  **cid_codec** | [****](.md)| Codec of the block data | 
  **mhtype** | [****](.md)| Multihash type | 
- **pin** | [****](.md)| Whether to recusively pin the block | 
+ **pin** | [****](.md)| Whether to recursively pin the block | 
 
 ### Return type
 
@@ -85,7 +85,7 @@ No authorization required
 
 # ****
 > models::BlockPutPost200Response (arg)
-Report statisitics about a block
+Report statistics about a block
 
 ### Required Parameters
 

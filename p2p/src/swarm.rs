@@ -3,7 +3,6 @@ use std::time::Duration;
 use anyhow::Result;
 use ceramic_core::{EventId, Interest};
 use futures::future::Either;
-use iroh_rpc_client::Client;
 use libp2p::{
     core::{
         self,
@@ -19,6 +18,7 @@ use libp2p::{
     PeerId, Swarm, Transport,
 };
 use recon::{libp2p::Recon, Sha256a};
+use sqlx::SqlitePool;
 
 use crate::{behaviour::NodeBehaviour, Libp2pConfig};
 
@@ -109,8 +109,8 @@ async fn build_transport(
 pub(crate) async fn build_swarm<I, M>(
     config: &Libp2pConfig,
     keypair: &Keypair,
-    rpc_client: Client,
     recons: Option<(I, M)>,
+    sql_pool: SqlitePool,
 ) -> Result<Swarm<NodeBehaviour<I, M>>>
 where
     I: Recon<Key = Interest, Hash = Sha256a>,
@@ -119,7 +119,7 @@ where
     let peer_id = keypair.public().to_peer_id();
 
     let (transport, relay_client) = build_transport(keypair, config).await;
-    let behaviour = NodeBehaviour::new(keypair, config, relay_client, rpc_client, recons).await?;
+    let behaviour = NodeBehaviour::new(keypair, config, relay_client, recons, sql_pool).await?;
 
     let swarm = SwarmBuilder::with_executor(transport, behaviour, peer_id, Tokio)
         .notify_handler_buffer_size(config.notify_handler_buffer_size.try_into()?)
