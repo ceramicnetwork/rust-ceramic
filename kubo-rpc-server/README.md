@@ -113,7 +113,7 @@ Method | HTTP request | Description
 ------------- | ------------- | -------------
 [****](docs/default_api.md#) | **POST** /block/get | Get a single IPFS block
 [****](docs/default_api.md#) | **POST** /block/put | Put a single IPFS block
-[****](docs/default_api.md#) | **POST** /block/stat | Report statisitics about a block
+[****](docs/default_api.md#) | **POST** /block/stat | Report statistics about a block
 [****](docs/default_api.md#) | **POST** /dag/get | Get an IPLD node from IPFS
 [****](docs/default_api.md#) | **POST** /dag/import | Import a CAR file of IPLD nodes into IPFS
 [****](docs/default_api.md#) | **POST** /dag/put | Put an IPLD node into IPFS

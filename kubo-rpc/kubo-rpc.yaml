@@ -220,7 +220,7 @@ paths:
             default: sha2_256
         - name: pin
           in: query
-          description: Whether to recusively pin the block
+          description: Whether to recursively pin the block
           schema:
             type: bool
             default: false
@@ -259,7 +259,7 @@ paths:
                 $ref: '#/components/schemas/Error'
   '/block/stat':
     post:
-      summary: Report statisitics about a block
+      summary: Report statistics about a block
       parameters:
         - name: arg
           in: query

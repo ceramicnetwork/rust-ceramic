@@ -23,12 +23,14 @@ async-trait.workspace = true
 bytes.workspace = true
 ceramic-kubo-rpc-server = { workspace = true, optional = true }
 ceramic-metadata.workspace = true
+ceramic-p2p.workspace = true
 cid.workspace = true
 dag-jose.workspace = true
 futures-util.workspace = true
 hex.workspace = true
 hyper = { workspace = true, optional = true }
 iroh-car.workspace = true
+iroh-bitswap.workspace = true
 iroh-metrics.workspace = true
 iroh-rpc-client.workspace = true
 iroh-rpc-types.workspace = true

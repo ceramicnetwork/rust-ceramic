@@ -55,7 +55,7 @@ ceramic-metadata = { path = "./metadata" }
 ceramic-one = { path = "./one" }
 ceramic-p2p = { path = "./p2p" }
 cid = { version = "0.9", features = ["serde-codec"] }
-clap = "4.0.15"
+clap = { version = "4", features = ["derive", "env"] }
 clap_mangen = "0.2.2"
 config = "0.13.1"
 console = { version = "0.15", default-features = false }
@@ -68,7 +68,7 @@ deadqueue = "0.2.3"
 derivative = "2.2"
 derive_more = "0.99.17"
 dirs-next = "2"
-expect-test = "1"
+expect-test = "1.4.1"
 fastmurmur3 = "0.1.2"
 fnv = "1.0.7"
 futures = "0.3"
@@ -189,7 +189,7 @@ xtaskops = "0.3"
 zeroize = "1.4"
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = [
     "Danny Browning <dbrowning@3box.io>",

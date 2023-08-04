@@ -53,7 +53,7 @@ Use the provided `Makefile` for basic actions to ensure your changes are ready f
     $ make check-fmt
     $ make test
 
-Using the makefile is not necessary during your developement cycle, feel free to use the relvant cargo commands directly.
+Using the makefile is not necessary during your development cycle, feel free to use the relevant cargo commands directly.
 However running `make` before publishing a PR will provide a good signal if you PR will pass CI.
 
 ### Generating Servers
@@ -65,6 +65,53 @@ Install `@openapitools/openapi-generator-cli` and make to generate the crates:
       npm install @openapitools/openapi-generator-cli@2.6.0 -g
       make gen-api-server
       make gen-kubo-rpc-server
+
+### Migration
+This repo also contains the kubo to ceramic-one migration script.
+
+This script will read ipfs repo files matching ~/.ipfs/blocks/*/*.data
+and insert them into the ceramic-one database ~/.ceramic-one/db.sqlite3
+
+you can run it with cargo
+
+    $ cargo run --bin migration -- -h
+    Usage: migration [OPTIONS]
+
+    Options:
+    -i, --input-ipfs-path <INPUT_IPFS_PATH>
+            The path to the ipfs_repo [default: ~/.ipfs/]
+    -o, --output-ceramic-path <OUTPUT_CERAMIC_PATH>
+            The path to the ceramic_db [default: ~/.ceramic-one/db.sqlite3]
+    -v, --verbose...
+            More output per occurrence
+    -q, --quiet...
+            Less output per occurrence
+    -h, --help
+            Print help
+    -V, --version
+            Print version
+
+or build it, move migration to you ceramic box, run it there.
+
+    $ cargo build --frozen --release --bin migration
+    $ cp target/release/migration ./migration
+    $ ./migration -h
+    Usage: migration [OPTIONS]
+
+    Options:
+    -i, --input-ipfs-path <INPUT_IPFS_PATH>
+            The path to the ipfs_repo [default: ~/.ipfs/]
+    -o, --output-ceramic-path <OUTPUT_CERAMIC_PATH>
+            The path to the ceramic_db [default: ~/.ceramic-one/db.sqlite3]
+    -v, --verbose...
+            More output per occurrence
+    -q, --quiet...
+            Less output per occurrence
+    -h, --help
+            Print help
+    -V, --version
+            Print version
+
 
 ## License
 

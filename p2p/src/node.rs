@@ -10,8 +10,10 @@ use anyhow::{anyhow, bail, Context, Result};
 use ceramic_core::{EventId, Interest};
 use cid::Cid;
 use futures_util::stream::StreamExt;
+use iroh_bitswap::{BitswapEvent, Block};
 use iroh_metrics::{core::MRecorder, inc, libp2p_metrics, p2p::P2PMetrics};
 use iroh_rpc_client::Client as RpcClient;
+use iroh_rpc_client::Lookup;
 use iroh_rpc_types::p2p::P2pAddr;
 pub use libp2p::gossipsub::{IdentTopic, Topic};
 use libp2p::kad::kbucket::{Distance, NodeStatus};
@@ -34,15 +36,11 @@ use libp2p::{
 };
 use libp2p::{identity::Keypair, swarm::DialError};
 use libp2p::{PeerId, Swarm};
+use sqlx::SqlitePool;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::oneshot::{self, Sender as OneShotSender};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, trace, warn};
-
-use iroh_bitswap::{BitswapEvent, Block};
-use iroh_rpc_client::Lookup;
-
-use recon::{libp2p::Recon, Sha256a};
 
 use crate::keys::{Keychain, Storage};
 use crate::providers::Providers;
@@ -54,6 +52,7 @@ use crate::{
     rpc::{self, RpcMessage},
     Config,
 };
+use recon::{libp2p::Recon, Sha256a};
 
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
@@ -154,6 +153,7 @@ where
         keypair: Keypair,
         recons: Option<(I, M)>,
         ceramic_peers_key: impl AsRef<[u8]>,
+        sql_pool: SqlitePool,
     ) -> Result<Self> {
         let (network_sender_in, network_receiver_in) = channel(1024); // TODO: configurable
 
@@ -174,7 +174,7 @@ where
             .await
             .context("failed to create rpc client")?;
 
-        let mut swarm = build_swarm(&libp2p_config, &keypair, rpc_client.clone(), recons).await?;
+        let mut swarm = build_swarm(&libp2p_config, &keypair, recons, sql_pool).await?;
         info!("iroh-p2p peerid: {}", swarm.local_peer_id());
 
         for addr in &libp2p_config.external_multiaddrs {
@@ -1349,12 +1349,16 @@ mod tests {
             let libp2p_keypair: Libp2pKeypair = keypair.clone().into();
             let peer_id = PeerId::from(libp2p_keypair.public());
 
+            // Using an in memory DB for the tests for realistic benchmark disk DB is needed.
+            let sql_pool = SqlitePool::connect("sqlite::memory:").await?;
+
             let mut p2p = Node::new(
                 network_config,
                 rpc_server_addr,
                 keypair.into(),
                 None::<(DummyRecon<Interest>, DummyRecon<EventId>)>,
                 "/ceramic-test",
+                sql_pool,
             )
             .await?;
             let cfg = iroh_rpc_client::Config {

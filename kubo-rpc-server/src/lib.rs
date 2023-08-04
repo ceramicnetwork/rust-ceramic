@@ -204,7 +204,7 @@ pub trait Api<C: Send + Sync> {
         context: &C,
     ) -> Result<BlockPutPostResponse, ApiError>;
 
-    /// Report statisitics about a block
+    /// Report statistics about a block
     async fn block_stat_post(
         &self,
         arg: String,
@@ -312,7 +312,7 @@ pub trait ApiNoContext<C: Send + Sync> {
         pin: Option<bool>,
     ) -> Result<BlockPutPostResponse, ApiError>;
 
-    /// Report statisitics about a block
+    /// Report statistics about a block
     async fn block_stat_post(&self, arg: String) -> Result<BlockStatPostResponse, ApiError>;
 
     /// Get an IPLD node from IPFS
@@ -424,7 +424,7 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
             .await
     }
 
-    /// Report statisitics about a block
+    /// Report statistics about a block
     async fn block_stat_post(&self, arg: String) -> Result<BlockStatPostResponse, ApiError> {
         let context = self.context().clone();
         self.api().block_stat_post(arg, &context).await

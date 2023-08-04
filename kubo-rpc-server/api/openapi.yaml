@@ -175,7 +175,7 @@ paths:
         schema:
           $ref: '#/components/schemas/Multihash'
         style: form
-      - description: Whether to recusively pin the block
+      - description: Whether to recursively pin the block
         explode: true
         in: query
         name: pin
@@ -226,7 +226,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
           description: bad request
-      summary: Report statisitics about a block
+      summary: Report statistics about a block
   /id:
     post:
       parameters:

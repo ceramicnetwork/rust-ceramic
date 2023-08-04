@@ -203,6 +203,9 @@ impl Daemon {
         info!(service_name, instance_id);
         debug!(?opts, "using daemon options");
 
+        // 1 path from options
+        // 2 path $HOME/.ceramic-one
+        // 3 pwd/.ceramic-one
         let dir = match opts.store_dir {
             Some(dir) => dir,
             None => match home::home_dir() {
@@ -236,14 +239,13 @@ impl Daemon {
             .collect::<Result<Vec<Multiaddr>, multiaddr::Error>>()?;
         debug!(?p2p_config, "using p2p config");
 
-        let sql_db_path = dir.join("db.sqlite3");
-
         // Load p2p identity
         let mut kc = Keychain::<DiskStorage>::new(dir.clone()).await?;
         let keypair = load_identity(&mut kc).await?;
         let peer_id = keypair.public().to_peer_id();
 
         // Connect to sqlite
+        let sql_db_path: PathBuf = dir.join("db.sqlite3");
         let sql_pool = sql::connect(&sql_db_path).await?;
 
         // Create recon store for interests.
@@ -269,11 +271,15 @@ impl Daemon {
             None
         };
         let ipfs = Ipfs::builder()
-            .with_store(dir.join("store"))
+            .with_p2p(
+                p2p_config,
+                keypair,
+                recons,
+                &network.name(),
+                sql_pool.clone(),
+            )
             .await?
-            .with_p2p(p2p_config, keypair, recons, &network.name())
-            .await?
-            .build()
+            .build(sql_pool.clone())
             .await?;
 
         Ok(Daemon {
