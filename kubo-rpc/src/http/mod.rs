@@ -17,6 +17,7 @@ mod id;
 mod pin;
 mod pubsub;
 mod swarm;
+mod version;
 
 #[derive(Clone)]
 struct AppState<T>
@@ -54,7 +55,8 @@ where
                     .service(id::scope::<T>())
                     .service(pin::scope::<T>())
                     .service(pubsub::scope::<T>())
-                    .service(swarm::scope::<T>()),
+                    .service(swarm::scope::<T>())
+                    .service(version::scope::<T>()),
             )
     })
     .bind(addrs)?
@@ -121,12 +123,13 @@ mod tests {
         test::init_service(
             App::new()
                 .app_data(web::Data::new(AppState { api: mock }))
-                .service(super::block::scope::<T>())
-                .service(super::dag::scope::<T>())
+                .service(block::scope::<T>())
+                .service(dag::scope::<T>())
                 .service(id::scope::<T>())
-                .service(super::pin::scope::<T>())
-                .service(super::pubsub::scope::<T>())
-                .service(super::swarm::scope::<T>()),
+                .service(pin::scope::<T>())
+                .service(pubsub::scope::<T>())
+                .service(swarm::scope::<T>())
+                .service(version::scope::<T>()),
         )
         .await
     }

@@ -4,9 +4,10 @@ use actix_multipart::Multipart;
 use actix_web::{http::header::ContentType, web, HttpResponse, Scope};
 use anyhow::anyhow;
 use dag_jose::DagJoseCodec;
-use futures_util::StreamExt;
+use futures_util::{StreamExt, TryStreamExt};
 use libipld::{cbor::DagCborCodec, ipld, json::DagJsonCodec, prelude::Encode};
 use serde::Deserialize;
+use tokio_util::compat::FuturesAsyncReadCompatExt;
 
 use crate::{
     dag,
@@ -21,6 +22,7 @@ where
     web::scope("/dag")
         .service(web::resource("/get").route(web::post().to(get::<T>)))
         .service(web::resource("/put").route(web::post().to(put::<T>)))
+        .service(web::resource("/import").route(web::post().to(import::<T>)))
         .service(web::resource("/resolve").route(web::post().to(resolve::<T>)))
 }
 
@@ -153,6 +155,64 @@ where
     )))
 }
 
+#[tracing::instrument(skip(data, payload))]
+async fn import<T>(
+    data: web::Data<AppState<T>>,
+    mut payload: Multipart,
+) -> Result<HttpResponse, Error>
+where
+    T: IpfsDep,
+{
+    let mut fields = Vec::new();
+    while let Some(item) = payload.next().await {
+        let mut field = item.map_err(|e| {
+            Error::Internal(Into::<anyhow::Error>::into(e).context("reading multipart field"))
+        })?;
+        fields.push(field.name().to_owned());
+        if field.name() == "file" {
+            let (body_sender, body_receiver) = tokio::sync::mpsc::channel(100);
+            actix_rt::spawn(async move {
+                while let Some(chunk) = field.next().await {
+                    match chunk {
+                        Ok(bytes) => {
+                            body_sender.send(Ok(bytes)).await.unwrap();
+                        }
+                        Err(_) => {
+                            body_sender
+                                .send(Err(std::io::Error::new(
+                                    std::io::ErrorKind::Other,
+                                    "Error when receiving body",
+                                )))
+                                .await
+                                .unwrap();
+                        }
+                    }
+                }
+            });
+            let body_stream = tokio_stream::wrappers::ReceiverStream::new(body_receiver);
+            let cids =
+                dag::import(data.api.clone(), body_stream.into_async_read().compat()).await?;
+            let response = ipld!({
+                "Root": {
+                    // We know that the CAR file will have at least one root at this point, otherwise we'd have errored
+                    // out during the import.
+                    "Cid": cids[0]
+                }
+            });
+
+            let mut data = Vec::new();
+            response.encode(DagJsonCodec, &mut data).unwrap();
+            return Ok(HttpResponse::Ok()
+                .content_type(ContentType::json())
+                .body(data));
+        }
+    }
+    Err(Error::Invalid(anyhow!(
+        "dag import: missing multipart field 'file' found fields: {:?}",
+        fields
+    )))
+}
+
 #[derive(Debug, Deserialize)]
 struct ResolveQuery {
     arg: String,
@@ -182,10 +242,7 @@ where
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
-
-    use crate::http::tests::{assert_body_binary, assert_body_json, build_server};
 
     use actix_multipart_rfc7578::client::multipart;
     use actix_web::{body, test};
@@ -195,6 +252,8 @@ mod tests {
     use unimock::MockFn;
     use unimock::{matching, Unimock};
 
+    use crate::dag::tests::create_basic_car_v1_file_mock;
+    use crate::http::tests::{assert_body_binary, assert_body_json, build_server};
     use crate::IpfsDepMock;
 
     #[actix_web::test]
@@ -310,6 +369,46 @@ mod tests {
         )
         .await;
     }
+
+    #[actix_web::test]
+    async fn test_import() {
+        let server = build_server(create_basic_car_v1_file_mock()).await;
+
+        let mut form = multipart::Form::default();
+
+        form.add_file("file", "src/testdata/carv1-basic.car")
+            .unwrap();
+
+        let ct = form.content_type();
+        let body = body::to_bytes(multipart::Body::from(form)).await.unwrap();
+
+        let req = test::TestRequest::post()
+            .uri("/dag/import")
+            .insert_header(("Content-Type", ct))
+            .set_payload(body)
+            .to_request();
+        let resp = test::call_service(&server, req).await;
+        assert!(resp.status().is_success());
+        assert_eq!(
+            "application/json",
+            resp.headers().get("Content-Type").unwrap()
+        );
+        assert_body_json(
+            resp.into_body(),
+            expect![
+                r#"
+            {
+              "Root": {
+                "Cid": {
+                  "/": "bafyreihyrpefhacm6kkp4ql6j6udakdit7g3dmkzfriqfykhjw6cad5lrm"
+                }
+              }
+            }"#
+            ],
+        )
+        .await;
+    }
+
     #[actix_web::test]
     async fn test_resolve() {
         // Test data uses getting started guide for IPFS:

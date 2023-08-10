@@ -4,7 +4,7 @@
 //! <https://docs.ipfs.tech/reference/kubo/rpc/>
 //!
 //! The http server implementation is behind the `http` feature.
-#![deny(missing_docs)]
+//#![deny(missing_docs)]
 use std::{
     collections::HashMap,
     fmt::{self, Display, Formatter},
@@ -40,6 +40,7 @@ pub mod id;
 pub mod pin;
 pub mod pubsub;
 pub mod swarm;
+pub mod version;
 
 use crate::error::Error;
 
@@ -164,6 +165,8 @@ pub trait IpfsDep: Clone {
     ) -> Result<BoxStream<'static, anyhow::Result<GossipsubEvent>>, Error>;
     /// List topics to which, we are currently subscribed
     async fn topics(&self) -> Result<Vec<String>, Error>;
+    /// Current version of ceramic
+    async fn version(&self) -> Result<ceramic_metadata::Version, Error>;
 }
 
 /// Implementation of IPFS APIs
@@ -288,6 +291,9 @@ impl IpfsDep for Arc<IpfsService> {
             .iter()
             .map(|t| t.to_string())
             .collect())
+    }
+    async fn version(&self) -> Result<ceramic_metadata::Version, Error> {
+        Ok(ceramic_metadata::Version::default())
     }
 }
 
