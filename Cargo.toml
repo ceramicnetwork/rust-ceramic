@@ -6,6 +6,7 @@ members = [
     "core",
     "event",
     "kubo-rpc",
+    "metadata",
     "one",
     "p2p",
     "recon",
@@ -21,6 +22,7 @@ bytes = "1.1"
 ceramic-api = { path = "./api" }
 ceramic-api-server = { path = "./api-server" }
 ceramic-core = { path = "./core" }
+ceramic-metadata = { path = "./metadata" }
 ceramic-one = { path = "./one" }
 ceramic-p2p = { path = "./p2p" }
 cid = { version = "0.9", features = ["serde-codec"] }
@@ -33,6 +35,7 @@ futures-util = "0.3"
 git-version = "0.3.5"
 hex = "0.4.3"
 iroh-bitswap = { git = "https://github.com/3box/beetle", branch = "main" }
+iroh-car = { git = "https://github.com/3box/beetle", branch = "main" }
 iroh-metrics = { git = "https://github.com/3box/beetle", branch = "main" }
 iroh-rpc-client = { git = "https://github.com/3box/beetle", branch = "main" }
 iroh-rpc-types = { git = "https://github.com/3box/beetle", branch = "main" }
@@ -71,6 +74,7 @@ tokio = { version = "1", default-features = false, features = [
     "sync",
 ] }
 tokio-stream = "0.1.11"
+tokio-util = { version = "0.7.8", default-features = false, features = ["compat"] }
 toml = "0.5.9"
 tracing = "0.1"
 tracing-opentelemetry = "0.18"

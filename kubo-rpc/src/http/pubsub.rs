@@ -337,6 +337,9 @@ mod tests {
             async fn topics(&self) -> Result<Vec<String>, Error> {
                 todo!()
             }
+            async fn version(&self) -> Result<ceramic_metadata::Version, Error> {
+                Ok(ceramic_metadata::Version::default())
+            }
         }
 
         let mock = TestDeps {};

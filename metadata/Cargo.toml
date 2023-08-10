@@ -1,0 +1,15 @@
+[package]
+name = "ceramic-metadata"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+build = "build.rs"
+
+[dependencies]
+serde.workspace = true
+
+[build-dependencies]
+built = { version = "0.6.0", features = ["git2"] }
+project-root = "0.2.2"
