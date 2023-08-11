@@ -25,4 +25,9 @@ FROM ubuntu:latest
 
 COPY --from=builder /home/builder/rust-ceramic/ceramic-one /usr/bin
 
+# Adding this step after copying the ceramic-one binary so that we always take the newest libs from the builder if the
+# main binary has changed. Updated dependencies will result in an updated binary, which in turn will result in the
+# latest versions of the dependencies being pulled from the builder.
+COPY --from=builder /usr/lib/*-linux-gnu*/libsqlite3.so* /usr/lib/
+
 ENTRYPOINT ["/usr/bin/ceramic-one", "daemon"]
