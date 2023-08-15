@@ -9,15 +9,29 @@ use serde::{Deserialize, Deserializer, Serialize};
 use unsigned_varint::{decode, encode};
 
 /// Types of possible stream id's
+/// Defined here:
+/// https://cips.ceramic.network/tables/streamtypes.csv
 #[repr(u64)]
 #[derive(Copy, Clone, Debug, Eq, IntEnum, PartialEq)]
 pub enum StreamIdType {
-    /// A model stream id
+    /// A stream type representing a json document
+    /// https://cips.ceramic.network/CIPs/cip-8
+    Tile = 0,
+    /// Link blockchain accounts to DIDs
+    /// https://cips.ceramic.network/CIPs/cip-7
+    Caip10Link = 1,
+    /// Defines a schema shared by group of documents in ComposeDB
+    /// https://github.com/ceramicnetwork/js-ceramic/tree/main/packages/stream-model
     Model = 2,
-    /// A document stream id
-    Document = 3,
-    /// Unloadable. This is also used for the parent stream id of all models
+    /// Represents a json document in ComposeDB
+    /// https://github.com/ceramicnetwork/js-ceramic/tree/main/packages/stream-model-instance
+    ModelInstanceDocument = 3,
+    /// A stream that is not meant to be loaded
+    /// https://github.com/ceramicnetwork/js-ceramic/blob/main/packages/stream-model/src/model.ts#L163-L165
     Unloadable = 4,
+    /// An event id encoded as a cip-124 EventID
+    /// https://cips.ceramic.network/CIPs/cip-124
+    EventId = 5,
 }
 
 impl Serialize for StreamIdType {
@@ -57,14 +71,14 @@ impl StreamId {
     /// Create a new stream for a document type
     pub fn document(id: Cid) -> Self {
         Self {
-            r#type: StreamIdType::Document,
+            r#type: StreamIdType::ModelInstanceDocument,
             cid: id,
         }
     }
 
     /// Whether this stream id is a document type
     pub fn is_document(&self) -> bool {
-        self.r#type == StreamIdType::Document
+        self.r#type == StreamIdType::ModelInstanceDocument
     }
 
     // TODO re-add this logic once we can use cid@0.10
@@ -203,7 +217,7 @@ mod tests {
     fn can_serialize_and_deserialize_correctly() {
         let orig = "kjzl6kcym7w8y7nzgytqayf6aro12zt0mm01n6ydjomyvvklcspx9kr6gpbwd09";
         let stream = StreamId::from_str(orig).unwrap();
-        assert_eq!(stream.r#type, StreamIdType::Document);
+        assert_eq!(stream.r#type, StreamIdType::ModelInstanceDocument);
         let s = stream.to_string();
         assert_eq!(&s, orig);
     }
