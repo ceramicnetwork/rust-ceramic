@@ -10,7 +10,7 @@ static DID_TYPE_REGEX: Lazy<regex::Regex> =
     Lazy::new(|| regex::Regex::new(r#"did:(?P<T>[^:]+):(?P<K>[A-Za-z0-9:]+)"#).unwrap());
 
 /// Newtype around JWK to make it easier to construct from a DID and provide a private key
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Jwk(JWK);
 
 const DID_KEY: &str = "key";

@@ -2,7 +2,7 @@ use crate::{Base64UrlString, DidDocument, Jwk};
 use ssi::jwk::Algorithm;
 
 /// Sign bytes for an id and algorithm
-#[async_trait::async_trait(?Send)]
+#[async_trait::async_trait]
 pub trait Signer {
     /// Algorithm used by signer
     fn algorithm(&self) -> Algorithm;
@@ -13,6 +13,7 @@ pub trait Signer {
 }
 
 /// Did and jwk based signer
+#[derive(Clone, Debug)]
 pub struct JwkSigner {
     did: DidDocument,
     jwk: Jwk,
@@ -29,7 +30,7 @@ impl JwkSigner {
     }
 }
 
-#[async_trait::async_trait(?Send)]
+#[async_trait::async_trait]
 impl Signer for JwkSigner {
     fn algorithm(&self) -> Algorithm {
         Algorithm::EdDSA
