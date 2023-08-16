@@ -304,14 +304,44 @@ where
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
     ) -> Result<Option<(Self::Key, Self::Key)>> {
-        let first = self.first(left_fencepost, right_fencepost).await?;
-        if let Some(first) = first {
-            let last = self.last(left_fencepost, right_fencepost).await?;
-            if let Some(last) = last {
-                Ok(Some((first, last)))
-            } else {
-                Ok(Some((first.clone(), first)))
-            }
+        let query = sqlx::query(
+            "
+        SELECT first.key, last.key
+        FROM
+            (
+                SELECT key
+                FROM recon
+                WHERE
+                            sort_key = ? AND
+                            key > ? AND key < ?
+                ORDER BY key ASC
+                LIMIT 1
+            ) as first
+        JOIN
+            (
+                SELECT key
+                FROM recon
+                WHERE
+                            sort_key = ? AND
+                            key > ? AND key < ?
+                ORDER BY key DESC
+                LIMIT 1
+            ) as last
+        ;",
+        );
+        let rows = query
+            .bind(&self.sort_key)
+            .bind(left_fencepost.as_bytes())
+            .bind(right_fencepost.as_bytes())
+            .bind(&self.sort_key)
+            .bind(left_fencepost.as_bytes())
+            .bind(right_fencepost.as_bytes())
+            .fetch_all(&self.pool)
+            .await?;
+        if let Some(row) = rows.get(0) {
+            let first = K::from(row.get(0));
+            let last = K::from(row.get(1));
+            Ok(Some((first, last)))
         } else {
             Ok(None)
         }
@@ -402,5 +432,61 @@ mod tests {
         "#
         ]
         .assert_debug_eq(&store.insert(&Bytes::from("hello")).await);
+    }
+
+    #[test]
+    #[traced_test]
+    async fn test_first_and_last() {
+        let mut store = new_store().await;
+        store.insert(&Bytes::from("hello")).await.unwrap();
+        store.insert(&Bytes::from("world")).await.unwrap();
+
+        // Only one key in range
+        let ret = store
+            .first_and_last(&Bytes::from("a"), &Bytes::from("j"))
+            .await
+            .unwrap();
+        expect![[r#"
+            Some(
+                (
+                    Bytes(
+                        "hello",
+                    ),
+                    Bytes(
+                        "hello",
+                    ),
+                ),
+            )
+        "#]]
+        .assert_debug_eq(&ret);
+
+        // No keys in range
+        let ret = store
+            .first_and_last(&Bytes::from("j"), &Bytes::from("p"))
+            .await
+            .unwrap();
+        expect![[r#"
+            None
+        "#]]
+        .assert_debug_eq(&ret);
+
+        // Two keys in range
+        let ret = store
+            .first_and_last(&Bytes::from("a"), &Bytes::from("z"))
+            .await
+            .unwrap();
+        expect![[r#"
+            Some(
+                (
+                    Bytes(
+                        "hello",
+                    ),
+                    Bytes(
+                        "world",
+                    ),
+                ),
+            )
+        "#]]
+        .assert_debug_eq(&ret);
     }
 }
