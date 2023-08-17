@@ -1,3 +1,4 @@
+//! Expose version information
 use crate::{error::Error, IpfsDep};
 
 /// Lookup version.

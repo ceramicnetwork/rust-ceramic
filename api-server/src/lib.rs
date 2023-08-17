@@ -19,17 +19,17 @@ use swagger::{ApiError, ContextWrapper};
 
 type ServiceError = Box<dyn Error + Send + Sync + 'static>;
 
-pub const BASE_PATH: &str = "";
+pub const BASE_PATH: &str = "/ceramic";
 pub const API_VERSION: &str = "0.1.0";
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub enum CeramicEventsPostResponse {
+pub enum EventsPostResponse {
     /// success
     Success,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub enum CeramicSubscribeSortKeySortValueGetResponse {
+pub enum SubscribeSortKeySortValueGetResponse {
     /// success
     Success(Vec<models::Event>),
 }
@@ -46,14 +46,14 @@ pub trait Api<C: Send + Sync> {
     }
 
     /// Creates a new event
-    async fn ceramic_events_post(
+    async fn events_post(
         &self,
         event: models::Event,
         context: &C,
-    ) -> Result<CeramicEventsPostResponse, ApiError>;
+    ) -> Result<EventsPostResponse, ApiError>;
 
     /// Get events for a stream
-    async fn ceramic_subscribe_sort_key_sort_value_get(
+    async fn subscribe_sort_key_sort_value_get(
         &self,
         sort_key: String,
         sort_value: String,
@@ -62,7 +62,7 @@ pub trait Api<C: Send + Sync> {
         offset: Option<f64>,
         limit: Option<f64>,
         context: &C,
-    ) -> Result<CeramicSubscribeSortKeySortValueGetResponse, ApiError>;
+    ) -> Result<SubscribeSortKeySortValueGetResponse, ApiError>;
 }
 
 /// API where `Context` isn't passed on every API call
@@ -77,13 +77,10 @@ pub trait ApiNoContext<C: Send + Sync> {
     fn context(&self) -> &C;
 
     /// Creates a new event
-    async fn ceramic_events_post(
-        &self,
-        event: models::Event,
-    ) -> Result<CeramicEventsPostResponse, ApiError>;
+    async fn events_post(&self, event: models::Event) -> Result<EventsPostResponse, ApiError>;
 
     /// Get events for a stream
-    async fn ceramic_subscribe_sort_key_sort_value_get(
+    async fn subscribe_sort_key_sort_value_get(
         &self,
         sort_key: String,
         sort_value: String,
@@ -91,7 +88,7 @@ pub trait ApiNoContext<C: Send + Sync> {
         stream_id: Option<String>,
         offset: Option<f64>,
         limit: Option<f64>,
-    ) -> Result<CeramicSubscribeSortKeySortValueGetResponse, ApiError>;
+    ) -> Result<SubscribeSortKeySortValueGetResponse, ApiError>;
 }
 
 /// Trait to extend an API to make it easy to bind it to a context.
@@ -120,16 +117,13 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
     }
 
     /// Creates a new event
-    async fn ceramic_events_post(
-        &self,
-        event: models::Event,
-    ) -> Result<CeramicEventsPostResponse, ApiError> {
+    async fn events_post(&self, event: models::Event) -> Result<EventsPostResponse, ApiError> {
         let context = self.context().clone();
-        self.api().ceramic_events_post(event, &context).await
+        self.api().events_post(event, &context).await
     }
 
     /// Get events for a stream
-    async fn ceramic_subscribe_sort_key_sort_value_get(
+    async fn subscribe_sort_key_sort_value_get(
         &self,
         sort_key: String,
         sort_value: String,
@@ -137,10 +131,10 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
         stream_id: Option<String>,
         offset: Option<f64>,
         limit: Option<f64>,
-    ) -> Result<CeramicSubscribeSortKeySortValueGetResponse, ApiError> {
+    ) -> Result<SubscribeSortKeySortValueGetResponse, ApiError> {
         let context = self.context().clone();
         self.api()
-            .ceramic_subscribe_sort_key_sort_value_get(
+            .subscribe_sort_key_sort_value_get(
                 sort_key, sort_value, controller, stream_id, offset, limit, &context,
             )
             .await

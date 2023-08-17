@@ -7,6 +7,7 @@ members = [
     "event",
     "kubo-rpc",
     "metadata",
+    "kubo-rpc-server",
     "one",
     "p2p",
     "recon",
@@ -22,6 +23,7 @@ bytes = "1.1"
 ceramic-api = { path = "./api" }
 ceramic-api-server = { path = "./api-server" }
 ceramic-core = { path = "./core" }
+ceramic-kubo-rpc-server = { path = "./kubo-rpc-server" }
 ceramic-metadata = { path = "./metadata" }
 ceramic-one = { path = "./one" }
 ceramic-p2p = { path = "./p2p" }
@@ -34,6 +36,7 @@ futures = "0.3"
 futures-util = "0.3"
 git-version = "0.3.5"
 hex = "0.4.3"
+hyper = { version = "0.14", features = ["full"] }
 iroh-bitswap = { git = "https://github.com/3box/beetle", branch = "main" }
 iroh-car = { git = "https://github.com/3box/beetle", branch = "main" }
 iroh-metrics = { git = "https://github.com/3box/beetle", branch = "main" }
@@ -47,6 +50,7 @@ libp2p = { version = "0.51", default-features = false } # use same version as Ir
 libp2p-identity = { version = "0.1.2", features = ["peerid", "ed25519"] }
 libp2p-tls = { version = "0.1.0", default-features = false } # use explicit version of dep to avoid conflict
 lru = "0.10"
+mockall = "0.11.4"
 minicbor = { version = "0.19.1", features = ["alloc", "std"] }
 multiaddr = "0.17" # use same version as Iroh
 multibase = "0.9"
@@ -66,6 +70,13 @@ smallvec = "1.10"
 ssh-key = { version = "0.5.1", default-features = false }
 ssi = { version = "0.6", features = ["ed25519"] }
 sqlx = { version = "0.7", features = ["sqlite", "runtime-tokio"] }
+swagger = { version = "6.1", features = [
+    "serdejson",
+    "server",
+    "client",
+    "tls",
+    "tcp",
+] }
 tempfile = "3.3"
 test-log = { version = "0.2", default-features = false, features = ["trace"] }
 tokio = { version = "1", default-features = false, features = [
@@ -74,13 +85,14 @@ tokio = { version = "1", default-features = false, features = [
     "sync",
 ] }
 tokio-stream = "0.1.11"
-tokio-util = { version = "0.7.8", default-features = false, features = ["compat"] }
+tokio-util = { version = "0.7.8", default-features = false, features = [
+    "compat",
+] }
 toml = "0.5.9"
 tracing = "0.1"
 tracing-opentelemetry = "0.18"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-test = { version = "0.2" }
-unimock = "0.4"
 unsigned-varint = "0.7"
 void = "1.0"
 zeroize = "1.4"

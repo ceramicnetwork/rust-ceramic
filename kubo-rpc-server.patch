@@ -1,0 +1,125 @@
+diff --git b/kubo-rpc-server/src/client/mod.rs a/kubo-rpc-server/src/client/mod.rs
+index 86ca62d..1ad40e0 100644
+--- b/kubo-rpc-server/src/client/mod.rs
++++ a/kubo-rpc-server/src/client/mod.rs
+@@ -1,7 +1,7 @@
+ use async_trait::async_trait;
+ use futures::{
+     future, future::BoxFuture, future::FutureExt, future::TryFutureExt, stream, stream::StreamExt,
+-    Stream,
++    Stream, TryStreamExt,
+ };
+ use hyper::header::{HeaderName, HeaderValue, CONTENT_TYPE};
+ use hyper::{service::Service, Body, Request, Response, Uri};
+@@ -1866,12 +1866,9 @@ where
+         match response.status().as_u16() {
+             200 => {
+                 let body = response.into_body();
+-                let body = body
+-                    .into_raw()
+-                    .map_err(|e| ApiError(format!("Failed to read response: {}", e)))
+-                    .await?;
+-                let body = swagger::ByteArray(body.to_vec());
+-                Ok(PubsubSubPostResponse::Success(body))
++                Ok(PubsubSubPostResponse::Success(Box::pin(body.map_err(
++                    Box::<dyn std::error::Error + Send + Sync>::from,
++                ))))
+             }
+             400 => {
+                 let body = response.into_body();
+diff --git b/kubo-rpc-server/src/lib.rs a/kubo-rpc-server/src/lib.rs
+index 3e753aa..59afad4 100644
+--- b/kubo-rpc-server/src/lib.rs
++++ a/kubo-rpc-server/src/lib.rs
+@@ -11,7 +11,8 @@
+ #![allow(clippy::derive_partial_eq_without_eq, clippy::disallowed_names)]
+ 
+ use async_trait::async_trait;
+-use futures::Stream;
++use futures::{stream::BoxStream, Stream};
++use hyper::body::Bytes;
+ use serde::{Deserialize, Serialize};
+ use std::error::Error;
+ use std::task::{Context, Poll};
+@@ -130,15 +131,24 @@ pub enum PubsubPubPostResponse {
+     BadRequest(models::Error),
+ }
+ 
+-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+ #[must_use]
+ pub enum PubsubSubPostResponse {
+     /// success
+-    Success(swagger::ByteArray),
++    Success(BoxStream<'static, Result<Bytes, Box<dyn std::error::Error + Send + Sync>>>),
++
+     /// bad request
+     BadRequest(models::Error),
+ }
+ 
++impl std::fmt::Debug for PubsubSubPostResponse {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        match self {
++            Self::Success(arg0) => f.debug_tuple("Success").finish(),
++            Self::BadRequest(arg0) => f.debug_tuple("BadRequest").field(arg0).finish(),
++        }
++    }
++}
++
+ #[derive(Debug, PartialEq, Serialize, Deserialize)]
+ #[must_use]
+ pub enum SwarmConnectPostResponse {
+diff --git b/kubo-rpc-server/src/models.rs a/kubo-rpc-server/src/models.rs
+index e1080e6..60ba5e5 100644
+--- b/kubo-rpc-server/src/models.rs
++++ a/kubo-rpc-server/src/models.rs
+@@ -1037,7 +1037,7 @@ pub struct Error {
+     pub code: f64,
+ 
+     #[serde(rename = "Type")]
+-    pub r#type: String,
++    pub typ: String,
+ }
+ 
+ impl Error {
+@@ -1046,7 +1046,7 @@ impl Error {
+         Error {
+             message,
+             code,
+-            r#type,
++            typ: r#type,
+         }
+     }
+ }
+@@ -1062,7 +1062,7 @@ impl std::string::ToString for Error {
+             Some("Code".to_string()),
+             Some(self.code.to_string()),
+             Some("Type".to_string()),
+-            Some(self.r#type.to_string()),
++            Some(self.typ.to_string()),
+         ];
+ 
+         params.into_iter().flatten().collect::<Vec<_>>().join(",")
+@@ -1140,7 +1140,7 @@ impl std::str::FromStr for Error {
+                 .into_iter()
+                 .next()
+                 .ok_or_else(|| "Code missing in Error".to_string())?,
+-            r#type: intermediate_rep
++            typ: intermediate_rep
+                 .r#type
+                 .into_iter()
+                 .next()
+diff --git b/kubo-rpc-server/src/server/mod.rs a/kubo-rpc-server/src/server/mod.rs
+index dc5397b..3e02463 100644
+--- b/kubo-rpc-server/src/server/mod.rs
++++ a/kubo-rpc-server/src/server/mod.rs
+@@ -1496,8 +1496,8 @@ where
+                                                         CONTENT_TYPE,
+                                                         HeaderValue::from_str("application/octet-stream")
+                                                             .expect("Unable to create Content-Type header for PUBSUB_SUB_POST_SUCCESS"));
+-                                let body = body.0;
+-                                *response.body_mut() = Body::from(body);
++
++                                *response.body_mut() = Body::wrap_stream(body);
+                             }
+                             PubsubSubPostResponse::BadRequest(body) => {
+                                 *response.status_mut() = StatusCode::from_u16(400)

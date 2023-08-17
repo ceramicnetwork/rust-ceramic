@@ -15,7 +15,7 @@ To see how to make this your own, look here:
 [README]((https://openapi-generator.tech))
 
 - API version: 0.1.0
-- Build date: 2023-08-01T12:06:16.843597-04:00[America/New_York]
+- Build date: 2023-08-22T16:08:41.733719914-06:00[America/Denver]
 
 
 
@@ -62,7 +62,7 @@ cargo run --example server
 To run a client, follow one of the following simple steps:
 
 ```
-cargo run --example client CeramicSubscribeSortKeySortValueGet
+cargo run --example client SubscribeSortKeySortValueGet
 ```
 
 ### HTTPS
@@ -92,12 +92,12 @@ See https://doc.rust-lang.org/cargo/reference/manifest.html#the-features-section
 
 ## Documentation for API Endpoints
 
-All URIs are relative to *http://localhost*
+All URIs are relative to */ceramic*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
-[****](docs/default_api.md#) | **POST** /ceramic/events | Creates a new event
-[****](docs/default_api.md#) | **GET** /ceramic/subscribe/{sort_key}/{sort_value} | Get events for a stream
+[****](docs/default_api.md#) | **POST** /events | Creates a new event
+[****](docs/default_api.md#) | **GET** /subscribe/{sort_key}/{sort_value} | Get events for a stream
 
 
 ## Documentation For Models

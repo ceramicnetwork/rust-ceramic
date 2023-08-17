@@ -19,10 +19,20 @@ build:
 gen-api-server: api/ceramic.yaml
 	./ci-scripts/gen_api_server.sh
 
-# Checks api-server crate is up-to-date with ceramic.yaml
+# Checks api-server crate is up-to-date
 .PHONY: check-api-server
-check-api-server: api/ceramic.yaml
+check-api-server:
 	./ci-scripts/check_api_server.sh
+
+# Generates kubo-rpc-server crate from ceramic.yaml OpenAPI spec
+.PHONY: gen-kubo-rpc-server
+gen-kubo-rpc-server:
+	./ci-scripts/gen_kubo_rpc_server.sh
+
+# Checks kubo-rpc-server crate is up-to-date
+.PHONY: check-kubo-rpc-server
+check-kubo-rpc-server:
+	./ci-scripts/check_kubo_rpc_server.sh
 
 .PHONY: release
 release:

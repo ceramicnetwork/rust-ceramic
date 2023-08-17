@@ -2,8 +2,8 @@
 
 #[allow(unused_imports)]
 use ceramic_api_server::{
-    models, Api, ApiNoContext, CeramicEventsPostResponse,
-    CeramicSubscribeSortKeySortValueGetResponse, Client, ContextWrapperExt,
+    models, Api, ApiNoContext, Client, ContextWrapperExt, EventsPostResponse,
+    SubscribeSortKeySortValueGetResponse,
 };
 use clap::{App, Arg};
 #[allow(unused_imports)]
@@ -32,7 +32,7 @@ fn main() {
         .arg(
             Arg::with_name("operation")
                 .help("Sets the operation to run")
-                .possible_values(&["CeramicSubscribeSortKeySortValueGet"])
+                .possible_values(&["SubscribeSortKeySortValueGet"])
                 .required(true)
                 .index(1),
         )
@@ -88,15 +88,15 @@ fn main() {
 
     match matches.value_of("operation") {
         /* Disabled because there's no example.
-        Some("CeramicEventsPost") => {
-            let result = rt.block_on(client.ceramic_events_post(
+        Some("EventsPost") => {
+            let result = rt.block_on(client.events_post(
                   ???
             ));
             info!("{:?} (X-Span-ID: {:?})", result, (client.context() as &dyn Has<XSpanIdString>).get().clone());
         },
         */
-        Some("CeramicSubscribeSortKeySortValueGet") => {
-            let result = rt.block_on(client.ceramic_subscribe_sort_key_sort_value_get(
+        Some("SubscribeSortKeySortValueGet") => {
+            let result = rt.block_on(client.subscribe_sort_key_sort_value_get(
                 "sort_key_example".to_string(),
                 "sort_value_example".to_string(),
                 Some("controller_example".to_string()),

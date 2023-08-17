@@ -8,9 +8,9 @@ info:
   title: Ceramic API
   version: 0.1.0
 servers:
-- url: /
+- url: /ceramic
 paths:
-  /ceramic/subscribe/{sort_key}/{sort_value}:
+  /subscribe/{sort_key}/{sort_value}:
     get:
       parameters:
       - description: name of the sort_key
@@ -72,7 +72,7 @@ paths:
                 type: array
           description: success
       summary: Get events for a stream
-  /ceramic/events:
+  /events:
     post:
       requestBody:
         $ref: '#/components/requestBodies/Event'

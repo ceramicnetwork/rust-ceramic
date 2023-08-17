@@ -1,0 +1,598 @@
+openapi: 3.0.0
+info:
+  description: >
+    This is the Kubo RPC API for working with IPLD data on IPFS
+    This API only defines a small subset of the official API.
+  version: 0.1.0
+  title: Kubo RPC API
+  license:
+    name: MIT
+    url: https://mit-license.org/
+
+servers:
+  - url: /api/v0
+
+paths:
+  '/dag/get':
+    post:
+      summary: Get an IPLD node from IPFS
+      parameters:
+        - name: arg
+          in: query
+          description: IPFS path to DAG node
+          schema:
+            type: string
+          required: true
+        - name: output-codec
+          in: query
+          description: Output encoding of the data
+          required: false
+          schema:
+            $ref: '#/components/schemas/Codecs'
+            default: dag_json
+      responses:
+        '200':
+          description: success
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+            #TODO rust-server generator ignores this
+            application/json:
+              schema: {}
+        '400':
+          description: bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  '/dag/put':
+    post:
+      summary: Put an IPLD node into IPFS
+      parameters:
+        - name: store-codec
+          in: query
+          description: IPFS path to DAG node
+          schema:
+            $ref: '#/components/schemas/Codecs'
+            default: dag_cbor
+          required: false
+        - name: input-codec
+          in: query
+          description: Output encoding of the data
+          required: false
+          schema:
+            $ref: '#/components/schemas/Codecs'
+            default: dag_json
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - Cid
+                properties:
+                  Cid:
+                    type: string
+        '400':
+          description: bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  '/dag/import':
+    post:
+      summary: Import a CAR file of IPLD nodes into IPFS
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - Root
+                properties:
+                  Root:
+                    type: object
+                    required:
+                      - Cid
+                    properties:
+                      Cid:
+                        type: object
+                        required:
+                          - '/'
+                        properties:
+                          '/':
+                            type: string
+
+        '400':
+          description: bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+
+  '/dag/resolve':
+    post:
+      summary: Resolve an IPFS path to a DAG node
+      parameters:
+        - name: arg
+          in: query
+          description: IPFS path to DAG node
+          schema:
+            type: string
+          required: true
+      responses:
+        '200':
+          description: success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - Cid
+                  - RemPath
+                properties:
+                  Cid:
+                    type: object
+                    required:
+                      - '/'
+                    properties:
+                      '/':
+                        type: string
+                        description: root cid
+                    description: root cid
+                  RemPath:
+                    type: string
+                    description: remaining path
+        '400':
+          description: bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  '/block/get':
+    post:
+      summary: Get a single IPFS block
+      parameters:
+        - name: arg
+          in: query
+          description: CID of block
+          schema:
+            type: string
+          required: true
+      responses:
+        '200':
+          description: success
+          content:
+            text/plain:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  '/block/put':
+    post:
+      summary: Put a single IPFS block
+      parameters:
+        - name: cid-codec
+          in: query
+          description: Codec of the block data
+          schema:
+            $ref: '#/components/schemas/Codecs'
+            default: raw
+        - name: mhtype
+          in: query
+          description: Multihash type
+          schema:
+            $ref: '#/components/schemas/Multihash'
+            default: sha2_256
+        - name: pin
+          in: query
+          description: Whether to recusively pin the block
+          schema:
+            type: bool
+            default: false
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - Key
+                  - Size
+                properties:
+                  Key:
+                    type: string
+                  Size:
+                    type: number
+
+        '400':
+          description: bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  '/block/stat':
+    post:
+      summary: Report statisitics about a block
+      parameters:
+        - name: arg
+          in: query
+          description: CID of block
+          schema:
+            type: string
+          required: true
+      responses:
+        '200':
+          description: success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - Key
+                  - Size
+                properties:
+                  Key:
+                    type: string
+                  Size:
+                    type: number
+        '400':
+          description: bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  '/id':
+    post:
+      summary: Report identifying information about a node
+      parameters:
+        - name: arg
+          in: query
+          description: Peer ID of peer
+          schema:
+            type: string
+          required: false
+      responses:
+        '200':
+          description: success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - ID
+                  - Addresses
+                  - AgentVersion
+                  - ProtocolVersion
+                  - Protocols
+                properties:
+                  ID:
+                    type: string
+                  Addresses:
+                    type: array
+                    items:
+                      type: string
+                  AgentVersion:
+                    type: string
+                  ProtocolVersion:
+                    type: string
+                  Protocols:
+                    type: array
+                    items:
+                      type: string
+        '400':
+          description: bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  '/pin/add':
+    post:
+      summary: Add a block to the pin store
+      parameters:
+        - name: arg
+          in: query
+          description: CID of block
+          schema:
+            type: string
+          required: true
+        - name: recursive
+          in: query
+          description: When true recursively pin all blocks
+          schema:
+            type: bool
+          required: false
+        - name: progress
+          in: query
+          description: Report pin progress
+          schema:
+            type: bool
+          required: false
+      responses:
+        '200':
+          description: success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - Pins
+                properties:
+                  Pins:
+                    type: array
+                    items:
+                      type: string
+        '400':
+          description: bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  '/pin/rm':
+    post:
+      summary: Remove a block from the pin store
+      parameters:
+        - name: arg
+          in: query
+          description: CID of block
+          schema:
+            type: string
+          required: true
+      responses:
+        '200':
+          description: success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - Pins
+                properties:
+                  Pins:
+                    type: array
+                    items:
+                      type: string
+        '400':
+          description: bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  '/pubsub/ls':
+    post:
+      summary: List topic with active subscriptions
+      responses:
+        '200':
+          description: success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - Strings
+                properties:
+                  Strings:
+                    type: array
+                    items:
+                      type: string
+        '400':
+          description: bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  '/pubsub/pub':
+    post:
+      summary: Publish a message to a topic
+      parameters:
+        - name: arg
+          in: query
+          description: Multibase encoded topic name
+          schema:
+            type: string
+          required: true
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: success
+        '400':
+          description: bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  '/pubsub/sub':
+    post:
+      summary: Subscribe to a topic, blocks until a message is received
+      parameters:
+        - name: arg
+          in: query
+          description: Multibase encoded topic name
+          schema:
+            type: string
+          required: true
+      responses:
+        '200':
+          description: success
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  '/swarm/peers':
+    post:
+      summary: Report connected peers
+      responses:
+        '200':
+          description: success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required:
+                    - Addr
+                    - Peer
+                  properties:
+                    Addr:
+                      type: string
+                    Peer:
+                      type: string
+        '400':
+          description: bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  '/swarm/connect':
+    post:
+      summary: Connect to peers
+      parameters:
+        - name: arg
+          in: query
+          description: Addresses of peers
+          schema:
+            type: array
+            items:
+              type: string
+          required: true
+      responses:
+        '200':
+          description: success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - Strings
+                properties:
+                  Strings:
+                    type: array
+                    items:
+                      type: string
+        '400':
+          description: bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  '/version':
+    post:
+      summary: Report server version
+      responses:
+        '200':
+          description: success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - Commit
+                  - System
+                  - Version
+                properties:
+                  Commit:
+                    type: string
+                  System:
+                    type: string
+                  Version:
+                    type: string
+        '400':
+          description: bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+
+components:
+  schemas:
+    Codecs:
+      type: string
+      enum:
+        - dag_json
+        - dag_cbor
+        - dag_jose
+        - raw
+    Multihash:
+      type: string
+      enum:
+        - sha2_256
+    Error:
+      type: object
+      required:
+        - Message
+        - Code
+        - Type
+      properties:
+        Message:
+          type: string
+        Code:
+          type: number
+        Type:
+          type: string
+
+

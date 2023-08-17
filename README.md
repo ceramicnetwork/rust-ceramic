@@ -29,13 +29,15 @@ Use the provided `Makefile` for basic actions to ensure your changes are ready f
 Using the makefile is not necessary during your developement cycle, feel free to use the relvant cargo commands directly.
 However running `make` before publishing a PR will provide a good signal if you PR will pass CI.
 
-### Generating `ceramic-api-server`
+### Generating Servers
 
-The `ceramic-api-server` crate is generated using OpenAPI.
-Install `@openapitools/openapi-generator-cli` and use the make target `gen-api-server` to generate the code anytime `api/ceramic.yaml` is modified.
+There are two OpenAPI based servers that are generated.
+The `ceramic-api-server` and `ceramic-kubo-rpc-server` crates are generated using OpenAPI.
+Install `@openapitools/openapi-generator-cli` and make to generate the crates:
 
       npm install @openapitools/openapi-generator-cli@2.6.0 -g
       make gen-api-server
+      make gen-kubo-rpc-server
 
 ## License
 

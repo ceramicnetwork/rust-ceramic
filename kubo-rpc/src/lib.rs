@@ -4,7 +4,7 @@
 //! <https://docs.ipfs.tech/reference/kubo/rpc/>
 //!
 //! The http server implementation is behind the `http` feature.
-//#![deny(missing_docs)]
+#![warn(missing_docs)]
 use std::{
     collections::HashMap,
     fmt::{self, Display, Formatter},
@@ -21,10 +21,10 @@ use iroh_rpc_client::{P2pClient, StoreClient};
 use libipld::{cbor::DagCborCodec, json::DagJsonCodec, prelude::Decode};
 use libp2p::gossipsub::TopicHash;
 use tracing::{error, trace};
-use unimock::unimock;
 
 // Pub use any types we export as part of an trait or struct
 pub use bytes::Bytes;
+pub use ceramic_metadata::Version;
 pub use cid::Cid;
 pub use iroh_rpc_types::GossipsubEvent;
 pub use libipld::Ipld;
@@ -134,7 +134,6 @@ impl FromStr for IpfsPath {
 /// The trait serves two purposes:
 ///     1. We are explicit about the API surface area we consume from IPFS.
 ///     2. We can provide a mock implementation for testing.
-#[unimock(api=IpfsDepMock)]
 #[async_trait]
 pub trait IpfsDep: Clone {
     /// Get information about the local peer.
@@ -427,5 +426,35 @@ impl Loader {
                 Err(err) => error!(?err, "failed to put cid into local store"),
             }
         });
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+
+    use mockall::mock;
+
+    mock! {
+        pub IpfsDepTest {}
+        #[async_trait]
+        impl IpfsDep for IpfsDepTest {
+            async fn lookup_local(&self) -> Result<PeerInfo, Error>;
+            async fn lookup(&self, peer_id: PeerId) -> Result<PeerInfo, Error>;
+            async fn block_size(&self, cid: Cid) -> Result<u64, Error>;
+            async fn block_get(&self, cid: Cid) -> Result<Bytes, Error>;
+            async fn get(&self, ipfs_path: &IpfsPath) -> Result<(Cid, Ipld), Error>;
+            async fn put(&self, cid: Cid, blob: Bytes, links: Vec<Cid>) -> Result<(), Error>;
+            async fn resolve(&self, ipfs_path: &IpfsPath) -> Result<(Cid, String), Error>;
+            async fn peers(&self) -> Result<HashMap<PeerId, Vec<Multiaddr>>, Error>;
+            async fn connect(&self, peer_id: PeerId, addrs: Vec<Multiaddr>) -> Result<(), Error>;
+            async fn publish(&self, topic: String, data: Bytes) -> Result<(), Error>;
+            async fn subscribe( &self, topic: String) -> Result<BoxStream<'static, anyhow::Result<GossipsubEvent>>, Error>;
+            async fn topics(&self) -> Result<Vec<String>, Error>;
+            async fn version(&self) -> Result<Version, Error>;
+        }
+        impl Clone for IpfsDepTest {
+            fn clone(&self) -> Self;
+        }
     }
 }
