@@ -1,11 +1,11 @@
 # default_api
 
-All URIs are relative to *http://localhost*
+All URIs are relative to */ceramic*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
-****](default_api.md#) | **POST** /ceramic/events | Creates a new event
-****](default_api.md#) | **GET** /ceramic/subscribe/{sort_key}/{sort_value} | Get events for a stream
+****](default_api.md#) | **POST** /events | Creates a new event
+****](default_api.md#) | **GET** /subscribe/{sort_key}/{sort_value} | Get events for a stream
 
 
 # ****

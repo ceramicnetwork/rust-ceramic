@@ -12,6 +12,8 @@ repository.workspace = true
 anyhow.workspace = true
 ceramic-kubo-rpc = { path = "../kubo-rpc", features = ["http"] }
 ceramic-api.workspace = true
+ceramic-api-server.workspace = true
+ceramic-kubo-rpc-server.workspace = true
 clap = { version = "4", features = ["derive", "env"] }
 futures.workspace = true
 futures-util.workspace = true
@@ -38,10 +40,12 @@ tokio.workspace = true
 tracing-opentelemetry.workspace = true
 tracing-subscriber.workspace = true
 tracing.workspace = true
-actix-http = { version = "3" }
-actix-web = { version = "4" }
 rand = "0.8.5"
 ceramic-core.workspace = true
+hyper.workspace = true
+swagger.workspace = true
+signal-hook-tokio = { version = "0.3.1", features = ["futures-v0_3"] }
+signal-hook = "0.3.17"
 
 [dev-dependencies]
 expect-test = "1"

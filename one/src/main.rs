@@ -1,6 +1,7 @@
 //! Ceramic implements a single binary ceramic node.
-#![deny(missing_docs)]
+#![warn(missing_docs)]
 
+mod http;
 mod metrics;
 mod network;
 mod pubsub;
@@ -11,6 +12,7 @@ use std::{path::PathBuf, str::FromStr, sync::Arc, time::Duration};
 use anyhow::{anyhow, Result};
 use ceramic_core::{EventId, Interest, PeerId};
 use ceramic_kubo_rpc::{dag, IpfsDep, IpfsPath, Multiaddr};
+
 use ceramic_p2p::{load_identity, DiskStorage, Keychain, Libp2pConfig};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use futures::StreamExt;
@@ -19,10 +21,10 @@ use iroh_metrics::{config::Config as MetricsConfig, MetricsHandle};
 use libipld::json::DagJsonCodec;
 use libp2p::metrics::Recorder;
 use recon::{FullInterests, Recon, ReconInterestProvider, SQLiteStore, Server, Sha256a};
-use tokio::{
-    task::{self, JoinHandle},
-    time::timeout,
-};
+use signal_hook::consts::signal::*;
+use signal_hook_tokio::Signals;
+use swagger::{auth::MakeAllowAllAuthenticator, EmptyContext};
+use tokio::{sync::oneshot, task, time::timeout};
 use tracing::{debug, info, warn};
 
 use crate::{
@@ -48,7 +50,7 @@ enum Command {
 
 #[derive(Args, Debug)]
 struct DaemonOpts {
-    /// Bind address of the RPC endpoint.
+    /// Bind address of the API endpoint.
     #[arg(
         short,
         long,
@@ -56,14 +58,6 @@ struct DaemonOpts {
         env = "CERAMIC_ONE_BIND_ADDRESS"
     )]
     bind_address: String,
-    /// Bind address of the Ceramic endpoint.
-    #[arg(
-        short,
-        long,
-        default_value = "127.0.0.1:6001",
-        env = "CERAMIC_ONE_API_BIND_ADDRESS"
-    )]
-    api_bind_address: String,
     /// Listen address of the p2p swarm.
     #[arg(
         long,
@@ -146,9 +140,8 @@ async fn main() -> Result<()> {
     let args = Cli::parse();
     match args.command {
         Command::Daemon(opts) => {
-            let mut daemon = Daemon::build(opts).await?;
-            daemon.run().await?;
-            daemon.shutdown().await
+            let daemon = Daemon::build(opts).await?;
+            daemon.run().await
         }
         Command::Eye(opts) => eye(opts).await,
     }
@@ -166,15 +159,12 @@ struct Daemon {
     peer_id: PeerId,
     network: ceramic_core::Network,
     bind_address: String,
-    api_bind_address: String,
     metrics_bind_address: String,
     ipfs: Ipfs,
     metrics_handle: MetricsHandle,
     metrics: Arc<Metrics>,
-    recon_interest: Option<ReconInterest>,
-    recon_model: Option<ReconModel>,
-    recon_interest_handle: Option<JoinHandle<()>>,
-    recon_model_handle: Option<JoinHandle<()>>,
+    recon_interest: ReconInterest,
+    recon_model: ReconModel,
 }
 
 impl Daemon {
@@ -280,89 +270,122 @@ impl Daemon {
             peer_id,
             network,
             bind_address: opts.bind_address,
-            api_bind_address: opts.api_bind_address,
             metrics_bind_address: opts.metrics_bind_address,
             ipfs,
             metrics_handle,
             metrics,
-            recon_interest: Some(recon_interest),
-            recon_model: Some(recon_model),
-            recon_interest_handle: None,
-            recon_model_handle: None,
+            recon_interest,
+            recon_model,
         })
     }
     // Start the daemon, future does not return until the daemon is finished.
-    async fn run(&mut self) -> Result<()> {
+    async fn run(mut self) -> Result<()> {
         // Start metrics server
         debug!(
             bind_address = self.metrics_bind_address,
             "starting prometheus metrics server"
         );
-        let srv = metrics::server(self.metrics_bind_address.as_str())?;
-        let srv_handle = srv.handle();
-        tokio::spawn(srv);
+        let (tx_metrics_server_shutdown, metrics_server_handle) =
+            metrics::start(&self.metrics_bind_address.parse()?);
 
-        let api_bind_address = self.api_bind_address.clone();
-
-        let mut recon_interest = self
-            .recon_interest
-            .take()
-            .expect("recon_interest should always be present");
-        let mut recon_model = self
-            .recon_model
-            .take()
-            .expect("recon_model should always be present");
-
-        // Start Ceramic API
+        // Build HTTP server
         let network = self.network.clone();
-        tokio::spawn(ceramic_api::start(
+        let ceramic_server = ceramic_api::Server::new(
             self.peer_id,
             network,
-            api_bind_address,
-            recon_interest.client(),
-            recon_model.client(),
-        ));
-
-        self.recon_interest_handle = Some(tokio::spawn(recon_interest.run()));
-        self.recon_model_handle = Some(tokio::spawn(recon_model.run()));
-
-        // Run the Kubo RPC server, this blocks until the server is shutdown via a unix signal.
-        debug!(
-            bind_address = self.bind_address,
-            "starting Kubo RPC API server"
+            self.recon_interest.client(),
+            self.recon_model.client(),
         );
-        ceramic_kubo_rpc::http::serve(self.ipfs.api(), self.bind_address.as_str()).await?;
+        let ceramic_service = ceramic_api_server::server::MakeService::new(ceramic_server);
+        let ceramic_service = MakeAllowAllAuthenticator::new(ceramic_service, "");
+        let ceramic_service =
+            ceramic_api_server::context::MakeAddContext::<_, EmptyContext>::new(ceramic_service);
 
-        // Shutdown metrics server
-        srv_handle.stop(false).await;
-        Ok(())
-    }
-    // Stop the system gracefully.
-    async fn shutdown(self) -> Result<()> {
-        // Stop IPFS before metrics
-        let res = self.ipfs.stop().await;
+        let kubo_rpc_server = ceramic_kubo_rpc::http::Server::new(self.ipfs.api());
+        let kubo_rpc_service = ceramic_kubo_rpc_server::server::MakeService::new(kubo_rpc_server);
+        let kubo_rpc_service = MakeAllowAllAuthenticator::new(kubo_rpc_service, "");
+        let kubo_rpc_service =
+            ceramic_kubo_rpc_server::context::MakeAddContext::<_, EmptyContext>::new(
+                kubo_rpc_service,
+            );
 
-        // Always shutdown metrics even if ipfs errors
-        self.metrics_handle.shutdown();
+        // Compose both services
+        let service = http::MakePrefixService::new(
+            ("/ceramic/".to_string(), ceramic_service),
+            ("/api/v0/".to_string(), kubo_rpc_service),
+        );
 
-        // TODO ensure all clients are dropped otherwise server task will not finish
+        // Start recon tasks
+        let recon_interest_handle = tokio::spawn(self.recon_interest.run());
+        let recon_model_handle = tokio::spawn(self.recon_model.run());
+
+        // Start HTTP server with a graceful shutdown
+        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+        let signals = Signals::new([SIGHUP, SIGTERM, SIGINT, SIGQUIT])?;
+        let handle = signals.handle();
+
+        debug!("starting signal handler task");
+        let signals_handle = tokio::spawn(handle_signals(signals, tx));
+
+        // The server task blocks until we are ready to start shutdown
+        debug!("starting api server");
+        hyper::server::Server::bind(&self.bind_address.parse()?)
+            .serve(service)
+            .with_graceful_shutdown(async {
+                rx.await.ok();
+            })
+            .await?;
+        debug!("api server finished, starting shutdown...");
+
+        // Stop IPFS.
+        if let Err(err) = self.ipfs.stop().await {
+            warn!(%err,"ipfs task error");
+        }
+        debug!("ipfs stopped");
+
         // Drop recon_model first as it contains a client into recon_interest.
-        //if let Some(recon_model_handle) = self.recon_model_handle {
-        //    recon_model_handle.await;
-        //}
-        //if let Some(recon_interest_handle) = self.recon_interest_handle {
-        //    recon_interest_handle.await;
-        //}
+        if let Err(err) = recon_model_handle.await {
+            warn!(%err, "recon models task error");
+        }
+        debug!("recon models server stopped");
+        if let Err(err) = recon_interest_handle.await {
+            warn!(%err, "recon interest task error");
+        }
+        debug!("recon interests server stopped");
 
-        // Check ipfs shutdown error
-        res?;
+        // Shutdown metrics server and collection handler
+        tx_metrics_server_shutdown
+            .send(())
+            .expect("should be able to send metrics shutdown message");
+        if let Err(err) = metrics_server_handle.await? {
+            warn!(%err, "metrics server task error")
+        }
+        self.metrics_handle.shutdown();
+        debug!("metrics server stopped");
+
+        // Wait for signal handler to finish
+        handle.close();
+        signals_handle.await?;
+        debug!("signal handler stopped");
 
         Ok(())
     }
 }
+async fn handle_signals(mut signals: Signals, shutdown: oneshot::Sender<()>) {
+    let mut shutdown = Some(shutdown);
+    while let Some(signal) = signals.next().await {
+        debug!(?signal, "signal received");
+        if let Some(shutdown) = shutdown.take() {
+            info!("sending shutdown message");
+            shutdown
+                .send(())
+                .expect("should be able to send shutdown message");
+        }
+    }
+}
 
 async fn eye(opts: EyeOpts) -> Result<()> {
-    let mut daemon = Daemon::build(opts.daemon).await?;
+    let daemon = Daemon::build(opts.daemon).await?;
 
     // Start subscription
     let subscription = daemon
@@ -425,7 +448,6 @@ async fn eye(opts: EyeOpts) -> Result<()> {
     }));
 
     daemon.run().await?;
-    daemon.shutdown().await?;
 
     p2p_events_handle.abort();
     p2p_events_handle.await.ok();

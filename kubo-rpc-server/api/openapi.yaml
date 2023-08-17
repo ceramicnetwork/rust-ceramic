@@ -1,0 +1,651 @@
+openapi: 3.0.0
+info:
+  description: |
+    This is the Kubo RPC API for working with IPLD data on IPFS This API only defines a small subset of the official API.
+  license:
+    name: MIT
+    url: https://mit-license.org/
+  title: Kubo RPC API
+  version: 0.1.0
+servers:
+- url: /api/v0
+paths:
+  /dag/get:
+    post:
+      parameters:
+      - description: IPFS path to DAG node
+        explode: true
+        in: query
+        name: arg
+        required: true
+        schema:
+          type: string
+        style: form
+      - description: Output encoding of the data
+        explode: true
+        in: query
+        name: output-codec
+        required: false
+        schema:
+          $ref: '#/components/schemas/Codecs'
+        style: form
+      responses:
+        "200":
+          content:
+            application/octet-stream:
+              schema:
+                format: binary
+                type: string
+            application/json:
+              schema: {}
+          description: success
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: bad request
+      summary: Get an IPLD node from IPFS
+  /dag/put:
+    post:
+      parameters:
+      - description: IPFS path to DAG node
+        explode: true
+        in: query
+        name: store-codec
+        required: false
+        schema:
+          $ref: '#/components/schemas/Codecs'
+        style: form
+      - description: Output encoding of the data
+        explode: true
+        in: query
+        name: input-codec
+        required: false
+        schema:
+          $ref: '#/components/schemas/Codecs'
+        style: form
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/_dag_put_post_request'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/_dag_put_post_200_response'
+          description: success
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: bad request
+      summary: Put an IPLD node into IPFS
+  /dag/import:
+    post:
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/_dag_put_post_request'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/_dag_import_post_200_response'
+          description: success
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: bad request
+      summary: Import a CAR file of IPLD nodes into IPFS
+  /dag/resolve:
+    post:
+      parameters:
+      - description: IPFS path to DAG node
+        explode: true
+        in: query
+        name: arg
+        required: true
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/_dag_resolve_post_200_response'
+          description: success
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: bad request
+      summary: Resolve an IPFS path to a DAG node
+  /block/get:
+    post:
+      parameters:
+      - description: CID of block
+        explode: true
+        in: query
+        name: arg
+        required: true
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            text/plain:
+              schema:
+                format: binary
+                type: string
+          description: success
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: bad request
+      summary: Get a single IPFS block
+  /block/put:
+    post:
+      parameters:
+      - description: Codec of the block data
+        explode: true
+        in: query
+        name: cid-codec
+        required: false
+        schema:
+          $ref: '#/components/schemas/Codecs'
+        style: form
+      - description: Multihash type
+        explode: true
+        in: query
+        name: mhtype
+        required: false
+        schema:
+          $ref: '#/components/schemas/Multihash'
+        style: form
+      - description: Whether to recusively pin the block
+        explode: true
+        in: query
+        name: pin
+        required: false
+        schema:
+          type: bool
+        style: form
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/_dag_put_post_request'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/_block_put_post_200_response'
+          description: success
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: bad request
+      summary: Put a single IPFS block
+  /block/stat:
+    post:
+      parameters:
+      - description: CID of block
+        explode: true
+        in: query
+        name: arg
+        required: true
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/_block_put_post_200_response'
+          description: success
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: bad request
+      summary: Report statisitics about a block
+  /id:
+    post:
+      parameters:
+      - description: Peer ID of peer
+        explode: true
+        in: query
+        name: arg
+        required: false
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/_id_post_200_response'
+          description: success
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: bad request
+      summary: Report identifying information about a node
+  /pin/add:
+    post:
+      parameters:
+      - description: CID of block
+        explode: true
+        in: query
+        name: arg
+        required: true
+        schema:
+          type: string
+        style: form
+      - description: When true recursively pin all blocks
+        explode: true
+        in: query
+        name: recursive
+        required: false
+        schema:
+          type: bool
+        style: form
+      - description: Report pin progress
+        explode: true
+        in: query
+        name: progress
+        required: false
+        schema:
+          type: bool
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/_pin_add_post_200_response'
+          description: success
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: bad request
+      summary: Add a block to the pin store
+  /pin/rm:
+    post:
+      parameters:
+      - description: CID of block
+        explode: true
+        in: query
+        name: arg
+        required: true
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/_pin_add_post_200_response'
+          description: success
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: bad request
+      summary: Remove a block from the pin store
+  /pubsub/ls:
+    post:
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/_pubsub_ls_post_200_response'
+          description: success
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: bad request
+      summary: List topic with active subscriptions
+  /pubsub/pub:
+    post:
+      parameters:
+      - description: Multibase encoded topic name
+        explode: true
+        in: query
+        name: arg
+        required: true
+        schema:
+          type: string
+        style: form
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/_dag_put_post_request'
+      responses:
+        "200":
+          description: success
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: bad request
+      summary: Publish a message to a topic
+  /pubsub/sub:
+    post:
+      parameters:
+      - description: Multibase encoded topic name
+        explode: true
+        in: query
+        name: arg
+        required: true
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/octet-stream:
+              schema:
+                format: binary
+                type: string
+          description: success
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: bad request
+      summary: "Subscribe to a topic, blocks until a message is received"
+  /swarm/peers:
+    post:
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/_swarm_peers_post_200_response_inner'
+                type: array
+          description: success
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: bad request
+      summary: Report connected peers
+  /swarm/connect:
+    post:
+      parameters:
+      - description: Addresses of peers
+        explode: true
+        in: query
+        name: arg
+        required: true
+        schema:
+          items:
+            type: string
+          type: array
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/_pubsub_ls_post_200_response'
+          description: success
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: bad request
+      summary: Connect to peers
+  /version:
+    post:
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/_version_post_200_response'
+          description: success
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: bad request
+      summary: Report server version
+components:
+  schemas:
+    Codecs:
+      enum:
+      - dag_json
+      - dag_cbor
+      - dag_jose
+      - raw
+      type: string
+    Multihash:
+      enum:
+      - sha2_256
+      type: string
+    Error:
+      properties:
+        Message:
+          type: string
+        Code:
+          type: number
+        Type:
+          type: string
+      required:
+      - Code
+      - Message
+      - Type
+      type: object
+    _dag_put_post_request:
+      properties:
+        file:
+          format: binary
+          type: string
+      required:
+      - file
+      type: object
+    _dag_put_post_200_response:
+      example:
+        Cid: Cid
+      properties:
+        Cid:
+          type: string
+      required:
+      - Cid
+      type: object
+    _dag_import_post_200_response_Root_Cid:
+      example:
+        /: /
+      properties:
+        /:
+          type: string
+      required:
+      - /
+      type: object
+    _dag_import_post_200_response_Root:
+      example:
+        Cid:
+          /: /
+      properties:
+        Cid:
+          $ref: '#/components/schemas/_dag_import_post_200_response_Root_Cid'
+      required:
+      - Cid
+      type: object
+    _dag_import_post_200_response:
+      example:
+        Root:
+          Cid:
+            /: /
+      properties:
+        Root:
+          $ref: '#/components/schemas/_dag_import_post_200_response_Root'
+      required:
+      - Root
+      type: object
+    _dag_resolve_post_200_response_Cid:
+      description: root cid
+      example:
+        /: /
+      properties:
+        /:
+          description: root cid
+          type: string
+      required:
+      - /
+      type: object
+    _dag_resolve_post_200_response:
+      example:
+        RemPath: RemPath
+        Cid:
+          /: /
+      properties:
+        Cid:
+          $ref: '#/components/schemas/_dag_resolve_post_200_response_Cid'
+        RemPath:
+          description: remaining path
+          type: string
+      required:
+      - Cid
+      - RemPath
+      type: object
+    _block_put_post_200_response:
+      example:
+        Size: 0.8008281904610115
+        Key: Key
+      properties:
+        Key:
+          type: string
+        Size:
+          type: number
+      required:
+      - Key
+      - Size
+      type: object
+    _id_post_200_response:
+      example:
+        Addresses:
+        - Addresses
+        - Addresses
+        Protocols:
+        - Protocols
+        - Protocols
+        AgentVersion: AgentVersion
+        ID: ID
+        ProtocolVersion: ProtocolVersion
+      properties:
+        ID:
+          type: string
+        Addresses:
+          items:
+            type: string
+          type: array
+        AgentVersion:
+          type: string
+        ProtocolVersion:
+          type: string
+        Protocols:
+          items:
+            type: string
+          type: array
+      required:
+      - Addresses
+      - AgentVersion
+      - ID
+      - ProtocolVersion
+      - Protocols
+      type: object
+    _pin_add_post_200_response:
+      example:
+        Pins:
+        - Pins
+        - Pins
+      properties:
+        Pins:
+          items:
+            type: string
+          type: array
+      required:
+      - Pins
+      type: object
+    _pubsub_ls_post_200_response:
+      example:
+        Strings:
+        - Strings
+        - Strings
+      properties:
+        Strings:
+          items:
+            type: string
+          type: array
+      required:
+      - Strings
+      type: object
+    _swarm_peers_post_200_response_inner:
+      example:
+        Peer: Peer
+        Addr: Addr
+      properties:
+        Addr:
+          type: string
+        Peer:
+          type: string
+      required:
+      - Addr
+      - Peer
+      type: object
+    _version_post_200_response:
+      example:
+        Commit: Commit
+        Version: Version
+        System: System
+      properties:
+        Commit:
+          type: string
+        System:
+          type: string
+        Version:
+          type: string
+      required:
+      - Commit
+      - System
+      - Version
+      type: object
+

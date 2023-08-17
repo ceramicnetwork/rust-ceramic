@@ -1,14 +1,7 @@
 //! Main library entry point for ceramic_api_server implementation.
-//! o
 
 #![allow(unused_imports)]
 
-use anyhow::{bail, Result};
-use async_trait::async_trait;
-use futures::{future, Stream, StreamExt, TryFutureExt, TryStreamExt};
-use hyper::server::conn::Http;
-use hyper::service::Service;
-use recon::{AssociativeHash, InterestProvider, Key, Store};
 use std::{future::Future, ops::Range};
 use std::{marker::PhantomData, ops::RangeBounds};
 use std::{net::SocketAddr, ops::Bound};
@@ -20,44 +13,22 @@ use std::{
     str::FromStr,
     sync::{Arc, Mutex},
 };
-use swagger::auth::MakeAllowAllAuthenticator;
-use swagger::EmptyContext;
+
+use anyhow::{bail, Result};
+use async_trait::async_trait;
+use futures::{future, Stream, StreamExt, TryFutureExt, TryStreamExt};
+use hyper::service::Service;
+use hyper::{server::conn::Http, Request};
+use recon::{AssociativeHash, InterestProvider, Key, Store};
+use swagger::{EmptyContext, XSpanIdString};
 use tokio::net::TcpListener;
 use tracing::{debug, info};
-use unimock::unimock;
 
 use ceramic_api_server::{
     models::{self, Event},
-    CeramicEventsPostResponse, CeramicSubscribeSortKeySortValueGetResponse,
+    EventsPostResponse, SubscribeSortKeySortValueGetResponse,
 };
 use ceramic_core::{EventId, Interest, Network, PeerId, StreamId};
-
-/// Builds an SSL implementation for Simple HTTPS from some hard-coded file names
-pub async fn create(
-    peer_id: PeerId,
-    network: Network,
-    addr: &str,
-    interest: impl Recon<Key = Interest> + 'static,
-    model: impl Recon<Key = EventId> + 'static,
-) {
-    let addr = addr.parse().expect("Failed to parse bind address");
-
-    let server = Server::new(peer_id, network, interest, model);
-
-    let service = MakeService::new(server);
-
-    let service = MakeAllowAllAuthenticator::new(service, "cosmo");
-
-    #[allow(unused_mut)]
-    let mut service =
-        ceramic_api_server::server::context::MakeAddContext::<_, EmptyContext>::new(service);
-
-    // Using HTTP
-    hyper::server::Server::bind(&addr)
-        .serve(service)
-        .await
-        .unwrap()
-}
 
 #[async_trait]
 pub trait Recon: Clone + Send + Sync {
@@ -135,21 +106,21 @@ where
     I: Recon<Key = Interest> + Sync,
     M: Recon<Key = EventId> + Sync,
 {
-    async fn ceramic_events_post(
+    async fn events_post(
         &self,
         event: models::Event,
         _context: &C,
-    ) -> Result<CeramicEventsPostResponse, ApiError> {
-        debug!(event_id = event.event_id, "ceramic_events_post");
+    ) -> Result<EventsPostResponse, ApiError> {
+        debug!(event_id = event.event_id, "events_post");
         let event_id = decode_event_id(&event.event_id)?;
         self.model
             .insert(event_id)
             .await
             .map_err(|err| ApiError(format!("failed to insert key: {err}")))?;
-        Ok(CeramicEventsPostResponse::Success)
+        Ok(EventsPostResponse::Success)
     }
 
-    async fn ceramic_subscribe_sort_key_sort_value_get(
+    async fn subscribe_sort_key_sort_value_get(
         &self,
         sort_key: String,
         sort_value: String,
@@ -158,7 +129,7 @@ where
         offset: Option<f64>,
         limit: Option<f64>,
         _context: &C,
-    ) -> Result<CeramicSubscribeSortKeySortValueGetResponse, ApiError> {
+    ) -> Result<SubscribeSortKeySortValueGetResponse, ApiError> {
         debug!(
             ?self.network,
             sort_key, sort_value, controller, "subscribe params"
@@ -236,7 +207,7 @@ where
             .await
             .map_err(|err| ApiError(format!("failed to update interest: {err}")))?;
 
-        Ok(CeramicSubscribeSortKeySortValueGetResponse::Success(
+        Ok(SubscribeSortKeySortValueGetResponse::Success(
             self.model
                 .range(start, stop, offset, limit)
                 .await
@@ -266,7 +237,6 @@ mod tests {
     use mockall::{mock, predicate};
     use multibase::Base;
     use tracing_test::traced_test;
-    use unimock::{matching, MockFn, Unimock};
 
     struct Context;
     mock! {
@@ -360,7 +330,7 @@ mod tests {
             .returning(|_| Ok(()));
         let server = Server::new(peer_id, network, mock_interest, mock_model);
         let resp = server
-            .ceramic_events_post(
+            .events_post(
                 models::Event {
                     event_id: event_id_str,
                 },
@@ -368,7 +338,7 @@ mod tests {
             )
             .await
             .unwrap();
-        assert!(matches!(resp, CeramicEventsPostResponse::Success));
+        assert!(matches!(resp, EventsPostResponse::Success));
     }
     #[tokio::test]
     #[traced_test]
@@ -441,7 +411,7 @@ mod tests {
             .returning(move |_, _, _, _| Ok(vec![event_id.clone()]));
         let server = Server::new(peer_id, network, mock_interest, mock_model);
         let resp = server
-            .ceramic_subscribe_sort_key_sort_value_get(
+            .subscribe_sort_key_sort_value_get(
                 "model".to_string(),
                 model.to_owned(),
                 None,
@@ -454,7 +424,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             resp,
-            CeramicSubscribeSortKeySortValueGetResponse::Success(vec![event])
+            SubscribeSortKeySortValueGetResponse::Success(vec![event])
         );
     }
     #[tokio::test]
@@ -504,7 +474,7 @@ mod tests {
             .returning(|_, _, _, _| Ok(vec![]));
         let server = Server::new(peer_id, network, mock_interest, mock_model);
         let resp = server
-            .ceramic_subscribe_sort_key_sort_value_get(
+            .subscribe_sort_key_sort_value_get(
                 "model".to_string(),
                 model.to_owned(),
                 Some(controller.to_owned()),
@@ -515,10 +485,7 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(
-            resp,
-            CeramicSubscribeSortKeySortValueGetResponse::Success(vec![])
-        );
+        assert_eq!(resp, SubscribeSortKeySortValueGetResponse::Success(vec![]));
     }
     #[tokio::test]
     #[traced_test]
@@ -570,7 +537,7 @@ mod tests {
             .returning(|_, _, _, _| Ok(vec![]));
         let server = Server::new(peer_id, network, mock_interest, mock_model);
         let resp = server
-            .ceramic_subscribe_sort_key_sort_value_get(
+            .subscribe_sort_key_sort_value_get(
                 "model".to_string(),
                 model.to_owned(),
                 Some(controller.to_owned()),
@@ -581,10 +548,7 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(
-            resp,
-            CeramicSubscribeSortKeySortValueGetResponse::Success(vec![])
-        );
+        assert_eq!(resp, SubscribeSortKeySortValueGetResponse::Success(vec![]));
     }
     #[tokio::test]
     #[traced_test]
@@ -636,7 +600,7 @@ mod tests {
             .returning(|_, _, _, _| Ok(vec![]));
         let server = Server::new(peer_id, network, mock_interest, mock_model);
         let resp = server
-            .ceramic_subscribe_sort_key_sort_value_get(
+            .subscribe_sort_key_sort_value_get(
                 "model".to_string(),
                 model.to_owned(),
                 Some(controller.to_owned()),
@@ -647,9 +611,6 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(
-            resp,
-            CeramicSubscribeSortKeySortValueGetResponse::Success(vec![])
-        );
+        assert_eq!(resp, SubscribeSortKeySortValueGetResponse::Success(vec![]));
     }
 }

@@ -149,6 +149,8 @@ where
 
     /// Run the server loop, does not exit until all clients have been dropped.
     pub async fn run(mut self) {
+        // Drop the requests_sender first so we only wait for other clients.
+        drop(self.requests_sender);
         // Using a single loop ensures Recon methods are never called concurrently.
         // This keeps their implementation simple and as they are modifying local state this is
         // likely the most efficient means to process Recon messages.

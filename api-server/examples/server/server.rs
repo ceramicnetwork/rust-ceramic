@@ -100,9 +100,7 @@ impl<C> Server<C> {
 }
 
 use ceramic_api_server::server::MakeService;
-use ceramic_api_server::{
-    Api, CeramicEventsPostResponse, CeramicSubscribeSortKeySortValueGetResponse,
-};
+use ceramic_api_server::{Api, EventsPostResponse, SubscribeSortKeySortValueGetResponse};
 use std::error::Error;
 use swagger::ApiError;
 
@@ -112,14 +110,14 @@ where
     C: Has<XSpanIdString> + Send + Sync,
 {
     /// Creates a new event
-    async fn ceramic_events_post(
+    async fn events_post(
         &self,
         event: models::Event,
         context: &C,
-    ) -> Result<CeramicEventsPostResponse, ApiError> {
+    ) -> Result<EventsPostResponse, ApiError> {
         let context = context.clone();
         info!(
-            "ceramic_events_post({:?}) - X-Span-ID: {:?}",
+            "events_post({:?}) - X-Span-ID: {:?}",
             event,
             context.get().0.clone()
         );
@@ -127,7 +125,7 @@ where
     }
 
     /// Get events for a stream
-    async fn ceramic_subscribe_sort_key_sort_value_get(
+    async fn subscribe_sort_key_sort_value_get(
         &self,
         sort_key: String,
         sort_value: String,
@@ -136,9 +134,9 @@ where
         offset: Option<f64>,
         limit: Option<f64>,
         context: &C,
-    ) -> Result<CeramicSubscribeSortKeySortValueGetResponse, ApiError> {
+    ) -> Result<SubscribeSortKeySortValueGetResponse, ApiError> {
         let context = context.clone();
-        info!("ceramic_subscribe_sort_key_sort_value_get(\"{}\", \"{}\", {:?}, {:?}, {:?}, {:?}) - X-Span-ID: {:?}", sort_key, sort_value, controller, stream_id, offset, limit, context.get().0.clone());
+        info!("subscribe_sort_key_sort_value_get(\"{}\", \"{}\", {:?}, {:?}, {:?}, {:?}) - X-Span-ID: {:?}", sort_key, sort_value, controller, stream_id, offset, limit, context.get().0.clone());
         Err(ApiError("Generic failure".into()))
     }
 }

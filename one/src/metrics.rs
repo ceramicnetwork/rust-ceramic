@@ -1,12 +1,17 @@
-use std::net;
+use std::{convert::Infallible, net::SocketAddr};
 
-use actix_web::{dev::Server, get, http::header::ContentType, App, HttpResponse, HttpServer};
 use anyhow::Result;
 use ceramic_kubo_rpc::PeerId;
+use hyper::{
+    http::HeaderValue,
+    service::{make_service_fn, service_fn},
+    Body, Request, Response,
+};
 use libp2p::metrics::Recorder;
 use prometheus_client::registry::Registry;
 use prometheus_client::{encoding::EncodeLabelSet, metrics::counter::Counter};
 use prometheus_client::{encoding::EncodeLabelValue, metrics::family::Family};
+use tokio::{sync::oneshot, task::JoinHandle};
 
 use crate::pubsub;
 
@@ -133,25 +138,24 @@ impl Recorder<TipLoadResult> for Metrics {
     }
 }
 
-#[get("/metrics")]
-async fn metrics() -> HttpResponse {
+async fn handle(_req: Request<Body>) -> Result<Response<Body>, Infallible> {
     let data = iroh_metrics::MetricsHandle::encode();
-    HttpResponse::Ok()
-        .content_type(ContentType::plaintext())
-        .body(data)
+    let mut resp = Response::new(Body::from(data));
+    resp.headers_mut()
+        .insert("Content-Type", HeaderValue::from_static("text/plain"));
+    Ok(resp)
 }
 
-/// Create and start server for metrics endpoint.
-/// NOTE: The server must be awaited.
-///
-/// Automatically registers shutdown listeners for interrupt and kill signals.
-/// See <https://actix.rs/docs/server/#graceful-shutdown>
-pub fn server<A>(addrs: A) -> Result<Server>
-where
-    A: net::ToSocketAddrs,
-{
-    Ok(HttpServer::new(move || App::new().service(metrics))
-        .bind(addrs)?
-        .disable_signals()
-        .run())
+/// Start metrics server.
+/// Sending on the returned channel will cause the server to shutdown gracefully.
+pub fn start(addr: &SocketAddr) -> (oneshot::Sender<()>, JoinHandle<Result<(), hyper::Error>>) {
+    let (tx, rx) = oneshot::channel::<()>();
+    let service = make_service_fn(|_conn| async { Ok::<_, Infallible>(service_fn(handle)) });
+
+    let server = hyper::Server::bind(addr)
+        .serve(service)
+        .with_graceful_shutdown(async {
+            rx.await.ok();
+        });
+    (tx, tokio::spawn(server))
 }

@@ -42,10 +42,11 @@ jobs:
       run: make check-fmt
     - name: Check clippy
       run: make check-clippy
-    - name: Check api-server
+    - name: Check generated servers
       run: |
         npm install @openapitools/openapi-generator-cli@2.6.0 -g
         make check-api-server
+        make check-kubo-rpc-server
     - name: Run tests
       run: make test
 

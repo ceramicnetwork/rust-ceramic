@@ -11,8 +11,11 @@ info:
     name: MIT
     url: https://mit-license.org/
 
+servers:
+  - url: /ceramic
+
 paths:
-  '/ceramic/subscribe/{sort_key}/{sort_value}':
+  '/subscribe/{sort_key}/{sort_value}':
     get:
       summary: Get events for a stream
       parameters:
@@ -61,7 +64,7 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Event'
-  /ceramic/events:
+  /events:
     post:
       summary: Creates a new event
       requestBody:
@@ -69,6 +72,7 @@ paths:
       responses:
         '204':
           description: success
+
 components:
   requestBodies:
     Event:

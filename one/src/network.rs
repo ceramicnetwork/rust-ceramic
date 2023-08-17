@@ -145,6 +145,7 @@ impl Ipfs {
     pub async fn stop(self) -> Result<()> {
         let p2p_res = self.p2p.stop().await;
         let store_res = self.store.stop().await;
+
         match (p2p_res, store_res) {
             (Ok(_), Ok(_)) => Ok(()),
             (e @ Err(_), _) => e,
@@ -159,16 +160,10 @@ struct Service<A> {
 }
 
 impl<A> Service<A> {
-    async fn stop(mut self) -> Result<()> {
-        // This dummy task will be aborted by Drop.
-        let fut = futures::future::ready(());
-        let dummy_task = tokio::spawn(fut);
-        let task = std::mem::replace(&mut self.task, dummy_task);
-
-        task.abort();
-
+    async fn stop(self) -> Result<()> {
+        self.task.abort();
         // Because we currently don't do graceful termination we expect a cancelled error.
-        match task.await {
+        match self.task.await {
             Ok(()) => Ok(()),
             Err(err) if err.is_cancelled() => Ok(()),
             Err(err) => Err(err.into()),
