@@ -58,7 +58,7 @@ frunk-enum-derive = { version = "0.2.0", optional = true }
 frunk-enum-core = { version = "0.2.0", optional = true }
 
 [dev-dependencies]
-clap = "2.25"
+clap = "4.3"
 env_logger = "0.7"
 tokio = { version = "1.14", features = ["full"] }
 native-tls = "0.2"
