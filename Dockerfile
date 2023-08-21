@@ -1,4 +1,4 @@
-FROM public.ecr.aws/r5b3e0r5/3box/rust-builder:latest as builder
+FROM public.ecr.aws/r5b3e0r5/3box/rust-builder:debian-latest as builder
 
 RUN mkdir -p /home/builder/rust-ceramic
 WORKDIR /home/builder/rust-ceramic
@@ -21,7 +21,7 @@ RUN --mount=type=cache,target=/home/builder/.cargo,uid=$UID,gid=$GID \
     make $BUILD_MODE && \
     cp ./target/release/ceramic-one ./
 
-FROM ubuntu:latest
+FROM debian:bookworm-slim
 
 COPY --from=builder /home/builder/rust-ceramic/ceramic-one /usr/bin
 
@@ -29,5 +29,7 @@ COPY --from=builder /home/builder/rust-ceramic/ceramic-one /usr/bin
 # main binary has changed. Updated dependencies will result in an updated binary, which in turn will result in the
 # latest versions of the dependencies being pulled from the builder.
 COPY --from=builder /usr/lib/*-linux-gnu*/libsqlite3.so* /usr/lib/
+COPY --from=builder /usr/lib/*-linux-gnu*/libssl.so* /usr/lib/
+COPY --from=builder /usr/lib/*-linux-gnu*/libcrypto.so* /usr/lib/
 
 ENTRYPOINT ["/usr/bin/ceramic-one", "daemon"]
