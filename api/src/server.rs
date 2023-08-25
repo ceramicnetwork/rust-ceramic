@@ -192,11 +192,11 @@ where
         let stop_builder = EventId::builder()
             .with_network(&self.network)
             .with_sort_value(&sort_key, &sort_value);
-        let (start_builder, stop_builder) = if let Some(controller) = controller {
-            if let Some(stream_id) = stream_id {
+
+        let (start_builder, stop_builder) = match (controller, stream_id) {
+            (Some(controller), Some(stream_id)) => {
                 let stream_id = StreamId::from_str(&stream_id)
                     .map_err(|err| ApiError(format!("stream_id: {err}")))?;
-                // We have both controller and stream id
                 (
                     start_builder
                         .with_controller(&controller)
@@ -205,25 +205,22 @@ where
                         .with_controller(&controller)
                         .with_init(&stream_id.cid),
                 )
-            } else {
-                // We have a controller without a stream id
-                (
-                    start_builder.with_controller(&controller).with_min_init(),
-                    stop_builder.with_controller(&controller).with_max_init(),
-                )
             }
-        } else {
-            if stream_id.is_some() {
+            (Some(controller), None) => (
+                start_builder.with_controller(&controller).with_min_init(),
+                stop_builder.with_controller(&controller).with_max_init(),
+            ),
+            (None, Some(_)) => {
                 return Err(ApiError(
                     "controller is required if stream_id is specified".to_owned(),
-                ));
+                ))
             }
-            // We have no controller or stream id
-            (
+            (None, None) => (
                 start_builder.with_min_controller().with_min_init(),
                 stop_builder.with_max_controller().with_max_init(),
-            )
+            ),
         };
+
         let start = start_builder.with_min_event_height().build_fencepost();
         let stop = stop_builder.with_max_event_height().build_fencepost();
 
