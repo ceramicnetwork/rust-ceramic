@@ -1168,8 +1168,8 @@ dependencies = [
  "frunk",
  "frunk-enum-core",
  "frunk-enum-derive",
- "frunk_core",
- "frunk_derives",
+ "frunk_core 0.3.2",
+ "frunk_derives 0.4.2",
  "futures",
  "hyper",
  "hyper-openssl",
@@ -1293,8 +1293,8 @@ dependencies = [
  "frunk",
  "frunk-enum-core",
  "frunk-enum-derive",
- "frunk_core",
- "frunk_derives",
+ "frunk_core 0.3.2",
+ "frunk_derives 0.4.2",
  "futures",
  "hyper",
  "hyper-openssl",
@@ -2836,8 +2836,8 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dd01808c133782ef54e23f527c997819c7825e9f698c3175ae8f9f013aa756ca"
 dependencies = [
- "frunk_core",
- "frunk_derives",
+ "frunk_core 0.3.2",
+ "frunk_derives 0.3.2",
  "frunk_proc_macros",
 ]
 
@@ -2870,6 +2870,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dd8c14d645fa326a22a08400b896663e4efb7c92139f09eeccfffffa239d5858"
 
 [[package]]
+name = "frunk_core"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "af2469fab0bd07e64ccf0ad57a1438f63160c69b2e57f04a439653d68eb558d6"
+
+[[package]]
 name = "frunk_derives"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2881,12 +2887,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "frunk_derives"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b0fa992f1656e1707946bbba340ad244f0814009ef8c0118eb7b658395f19a2e"
+dependencies = [
+ "frunk_proc_macro_helpers 0.1.2",
+ "quote 1.0.33",
+ "syn 2.0.29",
+]
+
+[[package]]
 name = "frunk_proc_macro_helpers"
 version = "0.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e24546dac1974be0df3e61144eff911672404bad46a76f39f6c72829f6254dbe"
 dependencies = [
- "frunk_core",
+ "frunk_core 0.3.2",
  "proc-macro2 0.4.30",
  "quote 0.6.13",
  "syn 0.15.44",
@@ -2898,10 +2915,22 @@ version = "0.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d60db7eb6dd2ac8de66c09118788482343970d0d9ad86938bca97279a6ddee5c"
 dependencies = [
- "frunk_core",
+ "frunk_core 0.3.2",
  "proc-macro2 0.4.30",
  "quote 0.6.13",
  "syn 0.15.44",
+]
+
+[[package]]
+name = "frunk_proc_macro_helpers"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "35b54add839292b743aeda6ebedbd8b11e93404f902c56223e51b9ec18a13d2c"
+dependencies = [
+ "frunk_core 0.4.2",
+ "proc-macro2 1.0.66",
+ "quote 1.0.33",
+ "syn 2.0.29",
 ]
 
 [[package]]
@@ -2910,7 +2939,7 @@ version = "0.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4735f7fbe65ed61442264f1d2cc98c93c5df4ca1a308851a645351c4912ebeb9"
 dependencies = [
- "frunk_core",
+ "frunk_core 0.3.2",
  "frunk_proc_macros_impl",
  "proc-macro-hack",
 ]
@@ -2921,7 +2950,7 @@ version = "0.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e0dd6736f34da423e773fe1276fd5e58aed45cb2386c670d6a106be6eef1d1cb"
 dependencies = [
- "frunk_core",
+ "frunk_core 0.3.2",
  "frunk_proc_macro_helpers 0.0.5",
  "proc-macro-hack",
  "quote 0.6.13",
