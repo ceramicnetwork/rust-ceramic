@@ -476,7 +476,7 @@ components:
     _dag_put_post_request:
       properties:
         file:
-          format: binary
+          format: byte
           type: string
       required:
       - file

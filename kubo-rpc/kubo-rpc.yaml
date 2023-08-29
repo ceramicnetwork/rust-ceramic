@@ -75,7 +75,7 @@ paths:
               properties:
                 file:
                   type: string
-                  format: binary
+                  format: byte
       responses:
         '200':
           description: success
@@ -107,7 +107,7 @@ paths:
               properties:
                 file:
                   type: string
-                  format: binary
+                  format: byte
       responses:
         '200':
           description: success
@@ -234,7 +234,7 @@ paths:
               properties:
                 file:
                   type: string
-                  format: binary
+                  format: byte
       responses:
         '200':
           description: success
@@ -447,7 +447,7 @@ paths:
               properties:
                 file:
                   type: string
-                  format: binary
+                  format: byte
       responses:
         '200':
           description: success

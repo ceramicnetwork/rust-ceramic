@@ -1,5 +1,5 @@
 diff --git b/kubo-rpc-server/src/client/mod.rs a/kubo-rpc-server/src/client/mod.rs
-index 86ca62d..1ad40e0 100644
+index ddb7167..916bd17 100644
 --- b/kubo-rpc-server/src/client/mod.rs
 +++ a/kubo-rpc-server/src/client/mod.rs
 @@ -1,7 +1,7 @@
@@ -11,7 +11,7 @@ index 86ca62d..1ad40e0 100644
  };
  use hyper::header::{HeaderName, HeaderValue, CONTENT_TYPE};
  use hyper::{service::Service, Body, Request, Response, Uri};
-@@ -1866,12 +1866,9 @@ where
+@@ -1846,12 +1846,9 @@ where
          match response.status().as_u16() {
              200 => {
                  let body = response.into_body();
@@ -28,7 +28,7 @@ index 86ca62d..1ad40e0 100644
              400 => {
                  let body = response.into_body();
 diff --git b/kubo-rpc-server/src/lib.rs a/kubo-rpc-server/src/lib.rs
-index 3e753aa..59afad4 100644
+index deb1393..9224938 100644
 --- b/kubo-rpc-server/src/lib.rs
 +++ a/kubo-rpc-server/src/lib.rs
 @@ -11,7 +11,8 @@
@@ -109,10 +109,10 @@ index e1080e6..60ba5e5 100644
                  .into_iter()
                  .next()
 diff --git b/kubo-rpc-server/src/server/mod.rs a/kubo-rpc-server/src/server/mod.rs
-index dc5397b..3e02463 100644
+index b0bf249..960f3c1 100644
 --- b/kubo-rpc-server/src/server/mod.rs
 +++ a/kubo-rpc-server/src/server/mod.rs
-@@ -1496,8 +1496,8 @@ where
+@@ -1456,8 +1456,8 @@ where
                                                          CONTENT_TYPE,
                                                          HeaderValue::from_str("application/octet-stream")
                                                              .expect("Unable to create Content-Type header for PUBSUB_SUB_POST_SUCCESS"));

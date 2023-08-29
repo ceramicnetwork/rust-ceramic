@@ -361,19 +361,9 @@ where
                                 let param_file = match field_file {
                                     Some(field) => {
                                         let mut reader = field[0].data.readable().expect("Unable to read field for file");
-                                        let mut data = String::new();
-                                        reader.read_to_string(&mut data).expect("Reading saved String should never fail");
-                                        let file_model: swagger::ByteArray = match serde_json::from_str(&data) {
-                                            Ok(model) => model,
-                                            Err(e) => {
-                                                return Ok(
-                                                    Response::builder()
-                                                    .status(StatusCode::BAD_REQUEST)
-                                                    .body(Body::from(format!("file data does not match API definition : {}", e)))
-                                                    .expect("Unable to create Bad Request due to missing required form parameter file"))
-                                            }
-                                        };
-                                        file_model
+                                        let mut data = vec![];
+                                        reader.read_to_end(&mut data).expect("Reading saved binary data should never fail");
+                                        swagger::ByteArray(data)
                                     },
                                     None => {
                                         return Ok(
@@ -661,19 +651,9 @@ where
                                 let param_file = match field_file {
                                     Some(field) => {
                                         let mut reader = field[0].data.readable().expect("Unable to read field for file");
-                                        let mut data = String::new();
-                                        reader.read_to_string(&mut data).expect("Reading saved String should never fail");
-                                        let file_model: swagger::ByteArray = match serde_json::from_str(&data) {
-                                            Ok(model) => model,
-                                            Err(e) => {
-                                                return Ok(
-                                                    Response::builder()
-                                                    .status(StatusCode::BAD_REQUEST)
-                                                    .body(Body::from(format!("file data does not match API definition : {}", e)))
-                                                    .expect("Unable to create Bad Request due to missing required form parameter file"))
-                                            }
-                                        };
-                                        file_model
+                                        let mut data = vec![];
+                                        reader.read_to_end(&mut data).expect("Reading saved binary data should never fail");
+                                        swagger::ByteArray(data)
                                     },
                                     None => {
                                         return Ok(
@@ -815,19 +795,9 @@ where
                                 let param_file = match field_file {
                                     Some(field) => {
                                         let mut reader = field[0].data.readable().expect("Unable to read field for file");
-                                        let mut data = String::new();
-                                        reader.read_to_string(&mut data).expect("Reading saved String should never fail");
-                                        let file_model: swagger::ByteArray = match serde_json::from_str(&data) {
-                                            Ok(model) => model,
-                                            Err(e) => {
-                                                return Ok(
-                                                    Response::builder()
-                                                    .status(StatusCode::BAD_REQUEST)
-                                                    .body(Body::from(format!("file data does not match API definition : {}", e)))
-                                                    .expect("Unable to create Bad Request due to missing required form parameter file"))
-                                            }
-                                        };
-                                        file_model
+                                        let mut data = vec![];
+                                        reader.read_to_end(&mut data).expect("Reading saved binary data should never fail");
+                                        swagger::ByteArray(data)
                                     },
                                     None => {
                                         return Ok(
@@ -1373,19 +1343,9 @@ where
                                 let param_file = match field_file {
                                     Some(field) => {
                                         let mut reader = field[0].data.readable().expect("Unable to read field for file");
-                                        let mut data = String::new();
-                                        reader.read_to_string(&mut data).expect("Reading saved String should never fail");
-                                        let file_model: swagger::ByteArray = match serde_json::from_str(&data) {
-                                            Ok(model) => model,
-                                            Err(e) => {
-                                                return Ok(
-                                                    Response::builder()
-                                                    .status(StatusCode::BAD_REQUEST)
-                                                    .body(Body::from(format!("file data does not match API definition : {}", e)))
-                                                    .expect("Unable to create Bad Request due to missing required form parameter file"))
-                                            }
-                                        };
-                                        file_model
+                                        let mut data = vec![];
+                                        reader.read_to_end(&mut data).expect("Reading saved binary data should never fail");
+                                        swagger::ByteArray(data)
                                     },
                                     None => {
                                         return Ok(

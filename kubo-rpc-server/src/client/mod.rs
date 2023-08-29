@@ -539,22 +539,17 @@ where
 
             // For each parameter, encode as appropriate and add to the multipart body as a stream.
 
-            let file_str = match serde_json::to_string(&param_file) {
-                Ok(str) => str,
-                Err(e) => {
-                    return Err(ApiError(format!(
-                        "Unable to serialize file to string: {}",
-                        e
-                    )))
-                }
+            let file_vec = param_file.to_vec();
+
+            let file_mime = match mime_0_2::Mime::from_str("application/octet-stream") {
+                Ok(mime) => mime,
+                Err(err) => return Err(ApiError(format!("Unable to get mime type: {:?}", err))),
             };
 
-            let file_vec = file_str.as_bytes().to_vec();
-            let file_mime =
-                mime_0_2::Mime::from_str("application/json").expect("impossible to fail to parse");
             let file_cursor = Cursor::new(file_vec);
 
-            multipart.add_stream("file", file_cursor, None as Option<&str>, Some(file_mime));
+            let filename = None as Option<&str>;
+            multipart.add_stream("file", file_cursor, filename, Some(file_mime));
 
             let mut fields = match multipart.prepare() {
                 Ok(fields) => fields,
@@ -890,22 +885,17 @@ where
 
             // For each parameter, encode as appropriate and add to the multipart body as a stream.
 
-            let file_str = match serde_json::to_string(&param_file) {
-                Ok(str) => str,
-                Err(e) => {
-                    return Err(ApiError(format!(
-                        "Unable to serialize file to string: {}",
-                        e
-                    )))
-                }
+            let file_vec = param_file.to_vec();
+
+            let file_mime = match mime_0_2::Mime::from_str("application/octet-stream") {
+                Ok(mime) => mime,
+                Err(err) => return Err(ApiError(format!("Unable to get mime type: {:?}", err))),
             };
 
-            let file_vec = file_str.as_bytes().to_vec();
-            let file_mime =
-                mime_0_2::Mime::from_str("application/json").expect("impossible to fail to parse");
             let file_cursor = Cursor::new(file_vec);
 
-            multipart.add_stream("file", file_cursor, None as Option<&str>, Some(file_mime));
+            let filename = None as Option<&str>;
+            multipart.add_stream("file", file_cursor, filename, Some(file_mime));
 
             let mut fields = match multipart.prepare() {
                 Ok(fields) => fields,
@@ -1051,22 +1041,17 @@ where
 
             // For each parameter, encode as appropriate and add to the multipart body as a stream.
 
-            let file_str = match serde_json::to_string(&param_file) {
-                Ok(str) => str,
-                Err(e) => {
-                    return Err(ApiError(format!(
-                        "Unable to serialize file to string: {}",
-                        e
-                    )))
-                }
+            let file_vec = param_file.to_vec();
+
+            let file_mime = match mime_0_2::Mime::from_str("application/octet-stream") {
+                Ok(mime) => mime,
+                Err(err) => return Err(ApiError(format!("Unable to get mime type: {:?}", err))),
             };
 
-            let file_vec = file_str.as_bytes().to_vec();
-            let file_mime =
-                mime_0_2::Mime::from_str("application/json").expect("impossible to fail to parse");
             let file_cursor = Cursor::new(file_vec);
 
-            multipart.add_stream("file", file_cursor, None as Option<&str>, Some(file_mime));
+            let filename = None as Option<&str>;
+            multipart.add_stream("file", file_cursor, filename, Some(file_mime));
 
             let mut fields = match multipart.prepare() {
                 Ok(fields) => fields,
@@ -1707,22 +1692,17 @@ where
 
             // For each parameter, encode as appropriate and add to the multipart body as a stream.
 
-            let file_str = match serde_json::to_string(&param_file) {
-                Ok(str) => str,
-                Err(e) => {
-                    return Err(ApiError(format!(
-                        "Unable to serialize file to string: {}",
-                        e
-                    )))
-                }
+            let file_vec = param_file.to_vec();
+
+            let file_mime = match mime_0_2::Mime::from_str("application/octet-stream") {
+                Ok(mime) => mime,
+                Err(err) => return Err(ApiError(format!("Unable to get mime type: {:?}", err))),
             };
 
-            let file_vec = file_str.as_bytes().to_vec();
-            let file_mime =
-                mime_0_2::Mime::from_str("application/json").expect("impossible to fail to parse");
             let file_cursor = Cursor::new(file_vec);
 
-            multipart.add_stream("file", file_cursor, None as Option<&str>, Some(file_mime));
+            let filename = None as Option<&str>;
+            multipart.add_stream("file", file_cursor, filename, Some(file_mime));
 
             let mut fields = match multipart.prepare() {
                 Ok(fields) => fields,

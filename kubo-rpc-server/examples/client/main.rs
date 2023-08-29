@@ -117,7 +117,7 @@ fn main() {
         }
         Some("BlockPutPost") => {
             let result = rt.block_on(client.block_put_post(
-                swagger::ByteArray(Vec::from("BINARY_DATA_HERE")),
+                swagger::ByteArray(Vec::from("BYTE_ARRAY_DATA_HERE")),
                 None,
                 None,
                 None,
@@ -146,7 +146,7 @@ fn main() {
         }
         Some("DagImportPost") => {
             let result = rt.block_on(
-                client.dag_import_post(swagger::ByteArray(Vec::from("BINARY_DATA_HERE"))),
+                client.dag_import_post(swagger::ByteArray(Vec::from("BYTE_ARRAY_DATA_HERE"))),
             );
             info!(
                 "{:?} (X-Span-ID: {:?})",
@@ -156,7 +156,7 @@ fn main() {
         }
         Some("DagPutPost") => {
             let result = rt.block_on(client.dag_put_post(
-                swagger::ByteArray(Vec::from("BINARY_DATA_HERE")),
+                swagger::ByteArray(Vec::from("BYTE_ARRAY_DATA_HERE")),
                 None,
                 None,
             ));
@@ -209,7 +209,7 @@ fn main() {
         Some("PubsubPubPost") => {
             let result = rt.block_on(client.pubsub_pub_post(
                 "arg_example".to_string(),
-                swagger::ByteArray(Vec::from("BINARY_DATA_HERE")),
+                swagger::ByteArray(Vec::from("BYTE_ARRAY_DATA_HERE")),
             ));
             info!(
                 "{:?} (X-Span-ID: {:?})",
