@@ -137,6 +137,14 @@ struct EyeOpts {
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<()> {
+    let (non_blocking, _guard) = tracing_appender::non_blocking(std::io::stdout());
+
+    let subscriber = tracing_subscriber::fmt().with_writer(non_blocking);
+
+    tracing::subscriber::with_default(subscriber.finish(), || {
+        tracing::event!(tracing::Level::INFO, "Ceramic One Server Running");
+    });
+
     let args = Cli::parse();
     match args.command {
         Command::Daemon(opts) => {
