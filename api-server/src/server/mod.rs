@@ -21,7 +21,7 @@ pub use crate::context;
 
 type ServiceFuture = BoxFuture<'static, Result<Response<Body>, crate::ServiceError>>;
 
-use crate::{Api, EventsPostResponse, SubscribeSortKeySortValueGetResponse};
+use crate::{Api, EventsPostResponse, SubscribeSortKeySortValueGetResponse, VersionPostResponse};
 
 mod paths {
     use lazy_static::lazy_static;
@@ -29,7 +29,8 @@ mod paths {
     lazy_static! {
         pub static ref GLOBAL_REGEX_SET: regex::RegexSet = regex::RegexSet::new(vec![
             r"^/ceramic/events$",
-            r"^/ceramic/subscribe/(?P<sort_key>[^/?#]*)/(?P<sort_value>[^/?#]*)$"
+            r"^/ceramic/subscribe/(?P<sort_key>[^/?#]*)/(?P<sort_value>[^/?#]*)$",
+            r"^/ceramic/version$"
         ])
         .expect("Unable to create global regex set");
     }
@@ -43,6 +44,7 @@ mod paths {
             )
             .expect("Unable to create regex for SUBSCRIBE_SORT_KEY_SORT_VALUE");
     }
+    pub(crate) static ID_VERSION: usize = 2;
 }
 
 pub struct MakeService<T, C>
@@ -395,8 +397,50 @@ where
                     Ok(response)
                 }
 
+                // VersionPost - POST /version
+                hyper::Method::POST if path.matched(paths::ID_VERSION) => {
+                    let result = api_impl.version_post(&context).await;
+                    let mut response = Response::new(Body::empty());
+                    response.headers_mut().insert(
+                        HeaderName::from_static("x-span-id"),
+                        HeaderValue::from_str(
+                            (&context as &dyn Has<XSpanIdString>)
+                                .get()
+                                .0
+                                .clone()
+                                .as_str(),
+                        )
+                        .expect("Unable to create X-Span-ID header value"),
+                    );
+
+                    match result {
+                        Ok(rsp) => match rsp {
+                            VersionPostResponse::Success(body) => {
+                                *response.status_mut() = StatusCode::from_u16(200)
+                                    .expect("Unable to turn 200 into a StatusCode");
+                                response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for VERSION_POST_SUCCESS"));
+                                let body = serde_json::to_string(&body)
+                                    .expect("impossible to fail to serialize");
+                                *response.body_mut() = Body::from(body);
+                            }
+                        },
+                        Err(_) => {
+                            // Application code returned an error. This should not happen, as the implementation should
+                            // return a valid response.
+                            *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                            *response.body_mut() = Body::from("An internal error occurred");
+                        }
+                    }
+
+                    Ok(response)
+                }
+
                 _ if path.matched(paths::ID_EVENTS) => method_not_allowed(),
                 _ if path.matched(paths::ID_SUBSCRIBE_SORT_KEY_SORT_VALUE) => method_not_allowed(),
+                _ if path.matched(paths::ID_VERSION) => method_not_allowed(),
                 _ => Ok(Response::builder()
                     .status(StatusCode::NOT_FOUND)
                     .body(Body::empty())
@@ -419,6 +463,8 @@ impl<T> RequestParser<T> for ApiRequestParser {
             hyper::Method::GET if path.matched(paths::ID_SUBSCRIBE_SORT_KEY_SORT_VALUE) => {
                 Some("SubscribeSortKeySortValueGet")
             }
+            // VersionPost - POST /version
+            hyper::Method::POST if path.matched(paths::ID_VERSION) => Some("VersionPost"),
             _ => None,
         }
     }

@@ -26,7 +26,7 @@ use tracing::{debug, info};
 
 use ceramic_api_server::{
     models::{self, Event},
-    EventsPostResponse, SubscribeSortKeySortValueGetResponse,
+    EventsPostResponse, SubscribeSortKeySortValueGetResponse, VersionPostResponse,
 };
 use ceramic_core::{EventId, Interest, Network, PeerId, StreamId};
 
@@ -106,9 +106,16 @@ where
     I: Recon<Key = Interest> + Sync,
     M: Recon<Key = EventId> + Sync,
 {
+    async fn version_post(&self, _context: &C) -> Result<VersionPostResponse, ApiError> {
+        let resp = VersionPostResponse::Success(models::Version {
+            version: Some(ceramic_metadata::Version::default().version),
+        });
+        Ok(resp)
+    }
+
     async fn events_post(
         &self,
-        event: models::Event,
+        event: Event,
         _context: &C,
     ) -> Result<EventsPostResponse, ApiError> {
         debug!(event_id = event.event_id, "events_post");

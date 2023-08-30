@@ -34,6 +34,12 @@ pub enum SubscribeSortKeySortValueGetResponse {
     Success(Vec<models::Event>),
 }
 
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub enum VersionPostResponse {
+    /// success
+    Success(models::Version),
+}
+
 /// API
 #[async_trait]
 #[allow(clippy::too_many_arguments, clippy::ptr_arg)]
@@ -63,6 +69,9 @@ pub trait Api<C: Send + Sync> {
         limit: Option<f64>,
         context: &C,
     ) -> Result<SubscribeSortKeySortValueGetResponse, ApiError>;
+
+    /// Get the version of the Ceramic node
+    async fn version_post(&self, context: &C) -> Result<VersionPostResponse, ApiError>;
 }
 
 /// API where `Context` isn't passed on every API call
@@ -89,6 +98,9 @@ pub trait ApiNoContext<C: Send + Sync> {
         offset: Option<f64>,
         limit: Option<f64>,
     ) -> Result<SubscribeSortKeySortValueGetResponse, ApiError>;
+
+    /// Get the version of the Ceramic node
+    async fn version_post(&self) -> Result<VersionPostResponse, ApiError>;
 }
 
 /// Trait to extend an API to make it easy to bind it to a context.
@@ -138,6 +150,12 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
                 sort_key, sort_value, controller, stream_id, offset, limit, &context,
             )
             .await
+    }
+
+    /// Get the version of the Ceramic node
+    async fn version_post(&self) -> Result<VersionPostResponse, ApiError> {
+        let context = self.context().clone();
+        self.api().version_post(&context).await
     }
 }
 

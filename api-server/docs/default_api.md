@@ -6,6 +6,7 @@ Method | HTTP request | Description
 ------------- | ------------- | -------------
 ****](default_api.md#) | **POST** /events | Creates a new event
 ****](default_api.md#) | **GET** /subscribe/{sort_key}/{sort_value} | Get events for a stream
+****](default_api.md#) | **POST** /version | Get the version of the Ceramic node
 
 
 # ****
@@ -60,6 +61,28 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**Vec<models::Event>**](Event.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# ****
+> models::Version ()
+Get the version of the Ceramic node
+
+### Required Parameters
+This endpoint does not need any parameter.
+
+### Return type
+
+[**models::Version**](Version.md)
 
 ### Authorization
 

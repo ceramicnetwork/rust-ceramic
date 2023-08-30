@@ -15,6 +15,16 @@ servers:
   - url: /ceramic
 
 paths:
+  /version:
+    post:
+      summary: Get the version of the Ceramic node
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Version'
+          description: success
   '/subscribe/{sort_key}/{sort_value}':
     get:
       summary: Get events for a stream
@@ -83,6 +93,14 @@ components:
       description: Event to add to the node
       required: true
   schemas:
+    Version:
+      description: Version of the Ceramic node
+      example:
+        version: 2.1.0
+      properties:
+        version:
+          type: string
+          description: Version of the Ceramic node
     Event:
       title: A Ceramic Event
       description: A Ceramic event as part of a Ceramic Stream
