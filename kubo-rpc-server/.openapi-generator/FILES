@@ -16,7 +16,8 @@ docs/IdPost200Response.md
 docs/Multihash.md
 docs/PinAddPost200Response.md
 docs/PubsubLsPost200Response.md
-docs/SwarmPeersPost200ResponseInner.md
+docs/SwarmPeersPost200Response.md
+docs/SwarmPeersPost200ResponsePeersInner.md
 docs/VersionPost200Response.md
 docs/default_api.md
 examples/ca.pem

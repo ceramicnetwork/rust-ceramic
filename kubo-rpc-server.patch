@@ -1,5 +1,5 @@
 diff --git b/kubo-rpc-server/src/client/mod.rs a/kubo-rpc-server/src/client/mod.rs
-index ddb7167..916bd17 100644
+index 19eff91..f78219b 100644
 --- b/kubo-rpc-server/src/client/mod.rs
 +++ a/kubo-rpc-server/src/client/mod.rs
 @@ -1,7 +1,7 @@
@@ -28,7 +28,7 @@ index ddb7167..916bd17 100644
              400 => {
                  let body = response.into_body();
 diff --git b/kubo-rpc-server/src/lib.rs a/kubo-rpc-server/src/lib.rs
-index deb1393..9224938 100644
+index a438acd..68c986c 100644
 --- b/kubo-rpc-server/src/lib.rs
 +++ a/kubo-rpc-server/src/lib.rs
 @@ -11,7 +11,8 @@
@@ -69,7 +69,7 @@ index deb1393..9224938 100644
  #[must_use]
  pub enum SwarmConnectPostResponse {
 diff --git b/kubo-rpc-server/src/models.rs a/kubo-rpc-server/src/models.rs
-index e1080e6..60ba5e5 100644
+index 20d075b..7a6d6b8 100644
 --- b/kubo-rpc-server/src/models.rs
 +++ a/kubo-rpc-server/src/models.rs
 @@ -1037,7 +1037,7 @@ pub struct Error {

@@ -1720,7 +1720,139 @@ impl std::convert::TryFrom<hyper::header::HeaderValue>
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]
-pub struct SwarmPeersPost200ResponseInner {
+pub struct SwarmPeersPost200Response {
+    #[serde(rename = "Peers")]
+    pub peers: Vec<models::SwarmPeersPost200ResponsePeersInner>,
+}
+
+impl SwarmPeersPost200Response {
+    #[allow(clippy::new_without_default)]
+    pub fn new(
+        peers: Vec<models::SwarmPeersPost200ResponsePeersInner>,
+    ) -> SwarmPeersPost200Response {
+        SwarmPeersPost200Response { peers }
+    }
+}
+
+/// Converts the SwarmPeersPost200Response value to the Query Parameters representation (style=form, explode=false)
+/// specified in https://swagger.io/docs/specification/serialization/
+/// Should be implemented in a serde serializer
+impl std::string::ToString for SwarmPeersPost200Response {
+    fn to_string(&self) -> String {
+        let params: Vec<Option<String>> = vec![
+            // Skipping Peers in query parameter serialization
+
+        ];
+
+        params.into_iter().flatten().collect::<Vec<_>>().join(",")
+    }
+}
+
+/// Converts Query Parameters representation (style=form, explode=false) to a SwarmPeersPost200Response value
+/// as specified in https://swagger.io/docs/specification/serialization/
+/// Should be implemented in a serde deserializer
+impl std::str::FromStr for SwarmPeersPost200Response {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        /// An intermediate representation of the struct to use for parsing.
+        #[derive(Default)]
+        #[allow(dead_code)]
+        struct IntermediateRep {
+            pub peers: Vec<Vec<models::SwarmPeersPost200ResponsePeersInner>>,
+        }
+
+        let mut intermediate_rep = IntermediateRep::default();
+
+        // Parse into intermediate representation
+        let mut string_iter = s.split(',');
+        let mut key_result = string_iter.next();
+
+        while key_result.is_some() {
+            let val = match string_iter.next() {
+                Some(x) => x,
+                None => {
+                    return std::result::Result::Err(
+                        "Missing value while parsing SwarmPeersPost200Response".to_string(),
+                    )
+                }
+            };
+
+            if let Some(key) = key_result {
+                #[allow(clippy::match_single_binding)]
+                match key {
+                    "Peers" => return std::result::Result::Err("Parsing a container in this style is not supported in SwarmPeersPost200Response".to_string()),
+                    _ => return std::result::Result::Err("Unexpected key while parsing SwarmPeersPost200Response".to_string())
+                }
+            }
+
+            // Get the next key
+            key_result = string_iter.next();
+        }
+
+        // Use the intermediate representation to return the struct
+        std::result::Result::Ok(SwarmPeersPost200Response {
+            peers: intermediate_rep
+                .peers
+                .into_iter()
+                .next()
+                .ok_or_else(|| "Peers missing in SwarmPeersPost200Response".to_string())?,
+        })
+    }
+}
+
+// Methods for converting between header::IntoHeaderValue<SwarmPeersPost200Response> and hyper::header::HeaderValue
+
+#[cfg(any(feature = "client", feature = "server"))]
+impl std::convert::TryFrom<header::IntoHeaderValue<SwarmPeersPost200Response>>
+    for hyper::header::HeaderValue
+{
+    type Error = String;
+
+    fn try_from(
+        hdr_value: header::IntoHeaderValue<SwarmPeersPost200Response>,
+    ) -> std::result::Result<Self, Self::Error> {
+        let hdr_value = hdr_value.to_string();
+        match hyper::header::HeaderValue::from_str(&hdr_value) {
+            std::result::Result::Ok(value) => std::result::Result::Ok(value),
+            std::result::Result::Err(e) => std::result::Result::Err(format!(
+                "Invalid header value for SwarmPeersPost200Response - value: {} is invalid {}",
+                hdr_value, e
+            )),
+        }
+    }
+}
+
+#[cfg(any(feature = "client", feature = "server"))]
+impl std::convert::TryFrom<hyper::header::HeaderValue>
+    for header::IntoHeaderValue<SwarmPeersPost200Response>
+{
+    type Error = String;
+
+    fn try_from(hdr_value: hyper::header::HeaderValue) -> std::result::Result<Self, Self::Error> {
+        match hdr_value.to_str() {
+            std::result::Result::Ok(value) => {
+                match <SwarmPeersPost200Response as std::str::FromStr>::from_str(value) {
+                    std::result::Result::Ok(value) => {
+                        std::result::Result::Ok(header::IntoHeaderValue(value))
+                    }
+                    std::result::Result::Err(err) => std::result::Result::Err(format!(
+                        "Unable to convert header value '{}' into SwarmPeersPost200Response - {}",
+                        value, err
+                    )),
+                }
+            }
+            std::result::Result::Err(e) => std::result::Result::Err(format!(
+                "Unable to convert header: {:?} to string: {}",
+                hdr_value, e
+            )),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]
+pub struct SwarmPeersPost200ResponsePeersInner {
     #[serde(rename = "Addr")]
     pub addr: String,
 
@@ -1728,17 +1860,17 @@ pub struct SwarmPeersPost200ResponseInner {
     pub peer: String,
 }
 
-impl SwarmPeersPost200ResponseInner {
+impl SwarmPeersPost200ResponsePeersInner {
     #[allow(clippy::new_without_default)]
-    pub fn new(addr: String, peer: String) -> SwarmPeersPost200ResponseInner {
-        SwarmPeersPost200ResponseInner { addr, peer }
+    pub fn new(addr: String, peer: String) -> SwarmPeersPost200ResponsePeersInner {
+        SwarmPeersPost200ResponsePeersInner { addr, peer }
     }
 }
 
-/// Converts the SwarmPeersPost200ResponseInner value to the Query Parameters representation (style=form, explode=false)
+/// Converts the SwarmPeersPost200ResponsePeersInner value to the Query Parameters representation (style=form, explode=false)
 /// specified in https://swagger.io/docs/specification/serialization/
 /// Should be implemented in a serde serializer
-impl std::string::ToString for SwarmPeersPost200ResponseInner {
+impl std::string::ToString for SwarmPeersPost200ResponsePeersInner {
     fn to_string(&self) -> String {
         let params: Vec<Option<String>> = vec![
             Some("Addr".to_string()),
@@ -1751,10 +1883,10 @@ impl std::string::ToString for SwarmPeersPost200ResponseInner {
     }
 }
 
-/// Converts Query Parameters representation (style=form, explode=false) to a SwarmPeersPost200ResponseInner value
+/// Converts Query Parameters representation (style=form, explode=false) to a SwarmPeersPost200ResponsePeersInner value
 /// as specified in https://swagger.io/docs/specification/serialization/
 /// Should be implemented in a serde deserializer
-impl std::str::FromStr for SwarmPeersPost200ResponseInner {
+impl std::str::FromStr for SwarmPeersPost200ResponsePeersInner {
     type Err = String;
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
@@ -1777,7 +1909,8 @@ impl std::str::FromStr for SwarmPeersPost200ResponseInner {
                 Some(x) => x,
                 None => {
                     return std::result::Result::Err(
-                        "Missing value while parsing SwarmPeersPost200ResponseInner".to_string(),
+                        "Missing value while parsing SwarmPeersPost200ResponsePeersInner"
+                            .to_string(),
                     )
                 }
             };
@@ -1795,7 +1928,7 @@ impl std::str::FromStr for SwarmPeersPost200ResponseInner {
                     ),
                     _ => {
                         return std::result::Result::Err(
-                            "Unexpected key while parsing SwarmPeersPost200ResponseInner"
+                            "Unexpected key while parsing SwarmPeersPost200ResponsePeersInner"
                                 .to_string(),
                         )
                     }
@@ -1807,56 +1940,55 @@ impl std::str::FromStr for SwarmPeersPost200ResponseInner {
         }
 
         // Use the intermediate representation to return the struct
-        std::result::Result::Ok(SwarmPeersPost200ResponseInner {
+        std::result::Result::Ok(SwarmPeersPost200ResponsePeersInner {
             addr: intermediate_rep
                 .addr
                 .into_iter()
                 .next()
-                .ok_or_else(|| "Addr missing in SwarmPeersPost200ResponseInner".to_string())?,
+                .ok_or_else(|| "Addr missing in SwarmPeersPost200ResponsePeersInner".to_string())?,
             peer: intermediate_rep
                 .peer
                 .into_iter()
                 .next()
-                .ok_or_else(|| "Peer missing in SwarmPeersPost200ResponseInner".to_string())?,
+                .ok_or_else(|| "Peer missing in SwarmPeersPost200ResponsePeersInner".to_string())?,
         })
     }
 }
 
-// Methods for converting between header::IntoHeaderValue<SwarmPeersPost200ResponseInner> and hyper::header::HeaderValue
+// Methods for converting between header::IntoHeaderValue<SwarmPeersPost200ResponsePeersInner> and hyper::header::HeaderValue
 
 #[cfg(any(feature = "client", feature = "server"))]
-impl std::convert::TryFrom<header::IntoHeaderValue<SwarmPeersPost200ResponseInner>>
+impl std::convert::TryFrom<header::IntoHeaderValue<SwarmPeersPost200ResponsePeersInner>>
     for hyper::header::HeaderValue
 {
     type Error = String;
 
     fn try_from(
-        hdr_value: header::IntoHeaderValue<SwarmPeersPost200ResponseInner>,
+        hdr_value: header::IntoHeaderValue<SwarmPeersPost200ResponsePeersInner>,
     ) -> std::result::Result<Self, Self::Error> {
         let hdr_value = hdr_value.to_string();
         match hyper::header::HeaderValue::from_str(&hdr_value) {
-            std::result::Result::Ok(value) => std::result::Result::Ok(value),
-            std::result::Result::Err(e) => std::result::Result::Err(format!(
-                "Invalid header value for SwarmPeersPost200ResponseInner - value: {} is invalid {}",
-                hdr_value, e
-            )),
+             std::result::Result::Ok(value) => std::result::Result::Ok(value),
+             std::result::Result::Err(e) => std::result::Result::Err(
+                 format!("Invalid header value for SwarmPeersPost200ResponsePeersInner - value: {} is invalid {}",
+                     hdr_value, e))
         }
     }
 }
 
 #[cfg(any(feature = "client", feature = "server"))]
 impl std::convert::TryFrom<hyper::header::HeaderValue>
-    for header::IntoHeaderValue<SwarmPeersPost200ResponseInner>
+    for header::IntoHeaderValue<SwarmPeersPost200ResponsePeersInner>
 {
     type Error = String;
 
     fn try_from(hdr_value: hyper::header::HeaderValue) -> std::result::Result<Self, Self::Error> {
         match hdr_value.to_str() {
              std::result::Result::Ok(value) => {
-                    match <SwarmPeersPost200ResponseInner as std::str::FromStr>::from_str(value) {
+                    match <SwarmPeersPost200ResponsePeersInner as std::str::FromStr>::from_str(value) {
                         std::result::Result::Ok(value) => std::result::Result::Ok(header::IntoHeaderValue(value)),
                         std::result::Result::Err(err) => std::result::Result::Err(
-                            format!("Unable to convert header value '{}' into SwarmPeersPost200ResponseInner - {}",
+                            format!("Unable to convert header value '{}' into SwarmPeersPost200ResponsePeersInner - {}",
                                 value, err))
                     }
              },

@@ -15,7 +15,7 @@ To see how to make this your own, look here:
 [README]((https://openapi-generator.tech))
 
 - API version: 0.1.0
-- Build date: 2023-08-30T10:54:27.367-06:00[America/Denver]
+- Build date: 2023-08-30T16:59:47.807386943-06:00[America/Denver]
 
 
 
@@ -144,7 +144,8 @@ Method | HTTP request | Description
  - [Multihash](docs/Multihash.md)
  - [PinAddPost200Response](docs/PinAddPost200Response.md)
  - [PubsubLsPost200Response](docs/PubsubLsPost200Response.md)
- - [SwarmPeersPost200ResponseInner](docs/SwarmPeersPost200ResponseInner.md)
+ - [SwarmPeersPost200Response](docs/SwarmPeersPost200Response.md)
+ - [SwarmPeersPost200ResponsePeersInner](docs/SwarmPeersPost200ResponsePeersInner.md)
  - [VersionPost200Response](docs/VersionPost200Response.md)
 
 

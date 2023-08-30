@@ -393,9 +393,7 @@ paths:
           content:
             application/json:
               schema:
-                items:
-                  $ref: '#/components/schemas/_swarm_peers_post_200_response_inner'
-                type: array
+                $ref: '#/components/schemas/_swarm_peers_post_200_response'
           description: success
         "400":
           content:
@@ -618,7 +616,7 @@ components:
       required:
       - Strings
       type: object
-    _swarm_peers_post_200_response_inner:
+    _swarm_peers_post_200_response_Peers_inner:
       example:
         Peer: Peer
         Addr: Addr
@@ -630,6 +628,21 @@ components:
       required:
       - Addr
       - Peer
+      type: object
+    _swarm_peers_post_200_response:
+      example:
+        Peers:
+        - Peer: Peer
+          Addr: Addr
+        - Peer: Peer
+          Addr: Addr
+      properties:
+        Peers:
+          items:
+            $ref: '#/components/schemas/_swarm_peers_post_200_response_Peers_inner'
+          type: array
+      required:
+      - Peers
       type: object
     _version_post_200_response:
       example:
