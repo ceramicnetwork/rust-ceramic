@@ -418,7 +418,7 @@ No authorization required
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
 # ****
-> Vec<models::SwarmPeersPost200ResponseInner> ()
+> models::SwarmPeersPost200Response ()
 Report connected peers
 
 ### Required Parameters
@@ -426,7 +426,7 @@ This endpoint does not need any parameter.
 
 ### Return type
 
-[**Vec<models::SwarmPeersPost200ResponseInner>**](_swarm_peers_post_200_response_inner.md)
+[**models::SwarmPeersPost200Response**](_swarm_peers_post_200_response.md)
 
 ### Authorization
 

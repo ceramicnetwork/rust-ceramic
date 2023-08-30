@@ -7,8 +7,8 @@ use ceramic_kubo_rpc_server::{
         self, BlockPutPost200Response, Codecs, DagImportPost200Response,
         DagImportPost200ResponseRoot, DagImportPost200ResponseRootCid, DagPutPost200Response,
         DagResolvePost200Response, DagResolvePost200ResponseCid, IdPost200Response, Multihash,
-        PinAddPost200Response, PubsubLsPost200Response, SwarmPeersPost200ResponseInner,
-        VersionPost200Response,
+        PinAddPost200Response, PubsubLsPost200Response, SwarmPeersPost200Response,
+        SwarmPeersPost200ResponsePeersInner, VersionPost200Response,
     },
     Api, BlockGetPostResponse, BlockPutPostResponse, BlockStatPostResponse, DagGetPostResponse,
     DagImportPostResponse, DagPutPostResponse, DagResolvePostResponse, IdPostResponse,
@@ -473,11 +473,11 @@ where
     }
 
     async fn swarm_peers_post(&self, _context: &C) -> Result<SwarmPeersPostResponse, ApiError> {
-        let peers: Vec<SwarmPeersPost200ResponseInner> = swarm::peers(self.ipfs.clone())
+        let peers: Vec<SwarmPeersPost200ResponsePeersInner> = swarm::peers(self.ipfs.clone())
             .await
             .map_err(to_api_error)?
             .into_iter()
-            .map(|(k, v)| SwarmPeersPost200ResponseInner {
+            .map(|(k, v)| SwarmPeersPost200ResponsePeersInner {
                 addr: v
                     .get(0)
                     .map(|a| a.to_string())
@@ -485,7 +485,9 @@ where
                 peer: k.to_string(),
             })
             .collect();
-        Ok(SwarmPeersPostResponse::Success(peers))
+        Ok(SwarmPeersPostResponse::Success(SwarmPeersPost200Response {
+            peers,
+        }))
     }
 
     async fn version_post(&self, _context: &C) -> Result<VersionPostResponse, ApiError> {
@@ -1471,16 +1473,18 @@ mod tests {
 
         expect![[r#"
             Success(
-                [
-                    SwarmPeersPost200ResponseInner {
-                        addr: "/ip4/95.211.198.178/udp/4001/quic",
-                        peer: "12D3KooWBSyp3QZQBFakvXT2uqT2L5ZmTNnpYNXgyVZq5YB3P7DU",
-                    },
-                    SwarmPeersPost200ResponseInner {
-                        addr: "/ip4/98.165.227.74/udp/15685/quic",
-                        peer: "12D3KooWRyGSRzzEBpHbHyRkGTgCpXuoRMQgYrqk7tFQzM3AFEWp",
-                    },
-                ],
+                SwarmPeersPost200Response {
+                    peers: [
+                        SwarmPeersPost200ResponsePeersInner {
+                            addr: "/ip4/95.211.198.178/udp/4001/quic",
+                            peer: "12D3KooWBSyp3QZQBFakvXT2uqT2L5ZmTNnpYNXgyVZq5YB3P7DU",
+                        },
+                        SwarmPeersPost200ResponsePeersInner {
+                            addr: "/ip4/98.165.227.74/udp/15685/quic",
+                            peer: "12D3KooWRyGSRzzEBpHbHyRkGTgCpXuoRMQgYrqk7tFQzM3AFEWp",
+                        },
+                    ],
+                },
             )
         "#]]
         .assert_debug_eq(&resp);

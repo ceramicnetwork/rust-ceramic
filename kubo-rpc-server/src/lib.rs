@@ -162,7 +162,7 @@ pub enum SwarmConnectPostResponse {
 #[must_use]
 pub enum SwarmPeersPostResponse {
     /// success
-    Success(Vec<models::SwarmPeersPost200ResponseInner>),
+    Success(models::SwarmPeersPost200Response),
     /// bad request
     BadRequest(models::Error),
 }

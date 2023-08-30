@@ -2044,11 +2044,10 @@ where
                     .await?;
                 let body = str::from_utf8(&body)
                     .map_err(|e| ApiError(format!("Response was not valid UTF8: {}", e)))?;
-                let body =
-                    serde_json::from_str::<Vec<models::SwarmPeersPost200ResponseInner>>(body)
-                        .map_err(|e| {
-                            ApiError(format!("Response body did not match the schema: {}", e))
-                        })?;
+                let body = serde_json::from_str::<models::SwarmPeersPost200Response>(body)
+                    .map_err(|e| {
+                        ApiError(format!("Response body did not match the schema: {}", e))
+                    })?;
                 Ok(SwarmPeersPostResponse::Success(body))
             }
             400 => {
