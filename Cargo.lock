@@ -1145,6 +1145,7 @@ dependencies = [
  "async-trait",
  "ceramic-api-server",
  "ceramic-core",
+ "ceramic-metadata",
  "expect-test",
  "futures",
  "hyper",

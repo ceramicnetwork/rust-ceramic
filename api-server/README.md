@@ -15,7 +15,7 @@ To see how to make this your own, look here:
 [README]((https://openapi-generator.tech))
 
 - API version: 0.1.0
-- Build date: 2023-08-22T16:08:41.733719914-06:00[America/Denver]
+- Build date: 2023-08-30T15:31:27.893-06:00[America/Denver]
 
 
 
@@ -63,6 +63,7 @@ To run a client, follow one of the following simple steps:
 
 ```
 cargo run --example client SubscribeSortKeySortValueGet
+cargo run --example client VersionPost
 ```
 
 ### HTTPS
@@ -98,11 +99,13 @@ Method | HTTP request | Description
 ------------- | ------------- | -------------
 [****](docs/default_api.md#) | **POST** /events | Creates a new event
 [****](docs/default_api.md#) | **GET** /subscribe/{sort_key}/{sort_value} | Get events for a stream
+[****](docs/default_api.md#) | **POST** /version | Get the version of the Ceramic node
 
 
 ## Documentation For Models
 
  - [Event](docs/Event.md)
+ - [Version](docs/Version.md)
 
 
 ## Documentation For Authorization

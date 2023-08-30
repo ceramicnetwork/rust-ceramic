@@ -12,6 +12,7 @@ anyhow.workspace = true
 async-trait.workspace = true
 ceramic-api-server.workspace = true
 ceramic-core.workspace = true
+ceramic-metadata.workspace = true
 futures.workspace = true
 hyper.workspace = true
 multibase.workspace = true

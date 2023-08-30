@@ -100,7 +100,9 @@ impl<C> Server<C> {
 }
 
 use ceramic_api_server::server::MakeService;
-use ceramic_api_server::{Api, EventsPostResponse, SubscribeSortKeySortValueGetResponse};
+use ceramic_api_server::{
+    Api, EventsPostResponse, SubscribeSortKeySortValueGetResponse, VersionPostResponse,
+};
 use std::error::Error;
 use swagger::ApiError;
 
@@ -137,6 +139,13 @@ where
     ) -> Result<SubscribeSortKeySortValueGetResponse, ApiError> {
         let context = context.clone();
         info!("subscribe_sort_key_sort_value_get(\"{}\", \"{}\", {:?}, {:?}, {:?}, {:?}) - X-Span-ID: {:?}", sort_key, sort_value, controller, stream_id, offset, limit, context.get().0.clone());
+        Err(ApiError("Generic failure".into()))
+    }
+
+    /// Get the version of the Ceramic node
+    async fn version_post(&self, context: &C) -> Result<VersionPostResponse, ApiError> {
+        let context = context.clone();
+        info!("version_post() - X-Span-ID: {:?}", context.get().0.clone());
         Err(ApiError("Generic failure".into()))
     }
 }
