@@ -1,0 +1,8 @@
+-t deb
+-s dir
+--name ceramic-one
+--license mit
+--architecture all
+--description "Ceramic API Server"
+--url "https://ceramic.network"
+--maintainer "3Box Labs <support@3box.com>"

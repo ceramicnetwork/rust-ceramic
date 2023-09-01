@@ -1,0 +1,105 @@
+# CI that:
+#
+# * checks for a Git Tag that looks like a release ("v1.2.0")
+# * creates a Github Release™️
+# * builds binaries/packages with cargo-dist
+# * uploads those packages to the Github Release™️
+#
+# Note that the Github Release™️ will be created before the packages,
+# so there will be a few minutes where the release has no packages
+# and then they will slowly trickle in, possibly failing. To make
+# this more pleasant we mark the release as a "draft" until all
+# artifacts have been successfully uploaded. This allows you to
+# choose what to do with partial successes and avoids spamming
+# anyone with notifications before the release is actually ready.
+name: Release
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      level:
+        description: 'Release level'
+        required: true
+        default: 'minor'
+        type: choice
+        options:
+        - patch
+        - minor
+        - major
+
+jobs:
+  # Build and packages all the things
+  build-binaries:
+    strategy:
+      matrix:
+        # For these target platforms
+        include:
+        - target: x86_64-unknown-linux-gnu
+          os: ubuntu-latest
+          arch: x86_64
+          ext: deb
+        - target: x86_64-apple-darwin
+          os: macos-latest
+          arch: x86_64
+          ext: pkg
+        - target: aarch64-apple-darwin
+          os: macos-latest
+          config-file: fpm/osx.fpm
+          arch: aarch64
+          ext: pkg
+        #- target: x86_64-pc-windows-msvc
+        #  os: windows-latest
+    runs-on: ${{ matrix.os }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Rust
+        run: |
+          rustup update stable
+          rustup default stable
+      - name: Setup target
+        run: rustup target add ${{ matrix.target }}
+      - name: Install ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2' # Not needed with a .ruby-version file
+          bundler-cache: true # runs 'bundle install' and caches installed gems automatically
+      - name: Install fpm
+        run: |
+          gem install fpm
+      - name: Run package script
+        run: |
+          ./ci-scripts/packages.sh --arch ${{ matrix.arch }} --ext ${{ matrix.ext }}
+      - name: Archive artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ceramic-one_${{ matrix.target }}
+          path: ceramic-one.${{ matrix.ext }}
+
+  release:
+    needs: [build-binaries]
+    runs-on: ubuntu-latest
+    env:
+      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v3
+        with:
+          path: artifacts
+      - name: check artifacts
+        run: |
+          ls artifacts/**/*
+      - id: install-cargo-release
+        uses: taiki-e/install-action@v1
+        with:
+          tool: cargo-release
+      - id: release
+        run: |
+          ./ci-scripts/release.sh --level ${{ inputs.level }}

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Script to generate kubo-server crate from OpenAPI definition.
 
 set -e
