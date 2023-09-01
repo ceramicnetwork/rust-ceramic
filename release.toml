@@ -1,0 +1,7 @@
+consolidate-commits = true
+allow-branch = ["main"]
+tag-name = "{{prefix}}v{{prev_version}}"
+pre-release-replacements = [
+    {file="../api/ceramic.yaml", search="version: .*", replace="version: {{version}}"},
+    {file="../kubo-rpc/kubo-rpc.yaml", search="version: .*", replace="version: {{version}}"},
+]

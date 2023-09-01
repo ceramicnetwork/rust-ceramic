@@ -6,6 +6,7 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 build = "build.rs"
+publish = false
 
 [dependencies]
 serde.workspace = true
