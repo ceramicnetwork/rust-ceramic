@@ -1,0 +1,22 @@
+[package]
+name = "iroh-rpc-types"
+authors = ["Friedel Ziegelmayer <me@dignifiedquire.com>", "ramfox"]
+description = "RPC type definitions for iroh"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+bytes = { workspace = true, features = ["serde"] }
+cid = { workspace = true, features = ["serde-codec"] }
+derive_more.workspace = true
+futures.workspace = true
+libp2p = { workspace = true, features = ["serde", "gossipsub"] }
+quic-rpc.workspace = true
+serde.workspace = true
+serde-error.workspace = true
+serde_with.workspace = true
+tokio = { workspace = true, default-features = false }

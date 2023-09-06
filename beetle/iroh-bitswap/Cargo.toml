@@ -1,0 +1,57 @@
+[package]
+name = "iroh-bitswap"
+authors = ["dignifiedquire <me@dignifiedquire.com>"]
+description = "Implementation of the bitswap protocol"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[build-dependencies]
+prost-build.workspace = true
+
+[dependencies]
+ahash.workspace = true
+anyhow.workspace = true
+async-broadcast.workspace = true
+async-channel.workspace = true
+async-stream.workspace = true
+async-trait.workspace = true
+asynchronous-codec.workspace = true
+bytes.workspace = true
+cid.workspace = true
+deadqueue.workspace = true
+derivative.workspace = true
+futures.workspace = true
+iroh-metrics = { workspace = true, features = ["bitswap"] }
+iroh-util.workspace = true
+keyed_priority_queue.workspace = true
+libp2p = { workspace = true, features = ["ping"] }
+multihash.workspace = true
+names.workspace = true
+num_enum.workspace = true
+once_cell.workspace = true
+prost.workspace = true
+rand.workspace = true
+smallvec.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["sync"] }
+tokio-context.workspace = true
+tokio-stream.workspace = true
+tracing.workspace = true
+unsigned-varint = { workspace = true, features = ["asynchronous_codec"] }
+wasm-timer.workspace = true
+libp2p-identity.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+libp2p = { workspace = true, features = ["yamux", "noise", "tcp", "tokio"] }
+tokio = { workspace = true, features = ["macros", "net", "rt"] }
+tokio-util = { workspace = true, features = ["compat"] }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+
+
+[[bench]]
+name = "message"
+harness = false
