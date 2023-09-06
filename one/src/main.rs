@@ -99,6 +99,10 @@ struct DaemonOpts {
     /// When true mdns will be used to discover peers.
     #[arg(long, default_value_t = false, env = "CERAMIC_ONE_MDNS")]
     mdns: bool,
+
+    /// When true Recon will be used to synchronized events with peers.
+    #[arg(long, default_value_t = false, env = "CERAMIC_ONE_RECON")]
+    recon: bool,
 }
 
 #[derive(ValueEnum, Debug, Clone)]
@@ -251,25 +255,23 @@ impl Daemon {
         // Construct a recon implementation for interests.
         let mut recon_interest =
             Server::new(Recon::new(interest_store, InterestInterest::default()));
-        let recon_interest_client = recon_interest.client();
 
         // Construct a recon implementation for models.
         let mut recon_model = Server::new(Recon::new(
             model_store,
             // Use recon interests as the InterestProvider for recon_model
-            ModelInterest::new(peer_id, recon_interest_client.clone()),
+            ModelInterest::new(peer_id, recon_interest.client()),
         ));
-        let recon_model_client = recon_model.client();
 
+        let recons = if opts.recon {
+            Some((recon_interest.client(), recon_model.client()))
+        } else {
+            None
+        };
         let ipfs = Ipfs::builder()
             .with_store(dir.join("store"))
             .await?
-            .with_p2p(
-                p2p_config,
-                keypair,
-                Some((recon_interest_client, recon_model_client)),
-                &network.name(),
-            )
+            .with_p2p(p2p_config, keypair, recons, &network.name())
             .await?
             .build()
             .await?;
