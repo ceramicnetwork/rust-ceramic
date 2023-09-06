@@ -1,0 +1,63 @@
+[package]
+name = "iroh-metrics"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+readme = "README.md"
+description = "Iroh metrics"
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+config.workspace = true
+console-subscriber = { workspace = true, optional = true }
+iroh-util.workspace = true
+lazy_static.workspace = true
+names.workspace = true
+opentelemetry = { workspace = true, features = ["rt-tokio"] }
+opentelemetry-otlp = { workspace = true, features = ["tonic"] }
+paste.workspace = true
+prometheus-client.workspace = true
+reqwest = { workspace = true, features = ["rustls-tls"] }
+serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = [
+    "macros",
+    "rt-multi-thread",
+    "process",
+] }
+tracing.workspace = true
+tracing-opentelemetry.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+
+[dependencies.libp2p]
+workspace = true
+features = [
+    "gossipsub",
+    "kad",
+    "identify",
+    "ping",
+    "mdns",
+    "noise",
+    "yamux",
+    "tcp",
+    "dns",
+    "mplex",
+    "request-response",
+    "websocket",
+    "serde",
+    "metrics",
+    "relay",
+    "dcutr",
+    "autonat",
+    "tokio",
+]
+optional = true
+
+[features]
+bitswap = []
+store = []
+p2p = ["libp2p"]
+
+# requires setting RUSTFLAGS="--cfg tokio_unstable"
+tokio-console = ["tokio/tracing", "console-subscriber"]

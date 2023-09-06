@@ -1080,6 +1080,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "camino"
+version = "1.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c59e92b5a388f549b863a7bea62612c09f24c8393560709a54558a9abdfb3b9c"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "cargo-lock"
 version = "9.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1089,6 +1098,28 @@ dependencies = [
  "serde",
  "toml 0.7.6",
  "url",
+]
+
+[[package]]
+name = "cargo-platform"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2cfa25e60aea747ec7e1124f238816749faa93759c6ff5b31f1ccdda137f4479"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "cargo_metadata"
+version = "0.14.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4acbb09d9ee8e23699b9634375c72795d095bf268439da88562cf9b501f181fa"
+dependencies = [
+ "camino",
+ "cargo-platform",
+ "semver",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1731,6 +1762,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "console-api"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c2895653b4d9f1538a83970077cb01dfc77a4810524e51a110944688e916b18e"
+dependencies = [
+ "prost",
+ "prost-types",
+ "tonic 0.9.2",
+ "tracing-core",
+]
+
+[[package]]
+name = "console-subscriber"
+version = "0.1.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d4cf42660ac07fcebed809cfe561dd8730bcd35b075215e6479c516bcd0d11cb"
+dependencies = [
+ "console-api",
+ "crossbeam-channel",
+ "crossbeam-utils",
+ "futures",
+ "hdrhistogram",
+ "humantime 2.1.0",
+ "prost-types",
+ "serde",
+ "serde_json",
+ "thread_local",
+ "tokio",
+ "tokio-stream",
+ "tonic 0.9.2",
+ "tracing",
+ "tracing-core",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "const-oid"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1842,6 +1909,7 @@ dependencies = [
  "ciborium",
  "clap 3.2.25",
  "criterion-plot",
+ "futures",
  "itertools 0.10.5",
  "lazy_static",
  "num-traits",
@@ -1853,6 +1921,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "tinytemplate",
+ "tokio",
  "walkdir",
 ]
 
@@ -2641,7 +2710,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "44533bbbb3bb3c1fa17d9f2e4e38bbbaf8396ba82193c4cb1b6445d711445d36"
 dependencies = [
  "atty",
- "humantime",
+ "humantime 1.3.0",
  "log 0.4.20",
  "regex",
  "termcolor",
@@ -3295,6 +3364,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "hdrhistogram"
+version = "7.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f19b9f54f7c7f55e31401bb647626ce0cf0f67b0004982ce815b3ee72a02aa8"
+dependencies = [
+ "base64 0.13.1",
+ "byteorder 1.4.3",
+ "flate2",
+ "nom",
+ "num-traits",
+]
+
+[[package]]
 name = "heck"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3429,6 +3511,12 @@ checksum = "df004cfca50ef23c36850aaaa59ad52cc70d0e90243c3c7737a4dd32dc7a3c4f"
 dependencies = [
  "quick-error",
 ]
+
+[[package]]
+name = "humantime"
+version = "2.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a3a5bfb195931eeb336b2a7b4d761daec841b97f947d34394601737a7bba5e4"
 
 [[package]]
 name = "hyper"
@@ -3759,8 +3847,7 @@ dependencies = [
 
 [[package]]
 name = "iroh-bitswap"
-version = "0.2.0"
-source = "git+https://github.com/3box/beetle?branch=main#0b6f98fba6547c87b187d888cb7e02a946736e76"
+version = "0.1.0"
 dependencies = [
  "ahash 0.8.3",
  "anyhow",
@@ -3771,6 +3858,7 @@ dependencies = [
  "asynchronous-codec",
  "bytes 1.4.0",
  "cid 0.9.0",
+ "criterion",
  "deadqueue",
  "derivative",
  "futures",
@@ -3791,32 +3879,34 @@ dependencies = [
  "tokio",
  "tokio-context",
  "tokio-stream",
+ "tokio-util",
  "tracing",
+ "tracing-subscriber",
  "unsigned-varint",
  "wasm-timer",
 ]
 
 [[package]]
 name = "iroh-car"
-version = "0.2.0"
-source = "git+https://github.com/3box/beetle?branch=main#0b6f98fba6547c87b187d888cb7e02a946736e76"
+version = "0.1.0"
 dependencies = [
  "cid 0.9.0",
  "futures",
  "integer-encoding",
  "libipld 0.15.0",
  "libipld-cbor 0.15.0",
+ "multihash 0.17.0",
  "thiserror",
  "tokio",
 ]
 
 [[package]]
 name = "iroh-metrics"
-version = "0.2.0"
-source = "git+https://github.com/3box/beetle?branch=main#0b6f98fba6547c87b187d888cb7e02a946736e76"
+version = "0.1.0"
 dependencies = [
  "async-trait",
  "config",
+ "console-subscriber",
  "iroh-util",
  "lazy_static",
  "libp2p",
@@ -3835,8 +3925,7 @@ dependencies = [
 
 [[package]]
 name = "iroh-rpc-client"
-version = "0.2.0"
-source = "git+https://github.com/3box/beetle?branch=main#0b6f98fba6547c87b187d888cb7e02a946736e76"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -3852,14 +3941,14 @@ dependencies = [
  "quic-rpc",
  "serde",
  "tokio",
+ "tokio-stream",
  "toml 0.5.11",
  "tracing",
 ]
 
 [[package]]
 name = "iroh-rpc-types"
-version = "0.2.0"
-source = "git+https://github.com/3box/beetle?branch=main#0b6f98fba6547c87b187d888cb7e02a946736e76"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "bytes 1.4.0",
@@ -3876,8 +3965,7 @@ dependencies = [
 
 [[package]]
 name = "iroh-store"
-version = "0.2.0"
-source = "git+https://github.com/3box/beetle?branch=main#0b6f98fba6547c87b187d888cb7e02a946736e76"
+version = "0.1.0"
 dependencies = [
  "ahash 0.8.3",
  "anyhow",
@@ -3888,6 +3976,7 @@ dependencies = [
  "cid 0.9.0",
  "clap 4.3.23",
  "config",
+ "criterion",
  "ctrlc",
  "futures",
  "git-version",
@@ -3895,13 +3984,16 @@ dependencies = [
  "iroh-rpc-client",
  "iroh-rpc-types",
  "iroh-util",
+ "libipld 0.15.0",
  "multihash 0.17.0",
  "names",
  "opentelemetry",
+ "rayon",
  "rkyv",
  "rocksdb",
  "serde",
  "smallvec",
+ "tempfile",
  "tokio",
  "tracing",
  "tracing-opentelemetry",
@@ -3910,8 +4002,7 @@ dependencies = [
 
 [[package]]
 name = "iroh-util"
-version = "0.2.0"
-source = "git+https://github.com/3box/beetle?branch=main#0b6f98fba6547c87b187d888cb7e02a946736e76"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "cid 0.9.0",
@@ -3920,9 +4011,12 @@ dependencies = [
  "dirs-next",
  "futures",
  "humansize",
+ "nix 0.26.2",
  "rlimit",
  "serde",
- "sysinfo",
+ "sysinfo 0.27.8",
+ "temp-env",
+ "testdir",
  "thiserror",
  "toml 0.5.11",
  "tracing",
@@ -5310,6 +5404,15 @@ dependencies = [
 
 [[package]]
 name = "memoffset"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5de893c32cde5f383baa4c04c5d6dbdd735cfd4a794b0debdb2bb1b421da5ff4"
+dependencies = [
+ "autocfg 1.1.0",
+]
+
+[[package]]
+name = "memoffset"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5a634b1c61a95585bd15607c6ab0c4e5b226e695ff2800ba0cdccddf208c406c"
@@ -5702,6 +5805,8 @@ dependencies = [
  "bitflags 1.3.2",
  "cfg-if",
  "libc",
+ "memoffset 0.7.1",
+ "pin-utils",
  "static_assertions",
 ]
 
@@ -5967,7 +6072,7 @@ dependencies = [
  "prost",
  "thiserror",
  "tokio",
- "tonic",
+ "tonic 0.8.3",
 ]
 
 [[package]]
@@ -5980,7 +6085,7 @@ dependencies = [
  "futures-util",
  "opentelemetry",
  "prost",
- "tonic",
+ "tonic 0.8.3",
  "tonic-build",
 ]
 
@@ -9034,6 +9139,20 @@ dependencies = [
 
 [[package]]
 name = "sysinfo"
+version = "0.26.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c18a6156d1f27a9592ee18c1a846ca8dd5c258b7179fc193ae87c74ebb666f5"
+dependencies = [
+ "cfg-if",
+ "core-foundation-sys",
+ "libc",
+ "ntapi",
+ "once_cell",
+ "winapi",
+]
+
+[[package]]
+name = "sysinfo"
 version = "0.27.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a902e9050fca0a5d6877550b769abd2bd1ce8c04634b941dbe2809735e1a1e33"
@@ -9073,6 +9192,15 @@ name = "tap"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
+
+[[package]]
+name = "temp-env"
+version = "0.3.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e010429b1f3ea1311190c658c7570100f03c1dab05c16cfab774181c648d656a"
+dependencies = [
+ "parking_lot 0.12.1",
+]
 
 [[package]]
 name = "tempfile"
@@ -9122,6 +9250,20 @@ dependencies = [
  "proc-macro2 1.0.66",
  "quote 1.0.33",
  "syn 1.0.109",
+]
+
+[[package]]
+name = "testdir"
+version = "0.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a45fc921e7c4ad1aedb3484811514f3e5cd187886e0bbf1302c175f7578ef552"
+dependencies = [
+ "anyhow",
+ "backtrace",
+ "cargo_metadata",
+ "once_cell",
+ "sysinfo 0.26.9",
+ "whoami",
 ]
 
 [[package]]
@@ -9258,6 +9400,7 @@ dependencies = [
  "signal-hook-registry",
  "socket2 0.5.3",
  "tokio-macros",
+ "tracing",
  "windows-sys",
 ]
 
@@ -9422,6 +9565,34 @@ dependencies = [
  "tower-service",
  "tracing",
  "tracing-futures",
+]
+
+[[package]]
+name = "tonic"
+version = "0.9.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3082666a3a6433f7f511c7192923fa1fe07c69332d3c6a2e6bb040b569199d5a"
+dependencies = [
+ "async-trait",
+ "axum",
+ "base64 0.21.2",
+ "bytes 1.4.0",
+ "futures-core",
+ "futures-util",
+ "h2",
+ "http",
+ "http-body",
+ "hyper",
+ "hyper-timeout",
+ "percent-encoding 2.3.0",
+ "pin-project",
+ "prost",
+ "tokio",
+ "tokio-stream",
+ "tower",
+ "tower-layer",
+ "tower-service",
+ "tracing",
 ]
 
 [[package]]
@@ -10291,6 +10462,10 @@ name = "whoami"
 version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "22fc3756b8a9133049b26c7f61ab35416c130e8c09b660f5b3958b446f52cc50"
+dependencies = [
+ "wasm-bindgen",
+ "web-sys",
+]
 
 [[package]]
 name = "widestring"

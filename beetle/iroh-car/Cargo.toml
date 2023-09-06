@@ -1,0 +1,24 @@
+[package]
+name = "iroh-car"
+authors = ["dignifiedquire <me@dignifiedquire.com>"]
+description = "Implementation the car files for iroh"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+cid.workspace = true
+futures.workspace = true
+integer-encoding = { workspace = true, features = ["tokio_async"] }
+ipld = { package = "libipld", version = "0.15" }
+ipld-cbor = { package = "libipld-cbor", version = "0.15" }
+thiserror.workspace = true
+tokio = { workspace = true, features = ["io-util"] }
+
+[dev-dependencies]
+multihash.workspace = true
+tokio = { workspace = true, features = ["macros", "sync", "rt", "fs", "io-util"] }
+
+[features]
