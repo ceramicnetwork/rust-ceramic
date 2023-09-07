@@ -58,7 +58,6 @@ pub struct Session {
     inner: Arc<Inner>,
 }
 
-#[derive(Debug)]
 struct Inner {
     id: u64,
     session_manager: SessionManager,
@@ -67,6 +66,19 @@ struct Inner {
     closer: oneshot::Sender<()>,
     worker: JoinHandle<()>,
     notify: async_broadcast::Sender<Block>,
+}
+
+// Implement Debug explicitly as Inner has a cycle back to itself via the session_manager.
+impl std::fmt::Debug for Inner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Inner")
+            .field("id", &self.id)
+            .field("worker", &self.worker)
+            .field("notify", &self.notify)
+            // We have elided several fields as they do not contain any information beyond their
+            // type.
+            .finish_non_exhaustive()
+    }
 }
 
 impl Session {

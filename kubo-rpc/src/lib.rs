@@ -20,7 +20,7 @@ use futures_util::stream::BoxStream;
 use iroh_rpc_client::P2pClient;
 use libipld::{cbor::DagCborCodec, json::DagJsonCodec, prelude::Decode};
 use libp2p::gossipsub::TopicHash;
-use tracing::{error, trace};
+use tracing::{error, instrument, trace};
 
 // Pub use any types we export as part of an trait or struct
 pub use bytes::Bytes;
@@ -195,6 +195,7 @@ impl IpfsService {
 #[async_trait]
 impl IpfsDep for Arc<IpfsService> {
     /// Get the ID of the local peer.
+    #[instrument(skip(self))]
     async fn lookup_local(&self) -> Result<PeerInfo, Error> {
         let l = self.p2p.lookup_local().await.map_err(Error::Internal)?;
         Ok(PeerInfo {
@@ -206,6 +207,7 @@ impl IpfsDep for Arc<IpfsService> {
         })
     }
     /// Get information a peer.
+    #[instrument(skip(self))]
     async fn lookup(&self, peer_id: PeerId) -> Result<PeerInfo, Error> {
         let l = self
             .p2p
@@ -220,6 +222,7 @@ impl IpfsDep for Arc<IpfsService> {
             protocols: l.protocols,
         })
     }
+    #[instrument(skip(self))]
     async fn block_size(&self, cid: Cid) -> Result<u64, Error> {
         Ok(self
             .store
@@ -228,15 +231,18 @@ impl IpfsDep for Arc<IpfsService> {
             .map_err(Error::Internal)?
             .ok_or(Error::NotFound)?)
     }
+    #[instrument(skip(self))]
     async fn block_get(&self, cid: Cid) -> Result<Bytes, Error> {
         // TODO do we want to advertise on the DHT all Cids we have?
         Ok(self.resolver.load_cid_bytes(cid).await?)
     }
+    #[instrument(skip(self))]
     async fn get(&self, ipfs_path: &IpfsPath) -> Result<(Cid, Ipld), Error> {
         // TODO do we want to advertise on the DHT all Cids we have?
         let node = self.resolver.resolve(ipfs_path).await?;
         Ok((node.cid, node.data))
     }
+    #[instrument(skip(self, blob))]
     async fn put(&self, cid: Cid, blob: Bytes, links: Vec<Cid>) -> Result<(), Error> {
         // Advertise we provide the content
         self.p2p
@@ -249,13 +255,16 @@ impl IpfsDep for Arc<IpfsService> {
             .await
             .map_err(Error::Internal)?)
     }
+    #[instrument(skip(self))]
     async fn resolve(&self, ipfs_path: &IpfsPath) -> Result<(Cid, String), Error> {
         let node = self.resolver.resolve(ipfs_path).await?;
         Ok((node.cid, node.path.to_string_lossy().to_string()))
     }
+    #[instrument(skip(self))]
     async fn peers(&self) -> Result<HashMap<PeerId, Vec<Multiaddr>>, Error> {
         Ok(self.p2p.get_peers().await.map_err(Error::Internal)?)
     }
+    #[instrument(skip(self))]
     async fn connect(&self, peer_id: PeerId, addrs: Vec<Multiaddr>) -> Result<(), Error> {
         Ok(self
             .p2p
@@ -263,6 +272,7 @@ impl IpfsDep for Arc<IpfsService> {
             .await
             .map_err(Error::Internal)?)
     }
+    #[instrument(skip(self))]
     async fn publish(&self, topic: String, data: Bytes) -> Result<(), Error> {
         let topic = TopicHash::from_raw(topic);
         self.p2p
@@ -271,6 +281,7 @@ impl IpfsDep for Arc<IpfsService> {
             .map_err(Error::Internal)?;
         Ok(())
     }
+    #[instrument(skip(self))]
     async fn subscribe(
         &self,
         topic: String,
@@ -283,6 +294,7 @@ impl IpfsDep for Arc<IpfsService> {
                 .map_err(Error::Internal)?,
         ))
     }
+    #[instrument(skip(self))]
     async fn topics(&self) -> Result<Vec<String>, Error> {
         Ok(self
             .p2p
@@ -293,6 +305,7 @@ impl IpfsDep for Arc<IpfsService> {
             .map(|t| t.to_string())
             .collect())
     }
+    #[instrument(skip(self))]
     async fn version(&self) -> Result<ceramic_metadata::Version, Error> {
         Ok(ceramic_metadata::Version::default())
     }
@@ -400,10 +413,12 @@ impl Loader {
         trace!(%cid, "loading cid");
 
         if let Some(loaded) = self.fetch_store(cid).await? {
+            trace!(%cid, "loaded from store");
             return Ok(loaded);
         }
 
         let loaded = self.fetch_bitswap(cid).await?;
+        trace!(%cid, "loaded from bitswap");
 
         // Add loaded cid to the local store
         self.store_data(cid, loaded.clone());
