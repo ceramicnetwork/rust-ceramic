@@ -92,7 +92,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: ceramic-one_${{ matrix.target }}
-          path: ceramic-one.${{ matrix.ext }}
+          path: artifacts/ceramic-one.${{ matrix.ext }}
 
   release:
     needs: [build-binaries]
