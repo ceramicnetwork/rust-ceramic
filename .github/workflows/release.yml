@@ -41,15 +41,18 @@ jobs:
           os: ubuntu-latest
           arch: x86_64
           ext: deb
+          protoc-arch: linux-x86_64
         - target: x86_64-apple-darwin
           os: macos-latest
           arch: x86_64
           ext: pkg
+          protoc-arch: osx-x86_64
         - target: aarch64-apple-darwin
           os: macos-latest
           config-file: fpm/osx.fpm
           arch: aarch64
           ext: pkg
+          protoc-arch: osx-aarch_64
         #- target: x86_64-pc-windows-msvc
         #  os: windows-latest
     runs-on: ${{ matrix.os }}
@@ -57,6 +60,17 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v3
+      - name: Install Protoc
+        run: |
+          PROTOC_VERSION=3.20.1
+          PROTOC_ARCH=${{ matrix.protoc-arch }}
+          PROTOC_ZIP=protoc-$PROTOC_VERSION-$PROTOC_ARCH.zip
+          curl --retry 3 --retry-max-time 90 -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" -OL https://github.com/protocolbuffers/protobuf/releases/download/v$PROTOC_VERSION/$PROTOC_ZIP
+          sudo unzip -o $PROTOC_ZIP -d /usr/local bin/protoc
+          sudo unzip -o $PROTOC_ZIP -d /usr/local 'include/*'
+          rm -f $PROTOC_ZIP
+          echo "PROTOC=/usr/local/bin/protoc" >> $GITHUB_ENV
+          echo "PROTOC_INCLUDE=/usr/local/include" >> $GITHUB_ENV
       - name: Install Rust
         run: |
           rustup update stable
