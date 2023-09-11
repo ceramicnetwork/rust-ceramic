@@ -1,7 +1,11 @@
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use bytes::Bytes;
-use cid::{multihash::Code::Sha2_256, multihash::MultihashDigest, Cid};
+use cid::{
+    multihash::Code::{Keccak256, Sha2_256},
+    multihash::MultihashDigest,
+    Cid,
+};
 use iroh_bitswap::{Block, Store};
 use sqlx::{Row, SqlitePool};
 
@@ -25,10 +29,13 @@ impl SQLiteBlockStore {
     }
 
     async fn create_table_if_not_exists(&self) -> Result<()> {
+        // this will need to be moved to migration logic if we ever change the schema
         sqlx::query(
+            // the comments are in the CREATE TABLE statement so that it will be in the SQLiteDB
+            // a human looking at the schema will see the CREATE TABLE statement
             "
         CREATE TABLE IF NOT EXISTS blocks (
-            multihash BLOB, -- the CID of the Block
+            multihash BLOB, -- the multihash of the Block as bytes no 0x00 prefix
             bytes BLOB, -- the Block
             PRIMARY KEY(multihash)
         );
@@ -59,12 +66,26 @@ impl SQLiteBlockStore {
 
     /// Store a DAG node into IPFS.
     pub async fn put(&self, cid: Cid, blob: Bytes, _links: Vec<Cid>) -> Result<()> {
-        let hash = Sha2_256.digest(&blob);
+        let hash = match cid.hash().code() {
+            0x12 => Sha2_256.digest(&blob),
+            0x1b => Keccak256.digest(&blob),
+            0x11 => return Err(anyhow!("Sha1 not supported")),
+            _ => {
+                return Err(anyhow!(
+                    "multihash type {:#x} not Sha2_256, Keccak256",
+                    cid.hash().code(),
+                ))
+            }
+        };
         if cid.hash().to_bytes() != hash.to_bytes() {
-            return Err(anyhow!("cid did not match blob {} != {:?}", cid, hash));
+            return Err(anyhow!(
+                "cid did not match blob {} != {}",
+                hex::encode(cid.hash().to_bytes()),
+                hex::encode(hash.to_bytes())
+            ));
         }
 
-        match sqlx::query("INSERT INTO blocks (multihash, bytes) VALUES (?, ?)")
+        match sqlx::query("INSERT OR IGNORE INTO blocks (multihash, bytes) VALUES (?, ?)")
             .bind(cid.hash().to_bytes())
             .bind(blob.to_vec())
             .execute(&self.pool)
@@ -74,6 +95,31 @@ impl SQLiteBlockStore {
             Err(e) if e.as_database_error().unwrap().is_unique_violation() => Ok(()),
             Err(e) => Err(e)?,
         }
+    }
+
+    /// merge_from_sqlite takes the filepath to a sqlite file.
+    /// If the file dose not exist the ATTACH DATABASE command will create it.
+    /// This function assumes that the database contains a table named blocks with multihash, bytes columns.
+    pub async fn merge_from_sqlite(&self, input_ceramic_db_filename: &str) -> Result<()> {
+        sqlx::query(
+            "
+                ATTACH DATABASE ? AS other;
+                INSERT OR IGNORE INTO blocks SELECT multihash, bytes FROM other.blocks;
+            ",
+        )
+        .bind(input_ceramic_db_filename)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Backup the database to a filepath output_ceramic_db_filename.
+    pub async fn backup_to_sqlite(&self, output_ceramic_db_filename: &str) -> Result<()> {
+        sqlx::query(".backup ?")
+            .bind(output_ceramic_db_filename)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 }
 

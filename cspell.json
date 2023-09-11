@@ -17,6 +17,7 @@
         "btreestore",
         "cbor",
         "chacha",
+        "chrono",
         "cids",
         "cidv1",
         "codespan",
