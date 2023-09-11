@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Script to package our application for distribution.
+
+echo "Preparing to package application"
 VALID_ARGS=$(getopt -o fedia: --long config-file,extension,binary-dir,install-dir,architecture: -- "$@")
 if [[ $? -ne 0 ]]; then
     exit 1;
@@ -28,6 +30,8 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
   INSTALL_DIR="/Applications"
   TARGET=$ARCH"-apple-darwin"
 fi
+
+echo "Evaluating program arguments "$@
 
 eval set -- "$VALID_ARGS"
 while [ : ]; do
@@ -60,17 +64,21 @@ done
 
 ARTIFACTS_DIR=artifacts
 OUT_FILE=$ARTIFACTS_DIR/ceramic-one.$EXT
-PKG_VERSION=$(cargo metadata --format-version=1 --no-deps | jq '.packages[0].version' | tr -d '"')
 BIN_DIR=target/$TARGET/release
+
+echo "Determining package version"
+PKG_VERSION=$(cargo metadata --format-version=1 --no-deps | jq '.packages[0].version' | tr -d '"')
 
 if [ -f $OUT_FILE ]; then
   rm $OUT_FILE
 fi
 
-echo "Building package for "$TARGET
+echo "Building artifacts for "$TARGET
 
 cargo build --release --target $TARGET
 
 mkdir $ARTIFACTS_DIR || true
+
+echo "Building package for "$TARGET
 
 fpm --fpm-options-file $CONFIG_FILE -C $BIN_DIR -v $PKG_VERSION -p $OUT_FILE ceramic-one=$INSTALL_DIR/ceramic-one
