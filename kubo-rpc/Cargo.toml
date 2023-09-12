@@ -9,12 +9,7 @@ repository.workspace = true
 publish = false
 
 [features]
-http = [
-    "dep:ceramic-kubo-rpc-server",
-    "dep:serde",
-    "dep:serde_json",
-    "dep:hyper",
-]
+http = ["dep:ceramic-kubo-rpc-server", "dep:serde", "dep:serde_json", "dep:hyper"]
 
 [dependencies]
 anyhow.workspace = true

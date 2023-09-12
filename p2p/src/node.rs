@@ -16,6 +16,7 @@ use iroh_rpc_client::Client as RpcClient;
 use iroh_rpc_client::Lookup;
 use iroh_rpc_types::p2p::P2pAddr;
 pub use libp2p::gossipsub::{IdentTopic, Topic};
+use libp2p::identity::Keypair;
 use libp2p::kad::kbucket::{Distance, NodeStatus};
 use libp2p::kad::{
     self, BootstrapOk, GetClosestPeersError, GetClosestPeersOk, GetProvidersOk, KademliaEvent,
@@ -25,16 +26,18 @@ use libp2p::mdns;
 use libp2p::metrics::Recorder;
 use libp2p::multiaddr::Protocol;
 use libp2p::ping::Result as PingResult;
-use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
 #[allow(deprecated)]
 use libp2p::swarm::IntoConnectionHandler;
+use libp2p::swarm::{
+    dial_opts::{DialOpts, PeerCondition},
+    DialError,
+};
 use libp2p::swarm::{ConnectionHandler, NetworkBehaviour, SwarmEvent};
 use libp2p::{core::Multiaddr, swarm::AddressScore};
 use libp2p::{
     identify::{Event as IdentifyEvent, Info as IdentifyInfo},
     kad::RecordKey,
 };
-use libp2p::{identity::Keypair, swarm::DialError};
 use libp2p::{PeerId, Swarm};
 use sqlx::SqlitePool;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
@@ -385,9 +388,8 @@ where
                 if let Err(err) = client.stop_session(ctx).await {
                     warn!("failed to stop session {}: {:?}", ctx, err);
                 }
-                if let Err(err) = response_channel.send(Ok(())) {
-                    warn!("session {} failed to send stop response: {:?}", ctx, err);
-                }
+                // Ignore error if the otherside already hung up.
+                let _ = response_channel.send(Ok(()));
                 debug!("session {} stopped", ctx);
             });
         } else {

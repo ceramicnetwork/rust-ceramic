@@ -7,7 +7,7 @@ use std::fmt::Debug;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use ahash::AHashMap;
 use anyhow::Result;
@@ -48,8 +48,6 @@ pub mod peer_task_queue;
 pub use self::block::{tests::*, Block};
 pub use self::protocol::ProtocolId;
 
-const DIAL_BACK_OFF: Duration = Duration::from_secs(10 * 60);
-
 type DialMap = AHashMap<
     PeerId,
     Vec<(
@@ -82,7 +80,6 @@ enum PeerState {
     Unresponsive,
     #[default]
     Disconnected,
-    DialFailure(Instant),
 }
 
 impl PeerState {
@@ -333,9 +330,7 @@ impl<S: Store> Bitswap<S> {
                     *entry.get_mut() = new_state;
                 }
                 match new_state {
-                    PeerState::DialFailure(_)
-                    | PeerState::Disconnected
-                    | PeerState::Unresponsive => {
+                    PeerState::Disconnected | PeerState::Unresponsive => {
                         if old_state.is_connected() {
                             inc!(BitswapMetrics::DisconnectedPeers);
                             self.peer_disconnected(peer);
@@ -356,9 +351,7 @@ impl<S: Store> Bitswap<S> {
                     entry.insert(new_state);
                 }
                 match new_state {
-                    PeerState::DialFailure(_)
-                    | PeerState::Disconnected
-                    | PeerState::Unresponsive => {
+                    PeerState::Disconnected | PeerState::Unresponsive => {
                         inc!(BitswapMetrics::DisconnectedPeers);
                         self.peer_disconnected(peer);
                     }
@@ -369,6 +362,22 @@ impl<S: Store> Bitswap<S> {
                         inc!(BitswapMetrics::ResponsivePeers);
                         self.peer_connected(peer);
                     }
+                }
+            }
+        }
+    }
+
+    // Remove and notify listeners that a dial has completed.
+    fn remove_peer_dials(
+        &mut self,
+        peer_id: &PeerId,
+        result: std::result::Result<(ConnectionId, Option<ProtocolId>), String>,
+    ) {
+        let dials = &mut *self.dials.lock().unwrap();
+        if let Some(mut dials) = dials.remove(peer_id) {
+            while let Some((id, sender)) = dials.pop() {
+                if let Err(err) = sender.send(result.clone()) {
+                    warn!("dial:{} failed to send dial response {:?}", id, err)
                 }
             }
         }
@@ -423,23 +432,14 @@ impl<S: Store> NetworkBehaviour for Bitswap<S> {
             }
             libp2p::swarm::FromSwarm::DialFailure(event) => {
                 if let Some(peer_id) = event.peer_id {
-                    if let DialError::Denied { cause: _ } = event.error {
+                    if matches!(event.error, DialError::Denied { cause: _ }) {
                         // TODO check that the denied cause is because of a connection limit.
                         //if let Ok(connection_limits::Exceeded { .. }) = cause.downcast() {
                         self.pause_dialing = true;
-                        self.set_peer_state(&peer_id, PeerState::Disconnected);
                         //}
-                    } else {
-                        self.set_peer_state(&peer_id, PeerState::DialFailure(Instant::now()));
-                    }
-
-                    trace!("inject_dial_failure {}, {:?}", peer_id, event.error);
-                    let dials = &mut self.dials.lock().unwrap();
-                    if let Some(mut dials) = dials.remove(&peer_id) {
-                        while let Some((_id, sender)) = dials.pop() {
-                            let _ = sender.send(Err(event.error.to_string()));
-                        }
-                    }
+                    };
+                    trace!(%peer_id, error = %event.error,  "report dial failure");
+                    self.remove_peer_dials(&peer_id, Err(event.error.to_string()));
                 }
             }
             _ => {}
@@ -456,28 +456,11 @@ impl<S: Store> NetworkBehaviour for Bitswap<S> {
         match event {
             HandlerEvent::Connected { protocol } => {
                 self.set_peer_state(&peer_id, PeerState::Responsive(connection_id, protocol));
-                {
-                    let dials = &mut *self.dials.lock().unwrap();
-                    if let Some(mut dials) = dials.remove(&peer_id) {
-                        while let Some((id, sender)) = dials.pop() {
-                            if let Err(err) = sender.send(Ok((connection_id, Some(protocol)))) {
-                                warn!("dial:{}: failed to send dial response {:?}", id, err)
-                            }
-                        }
-                    }
-                }
+                self.remove_peer_dials(&peer_id, Ok((connection_id, Some(protocol))));
             }
             HandlerEvent::ProtocolNotSuppported => {
                 self.set_peer_state(&peer_id, PeerState::Unresponsive);
-
-                let dials = &mut *self.dials.lock().unwrap();
-                if let Some(mut dials) = dials.remove(&peer_id) {
-                    while let Some((id, sender)) = dials.pop() {
-                        if let Err(err) = sender.send(Err("protocol not supported".into())) {
-                            warn!("dial:{} failed to send dial response {:?}", id, err)
-                        }
-                    }
-                }
+                self.remove_peer_dials(&peer_id, Err("protocol not supported".into()));
             }
             HandlerEvent::Message {
                 mut message,
@@ -528,17 +511,6 @@ impl<S: Store> NetworkBehaviour for Bitswap<S> {
                                 // already connected
                                 if let Err(err) = response.send(Ok((conn, None))) {
                                     debug!("dial:{}: failed to send dial response {:?}", id, err)
-                                }
-                                continue;
-                            }
-                            Some(PeerState::DialFailure(dialed))
-                                if dialed.elapsed() < DIAL_BACK_OFF =>
-                            {
-                                // Do not bother trying to dial these for now.
-                                if let Err(err) =
-                                    response.send(Err(format!("dial:{id}: undialable peer")))
-                                {
-                                    debug!("dial:{id}: failed to send dial response {err:?}")
                                 }
                                 continue;
                             }

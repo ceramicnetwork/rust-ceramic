@@ -254,7 +254,7 @@ impl PeerManager {
         let _ = r.await;
     }
 
-    /// Indicates wether peers have been discovered yet.
+    /// Indicates whether peers have been discovered yet.
     pub async fn peers_discovered_for_session(&self, session: u64) -> bool {
         let (s, r) = oneshot::channel();
         self.send(Message::PeersDiscoveredForSession {
