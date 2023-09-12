@@ -10,6 +10,7 @@ use std::{
     fmt::{self, Display, Formatter},
     io::Cursor,
     path::PathBuf,
+    sync::atomic::{AtomicUsize, Ordering},
 };
 use std::{str::FromStr, sync::Arc};
 
@@ -182,6 +183,7 @@ impl IpfsService {
         let loader = Loader {
             p2p: p2p.clone(),
             store: store.clone(),
+            session_counter: AtomicUsize::new(0),
         };
         let resolver = Resolver::new(loader);
         Self {
@@ -334,6 +336,7 @@ impl Resolver {
     fn new(loader: Loader) -> Self {
         Resolver { loader }
     }
+    #[instrument(skip(self))]
     async fn resolve(&self, path: &IpfsPath) -> Result<Node, Error> {
         let root_cid = path.cid();
         let root = self.load_cid(root_cid).await?;
@@ -373,9 +376,11 @@ impl Resolver {
         }
         Ok(current)
     }
+    #[instrument(skip(self))]
     async fn load_cid_bytes(&self, cid: Cid) -> Result<Bytes, Error> {
         self.loader.load_cid(cid).await.map_err(Error::Internal)
     }
+    #[instrument(skip(self))]
     async fn load_cid(&self, cid: Cid) -> Result<Node, Error> {
         let bytes = self.load_cid_bytes(cid).await?;
         let data = match cid.codec() {
@@ -404,11 +409,13 @@ impl Resolver {
 struct Loader {
     p2p: P2pClient,
     store: SQLiteBlockStore,
+    session_counter: AtomicUsize,
 }
 
 impl Loader {
     // Load a Cid returning its bytes.
     // If the Cid was not stored locally it will be added to the local store.
+    #[instrument(skip(self))]
     async fn load_cid(&self, cid: Cid) -> anyhow::Result<Bytes> {
         trace!(%cid, "loading cid");
 
@@ -425,14 +432,19 @@ impl Loader {
         Ok(loaded)
     }
 
+    #[instrument(skip(self))]
     async fn fetch_store(&self, cid: Cid) -> anyhow::Result<Option<Bytes>> {
         self.store.get(cid).await
     }
+    #[instrument(skip(self))]
     async fn fetch_bitswap(&self, cid: Cid) -> anyhow::Result<Bytes> {
-        // TODO can we check kad here and not use bitswap for content discovery?
-        self.p2p.fetch_bitswap(0, cid, Default::default()).await
+        let session = self.session_counter.fetch_add(1, Ordering::SeqCst) as u64;
+        self.p2p
+            .fetch_bitswap(session, cid, Default::default())
+            .await
     }
 
+    #[instrument(skip(self))]
     fn store_data(&self, cid: Cid, data: Bytes) {
         // trigger storage in the background
         let store = self.store.clone();

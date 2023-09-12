@@ -1,7 +1,7 @@
 use ahash::{AHashMap, AHashSet};
 use cid::Cid;
 use libp2p::PeerId;
-use tracing::{debug, error};
+use tracing::{debug, error, trace};
 
 use super::message_queue::MessageQueue;
 use super::peer_manager::PeerState;
@@ -33,6 +33,7 @@ impl PeerWantManager {
             return;
         }
 
+        trace!(%peer, "add_peer");
         self.peer_wants.insert(
             *peer,
             PeerWant {
@@ -50,6 +51,7 @@ impl PeerWantManager {
 
     /// Removes a peer and its associated wants from tracking.
     pub fn remove_peer(&mut self, peer: &PeerId) {
+        trace!(%peer, "remove_peer");
         if let Some(peer_wants) = self.peer_wants.remove(peer) {
             // Clean up want-block
             for cid in peer_wants.want_blocks {
