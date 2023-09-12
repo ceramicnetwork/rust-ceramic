@@ -75,7 +75,7 @@ fi
 
 echo "Building artifacts for "$TARGET
 
-cargo build --release --target $TARGET
+cargo build --release --locked --target $TARGET
 
 mkdir $ARTIFACTS_DIR || true
 
