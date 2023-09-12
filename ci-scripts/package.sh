@@ -2,10 +2,6 @@
 # Script to package our application for distribution.
 
 echo "Preparing to package application"
-VALID_ARGS=$(getopt -o fedia: --long config-file,extension,binary-dir,install-dir,architecture: -- "$@")
-if [[ $? -ne 0 ]]; then
-    exit 1;
-fi
 
 EXT="deb"
 PKG_TYPE="dpkg"
@@ -31,34 +27,38 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
   TARGET=$ARCH"-apple-darwin"
 fi
 
-echo "Evaluating program arguments "$@
+echo "Evaluating program arguments '$@'"
 
-eval set -- "$VALID_ARGS"
-while [ : ]; do
-  case "$1" in
-    -f | --config-file)
-        CONFIG_FILE=$2
-        shift 2
-        ;;
-    -e | --extension)
-        EXT=$2
-        shift 2
-        ;;
-    -d | --binary-dir)
-        BIN_DIR=$2
-        shift 2
-        ;;
-    -i | --install-dir)
-        INSTALL_DIR=$2
-        shift 2
-        ;;
-    -a | --architecture)
-        ARCH=$2
-        shift 2
-        ;;
-    --) shift;
-        break
-        ;;
+while getopts "f:e:d:i:a:" opt
+do
+  case "$opt" in
+    f)
+      echo "Setting config file to "$OPTARG
+      CONFIG_FILE=$OPTARG
+      ;;
+    e)
+      echo "Setting extension to "$OPTARG
+      EXT=$OPTARG
+      ;;
+    d)
+      echo "Setting bin dir to "$OPTARG
+      BIN_DIR=$OPTARG
+      ;;
+    i)
+      echo "Setting install dir to "$OPTARG
+      INSTALL_DIR=$OPTARG
+      ;;
+    a)
+      echo "Setting architecture to "$OPTARG
+      ARCH=$OPTARG
+      ;;
+    \? )
+      echo "Invalid option: -$OPTARG" 1>&2
+      exit 1
+      ;;
+    : )
+      echo "Invalid option: -$OPTARG requires an argument" 1>&2
+      ;;
   esac
 done
 
