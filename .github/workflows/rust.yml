@@ -10,23 +10,82 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  SCCACHE_GHA_ENABLED: "true"
+  RUSTC_WRAPPER: "sccache"
 
 jobs:
-  build:
-
+  check:
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v3
     - uses: dtolnay/rust-toolchain@stable
-    # Cache rust/cargo build steps
     - uses: Swatinem/rust-cache@v2
       with:
         # The prefix cache key, this can be changed to start a new cache manually.
         # default: "v0-rust"
         prefix-key: v0
+        # Cache only the cargo registry
         cache-targets: false
-        save-if: ${{ github.ref == 'refs/heads/main' }}
+    - uses: mozilla-actions/sccache-action@v0.0.3
+    - name: Install Protoc
+      run: |
+        PROTOC_VERSION=3.20.1
+        PROTOC_ARCH=linux-x86_64
+        PROTOC_ZIP=protoc-$PROTOC_VERSION-$PROTOC_ARCH.zip
+        curl --retry 3 --retry-max-time 90 -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" -OL https://github.com/protocolbuffers/protobuf/releases/download/v$PROTOC_VERSION/$PROTOC_ZIP
+        sudo unzip -o $PROTOC_ZIP -d /usr/local bin/protoc
+        sudo unzip -o $PROTOC_ZIP -d /usr/local 'include/*'
+        rm -f $PROTOC_ZIP
+        echo "PROTOC=/usr/local/bin/protoc" >> $GITHUB_ENV
+        echo "PROTOC_INCLUDE=/usr/local/include" >> $GITHUB_ENV
+    - name: Check fmt
+      run: make check-fmt
+    - name: Check clippy
+      run: make check-clippy
+    - name: Check generated servers
+      run: |
+        npm install @openapitools/openapi-generator-cli@2.6.0 -g
+        make check-api-server
+        make check-kubo-rpc-server
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: dtolnay/rust-toolchain@stable
+    - uses: Swatinem/rust-cache@v2
+      with:
+        # The prefix cache key, this can be changed to start a new cache manually.
+        # default: "v0-rust"
+        prefix-key: v0
+        # Cache only the cargo registry
+        cache-targets: false
+    - uses: mozilla-actions/sccache-action@v0.0.3
+    - name: Install Protoc
+      run: |
+        PROTOC_VERSION=3.20.1
+        PROTOC_ARCH=linux-x86_64
+        PROTOC_ZIP=protoc-$PROTOC_VERSION-$PROTOC_ARCH.zip
+        curl --retry 3 --retry-max-time 90 -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" -OL https://github.com/protocolbuffers/protobuf/releases/download/v$PROTOC_VERSION/$PROTOC_ZIP
+        sudo unzip -o $PROTOC_ZIP -d /usr/local bin/protoc
+        sudo unzip -o $PROTOC_ZIP -d /usr/local 'include/*'
+        rm -f $PROTOC_ZIP
+        echo "PROTOC=/usr/local/bin/protoc" >> $GITHUB_ENV
+        echo "PROTOC_INCLUDE=/usr/local/include" >> $GITHUB_ENV
+    - name: Run tests
+      run: make test
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: dtolnay/rust-toolchain@stable
+    - uses: Swatinem/rust-cache@v2
+      with:
+        # The prefix cache key, this can be changed to start a new cache manually.
+        # default: "v0-rust"
+        prefix-key: v0
+        # Cache only the cargo registry
+        cache-targets: false
+    - uses: mozilla-actions/sccache-action@v0.0.3
     - name: Install Protoc
       run: |
         PROTOC_VERSION=3.20.1
@@ -40,16 +99,5 @@ jobs:
         echo "PROTOC_INCLUDE=/usr/local/include" >> $GITHUB_ENV
     - name: Build
       run: make build
-    - name: Check fmt
-      run: make check-fmt
-    - name: Check clippy
-      run: make check-clippy
-    - name: Check generated servers
-      run: |
-        npm install @openapitools/openapi-generator-cli@2.6.0 -g
-        make check-api-server
-        make check-kubo-rpc-server
-        npm uninstall @openapitools/openapi-generator-cli -g
-    - name: Run tests
-      run: make test
+
 
