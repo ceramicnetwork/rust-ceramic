@@ -50,14 +50,11 @@ impl SQLiteBlockStore {
     }
 
     pub async fn get(&self, cid: Cid) -> Result<Option<Bytes>> {
-        Ok(Some(
-            sqlx::query("SELECT bytes FROM blocks WHERE multihash = ?;")
-                .bind(cid.hash().to_bytes())
-                .fetch_one(&self.pool)
-                .await?
-                .get::<'_, Vec<u8>, _>(0)
-                .into(),
-        ))
+        Ok(sqlx::query("SELECT bytes FROM blocks WHERE multihash = ?;")
+            .bind(cid.hash().to_bytes())
+            .fetch_optional(&self.pool)
+            .await?
+            .map(|row| row.get::<'_, Vec<u8>, _>(0).into()))
     }
 
     /// Store a DAG node into IPFS.

@@ -417,15 +417,15 @@ impl Loader {
     // If the Cid was not stored locally it will be added to the local store.
     #[instrument(skip(self))]
     async fn load_cid(&self, cid: Cid) -> anyhow::Result<Bytes> {
-        trace!(%cid, "loading cid");
+        trace!("loading cid");
 
         if let Some(loaded) = self.fetch_store(cid).await? {
-            trace!(%cid, "loaded from store");
+            trace!("loaded from store");
             return Ok(loaded);
         }
 
         let loaded = self.fetch_bitswap(cid).await?;
-        trace!(%cid, "loaded from bitswap");
+        trace!("loaded from bitswap");
 
         // Add loaded cid to the local store
         self.store_data(cid, loaded.clone());
