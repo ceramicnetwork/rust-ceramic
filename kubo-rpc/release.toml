@@ -1,0 +1,4 @@
+tag-name = "{{prefix}}v{{prev_version}}"
+pre-release-replacements = [
+    {file="kubo-rpc.yaml", search="version: .*", replace="version: {{version}}"},
+]

@@ -1,0 +1,4 @@
+tag-name = "{{prefix}}v{{prev_version}}"
+pre-release-replacements = [
+    {file="ceramic.yaml", search="version: .*", replace="version: {{version}}"},
+]
