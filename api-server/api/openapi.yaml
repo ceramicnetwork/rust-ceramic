@@ -101,9 +101,9 @@ components:
       required: true
   schemas:
     Version:
-      description: Version of the Ceramic node
+      description: "Version of the Ceramic node in semver format, e.g. 2.1.0"
       example:
-        version: 2.1.0
+        version: version
       properties:
         version:
           description: Version of the Ceramic node

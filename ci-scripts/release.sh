@@ -42,6 +42,16 @@ fi
 git config user.email "github@3box.io"
 git config user.name "Github Automation"
 TAG=$(cargo metadata --format-version=1 --no-deps | jq '.packages[0].version' | tr -d '"')
-cargo release -vv $LEVEL --exclude ceramic-api-server --exclude ceramic-kubo-rpc-server --no-confirm
+cargo release -vv $LEVEL \
+  --exclude ceramic-api-server \
+  --exclude ceramic-kubo-rpc-server \
+  --exclude iroh-bitswap \
+  --exclude iroh-car \
+  --exclude iroh-metrics \
+  --exclude iroh-rpc-client \
+  --exclude iroh-rpc-types \
+  --exclude iroh-store \
+  --exclude iroh-util \
+  --no-confirm
 
 #gh release create v$TAG --title "v"$TAG --latest artifacts/**/*
