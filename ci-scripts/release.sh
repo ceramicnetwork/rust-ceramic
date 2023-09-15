@@ -52,7 +52,7 @@ cargo release -vv $LEVEL \
   --exclude iroh-rpc-types \
   --exclude iroh-store \
   --exclude iroh-util \
-  --no-confirm
+  --no-confirm \
   --execute
 
 gh release create v$TAG --title "v"$TAG --latest artifacts/**/*
