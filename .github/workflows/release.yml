@@ -119,7 +119,7 @@ jobs:
           export version="1.3.0"
           wget "https://github.com/orhun/git-cliff/releases/download/v${version}/git-cliff-${version}-x86_64-unknown-linux-gnu.tar.gz"
           tar -xvzf git-cliff-*.tar.gz
-          mv git-cliff /usr/local/bin
+          mv git-cliff-$version/git-cliff /usr/local/bin
       - id: release
         run: |
           ./ci-scripts/release.sh --level ${{ inputs.level }}
