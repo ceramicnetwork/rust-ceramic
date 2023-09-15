@@ -120,6 +120,8 @@ jobs:
           wget "https://github.com/orhun/git-cliff/releases/download/v${version}/git-cliff-${version}-x86_64-unknown-linux-gnu.tar.gz"
           tar -xvzf git-cliff-*.tar.gz
           mv git-cliff-$version/git-cliff /usr/local/bin
+          rm -rf git-cliff-$version
+          rm git-cliff-$version.tar.gz
       - id: release
         run: |
           ./ci-scripts/release.sh --level ${{ inputs.level }}
