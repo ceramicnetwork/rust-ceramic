@@ -96,14 +96,15 @@ impl Store for SQLiteBlockStore {
     /// SELECT bytes FROM blocks WHERE multihash = ?;
     /// ```
     async fn get(&self, cid: &Cid) -> Result<Block> {
-        Ok(Block::from_v0_data(
+        Ok(Block::new(
             sqlx::query("SELECT bytes FROM blocks WHERE multihash = ?;")
                 .bind(cid.hash().to_bytes())
                 .fetch_one(&self.pool)
                 .await?
                 .get::<'_, Vec<u8>, _>(0)
                 .into(),
-        )?)
+            cid.to_owned(),
+        ))
     }
 
     /// ```sql
@@ -130,7 +131,7 @@ mod tests {
     use bytes::Bytes;
     use cid::{Cid, CidGeneric};
     use expect_test::expect;
-    use iroh_bitswap::{Block, Store};
+    use iroh_bitswap::Store;
     use sqlx::SqlitePool;
 
     #[tokio::test]
@@ -151,7 +152,20 @@ mod tests {
         let size: Result<usize, Error> = Store::get_size(&store, &cid).await;
         expect![["7"]].assert_eq(&size.unwrap().to_string());
 
-        let block: Result<Block, Error> = Store::get(&store, &cid).await;
-        expect![["0A050001020304"]].assert_eq(&hex::encode_upper(block.unwrap().data()));
+        let block = Store::get(&store, &cid).await.unwrap();
+        expect!["bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom"]
+            .assert_eq(&block.cid().to_string());
+        expect![["0A050001020304"]].assert_eq(&hex::encode_upper(block.data()));
+    }
+    #[tokio::test]
+    async fn test_get_nonexistant_block() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let store: SQLiteBlockStore = SQLiteBlockStore::new(pool).await.unwrap();
+
+        let cid =
+            Cid::from_str("bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom").unwrap(); // cspell:disable-line
+
+        let block = store.get(cid).await.unwrap();
+        assert_eq!(None, block);
     }
 }
