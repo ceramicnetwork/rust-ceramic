@@ -53,5 +53,6 @@ cargo release -vv $LEVEL \
   --exclude iroh-store \
   --exclude iroh-util \
   --no-confirm
+  --execute
 
-#gh release create v$TAG --title "v"$TAG --latest artifacts/**/*
+gh release create v$TAG --title "v"$TAG --latest artifacts/**/*
