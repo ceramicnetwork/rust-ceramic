@@ -1,10 +1,11 @@
 # Create a release from the latest tag
-name: Publish Release From Tag
+name: Publish Release
 
 permissions:
   contents: write
 
 on:
+  workflow_dispatch:
   push:
     branches: [ "main" ]
     paths:
