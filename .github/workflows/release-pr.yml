@@ -33,6 +33,6 @@ jobs:
           tool: cargo-release
       - uses: cargo-bins/release-pr@v2
         with:
-          crate-release-all: true
           github-token: ${{ secrets.GITHUB_TOKEN }}
           version: ${{ inputs.level }}
+          crate-release-all: true
