@@ -14,7 +14,7 @@ on:
 jobs:
   # Build and packages all the things
   build-binaries:
-    if: contains(github.event.head_commit.message, 'This is a release PR for version')
+    #if: contains(github.event.head_commit.message, "chore: Release")
     strategy:
       matrix:
         # For these target platforms
