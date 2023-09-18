@@ -141,7 +141,7 @@ Re-run the migration to pick up any new block that were crated after the first m
 * Move the second sqlite3 database to the new rust-ceramic node.
 * Ingest the new block from this second sqlite3 database.
     ```zsh
-    ./migration  --input-ceramic-db 'db.sqlite3.bck' --output-ceramic-path '~/.ceramic-one/db.sqlite3.bck'
+    ./migration  --input-ceramic-db 'db.sqlite3.bck' --output-ceramic-path '~/.ceramic-one/db.sqlite3'
     ```
 
 ## License
