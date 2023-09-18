@@ -1,5 +1,5 @@
 # Create a release from the latest tag
-name: Release
+name: Publish Release From Tag
 
 permissions:
   contents: write
@@ -8,6 +8,7 @@ on:
   push:
     tags:
       - '*'
+  workflow_dispatch:
 
 jobs:
   # Build and packages all the things

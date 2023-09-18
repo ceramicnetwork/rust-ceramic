@@ -1,8 +1,9 @@
 # Creates packages
-name: Release
+name: Create Release PR
 
 permissions:
   contents: write
+  pull-requests: write
 
 on:
   workflow_dispatch:
@@ -26,11 +27,12 @@ jobs:
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-      - name: Run release-plz
-        uses: MarcoIeni/release-plz-action@v0.5
+      - name: Install cargo-release
+        uses: taiki-e/install-action@v1
         with:
-          command: release-pr
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          tool: cargo-release
+      - uses: cargo-bins/release-pr@v2
+        with:
+          crate-release-all: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          version: ${{ inputs.level }}
