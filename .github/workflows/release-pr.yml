@@ -25,6 +25,17 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
+      - name: Install Protoc
+        run: |
+          PROTOC_VERSION=3.20.1
+          PROTOC_ARCH=linux-x86_64
+          PROTOC_ZIP=protoc-$PROTOC_VERSION-$PROTOC_ARCH.zip
+          curl --retry 3 --retry-max-time 90 -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" -OL https://github.com/protocolbuffers/protobuf/releases/download/v$PROTOC_VERSION/$PROTOC_ZIP
+          sudo unzip -o $PROTOC_ZIP -d /usr/local bin/protoc
+          sudo unzip -o $PROTOC_ZIP -d /usr/local 'include/*'
+          rm -f $PROTOC_ZIP
+          echo "PROTOC=/usr/local/bin/protoc" >> $GITHUB_ENV
+          echo "PROTOC_INCLUDE=/usr/local/include" >> $GITHUB_ENV
       - name: Install cargo-release
         uses: taiki-e/install-action@v1
         with:
