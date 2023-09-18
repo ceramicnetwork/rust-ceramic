@@ -6,9 +6,9 @@ permissions:
 
 on:
   push:
-    tags:
-      - '*'
-  workflow_dispatch:
+    branches: [ "main" ]
+    paths:
+      - 'ceramic-one/Cargo.toml'
 
 jobs:
   # Build and packages all the things
