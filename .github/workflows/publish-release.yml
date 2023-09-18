@@ -98,4 +98,5 @@ jobs:
           TAG=$(cargo metadata --format-version=1 --no-deps | jq '.packages[0].version' | tr -d '"')
       - id: release
         run: |
-          gh release create v$TAG --title "v"$TAG --latest artifacts/**/*
+          echo "Releasing "$TAG
+          gh release create v$TAG -n "Release of "$TAG -t "v"$TAG --latest artifacts/**/*
