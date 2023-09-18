@@ -69,8 +69,11 @@ Install `@openapitools/openapi-generator-cli` and make to generate the crates:
 ### Migration
 This repo also contains the kubo to ceramic-one migration script.
 
-This script will read ipfs repo files matching ~/.ipfs/blocks/*/*.data
+This script will read ipfs repo files matching ~/.ipfs/blocks/**/*
 and insert them into the ceramic-one database ~/.ceramic-one/db.sqlite3
+
+The migration script will scan the input-ipfs-path for any file that has
+a b32 multibase as the filename not including the extension. When a file matches its hash it will be copied into the database at output-ceramic-path.
 
 you can run it with cargo
 
@@ -79,9 +82,11 @@ you can run it with cargo
 
     Options:
     -i, --input-ipfs-path <INPUT_IPFS_PATH>
-            The path to the ipfs_repo [default: ~/.ipfs/]
+            The path to the ipfs_repo [eg: ~/.ipfs/blocks]
+    -c, --input-ceramic-db <INPUT_CERAMIC_DB>
+            The path to the input_ceramic_db [eg: ~/.ceramic-one/db.sqlite3]
     -o, --output-ceramic-path <OUTPUT_CERAMIC_PATH>
-            The path to the ceramic_db [default: ~/.ceramic-one/db.sqlite3]
+            The path to the output_ceramic_db [eg: ~/.ceramic-one/db.sqlite3]
     -v, --verbose...
             More output per occurrence
     -q, --quiet...
@@ -100,9 +105,11 @@ or build it, move migration to you ceramic box, run it there.
 
     Options:
     -i, --input-ipfs-path <INPUT_IPFS_PATH>
-            The path to the ipfs_repo [default: ~/.ipfs/]
+            The path to the ipfs_repo [eg: ~/.ipfs/blocks]
+    -c, --input-ceramic-db <INPUT_CERAMIC_DB>
+            The path to the input_ceramic_db [eg: ~/.ceramic-one/db.sqlite3]
     -o, --output-ceramic-path <OUTPUT_CERAMIC_PATH>
-            The path to the ceramic_db [default: ~/.ceramic-one/db.sqlite3]
+            The path to the output_ceramic_db [eg: ~/.ceramic-one/db.sqlite3]
     -v, --verbose...
             More output per occurrence
     -q, --quiet...
@@ -112,6 +119,30 @@ or build it, move migration to you ceramic box, run it there.
     -V, --version
             Print version
 
+Migration
+
+* Ingest all the SHA256 blocks from your local filesystem block store to a sqlite3 database
+    ```zsh
+    ./migration --input-ipfs-path '~/.ipfs/blocks' --output-ceramic-path '~/.ceramic-one/db.sqlite3'
+    ```
+  * Pass in the input path to the blocks folder the script will import all blocks 
+    in the directory that is named with its multihash. 
+  * Pass in the where you would like the sqlite database as the output path.
+* Move the sqlite3 database to the new rust-ceramic node.
+* Start the new rust-ceramic server and point the compose DB node to it.
+    ```zsh
+    ./ceramic-one daemon --bind-address '127.0.0.1:5001'
+    ```
+* Once the traffic is cut over to the new node and we know there are not new block being crated on the old node.
+Re-run the migration to pick up any new block that were crated after the first migration
+    ```zsh
+    ./migration --input-ipfs-path '~/.ipfs/blocks' --output-ceramic-path '~/.ceramic-one/db.sqlite3.bck'
+    ```
+* Move the second sqlite3 database to the new rust-ceramic node.
+* Ingest the new block from this second sqlite3 database.
+    ```zsh
+    ./migration  --input-ceramic-db 'db.sqlite3.bck' --output-ceramic-path '~/.ceramic-one/db.sqlite3.bck'
+    ```
 
 ## License
 
