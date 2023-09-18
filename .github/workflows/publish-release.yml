@@ -1,34 +1,13 @@
-# CI that:
-#
-# * checks for a Git Tag that looks like a release ("v1.2.0")
-# * creates a Github Release™️
-# * builds binaries/packages with cargo-dist
-# * uploads those packages to the Github Release™️
-#
-# Note that the Github Release™️ will be created before the packages,
-# so there will be a few minutes where the release has no packages
-# and then they will slowly trickle in, possibly failing. To make
-# this more pleasant we mark the release as a "draft" until all
-# artifacts have been successfully uploaded. This allows you to
-# choose what to do with partial successes and avoids spamming
-# anyone with notifications before the release is actually ready.
+# Create a release from the latest tag
 name: Release
 
 permissions:
   contents: write
 
 on:
-  workflow_dispatch:
-    inputs:
-      level:
-        description: 'Release level'
-        required: true
-        default: 'minor'
-        type: choice
-        options:
-        - patch
-        - minor
-        - major
+  push:
+    tags:
+      - '*'
 
 jobs:
   # Build and packages all the things
@@ -37,22 +16,22 @@ jobs:
       matrix:
         # For these target platforms
         include:
-        - target: x86_64-unknown-linux-gnu
-          os: ubuntu-latest
-          arch: x86_64
-          ext: deb
-          protoc-arch: linux-x86_64
-        - target: x86_64-apple-darwin
-          os: macos-latest
-          arch: x86_64
-          ext: pkg
-          protoc-arch: osx-x86_64
-        - target: aarch64-apple-darwin
-          os: macos-latest
-          config-file: fpm/osx.fpm
-          arch: aarch64
-          ext: pkg
-          protoc-arch: osx-aarch_64
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            arch: x86_64
+            ext: deb
+            protoc-arch: linux-x86_64
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            arch: x86_64
+            ext: pkg
+            protoc-arch: osx-x86_64
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            config-file: fpm/osx.fpm
+            arch: aarch64
+            ext: pkg
+            protoc-arch: osx-aarch_64
         #- target: x86_64-pc-windows-msvc
         #  os: windows-latest
     runs-on: ${{ matrix.os }}
@@ -110,17 +89,11 @@ jobs:
       - name: check artifacts
         run: |
           ls artifacts/**/*
-      - id: install-cargo-release
-        uses: taiki-e/install-action@v1
-        with:
-          tool: cargo-release
-      - name: install git cliff
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: obtain tag
         run: |
-          export version="1.3.0"
-          wget "https://github.com/orhun/git-cliff/releases/download/v${version}/git-cliff-${version}-x86_64-unknown-linux-gnu.tar.gz"
-          tar -xvzf git-cliff-*.tar.gz
-          mv git-cliff-$version/git-cliff /usr/local/bin
-          rm -rf git-cliff-*
+          TAG=$(cargo metadata --format-version=1 --no-deps | jq '.packages[0].version' | tr -d '"')
       - id: release
         run: |
-          ./ci-scripts/release.sh --level ${{ inputs.level }}
+          gh release create v$TAG --title "v"$TAG --latest artifacts/**/*
