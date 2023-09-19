@@ -21,7 +21,10 @@ pub use crate::context;
 
 type ServiceFuture = BoxFuture<'static, Result<Response<Body>, crate::ServiceError>>;
 
-use crate::{Api, EventsPostResponse, SubscribeSortKeySortValueGetResponse, VersionPostResponse};
+use crate::{
+    Api, EventsPostResponse, LivenessGetResponse, SubscribeSortKeySortValueGetResponse,
+    VersionPostResponse,
+};
 
 mod paths {
     use lazy_static::lazy_static;
@@ -29,13 +32,15 @@ mod paths {
     lazy_static! {
         pub static ref GLOBAL_REGEX_SET: regex::RegexSet = regex::RegexSet::new(vec![
             r"^/ceramic/events$",
+            r"^/ceramic/liveness$",
             r"^/ceramic/subscribe/(?P<sort_key>[^/?#]*)/(?P<sort_value>[^/?#]*)$",
             r"^/ceramic/version$"
         ])
         .expect("Unable to create global regex set");
     }
     pub(crate) static ID_EVENTS: usize = 0;
-    pub(crate) static ID_SUBSCRIBE_SORT_KEY_SORT_VALUE: usize = 1;
+    pub(crate) static ID_LIVENESS: usize = 1;
+    pub(crate) static ID_SUBSCRIBE_SORT_KEY_SORT_VALUE: usize = 2;
     lazy_static! {
         pub static ref REGEX_SUBSCRIBE_SORT_KEY_SORT_VALUE: regex::Regex =
             #[allow(clippy::invalid_regex)]
@@ -44,7 +49,7 @@ mod paths {
             )
             .expect("Unable to create regex for SUBSCRIBE_SORT_KEY_SORT_VALUE");
     }
-    pub(crate) static ID_VERSION: usize = 2;
+    pub(crate) static ID_VERSION: usize = 3;
 }
 
 pub struct MakeService<T, C>
@@ -228,6 +233,40 @@ where
                                                 .body(Body::from(format!("Couldn't read body parameter Event: {}", e)))
                                                 .expect("Unable to create Bad Request response due to unable to read body parameter Event")),
                         }
+                }
+
+                // LivenessGet - GET /liveness
+                hyper::Method::GET if path.matched(paths::ID_LIVENESS) => {
+                    let result = api_impl.liveness_get(&context).await;
+                    let mut response = Response::new(Body::empty());
+                    response.headers_mut().insert(
+                        HeaderName::from_static("x-span-id"),
+                        HeaderValue::from_str(
+                            (&context as &dyn Has<XSpanIdString>)
+                                .get()
+                                .0
+                                .clone()
+                                .as_str(),
+                        )
+                        .expect("Unable to create X-Span-ID header value"),
+                    );
+
+                    match result {
+                        Ok(rsp) => match rsp {
+                            LivenessGetResponse::Success => {
+                                *response.status_mut() = StatusCode::from_u16(200)
+                                    .expect("Unable to turn 200 into a StatusCode");
+                            }
+                        },
+                        Err(_) => {
+                            // Application code returned an error. This should not happen, as the implementation should
+                            // return a valid response.
+                            *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                            *response.body_mut() = Body::from("An internal error occurred");
+                        }
+                    }
+
+                    Ok(response)
                 }
 
                 // SubscribeSortKeySortValueGet - GET /subscribe/{sort_key}/{sort_value}
@@ -439,6 +478,7 @@ where
                 }
 
                 _ if path.matched(paths::ID_EVENTS) => method_not_allowed(),
+                _ if path.matched(paths::ID_LIVENESS) => method_not_allowed(),
                 _ if path.matched(paths::ID_SUBSCRIBE_SORT_KEY_SORT_VALUE) => method_not_allowed(),
                 _ if path.matched(paths::ID_VERSION) => method_not_allowed(),
                 _ => Ok(Response::builder()
@@ -459,6 +499,8 @@ impl<T> RequestParser<T> for ApiRequestParser {
         match *request.method() {
             // EventsPost - POST /events
             hyper::Method::POST if path.matched(paths::ID_EVENTS) => Some("EventsPost"),
+            // LivenessGet - GET /liveness
+            hyper::Method::GET if path.matched(paths::ID_LIVENESS) => Some("LivenessGet"),
             // SubscribeSortKeySortValueGet - GET /subscribe/{sort_key}/{sort_value}
             hyper::Method::GET if path.matched(paths::ID_SUBSCRIBE_SORT_KEY_SORT_VALUE) => {
                 Some("SubscribeSortKeySortValueGet")

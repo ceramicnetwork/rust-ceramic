@@ -15,6 +15,12 @@ servers:
   - url: /ceramic
 
 paths:
+  /liveness:
+    get:
+      summary: Test the liveness of the Ceramic node
+      responses:
+        "200":
+          description: success
   /version:
     post:
       summary: Get the version of the Ceramic node

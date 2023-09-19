@@ -101,7 +101,8 @@ impl<C> Server<C> {
 
 use ceramic_api_server::server::MakeService;
 use ceramic_api_server::{
-    Api, EventsPostResponse, SubscribeSortKeySortValueGetResponse, VersionPostResponse,
+    Api, EventsPostResponse, LivenessGetResponse, SubscribeSortKeySortValueGetResponse,
+    VersionPostResponse,
 };
 use std::error::Error;
 use swagger::ApiError;
@@ -123,6 +124,13 @@ where
             event,
             context.get().0.clone()
         );
+        Err(ApiError("Generic failure".into()))
+    }
+
+    /// Test the liveness of the Ceramic node
+    async fn liveness_get(&self, context: &C) -> Result<LivenessGetResponse, ApiError> {
+        let context = context.clone();
+        info!("liveness_get() - X-Span-ID: {:?}", context.get().0.clone());
         Err(ApiError("Generic failure".into()))
     }
 
