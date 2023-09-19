@@ -29,6 +29,12 @@ pub enum EventsPostResponse {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub enum LivenessGetResponse {
+    /// success
+    Success,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub enum SubscribeSortKeySortValueGetResponse {
     /// success
     Success(Vec<models::Event>),
@@ -57,6 +63,9 @@ pub trait Api<C: Send + Sync> {
         event: models::Event,
         context: &C,
     ) -> Result<EventsPostResponse, ApiError>;
+
+    /// Test the liveness of the Ceramic node
+    async fn liveness_get(&self, context: &C) -> Result<LivenessGetResponse, ApiError>;
 
     /// Get events for a stream
     async fn subscribe_sort_key_sort_value_get(
@@ -87,6 +96,9 @@ pub trait ApiNoContext<C: Send + Sync> {
 
     /// Creates a new event
     async fn events_post(&self, event: models::Event) -> Result<EventsPostResponse, ApiError>;
+
+    /// Test the liveness of the Ceramic node
+    async fn liveness_get(&self) -> Result<LivenessGetResponse, ApiError>;
 
     /// Get events for a stream
     async fn subscribe_sort_key_sort_value_get(
@@ -132,6 +144,12 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
     async fn events_post(&self, event: models::Event) -> Result<EventsPostResponse, ApiError> {
         let context = self.context().clone();
         self.api().events_post(event, &context).await
+    }
+
+    /// Test the liveness of the Ceramic node
+    async fn liveness_get(&self) -> Result<LivenessGetResponse, ApiError> {
+        let context = self.context().clone();
+        self.api().liveness_get(&context).await
     }
 
     /// Get events for a stream
