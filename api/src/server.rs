@@ -26,7 +26,8 @@ use tracing::{debug, info};
 
 use ceramic_api_server::{
     models::{self, Event},
-    EventsPostResponse, SubscribeSortKeySortValueGetResponse, VersionPostResponse,
+    EventsPostResponse, LivenessGetResponse, SubscribeSortKeySortValueGetResponse,
+    VersionPostResponse,
 };
 use ceramic_core::{EventId, Interest, Network, PeerId, StreamId};
 
@@ -106,6 +107,10 @@ where
     I: Recon<Key = Interest> + Sync,
     M: Recon<Key = EventId> + Sync,
 {
+    async fn liveness_get(&self, _: &C) -> std::result::Result<LivenessGetResponse, ApiError> {
+        Ok(LivenessGetResponse::Success)
+    }
+
     async fn version_post(&self, _context: &C) -> Result<VersionPostResponse, ApiError> {
         let resp = VersionPostResponse::Success(models::Version {
             version: Some(ceramic_metadata::Version::default().version),

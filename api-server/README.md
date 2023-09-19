@@ -15,7 +15,7 @@ To see how to make this your own, look here:
 [README]((https://openapi-generator.tech))
 
 - API version: 0.1.1
-- Build date: 2023-09-18T11:40:22.264-06:00[America/Denver]
+- Build date: 2023-09-19T15:29:43.988-04:00[America/New_York]
 
 
 
@@ -62,6 +62,7 @@ cargo run --example server
 To run a client, follow one of the following simple steps:
 
 ```
+cargo run --example client LivenessGet
 cargo run --example client SubscribeSortKeySortValueGet
 cargo run --example client VersionPost
 ```
@@ -98,6 +99,7 @@ All URIs are relative to */ceramic*
 Method | HTTP request | Description
 ------------- | ------------- | -------------
 [****](docs/default_api.md#) | **POST** /events | Creates a new event
+[****](docs/default_api.md#) | **GET** /liveness | Test the liveness of the Ceramic node
 [****](docs/default_api.md#) | **GET** /subscribe/{sort_key}/{sort_value} | Get events for a stream
 [****](docs/default_api.md#) | **POST** /version | Get the version of the Ceramic node
 
