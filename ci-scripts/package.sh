@@ -62,11 +62,11 @@ do
   esac
 done
 
+TARGET=$ARCH-$OS
 ARTIFACTS_DIR=artifacts
 OUT_FILE=ceramic-one.$EXT
 OUT_PATH=$ARTIFACTS_DIR/ceramic-one.$EXT
 BIN_DIR=target/$TARGET/release
-TARGET=$ARCH-$OS
 
 echo "Determining package version"
 PKG_VERSION=$(cargo metadata --format-version=1 --no-deps | jq '.packages[0].version' | tr -d '"')
