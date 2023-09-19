@@ -63,22 +63,26 @@ do
 done
 
 ARTIFACTS_DIR=artifacts
-OUT_FILE=$ARTIFACTS_DIR/ceramic-one.$EXT
+OUT_FILE=ceramic-one.$EXT
+OUT_PATH=$ARTIFACTS_DIR/ceramic-one.$EXT
 BIN_DIR=target/$TARGET/release
 
 echo "Determining package version"
 PKG_VERSION=$(cargo metadata --format-version=1 --no-deps | jq '.packages[0].version' | tr -d '"')
 
-if [ -f $OUT_FILE ]; then
-  rm $OUT_FILE
+if [ ! -d $ARTIFACTS_DIR ]; then
+  mkdir -c $ARTIFACTS_DIR
+fi
+if [ -f $OUT_PATH ]; then
+  rm $OUT_PATH
 fi
 
 echo "Building artifacts for "$TARGET
 
 cargo build --release --locked --target $TARGET
 
-mkdir $ARTIFACTS_DIR || true
-
 echo "Building package for "$TARGET
+fpm --fpm-options-file $CONFIG_FILE -C $BIN_DIR -v $PKG_VERSION -p $OUT_PATH ceramic-one=$INSTALL_DIR/ceramic-one
 
-fpm --fpm-options-file $CONFIG_FILE -C $BIN_DIR -v $PKG_VERSION -p $OUT_FILE ceramic-one=$INSTALL_DIR/ceramic-one
+echo "Compressing package for "$TARGET
+tar -cvzf ceramic-one_$TARGET.tar.gz -C $ARTIFACTS_DIR $OUT_FILE
