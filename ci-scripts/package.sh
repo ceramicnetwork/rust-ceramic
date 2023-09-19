@@ -7,8 +7,8 @@ EXT="deb"
 PKG_TYPE="dpkg"
 CONFIG_FILE="fpm/linux.fpm"
 INSTALL_DIR="/usr/local/bin"
-TARGET="x86_64-unknown-linux-gnu"
 
+OS="unknown-linux-gnu"
 ARCH=""
 case $(uname -m) in
   x86_64) ARCH="x86_64" ;;
@@ -24,7 +24,7 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
   EXT="pkg"
   PKG_TYPE="osxpkg"
   INSTALL_DIR="/Applications"
-  TARGET=$ARCH"-apple-darwin"
+  OS="apple-darwin"
 fi
 
 echo "Evaluating program arguments '$@'"
@@ -66,6 +66,7 @@ ARTIFACTS_DIR=artifacts
 OUT_FILE=ceramic-one.$EXT
 OUT_PATH=$ARTIFACTS_DIR/ceramic-one.$EXT
 BIN_DIR=target/$TARGET/release
+TARGET=$ARCH-$OS
 
 echo "Determining package version"
 PKG_VERSION=$(cargo metadata --format-version=1 --no-deps | jq '.packages[0].version' | tr -d '"')
