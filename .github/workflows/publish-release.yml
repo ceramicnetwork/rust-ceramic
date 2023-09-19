@@ -94,10 +94,8 @@ jobs:
           ls artifacts/**/*
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-      - name: obtain tag
-        run: |
-          TAG=$(cargo metadata --format-version=1 --no-deps | jq '.packages[0].version' | tr -d '"')
       - id: release
         run: |
+          TAG=$(cargo metadata --format-version=1 --no-deps | jq '.packages[0].version' | tr -d '"')
           echo "Releasing "$TAG
           gh release create v$TAG -n "Release of "$TAG -t "v"$TAG --latest artifacts/**/*
