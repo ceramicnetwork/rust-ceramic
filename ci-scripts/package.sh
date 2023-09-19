@@ -71,7 +71,7 @@ echo "Determining package version"
 PKG_VERSION=$(cargo metadata --format-version=1 --no-deps | jq '.packages[0].version' | tr -d '"')
 
 if [ ! -d $ARTIFACTS_DIR ]; then
-  mkdir -c $ARTIFACTS_DIR
+  mkdir -p $ARTIFACTS_DIR
 fi
 if [ -f $OUT_PATH ]; then
   rm $OUT_PATH
