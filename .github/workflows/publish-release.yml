@@ -5,11 +5,10 @@ permissions:
   contents: write
 
 on:
-  workflow_dispatch:
   push:
     branches: [ "main" ]
     paths:
-      - 'ceramic-one/Cargo.toml'
+      - 'Cargo.toml'
 
 jobs:
   # Build and packages all the things
