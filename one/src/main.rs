@@ -69,7 +69,12 @@ struct DaemonOpts {
     swarm_addresses: Vec<String>,
     /// Address of bootstrap peers.
     /// There are no default address, use this arg or the API to connect to bootstrap peers as needed.
-    #[arg(long, env = "CERAMIC_ONE_BOOTSTRAP_ADDRESSES")]
+    #[arg(
+        long,
+        use_value_delimiter = true,
+        value_delimiter = ',',
+        env = "CERAMIC_ONE_BOOTSTRAP_ADDRESSES"
+    )]
     bootstrap_addresses: Vec<String>,
     /// Path to storage directory
     #[arg(short, long, env = "CERAMIC_ONE_STORE_DIR")]
