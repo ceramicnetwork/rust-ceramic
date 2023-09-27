@@ -1075,6 +1075,9 @@ dependencies = [
  "mockall",
  "multibase 0.9.1",
  "recon",
+ "serde",
+ "serde_cbor",
+ "serde_json",
  "swagger",
  "tokio",
  "tracing",
@@ -1289,19 +1292,23 @@ dependencies = [
  "futures-util",
  "git-version",
  "glob",
+ "hex",
  "home",
  "hyper",
  "iroh-rpc-client",
  "iroh-rpc-types",
  "libipld 0.16.0",
  "libp2p",
+ "minicbor",
  "multiaddr",
  "multibase 0.9.1",
  "multihash 0.18.1",
  "names",
+ "ordered-float",
  "prometheus-client",
  "recon",
  "serde",
+ "serde_cbor",
  "serde_json",
  "serde_repr",
  "signal-hook",
@@ -5283,6 +5290,7 @@ version = "0.19.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7005aaf257a59ff4de471a9d5538ec868a21586534fff7f85dd97d4043a6139"
 dependencies = [
+ "half",
  "minicbor-derive",
 ]
 
@@ -5955,6 +5963,15 @@ name = "option-ext"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
+
+[[package]]
+name = "ordered-float"
+version = "4.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "536900a8093134cf9ccf00a27deb3532421099e958d9dd431135d0c7543ca1e8"
+dependencies = [
+ "num-traits",
+]
 
 [[package]]
 name = "os_str_bytes"
@@ -6988,6 +7005,7 @@ dependencies = [
  "codespan-reporting",
  "expect-test",
  "hex",
+ "itertools 0.11.0",
  "lalrpop",
  "lalrpop-util",
  "libp2p",

@@ -3,8 +3,11 @@
 use crate::{AssociativeHash, Key, Store};
 use anyhow::Result;
 use async_trait::async_trait;
+// use itertools::Itertools;
 use sqlx::{Row, SqlitePool};
+// use sqlx::{QueryBuilder, Row, Sqlite, SqlitePool};
 use std::marker::PhantomData;
+use std::result::Result::Ok;
 use tracing::{debug, instrument};
 
 /// ReconSQLite is a implementation of Recon store
@@ -110,7 +113,7 @@ where
             .fetch_all(&self.pool)
             .await;
         match resp {
-            Ok(_) => Ok(true),
+            std::result::Result::Ok(_rows) => Ok(true),
             Err(sqlx::Error::Database(err)) => {
                 if err.is_unique_violation() {
                     Ok(false)
@@ -122,6 +125,44 @@ where
         }
     }
 
+    // /// Insert new keys into the key space.
+    // /// Returns () is no err occurs
+    // async fn insert_many<'a, I>(&mut self, keys: I) -> Result<bool>
+    // where
+    //     I: Iterator<Item = &'a Self::Key> + Send,
+    // {
+    //     let batch_size = 1024;
+    //     for chunk in &keys.chunks(batch_size){
+    //         // if chunk.peek().is_none() {
+    //         //     return Ok(false);
+    //         // }
+    //         let mut query_builder: QueryBuilder<Sqlite> = QueryBuilder::new(
+    //                         // Note the trailing space; most calls to `QueryBuilder` don't automatically insert
+    //                         // spaces as that might interfere with identifiers or quoted strings where exact
+    //                         // values may matter.
+    //                         "INSERT OR IGNORE INTO recon ( sort_key, key, ahash_0, ahash_1, ahash_2, ahash_3, ahash_4, ahash_5, ahash_6, ahash_7, block_retrieved) ",
+    //                     );
+    //         query_builder.push_values(chunk.into_iter(), |mut b, event: &'a Self::Key| {
+    //             let hash = H::digest(event);
+    //             b.push_bind(&self.sort_key)
+    //                 .push_bind(event.as_bytes())
+    //                 .push_bind(hash.as_u32s()[0])
+    //                 .push_bind(hash.as_u32s()[1])
+    //                 .push_bind(hash.as_u32s()[2])
+    //                 .push_bind(hash.as_u32s()[3])
+    //                 .push_bind(hash.as_u32s()[4])
+    //                 .push_bind(hash.as_u32s()[5])
+    //                 .push_bind(hash.as_u32s()[6])
+    //                 .push_bind(hash.as_u32s()[7])
+    //                 .push_bind(false);
+    //         });
+    //         let query = query_builder.build();
+    //         query.execute(&self.pool).await?;
+    //     }
+    //     Ok(true)
+    // }
+
+    /// return the hash and count for a range
     #[instrument(skip(self))]
     async fn hash_range(
         &mut self,
@@ -137,7 +178,8 @@ where
                TOTAL(ahash_0) & 0xFFFFFFFF, TOTAL(ahash_1) & 0xFFFFFFFF,
                TOTAL(ahash_2) & 0xFFFFFFFF, TOTAL(ahash_3) & 0xFFFFFFFF,
                TOTAL(ahash_4) & 0xFFFFFFFF, TOTAL(ahash_5) & 0xFFFFFFFF,
-               TOTAL(ahash_6) & 0xFFFFFFFF, TOTAL(ahash_7) & 0xFFFFFFFF
+               TOTAL(ahash_6) & 0xFFFFFFFF, TOTAL(ahash_7) & 0xFFFFFFFF,
+               COUNT(1)
              FROM recon WHERE sort_key = ? AND key > ? AND key < ?;",
         );
         let row = query
@@ -369,9 +411,10 @@ mod tests {
         let hash: Sha256a = store
             .hash_range(&b"a".as_slice().into(), &b"z".as_slice().into())
             .await
-            .unwrap();
+            .unwrap()
+            .0;
         expect![[r#"7460F21C83815F5EDC682F7A4154BC09AA3A0AE5DD1A2DEDCD709888A12751CC"#]]
-            .assert_eq(&hash.to_hex())
+            .assert_eq(&hash.to_hex());
     }
 
     #[test]
