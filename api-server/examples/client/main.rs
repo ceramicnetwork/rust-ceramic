@@ -3,7 +3,7 @@
 #[allow(unused_imports)]
 use ceramic_api_server::{
     models, Api, ApiNoContext, Client, ContextWrapperExt, EventsPostResponse, LivenessGetResponse,
-    SubscribeSortKeySortValueGetResponse, VersionPostResponse,
+    ReconPostResponse, SubscribeSortKeySortValueGetResponse, VersionPostResponse,
 };
 use clap::{App, Arg};
 #[allow(unused_imports)]
@@ -103,6 +103,15 @@ fn main() {
                 (client.context() as &dyn Has<XSpanIdString>).get().clone()
             );
         }
+        /* Disabled because there's no example.
+        Some("ReconPost") => {
+            let result = rt.block_on(client.recon_post(
+                  ???,
+                  swagger::ByteArray(Vec::from("BINARY_DATA_HERE"))
+            ));
+            info!("{:?} (X-Span-ID: {:?})", result, (client.context() as &dyn Has<XSpanIdString>).get().clone());
+        },
+        */
         Some("SubscribeSortKeySortValueGet") => {
             let result = rt.block_on(client.subscribe_sort_key_sort_value_get(
                 "sort_key_example".to_string(),

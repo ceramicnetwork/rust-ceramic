@@ -129,7 +129,7 @@ where
     S: Store<Key = K, Hash = H> + Send + 'static,
     I: InterestProvider<Key = K> + 'static,
 {
-    /// Consturct a [`Server`] from a [`Recon`] instance.
+    /// Construct a [`Server`] from a [`Recon`] instance.
     pub fn new(recon: Recon<K, H, S, I>) -> Self {
         let (tx, rx) = channel(1024);
         Self {
@@ -162,7 +162,11 @@ where
                         send(ret, self.recon.initial_messages().await);
                     }
                     Request::ProcessMessages { received, ret } => {
-                        send(ret, self.recon.process_messages(&received).await);
+                        let data = match self.recon.process_messages(&received).await {
+                            Ok((response, _synced, _syncing)) => Ok(response),
+                            Err(e) => Err(e),
+                        };
+                        send(ret, data);
                     }
                     Request::Insert { key, ret } => {
                         send(ret, self.recon.insert(&key).await);

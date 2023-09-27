@@ -1,13 +1,15 @@
 //! Ceramic implements a single binary ceramic node.
 #![warn(missing_docs)]
 
+mod events;
 mod http;
 mod metrics;
 mod network;
 mod pubsub;
+mod recon_loop;
 mod sql;
 
-use std::{path::PathBuf, str::FromStr, sync::Arc, time::Duration};
+use std::{env, path::PathBuf, str::FromStr, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Result};
 use ceramic_core::{EventId, Interest, PeerId};
@@ -20,7 +22,7 @@ use futures_util::future;
 use iroh_metrics::{config::Config as MetricsConfig, MetricsHandle};
 use libipld::json::DagJsonCodec;
 use libp2p::metrics::Recorder;
-use recon::{FullInterests, Recon, ReconInterestProvider, SQLiteStore, Server, Sha256a};
+use recon::{self, FullInterests, Recon, ReconInterestProvider, SQLiteStore, Server, Sha256a};
 use signal_hook::consts::signal::*;
 use signal_hook_tokio::Signals;
 use swagger::{auth::MakeAllowAllAuthenticator, EmptyContext};
@@ -46,6 +48,8 @@ enum Command {
     Daemon(DaemonOpts),
     /// Run a process that locally pins all stream tips
     Eye(EyeOpts),
+    /// Explore the Event store
+    Events(events::EventsOpts),
 }
 
 #[derive(Args, Debug)]
@@ -108,6 +112,10 @@ struct DaemonOpts {
     /// When true Recon will be used to synchronized events with peers.
     #[arg(long, default_value_t = false, env = "CERAMIC_ONE_RECON")]
     recon: bool,
+
+    /// When true Recon http will be used to synchronized events with peers.
+    #[arg(long, default_value_t = false, env = "CERAMIC_ONE_RECON_HTTP")]
+    recon_http: bool,
 }
 
 #[derive(ValueEnum, Debug, Clone)]
@@ -161,6 +169,7 @@ async fn main() -> Result<()> {
             daemon.run().await
         }
         Command::Eye(opts) => eye(opts).await,
+        Command::Events(opts) => events::events(opts).await,
     }
 }
 
@@ -173,6 +182,7 @@ type ModelInterest = ReconInterestProvider<Sha256a>;
 type ReconModel = Server<EventId, Sha256a, ModelStore, ModelInterest>;
 
 struct Daemon {
+    opts: DaemonOpts,
     peer_id: PeerId,
     network: ceramic_core::Network,
     bind_address: String,
@@ -211,7 +221,7 @@ impl Daemon {
         // 1 path from options
         // 2 path $HOME/.ceramic-one
         // 3 pwd/.ceramic-one
-        let dir = match opts.store_dir {
+        let dir = match opts.store_dir.clone() {
             Some(dir) => dir,
             None => match home::home_dir() {
                 Some(home_dir) => home_dir.join(".ceramic-one"),
@@ -219,6 +229,40 @@ impl Daemon {
             },
         };
         debug!("using directory: {}", dir.display());
+
+        let mut bootstrap_addresses = opts.bootstrap_addresses.clone();
+        // Add the default bootstrap peers for Mainnet, TestnetClay, and DevUnstable.
+        // from https://github.com/ceramicnetwork/js-ceramic/blob/develop/packages/ipfs-topology/src/ipfs-topology.ts
+        let bootstrap_addresses = match opts.network {
+            Network::Mainnet => {
+                bootstrap_addresses.extend(vec![
+                            "/dns4/go-ipfs-ceramic-private-mainnet-external.3boxlabs.com/tcp/4011/ws/p2p/QmXALVsXZwPWTUbsT8G6VVzzgTJaAWRUD7FWL5f7d5ubAL".to_string(), // cspell:disable-line
+                            "/dns4/go-ipfs-ceramic-private-cas-mainnet-external.3boxlabs.com/tcp/4011/ws/p2p/QmUvEKXuorR7YksrVgA7yKGbfjWHuCRisw2cH9iqRVM9P8".to_string(), // cspell:disable-line
+                        ]);
+                bootstrap_addresses
+            }
+            Network::TestnetClay => {
+                bootstrap_addresses.extend(vec![
+                            "/dns4/go-ipfs-ceramic-public-clay-external.3boxlabs.com/tcp/4011/ws/p2p/QmWiY3CbNawZjWnHXx3p3DXsg21pZYTj4CRY1iwMkhP8r3".to_string(), // cspell:disable-line
+                            "/dns4/go-ipfs-ceramic-private-clay-external.3boxlabs.com/tcp/4011/ws/p2p/QmQotCKxiMWt935TyCBFTN23jaivxwrZ3uD58wNxeg5npi".to_string(), // cspell:disable-line
+                            "/dns4/go-ipfs-ceramic-private-cas-clay-external.3boxlabs.com/tcp/4011/ws/p2p/QmbeBTzSccH8xYottaYeyVX8QsKyox1ExfRx7T1iBqRyCd".to_string(), // cspell:disable-line
+                        ]);
+                bootstrap_addresses
+            }
+            Network::DevUnstable => {
+                bootstrap_addresses.extend(vec![
+                            "/dns4/go-ipfs-ceramic-public-qa-external.3boxlabs.com/tcp/4011/ws/p2p/QmPP3RdaSWDkhcxZReGo591FWanLw9ucvgmUZhtSLt9t6D".to_string(),  // cspell:disable-line
+                            "/dns4/go-ipfs-ceramic-private-qa-external.3boxlabs.com/tcp/4011/ws/p2p/QmXcmXfLkkaGbQdj98cgGvHr5gkwJp4r79j9xbJajsoYHr".to_string(),  // cspell:disable-line
+                            "/dns4/go-ipfs-ceramic-private-cas-qa-external.3boxlabs.com/tcp/4011/ws/p2p/QmRvJ4HX4N6H26NgtqjoJEUyaDyDRUhGESP1aoyCJE1X1b".to_string(),  // cspell:disable-line
+                        ]);
+                bootstrap_addresses
+            }
+            Network::Local => bootstrap_addresses,
+            Network::InMemory => bootstrap_addresses,
+        }
+        .iter()
+        .map(|addr| addr.parse())
+        .collect::<Result<Vec<Multiaddr>, multiaddr::Error>>()?;
 
         let mut p2p_config = Libp2pConfig::default();
         p2p_config.mdns = opts.mdns;
@@ -231,11 +275,7 @@ impl Daemon {
         p2p_config.gossipsub = true;
         p2p_config.max_conns_out = 2000;
         p2p_config.max_conns_in = 2000;
-        p2p_config.bootstrap_peers = opts
-            .bootstrap_addresses
-            .iter()
-            .map(|addr| addr.parse())
-            .collect::<Result<Vec<Multiaddr>, multiaddr::Error>>()?;
+        p2p_config.bootstrap_peers = bootstrap_addresses;
 
         p2p_config.listening_multiaddrs = opts
             .swarm_addresses
@@ -287,11 +327,15 @@ impl Daemon {
             .build(sql_pool.clone())
             .await?;
 
+        let bind_address = opts.bind_address.clone();
+        let metrics_bind_address = opts.metrics_bind_address.clone();
+
         Ok(Daemon {
+            opts,
             peer_id,
             network,
-            bind_address: opts.bind_address,
-            metrics_bind_address: opts.metrics_bind_address,
+            bind_address,
+            metrics_bind_address,
             ipfs,
             metrics_handle,
             metrics,
@@ -337,6 +381,13 @@ impl Daemon {
         );
 
         // Start recon tasks
+        let recon_event_loop_handle = match self.opts.recon_http {
+            true => Some(tokio::spawn(recon_loop::recon_event_loop(
+                self.recon_interest.client(),
+                self.recon_model.client(),
+            ))),
+            false => None,
+        };
         let recon_interest_handle = tokio::spawn(self.recon_interest.run());
         let recon_model_handle = tokio::spawn(self.recon_model.run());
 
@@ -373,6 +424,12 @@ impl Daemon {
             warn!(%err, "recon interest task error");
         }
         debug!("recon interests server stopped");
+        if recon_event_loop_handle.is_some() {
+            if let Err(err) = recon_event_loop_handle.unwrap().await {
+                warn!(%err, "recon event loop error");
+            }
+            debug!("recon event loop stopped");
+        }
 
         // Shutdown metrics server and collection handler
         tx_metrics_server_shutdown

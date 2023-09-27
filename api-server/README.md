@@ -15,7 +15,7 @@ To see how to make this your own, look here:
 [README]((https://openapi-generator.tech))
 
 - API version: 0.1.1
-- Build date: 2023-09-19T15:29:43.988-04:00[America/New_York]
+- Build date: 2023-09-28T18:34:43.181-06:00[America/Mexico_City]
 
 
 
@@ -100,6 +100,7 @@ Method | HTTP request | Description
 ------------- | ------------- | -------------
 [****](docs/default_api.md#) | **POST** /events | Creates a new event
 [****](docs/default_api.md#) | **GET** /liveness | Test the liveness of the Ceramic node
+[****](docs/default_api.md#) | **POST** /recon | Sends a Recon message
 [****](docs/default_api.md#) | **GET** /subscribe/{sort_key}/{sort_value} | Get events for a stream
 [****](docs/default_api.md#) | **POST** /version | Get the version of the Ceramic node
 
@@ -107,6 +108,7 @@ Method | HTTP request | Description
 ## Documentation For Models
 
  - [Event](docs/Event.md)
+ - [Ring](docs/Ring.md)
  - [Version](docs/Version.md)
 
 

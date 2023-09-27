@@ -49,19 +49,21 @@ where
 
     /// Return the hash of all keys in the range between left_fencepost and right_fencepost.
     /// Both range bounds are exclusive.
-    pub fn hash_range(&self, left_fencepost: &K, right_fencepost: &K) -> anyhow::Result<H> {
+    pub fn hash_range(&self, left_fencepost: &K, right_fencepost: &K) -> anyhow::Result<(H, u64)> {
         if left_fencepost >= right_fencepost {
-            return Ok(H::identity());
+            return Ok((H::identity(), 0));
         }
         let range = (
             Bound::Excluded(left_fencepost),
             Bound::Excluded(right_fencepost),
         );
-        Ok(H::identity().digest_many(
+        let hash: H = H::identity().digest_many(
             self.keys
                 .range(range)
                 .map(|(key, hash)| MaybeHashedKey::new(key, Some(hash))),
-        ))
+        );
+        let count: usize = self.keys.range(range).count();
+        Ok((hash, count as u64))
     }
 
     /// Return all keys in the range between left_fencepost and right_fencepost.
@@ -108,7 +110,7 @@ where
         &mut self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
-    ) -> anyhow::Result<Self::Hash> {
+    ) -> anyhow::Result<(Self::Hash, u64)> {
         // Self does not need async to implement hash_range, so it exposes a pub non async hash_range function
         // and we delegate to its implementation here.
         BTreeStore::hash_range(self, left_fencepost, right_fencepost)

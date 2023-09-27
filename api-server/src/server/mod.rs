@@ -22,8 +22,8 @@ pub use crate::context;
 type ServiceFuture = BoxFuture<'static, Result<Response<Body>, crate::ServiceError>>;
 
 use crate::{
-    Api, EventsPostResponse, LivenessGetResponse, SubscribeSortKeySortValueGetResponse,
-    VersionPostResponse,
+    Api, EventsPostResponse, LivenessGetResponse, ReconPostResponse,
+    SubscribeSortKeySortValueGetResponse, VersionPostResponse,
 };
 
 mod paths {
@@ -33,6 +33,7 @@ mod paths {
         pub static ref GLOBAL_REGEX_SET: regex::RegexSet = regex::RegexSet::new(vec![
             r"^/ceramic/events$",
             r"^/ceramic/liveness$",
+            r"^/ceramic/recon$",
             r"^/ceramic/subscribe/(?P<sort_key>[^/?#]*)/(?P<sort_value>[^/?#]*)$",
             r"^/ceramic/version$"
         ])
@@ -40,7 +41,8 @@ mod paths {
     }
     pub(crate) static ID_EVENTS: usize = 0;
     pub(crate) static ID_LIVENESS: usize = 1;
-    pub(crate) static ID_SUBSCRIBE_SORT_KEY_SORT_VALUE: usize = 2;
+    pub(crate) static ID_RECON: usize = 2;
+    pub(crate) static ID_SUBSCRIBE_SORT_KEY_SORT_VALUE: usize = 3;
     lazy_static! {
         pub static ref REGEX_SUBSCRIBE_SORT_KEY_SORT_VALUE: regex::Regex =
             #[allow(clippy::invalid_regex)]
@@ -49,7 +51,7 @@ mod paths {
             )
             .expect("Unable to create regex for SUBSCRIBE_SORT_KEY_SORT_VALUE");
     }
-    pub(crate) static ID_VERSION: usize = 3;
+    pub(crate) static ID_VERSION: usize = 4;
 }
 
 pub struct MakeService<T, C>
@@ -269,6 +271,100 @@ where
                     Ok(response)
                 }
 
+                // ReconPost - POST /recon
+                hyper::Method::POST if path.matched(paths::ID_RECON) => {
+                    // Query parameters (note that non-required or collection query parameters will ignore garbage values, rather than causing a 400 response)
+                    let query_params =
+                        form_urlencoded::parse(uri.query().unwrap_or_default().as_bytes())
+                            .collect::<Vec<_>>();
+                    let param_ring = query_params
+                        .iter()
+                        .filter(|e| e.0 == "ring")
+                        .map(|e| e.1.clone())
+                        .next();
+                    let param_ring = match param_ring {
+                        Some(param_ring) => {
+                            let param_ring =
+                                <models::Ring as std::str::FromStr>::from_str(&param_ring);
+                            match param_ring {
+                            Ok(param_ring) => Some(param_ring),
+                            Err(e) => return Ok(Response::builder()
+                                .status(StatusCode::BAD_REQUEST)
+                                .body(Body::from(format!("Couldn't parse query parameter ring - doesn't match schema: {}", e)))
+                                .expect("Unable to create Bad Request response for invalid query parameter ring")),
+                        }
+                        }
+                        None => None,
+                    };
+                    let param_ring = match param_ring {
+                    Some(param_ring) => param_ring,
+                    None => return Ok(Response::builder()
+                        .status(StatusCode::BAD_REQUEST)
+                        .body(Body::from("Missing required query parameter ring"))
+                        .expect("Unable to create Bad Request response for missing query parameter ring")),
+                };
+
+                    // Body parameters (note that non-required body parameters will ignore garbage
+                    // values, rather than causing a 400 response). Produce warning header and logs for
+                    // any unused fields.
+                    let result = body.into_raw().await;
+                    match result {
+                            Ok(body) => {
+                                let param_body: Option<swagger::ByteArray> = if !body.is_empty() {
+                                    Some(swagger::ByteArray(body))
+                                } else {
+                                    None
+                                };
+                                let param_body = match param_body {
+                                    Some(param_body) => param_body,
+                                    None => return Ok(Response::builder()
+                                                        .status(StatusCode::BAD_REQUEST)
+                                                        .body(Body::from("Missing required body parameter body"))
+                                                        .expect("Unable to create Bad Request response for missing body parameter body")),
+                                };
+
+                                let result = api_impl.recon_post(
+                                            param_ring,
+                                            param_body,
+                                        &context
+                                    ).await;
+                                let mut response = Response::new(Body::empty());
+                                response.headers_mut().insert(
+                                            HeaderName::from_static("x-span-id"),
+                                            HeaderValue::from_str((&context as &dyn Has<XSpanIdString>).get().0.clone().as_str())
+                                                .expect("Unable to create X-Span-ID header value"));
+
+                                        match result {
+                                            Ok(rsp) => match rsp {
+                                                ReconPostResponse::Success
+                                                    (body)
+                                                => {
+                                                    *response.status_mut() = StatusCode::from_u16(200).expect("Unable to turn 200 into a StatusCode");
+                                                    response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/cbor-seq")
+                                                            .expect("Unable to create Content-Type header for RECON_POST_SUCCESS"));
+                                                    let body = body.0;
+                                                    *response.body_mut() = Body::from(body);
+                                                },
+                                            },
+                                            Err(_) => {
+                                                // Application code returned an error. This should not happen, as the implementation should
+                                                // return a valid response.
+                                                *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                                                *response.body_mut() = Body::from("An internal error occurred");
+                                            },
+                                        }
+
+                                        Ok(response)
+                            },
+                            Err(e) => Ok(Response::builder()
+                                                .status(StatusCode::BAD_REQUEST)
+                                                .body(Body::from(format!("Couldn't read body parameter body: {}", e)))
+                                                .expect("Unable to create Bad Request response due to unable to read body parameter body")),
+                        }
+                }
+
                 // SubscribeSortKeySortValueGet - GET /subscribe/{sort_key}/{sort_value}
                 hyper::Method::GET if path.matched(paths::ID_SUBSCRIBE_SORT_KEY_SORT_VALUE) => {
                     // Path parameters
@@ -479,6 +575,7 @@ where
 
                 _ if path.matched(paths::ID_EVENTS) => method_not_allowed(),
                 _ if path.matched(paths::ID_LIVENESS) => method_not_allowed(),
+                _ if path.matched(paths::ID_RECON) => method_not_allowed(),
                 _ if path.matched(paths::ID_SUBSCRIBE_SORT_KEY_SORT_VALUE) => method_not_allowed(),
                 _ if path.matched(paths::ID_VERSION) => method_not_allowed(),
                 _ => Ok(Response::builder()
@@ -501,6 +598,8 @@ impl<T> RequestParser<T> for ApiRequestParser {
             hyper::Method::POST if path.matched(paths::ID_EVENTS) => Some("EventsPost"),
             // LivenessGet - GET /liveness
             hyper::Method::GET if path.matched(paths::ID_LIVENESS) => Some("LivenessGet"),
+            // ReconPost - POST /recon
+            hyper::Method::POST if path.matched(paths::ID_RECON) => Some("ReconPost"),
             // SubscribeSortKeySortValueGet - GET /subscribe/{sort_key}/{sort_value}
             hyper::Method::GET if path.matched(paths::ID_SUBSCRIBE_SORT_KEY_SORT_VALUE) => {
                 Some("SubscribeSortKeySortValueGet")

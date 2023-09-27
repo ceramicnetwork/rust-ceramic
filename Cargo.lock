@@ -1007,6 +1007,9 @@ dependencies = [
  "mockall",
  "multibase 0.9.1",
  "recon",
+ "serde",
+ "serde_cbor",
+ "serde_json",
  "swagger",
  "tokio",
  "tracing",
@@ -1187,11 +1190,13 @@ dependencies = [
  "ceramic-kubo-rpc",
  "ceramic-kubo-rpc-server",
  "ceramic-p2p",
+ "cid 0.9.0",
  "clap 4.4.6",
  "expect-test",
  "futures",
  "futures-util",
  "git-version",
+ "hex",
  "home",
  "hyper",
  "iroh-metrics",
@@ -1199,10 +1204,12 @@ dependencies = [
  "iroh-rpc-types",
  "libipld 0.16.0",
  "libp2p",
+ "minicbor",
  "multiaddr",
  "prometheus-client",
  "recon",
  "serde",
+ "serde_cbor",
  "serde_json",
  "serde_repr",
  "signal-hook",
@@ -5153,6 +5160,7 @@ version = "0.19.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7005aaf257a59ff4de471a9d5538ec868a21586534fff7f85dd97d4043a6139"
 dependencies = [
+ "half",
  "minicbor-derive",
 ]
 
@@ -6852,6 +6860,7 @@ dependencies = [
  "codespan-reporting",
  "expect-test",
  "hex",
+ "itertools 0.11.0",
  "lalrpop",
  "lalrpop-util",
  "libp2p",
