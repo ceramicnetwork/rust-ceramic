@@ -15,7 +15,7 @@ To see how to make this your own, look here:
 [README]((https://openapi-generator.tech))
 
 - API version: 0.1.1
-- Build date: 2023-09-18T11:40:30.151-06:00[America/Denver]
+- Build date: 2023-09-26T22:40:03.737-06:00[America/Mexico_City]
 
 
 
@@ -134,9 +134,8 @@ Method | HTTP request | Description
  - [BlockPutPost200Response](docs/BlockPutPost200Response.md)
  - [Codecs](docs/Codecs.md)
  - [DagImportPost200Response](docs/DagImportPost200Response.md)
- - [DagImportPost200ResponseRoot](docs/DagImportPost200ResponseRoot.md)
- - [DagImportPost200ResponseRootCid](docs/DagImportPost200ResponseRootCid.md)
  - [DagPutPost200Response](docs/DagPutPost200Response.md)
+ - [DagPutPost200ResponseCid](docs/DagPutPost200ResponseCid.md)
  - [DagResolvePost200Response](docs/DagResolvePost200Response.md)
  - [DagResolvePost200ResponseCid](docs/DagResolvePost200ResponseCid.md)
  - [Error](docs/Error.md)

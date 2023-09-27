@@ -29,7 +29,7 @@ paths:
           required: false
           schema:
             $ref: '#/components/schemas/Codecs'
-            default: dag_json
+            default: dag-json
       responses:
         '200':
           description: success
@@ -56,7 +56,7 @@ paths:
           description: IPFS path to DAG node
           schema:
             $ref: '#/components/schemas/Codecs'
-            default: dag_cbor
+            default: dag-cbor
           required: false
         - name: input-codec
           in: query
@@ -64,7 +64,7 @@ paths:
           required: false
           schema:
             $ref: '#/components/schemas/Codecs'
-            default: dag_json
+            default: dag-json
       requestBody:
         content:
           multipart/form-data:
@@ -87,7 +87,12 @@ paths:
                   - Cid
                 properties:
                   Cid:
-                    type: string
+                    type: object
+                    required:
+                      - '/'
+                    properties:
+                      '/':
+                        type: string
         '400':
           description: bad request
           content:
@@ -217,7 +222,7 @@ paths:
           description: Multihash type
           schema:
             $ref: '#/components/schemas/Multihash'
-            default: sha2_256
+            default: sha2-256
         - name: pin
           in: query
           description: Whether to recursively pin the block
@@ -578,14 +583,14 @@ components:
     Codecs:
       type: string
       enum:
-        - dag_json
-        - dag_cbor
-        - dag_jose
+        - dag-json
+        - dag-cbor
+        - dag-jose
         - raw
     Multihash:
       type: string
       enum:
-        - sha2_256
+        - sha2-256
     Error:
       type: object
       required:

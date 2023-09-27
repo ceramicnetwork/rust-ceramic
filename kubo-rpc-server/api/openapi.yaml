@@ -449,14 +449,14 @@ components:
   schemas:
     Codecs:
       enum:
-      - dag_json
-      - dag_cbor
-      - dag_jose
+      - dag-json
+      - dag-cbor
+      - dag-jose
       - raw
       type: string
     Multihash:
       enum:
-      - sha2_256
+      - sha2-256
       type: string
     Error:
       properties:
@@ -479,16 +479,7 @@ components:
       required:
       - file
       type: object
-    _dag_put_post_200_response:
-      example:
-        Cid: Cid
-      properties:
-        Cid:
-          type: string
-      required:
-      - Cid
-      type: object
-    _dag_import_post_200_response_Root_Cid:
+    _dag_put_post_200_response_Cid:
       example:
         /: /
       properties:
@@ -497,13 +488,13 @@ components:
       required:
       - /
       type: object
-    _dag_import_post_200_response_Root:
+    _dag_put_post_200_response:
       example:
         Cid:
           /: /
       properties:
         Cid:
-          $ref: '#/components/schemas/_dag_import_post_200_response_Root_Cid'
+          $ref: '#/components/schemas/_dag_put_post_200_response_Cid'
       required:
       - Cid
       type: object
@@ -514,7 +505,7 @@ components:
             /: /
       properties:
         Root:
-          $ref: '#/components/schemas/_dag_import_post_200_response_Root'
+          $ref: '#/components/schemas/_dag_put_post_200_response'
       required:
       - Root
       type: object
