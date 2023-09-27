@@ -166,11 +166,11 @@ impl std::convert::TryFrom<hyper::header::HeaderValue>
 )]
 #[cfg_attr(feature = "conversion", derive(frunk_enum_derive::LabelledGenericEnum))]
 pub enum Codecs {
-    #[serde(rename = "dag_json")]
+    #[serde(rename = "dag-json")]
     DagJson,
-    #[serde(rename = "dag_cbor")]
+    #[serde(rename = "dag-cbor")]
     DagCbor,
-    #[serde(rename = "dag_jose")]
+    #[serde(rename = "dag-jose")]
     DagJose,
     #[serde(rename = "raw")]
     Raw,
@@ -179,9 +179,9 @@ pub enum Codecs {
 impl std::fmt::Display for Codecs {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match *self {
-            Codecs::DagJson => write!(f, "dag_json"),
-            Codecs::DagCbor => write!(f, "dag_cbor"),
-            Codecs::DagJose => write!(f, "dag_jose"),
+            Codecs::DagJson => write!(f, "dag-json"),
+            Codecs::DagCbor => write!(f, "dag-cbor"),
+            Codecs::DagJose => write!(f, "dag-jose"),
             Codecs::Raw => write!(f, "raw"),
         }
     }
@@ -192,9 +192,9 @@ impl std::str::FromStr for Codecs {
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s {
-            "dag_json" => std::result::Result::Ok(Codecs::DagJson),
-            "dag_cbor" => std::result::Result::Ok(Codecs::DagCbor),
-            "dag_jose" => std::result::Result::Ok(Codecs::DagJose),
+            "dag-json" => std::result::Result::Ok(Codecs::DagJson),
+            "dag-cbor" => std::result::Result::Ok(Codecs::DagCbor),
+            "dag-jose" => std::result::Result::Ok(Codecs::DagJose),
             "raw" => std::result::Result::Ok(Codecs::Raw),
             _ => std::result::Result::Err(format!("Value not valid: {}", s)),
         }
@@ -205,12 +205,12 @@ impl std::str::FromStr for Codecs {
 #[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]
 pub struct DagImportPost200Response {
     #[serde(rename = "Root")]
-    pub root: models::DagImportPost200ResponseRoot,
+    pub root: models::DagPutPost200Response,
 }
 
 impl DagImportPost200Response {
     #[allow(clippy::new_without_default)]
-    pub fn new(root: models::DagImportPost200ResponseRoot) -> DagImportPost200Response {
+    pub fn new(root: models::DagPutPost200Response) -> DagImportPost200Response {
         DagImportPost200Response { root }
     }
 }
@@ -240,7 +240,7 @@ impl std::str::FromStr for DagImportPost200Response {
         #[derive(Default)]
         #[allow(dead_code)]
         struct IntermediateRep {
-            pub root: Vec<models::DagImportPost200ResponseRoot>,
+            pub root: Vec<models::DagPutPost200Response>,
         }
 
         let mut intermediate_rep = IntermediateRep::default();
@@ -264,7 +264,7 @@ impl std::str::FromStr for DagImportPost200Response {
                 match key {
                     #[allow(clippy::redundant_clone)]
                     "Root" => intermediate_rep.root.push(
-                        <models::DagImportPost200ResponseRoot as std::str::FromStr>::from_str(val)
+                        <models::DagPutPost200Response as std::str::FromStr>::from_str(val)
                             .map_err(|x| x.to_string())?,
                     ),
                     _ => {
@@ -341,280 +341,14 @@ impl std::convert::TryFrom<hyper::header::HeaderValue>
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]
-pub struct DagImportPost200ResponseRoot {
-    #[serde(rename = "Cid")]
-    pub cid: models::DagImportPost200ResponseRootCid,
-}
-
-impl DagImportPost200ResponseRoot {
-    #[allow(clippy::new_without_default)]
-    pub fn new(cid: models::DagImportPost200ResponseRootCid) -> DagImportPost200ResponseRoot {
-        DagImportPost200ResponseRoot { cid }
-    }
-}
-
-/// Converts the DagImportPost200ResponseRoot value to the Query Parameters representation (style=form, explode=false)
-/// specified in https://swagger.io/docs/specification/serialization/
-/// Should be implemented in a serde serializer
-impl std::string::ToString for DagImportPost200ResponseRoot {
-    fn to_string(&self) -> String {
-        let params: Vec<Option<String>> = vec![
-            // Skipping Cid in query parameter serialization
-
-        ];
-
-        params.into_iter().flatten().collect::<Vec<_>>().join(",")
-    }
-}
-
-/// Converts Query Parameters representation (style=form, explode=false) to a DagImportPost200ResponseRoot value
-/// as specified in https://swagger.io/docs/specification/serialization/
-/// Should be implemented in a serde deserializer
-impl std::str::FromStr for DagImportPost200ResponseRoot {
-    type Err = String;
-
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        /// An intermediate representation of the struct to use for parsing.
-        #[derive(Default)]
-        #[allow(dead_code)]
-        struct IntermediateRep {
-            pub cid: Vec<models::DagImportPost200ResponseRootCid>,
-        }
-
-        let mut intermediate_rep = IntermediateRep::default();
-
-        // Parse into intermediate representation
-        let mut string_iter = s.split(',');
-        let mut key_result = string_iter.next();
-
-        while key_result.is_some() {
-            let val = match string_iter.next() {
-                Some(x) => x,
-                None => {
-                    return std::result::Result::Err(
-                        "Missing value while parsing DagImportPost200ResponseRoot".to_string(),
-                    )
-                }
-            };
-
-            if let Some(key) = key_result {
-                #[allow(clippy::match_single_binding)]
-                match key {
-                    #[allow(clippy::redundant_clone)]
-                    "Cid" => intermediate_rep.cid.push(
-                        <models::DagImportPost200ResponseRootCid as std::str::FromStr>::from_str(
-                            val,
-                        )
-                        .map_err(|x| x.to_string())?,
-                    ),
-                    _ => {
-                        return std::result::Result::Err(
-                            "Unexpected key while parsing DagImportPost200ResponseRoot".to_string(),
-                        )
-                    }
-                }
-            }
-
-            // Get the next key
-            key_result = string_iter.next();
-        }
-
-        // Use the intermediate representation to return the struct
-        std::result::Result::Ok(DagImportPost200ResponseRoot {
-            cid: intermediate_rep
-                .cid
-                .into_iter()
-                .next()
-                .ok_or_else(|| "Cid missing in DagImportPost200ResponseRoot".to_string())?,
-        })
-    }
-}
-
-// Methods for converting between header::IntoHeaderValue<DagImportPost200ResponseRoot> and hyper::header::HeaderValue
-
-#[cfg(any(feature = "client", feature = "server"))]
-impl std::convert::TryFrom<header::IntoHeaderValue<DagImportPost200ResponseRoot>>
-    for hyper::header::HeaderValue
-{
-    type Error = String;
-
-    fn try_from(
-        hdr_value: header::IntoHeaderValue<DagImportPost200ResponseRoot>,
-    ) -> std::result::Result<Self, Self::Error> {
-        let hdr_value = hdr_value.to_string();
-        match hyper::header::HeaderValue::from_str(&hdr_value) {
-            std::result::Result::Ok(value) => std::result::Result::Ok(value),
-            std::result::Result::Err(e) => std::result::Result::Err(format!(
-                "Invalid header value for DagImportPost200ResponseRoot - value: {} is invalid {}",
-                hdr_value, e
-            )),
-        }
-    }
-}
-
-#[cfg(any(feature = "client", feature = "server"))]
-impl std::convert::TryFrom<hyper::header::HeaderValue>
-    for header::IntoHeaderValue<DagImportPost200ResponseRoot>
-{
-    type Error = String;
-
-    fn try_from(hdr_value: hyper::header::HeaderValue) -> std::result::Result<Self, Self::Error> {
-        match hdr_value.to_str() {
-             std::result::Result::Ok(value) => {
-                    match <DagImportPost200ResponseRoot as std::str::FromStr>::from_str(value) {
-                        std::result::Result::Ok(value) => std::result::Result::Ok(header::IntoHeaderValue(value)),
-                        std::result::Result::Err(err) => std::result::Result::Err(
-                            format!("Unable to convert header value '{}' into DagImportPost200ResponseRoot - {}",
-                                value, err))
-                    }
-             },
-             std::result::Result::Err(e) => std::result::Result::Err(
-                 format!("Unable to convert header: {:?} to string: {}",
-                     hdr_value, e))
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]
-pub struct DagImportPost200ResponseRootCid {
-    #[serde(rename = "/")]
-    pub slash: String,
-}
-
-impl DagImportPost200ResponseRootCid {
-    #[allow(clippy::new_without_default)]
-    pub fn new(slash: String) -> DagImportPost200ResponseRootCid {
-        DagImportPost200ResponseRootCid { slash }
-    }
-}
-
-/// Converts the DagImportPost200ResponseRootCid value to the Query Parameters representation (style=form, explode=false)
-/// specified in https://swagger.io/docs/specification/serialization/
-/// Should be implemented in a serde serializer
-impl std::string::ToString for DagImportPost200ResponseRootCid {
-    fn to_string(&self) -> String {
-        let params: Vec<Option<String>> = vec![Some("/".to_string()), Some(self.slash.to_string())];
-
-        params.into_iter().flatten().collect::<Vec<_>>().join(",")
-    }
-}
-
-/// Converts Query Parameters representation (style=form, explode=false) to a DagImportPost200ResponseRootCid value
-/// as specified in https://swagger.io/docs/specification/serialization/
-/// Should be implemented in a serde deserializer
-impl std::str::FromStr for DagImportPost200ResponseRootCid {
-    type Err = String;
-
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        /// An intermediate representation of the struct to use for parsing.
-        #[derive(Default)]
-        #[allow(dead_code)]
-        struct IntermediateRep {
-            pub slash: Vec<String>,
-        }
-
-        let mut intermediate_rep = IntermediateRep::default();
-
-        // Parse into intermediate representation
-        let mut string_iter = s.split(',');
-        let mut key_result = string_iter.next();
-
-        while key_result.is_some() {
-            let val = match string_iter.next() {
-                Some(x) => x,
-                None => {
-                    return std::result::Result::Err(
-                        "Missing value while parsing DagImportPost200ResponseRootCid".to_string(),
-                    )
-                }
-            };
-
-            if let Some(key) = key_result {
-                #[allow(clippy::match_single_binding)]
-                match key {
-                    #[allow(clippy::redundant_clone)]
-                    "/" => intermediate_rep.slash.push(
-                        <String as std::str::FromStr>::from_str(val).map_err(|x| x.to_string())?,
-                    ),
-                    _ => {
-                        return std::result::Result::Err(
-                            "Unexpected key while parsing DagImportPost200ResponseRootCid"
-                                .to_string(),
-                        )
-                    }
-                }
-            }
-
-            // Get the next key
-            key_result = string_iter.next();
-        }
-
-        // Use the intermediate representation to return the struct
-        std::result::Result::Ok(DagImportPost200ResponseRootCid {
-            slash: intermediate_rep
-                .slash
-                .into_iter()
-                .next()
-                .ok_or_else(|| "/ missing in DagImportPost200ResponseRootCid".to_string())?,
-        })
-    }
-}
-
-// Methods for converting between header::IntoHeaderValue<DagImportPost200ResponseRootCid> and hyper::header::HeaderValue
-
-#[cfg(any(feature = "client", feature = "server"))]
-impl std::convert::TryFrom<header::IntoHeaderValue<DagImportPost200ResponseRootCid>>
-    for hyper::header::HeaderValue
-{
-    type Error = String;
-
-    fn try_from(
-        hdr_value: header::IntoHeaderValue<DagImportPost200ResponseRootCid>,
-    ) -> std::result::Result<Self, Self::Error> {
-        let hdr_value = hdr_value.to_string();
-        match hyper::header::HeaderValue::from_str(&hdr_value) {
-             std::result::Result::Ok(value) => std::result::Result::Ok(value),
-             std::result::Result::Err(e) => std::result::Result::Err(
-                 format!("Invalid header value for DagImportPost200ResponseRootCid - value: {} is invalid {}",
-                     hdr_value, e))
-        }
-    }
-}
-
-#[cfg(any(feature = "client", feature = "server"))]
-impl std::convert::TryFrom<hyper::header::HeaderValue>
-    for header::IntoHeaderValue<DagImportPost200ResponseRootCid>
-{
-    type Error = String;
-
-    fn try_from(hdr_value: hyper::header::HeaderValue) -> std::result::Result<Self, Self::Error> {
-        match hdr_value.to_str() {
-             std::result::Result::Ok(value) => {
-                    match <DagImportPost200ResponseRootCid as std::str::FromStr>::from_str(value) {
-                        std::result::Result::Ok(value) => std::result::Result::Ok(header::IntoHeaderValue(value)),
-                        std::result::Result::Err(err) => std::result::Result::Err(
-                            format!("Unable to convert header value '{}' into DagImportPost200ResponseRootCid - {}",
-                                value, err))
-                    }
-             },
-             std::result::Result::Err(e) => std::result::Result::Err(
-                 format!("Unable to convert header: {:?} to string: {}",
-                     hdr_value, e))
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]
 pub struct DagPutPost200Response {
     #[serde(rename = "Cid")]
-    pub cid: String,
+    pub cid: models::DagPutPost200ResponseCid,
 }
 
 impl DagPutPost200Response {
     #[allow(clippy::new_without_default)]
-    pub fn new(cid: String) -> DagPutPost200Response {
+    pub fn new(cid: models::DagPutPost200ResponseCid) -> DagPutPost200Response {
         DagPutPost200Response { cid }
     }
 }
@@ -624,7 +358,10 @@ impl DagPutPost200Response {
 /// Should be implemented in a serde serializer
 impl std::string::ToString for DagPutPost200Response {
     fn to_string(&self) -> String {
-        let params: Vec<Option<String>> = vec![Some("Cid".to_string()), Some(self.cid.to_string())];
+        let params: Vec<Option<String>> = vec![
+            // Skipping Cid in query parameter serialization
+
+        ];
 
         params.into_iter().flatten().collect::<Vec<_>>().join(",")
     }
@@ -641,7 +378,7 @@ impl std::str::FromStr for DagPutPost200Response {
         #[derive(Default)]
         #[allow(dead_code)]
         struct IntermediateRep {
-            pub cid: Vec<String>,
+            pub cid: Vec<models::DagPutPost200ResponseCid>,
         }
 
         let mut intermediate_rep = IntermediateRep::default();
@@ -665,7 +402,8 @@ impl std::str::FromStr for DagPutPost200Response {
                 match key {
                     #[allow(clippy::redundant_clone)]
                     "Cid" => intermediate_rep.cid.push(
-                        <String as std::str::FromStr>::from_str(val).map_err(|x| x.to_string())?,
+                        <models::DagPutPost200ResponseCid as std::str::FromStr>::from_str(val)
+                            .map_err(|x| x.to_string())?,
                     ),
                     _ => {
                         return std::result::Result::Err(
@@ -727,6 +465,140 @@ impl std::convert::TryFrom<hyper::header::HeaderValue>
                     }
                     std::result::Result::Err(err) => std::result::Result::Err(format!(
                         "Unable to convert header value '{}' into DagPutPost200Response - {}",
+                        value, err
+                    )),
+                }
+            }
+            std::result::Result::Err(e) => std::result::Result::Err(format!(
+                "Unable to convert header: {:?} to string: {}",
+                hdr_value, e
+            )),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]
+pub struct DagPutPost200ResponseCid {
+    #[serde(rename = "/")]
+    pub slash: String,
+}
+
+impl DagPutPost200ResponseCid {
+    #[allow(clippy::new_without_default)]
+    pub fn new(slash: String) -> DagPutPost200ResponseCid {
+        DagPutPost200ResponseCid { slash }
+    }
+}
+
+/// Converts the DagPutPost200ResponseCid value to the Query Parameters representation (style=form, explode=false)
+/// specified in https://swagger.io/docs/specification/serialization/
+/// Should be implemented in a serde serializer
+impl std::string::ToString for DagPutPost200ResponseCid {
+    fn to_string(&self) -> String {
+        let params: Vec<Option<String>> = vec![Some("/".to_string()), Some(self.slash.to_string())];
+
+        params.into_iter().flatten().collect::<Vec<_>>().join(",")
+    }
+}
+
+/// Converts Query Parameters representation (style=form, explode=false) to a DagPutPost200ResponseCid value
+/// as specified in https://swagger.io/docs/specification/serialization/
+/// Should be implemented in a serde deserializer
+impl std::str::FromStr for DagPutPost200ResponseCid {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        /// An intermediate representation of the struct to use for parsing.
+        #[derive(Default)]
+        #[allow(dead_code)]
+        struct IntermediateRep {
+            pub slash: Vec<String>,
+        }
+
+        let mut intermediate_rep = IntermediateRep::default();
+
+        // Parse into intermediate representation
+        let mut string_iter = s.split(',');
+        let mut key_result = string_iter.next();
+
+        while key_result.is_some() {
+            let val = match string_iter.next() {
+                Some(x) => x,
+                None => {
+                    return std::result::Result::Err(
+                        "Missing value while parsing DagPutPost200ResponseCid".to_string(),
+                    )
+                }
+            };
+
+            if let Some(key) = key_result {
+                #[allow(clippy::match_single_binding)]
+                match key {
+                    #[allow(clippy::redundant_clone)]
+                    "/" => intermediate_rep.slash.push(
+                        <String as std::str::FromStr>::from_str(val).map_err(|x| x.to_string())?,
+                    ),
+                    _ => {
+                        return std::result::Result::Err(
+                            "Unexpected key while parsing DagPutPost200ResponseCid".to_string(),
+                        )
+                    }
+                }
+            }
+
+            // Get the next key
+            key_result = string_iter.next();
+        }
+
+        // Use the intermediate representation to return the struct
+        std::result::Result::Ok(DagPutPost200ResponseCid {
+            slash: intermediate_rep
+                .slash
+                .into_iter()
+                .next()
+                .ok_or_else(|| "/ missing in DagPutPost200ResponseCid".to_string())?,
+        })
+    }
+}
+
+// Methods for converting between header::IntoHeaderValue<DagPutPost200ResponseCid> and hyper::header::HeaderValue
+
+#[cfg(any(feature = "client", feature = "server"))]
+impl std::convert::TryFrom<header::IntoHeaderValue<DagPutPost200ResponseCid>>
+    for hyper::header::HeaderValue
+{
+    type Error = String;
+
+    fn try_from(
+        hdr_value: header::IntoHeaderValue<DagPutPost200ResponseCid>,
+    ) -> std::result::Result<Self, Self::Error> {
+        let hdr_value = hdr_value.to_string();
+        match hyper::header::HeaderValue::from_str(&hdr_value) {
+            std::result::Result::Ok(value) => std::result::Result::Ok(value),
+            std::result::Result::Err(e) => std::result::Result::Err(format!(
+                "Invalid header value for DagPutPost200ResponseCid - value: {} is invalid {}",
+                hdr_value, e
+            )),
+        }
+    }
+}
+
+#[cfg(any(feature = "client", feature = "server"))]
+impl std::convert::TryFrom<hyper::header::HeaderValue>
+    for header::IntoHeaderValue<DagPutPost200ResponseCid>
+{
+    type Error = String;
+
+    fn try_from(hdr_value: hyper::header::HeaderValue) -> std::result::Result<Self, Self::Error> {
+        match hdr_value.to_str() {
+            std::result::Result::Ok(value) => {
+                match <DagPutPost200ResponseCid as std::str::FromStr>::from_str(value) {
+                    std::result::Result::Ok(value) => {
+                        std::result::Result::Ok(header::IntoHeaderValue(value))
+                    }
+                    std::result::Result::Err(err) => std::result::Result::Err(format!(
+                        "Unable to convert header value '{}' into DagPutPost200ResponseCid - {}",
                         value, err
                     )),
                 }
@@ -1423,14 +1295,14 @@ impl std::convert::TryFrom<hyper::header::HeaderValue>
 )]
 #[cfg_attr(feature = "conversion", derive(frunk_enum_derive::LabelledGenericEnum))]
 pub enum Multihash {
-    #[serde(rename = "sha2_256")]
+    #[serde(rename = "sha2-256")]
     Sha2256,
 }
 
 impl std::fmt::Display for Multihash {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match *self {
-            Multihash::Sha2256 => write!(f, "sha2_256"),
+            Multihash::Sha2256 => write!(f, "sha2-256"),
         }
     }
 }
@@ -1440,7 +1312,7 @@ impl std::str::FromStr for Multihash {
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s {
-            "sha2_256" => std::result::Result::Ok(Multihash::Sha2256),
+            "sha2-256" => std::result::Result::Ok(Multihash::Sha2256),
             _ => std::result::Result::Err(format!("Value not valid: {}", s)),
         }
     }

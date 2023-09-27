@@ -2,10 +2,10 @@
 use std::{collections::HashSet, io::Cursor, marker::PhantomData, str::FromStr};
 
 use async_trait::async_trait;
+use ceramic_kubo_rpc_server::models::DagPutPost200ResponseCid;
 use ceramic_kubo_rpc_server::{
     models::{
-        self, BlockPutPost200Response, Codecs, DagImportPost200Response,
-        DagImportPost200ResponseRoot, DagImportPost200ResponseRootCid, DagPutPost200Response,
+        self, BlockPutPost200Response, Codecs, DagImportPost200Response, DagPutPost200Response,
         DagResolvePost200Response, DagResolvePost200ResponseCid, IdPost200Response, Multihash,
         PinAddPost200Response, PubsubLsPost200Response, SwarmPeersPost200Response,
         SwarmPeersPost200ResponsePeersInner, VersionPost200Response,
@@ -102,7 +102,7 @@ where
         if let Some(pin) = pin {
             if pin {
                 return Ok(BlockPutPostResponse::BadRequest(create_error(
-                    "recusive pinning is not supported",
+                    "recursive pinning is not supported",
                 )));
             }
         };
@@ -183,8 +183,8 @@ where
             .await
             .map_err(to_api_error)?;
         Ok(DagImportPostResponse::Success(DagImportPost200Response {
-            root: DagImportPost200ResponseRoot {
-                cid: DagImportPost200ResponseRootCid {
+            root: DagPutPost200Response {
+                cid: DagPutPost200ResponseCid {
                     // We know that the CAR file will have at least one root at this point,
                     // otherwise we'd have errored out during the import.
                     slash: cids[0].to_string(),
@@ -233,7 +233,9 @@ where
         };
 
         Ok(DagPutPostResponse::Success(DagPutPost200Response {
-            cid: cid.to_string(),
+            cid: DagPutPost200ResponseCid {
+                slash: cid.to_string(),
+            },
         }))
     }
 
@@ -707,7 +709,7 @@ mod tests {
         expect![[r#"
             BadRequest(
                 Error {
-                    message: "recusive pinning is not supported",
+                    message: "recursive pinning is not supported",
                     code: 0.0,
                     typ: "error",
                 },
@@ -917,8 +919,8 @@ mod tests {
         expect![[r#"
             Success(
                 DagImportPost200Response {
-                    root: DagImportPost200ResponseRoot {
-                        cid: DagImportPost200ResponseRootCid {
+                    root: DagPutPost200Response {
+                        cid: DagPutPost200ResponseCid {
                             slash: "bafyreihyrpefhacm6kkp4ql6j6udakdit7g3dmkzfriqfykhjw6cad5lrm",
                         },
                     },
@@ -961,7 +963,9 @@ mod tests {
         expect![[r#"
             Success(
                 DagPutPost200Response {
-                    cid: "bafyreidufmzzejc3p7gmh6ivp4fjvca5jfazk57nu6vdkvki4c4vpja724",
+                    cid: DagPutPost200ResponseCid {
+                        slash: "bafyreidufmzzejc3p7gmh6ivp4fjvca5jfazk57nu6vdkvki4c4vpja724",
+                    },
                 },
             )
         "#]]
@@ -1000,7 +1004,9 @@ mod tests {
         expect![[r#"
             Success(
                 DagPutPost200Response {
-                    cid: "baguqeera4iuxsgqusw3ctry362niptivjyio6dxnsn5afctijsahacub2eza",
+                    cid: DagPutPost200ResponseCid {
+                        slash: "baguqeera4iuxsgqusw3ctry362niptivjyio6dxnsn5afctijsahacub2eza",
+                    },
                 },
             )
         "#]]
@@ -1021,7 +1027,7 @@ mod tests {
         expect![[r#"
             BadRequest(
                 Error {
-                    message: "unsupported codec combination, input-codec: dag_json, store-codec: raw",
+                    message: "unsupported codec combination, input-codec: dag-json, store-codec: raw",
                     code: 0.0,
                     typ: "error",
                 },
@@ -1037,7 +1043,7 @@ mod tests {
         expect![[r#"
             BadRequest(
                 Error {
-                    message: "unsupported codec combination, input-codec: raw, store-codec: dag_cbor",
+                    message: "unsupported codec combination, input-codec: raw, store-codec: dag-cbor",
                     code: 0.0,
                     typ: "error",
                 },

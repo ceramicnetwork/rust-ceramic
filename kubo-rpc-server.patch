@@ -28,7 +28,7 @@ index 19eff91..f78219b 100644
              400 => {
                  let body = response.into_body();
 diff --git b/kubo-rpc-server/src/lib.rs a/kubo-rpc-server/src/lib.rs
-index a438acd..68c986c 100644
+index 4fb7cb1..bd4e190 100644
 --- b/kubo-rpc-server/src/lib.rs
 +++ a/kubo-rpc-server/src/lib.rs
 @@ -11,7 +11,8 @@
@@ -69,10 +69,10 @@ index a438acd..68c986c 100644
  #[must_use]
  pub enum SwarmConnectPostResponse {
 diff --git b/kubo-rpc-server/src/models.rs a/kubo-rpc-server/src/models.rs
-index 20d075b..7a6d6b8 100644
+index 4644ce0..ce429ca 100644
 --- b/kubo-rpc-server/src/models.rs
 +++ a/kubo-rpc-server/src/models.rs
-@@ -1037,7 +1037,7 @@ pub struct Error {
+@@ -909,7 +909,7 @@ pub struct Error {
      pub code: f64,
  
      #[serde(rename = "Type")]
@@ -81,7 +81,7 @@ index 20d075b..7a6d6b8 100644
  }
  
  impl Error {
-@@ -1046,7 +1046,7 @@ impl Error {
+@@ -918,7 +918,7 @@ impl Error {
          Error {
              message,
              code,
@@ -90,7 +90,7 @@ index 20d075b..7a6d6b8 100644
          }
      }
  }
-@@ -1062,7 +1062,7 @@ impl std::string::ToString for Error {
+@@ -934,7 +934,7 @@ impl std::string::ToString for Error {
              Some("Code".to_string()),
              Some(self.code.to_string()),
              Some("Type".to_string()),
@@ -99,7 +99,7 @@ index 20d075b..7a6d6b8 100644
          ];
  
          params.into_iter().flatten().collect::<Vec<_>>().join(",")
-@@ -1140,7 +1140,7 @@ impl std::str::FromStr for Error {
+@@ -1012,7 +1012,7 @@ impl std::str::FromStr for Error {
                  .into_iter()
                  .next()
                  .ok_or_else(|| "Code missing in Error".to_string())?,
