@@ -96,6 +96,28 @@ paths:
         "204":
           description: success
       summary: Creates a new event
+  /recon:
+    post:
+      parameters:
+      - description: Recon ring
+        explode: true
+        in: query
+        name: ring
+        required: true
+        schema:
+          $ref: '#/components/schemas/Ring'
+        style: form
+      requestBody:
+        $ref: '#/components/requestBodies/Message'
+      responses:
+        "200":
+          content:
+            application/cbor-seq:
+              schema:
+                format: binary
+                type: string
+          description: success
+      summary: Sends a Recon message
 components:
   requestBodies:
     Event:
@@ -104,6 +126,14 @@ components:
           schema:
             $ref: '#/components/schemas/Event'
       description: Event to add to the node
+      required: true
+    Message:
+      content:
+        application/cbor-seq:
+          schema:
+            format: byte
+            type: string
+      description: Recon message to send
       required: true
   schemas:
     Version:
@@ -120,10 +150,15 @@ components:
         eventId: eventId
       properties:
         eventId:
-          description: Multibase encodeding of event id bytes.
+          description: Multibase encoding of event id bytes.
           type: string
       required:
       - eventId
       title: A Ceramic Event
       type: object
+    Ring:
+      enum:
+      - interest
+      - model
+      type: string
 

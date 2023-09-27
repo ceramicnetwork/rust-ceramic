@@ -39,6 +39,7 @@ names.workspace = true
 prometheus-client.workspace = true
 recon.workspace = true
 serde = "1"
+serde_cbor.workspace = true
 serde_json = "1"
 serde_repr = "0.1"
 signal-hook = "0.3.17"
@@ -49,8 +50,6 @@ tokio-metrics = { version = "0.3.1", features = ["rt"] }
 tokio-prometheus-client = "0.1"
 tokio-util.workspace = true
 tokio.workspace = true
-tracing-appender = "0.2.2"
-tracing-subscriber.workspace = true
 tracing.workspace = true
 
 

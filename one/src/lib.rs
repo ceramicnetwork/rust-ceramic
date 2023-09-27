@@ -6,6 +6,7 @@ mod http;
 mod metrics;
 mod network;
 mod pubsub;
+mod recon_loop;
 mod sql;
 
 use std::{env, num::NonZeroUsize, path::PathBuf, str::FromStr, sync::Arc, time::Duration};
@@ -208,6 +209,10 @@ struct DaemonOpts {
         env = "CERAMIC_ONE_KADEMLIA_PROVIDER_RECORD_TTL_SECS"
     )]
     kademlia_provider_record_ttl_secs: u64,
+
+    /// When true Recon http will be used to synchronized events with peers.
+    #[arg(long, default_value_t = false, env = "CERAMIC_ONE_RECON_HTTP")]
+    recon_http: bool,
 }
 
 #[derive(ValueEnum, Debug, Clone, Default)]
@@ -306,6 +311,7 @@ type ModelInterest = ReconInterestProvider<Sha256a>;
 type ReconModel = Server<EventId, Sha256a, ModelStore, ModelInterest>;
 
 struct Daemon {
+    opts: DaemonOpts,
     peer_id: PeerId,
     network: ceramic_core::Network,
     bind_address: String,
@@ -369,7 +375,7 @@ impl Daemon {
         // 1 path from options
         // 2 path $HOME/.ceramic-one
         // 3 pwd/.ceramic-one
-        let dir = match opts.store_dir {
+        let dir = match opts.store_dir.clone() {
             Some(dir) => dir,
             None => match home::home_dir() {
                 Some(home_dir) => home_dir.join(".ceramic-one"),
@@ -477,11 +483,15 @@ impl Daemon {
             .build(sql_pool.clone(), ipfs_metrics)
             .await?;
 
+        let bind_address = opts.bind_address.clone();
+        let metrics_bind_address = opts.metrics_bind_address.clone();
+
         Ok(Daemon {
+            opts,
             peer_id,
             network,
-            bind_address: opts.bind_address,
-            metrics_bind_address: opts.metrics_bind_address,
+            bind_address,
+            metrics_bind_address,
             ipfs,
             metrics_handle,
             metrics,
@@ -536,6 +546,13 @@ impl Daemon {
         );
 
         // Start recon tasks
+        let recon_event_loop_handle = match self.opts.recon_http {
+            true => Some(tokio::spawn(recon_loop::recon_event_loop(
+                self.recon_interest.client(),
+                self.recon_model.client(),
+            ))),
+            false => None,
+        };
         let recon_interest_handle = tokio::spawn(self.recon_interest.run());
         let recon_model_handle = tokio::spawn(self.recon_model.run());
 
@@ -572,6 +589,12 @@ impl Daemon {
             warn!(%err, "recon interest task error");
         }
         debug!("recon interests server stopped");
+        if let Some(handle) = recon_event_loop_handle {
+            if let Err(err) = handle.await {
+                warn!(%err, "recon event loop error");
+            }
+            debug!("recon event loop stopped");
+        }
 
         // Shutdown metrics server and collection handler
         tx_metrics_server_shutdown

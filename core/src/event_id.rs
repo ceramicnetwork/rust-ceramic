@@ -37,15 +37,16 @@ impl EventId {
     pub fn builder() -> Builder<Init> {
         Builder { state: Init }
     }
+
     /// EventId.new builds a Vec<u8> with the event id data.
     pub fn new(
-        network: &Network,
-        sort_key: &str,
-        sort_value: &str,
-        controller: &str,
-        init: &Cid,
-        event_height: u64,
-        event_cid: &Cid,
+        network: &Network, // e.g. Network::Mainnet
+        sort_key: &str,    // e.g. "model"
+        sort_value: &str,  // e.g. "kh4q0ozorrgaq2mezktnrmdwleo1d" // cspell:disable-line
+        controller: &str,  // e.g. "did:key:z6MkgSV3tAuw7gUWqKCUY7ae6uWNxqYgdwPhUJbJhF9EFXm9"
+        init: &Cid, // e.g. Cid::from_str("bagcqceraplay4erv6l32qrki522uhiz7rf46xccwniw7ypmvs3cvu2b3oulq") // cspell:disable-line
+        event_height: u64, // e.g. 1
+        event_cid: &Cid, // e.g. Cid::from_str("bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy") // cspell:disable-line
     ) -> EventId {
         EventId::builder()
             .with_network(network)
@@ -222,10 +223,10 @@ impl Builder<Init> {
     pub fn with_network(self, network: &Network) -> Builder<WithNetwork> {
         // Maximum EventId size is 72.
         //
-        // varint(0xce) + // streamid, 1 byte
-        // varint(0x05) + // cip-124 EventID, 1 byte
-        // varint(networkId), // 5 bytes for local network
-        //! last8Bytes(sha256(separator_key + "|" + separator_value)), // 16 bytes
+        // varint(0xce) + // streamid, 2 bytes b'\xce\x01'
+        // varint(0x05) + // cip-124 EventID, 1 byte b'\x05'
+        // varint(networkId), // 1-5 bytes for local network
+        // last8Bytes(sha256(separator_key + "|" + separator_value)), // 16 bytes
         // last8Bytes(sha256(stream_controller_DID)), // 8 bytes
         // last4Bytes(init_event_CID) // 4 bytes
         // cbor(eventHeight), // u64_max 9 bytes

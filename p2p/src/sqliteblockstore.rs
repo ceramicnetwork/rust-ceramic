@@ -6,13 +6,20 @@ use cid::{
     multihash::MultihashDigest,
     Cid,
 };
+use futures_util::stream::BoxStream;
 use iroh_bitswap::{Block, Store};
 use multihash::Multihash;
-use sqlx::{Row, SqlitePool};
+use sqlx::{sqlite::Sqlite, Error, Row, SqlitePool};
 
 #[derive(Debug, Clone)]
 pub struct SQLiteBlockStore {
     pool: SqlitePool,
+}
+
+#[derive(sqlx::FromRow)]
+pub struct SQLiteBlock {
+    pub multihash: Vec<u8>,
+    pub bytes: Vec<u8>,
 }
 
 impl SQLiteBlockStore {
@@ -99,6 +106,11 @@ impl SQLiteBlockStore {
             .fetch_optional(&self.pool)
             .await?
             .map(|row| row.get::<'_, Vec<u8>, _>(0).into()))
+    }
+
+    pub fn scan(&self) -> BoxStream<Result<SQLiteBlock, Error>> {
+        sqlx::query_as::<Sqlite, SQLiteBlock>("SELECT multihash, bytes FROM blocks;")
+            .fetch(&self.pool)
     }
 
     /// Store a DAG node into IPFS.

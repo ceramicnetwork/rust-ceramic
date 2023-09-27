@@ -80,9 +80,8 @@ where
                     _ => {
                         // -> (first h(middle) last)
                         response.keys.push(first.to_owned());
-                        response
-                            .hashes
-                            .push(self.store.hash_range(&first, &last).await?);
+                        let hash: H = self.store.hash_range(&first, &last).await?.0;
+                        response.hashes.push(hash);
                         response.keys.push(last.to_owned());
                     }
                 }
@@ -93,8 +92,12 @@ where
     }
 
     /// Process an incoming message and respond with a message reply.
+    /// Return Result<(response_message, synced_count, syncing_count), Error>
     #[instrument(skip_all, ret)]
-    pub async fn process_messages(&mut self, received: &[Message<K, H>]) -> Result<Response<K, H>> {
+    pub async fn process_messages(
+        &mut self,
+        received: &[Message<K, H>],
+    ) -> Result<(Response<K, H>, u64, u64)> {
         // First we must find the intersection of interests.
         // Then reply with a message per intersection.
         //
@@ -116,14 +119,12 @@ where
             is_synchronized: true,
             ..Default::default()
         };
+        let mut synced = 0;
+        let mut syncing = 0;
         for (range, received) in intersections {
             trace!(?range, "processing range");
             let mut response_message = Message::new(&range.start, &range.end);
-            for key in &received.keys {
-                if self.insert(key).await? {
-                    response.is_synchronized = false;
-                }
-            }
+            self.insert_many(received.keys.iter()).await?;
 
             if let Some(mut left_fencepost) = self.store.first(&range.start, &range.end).await? {
                 let mut received_hashs = received.hashes.iter();
@@ -145,7 +146,7 @@ where
                     && left_fencepost < *received.keys.last().unwrap()
                     && (response_message.keys.len() < 32 * 1024)
                 {
-                    response.is_synchronized &= response_message
+                    let (synchronized, count) = response_message
                         .process_range(
                             &left_fencepost,
                             &right_fencepost,
@@ -153,6 +154,12 @@ where
                             &mut self.store,
                         )
                         .await?;
+                    response.is_synchronized &= synchronized;
+                    if synchronized {
+                        synced += count;
+                    } else {
+                        syncing += count;
+                    }
                     left_fencepost = right_fencepost;
                     right_fencepost = match received_keys.next() {
                         Some(k) => k.to_owned(),
@@ -165,7 +172,7 @@ where
                     received_hash = received_hashs.next().unwrap_or(zero);
                 }
                 if !received.keys.is_empty() {
-                    response.is_synchronized &= response_message
+                    let (synchronized, count) = response_message
                         .process_range(
                             received.keys.last().unwrap(),
                             &self
@@ -177,6 +184,12 @@ where
                             &mut self.store,
                         )
                         .await?;
+                    response.is_synchronized &= synchronized;
+                    if synchronized {
+                        synced += count;
+                    } else {
+                        syncing += count;
+                    }
                 }
                 response_message
                     .end_streak(
@@ -191,7 +204,7 @@ where
             };
             response.messages.push(response_message);
         }
-        Ok(response)
+        Ok((response, synced, syncing))
     }
 
     /// Insert a new key into the key space.
@@ -201,6 +214,15 @@ where
         if new_key {
             self.metrics.record(&KeyInsertEvent);
         }
+        Ok(new_key)
+    }
+
+    /// Insert many keys into the key space.
+    pub async fn insert_many<'a, IT>(&mut self, keys: IT) -> Result<bool>
+    where
+        IT: Iterator<Item = &'a K> + Send,
+    {
+        let new_key = self.store.insert_many(keys).await?;
         Ok(new_key)
     }
 
@@ -252,13 +274,27 @@ pub trait Store: std::fmt::Debug {
     /// Returns true if the key did not previously exist.
     async fn insert(&mut self, key: &Self::Key) -> Result<bool>;
 
+    /// Insert new keys into the key space.
+    /// Returns true if a key did not previously exist.
+    async fn insert_many<'a, I>(&mut self, keys: I) -> Result<bool>
+    where
+        I: Iterator<Item = &'a Self::Key> + Send,
+    {
+        let mut new = false;
+        for key in keys {
+            new |= self.insert(key).await?;
+        }
+        Ok(new)
+    }
+
     /// Return the hash of all keys in the range between left_fencepost and right_fencepost.
     /// Both range bounds are exclusive.
+    /// Returns Result<(Hash, count), Err>
     async fn hash_range(
         &mut self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
-    ) -> Result<Self::Hash>;
+    ) -> Result<(Self::Hash, u64)>;
 
     /// Return all keys in the range between left_fencepost and right_fencepost.
     /// Both range bounds are exclusive.
@@ -672,7 +708,8 @@ where
     {
         let h = local_store
             .hash_range(self.keys.last().unwrap(), left_fencepost)
-            .await?;
+            .await?
+            .0;
         // If the left fencepost has not been sent send it now
         if self.keys.last().unwrap() != left_fencepost {
             // Add the left_fencepost to end the match streak.
@@ -689,20 +726,21 @@ where
         right_fencepost: &K,
         received_hash: &H,
         local_store: &mut S,
-    ) -> Result<bool>
+    ) -> Result<(bool, u64)>
     where
         S: Store<Key = K, Hash = H> + Send,
     {
         if left_fencepost == right_fencepost {
-            return Ok(true);
+            return Ok((true, 0)); // zero size range is in sync
         }
 
-        let calculated_hash = local_store
+        let (calculated_hash, count) = local_store
             .hash_range(left_fencepost, right_fencepost)
             .await?;
 
         if &calculated_hash == received_hash {
-            return Ok(true);
+            // range is in sync, return sync count
+            return Ok((true, count));
         }
 
         self.end_streak(left_fencepost, local_store).await?;
@@ -739,7 +777,7 @@ where
             self.send_split(left_fencepost, right_fencepost, local_store)
                 .await?;
         }
-        Ok(false)
+        Ok((false, count))
     }
 
     #[instrument(skip(self, local_store))]
@@ -771,11 +809,11 @@ where
             if let Some(mid_key) = mid_key {
                 self.keys.push(mid_key.to_owned());
                 self.hashes
-                    .push(local_store.hash_range(left_fencepost, &mid_key).await?);
+                    .push(local_store.hash_range(left_fencepost, &mid_key).await?.0);
 
                 self.keys.push(right_fencepost.to_owned());
                 self.hashes
-                    .push(local_store.hash_range(&mid_key, right_fencepost).await?);
+                    .push(local_store.hash_range(&mid_key, right_fencepost).await?.0);
             } else {
                 bail!("unable to find a split key")
             };

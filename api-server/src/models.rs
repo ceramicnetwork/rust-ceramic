@@ -9,7 +9,7 @@ use crate::models;
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]
 pub struct Event {
-    /// Multibase encodeding of event id bytes.
+    /// Multibase encoding of event id bytes.
     #[serde(rename = "eventId")]
     pub event_id: String,
 }
@@ -132,6 +132,43 @@ impl std::convert::TryFrom<hyper::header::HeaderValue> for header::IntoHeaderVal
                 "Unable to convert header: {:?} to string: {}",
                 hdr_value, e
             )),
+        }
+    }
+}
+
+/// Enumeration of values.
+/// Since this enum's variants do not hold data, we can easily define them as `#[repr(C)]`
+/// which helps with FFI.
+#[allow(non_camel_case_types)]
+#[repr(C)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+#[cfg_attr(feature = "conversion", derive(frunk_enum_derive::LabelledGenericEnum))]
+pub enum Ring {
+    #[serde(rename = "interest")]
+    Interest,
+    #[serde(rename = "model")]
+    Model,
+}
+
+impl std::fmt::Display for Ring {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match *self {
+            Ring::Interest => write!(f, "interest"),
+            Ring::Model => write!(f, "model"),
+        }
+    }
+}
+
+impl std::str::FromStr for Ring {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s {
+            "interest" => std::result::Result::Ok(Ring::Interest),
+            "model" => std::result::Result::Ok(Ring::Model),
+            _ => std::result::Result::Err(format!("Value not valid: {}", s)),
         }
     }
 }
