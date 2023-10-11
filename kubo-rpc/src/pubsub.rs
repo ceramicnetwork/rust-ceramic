@@ -24,6 +24,14 @@ where
 {
     client.subscribe(topic).await
 }
+/// Unsubscribe from a topic
+#[tracing::instrument(skip(client), ret)]
+pub async fn unsubscribe<T>(client: T, topic: String) -> Result<(), Error>
+where
+    T: IpfsDep,
+{
+    client.unsubscribe(topic).await
+}
 /// Returns a list of topics, to which we are currently subscribed.
 #[tracing::instrument(skip(client))]
 pub async fn topics<T>(client: T) -> Result<Vec<String>, Error>

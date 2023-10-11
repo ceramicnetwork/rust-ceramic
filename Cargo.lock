@@ -1304,6 +1304,7 @@ dependencies = [
  "mockall",
  "multiaddr",
  "multihash 0.17.0",
+ "pin-project",
  "serde",
  "serde_json",
  "swagger",
