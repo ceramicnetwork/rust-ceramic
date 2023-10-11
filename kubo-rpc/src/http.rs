@@ -1,5 +1,7 @@
 //! Provides an http implementation of the Kubo RPC methods.
 
+mod stream_drop;
+
 use std::{collections::HashSet, io::Cursor, marker::PhantomData, str::FromStr};
 
 use async_trait::async_trait;
@@ -26,10 +28,11 @@ use libp2p::{gossipsub::Message, Multiaddr, PeerId};
 use multiaddr::Protocol;
 use serde::Serialize;
 use swagger::{ApiError, ByteArray};
-use tracing::{instrument, Level};
+use tracing::{instrument, warn, Level};
 
 use crate::{
-    block, dag, id, pin, pubsub, swarm, version, Bytes, GossipsubEvent, IpfsDep, IpfsPath,
+    block, dag, http::stream_drop::StreamDrop, id, pin, pubsub, swarm, version, Bytes,
+    GossipsubEvent, IpfsDep, IpfsPath,
 };
 
 /// Kubo RPC API Server implementation.
@@ -40,7 +43,7 @@ pub struct Server<I, C> {
 }
 impl<I, C> Server<I, C>
 where
-    I: IpfsDep,
+    I: IpfsDep + Send + Sync + 'static,
 {
     /// Construct a new Server
     pub fn new(ipfs: I) -> Self {
@@ -77,7 +80,7 @@ macro_rules! try_or_bad_request {
 #[async_trait]
 impl<I, C> Api<C> for Server<I, C>
 where
-    I: IpfsDep + Send + Sync,
+    I: IpfsDep + Send + Sync + 'static,
     C: Send + Sync,
 {
     #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
@@ -335,7 +338,10 @@ where
     async fn pubsub_ls_post(&self, _context: &C) -> Result<PubsubLsPostResponse, ApiError> {
         let topics = pubsub::topics(self.ipfs.clone())
             .await
-            .map_err(to_api_error)?;
+            .map_err(to_api_error)?
+            .into_iter()
+            .map(|topic| multibase::encode(Base::Base64Url, topic))
+            .collect();
         Ok(PubsubLsPostResponse::Success(PubsubLsPost200Response {
             strings: topics,
         }))
@@ -370,7 +376,7 @@ where
 
         let topic = try_or_bad_request!(String::from_utf8(topic_bytes), PubsubSubPostResponse);
 
-        let subscription = pubsub::subscribe(self.ipfs.clone(), topic)
+        let subscription = pubsub::subscribe(self.ipfs.clone(), topic.clone())
             .await
             .map_err(to_api_error)?;
 
@@ -422,6 +428,13 @@ where
                     data.into()
                 })
                 .map_err(Box::<dyn std::error::Error + Send + Sync>::from)
+        });
+        let ipfs = self.ipfs.clone();
+        let messages = StreamDrop::new(messages, async move {
+            let ret = pubsub::unsubscribe(ipfs.clone(), topic.clone()).await;
+            if let Err(error) = ret {
+                warn!(topic, %error, "failed to unsubscribe");
+            };
         });
 
         Ok(PubsubSubPostResponse::Success(Box::pin(messages)))
@@ -1530,8 +1543,8 @@ mod tests {
             Success(
                 PubsubLsPost200Response {
                     strings: [
-                        "topic1",
-                        "topic2",
+                        "udG9waWMx",
+                        "udG9waWMy",
                     ],
                 },
             )
@@ -1574,11 +1587,12 @@ mod tests {
         let topic_encoded = multibase::encode(Base::Base64, topic.as_bytes());
 
         let mut mock_ipfs = MockIpfsDepTest::new();
+        let t = topic.clone();
         mock_ipfs.expect_clone().once().return_once(move || {
             let mut m = MockIpfsDepTest::new();
             m.expect_subscribe()
                 .once()
-                .with(predicate::eq(topic))
+                .with(predicate::eq(t))
                 .return_once(|_| {
                     let first = Ok(GossipsubEvent::Message {
                         from: PeerId::from_str(
@@ -1624,6 +1638,15 @@ mod tests {
                 });
             m
         });
+        let t = topic.clone();
+        mock_ipfs.expect_clone().once().return_once(move || {
+            let mut m = MockIpfsDepTest::new();
+            m.expect_unsubscribe()
+                .once()
+                .with(predicate::eq(t))
+                .return_once(|_| Ok(()));
+            m
+        });
         let server = Server::new(mock_ipfs);
         let resp = server
             .pubsub_sub_post(topic_encoded, &Context)
@@ -1662,6 +1685,7 @@ mod tests {
             panic!("did not get success from server");
         }
     }
+
     #[tokio::test]
     #[traced_test]
     async fn swarm_connect() {

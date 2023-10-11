@@ -11,9 +11,10 @@ publish = false
 [features]
 http = [
     "dep:ceramic-kubo-rpc-server",
+    "dep:hyper",
+    "dep:pin-project",
     "dep:serde",
     "dep:serde_json",
-    "dep:hyper",
 ]
 
 [dependencies]
@@ -29,8 +30,8 @@ dag-jose.workspace = true
 futures-util.workspace = true
 hex.workspace = true
 hyper = { workspace = true, optional = true }
-iroh-car.workspace = true
 iroh-bitswap.workspace = true
+iroh-car.workspace = true
 iroh-metrics.workspace = true
 iroh-rpc-client.workspace = true
 iroh-rpc-types.workspace = true
@@ -42,15 +43,16 @@ libp2p-tls.workspace = true
 libp2p.workspace = true
 multiaddr.workspace = true
 multihash.workspace = true
+pin-project = { version = "1.1.3", optional = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 swagger.workspace = true
+thiserror = "1.0.47"
 tokio-stream = "0.1.14"
 tokio-util.workspace = true
 tokio.workspace = true
 tracing-opentelemetry.workspace = true
 tracing.workspace = true
-thiserror = "1.0.47"
 
 [dev-dependencies]
 expect-test.workspace = true
