@@ -30,9 +30,7 @@ iroh-util.workspace = true
 keyed_priority_queue.workspace = true
 libp2p = { workspace = true, features = ["ping"] }
 multihash.workspace = true
-names.workspace = true
 num_enum.workspace = true
-once_cell.workspace = true
 prost.workspace = true
 rand.workspace = true
 smallvec.workspace = true
@@ -42,7 +40,6 @@ tokio-context.workspace = true
 tokio-stream.workspace = true
 tracing.workspace = true
 unsigned-varint = { workspace = true, features = ["asynchronous_codec"] }
-wasm-timer.workspace = true
 libp2p-identity.workspace = true
 
 [dev-dependencies]

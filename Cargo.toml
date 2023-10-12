@@ -16,7 +16,6 @@ members = [
     "beetle/iroh-metrics",
     "beetle/iroh-rpc-client",
     "beetle/iroh-rpc-types",
-    "beetle/iroh-store",
     "beetle/iroh-util",
 ]
 
@@ -92,7 +91,6 @@ iroh-metrics = { path = "./beetle/iroh-metrics" }
 iroh-p2p = { version = "0.2.0", path = "./beetle/iroh-p2p" }
 iroh-rpc-client = { path = "./beetle/iroh-rpc-client" }
 iroh-rpc-types = { path = "./beetle/iroh-rpc-types" }
-iroh-store = { path = "./beetle/iroh-store" }
 iroh-util = { path = "./beetle/iroh-util" }
 keyed_priority_queue = "0.4.1"
 lazy_static = "1.4"
@@ -127,11 +125,11 @@ rand = "0.8.5"
 rand_chacha = "0.3.1"
 rayon = "1.5.3"
 recon = { path = "./recon/" }
+regex = "1.7.1"
 relative-path = "1.7.2"
 reqwest = { version = "0.11.10", default-features = false }
 rkyv = "0.7.37"
 rlimit = "0.9.0"
-rocksdb = "0.21"
 ruzstd = "0.3"
 serde = { version = "1.0", features = ["derive"] }
 serde-error = "0.1.2"
