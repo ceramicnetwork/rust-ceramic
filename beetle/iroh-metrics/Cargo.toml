@@ -10,7 +10,6 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
-async-trait.workspace = true
 config.workspace = true
 console-subscriber = { workspace = true, optional = true }
 iroh-util.workspace = true
@@ -43,7 +42,7 @@ features = [
     "yamux",
     "tcp",
     "dns",
-    "mplex",
+    #"mplex",
     "request-response",
     "websocket",
     "serde",

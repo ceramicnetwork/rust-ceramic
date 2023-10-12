@@ -10,26 +10,25 @@ publish = false
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-async-trait.workspace = true
 anyhow.workspace = true
+async-trait.workspace = true
 base64 = "0.21.2"
 cid.workspace = true
 did-method-key = "0.2.1"
 did-pkh = "0.2.1"
 hex.workspace = true
 int-enum = "0.5.0"
+libp2p-identity.workspace = true
+minicbor.workspace = true
 multibase.workspace = true
 once_cell.workspace = true
-regex = "1.7.1"
+regex.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+serde_bytes.workspace = true
 serde_ipld_dagcbor.workspace = true
+serde_json.workspace = true
 ssi.workspace = true
 unsigned-varint.workspace = true
-minicbor.workspace = true
-
-serde_bytes = "0.11.11"
-libp2p-identity.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }

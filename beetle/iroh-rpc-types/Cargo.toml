@@ -20,4 +20,3 @@ quic-rpc.workspace = true
 serde.workspace = true
 serde-error.workspace = true
 serde_with.workspace = true
-tokio = { workspace = true, default-features = false }

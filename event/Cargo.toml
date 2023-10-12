@@ -12,14 +12,10 @@ publish = false
 [dependencies]
 anyhow.workspace = true
 ceramic-core = { path = "../core" }
-multibase.workspace = true
 multihash.workspace = true
 once_cell.workspace = true
 rand = "0.8.5"
 serde.workspace = true
-ssi.workspace = true
-#ssi-jwk = { version = "0.1.0", features = ["ed25519"] }
-#ssi-jwt = "0.1.0"
 
 [dev-dependencies]
 serde_ipld_dagcbor.workspace = true
