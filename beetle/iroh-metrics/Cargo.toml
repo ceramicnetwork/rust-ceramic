@@ -6,11 +6,9 @@ license.workspace = true
 readme = "README.md"
 description = "Iroh metrics"
 repository.workspace = true
-rust-version.workspace = true
 publish = false
 
 [dependencies]
-config.workspace = true
 console-subscriber = { workspace = true, optional = true }
 iroh-util.workspace = true
 lazy_static.workspace = true

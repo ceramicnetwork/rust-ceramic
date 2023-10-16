@@ -17,7 +17,7 @@ cid.workspace = true
 hex = "0.4.3"
 libp2p-identity.workspace = true
 libp2p.workspace = true
-multihash = "0.18.0"
+multihash.workspace = true
 rand = "0.8.5"
 serde.workspace = true
 serde_ipld_dagcbor.workspace = true
@@ -31,7 +31,7 @@ void.workspace = true
 codespan-reporting = "0.11.1"
 expect-test.workspace = true
 lalrpop-util = { version = "0.20.0", features = ["lexer"] }
-libp2p-swarm-test = "0.1.0"
+libp2p-swarm-test = "0.2.0"
 pretty = "0.12.1"
 quickcheck = "1.0.3"
 regex = "1"

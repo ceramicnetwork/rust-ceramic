@@ -6,13 +6,11 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-rust-version.workspace = true
 publish = false
 
 [dependencies]
 anyhow.workspace = true
 cid.workspace = true
-config.workspace = true
 ctrlc.workspace = true
 dirs-next.workspace = true
 futures.workspace = true

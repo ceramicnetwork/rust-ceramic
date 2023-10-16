@@ -65,6 +65,9 @@ where
     //
     // See doc comment for State, each row of the transitions table
     // should map to exactly one call of this transition_state function.
+    //
+    // TODO(nathanielc): Remove uses of KeepAlive::Until
+    #[allow(deprecated)]
     fn transition_state(&mut self, state: State) {
         debug!(
             %self.remote_peer_id,
@@ -170,8 +173,8 @@ where
     I: Recon<Key = Interest, Hash = Sha256a> + Clone + Send + 'static,
     M: Recon<Key = EventId, Hash = Sha256a> + Clone + Send + 'static,
 {
-    type InEvent = FromBehaviour;
-    type OutEvent = FromHandler;
+    type FromBehaviour = FromBehaviour;
+    type ToBehaviour = FromHandler;
     type Error = Failure;
     type InboundProtocol = MultiReadyUpgrade<StreamSet>;
     type OutboundProtocol = MultiReadyUpgrade<StreamSet>;
@@ -198,12 +201,12 @@ where
         ConnectionHandlerEvent<
             Self::OutboundProtocol,
             Self::OutboundOpenInfo,
-            Self::OutEvent,
+            Self::ToBehaviour,
             Self::Error,
         >,
     > {
         if let Some(event) = self.behavior_events_queue.pop_back() {
-            return Poll::Ready(ConnectionHandlerEvent::Custom(event));
+            return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(event));
         }
         match &mut self.state {
             State::Idle | State::WaitingOutbound { .. } | State::WaitingInbound => {}
@@ -220,12 +223,12 @@ where
                     self.transition_state(State::Idle);
                     match result {
                         Ok(stream_set) => {
-                            return Poll::Ready(ConnectionHandlerEvent::Custom(
+                            return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
                                 FromHandler::Succeeded { stream_set },
                             ));
                         }
                         Err(e) => {
-                            return Poll::Ready(ConnectionHandlerEvent::Custom(
+                            return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
                                 FromHandler::Failed(e),
                             ))
                         }
@@ -237,7 +240,7 @@ where
         Poll::Pending
     }
 
-    fn on_behaviour_event(&mut self, event: Self::InEvent) {
+    fn on_behaviour_event(&mut self, event: Self::FromBehaviour) {
         match event {
             FromBehaviour::StartSync { stream_set } => {
                 debug!("starting sync: {:?}", stream_set);
@@ -371,6 +374,8 @@ where
                     | State::Inbound(_) => {}
                 }
             }
+            libp2p::swarm::handler::ConnectionEvent::LocalProtocolsChange(_) => todo!(),
+            libp2p::swarm::handler::ConnectionEvent::RemoteProtocolsChange(_) => todo!(),
         }
     }
 }

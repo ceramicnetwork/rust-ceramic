@@ -10,7 +10,7 @@ pub enum Error {
     #[error("Io error: {0}")]
     Io(#[from] std::io::Error),
     #[error("Cbor encoding error: {0}")]
-    Cbor(#[from] ipld::error::Error),
+    Cbor(#[from] libipld::error::Error),
     #[error("ld read too large {0}")]
     LdReadTooLarge(usize),
 }

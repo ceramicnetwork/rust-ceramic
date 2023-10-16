@@ -618,7 +618,7 @@ fn peer_info_from_identify_info(i: IdentifyInfo) -> LookupResponse {
         protocol_version: i.protocol_version,
         agent_version: i.agent_version,
         listen_addrs: i.listen_addrs,
-        protocols: i.protocols,
+        protocols: i.protocols.into_iter().map(|p| p.to_string()).collect(),
         observed_addrs: vec![i.observed_addr],
     }
 }

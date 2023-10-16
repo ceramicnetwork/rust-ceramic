@@ -16,11 +16,11 @@ use cid::Cid;
 use handler::{BitswapHandler, HandlerEvent};
 use iroh_metrics::record;
 use iroh_metrics::{bitswap::BitswapMetrics, core::MRecorder, inc};
-use libp2p::swarm::dial_opts::DialOpts;
 use libp2p::swarm::ConnectionId;
 use libp2p::swarm::{
     CloseConnection, DialError, NetworkBehaviour, NotifyHandler, PollParameters, ToSwarm,
 };
+use libp2p::{swarm::dial_opts::DialOpts, StreamProtocol};
 use libp2p::{Multiaddr, PeerId};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
@@ -246,7 +246,7 @@ impl<S: Store> Bitswap<S> {
     }
 
     /// Called on identify events from swarm, informing us about available protocols of this peer.
-    pub fn on_identify(&self, peer: &PeerId, protocols: &[String]) {
+    pub fn on_identify(&self, peer: &PeerId, protocols: &[StreamProtocol]) {
         if let Some(PeerState::Connected(conn_id)) = self.get_peer_state(peer) {
             let mut protocols: Vec<ProtocolId> =
                 protocols.iter().filter_map(ProtocolId::try_from).collect();
@@ -401,16 +401,7 @@ pub enum BitswapEvent {
 
 impl<S: Store> NetworkBehaviour for Bitswap<S> {
     type ConnectionHandler = BitswapHandler;
-    type OutEvent = BitswapEvent;
-
-    fn new_handler(&mut self) -> Self::ConnectionHandler {
-        let protocol_config = self.protocol_config.clone();
-        BitswapHandler::new(protocol_config, self.idle_timeout)
-    }
-
-    fn addresses_of_peer(&mut self, _peer_id: &PeerId) -> Vec<Multiaddr> {
-        Default::default()
-    }
+    type ToSwarm = BitswapEvent;
 
     fn on_swarm_event(&mut self, event: libp2p::swarm::FromSwarm<Self::ConnectionHandler>) {
         match event {
@@ -482,7 +473,7 @@ impl<S: Store> NetworkBehaviour for Bitswap<S> {
         &mut self,
         cx: &mut Context<'_>,
         _params: &mut impl PollParameters,
-    ) -> Poll<libp2p::swarm::ToSwarm<Self::OutEvent, libp2p::swarm::THandlerInEvent<Self>>> {
+    ) -> Poll<libp2p::swarm::ToSwarm<Self::ToSwarm, libp2p::swarm::THandlerInEvent<Self>>> {
         inc!(BitswapMetrics::ToSwarmPollTick);
         // limit work
         for _ in 0..50 {
@@ -581,6 +572,28 @@ impl<S: Store> NetworkBehaviour for Bitswap<S> {
         }
 
         Poll::Pending
+    }
+
+    fn handle_established_inbound_connection(
+        &mut self,
+        _connection_id: ConnectionId,
+        _peer: PeerId,
+        _local_addr: &Multiaddr,
+        _remote_addr: &Multiaddr,
+    ) -> std::result::Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
+        let protocol_config = self.protocol_config.clone();
+        Ok(BitswapHandler::new(protocol_config, self.idle_timeout))
+    }
+
+    fn handle_established_outbound_connection(
+        &mut self,
+        _connection_id: ConnectionId,
+        _peer: PeerId,
+        _addr: &Multiaddr,
+        _role_override: libp2p::core::Endpoint,
+    ) -> std::result::Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
+        let protocol_config = self.protocol_config.clone();
+        Ok(BitswapHandler::new(protocol_config, self.idle_timeout))
     }
 }
 

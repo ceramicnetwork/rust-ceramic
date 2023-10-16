@@ -18,7 +18,6 @@ cid.workspace = true
 clap.workspace = true
 clap-verbosity-flag = "2.0.1"
 clio = { version = "0.3.4", features = ["clap-parse"] }
-config.workspace = true
 futures-util.workspace = true
 futures.workspace = true
 git-version.workspace = true
@@ -28,8 +27,8 @@ iroh-rpc-client.workspace = true
 iroh-rpc-types.workspace = true
 iroh-util.workspace = true
 libp2p-identity.workspace = true
-libp2p-mplex = "0.39.0"
-libp2p-quic = { version = "0.7.0-alpha.3", features = ["tokio"] }
+libp2p-mplex = "0.40.0"
+libp2p-quic = { version = "0.9", features = ["tokio"] }
 lru.workspace = true
 rand.workspace = true
 recon.workspace = true

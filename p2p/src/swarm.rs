@@ -4,19 +4,14 @@ use anyhow::Result;
 use ceramic_core::{EventId, Interest};
 use futures::future::Either;
 use libp2p::{
-    core::{
-        self,
-        muxing::StreamMuxerBox,
-        transport::{Boxed, OrTransport},
-    },
-    dns,
-    identity::Keypair,
-    noise,
-    swarm::{Executor, SwarmBuilder},
+    core::{self, muxing::StreamMuxerBox, transport::Boxed},
+    dns, noise,
+    swarm::{Config, Executor},
     tcp, websocket,
     yamux::{self, WindowUpdateMode},
     PeerId, Swarm, Transport,
 };
+use libp2p_identity::Keypair;
 use recon::{libp2p::Recon, Sha256a};
 use sqlx::SqlitePool;
 
@@ -68,8 +63,8 @@ async fn build_transport(
         let (relay_transport, relay_client) =
             libp2p::relay::client::new(keypair.public().to_peer_id());
 
-        let transport = OrTransport::new(relay_transport, tcp_ws_transport);
-        let transport = transport
+        let transport = relay_transport
+            .or_transport(tcp_ws_transport)
             .upgrade(core::upgrade::Version::V1Lazy)
             .authenticate(auth_config)
             .multiplex(muxer_config)
@@ -87,8 +82,9 @@ async fn build_transport(
         (tcp_transport, None)
     };
 
-    // Merge in Quick
-    let transport = OrTransport::new(quic_transport, tcp_ws_transport)
+    // Merge in quic
+    let transport = quic_transport
+        .or_transport(tcp_ws_transport)
         .map(|o, _| match o {
             Either::Left((peer_id, muxer)) => (peer_id, StreamMuxerBox::new(muxer)),
             Either::Right((peer_id, muxer)) => (peer_id, StreamMuxerBox::new(muxer)),
@@ -99,7 +95,7 @@ async fn build_transport(
 
     let dns_cfg = dns::ResolverConfig::cloudflare();
     let dns_opts = dns::ResolverOpts::default();
-    let transport = dns::TokioDnsConfig::custom(transport, dns_cfg, dns_opts)
+    let transport = dns::tokio::Transport::custom(transport, dns_cfg, dns_opts)
         .unwrap()
         .boxed();
 
@@ -121,13 +117,13 @@ where
     let (transport, relay_client) = build_transport(keypair, config).await;
     let behaviour = NodeBehaviour::new(keypair, config, relay_client, recons, sql_pool).await?;
 
-    let swarm = SwarmBuilder::with_executor(transport, behaviour, peer_id, Tokio)
-        .notify_handler_buffer_size(config.notify_handler_buffer_size.try_into()?)
-        .per_connection_event_buffer_size(config.connection_event_buffer_size)
-        .dial_concurrency_factor(config.dial_concurrency_factor.try_into().unwrap())
-        .build();
+    let swarm_config = Config::with_tokio_executor()
+        .with_notify_handler_buffer_size(config.notify_handler_buffer_size)
+        .with_per_connection_event_buffer_size(config.connection_event_buffer_size)
+        .with_dial_concurrency_factor(config.dial_concurrency_factor)
+        .with_idle_connection_timeout(config.idle_connection_timeout);
 
-    Ok(swarm)
+    Ok(Swarm::new(transport, behaviour, peer_id, swarm_config))
 }
 
 struct Tokio;

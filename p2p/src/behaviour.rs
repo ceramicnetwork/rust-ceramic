@@ -8,8 +8,11 @@ use iroh_bitswap::{Bitswap, Block, Config as BitswapConfig, Store};
 use iroh_rpc_client::Client;
 use libp2p::gossipsub::{self, MessageAuthenticity};
 use libp2p::identify;
-use libp2p::kad::store::{MemoryStore, MemoryStoreConfig};
-use libp2p::kad::{Kademlia, KademliaConfig};
+use libp2p::kad::{
+    self,
+    store::{MemoryStore, MemoryStoreConfig},
+    RecordKey,
+};
 use libp2p::mdns::tokio::Behaviour as Mdns;
 use libp2p::multiaddr::Protocol;
 use libp2p::ping::Behaviour as Ping;
@@ -21,8 +24,7 @@ use libp2p::{
     connection_limits::{self, ConnectionLimits},
     kad::QueryId,
 };
-use libp2p::{core::identity::Keypair, kad::RecordKey};
-use libp2p_identity::PeerId;
+use libp2p_identity::Keypair;
 use recon::{libp2p::Recon, Sha256a};
 use sqlx::SqlitePool;
 use tracing::{info, warn};
@@ -40,12 +42,12 @@ pub const AGENT_VERSION: &str = concat!("iroh/", env!("CARGO_PKG_VERSION"));
 
 /// Libp2p behaviour for the node.
 #[derive(NetworkBehaviour)]
-#[behaviour(out_event = "Event")]
+#[behaviour(to_swarm = "Event")]
 pub(crate) struct NodeBehaviour<I, M> {
     ping: Ping,
     identify: identify::Behaviour,
     pub(crate) bitswap: Toggle<Bitswap<SQLiteBlockStore>>,
-    pub(crate) kad: Toggle<Kademlia<MemoryStore>>,
+    pub(crate) kad: Toggle<kad::Behaviour<MemoryStore>>,
     mdns: Toggle<Mdns>,
     pub(crate) autonat: Toggle<autonat::Behaviour>,
     relay: Toggle<relay::Behaviour>,
@@ -141,17 +143,16 @@ where
             let store = MemoryStore::with_config(peer_id, mem_store_config);
 
             // TODO: make user configurable
-            let mut kad_config = KademliaConfig::default();
+            let mut kad_config = kad::Config::default();
             kad_config.set_parallelism(16usize.try_into().unwrap());
             // TODO: potentially lower (this is per query)
             kad_config.set_query_timeout(Duration::from_secs(60));
 
-            let mut kademlia = Kademlia::with_config(pub_key.to_peer_id(), store, kad_config);
+            let mut kademlia = kad::Behaviour::with_config(pub_key.to_peer_id(), store, kad_config);
             for multiaddr in &config.bootstrap_peers {
                 // TODO: move parsing into config
                 let mut addr = multiaddr.to_owned();
-                if let Some(Protocol::P2p(mh)) = addr.pop() {
-                    let peer_id = PeerId::from_multihash(mh).unwrap();
+                if let Some(Protocol::P2p(peer_id)) = addr.pop() {
                     kademlia.add_address(&peer_id, addr);
                 } else {
                     warn!("Could not parse bootstrap addr {}", multiaddr);

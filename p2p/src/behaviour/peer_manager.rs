@@ -8,7 +8,6 @@ use ahash::AHashMap;
 use iroh_metrics::{core::MRecorder, inc, p2p::P2PMetrics};
 use libp2p::{
     identify::Info as IdentifyInfo,
-    ping::Success as PingSuccess,
     swarm::{dummy, ConnectionId, DialError, NetworkBehaviour, PollParameters},
     PeerId,
 };
@@ -57,10 +56,8 @@ impl PeerManager {
         self.info.entry(peer_id).or_default().last_info = Some(new_info);
     }
 
-    pub fn inject_ping(&mut self, peer_id: PeerId, new_ping: PingSuccess) {
-        if let PingSuccess::Ping { rtt } = new_ping {
-            self.info.entry(peer_id).or_default().last_rtt = Some(rtt);
-        }
+    pub fn inject_ping(&mut self, peer_id: PeerId, rtt: Duration) {
+        self.info.entry(peer_id).or_default().last_rtt = Some(rtt);
     }
 
     pub fn info_for_peer(&self, peer_id: &PeerId) -> Option<&Info> {
@@ -74,11 +71,8 @@ impl PeerManager {
 
 impl NetworkBehaviour for PeerManager {
     type ConnectionHandler = dummy::ConnectionHandler;
-    type OutEvent = PeerManagerEvent;
+    type ToSwarm = PeerManagerEvent;
 
-    fn new_handler(&mut self) -> Self::ConnectionHandler {
-        dummy::ConnectionHandler
-    }
     fn on_swarm_event(&mut self, event: libp2p::swarm::FromSwarm<Self::ConnectionHandler>) {
         match event {
             libp2p::swarm::FromSwarm::ConnectionEstablished(event) => {
@@ -128,8 +122,8 @@ impl NetworkBehaviour for PeerManager {
         &mut self,
         _cx: &mut Context<'_>,
         params: &mut impl PollParameters,
-    ) -> Poll<libp2p::swarm::ToSwarm<Self::OutEvent, libp2p::swarm::THandlerInEvent<Self>>> {
-        // TODO(ramfox):
+    ) -> Poll<libp2p::swarm::ToSwarm<Self::ToSwarm, libp2p::swarm::THandlerInEvent<Self>>> {
+        // TODO(nathanielc):
         // We can only get the supported protocols of the local node by examining the
         // `PollParameters`, which mean you can only get the supported protocols by examining the
         // `PollParameters` in this method (`poll`) of a network behaviour.
@@ -140,6 +134,10 @@ impl NetworkBehaviour for PeerManager {
         // https://github.com/libp2p/rust-libp2p/issues/3124
         // When that is resolved, we can hopefully remove this responsibility from the `peer_manager`,
         // where it, frankly, doesn't belong.
+        //
+        // With libp2p 0.52.4 supported_protocols has been deprecated. We should now be able to
+        // refactor the peer_manager to not need to handle supported_protocols.
+        #[allow(deprecated)]
         if self.supported_protocols.is_empty() {
             self.supported_protocols = params
                 .supported_protocols()
@@ -148,5 +146,25 @@ impl NetworkBehaviour for PeerManager {
         }
 
         Poll::Pending
+    }
+
+    fn handle_established_inbound_connection(
+        &mut self,
+        _connection_id: ConnectionId,
+        _peer: PeerId,
+        _local_addr: &libp2p::Multiaddr,
+        _remote_addr: &libp2p::Multiaddr,
+    ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
+        Ok(dummy::ConnectionHandler)
+    }
+
+    fn handle_established_outbound_connection(
+        &mut self,
+        _connection_id: ConnectionId,
+        _peer: PeerId,
+        _addr: &libp2p::Multiaddr,
+        _role_override: libp2p::core::Endpoint,
+    ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
+        Ok(dummy::ConnectionHandler)
     }
 }

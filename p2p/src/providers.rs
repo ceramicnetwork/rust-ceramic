@@ -2,7 +2,7 @@ use std::collections::{HashSet, VecDeque};
 
 use ahash::AHashMap;
 use libp2p::{
-    kad::{record::Key, store::MemoryStore, GetProvidersError, Kademlia, QueryId},
+    kad::{self, record::Key, store::MemoryStore, GetProvidersError, QueryId},
     PeerId,
 };
 use tokio::sync::mpsc;
@@ -98,7 +98,7 @@ impl Providers {
         is_last: bool,
         key: Key,
         providers: HashSet<PeerId>,
-        kad: &mut Kademlia<MemoryStore>,
+        kad: &mut kad::Behaviour<MemoryStore>,
     ) {
         if let Some(query) = self.current_queries.get_mut(&key) {
             // Ignore queries we didn't start.
@@ -163,7 +163,11 @@ impl Providers {
         }
     }
 
-    pub fn handle_no_additional_records(&mut self, id: QueryId, kad: &mut Kademlia<MemoryStore>) {
+    pub fn handle_no_additional_records(
+        &mut self,
+        id: QueryId,
+        kad: &mut kad::Behaviour<MemoryStore>,
+    ) {
         let mut key = None;
         for (k, q) in self.current_queries.iter() {
             if q.query_id == id {
@@ -182,7 +186,7 @@ impl Providers {
         &mut self,
         id: QueryId,
         error: GetProvidersError,
-        kad: &mut Kademlia<MemoryStore>,
+        kad: &mut kad::Behaviour<MemoryStore>,
     ) {
         let key = match error {
             GetProvidersError::Timeout { key, .. } => key,
@@ -207,7 +211,7 @@ impl Providers {
         }
     }
 
-    pub fn poll(&mut self, kad: &mut Kademlia<MemoryStore>) {
+    pub fn poll(&mut self, kad: &mut kad::Behaviour<MemoryStore>) {
         // Start a new query if not enough and have an outstanding one.
         if self.current_queries.len() < self.max_running_queries {
             if let Some(Query { key, queries }) = self.outstanding_queries.pop_front() {

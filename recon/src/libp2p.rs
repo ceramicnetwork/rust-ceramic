@@ -43,9 +43,9 @@ use crate::{
 };
 
 /// Name of the Recon protocol for synchronizing interests
-pub const PROTOCOL_NAME_INTEREST: &[u8] = b"/ceramic/recon/0.1.0/interest";
+pub const PROTOCOL_NAME_INTEREST: &str = "/ceramic/recon/0.1.0/interest";
 /// Name of the Recon protocol for synchronizing models
-pub const PROTOCOL_NAME_MODEL: &[u8] = b"/ceramic/recon/0.1.0/model";
+pub const PROTOCOL_NAME_MODEL: &str = "/ceramic/recon/0.1.0/model";
 
 /// Defines the Recon API.
 #[async_trait]
@@ -200,7 +200,7 @@ where
 {
     type ConnectionHandler = Handler<I, M>;
 
-    type OutEvent = Event;
+    type ToSwarm = Event;
 
     fn on_swarm_event(&mut self, event: libp2p::swarm::FromSwarm<Self::ConnectionHandler>) {
         match event {
@@ -247,11 +247,14 @@ where
             libp2p::swarm::FromSwarm::ListenerClosed(_) => {
                 debug!(kind = "ListenerClosed", "ignored swarm event")
             }
-            libp2p::swarm::FromSwarm::NewExternalAddr(_) => {
-                debug!(kind = "NewExternalAddr", "ignored swarm event")
+            libp2p::swarm::FromSwarm::NewExternalAddrCandidate(_) => {
+                debug!(kind = "NewExternalAddrCandidate", "ignored swarm event")
             }
-            libp2p::swarm::FromSwarm::ExpiredExternalAddr(_) => {
-                debug!(kind = "ExpiredExternalAddr", "ignored swarm event")
+            libp2p::swarm::FromSwarm::ExternalAddrConfirmed(_) => {
+                debug!(kind = "ExternalAddrConfirmed", "ignored swarm event")
+            }
+            libp2p::swarm::FromSwarm::ExternalAddrExpired(_) => {
+                debug!(kind = "ExternalAddrExpired", "ignored swarm event")
             }
         }
     }
@@ -313,7 +316,7 @@ where
         &mut self,
         _cx: &mut std::task::Context<'_>,
         _params: &mut impl libp2p::swarm::PollParameters,
-    ) -> std::task::Poll<libp2p::swarm::ToSwarm<Self::OutEvent, libp2p::swarm::THandlerInEvent<Self>>>
+    ) -> std::task::Poll<libp2p::swarm::ToSwarm<Self::ToSwarm, libp2p::swarm::THandlerInEvent<Self>>>
     {
         // Handle queue of swarm events.
         if let Some(event) = self.swarm_events_queue.pop_back() {
