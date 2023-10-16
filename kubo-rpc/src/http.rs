@@ -1,14 +1,14 @@
 //! Provides an http implementation of the Kubo RPC methods.
+
 use std::{collections::HashSet, io::Cursor, marker::PhantomData, str::FromStr};
 
 use async_trait::async_trait;
-use ceramic_kubo_rpc_server::models::DagPutPost200ResponseCid;
 use ceramic_kubo_rpc_server::{
     models::{
         self, BlockPutPost200Response, Codecs, DagImportPost200Response, DagPutPost200Response,
-        DagResolvePost200Response, DagResolvePost200ResponseCid, IdPost200Response, Multihash,
-        PinAddPost200Response, PubsubLsPost200Response, SwarmPeersPost200Response,
-        SwarmPeersPost200ResponsePeersInner, VersionPost200Response,
+        DagPutPost200ResponseCid, DagResolvePost200Response, DagResolvePost200ResponseCid,
+        IdPost200Response, Multihash, PinAddPost200Response, PubsubLsPost200Response,
+        SwarmPeersPost200Response, SwarmPeersPost200ResponsePeersInner, VersionPost200Response,
     },
     Api, BlockGetPostResponse, BlockPutPostResponse, BlockStatPostResponse, DagGetPostResponse,
     DagImportPostResponse, DagPutPostResponse, DagResolvePostResponse, IdPostResponse,
@@ -26,6 +26,7 @@ use libp2p::{gossipsub::Message, Multiaddr, PeerId};
 use multiaddr::Protocol;
 use serde::Serialize;
 use swagger::{ApiError, ByteArray};
+use tracing::{instrument, Level};
 
 use crate::{
     block, dag, id, pin, pubsub, swarm, version, Bytes, GossipsubEvent, IpfsDep, IpfsPath,
@@ -79,6 +80,7 @@ where
     I: IpfsDep + Send + Sync,
     C: Send + Sync,
 {
+    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn block_get_post(
         &self,
         arg: String,
@@ -91,6 +93,7 @@ where
         Ok(BlockGetPostResponse::Success(ByteArray(data)))
     }
 
+    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn block_put_post(
         &self,
         file: ByteArray,
@@ -135,6 +138,7 @@ where
         }))
     }
 
+    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn block_stat_post(
         &self,
         arg: String,
@@ -150,6 +154,7 @@ where
         }))
     }
 
+    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn dag_get_post(
         &self,
         arg: String,
@@ -174,6 +179,7 @@ where
         }
     }
 
+    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn dag_import_post(
         &self,
         file: swagger::ByteArray,
@@ -193,6 +199,7 @@ where
         }))
     }
 
+    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn dag_put_post(
         &self,
         file: ByteArray,
@@ -239,6 +246,7 @@ where
         }))
     }
 
+    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn dag_resolve_post(
         &self,
         arg: String,
@@ -256,6 +264,7 @@ where
         }))
     }
 
+    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn id_post(&self, arg: Option<String>, _context: &C) -> Result<IdPostResponse, ApiError> {
         let info = if let Some(id) = &arg {
             let peer_id = try_or_bad_request!(PeerId::from_str(id), IdPostResponse);
@@ -280,6 +289,7 @@ where
         }))
     }
 
+    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn pin_add_post(
         &self,
         arg: String,
@@ -310,6 +320,7 @@ where
             pins: vec![cid.to_string()],
         }))
     }
+    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn pin_rm_post(&self, arg: String, _context: &C) -> Result<PinRmPostResponse, ApiError> {
         let ipfs_path = try_or_bad_request!(IpfsPath::from_str(&arg), PinRmPostResponse);
         let cid = pin::remove(self.ipfs.clone(), &ipfs_path)
@@ -320,6 +331,7 @@ where
         }))
     }
 
+    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn pubsub_ls_post(&self, _context: &C) -> Result<PubsubLsPostResponse, ApiError> {
         let topics = pubsub::topics(self.ipfs.clone())
             .await
@@ -329,6 +341,7 @@ where
         }))
     }
 
+    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn pubsub_pub_post(
         &self,
         arg: String,
@@ -346,6 +359,7 @@ where
         Ok(PubsubPubPostResponse::Success)
     }
 
+    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn pubsub_sub_post(
         &self,
         arg: String,
@@ -413,6 +427,7 @@ where
         Ok(PubsubSubPostResponse::Success(Box::pin(messages)))
     }
 
+    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn swarm_connect_post(
         &self,
         arg: &Vec<String>,
@@ -474,6 +489,7 @@ where
         }))
     }
 
+    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn swarm_peers_post(&self, _context: &C) -> Result<SwarmPeersPostResponse, ApiError> {
         let peers: Vec<SwarmPeersPost200ResponsePeersInner> = swarm::peers(self.ipfs.clone())
             .await
@@ -492,6 +508,7 @@ where
         }))
     }
 
+    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn version_post(&self, _context: &C) -> Result<VersionPostResponse, ApiError> {
         let v = version::version(self.ipfs.clone())
             .await
