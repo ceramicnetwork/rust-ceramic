@@ -85,16 +85,12 @@ impl SQLiteBlockStore {
             ));
         }
 
-        match sqlx::query("INSERT OR IGNORE INTO blocks (multihash, bytes) VALUES (?, ?)")
+        sqlx::query("INSERT OR IGNORE INTO blocks (multihash, bytes) VALUES (?, ?)")
             .bind(cid.hash().to_bytes())
             .bind(blob.to_vec())
             .execute(&self.pool)
-            .await
-        {
-            Ok(_) => Ok(()),
-            Err(e) if e.as_database_error().unwrap().is_unique_violation() => Ok(()),
-            Err(e) => Err(e)?,
-        }
+            .await?;
+        Ok(())
     }
 
     /// merge_from_sqlite takes the filepath to a sqlite file.
@@ -203,6 +199,35 @@ mod tests {
             .assert_eq(&block.cid().to_string());
         expect![["0A050001020304"]].assert_eq(&hex::encode_upper(block.data()));
     }
+
+    #[tokio::test]
+    async fn test_double_store_block() {
+        let blob: Bytes = hex::decode("0a050001020304").unwrap().into();
+        let cid: CidGeneric<64> =
+            Cid::from_str("bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom").unwrap(); // cspell:disable-line
+
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let store: SQLiteBlockStore = SQLiteBlockStore::new(pool).await.unwrap();
+
+        let result = store.put(cid, blob.clone(), vec![]).await;
+        result.unwrap();
+
+        // Try to put the block again
+        let result = store.put(cid, blob, vec![]).await;
+        result.unwrap();
+
+        let has: Result<bool, Error> = Store::has(&store, &cid).await;
+        expect![["true"]].assert_eq(&has.unwrap().to_string());
+
+        let size: Result<usize, Error> = Store::get_size(&store, &cid).await;
+        expect![["7"]].assert_eq(&size.unwrap().to_string());
+
+        let block = Store::get(&store, &cid).await.unwrap();
+        expect!["bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom"]
+            .assert_eq(&block.cid().to_string());
+        expect![["0A050001020304"]].assert_eq(&hex::encode_upper(block.data()));
+    }
+
     #[tokio::test]
     async fn test_get_nonexistant_block() {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
