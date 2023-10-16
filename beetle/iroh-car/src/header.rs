@@ -1,6 +1,6 @@
 use cid::Cid;
-use ipld::codec::Codec;
-use ipld_cbor::DagCborCodec;
+use libipld::codec::Codec;
+use libipld_cbor::DagCborCodec;
 
 use crate::error::Error;
 
@@ -57,7 +57,7 @@ impl CarHeader {
 }
 
 /// CAR file header version 1.
-#[derive(Debug, Clone, Default, ipld::DagCbor, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, libipld::DagCbor, PartialEq, Eq)]
 pub struct CarHeaderV1 {
     #[ipld]
     pub roots: Vec<Cid>,

@@ -12,18 +12,10 @@ use futures::{
     stream::{BoxStream, SelectAll},
 };
 use iroh_metrics::{bitswap::BitswapMetrics, core::MRecorder, inc};
+use libp2p::swarm::handler::FullyNegotiatedInbound;
 use libp2p::swarm::{
     handler::{DialUpgradeError, FullyNegotiatedOutbound},
-    ConnectionHandler, ConnectionHandlerEvent, ConnectionHandlerUpgrErr, KeepAlive,
-    SubstreamProtocol,
-};
-use libp2p::{
-    core::{
-        muxing::SubstreamBox,
-        upgrade::{NegotiationError, UpgradeError},
-        Negotiated,
-    },
-    swarm::handler::FullyNegotiatedInbound,
+    ConnectionHandler, ConnectionHandlerEvent, KeepAlive, StreamUpgradeError, SubstreamProtocol,
 };
 use smallvec::SmallVec;
 use tokio::sync::oneshot;
@@ -49,8 +41,8 @@ pub enum BitswapHandlerError {
     #[error("negotiation timeout")]
     NegotiationTimeout,
     /// Protocol negotiation failed.
-    #[error("negotatiation protocol error {0}")]
-    NegotiationProtocolError(#[from] NegotiationError),
+    #[error("no protocol could be agreed upon")]
+    NegotiationProtocolError,
     /// IO error.
     #[error("io {0}")]
     Io(#[from] std::io::Error),
@@ -119,7 +111,7 @@ pub struct BitswapHandler {
     idle_timeout: Duration,
 
     /// Collection of errors from attempting an upgrade.
-    upgrade_errors: VecDeque<ConnectionHandlerUpgrErr<BitswapHandlerError>>,
+    upgrade_errors: VecDeque<StreamUpgradeError<BitswapHandlerError>>,
 
     /// Flag determining whether to maintain the connection to the peer.
     keep_alive: KeepAlive,
@@ -149,6 +141,8 @@ impl Debug for BitswapHandler {
 
 impl BitswapHandler {
     /// Builds a new [`BitswapHandler`].
+    // TODO(nathanielc): Remove uses of KeepAlive::Until
+    #[allow(deprecated)]
     pub fn new(protocol_config: ProtocolConfig, idle_timeout: Duration) -> Self {
         Self {
             listen_protocol: SubstreamProtocol::new(protocol_config, ()),
@@ -165,8 +159,8 @@ impl BitswapHandler {
 }
 
 impl ConnectionHandler for BitswapHandler {
-    type InEvent = BitswapHandlerIn;
-    type OutEvent = HandlerEvent;
+    type FromBehaviour = BitswapHandlerIn;
+    type ToBehaviour = HandlerEvent;
     type Error = BitswapHandlerError;
     type InboundOpenInfo = ();
     type InboundProtocol = ProtocolConfig;
@@ -181,6 +175,8 @@ impl ConnectionHandler for BitswapHandler {
         self.keep_alive
     }
 
+    // TODO(nathanielc): Remove uses of KeepAlive::Until
+    #[allow(deprecated)]
     fn poll(&mut self, cx: &mut Context<'_>) -> Poll<BitswapConnectionHandlerEvent> {
         inc!(BitswapMetrics::HandlerPollCount);
         if !self.events.is_empty() {
@@ -193,13 +189,12 @@ impl ConnectionHandler for BitswapHandler {
         if let Some(error) = self.upgrade_errors.pop_front() {
             inc!(BitswapMetrics::HandlerConnUpgradeErrors);
             let reported_error = match error {
-                ConnectionHandlerUpgrErr::Timeout | ConnectionHandlerUpgrErr::Timer => {
-                    BitswapHandlerError::NegotiationTimeout
+                StreamUpgradeError::Timeout => BitswapHandlerError::NegotiationTimeout,
+                StreamUpgradeError::Apply(e) => e,
+                StreamUpgradeError::NegotiationFailed => {
+                    BitswapHandlerError::NegotiationProtocolError
                 }
-                ConnectionHandlerUpgrErr::Upgrade(UpgradeError::Apply(e)) => e,
-                ConnectionHandlerUpgrErr::Upgrade(UpgradeError::Select(negotiation_error)) => {
-                    BitswapHandlerError::NegotiationProtocolError(negotiation_error)
-                }
+                StreamUpgradeError::Io(e) => e.into(),
             };
 
             // Close the connection
@@ -221,7 +216,7 @@ impl ConnectionHandler for BitswapHandler {
         }
 
         if let Poll::Ready(Some(event)) = self.inbound_substreams.poll_next_unpin(cx) {
-            if let ConnectionHandlerEvent::Custom(HandlerEvent::Message { .. }) = event {
+            if let ConnectionHandlerEvent::NotifyBehaviour(HandlerEvent::Message { .. }) = event {
                 // Update keep alive as we have received a message
                 self.keep_alive = KeepAlive::Until(Instant::now() + self.idle_timeout);
             }
@@ -275,11 +270,15 @@ impl ConnectionHandler for BitswapHandler {
                 self.upgrade_errors.push_back(error);
             }
 
-            libp2p::swarm::handler::ConnectionEvent::ListenUpgradeError(_) => {}
+            libp2p::swarm::handler::ConnectionEvent::ListenUpgradeError(_)
+            | libp2p::swarm::handler::ConnectionEvent::LocalProtocolsChange(_)
+            | libp2p::swarm::handler::ConnectionEvent::RemoteProtocolsChange(_) => {}
         }
     }
 
-    fn on_behaviour_event(&mut self, event: Self::InEvent) {
+    // TODO(nathanielc): Remove uses of KeepAlive::Until
+    #[allow(deprecated)]
+    fn on_behaviour_event(&mut self, event: Self::FromBehaviour) {
         match event {
             BitswapHandlerIn::Message(m, response) => {
                 self.send_queue.push_back((m, response));
@@ -299,14 +298,14 @@ impl ConnectionHandler for BitswapHandler {
 }
 
 fn inbound_substream(
-    mut substream: Framed<Negotiated<SubstreamBox>, BitswapCodec>,
+    mut substream: Framed<libp2p::Stream, BitswapCodec>,
 ) -> impl Stream<Item = BitswapConnectionHandlerEvent> {
     async_stream::stream! {
         while let Some(message) = substream.next().await {
             match message {
                 Ok((message, protocol)) => {
                     // reset keep alive idle timeout
-                    yield ConnectionHandlerEvent::Custom(HandlerEvent::Message { message, protocol });
+                    yield ConnectionHandlerEvent::NotifyBehaviour(HandlerEvent::Message { message, protocol });
                 }
                 Err(error) => match error {
                     BitswapHandlerError::MaxTransmissionSize => {
@@ -335,14 +334,14 @@ fn inbound_substream(
 }
 
 fn outbound_substream(
-    mut substream: Framed<Negotiated<SubstreamBox>, BitswapCodec>,
+    mut substream: Framed<libp2p::Stream, BitswapCodec>,
     (message, response): (BitswapMessage, BitswapMessageResponse),
 ) -> impl Stream<Item = BitswapConnectionHandlerEvent> {
     async_stream::stream! {
         if let Err(error) = substream.feed(message).await {
             warn!("failed to write item: {:?}", error);
             response.send(Err(network::SendError::Other(error.to_string()))).ok();
-            yield ConnectionHandlerEvent::Custom(
+            yield ConnectionHandlerEvent::NotifyBehaviour(
                 HandlerEvent::FailedToSendMessage { error }
             );
         } else {

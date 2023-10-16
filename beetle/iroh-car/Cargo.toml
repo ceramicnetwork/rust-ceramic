@@ -6,20 +6,25 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-rust-version.workspace = true
 publish = false
 
 [dependencies]
 cid.workspace = true
 futures.workspace = true
 integer-encoding = { workspace = true, features = ["tokio_async"] }
-ipld = { package = "libipld", version = "0.15" }
-ipld-cbor = { package = "libipld-cbor", version = "0.15" }
+libipld.workspace = true
+libipld-cbor.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["io-util"] }
 
 [dev-dependencies]
 multihash.workspace = true
-tokio = { workspace = true, features = ["macros", "sync", "rt", "fs", "io-util"] }
+tokio = { workspace = true, features = [
+    "macros",
+    "sync",
+    "rt",
+    "fs",
+    "io-util",
+] }
 
 [features]

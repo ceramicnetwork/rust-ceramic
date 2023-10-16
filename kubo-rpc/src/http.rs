@@ -479,18 +479,10 @@ where
         let iter = arg.iter().map(
             |addr| -> Result<(Multiaddr, Option<PeerId>), anyhow::Error> {
                 let addr = Multiaddr::from_str(addr)?;
-                let peer_id = addr
-                    .iter()
-                    .flat_map(|proto| match proto {
-                        Protocol::P2p(mh) => vec![mh],
-                        _ => Vec::new(),
-                    })
-                    .next()
-                    .map(|mh| -> Result<PeerId, _> {
-                        PeerId::from_multihash(mh)
-                            .map_err(|_err| anyhow::anyhow!("invalid peer id"))
-                    })
-                    .transpose()?;
+                let peer_id = addr.iter().find_map(|proto| match proto {
+                    Protocol::P2p(peer_id) => Some(peer_id),
+                    _ => None,
+                });
                 Ok((addr, peer_id))
             },
         );

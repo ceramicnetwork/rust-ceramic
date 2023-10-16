@@ -1,7 +1,5 @@
 //! Provides methods for looking up peer info.
 
-use multihash::Multihash;
-
 use crate::{error::Error, IpfsDep, PeerId, PeerInfo};
 
 /// Lookup information about a specific peer.
@@ -22,7 +20,6 @@ where
 
 // Adds the peer's own peer ID to its listen_addrs if it's not already present.
 fn add_peer_id_to_addrs(mut peer: PeerInfo) -> PeerInfo {
-    let peer_mh: Multihash = peer.peer_id.into();
     peer.listen_addrs = peer
         .listen_addrs
         .into_iter()
@@ -31,7 +28,7 @@ fn add_peer_id_to_addrs(mut peer: PeerInfo) -> PeerInfo {
                 .iter()
                 .any(|addr| matches!(addr, multiaddr::Protocol::P2p(_)))
             {
-                addr.with(multiaddr::Protocol::P2p(peer_mh))
+                addr.with(multiaddr::Protocol::P2p(peer.peer_id))
             } else {
                 addr
             }

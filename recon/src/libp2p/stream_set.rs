@@ -1,7 +1,5 @@
 use anyhow::anyhow;
 
-use libp2p::core::upgrade::ProtocolName;
-
 use crate::libp2p::{PROTOCOL_NAME_INTEREST, PROTOCOL_NAME_MODEL};
 
 /// Represents a stream set key
@@ -35,8 +33,8 @@ impl TryFrom<&str> for StreamSet {
     }
 }
 
-impl ProtocolName for StreamSet {
-    fn protocol_name(&self) -> &[u8] {
+impl AsRef<str> for StreamSet {
+    fn as_ref(&self) -> &str {
         match self {
             StreamSet::Interest => PROTOCOL_NAME_INTEREST,
             StreamSet::Model => PROTOCOL_NAME_MODEL,

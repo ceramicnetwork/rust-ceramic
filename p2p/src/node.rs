@@ -15,29 +15,22 @@ use iroh_metrics::{core::MRecorder, inc, libp2p_metrics, p2p::P2PMetrics};
 use iroh_rpc_client::Client as RpcClient;
 use iroh_rpc_client::Lookup;
 use iroh_rpc_types::p2p::P2pAddr;
+use libp2p::core::Multiaddr;
 pub use libp2p::gossipsub::{IdentTopic, Topic};
-use libp2p::identity::Keypair;
-use libp2p::kad::kbucket::{Distance, NodeStatus};
+use libp2p::identify::{Event as IdentifyEvent, Info as IdentifyInfo};
 use libp2p::kad::{
-    self, BootstrapOk, GetClosestPeersError, GetClosestPeersOk, GetProvidersOk, KademliaEvent,
-    QueryId, QueryResult,
+    self, BootstrapOk, GetClosestPeersError, GetClosestPeersOk, GetProvidersOk, KBucketDistance,
+    NodeStatus, QueryId, QueryResult, RecordKey,
 };
 use libp2p::mdns;
 use libp2p::metrics::Recorder;
 use libp2p::multiaddr::Protocol;
-use libp2p::ping::Result as PingResult;
-#[allow(deprecated)]
-use libp2p::swarm::IntoConnectionHandler;
 use libp2p::swarm::{
     dial_opts::{DialOpts, PeerCondition},
     DialError,
 };
 use libp2p::swarm::{ConnectionHandler, NetworkBehaviour, SwarmEvent};
-use libp2p::{core::Multiaddr, swarm::AddressScore};
-use libp2p::{
-    identify::{Event as IdentifyEvent, Info as IdentifyInfo},
-    kad::RecordKey,
-};
+use libp2p::{identity::Keypair, StreamProtocol};
 use libp2p::{PeerId, Swarm};
 use sqlx::SqlitePool;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
@@ -84,7 +77,7 @@ where
     #[allow(dead_code)]
     rpc_client: RpcClient,
     #[allow(dead_code)]
-    kad_last_range: Option<(Distance, Distance)>,
+    kad_last_range: Option<(KBucketDistance, KBucketDistance)>,
     rpc_task: JoinHandle<()>,
     use_dht: bool,
     bitswap_sessions: BitswapSessions,
@@ -142,9 +135,10 @@ where
 // Allow IntoConnectionHandler deprecated associated type.
 // We are not using IntoConnectionHandler directly only referencing the type as part of this event signature.
 #[allow(deprecated)]
-type NodeSwarmEvent<I,M> = SwarmEvent<
-            <NodeBehaviour<I,M> as NetworkBehaviour>::OutEvent,
-            <<<NodeBehaviour<I,M> as NetworkBehaviour>::ConnectionHandler as IntoConnectionHandler>::Handler as ConnectionHandler>::Error>;
+type NodeSwarmEvent<I, M> = SwarmEvent<
+    <NodeBehaviour<I, M> as NetworkBehaviour>::ToSwarm,
+    <<NodeBehaviour<I, M> as NetworkBehaviour>::ConnectionHandler as ConnectionHandler>::Error,
+>;
 impl<I, M> Node<I, M>
 where
     I: Recon<Key = Interest, Hash = Sha256a>,
@@ -181,7 +175,7 @@ where
         info!("iroh-p2p peerid: {}", swarm.local_peer_id());
 
         for addr in &libp2p_config.external_multiaddrs {
-            swarm.add_external_address(addr.clone(), AddressScore::Infinite);
+            swarm.add_external_address(addr.clone());
         }
 
         let mut listen_addrs = vec![];
@@ -320,7 +314,7 @@ where
     /// Check the next node in the DHT.
     #[tracing::instrument(skip(self))]
     async fn dht_nice_tick(&mut self) {
-        let mut to_dial = None;
+        let mut to_dial: Option<(DialOpts, (KBucketDistance, KBucketDistance))> = None;
         if let Some(kad) = self.swarm.behaviour_mut().kad.as_mut() {
             for kbucket in kad.kbuckets() {
                 if let Some(range) = self.kad_last_range {
@@ -478,7 +472,7 @@ where
                 trace!("ConnectionClosed: {:}", peer_id);
                 Ok(())
             }
-            SwarmEvent::OutgoingConnectionError { peer_id, error } => {
+            SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
                 trace!("failed to dial: {:?}, {:?}", peer_id, error);
 
                 if let Some(peer_id) = peer_id {
@@ -564,7 +558,7 @@ where
             Event::Kademlia(e) => {
                 libp2p_metrics().record(&e);
 
-                if let KademliaEvent::OutboundQueryProgressed {
+                if let kad::Event::OutboundQueryProgressed {
                     id, result, step, ..
                 } = e
                 {
@@ -695,15 +689,13 @@ where
                 trace!("tick: identify {:?}", e);
                 if let IdentifyEvent::Received { peer_id, info } = *e {
                     for protocol in &info.protocols {
-                        let p = protocol.as_bytes();
-
-                        if p == kad::protocol::DEFAULT_PROTO_NAME {
+                        if protocol == &kad::PROTOCOL_NAME {
                             for addr in &info.listen_addrs {
                                 if let Some(kad) = self.swarm.behaviour_mut().kad.as_mut() {
                                     kad.add_address(&peer_id, addr.clone());
                                 }
                             }
-                        } else if p == b"/libp2p/autonat/1.0.0" {
+                        } else if protocol == &StreamProtocol::new("/libp2p/autonat/1.0.0") {
                             // TODO: expose protocol name on `libp2p::autonat`.
                             // TODO: should we remove them at some point?
                             for addr in &info.listen_addrs {
@@ -742,11 +734,11 @@ where
             }
             Event::Ping(e) => {
                 libp2p_metrics().record(&e);
-                if let PingResult::Ok(ping) = e.result {
+                if let Ok(rtt) = e.result {
                     self.swarm
                         .behaviour_mut()
                         .peer_manager
-                        .inject_ping(e.peer, ping);
+                        .inject_ping(e.peer, rtt);
                 }
             }
             Event::Relay(e) => {
@@ -812,12 +804,7 @@ where
         match message {
             RpcMessage::ExternalAddrs(response_channel) => {
                 response_channel
-                    .send(
-                        self.swarm
-                            .external_addresses()
-                            .map(|r| r.addr.clone())
-                            .collect(),
-                    )
+                    .send(self.swarm.external_addresses().cloned().collect())
                     .ok();
             }
             RpcMessage::Listeners(response_channel) => {
@@ -907,7 +894,7 @@ where
             RpcMessage::NetListeningAddrs(response_channel) => {
                 let mut listeners: Vec<_> = Swarm::listeners(&self.swarm).cloned().collect();
                 let peer_id = *Swarm::local_peer_id(&self.swarm);
-                listeners.extend(Swarm::external_addresses(&self.swarm).map(|r| r.addr.clone()));
+                listeners.extend(Swarm::external_addresses(&self.swarm).cloned());
 
                 response_channel
                     .send((peer_id, listeners))
@@ -1101,11 +1088,7 @@ where
             RpcMessage::LookupLocalPeerInfo(response_channel) => {
                 let peer_id = self.swarm.local_peer_id();
                 let listen_addrs = self.swarm.listeners().cloned().collect();
-                let observed_addrs = self
-                    .swarm
-                    .external_addresses()
-                    .map(|a| a.addr.clone())
-                    .collect();
+                let observed_addrs = self.swarm.external_addresses().cloned().collect();
                 let protocol_version = String::from(crate::behaviour::PROTOCOL_VERSION);
                 let agent_version = String::from(crate::behaviour::AGENT_VERSION);
                 let protocols = self.swarm.behaviour().peer_manager.supported_protocols();

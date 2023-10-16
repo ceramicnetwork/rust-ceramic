@@ -1,5 +1,5 @@
 use iroh_bitswap::BitswapEvent;
-use libp2p::{autonat, dcutr, gossipsub, identify, kad::KademliaEvent, mdns, ping, relay};
+use libp2p::{autonat, dcutr, gossipsub, identify, kad, mdns, ping, relay};
 
 use super::peer_manager::PeerManagerEvent;
 
@@ -10,7 +10,7 @@ use super::peer_manager::PeerManagerEvent;
 pub enum Event {
     Ping(ping::Event),
     Identify(Box<identify::Event>),
-    Kademlia(KademliaEvent),
+    Kademlia(kad::Event),
     Mdns(mdns::Event),
     Bitswap(BitswapEvent),
     Autonat(autonat::Event),
@@ -35,8 +35,8 @@ impl From<identify::Event> for Event {
     }
 }
 
-impl From<KademliaEvent> for Event {
-    fn from(event: KademliaEvent) -> Self {
+impl From<kad::Event> for Event {
+    fn from(event: kad::Event) -> Self {
         Event::Kademlia(event)
     }
 }

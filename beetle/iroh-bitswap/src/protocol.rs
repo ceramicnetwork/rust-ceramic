@@ -6,7 +6,7 @@ use asynchronous_codec::{Decoder, Encoder, Framed};
 use bytes::{Bytes, BytesMut};
 use futures::future;
 use futures::io::{AsyncRead, AsyncWrite};
-use libp2p::core::{InboundUpgrade, OutboundUpgrade, ProtocolName, UpgradeInfo};
+use libp2p::core::{InboundUpgrade, OutboundUpgrade, UpgradeInfo};
 use prost::Message;
 use unsigned_varint::codec;
 
@@ -22,27 +22,27 @@ pub enum ProtocolId {
     Bitswap120 = 3,
 }
 
-impl ProtocolName for ProtocolId {
-    fn protocol_name(&self) -> &[u8] {
+impl AsRef<str> for ProtocolId {
+    fn as_ref(&self) -> &str {
         match self {
-            ProtocolId::Legacy => b"/ipfs/bitswap",
-            ProtocolId::Bitswap100 => b"/ipfs/bitswap/1.0.0",
-            ProtocolId::Bitswap110 => b"/ipfs/bitswap/1.1.0",
-            ProtocolId::Bitswap120 => b"/ipfs/bitswap/1.2.0",
+            ProtocolId::Legacy => "/ipfs/bitswap",
+            ProtocolId::Bitswap100 => "/ipfs/bitswap/1.0.0",
+            ProtocolId::Bitswap110 => "/ipfs/bitswap/1.1.0",
+            ProtocolId::Bitswap120 => "/ipfs/bitswap/1.2.0",
         }
     }
 }
 
 impl ProtocolId {
-    pub fn try_from(value: impl AsRef<[u8]>) -> Option<Self> {
+    pub fn try_from(value: impl AsRef<str>) -> Option<Self> {
         let value = value.as_ref();
-        if value == ProtocolId::Legacy.protocol_name() {
+        if value == ProtocolId::Legacy.as_ref() {
             Some(ProtocolId::Legacy)
-        } else if value == ProtocolId::Bitswap100.protocol_name() {
+        } else if value == ProtocolId::Bitswap100.as_ref() {
             Some(ProtocolId::Bitswap100)
-        } else if value == ProtocolId::Bitswap110.protocol_name() {
+        } else if value == ProtocolId::Bitswap110.as_ref() {
             Some(ProtocolId::Bitswap110)
-        } else if value == ProtocolId::Bitswap120.protocol_name() {
+        } else if value == ProtocolId::Bitswap120.as_ref() {
             Some(ProtocolId::Bitswap120)
         } else {
             None

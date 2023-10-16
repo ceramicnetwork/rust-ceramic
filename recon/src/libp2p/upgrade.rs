@@ -1,7 +1,7 @@
 use std::vec;
 
 use libp2p::core::UpgradeInfo;
-use libp2p::{core::upgrade::ProtocolName, futures::future, InboundUpgrade, OutboundUpgrade};
+use libp2p::{futures::future, InboundUpgrade, OutboundUpgrade};
 use void::Void;
 
 /// Implementation of [`UpgradeInfo`], [`InboundUpgrade`] and [`OutboundUpgrade`] for a set of protocols that directly yields the substream.
@@ -18,7 +18,7 @@ impl<P> MultiReadyUpgrade<P> {
 
 impl<P> UpgradeInfo for MultiReadyUpgrade<P>
 where
-    P: ProtocolName + Clone,
+    P: AsRef<str> + Clone,
 {
     type Info = P;
     type InfoIter = vec::IntoIter<P>;
@@ -30,7 +30,7 @@ where
 
 impl<C, P> InboundUpgrade<C> for MultiReadyUpgrade<P>
 where
-    P: ProtocolName + Clone,
+    P: AsRef<str> + Clone,
 {
     /// Report both the negotiated protocol and the stream.
     type Output = (P, C);
@@ -44,7 +44,7 @@ where
 
 impl<C, P> OutboundUpgrade<C> for MultiReadyUpgrade<P>
 where
-    P: ProtocolName + Clone,
+    P: AsRef<str> + Clone,
 {
     type Output = C;
     type Error = Void;

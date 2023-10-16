@@ -47,15 +47,14 @@ impl TryFrom<&'_ ssh_key::private::PrivateKey> for Keypair {
     }
 }
 
-impl From<Keypair> for libp2p::identity::Keypair {
+impl From<Keypair> for libp2p_identity::Keypair {
     fn from(kp: Keypair) -> Self {
         match kp {
             Keypair::Ed25519(kp) => {
                 let mut bytes = kp.to_bytes();
-                let kp = libp2p::identity::ed25519::Keypair::try_from_bytes(&mut bytes)
+                let kp = libp2p_identity::ed25519::Keypair::try_from_bytes(&mut bytes)
                     .expect("invalid encoding");
-                #[allow(deprecated)]
-                libp2p::identity::Keypair::Ed25519(kp)
+                kp.into()
             }
         }
     }
