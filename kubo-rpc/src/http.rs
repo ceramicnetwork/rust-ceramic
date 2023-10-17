@@ -2,8 +2,9 @@
 
 mod stream_drop;
 
-use std::{collections::HashSet, io::Cursor, marker::PhantomData, str::FromStr};
+use std::{collections::HashSet, io::Cursor, marker::PhantomData, str::FromStr, time::Duration};
 
+use anyhow::anyhow;
 use async_trait::async_trait;
 use ceramic_kubo_rpc_server::{
     models::{
@@ -23,6 +24,7 @@ use cid::{
 };
 use dag_jose::DagJoseCodec;
 use futures_util::StreamExt;
+use go_parse_duration::parse_duration;
 use libipld::{cbor::DagCborCodec, json::DagJsonCodec, raw::RawCodec};
 use libp2p::{gossipsub::Message, Multiaddr, PeerId};
 use multiaddr::Protocol;
@@ -87,12 +89,39 @@ where
     async fn block_get_post(
         &self,
         arg: String,
+        timeout: Option<String>,
         _context: &C,
     ) -> Result<BlockGetPostResponse, ApiError> {
         let cid = try_or_bad_request!(Cid::from_str(&arg), BlockGetPostResponse);
-        let data = block::get(self.ipfs.clone(), cid)
-            .await
-            .map_err(to_api_error)?;
+        let data_fut = block::get(self.ipfs.clone(), cid);
+        let data = if let Some(timeout) = timeout {
+            let timeout = try_or_bad_request!(
+                parse_duration(&timeout).map_err(|err| match err {
+                    go_parse_duration::Error::ParseError(msg) =>
+                        anyhow!("invalid timeout duration string: {}", msg),
+                }),
+                BlockGetPostResponse
+            );
+            let timeout = Duration::from_nanos(timeout as u64);
+            match tokio::time::timeout(timeout, data_fut).await {
+                Ok(res) => res.map_err(to_api_error)?,
+                Err(_err) => {
+                    return Ok(BlockGetPostResponse::InternalError(create_error(
+                        // We report this hard-coded string to be compatible with Go.
+                        // The Rust error string is `deadline exceeded`, so its not too different.
+                        //
+                        // This Go compatibility makes it possible to better emulate the Kubo RPC
+                        // API.
+                        //
+                        // Eventually when we deprecate the use of the Kubo RPC API we can remove
+                        // this logic entirely.
+                        "context deadline exceeded",
+                    )));
+                }
+            }
+        } else {
+            data_fut.await.map_err(to_api_error)?
+        };
         Ok(BlockGetPostResponse::Success(ByteArray(data)))
     }
 
@@ -580,6 +609,7 @@ mod tests {
     enum DebugResponse {
         Success(UnquotedString),
         BadRequest(models::Error),
+        InternalError(models::Error),
     }
 
     impl From<BlockGetPostResponse> for DebugResponse {
@@ -589,6 +619,7 @@ mod tests {
                     DebugResponse::Success(UnquotedString(hex::encode(data.0)))
                 }
                 BlockGetPostResponse::BadRequest(err) => DebugResponse::BadRequest(err),
+                BlockGetPostResponse::InternalError(err) => DebugResponse::InternalError(err),
             }
         }
     }
@@ -637,10 +668,43 @@ mod tests {
         });
         let server = Server::new(mock_ipfs);
         let resp = server
-            .block_get_post(cid.to_string(), &Context)
+            .block_get_post(cid.to_string(), None, &Context)
             .await
             .unwrap();
 
+        expect![[r#"
+            Success(
+                0a050001020304,
+            )
+        "#]]
+        .assert_debug_eq(&DebugResponse::from(resp));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn block_get_timeout_success() {
+        // Test data from:
+        // https://ipld.io/specs/codecs/dag-pb/fixtures/cross-codec/#dagpb_data_some
+        let data = hex::decode("0a050001020304").unwrap();
+        let cid =
+            Cid::from_str("bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom").unwrap();
+        let mut mock_ipfs = MockIpfsDepTest::new();
+        mock_ipfs.expect_clone().once().return_once(move || {
+            let mut m = MockIpfsDepTest::new();
+            m.expect_block_get()
+                .once()
+                .with(predicate::eq(cid))
+                .return_once(move |_| Ok(Bytes::from(data)));
+            m
+        });
+        let server = Server::new(mock_ipfs);
+
+        let resp = server
+            .block_get_post(cid.to_string(), Some("1s".to_string()), &Context)
+            .await
+            .unwrap();
+
+        // We test the non-timeout case as mockall doesn't allow us to delay returning values.
         expect![[r#"
             Success(
                 0a050001020304,
@@ -656,7 +720,7 @@ mod tests {
         let server = Server::new(mock_ipfs);
 
         let resp = server
-            .block_get_post("invalid cid".to_string(), &Context)
+            .block_get_post("invalid cid".to_string(), None, &Context)
             .await
             .unwrap();
 

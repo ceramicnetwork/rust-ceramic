@@ -30,6 +30,8 @@ pub enum BlockGetPostResponse {
     Success(swagger::ByteArray),
     /// bad request
     BadRequest(models::Error),
+    /// internal error
+    InternalError(models::Error),
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -191,6 +193,7 @@ pub trait Api<C: Send + Sync> {
     async fn block_get_post(
         &self,
         arg: String,
+        timeout: Option<String>,
         context: &C,
     ) -> Result<BlockGetPostResponse, ApiError>;
 
@@ -301,7 +304,11 @@ pub trait ApiNoContext<C: Send + Sync> {
     fn context(&self) -> &C;
 
     /// Get a single IPFS block
-    async fn block_get_post(&self, arg: String) -> Result<BlockGetPostResponse, ApiError>;
+    async fn block_get_post(
+        &self,
+        arg: String,
+        timeout: Option<String>,
+    ) -> Result<BlockGetPostResponse, ApiError>;
 
     /// Put a single IPFS block
     async fn block_put_post(
@@ -405,9 +412,13 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
     }
 
     /// Get a single IPFS block
-    async fn block_get_post(&self, arg: String) -> Result<BlockGetPostResponse, ApiError> {
+    async fn block_get_post(
+        &self,
+        arg: String,
+        timeout: Option<String>,
+    ) -> Result<BlockGetPostResponse, ApiError> {
         let context = self.context().clone();
-        self.api().block_get_post(arg, &context).await
+        self.api().block_get_post(arg, timeout, &context).await
     }
 
     /// Put a single IPFS block

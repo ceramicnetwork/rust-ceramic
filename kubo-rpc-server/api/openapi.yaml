@@ -141,6 +141,14 @@ paths:
         schema:
           type: string
         style: form
+      - description: Max duration (as Go duration string) to wait to find the block
+        explode: true
+        in: query
+        name: timeout
+        required: false
+        schema:
+          type: string
+        style: form
       responses:
         "200":
           content:
@@ -155,6 +163,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
           description: bad request
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: internal error
       summary: Get a single IPFS block
   /block/put:
     post:
