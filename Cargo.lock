@@ -1303,6 +1303,7 @@ dependencies = [
  "libp2p-tls",
  "mockall",
  "multiaddr",
+ "multihash 0.17.0",
  "serde",
  "serde_json",
  "swagger",

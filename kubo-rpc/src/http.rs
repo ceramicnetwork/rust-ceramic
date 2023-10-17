@@ -1204,8 +1204,8 @@ mod tests {
                 IdPost200Response {
                     id: "12D3KooWQuKj4A11GNZ4MmcAmJzCNGZjArjyRTgkLhSutqeqVypv",
                     addresses: [
-                        "/ip4/127.0.0.1/udp/35826/quic-v1",
-                        "/ip4/192.168.12.189/tcp/43113",
+                        "/ip4/127.0.0.1/udp/35826/quic-v1/p2p/12D3KooWQuKj4A11GNZ4MmcAmJzCNGZjArjyRTgkLhSutqeqVypv",
+                        "/ip4/192.168.12.189/tcp/43113/p2p/12D3KooWQuKj4A11GNZ4MmcAmJzCNGZjArjyRTgkLhSutqeqVypv",
                     ],
                     agent_version: "iroh/0.2.0",
                     protocol_version: "ipfs/0.1.0",
@@ -1278,8 +1278,8 @@ mod tests {
                 IdPost200Response {
                     id: "12D3KooWQuKj4A11GNZ4MmcAmJzCNGZjArjyRTgkLhSutqeqVypv",
                     addresses: [
-                        "/ip4/127.0.0.1/udp/35826/quic-v1",
-                        "/ip4/192.168.12.189/tcp/43113",
+                        "/ip4/127.0.0.1/udp/35826/quic-v1/p2p/12D3KooWQuKj4A11GNZ4MmcAmJzCNGZjArjyRTgkLhSutqeqVypv",
+                        "/ip4/192.168.12.189/tcp/43113/p2p/12D3KooWQuKj4A11GNZ4MmcAmJzCNGZjArjyRTgkLhSutqeqVypv",
                     ],
                     agent_version: "iroh/0.2.0",
                     protocol_version: "ipfs/0.1.0",
