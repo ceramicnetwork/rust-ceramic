@@ -9,7 +9,12 @@ repository.workspace = true
 publish = false
 
 [features]
-http = ["dep:ceramic-kubo-rpc-server", "dep:serde", "dep:serde_json", "dep:hyper"]
+http = [
+    "dep:ceramic-kubo-rpc-server",
+    "dep:serde",
+    "dep:serde_json",
+    "dep:hyper",
+]
 
 [dependencies]
 anyhow.workspace = true
@@ -36,6 +41,7 @@ libp2p-identity.workspace = true
 libp2p-tls.workspace = true
 libp2p.workspace = true
 multiaddr.workspace = true
+multihash.workspace = true
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 swagger.workspace = true
