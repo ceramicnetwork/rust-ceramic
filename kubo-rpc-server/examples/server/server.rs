@@ -118,12 +118,14 @@ where
     async fn block_get_post(
         &self,
         arg: String,
+        timeout: Option<String>,
         context: &C,
     ) -> Result<BlockGetPostResponse, ApiError> {
         let context = context.clone();
         info!(
-            "block_get_post(\"{}\") - X-Span-ID: {:?}",
+            "block_get_post(\"{}\", {:?}) - X-Span-ID: {:?}",
             arg,
+            timeout,
             context.get().0.clone()
         );
         Err(ApiError("Generic failure".into()))

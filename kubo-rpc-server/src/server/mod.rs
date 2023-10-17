@@ -213,8 +213,29 @@ where
                         .body(Body::from("Missing required query parameter arg"))
                         .expect("Unable to create Bad Request response for missing query parameter arg")),
                 };
+                    let param_timeout = query_params
+                        .iter()
+                        .filter(|e| e.0 == "timeout")
+                        .map(|e| e.1.clone())
+                        .next();
+                    let param_timeout = match param_timeout {
+                        Some(param_timeout) => {
+                            let param_timeout =
+                                <String as std::str::FromStr>::from_str(&param_timeout);
+                            match param_timeout {
+                            Ok(param_timeout) => Some(param_timeout),
+                            Err(e) => return Ok(Response::builder()
+                                .status(StatusCode::BAD_REQUEST)
+                                .body(Body::from(format!("Couldn't parse query parameter timeout - doesn't match schema: {}", e)))
+                                .expect("Unable to create Bad Request response for invalid query parameter timeout")),
+                        }
+                        }
+                        None => None,
+                    };
 
-                    let result = api_impl.block_get_post(param_arg, &context).await;
+                    let result = api_impl
+                        .block_get_post(param_arg, param_timeout, &context)
+                        .await;
                     let mut response = Response::new(Body::empty());
                     response.headers_mut().insert(
                         HeaderName::from_static("x-span-id"),
@@ -247,6 +268,17 @@ where
                                                         CONTENT_TYPE,
                                                         HeaderValue::from_str("application/json")
                                                             .expect("Unable to create Content-Type header for BLOCK_GET_POST_BAD_REQUEST"));
+                                let body = serde_json::to_string(&body)
+                                    .expect("impossible to fail to serialize");
+                                *response.body_mut() = Body::from(body);
+                            }
+                            BlockGetPostResponse::InternalError(body) => {
+                                *response.status_mut() = StatusCode::from_u16(500)
+                                    .expect("Unable to turn 500 into a StatusCode");
+                                response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for BLOCK_GET_POST_INTERNAL_ERROR"));
                                 let body = serde_json::to_string(&body)
                                     .expect("impossible to fail to serialize");
                                 *response.body_mut() = Body::from(body);

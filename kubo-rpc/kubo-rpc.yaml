@@ -193,6 +193,12 @@ paths:
           schema:
             type: string
           required: true
+        - name: timeout
+          in: query
+          description: Max duration (as Go duration string) to wait to find the block
+          schema:
+            type: string
+          required: false
       responses:
         '200':
           description: success
@@ -203,6 +209,12 @@ paths:
                 format: binary
         '400':
           description: bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: internal error
           content:
             application/json:
               schema:

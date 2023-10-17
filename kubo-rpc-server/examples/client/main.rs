@@ -108,7 +108,10 @@ fn main() {
 
     match matches.value_of("operation") {
         Some("BlockGetPost") => {
-            let result = rt.block_on(client.block_get_post("arg_example".to_string()));
+            let result = rt.block_on(client.block_get_post(
+                "arg_example".to_string(),
+                Some("timeout_example".to_string()),
+            ));
             info!(
                 "{:?} (X-Span-ID: {:?})",
                 result,

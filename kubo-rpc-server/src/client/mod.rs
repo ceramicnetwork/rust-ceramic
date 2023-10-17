@@ -399,6 +399,7 @@ where
     async fn block_get_post(
         &self,
         param_arg: String,
+        param_timeout: Option<String>,
         context: &C,
     ) -> Result<BlockGetPostResponse, ApiError> {
         let mut client_service = self.client_service.clone();
@@ -408,6 +409,9 @@ where
         let query_string = {
             let mut query_string = form_urlencoded::Serializer::new("".to_owned());
             query_string.append_pair("arg", &param_arg);
+            if let Some(param_timeout) = param_timeout {
+                query_string.append_pair("timeout", &param_timeout);
+            }
             query_string.finish()
         };
         if !query_string.is_empty() {
@@ -470,6 +474,19 @@ where
                     ApiError(format!("Response body did not match the schema: {}", e))
                 })?;
                 Ok(BlockGetPostResponse::BadRequest(body))
+            }
+            500 => {
+                let body = response.into_body();
+                let body = body
+                    .into_raw()
+                    .map_err(|e| ApiError(format!("Failed to read response: {}", e)))
+                    .await?;
+                let body = str::from_utf8(&body)
+                    .map_err(|e| ApiError(format!("Response was not valid UTF8: {}", e)))?;
+                let body = serde_json::from_str::<models::Error>(body).map_err(|e| {
+                    ApiError(format!("Response body did not match the schema: {}", e))
+                })?;
+                Ok(BlockGetPostResponse::InternalError(body))
             }
             code => {
                 let headers = response.headers().clone();

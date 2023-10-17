@@ -23,7 +23,7 @@ Method | HTTP request | Description
 
 
 # ****
-> swagger::ByteArray (arg)
+> swagger::ByteArray (arg, optional)
 Get a single IPFS block
 
 ### Required Parameters
@@ -31,6 +31,15 @@ Get a single IPFS block
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
   **arg** | **String**| CID of block | 
+ **optional** | **map[string]interface{}** | optional parameters | nil if no parameters
+
+### Optional Parameters
+Optional parameters are passed through a map[string]interface{}.
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **arg** | **String**| CID of block | 
+ **timeout** | **String**| Max duration (as Go duration string) to wait to find the block | 
 
 ### Return type
 
