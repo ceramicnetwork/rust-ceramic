@@ -22,7 +22,7 @@ use hyper::{server::conn::Http, Request};
 use recon::{AssociativeHash, InterestProvider, Key, Store};
 use swagger::{EmptyContext, XSpanIdString};
 use tokio::net::TcpListener;
-use tracing::{debug, info};
+use tracing::{debug, info, instrument, Level};
 
 use ceramic_api_server::{
     models::{self, Event},
@@ -107,10 +107,15 @@ where
     I: Recon<Key = Interest> + Sync,
     M: Recon<Key = EventId> + Sync,
 {
-    async fn liveness_get(&self, _: &C) -> std::result::Result<LivenessGetResponse, ApiError> {
+    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
+    async fn liveness_get(
+        &self,
+        _context: &C,
+    ) -> std::result::Result<LivenessGetResponse, ApiError> {
         Ok(LivenessGetResponse::Success)
     }
 
+    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn version_post(&self, _context: &C) -> Result<VersionPostResponse, ApiError> {
         let resp = VersionPostResponse::Success(models::Version {
             version: Some(ceramic_metadata::Version::default().version),
@@ -118,6 +123,7 @@ where
         Ok(resp)
     }
 
+    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn events_post(
         &self,
         event: Event,
@@ -132,6 +138,7 @@ where
         Ok(EventsPostResponse::Success)
     }
 
+    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn subscribe_sort_key_sort_value_get(
         &self,
         sort_key: String,
