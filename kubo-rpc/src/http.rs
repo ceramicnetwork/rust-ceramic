@@ -125,7 +125,7 @@ where
         Ok(BlockGetPostResponse::Success(ByteArray(data)))
     }
 
-    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
+    #[instrument(skip(self, _context, file), fields(file.len = file.0.len()), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn block_put_post(
         &self,
         file: ByteArray,
@@ -211,7 +211,7 @@ where
         }
     }
 
-    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
+    #[instrument(skip(self, _context, file), fields(file.len = file.0.len()), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn dag_import_post(
         &self,
         file: swagger::ByteArray,
@@ -231,7 +231,7 @@ where
         }))
     }
 
-    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
+    #[instrument(skip(self, _context, file), fields(file.len = file.0.len()), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn dag_put_post(
         &self,
         file: ByteArray,
@@ -376,7 +376,7 @@ where
         }))
     }
 
-    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
+    #[instrument(skip(self, _context, file), fields(file.len = file.0.len()), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn pubsub_pub_post(
         &self,
         arg: String,
