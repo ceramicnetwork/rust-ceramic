@@ -15,23 +15,22 @@ use iroh_metrics::{core::MRecorder, inc, libp2p_metrics, p2p::P2PMetrics};
 use iroh_rpc_client::Client as RpcClient;
 use iroh_rpc_client::Lookup;
 use iroh_rpc_types::p2p::P2pAddr;
-use libp2p::core::Multiaddr;
-pub use libp2p::gossipsub::{IdentTopic, Topic};
-use libp2p::identify::{Event as IdentifyEvent, Info as IdentifyInfo};
-use libp2p::kad::{
-    self, BootstrapOk, GetClosestPeersError, GetClosestPeersOk, GetProvidersOk, KBucketDistance,
-    NodeStatus, QueryId, QueryResult, RecordKey,
+use libp2p::{
+    autonat::{self, OutboundProbeEvent},
+    core::Multiaddr,
+    gossipsub::IdentTopic,
+    identify,
+    identity::Keypair,
+    kad::{
+        self, BootstrapOk, GetClosestPeersError, GetClosestPeersOk, GetProvidersOk, QueryId,
+        QueryResult, RecordKey,
+    },
+    mdns,
+    metrics::Recorder,
+    multiaddr::Protocol,
+    swarm::{dial_opts::DialOpts, ConnectionHandler, DialError, NetworkBehaviour, SwarmEvent},
+    PeerId, StreamProtocol, Swarm,
 };
-use libp2p::mdns;
-use libp2p::metrics::Recorder;
-use libp2p::multiaddr::Protocol;
-use libp2p::swarm::{
-    dial_opts::{DialOpts, PeerCondition},
-    DialError,
-};
-use libp2p::swarm::{ConnectionHandler, NetworkBehaviour, SwarmEvent};
-use libp2p::{identity::Keypair, StreamProtocol};
-use libp2p::{PeerId, Swarm};
 use sqlx::SqlitePool;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::oneshot::{self, Sender as OneShotSender};
@@ -70,14 +69,12 @@ where
     swarm: Swarm<NodeBehaviour<I, M>>,
     net_receiver_in: Receiver<RpcMessage>,
     dial_queries: AHashMap<PeerId, Vec<OneShotSender<Result<()>>>>,
-    lookup_queries: AHashMap<PeerId, Vec<oneshot::Sender<Result<IdentifyInfo>>>>,
+    lookup_queries: AHashMap<PeerId, Vec<oneshot::Sender<Result<identify::Info>>>>,
     // TODO(ramfox): use new providers queue instead
     find_on_dht_queries: AHashMap<Vec<u8>, DHTQuery>,
     network_events: Vec<(Arc<AtomicBool>, Sender<NetworkEvent>)>,
     #[allow(dead_code)]
     rpc_client: RpcClient,
-    #[allow(dead_code)]
-    kad_last_range: Option<(KBucketDistance, KBucketDistance)>,
     rpc_task: JoinHandle<()>,
     use_dht: bool,
     bitswap_sessions: BitswapSessions,
@@ -86,6 +83,8 @@ where
 
     ceramic_peers_key: RecordKey,
     ceramic_peers_query_id: Option<QueryId>,
+
+    trust_observed_addrs: bool,
 }
 
 impl<I, M> fmt::Debug for Node<I, M>
@@ -102,7 +101,6 @@ where
             .field("find_on_dht_queries", &self.find_on_dht_queries)
             .field("network_events", &self.network_events)
             .field("rpc_client", &self.rpc_client)
-            .field("kad_last_range", &self.kad_last_range)
             .field("rpc_task", &self.rpc_task)
             .field("use_dht", &self.use_dht)
             .field("bitswap_sessions", &self.bitswap_sessions)
@@ -193,7 +191,6 @@ where
             find_on_dht_queries: Default::default(),
             network_events: Vec::new(),
             rpc_client,
-            kad_last_range: None,
             rpc_task,
             use_dht: libp2p_config.kademlia,
             bitswap_sessions: Default::default(),
@@ -201,6 +198,7 @@ where
             listen_addrs,
             ceramic_peers_key: RecordKey::new(&ceramic_peers_key),
             ceramic_peers_query_id: None,
+            trust_observed_addrs: libp2p_config.trust_observed_addrs,
         })
     }
 
@@ -271,6 +269,8 @@ where
                 _ = bootstrap_interval.tick() => {
                     if let Err(e) = self.swarm.behaviour_mut().kad_bootstrap() {
                         warn!("kad bootstrap failed: {:?}", e);
+                    } else {
+                        debug!("kad bootstrap succeeded");
                     }
                 }
                 _ = expiry_interval.tick() => {
@@ -309,49 +309,6 @@ where
         }
 
         Ok(())
-    }
-
-    /// Check the next node in the DHT.
-    #[tracing::instrument(skip(self))]
-    async fn dht_nice_tick(&mut self) {
-        let mut to_dial: Option<(DialOpts, (KBucketDistance, KBucketDistance))> = None;
-        if let Some(kad) = self.swarm.behaviour_mut().kad.as_mut() {
-            for kbucket in kad.kbuckets() {
-                if let Some(range) = self.kad_last_range {
-                    if kbucket.range() == range {
-                        continue;
-                    }
-                }
-
-                // find the first disconnected node
-                for entry in kbucket.iter() {
-                    if entry.status == NodeStatus::Disconnected {
-                        let peer_id = entry.node.key.preimage();
-
-                        let dial_opts = DialOpts::peer_id(*peer_id)
-                            .condition(PeerCondition::Disconnected)
-                            .addresses(entry.node.value.clone().into_vec())
-                            .extend_addresses_through_behaviour()
-                            .build();
-                        to_dial = Some((dial_opts, kbucket.range()));
-                        break;
-                    }
-                }
-            }
-        }
-
-        if let Some((dial_opts, range)) = to_dial {
-            trace!(
-                "checking node {:?} in bucket range ({:?})",
-                dial_opts.get_peer_id().unwrap(),
-                range
-            );
-
-            if let Err(e) = self.swarm.dial(dial_opts) {
-                warn!("failed to dial: {:?}", e);
-            }
-            self.kad_last_range = Some(range);
-        }
     }
 
     /// Subscribe to [`NetworkEvent`]s.
@@ -563,6 +520,10 @@ where
                 } = e
                 {
                     match result {
+                        QueryResult::StartProviding(result) => match result {
+                            Ok(_) => {}
+                            Err(err) => warn!("kad: failed to provide record: {}", err),
+                        },
                         QueryResult::GetProviders(Ok(p)) => {
                             match p {
                                 GetProvidersOk::FoundProviders { key, providers } => {
@@ -585,8 +546,16 @@ where
                                         .map(|i| i == id)
                                         .unwrap_or_default()
                                     {
-                                        info!(peers = providers.len(), "discovered ceramic peers");
-                                        for peer in providers {
+                                        let local_peer_id = *self.swarm.local_peer_id();
+                                        let mut providers = providers
+                                            .into_iter()
+                                            .filter(|peer| *peer != local_peer_id);
+                                        info!(
+                                            peers.count = providers.by_ref().count(),
+                                            "discovered ceramic peers"
+                                        );
+                                        providers.for_each(|peer| {
+                                            debug!(?peer, "dialing ceramic peer");
                                             if let Err(err) = self.swarm.dial(peer) {
                                                 if !matches!(
                                                     err,
@@ -595,7 +564,7 @@ where
                                                     warn!(%err, "failed to dial ceramic peer")
                                                 }
                                             }
-                                        }
+                                        });
                                     } else if let Some(kad) = behaviour.kad.as_mut() {
                                         debug!(
                                             "provider results for {:?} last: {}",
@@ -687,7 +656,34 @@ where
             Event::Identify(e) => {
                 libp2p_metrics().record(&*e);
                 trace!("tick: identify {:?}", e);
-                if let IdentifyEvent::Received { peer_id, info } = *e {
+                if let identify::Event::Received { peer_id, info } = *e {
+                    // Did we learn about a new external address?
+                    if !self
+                        .swarm
+                        .external_addresses()
+                        .any(|addr| addr == &info.observed_addr)
+                    {
+                        if self.trust_observed_addrs {
+                            debug!(
+                                address=%info.observed_addr,
+                                %peer_id,
+                                "adding trusted external address observed from peer",
+                            );
+                            // Explicily trust any observed address from any peer.
+                            self.swarm.add_external_address(info.observed_addr.clone());
+                        } else if let Some(autonat) = self.swarm.behaviour_mut().autonat.as_mut() {
+                            // Probe the observed addr for external connectivity.
+                            // See OutboundProbeEvent case for
+
+                            debug!(
+                                address=%info.observed_addr,
+                                %peer_id,
+                                "probing observed address from peer for external connectivity",
+                            );
+                            autonat.probe_address(info.observed_addr.clone());
+                        };
+                    };
+
                     for protocol in &info.protocols {
                         if protocol == &kad::PROTOCOL_NAME {
                             for addr in &info.listen_addrs {
@@ -719,7 +715,7 @@ where
                             chan.send(Ok(info.clone())).ok();
                         }
                     }
-                } else if let IdentifyEvent::Error { peer_id, error } = *e {
+                } else if let identify::Event::Error { peer_id, error } = *e {
                     if let Some(channels) = self.lookup_queries.remove(&peer_id) {
                         for chan in channels {
                             chan.send(Err(anyhow!(
@@ -790,6 +786,18 @@ where
                 }
                 mdns::Event::Expired(_) => {}
             },
+            Event::Autonat(autonat::Event::OutboundProbe(OutboundProbeEvent::Response {
+                address,
+                ..
+            })) => {
+                if !self.swarm.external_addresses().any(|addr| addr == &address) {
+                    debug!(
+                        %address,
+                        "adding external address after successful autonat probe",
+                    );
+                    self.swarm.add_external_address(address);
+                }
+            }
             _ => {
                 // TODO: check all important events are handled
             }
@@ -1169,6 +1177,7 @@ mod tests {
     use rand_chacha::ChaCha8Rng;
     use recon::Sha256a;
     use ssh_key::private::Ed25519Keypair;
+    use test_log::test;
 
     use libp2p::{identity::Keypair as Libp2pKeypair, kad::record::Key};
 
@@ -1228,6 +1237,8 @@ mod tests {
         seed: Option<ChaCha8Rng>,
         /// Optional `Keys` the node should provide to the DHT on start up.
         keys: Option<Vec<Key>>,
+        /// Pass through to node.trust_observed_addrs
+        trust_observed_addrs: bool,
     }
 
     #[derive(Clone)]
@@ -1275,6 +1286,7 @@ mod tests {
                 bootstrap: true,
                 seed: None,
                 keys: None,
+                trust_observed_addrs: false,
             }
         }
 
@@ -1297,6 +1309,10 @@ mod tests {
             self.seed = Some(seed);
             self
         }
+        fn with_trust_observed_addrs(mut self, trust_observed_addrs: bool) -> Self {
+            self.trust_observed_addrs = trust_observed_addrs;
+            self
+        }
 
         async fn build(self) -> Result<TestRunner> {
             let (rpc_server_addr, rpc_client_addr) = match self.rpc_addrs {
@@ -1307,9 +1323,10 @@ mod tests {
                 }
             };
             let mut network_config = Config::default_with_rpc(rpc_client_addr.clone());
+            network_config.libp2p.trust_observed_addrs = self.trust_observed_addrs;
 
-            if let Some(addr) = self.addrs {
-                network_config.libp2p.listening_multiaddrs = addr;
+            if let Some(addrs) = self.addrs {
+                network_config.libp2p.listening_multiaddrs = addrs;
             } else {
                 network_config.libp2p.listening_multiaddrs =
                     vec!["/ip4/0.0.0.0/tcp/0".parse().unwrap()];
@@ -1732,7 +1749,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_dht() -> Result<()> {
         // set up three nodes
         // two connect to one
@@ -1741,12 +1758,21 @@ mod tests {
             .parse()
             .unwrap();
 
-        let test_runner_a = TestRunnerBuilder::new().no_bootstrap().build().await?;
+        let test_runner_a = TestRunnerBuilder::new()
+            .no_bootstrap()
+            // We can trust all peers as they are the other test runners.
+            //
+            // We need to trust the observed_addrs because otherwise kademlia will not switch into server mode for the
+            // established connections because there is no external address to be used.
+            .with_trust_observed_addrs(true)
+            .build()
+            .await?;
         println!("peer_a: {:?}", test_runner_a.peer_id);
 
         // peer_id 12D3KooWLo6JTNKXfjkZtKf8ooLQoXVXUEeuu4YDY3CYqK6rxHXt
         let mut test_runner_b = TestRunnerBuilder::new()
             .no_bootstrap()
+            .with_trust_observed_addrs(true)
             .with_seed(ChaCha8Rng::from_seed([0; 32]))
             .build()
             .await?;
@@ -1756,6 +1782,7 @@ mod tests {
 
         let test_runner_c = TestRunnerBuilder::new()
             .no_bootstrap()
+            .with_trust_observed_addrs(true)
             .with_seed(ChaCha8Rng::from_seed([1; 32]))
             .build()
             .await?;

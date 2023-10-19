@@ -141,7 +141,7 @@ impl Debug for BitswapHandler {
 
 impl BitswapHandler {
     /// Builds a new [`BitswapHandler`].
-    // TODO(nathanielc): Remove uses of KeepAlive::Until
+    // TODO(WS1-1291): Remove uses of KeepAlive::Until
     #[allow(deprecated)]
     pub fn new(protocol_config: ProtocolConfig, idle_timeout: Duration) -> Self {
         Self {
@@ -175,7 +175,7 @@ impl ConnectionHandler for BitswapHandler {
         self.keep_alive
     }
 
-    // TODO(nathanielc): Remove uses of KeepAlive::Until
+    // TODO(WS1-1291): Remove uses of KeepAlive::Until
     #[allow(deprecated)]
     fn poll(&mut self, cx: &mut Context<'_>) -> Poll<BitswapConnectionHandlerEvent> {
         inc!(BitswapMetrics::HandlerPollCount);
@@ -276,7 +276,7 @@ impl ConnectionHandler for BitswapHandler {
         }
     }
 
-    // TODO(nathanielc): Remove uses of KeepAlive::Until
+    // TODO(WS1-1291): Remove uses of KeepAlive::Until
     #[allow(deprecated)]
     fn on_behaviour_event(&mut self, event: Self::FromBehaviour) {
         match event {

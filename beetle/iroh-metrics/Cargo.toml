@@ -40,7 +40,6 @@ features = [
     "yamux",
     "tcp",
     "dns",
-    #"mplex",
     "request-response",
     "websocket",
     "serde",

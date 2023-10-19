@@ -80,8 +80,8 @@ impl From<Vec<Cid>> for CarHeaderV1 {
 
 #[cfg(test)]
 mod tests {
-    use ipld::codec::{Decode, Encode};
-    use ipld_cbor::DagCborCodec;
+    use libipld::codec::{Decode, Encode};
+    use libipld_cbor::DagCborCodec;
     use multihash::MultihashDigest;
 
     use super::*;

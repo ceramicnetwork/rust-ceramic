@@ -64,6 +64,11 @@ pub struct Libp2pConfig {
     pub connection_event_buffer_size: usize,
     pub dial_concurrency_factor: NonZeroU8,
     pub idle_connection_timeout: Duration,
+    /// Trust as a confirmed external address any reported observed address.
+    ///
+    /// NOTE: It is generally not safe to trust observed addresses received from arbitrary peers.
+    /// Only enable this option if its known that all connecting peers can be trusted.
+    pub trust_observed_addrs: bool,
 }
 
 impl Default for Libp2pConfig {
@@ -91,7 +96,8 @@ impl Default for Libp2pConfig {
             notify_handler_buffer_size: NonZeroUsize::new(256).expect("should not be zero"),
             connection_event_buffer_size: 256,
             dial_concurrency_factor: NonZeroU8::new(8).expect("should not be zero"),
-            idle_connection_timeout: Duration::from_secs(10),
+            idle_connection_timeout: Duration::from_secs(30),
+            trust_observed_addrs: false,
         }
     }
 }
