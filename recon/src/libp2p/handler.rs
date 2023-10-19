@@ -66,7 +66,7 @@ where
     // See doc comment for State, each row of the transitions table
     // should map to exactly one call of this transition_state function.
     //
-    // TODO(nathanielc): Remove uses of KeepAlive::Until
+    // TODO(WS1-1291): Remove uses of KeepAlive::Until
     #[allow(deprecated)]
     fn transition_state(&mut self, state: State) {
         debug!(
@@ -374,8 +374,12 @@ where
                     | State::Inbound(_) => {}
                 }
             }
-            libp2p::swarm::handler::ConnectionEvent::LocalProtocolsChange(_) => todo!(),
-            libp2p::swarm::handler::ConnectionEvent::RemoteProtocolsChange(_) => todo!(),
+            libp2p::swarm::handler::ConnectionEvent::LocalProtocolsChange(changes) => {
+                debug!(?changes, "local protocols change")
+            }
+            libp2p::swarm::handler::ConnectionEvent::RemoteProtocolsChange(changes) => {
+                debug!(?changes, "remote protocols change")
+            }
         }
     }
 }

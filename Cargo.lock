@@ -1255,6 +1255,7 @@ dependencies = [
  "sqlx",
  "ssh-key",
  "tempfile",
+ "test-log",
  "tokio",
  "tokio-stream",
  "tracing",

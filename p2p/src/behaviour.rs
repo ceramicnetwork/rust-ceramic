@@ -158,12 +158,6 @@ where
                     warn!("Could not parse bootstrap addr {}", multiaddr);
                 }
             }
-
-            // Trigger initial bootstrap
-            if let Err(e) = kademlia.bootstrap() {
-                warn!("Kademlia bootstrap failed: {}", e);
-            }
-
             Some(kademlia)
         } else {
             None

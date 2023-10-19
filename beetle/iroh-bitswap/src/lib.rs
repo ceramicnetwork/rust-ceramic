@@ -610,7 +610,7 @@ mod tests {
     use libp2p::swarm::SwarmEvent;
     use libp2p::tcp::{tokio::Transport as TcpTransport, Config as TcpConfig};
     use libp2p::yamux;
-    use libp2p::{core::muxing::StreamMuxerBox, swarm::SwarmBuilder};
+    use libp2p::{core::muxing::StreamMuxerBox, swarm};
     use libp2p::{noise, PeerId, Swarm, Transport};
     use tokio::sync::{mpsc, RwLock};
     use tracing::{info, trace};
@@ -741,7 +741,8 @@ mod tests {
         let store1 = TestStore::default();
         let bs1 = Bitswap::new(peer1_id, store1.clone(), Config::default()).await;
 
-        let mut swarm1 = SwarmBuilder::with_tokio_executor(trans, bs1, peer1_id).build();
+        let config = swarm::Config::with_tokio_executor();
+        let mut swarm1 = Swarm::new(trans, bs1, peer1_id, config);
         let blocks = (0..N).map(|_| create_random_block_v1()).collect::<Vec<_>>();
 
         for block in &blocks {
@@ -774,7 +775,8 @@ mod tests {
         let store2 = TestStore::default();
         let bs2 = Bitswap::new(peer2_id, store2.clone(), Config::default()).await;
 
-        let mut swarm2 = SwarmBuilder::with_tokio_executor(trans, bs2, peer2_id).build();
+        let config = swarm::Config::with_tokio_executor();
+        let mut swarm2 = Swarm::new(trans, bs2, peer2_id, config);
 
         let swarm2_bs = swarm2.behaviour().clone();
         let peer2 = tokio::task::spawn(async move {
@@ -790,8 +792,8 @@ mod tests {
                         swarm2.behaviour().on_identify(
                             &peer_id,
                             &[
-                                "/ipfs/bitswap/1.2.0".to_string(),
-                                "/ipfs/bitswap/1.1.0".to_string(),
+                                StreamProtocol::new("/ipfs/bitswap/1.2.0"),
+                                StreamProtocol::new("/ipfs/bitswap/1.1.0"),
                             ],
                         );
                     }

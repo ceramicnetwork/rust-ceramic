@@ -64,7 +64,7 @@ mod tests {
 
     use cid::Cid;
     use futures::TryStreamExt;
-    use ipld_cbor::DagCborCodec;
+    use libipld_cbor::DagCborCodec;
     use multihash::MultihashDigest;
 
     use crate::{header::CarHeaderV1, writer::CarWriter};
