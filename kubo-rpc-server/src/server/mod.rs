@@ -232,9 +232,28 @@ where
                         }
                         None => None,
                     };
+                    let param_offline = query_params
+                        .iter()
+                        .filter(|e| e.0 == "offline")
+                        .map(|e| e.1.clone())
+                        .next();
+                    let param_offline = match param_offline {
+                        Some(param_offline) => {
+                            let param_offline =
+                                <bool as std::str::FromStr>::from_str(&param_offline);
+                            match param_offline {
+                            Ok(param_offline) => Some(param_offline),
+                            Err(e) => return Ok(Response::builder()
+                                .status(StatusCode::BAD_REQUEST)
+                                .body(Body::from(format!("Couldn't parse query parameter offline - doesn't match schema: {}", e)))
+                                .expect("Unable to create Bad Request response for invalid query parameter offline")),
+                        }
+                        }
+                        None => None,
+                    };
 
                     let result = api_impl
-                        .block_get_post(param_arg, param_timeout, &context)
+                        .block_get_post(param_arg, param_timeout, param_offline, &context)
                         .await;
                     let mut response = Response::new(Body::empty());
                     response.headers_mut().insert(

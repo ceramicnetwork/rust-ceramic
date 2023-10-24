@@ -90,10 +90,19 @@ where
         &self,
         arg: String,
         timeout: Option<String>,
+        offline: Option<bool>,
         _context: &C,
     ) -> Result<BlockGetPostResponse, ApiError> {
+        // We use these hard-coded error strings to be compatible with Go/Kubo.
+        // This Go/Kubo compatibility makes it possible to better emulate the Kubo RPC API.
+        // Eventually when we deprecate the use of the Kubo RPC API we can remove
+        // this logic entirely.
+        const BLOCK_NOT_FOUND_LOCALLY: &str = "block was not found locally (offline)";
+        const CONTEXT_DEADLINE_EXCEEDED: &str = "context deadline exceeded";
+
         let cid = try_or_bad_request!(Cid::from_str(&arg), BlockGetPostResponse);
-        let data_fut = block::get(self.ipfs.clone(), cid);
+        let offline = offline.unwrap_or(false);
+        let data_fut = block::get(self.ipfs.clone(), cid, offline);
         let data = if let Some(timeout) = timeout {
             let timeout = try_or_bad_request!(
                 parse_duration(&timeout).map_err(|err| match err {
@@ -104,23 +113,27 @@ where
             );
             let timeout = Duration::from_nanos(timeout as u64);
             match tokio::time::timeout(timeout, data_fut).await {
+                Ok(Err(crate::error::Error::NotFound)) => {
+                    return Ok(BlockGetPostResponse::InternalError(create_error(
+                        BLOCK_NOT_FOUND_LOCALLY,
+                    )));
+                }
                 Ok(res) => res.map_err(to_api_error)?,
                 Err(_err) => {
                     return Ok(BlockGetPostResponse::InternalError(create_error(
-                        // We report this hard-coded string to be compatible with Go.
-                        // The Rust error string is `deadline exceeded`, so its not too different.
-                        //
-                        // This Go compatibility makes it possible to better emulate the Kubo RPC
-                        // API.
-                        //
-                        // Eventually when we deprecate the use of the Kubo RPC API we can remove
-                        // this logic entirely.
-                        "context deadline exceeded",
+                        CONTEXT_DEADLINE_EXCEEDED,
                     )));
                 }
             }
         } else {
-            data_fut.await.map_err(to_api_error)?
+            match data_fut.await {
+                Err(crate::error::Error::NotFound) => {
+                    return Ok(BlockGetPostResponse::InternalError(create_error(
+                        BLOCK_NOT_FOUND_LOCALLY,
+                    )));
+                }
+                res => res.map_err(to_api_error)?,
+            }
         };
         Ok(BlockGetPostResponse::Success(ByteArray(data)))
     }
@@ -654,19 +667,84 @@ mod tests {
             let mut m = MockIpfsDepTest::new();
             m.expect_block_get()
                 .once()
-                .with(predicate::eq(cid))
-                .return_once(move |_| Ok(Bytes::from(data)));
+                .with(predicate::eq(cid), predicate::eq(false))
+                .return_once(move |_, _| Ok(Bytes::from(data)));
             m
         });
         let server = Server::new(mock_ipfs);
         let resp = server
-            .block_get_post(cid.to_string(), None, &Context)
+            .block_get_post(cid.to_string(), None, None, &Context)
             .await
             .unwrap();
 
         expect![[r#"
             Success(
                 0a050001020304,
+            )
+        "#]]
+        .assert_debug_eq(&DebugResponse::from(resp));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn block_get_offline() {
+        // Test data from:
+        // https://ipld.io/specs/codecs/dag-pb/fixtures/cross-codec/#dagpb_data_some
+        let data = hex::decode("0a050001020304").unwrap();
+        let cid =
+            Cid::from_str("bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom").unwrap();
+        let mut mock_ipfs = MockIpfsDepTest::new();
+        mock_ipfs.expect_clone().once().return_once(move || {
+            let mut m = MockIpfsDepTest::new();
+            m.expect_block_get()
+                .once()
+                .with(predicate::eq(cid), predicate::eq(true))
+                .return_once(move |_, _| Ok(Bytes::from(data)));
+            m
+        });
+        let server = Server::new(mock_ipfs);
+        let resp = server
+            .block_get_post(cid.to_string(), None, Some(true), &Context)
+            .await
+            .unwrap();
+
+        expect![[r#"
+            Success(
+                0a050001020304,
+            )
+        "#]]
+        .assert_debug_eq(&DebugResponse::from(resp));
+    }
+    #[tokio::test]
+    #[traced_test]
+    async fn block_get_offline_not_found() {
+        // Test data from:
+        // https://ipld.io/specs/codecs/dag-pb/fixtures/cross-codec/#dagpb_data_some
+        let data = hex::decode("0a050001020304").unwrap();
+        let cid =
+            Cid::from_str("bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom").unwrap();
+        let mut mock_ipfs = MockIpfsDepTest::new();
+        mock_ipfs.expect_clone().once().return_once(move || {
+            let mut m = MockIpfsDepTest::new();
+            m.expect_block_get()
+                .once()
+                .with(predicate::eq(cid), predicate::eq(true))
+                .return_once(move |_, _| Err(crate::error::Error::NotFound));
+            m
+        });
+        let server = Server::new(mock_ipfs);
+        let resp = server
+            .block_get_post(cid.to_string(), None, Some(true), &Context)
+            .await
+            .unwrap();
+
+        expect![[r#"
+            InternalError(
+                Error {
+                    message: "block was not found locally (offline)",
+                    code: 0.0,
+                    typ: "error",
+                },
             )
         "#]]
         .assert_debug_eq(&DebugResponse::from(resp));
@@ -685,14 +763,14 @@ mod tests {
             let mut m = MockIpfsDepTest::new();
             m.expect_block_get()
                 .once()
-                .with(predicate::eq(cid))
-                .return_once(move |_| Ok(Bytes::from(data)));
+                .with(predicate::eq(cid), predicate::eq(false))
+                .return_once(move |_, _| Ok(Bytes::from(data)));
             m
         });
         let server = Server::new(mock_ipfs);
 
         let resp = server
-            .block_get_post(cid.to_string(), Some("1s".to_string()), &Context)
+            .block_get_post(cid.to_string(), Some("1s".to_string()), None, &Context)
             .await
             .unwrap();
 
@@ -712,7 +790,7 @@ mod tests {
         let server = Server::new(mock_ipfs);
 
         let resp = server
-            .block_get_post("invalid cid".to_string(), None, &Context)
+            .block_get_post("invalid cid".to_string(), None, None, &Context)
             .await
             .unwrap();
 
