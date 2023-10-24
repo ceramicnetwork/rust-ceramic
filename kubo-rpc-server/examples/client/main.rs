@@ -111,6 +111,7 @@ fn main() {
             let result = rt.block_on(client.block_get_post(
                 "arg_example".to_string(),
                 Some("timeout_example".to_string()),
+                None,
             ));
             info!(
                 "{:?} (X-Span-ID: {:?})",

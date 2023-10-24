@@ -194,6 +194,7 @@ pub trait Api<C: Send + Sync> {
         &self,
         arg: String,
         timeout: Option<String>,
+        offline: Option<bool>,
         context: &C,
     ) -> Result<BlockGetPostResponse, ApiError>;
 
@@ -308,6 +309,7 @@ pub trait ApiNoContext<C: Send + Sync> {
         &self,
         arg: String,
         timeout: Option<String>,
+        offline: Option<bool>,
     ) -> Result<BlockGetPostResponse, ApiError>;
 
     /// Put a single IPFS block
@@ -416,9 +418,12 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
         &self,
         arg: String,
         timeout: Option<String>,
+        offline: Option<bool>,
     ) -> Result<BlockGetPostResponse, ApiError> {
         let context = self.context().clone();
-        self.api().block_get_post(arg, timeout, &context).await
+        self.api()
+            .block_get_post(arg, timeout, offline, &context)
+            .await
     }
 
     /// Put a single IPFS block

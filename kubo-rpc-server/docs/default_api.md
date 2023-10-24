@@ -40,6 +40,7 @@ Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
  **arg** | **String**| CID of block | 
  **timeout** | **String**| Max duration (as Go duration string) to wait to find the block | 
+ **offline** | [****](.md)| When true the peer will not consult other peers for the block, defaults to false. | 
 
 ### Return type
 

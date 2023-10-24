@@ -148,7 +148,7 @@ pub trait IpfsDep: Clone {
     /// Get the size of an IPFS block.
     async fn block_size(&self, cid: Cid) -> Result<u64, Error>;
     /// Get a block from IPFS
-    async fn block_get(&self, cid: Cid) -> Result<Bytes, Error>;
+    async fn block_get(&self, cid: Cid, offline: bool) -> Result<Bytes, Error>;
     /// Get a DAG node from IPFS returning the Cid of the resolved path and the bytes of the node.
     /// This will locally store the data as a result.
     async fn get(&self, ipfs_path: &IpfsPath) -> Result<(Cid, Ipld), Error>;
@@ -241,9 +241,20 @@ impl IpfsDep for Arc<IpfsService> {
             .ok_or(Error::NotFound)?)
     }
     #[instrument(skip(self))]
-    async fn block_get(&self, cid: Cid) -> Result<Bytes, Error> {
-        // TODO do we want to advertise on the DHT all Cids we have?
-        Ok(self.resolver.load_cid_bytes(cid).await?)
+    async fn block_get(&self, cid: Cid, offline: bool) -> Result<Bytes, Error> {
+        if offline {
+            // Read directly from the store
+            Ok(self
+                .store
+                .get(cid)
+                .await
+                .map_err(Error::Internal)
+                .transpose()
+                .unwrap_or(Err(Error::NotFound))?)
+        } else {
+            // TODO do we want to advertise on the DHT all Cids we have?
+            Ok(self.resolver.load_cid_bytes(cid).await?)
+        }
     }
     #[instrument(skip(self))]
     async fn get(&self, ipfs_path: &IpfsPath) -> Result<(Cid, Ipld), Error> {
@@ -515,7 +526,7 @@ pub(crate) mod tests {
             async fn lookup_local(&self) -> Result<PeerInfo, Error>;
             async fn lookup(&self, peer_id: PeerId) -> Result<PeerInfo, Error>;
             async fn block_size(&self, cid: Cid) -> Result<u64, Error>;
-            async fn block_get(&self, cid: Cid) -> Result<Bytes, Error>;
+            async fn block_get(&self, cid: Cid, offline: bool) -> Result<Bytes, Error>;
             async fn get(&self, ipfs_path: &IpfsPath) -> Result<(Cid, Ipld), Error>;
             async fn put(&self, cid: Cid, blob: Bytes, links: Vec<Cid>) -> Result<(), Error>;
             async fn resolve(&self, ipfs_path: &IpfsPath) -> Result<(Cid, String), Error>;

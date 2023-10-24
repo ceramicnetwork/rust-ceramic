@@ -400,6 +400,7 @@ where
         &self,
         param_arg: String,
         param_timeout: Option<String>,
+        param_offline: Option<bool>,
         context: &C,
     ) -> Result<BlockGetPostResponse, ApiError> {
         let mut client_service = self.client_service.clone();
@@ -411,6 +412,9 @@ where
             query_string.append_pair("arg", &param_arg);
             if let Some(param_timeout) = param_timeout {
                 query_string.append_pair("timeout", &param_timeout);
+            }
+            if let Some(param_offline) = param_offline {
+                query_string.append_pair("offline", &param_offline.to_string());
             }
             query_string.finish()
         };

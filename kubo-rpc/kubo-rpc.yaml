@@ -199,6 +199,12 @@ paths:
           schema:
             type: string
           required: false
+        - name: offline
+          in: query
+          description: When true the peer will not consult other peers for the block, defaults to false.
+          schema:
+            type: bool
+          required: false
       responses:
         '200':
           description: success

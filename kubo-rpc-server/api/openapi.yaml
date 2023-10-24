@@ -149,6 +149,15 @@ paths:
         schema:
           type: string
         style: form
+      - description: "When true the peer will not consult other peers for the block,\
+          \ defaults to false."
+        explode: true
+        in: query
+        name: offline
+        required: false
+        schema:
+          type: bool
+        style: form
       responses:
         "200":
           content:

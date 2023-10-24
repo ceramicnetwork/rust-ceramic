@@ -10,11 +10,11 @@ use crate::{error::Error, IpfsDep};
 
 /// Get a block from IPFS.
 #[tracing::instrument(skip(client))]
-pub async fn get<T>(client: T, cid: Cid) -> Result<Vec<u8>, Error>
+pub async fn get<T>(client: T, cid: Cid, offline: bool) -> Result<Vec<u8>, Error>
 where
     T: IpfsDep,
 {
-    let bytes = client.block_get(cid).await?;
+    let bytes = client.block_get(cid, offline).await?;
     Ok(bytes.to_vec())
 }
 

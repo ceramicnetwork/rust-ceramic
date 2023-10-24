@@ -119,13 +119,15 @@ where
         &self,
         arg: String,
         timeout: Option<String>,
+        offline: Option<bool>,
         context: &C,
     ) -> Result<BlockGetPostResponse, ApiError> {
         let context = context.clone();
         info!(
-            "block_get_post(\"{}\", {:?}) - X-Span-ID: {:?}",
+            "block_get_post(\"{}\", {:?}, {:?}) - X-Span-ID: {:?}",
             arg,
             timeout,
+            offline,
             context.get().0.clone()
         );
         Err(ApiError("Generic failure".into()))
