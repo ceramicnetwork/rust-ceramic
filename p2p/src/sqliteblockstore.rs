@@ -72,7 +72,8 @@ impl SQLiteBlockStore {
     }
 
     pub fn scan(&self) -> BoxStream<Result<SQLiteBlock, Error>> {
-        sqlx::query_as::<Sqlite, SQLiteBlock>("SELECT multihash, bytes FROM blocks;").fetch(&self.pool)
+        sqlx::query_as::<Sqlite, SQLiteBlock>("SELECT multihash, bytes FROM blocks;")
+            .fetch(&self.pool)
     }
 
     /// Store a DAG node into IPFS.

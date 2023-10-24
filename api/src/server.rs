@@ -191,7 +191,7 @@ where
         Ok(ReconPostResponse::Success(swagger::ByteArray(response)))
     }
 
-#[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
+    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn subscribe_sort_key_sort_value_get(
         &self,
         sort_key: String,

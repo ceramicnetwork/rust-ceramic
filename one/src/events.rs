@@ -10,9 +10,9 @@ use cid::{
 use clap::Args;
 use futures_util::StreamExt;
 use minicbor::{data::Type, display, Decoder};
-use std::collections::BTreeSet;
-use std::collections::btree_map::BTreeMap;
+use std::collections::{btree_map::BTreeMap, BTreeSet};
 use std::path::PathBuf;
+use std::str::FromStr;
 use tracing::debug;
 
 #[derive(Args, Debug)]
@@ -111,18 +111,32 @@ async fn scan_blockstore(opts: EventsOpts, sql_store: SQLiteBlockStore) -> Resul
                     let _value = decoder.skip(); // skip value
                 }
             }
-            let keys_string = keys.iter().map(|s| s.to_string()).collect::<Vec<String>>().join(",");
-            key_sets.insert(keys_string.clone(), key_sets.get(&keys_string).unwrap_or(&0) + 1);
+            let keys_string = keys
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<String>>()
+                .join(",");
+            key_sets.insert(
+                keys_string.clone(),
+                key_sets.get(&keys_string).unwrap_or(&0) + 1,
+            );
 
-            // let eventID = EventId::new(
-            //     &opts.network.to_network(&opts.local_network_id)?, // e.g. Network::Mainnet
-            //     "model",                                           // e.g. "model"
-            //     sort_value, // e.g. "kh4q0ozorrgaq2mezktnrmdwleo1d" // cspell:disable-line
-            //     controller, // e.g. "did:key:z6MkgSV3tAuw7gUWqKCUY7ae6uWNxqYgdwPhUJbJhF9EFXm9"
-            //     init, // e.g. Cid::from_str("bagcqceraplay4erv6l32qrki522uhiz7rf46xccwniw7ypmvs3cvu2b3oulq") // cspell:disable-line
-            //     event_height, // e.g. 1
-            //     &Cid::new_v1(0x71, Code::Sha2_256.digest(&row.bytes)),
-            // );
+            if false {
+                let sort_value = "kh4q0ozorrgaq2mezktnrmdwleo1d"; // remove me // cspell:disable-line
+                let controller = "did:key:z6MkgSV3tAuw7gUWqKCUY7ae6uWNxqYgdwPhUJbJhF9EFXm9"; // remove me
+                let init =
+                    Cid::from_str("bagcqceraplay4erv6l32qrki522uhiz7rf46xccwniw7ypmvs3cvu2b3oulq")?; // remove me // cspell:disable-line
+                let event_height = 7; // remove me
+                let _event_id = EventId::new(
+                    &opts.network.to_network(&opts.local_network_id)?, // e.g. Network::Mainnet
+                    "model",                                           // e.g. "model"
+                    sort_value, // e.g. "kh4q0ozorrgaq2mezktnrmdwleo1d" // cspell:disable-line
+                    controller, // e.g. "did:key:z6MkgSV3tAuw7gUWqKCUY7ae6uWNxqYgdwPhUJbJhF9EFXm9"
+                    &init, // e.g. Cid::from_str("bagcqceraplay4erv6l32qrki522uhiz7rf46xccwniw7ypmvs3cvu2b3oulq") // cspell:disable-line
+                    event_height, // e.g. 1
+                    &Cid::new_v1(0x71, Code::Sha2_256.digest(&row.bytes)),
+                );
+            }
 
             if key_sets.get(&keys_string) == Some(&1) {
                 println!(
