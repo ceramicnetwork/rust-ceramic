@@ -4,6 +4,8 @@
 # Therefore may be useful in ensuring a change
 # is ready to pass CI checks.
 
+RELEASE_LEVEL ?= minor
+
 .PHONY: all
 all: build check-fmt check-clippy test
 
@@ -37,6 +39,11 @@ check-kubo-rpc-server:
 .PHONY: release
 release:
 	RUSTFLAGS="-D warnings" cargo build -p ceramic-one --locked --release
+
+# Prepare a release PR.
+.PHONY: release-pr
+release-pr:
+	./ci-scripts/release_pr.sh ${RELEASE_LEVEL}
 
 .PHONY: debug
 debug:
