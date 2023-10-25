@@ -14,7 +14,6 @@
 # * gh is installed
 # * jq is installed
 # * GITHUB_TOKEN is set or gh is authenticated
-# * CARGO_REGISTRY_TOKEN is set or cargo is authenticated
 
 # Fail script if any command fails
 set -e
