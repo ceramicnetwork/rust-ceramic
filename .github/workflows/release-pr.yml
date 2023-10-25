@@ -35,5 +35,6 @@ jobs:
       - run: |
           git config user.email "github@3box.io"
           git config user.name "Github Automation"
+      - run: npm install @openapitools/openapi-generator-cli@2.6.0 -g
       - name: Create release PR
         run: make RELEASE_LEVEL=${{ github.event.inputs.level }} release-pr
