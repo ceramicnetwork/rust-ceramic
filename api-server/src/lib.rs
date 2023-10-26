@@ -20,7 +20,7 @@ use swagger::{ApiError, ContextWrapper};
 type ServiceError = Box<dyn Error + Send + Sync + 'static>;
 
 pub const BASE_PATH: &str = "/ceramic";
-pub const API_VERSION: &str = "0.8.0";
+pub const API_VERSION: &str = "0.8.1";
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub enum EventsPostResponse {
