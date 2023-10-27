@@ -26,6 +26,20 @@ pub struct Config {
     #[cfg(feature = "tokio-console")]
     /// Enables tokio console debugging.
     pub tokio_console: bool,
+    /// How to print log lines to STDOUT
+    pub log_format: LogFormat,
+}
+
+/// Format of log events
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum LogFormat {
+    // Print log lines on multiple lines
+    #[default]
+    MultiLine,
+    // Print log lines on a single line
+    SingleLine,
+    // Print logs a newline delimited JSON
+    Json,
 }
 
 impl Config {
@@ -58,6 +72,7 @@ impl Default for Config {
             prom_gateway_endpoint: "http://localhost:9091".to_string(),
             #[cfg(feature = "tokio-console")]
             tokio_console: false,
+            log_format: LogFormat::default(),
         }
     }
 }
