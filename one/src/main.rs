@@ -108,6 +108,22 @@ struct DaemonOpts {
     /// When true Recon will be used to synchronized events with peers.
     #[arg(long, default_value_t = false, env = "CERAMIC_ONE_RECON")]
     recon: bool,
+
+    /// Specify the format of log events
+    #[arg(long, default_value = "multi-line", env = "CERAMIC_ONE_LOG_FORMAT")]
+    log_format: LogFormat,
+}
+
+#[derive(ValueEnum, Debug, Clone, Default)]
+enum LogFormat {
+    /// Format log events on multiple lines using ANSI colors.
+    #[default]
+    MultiLine,
+    /// Format log events on a single line using ANSI colors.
+    SingleLine,
+    /// Format log events newline delimited JSON objects.
+    /// No ANSI colors are used.
+    Json,
 }
 
 #[derive(ValueEnum, Debug, Clone)]
@@ -146,14 +162,6 @@ struct EyeOpts {
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<()> {
-    let (non_blocking, _guard) = tracing_appender::non_blocking(std::io::stdout());
-
-    let subscriber = tracing_subscriber::fmt().with_writer(non_blocking);
-
-    tracing::subscriber::with_default(subscriber.finish(), || {
-        tracing::event!(tracing::Level::INFO, "Ceramic One Server Running");
-    });
-
     let args = Cli::parse();
     match args.command {
         Command::Daemon(opts) => {
@@ -194,6 +202,11 @@ impl Daemon {
         // Do not push metrics to any endpoint.
         metrics_config.export = false;
         metrics_config.tracing = opts.tracing;
+        metrics_config.log_format = match opts.log_format {
+            LogFormat::SingleLine => iroh_metrics::config::LogFormat::SingleLine,
+            LogFormat::MultiLine => iroh_metrics::config::LogFormat::MultiLine,
+            LogFormat::Json => iroh_metrics::config::LogFormat::Json,
+        };
         let service_name = metrics_config.service_name.clone();
         let instance_id = metrics_config.instance_id.clone();
 

@@ -35,9 +35,19 @@ use prometheus_client::registry::Registry;
 use std::env::consts::{ARCH, OS};
 use std::time::Duration;
 use tokio::task::JoinHandle;
-use tracing::{debug, warn};
+use tracing::{debug, metadata::LevelFilter, warn};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
-use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
+use tracing_subscriber::{
+    fmt::{
+        self,
+        format::{Compact, Json, Pretty},
+        time::SystemTime,
+        FormatEvent,
+    },
+    layer::SubscriberExt,
+    util::SubscriberInitExt,
+    EnvFilter, Layer,
+};
 
 #[derive(Debug)]
 pub struct MetricsHandle {
@@ -110,14 +120,50 @@ async fn init_metrics(cfg: Config) -> Option<JoinHandle<()>> {
     None
 }
 
+struct Format {
+    kind: config::LogFormat,
+    single: tracing_subscriber::fmt::format::Format<Compact, SystemTime>,
+    multi: tracing_subscriber::fmt::format::Format<Pretty, SystemTime>,
+    json: tracing_subscriber::fmt::format::Format<Json, SystemTime>,
+}
+impl<S, N> FormatEvent<S, N> for Format
+where
+    S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>,
+    N: for<'a> fmt::FormatFields<'a> + 'static,
+{
+    fn format_event(
+        &self,
+        ctx: &fmt::FmtContext<'_, S, N>,
+        writer: fmt::format::Writer<'_>,
+        event: &tracing::Event<'_>,
+    ) -> std::fmt::Result {
+        match self.kind {
+            config::LogFormat::SingleLine => self.single.format_event(ctx, writer, event),
+            config::LogFormat::MultiLine => self.multi.format_event(ctx, writer, event),
+            config::LogFormat::Json => self.json.format_event(ctx, writer, event),
+        }
+    }
+}
+
 /// Initialize the tracing subsystem.
 fn init_tracer(cfg: Config) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "tokio-console")]
     let console_subscriber = cfg.tokio_console.then(console_subscriber::spawn);
 
-    let log_subscriber = fmt::layer()
-        .pretty()
-        .with_filter(EnvFilter::from_default_env());
+    // Default to INFO if no env is specified
+    let filter_builder = EnvFilter::builder().with_default_directive(LevelFilter::INFO.into());
+
+    let log_filter = filter_builder.from_env()?;
+    let otlp_filter = filter_builder.from_env()?;
+
+    let format = Format {
+        kind: cfg.log_format,
+        single: fmt::format().with_ansi(true).compact(),
+        multi: fmt::format().with_ansi(true).pretty(),
+        json: fmt::format().with_ansi(false).json(),
+    };
+
+    let log_subscriber = fmt::layer().event_format(format).with_filter(log_filter);
 
     let opentelemetry_subscriber = if cfg.tracing {
         global::set_text_map_propagator(TraceContextPropagator::new());
@@ -143,7 +189,7 @@ fn init_tracer(cfg: Config) -> Result<(), Box<dyn std::error::Error>> {
         Some(
             tracing_opentelemetry::layer()
                 .with_tracer(tracer)
-                .with_filter(EnvFilter::from_default_env()),
+                .with_filter(otlp_filter),
         )
     } else {
         None

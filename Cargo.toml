@@ -173,7 +173,11 @@ tower-http = "0.3"
 tower-layer = "0.3"
 tracing = "0.1"
 tracing-opentelemetry = "0.18"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = [
+    "ansi",
+    "env-filter",
+    "json",
+] }
 tracing-test = { version = "0.2" }
 trust-dns-resolver = "0.22.0"
 unsigned-varint = "0.7"
