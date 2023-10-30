@@ -39,7 +39,6 @@ impl Builder<Init> {
         libp2p_config: Libp2pConfig,
         keypair: Keypair,
         recons: Option<(I, M)>,
-        ceramic_peers_key: &str,
         sql_pool: SqlitePool,
     ) -> anyhow::Result<Builder<WithP2p>>
     where
@@ -52,15 +51,7 @@ impl Builder<Init> {
 
         config.libp2p = libp2p_config;
 
-        let mut p2p = Node::new(
-            config,
-            addr.clone(),
-            keypair,
-            recons,
-            ceramic_peers_key,
-            sql_pool,
-        )
-        .await?;
+        let mut p2p = Node::new(config, addr.clone(), keypair, recons, sql_pool).await?;
 
         let task = task::spawn(async move {
             if let Err(err) = p2p.run().await {

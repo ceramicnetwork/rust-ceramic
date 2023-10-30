@@ -276,13 +276,7 @@ impl Daemon {
             None
         };
         let ipfs = Ipfs::builder()
-            .with_p2p(
-                p2p_config,
-                keypair,
-                recons,
-                &network.name(),
-                sql_pool.clone(),
-            )
+            .with_p2p(p2p_config, keypair, recons, sql_pool.clone())
             .await?
             .build(sql_pool.clone())
             .await?;

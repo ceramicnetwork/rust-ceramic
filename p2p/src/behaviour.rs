@@ -6,23 +6,22 @@ use ceramic_core::{EventId, Interest};
 use cid::Cid;
 use iroh_bitswap::{Bitswap, Block, Config as BitswapConfig, Store};
 use iroh_rpc_client::Client;
-use libp2p::gossipsub::{self, MessageAuthenticity};
-use libp2p::identify;
-use libp2p::kad::{
-    self,
-    store::{MemoryStore, MemoryStoreConfig},
-    RecordKey,
-};
-use libp2p::mdns::tokio::Behaviour as Mdns;
-use libp2p::multiaddr::Protocol;
-use libp2p::ping::Behaviour as Ping;
-use libp2p::relay;
-use libp2p::swarm::behaviour::toggle::Toggle;
-use libp2p::swarm::NetworkBehaviour;
-use libp2p::{autonat, dcutr};
 use libp2p::{
+    autonat,
     connection_limits::{self, ConnectionLimits},
-    kad::QueryId,
+    dcutr,
+    gossipsub::{self, MessageAuthenticity},
+    identify,
+    kad::{
+        self,
+        store::{MemoryStore, MemoryStoreConfig},
+    },
+    mdns::tokio::Behaviour as Mdns,
+    multiaddr::Protocol,
+    ping::Behaviour as Ping,
+    relay,
+    swarm::behaviour::toggle::Toggle,
+    swarm::NetworkBehaviour,
 };
 use libp2p_identity::Keypair;
 use recon::{libp2p::Recon, Sha256a};
@@ -265,17 +264,6 @@ where
             kad.bootstrap()?;
         }
         Ok(())
-    }
-    pub fn discover_ceramic_peers(&mut self, key: &RecordKey) -> Option<QueryId> {
-        info!(?key, "discovering Ceramic peers");
-        if let Some(kad) = self.kad.as_mut() {
-            if let Err(err) = kad.start_providing(key.clone()) {
-                warn!(%err,"failed to start providing ceramic peers key");
-            }
-            Some(kad.get_providers(key.clone()))
-        } else {
-            None
-        }
     }
 }
 
