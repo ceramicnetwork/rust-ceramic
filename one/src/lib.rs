@@ -63,7 +63,7 @@ struct DaemonOpts {
     /// Listen address of the p2p swarm.
     #[arg(
         long,
-        default_values_t = vec!["/ip4/0.0.0.0/tcp/0".to_string(), "/ip4/0.0.0.0/udp/0/quic-v1".to_string()],
+        default_values_t = vec!["/ip4/0.0.0.0/tcp/4001".to_string(), "/ip4/0.0.0.0/udp/4001/quic-v1".to_string()],
         use_value_delimiter = true,
         value_delimiter = ',',
         env = "CERAMIC_ONE_SWARM_ADDRESSES"
