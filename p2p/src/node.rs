@@ -23,12 +23,12 @@ use libp2p::{
     identity::Keypair,
     kad::{
         self, BootstrapOk, GetClosestPeersError, GetClosestPeersOk, GetProvidersOk, QueryId,
-        QueryResult, RecordKey,
+        QueryResult,
     },
     mdns,
     metrics::Recorder,
     multiaddr::Protocol,
-    swarm::{dial_opts::DialOpts, ConnectionHandler, DialError, NetworkBehaviour, SwarmEvent},
+    swarm::{dial_opts::DialOpts, ConnectionHandler, NetworkBehaviour, SwarmEvent},
     PeerId, StreamProtocol, Swarm,
 };
 use sqlx::SqlitePool;
@@ -81,9 +81,6 @@ where
     providers: Providers,
     listen_addrs: Vec<Multiaddr>,
 
-    ceramic_peers_key: RecordKey,
-    ceramic_peers_query_id: Option<QueryId>,
-
     trust_observed_addrs: bool,
 }
 
@@ -118,7 +115,6 @@ pub(crate) const DEFAULT_PROVIDER_LIMIT: usize = 10;
 const NICE_INTERVAL: Duration = Duration::from_secs(6);
 const BOOTSTRAP_INTERVAL: Duration = Duration::from_secs(5 * 60);
 const EXPIRY_INTERVAL: Duration = Duration::from_secs(1);
-const DISCOVER_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
 impl<I, M> Drop for Node<I, M>
 where
@@ -147,7 +143,6 @@ where
         rpc_addr: P2pAddr,
         keypair: Keypair,
         recons: Option<(I, M)>,
-        ceramic_peers_key: impl AsRef<[u8]>,
         sql_pool: SqlitePool,
     ) -> Result<Self> {
         let (network_sender_in, network_receiver_in) = channel(1024); // TODO: configurable
@@ -196,8 +191,6 @@ where
             bitswap_sessions: Default::default(),
             providers: Providers::new(4),
             listen_addrs,
-            ceramic_peers_key: RecordKey::new(&ceramic_peers_key),
-            ceramic_peers_query_id: None,
             trust_observed_addrs: libp2p_config.trust_observed_addrs,
         })
     }
@@ -218,7 +211,6 @@ where
         let mut nice_interval = self.use_dht.then(|| tokio::time::interval(NICE_INTERVAL));
         let mut bootstrap_interval = tokio::time::interval(BOOTSTRAP_INTERVAL);
         let mut expiry_interval = tokio::time::interval(EXPIRY_INTERVAL);
-        let mut discover_interval = tokio::time::interval(DISCOVER_INTERVAL);
 
         loop {
             inc!(P2PMetrics::LoopCounter);
@@ -277,9 +269,6 @@ where
                     if let Err(err) = self.expiry() {
                         warn!("expiry error {:?}", err);
                     }
-                }
-                _ = discover_interval.tick() => {
-                    self.ceramic_peers_query_id = self.swarm.behaviour_mut().discover_ceramic_peers(&self.ceramic_peers_key);
                 }
             }
         }
@@ -541,31 +530,7 @@ where
                                         })
                                         .collect();
 
-                                    if self
-                                        .ceramic_peers_query_id
-                                        .map(|i| i == id)
-                                        .unwrap_or_default()
-                                    {
-                                        let local_peer_id = *self.swarm.local_peer_id();
-                                        let mut providers = providers
-                                            .into_iter()
-                                            .filter(|peer| *peer != local_peer_id);
-                                        info!(
-                                            peers.count = providers.by_ref().count(),
-                                            "discovered ceramic peers"
-                                        );
-                                        providers.for_each(|peer| {
-                                            debug!(?peer, "dialing ceramic peer");
-                                            if let Err(err) = self.swarm.dial(peer) {
-                                                if !matches!(
-                                                    err,
-                                                    DialError::DialPeerConditionFalse(_)
-                                                ) {
-                                                    warn!(%err, "failed to dial ceramic peer")
-                                                }
-                                            }
-                                        });
-                                    } else if let Some(kad) = behaviour.kad.as_mut() {
+                                    if let Some(kad) = behaviour.kad.as_mut() {
                                         debug!(
                                             "provider results for {:?} last: {}",
                                             key, step.last
@@ -1359,7 +1324,6 @@ mod tests {
                 rpc_server_addr,
                 keypair.into(),
                 None::<(DummyRecon<Interest>, DummyRecon<EventId>)>,
-                "/ceramic-test",
                 sql_pool,
             )
             .await?;
