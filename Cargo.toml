@@ -199,3 +199,6 @@ authors = [
 ]
 license = "Apache-2.0/MIT"
 repository = "https://github.com/3box/rust-ceramic"
+
+#[patch.crates-io]
+#libp2p-metrics = { path = "../rust-libp2p/misc/metrics" }

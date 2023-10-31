@@ -10,37 +10,38 @@ publish = false
 
 [dependencies]
 anyhow.workspace = true
-ceramic-kubo-rpc = { path = "../kubo-rpc", features = ["http"] }
-ceramic-api.workspace = true
 ceramic-api-server.workspace = true
+ceramic-api.workspace = true
+ceramic-core.workspace = true
+ceramic-kubo-rpc = { path = "../kubo-rpc", features = ["http"] }
 ceramic-kubo-rpc-server.workspace = true
+ceramic-p2p.workspace = true
 clap.workspace = true
-futures.workspace = true
 futures-util.workspace = true
+futures.workspace = true
 git-version = "0.3"
 home = "0.5"
+hyper.workspace = true
+iroh-metrics.workspace = true
 iroh-rpc-client.workspace = true
 iroh-rpc-types.workspace = true
-ceramic-p2p.workspace = true
-iroh-metrics.workspace = true
 libipld.workspace = true
 libp2p.workspace = true
 multiaddr.workspace = true
+names.workspace = true
 prometheus-client.workspace = true
 recon.workspace = true
-sqlx.workspace = true
 serde = "1"
 serde_json = "1"
 serde_repr = "0.1"
+signal-hook = "0.3.17"
+signal-hook-tokio = { version = "0.3.1", features = ["futures-v0_3"] }
+sqlx.workspace = true
+swagger.workspace = true
 tokio.workspace = true
 tracing-appender = "0.2.2"
 tracing-subscriber.workspace = true
 tracing.workspace = true
-ceramic-core.workspace = true
-hyper.workspace = true
-swagger.workspace = true
-signal-hook-tokio = { version = "0.3.1", features = ["futures-v0_3"] }
-signal-hook = "0.3.17"
 
 [dev-dependencies]
 expect-test.workspace = true
