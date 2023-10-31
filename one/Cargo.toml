@@ -15,6 +15,7 @@ ceramic-api.workspace = true
 ceramic-core.workspace = true
 ceramic-kubo-rpc = { path = "../kubo-rpc", features = ["http"] }
 ceramic-kubo-rpc-server.workspace = true
+ceramic-metrics.workspace = true
 ceramic-p2p.workspace = true
 clap.workspace = true
 futures-util.workspace = true
@@ -22,7 +23,6 @@ futures.workspace = true
 git-version = "0.3"
 home = "0.5"
 hyper.workspace = true
-iroh-metrics.workspace = true
 iroh-rpc-client.workspace = true
 iroh-rpc-types.workspace = true
 libipld.workspace = true

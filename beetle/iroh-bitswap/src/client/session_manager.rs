@@ -8,9 +8,9 @@ use std::{
 
 use ahash::AHashMap;
 use anyhow::{anyhow, Result};
+use ceramic_metrics::{bitswap::BitswapMetrics, core::MRecorder, inc};
 use cid::Cid;
 use futures::FutureExt;
-use iroh_metrics::{bitswap::BitswapMetrics, core::MRecorder, inc};
 use libp2p::PeerId;
 use tokio::sync::RwLock;
 use tracing::debug;

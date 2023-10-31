@@ -13,11 +13,11 @@ use anyhow::{anyhow, Result};
 use ceramic_core::{EventId, Interest, PeerId};
 use ceramic_kubo_rpc::{dag, IpfsDep, IpfsPath, Multiaddr};
 
+use ceramic_metrics::{config::Config as MetricsConfig, MetricsHandle};
 use ceramic_p2p::{load_identity, DiskStorage, Keychain, Libp2pConfig};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use futures::StreamExt;
 use futures_util::future;
-use iroh_metrics::{config::Config as MetricsConfig, MetricsHandle};
 use libipld::json::DagJsonCodec;
 use libp2p::metrics::Recorder;
 use multibase::Base;
@@ -206,22 +206,22 @@ impl Daemon {
             export: false,
             tracing: opts.tracing,
             log_format: match opts.log_format {
-                LogFormat::SingleLine => iroh_metrics::config::LogFormat::SingleLine,
-                LogFormat::MultiLine => iroh_metrics::config::LogFormat::MultiLine,
-                LogFormat::Json => iroh_metrics::config::LogFormat::Json,
+                LogFormat::SingleLine => ceramic_metrics::config::LogFormat::SingleLine,
+                LogFormat::MultiLine => ceramic_metrics::config::LogFormat::MultiLine,
+                LogFormat::Json => ceramic_metrics::config::LogFormat::Json,
             },
             ..Default::default()
         };
         info.apply_to_metrics_config(&mut metrics_config);
 
-        let metrics = iroh_metrics::MetricsHandle::register(|registry| {
+        let metrics = ceramic_metrics::MetricsHandle::register(|registry| {
             crate::metrics::Metrics::register(info.clone(), registry)
         });
         let metrics = Arc::new(metrics);
 
         // Logging Tracing and metrics are initialized here,
         // debug,info etc will not work until after this line
-        let metrics_handle = iroh_metrics::MetricsHandle::new(metrics_config.clone())
+        let metrics_handle = ceramic_metrics::MetricsHandle::new(metrics_config.clone())
             .await
             .expect("failed to initialize metrics");
         info!(

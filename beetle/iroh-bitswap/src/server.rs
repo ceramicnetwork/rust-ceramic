@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
+use ceramic_metrics::bitswap::BitswapMetrics;
+use ceramic_metrics::core::MRecorder;
+use ceramic_metrics::inc;
 use cid::Cid;
 use futures::future::BoxFuture;
 use futures::FutureExt;
-use iroh_metrics::bitswap::BitswapMetrics;
-use iroh_metrics::core::MRecorder;
-use iroh_metrics::inc;
 use libp2p::PeerId;
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::task::JoinHandle;

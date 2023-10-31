@@ -5,7 +5,7 @@ use std::{
 };
 
 use ahash::AHashMap;
-use iroh_metrics::{core::MRecorder, inc, p2p::P2PMetrics};
+use ceramic_metrics::{core::MRecorder, inc, p2p::P2PMetrics};
 use libp2p::{
     identify::Info as IdentifyInfo,
     swarm::{dummy, ConnectionId, DialError, NetworkBehaviour, PollParameters},

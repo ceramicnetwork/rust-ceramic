@@ -1177,6 +1177,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "ceramic-metrics"
+version = "0.8.1"
+dependencies = [
+ "console-subscriber",
+ "iroh-util",
+ "lazy_static",
+ "libp2p",
+ "names",
+ "opentelemetry",
+ "opentelemetry-otlp",
+ "paste",
+ "prometheus-client",
+ "reqwest",
+ "serde",
+ "tokio",
+ "tracing",
+ "tracing-opentelemetry",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "ceramic-one"
 version = "0.8.1"
 dependencies = [
@@ -1186,6 +1207,7 @@ dependencies = [
  "ceramic-core",
  "ceramic-kubo-rpc",
  "ceramic-kubo-rpc-server",
+ "ceramic-metrics",
  "ceramic-p2p",
  "clap 4.4.6",
  "expect-test",
@@ -1194,7 +1216,6 @@ dependencies = [
  "git-version",
  "home",
  "hyper",
- "iroh-metrics",
  "iroh-rpc-client",
  "iroh-rpc-types",
  "libipld 0.16.0",
@@ -1228,6 +1249,7 @@ dependencies = [
  "async-trait",
  "bytes 1.5.0",
  "ceramic-core",
+ "ceramic-metrics",
  "chrono",
  "cid 0.10.1",
  "clap 4.4.6",
@@ -1242,7 +1264,6 @@ dependencies = [
  "glob",
  "hex",
  "iroh-bitswap",
- "iroh-metrics",
  "iroh-rpc-client",
  "iroh-rpc-types",
  "iroh-util",
@@ -3639,12 +3660,12 @@ dependencies = [
  "async-trait",
  "asynchronous-codec",
  "bytes 1.5.0",
+ "ceramic-metrics",
  "cid 0.10.1",
  "criterion",
  "deadqueue",
  "derivative",
  "futures",
- "iroh-metrics",
  "iroh-util",
  "keyed_priority_queue",
  "libp2p",
@@ -3677,27 +3698,6 @@ dependencies = [
  "multihash 0.18.1",
  "thiserror",
  "tokio",
-]
-
-[[package]]
-name = "iroh-metrics"
-version = "0.8.1"
-dependencies = [
- "console-subscriber",
- "iroh-util",
- "lazy_static",
- "libp2p",
- "names",
- "opentelemetry",
- "opentelemetry-otlp",
- "paste",
- "prometheus-client",
- "reqwest",
- "serde",
- "tokio",
- "tracing",
- "tracing-opentelemetry",
- "tracing-subscriber",
 ]
 
 [[package]]

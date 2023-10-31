@@ -2,8 +2,8 @@ use std::{fmt::Debug, sync::Arc, time::Duration};
 
 use ahash::{AHashMap, AHashSet};
 use anyhow::{anyhow, Result};
+use ceramic_metrics::{bitswap::BitswapMetrics, inc, record};
 use cid::Cid;
-use iroh_metrics::{bitswap::BitswapMetrics, inc, record};
 use libp2p::PeerId;
 use tokio::{
     sync::{oneshot, Mutex, Notify, RwLock},
@@ -26,7 +26,7 @@ use super::{
     score_ledger::{DefaultScoreLedger, Receipt},
     task_merger::{TaskData, TaskMerger},
 };
-use iroh_metrics::core::MRecorder;
+use ceramic_metrics::core::MRecorder;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TaskInfo {

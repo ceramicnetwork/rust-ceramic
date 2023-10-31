@@ -2,9 +2,9 @@ use std::cmp::Ordering;
 
 use ahash::{AHashMap, AHashSet};
 use anyhow::Result;
+use ceramic_metrics::core::MRecorder;
+use ceramic_metrics::{bitswap::BitswapMetrics, inc};
 use cid::Cid;
-use iroh_metrics::core::MRecorder;
-use iroh_metrics::{bitswap::BitswapMetrics, inc};
 use libp2p::PeerId;
 use tokio::{sync::oneshot, task::JoinHandle};
 use tracing::{debug, error, info, warn};

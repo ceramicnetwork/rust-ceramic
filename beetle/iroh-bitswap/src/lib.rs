@@ -12,10 +12,10 @@ use std::time::Duration;
 use ahash::AHashMap;
 use anyhow::Result;
 use async_trait::async_trait;
+use ceramic_metrics::record;
+use ceramic_metrics::{bitswap::BitswapMetrics, core::MRecorder, inc};
 use cid::Cid;
 use handler::{BitswapHandler, HandlerEvent};
-use iroh_metrics::record;
-use iroh_metrics::{bitswap::BitswapMetrics, core::MRecorder, inc};
 use libp2p::swarm::ConnectionId;
 use libp2p::swarm::{
     CloseConnection, DialError, NetworkBehaviour, NotifyHandler, PollParameters, ToSwarm,

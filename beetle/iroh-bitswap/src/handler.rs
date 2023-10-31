@@ -6,12 +6,12 @@ use std::{
 };
 
 use asynchronous_codec::Framed;
+use ceramic_metrics::{bitswap::BitswapMetrics, core::MRecorder, inc};
 use futures::StreamExt;
 use futures::{
     prelude::*,
     stream::{BoxStream, SelectAll},
 };
-use iroh_metrics::{bitswap::BitswapMetrics, core::MRecorder, inc};
 use libp2p::swarm::handler::FullyNegotiatedInbound;
 use libp2p::swarm::{
     handler::{DialUpgradeError, FullyNegotiatedOutbound},

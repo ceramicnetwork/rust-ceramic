@@ -22,7 +22,7 @@ futures-util.workspace = true
 futures.workspace = true
 git-version.workspace = true
 iroh-bitswap.workspace = true
-iroh-metrics = { workspace = true, features = ["bitswap", "p2p"] }
+ceramic-metrics = { workspace = true, features = ["bitswap", "p2p"] }
 iroh-rpc-client.workspace = true
 iroh-rpc-types.workspace = true
 iroh-util.workspace = true

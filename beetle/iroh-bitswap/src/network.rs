@@ -7,10 +7,10 @@ use std::{
 };
 
 use anyhow::{anyhow, bail, Context as _, Result};
+use ceramic_metrics::{bitswap::BitswapMetrics, inc};
+use ceramic_metrics::{core::MRecorder, record};
 use cid::Cid;
 use futures::Stream;
-use iroh_metrics::{bitswap::BitswapMetrics, inc};
-use iroh_metrics::{core::MRecorder, record};
 use libp2p::{swarm::ConnectionId, PeerId};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, info, trace};

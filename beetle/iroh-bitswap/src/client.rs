@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
-use iroh_metrics::bitswap::BitswapMetrics;
-use iroh_metrics::{core::MRecorder, inc, record};
+use ceramic_metrics::bitswap::BitswapMetrics;
+use ceramic_metrics::{core::MRecorder, inc, record};
 
 use ahash::AHashSet;
 use anyhow::Result;
