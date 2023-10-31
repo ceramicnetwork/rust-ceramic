@@ -1,30 +1,17 @@
 #[macro_use]
 mod macros;
-#[cfg(feature = "bitswap")]
 pub mod bitswap;
 pub mod config;
 pub mod core;
-#[cfg(feature = "p2p")]
 pub mod p2p;
-#[cfg(feature = "store")]
-pub mod store;
 
 #[macro_use]
 extern crate lazy_static;
 
-use crate::config::Config;
 use crate::core::HistogramType;
 use crate::core::MetricType;
-#[cfg(any(
-    feature = "bitswap",
-    feature = "gateway",
-    feature = "resolver",
-    feature = "store",
-    feature = "p2p"
-))]
-#[allow(unused_imports)]
-use crate::core::MetricsRecorder;
 use crate::core::CORE;
+use crate::{config::Config, core::MetricsRecorder};
 use opentelemetry::{
     global,
     sdk::{propagation::TraceContextPropagator, trace, Resource},
@@ -48,6 +35,12 @@ use tracing_subscriber::{
     util::SubscriberInitExt,
     EnvFilter, Layer,
 };
+
+/// Recorder that can record metrics about an event.
+pub trait Recorder<Event> {
+    /// Record the given event.
+    fn record(&self, event: &Event);
+}
 
 #[derive(Debug)]
 pub struct MetricsHandle {
@@ -218,15 +211,7 @@ pub fn get_current_trace_id() -> TraceId {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Collector {
-    #[cfg(feature = "gateway")]
-    Gateway,
-    #[cfg(feature = "resolver")]
-    Resolver,
-    #[cfg(feature = "bitswap")]
     Bitswap,
-    #[cfg(feature = "store")]
-    Store,
-    #[cfg(feature = "p2p")]
     P2P,
 }
 
@@ -237,15 +222,7 @@ where
 {
     if CORE.enabled() {
         match c {
-            #[cfg(feature = "gateway")]
-            Collector::Gateway => CORE.gateway_metrics().record(m, v),
-            #[cfg(feature = "resolver")]
-            Collector::Resolver => CORE.resolver_metrics().record(m, v),
-            #[cfg(feature = "bitswap")]
             Collector::Bitswap => CORE.bitswap_metrics().record(m, v),
-            #[cfg(feature = "store")]
-            Collector::Store => CORE.store_metrics().record(m, v),
-            #[cfg(feature = "p2p")]
             Collector::P2P => CORE.p2p_metrics().record(m, v),
             _ => panic!("not enabled/implemented"),
         };
@@ -259,22 +236,13 @@ where
 {
     if CORE.enabled() {
         match c {
-            #[cfg(feature = "gateway")]
-            Collector::Gateway => CORE.gateway_metrics().observe(m, v),
-            #[cfg(feature = "resolver")]
-            Collector::Resolver => CORE.resolver_metrics().observe(m, v),
-            #[cfg(feature = "bitswap")]
             Collector::Bitswap => CORE.bitswap_metrics().observe(m, v),
-            #[cfg(feature = "store")]
-            Collector::Store => CORE.store_metrics().observe(m, v),
-            #[cfg(feature = "p2p")]
             Collector::P2P => CORE.p2p_metrics().observe(m, v),
             _ => panic!("not enabled/implemented"),
         };
     }
 }
 
-#[cfg(feature = "p2p")]
 pub fn libp2p_metrics() -> &'static p2p::Libp2pMetrics {
     CORE.libp2p_metrics()
 }

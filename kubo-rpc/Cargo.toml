@@ -14,6 +14,7 @@ http = [
     "dep:pin-project",
     "dep:serde",
     "dep:serde_json",
+    "dep:prometheus-client",
 ]
 
 [dependencies]
@@ -23,6 +24,7 @@ async-trait.workspace = true
 bytes.workspace = true
 ceramic-kubo-rpc-server = { workspace = true, optional = true }
 ceramic-metadata.workspace = true
+ceramic-metrics.workspace = true
 ceramic-p2p.workspace = true
 cid.workspace = true
 dag-jose.workspace = true
@@ -37,6 +39,7 @@ libp2p-identity.workspace = true
 libp2p.workspace = true
 multiaddr.workspace = true
 pin-project = { version = "1.1.3", optional = true }
+prometheus-client = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 swagger.workspace = true
