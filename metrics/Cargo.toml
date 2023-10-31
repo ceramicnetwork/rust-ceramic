@@ -1,10 +1,9 @@
 [package]
-name = "iroh-metrics"
+name = "ceramic-metrics"
+description = "Ceramic metrics"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-readme = "README.md"
-description = "Iroh metrics"
 repository.workspace = true
 publish = false
 

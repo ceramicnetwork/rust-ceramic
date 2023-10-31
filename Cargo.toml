@@ -7,13 +7,13 @@ members = [
     "event",
     "kubo-rpc",
     "metadata",
+    "metrics",
     "kubo-rpc-server",
     "one",
     "p2p",
     "recon",
     "beetle/iroh-bitswap",
     "beetle/iroh-car",
-    "beetle/iroh-metrics",
     "beetle/iroh-rpc-client",
     "beetle/iroh-rpc-types",
     "beetle/iroh-util",
@@ -51,6 +51,7 @@ ceramic-api-server = { path = "./api-server" }
 ceramic-core = { path = "./core" }
 ceramic-kubo-rpc-server = { path = "./kubo-rpc-server" }
 ceramic-metadata = { path = "./metadata" }
+ceramic-metrics = { path = "./metrics" }
 ceramic-one = { path = "./one" }
 ceramic-p2p = { path = "./p2p" }
 cid = { version = "0.10", features = ["serde-codec"] }
@@ -86,7 +87,6 @@ indicatif = "0.17.1"
 integer-encoding = "3.0"
 iroh-bitswap = { path = "./beetle/iroh-bitswap" }
 iroh-car = { path = "./beetle/iroh-car" }
-iroh-metrics = { path = "./beetle/iroh-metrics" }
 iroh-p2p = { version = "0.2.0", path = "./beetle/iroh-p2p" }
 iroh-rpc-client = { path = "./beetle/iroh-rpc-client" }
 iroh-rpc-types = { path = "./beetle/iroh-rpc-types" }

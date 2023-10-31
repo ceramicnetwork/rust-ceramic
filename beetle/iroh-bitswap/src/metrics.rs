@@ -1,4 +1,4 @@
-use iroh_metrics::config::Config as MetricsConfig;
+use ceramic_metrics::config::Config as MetricsConfig;
 
 pub fn metrics_config_with_compile_time_info(cfg: MetricsConfig) -> MetricsConfig {
     // compile time configuration

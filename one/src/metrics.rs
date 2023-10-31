@@ -163,7 +163,7 @@ impl Recorder<TipLoadResult> for Metrics {
 }
 
 async fn handle(_req: Request<Body>) -> Result<Response<Body>, Infallible> {
-    let data = iroh_metrics::MetricsHandle::encode();
+    let data = ceramic_metrics::MetricsHandle::encode();
     let mut resp = Response::new(Body::from(data));
     resp.headers_mut().insert(
         "Content-Type",

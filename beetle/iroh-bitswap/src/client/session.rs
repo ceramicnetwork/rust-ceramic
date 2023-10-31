@@ -2,9 +2,9 @@ use std::{ops::Deref, pin::Pin, sync::Arc, time::Duration};
 
 use ahash::AHashSet;
 use anyhow::{anyhow, ensure, Result};
+use ceramic_metrics::{bitswap::BitswapMetrics, core::MRecorder, inc, record};
 use cid::Cid;
 use futures::{future, stream, StreamExt};
-use iroh_metrics::{bitswap::BitswapMetrics, core::MRecorder, inc, record};
 use libp2p::PeerId;
 use tokio::{
     sync::oneshot,
