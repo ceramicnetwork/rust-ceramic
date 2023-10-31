@@ -109,7 +109,7 @@ struct DaemonOpts {
     #[arg(long, default_value_t = false, env = "CERAMIC_ONE_RECON")]
     recon: bool,
 
-    /// Specify the format of log events
+    /// Specify the format of log events.
     #[arg(long, default_value = "multi-line", env = "CERAMIC_ONE_LOG_FORMAT")]
     log_format: LogFormat,
 }
@@ -160,8 +160,8 @@ struct EyeOpts {
     daemon: DaemonOpts,
 }
 
-#[tokio::main(flavor = "multi_thread")]
-async fn main() -> Result<()> {
+/// Run the ceramic one binary process
+pub async fn run() -> Result<()> {
     let args = Cli::parse();
     match args.command {
         Command::Daemon(opts) => {
@@ -196,21 +196,25 @@ impl Daemon {
     async fn build(opts: DaemonOpts) -> Result<Self> {
         let network = opts.network.to_network(&opts.local_network_id)?;
 
-        let mut metrics_config = MetricsConfig::default();
-        metrics_config = metrics_config_with_compile_time_info(metrics_config);
-        metrics_config.collect = opts.metrics;
-        // Do not push metrics to any endpoint.
-        metrics_config.export = false;
-        metrics_config.tracing = opts.tracing;
-        metrics_config.log_format = match opts.log_format {
-            LogFormat::SingleLine => iroh_metrics::config::LogFormat::SingleLine,
-            LogFormat::MultiLine => iroh_metrics::config::LogFormat::MultiLine,
-            LogFormat::Json => iroh_metrics::config::LogFormat::Json,
-        };
-        let service_name = metrics_config.service_name.clone();
-        let instance_id = metrics_config.instance_id.clone();
+        let info = Info::default();
 
-        let metrics = iroh_metrics::MetricsHandle::register(crate::metrics::Metrics::new);
+        let mut metrics_config = MetricsConfig {
+            collect: opts.metrics,
+            // Do not push metrics to any endpoint.
+            export: false,
+            tracing: opts.tracing,
+            log_format: match opts.log_format {
+                LogFormat::SingleLine => iroh_metrics::config::LogFormat::SingleLine,
+                LogFormat::MultiLine => iroh_metrics::config::LogFormat::MultiLine,
+                LogFormat::Json => iroh_metrics::config::LogFormat::Json,
+            },
+            ..Default::default()
+        };
+        info.apply_to_metrics_config(&mut metrics_config);
+
+        let metrics = iroh_metrics::MetricsHandle::register(|registry| {
+            crate::metrics::Metrics::register(info.clone(), registry)
+        });
         let metrics = Arc::new(metrics);
 
         // Logging Tracing and metrics are initialized here,
@@ -218,7 +222,12 @@ impl Daemon {
         let metrics_handle = iroh_metrics::MetricsHandle::new(metrics_config.clone())
             .await
             .expect("failed to initialize metrics");
-        info!(service_name, instance_id);
+        info!(
+            service__name = info.service_name,
+            version = info.version,
+            build = info.build,
+            instance_id = info.instance_id,
+        );
         debug!(?opts, "using daemon options");
 
         // 1 path from options
@@ -505,16 +514,39 @@ async fn load_tip<T: IpfsDep>(client: T, metrics: Arc<Metrics>, ipfs_path: &Ipfs
     metrics.record(&lr);
 }
 
-fn metrics_config_with_compile_time_info(cfg: MetricsConfig) -> MetricsConfig {
-    // compile time configuration
-    cfg.with_service_name(env!("CARGO_PKG_NAME").to_string())
-        .with_build(
-            git_version::git_version!(
+/// Static information about the current process.
+#[derive(Debug, Clone)]
+pub struct Info {
+    /// Name of the service.
+    pub service_name: String,
+    /// Semantic version of the build.
+    pub version: String,
+    /// Description of git commit.
+    pub build: String,
+    /// Unique name generated for this invocation of the process.
+    pub instance_id: String,
+}
+
+impl Default for Info {
+    fn default() -> Self {
+        Self {
+            service_name: env!("CARGO_PKG_NAME").to_string(),
+            build: git_version::git_version!(
                 prefix = "git:",
                 cargo_prefix = "cargo:",
                 fallback = "unknown"
             )
             .to_string(),
-        )
-        .with_version(env!("CARGO_PKG_VERSION").to_string())
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            instance_id: names::Generator::default().next().unwrap(),
+        }
+    }
+}
+impl Info {
+    fn apply_to_metrics_config(&self, cfg: &mut MetricsConfig) {
+        cfg.service_name = self.service_name.clone();
+        cfg.version = self.version.clone();
+        cfg.build = self.build.clone();
+        cfg.instance_id = self.instance_id.clone();
+    }
 }

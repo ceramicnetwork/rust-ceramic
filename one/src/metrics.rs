@@ -8,9 +8,9 @@ use hyper::{
     Body, Request, Response,
 };
 use libp2p::metrics::Recorder;
-use prometheus_client::registry::Registry;
 use prometheus_client::{encoding::EncodeLabelSet, metrics::counter::Counter};
 use prometheus_client::{encoding::EncodeLabelValue, metrics::family::Family};
+use prometheus_client::{metrics::info::Info, registry::Registry};
 use tokio::{sync::oneshot, task::JoinHandle};
 
 use crate::pubsub;
@@ -45,6 +45,25 @@ pub enum TipLoadResult {
     Failure,
 }
 
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+struct InfoLabels {
+    service_name: String,
+    version: String,
+    build: String,
+    instance_id: String,
+}
+
+impl From<crate::Info> for InfoLabels {
+    fn from(info: crate::Info) -> Self {
+        Self {
+            service_name: info.service_name,
+            version: info.version,
+            build: info.build,
+            instance_id: info.instance_id,
+        }
+    }
+}
+
 pub struct Metrics {
     messages: Family<MsgLabels, Counter>,
     peers: Family<PeerLabels, Counter>,
@@ -52,7 +71,7 @@ pub struct Metrics {
 }
 
 impl Metrics {
-    pub fn new(registry: &mut Registry) -> Self {
+    pub fn register(info: crate::Info, registry: &mut Registry) -> Self {
         let sub_registry = registry.sub_registry_with_prefix("ceramic");
 
         let messages = Family::<MsgLabels, Counter>::default();
@@ -95,6 +114,9 @@ impl Metrics {
 
         let tip_loads = Family::<TipLoadLabels, Counter>::default();
         sub_registry.register("tip_loads", "Number tip loads", tip_loads.clone());
+
+        let info: Info<InfoLabels> = Info::new(info.into());
+        sub_registry.register("one", "Information about the ceramic-one process", info);
 
         Self {
             messages,
