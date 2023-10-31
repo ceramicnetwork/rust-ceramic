@@ -2,12 +2,12 @@ use std::{convert::Infallible, net::SocketAddr};
 
 use anyhow::Result;
 use ceramic_kubo_rpc::PeerId;
+use ceramic_metrics::Recorder;
 use hyper::{
     http::HeaderValue,
     service::{make_service_fn, service_fn},
     Body, Request, Response,
 };
-use libp2p::metrics::Recorder;
 use prometheus_client::{encoding::EncodeLabelSet, metrics::counter::Counter};
 use prometheus_client::{encoding::EncodeLabelValue, metrics::family::Family};
 use prometheus_client::{metrics::info::Info, registry::Registry};

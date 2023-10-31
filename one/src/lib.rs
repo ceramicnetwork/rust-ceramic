@@ -13,13 +13,12 @@ use anyhow::{anyhow, Result};
 use ceramic_core::{EventId, Interest, PeerId};
 use ceramic_kubo_rpc::{dag, IpfsDep, IpfsPath, Multiaddr};
 
-use ceramic_metrics::{config::Config as MetricsConfig, MetricsHandle};
+use ceramic_metrics::{config::Config as MetricsConfig, MetricsHandle, Recorder};
 use ceramic_p2p::{load_identity, DiskStorage, Keychain, Libp2pConfig};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use futures::StreamExt;
 use futures_util::future;
 use libipld::json::DagJsonCodec;
-use libp2p::metrics::Recorder;
 use multibase::Base;
 use multihash::{Code, Hasher, Multihash, MultihashDigest};
 use recon::{FullInterests, Recon, ReconInterestProvider, SQLiteStore, Server, Sha256a};
@@ -362,6 +361,11 @@ impl Daemon {
             ceramic_api_server::context::MakeAddContext::<_, EmptyContext>::new(ceramic_service);
 
         let kubo_rpc_server = ceramic_kubo_rpc::http::Server::new(self.ipfs.api());
+        let kubo_rpc_metrics =
+            ceramic_metrics::MetricsHandle::register(ceramic_kubo_rpc::http::Metrics::register);
+        // Wrap server in metrics middleware
+        let kubo_rpc_server =
+            ceramic_kubo_rpc::http::MetricsMiddleware::new(kubo_rpc_server, kubo_rpc_metrics);
         let kubo_rpc_service = ceramic_kubo_rpc_server::server::MakeService::new(kubo_rpc_server);
         let kubo_rpc_service = MakeAllowAllAuthenticator::new(kubo_rpc_service, "");
         let kubo_rpc_service =

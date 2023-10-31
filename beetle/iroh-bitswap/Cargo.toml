@@ -20,7 +20,7 @@ async-stream.workspace = true
 async-trait.workspace = true
 asynchronous-codec.workspace = true
 bytes.workspace = true
-ceramic-metrics = { workspace = true, features = ["bitswap"] }
+ceramic-metrics.workspace = true
 cid.workspace = true
 deadqueue.workspace = true
 derivative.workspace = true

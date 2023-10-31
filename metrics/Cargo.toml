@@ -48,12 +48,7 @@ features = [
     "autonat",
     "tokio",
 ]
-optional = true
 
 [features]
-bitswap = []
-store = []
-p2p = ["libp2p"]
-
 # requires setting RUSTFLAGS="--cfg tokio_unstable"
 tokio-console = ["tokio/tracing", "console-subscriber"]
