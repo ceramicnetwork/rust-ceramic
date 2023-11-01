@@ -7,7 +7,7 @@ mod network;
 mod pubsub;
 mod sql;
 
-use std::{path::PathBuf, str::FromStr, sync::Arc, time::Duration};
+use std::{env, path::PathBuf, str::FromStr, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Result};
 use ceramic_core::{EventId, Interest, PeerId};
@@ -20,11 +20,13 @@ use futures_util::future;
 use iroh_metrics::{config::Config as MetricsConfig, MetricsHandle};
 use libipld::json::DagJsonCodec;
 use libp2p::metrics::Recorder;
+use multibase::Base;
+use multihash::{Code, Hasher, Multihash, MultihashDigest};
 use recon::{FullInterests, Recon, ReconInterestProvider, SQLiteStore, Server, Sha256a};
 use signal_hook::consts::signal::*;
 use signal_hook_tokio::Signals;
 use swagger::{auth::MakeAllowAllAuthenticator, EmptyContext};
-use tokio::{sync::oneshot, task, time::timeout};
+use tokio::{io::AsyncReadExt, sync::oneshot, task, time::timeout};
 use tracing::{debug, info, warn};
 
 use crate::{
@@ -196,7 +198,7 @@ impl Daemon {
     async fn build(opts: DaemonOpts) -> Result<Self> {
         let network = opts.network.to_network(&opts.local_network_id)?;
 
-        let info = Info::default();
+        let info = Info::new().await?;
 
         let mut metrics_config = MetricsConfig {
             collect: opts.metrics,
@@ -227,6 +229,7 @@ impl Daemon {
             version = info.version,
             build = info.build,
             instance_id = info.instance_id,
+            exe_hash = info.exe_hash,
         );
         debug!(?opts, "using daemon options");
 
@@ -525,11 +528,14 @@ pub struct Info {
     pub build: String,
     /// Unique name generated for this invocation of the process.
     pub instance_id: String,
+    /// Multibase encoded multihash of the current running executable.
+    pub exe_hash: String,
 }
 
-impl Default for Info {
-    fn default() -> Self {
-        Self {
+impl Info {
+    async fn new() -> Result<Self> {
+        let exe_hash = multibase::encode(Base::Base64Url, current_exe_hash().await?.to_bytes());
+        Ok(Self {
             service_name: env!("CARGO_PKG_NAME").to_string(),
             build: git_version::git_version!(
                 prefix = "git:",
@@ -539,14 +545,39 @@ impl Default for Info {
             .to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
             instance_id: names::Generator::default().next().unwrap(),
-        }
+            exe_hash,
+        })
     }
-}
-impl Info {
     fn apply_to_metrics_config(&self, cfg: &mut MetricsConfig) {
         cfg.service_name = self.service_name.clone();
         cfg.version = self.version.clone();
         cfg.build = self.build.clone();
         cfg.instance_id = self.instance_id.clone();
+    }
+}
+
+async fn current_exe_hash() -> Result<Multihash> {
+    if cfg!(debug_assertions) {
+        // Debug builds can be 1GB+, so do we not want to spend the time to hash them.
+        // Return a fake hash.
+        let mut hash = multihash::Identity256::default();
+        // Spells debugg when base64 url encoded with some leading padding.
+        hash.update(&[00, 117, 230, 238, 130]);
+        Ok(Code::Identity.wrap(hash.finalize())?)
+    } else {
+        let exe_path = env::current_exe()?;
+        let mut hasher = multihash::Sha2_256::default();
+        let mut f = tokio::fs::File::open(exe_path).await?;
+        let mut buffer = vec![0; 4096];
+
+        loop {
+            let bytes_read = f.read(&mut buffer[..]).await?;
+            if bytes_read == 0 {
+                break;
+            }
+            hasher.update(&buffer[..bytes_read]);
+        }
+        let hash = hasher.finalize();
+        Ok(Code::Sha2_256.wrap(hash)?)
     }
 }

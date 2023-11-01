@@ -1200,6 +1200,8 @@ dependencies = [
  "libipld 0.16.0",
  "libp2p",
  "multiaddr",
+ "multibase 0.9.1",
+ "multihash 0.18.1",
  "names",
  "prometheus-client",
  "recon",
