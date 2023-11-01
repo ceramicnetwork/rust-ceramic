@@ -2,7 +2,9 @@ use std::{fmt::Debug, sync::Arc};
 
 use ahash::{AHashMap, AHashSet};
 use anyhow::{Context, Result};
-use ceramic_metrics::{bitswap::BitswapMetrics, core::MRecorder, inc};
+#[allow(deprecated)]
+use ceramic_metrics::core::MRecorder;
+use ceramic_metrics::{bitswap::BitswapMetrics, inc};
 use cid::Cid;
 use derivative::Derivative;
 use futures::{future::BoxFuture, FutureExt};

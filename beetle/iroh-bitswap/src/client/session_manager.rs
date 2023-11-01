@@ -8,7 +8,9 @@ use std::{
 
 use ahash::AHashMap;
 use anyhow::{anyhow, Result};
-use ceramic_metrics::{bitswap::BitswapMetrics, core::MRecorder, inc};
+#[allow(deprecated)]
+use ceramic_metrics::core::MRecorder;
+use ceramic_metrics::{bitswap::BitswapMetrics, inc};
 use cid::Cid;
 use futures::FutureExt;
 use libp2p::PeerId;

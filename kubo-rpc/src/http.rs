@@ -5,9 +5,7 @@ mod stream_drop;
 
 pub use metrics::{api::MetricsMiddleware, Metrics};
 
-use std::{
-    collections::HashSet, io::Cursor, marker::PhantomData, str::FromStr, sync::Arc, time::Duration,
-};
+use std::{collections::HashSet, io::Cursor, marker::PhantomData, str::FromStr, time::Duration};
 
 use anyhow::anyhow;
 use async_trait::async_trait;

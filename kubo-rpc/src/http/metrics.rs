@@ -2,7 +2,7 @@ pub mod api;
 
 use std::time::Duration;
 
-use ceramic_kubo_rpc_server::{Api, API_VERSION, BASE_PATH};
+use ceramic_kubo_rpc_server::{API_VERSION, BASE_PATH};
 use ceramic_metrics::Recorder;
 use prometheus_client::{
     encoding::EncodeLabelSet,
@@ -34,6 +34,7 @@ struct InfoLabels {
 }
 
 impl Metrics {
+    /// Register and construct Metrics
     pub fn register(registry: &mut Registry) -> Self {
         let sub_registry = registry.sub_registry_with_prefix("kubo_rpc");
 

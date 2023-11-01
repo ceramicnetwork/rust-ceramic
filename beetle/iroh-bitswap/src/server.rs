@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
-use ceramic_metrics::bitswap::BitswapMetrics;
+#[allow(deprecated)]
 use ceramic_metrics::core::MRecorder;
-use ceramic_metrics::inc;
+use ceramic_metrics::{bitswap::BitswapMetrics, inc};
 use cid::Cid;
 use futures::future::BoxFuture;
 use futures::FutureExt;
