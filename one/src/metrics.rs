@@ -51,6 +51,7 @@ struct InfoLabels {
     version: String,
     build: String,
     instance_id: String,
+    exe_hash: String,
 }
 
 impl From<crate::Info> for InfoLabels {
@@ -60,6 +61,7 @@ impl From<crate::Info> for InfoLabels {
             version: info.version,
             build: info.build,
             instance_id: info.instance_id,
+            exe_hash: info.exe_hash,
         }
     }
 }
@@ -163,8 +165,11 @@ impl Recorder<TipLoadResult> for Metrics {
 async fn handle(_req: Request<Body>) -> Result<Response<Body>, Infallible> {
     let data = iroh_metrics::MetricsHandle::encode();
     let mut resp = Response::new(Body::from(data));
-    resp.headers_mut()
-        .insert("Content-Type", HeaderValue::from_static("text/plain"));
+    resp.headers_mut().insert(
+        "Content-Type",
+        // Use OpenMetrics content type so prometheus knows to parse it accordingly
+        HeaderValue::from_static("application/openmetrics-text"),
+    );
     Ok(resp)
 }
 

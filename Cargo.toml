@@ -105,7 +105,7 @@ minicbor = { version = "0.19.1", features = ["alloc", "std"] }
 mockall = "0.11.4"
 multiaddr = "0.18"
 multibase = "0.9"
-multihash = "0.18"
+multihash = { version = "0.18", features = ["identity"] }
 names = { version = "0.14.0", default-features = false }
 nix = "0.26"
 num_enum = "0.5.7"
@@ -199,6 +199,3 @@ authors = [
 ]
 license = "Apache-2.0/MIT"
 repository = "https://github.com/3box/rust-ceramic"
-
-#[patch.crates-io]
-#libp2p-metrics = { path = "../rust-libp2p/misc/metrics" }
