@@ -31,7 +31,6 @@ impl Config {
 
 /// Libp2p config for the node.
 #[derive(PartialEq, Eq, Debug, Clone, Deserialize, Serialize)]
-#[non_exhaustive]
 pub struct Libp2pConfig {
     /// External address.
     pub external_multiaddrs: Vec<Multiaddr>,
