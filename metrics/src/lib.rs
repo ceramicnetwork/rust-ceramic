@@ -1,3 +1,6 @@
+// Allow use of deprecated traits until we remove them.
+#![allow(deprecated)]
+
 #[macro_use]
 mod macros;
 pub mod bitswap;

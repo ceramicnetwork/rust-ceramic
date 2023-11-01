@@ -2,7 +2,9 @@ use std::{ops::Deref, pin::Pin, sync::Arc, time::Duration};
 
 use ahash::AHashSet;
 use anyhow::{anyhow, ensure, Result};
-use ceramic_metrics::{bitswap::BitswapMetrics, core::MRecorder, inc, record};
+#[allow(deprecated)]
+use ceramic_metrics::core::MRecorder;
+use ceramic_metrics::{bitswap::BitswapMetrics, inc, record};
 use cid::Cid;
 use futures::{future, stream, StreamExt};
 use libp2p::PeerId;

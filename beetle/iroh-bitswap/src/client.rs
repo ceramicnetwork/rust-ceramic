@@ -1,7 +1,8 @@
 use std::{sync::Arc, time::Duration};
 
-use ceramic_metrics::bitswap::BitswapMetrics;
-use ceramic_metrics::{core::MRecorder, inc, record};
+#[allow(deprecated)]
+use ceramic_metrics::core::MRecorder;
+use ceramic_metrics::{bitswap::BitswapMetrics, inc, record};
 
 use ahash::AHashSet;
 use anyhow::Result;

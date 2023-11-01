@@ -12,8 +12,9 @@ use std::time::Duration;
 use ahash::AHashMap;
 use anyhow::Result;
 use async_trait::async_trait;
-use ceramic_metrics::record;
-use ceramic_metrics::{bitswap::BitswapMetrics, core::MRecorder, inc};
+#[allow(deprecated)]
+use ceramic_metrics::core::MRecorder;
+use ceramic_metrics::{bitswap::BitswapMetrics, inc, record};
 use cid::Cid;
 use handler::{BitswapHandler, HandlerEvent};
 use libp2p::swarm::ConnectionId;

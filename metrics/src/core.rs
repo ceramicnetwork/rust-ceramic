@@ -79,16 +79,25 @@ impl Core {
     }
 }
 
+/// This trait is inefficient as we do string comparisons to find the right metrics to update.
+/// The [`Recorder`] trait in this crate is designed to allow for compile time lookup of the metric.
+/// New metrics systems should use that trait.
 #[deprecated = "use ceramic_metrics::Recorder instead"]
 pub trait MetricType {
     fn name(&self) -> &'static str;
 }
 
+/// This trait is inefficient as we do string comparisons to find the right metrics to update.
+/// The [`Recorder`] trait in this crate is designed to allow for compile time lookup of the metric.
+/// New metrics systems should use that trait.
 #[deprecated = "use ceramic_metrics::Recorder instead"]
 pub trait HistogramType {
     fn name(&self) -> &'static str;
 }
 
+/// This trait is inefficient as we do string comparisons to find the right metrics to update.
+/// The [`Recorder`] trait in this crate is designed to allow for compile time lookup of the metric.
+/// New metrics systems should use that trait.
 #[deprecated = "use ceramic_metrics::Recorder instead"]
 #[allow(deprecated)]
 pub trait MetricsRecorder {
@@ -100,11 +109,17 @@ pub trait MetricsRecorder {
         M: HistogramType + std::fmt::Display;
 }
 
+/// This trait is inefficient as we do string comparisons to find the right metrics to update.
+/// The [`Recorder`] trait in this crate is designed to allow for compile time lookup of the metric.
+/// New metrics systems should use that trait.
 #[deprecated = "use ceramic_metrics::Recorder instead"]
 pub trait MRecorder {
     fn record(&self, value: u64);
 }
 
+/// This trait is inefficient as we do string comparisons to find the right metrics to update.
+/// The [`Recorder`] trait in this crate is designed to allow for compile time lookup of the metric.
+/// New metrics systems should use that trait.
 #[deprecated = "use ceramic_metrics::Recorder instead"]
 pub trait MObserver {
     fn observe(&self, value: f64);

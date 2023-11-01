@@ -6,6 +6,7 @@ use std::{
 
 use ahash::AHashMap;
 use anyhow::{anyhow, Result};
+#[allow(deprecated)]
 use ceramic_metrics::core::MRecorder;
 use ceramic_metrics::{bitswap::BitswapMetrics, inc};
 use libp2p::PeerId;

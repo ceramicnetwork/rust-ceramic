@@ -7,8 +7,9 @@ use std::{
 };
 
 use anyhow::{anyhow, bail, Context as _, Result};
-use ceramic_metrics::{bitswap::BitswapMetrics, inc};
-use ceramic_metrics::{core::MRecorder, record};
+#[allow(deprecated)]
+use ceramic_metrics::core::MRecorder;
+use ceramic_metrics::{bitswap::BitswapMetrics, inc, record};
 use cid::Cid;
 use futures::Stream;
 use libp2p::{swarm::ConnectionId, PeerId};

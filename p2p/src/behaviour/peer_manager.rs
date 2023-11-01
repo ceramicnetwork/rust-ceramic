@@ -5,7 +5,9 @@ use std::{
 };
 
 use ahash::AHashMap;
-use ceramic_metrics::{core::MRecorder, inc, p2p::P2PMetrics};
+#[allow(deprecated)]
+use ceramic_metrics::core::MRecorder;
+use ceramic_metrics::{inc, p2p::P2PMetrics};
 use libp2p::{
     identify::Info as IdentifyInfo,
     swarm::{dummy, ConnectionId, DialError, NetworkBehaviour, PollParameters},

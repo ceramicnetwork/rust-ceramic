@@ -4,6 +4,7 @@ use std::any::Any;
 #[macro_export]
 macro_rules! record {
     ( $e:expr, $v:expr) => {
+        #[allow(deprecated)]
         $e.record($v);
     };
 }
@@ -11,6 +12,7 @@ macro_rules! record {
 #[macro_export]
 macro_rules! inc {
     ( $e:expr) => {
+        #[allow(deprecated)]
         $e.record(1);
     };
 }
@@ -18,6 +20,7 @@ macro_rules! inc {
 #[macro_export]
 macro_rules! observe {
     ( $e:expr, $v:expr) => {
+        #[allow(deprecated)]
         $e.observe($v);
     };
 }

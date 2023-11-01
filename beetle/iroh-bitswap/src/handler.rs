@@ -6,7 +6,9 @@ use std::{
 };
 
 use asynchronous_codec::Framed;
-use ceramic_metrics::{bitswap::BitswapMetrics, core::MRecorder, inc};
+#[allow(deprecated)]
+use ceramic_metrics::core::MRecorder;
+use ceramic_metrics::{bitswap::BitswapMetrics, inc};
 use futures::StreamExt;
 use futures::{
     prelude::*,

@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use async_trait::async_trait;
 use ceramic_kubo_rpc_server::{
     models, Api, BlockGetPostResponse, BlockPutPostResponse, BlockStatPostResponse,

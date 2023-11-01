@@ -6,6 +6,7 @@ use std::{
 
 use ahash::{AHashMap, AHashSet};
 use anyhow::Result;
+#[allow(deprecated)]
 use ceramic_metrics::core::MRecorder;
 use ceramic_metrics::{bitswap::BitswapMetrics, inc};
 use cid::Cid;

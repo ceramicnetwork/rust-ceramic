@@ -8,7 +8,9 @@ use std::{sync::atomic::Ordering, time::Duration};
 use ahash::AHashMap;
 use anyhow::{anyhow, bail, Context, Result};
 use ceramic_core::{EventId, Interest};
-use ceramic_metrics::{core::MRecorder, inc, libp2p_metrics, p2p::P2PMetrics};
+#[allow(deprecated)]
+use ceramic_metrics::core::MRecorder;
+use ceramic_metrics::{inc, libp2p_metrics, p2p::P2PMetrics};
 use cid::Cid;
 use futures_util::stream::StreamExt;
 use iroh_bitswap::{BitswapEvent, Block};
