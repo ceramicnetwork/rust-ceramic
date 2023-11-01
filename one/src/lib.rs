@@ -60,6 +60,7 @@ struct DaemonOpts {
         env = "CERAMIC_ONE_BIND_ADDRESS"
     )]
     bind_address: String,
+
     /// Listen address of the p2p swarm.
     #[arg(
         long,
@@ -69,18 +70,11 @@ struct DaemonOpts {
         env = "CERAMIC_ONE_SWARM_ADDRESSES"
     )]
     swarm_addresses: Vec<String>,
-    /// Address of bootstrap peers.
-    /// There are no default address, use this arg or the API to connect to bootstrap peers as needed.
-    #[arg(
-        long,
-        use_value_delimiter = true,
-        value_delimiter = ',',
-        env = "CERAMIC_ONE_BOOTSTRAP_ADDRESSES"
-    )]
-    bootstrap_addresses: Vec<String>,
+
     /// Path to storage directory
     #[arg(short, long, env = "CERAMIC_ONE_STORE_DIR")]
     store_dir: Option<PathBuf>,
+
     /// Bind address of the metrics endpoint.
     #[arg(
         short,
@@ -89,12 +83,15 @@ struct DaemonOpts {
         env = "CERAMIC_ONE_METRICS_BIND_ADDRESS"
     )]
     metrics_bind_address: String,
+
     /// When true metrics will be exported
     #[arg(long, default_value_t = false, env = "CERAMIC_ONE_METRICS")]
     metrics: bool,
+
     /// When true traces will be exported
     #[arg(long, default_value_t = false, env = "CERAMIC_ONE_TRACING")]
     tracing: bool,
+
     /// Unique key used to find other Ceramic peers via the DHT
     #[arg(long, default_value = "testnet-clay", env = "CERAMIC_ONE_NETWORK")]
     network: Network,
@@ -153,6 +150,34 @@ impl Network {
             ),
             Network::InMemory => ceramic_core::Network::InMemory,
         })
+    }
+
+    /// bootstrap peers for Mainnet, TestnetClay, and DevUnstable
+    /// should be kept in sync with js-ceramic.
+    /// https://github.com/ceramicnetwork/js-ceramic/blob/develop/packages/ipfs-topology/src/ipfs-topology.ts
+    fn bootstrap_addresses(&self) -> Vec<Multiaddr> {
+        match self {
+            Network::Mainnet => vec![
+                "/dns4/go-ipfs-ceramic-private-mainnet-external.3boxlabs.com/tcp/4011/ws/p2p/QmXALVsXZwPWTUbsT8G6VVzzgTJaAWRUD7FWL5f7d5ubAL".to_string(), // cspell:disable-line
+                "/dns4/go-ipfs-ceramic-private-cas-mainnet-external.3boxlabs.com/tcp/4011/ws/p2p/QmUvEKXuorR7YksrVgA7yKGbfjWHuCRisw2cH9iqRVM9P8".to_string(), // cspell:disable-line
+            ],
+            Network::TestnetClay => vec![
+                "/dns4/go-ipfs-ceramic-public-clay-external.3boxlabs.com/tcp/4011/ws/p2p/QmWiY3CbNawZjWnHXx3p3DXsg21pZYTj4CRY1iwMkhP8r3".to_string(), // cspell:disable-line
+                "/dns4/go-ipfs-ceramic-private-clay-external.3boxlabs.com/tcp/4011/ws/p2p/QmQotCKxiMWt935TyCBFTN23jaivxwrZ3uD58wNxeg5npi".to_string(), // cspell:disable-line
+                "/dns4/go-ipfs-ceramic-private-cas-clay-external.3boxlabs.com/tcp/4011/ws/p2p/QmbeBTzSccH8xYottaYeyVX8QsKyox1ExfRx7T1iBqRyCd".to_string(), // cspell:disable-line
+            ],
+            Network::DevUnstable => vec![
+                "/dns4/go-ipfs-ceramic-public-qa-external.3boxlabs.com/tcp/4011/ws/p2p/QmPP3RdaSWDkhcxZReGo591FWanLw9ucvgmUZhtSLt9t6D".to_string(),  // cspell:disable-line
+                "/dns4/go-ipfs-ceramic-private-qa-external.3boxlabs.com/tcp/4011/ws/p2p/QmXcmXfLkkaGbQdj98cgGvHr5gkwJp4r79j9xbJajsoYHr".to_string(),  // cspell:disable-line
+                "/dns4/go-ipfs-ceramic-private-cas-qa-external.3boxlabs.com/tcp/4011/ws/p2p/QmRvJ4HX4N6H26NgtqjoJEUyaDyDRUhGESP1aoyCJE1X1b".to_string(),  // cspell:disable-line
+            ],
+            Network::Local => vec![],
+            Network::InMemory => vec![],
+        }
+        .iter()
+        .map(|addr| addr.parse())
+        .collect::<Result<Vec<Multiaddr>, multiaddr::Error>>()
+        .expect("hard coded bootstrap addresses should parse")
     }
 }
 
@@ -256,12 +281,7 @@ impl Daemon {
         p2p_config.gossipsub = true;
         p2p_config.max_conns_out = 2000;
         p2p_config.max_conns_in = 2000;
-        p2p_config.bootstrap_peers = opts
-            .bootstrap_addresses
-            .iter()
-            .map(|addr| addr.parse())
-            .collect::<Result<Vec<Multiaddr>, multiaddr::Error>>()?;
-
+        p2p_config.bootstrap_peers = opts.network.bootstrap_addresses();
         p2p_config.listening_multiaddrs = opts
             .swarm_addresses
             .iter()
