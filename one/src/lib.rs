@@ -96,7 +96,7 @@ struct DaemonOpts {
     #[arg(long, default_value = "testnet-clay", env = "CERAMIC_ONE_NETWORK")]
     network: Network,
 
-    /// Unique key used to find other Ceramic peers via the DHT
+    /// Unique id when the network type is 'local'.
     #[arg(long, env = "CERAMIC_ONE_LOCAL_NETWORK_ID")]
     local_network_id: Option<u32>,
 
@@ -111,6 +111,35 @@ struct DaemonOpts {
     /// Specify the format of log events.
     #[arg(long, default_value = "multi-line", env = "CERAMIC_ONE_LOG_FORMAT")]
     log_format: LogFormat,
+
+    /// Specify maximum established outgoing connections.
+    #[arg(long, default_value_t = 2000, env = "CERAMIC_ONE_MAX_CONNS_OUT")]
+    max_conns_out: u32,
+
+    /// Specify maximum established incoming connections.
+    #[arg(long, default_value_t = 2000, env = "CERAMIC_ONE_MAX_CONNS_IN")]
+    max_conns_in: u32,
+
+    /// Specify maximum pending outgoing connections.
+    #[arg(long, default_value_t = 256, env = "CERAMIC_ONE_MAX_CONNS_PENDING_OUT")]
+    max_conns_pending_out: u32,
+
+    /// Specify maximum pending incoming connections.
+    #[arg(long, default_value_t = 256, env = "CERAMIC_ONE_MAX_CONNS_PENDING_IN")]
+    max_conns_pending_in: u32,
+
+    /// Specify maximum established connections per peer regardless of direction (incoming or
+    /// outgoing).
+    #[arg(long, default_value_t = 8, env = "CERAMIC_ONE_MAX_CONNS_PER_PEER")]
+    max_conns_per_peer: u32,
+
+    /// Specify idle connection timeout in milliseconds.
+    #[arg(
+        long,
+        default_value_t = 30000,
+        env = "CERAMIC_ONE_IDLE_CONNS_TIMEOUT_MS"
+    )]
+    idle_conns_timeout_ms: u64,
 }
 
 #[derive(ValueEnum, Debug, Clone, Default)]
@@ -270,23 +299,29 @@ impl Daemon {
         };
         debug!("using directory: {}", dir.display());
 
-        let mut p2p_config = Libp2pConfig::default();
-        p2p_config.mdns = opts.mdns;
-        p2p_config.bitswap_server = true;
-        p2p_config.bitswap_client = true;
-        p2p_config.kademlia = true;
-        p2p_config.autonat = true;
-        p2p_config.relay_server = true;
-        p2p_config.relay_client = true;
-        p2p_config.gossipsub = true;
-        p2p_config.max_conns_out = 2000;
-        p2p_config.max_conns_in = 2000;
-        p2p_config.bootstrap_peers = opts.network.bootstrap_addresses();
-        p2p_config.listening_multiaddrs = opts
-            .swarm_addresses
-            .iter()
-            .map(|addr| addr.parse())
-            .collect::<Result<Vec<Multiaddr>, multiaddr::Error>>()?;
+        let p2p_config = Libp2pConfig {
+            mdns: opts.mdns,
+            bitswap_server: true,
+            bitswap_client: true,
+            kademlia: true,
+            autonat: true,
+            relay_server: true,
+            relay_client: true,
+            gossipsub: true,
+            max_conns_out: opts.max_conns_out,
+            max_conns_in: opts.max_conns_in,
+            max_conns_pending_out: opts.max_conns_pending_out,
+            max_conns_pending_in: opts.max_conns_pending_in,
+            max_conns_per_peer: opts.max_conns_per_peer,
+            idle_connection_timeout: Duration::from_millis(opts.idle_conns_timeout_ms),
+            bootstrap_peers: opts.network.bootstrap_addresses(),
+            listening_multiaddrs: opts
+                .swarm_addresses
+                .iter()
+                .map(|addr| addr.parse())
+                .collect::<Result<Vec<Multiaddr>, multiaddr::Error>>()?,
+            ..Default::default()
+        };
         debug!(?p2p_config, "using p2p config");
 
         // Load p2p identity
