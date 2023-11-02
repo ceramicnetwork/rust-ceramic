@@ -141,11 +141,13 @@ where
             };
             let store = MemoryStore::with_config(peer_id, mem_store_config);
 
-            // TODO: make user configurable
             let mut kad_config = kad::Config::default();
-            kad_config.set_parallelism(16usize.try_into().unwrap());
-            // TODO: potentially lower (this is per query)
-            kad_config.set_query_timeout(Duration::from_secs(60));
+            kad_config.set_replication_factor(config.kademlia_replication_factor);
+            kad_config.set_parallelism(config.kademlia_parallelism);
+            kad_config.set_query_timeout(config.kademlia_query_timeout);
+            kad_config.set_provider_record_ttl(config.kademlia_provider_record_ttl);
+            kad_config
+                .set_provider_publication_interval(config.kademlia_provider_publication_interval);
 
             let mut kademlia = kad::Behaviour::with_config(pub_key.to_peer_id(), store, kad_config);
             for multiaddr in &config.bootstrap_peers {
