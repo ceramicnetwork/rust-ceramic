@@ -20,6 +20,12 @@ struct RequestLabels {
     path: &'static str,
 }
 
+impl From<&Event> for RequestLabels {
+    fn from(value: &Event) -> Self {
+        Self { path: value.path }
+    }
+}
+
 /// Metrics for Kubo RPC API
 #[derive(Clone)]
 pub struct Metrics {
@@ -70,7 +76,7 @@ pub struct Event {
 
 impl Recorder<Event> for Metrics {
     fn record(&self, event: &Event) {
-        let labels = RequestLabels { path: event.path };
+        let labels: RequestLabels = event.into();
         self.requests.get_or_create(&labels).inc();
         self.request_durations
             .get_or_create(&labels)

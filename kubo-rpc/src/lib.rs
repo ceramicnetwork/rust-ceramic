@@ -35,12 +35,16 @@ pub use libipld::Ipld;
 pub use libp2p::Multiaddr;
 pub use libp2p_identity::PeerId;
 
+// TODO(WS1-1310): Refactor Ipfs out of KuboRpc so we do not have these prefixed types.
+pub use ipfs_metrics::{IpfsMetrics, IpfsMetricsMiddleware};
+
 pub mod block;
 pub mod dag;
 pub mod error;
 #[cfg(feature = "http")]
 pub mod http;
 pub mod id;
+mod ipfs_metrics;
 pub mod pin;
 pub mod pubsub;
 pub mod swarm;

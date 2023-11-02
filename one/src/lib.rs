@@ -354,10 +354,12 @@ impl Daemon {
         } else {
             None
         };
+        let ipfs_metrics =
+            ceramic_metrics::MetricsHandle::register(ceramic_kubo_rpc::IpfsMetrics::register);
         let ipfs = Ipfs::builder()
             .with_p2p(p2p_config, keypair, recons, sql_pool.clone())
             .await?
-            .build(sql_pool.clone())
+            .build(sql_pool.clone(), ipfs_metrics)
             .await?;
 
         Ok(Daemon {
