@@ -7,7 +7,7 @@ mod network;
 mod pubsub;
 mod sql;
 
-use std::{env, path::PathBuf, str::FromStr, sync::Arc, time::Duration};
+use std::{env, num::NonZeroUsize, path::PathBuf, str::FromStr, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Result};
 use ceramic_core::{EventId, Interest, PeerId};
@@ -112,11 +112,11 @@ struct DaemonOpts {
     log_format: LogFormat,
 
     /// Specify maximum established outgoing connections.
-    #[arg(long, default_value_t = 2000, env = "CERAMIC_ONE_MAX_CONNS_OUT")]
+    #[arg(long, default_value_t = 2_000, env = "CERAMIC_ONE_MAX_CONNS_OUT")]
     max_conns_out: u32,
 
     /// Specify maximum established incoming connections.
-    #[arg(long, default_value_t = 2000, env = "CERAMIC_ONE_MAX_CONNS_IN")]
+    #[arg(long, default_value_t = 2_000, env = "CERAMIC_ONE_MAX_CONNS_IN")]
     max_conns_in: u32,
 
     /// Specify maximum pending outgoing connections.
@@ -135,10 +135,55 @@ struct DaemonOpts {
     /// Specify idle connection timeout in milliseconds.
     #[arg(
         long,
-        default_value_t = 30000,
+        default_value_t = 30_000,
         env = "CERAMIC_ONE_IDLE_CONNS_TIMEOUT_MS"
     )]
     idle_conns_timeout_ms: u64,
+
+    /// Sets to how many closest peers a record is replicated.
+    #[arg(long, default_value_t = NonZeroUsize::new(20).expect("> 0"), env = "CERAMIC_ONE_KADEMLIA_REPLICATION")]
+    kademlia_replication: NonZeroUsize,
+
+    /// Sets the allowed level of parallelism for iterative queries.
+    #[arg(long, default_value_t = NonZeroUsize::new(16).expect("> 0"), env = "CERAMIC_ONE_KADEMLIA_PARALLELISM")]
+    kademlia_parallelism: NonZeroUsize,
+
+    /// Sets the timeout in seconds for a single query.
+    ///
+    /// **Note**: A single query usually comprises at least as many requests
+    /// as the replication factor, i.e. this is not a request timeout.
+    #[arg(
+        long,
+        default_value_t = 60,
+        env = "CERAMIC_ONE_KADEMLIA_QUERY_TIMEOUT_SECS"
+    )]
+    kademlia_query_timeout_secs: u64,
+
+    /// Sets the interval in seconds at which provider records for keys provided
+    /// by the local node are re-published.
+    ///
+    /// `0` means that stored provider records are never automatically
+    /// re-published.
+    ///
+    /// Must be significantly less than the provider record TTL.
+    #[arg(
+        long,
+        default_value_t = 12 * 60 * 60,
+        env = "CERAMIC_ONE_KADEMLIA_PROVIDER_PUBLICATION_INTERVAL_SECS"
+    )]
+    kademlia_provider_publication_interval_secs: u64,
+
+    /// Sets the TTL in seconds for provider records.
+    ///
+    /// `0` means that stored provider records never expire.
+    ///
+    /// Must be significantly larger than the provider publication interval.
+    #[arg(
+        long,
+        default_value_t = 24 * 60 * 60,
+        env = "CERAMIC_ONE_KADEMLIA_PROVIDER_RECORD_TTL_SECS"
+    )]
+    kademlia_provider_record_ttl_secs: u64,
 }
 
 #[derive(ValueEnum, Debug, Clone, Default)]
@@ -319,6 +364,24 @@ impl Daemon {
                 .iter()
                 .map(|addr| addr.parse())
                 .collect::<Result<Vec<Multiaddr>, multiaddr::Error>>()?,
+            kademlia_replication_factor: opts.kademlia_replication,
+            kademlia_parallelism: opts.kademlia_parallelism,
+            kademlia_query_timeout: Duration::from_secs(opts.kademlia_query_timeout_secs),
+            kademlia_provider_publication_interval: if opts
+                .kademlia_provider_publication_interval_secs
+                == 0
+            {
+                None
+            } else {
+                Some(Duration::from_secs(
+                    opts.kademlia_provider_publication_interval_secs,
+                ))
+            },
+            kademlia_provider_record_ttl: if opts.kademlia_provider_record_ttl_secs == 0 {
+                None
+            } else {
+                Some(Duration::from_secs(opts.kademlia_provider_record_ttl_secs))
+            },
             ..Default::default()
         };
         debug!(?p2p_config, "using p2p config");

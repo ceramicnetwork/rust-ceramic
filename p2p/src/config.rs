@@ -68,6 +68,41 @@ pub struct Libp2pConfig {
     /// NOTE: It is generally not safe to trust observed addresses received from arbitrary peers.
     /// Only enable this option if its known that all connecting peers can be trusted.
     pub trust_observed_addrs: bool,
+
+    /// Sets the kademlia  replication factor.
+    ///
+    /// The replication factor determines to how many closest peers
+    /// a record is replicated.
+    pub kademlia_replication_factor: NonZeroUsize,
+
+    /// Sets the allowed level of parallelism for iterative queries.
+    ///
+    /// The `α` parameter in the Kademlia paper. The maximum number of peers
+    /// that an iterative query is allowed to wait for in parallel while
+    /// iterating towards the closest nodes to a target.
+    pub kademlia_parallelism: NonZeroUsize,
+
+    /// Sets the timeout for a single query.
+    ///
+    /// > **Note**: A single query usually comprises at least as many requests
+    /// > as the replication factor, i.e. this is not a request timeout.
+    pub kademlia_query_timeout: Duration,
+
+    /// Sets the interval at which provider records for keys provided
+    /// by the local node are re-published.
+    ///
+    /// `None` means that stored provider records are never automatically
+    /// re-published.
+    ///
+    /// Must be significantly less than the provider record TTL.
+    pub kademlia_provider_publication_interval: Option<Duration>,
+
+    /// Sets the TTL for provider records.
+    ///
+    /// `None` means that stored provider records never expire.
+    ///
+    /// Must be significantly larger than the provider publication interval.
+    pub kademlia_provider_record_ttl: Option<Duration>,
 }
 
 impl Default for Libp2pConfig {
@@ -97,6 +132,11 @@ impl Default for Libp2pConfig {
             dial_concurrency_factor: NonZeroU8::new(8).expect("should not be zero"),
             idle_connection_timeout: Duration::from_secs(30),
             trust_observed_addrs: false,
+            kademlia_replication_factor: NonZeroUsize::new(20).expect("should not be zero"),
+            kademlia_parallelism: NonZeroUsize::new(16).expect("should not be zero"),
+            kademlia_query_timeout: Duration::from_secs(60),
+            kademlia_provider_publication_interval: Some(Duration::from_secs(12 * 60 * 60)),
+            kademlia_provider_record_ttl: Some(Duration::from_secs(24 * 60 * 60)),
         }
     }
 }
