@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use ceramic_core::{EventId, Interest};
-use ceramic_kubo_rpc::IpfsService;
+use ceramic_kubo_rpc::{IpfsMetrics, IpfsMetricsMiddleware, IpfsService};
 use ceramic_p2p::{Config as P2pConfig, Libp2pConfig, Node, SQLiteBlockStore};
 use iroh_rpc_client::P2pClient;
 use iroh_rpc_types::{p2p::P2pAddr, Addr};
@@ -69,12 +69,14 @@ impl Builder<Init> {
 
 /// Finish the build
 impl Builder<WithP2p> {
-    pub async fn build(self, sql_pool: SqlitePool) -> Result<Ipfs> {
+    pub async fn build(self, sql_pool: SqlitePool, ipfs_metrics: IpfsMetrics) -> Result<Ipfs> {
+        let ipfs_service = Arc::new(IpfsService::new(
+            P2pClient::new(self.state.p2p.addr.clone()).await?,
+            SQLiteBlockStore::new(sql_pool).await?,
+        ));
+        let ipfs_service = IpfsMetricsMiddleware::new(ipfs_service, ipfs_metrics);
         Ok(Ipfs {
-            api: Arc::new(IpfsService::new(
-                P2pClient::new(self.state.p2p.addr.clone()).await?,
-                SQLiteBlockStore::new(sql_pool).await?,
-            )),
+            api: ipfs_service,
             p2p: self.state.p2p,
         })
     }
@@ -82,7 +84,7 @@ impl Builder<WithP2p> {
 
 // Provides Ipfs node implementation
 pub struct Ipfs {
-    api: Arc<IpfsService>,
+    api: IpfsMetricsMiddleware<Arc<IpfsService>>,
     p2p: Service<P2pAddr>,
 }
 
@@ -90,7 +92,7 @@ impl Ipfs {
     pub fn builder() -> Builder<Init> {
         Builder { state: Init {} }
     }
-    pub fn api(&self) -> Arc<IpfsService> {
+    pub fn api(&self) -> IpfsMetricsMiddleware<Arc<IpfsService>> {
         self.api.clone()
     }
     pub async fn stop(self) -> Result<()> {
