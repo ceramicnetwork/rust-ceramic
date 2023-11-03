@@ -268,16 +268,19 @@ impl IpfsDep for Arc<IpfsService> {
     }
     #[instrument(skip(self, blob))]
     async fn put(&self, cid: Cid, blob: Bytes, links: Vec<Cid>) -> Result<(), Error> {
-        // Advertise we provide the content
-        self.p2p
-            .start_providing(&cid)
-            .await
-            .map_err(Error::Internal)?;
-        Ok(self
+        if self
             .store
             .put(cid, blob, links)
             .await
-            .map_err(Error::Internal)?)
+            .map_err(Error::Internal)?
+        {
+            // We have a new block, advertise we provide the content.
+            self.p2p
+                .start_providing(&cid)
+                .await
+                .map_err(Error::Internal)?;
+        }
+        Ok(())
     }
     #[instrument(skip(self))]
     async fn resolve(&self, ipfs_path: &IpfsPath) -> Result<(Cid, String), Error> {

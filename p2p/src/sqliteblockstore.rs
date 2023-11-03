@@ -65,7 +65,8 @@ impl SQLiteBlockStore {
     }
 
     /// Store a DAG node into IPFS.
-    pub async fn put(&self, cid: Cid, blob: Bytes, _links: Vec<Cid>) -> Result<()> {
+    /// Reports true when the block does not previously exist in the store.
+    pub async fn put(&self, cid: Cid, blob: Bytes, _links: Vec<Cid>) -> Result<bool> {
         let hash = match cid.hash().code() {
             0x12 => Sha2_256.digest(&blob),
             0x1b => Keccak256.digest(&blob),
@@ -85,12 +86,16 @@ impl SQLiteBlockStore {
             ));
         }
 
-        sqlx::query("INSERT OR IGNORE INTO blocks (multihash, bytes) VALUES (?, ?)")
+        match sqlx::query("INSERT INTO blocks (multihash, bytes) VALUES (?, ?)")
             .bind(cid.hash().to_bytes())
             .bind(blob.to_vec())
             .execute(&self.pool)
-            .await?;
-        Ok(())
+            .await
+        {
+            Ok(_) => Ok(true),
+            Err(sqlx::Error::Database(db_err)) if db_err.is_unique_violation() => Ok(false),
+            Err(err) => Err(err.into()),
+        }
     }
 
     /// merge_from_sqlite takes the filepath to a sqlite file.
@@ -186,7 +191,8 @@ mod tests {
         let store: SQLiteBlockStore = SQLiteBlockStore::new(pool).await.unwrap();
 
         let result = store.put(cid, blob, vec![]).await;
-        result.unwrap();
+        // Assert that the block is new
+        assert!(result.unwrap());
 
         let has: Result<bool, Error> = Store::has(&store, &cid).await;
         expect![["true"]].assert_eq(&has.unwrap().to_string());
@@ -210,11 +216,13 @@ mod tests {
         let store: SQLiteBlockStore = SQLiteBlockStore::new(pool).await.unwrap();
 
         let result = store.put(cid, blob.clone(), vec![]).await;
-        result.unwrap();
+        // Assert that the block is new
+        assert!(result.unwrap());
 
         // Try to put the block again
         let result = store.put(cid, blob, vec![]).await;
-        result.unwrap();
+        // Assert that the block already existed
+        assert!(!result.unwrap());
 
         let has: Result<bool, Error> = Store::has(&store, &cid).await;
         expect![["true"]].assert_eq(&has.unwrap().to_string());
