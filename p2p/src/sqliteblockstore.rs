@@ -250,7 +250,7 @@ mod tests {
         expect![["7"]].assert_eq(&size.unwrap().to_string());
 
         let block = Store::get(&store, &cid).await.unwrap();
-        expect!["bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom"]
+        expect!["bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom"] // cspell:disable-line
             .assert_eq(&block.cid().to_string());
         expect![["0A050001020304"]].assert_eq(&hex::encode_upper(block.data()));
     }
@@ -280,13 +280,13 @@ mod tests {
         expect![["7"]].assert_eq(&size.unwrap().to_string());
 
         let block = Store::get(&store, &cid).await.unwrap();
-        expect!["bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom"]
+        expect!["bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom"] // cspell:disable-line
             .assert_eq(&block.cid().to_string());
         expect![["0A050001020304"]].assert_eq(&hex::encode_upper(block.data()));
     }
 
     #[tokio::test]
-    async fn test_get_nonexistant_block() {
+    async fn test_get_nonexistent_block() {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
         let store: SQLiteBlockStore = SQLiteBlockStore::new(pool).await.unwrap();
 

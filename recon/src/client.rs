@@ -162,11 +162,7 @@ where
                         send(ret, self.recon.initial_messages().await);
                     }
                     Request::ProcessMessages { received, ret } => {
-                        let data = match self.recon.process_messages(&received).await {
-                            Ok((response, _synced, _syncing)) => Ok(response),
-                            Err(e) => Err(e),
-                        };
-                        send(ret, data);
+                        send(ret, self.recon.process_messages(&received).await);
                     }
                     Request::Insert { key, ret } => {
                         send(ret, self.recon.insert(&key).await);

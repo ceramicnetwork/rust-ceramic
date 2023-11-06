@@ -231,7 +231,7 @@ where
                     BTreeStore::from_set(set)
                         .hash_range(&Bytes::min_value(), &Bytes::max_value())
                         .unwrap()
-                        .0
+                        .hash
                 })
                 .collect(),
         }
@@ -456,7 +456,7 @@ async fn word_lists() {
                         local.store.len().await.unwrap(),
                     );
 
-                    let response = peer.process_messages(&next).await.unwrap().0;
+                    let response = peer.process_messages(&next).await.unwrap();
 
                     println!(
                         "\t{}: <- {}[{}]",
@@ -473,7 +473,6 @@ async fn word_lists() {
                         .process_messages(&response.messages)
                         .await
                         .unwrap()
-                        .0
                         .messages;
 
                     if response.messages[0].keys.len() < 3 && next[0].keys.len() < 3 {
@@ -552,18 +551,17 @@ async fn response_is_synchronized() {
     let response = x
         .process_messages(&a.initial_messages().await.unwrap())
         .await
-        .unwrap()
-        .0;
+        .unwrap();
     assert!(!response.is_synchronized);
-    let response = a.process_messages(&response.messages).await.unwrap().0;
+    let response = a.process_messages(&response.messages).await.unwrap();
     assert!(!response.is_synchronized);
-    let response = x.process_messages(&response.messages).await.unwrap().0;
+    let response = x.process_messages(&response.messages).await.unwrap();
     assert!(response.is_synchronized);
 
     // After this message we should be synchronized
-    let response = a.process_messages(&response.messages).await.unwrap().0;
+    let response = a.process_messages(&response.messages).await.unwrap();
     assert!(response.is_synchronized);
-    let response = x.process_messages(&response.messages).await.unwrap().0;
+    let response = x.process_messages(&response.messages).await.unwrap();
     assert!(response.is_synchronized);
 }
 
@@ -1200,12 +1198,12 @@ async fn recon_do(recon: &str) -> Record {
         let (next_dir, response, mut set) = match dir {
             Direction::CatToDog => (
                 Direction::DogToCat,
-                record.dog.process_messages(&messages).await.unwrap().0,
+                record.dog.process_messages(&messages).await.unwrap(),
                 record.dog.store.clone(),
             ),
             Direction::DogToCat => (
                 Direction::CatToDog,
-                record.cat.process_messages(&messages).await.unwrap().0,
+                record.cat.process_messages(&messages).await.unwrap(),
                 record.cat.store.clone(),
             ),
         };

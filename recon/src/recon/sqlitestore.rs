@@ -1,5 +1,6 @@
 #![warn(missing_docs, missing_debug_implementations, clippy::all)]
 
+use super::HashCount;
 use crate::{AssociativeHash, Key, Store};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -129,9 +130,12 @@ where
         &mut self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
-    ) -> Result<(Self::Hash, u64)> {
+    ) -> Result<HashCount<Self::Hash>> {
         if left_fencepost >= right_fencepost {
-            return Ok((H::identity(), 0));
+            return Ok(HashCount {
+                hash: H::identity(),
+                count: 0,
+            });
         }
 
         let query = sqlx::query(
@@ -163,7 +167,10 @@ where
         let count: u64 = count
             .try_into()
             .expect("COUNT(1) should never return a negative number");
-        Ok((H::from(bytes), count))
+        Ok(HashCount {
+            hash: H::from(bytes),
+            count,
+        })
     }
 
     #[instrument(skip(self))]
@@ -377,7 +384,7 @@ mod tests {
             .hash_range(&b"a".as_slice().into(), &b"z".as_slice().into())
             .await
             .unwrap()
-            .0;
+            .hash;
         expect![[r#"7460F21C83815F5EDC682F7A4154BC09AA3A0AE5DD1A2DEDCD709888A12751CC"#]]
             .assert_eq(&hash.to_hex());
     }

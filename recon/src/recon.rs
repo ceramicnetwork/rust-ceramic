@@ -80,7 +80,7 @@ where
                     _ => {
                         // -> (first h(middle) last)
                         response.keys.push(first.to_owned());
-                        let hash: H = self.store.hash_range(&first, &last).await?.0;
+                        let hash: H = self.store.hash_range(&first, &last).await?.hash;
                         response.hashes.push(hash);
                         response.keys.push(last.to_owned());
                     }
@@ -94,10 +94,7 @@ where
     /// Process an incoming message and respond with a message reply.
     /// Return Result<(response_message, synced_count, syncing_count), Error>
     #[instrument(skip_all, ret)]
-    pub async fn process_messages(
-        &mut self,
-        received: &[Message<K, H>],
-    ) -> Result<(Response<K, H>, u64, u64)> {
+    pub async fn process_messages(&mut self, received: &[Message<K, H>]) -> Result<Response<K, H>> {
         // First we must find the intersection of interests.
         // Then reply with a message per intersection.
         //
@@ -203,8 +200,10 @@ where
                     .await?;
             };
             response.messages.push(response_message);
+            response.synchronized_count = synced;
+            response.synchronizing_count = syncing;
         }
-        Ok((response, synced, syncing))
+        Ok(response)
     }
 
     /// Insert a new key into the key space.
@@ -262,6 +261,15 @@ where
     }
 }
 
+#[derive(Debug)]
+pub struct HashCount<H>
+where
+    H: AssociativeHash,
+{
+    hash: H,
+    count: u64,
+}
+
 /// Store defines the API needed to store the Recon set.
 #[async_trait]
 pub trait Store: std::fmt::Debug {
@@ -294,7 +302,7 @@ pub trait Store: std::fmt::Debug {
         &mut self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
-    ) -> Result<(Self::Hash, u64)>;
+    ) -> Result<HashCount<Self::Hash>>;
 
     /// Return all keys in the range between left_fencepost and right_fencepost.
     /// Both range bounds are exclusive.
@@ -709,7 +717,7 @@ where
         let h = local_store
             .hash_range(self.keys.last().unwrap(), left_fencepost)
             .await?
-            .0;
+            .hash;
         // If the left fencepost has not been sent send it now
         if self.keys.last().unwrap() != left_fencepost {
             // Add the left_fencepost to end the match streak.
@@ -734,9 +742,10 @@ where
             return Ok((true, 0)); // zero size range is in sync
         }
 
-        let (calculated_hash, count) = local_store
+        let HashCount { hash, count }: HashCount<H> = local_store
             .hash_range(left_fencepost, right_fencepost)
             .await?;
+        let calculated_hash = hash;
 
         if &calculated_hash == received_hash {
             // range is in sync, return sync count
@@ -809,11 +818,15 @@ where
             if let Some(mid_key) = mid_key {
                 self.keys.push(mid_key.to_owned());
                 self.hashes
-                    .push(local_store.hash_range(left_fencepost, &mid_key).await?.0);
+                    .push(local_store.hash_range(left_fencepost, &mid_key).await?.hash);
 
                 self.keys.push(right_fencepost.to_owned());
-                self.hashes
-                    .push(local_store.hash_range(&mid_key, right_fencepost).await?.0);
+                self.hashes.push(
+                    local_store
+                        .hash_range(&mid_key, right_fencepost)
+                        .await?
+                        .hash,
+                );
             } else {
                 bail!("unable to find a split key")
             };
@@ -874,6 +887,8 @@ struct BoundedMessage<K, H> {
 pub struct Response<K, H> {
     messages: Vec<Message<K, H>>,
     is_synchronized: bool,
+    synchronized_count: u64,
+    synchronizing_count: u64,
 }
 
 impl<K, H> std::fmt::Debug for Response<K, H>
@@ -900,6 +915,8 @@ impl<K: Key, H> Default for Response<K, H> {
         Self {
             messages: Default::default(),
             is_synchronized: Default::default(),
+            synchronized_count: 0,
+            synchronizing_count: 0,
         }
     }
 }

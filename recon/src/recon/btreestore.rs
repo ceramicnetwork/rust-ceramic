@@ -7,6 +7,8 @@ use async_trait::async_trait;
 
 use crate::recon::{AssociativeHash, Key, MaybeHashedKey, Store};
 
+use super::HashCount;
+
 /// An implementation of a Store that stores keys in an in-memory BTree
 #[derive(Clone, Debug)]
 pub struct BTreeStore<K, H>
@@ -49,9 +51,16 @@ where
 
     /// Return the hash of all keys in the range between left_fencepost and right_fencepost.
     /// Both range bounds are exclusive.
-    pub fn hash_range(&self, left_fencepost: &K, right_fencepost: &K) -> anyhow::Result<(H, u64)> {
+    pub fn hash_range(
+        &self,
+        left_fencepost: &K,
+        right_fencepost: &K,
+    ) -> anyhow::Result<HashCount<H>> {
         if left_fencepost >= right_fencepost {
-            return Ok((H::identity(), 0));
+            return Ok(HashCount {
+                hash: H::identity(),
+                count: 0,
+            });
         }
         let range = (
             Bound::Excluded(left_fencepost),
@@ -63,7 +72,10 @@ where
                 .map(|(key, hash)| MaybeHashedKey::new(key, Some(hash))),
         );
         let count: usize = self.keys.range(range).count();
-        Ok((hash, count as u64))
+        Ok(HashCount {
+            hash,
+            count: count as u64,
+        })
     }
 
     /// Return all keys in the range between left_fencepost and right_fencepost.
@@ -110,7 +122,7 @@ where
         &mut self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
-    ) -> anyhow::Result<(Self::Hash, u64)> {
+    ) -> anyhow::Result<HashCount<Self::Hash>> {
         // Self does not need async to implement hash_range, so it exposes a pub non async hash_range function
         // and we delegate to its implementation here.
         BTreeStore::hash_range(self, left_fencepost, right_fencepost)
