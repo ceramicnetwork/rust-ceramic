@@ -34,8 +34,6 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    needs:
-      - publish
     steps:
       -
         uses: actions/checkout@v3
@@ -45,7 +43,7 @@ jobs:
           deploy_env="${{ github.event.inputs.environment }}"
           deploy_target="release"
           deploy_tag="${{ github.event.inputs.tag }}"
-          if [[ ${{ github.event.inputs.type == 'commit' }} ]]; then
+          if [[ ${{ github.event.inputs.type == 'commit' }} == 'true' ]]; then
             # For commit deployments, the target is the same as the tag (i.e. the commit hash).
             deploy_target="$deploy_tag"
           fi
