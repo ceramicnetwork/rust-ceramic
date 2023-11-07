@@ -6,6 +6,15 @@
 
 RELEASE_LEVEL ?= minor
 
+# ECS environment to deploy image to
+DEPLOY_ENV ?= dev
+
+# Deploy target to use for CD manager job
+DEPLOY_TARGET ?= latest
+
+# Docker image tag to deploy
+DEPLOY_TAG ?= latest
+
 .PHONY: all
 all: build check-fmt check-clippy test
 
@@ -75,3 +84,6 @@ run:
 publish-docker:
 	./ci-scripts/publish.sh
 
+.PHONY: schedule-deployment
+schedule-deployment:
+	./ci-scripts/deploy.sh "${DEPLOY_ENV}" "${DEPLOY_TARGET}" "${DEPLOY_TAG}"

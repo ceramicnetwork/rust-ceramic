@@ -1,0 +1,52 @@
+name: Deploy Release or Commit
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        description: Infrastructure environment to deploy to
+        required: true
+        default: dev
+        options:
+          - dev
+          - qa
+          - tnet
+          - prod
+      type:
+        type: choice
+        description: Release or Commit
+        required: true
+        default: release
+        options:
+          - release
+          - commit
+      tag:
+        type: string
+        description: Tag to deploy
+        required: true
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    needs:
+      - publish
+    steps:
+      -
+        uses: actions/checkout@v3
+      -
+        name: Schedule ECS deployment
+        run: |
+          deploy_env="${{ github.event.inputs.environment }}"
+          deploy_target="release"
+          deploy_tag="${{ github.event.inputs.tag }}"
+          if [[ ${{ github.event.inputs.type == 'commit' }} ]]; then
+            # For commit deployments, the target is the same as the tag (i.e. the commit hash).
+            deploy_target="$deploy_tag"
+          fi
+          make DEPLOY_ENV="$deploy_env" DEPLOY_TARGET="$deploy_target" DEPLOY_TAG="$deploy_tag" schedule-deployment

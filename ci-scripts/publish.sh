@@ -12,4 +12,15 @@
 
 docker buildx build --load -t 3box/ceramic-one .
 docker tag 3box/ceramic-one:latest public.ecr.aws/r5b3e0r5/3box/ceramic-one:latest
-docker push public.ecr.aws/r5b3e0r5/3box/ceramic-one:latest
+
+if [[ -n "$SHA" ]]; then
+  docker tag 3box/ceramic-one:latest public.ecr.aws/r5b3e0r5/3box/ceramic-one:"$SHA"
+fi
+if [[ -n "$SHA_TAG" ]]; then
+  docker tag 3box/ceramic-one:latest public.ecr.aws/r5b3e0r5/3box/ceramic-one:"$SHA_TAG"
+fi
+if [[ -n "$RELEASE_TAG" ]]; then
+  docker tag 3box/ceramic-one:latest public.ecr.aws/r5b3e0r5/3box/ceramic-one:"$RELEASE_TAG"
+fi
+
+docker push -a public.ecr.aws/r5b3e0r5/3box/ceramic-one
