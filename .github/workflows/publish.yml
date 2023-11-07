@@ -31,7 +31,7 @@ jobs:
       name: Build and Publish
       run: |
         SHA_TAG=$(echo ${{ github.SHA }} | head -c 12)
-        if [[ ${{ contains(github.event.head_commit.message, 'chore: Release') }} ]]; then
+        if [[ ${{ contains(github.event.head_commit.message, 'chore: Release') }} == 'true' ]]; then
           RELEASE_TAG=$(cargo metadata --format-version=1 --no-deps | jq '.packages[0].version' | tr -d '"')
         fi
         make SHA="${{ github.SHA }}" SHA_TAG="$SHA_TAG" RELEASE_TAG="$RELEASE_TAG" publish-docker
