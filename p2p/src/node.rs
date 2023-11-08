@@ -84,6 +84,8 @@ where
     listen_addrs: Vec<Multiaddr>,
 
     trust_observed_addrs: bool,
+    failed_external_addresses: HashSet<Multiaddr>,
+    active_address_probe: Option<Multiaddr>,
 }
 
 impl<I, M> fmt::Debug for Node<I, M>
@@ -194,6 +196,8 @@ where
             providers: Providers::new(4),
             listen_addrs,
             trust_observed_addrs: libp2p_config.trust_observed_addrs,
+            failed_external_addresses: Default::default(),
+            active_address_probe: Default::default(),
         })
     }
 
@@ -629,6 +633,7 @@ where
                         .swarm
                         .external_addresses()
                         .any(|addr| addr == &info.observed_addr)
+                        && !self.failed_external_addresses.contains(&info.observed_addr)
                     {
                         if self.trust_observed_addrs {
                             debug!(
@@ -640,14 +645,26 @@ where
                             self.swarm.add_external_address(info.observed_addr.clone());
                         } else if let Some(autonat) = self.swarm.behaviour_mut().autonat.as_mut() {
                             // Probe the observed addr for external connectivity.
-                            // See OutboundProbeEvent case for
-
-                            debug!(
-                                address=%info.observed_addr,
-                                %peer_id,
-                                "probing observed address from peer for external connectivity",
-                            );
-                            autonat.probe_address(info.observed_addr.clone());
+                            // Only probe one address at a time.
+                            //
+                            // This logic is run very frequently because any new peer connection
+                            // for a new observed address triggers this path. Its typical to have
+                            // only a few external addresses, in which cases its likely that the
+                            // in-progress address probe is one that will succeed.
+                            //
+                            // In cases where there are lots of different observed addresses its
+                            // likely that NAT hasn't been setup and so the peer doesn't have an
+                            // external address. Therefore we do not want to waste resources on
+                            // probing many different addresses that are likely to fail.
+                            if self.active_address_probe.is_none() {
+                                self.active_address_probe = Some(info.observed_addr.clone());
+                                debug!(
+                                    address=%info.observed_addr,
+                                    %peer_id,
+                                    "probing observed address from peer for external connectivity",
+                                );
+                                autonat.probe_address(info.observed_addr.clone());
+                            }
                         };
                     };
 
@@ -763,6 +780,11 @@ where
                         "adding external address after successful autonat probe",
                     );
                     self.swarm.add_external_address(address);
+                }
+            }
+            Event::Autonat(autonat::Event::OutboundProbe(OutboundProbeEvent::Error { .. })) => {
+                if let Some(addr) = self.active_address_probe.take() {
+                    self.failed_external_addresses.insert(addr);
                 }
             }
             _ => {
