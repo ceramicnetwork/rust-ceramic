@@ -39,8 +39,6 @@ use tokio::sync::oneshot::{self, Sender as OneShotSender};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, trace, warn};
 
-use crate::keys::{Keychain, Storage};
-use crate::providers::Providers;
 use crate::rpc::{P2p, ProviderRequestKey};
 use crate::swarm::build_swarm;
 use crate::GossipsubEvent;
@@ -49,6 +47,11 @@ use crate::{
     rpc::{self, RpcMessage},
     Config,
 };
+use crate::{
+    keys::{Keychain, Storage},
+    publisher::Publisher,
+};
+use crate::{metrics::Metrics, providers::Providers};
 use recon::{libp2p::Recon, Sha256a};
 
 #[allow(clippy::large_enum_variant)]
@@ -81,6 +84,7 @@ where
     use_dht: bool,
     bitswap_sessions: BitswapSessions,
     providers: Providers,
+    publisher: Publisher,
     listen_addrs: Vec<Multiaddr>,
 
     trust_observed_addrs: bool,
@@ -148,6 +152,7 @@ where
         keypair: Keypair,
         recons: Option<(I, M)>,
         sql_pool: SqlitePool,
+        metrics: Metrics,
     ) -> Result<Self> {
         let (network_sender_in, network_receiver_in) = channel(1024); // TODO: configurable
 
@@ -168,7 +173,8 @@ where
             .await
             .context("failed to create rpc client")?;
 
-        let mut swarm = build_swarm(&libp2p_config, &keypair, recons, sql_pool).await?;
+        let block_store = crate::SQLiteBlockStore::new(sql_pool).await?;
+        let mut swarm = build_swarm(&libp2p_config, &keypair, recons, block_store.clone()).await?;
         info!("iroh-p2p peerid: {}", swarm.local_peer_id());
 
         for addr in &libp2p_config.external_multiaddrs {
@@ -180,6 +186,13 @@ where
             Swarm::listen_on(&mut swarm, addr.clone())?;
             listen_addrs.push(addr.clone());
         }
+        let publisher = Publisher::new(
+            libp2p_config
+                .kademlia_provider_publication_interval
+                .unwrap_or_else(|| Duration::from_secs(12 * 60 * 60)),
+            block_store,
+            metrics,
+        );
 
         Ok(Node {
             swarm,
@@ -194,6 +207,7 @@ where
             use_dht: libp2p_config.kademlia,
             bitswap_sessions: Default::default(),
             providers: Providers::new(4),
+            publisher,
             listen_addrs,
             trust_observed_addrs: libp2p_config.trust_observed_addrs,
             failed_external_addresses: Default::default(),
@@ -251,6 +265,17 @@ where
                         None => {
                             // shutdown
                             return Ok(());
+                        }
+                    }
+                }
+                provide_records = self.publisher.next() => {
+                    if let Some(kad) = self.swarm.behaviour_mut().kad.as_mut() {
+                        if let Some(provide_records) = provide_records {
+                            for record in provide_records {
+                                if let Err(err) = kad.start_providing(record.clone()) {
+                                    warn!(key=hex::encode(record.to_vec()), %err,"failed to provide record");
+                                }
+                            }
                         }
                     }
                 }
@@ -515,10 +540,9 @@ where
                 } = e
                 {
                     match result {
-                        QueryResult::StartProviding(result) => match result {
-                            Ok(_) => {}
-                            Err(err) => warn!("kad: failed to provide record: {}", err),
-                        },
+                        QueryResult::StartProviding(result) => {
+                            self.publisher.handle_start_providing_result(result);
+                        }
                         QueryResult::GetProviders(Ok(p)) => {
                             match p {
                                 GetProvidersOk::FoundProviders { key, providers } => {
@@ -1343,12 +1367,14 @@ mod tests {
             // Using an in memory DB for the tests for realistic benchmark disk DB is needed.
             let sql_pool = SqlitePool::connect("sqlite::memory:").await?;
 
+            let metrics = Metrics::register(&mut prometheus_client::registry::Registry::default());
             let mut p2p = Node::new(
                 network_config,
                 rpc_server_addr,
                 keypair.into(),
                 None::<(DummyRecon<Interest>, DummyRecon<EventId>)>,
                 sql_pool,
+                metrics,
             )
             .await?;
             let cfg = iroh_rpc_client::Config {

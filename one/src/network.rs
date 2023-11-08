@@ -40,6 +40,7 @@ impl Builder<Init> {
         keypair: Keypair,
         recons: Option<(I, M)>,
         sql_pool: SqlitePool,
+        metrics: ceramic_p2p::Metrics,
     ) -> anyhow::Result<Builder<WithP2p>>
     where
         I: Recon<Key = Interest, Hash = Sha256a>,
@@ -51,7 +52,7 @@ impl Builder<Init> {
 
         config.libp2p = libp2p_config;
 
-        let mut p2p = Node::new(config, addr.clone(), keypair, recons, sql_pool).await?;
+        let mut p2p = Node::new(config, addr.clone(), keypair, recons, sql_pool, metrics).await?;
 
         let task = task::spawn(async move {
             if let Err(err) = p2p.run().await {

@@ -25,7 +25,6 @@ use libp2p::{
 };
 use libp2p_identity::Keypair;
 use recon::{libp2p::Recon, Sha256a};
-use sqlx::SqlitePool;
 use tracing::{info, warn};
 
 pub use self::event::Event;
@@ -101,7 +100,7 @@ where
         config: &Libp2pConfig,
         relay_client: Option<relay::client::Behaviour>,
         recons: Option<(I, M)>,
-        sql_pool: SqlitePool,
+        block_store: SQLiteBlockStore,
     ) -> Result<Self> {
         let peer_manager = PeerManager::default();
         let pub_key = local_key.public();
@@ -115,8 +114,7 @@ where
             } else {
                 BitswapConfig::default_client_mode()
             };
-            let store: SQLiteBlockStore = SQLiteBlockStore::new(sql_pool).await?;
-            Some(Bitswap::<SQLiteBlockStore>::new(peer_id, store, bs_config).await)
+            Some(Bitswap::<SQLiteBlockStore>::new(peer_id, block_store, bs_config).await)
         } else {
             None
         }
@@ -132,22 +130,27 @@ where
 
         let kad = if config.kademlia {
             info!("init kademlia");
-            // TODO: persist to store
             let mem_store_config = MemoryStoreConfig {
-                // enough for >10gb of unixfs files at the default chunk size
-                max_records: 1024 * 64,
-                max_provided_keys: 1024 * 64,
+                // We do not store records.
+                max_records: 0,
+                max_provided_keys: 10_000_000,
+                max_providers_per_key: config.kademlia_replication_factor.into(),
                 ..Default::default()
             };
             let store = MemoryStore::with_config(peer_id, mem_store_config);
 
             let mut kad_config = kad::Config::default();
-            kad_config.set_replication_factor(config.kademlia_replication_factor);
-            kad_config.set_parallelism(config.kademlia_parallelism);
-            kad_config.set_query_timeout(config.kademlia_query_timeout);
-            kad_config.set_provider_record_ttl(config.kademlia_provider_record_ttl);
             kad_config
-                .set_provider_publication_interval(config.kademlia_provider_publication_interval);
+                .set_replication_factor(config.kademlia_replication_factor)
+                .set_parallelism(config.kademlia_parallelism)
+                .set_query_timeout(config.kademlia_query_timeout)
+                .set_provider_record_ttl(config.kademlia_provider_record_ttl)
+                // Disable record (re)-replication and (re)-publication
+                .set_replication_interval(None)
+                .set_publication_interval(None)
+                // Disable provider record (re)-publication
+                // Provider records are re-published via the [`crate::publisher::Publisher`].
+                .set_provider_publication_interval(None);
 
             let mut kademlia = kad::Behaviour::with_config(pub_key.to_peer_id(), store, kad_config);
             for multiaddr in &config.bootstrap_peers {

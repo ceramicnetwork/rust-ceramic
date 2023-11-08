@@ -7,6 +7,7 @@ use cid::{
     Cid,
 };
 use iroh_bitswap::{Block, Store};
+use multihash::Multihash;
 use sqlx::{Row, SqlitePool};
 
 #[derive(Debug, Clone)]
@@ -44,6 +45,42 @@ impl SQLiteBlockStore {
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+    /// Return a range of block hashes starting at hash exclusively.
+    pub async fn range(
+        &self,
+        hash: Option<Multihash>,
+        limit: i64,
+    ) -> Result<(Vec<Multihash>, i64)> {
+        let (hashes_query, remaining_query) = if let Some(hash) = hash {
+            (
+                sqlx::query(
+                    "SELECT multihash FROM blocks WHERE multihash > ? ORDER BY multihash LIMIT ?;",
+                )
+                .bind(hash.to_bytes())
+                .bind(limit),
+                sqlx::query("SELECT count(multihash) FROM blocks WHERE multihash > ?")
+                    .bind(hash.to_bytes()),
+            )
+        } else {
+            (
+                sqlx::query("SELECT multihash FROM blocks ORDER BY multihash LIMIT ?;").bind(limit),
+                sqlx::query("SELECT count(multihash) FROM blocks;"),
+            )
+        };
+        let hashes = hashes_query
+            .fetch_all(&self.pool)
+            .await?
+            .into_iter()
+            .map(|row| Multihash::from_bytes(row.get::<'_, &[u8], _>(0)))
+            .collect::<Result<Vec<Multihash>, multihash::Error>>()?;
+        let remaining = remaining_query
+            .fetch_one(&self.pool)
+            .await?
+            .get::<'_, i64, _>(0)
+            // Do not count the hashes we just got in the remaining count.
+            - (hashes.len() as i64);
+        Ok((hashes, remaining))
     }
 
     pub async fn get_size(&self, cid: Cid) -> Result<Option<u64>> {

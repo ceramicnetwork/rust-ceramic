@@ -424,8 +424,9 @@ impl Daemon {
         };
         let ipfs_metrics =
             ceramic_metrics::MetricsHandle::register(ceramic_kubo_rpc::IpfsMetrics::register);
+        let p2p_metrics = ceramic_metrics::MetricsHandle::register(ceramic_p2p::Metrics::register);
         let ipfs = Ipfs::builder()
-            .with_p2p(p2p_config, keypair, recons, sql_pool.clone())
+            .with_p2p(p2p_config, keypair, recons, sql_pool.clone(), p2p_metrics)
             .await?
             .build(sql_pool.clone(), ipfs_metrics)
             .await?;
