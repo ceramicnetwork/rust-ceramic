@@ -2,11 +2,40 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.2] - 2023-11-08
+
+### Bug Fixes
+
+- Use rust-builder latest
+- Remove Ceramic peer discovery
+- Readd main.rs after move
+- Only provide records on the DHT when they are new
+- Work around github's dumb syntax for conditionals (#173)
+
+### Features
+
+- Add explicit log format CLI option
+- Add ceramic_one_info metric
+- Add exe_hash to info
+- Default swarm port
+- Bootstrap peers
+- Add kubo rpc api metrics
+- Add cli opts for connection limits
+- Add ipfs metrics
+- Expose basic kademlia config
+- Cd (#172)
+
+### Refactor
+
+- Move iroh-metrics to ceramic-metrics
+- Allow uses of deprecated metrics traits
+
 ## [0.8.1] - 2023-10-26
 
 ### Miscellaneous Tasks
 
 - Add CHANGELOG.md
+- Release version v0.8.1
 
 ## [0.8.0] - 2023-10-25
 
