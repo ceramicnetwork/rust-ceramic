@@ -158,7 +158,8 @@ where
 
     /// Remove a block from the pin store
     async fn pin_rm_post(&self, arg: String, context: &C) -> Result<PinRmPostResponse, ApiError> {
-        self.record("/pin/rm", self.pin_rm_post(arg, context)).await
+        self.record("/pin/rm", self.api.pin_rm_post(arg, context))
+            .await
     }
 
     /// List topic with active subscriptions
