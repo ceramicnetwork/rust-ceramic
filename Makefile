@@ -15,6 +15,9 @@ DEPLOY_TARGET ?= latest
 # Docker image tag to deploy
 DEPLOY_TAG ?= latest
 
+# Whether or not this is a manual deployment
+MANUAL_DEPLOY ?= false
+
 .PHONY: all
 all: build check-fmt check-clippy test
 
@@ -86,4 +89,4 @@ publish-docker:
 
 .PHONY: schedule-deployment
 schedule-deployment:
-	./ci-scripts/deploy.sh "${DEPLOY_ENV}" "${DEPLOY_TARGET}" "${DEPLOY_TAG}"
+	./ci-scripts/deploy.sh "${DEPLOY_ENV}" "${DEPLOY_TARGET}" "${DEPLOY_TAG}" "${MANUAL_DEPLOY}"
