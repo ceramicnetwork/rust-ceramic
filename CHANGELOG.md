@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.3] - 2023-11-09
+
+### Bug Fixes
+
+- Call correct api method for removing block from pin store (#178)
+
 ## [0.8.2] - 2023-11-08
 
 ### Bug Fixes
@@ -24,6 +30,10 @@ All notable changes to this project will be documented in this file.
 - Add ipfs metrics
 - Expose basic kademlia config
 - Cd (#172)
+
+### Miscellaneous Tasks
+
+- Release version v0.8.2 (#174)
 
 ### Refactor
 
