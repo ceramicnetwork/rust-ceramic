@@ -7,6 +7,7 @@ ttl=$(date +%s -d "14 days")
 network="${1-dev}"
 target="${2-latest}"
 tag="${3-latest}"
+manual="${4-false}"
 
 docker run --rm -i \
   -e "AWS_REGION=$AWS_REGION" \
@@ -26,7 +27,8 @@ docker run --rm -i \
       \"M\": {                                    \
         \"component\": {\"S\": \"rust-ceramic\"}, \
         \"sha\":       {\"S\": \"$target\"},      \
-        \"shaTag\":    {\"S\": \"$tag\"}          \
+        \"shaTag\":    {\"S\": \"$tag\"},         \
+        \"manual\":    {\"BOOL\": $manual}        \
       }                                           \
     }                                             \
   }"

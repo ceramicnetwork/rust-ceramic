@@ -47,4 +47,4 @@ jobs:
             # For commit deployments, the target is the same as the tag (i.e. the commit hash).
             deploy_target="$deploy_tag"
           fi
-          make DEPLOY_ENV="$deploy_env" DEPLOY_TARGET="$deploy_target" DEPLOY_TAG="$deploy_tag" schedule-deployment
+          make DEPLOY_ENV="$deploy_env" DEPLOY_TARGET="$deploy_target" DEPLOY_TAG="$deploy_tag" MANUAL_DEPLOY="true" schedule-deployment
