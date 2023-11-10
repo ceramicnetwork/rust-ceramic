@@ -37,7 +37,7 @@ mod event;
 mod peer_manager;
 
 pub const PROTOCOL_VERSION: &str = "ipfs/0.1.0";
-pub const AGENT_VERSION: &str = concat!("iroh/", env!("CARGO_PKG_VERSION"));
+pub const AGENT_VERSION: &str = concat!("ceramic-one/", env!("CARGO_PKG_VERSION"));
 
 /// Libp2p behaviour for the node.
 #[derive(NetworkBehaviour)]
