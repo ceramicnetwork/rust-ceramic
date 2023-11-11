@@ -38,15 +38,32 @@ impl EventId {
         Builder { state: Init }
     }
 
-    /// EventId.new builds a Vec<u8> with the event id data.
+    ///  EventId.new builds a Vec<u8> with the event id data.
+    /// ## Example
+    /// ```
+    /// use std::str::FromStr;
+    /// use cid::Cid;
+    /// use ceramic_core::{EventId, Network};
+    ///
+    /// let event = EventId::new(
+    ///     &Network::Mainnet,
+    ///     "model",
+    ///     "kh4q0ozorrgaq2mezktnrmdwleo1d",
+    ///     "did:key:z6MkgSV3tAuw7gUWqKCUY7ae6uWNxqYgdwPhUJbJhF9EFXm9",
+    ///     &Cid::from_str("bagcqceraplay4erv6l32qrki522uhiz7rf46xccwniw7ypmvs3cvu2b3oulq").unwrap(),
+    ///     1,
+    ///     &Cid::from_str("bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy").unwrap(),
+    /// );
+    ///
+    /// ```
     pub fn new(
-        network: &Network, // e.g. Network::Mainnet
-        sort_key: &str,    // e.g. "model"
-        sort_value: &str,  // e.g. "kh4q0ozorrgaq2mezktnrmdwleo1d" // cspell:disable-line
-        controller: &str,  // e.g. "did:key:z6MkgSV3tAuw7gUWqKCUY7ae6uWNxqYgdwPhUJbJhF9EFXm9"
-        init: &Cid, // e.g. Cid::from_str("bagcqceraplay4erv6l32qrki522uhiz7rf46xccwniw7ypmvs3cvu2b3oulq") // cspell:disable-line
-        event_height: u64, // e.g. 1
-        event_cid: &Cid, // e.g. Cid::from_str("bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy") // cspell:disable-line
+        network: &Network,
+        sort_key: &str,
+        sort_value: &str,
+        controller: &str,
+        init: &Cid,
+        event_height: u64,
+        event_cid: &Cid,
     ) -> EventId {
         EventId::builder()
             .with_network(network)

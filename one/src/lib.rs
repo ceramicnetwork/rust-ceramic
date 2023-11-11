@@ -314,8 +314,6 @@ struct Daemon {
     opts: DaemonOpts,
     peer_id: PeerId,
     network: ceramic_core::Network,
-    bind_address: String,
-    metrics_bind_address: String,
     ipfs: Ipfs,
     metrics_handle: MetricsHandle,
     metrics: Arc<Metrics>,
@@ -483,15 +481,10 @@ impl Daemon {
             .build(sql_pool.clone(), ipfs_metrics)
             .await?;
 
-        let bind_address = opts.bind_address.clone();
-        let metrics_bind_address = opts.metrics_bind_address.clone();
-
         Ok(Daemon {
             opts,
             peer_id,
             network,
-            bind_address,
-            metrics_bind_address,
             ipfs,
             metrics_handle,
             metrics,
@@ -503,11 +496,11 @@ impl Daemon {
     async fn run(mut self) -> Result<()> {
         // Start metrics server
         debug!(
-            bind_address = self.metrics_bind_address,
+            bind_address = self.opts.metrics_bind_address,
             "starting prometheus metrics server"
         );
         let (tx_metrics_server_shutdown, metrics_server_handle) =
-            metrics::start(&self.metrics_bind_address.parse()?);
+            metrics::start(&self.opts.metrics_bind_address.parse()?);
 
         // Build HTTP server
         let network = self.network.clone();
@@ -566,7 +559,7 @@ impl Daemon {
 
         // The server task blocks until we are ready to start shutdown
         debug!("starting api server");
-        hyper::server::Server::bind(&self.bind_address.parse()?)
+        hyper::server::Server::bind(&self.opts.bind_address.parse()?)
             .serve(service)
             .with_graceful_shutdown(async {
                 rx.await.ok();

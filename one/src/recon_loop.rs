@@ -1,3 +1,55 @@
+//! recon_event_loop synchronizes interests and models
+//! To generate events for the loop to synchronize, use the following Ceramic Pocket Knife (cpk) command:
+//! ```bash
+//! model=k2t6wz4ylx0qnsxc7rroideki5ea96hy0m99gt9bhqhpjfnt7n5bydluk9l29x
+//! controller=did:key:z5XyAyVKJpA2G4c1R52U4JBDSJX6qvBMHaseQVbbkLuYR
+//! count=32000
+//!
+//! # echo "Resetting dbs..."
+//! # rm peer_1/db.sqlite3
+//! # rm peer_2/db.sqlite3
+//!
+//! cpk sql-db-generate \
+//!     --sort-key model \
+//!     --sort-value $model \
+//!     --controller $controller \
+//!     --count $count \
+//!     --path peer_1/db.sqlite3
+//!
+//! cpk sql-db-generate \
+//!     --sort-key model \
+//!     --sort-value $model \
+//!     --controller $controller \
+//!     --count $count \
+//!     --path peer_2/db.sqlite3
+//!
+//! echo "Starting peer 1"
+//! RUST_LOG=info,ceramic_p2p=debug,ceramic_api=debug,recon::libp2p=debug \
+//! CERAMIC_ONE_NETWORK=in-memory \
+//! CERAMIC_ONE_BIND_ADDRESS=127.0.0.1:5001 \
+//! CERAMIC_ONE_PEER_PORT=5002 \
+//! CERAMIC_ONE_RECON_HTTP=true \
+//! CERAMIC_ONE_STORE_DIR=peer_1 \
+//! CERAMIC_ONE_METRICS_BIND_ADDRESS=127.0.0.1:9091
+//! CERAMIC_ONE_SWARM_ADDRESSES /ip4/0.0.0.0/tcp/0 \
+//! cargo run --release -p ceramic-one -- daemon
+//!
+//! echo "Starting peer 2"
+//! RUST_LOG=info,ceramic_p2p=debug,ceramic_api=debug,recon::libp2p=debug \
+//! CERAMIC_ONE_NETWORK=in-memory \
+//! CERAMIC_ONE_BIND_ADDRESS=127.0.0.1:5002 \
+//! CERAMIC_ONE_PEER_PORT=5001 \
+//! CERAMIC_ONE_RECON_HTTP=true \
+//! CERAMIC_ONE_STORE_DIR=peer_2 \
+//! CERAMIC_ONE_METRICS_BIND_ADDRESS=127.0.0.1:9092
+//! CERAMIC_ONE_SWARM_ADDRESSES /ip4/0.0.0.0/tcp/0 \
+//! cargo run --release -p ceramic-one -- daemon
+//!
+//! echo "Subscribing to model..."
+//! echo "curl -s \"http://localhost:5001/ceramic/subscribe/model/$model?controller=$controller&limit=10\""
+//! curl -s "http://localhost:5001/ceramic/subscribe/model/$model?controller=$controller&limit=10"
+//! curl -s "http://localhost:5002/ceramic/subscribe/model/$model?controller=$controller&limit=10"
+//! ```
 use anyhow::{anyhow, Result};
 use ceramic_core::{EventId, Interest};
 use hyper::client::HttpConnector;
@@ -25,6 +77,7 @@ pub async fn recon_event_loop(
     model_client: ReconModelClient,
 ) -> Result<()> {
     info!("Started Recon event loop!");
+    // TODO: Peer management
     let peer_port = match env::var_os("CERAMIC_ONE_PEER_PORT") {
         Some(v) => v.into_string().unwrap(),
         None => panic!("Peer address is not set"),
@@ -72,21 +125,24 @@ async fn recon_sync_interests(
     interest_client: &ReconInterestClient,
     http_client: &hyper::Client<HttpConnector>,
 ) -> Result<Vec<ReconInterestMessage>> {
-    // TODO: This is an url injection vulnerability, Validate that the IP address first.
+    // TODO: This is an url injection vulnerability, validate the IP address first.
     let peer_addr = format!(
         "http://{}:{}/ceramic/recon?ring=interest",
         peer.ip, peer.port
     );
-    let initial_message = interest_client.initial_messages().await?;
-    // TODO: Validate that the IP address is safe
-    let initial_message: Vec<u8> = serde_cbor::to_vec(&initial_message)?;
-    let req = Request::builder()
-        .method(Method::POST)
-        .uri(peer_addr.as_str())
-        .body(initial_message.into())?;
-    let mut res = http_client.request(req).await?;
-    let body = hyper::body::to_bytes(res.body_mut()).await?;
-    serde_cbor::from_slice(body.as_ref())
+    let messages_to_send = interest_client.initial_messages().await?;
+    let bytes_to_send: Vec<u8> = serde_cbor::to_vec(&messages_to_send)?;
+    // TODO: Support TLS certs for peers
+    let mut received_message = http_client
+        .request(
+            Request::builder()
+                .method(Method::POST)
+                .uri(peer_addr.as_str())
+                .body(bytes_to_send.into())?,
+        )
+        .await?;
+    let received_bytes = hyper::body::to_bytes(received_message.body_mut()).await?;
+    serde_cbor::from_slice(received_bytes.as_ref())
         .map_err(|e| anyhow!("failed to deserialize interest messages: {}", e))
 }
 
@@ -95,33 +151,32 @@ async fn recon_sync_models(
     model_client: &ReconModelClient,
     http_client: &hyper::Client<HttpConnector>,
 ) -> Result<Vec<ReconModelMessage>> {
+    // TODO: This is an url injection vulnerability, validate the IP address first.
     let peer_addr = format!("http://{}:{}/ceramic/recon?ring=model", peer.ip, peer.port);
-    let initial_message = model_client.initial_messages().await?;
-    // TODO: Validate that the IP address is safe
-    let initial_message: Vec<u8> = serde_cbor::to_vec(&initial_message)?;
-    let req = Request::builder()
-        .method(Method::POST)
-        .uri(peer_addr.as_str())
-        .body(initial_message.into())?;
-    let mut res = http_client.request(req).await?;
-    let mut body = hyper::body::to_bytes(res.body_mut()).await?;
-    let mut messages: Vec<ReconModelMessage> = serde_cbor::from_slice(body.as_ref())
-        .map_err(|e| anyhow!("failed to deserialize model messages: {}", e))?;
+    let mut messages_to_send = model_client.initial_messages().await?;
     loop {
-        let process_response = model_client.process_messages(messages).await?;
+        // Serialize messages to send
+        let bytes_to_send: Vec<u8> = serde_cbor::to_vec(&messages_to_send)?;
+        // TODO: Support TLS certs for peers
+        let mut received_message = http_client
+            .request(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(peer_addr.as_str())
+                    .body(bytes_to_send.into())?,
+            )
+            .await?;
+        let received_bytes = hyper::body::to_bytes(received_message.body_mut()).await?;
+        // Deserialize received messages
+        let received_messages: Vec<ReconModelMessage> =
+            serde_cbor::from_slice(received_bytes.as_ref())
+                .map_err(|e| anyhow!("failed to deserialize model messages: {}", e))?;
+        let process_response = model_client.process_messages(received_messages).await?;
         if process_response.is_synchronized() {
             peer.last_sync = Some(Instant::now());
             break;
         }
-        let response_body = serde_cbor::to_vec(&process_response.into_messages())?;
-        let req = Request::builder()
-            .method(Method::POST)
-            .uri(peer_addr.as_str())
-            .body(response_body.into())?;
-        res = http_client.request(req).await?;
-        body = hyper::body::to_bytes(res.body_mut()).await?;
-        messages = serde_cbor::from_slice(body.as_ref())
-            .map_err(|e| anyhow!("failed to deserialize model messages: {}", e))?;
+        messages_to_send = process_response.into_messages();
     }
     Ok(vec![])
 }
