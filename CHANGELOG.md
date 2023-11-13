@@ -2,11 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.0] - 2023-11-13
+
+### Bug Fixes
+
+- Rename iroh to ceramic-one in agent (#181)
+
+### Miscellaneous Tasks
+
+- Pass manual flag through in deployment job (#180)
+
 ## [0.8.3] - 2023-11-09
 
 ### Bug Fixes
 
 - Call correct api method for removing block from pin store (#178)
+- Be explicit about release deployments (#177)
+
+### Miscellaneous Tasks
+
+- Release version v0.8.3 (#179)
 
 ## [0.8.2] - 2023-11-08
 
