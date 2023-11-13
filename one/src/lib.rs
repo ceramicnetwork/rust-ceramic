@@ -78,7 +78,7 @@ struct DaemonOpts {
     #[arg(
         short,
         long,
-        default_value = "127.0.0.1:9090",
+        default_value = "127.0.0.1:9464",
         env = "CERAMIC_ONE_METRICS_BIND_ADDRESS"
     )]
     metrics_bind_address: String,
@@ -99,13 +99,18 @@ struct DaemonOpts {
     #[arg(long, env = "CERAMIC_ONE_LOCAL_NETWORK_ID")]
     local_network_id: Option<u32>,
 
-    /// When true mdns will be used to discover peers.
+    /// When set mdns will be used to discover peers.
     #[arg(long, default_value_t = false, env = "CERAMIC_ONE_MDNS")]
     mdns: bool,
 
-    /// When true Recon will be used to synchronized events with peers.
+    /// When set Recon will be used to synchronized events with peers.
     #[arg(long, default_value_t = false, env = "CERAMIC_ONE_RECON")]
     recon: bool,
+
+    /// When set autonat will not be used to discover external address or allow other peers
+    /// to directly dial the local peer.
+    #[arg(long, default_value_t = false, env = "CERAMIC_ONE_DISABLE_AUTONAT")]
+    disable_autonat: bool,
 
     /// Specify the format of log events.
     #[arg(long, default_value = "multi-line", env = "CERAMIC_ONE_LOG_FORMAT")]
@@ -348,7 +353,7 @@ impl Daemon {
             bitswap_server: true,
             bitswap_client: true,
             kademlia: true,
-            autonat: true,
+            autonat: !opts.disable_autonat,
             relay_server: true,
             relay_client: true,
             gossipsub: true,
