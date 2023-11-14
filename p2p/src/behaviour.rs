@@ -43,6 +43,12 @@ pub const AGENT_VERSION: &str = concat!("ceramic-one/", env!("CARGO_PKG_VERSION"
 #[derive(NetworkBehaviour)]
 #[behaviour(to_swarm = "Event")]
 pub(crate) struct NodeBehaviour<I, M> {
+    // Place limits first in the behaviour tree.
+    // Behaviours are called in order and the limits behaviour can deny connections etc.
+    // It keeps things simpler in other behaviours if they are never called for connections that
+    // end up being denied because of the limits.
+    // See https://github.com/libp2p/rust-libp2p/pull/4777#discussion_r1391833734 for more context.
+    limits: connection_limits::Behaviour,
     ping: Ping,
     identify: identify::Behaviour,
     pub(crate) bitswap: Toggle<Bitswap<SQLiteBlockStore>>,
@@ -54,7 +60,6 @@ pub(crate) struct NodeBehaviour<I, M> {
     dcutr: Toggle<dcutr::Behaviour>,
     pub(crate) gossipsub: Toggle<gossipsub::Behaviour>,
     pub(crate) peer_manager: PeerManager,
-    limits: connection_limits::Behaviour,
     recon: Toggle<recon::libp2p::Behaviour<I, M>>,
 }
 
