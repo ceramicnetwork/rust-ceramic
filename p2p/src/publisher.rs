@@ -245,9 +245,15 @@ impl Stream for Publisher {
                             let batch_average_seconds = average.as_secs();
                             let lag_ratio = needed_seconds / deadline_seconds;
 
-                            if !spare.is_zero() {
+                            if remaining_batches == 0.0 {
+                                // We do not have any more batches, fetch one more to be sure.
+                                // If it comes back empty we will delay until the interval is complete.
+                                self.state = State::StartingFetch;
+                            } else if !spare.is_zero() {
                                 // Be conservative and adjust our delay based on our optimism of
                                 // the estimate.
+                                // If remaining_batches is zero this math panics, so we ensure its
+                                // not zero with the above case.
                                 let delay = spare.div_f64(remaining_batches / OPTIMISM);
                                 debug!(
                                     batch_average_seconds,
