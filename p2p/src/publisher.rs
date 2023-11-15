@@ -85,7 +85,7 @@ impl Publisher {
                 self.retries.remove(&key);
                 (
                     key,
-                    Some(metrics::Event::PublishResult(
+                    Some(metrics::PublisherEvent::Result(
                         metrics::PublishResult::Success,
                     )),
                 )
@@ -104,7 +104,7 @@ impl Publisher {
                             "kad: failed to provide record: timeout"
                         );
                         self.retries.remove(&key);
-                        Some(metrics::Event::PublishResult(
+                        Some(metrics::PublisherEvent::Result(
                             metrics::PublishResult::Failed,
                         ))
                     } else {
@@ -187,12 +187,20 @@ impl Stream for Publisher {
                                     rx,
                                 };
 
+                                let new_count = batch.hashes.len() as i64;
+                                let repeat_count = self.retries.len() as i64;
+                                let max_retry_count =
+                                    *self.retries.values().max().unwrap_or(&0) as i64;
                                 debug!(
-                                    new_count = batch.hashes.len(),
-                                    repeat_count = self.retries.len(),
-                                    max_retry_count = self.retries.values().max().unwrap_or(&0),
-                                    "starting new publish batch"
+                                    new_count,
+                                    repeat_count, max_retry_count, "starting new publish batch"
                                 );
+                                self.metrics
+                                    .record(&Some(metrics::PublisherEvent::BatchStarted {
+                                        new_count,
+                                        repeat_count,
+                                        max_retry_count,
+                                    }));
                                 // Collect any keys that need to be retried and any new keys
                                 let keys: Vec<Key> = self
                                     .retries
@@ -244,6 +252,11 @@ impl Stream for Publisher {
                             let deadline_seconds = self.deadline.duration_since(now).as_secs_f64();
                             let batch_average_seconds = average.as_secs();
                             let lag_ratio = needed_seconds / deadline_seconds;
+
+                            self.metrics
+                                .record(&Some(metrics::PublisherEvent::BatchFinished {
+                                    lag_ratio,
+                                }));
 
                             if remaining_batches == 0.0 {
                                 // We do not have any more batches, fetch one more to be sure.
