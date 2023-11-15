@@ -30,9 +30,9 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 use tracing_subscriber::{
     fmt::{
         self,
-        format::{Compact, Json, Pretty},
+        format::{Compact, DefaultFields, Json, JsonFields, Pretty},
         time::SystemTime,
-        FormatEvent,
+        FormatEvent, FormatFields,
     },
     layer::SubscriberExt,
     util::SubscriberInitExt,
@@ -116,13 +116,15 @@ async fn init_metrics(cfg: Config) -> Option<JoinHandle<()>> {
     None
 }
 
-struct Format {
+// Implement a FormatEvent type that can be configured to one of a set of log formats.
+struct EventFormat {
     kind: config::LogFormat,
     single: tracing_subscriber::fmt::format::Format<Compact, SystemTime>,
     multi: tracing_subscriber::fmt::format::Format<Pretty, SystemTime>,
     json: tracing_subscriber::fmt::format::Format<Json, SystemTime>,
 }
-impl<S, N> FormatEvent<S, N> for Format
+
+impl<S, N> FormatEvent<S, N> for EventFormat
 where
     S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>,
     N: for<'a> fmt::FormatFields<'a> + 'static,
@@ -141,6 +143,27 @@ where
     }
 }
 
+// Implement a FormatFields type that can be configured to one of a set of log formats.
+pub struct FieldsFormat {
+    kind: config::LogFormat,
+    default_fields: DefaultFields,
+    json_fields: JsonFields,
+}
+
+impl<'writer> FormatFields<'writer> for FieldsFormat {
+    fn format_fields<R: tracing_subscriber::prelude::__tracing_subscriber_field_RecordFields>(
+        &self,
+        writer: fmt::format::Writer<'writer>,
+        fields: R,
+    ) -> std::fmt::Result {
+        match self.kind {
+            config::LogFormat::SingleLine => self.default_fields.format_fields(writer, fields),
+            config::LogFormat::MultiLine => self.default_fields.format_fields(writer, fields),
+            config::LogFormat::Json => self.json_fields.format_fields(writer, fields),
+        }
+    }
+}
+
 /// Initialize the tracing subsystem.
 fn init_tracer(cfg: Config) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "tokio-console")]
@@ -152,14 +175,25 @@ fn init_tracer(cfg: Config) -> Result<(), Box<dyn std::error::Error>> {
     let log_filter = filter_builder.from_env()?;
     let otlp_filter = filter_builder.from_env()?;
 
-    let format = Format {
+    // Configure both the fields and event formats.
+    let fields_format = FieldsFormat {
+        kind: cfg.log_format.clone(),
+        default_fields: DefaultFields::new(),
+        json_fields: JsonFields::new(),
+    };
+    let event_format = EventFormat {
         kind: cfg.log_format,
-        single: fmt::format().with_ansi(true).compact(),
-        multi: fmt::format().with_ansi(true).pretty(),
-        json: fmt::format().with_ansi(false).json(),
+        single: fmt::format().compact(),
+        multi: fmt::format().pretty(),
+        json: fmt::format().json(),
     };
 
-    let log_subscriber = fmt::layer().event_format(format).with_filter(log_filter);
+    let log_subscriber = fmt::layer()
+        // The JSON format ignore the ansi setting and always format without colors.
+        .with_ansi(true)
+        .event_format(event_format)
+        .fmt_fields(fields_format)
+        .with_filter(log_filter);
 
     let opentelemetry_subscriber = if cfg.tracing {
         global::set_text_map_propagator(TraceContextPropagator::new());
