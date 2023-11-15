@@ -186,6 +186,7 @@ where
             Swarm::listen_on(&mut swarm, addr.clone())?;
             listen_addrs.push(addr.clone());
         }
+
         let publisher = Publisher::new(
             libp2p_config
                 .kademlia_provider_publication_interval
