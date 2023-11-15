@@ -555,7 +555,7 @@ where
             Err(e) => return Err(ApiError(format!("Unable to create request: {}", e))),
         };
 
-        let (body_string, multipart_header) = {
+        let (body_bytes, multipart_header) = {
             let mut multipart = Multipart::new();
 
             // For each parameter, encode as appropriate and add to the multipart body as a stream.
@@ -577,9 +577,9 @@ where
                 Err(err) => return Err(ApiError(format!("Unable to build request: {}", err))),
             };
 
-            let mut body_string = String::new();
+            let mut body_bytes = Vec::new();
 
-            match fields.read_to_string(&mut body_string) {
+            match fields.read_to_end(&mut body_bytes) {
                 Ok(_) => (),
                 Err(err) => return Err(ApiError(format!("Unable to build body: {}", err))),
             }
@@ -588,10 +588,10 @@ where
 
             let multipart_header = format!("multipart/form-data;boundary={}", boundary);
 
-            (body_string, multipart_header)
+            (body_bytes, multipart_header)
         };
 
-        *request.body_mut() = Body::from(body_string);
+        *request.body_mut() = Body::from(body_bytes);
 
         request.headers_mut().insert(
             CONTENT_TYPE,
