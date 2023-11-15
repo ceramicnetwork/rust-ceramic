@@ -411,8 +411,7 @@ mod tests {
         let hash: Sha256a = store
             .hash_range(&b"a".as_slice().into(), &b"z".as_slice().into())
             .await
-            .unwrap()
-            .0;
+            .unwrap();
         expect![[r#"7460F21C83815F5EDC682F7A4154BC09AA3A0AE5DD1A2DEDCD709888A12751CC"#]]
             .assert_eq(&hash.to_hex());
     }

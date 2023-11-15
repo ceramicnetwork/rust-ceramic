@@ -8,8 +8,6 @@ use async_trait::async_trait;
 use ceramic_core::{Bytes, RangeOpen};
 use std::collections::BTreeSet;
 use std::fmt::Display;
-use std::fs::File;
-use std::io::BufWriter;
 use tracing_test::traced_test;
 
 use codespan_reporting::{
@@ -232,7 +230,6 @@ where
                     BTreeStore::from_set(set)
                         .hash_range(&Bytes::min_value(), &Bytes::max_value())
                         .unwrap()
-                        .0
                 })
                 .collect(),
         }
@@ -437,9 +434,6 @@ async fn word_lists() {
                     peer.store.len().await.unwrap(),
                 );
                 let mut next = local.initial_messages().await.unwrap();
-                let f = File::create("/tmp/foo").expect("Unable to create file");
-                let f = BufWriter::new(f);
-                serde_cbor::to_writer(f, &next[0]).unwrap();
                 for k in 0..50 {
                     println!(
                         "\t{}: -> {}[{}]",
@@ -452,7 +446,7 @@ async fn word_lists() {
                         local.store.len().await.unwrap(),
                     );
 
-                    let response = peer.process_messages(&next).await.unwrap().0;
+                    let response = peer.process_messages(&next).await.unwrap();
 
                     println!(
                         "\t{}: <- {}[{}]",
@@ -469,7 +463,6 @@ async fn word_lists() {
                         .process_messages(&response.messages)
                         .await
                         .unwrap()
-                        .0
                         .messages;
 
                     if response.messages[0].keys.len() < 3 && next[0].keys.len() < 3 {
@@ -546,18 +539,17 @@ async fn response_is_synchronized() {
     let response = x
         .process_messages(&a.initial_messages().await.unwrap())
         .await
-        .unwrap()
-        .0;
+        .unwrap();
     assert!(!response.is_synchronized);
-    let response = a.process_messages(&response.messages).await.unwrap().0;
+    let response = a.process_messages(&response.messages).await.unwrap();
     assert!(!response.is_synchronized);
-    let response = x.process_messages(&response.messages).await.unwrap().0;
-    assert!(response.is_synchronized);
+    let response = x.process_messages(&response.messages).await.unwrap();
+    assert!(!response.is_synchronized);
 
     // After this message we should be synchronized
-    let response = a.process_messages(&response.messages).await.unwrap().0;
+    let response = a.process_messages(&response.messages).await.unwrap();
     assert!(response.is_synchronized);
-    let response = x.process_messages(&response.messages).await.unwrap().0;
+    let response = x.process_messages(&response.messages).await.unwrap();
     assert!(response.is_synchronized);
 }
 
@@ -1163,12 +1155,12 @@ async fn recon_do(recon: &str) -> Record {
         let (next_dir, response, mut set) = match dir {
             Direction::CatToDog => (
                 Direction::DogToCat,
-                record.dog.process_messages(&messages).await.unwrap().0,
+                record.dog.process_messages(&messages).await.unwrap(),
                 record.dog.store.clone(),
             ),
             Direction::DogToCat => (
                 Direction::CatToDog,
-                record.cat.process_messages(&messages).await.unwrap().0,
+                record.cat.process_messages(&messages).await.unwrap(),
                 record.cat.store.clone(),
             ),
         };

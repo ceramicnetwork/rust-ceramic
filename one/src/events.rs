@@ -1,12 +1,11 @@
 use crate::sql;
 use crate::Network;
-use anyhow::{Error, Result};
+use anyhow::{anyhow, Error, Result};
 use ceramic_core::{EventId, StreamId};
 use ceramic_p2p::SQLiteBlockStore;
 use chrono::{SecondsFormat, Utc};
 use cid::{
-    multibase,
-    multihash,
+    multibase, multihash,
     multihash::{Code, MultihashDigest},
     Cid,
 };
@@ -17,9 +16,9 @@ use minicbor::{data::Tag, data::Type, display, Decode, Decoder};
 use ordered_float::OrderedFloat;
 use sqlx::sqlite::SqlitePool;
 use std::collections::{btree_map::BTreeMap, BTreeSet};
+use std::fs;
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::fs;
 use tracing::debug;
 
 #[derive(Subcommand, Debug)]
@@ -199,7 +198,7 @@ pub struct ScanBlockstoreOpts {
 
 #[derive(Decode)]
 #[cbor(map)]
-struct COSE {
+pub struct Cose {
     // JOSE: JSON Object Signing and Encryption
     // COSE: CBOR Object Signing and Encryption
     //
@@ -244,10 +243,35 @@ pub async fn scan_blockstore1(opts: ScanBlockstoreOpts) -> Result<()> {
 // scan the blockstore and add found events to the recon table.
 async fn scan_blockstore2(opts: ScanBlockstoreOpts, sql_store: SQLiteBlockStore) -> Result<()> {
     // What are we looking for?
-    //   StreamIDs
-    //   signed envelopes
-    //   header.controllers[0] DIDs
-    //   id CIDs
+    //    signed Init Events | Data Events
+    //      e          // Envelope
+    //      e/link     // Event
+    //      e/link/id  // InitEvent else this is the init event
+    //    unsigned Init Events: multi-hash = init multi-hash
+    //      e    // InitEvent
+    //    Time Events e.header.id = {init cid}
+    //      e
+    //      e/proof
+    //      e/proof/root
+    //      e/proof/root/2  // Merkle Meta
+    //      e/proof/root/0
+    //      e/proof/root/0/0
+    //      e/proof/root/0/0/0
+    //      e/proof/root/0/0/0/0
+    //      e/proof/root/0/0/0/0/0
+    //      e/proof/root/0/0/0/0/0/0
+    //      e/proof/root/0/0/0/0/0/0/0
+    //      e/proof/root/0/0/0/0/0/0/0/0
+    //      e/proof/root/0/0/0/0/0/0/0/0/0
+    //      e/proof/root/0/0/0/0/0/0/0/0/0/0/
+    //
+    //   StreamIDs - in the "streamIds" felid of a proof/root/2
+    //   dag-jose signed envelopes - "payload", "signatures"
+    //   controllers = header.controllers[0] DIDs
+    //   Data Events "id" is a CID from a streamIds
+    //
+    //   table streams for (init_multihash, block_multihash) to group all the block to make a stream.
+    //   init envelope, envelope.payload, data envelope, envelope.payload, time event, prof, merkel tree,
     //
     //   for each Event we want to find all the blocks build that event
     //   for init events this may be just the Event Block
@@ -297,10 +321,8 @@ async fn scan_blockstore2(opts: ScanBlockstoreOpts, sql_store: SQLiteBlockStore)
     let mut controllers_count = 0;
     let mut model_count = 0;
 
-    let mut found_count = 0;
     let mut not_found_count = 0;
     let mut error_count = 0;
-    let mut stream_ids_parse_fail = 0;
     let count_stream_id = found_stream_ids.len();
     // scan stream_ids
     for stream_id in found_stream_ids {
@@ -329,7 +351,7 @@ async fn scan_blockstore2(opts: ScanBlockstoreOpts, sql_store: SQLiteBlockStore)
                 "{}/{}: ({}, {}, {}), {}, {}, {:?}, found_DIDs={}",
                 count,
                 count_stream_id,
-                found_count,
+                init_block_found_count,
                 error_count,
                 not_found_count,
                 stream_id,
@@ -399,8 +421,7 @@ async fn scan_blockstore2(opts: ScanBlockstoreOpts, sql_store: SQLiteBlockStore)
         println!("event_id={event_id}");
     }
     println!(
-        "{}/{}: ({}, {}, {}), \
-        stream_ids_parse_fail={}, \
+        "{}/{}: ({}, {}), \
         stream_id_parsed_count={}, \
         init_block_found_count,={}, \
         envelope_payload_block_found_count={}, \
@@ -410,10 +431,8 @@ async fn scan_blockstore2(opts: ScanBlockstoreOpts, sql_store: SQLiteBlockStore)
         model_count={}",
         count,
         count_stream_id,
-        found_count,
         not_found_count,
         error_count,
-        stream_ids_parse_fail,
         stream_id_parsed_count,
         init_block_found_count,
         envelope_payload_block_found_count,
@@ -436,15 +455,33 @@ async fn scan_for_stream_ids(
     let mut count_map = 0;
     let mut key_sets = BTreeMap::<String, u64>::new();
     let mut rows = sql_store.scan();
+    let mut block_numbers = BTreeMap::new();
     while let Some(row) = rows.next().await {
         count += 1;
         let Ok(row) = row else {
             continue;
         };
+        if row.bytes.is_empty() || row.bytes[0] < 0b101_00000 || 0b101_11111 < row.bytes[0] {
+            continue; // skip if not a map (Major type 5 0b101)
+        };
         let Ok(cbor): Result<CborValue, Error> = CborValue::parse(row.bytes.as_slice()) else {
             count_not_cbor += 1;
             continue;
         };
+
+        if let CborValue::String(model) = cbor.path(&["header", "model"]) {
+            println!("header.model: {}", model);
+        }
+        if let CborValue::String(model) = cbor.path(&["model"]) {
+            println!("model: {}", model);
+        }
+        if let CborValue::Tag((_t, b)) = cbor.path(&["blockNumber"]) {
+            let count = block_numbers
+                .entry(b)
+                .and_modify(|count| *count += 1)
+                .or_insert(1_u64);
+            *count += 1;
+        }
 
         let map = match cbor {
             CborValue::Map(m) => m,
@@ -467,17 +504,15 @@ async fn scan_for_stream_ids(
             .keys()
             .map(|key| match key {
                 CborValue::String(s) => s.to_owned(),
-                _ => todo!(),
+                _ => "".to_owned(),
             })
             .collect::<Vec<String>>()
             .join(",");
 
-        key_sets.insert(
-            keys_string.clone(),
-            key_sets.get(&keys_string).unwrap_or(&0) + 1,
-        );
+        let key_set_count = key_sets.entry(keys_string).or_insert(0);
+        *key_set_count += 1; // increment the count of block with this set of keys
 
-        if key_sets.get(&keys_string) == Some(&1) {
+        if *key_set_count == 1 {
             println!(
                 "{} display: {} {}",
                 count,
@@ -488,13 +523,14 @@ async fn scan_for_stream_ids(
 
         if count % 1_000_000 == 0 {
             println!(
-                "{}: count_not_cbor={} count_not_map={}, count_map={},  key_sets={}, count_stream_id={}",
+                "{}: count_not_cbor={} count_not_map={}, count_map={},  key_sets={}, count_stream_id={}, |block_numbers|={}",
                 count,
                 count_not_cbor,
                 count_not_map,
                 count_map,
                 key_sets.len(),
                 found_stream_ids.len(),
+                block_numbers.len(),
             );
         }
     }
@@ -509,8 +545,9 @@ async fn scan_for_stream_ids(
     Ok(())
 }
 
-#[derive(Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Eq, PartialEq, Ord, PartialOrd, Clone)]
 pub enum CborValue {
+    // not clear if Indef should be treated distinctly from the finite versions
     Bool(bool),
     Null,
     Undefined,
@@ -520,13 +557,9 @@ pub enum CborValue {
     F64(OrderedFloat<f64>), // this makes it possible to put CborValue in BTreeMap
     Simple(u8),
     Bytes(Vec<u8>),
-    BytesIndef(Vec<u8>),
     String(String),
-    StringIndef(String),
     Array(Vec<CborValue>),
-    ArrayIndef(Vec<CborValue>),
     Map(BTreeMap<CborValue, CborValue>),
-    MapIndef(BTreeMap<CborValue, CborValue>),
     Tag((Tag, Box<CborValue>)),
     Break, // 0xff
     Unknown(u8),
@@ -535,7 +568,12 @@ pub enum CborValue {
 impl CborValue {
     fn parse(bytes: &[u8]) -> Result<Self> {
         let mut decoder = Decoder::new(bytes);
-        CborValue::next(&mut decoder)
+        let c = CborValue::next(&mut decoder);
+        if decoder.position() != bytes.len() {
+            println!("decoder not at end {}/{}", decoder.position(), bytes.len());
+            return Err(anyhow!("CborValue decode error not at end"));
+        }
+        c
     }
     fn next(decoder: &mut Decoder) -> Result<CborValue> {
         match decoder.datatype() {
@@ -548,23 +586,23 @@ impl CborValue {
                 decoder.undefined()?;
                 Ok(CborValue::Undefined)
             }
-            Ok(Type::U8) => Ok(CborValue::U64(decoder.u8()? as u64)),
-            Ok(Type::U16) => Ok(CborValue::U64(decoder.u16()? as u64)),
-            Ok(Type::U32) => Ok(CborValue::U64(decoder.u32()? as u64)),
+            Ok(Type::U8) => Ok(CborValue::U64(decoder.u8()?.into())),
+            Ok(Type::U16) => Ok(CborValue::U64(decoder.u16()?.into())),
+            Ok(Type::U32) => Ok(CborValue::U64(decoder.u32()?.into())),
             Ok(Type::U64) => Ok(CborValue::U64(decoder.u64()?)),
-            Ok(Type::I8) => Ok(CborValue::I64(decoder.i8()? as i64)),
-            Ok(Type::I16) => Ok(CborValue::I64(decoder.i16()? as i64)),
-            Ok(Type::I32) => Ok(CborValue::I64(decoder.i32()? as i64)),
+            Ok(Type::I8) => Ok(CborValue::I64(decoder.i8()?.into())),
+            Ok(Type::I16) => Ok(CborValue::I64(decoder.i16()?.into())),
+            Ok(Type::I32) => Ok(CborValue::I64(decoder.i32()?.into())),
             Ok(Type::I64) => Ok(CborValue::I64(decoder.i64()?)),
-            Ok(Type::Int) => todo!(),
+            Ok(Type::Int) => Ok(CborValue::Int(decoder.int()?.into())),
             Ok(Type::F16) => Ok(CborValue::F64(OrderedFloat(decoder.f16()?.into()))),
             Ok(Type::F32) => Ok(CborValue::F64(OrderedFloat(decoder.f32()?.into()))),
             Ok(Type::F64) => Ok(CborValue::F64(OrderedFloat(decoder.f64()?))),
-            Ok(Type::Simple) => todo!(),
+            Ok(Type::Simple) => Ok(CborValue::Simple(decoder.simple()?)),
             Ok(Type::Bytes) => Ok(CborValue::Bytes(decoder.bytes()?.to_vec())),
-            Ok(Type::BytesIndef) => todo!(),
+            Ok(Type::BytesIndef) => Ok(CborValue::Undefined), // TODO: support Type::BytesIndef
             Ok(Type::String) => Ok(CborValue::String(decoder.str()?.to_string())),
-            Ok(Type::StringIndef) => todo!(),
+            Ok(Type::StringIndef) => Ok(CborValue::Undefined), // TODO: support Type::StringIndef
             Ok(Type::Array) => {
                 let mut array = Vec::new();
                 for _ in 0..decoder.array().unwrap().unwrap() {
@@ -573,7 +611,17 @@ impl CborValue {
                 }
                 Ok(CborValue::Array(array))
             }
-            Ok(Type::ArrayIndef) => todo!(),
+            Ok(Type::ArrayIndef) => {
+                let mut array = Vec::new();
+                loop {
+                    let value = CborValue::next(decoder)?;
+                    if let CborValue::Break = value {
+                        break;
+                    }
+                    array.push(value)
+                }
+                Ok(CborValue::Array(array))
+            }
             Ok(Type::Map) => {
                 let mut map = BTreeMap::new();
                 for _ in 0..decoder.map().unwrap().unwrap() {
@@ -583,15 +631,50 @@ impl CborValue {
                 }
                 Ok(CborValue::Map(map))
             }
-            Ok(Type::MapIndef) => todo!(),
+            Ok(Type::MapIndef) => Ok(CborValue::Undefined), // TODO: support Type::MapIndef
             Ok(Type::Tag) => {
-                let tag = decoder.tag()?;
+                let tag: Tag = decoder.tag()?;
                 let value = CborValue::next(decoder)?;
                 Ok(CborValue::Tag((tag, Box::new(value))))
             }
-            Ok(Type::Break) => todo!(),
-            Ok(Type::Unknown(_)) => todo!(),
-            Err(_) => todo!(),
+            Ok(Type::Break) => Ok(CborValue::Break),
+            Ok(Type::Unknown(additional)) => Ok(CborValue::Unknown(additional)),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    pub fn path(&self, parts: &[&str]) -> CborValue {
+        match parts.split_first() {
+            None => self.clone(), // if there are no parts this is thing at the path.
+            Some((first, rest)) => {
+                let CborValue::Map(map) = &self else {
+                    return CborValue::Undefined; // if self is not a map there is no thing at the path.
+                };
+                let Some(next) = map.get(&first.to_string().into()) else {
+                    return CborValue::Undefined; // if the next part is not in the map there is no thing at the path.
+                };
+                next.path(rest)
+            }
+        }
+    }
+
+    pub fn type_name(&self) -> String {
+        match self {
+            CborValue::Bool(_) => "bool".to_string(),
+            CborValue::Null => "null".to_string(),
+            CborValue::Undefined => "undefined".to_string(),
+            CborValue::U64(_) => "u64".to_string(),
+            CborValue::I64(_) => "i64".to_string(),
+            CborValue::Int(_) => "int".to_string(),
+            CborValue::F64(_) => "f64".to_string(),
+            CborValue::Simple(_) => "simple".to_string(),
+            CborValue::Bytes(_) => "bytes".to_string(),
+            CborValue::String(_) => "string".to_string(),
+            CborValue::Array(_) => "array".to_string(),
+            CborValue::Map(_) => "map".to_string(),
+            CborValue::Tag(_) => "tag".to_string(),
+            CborValue::Break => "break".to_string(),
+            CborValue::Unknown(_) => "unknown".to_string(),
         }
     }
 }
@@ -605,5 +688,11 @@ impl From<&[u8]> for CborValue {
 impl From<&str> for CborValue {
     fn from(string: &str) -> Self {
         CborValue::String(string.to_string())
+    }
+}
+
+impl From<String> for CborValue {
+    fn from(string: String) -> Self {
+        CborValue::String(string)
     }
 }
