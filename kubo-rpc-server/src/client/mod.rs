@@ -555,31 +555,36 @@ where
             Err(e) => return Err(ApiError(format!("Unable to create request: {}", e))),
         };
 
-        let (body_bytes, multipart_header) = {
+        let (body_string, multipart_header) = {
             let mut multipart = Multipart::new();
 
             // For each parameter, encode as appropriate and add to the multipart body as a stream.
 
-            let file_vec = param_file.to_vec();
-
-            let file_mime = match mime_0_2::Mime::from_str("application/octet-stream") {
-                Ok(mime) => mime,
-                Err(err) => return Err(ApiError(format!("Unable to get mime type: {:?}", err))),
+            let file_str = match serde_json::to_string(&param_file) {
+                Ok(str) => str,
+                Err(e) => {
+                    return Err(ApiError(format!(
+                        "Unable to serialize file to string: {}",
+                        e
+                    )))
+                }
             };
 
+            let file_vec = file_str.as_bytes().to_vec();
+            let file_mime =
+                mime_0_2::Mime::from_str("application/json").expect("impossible to fail to parse");
             let file_cursor = Cursor::new(file_vec);
 
-            let filename = None as Option<&str>;
-            multipart.add_stream("file", file_cursor, filename, Some(file_mime));
+            multipart.add_stream("file", file_cursor, None as Option<&str>, Some(file_mime));
 
             let mut fields = match multipart.prepare() {
                 Ok(fields) => fields,
                 Err(err) => return Err(ApiError(format!("Unable to build request: {}", err))),
             };
 
-            let mut body_bytes = Vec::new();
+            let mut body_string = String::new();
 
-            match fields.read_to_end(&mut body_bytes) {
+            match fields.read_to_string(&mut body_string) {
                 Ok(_) => (),
                 Err(err) => return Err(ApiError(format!("Unable to build body: {}", err))),
             }
@@ -588,10 +593,10 @@ where
 
             let multipart_header = format!("multipart/form-data;boundary={}", boundary);
 
-            (body_bytes, multipart_header)
+            (body_string, multipart_header)
         };
 
-        *request.body_mut() = Body::from(body_bytes);
+        *request.body_mut() = Body::from(body_string);
 
         request.headers_mut().insert(
             CONTENT_TYPE,

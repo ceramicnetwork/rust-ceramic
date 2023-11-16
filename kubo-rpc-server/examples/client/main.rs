@@ -121,7 +121,7 @@ fn main() {
         }
         Some("BlockPutPost") => {
             let result = rt.block_on(client.block_put_post(
-                swagger::ByteArray(Vec::from("BYTE_ARRAY_DATA_HERE")),
+                swagger::ByteArray(Vec::from("BINARY_DATA_HERE")),
                 None,
                 None,
                 None,

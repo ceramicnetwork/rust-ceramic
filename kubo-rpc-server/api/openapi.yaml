@@ -210,7 +210,7 @@ paths:
         content:
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/_dag_put_post_request'
+              $ref: '#/components/schemas/_block_put_post_request'
       responses:
         "200":
           content:
@@ -557,6 +557,14 @@ components:
       required:
       - Cid
       - RemPath
+      type: object
+    _block_put_post_request:
+      properties:
+        file:
+          format: binary
+          type: string
+      required:
+      - file
       type: object
     _block_put_post_200_response:
       example:

@@ -257,7 +257,7 @@ paths:
               properties:
                 file:
                   type: string
-                  format: byte
+                  format: binary
       responses:
         '200':
           description: success
