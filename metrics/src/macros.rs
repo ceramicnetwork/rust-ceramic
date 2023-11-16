@@ -1,6 +1,16 @@
 #[allow(unused_imports)]
 use std::any::Any;
 
+/// Useful macro for registring a metric.
+/// Ensures that the metric name and identifier name are the same.
+#[macro_export]
+macro_rules! register {
+    ( $name:ident, $description:expr, $init:expr, $registry:expr) => {
+        let $name = $init;
+        $registry.register(stringify!($name), $description, $name.clone());
+    };
+}
+
 #[macro_export]
 macro_rules! record {
     ( $e:expr, $v:expr) => {

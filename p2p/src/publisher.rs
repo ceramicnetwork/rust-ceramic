@@ -9,10 +9,14 @@ use anyhow::Result;
 use ceramic_metrics::Recorder;
 use futures_timer::Delay;
 use futures_util::{future::BoxFuture, Future, Stream};
-use libp2p::kad::{record::Key, AddProviderError, AddProviderOk};
+use libp2p::kad::{record::Key, AddProviderError, AddProviderOk, AddProviderResult};
 use multihash::Multihash;
-use tokio::sync::oneshot;
-use tracing::{debug, warn};
+use tokio::sync::{
+    mpsc::{channel, error::TrySendError, Receiver, Sender},
+    oneshot,
+};
+use tokio_stream::StreamExt;
+use tracing::{debug, error, warn};
 
 use crate::{
     metrics::{self, Metrics},
@@ -34,11 +38,79 @@ const MAX_RETRIES: usize = 10;
 const OPTIMISM: f64 = 0.5;
 
 // Manages publishing provider records regularly over an interval.
+// Publisher implements [`Stream`] to produce batches of DHT keys to provide.
 pub struct Publisher {
+    start_providing_results_tx: Sender<AddProviderResult>,
+    batches_rx: Receiver<Vec<Key>>,
+    metrics: Metrics,
+}
+
+impl Publisher {
+    pub fn new(interval: Duration, block_store: SQLiteBlockStore, metrics: Metrics) -> Self {
+        // Channel for result of each start_provide query.
+        let (results_tx, results_rx) = channel(MAX_RUNNING_QUERIES * 2);
+
+        // We should rarely be behind by more than a single batch.
+        // If we are backpressure is good as we cannot use the new batch.
+        let (batches_tx, batches_rx) = channel(1);
+
+        // Do real work of the publisher on its own task.
+        let mut stream = PublisherWorker::new(results_rx, interval, block_store, metrics.clone());
+        let task_metrics = metrics.clone();
+        tokio::spawn(async move {
+            while let Some(batch) = stream.next().await {
+                if batches_tx.send(batch).await.is_err() {
+                    error!("failed to send batch on channel");
+                    task_metrics.record(&metrics::PublisherEvent::BatchSendErr);
+                }
+            }
+        });
+
+        Self {
+            batches_rx,
+            start_providing_results_tx: results_tx,
+            metrics,
+        }
+    }
+    pub fn handle_start_providing_result(&mut self, result: AddProviderResult) {
+        if let Err(send_err) = self.start_providing_results_tx.try_send(result) {
+            self.metrics.record(&metrics::PublisherEvent::BatchSendErr);
+            match send_err {
+                TrySendError::Full(result) => {
+                    error!(
+                        ?result,
+                        "failed to send start providing result on channel; channel is full"
+                    )
+                }
+                TrySendError::Closed(result) => {
+                    error!(
+                        ?result,
+                        "failed to send start providing result on channel; channel is closed"
+                    )
+                }
+            };
+        }
+    }
+}
+
+// This implementation needs to be light, as it shares its task with the swarm.
+// As such we use an internal channel an offload the real work to a separate task.
+impl Stream for Publisher {
+    type Item = Vec<Key>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.batches_rx.poll_recv(cx)
+    }
+}
+
+// Manages retrieving block hashes from the SQLiteBlockStore and producing a stream of record keys
+// to publish.
+struct PublisherWorker {
     metrics: Metrics,
     state: State,
     interval: Duration,
     deadline: Instant,
+    results_rx: Receiver<AddProviderResult>,
     current_queries: HashSet<Key>,
     block_store: SQLiteBlockStore,
     last_hash: Option<Multihash>,
@@ -61,13 +133,19 @@ enum State {
     },
 }
 
-impl Publisher {
-    pub fn new(interval: Duration, block_store: SQLiteBlockStore, metrics: Metrics) -> Self {
+impl PublisherWorker {
+    pub fn new(
+        results_rx: Receiver<AddProviderResult>,
+        interval: Duration,
+        block_store: SQLiteBlockStore,
+        metrics: Metrics,
+    ) -> Self {
         Self {
             metrics,
             state: State::StartingFetch,
             deadline: Instant::now() + interval,
             interval,
+            results_rx,
             current_queries: HashSet::new(),
             block_store,
             last_hash: None,
@@ -76,10 +154,7 @@ impl Publisher {
             retries: Default::default(),
         }
     }
-    pub fn handle_start_providing_result(
-        &mut self,
-        result: Result<AddProviderOk, AddProviderError>,
-    ) {
+    fn handle_publish_result(&mut self, result: AddProviderResult) {
         let (key, metric_event) = match result {
             Ok(AddProviderOk { key }) => {
                 self.retries.remove(&key);
@@ -116,7 +191,9 @@ impl Publisher {
                 (key, metrics_event)
             }
         };
-        self.metrics.record(&metric_event);
+        if let Some(event) = metric_event {
+            self.metrics.record(&event);
+        }
         self.current_queries.remove(&key);
 
         if self.current_queries.is_empty() {
@@ -132,10 +209,24 @@ struct Batch {
     remaining: i64,
 }
 
-impl Stream for Publisher {
+impl Stream for PublisherWorker {
     type Item = Vec<Key>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        // First process any results.
+        loop {
+            match self.results_rx.poll_recv(cx) {
+                Poll::Ready(Some(result)) => {
+                    self.handle_publish_result(result);
+                }
+                Poll::Ready(None) => {
+                    warn!("results channel is closed");
+                    // We cannot continue to process batches so indicate the stream is complete.
+                    return Poll::Ready(None);
+                }
+                Poll::Pending => break,
+            };
+        }
         // Loop until we reach a blocking state.
         loop {
             match &mut self.state {
@@ -195,12 +286,11 @@ impl Stream for Publisher {
                                     new_count,
                                     repeat_count, max_retry_count, "starting new publish batch"
                                 );
-                                self.metrics
-                                    .record(&Some(metrics::PublisherEvent::BatchStarted {
-                                        new_count,
-                                        repeat_count,
-                                        max_retry_count,
-                                    }));
+                                self.metrics.record(&metrics::PublisherEvent::BatchStarted {
+                                    new_count,
+                                    repeat_count,
+                                    max_retry_count,
+                                });
                                 // Collect any keys that need to be retried and any new keys
                                 let keys: Vec<Key> = self
                                     .retries
@@ -254,9 +344,7 @@ impl Stream for Publisher {
                             let lag_ratio = needed_seconds / deadline_seconds;
 
                             self.metrics
-                                .record(&Some(metrics::PublisherEvent::BatchFinished {
-                                    lag_ratio,
-                                }));
+                                .record(&metrics::PublisherEvent::BatchFinished { lag_ratio });
 
                             if remaining_batches == 0.0 {
                                 // We do not have any more batches, fetch one more to be sure.
