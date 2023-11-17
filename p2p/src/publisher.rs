@@ -24,9 +24,6 @@ use crate::{
     SQLiteBlockStore,
 };
 
-// Performing many queries concurrently is efficient for adjacent keys.
-// We can use a large number here in order take advantage of those efficiencies.
-const MAX_RUNNING_QUERIES: usize = 1000;
 // Number of historical durations to track.
 // Each batch tends to last up to the timeout because of the long tail of queries.
 // As such there is not much variance in the batch duration and a small history is sufficient.
@@ -48,16 +45,27 @@ pub struct Publisher {
 }
 
 impl Publisher {
-    pub fn new(interval: Duration, block_store: SQLiteBlockStore, metrics: Metrics) -> Self {
+    pub fn new(
+        interval: Duration,
+        max_concurrent: usize,
+        block_store: SQLiteBlockStore,
+        metrics: Metrics,
+    ) -> Self {
         // Channel for result of each start_provide query.
-        let (results_tx, results_rx) = channel(MAX_RUNNING_QUERIES * 2);
+        let (results_tx, results_rx) = channel(max_concurrent * 2);
 
         // We should rarely be behind by more than a single batch.
         // If we are backpressure is good as we cannot use the new batch.
         let (batches_tx, batches_rx) = channel(1);
 
         // Do real work of the publisher on its own task.
-        let mut stream = PublisherWorker::new(results_rx, interval, block_store, metrics.clone());
+        let mut stream = PublisherWorker::new(
+            results_rx,
+            interval,
+            max_concurrent,
+            block_store,
+            metrics.clone(),
+        );
         let task_metrics = metrics.clone();
         tokio::spawn(async move {
             while let Some(batch) = stream.next().await {
@@ -131,6 +139,7 @@ struct PublisherWorker {
     state: State,
     interval: Duration,
     deadline: Instant,
+    max_concurrent: usize,
     results_rx: Receiver<AddProviderResult>,
     current_queries: HashSet<Key>,
     block_store: SQLiteBlockStore,
@@ -158,6 +167,7 @@ impl PublisherWorker {
     pub fn new(
         results_rx: Receiver<AddProviderResult>,
         interval: Duration,
+        max_concurrent: usize,
         block_store: SQLiteBlockStore,
         metrics: Metrics,
     ) -> Self {
@@ -166,6 +176,7 @@ impl PublisherWorker {
             state: State::StartingFetch,
             deadline: Instant::now() + interval,
             interval,
+            max_concurrent,
             results_rx,
             current_queries: HashSet::new(),
             block_store,
@@ -262,7 +273,7 @@ impl Stream for PublisherWorker {
                 State::StartingFetch => {
                     let block_store = self.block_store.clone();
                     let last_hash = self.last_hash;
-                    let limit = (MAX_RUNNING_QUERIES - self.retries.len()) as i64;
+                    let limit = (self.max_concurrent - self.retries.len()) as i64;
                     self.state = State::FetchingBatch {
                         start: Instant::now(),
                         future: Box::pin(async move {
@@ -341,9 +352,9 @@ impl Stream for PublisherWorker {
                 } => {
                     match Future::poll(Pin::new(rx), cx) {
                         Poll::Ready(_) => {
-                            let remaining_batches =
-                                (*remaining as f64) / MAX_RUNNING_QUERIES as f64;
                             let elapsed = start.elapsed();
+                            let remaining_batches =
+                                (*remaining as f64) / self.max_concurrent as f64;
                             self.elapsed_history.push_front(elapsed);
                             if self.elapsed_history.len() >= ELAPSED_HISTORY_SIZE {
                                 self.elapsed_history.pop_back();
