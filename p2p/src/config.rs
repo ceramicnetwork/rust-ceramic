@@ -103,6 +103,9 @@ pub struct Libp2pConfig {
     ///
     /// Must be significantly larger than the provider publication interval.
     pub kademlia_provider_record_ttl: Option<Duration>,
+
+    /// Sets maximum number of concurrent DHT queries used to republish records.
+    pub republish_max_concurrent: u64,
 }
 
 impl Default for Libp2pConfig {
@@ -137,6 +140,7 @@ impl Default for Libp2pConfig {
             kademlia_query_timeout: Duration::from_secs(60),
             kademlia_provider_publication_interval: Some(Duration::from_secs(12 * 60 * 60)),
             kademlia_provider_record_ttl: Some(Duration::from_secs(24 * 60 * 60)),
+            republish_max_concurrent: 1000,
         }
     }
 }

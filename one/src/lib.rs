@@ -189,6 +189,14 @@ struct DaemonOpts {
         env = "CERAMIC_ONE_KADEMLIA_PROVIDER_RECORD_TTL_SECS"
     )]
     kademlia_provider_record_ttl_secs: u64,
+
+    /// Sets maximum number of concurrent DHT queries used to republish records.
+    #[arg(
+        long,
+        default_value_t = 1_000,
+        env = "CERAMIC_ONE_REPUBLISH_MAX_CONCURRENT"
+    )]
+    republish_max_concurrent: u64,
 }
 
 #[derive(ValueEnum, Debug, Clone, Default)]
@@ -387,6 +395,7 @@ impl Daemon {
             } else {
                 Some(Duration::from_secs(opts.kademlia_provider_record_ttl_secs))
             },
+            republish_max_concurrent: opts.republish_max_concurrent,
             ..Default::default()
         };
         debug!(?p2p_config, "using p2p config");
