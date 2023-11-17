@@ -48,8 +48,11 @@ tracing.workspace = true
 tokio-util.workspace = true
 tokio-metrics = "0.3.1"
 tokio-prometheus-client = "0.1"
-
-
+clio = "0.3.4"
+dirs = "5.0.1"
+chrono = "0.4.31"
+glob = "0.3.1"
+cid.workspace = true
 
 [features]
 default = []

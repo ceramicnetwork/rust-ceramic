@@ -1,17 +1,21 @@
+use anyhow::Result;
 use ceramic_p2p::SQLiteBlockStore;
 use chrono::{SecondsFormat, Utc};
 use cid::{multibase, multihash, Cid};
-use clap::Parser;
-use clap_verbosity_flag::{InfoLevel, Verbosity};
+use clap::{Args, Subcommand};
 use clio::{ClioPath, InputPath, OutputPath};
 use glob::{glob, Paths};
 use sqlx::sqlite::SqlitePool;
 use std::{fs, path::PathBuf};
 
-/// Migrate from kubo to ceramic-one
-#[derive(Parser, Debug)]
-#[clap(name = "migration", about, author, version, about)]
-struct Cli {
+#[derive(Subcommand, Debug)]
+pub enum EventsCommand {
+    /// Slurp events into the local event database.
+    Slurp(SlurpOpts),
+}
+
+#[derive(Args, Debug)]
+pub struct SlurpOpts {
     /// The path to the ipfs_repo [eg: ~/.ipfs/blocks]
     #[clap(long, short, value_parser)]
     input_ipfs_path: Option<ClioPath>,
@@ -23,19 +27,19 @@ struct Cli {
     /// The path to the output_ceramic_db [eg: ~/.ceramic-one/db.sqlite3]
     #[clap(long, short, value_parser)]
     output_ceramic_path: Option<OutputPath>,
-
-    #[clap(flatten)]
-    verbose: Verbosity<InfoLevel>,
 }
 
-#[tokio::main]
-async fn main() {
-    let args = Cli::parse();
+pub async fn events(cmd: EventsCommand) -> Result<()> {
+    match cmd {
+        EventsCommand::Slurp(opts) => slurp(opts).await,
+    }
+}
 
+async fn slurp(opts: SlurpOpts) -> Result<()> {
     let home: PathBuf = dirs::home_dir().unwrap_or("/data/".into());
     let default_output_ceramic_path: PathBuf = home.join(".ceramic-one/db.sqlite3");
 
-    let output_ceramic_path = args
+    let output_ceramic_path = opts
         .output_ceramic_path
         .unwrap_or_else(|| OutputPath::new(default_output_ceramic_path.as_path()).unwrap());
     println!(
@@ -52,12 +56,13 @@ async fn main() {
     .unwrap();
     let store = SQLiteBlockStore::new(pool).await.unwrap();
 
-    if args.input_ceramic_db.is_some() {
-        migrate_from_database(args.input_ceramic_db, store.clone()).await;
+    if opts.input_ceramic_db.is_some() {
+        migrate_from_database(opts.input_ceramic_db, store.clone()).await;
     }
-    if args.input_ipfs_path.is_some() {
-        migrate_from_filesystem(args.input_ipfs_path, store.clone()).await;
+    if opts.input_ipfs_path.is_some() {
+        migrate_from_filesystem(opts.input_ipfs_path, store.clone()).await;
     }
+    Ok(())
 }
 
 async fn migrate_from_filesystem(input_ipfs_path: Option<ClioPath>, store: SQLiteBlockStore) {

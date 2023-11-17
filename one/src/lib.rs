@@ -1,6 +1,7 @@
 //! Ceramic implements a single binary ceramic node.
 #![warn(missing_docs)]
 
+mod events;
 mod http;
 mod metrics;
 mod network;
@@ -47,6 +48,9 @@ enum Command {
     Daemon(DaemonOpts),
     /// Run a process that locally pins all stream tips
     Eye(EyeOpts),
+    /// Event store tools
+    #[command(subcommand)]
+    Events(events::EventsCommand),
 }
 
 #[derive(Args, Debug)]
@@ -289,6 +293,7 @@ pub async fn run() -> Result<()> {
             daemon.run().await
         }
         Command::Eye(opts) => eye(opts).await,
+        Command::Events(opts) => events::events(opts).await,
     }
 }
 
