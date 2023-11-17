@@ -271,11 +271,9 @@ where
                 }
                 provide_records = self.publisher.next() => {
                     if let Some(kad) = self.swarm.behaviour_mut().kad.as_mut() {
-                        if let Some(provide_records) = provide_records {
-                            for record in provide_records {
-                                if let Err(err) = kad.start_providing(record.clone()) {
-                                    warn!(key=hex::encode(record.to_vec()), %err,"failed to provide record");
-                                }
+                        if let Some(key) = provide_records {
+                            if let Err(err) = kad.start_providing(key.clone()) {
+                                warn!(key=hex::encode(key.to_vec()), %err,"failed to provide record");
                             }
                         }
                     }

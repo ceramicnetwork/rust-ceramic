@@ -3,6 +3,7 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
     time::{Duration, Instant},
+    vec::IntoIter,
 };
 
 use anyhow::Result;
@@ -41,6 +42,7 @@ const OPTIMISM: f64 = 0.5;
 // Publisher implements [`Stream`] to produce batches of DHT keys to provide.
 pub struct Publisher {
     start_providing_results_tx: Sender<AddProviderResult>,
+    batch: Option<IntoIter<Key>>,
     batches_rx: Receiver<Vec<Key>>,
     metrics: Metrics,
 }
@@ -67,6 +69,7 @@ impl Publisher {
         });
 
         Self {
+            batch: None,
             batches_rx,
             start_providing_results_tx: results_tx,
             metrics,
@@ -94,12 +97,30 @@ impl Publisher {
 }
 
 // This implementation needs to be light, as it shares its task with the swarm.
-// As such we use an internal channel an offload the real work to a separate task.
+// As such we use an internal channel and offload the real work to a separate task.
+//
+// This stream produces one key at a time. This way we do not flood the swarm task with lots of
+// work.
 impl Stream for Publisher {
-    type Item = Vec<Key>;
+    type Item = Key;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.batches_rx.poll_recv(cx)
+        loop {
+            if let Some(mut batch) = self.batch.take() {
+                if let Some(key) = batch.next() {
+                    self.batch = Some(batch);
+                    return Poll::Ready(Some(key));
+                } // else drop the batch because it is empty
+            }
+
+            match self.batches_rx.poll_recv(cx) {
+                Poll::Ready(Some(batch)) => {
+                    self.batch = Some(batch.into_iter());
+                }
+                Poll::Ready(None) => return Poll::Ready(None),
+                Poll::Pending => return Poll::Pending,
+            }
+        }
     }
 }
 
