@@ -19,9 +19,10 @@ use libp2p::swarm::{
     handler::{DialUpgradeError, FullyNegotiatedOutbound},
     ConnectionHandler, ConnectionHandlerEvent, KeepAlive, StreamUpgradeError, SubstreamProtocol,
 };
+use libp2p::PeerId;
 use smallvec::SmallVec;
 use tokio::sync::oneshot;
-use tracing::{error, trace, warn};
+use tracing::{trace, warn};
 
 use crate::{
     error::Error,
@@ -93,6 +94,7 @@ type BitswapConnectionHandlerEvent = ConnectionHandlerEvent<
 
 /// Protocol Handler that manages a single long-lived substream with a peer.
 pub struct BitswapHandler {
+    remote_peer_id: PeerId,
     /// Upgrade configuration for the bitswap protocol.
     listen_protocol: SubstreamProtocol<ProtocolConfig, ()>,
 
@@ -145,8 +147,13 @@ impl BitswapHandler {
     /// Builds a new [`BitswapHandler`].
     // TODO(WS1-1291): Remove uses of KeepAlive::Until
     #[allow(deprecated)]
-    pub fn new(protocol_config: ProtocolConfig, idle_timeout: Duration) -> Self {
+    pub fn new(
+        remote_peer_id: PeerId,
+        protocol_config: ProtocolConfig,
+        idle_timeout: Duration,
+    ) -> Self {
         Self {
+            remote_peer_id,
             listen_protocol: SubstreamProtocol::new(protocol_config, ()),
             inbound_substreams: Default::default(),
             outbound_substreams: Default::default(),
@@ -247,9 +254,9 @@ impl ConnectionHandler for BitswapHandler {
                     self.protocol = Some(protocol_id);
                 }
 
-                trace!("New inbound substream request: {:?}", protocol_id);
+                trace!(?protocol_id, "new inbound substream request");
                 self.inbound_substreams
-                    .push(Box::pin(inbound_substream(protocol)));
+                    .push(Box::pin(inbound_substream(self.remote_peer_id, protocol)));
             }
             libp2p::swarm::handler::ConnectionEvent::FullyNegotiatedOutbound(
                 FullyNegotiatedOutbound { protocol, info },
@@ -259,17 +266,20 @@ impl ConnectionHandler for BitswapHandler {
                     self.protocol = Some(protocol_id);
                 }
 
-                trace!("New outbound substream: {:?}", protocol_id);
-                self.outbound_substreams
-                    .push(Box::pin(outbound_substream(protocol, info)));
+                trace!(?protocol_id, "new outbound substream");
+                self.outbound_substreams.push(Box::pin(outbound_substream(
+                    self.remote_peer_id,
+                    protocol,
+                    info,
+                )));
             }
             libp2p::swarm::handler::ConnectionEvent::AddressChange(_) => {}
             libp2p::swarm::handler::ConnectionEvent::DialUpgradeError(DialUpgradeError {
-                error,
+                error: err,
                 ..
             }) => {
-                warn!("Dial upgrade error {:?}", error);
-                self.upgrade_errors.push_back(error);
+                warn!(%err, "dial upgrade error");
+                self.upgrade_errors.push_back(err);
             }
 
             libp2p::swarm::handler::ConnectionEvent::ListenUpgradeError(_)
@@ -299,7 +309,10 @@ impl ConnectionHandler for BitswapHandler {
     }
 }
 
+#[tracing::instrument(skip(substream))]
 fn inbound_substream(
+    // Include remote_peer_id for tracing context only
+    remote_peer_id: PeerId,
     mut substream: Framed<libp2p::Stream, BitswapCodec>,
 ) -> impl Stream<Item = BitswapConnectionHandlerEvent> {
     async_stream::stream! {
@@ -309,16 +322,16 @@ fn inbound_substream(
                     // reset keep alive idle timeout
                     yield ConnectionHandlerEvent::NotifyBehaviour(HandlerEvent::Message { message, protocol });
                 }
-                Err(error) => match error {
+                Err(err) => match err {
                     BitswapHandlerError::MaxTransmissionSize => {
-                        warn!("Message exceeded the maximum transmission size");
+                        warn!("message exceeded the maximum transmission size");
                     }
                     _ => {
-                        warn!("Inbound stream error: {}", error);
+                        warn!(%err, "inbound stream error");
                         // More serious errors, close this side of the stream. If the
                         // peer is still around, they will re-establish their connection
 
-                        yield ConnectionHandlerEvent::Close(error);
+                        yield ConnectionHandlerEvent::Close(err);
                         break;
                     }
                 }
@@ -327,24 +340,27 @@ fn inbound_substream(
 
         // All responses received, close the stream.
         if let Err(err) = substream.flush().await {
-            warn!("failed to flush stream: {:?}", err);
+            warn!(%err, "failed to flush stream");
         }
         if let Err(err) = substream.close().await {
-            warn!("failed to close stream: {:?}", err);
+            warn!(%err, "failed to close stream");
         }
     }
 }
 
+#[tracing::instrument(skip(substream))]
 fn outbound_substream(
+    // Include remote_peer_id for tracing context only
+    remote_peer_id: PeerId,
     mut substream: Framed<libp2p::Stream, BitswapCodec>,
     (message, response): (BitswapMessage, BitswapMessageResponse),
 ) -> impl Stream<Item = BitswapConnectionHandlerEvent> {
     async_stream::stream! {
-        if let Err(error) = substream.feed(message).await {
-            warn!("failed to write item: {:?}", error);
-            response.send(Err(network::SendError::Other(error.to_string()))).ok();
+        if let Err(err) = substream.feed(message).await {
+            warn!(%err, "failed to write item");
+            response.send(Err(network::SendError::Other(err.to_string()))).ok();
             yield ConnectionHandlerEvent::NotifyBehaviour(
-                HandlerEvent::FailedToSendMessage { error }
+                HandlerEvent::FailedToSendMessage { error: err }
             );
         } else {
             // Message sent
@@ -352,11 +368,11 @@ fn outbound_substream(
         }
 
         if let Err(err) = substream.flush().await {
-            warn!("failed to flush stream: {:?}", err);
+            warn!(%err, "failed to flush stream");
         }
 
         if let Err(err) = substream.close().await {
-            warn!("failed to close stream: {:?}", err);
+            warn!(%err, "failed to close stream");
         }
     }
 }

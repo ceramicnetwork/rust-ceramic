@@ -273,8 +273,9 @@ impl<S: Store> Bitswap<S> {
     fn peer_connected(&self, peer: PeerId) {
         if let Err(err) = self.peers_connected.try_send(peer) {
             warn!(
-                "failed to process peer connection from {}: {:?}, dropping",
-                peer, err
+                %peer,
+                %err,
+                "failed to process peer connection, dropping",
             );
         }
     }
@@ -282,8 +283,9 @@ impl<S: Store> Bitswap<S> {
     fn peer_disconnected(&self, peer: PeerId) {
         if let Err(err) = self.peers_disconnected.try_send(peer) {
             warn!(
-                "failed to process peer disconnection from {}: {:?}, dropping",
-                peer, err
+                %peer,
+                %err,
+                "failed to process peer disconnection, dropping",
             );
         }
     }
@@ -294,8 +296,9 @@ impl<S: Store> Bitswap<S> {
         // TODO: Handle backpressure properly
         if let Err(err) = self.incoming_messages.try_send((peer, message)) {
             warn!(
-                "failed to receive message from {}: {:?}, dropping",
-                peer, err
+                %peer,
+                %err,
+                "failed to receive message, dropping",
             );
         }
     }
@@ -317,10 +320,7 @@ impl<S: Store> Bitswap<S> {
                 if let PeerState::Connected(old_id) = old_state {
                     if let PeerState::Connected(new_id) = new_state {
                         // TODO: better understand what this means and how to handle it.
-                        debug!(
-                            "Peer {}: detected connection id change: {:?} => {:?}",
-                            peer, old_id, new_id
-                        );
+                        debug!(?peer, %old_id, %new_id, "peer detected connection id change",);
                         return;
                     }
                 }
@@ -378,7 +378,7 @@ impl<S: Store> Bitswap<S> {
         if let Some(mut dials) = dials.remove(peer_id) {
             while let Some((id, sender)) = dials.pop() {
                 if let Err(err) = sender.send(result.clone()) {
-                    warn!("dial:{} failed to send dial response {:?}", id, err)
+                    warn!(%id, ?err,"failed to send dial response");
                 }
             }
         }
@@ -408,9 +408,9 @@ impl<S: Store> NetworkBehaviour for Bitswap<S> {
         match event {
             libp2p::swarm::FromSwarm::ConnectionEstablished(event) => {
                 trace!(
-                    "connection established {} ({})",
-                    event.peer_id,
-                    event.other_established
+                    peer_id=%event.peer_id,
+                    other_established=event.other_established,
+                    "connection established",
                 );
                 self.set_peer_state(&event.peer_id, PeerState::Connected(event.connection_id));
                 self.pause_dialing = false;
@@ -430,7 +430,7 @@ impl<S: Store> NetworkBehaviour for Bitswap<S> {
                         self.pause_dialing = true;
                         //}
                     };
-                    trace!(%peer_id, error = %event.error,  "report dial failure");
+                    trace!(%peer_id, err = %event.error,  "report dial failure");
                     self.remove_peer_dials(&peer_id, Err(event.error.to_string()));
                 }
             }
@@ -444,7 +444,6 @@ impl<S: Store> NetworkBehaviour for Bitswap<S> {
         connection_id: ConnectionId,
         event: libp2p::swarm::THandlerOutEvent<Self>,
     ) {
-        // trace!("inject_event from {}, event: {:?}", peer_id, event);
         match event {
             HandlerEvent::Connected { protocol } => {
                 self.set_peer_state(&peer_id, PeerState::Responsive(connection_id, protocol));
@@ -483,7 +482,7 @@ impl<S: Store> NetworkBehaviour for Bitswap<S> {
                 Poll::Ready(ev) => match ev {
                     OutEvent::Disconnect(peer_id, response) => {
                         if let Err(err) = response.send(()) {
-                            warn!("failed to send disconnect response {:?}", err)
+                            warn!(?err, "failed to send disconnect response")
                         }
                         return Poll::Ready(ToSwarm::CloseConnection {
                             peer_id,
@@ -495,14 +494,14 @@ impl<S: Store> NetworkBehaviour for Bitswap<S> {
                             Some(PeerState::Responsive(conn, protocol_id)) => {
                                 // already connected
                                 if let Err(err) = response.send(Ok((conn, Some(protocol_id)))) {
-                                    debug!("dial:{}: failed to send dial response {:?}", id, err)
+                                    debug!(%id, ?err, "failed to send dial response, responsive")
                                 }
                                 continue;
                             }
                             Some(PeerState::Connected(conn)) => {
                                 // already connected
                                 if let Err(err) = response.send(Ok((conn, None))) {
-                                    debug!("dial:{}: failed to send dial response {:?}", id, err)
+                                    debug!(%id, ?err, "failed to send dial response, connected")
                                 }
                                 continue;
                             }
@@ -512,7 +511,7 @@ impl<S: Store> NetworkBehaviour for Bitswap<S> {
                                     if let Err(err) =
                                         response.send(Err(format!("dial:{id}: dialing paused")))
                                     {
-                                        debug!("dial:{id}: failed to send dial response {err:?}",)
+                                        debug!(%id, ?err, "failed to send dial response")
                                     }
                                     continue;
                                 }
@@ -539,7 +538,7 @@ impl<S: Store> NetworkBehaviour for Bitswap<S> {
                         response,
                         connection_id,
                     } => {
-                        tracing::debug!("send message {}", peer);
+                        debug!(%peer, "send message");
                         return Poll::Ready(ToSwarm::NotifyHandler {
                             peer_id: peer,
                             handler: NotifyHandler::One(connection_id),
@@ -578,23 +577,31 @@ impl<S: Store> NetworkBehaviour for Bitswap<S> {
     fn handle_established_inbound_connection(
         &mut self,
         _connection_id: ConnectionId,
-        _peer: PeerId,
+        peer: PeerId,
         _local_addr: &Multiaddr,
         _remote_addr: &Multiaddr,
     ) -> std::result::Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
         let protocol_config = self.protocol_config.clone();
-        Ok(BitswapHandler::new(protocol_config, self.idle_timeout))
+        Ok(BitswapHandler::new(
+            peer,
+            protocol_config,
+            self.idle_timeout,
+        ))
     }
 
     fn handle_established_outbound_connection(
         &mut self,
         _connection_id: ConnectionId,
-        _peer: PeerId,
+        peer: PeerId,
         _addr: &Multiaddr,
         _role_override: libp2p::core::Endpoint,
     ) -> std::result::Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
         let protocol_config = self.protocol_config.clone();
-        Ok(BitswapHandler::new(protocol_config, self.idle_timeout))
+        Ok(BitswapHandler::new(
+            peer,
+            protocol_config,
+            self.idle_timeout,
+        ))
     }
 }
 
