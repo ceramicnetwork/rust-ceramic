@@ -107,7 +107,6 @@ where
         recons: Option<(I, M)>,
         block_store: SQLiteBlockStore,
     ) -> Result<Self> {
-        let peer_manager = PeerManager::default();
         let pub_key = local_key.public();
         let peer_id = pub_key.to_peer_id();
 
@@ -252,7 +251,7 @@ where
             dcutr: dcutr.into(),
             relay_client: relay_client.into(),
             gossipsub,
-            peer_manager,
+            peer_manager: PeerManager::new(&config.bootstrap_peers),
             limits,
             recon: recon.into(),
         })

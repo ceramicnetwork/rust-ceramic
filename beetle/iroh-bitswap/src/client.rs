@@ -250,7 +250,7 @@ impl<S: Store> Client<S> {
                 inc!(BitswapMetrics::BlocksIn);
                 record!(
                     BitswapMetrics::ReceivedBlockBytes,
-                    block.data().len() as u64
+                    block.data().len() as i64
                 );
             }
         }

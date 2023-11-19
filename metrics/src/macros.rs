@@ -28,6 +28,14 @@ macro_rules! inc {
 }
 
 #[macro_export]
+macro_rules! dec {
+    ( $e:expr) => {
+        #[allow(deprecated)]
+        $e.record(-1);
+    };
+}
+
+#[macro_export]
 macro_rules! observe {
     ( $e:expr, $v:expr) => {
         #[allow(deprecated)]
@@ -80,7 +88,7 @@ macro_rules! make_metrics {
             }
 
             impl MetricsRecorder for Metrics {
-                fn record<M>(&self, m: M, value: u64)
+                fn record<M>(&self, m: M, value: i64)
                 where
                     M: MetricType + std::fmt::Display,
                 {
@@ -120,7 +128,7 @@ macro_rules! make_metrics {
             }
 
             impl MRecorder for  [<$module_name Metrics>] {
-                fn record(&self, value: u64) {
+                fn record(&self, value: i64) {
                     $crate::record(Collector::$module_name, self.clone(), value);
                 }
             }

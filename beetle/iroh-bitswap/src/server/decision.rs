@@ -284,8 +284,8 @@ impl<S: Store> Engine<S> {
 
         if *counter % 100 == 0 {
             let stats = self.peer_task_queue.stats().await;
-            record!(BitswapMetrics::EnginePendingTasks, stats.num_pending as u64);
-            record!(BitswapMetrics::EngineActiveTasks, stats.num_active as u64);
+            record!(BitswapMetrics::EnginePendingTasks, stats.num_pending as i64);
+            record!(BitswapMetrics::EngineActiveTasks, stats.num_active as i64);
         }
     }
 

@@ -1,6 +1,9 @@
 use std::fmt;
 
-use prometheus_client::{metrics::counter::Counter, registry::Registry};
+use prometheus_client::{
+    metrics::{counter::Counter, gauge::Gauge},
+    registry::Registry,
+};
 use tracing::error;
 
 use crate::{
@@ -14,6 +17,7 @@ pub(crate) type Libp2pMetrics = libp2p::metrics::Metrics;
 pub(crate) struct Metrics {
     bad_peers: Counter,
     bad_peers_removed: Counter,
+    bootstrap_peers_connected: Gauge,
     skipped_peer_bitswap: Counter,
     skipped_peer_kad: Counter,
     loops: Counter,
@@ -38,6 +42,13 @@ impl Metrics {
             bad_peers_removed.clone(),
         );
 
+        let bootstrap_peers_connected = Gauge::default();
+        sub_registry.register(
+            P2PMetrics::BootstrapPeersConnected.name(),
+            "",
+            bootstrap_peers_connected.clone(),
+        );
+
         let skipped_peer_bitswap = Counter::default();
         sub_registry.register(
             P2PMetrics::SkippedPeerBitswap.name(),
@@ -57,6 +68,7 @@ impl Metrics {
         Self {
             bad_peers,
             bad_peers_removed,
+            bootstrap_peers_connected,
             skipped_peer_bitswap,
             skipped_peer_kad,
             loops,
@@ -65,22 +77,28 @@ impl Metrics {
 }
 
 impl MetricsRecorder for Metrics {
-    fn record<M>(&self, m: M, value: u64)
+    fn record<M>(&self, m: M, value: i64)
     where
         M: MetricType + std::fmt::Display,
     {
+        // Counters should never record negative values
         if m.name() == P2PMetrics::BadPeer.name() {
-            self.bad_peers.inc_by(value);
+            self.bad_peers.inc_by(value.unsigned_abs());
         } else if m.name() == P2PMetrics::BadPeerRemoved.name() {
-            self.bad_peers_removed.inc_by(value);
+            self.bad_peers_removed.inc_by(value.unsigned_abs());
+        } else if m.name() == P2PMetrics::BootstrapPeersConnected.name() {
+            // This is a gauge and can record negative values
+            self.bootstrap_peers_connected.inc_by(value);
+        } else if m.name() == P2PMetrics::BadPeerRemoved.name() {
+            self.bad_peers_removed.inc_by(value.unsigned_abs());
         } else if m.name() == P2PMetrics::SkippedPeerBitswap.name() {
-            self.skipped_peer_bitswap.inc_by(value);
+            self.skipped_peer_bitswap.inc_by(value.unsigned_abs());
         } else if m.name() == P2PMetrics::SkippedPeerKad.name() {
-            self.skipped_peer_kad.inc_by(value);
+            self.skipped_peer_kad.inc_by(value.unsigned_abs());
         } else if m.name() == P2PMetrics::LoopCounter.name() {
-            self.loops.inc_by(value);
+            self.loops.inc_by(value.unsigned_abs());
         } else {
-            error!("record (bitswap): unknown metric {}", m.name());
+            error!("record (p2p): unknown metric {}", m.name());
         }
     }
 
@@ -88,7 +106,7 @@ impl MetricsRecorder for Metrics {
     where
         M: HistogramType + std::fmt::Display,
     {
-        error!("observe (bitswap): unknown metric {}", m.name());
+        error!("observe (p2p): unknown metric {}", m.name());
     }
 }
 
@@ -96,6 +114,7 @@ impl MetricsRecorder for Metrics {
 pub enum P2PMetrics {
     BadPeer,
     BadPeerRemoved,
+    BootstrapPeersConnected,
     SkippedPeerBitswap,
     SkippedPeerKad,
     LoopCounter,
@@ -106,6 +125,7 @@ impl MetricType for P2PMetrics {
         match self {
             P2PMetrics::BadPeer => "bad_peer",
             P2PMetrics::BadPeerRemoved => "bad_peer_removed",
+            P2PMetrics::BootstrapPeersConnected => "bootstrap_peers_connected",
             P2PMetrics::SkippedPeerBitswap => "skipped_peer_bitswap",
             P2PMetrics::SkippedPeerKad => "skipped_peer_kad",
             P2PMetrics::LoopCounter => "loop_counter",
@@ -114,7 +134,7 @@ impl MetricType for P2PMetrics {
 }
 
 impl MRecorder for P2PMetrics {
-    fn record(&self, value: u64) {
+    fn record(&self, value: i64) {
         crate::record(Collector::P2P, self.clone(), value);
     }
 }

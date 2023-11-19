@@ -70,6 +70,16 @@ struct DaemonOpts {
     )]
     swarm_addresses: Vec<String>,
 
+    /// Address of bootstrap peers.
+    /// There are no default addresses, use this arg or the API to connect to bootstrap peers as needed.
+    #[arg(
+        long,
+        use_value_delimiter = true,
+        value_delimiter = ',',
+        env = "CERAMIC_ONE_BOOTSTRAP_ADDRESSES"
+    )]
+    bootstrap_addresses: Vec<String>,
+
     /// Path to storage directory
     #[arg(short, long, env = "CERAMIC_ONE_STORE_DIR")]
     store_dir: Option<PathBuf>,
@@ -363,7 +373,16 @@ impl Daemon {
             max_conns_pending_in: opts.max_conns_pending_in,
             max_conns_per_peer: opts.max_conns_per_peer,
             idle_connection_timeout: Duration::from_millis(opts.idle_conns_timeout_ms),
-            bootstrap_peers: opts.network.bootstrap_addresses(),
+            // Add injected bootstrap addresses to the list of official bootstrap nodes, so that our bootstrap nodes are
+            // always included.
+            bootstrap_peers: [
+                opts.network.bootstrap_addresses(),
+                opts.bootstrap_addresses
+                    .iter()
+                    .map(|addr| addr.parse())
+                    .collect::<Result<Vec<Multiaddr>, multiaddr::Error>>()?,
+            ]
+            .concat(),
             listening_multiaddrs: opts
                 .swarm_addresses
                 .iter()
