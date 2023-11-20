@@ -145,7 +145,7 @@ impl Session {
                                 loop_state.want_blocks(keys).await;
                             },
                             Ok(Op::Cancel(keys)) => {
-                                record!(BitswapMetrics::CancelBlocks, keys.len() as i64);
+                                record!(BitswapMetrics::CancelBlocks, keys.len() as u64);
                                 loop_state.session_wants.cancel_pending(&keys);
                                 loop_state.session_want_sender.cancel(keys).await;
                             }
@@ -567,7 +567,7 @@ impl LoopState {
         if wanted.is_empty() {
             return;
         }
-        record!(BitswapMetrics::WantedBlocksReceived, wanted.len() as i64);
+        record!(BitswapMetrics::WantedBlocksReceived, wanted.len() as u64);
 
         // Record latency
         self.latency_tracker
@@ -588,7 +588,7 @@ impl LoopState {
 
     /// Called when blocks are requested by the client.
     async fn want_blocks(&mut self, new_keys: Vec<Cid>) {
-        record!(BitswapMetrics::WantedBlocks, new_keys.len() as i64);
+        record!(BitswapMetrics::WantedBlocks, new_keys.len() as u64);
         if !new_keys.is_empty() {
             // Inform the SessionInterestManager that this session is interested in the keys.
             self.session_interest_manager

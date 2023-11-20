@@ -116,7 +116,7 @@ impl Network {
         inc!(BitswapMetrics::MessagesAttempted);
 
         let num_blocks = message.blocks().count();
-        let num_block_bytes = message.blocks().map(|b| b.data.len() as i64).sum();
+        let num_block_bytes = message.blocks().map(|b| b.data.len() as u64).sum();
 
         tokio::time::timeout(timeout, async {
             let mut errors: Vec<anyhow::Error> = Vec::new();
@@ -125,7 +125,7 @@ impl Network {
                 let (s, r) = oneshot::channel();
                 record!(
                     BitswapMetrics::MessageBytesOut,
-                    message.clone().encoded_len() as i64
+                    message.clone().encoded_len() as u64
                 );
                 self.network_out_sender
                     .send(OutEvent::SendMessage {

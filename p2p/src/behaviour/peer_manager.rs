@@ -1,4 +1,6 @@
 use std::{
+    fmt::{self, Debug, Formatter},
+    future,
     num::NonZeroUsize,
     pin::Pin,
     task::{Context, Poll},
@@ -6,13 +8,13 @@ use std::{
 };
 
 use ahash::AHashMap;
-use backoff::{backoff::Backoff, ExponentialBackoff};
+use anyhow::{anyhow, Result};
+use backoff::{backoff::Backoff, ExponentialBackoff, ExponentialBackoffBuilder};
 #[allow(deprecated)]
 use ceramic_metrics::core::MRecorder;
-use ceramic_metrics::{dec, inc, p2p::P2PMetrics};
-use futures_util::{Future, Stream, StreamExt};
-use libp2p::swarm::dial_opts::DialOpts;
-use libp2p::swarm::ToSwarm;
+use ceramic_metrics::{inc, p2p::P2PMetrics, Recorder};
+use futures_util::{future::BoxFuture, FutureExt, Stream, StreamExt};
+use libp2p::swarm::{dial_opts::DialOpts, ToSwarm};
 use libp2p::{
     identify::Info as IdentifyInfo,
     multiaddr::Protocol,
@@ -22,6 +24,8 @@ use libp2p::{
 use lru::LruCache;
 use tokio::time;
 use tracing::{info, warn};
+
+use crate::metrics::{self, Metrics};
 
 pub struct PeerManager {
     info: AHashMap<PeerId, Info>,
@@ -49,26 +53,17 @@ const BOOTSTRAP_MAX_DIAL_SECS: Duration = Duration::from_secs(300); // 5 minutes
 const BOOTSTRAP_DIAL_BACKOFF: f64 = 1.4;
 const BOOTSTRAP_DIAL_JITTER: f64 = 0.1;
 
-impl Default for PeerManager {
-    fn default() -> Self {
-        PeerManager {
-            info: Default::default(),
-            bad_peers: LruCache::new(DEFAULT_BAD_PEER_CAP.unwrap()),
-            bootstrap_peer_manager: Default::default(),
-            supported_protocols: Default::default(),
-        }
-    }
-}
-
 #[derive(Debug)]
 pub enum PeerManagerEvent {}
 
 impl PeerManager {
-    pub fn new(bootstrap_peers: &[Multiaddr]) -> Self {
-        Self {
-            bootstrap_peer_manager: BootstrapPeerManager::new(bootstrap_peers),
-            ..Default::default()
-        }
+    pub fn new(bootstrap_peers: &[Multiaddr], metrics: Metrics) -> Result<Self> {
+        Ok(Self {
+            info: Default::default(),
+            bad_peers: LruCache::new(DEFAULT_BAD_PEER_CAP.unwrap()),
+            bootstrap_peer_manager: BootstrapPeerManager::new(bootstrap_peers, metrics)?,
+            supported_protocols: Default::default(),
+        })
     }
 
     pub fn is_bad_peer(&self, peer_id: &PeerId) -> bool {
@@ -180,6 +175,7 @@ impl NetworkBehaviour for PeerManager {
 
         // Check if a bootstrap peer needs to be dialed
         match self.bootstrap_peer_manager.poll_next_unpin(cx) {
+            // TODO: Maybe we don't want to dial if there was an ongoing incoming dial attempt
             Poll::Ready(Some(multiaddr)) => Poll::Ready(ToSwarm::Dial {
                 opts: DialOpts::unknown_peer_id().address(multiaddr).build(),
             }),
@@ -208,42 +204,52 @@ impl NetworkBehaviour for PeerManager {
     }
 }
 
-#[derive(Debug)]
 pub struct BootstrapPeerManager {
     bootstrap_peers: AHashMap<PeerId, BootstrapPeer>,
+    metrics: Metrics,
 }
 
-#[derive(Debug)]
+impl Debug for BootstrapPeerManager {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        f.debug_struct("BootstrapPeerManager")
+            .field("bootstrap_peers", &self.bootstrap_peers)
+            .finish()
+    }
+}
+
 pub struct BootstrapPeer {
     multiaddr: Multiaddr,
     dial_backoff: ExponentialBackoff,
-    dial_future: Option<Pin<Box<time::Sleep>>>,
+    dial_future: Option<BoxFuture<'static, ()>>,
 }
 
-impl Default for BootstrapPeerManager {
-    fn default() -> Self {
-        BootstrapPeerManager {
-            bootstrap_peers: Default::default(),
-        }
+impl Debug for BootstrapPeer {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        f.debug_struct("BootstrapPeer")
+            .field("multiaddr", &self.multiaddr)
+            .field("dial_backoff", &self.dial_backoff)
+            .finish()
     }
 }
 
 impl BootstrapPeerManager {
-    fn new(bootstrap_peers: &[Multiaddr]) -> Self {
-        Self {
-            bootstrap_peers: bootstrap_peers
+    fn new(bootstrap_peers: &[Multiaddr], metrics: Metrics) -> Result<Self> {
+        let bootstrap_peers: Result<AHashMap<PeerId, BootstrapPeer>, anyhow::Error> =
+            bootstrap_peers
                 .iter()
-                .filter_map(|multiaddr| {
+                .map(|multiaddr| {
                     let mut addr = multiaddr.to_owned();
                     if let Some(Protocol::P2p(peer_id)) = addr.pop() {
-                        Some((peer_id, BootstrapPeer::new(multiaddr.to_owned())))
+                        Ok((peer_id, BootstrapPeer::new(multiaddr.to_owned())))
                     } else {
-                        warn!("Could not parse bootstrap addr {}", multiaddr);
-                        None
+                        Err(anyhow!("Could not parse bootstrap addr {}", multiaddr))
                     }
                 })
-                .collect(),
-        }
+                .collect();
+        Ok(Self {
+            bootstrap_peers: bootstrap_peers?,
+            metrics,
+        })
     }
 
     fn handle_connection_established(&mut self, peer_id: &PeerId) {
@@ -253,7 +259,7 @@ impl BootstrapPeerManager {
                 peer.multiaddr
             );
             peer.stop_redial();
-            inc!(P2PMetrics::BootstrapPeersConnected);
+            self.metrics.record(&metrics::PeeringEvent::Connected);
         }
     }
 
@@ -264,7 +270,7 @@ impl BootstrapPeerManager {
                 peer.multiaddr
             );
             peer.start_redial();
-            dec!(P2PMetrics::BootstrapPeersConnected);
+            self.metrics.record(&metrics::PeeringEvent::Disconnected);
         }
     }
 
@@ -282,7 +288,7 @@ impl Stream for BootstrapPeerManager {
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         for (_, peer) in self.bootstrap_peers.iter_mut() {
             if let Some(mut dial_future) = peer.dial_future.take() {
-                match dial_future.as_mut().poll(cx) {
+                match dial_future.as_mut().poll_unpin(cx) {
                     Poll::Ready(()) => return Poll::Ready(Some(peer.multiaddr.clone())),
                     Poll::Pending => {
                         // Put the future back
@@ -297,15 +303,15 @@ impl Stream for BootstrapPeerManager {
 
 impl BootstrapPeer {
     fn new(multiaddr: Multiaddr) -> Self {
-        let mut dial_backoff = ExponentialBackoff {
-            initial_interval: BOOTSTRAP_MIN_DIAL_SECS,
-            randomization_factor: BOOTSTRAP_DIAL_JITTER,
-            multiplier: BOOTSTRAP_DIAL_BACKOFF,
-            max_interval: BOOTSTRAP_MAX_DIAL_SECS,
-            max_elapsed_time: None,
-            ..ExponentialBackoff::default()
-        };
-        let dial_future = Some(Box::pin(time::sleep(dial_backoff.next_backoff().unwrap())));
+        let dial_backoff = ExponentialBackoffBuilder::new()
+            .with_initial_interval(BOOTSTRAP_MIN_DIAL_SECS)
+            .with_multiplier(BOOTSTRAP_DIAL_BACKOFF)
+            .with_randomization_factor(BOOTSTRAP_DIAL_JITTER)
+            .with_max_interval(BOOTSTRAP_MAX_DIAL_SECS)
+            .with_max_elapsed_time(None)
+            .build();
+        // Expire initial future so that we dial peers immediately
+        let dial_future = Some(future::ready(()).boxed());
         Self {
             multiaddr,
             dial_backoff,

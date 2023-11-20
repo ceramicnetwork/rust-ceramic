@@ -20,6 +20,9 @@ pub struct Metrics {
     publisher_batches_finished: Counter,
     publisher_lag_ratio: Gauge<f64, std::sync::atomic::AtomicU64>,
     publisher_batch_size: Gauge<i64>,
+
+    peering_connected_count: Counter,
+    peering_disconnected_count: Counter,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
@@ -86,7 +89,7 @@ impl Metrics {
 
         register!(
             publisher_batches_finished,
-            "Number of batches proccessed",
+            "Number of batches processed",
             Counter::default(),
             sub_registry
         );
@@ -103,6 +106,19 @@ impl Metrics {
             sub_registry
         );
 
+        register!(
+            peering_connected_count,
+            "Number of peering connections established",
+            Counter::default(),
+            sub_registry
+        );
+        register!(
+            peering_disconnected_count,
+            "Number of peering connections closed",
+            Counter::default(),
+            sub_registry
+        );
+
         Self {
             publish_results,
             publisher_result_send_err_count,
@@ -113,6 +129,8 @@ impl Metrics {
             publisher_batches_finished,
             publisher_lag_ratio,
             publisher_batch_size,
+            peering_connected_count,
+            peering_disconnected_count,
         }
     }
 }
@@ -161,6 +179,24 @@ impl Recorder<PublisherEvent> for Metrics {
             }
             PublisherEvent::BatchSendErr => {
                 self.publisher_batch_send_err_count.inc();
+            }
+        }
+    }
+}
+
+pub enum PeeringEvent {
+    Connected,
+    Disconnected,
+}
+
+impl Recorder<PeeringEvent> for Metrics {
+    fn record(&self, event: &PeeringEvent) {
+        match event {
+            PeeringEvent::Connected => {
+                self.peering_connected_count.inc();
+            }
+            PeeringEvent::Disconnected => {
+                self.peering_disconnected_count.inc();
             }
         }
     }

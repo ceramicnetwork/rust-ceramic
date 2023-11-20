@@ -101,7 +101,7 @@ pub trait HistogramType {
 #[deprecated = "use ceramic_metrics::Recorder instead"]
 #[allow(deprecated)]
 pub trait MetricsRecorder {
-    fn record<M>(&self, m: M, value: i64)
+    fn record<M>(&self, m: M, value: u64)
     where
         M: MetricType + std::fmt::Display;
     fn observe<M>(&self, m: M, value: f64)
@@ -114,7 +114,7 @@ pub trait MetricsRecorder {
 /// New metrics systems should use that trait.
 #[deprecated = "use ceramic_metrics::Recorder instead"]
 pub trait MRecorder {
-    fn record(&self, value: i64);
+    fn record(&self, value: u64);
 }
 
 /// This trait is inefficient as we do string comparisons to find the right metrics to update.

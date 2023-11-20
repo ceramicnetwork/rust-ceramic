@@ -253,7 +253,7 @@ pub enum Collector {
 }
 
 #[allow(unused_variables, unreachable_patterns)]
-pub fn record<M>(c: Collector, m: M, v: i64)
+pub fn record<M>(c: Collector, m: M, v: u64)
 where
     M: MetricType + std::fmt::Display,
 {
