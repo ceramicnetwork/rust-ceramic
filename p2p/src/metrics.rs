@@ -19,6 +19,7 @@ pub struct Metrics {
 
     publisher_batches_finished: Counter,
     publisher_lag_ratio: Gauge<f64, std::sync::atomic::AtomicU64>,
+    publisher_batch_size: Gauge<i64>,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
@@ -95,6 +96,12 @@ impl Metrics {
             Gauge::default(),
             sub_registry
         );
+        register!(
+            publisher_batch_size,
+            "Number of records in the finished batch",
+            Gauge::default(),
+            sub_registry
+        );
 
         Self {
             publish_results,
@@ -103,8 +110,9 @@ impl Metrics {
             publisher_batch_new_count,
             publisher_batch_repeat_count,
             publisher_batch_max_retry_count,
-            publisher_lag_ratio,
             publisher_batches_finished,
+            publisher_lag_ratio,
+            publisher_batch_size,
         }
     }
 }
@@ -119,6 +127,7 @@ pub enum PublisherEvent {
     },
     BatchSendErr,
     BatchFinished {
+        batch_size: usize,
         lag_ratio: f64,
     },
 }
@@ -142,9 +151,13 @@ impl Recorder<PublisherEvent> for Metrics {
                 self.publisher_batch_repeat_count.set(*repeat_count);
                 self.publisher_batch_max_retry_count.set(*max_retry_count);
             }
-            PublisherEvent::BatchFinished { lag_ratio } => {
+            PublisherEvent::BatchFinished {
+                batch_size,
+                lag_ratio,
+            } => {
                 self.publisher_batches_finished.inc();
                 self.publisher_lag_ratio.set(*lag_ratio);
+                self.publisher_batch_size.set(*batch_size as i64);
             }
             PublisherEvent::BatchSendErr => {
                 self.publisher_batch_send_err_count.inc();
