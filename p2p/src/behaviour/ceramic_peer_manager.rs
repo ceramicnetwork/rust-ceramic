@@ -1,8 +1,6 @@
 use std::{
     fmt::{self, Debug, Formatter},
     future,
-    num::NonZeroUsize,
-    pin::Pin,
     task::{Context, Poll},
     time::Duration,
 };
@@ -11,27 +9,33 @@ use ahash::AHashMap;
 use anyhow::{anyhow, Result};
 use backoff::{backoff::Backoff, ExponentialBackoff, ExponentialBackoffBuilder};
 #[allow(deprecated)]
-use ceramic_metrics::core::MRecorder;
-use ceramic_metrics::{inc, p2p::P2PMetrics, Recorder};
-use futures_util::{future::BoxFuture, FutureExt, Stream, StreamExt};
-use libp2p::swarm::{dial_opts::DialOpts, ToSwarm};
+use ceramic_metrics::Recorder;
+use futures_util::{future::BoxFuture, FutureExt};
+use libp2p::swarm::{
+    dial_opts::{DialOpts, PeerCondition},
+    ToSwarm,
+};
 use libp2p::{
     identify::Info as IdentifyInfo,
     multiaddr::Protocol,
     swarm::{dummy, ConnectionId, DialError, NetworkBehaviour, PollParameters},
     Multiaddr, PeerId,
 };
-use lru::LruCache;
 use tokio::time;
 use tracing::{info, warn};
 
 use crate::metrics::{self, Metrics};
 
-pub struct PeerManager {
+/// Manages state for Ceramic peers.
+/// Ceramic peers are peers that participate in the Ceramic network.
+///
+/// Not all connected peers will be Ceramic peers, for example a peer may be participating in the
+/// DHT without being a Ceramic peer.
+pub struct CeramicPeerManager {
+    metrics: Metrics,
     info: AHashMap<PeerId, Info>,
-    bad_peers: LruCache<PeerId, ()>,
-    bootstrap_peer_manager: BootstrapPeerManager,
     supported_protocols: Vec<String>,
+    ceramic_peers: AHashMap<PeerId, CeramicPeer>,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -47,27 +51,38 @@ impl Info {
     }
 }
 
-const DEFAULT_BAD_PEER_CAP: Option<NonZeroUsize> = NonZeroUsize::new(10 * 4096);
-const BOOTSTRAP_MIN_DIAL_SECS: Duration = Duration::from_secs(1); // 1 second min between redials
-const BOOTSTRAP_MAX_DIAL_SECS: Duration = Duration::from_secs(300); // 5 minutes max between redials
-const BOOTSTRAP_DIAL_BACKOFF: f64 = 1.4;
-const BOOTSTRAP_DIAL_JITTER: f64 = 0.1;
+const PEERING_MIN_DIAL_SECS: Duration = Duration::from_secs(1); // 1 second min between redials
+const PEERING_MAX_DIAL_SECS: Duration = Duration::from_secs(300); // 5 minutes max between redials
+const PEERING_DIAL_BACKOFF: f64 = 1.4;
+const PEERING_DIAL_JITTER: f64 = 0.1;
 
 #[derive(Debug)]
 pub enum PeerManagerEvent {}
 
-impl PeerManager {
-    pub fn new(bootstrap_peers: &[Multiaddr], metrics: Metrics) -> Result<Self> {
+impl CeramicPeerManager {
+    pub fn new(ceramic_peers: &[Multiaddr], metrics: Metrics) -> Result<Self> {
+        let ceramic_peers = ceramic_peers
+            .iter()
+            // Extract peer id from mutliaddr
+            .map(|multiaddr| {
+                if let Some(peer) = multiaddr.iter().find_map(|proto| match proto {
+                    Protocol::P2p(peer_id) => {
+                        Some((peer_id, CeramicPeer::new(multiaddr.to_owned())))
+                    }
+                    _ => None,
+                }) {
+                    Ok(peer)
+                } else {
+                    Err(anyhow!("Could not parse bootstrap addr {}", multiaddr))
+                }
+            })
+            .collect::<Result<AHashMap<PeerId, CeramicPeer>, anyhow::Error>>()?;
         Ok(Self {
+            metrics,
             info: Default::default(),
-            bad_peers: LruCache::new(DEFAULT_BAD_PEER_CAP.unwrap()),
-            bootstrap_peer_manager: BootstrapPeerManager::new(bootstrap_peers, metrics)?,
             supported_protocols: Default::default(),
+            ceramic_peers,
         })
-    }
-
-    pub fn is_bad_peer(&self, peer_id: &PeerId) -> bool {
-        self.bad_peers.contains(peer_id)
     }
 
     pub fn inject_identify_info(&mut self, peer_id: PeerId, new_info: IdentifyInfo) {
@@ -85,9 +100,46 @@ impl PeerManager {
     pub fn supported_protocols(&self) -> Vec<String> {
         self.supported_protocols.clone()
     }
+
+    pub fn is_ceramic_peer(&self, peer_id: &PeerId) -> bool {
+        self.ceramic_peers.contains_key(peer_id)
+    }
+
+    fn handle_connection_established(&mut self, peer_id: &PeerId) {
+        if let Some(peer) = self.ceramic_peers.get_mut(peer_id) {
+            info!(
+                multiaddr = %peer.multiaddr,
+                "connection established, stop dialing ceramic peer",
+            );
+            peer.stop_redial();
+            self.metrics.record(&metrics::PeeringEvent::Connected);
+        }
+    }
+
+    fn handle_connection_closed(&mut self, peer_id: &PeerId) {
+        if let Some(peer) = self.ceramic_peers.get_mut(peer_id) {
+            warn!(
+                multiaddr = %peer.multiaddr,
+                "Connection closed, redial ceramic peer",
+            );
+            peer.start_redial();
+            self.metrics.record(&metrics::PeeringEvent::Disconnected);
+        }
+    }
+
+    fn handle_dial_failure(&mut self, peer_id: &PeerId) {
+        if let Some(peer) = self.ceramic_peers.get_mut(peer_id) {
+            warn!(
+                multiaddr = %peer.multiaddr,
+                "Dail failed, redial ceramic peer"
+            );
+            peer.backoff_redial();
+            self.metrics.record(&metrics::PeeringEvent::DialFailure);
+        }
+    }
 }
 
-impl NetworkBehaviour for PeerManager {
+impl NetworkBehaviour for CeramicPeerManager {
     type ConnectionHandler = dummy::ConnectionHandler;
     type ToSwarm = PeerManagerEvent;
 
@@ -96,12 +148,7 @@ impl NetworkBehaviour for PeerManager {
             libp2p::swarm::FromSwarm::ConnectionEstablished(event) => {
                 // First connection
                 if event.other_established == 0 {
-                    let p = self.bad_peers.pop(&event.peer_id);
-                    if p.is_some() {
-                        inc!(P2PMetrics::BadPeerRemoved);
-                    }
-                    self.bootstrap_peer_manager
-                        .handle_connection_established(&event.peer_id)
+                    self.handle_connection_established(&event.peer_id)
                 }
 
                 if let Some(info) = self.info.get_mut(&event.peer_id) {
@@ -114,23 +161,21 @@ impl NetworkBehaviour for PeerManager {
             libp2p::swarm::FromSwarm::ConnectionClosed(event) => {
                 // Last connection
                 if event.remaining_established == 0 {
-                    self.bootstrap_peer_manager
-                        .handle_connection_closed(&event.peer_id)
+                    self.handle_connection_closed(&event.peer_id)
                 }
             }
             libp2p::swarm::FromSwarm::DialFailure(event) => {
                 if let Some(peer_id) = event.peer_id {
                     match event.error {
-                        // TODO check that the denied cause is because of a connection limit.
-                        DialError::Denied { cause: _ } | DialError::DialPeerConditionFalse(_) => {}
-                        _ => {
-                            if self.bad_peers.put(peer_id, ()).is_none() {
-                                inc!(P2PMetrics::BadPeer);
-                            }
-                            self.info.remove(&peer_id);
+                        DialError::DialPeerConditionFalse(_) => {
+                            // Ignore dial failures that failed because of a peer condition.
+                            // These are not an indication that something was wrong with the peer
+                            // rather we didn't even attempt to dial the peer because we were
+                            // already connected or attempting to dial concurrently etc.
                         }
+                        // For any other dial failures, increase the backoff
+                        _ => self.handle_dial_failure(&peer_id),
                     }
-                    self.bootstrap_peer_manager.handle_dial_failure(&peer_id)
                 }
             }
             // Not interested in any other events
@@ -173,14 +218,25 @@ impl NetworkBehaviour for PeerManager {
                 .collect();
         }
 
-        // Check if a bootstrap peer needs to be dialed
-        match self.bootstrap_peer_manager.poll_next_unpin(cx) {
-            // TODO: Maybe we don't want to dial if there was an ongoing incoming dial attempt
-            Poll::Ready(Some(multiaddr)) => Poll::Ready(ToSwarm::Dial {
-                opts: DialOpts::unknown_peer_id().address(multiaddr).build(),
-            }),
-            _ => Poll::Pending,
+        for (peer_id, peer) in self.ceramic_peers.iter_mut() {
+            if let Some(mut dial_future) = peer.dial_future.take() {
+                match dial_future.as_mut().poll_unpin(cx) {
+                    Poll::Ready(()) => {
+                        return Poll::Ready(ToSwarm::Dial {
+                            opts: DialOpts::peer_id(*peer_id)
+                                .addresses(vec![peer.multiaddr.clone()])
+                                .condition(PeerCondition::Disconnected)
+                                .build(),
+                        })
+                    }
+                    Poll::Pending => {
+                        // Put the future back
+                        peer.dial_future.replace(dial_future);
+                    }
+                }
+            }
         }
+        Poll::Pending
     }
 
     fn handle_established_inbound_connection(
@@ -204,26 +260,14 @@ impl NetworkBehaviour for PeerManager {
     }
 }
 
-pub struct BootstrapPeerManager {
-    bootstrap_peers: AHashMap<PeerId, BootstrapPeer>,
-    metrics: Metrics,
-}
-
-impl Debug for BootstrapPeerManager {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
-        f.debug_struct("BootstrapPeerManager")
-            .field("bootstrap_peers", &self.bootstrap_peers)
-            .finish()
-    }
-}
-
-pub struct BootstrapPeer {
+// State of Ceramic peer.
+struct CeramicPeer {
     multiaddr: Multiaddr,
     dial_backoff: ExponentialBackoff,
     dial_future: Option<BoxFuture<'static, ()>>,
 }
 
-impl Debug for BootstrapPeer {
+impl Debug for CeramicPeer {
     fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         f.debug_struct("BootstrapPeer")
             .field("multiaddr", &self.multiaddr)
@@ -233,89 +277,13 @@ impl Debug for BootstrapPeer {
     }
 }
 
-impl BootstrapPeerManager {
-    fn new(bootstrap_peers: &[Multiaddr], metrics: Metrics) -> Result<Self> {
-        let bootstrap_peers = bootstrap_peers
-            .iter()
-            .map(|multiaddr| {
-                if let Some(peer) = multiaddr.iter().find_map(|proto| match proto {
-                    Protocol::P2p(peer_id) => {
-                        Some((peer_id, BootstrapPeer::new(multiaddr.to_owned())))
-                    }
-                    _ => None,
-                }) {
-                    Ok(peer)
-                } else {
-                    Err(anyhow!("Could not parse bootstrap addr {}", multiaddr))
-                }
-            })
-            .collect::<Result<AHashMap<PeerId, BootstrapPeer>, anyhow::Error>>()?;
-        Ok(Self {
-            bootstrap_peers,
-            metrics,
-        })
-    }
-
-    fn handle_connection_established(&mut self, peer_id: &PeerId) {
-        if let Some(peer) = self.bootstrap_peers.get_mut(peer_id) {
-            info!(
-                multiaddr = %peer.multiaddr,
-                "connection established, stop dialing bootstrap peer",
-            );
-            peer.stop_redial();
-            self.metrics.record(&metrics::PeeringEvent::Connected);
-        }
-    }
-
-    fn handle_connection_closed(&mut self, peer_id: &PeerId) {
-        if let Some(peer) = self.bootstrap_peers.get_mut(peer_id) {
-            warn!(
-                multiaddr = %peer.multiaddr,
-                "Connection closed, redial bootstrap peer",
-            );
-            peer.start_redial();
-            self.metrics.record(&metrics::PeeringEvent::Disconnected);
-        }
-    }
-
-    fn handle_dial_failure(&mut self, peer_id: &PeerId) {
-        if let Some(peer) = self.bootstrap_peers.get_mut(peer_id) {
-            warn!(
-                multiaddr = %peer.multiaddr,
-                "Dail failed, redial bootstrap peer"
-            );
-            peer.backoff_redial();
-            self.metrics.record(&metrics::PeeringEvent::DialFailure);
-        }
-    }
-}
-
-impl Stream for BootstrapPeerManager {
-    type Item = Multiaddr;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        for (_, peer) in self.bootstrap_peers.iter_mut() {
-            if let Some(mut dial_future) = peer.dial_future.take() {
-                match dial_future.as_mut().poll_unpin(cx) {
-                    Poll::Ready(()) => return Poll::Ready(Some(peer.multiaddr.clone())),
-                    Poll::Pending => {
-                        // Put the future back
-                        peer.dial_future.replace(dial_future);
-                    }
-                }
-            }
-        }
-        Poll::Pending
-    }
-}
-
-impl BootstrapPeer {
+impl CeramicPeer {
     fn new(multiaddr: Multiaddr) -> Self {
         let dial_backoff = ExponentialBackoffBuilder::new()
-            .with_initial_interval(BOOTSTRAP_MIN_DIAL_SECS)
-            .with_multiplier(BOOTSTRAP_DIAL_BACKOFF)
-            .with_randomization_factor(BOOTSTRAP_DIAL_JITTER)
-            .with_max_interval(BOOTSTRAP_MAX_DIAL_SECS)
+            .with_initial_interval(PEERING_MIN_DIAL_SECS)
+            .with_multiplier(PEERING_DIAL_BACKOFF)
+            .with_randomization_factor(PEERING_DIAL_JITTER)
+            .with_max_interval(PEERING_MAX_DIAL_SECS)
             .with_max_elapsed_time(None)
             .build();
         // Expire initial future so that we dial peers immediately

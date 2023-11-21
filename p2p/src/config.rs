@@ -36,8 +36,8 @@ pub struct Libp2pConfig {
     pub external_multiaddrs: Vec<Multiaddr>,
     /// Local address.
     pub listening_multiaddrs: Vec<Multiaddr>,
-    /// Bootstrap peer list.
-    pub bootstrap_peers: Vec<Multiaddr>,
+    /// Ceramic peer list.
+    pub ceramic_peers: Vec<Multiaddr>,
     /// Mdns discovery enabled.
     pub mdns: bool,
     /// Bitswap server mode enabled.
@@ -113,7 +113,7 @@ impl Default for Libp2pConfig {
                 "/ip4/0.0.0.0/tcp/4444".parse().unwrap(),
                 "/ip4/0.0.0.0/udp/4445/quic-v1".parse().unwrap(),
             ],
-            bootstrap_peers: vec![],
+            ceramic_peers: vec![],
             mdns: false,
             kademlia: true,
             autonat: true,
