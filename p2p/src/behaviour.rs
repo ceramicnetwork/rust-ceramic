@@ -17,7 +17,6 @@ use libp2p::{
         store::{MemoryStore, MemoryStoreConfig},
     },
     mdns::tokio::Behaviour as Mdns,
-    multiaddr::Protocol,
     ping::Behaviour as Ping,
     relay,
     swarm::behaviour::toggle::Toggle,
@@ -158,17 +157,11 @@ where
                 // Provider records are re-published via the [`crate::publisher::Publisher`].
                 .set_provider_publication_interval(None);
 
-            let mut kademlia = kad::Behaviour::with_config(pub_key.to_peer_id(), store, kad_config);
-            for multiaddr in &config.bootstrap_peers {
-                // TODO: move parsing into config
-                let mut addr = multiaddr.to_owned();
-                if let Some(Protocol::P2p(peer_id)) = addr.pop() {
-                    kademlia.add_address(&peer_id, addr);
-                } else {
-                    warn!("Could not parse bootstrap addr {}", multiaddr);
-                }
-            }
-            Some(kademlia)
+            Some(kad::Behaviour::with_config(
+                pub_key.to_peer_id(),
+                store,
+                kad_config,
+            ))
         } else {
             None
         }

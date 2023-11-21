@@ -14,7 +14,10 @@ use backoff::{backoff::Backoff, ExponentialBackoff, ExponentialBackoffBuilder};
 use ceramic_metrics::core::MRecorder;
 use ceramic_metrics::{inc, p2p::P2PMetrics, Recorder};
 use futures_util::{future::BoxFuture, FutureExt, Stream, StreamExt};
-use libp2p::swarm::{dial_opts::DialOpts, ToSwarm};
+use libp2p::swarm::{
+    dial_opts::{DialOpts, PeerCondition},
+    ToSwarm,
+};
 use libp2p::{
     identify::Info as IdentifyInfo,
     multiaddr::Protocol,
@@ -175,9 +178,11 @@ impl NetworkBehaviour for PeerManager {
 
         // Check if a bootstrap peer needs to be dialed
         match self.bootstrap_peer_manager.poll_next_unpin(cx) {
-            // TODO: Maybe we don't want to dial if there was an ongoing incoming dial attempt
-            Poll::Ready(Some(multiaddr)) => Poll::Ready(ToSwarm::Dial {
-                opts: DialOpts::unknown_peer_id().address(multiaddr).build(),
+            Poll::Ready(Some((peer_id, multiaddr))) => Poll::Ready(ToSwarm::Dial {
+                opts: DialOpts::peer_id(peer_id)
+                    .addresses(vec![multiaddr])
+                    .condition(PeerCondition::Disconnected)
+                    .build(),
             }),
             _ => Poll::Pending,
         }
@@ -218,6 +223,7 @@ impl Debug for BootstrapPeerManager {
 }
 
 pub struct BootstrapPeer {
+    peer_id: PeerId,
     multiaddr: Multiaddr,
     dial_backoff: ExponentialBackoff,
     dial_future: Option<BoxFuture<'static, ()>>,
@@ -240,7 +246,7 @@ impl BootstrapPeerManager {
             .map(|multiaddr| {
                 if let Some(peer) = multiaddr.iter().find_map(|proto| match proto {
                     Protocol::P2p(peer_id) => {
-                        Some((peer_id, BootstrapPeer::new(multiaddr.to_owned())))
+                        Some((peer_id, BootstrapPeer::new(peer_id, multiaddr.to_owned())))
                     }
                     _ => None,
                 }) {
@@ -291,13 +297,15 @@ impl BootstrapPeerManager {
 }
 
 impl Stream for BootstrapPeerManager {
-    type Item = Multiaddr;
+    type Item = (PeerId, Multiaddr);
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         for (_, peer) in self.bootstrap_peers.iter_mut() {
             if let Some(mut dial_future) = peer.dial_future.take() {
                 match dial_future.as_mut().poll_unpin(cx) {
-                    Poll::Ready(()) => return Poll::Ready(Some(peer.multiaddr.clone())),
+                    Poll::Ready(()) => {
+                        return Poll::Ready(Some((peer.peer_id, peer.multiaddr.clone())));
+                    }
                     Poll::Pending => {
                         // Put the future back
                         peer.dial_future.replace(dial_future);
@@ -310,7 +318,7 @@ impl Stream for BootstrapPeerManager {
 }
 
 impl BootstrapPeer {
-    fn new(multiaddr: Multiaddr) -> Self {
+    fn new(peer_id: PeerId, multiaddr: Multiaddr) -> Self {
         let dial_backoff = ExponentialBackoffBuilder::new()
             .with_initial_interval(BOOTSTRAP_MIN_DIAL_SECS)
             .with_multiplier(BOOTSTRAP_DIAL_BACKOFF)
@@ -321,6 +329,7 @@ impl BootstrapPeer {
         // Expire initial future so that we dial peers immediately
         let dial_future = Some(future::ready(()).boxed());
         Self {
+            peer_id,
             multiaddr,
             dial_backoff,
             dial_future,
