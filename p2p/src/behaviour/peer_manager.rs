@@ -228,26 +228,30 @@ impl Debug for BootstrapPeer {
         f.debug_struct("BootstrapPeer")
             .field("multiaddr", &self.multiaddr)
             .field("dial_backoff", &self.dial_backoff)
+            .field("dial_future", &self.dial_future.is_some())
             .finish()
     }
 }
 
 impl BootstrapPeerManager {
     fn new(bootstrap_peers: &[Multiaddr], metrics: Metrics) -> Result<Self> {
-        let bootstrap_peers: Result<AHashMap<PeerId, BootstrapPeer>, anyhow::Error> =
-            bootstrap_peers
-                .iter()
-                .map(|multiaddr| {
-                    let mut addr = multiaddr.to_owned();
-                    if let Some(Protocol::P2p(peer_id)) = addr.pop() {
-                        Ok((peer_id, BootstrapPeer::new(multiaddr.to_owned())))
-                    } else {
-                        Err(anyhow!("Could not parse bootstrap addr {}", multiaddr))
+        let bootstrap_peers = bootstrap_peers
+            .iter()
+            .map(|multiaddr| {
+                if let Some(peer) = multiaddr.iter().find_map(|proto| match proto {
+                    Protocol::P2p(peer_id) => {
+                        Some((peer_id, BootstrapPeer::new(multiaddr.to_owned())))
                     }
-                })
-                .collect();
+                    _ => None,
+                }) {
+                    Ok(peer)
+                } else {
+                    Err(anyhow!("Could not parse bootstrap addr {}", multiaddr))
+                }
+            })
+            .collect::<Result<AHashMap<PeerId, BootstrapPeer>, anyhow::Error>>()?;
         Ok(Self {
-            bootstrap_peers: bootstrap_peers?,
+            bootstrap_peers,
             metrics,
         })
     }
@@ -255,8 +259,8 @@ impl BootstrapPeerManager {
     fn handle_connection_established(&mut self, peer_id: &PeerId) {
         if let Some(peer) = self.bootstrap_peers.get_mut(peer_id) {
             info!(
-                "Connection established, stop dialing bootstrap peer {}",
-                peer.multiaddr
+                multiaddr = %peer.multiaddr,
+                "connection established, stop dialing bootstrap peer",
             );
             peer.stop_redial();
             self.metrics.record(&metrics::PeeringEvent::Connected);
@@ -266,8 +270,8 @@ impl BootstrapPeerManager {
     fn handle_connection_closed(&mut self, peer_id: &PeerId) {
         if let Some(peer) = self.bootstrap_peers.get_mut(peer_id) {
             warn!(
-                "Connection closed, redial bootstrap peer {}",
-                peer.multiaddr
+                multiaddr = %peer.multiaddr,
+                "Connection closed, redial bootstrap peer",
             );
             peer.start_redial();
             self.metrics.record(&metrics::PeeringEvent::Disconnected);
@@ -276,8 +280,12 @@ impl BootstrapPeerManager {
 
     fn handle_dial_failure(&mut self, peer_id: &PeerId) {
         if let Some(peer) = self.bootstrap_peers.get_mut(peer_id) {
-            warn!("Dail failed, redial bootstrap peer {}", peer.multiaddr);
+            warn!(
+                multiaddr = %peer.multiaddr,
+                "Dail failed, redial bootstrap peer"
+            );
             peer.backoff_redial();
+            self.metrics.record(&metrics::PeeringEvent::DialFailure);
         }
     }
 }

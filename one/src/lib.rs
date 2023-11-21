@@ -71,6 +71,7 @@ struct DaemonOpts {
     swarm_addresses: Vec<String>,
 
     /// Extra bootstrap peer addresses to be used in addition to the official bootstrap addresses.
+    /// A best-effort attempt will be made to maintain a connection to these addresses.
     #[arg(
         long,
         use_value_delimiter = true,
@@ -374,14 +375,17 @@ impl Daemon {
             idle_connection_timeout: Duration::from_millis(opts.idle_conns_timeout_ms),
             // Add extra bootstrap addresses to the list of official bootstrap addresses, so that our bootstrap nodes
             // are always included.
-            bootstrap_peers: [
-                opts.network.bootstrap_addresses(),
-                opts.extra_bootstrap_addresses
-                    .iter()
-                    .map(|addr| addr.parse())
-                    .collect::<Result<Vec<Multiaddr>, multiaddr::Error>>()?,
-            ]
-            .concat(),
+            bootstrap_peers: opts
+                .network
+                .bootstrap_addresses()
+                .into_iter()
+                .chain(
+                    opts.extra_bootstrap_addresses
+                        .iter()
+                        .map(|addr| addr.parse())
+                        .collect::<Result<Vec<Multiaddr>, multiaddr::Error>>()?,
+                )
+                .collect(),
             listening_multiaddrs: opts
                 .swarm_addresses
                 .iter()

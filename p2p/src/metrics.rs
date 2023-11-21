@@ -23,6 +23,7 @@ pub struct Metrics {
 
     peering_connected_count: Counter,
     peering_disconnected_count: Counter,
+    peering_dial_failure_count: Counter,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
@@ -118,6 +119,12 @@ impl Metrics {
             Counter::default(),
             sub_registry
         );
+        register!(
+            peering_dial_failure_count,
+            "Number of peering connection dial failures",
+            Counter::default(),
+            sub_registry
+        );
 
         Self {
             publish_results,
@@ -131,6 +138,7 @@ impl Metrics {
             publisher_batch_size,
             peering_connected_count,
             peering_disconnected_count,
+            peering_dial_failure_count,
         }
     }
 }
@@ -187,6 +195,7 @@ impl Recorder<PublisherEvent> for Metrics {
 pub enum PeeringEvent {
     Connected,
     Disconnected,
+    DialFailure,
 }
 
 impl Recorder<PeeringEvent> for Metrics {
@@ -197,6 +206,9 @@ impl Recorder<PeeringEvent> for Metrics {
             }
             PeeringEvent::Disconnected => {
                 self.peering_disconnected_count.inc();
+            }
+            PeeringEvent::DialFailure => {
+                self.peering_dial_failure_count.inc();
             }
         }
     }
