@@ -133,7 +133,9 @@ impl NetworkBehaviour for PeerManager {
                             self.info.remove(&peer_id);
                         }
                     }
-                    self.bootstrap_peer_manager.handle_dial_failure(&peer_id)
+                    if !matches!(event.error, DialError::DialPeerConditionFalse(_)) {
+                        self.bootstrap_peer_manager.handle_dial_failure(&peer_id)
+                    }
                 }
             }
             // Not interested in any other events
