@@ -70,6 +70,16 @@ struct DaemonOpts {
     )]
     swarm_addresses: Vec<String>,
 
+    /// Extra bootstrap peer addresses to be used in addition to the official bootstrap addresses.
+    /// A best-effort attempt will be made to maintain a connection to these addresses.
+    #[arg(
+        long,
+        use_value_delimiter = true,
+        value_delimiter = ',',
+        env = "CERAMIC_ONE_EXTRA_BOOTSTRAP_ADDRESSES"
+    )]
+    extra_bootstrap_addresses: Vec<String>,
+
     /// Path to storage directory
     #[arg(short, long, env = "CERAMIC_ONE_STORE_DIR")]
     store_dir: Option<PathBuf>,
@@ -363,7 +373,19 @@ impl Daemon {
             max_conns_pending_in: opts.max_conns_pending_in,
             max_conns_per_peer: opts.max_conns_per_peer,
             idle_connection_timeout: Duration::from_millis(opts.idle_conns_timeout_ms),
-            bootstrap_peers: opts.network.bootstrap_addresses(),
+            // Add extra bootstrap addresses to the list of official bootstrap addresses, so that our bootstrap nodes
+            // are always included.
+            bootstrap_peers: opts
+                .network
+                .bootstrap_addresses()
+                .into_iter()
+                .chain(
+                    opts.extra_bootstrap_addresses
+                        .iter()
+                        .map(|addr| addr.parse())
+                        .collect::<Result<Vec<Multiaddr>, multiaddr::Error>>()?,
+                )
+                .collect(),
             listening_multiaddrs: opts
                 .swarm_addresses
                 .iter()

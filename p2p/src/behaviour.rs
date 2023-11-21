@@ -31,6 +31,7 @@ pub use self::event::Event;
 use self::peer_manager::PeerManager;
 use crate::config::Libp2pConfig;
 use crate::sqliteblockstore::SQLiteBlockStore;
+use crate::Metrics;
 
 mod event;
 mod peer_manager;
@@ -106,8 +107,8 @@ where
         relay_client: Option<relay::client::Behaviour>,
         recons: Option<(I, M)>,
         block_store: SQLiteBlockStore,
+        metrics: Metrics,
     ) -> Result<Self> {
-        let peer_manager = PeerManager::default();
         let pub_key = local_key.public();
         let peer_id = pub_key.to_peer_id();
 
@@ -252,7 +253,7 @@ where
             dcutr: dcutr.into(),
             relay_client: relay_client.into(),
             gossipsub,
-            peer_manager,
+            peer_manager: PeerManager::new(&config.bootstrap_peers, metrics)?,
             limits,
             recon: recon.into(),
         })

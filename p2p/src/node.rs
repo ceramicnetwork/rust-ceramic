@@ -162,19 +162,15 @@ where
             ..
         } = config;
 
-        let rpc_task = tokio::task::spawn(async move {
-            // TODO: handle error
-            rpc::new(rpc_addr, P2p::new(network_sender_in))
-                .await
-                .unwrap()
-        });
-
-        let rpc_client = RpcClient::new(rpc_client)
-            .await
-            .context("failed to create rpc client")?;
-
         let block_store = crate::SQLiteBlockStore::new(sql_pool).await?;
-        let mut swarm = build_swarm(&libp2p_config, &keypair, recons, block_store.clone()).await?;
+        let mut swarm = build_swarm(
+            &libp2p_config,
+            &keypair,
+            recons,
+            block_store.clone(),
+            metrics.clone(),
+        )
+        .await?;
         info!("iroh-p2p peerid: {}", swarm.local_peer_id());
 
         for addr in &libp2p_config.external_multiaddrs {
@@ -194,6 +190,21 @@ where
             block_store,
             metrics,
         );
+
+        // The following two statements were intentionally placed right before the return. Having them sooner caused the
+        // daemon to get stuck in a loop during shutdown, unable to bind to a listen address, if there was some
+        // initialization error after the RPC task was spawned, e.g. while parsing bootstrap peer multiaddrs in the
+        // PeerManager.
+        let rpc_task = tokio::task::spawn(async move {
+            // TODO: handle error
+            rpc::new(rpc_addr, P2p::new(network_sender_in))
+                .await
+                .unwrap()
+        });
+
+        let rpc_client = RpcClient::new(rpc_client)
+            .await
+            .context("failed to create rpc client")?;
 
         Ok(Node {
             swarm,

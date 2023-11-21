@@ -14,7 +14,7 @@ use libp2p::{
 use libp2p_identity::Keypair;
 use recon::{libp2p::Recon, Sha256a};
 
-use crate::{behaviour::NodeBehaviour, Libp2pConfig, SQLiteBlockStore};
+use crate::{behaviour::NodeBehaviour, Libp2pConfig, Metrics, SQLiteBlockStore};
 
 /// Builds the transport stack that LibP2P will communicate over.
 async fn build_transport(
@@ -106,6 +106,7 @@ pub(crate) async fn build_swarm<I, M>(
     keypair: &Keypair,
     recons: Option<(I, M)>,
     block_store: SQLiteBlockStore,
+    metrics: Metrics,
 ) -> Result<Swarm<NodeBehaviour<I, M>>>
 where
     I: Recon<Key = Interest, Hash = Sha256a>,
@@ -114,7 +115,15 @@ where
     let peer_id = keypair.public().to_peer_id();
 
     let (transport, relay_client) = build_transport(keypair, config).await;
-    let behaviour = NodeBehaviour::new(keypair, config, relay_client, recons, block_store).await?;
+    let behaviour = NodeBehaviour::new(
+        keypair,
+        config,
+        relay_client,
+        recons,
+        block_store,
+        metrics.clone(),
+    )
+    .await?;
 
     let swarm_config = Config::with_tokio_executor()
         .with_notify_handler_buffer_size(config.notify_handler_buffer_size)
