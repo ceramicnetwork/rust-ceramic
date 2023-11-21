@@ -35,7 +35,7 @@ iroh-rpc-client.workspace = true
 iroh-rpc-types.workspace = true
 iroh-util.workspace = true
 libp2p-identity.workspace = true
-libp2p-mplex = "0.40.0"
+libp2p-mplex = "0.41.0"
 libp2p-quic = { version = "0.9", features = ["tokio"] }
 lru.workspace = true
 multihash.workspace = true
