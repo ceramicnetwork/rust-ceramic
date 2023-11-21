@@ -194,6 +194,8 @@ where
         self.keep_alive
     }
 
+    // TODO(WS1-1345): Remove uses of ConnectionHandler::Error
+    #[allow(deprecated)]
     fn poll(
         &mut self,
         cx: &mut std::task::Context<'_>,

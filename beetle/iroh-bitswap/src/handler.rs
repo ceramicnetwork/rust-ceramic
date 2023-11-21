@@ -309,6 +309,8 @@ impl ConnectionHandler for BitswapHandler {
     }
 }
 
+// TODO(WS1-1344): Remove uses of ConnectionHandlerEvent::Close
+#[allow(deprecated)]
 #[tracing::instrument(skip(substream))]
 fn inbound_substream(
     // Include remote_peer_id for tracing context only
