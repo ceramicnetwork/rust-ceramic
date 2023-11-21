@@ -191,7 +191,6 @@ where
             libp2p_config
                 .kademlia_provider_publication_interval
                 .unwrap_or_else(|| Duration::from_secs(12 * 60 * 60)),
-            libp2p_config.republish_max_concurrent as usize,
             block_store,
             metrics,
         );

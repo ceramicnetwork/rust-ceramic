@@ -35,6 +35,18 @@ const MAX_RETRIES: usize = 10;
 /// A value of 1 means perfect optimism and therefore delay for all of our estimated ability.
 const OPTIMISM: f64 = 0.5;
 
+/// Initial batch size.
+const BATCH_INITIAL_SIZE: usize = 2000;
+/// Increase the batch size if the success ratio is greater than this threshold.
+const BATCH_INCREASE_THRESHOLD: f64 = 0.95;
+/// Decrease the batch size if the success ratio is less than this threshold.
+/// Must be less than BATCH_INCREASE_THRESHOLD.
+const BATCH_DECREASE_THRESHOLD: f64 = 0.9;
+/// Coefficient used to decrease batch size when a batch failure is detected.
+const BATCH_MULTIPLICATIVE_DECREASE: f64 = 0.5;
+/// Term used to increase batch size when a batch success is detected.
+const BATCH_ADDITIVE_INCREASE: usize = 100;
+
 // Manages publishing provider records regularly over an interval.
 // Publisher implements [`Stream`] to produce batches of DHT keys to provide.
 pub struct Publisher {
@@ -45,27 +57,16 @@ pub struct Publisher {
 }
 
 impl Publisher {
-    pub fn new(
-        interval: Duration,
-        max_concurrent: usize,
-        block_store: SQLiteBlockStore,
-        metrics: Metrics,
-    ) -> Self {
+    pub fn new(interval: Duration, block_store: SQLiteBlockStore, metrics: Metrics) -> Self {
         // Channel for result of each start_provide query.
-        let (results_tx, results_rx) = channel(max_concurrent * 2);
+        let (results_tx, results_rx) = channel(BATCH_INITIAL_SIZE * 2);
 
         // We should rarely be behind by more than a single batch.
-        // If we are backpressure is good as we cannot use the new batch.
+        // If we are, back-pressure is good as we cannot use the new batch.
         let (batches_tx, batches_rx) = channel(1);
 
         // Do real work of the publisher on its own task.
-        let mut stream = PublisherWorker::new(
-            results_rx,
-            interval,
-            max_concurrent,
-            block_store,
-            metrics.clone(),
-        );
+        let mut stream = PublisherWorker::new(results_rx, interval, block_store, metrics.clone());
         let task_metrics = metrics.clone();
         tokio::spawn(async move {
             while let Some(batch) = stream.next().await {
@@ -139,13 +140,15 @@ struct PublisherWorker {
     state: State,
     interval: Duration,
     deadline: Instant,
-    max_concurrent: usize,
+    batch_size: usize,
     results_rx: Receiver<AddProviderResult>,
     current_queries: HashSet<Key>,
     block_store: SQLiteBlockStore,
     last_hash: Option<Multihash>,
     batch_complete: Option<oneshot::Sender<()>>,
-    elapsed_history: VecDeque<Duration>,
+    // Keep small history of elapsed time and size of a batch.
+    // We use this to estimate how long it will take us to publish all batches.
+    publish_rate_history: VecDeque<(Duration, f64)>,
     retries: HashMap<Key, usize>,
 }
 
@@ -167,7 +170,6 @@ impl PublisherWorker {
     pub fn new(
         results_rx: Receiver<AddProviderResult>,
         interval: Duration,
-        max_concurrent: usize,
         block_store: SQLiteBlockStore,
         metrics: Metrics,
     ) -> Self {
@@ -176,13 +178,13 @@ impl PublisherWorker {
             state: State::StartingFetch,
             deadline: Instant::now() + interval,
             interval,
-            max_concurrent,
+            batch_size: BATCH_INITIAL_SIZE,
             results_rx,
             current_queries: HashSet::new(),
             block_store,
             last_hash: None,
             batch_complete: None,
-            elapsed_history: VecDeque::with_capacity(ELAPSED_HISTORY_SIZE),
+            publish_rate_history: VecDeque::with_capacity(ELAPSED_HISTORY_SIZE),
             retries: Default::default(),
         }
     }
@@ -273,7 +275,7 @@ impl Stream for PublisherWorker {
                 State::StartingFetch => {
                     let block_store = self.block_store.clone();
                     let last_hash = self.last_hash;
-                    let limit = (self.max_concurrent - self.retries.len()) as i64;
+                    let limit = (self.batch_size - self.retries.len()) as i64;
                     self.state = State::FetchingBatch {
                         start: Instant::now(),
                         future: Box::pin(async move {
@@ -297,7 +299,12 @@ impl Stream for PublisherWorker {
                                 // We reached the end of the blocks.
                                 // Delay until the deadline and reset it.
                                 self.last_hash = None;
-                                self.state = State::Delaying(Delay::new(self.deadline - now));
+                                if let Some(delay) = self.deadline.checked_duration_since(now) {
+                                    self.state = State::Delaying(Delay::new(delay));
+                                } else {
+                                    // We were behind schedule, start new batch immediately.
+                                    self.state = State::StartingFetch
+                                };
                                 self.deadline = now + self.interval;
                             } else {
                                 let start = *start;
@@ -323,6 +330,7 @@ impl Stream for PublisherWorker {
                                     repeat_count,
                                     max_retry_count,
                                 });
+
                                 // Collect any keys that need to be retried and any new keys
                                 let keys: Vec<Key> = self
                                     .retries
@@ -353,56 +361,88 @@ impl Stream for PublisherWorker {
                     match Future::poll(Pin::new(rx), cx) {
                         Poll::Ready(_) => {
                             let elapsed = start.elapsed();
-                            let remaining_batches =
-                                (*remaining as f64) / self.max_concurrent as f64;
-                            self.elapsed_history.push_front(elapsed);
-                            if self.elapsed_history.len() >= ELAPSED_HISTORY_SIZE {
-                                self.elapsed_history.pop_back();
+                            let remaining = *remaining;
+                            let batch_size = self.batch_size;
+
+                            // Update history with batch stats
+                            self.publish_rate_history
+                                .push_front((elapsed, batch_size as f64));
+                            if self.publish_rate_history.len() >= ELAPSED_HISTORY_SIZE {
+                                self.publish_rate_history.pop_back();
                             }
-                            let average = self
-                                .elapsed_history
-                                .iter()
-                                .sum::<Duration>()
-                                .div_f64(self.elapsed_history.len() as f64);
-                            let needed = average.mul_f64(remaining_batches);
+
+                            // Compute average time to publish a single record.
+                            let (total_elapsed, total_count) =
+                                self.publish_rate_history.iter().fold(
+                                    (Duration::from_secs(0), 0.0),
+                                    |(acc_elapsed, acc_count), (elapsed, count)| {
+                                        (acc_elapsed + *elapsed, acc_count + count)
+                                    },
+                                );
+                            let average = total_elapsed.div_f64(total_count);
+                            // Estimate needed time based on estimated average time to publish.
+                            let needed = average.mul_f64(remaining as f64);
+                            // Compute how much spare time we have if any.
                             let now = Instant::now();
                             let estimated_finish = now + needed;
-                            let spare = self.deadline.duration_since(estimated_finish);
+                            let spare = self.deadline.checked_duration_since(estimated_finish);
 
                             // Compute useful diagnostic values
                             let needed_seconds = needed.as_secs_f64();
+                            let average_ms = average.as_secs_f64() * 1000.0;
+                            // Will be zero if the deadline has elapsed.
                             let deadline_seconds = self.deadline.duration_since(now).as_secs_f64();
-                            let batch_average_seconds = average.as_secs();
                             let lag_ratio = needed_seconds / deadline_seconds;
 
                             self.metrics
-                                .record(&metrics::PublisherEvent::BatchFinished { lag_ratio });
+                                .record(&metrics::PublisherEvent::BatchFinished {
+                                    batch_size,
+                                    lag_ratio,
+                                });
 
+                            let remaining_batches = (remaining as f64) / (self.batch_size as f64);
                             if remaining_batches == 0.0 {
                                 // We do not have any more batches, fetch one more to be sure.
                                 // If it comes back empty we will delay until the interval is complete.
                                 self.state = State::StartingFetch;
-                            } else if !spare.is_zero() {
+                            } else if let Some(spare) = spare {
                                 // Be conservative and adjust our delay based on our optimism of
                                 // the estimate.
                                 // If remaining_batches is zero this math panics, so we ensure its
                                 // not zero with the above case.
                                 let delay = spare.div_f64(remaining_batches / OPTIMISM);
                                 debug!(
-                                    batch_average_seconds,
+                                    average_ms,
                                     lag_ratio,
                                     delay_seconds = delay.as_secs(),
-                                    "spare time, delaying, lag_ratio is (estimated needed time) / (remaining time before deadline)"
+                                    next_batch_size = self.batch_size,
+                                    "publisher has spare time, delaying"
                                 );
                                 self.state = State::Delaying(Delay::new(delay));
                             } else {
                                 warn!(
-                                    batch_average_seconds,
+                                    average_ms,
                                     lag_ratio,
-                                    "publisher has no spare time, lag_ratio is (estimated needed time) / (remaining time before deadline)"
+                                    next_batch_size = self.batch_size,
+                                    "publisher has no spare time"
                                 );
                                 self.state = State::StartingFetch;
                             }
+
+                            // Update next batch_size using additive increase or multiplicative decrease.
+                            let success_ratio =
+                                ((batch_size - self.retries.len()) as f64) / (batch_size as f64);
+                            if success_ratio > BATCH_INCREASE_THRESHOLD {
+                                // Batch succeeded, increase batch size
+                                self.batch_size += BATCH_ADDITIVE_INCREASE;
+                            } else if success_ratio > BATCH_DECREASE_THRESHOLD {
+                                // Batch succeeded but barely, do not change the batch_size
+                            } else {
+                                // Batch failed, decrease batch size
+                                self.batch_size = (self.batch_size as f64
+                                    * BATCH_MULTIPLICATIVE_DECREASE)
+                                    as usize;
+                            };
                         }
                         Poll::Pending => return Poll::Pending,
                     }
