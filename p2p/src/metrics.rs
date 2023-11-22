@@ -18,7 +18,8 @@ pub struct Metrics {
     publisher_batch_max_retry_count: Gauge,
 
     publisher_batches_finished: Counter,
-    publisher_lag_ratio: Gauge<f64, std::sync::atomic::AtomicU64>,
+    publisher_remaining: Gauge<i64>,
+    publisher_deadline_seconds: Gauge<i64>,
     publisher_batch_size: Gauge<i64>,
 
     peering_connected_count: Counter,
@@ -95,14 +96,20 @@ impl Metrics {
             sub_registry
         );
         register!(
-            publisher_lag_ratio,
-            "Ratio of estimated_needed_time / remaining_time",
+            publisher_remaining,
+            "Number of records left to publish in the current interval",
             Gauge::default(),
             sub_registry
         );
         register!(
             publisher_batch_size,
             "Number of records in the finished batch",
+            Gauge::default(),
+            sub_registry
+        );
+        register!(
+            publisher_deadline_seconds,
+            "Number of seconds until the end of the current interval",
             Gauge::default(),
             sub_registry
         );
@@ -134,8 +141,9 @@ impl Metrics {
             publisher_batch_repeat_count,
             publisher_batch_max_retry_count,
             publisher_batches_finished,
-            publisher_lag_ratio,
+            publisher_remaining,
             publisher_batch_size,
+            publisher_deadline_seconds,
             peering_connected_count,
             peering_disconnected_count,
             peering_dial_failure_count,
@@ -153,8 +161,9 @@ pub enum PublisherEvent {
     },
     BatchSendErr,
     BatchFinished {
-        batch_size: usize,
-        lag_ratio: f64,
+        batch_size: i64,
+        remaining: Option<i64>,
+        deadline_seconds: i64,
     },
 }
 
@@ -179,11 +188,15 @@ impl Recorder<PublisherEvent> for Metrics {
             }
             PublisherEvent::BatchFinished {
                 batch_size,
-                lag_ratio,
+                remaining,
+                deadline_seconds,
             } => {
                 self.publisher_batches_finished.inc();
-                self.publisher_lag_ratio.set(*lag_ratio);
-                self.publisher_batch_size.set(*batch_size as i64);
+                if let Some(remaining) = *remaining {
+                    self.publisher_remaining.set(remaining);
+                }
+                self.publisher_deadline_seconds.set(*deadline_seconds);
+                self.publisher_batch_size.set(*batch_size);
             }
             PublisherEvent::BatchSendErr => {
                 self.publisher_batch_send_err_count.inc();
