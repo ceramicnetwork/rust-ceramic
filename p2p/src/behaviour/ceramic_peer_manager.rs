@@ -63,7 +63,7 @@ impl CeramicPeerManager {
     pub fn new(ceramic_peers: &[Multiaddr], metrics: Metrics) -> Result<Self> {
         let ceramic_peers = ceramic_peers
             .iter()
-            // Extract peer id from mutliaddr
+            // Extract peer id from multiaddr
             .map(|multiaddr| {
                 if let Some(peer) = multiaddr.iter().find_map(|proto| match proto {
                     Protocol::P2p(peer_id) => {
