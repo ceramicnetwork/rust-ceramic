@@ -1,7 +1,7 @@
 use iroh_bitswap::BitswapEvent;
 use libp2p::{autonat, dcutr, gossipsub, identify, kad, mdns, ping, relay};
 
-use super::peer_manager::PeerManagerEvent;
+use super::ceramic_peer_manager::PeerManagerEvent;
 
 /// Event type which is emitted from the [`NodeBehaviour`].
 ///

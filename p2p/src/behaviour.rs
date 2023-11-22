@@ -17,7 +17,6 @@ use libp2p::{
         store::{MemoryStore, MemoryStoreConfig},
     },
     mdns::tokio::Behaviour as Mdns,
-    multiaddr::Protocol,
     ping::Behaviour as Ping,
     relay,
     swarm::behaviour::toggle::Toggle,
@@ -27,14 +26,14 @@ use libp2p_identity::Keypair;
 use recon::{libp2p::Recon, Sha256a};
 use tracing::{info, warn};
 
+use self::ceramic_peer_manager::CeramicPeerManager;
 pub use self::event::Event;
-use self::peer_manager::PeerManager;
 use crate::config::Libp2pConfig;
 use crate::sqliteblockstore::SQLiteBlockStore;
 use crate::Metrics;
 
+mod ceramic_peer_manager;
 mod event;
-mod peer_manager;
 
 pub const PROTOCOL_VERSION: &str = "ipfs/0.1.0";
 pub const AGENT_VERSION: &str = concat!("ceramic-one/", env!("CARGO_PKG_VERSION"));
@@ -49,6 +48,7 @@ pub(crate) struct NodeBehaviour<I, M> {
     // end up being denied because of the limits.
     // See https://github.com/libp2p/rust-libp2p/pull/4777#discussion_r1391833734 for more context.
     limits: connection_limits::Behaviour,
+    pub(crate) peer_manager: CeramicPeerManager,
     ping: Ping,
     identify: identify::Behaviour,
     pub(crate) bitswap: Toggle<Bitswap<SQLiteBlockStore>>,
@@ -59,7 +59,6 @@ pub(crate) struct NodeBehaviour<I, M> {
     relay_client: Toggle<relay::client::Behaviour>,
     dcutr: Toggle<dcutr::Behaviour>,
     pub(crate) gossipsub: Toggle<gossipsub::Behaviour>,
-    pub(crate) peer_manager: PeerManager,
     recon: Toggle<recon::libp2p::Behaviour<I, M>>,
 }
 
@@ -158,17 +157,11 @@ where
                 // Provider records are re-published via the [`crate::publisher::Publisher`].
                 .set_provider_publication_interval(None);
 
-            let mut kademlia = kad::Behaviour::with_config(pub_key.to_peer_id(), store, kad_config);
-            for multiaddr in &config.bootstrap_peers {
-                // TODO: move parsing into config
-                let mut addr = multiaddr.to_owned();
-                if let Some(Protocol::P2p(peer_id)) = addr.pop() {
-                    kademlia.add_address(&peer_id, addr);
-                } else {
-                    warn!("Could not parse bootstrap addr {}", multiaddr);
-                }
-            }
-            Some(kademlia)
+            Some(kad::Behaviour::with_config(
+                pub_key.to_peer_id(),
+                store,
+                kad_config,
+            ))
         } else {
             None
         }
@@ -253,7 +246,7 @@ where
             dcutr: dcutr.into(),
             relay_client: relay_client.into(),
             gossipsub,
-            peer_manager: PeerManager::new(&config.bootstrap_peers, metrics)?,
+            peer_manager: CeramicPeerManager::new(&config.ceramic_peers, metrics)?,
             limits,
             recon: recon.into(),
         })

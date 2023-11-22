@@ -553,46 +553,25 @@ where
                         QueryResult::StartProviding(result) => {
                             self.publisher.handle_start_providing_result(result);
                         }
-                        QueryResult::GetProviders(Ok(p)) => {
-                            match p {
-                                GetProvidersOk::FoundProviders { key, providers } => {
-                                    let behaviour = self.swarm.behaviour_mut();
-                                    // Filter out bad providers.
-                                    let providers: HashSet<_> = providers
-                                        .into_iter()
-                                        .filter(|provider| {
-                                            let is_bad =
-                                                behaviour.peer_manager.is_bad_peer(provider);
-                                            if is_bad {
-                                                inc!(P2PMetrics::SkippedPeerKad);
-                                            }
-                                            !is_bad
-                                        })
-                                        .collect();
+                        QueryResult::GetProviders(Ok(p)) => match p {
+                            GetProvidersOk::FoundProviders { key, providers } => {
+                                let behaviour = self.swarm.behaviour_mut();
+                                if let Some(kad) = behaviour.kad.as_mut() {
+                                    debug!("provider results for {:?} last: {}", key, step.last);
 
-                                    if let Some(kad) = behaviour.kad.as_mut() {
-                                        debug!(
-                                            "provider results for {:?} last: {}",
-                                            key, step.last
-                                        );
-
-                                        self.providers.handle_get_providers_ok(
-                                            id, step.last, key, providers, kad,
-                                        );
-                                    }
-                                }
-                                GetProvidersOk::FinishedWithNoAdditionalRecord { .. } => {
-                                    let swarm = self.swarm.behaviour_mut();
-                                    if let Some(kad) = swarm.kad.as_mut() {
-                                        debug!(
-                                            "FinishedWithNoAdditionalRecord for query {:#?}",
-                                            id
-                                        );
-                                        self.providers.handle_no_additional_records(id, kad);
-                                    }
+                                    self.providers.handle_get_providers_ok(
+                                        id, step.last, key, providers, kad,
+                                    );
                                 }
                             }
-                        }
+                            GetProvidersOk::FinishedWithNoAdditionalRecord { .. } => {
+                                let swarm = self.swarm.behaviour_mut();
+                                if let Some(kad) = swarm.kad.as_mut() {
+                                    debug!("FinishedWithNoAdditionalRecord for query {:#?}", id);
+                                    self.providers.handle_no_additional_records(id, kad);
+                                }
+                            }
+                        },
                         QueryResult::GetProviders(Err(error)) => {
                             if let Some(kad) = self.swarm.behaviour_mut().kad.as_mut() {
                                 self.providers.handle_get_providers_error(id, error, kad);
@@ -703,7 +682,17 @@ where
                     };
 
                     for protocol in &info.protocols {
-                        if protocol == &kad::PROTOCOL_NAME {
+                        // Sometimes peers do not report that they support the kademlia protocol.
+                        // Here we assume that all ceramic peers do support the protocol.
+                        // Therefore we add all ceramic peers and any peers that explicitly support
+                        // kademlia to the kademlia routing table.
+                        if self
+                            .swarm
+                            .behaviour()
+                            .peer_manager
+                            .is_ceramic_peer(&peer_id)
+                            || protocol == &kad::PROTOCOL_NAME
+                        {
                             for addr in &info.listen_addrs {
                                 if let Some(kad) = self.swarm.behaviour_mut().kad.as_mut() {
                                     kad.add_address(&peer_id, addr.clone());
@@ -1356,7 +1345,7 @@ mod tests {
             }
 
             if !self.bootstrap {
-                network_config.libp2p.bootstrap_peers = vec![];
+                network_config.libp2p.ceramic_peers = vec![];
             }
             let keypair = if let Some(seed) = self.seed {
                 Ed25519Keypair::random(seed)
