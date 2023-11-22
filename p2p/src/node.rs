@@ -34,9 +34,12 @@ use libp2p::{
     PeerId, StreamProtocol, Swarm,
 };
 use sqlx::SqlitePool;
-use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::oneshot::{self, Sender as OneShotSender};
 use tokio::task::JoinHandle;
+use tokio::{
+    sync::mpsc::{channel, Receiver, Sender},
+    time::Instant,
+};
 use tracing::{debug, error, info, trace, warn};
 
 use crate::rpc::{P2p, ProviderRequestKey};
@@ -241,18 +244,43 @@ where
         info!("Local Peer ID: {}", self.local_peer_id());
 
         let mut nice_interval = self.use_dht.then(|| tokio::time::interval(NICE_INTERVAL));
-        let mut bootstrap_interval = tokio::time::interval(BOOTSTRAP_INTERVAL);
+        // Initialize bootstrap_interval to not start immediately but at now + interval.
+        // This is because we know that initially there are no nodes with whom to bootstrap.
+        // This interval can be reset if we find a kademlia node before the first tick.
+        let mut bootstrap_interval =
+            tokio::time::interval_at(Instant::now() + BOOTSTRAP_INTERVAL, BOOTSTRAP_INTERVAL);
         let mut expiry_interval = tokio::time::interval(EXPIRY_INTERVAL);
 
+        #[derive(Debug)]
+        enum KadBootstrapState {
+            // Kademlia is idle as it does not have any peers to communicate with.
+            Idle,
+            // Kademlia has begun the process of bootstrapping with at least one peer.
+            Bootstrapping,
+            // Kademlia has finished the bootstrap process.
+            Bootstrapped,
+        }
+
+        let mut kad_state = KadBootstrapState::Idle;
         loop {
             inc!(P2PMetrics::LoopCounter);
 
             tokio::select! {
                 swarm_event = self.swarm.next() => {
                     let swarm_event = swarm_event.expect("the swarm will never die");
-                    if let Err(err) = self.handle_swarm_event(swarm_event) {
-                        error!("swarm error: {:?}", err);
-                    }
+                    match self.handle_swarm_event(swarm_event) {
+                        Ok(Some(SwarmEventResult::KademliaBoostrapSuccess)) => {
+                            kad_state = KadBootstrapState::Bootstrapped;
+                        }
+                        Ok(Some(SwarmEventResult::KademliaAddressAdded)) => {
+                            if matches!(kad_state, KadBootstrapState::Idle) {
+                                kad_state = KadBootstrapState::Bootstrapping;
+                                bootstrap_interval.reset_immediately();
+                            }
+                        }
+                        Ok(None) => {},
+                        Err(err) => error!("swarm error: {:?}",err),
+                    };
 
                     if let Some(kad) = self.swarm.behaviour_mut().kad.as_mut() {
                         self.providers.poll(kad);
@@ -280,7 +308,8 @@ where
                         }
                     }
                 }
-                provide_records = self.publisher.next() => {
+                // Poll publisher for records only after kademlia bootstrapped
+                provide_records = self.publisher.next(), if matches!(kad_state, KadBootstrapState::Bootstrapped) => {
                     if let Some(kad) = self.swarm.behaviour_mut().kad.as_mut() {
                         if let Some(key) = provide_records {
                             if let Err(err) = kad.start_providing(key.clone()) {
@@ -302,6 +331,7 @@ where
                 _ = bootstrap_interval.tick() => {
                     if let Err(e) = self.swarm.behaviour_mut().kad_bootstrap() {
                         warn!("kad bootstrap failed: {:?}", e);
+                        kad_state = KadBootstrapState::Idle;
                     } else {
                         debug!("kad bootstrap succeeded");
                     }
@@ -425,7 +455,10 @@ where
 
     // TODO fix skip_all
     #[tracing::instrument(skip_all)]
-    fn handle_swarm_event(&mut self, event: NodeSwarmEvent<I, M>) -> Result<()> {
+    fn handle_swarm_event(
+        &mut self,
+        event: NodeSwarmEvent<I, M>,
+    ) -> Result<Option<SwarmEventResult>> {
         libp2p_metrics().record(&event);
         match event {
             // outbound events
@@ -445,7 +478,7 @@ where
                     self.emit_network_event(NetworkEvent::PeerConnected(peer_id));
                 }
                 trace!("ConnectionEstablished: {:}", peer_id);
-                Ok(())
+                Ok(None)
             }
             SwarmEvent::ConnectionClosed {
                 peer_id,
@@ -457,7 +490,7 @@ where
                 }
 
                 trace!("ConnectionClosed: {:}", peer_id);
-                Ok(())
+                Ok(None)
             }
             SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
                 trace!("failed to dial: {:?}, {:?}", peer_id, error);
@@ -471,9 +504,9 @@ where
                         }
                     }
                 }
-                Ok(())
+                Ok(None)
             }
-            _ => Ok(()),
+            _ => Ok(None),
         }
     }
 
@@ -501,7 +534,7 @@ where
     }
 
     #[tracing::instrument(skip_all)]
-    fn handle_node_event(&mut self, event: Event) -> Result<()> {
+    fn handle_node_event(&mut self, event: Event) -> Result<Option<SwarmEventResult>> {
         match event {
             Event::Bitswap(e) => {
                 match e {
@@ -516,7 +549,8 @@ where
                                     error!("failed to provide {}: {:?}", key, err);
                                 }
                             }
-                        }
+                        };
+                        Ok(None)
                     }
                     BitswapEvent::FindProviders {
                         key,
@@ -529,14 +563,17 @@ where
                             response_channel: response,
                             limit,
                         })?;
+                        Ok(None)
                     }
                     BitswapEvent::Ping { peer, response } => {
                         match self.swarm.behaviour().peer_manager.info_for_peer(&peer) {
                             Some(info) => {
                                 response.send(info.latency()).ok();
+                                Ok(None)
                             }
                             None => {
                                 response.send(None).ok();
+                                Ok(None)
                             }
                         }
                     }
@@ -552,30 +589,41 @@ where
                     match result {
                         QueryResult::StartProviding(result) => {
                             self.publisher.handle_start_providing_result(result);
+                            Ok(None)
                         }
-                        QueryResult::GetProviders(Ok(p)) => match p {
-                            GetProvidersOk::FoundProviders { key, providers } => {
-                                let behaviour = self.swarm.behaviour_mut();
-                                if let Some(kad) = behaviour.kad.as_mut() {
-                                    debug!("provider results for {:?} last: {}", key, step.last);
+                        QueryResult::GetProviders(Ok(p)) => {
+                            match p {
+                                GetProvidersOk::FoundProviders { key, providers } => {
+                                    let behaviour = self.swarm.behaviour_mut();
+                                    if let Some(kad) = behaviour.kad.as_mut() {
+                                        debug!(
+                                            "provider results for {:?} last: {}",
+                                            key, step.last
+                                        );
 
-                                    self.providers.handle_get_providers_ok(
-                                        id, step.last, key, providers, kad,
-                                    );
+                                        self.providers.handle_get_providers_ok(
+                                            id, step.last, key, providers, kad,
+                                        );
+                                    }
+                                }
+                                GetProvidersOk::FinishedWithNoAdditionalRecord { .. } => {
+                                    let swarm = self.swarm.behaviour_mut();
+                                    if let Some(kad) = swarm.kad.as_mut() {
+                                        debug!(
+                                            "FinishedWithNoAdditionalRecord for query {:#?}",
+                                            id
+                                        );
+                                        self.providers.handle_no_additional_records(id, kad);
+                                    }
                                 }
                             }
-                            GetProvidersOk::FinishedWithNoAdditionalRecord { .. } => {
-                                let swarm = self.swarm.behaviour_mut();
-                                if let Some(kad) = swarm.kad.as_mut() {
-                                    debug!("FinishedWithNoAdditionalRecord for query {:#?}", id);
-                                    self.providers.handle_no_additional_records(id, kad);
-                                }
-                            }
-                        },
+                            Ok(None)
+                        }
                         QueryResult::GetProviders(Err(error)) => {
                             if let Some(kad) = self.swarm.behaviour_mut().kad.as_mut() {
                                 self.providers.handle_get_providers_error(id, error, kad);
                             }
+                            Ok(None)
                         }
                         QueryResult::Bootstrap(Ok(BootstrapOk {
                             peer,
@@ -585,9 +633,11 @@ where
                                 "kad bootstrap done {:?}, remaining: {}",
                                 peer, num_remaining
                             );
+                            Ok(Some(SwarmEventResult::KademliaBoostrapSuccess))
                         }
                         QueryResult::Bootstrap(Err(e)) => {
                             warn!("kad bootstrap error: {:?}", e);
+                            Ok(None)
                         }
                         QueryResult::GetClosestPeers(Ok(GetClosestPeersOk { key, peers })) => {
                             debug!("GetClosestPeers ok {:?}", key);
@@ -597,7 +647,7 @@ where
                                 // if this is not the last step we will have more chances to find
                                 // the peer
                                 if !have_peer && !step.last {
-                                    return Ok(());
+                                    return Ok(None);
                                 }
                                 let res = move || {
                                     if have_peer {
@@ -612,6 +662,7 @@ where
                                     }
                                 });
                             }
+                            Ok(None)
                         }
                         QueryResult::GetClosestPeers(Err(GetClosestPeersError::Timeout {
                             key,
@@ -630,11 +681,15 @@ where
                                     }
                                 });
                             }
+                            Ok(None)
                         }
                         other => {
-                            debug!("Libp2p => Unhandled Kademlia query result: {:?}", other)
+                            debug!("Libp2p => Unhandled Kademlia query result: {:?}", other);
+                            Ok(None)
                         }
                     }
+                } else {
+                    Ok(None)
                 }
             }
             Event::Identify(e) => {
@@ -681,6 +736,7 @@ where
                         };
                     };
 
+                    let mut kad_address_added = false;
                     for protocol in &info.protocols {
                         // Sometimes peers do not report that they support the kademlia protocol.
                         // Here we assume that all ceramic peers do support the protocol.
@@ -696,6 +752,7 @@ where
                             for addr in &info.listen_addrs {
                                 if let Some(kad) = self.swarm.behaviour_mut().kad.as_mut() {
                                     kad.add_address(&peer_id, addr.clone());
+                                    kad_address_added = true;
                                 }
                             }
                         } else if protocol == &StreamProtocol::new("/libp2p/autonat/1.0.0") {
@@ -722,6 +779,11 @@ where
                             chan.send(Ok(info.clone())).ok();
                         }
                     }
+                    if kad_address_added {
+                        Ok(Some(SwarmEventResult::KademliaAddressAdded))
+                    } else {
+                        Ok(None)
+                    }
                 } else if let identify::Event::Error { peer_id, error } = *e {
                     if let Some(channels) = self.lookup_queries.remove(&peer_id) {
                         for chan in channels {
@@ -733,6 +795,9 @@ where
                             .ok();
                         }
                     }
+                    Ok(None)
+                } else {
+                    Ok(None)
                 }
             }
             Event::Ping(e) => {
@@ -743,12 +808,15 @@ where
                         .peer_manager
                         .inject_ping(e.peer, rtt);
                 }
+                Ok(None)
             }
             Event::Relay(e) => {
                 libp2p_metrics().record(&e);
+                Ok(None)
             }
             Event::Dcutr(e) => {
                 libp2p_metrics().record(&e);
+                Ok(None)
             }
             Event::Gossipsub(e) => {
                 libp2p_metrics().record(&e);
@@ -773,26 +841,30 @@ where
                         GossipsubEvent::Unsubscribed { peer_id, topic },
                     ));
                 }
+                Ok(None)
             }
-            Event::Mdns(e) => match e {
-                mdns::Event::Discovered(peers) => {
-                    for (peer_id, addr) in peers {
-                        let is_connected = self.swarm.is_connected(&peer_id);
-                        debug!(
-                            "mdns: discovered {} at {} (connected: {:?})",
-                            peer_id, addr, is_connected
-                        );
-                        if !is_connected {
-                            let dial_opts =
-                                DialOpts::peer_id(peer_id).addresses(vec![addr]).build();
-                            if let Err(e) = Swarm::dial(&mut self.swarm, dial_opts) {
-                                warn!("invalid dial options: {:?}", e);
+            Event::Mdns(e) => {
+                match e {
+                    mdns::Event::Discovered(peers) => {
+                        for (peer_id, addr) in peers {
+                            let is_connected = self.swarm.is_connected(&peer_id);
+                            debug!(
+                                "mdns: discovered {} at {} (connected: {:?})",
+                                peer_id, addr, is_connected
+                            );
+                            if !is_connected {
+                                let dial_opts =
+                                    DialOpts::peer_id(peer_id).addresses(vec![addr]).build();
+                                if let Err(e) = Swarm::dial(&mut self.swarm, dial_opts) {
+                                    warn!("invalid dial options: {:?}", e);
+                                }
                             }
                         }
                     }
-                }
-                mdns::Event::Expired(_) => {}
-            },
+                    mdns::Event::Expired(_) => {}
+                };
+                Ok(None)
+            }
             Event::Autonat(autonat::Event::OutboundProbe(OutboundProbeEvent::Response {
                 address,
                 ..
@@ -804,18 +876,19 @@ where
                     );
                     self.swarm.add_external_address(address);
                 }
+                Ok(None)
             }
             Event::Autonat(autonat::Event::OutboundProbe(OutboundProbeEvent::Error { .. })) => {
                 if let Some(addr) = self.active_address_probe.take() {
                     self.failed_external_addresses.insert(addr);
                 }
+                Ok(None)
             }
             _ => {
                 // TODO: check all important events are handled
+                Ok(None)
             }
         }
-
-        Ok(())
     }
 
     #[tracing::instrument(skip(self))]
@@ -1157,6 +1230,12 @@ where
 
         Ok(false)
     }
+}
+
+#[derive(Debug)]
+enum SwarmEventResult {
+    KademliaAddressAdded,
+    KademliaBoostrapSuccess,
 }
 
 pub async fn load_identity<S: Storage>(kc: &mut Keychain<S>) -> Result<Keypair> {

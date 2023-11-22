@@ -1,5 +1,6 @@
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    cmp::{max, min},
+    collections::{HashMap, HashSet},
     pin::Pin,
     task::{Context, Poll},
     time::{Duration, Instant},
@@ -17,34 +18,25 @@ use tokio::sync::{
     oneshot,
 };
 use tokio_stream::StreamExt;
-use tracing::{debug, error, warn};
+use tracing::{debug, error, trace, warn};
 
 use crate::{
     metrics::{self, Metrics},
     SQLiteBlockStore,
 };
 
-// Number of historical durations to track.
-// Each batch tends to last up to the timeout because of the long tail of queries.
-// As such there is not much variance in the batch duration and a small history is sufficient.
-const ELAPSED_HISTORY_SIZE: usize = 10;
 // Retries are relatively cheap and missing a publish can have network wide negative effects.
 const MAX_RETRIES: usize = 10;
-/// Scale between 0 and 1 of how optimistic we are.
-/// A value of 0 means no optimism and therefore never delay the publisher loop.
-/// A value of 1 means perfect optimism and therefore delay for all of our estimated ability.
-const OPTIMISM: f64 = 0.5;
-
-/// Initial batch size.
-const BATCH_INITIAL_SIZE: usize = 2000;
-/// Increase the batch size if the success ratio is greater than this threshold.
-const BATCH_INCREASE_THRESHOLD: f64 = 0.95;
-/// Decrease the batch size if the success ratio is less than this threshold.
-/// Must be less than BATCH_INCREASE_THRESHOLD.
-const BATCH_DECREASE_THRESHOLD: f64 = 0.9;
-/// Coefficient used to decrease batch size when a batch failure is detected.
+// Initial batch size, choose a conservative value and grow it as we are successful.
+const BATCH_INITIAL_SIZE: usize = 500;
+// Maximum batch size.
+const BATCH_MAXIMUM_SIZE: usize = 3000;
+// Increase the batch size if the success ratio is greater than this threshold.
+// Otherwise decrease the batch size.
+const BATCH_THRESHOLD: f64 = 0.99;
+// Coefficient used to decrease batch size when a batch failure is detected.
 const BATCH_MULTIPLICATIVE_DECREASE: f64 = 0.5;
-/// Term used to increase batch size when a batch success is detected.
+// Term used to increase batch size when a batch success is detected.
 const BATCH_ADDITIVE_INCREASE: usize = 100;
 
 // Manages publishing provider records regularly over an interval.
@@ -59,7 +51,7 @@ pub struct Publisher {
 impl Publisher {
     pub fn new(interval: Duration, block_store: SQLiteBlockStore, metrics: Metrics) -> Self {
         // Channel for result of each start_provide query.
-        let (results_tx, results_rx) = channel(BATCH_INITIAL_SIZE * 2);
+        let (results_tx, results_rx) = channel(BATCH_MAXIMUM_SIZE);
 
         // We should rarely be behind by more than a single batch.
         // If we are, back-pressure is good as we cannot use the new batch.
@@ -146,9 +138,6 @@ struct PublisherWorker {
     block_store: SQLiteBlockStore,
     last_hash: Option<Multihash>,
     batch_complete: Option<oneshot::Sender<()>>,
-    // Keep small history of elapsed time and size of a batch.
-    // We use this to estimate how long it will take us to publish all batches.
-    publish_rate_history: VecDeque<(Duration, f64)>,
     retries: HashMap<Key, usize>,
 }
 
@@ -156,14 +145,34 @@ enum State {
     StartingFetch,
     Delaying(Delay),
     FetchingBatch {
-        start: Instant,
         future: BoxFuture<'static, Result<Batch>>,
     },
+    StartingBatch {
+        batch: Batch,
+    },
     WaitingOnBatch {
-        start: Instant,
-        remaining: i64,
+        remaining: Option<i64>,
         rx: oneshot::Receiver<()>,
     },
+}
+
+impl std::fmt::Debug for State {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::StartingFetch => write!(f, "StartingFetch"),
+            Self::Delaying(arg0) => f.debug_tuple("Delaying").field(arg0).finish(),
+            Self::FetchingBatch { future: _ } => f.debug_struct("FetchingBatch").finish(),
+            Self::StartingBatch { batch } => f
+                .debug_struct("StartingBatch")
+                .field("batch", batch)
+                .finish(),
+            Self::WaitingOnBatch { remaining, rx } => f
+                .debug_struct("WaitingOnBatch")
+                .field("remaining", remaining)
+                .field("rx", rx)
+                .finish(),
+        }
+    }
 }
 
 impl PublisherWorker {
@@ -184,7 +193,6 @@ impl PublisherWorker {
             block_store,
             last_hash: None,
             batch_complete: None,
-            publish_rate_history: VecDeque::with_capacity(ELAPSED_HISTORY_SIZE),
             retries: Default::default(),
         }
     }
@@ -238,15 +246,17 @@ impl PublisherWorker {
     }
 }
 
+#[derive(Debug)]
 struct Batch {
     hashes: Vec<Multihash>,
-    remaining: i64,
+    remaining: Option<i64>,
 }
 
 impl Stream for PublisherWorker {
     type Item = Vec<Key>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        trace!(state=?self.state, "poll_next");
         // First process any results.
         loop {
             match self.results_rx.poll_recv(cx) {
@@ -275,25 +285,35 @@ impl Stream for PublisherWorker {
                 State::StartingFetch => {
                     let block_store = self.block_store.clone();
                     let last_hash = self.last_hash;
-                    let limit = (self.batch_size - self.retries.len()) as i64;
-                    self.state = State::FetchingBatch {
-                        start: Instant::now(),
-                        future: Box::pin(async move {
-                            let (hashes, remaining) = block_store.range(last_hash, limit).await?;
-                            Ok(Batch { hashes, remaining })
-                        }),
-                    };
+                    if let Some(limit) = self.batch_size.checked_sub(self.retries.len()) {
+                        self.state = State::FetchingBatch {
+                            future: Box::pin(async move {
+                                let (hashes, remaining) =
+                                    block_store.range(last_hash, limit as i64).await?;
+                                Ok(Batch {
+                                    hashes,
+                                    remaining: Some(remaining),
+                                })
+                            }),
+                        };
+                    } else {
+                        self.state = State::StartingBatch {
+                            batch: Batch {
+                                hashes: Default::default(),
+                                remaining: None,
+                            },
+                        };
+                    }
                 }
-                State::FetchingBatch {
-                    start,
-                    ref mut future,
-                } => {
+                State::FetchingBatch { ref mut future } => {
                     match Future::poll(future.as_mut(), cx) {
                         Poll::Ready(Ok(batch)) => {
                             if batch.hashes.is_empty() {
                                 let now = Instant::now();
+                                let delay = self.deadline.checked_duration_since(now);
                                 debug!(
-                                    deadline_seconds = self.deadline.duration_since(now).as_secs(),
+                                    deadline_seconds =
+                                        delay.map(|d| d.as_secs()).unwrap_or_default(),
                                     "no more blocks, delaying until deadline"
                                 );
                                 // We reached the end of the blocks.
@@ -307,43 +327,7 @@ impl Stream for PublisherWorker {
                                 };
                                 self.deadline = now + self.interval;
                             } else {
-                                let start = *start;
-                                self.last_hash = batch.hashes.iter().last().copied();
-                                let (tx, rx) = oneshot::channel();
-                                self.batch_complete = Some(tx);
-                                self.state = State::WaitingOnBatch {
-                                    start,
-                                    remaining: batch.remaining,
-                                    rx,
-                                };
-
-                                let new_count = batch.hashes.len() as i64;
-                                let repeat_count = self.retries.len() as i64;
-                                let max_retry_count =
-                                    *self.retries.values().max().unwrap_or(&0) as i64;
-                                debug!(
-                                    new_count,
-                                    repeat_count, max_retry_count, "starting new publish batch"
-                                );
-                                self.metrics.record(&metrics::PublisherEvent::BatchStarted {
-                                    new_count,
-                                    repeat_count,
-                                    max_retry_count,
-                                });
-
-                                // Collect any keys that need to be retried and any new keys
-                                let keys: Vec<Key> = self
-                                    .retries
-                                    .keys()
-                                    .cloned()
-                                    .chain(
-                                        batch.hashes.into_iter().map(|hash| hash.to_bytes().into()),
-                                    )
-                                    .collect();
-                                keys.iter().for_each(|key| {
-                                    self.current_queries.insert(key.clone());
-                                });
-                                return Poll::Ready(Some(keys));
+                                self.state = State::StartingBatch { batch };
                             }
                         }
                         Poll::Ready(Err(err)) => {
@@ -353,96 +337,113 @@ impl Stream for PublisherWorker {
                         Poll::Pending => return Poll::Pending,
                     }
                 }
-                State::WaitingOnBatch {
-                    start,
-                    remaining,
-                    rx,
-                } => {
+                State::StartingBatch { batch } => {
+                    let last_hash = batch.hashes.iter().last().copied();
+                    let remaining = batch.remaining;
+                    let new_count = batch.hashes.len() as i64;
+
+                    // Collect the new keys
+                    let new_keys: Vec<Key> = batch
+                        .hashes
+                        .iter()
+                        .map(|hash| hash.to_bytes().into())
+                        .collect();
+
+                    // Collect all keys including the keys that need to be retried up to the batch size limit.
+                    // We limit the number of new keys to ensure we have room for retries.
+                    // However if the batch size is smaller than the number of retries we need to
+                    // only retry up to batch size.
+                    let mut max_retry_count = 0i64;
+                    let mut repeat_count = 0;
+                    let keys: Vec<Key> = self
+                        .retries
+                        .iter()
+                        .take(self.batch_size - new_keys.len())
+                        // Use inspect to track stats about the retries
+                        .inspect(|(_key, retry_count)| {
+                            max_retry_count = max(max_retry_count, **retry_count as i64);
+                            repeat_count += 1;
+                        })
+                        .map(|(key, _)| key.clone())
+                        .chain(new_keys)
+                        .collect();
+
+                    // Expect a response for each key.
+                    // Current queries should be empty because we finished the last batch.
+                    debug_assert!(self.current_queries.is_empty());
+                    keys.iter().for_each(|key| {
+                        self.current_queries.insert(key.clone());
+                    });
+
+                    // Setup notification channel for when batch is complete
+                    let (tx, rx) = oneshot::channel();
+
+                    let retry_queue_len = self.retries.len();
+                    // Record logs and metrics
+                    debug!(
+                        new_count,
+                        repeat_count,
+                        max_retry_count,
+                        retry_queue_len,
+                        "starting new publish batch"
+                    );
+                    self.metrics.record(&metrics::PublisherEvent::BatchStarted {
+                        new_count,
+                        repeat_count,
+                        max_retry_count,
+                    });
+                    // Update state
+                    self.last_hash = last_hash;
+                    self.batch_complete = Some(tx);
+                    self.state = State::WaitingOnBatch { remaining, rx };
+
+                    // Report batch keys are ready to be published
+                    return Poll::Ready(Some(keys));
+                }
+                State::WaitingOnBatch { remaining, rx } => {
                     match Future::poll(Pin::new(rx), cx) {
                         Poll::Ready(_) => {
-                            let elapsed = start.elapsed();
                             let remaining = *remaining;
                             let batch_size = self.batch_size;
-
-                            // Update history with batch stats
-                            self.publish_rate_history
-                                .push_front((elapsed, batch_size as f64));
-                            if self.publish_rate_history.len() >= ELAPSED_HISTORY_SIZE {
-                                self.publish_rate_history.pop_back();
-                            }
-
-                            // Compute average time to publish a single record.
-                            let (total_elapsed, total_count) =
-                                self.publish_rate_history.iter().fold(
-                                    (Duration::from_secs(0), 0.0),
-                                    |(acc_elapsed, acc_count), (elapsed, count)| {
-                                        (acc_elapsed + *elapsed, acc_count + count)
-                                    },
-                                );
-                            let average = total_elapsed.div_f64(total_count);
-                            // Estimate needed time based on estimated average time to publish.
-                            let needed = average.mul_f64(remaining as f64);
-                            // Compute how much spare time we have if any.
-                            let now = Instant::now();
-                            let estimated_finish = now + needed;
-                            let spare = self.deadline.checked_duration_since(estimated_finish);
-
-                            // Compute useful diagnostic values
-                            let needed_seconds = needed.as_secs_f64();
-                            let average_ms = average.as_secs_f64() * 1000.0;
-                            // Will be zero if the deadline has elapsed.
-                            let deadline_seconds = self.deadline.duration_since(now).as_secs_f64();
-                            let lag_ratio = needed_seconds / deadline_seconds;
-
-                            self.metrics
-                                .record(&metrics::PublisherEvent::BatchFinished {
-                                    batch_size,
-                                    lag_ratio,
-                                });
-
-                            let remaining_batches = (remaining as f64) / (self.batch_size as f64);
-                            if remaining_batches == 0.0 {
-                                // We do not have any more batches, fetch one more to be sure.
-                                // If it comes back empty we will delay until the interval is complete.
-                                self.state = State::StartingFetch;
-                            } else if let Some(spare) = spare {
-                                // Be conservative and adjust our delay based on our optimism of
-                                // the estimate.
-                                // If remaining_batches is zero this math panics, so we ensure its
-                                // not zero with the above case.
-                                let delay = spare.div_f64(remaining_batches / OPTIMISM);
-                                debug!(
-                                    average_ms,
-                                    lag_ratio,
-                                    delay_seconds = delay.as_secs(),
-                                    next_batch_size = self.batch_size,
-                                    "publisher has spare time, delaying"
-                                );
-                                self.state = State::Delaying(Delay::new(delay));
-                            } else {
-                                warn!(
-                                    average_ms,
-                                    lag_ratio,
-                                    next_batch_size = self.batch_size,
-                                    "publisher has no spare time"
-                                );
-                                self.state = State::StartingFetch;
-                            }
+                            let deadline_seconds =
+                                self.deadline.duration_since(Instant::now()).as_secs() as i64;
 
                             // Update next batch_size using additive increase or multiplicative decrease.
+                            // This means we do not publish too fast, instead if we see failures we
+                            // slow down the rate at which we publish.
                             let success_ratio =
                                 ((batch_size - self.retries.len()) as f64) / (batch_size as f64);
-                            if success_ratio > BATCH_INCREASE_THRESHOLD {
+                            if success_ratio > BATCH_THRESHOLD {
                                 // Batch succeeded, increase batch size
                                 self.batch_size += BATCH_ADDITIVE_INCREASE;
-                            } else if success_ratio > BATCH_DECREASE_THRESHOLD {
-                                // Batch succeeded but barely, do not change the batch_size
                             } else {
                                 // Batch failed, decrease batch size
                                 self.batch_size = (self.batch_size as f64
                                     * BATCH_MULTIPLICATIVE_DECREASE)
                                     as usize;
                             };
+                            // Always use a batch size between [`BATCH_ADDITIVE_INCREASE`] and
+                            // [`BATCH_MAXIMUM_SIZE`].
+                            self.batch_size = max(BATCH_ADDITIVE_INCREASE, self.batch_size);
+                            self.batch_size = min(BATCH_MAXIMUM_SIZE, self.batch_size);
+
+                            debug!(
+                                success_ratio,
+                                batch_size,
+                                next_batch_size = self.batch_size,
+                                remaining,
+                                deadline_seconds,
+                                "batch finished"
+                            );
+                            self.metrics
+                                .record(&metrics::PublisherEvent::BatchFinished {
+                                    batch_size: batch_size as i64,
+                                    remaining,
+                                    deadline_seconds,
+                                });
+
+                            // Fetch next batch
+                            self.state = State::StartingFetch;
                         }
                         Poll::Pending => return Poll::Pending,
                     }
