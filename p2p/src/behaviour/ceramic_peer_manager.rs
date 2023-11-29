@@ -73,7 +73,7 @@ impl CeramicPeerManager {
                 }) {
                     Ok(peer)
                 } else {
-                    Err(anyhow!("Could not parse bootstrap addr {}", multiaddr))
+                    Err(anyhow!("could not parse bootstrap addr {}", multiaddr))
                 }
             })
             .collect::<Result<AHashMap<PeerId, CeramicPeer>, anyhow::Error>>()?;
@@ -120,7 +120,7 @@ impl CeramicPeerManager {
         if let Some(peer) = self.ceramic_peers.get_mut(peer_id) {
             warn!(
                 multiaddr = %peer.multiaddr,
-                "Connection closed, redial ceramic peer",
+                "connection closed, redial ceramic peer",
             );
             peer.start_redial();
             self.metrics.record(&metrics::PeeringEvent::Disconnected);
@@ -131,7 +131,7 @@ impl CeramicPeerManager {
         if let Some(peer) = self.ceramic_peers.get_mut(peer_id) {
             warn!(
                 multiaddr = %peer.multiaddr,
-                "Dail failed, redial ceramic peer"
+                "dial failed, redial ceramic peer"
             );
             peer.backoff_redial();
             self.metrics.record(&metrics::PeeringEvent::DialFailure);
