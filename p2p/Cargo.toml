@@ -24,7 +24,7 @@ clap.workspace = true
 clio = { version = "0.3.4", features = ["clap-parse"] }
 dirs = "5.0.1"
 expect-test.workspace = true
-futures-timer = "3.0.2"
+futures-timer.workspace = true
 futures-util.workspace = true
 futures.workspace = true
 git-version.workspace = true

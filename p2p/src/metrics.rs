@@ -8,6 +8,8 @@ use prometheus_client::{
 /// Metrics for Ceramic P2P events
 #[derive(Clone)]
 pub struct Metrics {
+    loop_count: Counter,
+
     publish_results: Family<PublishResultsLabels, Counter>,
 
     publisher_result_send_err_count: Counter,
@@ -48,6 +50,13 @@ impl Metrics {
     /// Register and construct Metrics
     pub fn register(registry: &mut Registry) -> Self {
         let sub_registry = registry.sub_registry_with_prefix("p2p");
+
+        register!(
+            loop_count,
+            "Number iterations of the node loop",
+            Counter::default(),
+            sub_registry
+        );
 
         register!(
             publish_results,
@@ -134,6 +143,7 @@ impl Metrics {
         );
 
         Self {
+            loop_count,
             publish_results,
             publisher_result_send_err_count,
             publisher_batch_send_err_count,
@@ -148,6 +158,13 @@ impl Metrics {
             peering_disconnected_count,
             peering_dial_failure_count,
         }
+    }
+}
+pub struct LoopEvent;
+
+impl Recorder<LoopEvent> for Metrics {
+    fn record(&self, _event: &LoopEvent) {
+        self.loop_count.inc();
     }
 }
 

@@ -8,9 +8,7 @@ use std::{sync::atomic::Ordering, time::Duration};
 use ahash::AHashMap;
 use anyhow::{anyhow, bail, Context, Result};
 use ceramic_core::{EventId, Interest};
-#[allow(deprecated)]
-use ceramic_metrics::core::MRecorder;
-use ceramic_metrics::{inc, libp2p_metrics, p2p::P2PMetrics};
+use ceramic_metrics::{libp2p_metrics, Recorder};
 use cid::Cid;
 use futures_util::stream::StreamExt;
 use iroh_bitswap::{BitswapEvent, Block};
@@ -28,7 +26,7 @@ use libp2p::{
         QueryResult,
     },
     mdns,
-    metrics::Recorder,
+    metrics::Recorder as _,
     multiaddr::Protocol,
     swarm::{dial_opts::DialOpts, ConnectionHandler, NetworkBehaviour, SwarmEvent},
     PeerId, StreamProtocol, Swarm,
@@ -40,21 +38,19 @@ use tokio::{
     sync::mpsc::{channel, Receiver, Sender},
     time::Instant,
 };
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, instrument, trace, warn};
 
-use crate::rpc::{P2p, ProviderRequestKey};
-use crate::swarm::build_swarm;
-use crate::GossipsubEvent;
 use crate::{
     behaviour::{Event, NodeBehaviour},
-    rpc::{self, RpcMessage},
-    Config,
-};
-use crate::{
     keys::{Keychain, Storage},
+    metrics::{LoopEvent, Metrics},
+    providers::Providers,
     publisher::Publisher,
+    rpc::{self, RpcMessage},
+    rpc::{P2p, ProviderRequestKey},
+    swarm::build_swarm,
+    Config, GossipsubEvent,
 };
-use crate::{metrics::Metrics, providers::Providers};
 use recon::{libp2p::Recon, Sha256a};
 
 #[allow(clippy::large_enum_variant)]
@@ -74,6 +70,7 @@ where
     I: Recon<Key = Interest, Hash = Sha256a>,
     M: Recon<Key = EventId, Hash = Sha256a>,
 {
+    metrics: Metrics,
     swarm: Swarm<NodeBehaviour<I, M>>,
     net_receiver_in: Receiver<RpcMessage>,
     dial_queries: AHashMap<PeerId, Vec<OneShotSender<Result<()>>>>,
@@ -191,7 +188,7 @@ where
                 .kademlia_provider_publication_interval
                 .unwrap_or_else(|| Duration::from_secs(12 * 60 * 60)),
             block_store,
-            metrics,
+            metrics.clone(),
         );
 
         // The following two statements were intentionally placed right before the return. Having them sooner caused the
@@ -210,6 +207,7 @@ where
             .context("failed to create rpc client")?;
 
         Ok(Node {
+            metrics,
             swarm,
             net_receiver_in: network_receiver_in,
             dial_queries: Default::default(),
@@ -239,6 +237,7 @@ where
     }
 
     /// Starts the libp2p service networking stack. This Future resolves when shutdown occurs.
+    #[instrument(skip_all)]
     pub async fn run(&mut self) -> Result<()> {
         info!("Listen addrs: {:?}", self.listen_addrs());
         info!("Local Peer ID: {}", self.local_peer_id());
@@ -263,7 +262,7 @@ where
 
         let mut kad_state = KadBootstrapState::Idle;
         loop {
-            inc!(P2PMetrics::LoopCounter);
+            self.metrics.record(&LoopEvent);
 
             tokio::select! {
                 swarm_event = self.swarm.next() => {

@@ -1,36 +1,25 @@
-use std::{
-    ops::Deref,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Mutex,
-    },
-};
+use std::{ops::Deref, sync::Mutex};
 
 use prometheus_client::{encoding::text::encode, registry::Registry};
 
 use crate::bitswap;
-use crate::p2p;
 
 lazy_static! {
     pub(crate) static ref CORE: Core = Core::default();
 }
 
 pub(crate) struct Core {
-    enabled: AtomicBool,
     registry: Mutex<Registry>,
     bitswap_metrics: bitswap::Metrics,
-    libp2p_metrics: p2p::Libp2pMetrics,
-    p2p_metrics: p2p::Metrics,
+    libp2p_metrics: libp2p::metrics::Metrics,
 }
 
 impl Default for Core {
     fn default() -> Self {
         let mut reg = Registry::default();
         Core {
-            enabled: AtomicBool::new(false),
             bitswap_metrics: bitswap::Metrics::new(&mut reg),
-            libp2p_metrics: p2p::Libp2pMetrics::new(&mut reg),
-            p2p_metrics: p2p::Metrics::new(&mut reg),
+            libp2p_metrics: libp2p::metrics::Metrics::new(&mut reg),
             registry: Mutex::new(reg),
         }
     }
@@ -56,26 +45,14 @@ impl Core {
         &self.bitswap_metrics
     }
 
-    pub(crate) fn libp2p_metrics(&self) -> &p2p::Libp2pMetrics {
+    pub(crate) fn libp2p_metrics(&self) -> &libp2p::metrics::Metrics {
         &self.libp2p_metrics
-    }
-
-    pub(crate) fn p2p_metrics(&self) -> &p2p::Metrics {
-        &self.p2p_metrics
     }
 
     pub(crate) fn encode(&self) -> Vec<u8> {
         let mut buf = String::new();
         encode(&mut buf, &self.registry()).unwrap();
         buf.into()
-    }
-
-    pub(crate) fn set_enabled(&self, enabled: bool) {
-        self.enabled.swap(enabled, Ordering::Relaxed);
-    }
-
-    pub(crate) fn enabled(&self) -> bool {
-        self.enabled.load(Ordering::Relaxed)
     }
 }
 
