@@ -12,8 +12,6 @@ pub struct Config {
     pub version: String,
     /// The environment of the service.
     pub service_env: String,
-    /// Flag to enable metrics collection.
-    pub collect: bool,
     /// Flag to enable metrics export.
     pub export: bool,
     /// Flag to enable tracing collection.
@@ -65,7 +63,6 @@ impl Default for Config {
             build: "unknown".to_string(),
             version: "unknown".to_string(),
             service_env: "dev".to_string(),
-            collect: false,
             export: true,
             tracing: false,
             collector_endpoint: "http://localhost:4317".to_string(),

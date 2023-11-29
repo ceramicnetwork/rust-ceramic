@@ -1269,6 +1269,7 @@ dependencies = [
  "clap 4.4.8",
  "expect-test",
  "futures",
+ "futures-timer",
  "futures-util",
  "git-version",
  "home",

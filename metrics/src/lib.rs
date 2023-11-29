@@ -6,7 +6,6 @@ mod macros;
 pub mod bitswap;
 pub mod config;
 pub mod core;
-pub mod p2p;
 
 #[macro_use]
 extern crate lazy_static;
@@ -80,38 +79,35 @@ impl MetricsHandle {
 
 /// Initialize the metrics subsystem.
 async fn init_metrics(cfg: Config) -> Option<JoinHandle<()>> {
-    if cfg.collect {
-        CORE.set_enabled(true);
-        if cfg.export {
-            let prom_gateway_uri = format!(
-                "{}/metrics/job/{}/instance/{}",
-                cfg.prom_gateway_endpoint, cfg.service_name, cfg.instance_id
-            );
-            let push_client = reqwest::Client::new();
-            return Some(tokio::spawn(async move {
-                loop {
-                    tokio::time::sleep(Duration::from_secs(5)).await;
-                    let buff = CORE.encode();
-                    let res = match push_client.post(&prom_gateway_uri).body(buff).send().await {
-                        Ok(res) => res,
-                        Err(e) => {
-                            warn!("failed to push metrics: {}", e);
-                            continue;
-                        }
-                    };
-                    match res.status() {
-                        reqwest::StatusCode::OK => {
-                            debug!("pushed metrics to gateway");
-                        }
-                        _ => {
-                            warn!("failed to push metrics to gateway: {:?}", res);
-                            let body = res.text().await.unwrap();
-                            warn!("error body: {}", body);
-                        }
+    if cfg.export {
+        let prom_gateway_uri = format!(
+            "{}/metrics/job/{}/instance/{}",
+            cfg.prom_gateway_endpoint, cfg.service_name, cfg.instance_id
+        );
+        let push_client = reqwest::Client::new();
+        return Some(tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                let buff = CORE.encode();
+                let res = match push_client.post(&prom_gateway_uri).body(buff).send().await {
+                    Ok(res) => res,
+                    Err(e) => {
+                        warn!("failed to push metrics: {}", e);
+                        continue;
+                    }
+                };
+                match res.status() {
+                    reqwest::StatusCode::OK => {
+                        debug!("pushed metrics to gateway");
+                    }
+                    _ => {
+                        warn!("failed to push metrics to gateway: {:?}", res);
+                        let body = res.text().await.unwrap();
+                        warn!("error body: {}", body);
                     }
                 }
-            }));
-        }
+            }
+        }));
     }
     None
 }
@@ -166,9 +162,6 @@ impl<'writer> FormatFields<'writer> for FieldsFormat {
 
 /// Initialize the tracing subsystem.
 fn init_tracer(cfg: Config) -> Result<(), Box<dyn std::error::Error>> {
-    #[cfg(feature = "tokio-console")]
-    let console_subscriber = cfg.tokio_console.then(console_subscriber::spawn);
-
     // Default to INFO if no env is specified
     let filter_builder = EnvFilter::builder().with_default_directive(LevelFilter::INFO.into());
 
@@ -226,7 +219,8 @@ fn init_tracer(cfg: Config) -> Result<(), Box<dyn std::error::Error>> {
     };
 
     #[cfg(feature = "tokio-console")]
-    let registry = tracing_subscriber::registry().with(console_subscriber);
+    let registry =
+        tracing_subscriber::registry().with(cfg.tokio_console.then(console_subscriber::spawn));
     #[cfg(not(feature = "tokio-console"))]
     let registry = tracing_subscriber::registry();
 
@@ -249,7 +243,6 @@ pub fn get_current_trace_id() -> TraceId {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Collector {
     Bitswap,
-    P2P,
 }
 
 #[allow(unused_variables, unreachable_patterns)]
@@ -257,13 +250,10 @@ pub fn record<M>(c: Collector, m: M, v: u64)
 where
     M: MetricType + std::fmt::Display,
 {
-    if CORE.enabled() {
-        match c {
-            Collector::Bitswap => CORE.bitswap_metrics().record(m, v),
-            Collector::P2P => CORE.p2p_metrics().record(m, v),
-            _ => panic!("not enabled/implemented"),
-        };
-    }
+    match c {
+        Collector::Bitswap => CORE.bitswap_metrics().record(m, v),
+        _ => panic!("not enabled/implemented"),
+    };
 }
 
 #[allow(unused_variables, unreachable_patterns)]
@@ -271,15 +261,12 @@ pub fn observe<M>(c: Collector, m: M, v: f64)
 where
     M: HistogramType + std::fmt::Display,
 {
-    if CORE.enabled() {
-        match c {
-            Collector::Bitswap => CORE.bitswap_metrics().observe(m, v),
-            Collector::P2P => CORE.p2p_metrics().observe(m, v),
-            _ => panic!("not enabled/implemented"),
-        };
-    }
+    match c {
+        Collector::Bitswap => CORE.bitswap_metrics().observe(m, v),
+        _ => panic!("not enabled/implemented"),
+    };
 }
 
-pub fn libp2p_metrics() -> &'static p2p::Libp2pMetrics {
+pub fn libp2p_metrics() -> &'static libp2p::metrics::Metrics {
     CORE.libp2p_metrics()
 }

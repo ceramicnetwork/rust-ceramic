@@ -101,6 +101,11 @@ struct DaemonOpts {
     #[arg(long, default_value_t = false, env = "CERAMIC_ONE_TRACING")]
     tracing: bool,
 
+    /// When true the tokio console will be exposed
+    #[cfg(feature = "tokio-console")]
+    #[arg(long, default_value_t = false, env = "CERAMIC_ONE_TOKIO_CONSOLE")]
+    tokio_console: bool,
+
     /// Unique key used to find other Ceramic peers via the DHT
     #[arg(long, default_value = "testnet-clay", env = "CERAMIC_ONE_NETWORK")]
     network: Network,
@@ -314,15 +319,16 @@ impl Daemon {
         let info = Info::new().await?;
 
         let mut metrics_config = MetricsConfig {
-            collect: opts.metrics,
             // Do not push metrics to any endpoint.
-            export: false,
+            export: opts.metrics,
             tracing: opts.tracing,
             log_format: match opts.log_format {
                 LogFormat::SingleLine => ceramic_metrics::config::LogFormat::SingleLine,
                 LogFormat::MultiLine => ceramic_metrics::config::LogFormat::MultiLine,
                 LogFormat::Json => ceramic_metrics::config::LogFormat::Json,
             },
+            #[cfg(feature = "tokio-console")]
+            tokio_console: opts.tokio_console,
             ..Default::default()
         };
         info.apply_to_metrics_config(&mut metrics_config);

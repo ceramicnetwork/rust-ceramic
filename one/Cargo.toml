@@ -19,6 +19,7 @@ ceramic-metrics.workspace = true
 ceramic-p2p.workspace = true
 clap.workspace = true
 futures-util.workspace = true
+futures-timer.workspace = true
 futures.workspace = true
 git-version = "0.3"
 home = "0.5"
@@ -44,6 +45,10 @@ tokio.workspace = true
 tracing-appender = "0.2.2"
 tracing-subscriber.workspace = true
 tracing.workspace = true
+
+[features]
+default = []
+tokio-console = ["ceramic-metrics/tokio-console"]
 
 [dev-dependencies]
 expect-test.workspace = true
