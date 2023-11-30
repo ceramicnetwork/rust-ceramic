@@ -1,18 +1,15 @@
 //! EventId generates EventIDs from event data.
 //!
-//! varint(0xce) + // streamid, 1 byte
-//! varint(0x05) + // cip-124 EventID, 1 byte
-//! varint(networkId), // 1 byte (5 for local network)
-//! last8Bytes(sha256(separator_key + "|" + separator_value)), // 16 bytes
-//! last8Bytes(sha256(stream_controller_DID)), // 16 bytes
-//! last4Bytes(init_event_CID) // 8 bytes
-//! cbor(eventHeight), // 1-3 bytes
-//! eventCID // 36 bytes
-//!   0x01 cidv1, 1 byte
-//!   0x71 dag-cbor, 1 byte
-//!   0x12 sha2-256, 1byte
-//!   0x20 varint(hash length), 1 byte
-//!   hash bytes, 32 bytes
+//! varint(0xce) + // streamid, 2 bytes b'\xce\x01'
+//! varint(0x05) + // cip-124_EventID, 1 byte b'\x05'
+//! varint(networkId), // networkId 1 byte wellknown or 5 bytes for local network
+//! last8Bytes(sha256(separator_key + "|" + separator_value)), // separator 16 bytes
+//! context // first 8 bytes provided by application, 0 pad at end to 8 bytes, truncate to 8 bytes
+//! cbor(blockNumber), // u64_max 9 bytes
+//! last8Bytes(sha256(stream_controller_DID)), // controller 8 bytes
+//! last4Bytes(init_event_CID) // stream 4 bytes
+//! eventCID // mostly 36 bytes but could be inline CID
+//! 2 + 1 + 5 + 8 + 8 + 9 + 8 + 4 + 36 = 81
 #![warn(missing_docs, missing_debug_implementations, clippy::all)]
 
 use cid::{
@@ -36,25 +33,6 @@ impl EventId {
     /// Create a builder for constructing EventIds.
     pub fn builder() -> Builder<Init> {
         Builder { state: Init }
-    }
-    /// EventId.new builds a Vec<u8> with the event id data.
-    pub fn new(
-        network: &Network,
-        sort_key: &str,
-        sort_value: &str,
-        controller: &str,
-        init: &Cid,
-        event_height: u64,
-        event_cid: &Cid,
-    ) -> EventId {
-        EventId::builder()
-            .with_network(network)
-            .with_sort_value(sort_key, sort_value)
-            .with_controller(controller)
-            .with_init(init)
-            .with_event_height(event_height)
-            .with_event(event_cid)
-            .build()
     }
 
     /// Extract the raw bytes from an EventId
@@ -80,10 +58,10 @@ impl EventId {
 
         let (_network_id, mut remainder) = de_varint(remainder).unwrap_or_default();
 
-        // strip separator [u8; 8] controller [u8; 8] StreamID [u8; 4]
-        remainder = &remainder[(8 + 8 + 4)..];
+        // strip separator [u8; 8] context [u8; 8]
+        remainder = &remainder[(8 + 8)..];
 
-        // height cbor unsigned integer
+        // blockNumber cbor unsigned integer
         if remainder[0] <= 23 {
             // 0 - 23
             remainder = &remainder[1..]
@@ -103,6 +81,10 @@ impl EventId {
             // not a cbor unsigned int
             return None;
         };
+
+        // strip controller [u8; 8] StreamID [u8; 4]
+        remainder = &remainder[(8 + 4)..];
+
         match Cid::read_bytes(remainder) {
             Ok(v) => Some(v),
             Err(_) => None, // not a CID
@@ -150,6 +132,13 @@ fn sha256_digest(s: &str) -> [u8; 32] {
     hasher.finalize().try_into().unwrap()
 }
 
+fn pad8_bytes(buf: &[u8]) -> [u8; 8] {
+    let mut bytes: [u8; 8] = [0; 8];
+    let length = if buf.len() > 8 { 8 } else { buf.len() };
+    bytes[..length].copy_from_slice(&buf[..length]);
+    bytes
+}
+
 fn last8_bytes(buf: &[u8]) -> &[u8] {
     &buf[(buf.len() - 8)..]
 }
@@ -190,6 +179,20 @@ pub struct WithSortValue {
 }
 impl BuilderState for WithSortValue {}
 
+/// Builder with context set.
+#[derive(Debug)]
+pub struct WithContext {
+    bytes: Vec<u8>,
+}
+impl BuilderState for WithContext {}
+
+/// Builder with context set.
+#[derive(Debug)]
+pub struct WithBlockNumber {
+    bytes: Vec<u8>,
+}
+impl BuilderState for WithBlockNumber {}
+
 /// Builder with controller set.
 #[derive(Debug)]
 pub struct WithController {
@@ -204,13 +207,6 @@ pub struct WithInit {
 }
 impl BuilderState for WithInit {}
 
-/// Builder with event height set.
-#[derive(Debug)]
-pub struct WithEventHeight {
-    bytes: Vec<u8>,
-}
-impl BuilderState for WithEventHeight {}
-
 /// Builder with event CID set.
 #[derive(Debug)]
 pub struct WithEvent {
@@ -220,18 +216,11 @@ impl BuilderState for WithEvent {}
 
 impl Builder<Init> {
     pub fn with_network(self, network: &Network) -> Builder<WithNetwork> {
-        // Maximum EventId size is 72.
-        //
-        // varint(0xce) + // streamid, 1 byte
-        // varint(0x05) + // cip-124 EventID, 1 byte
-        // varint(networkId), // 5 bytes for local network
-        //! last8Bytes(sha256(separator_key + "|" + separator_value)), // 16 bytes
-        // last8Bytes(sha256(stream_controller_DID)), // 8 bytes
-        // last4Bytes(init_event_CID) // 4 bytes
-        // cbor(eventHeight), // u64_max 9 bytes
-        // eventCID // mostly 36 bytes but could be inline CID
+        //! varint(0xce) + // streamid, 2 bytes b'\xce\x01'
+        //! varint(0x05) + // cip-124_EventID, 1 byte b'\x05'
+        //! varint(networkId), // networkId 1 byte wellknown or 5 bytes for local network
 
-        let mut bytes = Vec::with_capacity(72);
+        let mut bytes = Vec::with_capacity(128);
         // streamid varint
         bytes.extend(varint(0xce, &mut [0_u8; 10]));
         // cip-124 EventID varint
@@ -244,7 +233,7 @@ impl Builder<Init> {
     }
 }
 impl Builder<WithNetwork> {
-    // TODO sort_value should be bytes not str
+    // last8Bytes(sha256(separator_key + "|" + separator_value)), // separator 16 bytes
     pub fn with_sort_value(mut self, sort_key: &str, sort_value: &str) -> Builder<WithSortValue> {
         self.state.bytes.extend(last8_bytes(&sha256_digest(&format!(
             "{}|{}",
@@ -258,6 +247,31 @@ impl Builder<WithNetwork> {
     }
 }
 impl Builder<WithSortValue> {
+    // context // first 8 bytes provided by application, 0 pad at end to 8 bytes, truncate to 8 bytes
+    pub fn with_context(mut self, context: &str) -> Builder<WithContext> {
+        self.state
+            .bytes
+            .extend(last8_bytes(&pad8_bytes(context.as_bytes())));
+        Builder {
+            state: WithContext {
+                bytes: self.state.bytes,
+            },
+        }
+    }
+}
+impl Builder<WithContext> {
+    // cbor(blockNumber), // u64_max 9 bytes
+    pub fn with_blocknumber(mut self, blocknumber: u64) -> Builder<WithBlockNumber> {
+        let blocknumber_cbor = minicbor::to_vec(blocknumber).unwrap();
+        self.state.bytes.extend(blocknumber_cbor);
+        Builder {
+            state: WithBlockNumber {
+                bytes: self.state.bytes,
+            },
+        }
+    }
+}
+impl Builder<WithBlockNumber> {
     pub fn with_min_controller(mut self) -> Builder<WithController> {
         self.state.bytes.extend(ZEROS_8);
         Builder {
@@ -274,6 +288,7 @@ impl Builder<WithSortValue> {
             },
         }
     }
+    // last8Bytes(sha256(stream_controller_DID)), // controller 8 bytes
     pub fn with_controller(mut self, controller: &str) -> Builder<WithController> {
         self.state
             .bytes
@@ -302,6 +317,7 @@ impl Builder<WithController> {
             },
         }
     }
+    // last4Bytes(init_event_CID) // stream 4 bytes
     pub fn with_init(mut self, init: &Cid) -> Builder<WithInit> {
         self.state
             .bytes
@@ -313,42 +329,26 @@ impl Builder<WithController> {
         }
     }
 }
-impl Builder<WithInit> {
-    pub fn with_min_event_height(mut self) -> Builder<WithEventHeight> {
-        // 0x00 is the cbor encoding of 0.
-        self.state.bytes.push(0x00);
+
+impl Builder<WithController> {
+    // last4Bytes(init_event_CID) // stream 4 bytes
+    pub fn with_event(mut self, init: &Cid) -> Builder<WithInit> {
+        self.state
+            .bytes
+            .extend(last4_bytes(init.to_bytes().as_slice()));
         Builder {
-            state: WithEventHeight {
-                bytes: self.state.bytes,
-            },
-        }
-    }
-    pub fn with_max_event_height(mut self) -> Builder<WithEventHeight> {
-        // 0xFF is the break stop code in CBOR, and will sort higher than any cbor encoded unsigned
-        // integer.
-        self.state.bytes.push(0xFF);
-        Builder {
-            state: WithEventHeight {
-                bytes: self.state.bytes,
-            },
-        }
-    }
-    pub fn with_event_height(mut self, event_height: u64) -> Builder<WithEventHeight> {
-        let event_height_cbor = minicbor::to_vec(event_height).unwrap();
-        // event_height cbor unsigned int
-        self.state.bytes.extend(event_height_cbor);
-        Builder {
-            state: WithEventHeight {
+            state: WithInit {
                 bytes: self.state.bytes,
             },
         }
     }
 }
-impl Builder<WithEventHeight> {
+impl Builder<WithInit> {
     /// Builds the final EventId as a fencepost
     pub fn build_fencepost(self) -> EventId {
         EventId(self.state.bytes)
     }
+    // eventCID // mostly 36 bytes but could be inline CID
     pub fn with_event(mut self, event: &Cid) -> Builder<WithEvent> {
         self.state.bytes.extend(event.to_bytes());
         Builder {
@@ -379,69 +379,68 @@ mod tests {
         let controller = "did:key:z6MkgSV3tAuw7gUWqKCUY7ae6uWNxqYgdwPhUJbJhF9EFXm9".to_string();
         let init =
             Cid::from_str("bagcqceraplay4erv6l32qrki522uhiz7rf46xccwniw7ypmvs3cvu2b3oulq").unwrap(); // cspell:disable-line
-        let event_height = 255; // so we get 2 bytes b'\x18\xff'
         let event_cid =
             Cid::from_str("bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy").unwrap(); // cspell:disable-line
 
-        let eid = EventId::new(
-            &Network::Mainnet,
-            &sort_key,
-            &separator,
-            &controller,
-            &init,
-            event_height,
-            &event_cid,
-        );
+        let eid = EventId::builder()
+            .with_network(&Network::Mainnet)
+            .with_sort_value(&sort_key, &separator)
+            .with_context("")
+            .with_blocknumber(18679472)
+            .with_controller(&controller)
+            .with_init(&init)
+            .with_event(&event_cid)
+            .build();
         expect![[
-            "fce0105007e710e217fa0e25945cc7c072ff729ea683b751718ff01711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"
+            "fce0105007e710e217fa0e25900000000000000001a011d06b045cc7c072ff729ea683b751701711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"
         ]]
         .assert_eq(&multibase::encode(Base::Base16Lower, eid.0));
 
-        let eid = EventId::new(
-            &Network::TestnetClay,
-            &sort_key,
-            &separator,
-            &controller,
-            &init,
-            event_height,
-            &event_cid,
-        );
-        expect!["fce0105017e710e217fa0e25945cc7c072ff729ea683b751718ff01711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"]
+        let eid = EventId::builder()
+            .with_network(&Network::TestnetClay)
+            .with_sort_value(&sort_key, &separator)
+            .with_context("")
+            .with_blocknumber(18679472)
+            .with_controller(&controller)
+            .with_init(&init)
+            .with_event(&event_cid)
+            .build();
+        expect!["fce0105017e710e217fa0e25900000000000000001a011d06b045cc7c072ff729ea683b751701711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"]
         .assert_eq(&multibase::encode(Base::Base16Lower, eid.0));
 
-        let eid = EventId::new(
-            &Network::DevUnstable,
-            &sort_key,
-            &separator,
-            &controller,
-            &init,
-            event_height,
-            &event_cid,
-        );
-        expect!["fce0105027e710e217fa0e25945cc7c072ff729ea683b751718ff01711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"]
+        let eid = EventId::builder()
+            .with_network(&Network::DevUnstable)
+            .with_sort_value(&sort_key, &separator)
+            .with_context("")
+            .with_blocknumber(18679472)
+            .with_controller(&controller)
+            .with_init(&init)
+            .with_event(&event_cid)
+            .build();
+        expect!["fce0105027e710e217fa0e25900000000000000001a011d06b045cc7c072ff729ea683b751701711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"]
         .assert_eq(&multibase::encode(Base::Base16Lower, eid.0));
 
-        let eid = EventId::new(
-            &Network::InMemory,
-            &sort_key,
-            &separator,
-            &controller,
-            &init,
-            event_height,
-            &event_cid,
-        );
-        expect!["fce0105ff017e710e217fa0e25945cc7c072ff729ea683b751718ff01711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"].assert_eq(&multibase::encode(Base::Base16Lower, eid.0));
+        let eid = EventId::builder()
+            .with_network(&Network::InMemory)
+            .with_sort_value(&sort_key, &separator)
+            .with_context("")
+            .with_blocknumber(18679472)
+            .with_controller(&controller)
+            .with_init(&init)
+            .with_event(&event_cid)
+            .build();
+        expect!["fce0105ff017e710e217fa0e25900000000000000001a011d06b045cc7c072ff729ea683b751701711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"].assert_eq(&multibase::encode(Base::Base16Lower, eid.0));
 
-        let eid = EventId::new(
-            &Network::Local(0xce4a441c),
-            &sort_key,
-            &separator,
-            &controller,
-            &init,
-            event_height,
-            &event_cid,
-        );
-        expect!["fce01059c88a9f21c7e710e217fa0e25945cc7c072ff729ea683b751718ff01711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"].assert_eq(&multibase::encode(Base::Base16Lower, eid.0));
+        let eid = EventId::builder()
+            .with_network(&Network::Local(0xce4a441c))
+            .with_sort_value(&sort_key, &separator)
+            .with_context("")
+            .with_blocknumber(18679472)
+            .with_controller(&controller)
+            .with_init(&init)
+            .with_event(&event_cid)
+            .build();
+        expect!["fce01059c88a9f21c7e710e217fa0e25900000000000000001a011d06b045cc7c072ff729ea683b751701711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"].assert_eq(&multibase::encode(Base::Base16Lower, eid.0));
     }
 
     #[test]
@@ -451,101 +450,111 @@ mod tests {
         let controller = "did:key:z6MkgSV3tAuw7gUWqKCUY7ae6uWNxqYgdwPhUJbJhF9EFXm9".to_string();
         let init =
             Cid::from_str("bagcqceraplay4erv6l32qrki522uhiz7rf46xccwniw7ypmvs3cvu2b3oulq").unwrap(); // cspell:disable-line
-        let event_height = 255; // so we get 2 bytes b'\x18\xff'
         let event_cid =
             Cid::from_str("bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy").unwrap(); // cspell:disable-line
 
-        let received = EventId::new(
-            &Network::Mainnet,
-            &sort_key,
-            &separator,
-            &controller,
-            &init,
-            event_height,
-            &event_cid,
-        );
+        let received = EventId::builder()
+            .with_network(&Network::Mainnet)
+            .with_sort_value(&sort_key, &separator)
+            .with_context("0123456789")
+            .with_blocknumber(18679472)
+            .with_controller(&controller)
+            .with_init(&init)
+            .with_event(&event_cid)
+            .build();
 
         let received_cbor = hex::encode(serde_ipld_dagcbor::ser::to_vec(&received).unwrap());
         println!("serde_json {}", serde_json::to_string(&received).unwrap()); // Message as json
         expect![[
-            "583ece0105007e710e217fa0e25945cc7c072ff729ea683b751718ff01711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"
+            "5849ce0105007e710e217fa0e25930313233343536371a011d06b045cc7c072ff729ea683b751701711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"
         ]].assert_eq(&received_cbor);
     }
 
     #[test]
     fn test_deserialize() {
-        let bytes = hex::decode("583ece0105007e710e217fa0e25945cc7c072ff729ea683b751718ff01711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86").unwrap();
+        let bytes = hex::decode("5849ce0105007e710e217fa0e25930313233343536371a011d06b045cc7c072ff729ea683b751701711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86").unwrap();
         let x = serde_ipld_dagcbor::de::from_slice(bytes.as_slice());
         let received: EventId = x.unwrap();
         let cid = received.cid();
         println!("{:?}, {:?}", &received, &cid);
         expect![[r#"
-            EventId(
-                [
-                    206,
-                    1,
-                    5,
-                    0,
-                    126,
-                    113,
-                    14,
-                    33,
-                    127,
-                    160,
-                    226,
-                    89,
-                    69,
-                    204,
-                    124,
-                    7,
-                    47,
-                    247,
-                    41,
-                    234,
-                    104,
-                    59,
-                    117,
-                    23,
-                    24,
-                    255,
-                    1,
-                    113,
-                    18,
-                    32,
-                    244,
-                    239,
-                    126,
-                    194,
-                    8,
-                    148,
-                    77,
-                    37,
-                    112,
-                    37,
-                    64,
-                    139,
-                    182,
-                    71,
-                    148,
-                    158,
-                    107,
-                    114,
-                    147,
-                    5,
-                    32,
-                    188,
-                    128,
-                    243,
-                    77,
-                    139,
-                    251,
-                    175,
-                    210,
-                    100,
-                    61,
-                    134,
-                ],
-            )
+        EventId(
+            [
+                206,
+                1,
+                5,
+                0,
+                126,
+                113,
+                14,
+                33,
+                127,
+                160,
+                226,
+                89,
+                48,
+                49,
+                50,
+                51,
+                52,
+                53,
+                54,
+                55,
+                26,
+                1,
+                29,
+                6,
+                176,
+                69,
+                204,
+                124,
+                7,
+                47,
+                247,
+                41,
+                234,
+                104,
+                59,
+                117,
+                23,
+                1,
+                113,
+                18,
+                32,
+                244,
+                239,
+                126,
+                194,
+                8,
+                148,
+                77,
+                37,
+                112,
+                37,
+                64,
+                139,
+                182,
+                71,
+                148,
+                158,
+                107,
+                114,
+                147,
+                5,
+                32,
+                188,
+                128,
+                243,
+                77,
+                139,
+                251,
+                175,
+                210,
+                100,
+                61,
+                134,
+            ],
+        )
         "#]]
         .assert_debug_eq(&received);
 
@@ -559,19 +568,17 @@ mod tests {
         let controller = "did:key:z6MkgSV3tAuw7gUWqKCUY7ae6uWNxqYgdwPhUJbJhF9EFXm9".to_string();
         let init =
             Cid::from_str("bagcqceraplay4erv6l32qrki522uhiz7rf46xccwniw7ypmvs3cvu2b3oulq").unwrap(); // cspell:disable-line
-        let event_height = 255; // so we get 2 bytes b'\x18\xff'
         let event_cid =
             Cid::from_str("bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy").unwrap(); // cspell:disable-line
-
-        let event_id = EventId::new(
-            &Network::Mainnet,
-            &sort_key,
-            &separator,
-            &controller,
-            &init,
-            event_height,
-            &event_cid,
-        );
+        let event_id = EventId::builder()
+            .with_network(&Network::Mainnet)
+            .with_sort_value(&sort_key, &separator)
+            .with_context("0123456789")
+            .with_blocknumber(18679472)
+            .with_controller(&controller)
+            .with_init(&init)
+            .with_event(&event_cid)
+            .build();
         assert_eq!(Some(event_cid), event_id.cid());
     }
     #[test]
@@ -586,9 +593,10 @@ mod tests {
         let event_id = EventId::builder()
             .with_network(&Network::Mainnet)
             .with_sort_value(&sort_key, &separator)
+            .with_context("1234567890")
+            .with_blocknumber(18679472)
             .with_controller(&controller)
             .with_init(&init)
-            .with_max_event_height()
             .build_fencepost();
         assert_eq!(None, event_id.cid());
 
@@ -596,9 +604,10 @@ mod tests {
         let event_id = EventId::builder()
             .with_network(&Network::Mainnet)
             .with_sort_value(&sort_key, &separator)
+            .with_context("")
+            .with_blocknumber(18679472)
             .with_controller(&controller)
             .with_init(&init)
-            .with_min_event_height()
             .build_fencepost();
         assert_eq!(None, event_id.cid());
     }

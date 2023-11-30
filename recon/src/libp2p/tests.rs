@@ -80,33 +80,33 @@ fn build_swarm(runtime: &Runtime, name: &str, config: Config) -> SwarmTest {
             BTreeStore::from_set(
                 [
                     // Initialize with three events
-                    EventId::new(
-                        &Network::Mainnet,
-                        "model",
-                        &format!("{}_model", name),
-                        &format!("{}_controller", name),
-                        &random_cid(),
-                        10,
-                        &random_cid(),
-                    ),
-                    EventId::new(
-                        &Network::Mainnet,
-                        "model",
-                        &format!("{}_model", name),
-                        &format!("{}_controller", name),
-                        &random_cid(),
-                        10,
-                        &random_cid(),
-                    ),
-                    EventId::new(
-                        &Network::Mainnet,
-                        "model",
-                        &format!("{}_model", name),
-                        &format!("{}_controller", name),
-                        &random_cid(),
-                        10,
-                        &random_cid(),
-                    ),
+                    EventId::builder()
+                        .with_network(&Network::Mainnet)
+                        .with_sort_value("model", &format!("{}_model", name))
+                        .with_context("")
+                        .with_blocknumber(0)
+                        .with_controller(&format!("{}_controller", name))
+                        .with_init(&random_cid())
+                        .with_event(&random_cid())
+                        .build(),
+                    EventId::builder()
+                        .with_network(&Network::Mainnet)
+                        .with_sort_value("model", &format!("{}_model", name))
+                        .with_context("")
+                        .with_blocknumber(0)
+                        .with_controller(&format!("{}_controller", name))
+                        .with_init(&random_cid())
+                        .with_event(&random_cid())
+                        .build(),
+                    EventId::builder()
+                        .with_network(&Network::Mainnet)
+                        .with_sort_value("model", &format!("{}_model", name))
+                        .with_context("")
+                        .with_blocknumber(0)
+                        .with_controller(&format!("{}_controller", name))
+                        .with_init(&random_cid())
+                        .with_event(&random_cid())
+                        .build(),
                 ]
                 .into(),
             ),

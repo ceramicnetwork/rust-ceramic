@@ -153,6 +153,8 @@ where
             ?self.network,
             sort_key, sort_value, controller, "subscribe params"
         );
+        let context = "";
+        let blocknumber = 0;
         let offset = offset
             .map(|float| {
                 let int = float as usize;
@@ -189,16 +191,28 @@ where
                     .map_err(|err| ApiError(format!("stream_id: {err}")))?;
                 (
                     start_builder
+                        .with_context(context)
+                        .with_blocknumber(blocknumber)
                         .with_controller(&controller)
                         .with_init(&stream_id.cid),
                     stop_builder
+                        .with_context(context)
+                        .with_blocknumber(blocknumber)
                         .with_controller(&controller)
                         .with_init(&stream_id.cid),
                 )
             }
             (Some(controller), None) => (
-                start_builder.with_controller(&controller).with_min_init(),
-                stop_builder.with_controller(&controller).with_max_init(),
+                start_builder
+                    .with_context(context)
+                    .with_blocknumber(blocknumber)
+                    .with_controller(&controller)
+                    .with_min_init(),
+                stop_builder
+                    .with_context(context)
+                    .with_blocknumber(blocknumber)
+                    .with_controller(&controller)
+                    .with_max_init(),
             ),
             (None, Some(_)) => {
                 return Err(ApiError(
@@ -206,13 +220,21 @@ where
                 ))
             }
             (None, None) => (
-                start_builder.with_min_controller().with_min_init(),
-                stop_builder.with_max_controller().with_max_init(),
+                start_builder
+                    .with_context(context)
+                    .with_blocknumber(blocknumber)
+                    .with_min_controller()
+                    .with_min_init(),
+                stop_builder
+                    .with_context(context)
+                    .with_blocknumber(blocknumber)
+                    .with_max_controller()
+                    .with_max_init(),
             ),
         };
 
-        let start = start_builder.with_min_event_height().build_fencepost();
-        let stop = stop_builder.with_max_event_height().build_fencepost();
+        let start = start_builder.build_fencepost();
+        let stop = stop_builder.build_fencepost();
 
         // Update interest ranges to include this new subscription.
         let interest = Interest::builder()
@@ -330,15 +352,24 @@ mod tests {
     async fn create_event() {
         let peer_id = PeerId::random();
         let network = Network::InMemory;
-        let event_id = EventId::new(
-            &network,
-            "model",
-            "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9", // cspell:disable-line
-            "did:key:zGs1Det7LHNeu7DXT4nvoYrPfj3n6g7d6bj2K4AMXEvg1",          // cspell:disable-line
-            &Cid::from_str("baejbeihyr3kf77etqdccjfoc33dmko2ijyugn6qk6yucfkioasjssz3bbu").unwrap(), // cspell:disable-line
-            0,
-            &Cid::from_str("baejbeicqtpe5si4qvbffs2s7vtbk5ccbsfg6owmpidfj3zeluqz4hlnz6m").unwrap(), // cspell:disable-line
-        );
+        let event_id = EventId::builder()
+            .with_network(&network)
+            .with_sort_value(
+                "model",
+                "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9",
+            ) // cspell:disable-line
+            .with_context("")
+            .with_blocknumber(0)
+            .with_controller("did:key:zGs1Det7LHNeu7DXT4nvoYrPfj3n6g7d6bj2K4AMXEvg1") // cspell:disable-line
+            .with_init(
+                &Cid::from_str("baejbeihyr3kf77etqdccjfoc33dmko2ijyugn6qk6yucfkioasjssz3bbu")
+                    .unwrap(),
+            ) // cspell:disable-line
+            .with_event(
+                &Cid::from_str("baejbeicqtpe5si4qvbffs2s7vtbk5ccbsfg6owmpidfj3zeluqz4hlnz6m")
+                    .unwrap(),
+            ) // cspell:disable-line
+            .build();
         let event_id_str = multibase::encode(Base::Base16Lower, event_id.to_bytes());
         let mock_interest = MockReconInterestTest::new();
         let mut mock_model = MockReconModelTest::new();
@@ -365,27 +396,33 @@ mod tests {
         let peer_id = PeerId::random();
         let network = Network::InMemory;
         let model = "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9"; // cspell:disable-line
+        let context = "";
+        let blocknumber = 0;
 
         // Construct start and end event ids
         let start = EventId::builder()
             .with_network(&network)
             .with_sort_value("model", model)
+            .with_context(context)
+            .with_blocknumber(blocknumber)
             .with_min_controller()
             .with_min_init()
-            .with_min_event_height()
             .build_fencepost();
         let end = EventId::builder()
             .with_network(&network)
             .with_sort_value("model", model)
+            .with_context(context)
+            .with_blocknumber(blocknumber)
             .with_max_controller()
             .with_max_init()
-            .with_max_event_height()
             .build_fencepost();
 
         // Construct event to be returned
         let event_id = EventId::builder()
             .with_network(&network)
             .with_sort_value("model", model)
+            .with_context(context)
+            .with_blocknumber(blocknumber)
             .with_controller("did:key:zH3RdYVn3WtYR3LXmXk8wA6XWUjWMLgRa5ia1tgR3uR9D")
             .with_init(
                 &StreamId::from_str(
@@ -394,7 +431,6 @@ mod tests {
                 .unwrap()
                 .cid,
             )
-            .with_event_height(9)
             .with_event(
                 &Cid::from_str("baejbeibmbnp2ffyug3cfamsw7cno3plz5qkwfednrkyse6azcz7fycdym4") // cspell:disable-line
                     .unwrap(),
@@ -456,16 +492,18 @@ mod tests {
         let start = EventId::builder()
             .with_network(&network)
             .with_sort_value("model", model)
+            .with_context("")
+            .with_blocknumber(0)
             .with_controller(controller)
             .with_min_init()
-            .with_min_event_height()
             .build_fencepost();
         let end = EventId::builder()
             .with_network(&network)
             .with_sort_value("model", model)
+            .with_context("")
+            .with_blocknumber(0)
             .with_controller(controller)
             .with_max_init()
-            .with_max_event_height()
             .build_fencepost();
         let mut mock_interest = MockReconInterestTest::new();
         mock_interest
@@ -519,16 +557,18 @@ mod tests {
         let start = EventId::builder()
             .with_network(&network)
             .with_sort_value("model", model)
+            .with_context("")
+            .with_blocknumber(0)
             .with_controller(controller)
             .with_init(&stream.cid)
-            .with_min_event_height()
             .build_fencepost();
         let end = EventId::builder()
             .with_network(&network)
             .with_sort_value("model", model)
+            .with_context("")
+            .with_blocknumber(0)
             .with_controller(controller)
             .with_init(&stream.cid)
-            .with_max_event_height()
             .build_fencepost();
         let mut mock_interest = MockReconInterestTest::new();
         mock_interest
@@ -575,6 +615,8 @@ mod tests {
         let peer_id = PeerId::random();
         let network = Network::InMemory;
         let model = "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9"; // cspell:disable-line
+        let context = "";
+        let blocknumber = 0;
         let controller = "did:key:zGs1Det7LHNeu7DXT4nvoYrPfj3n6g7d6bj2K4AMXEvg1";
         let stream =
             StreamId::from_str("k2t6wz4ylx0qs435j9oi1s6469uekyk6qkxfcb21ikm5ag2g1cook14ole90aw") // cspell:disable-line
@@ -582,16 +624,18 @@ mod tests {
         let start = EventId::builder()
             .with_network(&network)
             .with_sort_value("model", model)
+            .with_context(context)
+            .with_blocknumber(blocknumber)
             .with_controller(controller)
             .with_init(&stream.cid)
-            .with_min_event_height()
             .build_fencepost();
         let end = EventId::builder()
             .with_network(&network)
             .with_sort_value("model", model)
+            .with_context(context)
+            .with_blocknumber(blocknumber)
             .with_controller(controller)
             .with_init(&stream.cid)
-            .with_max_event_height()
             .build_fencepost();
         let mut mock_interest = MockReconInterestTest::new();
         mock_interest
