@@ -270,6 +270,11 @@ impl Builder<WithContext> {
             },
         }
     }
+
+    pub fn with_max_blocknumber_fencepost(mut self) -> EventId {
+        self.state.bytes.extend(&[0xFF; 1]); // 0xff is grater then all CBOR numbers
+        EventId(self.state.bytes)
+    }
 }
 impl Builder<WithBlockNumber> {
     pub fn with_min_controller(mut self) -> Builder<WithController> {
