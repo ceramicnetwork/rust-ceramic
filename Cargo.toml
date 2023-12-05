@@ -180,7 +180,7 @@ tracing-subscriber = { version = "0.3", features = [
 tracing-test = { version = "0.2" }
 trust-dns-resolver = "0.22.0"
 unsigned-varint = "0.7"
-url = "2.2.2"
+url = "2.5.0"
 urlencoding = "2.1"
 void = "1.0"
 wasm-timer = "0.2.5"
