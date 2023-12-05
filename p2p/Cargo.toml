@@ -35,8 +35,6 @@ iroh-rpc-client.workspace = true
 iroh-rpc-types.workspace = true
 iroh-util.workspace = true
 libp2p-identity.workspace = true
-libp2p-mplex = "0.40.0"
-libp2p-quic = { version = "0.9", features = ["tokio"] }
 lru.workspace = true
 multihash.workspace = true
 prometheus-client.workspace = true
@@ -56,25 +54,28 @@ zeroize.workspace = true
 [dependencies.libp2p]
 workspace = true
 features = [
-    "gossipsub",
-    "kad",
-    "identify",
-    "ping",
-    "mdns",
-    "noise",
-    "yamux",
-    "tcp",
-    "dns",
-    "request-response",
-    "websocket",
-    "serde",
-    "metrics",
-    "relay",
-    "dcutr",
     "autonat",
-    "rsa",
-    "tokio",
+    "dcutr",
+    "dns",
+    "ed25519",
+    "gossipsub",
+    "identify",
+    "kad",
     "macros",
+    "quic",
+    "mdns",
+    "metrics",
+    "noise",
+    "ping",
+    "relay",
+    "request-response",
+    "rsa",
+    "serde",
+    "tcp",
+    "tls",
+    "tokio",
+    "websocket",
+    "yamux",
 ]
 
 [dev-dependencies]

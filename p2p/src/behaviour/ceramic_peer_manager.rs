@@ -18,7 +18,7 @@ use libp2p::swarm::{
 use libp2p::{
     identify::Info as IdentifyInfo,
     multiaddr::Protocol,
-    swarm::{dummy, ConnectionId, DialError, NetworkBehaviour, PollParameters},
+    swarm::{dummy, ConnectionId, DialError, NetworkBehaviour},
     Multiaddr, PeerId,
 };
 use tokio::time;
@@ -34,7 +34,6 @@ use crate::metrics::{self, Metrics};
 pub struct CeramicPeerManager {
     metrics: Metrics,
     info: AHashMap<PeerId, Info>,
-    supported_protocols: Vec<String>,
     ceramic_peers: AHashMap<PeerId, CeramicPeer>,
 }
 
@@ -80,7 +79,6 @@ impl CeramicPeerManager {
         Ok(Self {
             metrics,
             info: Default::default(),
-            supported_protocols: Default::default(),
             ceramic_peers,
         })
     }
@@ -95,10 +93,6 @@ impl CeramicPeerManager {
 
     pub fn info_for_peer(&self, peer_id: &PeerId) -> Option<&Info> {
         self.info.get(peer_id)
-    }
-
-    pub fn supported_protocols(&self) -> Vec<String> {
-        self.supported_protocols.clone()
     }
 
     pub fn is_ceramic_peer(&self, peer_id: &PeerId) -> bool {
@@ -143,7 +137,7 @@ impl NetworkBehaviour for CeramicPeerManager {
     type ConnectionHandler = dummy::ConnectionHandler;
     type ToSwarm = PeerManagerEvent;
 
-    fn on_swarm_event(&mut self, event: libp2p::swarm::FromSwarm<Self::ConnectionHandler>) {
+    fn on_swarm_event(&mut self, event: libp2p::swarm::FromSwarm) {
         match event {
             libp2p::swarm::FromSwarm::ConnectionEstablished(event) => {
                 // First connection
@@ -194,30 +188,7 @@ impl NetworkBehaviour for CeramicPeerManager {
     fn poll(
         &mut self,
         cx: &mut Context<'_>,
-        params: &mut impl PollParameters,
     ) -> Poll<libp2p::swarm::ToSwarm<Self::ToSwarm, libp2p::swarm::THandlerInEvent<Self>>> {
-        // TODO(nathanielc):
-        // We can only get the supported protocols of the local node by examining the
-        // `PollParameters`, which mean you can only get the supported protocols by examining the
-        // `PollParameters` in this method (`poll`) of a network behaviour.
-        // I injected this responsibility in the `peer_manager`, because it's the only "simple"
-        // network behaviour we have implemented.
-        // There is an issue up to remove `PollParameters`, and a discussion into how to instead
-        // get the `supported_protocols` of the node:
-        // https://github.com/libp2p/rust-libp2p/issues/3124
-        // When that is resolved, we can hopefully remove this responsibility from the `peer_manager`,
-        // where it, frankly, doesn't belong.
-        //
-        // With libp2p 0.52.4 supported_protocols has been deprecated. We should now be able to
-        // refactor the peer_manager to not need to handle supported_protocols.
-        #[allow(deprecated)]
-        if self.supported_protocols.is_empty() {
-            self.supported_protocols = params
-                .supported_protocols()
-                .map(|p| String::from_utf8_lossy(&p).to_string())
-                .collect();
-        }
-
         for (peer_id, peer) in self.ceramic_peers.iter_mut() {
             if let Some(mut dial_future) = peer.dial_future.take() {
                 match dial_future.as_mut().poll_unpin(cx) {

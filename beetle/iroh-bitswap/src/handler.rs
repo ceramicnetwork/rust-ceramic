@@ -2,7 +2,7 @@ use std::{
     collections::VecDeque,
     fmt::Debug,
     task::{Context, Poll},
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use asynchronous_codec::Framed;
@@ -17,12 +17,12 @@ use futures::{
 use libp2p::swarm::handler::FullyNegotiatedInbound;
 use libp2p::swarm::{
     handler::{DialUpgradeError, FullyNegotiatedOutbound},
-    ConnectionHandler, ConnectionHandlerEvent, KeepAlive, StreamUpgradeError, SubstreamProtocol,
+    ConnectionHandler, ConnectionHandlerEvent, StreamUpgradeError, SubstreamProtocol,
 };
 use libp2p::PeerId;
 use smallvec::SmallVec;
 use tokio::sync::oneshot;
-use tracing::{trace, warn};
+use tracing::{debug, trace, warn};
 
 use crate::{
     error::Error,
@@ -30,10 +30,6 @@ use crate::{
     network,
     protocol::{BitswapCodec, ProtocolConfig, ProtocolId},
 };
-
-/// The initial time (in seconds) we set the keep alive for protocol negotiations to occur.
-// TODO: configurable
-const INITIAL_KEEP_ALIVE: u64 = 30;
 
 #[derive(thiserror::Error, Debug)]
 pub enum BitswapHandlerError {
@@ -85,12 +81,8 @@ pub enum BitswapHandlerIn {
     Unprotect,
 }
 
-type BitswapConnectionHandlerEvent = ConnectionHandlerEvent<
-    ProtocolConfig,
-    (BitswapMessage, BitswapMessageResponse),
-    HandlerEvent,
-    BitswapHandlerError,
->;
+type BitswapConnectionHandlerEvent =
+    ConnectionHandlerEvent<ProtocolConfig, (BitswapMessage, BitswapMessageResponse), HandlerEvent>;
 
 /// Protocol Handler that manages a single long-lived substream with a peer.
 pub struct BitswapHandler {
@@ -118,7 +110,7 @@ pub struct BitswapHandler {
     upgrade_errors: VecDeque<StreamUpgradeError<BitswapHandlerError>>,
 
     /// Flag determining whether to maintain the connection to the peer.
-    keep_alive: KeepAlive,
+    keep_alive: bool,
 }
 
 impl Debug for BitswapHandler {
@@ -145,8 +137,6 @@ impl Debug for BitswapHandler {
 
 impl BitswapHandler {
     /// Builds a new [`BitswapHandler`].
-    // TODO(WS1-1291): Remove uses of KeepAlive::Until
-    #[allow(deprecated)]
     pub fn new(
         remote_peer_id: PeerId,
         protocol_config: ProtocolConfig,
@@ -161,7 +151,7 @@ impl BitswapHandler {
             protocol: None,
             idle_timeout,
             upgrade_errors: VecDeque::new(),
-            keep_alive: KeepAlive::Until(Instant::now() + Duration::from_secs(INITIAL_KEEP_ALIVE)),
+            keep_alive: true,
             events: Default::default(),
         }
     }
@@ -170,7 +160,6 @@ impl BitswapHandler {
 impl ConnectionHandler for BitswapHandler {
     type FromBehaviour = BitswapHandlerIn;
     type ToBehaviour = HandlerEvent;
-    type Error = BitswapHandlerError;
     type InboundOpenInfo = ();
     type InboundProtocol = ProtocolConfig;
     type OutboundOpenInfo = (BitswapMessage, BitswapMessageResponse);
@@ -180,12 +169,10 @@ impl ConnectionHandler for BitswapHandler {
         self.listen_protocol.clone()
     }
 
-    fn connection_keep_alive(&self) -> KeepAlive {
+    fn connection_keep_alive(&self) -> bool {
         self.keep_alive
     }
 
-    // TODO(WS1-1291): Remove uses of KeepAlive::Until
-    #[allow(deprecated)]
     fn poll(&mut self, cx: &mut Context<'_>) -> Poll<BitswapConnectionHandlerEvent> {
         inc!(BitswapMetrics::HandlerPollCount);
         if !self.events.is_empty() {
@@ -197,7 +184,7 @@ impl ConnectionHandler for BitswapHandler {
         // Handle any upgrade errors
         if let Some(error) = self.upgrade_errors.pop_front() {
             inc!(BitswapMetrics::HandlerConnUpgradeErrors);
-            let reported_error = match error {
+            let error = match error {
                 StreamUpgradeError::Timeout => BitswapHandlerError::NegotiationTimeout,
                 StreamUpgradeError::Apply(e) => e,
                 StreamUpgradeError::NegotiationFailed => {
@@ -205,9 +192,12 @@ impl ConnectionHandler for BitswapHandler {
                 }
                 StreamUpgradeError::Io(e) => e.into(),
             };
+            debug!(%error, "connection upgrade failed");
 
-            // Close the connection
-            return Poll::Ready(ConnectionHandlerEvent::Close(reported_error));
+            // We no longer want to use this connection.
+            // Let the swarm close it if no one else is using it.
+            self.keep_alive = false;
+            return Poll::Pending;
         }
 
         // determine if we need to create the stream
@@ -227,7 +217,7 @@ impl ConnectionHandler for BitswapHandler {
         if let Poll::Ready(Some(event)) = self.inbound_substreams.poll_next_unpin(cx) {
             if let ConnectionHandlerEvent::NotifyBehaviour(HandlerEvent::Message { .. }) = event {
                 // Update keep alive as we have received a message
-                self.keep_alive = KeepAlive::Until(Instant::now() + self.idle_timeout);
+                self.keep_alive = true;
             }
 
             return Poll::Ready(event);
@@ -282,35 +272,24 @@ impl ConnectionHandler for BitswapHandler {
                 self.upgrade_errors.push_back(err);
             }
 
-            libp2p::swarm::handler::ConnectionEvent::ListenUpgradeError(_)
-            | libp2p::swarm::handler::ConnectionEvent::LocalProtocolsChange(_)
-            | libp2p::swarm::handler::ConnectionEvent::RemoteProtocolsChange(_) => {}
+            _ => {}
         }
     }
 
-    // TODO(WS1-1291): Remove uses of KeepAlive::Until
-    #[allow(deprecated)]
     fn on_behaviour_event(&mut self, event: Self::FromBehaviour) {
         match event {
             BitswapHandlerIn::Message(m, response) => {
                 self.send_queue.push_back((m, response));
 
-                // sending a message, reset keepalive
-                self.keep_alive = KeepAlive::Until(Instant::now() + self.idle_timeout);
+                // sending a message, ensure keep_alive is true
+                self.keep_alive = true
             }
-            BitswapHandlerIn::Protect => {
-                self.keep_alive = KeepAlive::Yes;
-            }
-            BitswapHandlerIn::Unprotect => {
-                self.keep_alive =
-                    KeepAlive::Until(Instant::now() + Duration::from_secs(INITIAL_KEEP_ALIVE));
-            }
+            BitswapHandlerIn::Protect => self.keep_alive = true,
+            BitswapHandlerIn::Unprotect => self.keep_alive = false,
         }
     }
 }
 
-// TODO(WS1-1344): Remove uses of ConnectionHandlerEvent::Close
-#[allow(deprecated)]
 #[tracing::instrument(skip(substream))]
 fn inbound_substream(
     // Include remote_peer_id for tracing context only
@@ -330,10 +309,8 @@ fn inbound_substream(
                     }
                     _ => {
                         warn!(%err, "inbound stream error");
-                        // More serious errors, close this side of the stream. If the
-                        // peer is still around, they will re-establish their connection
-
-                        yield ConnectionHandlerEvent::Close(err);
+                        // Stop using the connection, if we are the last protocol using the
+                        // connection then it will be closed.
                         break;
                     }
                 }

@@ -1,109 +1,14 @@
-use std::time::Duration;
-
 use anyhow::Result;
 use ceramic_core::{EventId, Interest};
-use futures::future::Either;
-use libp2p::{
-    core::{self, muxing::StreamMuxerBox, transport::Boxed},
-    dns, noise,
-    swarm::{Config, Executor},
-    tcp, websocket,
-    yamux::{self, WindowUpdateMode},
-    PeerId, Swarm, Transport,
-};
+use libp2p::{noise, relay, swarm::Executor, tcp, tls, yamux, Swarm, SwarmBuilder};
 use libp2p_identity::Keypair;
 use recon::{libp2p::Recon, Sha256a};
 
 use crate::{behaviour::NodeBehaviour, Libp2pConfig, Metrics, SQLiteBlockStore};
 
-/// Builds the transport stack that LibP2P will communicate over.
-async fn build_transport(
-    keypair: &Keypair,
-    config: &Libp2pConfig,
-) -> (
-    Boxed<(PeerId, StreamMuxerBox)>,
-    Option<libp2p::relay::client::Behaviour>,
-) {
-    // TODO: make transports configurable
-
-    let port_reuse = true;
-    let connection_timeout = Duration::from_secs(30);
-
-    // TCP
-    let tcp_config = tcp::Config::default().port_reuse(port_reuse);
-    let tcp_transport = tcp::tokio::Transport::new(tcp_config.clone());
-
-    // Websockets
-    let ws_tcp = websocket::WsConfig::new(tcp::tokio::Transport::new(tcp_config));
-    let tcp_ws_transport = tcp_transport.or_transport(ws_tcp);
-
-    // Quic
-    let quic_config = libp2p_quic::Config::new(keypair);
-    let quic_transport = libp2p_quic::tokio::Transport::new(quic_config);
-
-    // Noise config for TCP & Websockets
-    let auth_config =
-        noise::Config::new(keypair).expect("should be able to configure noise with keypair");
-
-    // Stream muxer config for TCP & Websockets
-    let muxer_config = {
-        let mut mplex_config = libp2p_mplex::MplexConfig::new();
-        mplex_config.set_max_buffer_size(usize::MAX);
-
-        let mut yamux_config = yamux::Config::default();
-        yamux_config.set_max_buffer_size(16 * 1024 * 1024); // TODO: configurable
-        yamux_config.set_receive_window_size(16 * 1024 * 1024); // TODO: configurable
-        yamux_config.set_window_update_mode(WindowUpdateMode::on_receive());
-        core::upgrade::SelectUpgrade::new(yamux_config, mplex_config)
-    };
-
-    // Enable Relay if enabled
-    let (tcp_ws_transport, relay_client) = if config.relay_client {
-        let (relay_transport, relay_client) =
-            libp2p::relay::client::new(keypair.public().to_peer_id());
-
-        let transport = relay_transport
-            .or_transport(tcp_ws_transport)
-            .upgrade(core::upgrade::Version::V1Lazy)
-            .authenticate(auth_config)
-            .multiplex(muxer_config)
-            .timeout(connection_timeout)
-            .boxed();
-
-        (transport, Some(relay_client))
-    } else {
-        let tcp_transport = tcp_ws_transport
-            .upgrade(core::upgrade::Version::V1Lazy)
-            .authenticate(auth_config)
-            .multiplex(muxer_config)
-            .boxed();
-
-        (tcp_transport, None)
-    };
-
-    // Merge in quic
-    let transport = quic_transport
-        .or_transport(tcp_ws_transport)
-        .map(|o, _| match o {
-            Either::Left((peer_id, muxer)) => (peer_id, StreamMuxerBox::new(muxer)),
-            Either::Right((peer_id, muxer)) => (peer_id, StreamMuxerBox::new(muxer)),
-        })
-        .boxed();
-
-    // Setup dns resolution
-
-    let dns_cfg = dns::ResolverConfig::cloudflare();
-    let dns_opts = dns::ResolverOpts::default();
-    let transport = dns::tokio::Transport::custom(transport, dns_cfg, dns_opts)
-        .unwrap()
-        .boxed();
-
-    (transport, relay_client)
-}
-
 pub(crate) async fn build_swarm<I, M>(
     config: &Libp2pConfig,
-    keypair: &Keypair,
+    keypair: Keypair,
     recons: Option<(I, M)>,
     block_store: SQLiteBlockStore,
     metrics: Metrics,
@@ -112,26 +17,85 @@ where
     I: Recon<Key = Interest, Hash = Sha256a>,
     M: Recon<Key = EventId, Hash = Sha256a>,
 {
-    let peer_id = keypair.public().to_peer_id();
+    let builder = SwarmBuilder::with_existing_identity(keypair)
+        .with_tokio()
+        .with_tcp(
+            tcp::Config::default().port_reuse(true),
+            noise::Config::new,
+            yamux::Config::default,
+        )?
+        .with_quic()
+        .with_dns()?
+        .with_websocket(
+            (tls::Config::new, noise::Config::new),
+            yamux::Config::default,
+        )
+        .await?;
 
-    let (transport, relay_client) = build_transport(keypair, config).await;
-    let behaviour = NodeBehaviour::new(
-        keypair,
-        config,
-        relay_client,
-        recons,
-        block_store,
-        metrics.clone(),
-    )
-    .await?;
+    let with_config = |cfg: libp2p::swarm::Config| {
+        cfg.with_notify_handler_buffer_size(config.notify_handler_buffer_size)
+            .with_per_connection_event_buffer_size(config.connection_event_buffer_size)
+            .with_dial_concurrency_factor(config.dial_concurrency_factor)
+            .with_idle_connection_timeout(config.idle_connection_timeout)
+    };
+    if config.relay_client {
+        Ok(builder
+            .with_relay_client(
+                (tls::Config::new, noise::Config::new),
+                yamux::Config::default,
+            )?
+            .with_behaviour(|keypair, relay_client| {
+                new_behavior(
+                    config,
+                    keypair,
+                    Some(relay_client),
+                    recons,
+                    block_store,
+                    metrics.clone(),
+                )
+                .map_err(|err| err.into())
+            })?
+            .with_swarm_config(with_config)
+            .build())
+    } else {
+        Ok(builder
+            .with_behaviour(|keypair| {
+                new_behavior(config, keypair, None, recons, block_store, metrics.clone())
+                    .map_err(|err| err.into())
+            })?
+            .with_swarm_config(with_config)
+            .build())
+    }
+}
 
-    let swarm_config = Config::with_tokio_executor()
-        .with_notify_handler_buffer_size(config.notify_handler_buffer_size)
-        .with_per_connection_event_buffer_size(config.connection_event_buffer_size)
-        .with_dial_concurrency_factor(config.dial_concurrency_factor)
-        .with_idle_connection_timeout(config.idle_connection_timeout);
-
-    Ok(Swarm::new(transport, behaviour, peer_id, swarm_config))
+fn new_behavior<I, M>(
+    config: &Libp2pConfig,
+    keypair: &Keypair,
+    relay_client: Option<relay::client::Behaviour>,
+    recons: Option<(I, M)>,
+    block_store: SQLiteBlockStore,
+    metrics: Metrics,
+) -> Result<NodeBehaviour<I, M>>
+where
+    I: Recon<Key = Interest, Hash = Sha256a> + Send,
+    M: Recon<Key = EventId, Hash = Sha256a> + Send,
+{
+    // TODO(WS1-1363): Remove bitswap async initialization
+    let keypair = keypair.clone();
+    let config = config.clone();
+    let handle = tokio::runtime::Handle::current();
+    std::thread::spawn(move || {
+        handle.block_on(NodeBehaviour::new(
+            &keypair,
+            &config,
+            relay_client,
+            recons,
+            block_store,
+            metrics,
+        ))
+    })
+    .join()
+    .unwrap()
 }
 
 struct Tokio;

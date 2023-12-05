@@ -319,7 +319,6 @@ impl Daemon {
         let info = Info::new().await?;
 
         let mut metrics_config = MetricsConfig {
-            // Do not push metrics to any endpoint.
             export: opts.metrics,
             tracing: opts.tracing,
             log_format: match opts.log_format {

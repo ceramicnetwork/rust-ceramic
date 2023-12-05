@@ -2,7 +2,7 @@ use std::collections::{HashSet, VecDeque};
 
 use ahash::AHashMap;
 use libp2p::{
-    kad::{self, record::Key, store::MemoryStore, GetProvidersError, QueryId},
+    kad::{self, store::MemoryStore, GetProvidersError, QueryId, RecordKey},
     PeerId,
 };
 use tokio::sync::mpsc;
@@ -15,13 +15,13 @@ const OUTSTANDING_LIMIT: usize = 2048;
 #[derive(Debug)]
 pub struct Providers {
     outstanding_queries: VecDeque<Query>,
-    current_queries: AHashMap<Key, RunningQuery>,
+    current_queries: AHashMap<RecordKey, RunningQuery>,
     max_running_queries: usize,
 }
 
 #[derive(Debug)]
 struct Query {
-    key: Key,
+    key: RecordKey,
     queries: Vec<QueryDetails>,
 }
 
@@ -48,7 +48,12 @@ impl Providers {
     }
 
     /// Drops queries if the queue is full.
-    pub fn push(&mut self, key: Key, limit: usize, response_channel: ResponseChannel) -> bool {
+    pub fn push(
+        &mut self,
+        key: RecordKey,
+        limit: usize,
+        response_channel: ResponseChannel,
+    ) -> bool {
         // Check if we already have a query running
         if let Some(running_query) = self.current_queries.get_mut(&key) {
             // send all found providers
@@ -96,7 +101,7 @@ impl Providers {
         &mut self,
         id: QueryId,
         is_last: bool,
-        key: Key,
+        key: RecordKey,
         providers: HashSet<PeerId>,
         kad: &mut kad::Behaviour<MemoryStore>,
     ) {

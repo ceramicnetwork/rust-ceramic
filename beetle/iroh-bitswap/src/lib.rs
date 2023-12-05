@@ -18,9 +18,7 @@ use ceramic_metrics::{bitswap::BitswapMetrics, inc, record};
 use cid::Cid;
 use handler::{BitswapHandler, HandlerEvent};
 use libp2p::swarm::ConnectionId;
-use libp2p::swarm::{
-    CloseConnection, DialError, NetworkBehaviour, NotifyHandler, PollParameters, ToSwarm,
-};
+use libp2p::swarm::{CloseConnection, DialError, NetworkBehaviour, NotifyHandler, ToSwarm};
 use libp2p::{swarm::dial_opts::DialOpts, StreamProtocol};
 use libp2p::{Multiaddr, PeerId};
 use tokio::sync::{mpsc, oneshot};
@@ -404,7 +402,7 @@ impl<S: Store> NetworkBehaviour for Bitswap<S> {
     type ConnectionHandler = BitswapHandler;
     type ToSwarm = BitswapEvent;
 
-    fn on_swarm_event(&mut self, event: libp2p::swarm::FromSwarm<Self::ConnectionHandler>) {
+    fn on_swarm_event(&mut self, event: libp2p::swarm::FromSwarm) {
         match event {
             libp2p::swarm::FromSwarm::ConnectionEstablished(event) => {
                 trace!(
@@ -472,7 +470,6 @@ impl<S: Store> NetworkBehaviour for Bitswap<S> {
     fn poll(
         &mut self,
         cx: &mut Context<'_>,
-        _params: &mut impl PollParameters,
     ) -> Poll<libp2p::swarm::ToSwarm<Self::ToSwarm, libp2p::swarm::THandlerInEvent<Self>>> {
         inc!(BitswapMetrics::ToSwarmPollTick);
         // limit work
@@ -620,9 +617,9 @@ mod tests {
     use libp2p::yamux;
     use libp2p::{core::muxing::StreamMuxerBox, swarm};
     use libp2p::{noise, PeerId, Swarm, Transport};
+    use test_log::test;
     use tokio::sync::{mpsc, RwLock};
     use tracing::{info, trace};
-    use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
     use super::*;
     use crate::Block;
@@ -699,57 +696,54 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_get_1_block() {
         get_block::<1>().await;
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_get_2_block() {
         get_block::<2>().await;
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_get_4_block() {
         get_block::<4>().await;
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_get_64_block() {
         get_block::<64>().await;
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_get_65_block() {
         get_block::<65>().await;
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_get_66_block() {
         get_block::<66>().await;
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_get_128_block() {
-        tracing_subscriber::registry()
-            .with(fmt::layer().pretty())
-            .with(EnvFilter::from_default_env())
-            .init();
-
         get_block::<128>().await;
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_get_1024_block() {
         get_block::<1024>().await;
     }
 
     async fn get_block<const N: usize>() {
+        info!("get_block");
         let (peer1_id, trans) = mk_transport();
         let store1 = TestStore::default();
         let bs1 = Bitswap::new(peer1_id, store1.clone(), Config::default()).await;
 
-        let config = swarm::Config::with_tokio_executor();
+        let config = swarm::Config::with_tokio_executor()
+            .with_idle_connection_timeout(Duration::from_secs(5));
         let mut swarm1 = Swarm::new(trans, bs1, peer1_id, config);
         let blocks = (0..N).map(|_| create_random_block_v1()).collect::<Vec<_>>();
 
@@ -783,7 +777,8 @@ mod tests {
         let store2 = TestStore::default();
         let bs2 = Bitswap::new(peer2_id, store2.clone(), Config::default()).await;
 
-        let config = swarm::Config::with_tokio_executor();
+        let config = swarm::Config::with_tokio_executor()
+            .with_idle_connection_timeout(Duration::from_secs(5));
         let mut swarm2 = Swarm::new(trans, bs2, peer2_id, config);
 
         let swarm2_bs = swarm2.behaviour().clone();

@@ -117,15 +117,12 @@ pub struct Config {
     /// Start a new sync once the duration has past in the failed or synchronized state.
     /// Defaults to 1 second.
     pub per_peer_sync_timeout: Duration,
-    /// Duration to keep the connection alive, even when not in use.
-    pub idle_keep_alive: Duration,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             per_peer_sync_timeout: Duration::from_millis(1000),
-            idle_keep_alive: Duration::from_millis(1000),
         }
     }
 }
@@ -202,7 +199,7 @@ where
 
     type ToSwarm = Event;
 
-    fn on_swarm_event(&mut self, event: libp2p::swarm::FromSwarm<Self::ConnectionHandler>) {
+    fn on_swarm_event(&mut self, event: libp2p::swarm::FromSwarm) {
         match event {
             libp2p::swarm::FromSwarm::ConnectionEstablished(info) => {
                 self.peers.insert(
@@ -255,6 +252,9 @@ where
             }
             libp2p::swarm::FromSwarm::ExternalAddrExpired(_) => {
                 debug!(kind = "ExternalAddrExpired", "ignored swarm event")
+            }
+            _ => {
+                debug!("ignored unknown swarm event")
             }
         }
     }
@@ -315,7 +315,6 @@ where
     fn poll(
         &mut self,
         _cx: &mut std::task::Context<'_>,
-        _params: &mut impl libp2p::swarm::PollParameters,
     ) -> std::task::Poll<libp2p::swarm::ToSwarm<Self::ToSwarm, libp2p::swarm::THandlerInEvent<Self>>>
     {
         // Handle queue of swarm events.
@@ -390,7 +389,6 @@ where
             peer,
             connection_id,
             handler::State::WaitingInbound,
-            self.config.idle_keep_alive,
             self.interest.clone(),
             self.model.clone(),
         ))
@@ -411,7 +409,6 @@ where
             handler::State::RequestOutbound {
                 stream_set: StreamSet::Interest,
             },
-            self.config.idle_keep_alive,
             self.interest.clone(),
             self.model.clone(),
         ))

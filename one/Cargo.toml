@@ -46,6 +46,7 @@ tracing-appender = "0.2.2"
 tracing-subscriber.workspace = true
 tracing.workspace = true
 
+
 [features]
 default = []
 tokio-console = ["ceramic-metrics/tokio-console"]
