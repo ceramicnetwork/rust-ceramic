@@ -12,7 +12,7 @@ use libp2p::identity::Keypair;
 use recon::{libp2p::Recon, Sha256a};
 use sqlx::SqlitePool;
 use tokio::task::{self, JoinHandle};
-use tracing::error;
+use tracing::{debug, error};
 
 /// Builder provides an ordered API for constructing an Ipfs service.
 pub struct Builder<S: BuilderState> {
@@ -56,8 +56,9 @@ impl Builder<Init> {
 
         let task = task::spawn(async move {
             if let Err(err) = p2p.run().await {
-                error!("{:?}", err);
+                error!(%err, "failed to gracefully stop p2p task");
             }
+            debug!("node task finished");
         });
 
         Ok(Builder {

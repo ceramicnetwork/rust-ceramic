@@ -11,7 +11,7 @@ use anyhow::Result;
 use ceramic_metrics::Recorder;
 use futures_timer::Delay;
 use futures_util::{future::BoxFuture, Future, Stream};
-use libp2p::kad::{record::Key, AddProviderError, AddProviderOk, AddProviderResult};
+use libp2p::kad::{AddProviderError, AddProviderOk, AddProviderResult, RecordKey};
 use multihash::Multihash;
 use tokio::sync::{
     mpsc::{channel, error::TrySendError, Receiver, Sender},
@@ -43,8 +43,8 @@ const BATCH_ADDITIVE_INCREASE: usize = 100;
 // Publisher implements [`Stream`] to produce batches of DHT keys to provide.
 pub struct Publisher {
     start_providing_results_tx: Sender<AddProviderResult>,
-    batch: Option<IntoIter<Key>>,
-    batches_rx: Receiver<Vec<Key>>,
+    batch: Option<IntoIter<RecordKey>>,
+    batches_rx: Receiver<Vec<RecordKey>>,
     metrics: Metrics,
 }
 
@@ -103,7 +103,7 @@ impl Publisher {
 // This stream produces one key at a time. This way we do not flood the swarm task with lots of
 // work.
 impl Stream for Publisher {
-    type Item = Key;
+    type Item = RecordKey;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
@@ -134,11 +134,11 @@ struct PublisherWorker {
     deadline: Instant,
     batch_size: usize,
     results_rx: Receiver<AddProviderResult>,
-    current_queries: HashSet<Key>,
+    current_queries: HashSet<RecordKey>,
     block_store: SQLiteBlockStore,
     last_hash: Option<Multihash>,
     batch_complete: Option<oneshot::Sender<()>>,
-    retries: HashMap<Key, usize>,
+    retries: HashMap<RecordKey, usize>,
 }
 
 enum State {
@@ -253,7 +253,7 @@ struct Batch {
 }
 
 impl Stream for PublisherWorker {
-    type Item = Vec<Key>;
+    type Item = Vec<RecordKey>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         trace!(state=?self.state, "poll_next");
@@ -343,7 +343,7 @@ impl Stream for PublisherWorker {
                     let new_count = batch.hashes.len() as i64;
 
                     // Collect the new keys
-                    let new_keys: Vec<Key> = batch
+                    let new_keys: Vec<RecordKey> = batch
                         .hashes
                         .iter()
                         .map(|hash| hash.to_bytes().into())
@@ -355,7 +355,7 @@ impl Stream for PublisherWorker {
                     // only retry up to batch size.
                     let mut max_retry_count = 0i64;
                     let mut repeat_count = 0;
-                    let keys: Vec<Key> = self
+                    let keys: Vec<RecordKey> = self
                         .retries
                         .iter()
                         .take(self.batch_size - new_keys.len())

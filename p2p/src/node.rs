@@ -28,7 +28,7 @@ use libp2p::{
     mdns,
     metrics::Recorder as _,
     multiaddr::Protocol,
-    swarm::{dial_opts::DialOpts, ConnectionHandler, NetworkBehaviour, SwarmEvent},
+    swarm::{dial_opts::DialOpts, NetworkBehaviour, SwarmEvent},
     PeerId, StreamProtocol, Swarm,
 };
 use sqlx::SqlitePool;
@@ -72,6 +72,7 @@ where
 {
     metrics: Metrics,
     swarm: Swarm<NodeBehaviour<I, M>>,
+    supported_protocols: HashSet<String>,
     net_receiver_in: Receiver<RpcMessage>,
     dial_queries: AHashMap<PeerId, Vec<OneShotSender<Result<()>>>>,
     lookup_queries: AHashMap<PeerId, Vec<oneshot::Sender<Result<identify::Info>>>>,
@@ -136,11 +137,7 @@ where
 
 // Allow IntoConnectionHandler deprecated associated type.
 // We are not using IntoConnectionHandler directly only referencing the type as part of this event signature.
-#[allow(deprecated)]
-type NodeSwarmEvent<I, M> = SwarmEvent<
-    <NodeBehaviour<I, M> as NetworkBehaviour>::ToSwarm,
-    <<NodeBehaviour<I, M> as NetworkBehaviour>::ConnectionHandler as ConnectionHandler>::Error,
->;
+type NodeSwarmEvent<I, M> = SwarmEvent<<NodeBehaviour<I, M> as NetworkBehaviour>::ToSwarm>;
 impl<I, M> Node<I, M>
 where
     I: Recon<Key = Interest, Hash = Sha256a>,
@@ -165,7 +162,7 @@ where
         let block_store = crate::SQLiteBlockStore::new(sql_pool).await?;
         let mut swarm = build_swarm(
             &libp2p_config,
-            &keypair,
+            keypair,
             recons,
             block_store.clone(),
             metrics.clone(),
@@ -209,6 +206,28 @@ where
         Ok(Node {
             metrics,
             swarm,
+            // TODO(WS1-1364): Determine psuedo-dynamically the set of locally supported protocols.
+            // For now hard code all protocols.
+            // https://github.com/libp2p/rust-libp2p/discussions/4982
+            supported_protocols: HashSet::from_iter(
+                [
+                    "/ipfs/bitswap",
+                    "/ipfs/bitswap/1.0.0",
+                    "/ipfs/bitswap/1.1.0",
+                    "/ipfs/bitswap/1.2.0",
+                    "/ipfs/id/1.0.0",
+                    "/ipfs/id/push/1.0.0",
+                    "/ipfs/kad/1.0.0",
+                    "/ipfs/ping/1.0.0",
+                    "/libp2p/autonat/1.0.0",
+                    "/libp2p/circuit/relay/0.2.0/hop",
+                    "/libp2p/circuit/relay/0.2.0/stop",
+                    "/meshsub/1.0.0",
+                    "/meshsub/1.1.0",
+                ]
+                .iter()
+                .map(|p| p.to_string()),
+            ),
             net_receiver_in: network_receiver_in,
             dial_queries: Default::default(),
             lookup_queries: Default::default(),
@@ -263,7 +282,6 @@ where
         let mut kad_state = KadBootstrapState::Idle;
         loop {
             self.metrics.record(&LoopEvent);
-
             tokio::select! {
                 swarm_event = self.swarm.next() => {
                     let swarm_event = swarm_event.expect("the swarm will never die");
@@ -694,109 +712,115 @@ where
             Event::Identify(e) => {
                 libp2p_metrics().record(&*e);
                 trace!("tick: identify {:?}", e);
-                if let identify::Event::Received { peer_id, info } = *e {
-                    // Did we learn about a new external address?
-                    if !self
-                        .swarm
-                        .external_addresses()
-                        .any(|addr| addr == &info.observed_addr)
-                        && !self.failed_external_addresses.contains(&info.observed_addr)
-                    {
-                        if self.trust_observed_addrs {
-                            debug!(
-                                address=%info.observed_addr,
-                                %peer_id,
-                                "adding trusted external address observed from peer",
-                            );
-                            // Explicily trust any observed address from any peer.
-                            self.swarm.add_external_address(info.observed_addr.clone());
-                        } else if let Some(autonat) = self.swarm.behaviour_mut().autonat.as_mut() {
-                            // Probe the observed addr for external connectivity.
-                            // Only probe one address at a time.
-                            //
-                            // This logic is run very frequently because any new peer connection
-                            // for a new observed address triggers this path. Its typical to have
-                            // only a few external addresses, in which cases its likely that the
-                            // in-progress address probe is one that will succeed.
-                            //
-                            // In cases where there are lots of different observed addresses its
-                            // likely that NAT hasn't been setup and so the peer doesn't have an
-                            // external address. Therefore we do not want to waste resources on
-                            // probing many different addresses that are likely to fail.
-                            if self.active_address_probe.is_none() {
-                                self.active_address_probe = Some(info.observed_addr.clone());
+                match *e {
+                    identify::Event::Received { peer_id, info } => {
+                        // Did we learn about a new external address?
+                        if !self
+                            .swarm
+                            .external_addresses()
+                            .any(|addr| addr == &info.observed_addr)
+                            && !self.failed_external_addresses.contains(&info.observed_addr)
+                        {
+                            if self.trust_observed_addrs {
                                 debug!(
                                     address=%info.observed_addr,
                                     %peer_id,
-                                    "probing observed address from peer for external connectivity",
+                                    "adding trusted external address observed from peer",
                                 );
-                                autonat.probe_address(info.observed_addr.clone());
-                            }
+                                // Explicily trust any observed address from any peer.
+                                self.swarm.add_external_address(info.observed_addr.clone());
+                            } else if let Some(autonat) =
+                                self.swarm.behaviour_mut().autonat.as_mut()
+                            {
+                                // Probe the observed addr for external connectivity.
+                                // Only probe one address at a time.
+                                //
+                                // This logic is run very frequently because any new peer connection
+                                // for a new observed address triggers this path. Its typical to have
+                                // only a few external addresses, in which cases its likely that the
+                                // in-progress address probe is one that will succeed.
+                                //
+                                // In cases where there are lots of different observed addresses its
+                                // likely that NAT hasn't been setup and so the peer doesn't have an
+                                // external address. Therefore we do not want to waste resources on
+                                // probing many different addresses that are likely to fail.
+                                if self.active_address_probe.is_none() {
+                                    self.active_address_probe = Some(info.observed_addr.clone());
+                                    debug!(
+                                        address=%info.observed_addr,
+                                        %peer_id,
+                                        "probing observed address from peer for external connectivity",
+                                    );
+                                    autonat.probe_address(info.observed_addr.clone());
+                                }
+                            };
                         };
-                    };
 
-                    let mut kad_address_added = false;
-                    for protocol in &info.protocols {
-                        // Sometimes peers do not report that they support the kademlia protocol.
-                        // Here we assume that all ceramic peers do support the protocol.
-                        // Therefore we add all ceramic peers and any peers that explicitly support
-                        // kademlia to the kademlia routing table.
-                        if self
-                            .swarm
-                            .behaviour()
+                        let mut kad_address_added = false;
+                        for protocol in &info.protocols {
+                            // Sometimes peers do not report that they support the kademlia protocol.
+                            // Here we assume that all ceramic peers do support the protocol.
+                            // Therefore we add all ceramic peers and any peers that explicitly support
+                            // kademlia to the kademlia routing table.
+                            if self
+                                .swarm
+                                .behaviour()
+                                .peer_manager
+                                .is_ceramic_peer(&peer_id)
+                                || protocol == &kad::PROTOCOL_NAME
+                            {
+                                for addr in &info.listen_addrs {
+                                    if let Some(kad) = self.swarm.behaviour_mut().kad.as_mut() {
+                                        kad.add_address(&peer_id, addr.clone());
+                                        kad_address_added = true;
+                                    }
+                                }
+                            } else if protocol == &StreamProtocol::new("/libp2p/autonat/1.0.0") {
+                                // TODO: expose protocol name on `libp2p::autonat`.
+                                // TODO: should we remove them at some point?
+                                for addr in &info.listen_addrs {
+                                    if let Some(autonat) =
+                                        self.swarm.behaviour_mut().autonat.as_mut()
+                                    {
+                                        autonat.add_server(peer_id, Some(addr.clone()));
+                                    }
+                                }
+                            }
+                        }
+                        if let Some(bitswap) = self.swarm.behaviour().bitswap.as_ref() {
+                            bitswap.on_identify(&peer_id, &info.protocols);
+                        }
+
+                        self.swarm
+                            .behaviour_mut()
                             .peer_manager
-                            .is_ceramic_peer(&peer_id)
-                            || protocol == &kad::PROTOCOL_NAME
-                        {
-                            for addr in &info.listen_addrs {
-                                if let Some(kad) = self.swarm.behaviour_mut().kad.as_mut() {
-                                    kad.add_address(&peer_id, addr.clone());
-                                    kad_address_added = true;
-                                }
-                            }
-                        } else if protocol == &StreamProtocol::new("/libp2p/autonat/1.0.0") {
-                            // TODO: expose protocol name on `libp2p::autonat`.
-                            // TODO: should we remove them at some point?
-                            for addr in &info.listen_addrs {
-                                if let Some(autonat) = self.swarm.behaviour_mut().autonat.as_mut() {
-                                    autonat.add_server(peer_id, Some(addr.clone()));
-                                }
+                            .inject_identify_info(peer_id, info.clone());
+
+                        if let Some(channels) = self.lookup_queries.remove(&peer_id) {
+                            for chan in channels {
+                                chan.send(Ok(info.clone())).ok();
                             }
                         }
-                    }
-                    if let Some(bitswap) = self.swarm.behaviour().bitswap.as_ref() {
-                        bitswap.on_identify(&peer_id, &info.protocols);
-                    }
-
-                    self.swarm
-                        .behaviour_mut()
-                        .peer_manager
-                        .inject_identify_info(peer_id, info.clone());
-
-                    if let Some(channels) = self.lookup_queries.remove(&peer_id) {
-                        for chan in channels {
-                            chan.send(Ok(info.clone())).ok();
+                        if kad_address_added {
+                            Ok(Some(SwarmEventResult::KademliaAddressAdded))
+                        } else {
+                            Ok(None)
                         }
                     }
-                    if kad_address_added {
-                        Ok(Some(SwarmEventResult::KademliaAddressAdded))
-                    } else {
+                    identify::Event::Error { peer_id, error } => {
+                        if let Some(channels) = self.lookup_queries.remove(&peer_id) {
+                            for chan in channels {
+                                chan.send(Err(anyhow!(
+                                    "error upgrading connection to peer {:?}: {}",
+                                    peer_id,
+                                    error
+                                )))
+                                .ok();
+                            }
+                        }
                         Ok(None)
                     }
-                } else if let identify::Event::Error { peer_id, error } = *e {
-                    if let Some(channels) = self.lookup_queries.remove(&peer_id) {
-                        for chan in channels {
-                            chan.send(Err(anyhow!(
-                                "error upgrading connection to peer {:?}: {}",
-                                peer_id,
-                                error
-                            )))
-                            .ok();
-                        }
-                    }
-                    Ok(None)
-                } else {
-                    Ok(None)
+                    identify::Event::Sent { .. } | identify::Event::Pushed { .. } => Ok(None),
                 }
             }
             Event::Ping(e) => {
@@ -1183,7 +1207,8 @@ where
                 let observed_addrs = self.swarm.external_addresses().cloned().collect();
                 let protocol_version = String::from(crate::behaviour::PROTOCOL_VERSION);
                 let agent_version = String::from(crate::behaviour::AGENT_VERSION);
-                let protocols = self.swarm.behaviour().peer_manager.supported_protocols();
+                let mut protocols: Vec<String> = self.supported_protocols.iter().cloned().collect();
+                protocols.sort();
 
                 response_channel
                     .send(Lookup {
@@ -1269,7 +1294,7 @@ mod tests {
     use ssh_key::private::Ed25519Keypair;
     use test_log::test;
 
-    use libp2p::{identity::Keypair as Libp2pKeypair, kad::record::Key};
+    use libp2p::{identity::Keypair as Libp2pKeypair, kad::RecordKey};
 
     use super::*;
     use anyhow::Result;
@@ -1326,7 +1351,7 @@ mod tests {
         /// When `None`, it will use a previously derived peer_id `12D3KooWFma2D63TG9ToSiRsjFkoNm2tTihScTBAEdXxinYk5rwE`. // cspell:disable-line
         seed: Option<ChaCha8Rng>,
         /// Optional `Keys` the node should provide to the DHT on start up.
-        keys: Option<Vec<Key>>,
+        keys: Option<Vec<RecordKey>>,
         /// Pass through to node.trust_observed_addrs
         trust_observed_addrs: bool,
     }

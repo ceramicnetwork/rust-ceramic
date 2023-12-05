@@ -50,7 +50,7 @@ pub(crate) struct NodeBehaviour<I, M> {
     limits: connection_limits::Behaviour,
     pub(crate) peer_manager: CeramicPeerManager,
     ping: Ping,
-    identify: identify::Behaviour,
+    pub(crate) identify: identify::Behaviour,
     pub(crate) bitswap: Toggle<Bitswap<SQLiteBlockStore>>,
     pub(crate) kad: Toggle<kad::Behaviour<MemoryStore>>,
     mdns: Toggle<Mdns>,

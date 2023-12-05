@@ -31,7 +31,8 @@ void.workspace = true
 codespan-reporting = "0.11.1"
 expect-test.workspace = true
 lalrpop-util = { version = "0.20.0", features = ["lexer"] }
-libp2p-swarm-test = "0.2.0"
+libp2p = { workspace = true, features = ["ping"] }
+libp2p-swarm-test = "0.3.0"
 pretty = "0.12.1"
 quickcheck = "1.0.3"
 regex = "1"

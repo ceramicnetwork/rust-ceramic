@@ -11,13 +11,30 @@ use iroh_rpc_client::{
     create_server, Lookup, P2pServer, ServerError, ServerSocket, HEALTH_POLL_WAIT,
 };
 use iroh_rpc_types::{
-    p2p::*, RpcError, RpcResult, VersionRequest, VersionResponse, WatchRequest, WatchResponse,
+    p2p::{
+        BitswapRequest, BitswapResponse, ConnectByPeerIdRequest, ConnectRequest, DisconnectRequest,
+        ExternalAddrsRequest, ExternalAddrsResponse, FetchProvidersDhtRequest,
+        FetchProvidersDhtResponse, GetListeningAddrsRequest, GetListeningAddrsResponse,
+        GetPeersRequest, GetPeersResponse, GossipsubAddExplicitPeerRequest,
+        GossipsubAllMeshPeersRequest, GossipsubAllPeersRequest, GossipsubAllPeersResponse,
+        GossipsubMeshPeersRequest, GossipsubPeersResponse, GossipsubPublishRequest,
+        GossipsubPublishResponse, GossipsubRemoveExplicitPeerRequest, GossipsubSubscribeRequest,
+        GossipsubSubscribeResponse, GossipsubTopicsRequest, GossipsubTopicsResponse,
+        GossipsubUnsubscribeRequest, GossipsubUnsubscribeResponse, ListenersRequest,
+        ListenersResponse, LocalPeerIdRequest, LocalPeerIdResponse, LookupLocalRequest,
+        LookupRequest, LookupResponse, NotifyNewBlocksBitswapRequest, P2pAddr, P2pRequest,
+        P2pService, ShutdownRequest, StartProvidingRequest, StopProvidingRequest,
+        StopSessionBitswapRequest,
+    },
+    RpcError, RpcResult, VersionRequest, VersionResponse, WatchRequest, WatchResponse,
 };
-use libp2p::gossipsub::{MessageId, PublishError, TopicHash};
 use libp2p::identify::Info as IdentifyInfo;
-use libp2p::kad::record::Key;
 use libp2p::Multiaddr;
 use libp2p::PeerId;
+use libp2p::{
+    gossipsub::{MessageId, PublishError, TopicHash},
+    kad::RecordKey,
+};
 use std::collections::{HashMap, HashSet};
 use std::result;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
@@ -205,7 +222,7 @@ impl P2p {
         req: FetchProvidersDhtRequest,
     ) -> anyhow::Result<BoxStream<'static, anyhow::Result<FetchProvidersDhtResponse>>> {
         let key_bytes: &[u8] = req.key.0.as_ref();
-        let key = libp2p::kad::record::Key::new(&key_bytes);
+        let key = RecordKey::new(&key_bytes);
         let cid: Cid = key_bytes.try_into()?;
         trace!("received fetch_provider_dht: {}", cid);
         let (s, r) = channel(64);
@@ -235,7 +252,7 @@ impl P2p {
     async fn start_providing(self, req: StartProvidingRequest) -> Result<()> {
         trace!("received StartProviding request: {:?}", req.key);
         let key_bytes: &[u8] = req.key.0.as_ref();
-        let key = libp2p::kad::record::Key::new(&key_bytes);
+        let key = RecordKey::new(&key_bytes);
         let (s, r) = oneshot::channel();
         let msg = RpcMessage::StartProviding(s, key);
 
@@ -251,7 +268,7 @@ impl P2p {
     async fn stop_providing(self, req: StopProvidingRequest) -> Result<()> {
         trace!("received StopProviding request: {:?}", req.key);
         let key_bytes: &[u8] = req.key.0.as_ref();
-        let key = libp2p::kad::record::Key::new(&key_bytes);
+        let key = RecordKey::new(&key_bytes);
         let (s, r) = oneshot::channel();
         let msg = RpcMessage::StopProviding(s, key);
 
@@ -636,7 +653,7 @@ fn peer_info_from_lookup(l: Lookup) -> LookupResponse {
 
 #[derive(Debug)]
 pub enum ProviderRequestKey {
-    Dht(Key),
+    Dht(RecordKey),
     Bitswap(u64, Cid),
 }
 
@@ -665,8 +682,8 @@ pub enum RpcMessage {
         response_channel: Sender<Result<HashSet<PeerId>, String>>,
         limit: usize,
     },
-    StartProviding(oneshot::Sender<Result<libp2p::kad::QueryId>>, Key),
-    StopProviding(oneshot::Sender<Result<()>>, Key),
+    StartProviding(oneshot::Sender<Result<libp2p::kad::QueryId>>, RecordKey),
+    StopProviding(oneshot::Sender<Result<()>>, RecordKey),
     NetListeningAddrs(oneshot::Sender<(PeerId, Vec<Multiaddr>)>),
     NetPeers(oneshot::Sender<HashMap<PeerId, Vec<Multiaddr>>>),
     NetConnectByPeerId(oneshot::Sender<Result<()>>, PeerId),

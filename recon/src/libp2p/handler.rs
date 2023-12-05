@@ -2,11 +2,7 @@
 //!
 //! A handler is created for each connected peer that speaks the Recon protocol.
 //! A handler is responsible for performing Recon synchronization with a peer.
-use std::{
-    collections::VecDeque,
-    task::Poll,
-    time::{Duration, Instant},
-};
+use std::{collections::VecDeque, task::Poll};
 
 use anyhow::Result;
 use ceramic_core::{EventId, Interest};
@@ -14,7 +10,7 @@ use libp2p::{
     futures::FutureExt,
     swarm::{
         handler::{FullyNegotiatedInbound, FullyNegotiatedOutbound},
-        ConnectionHandler, ConnectionHandlerEvent, ConnectionId, KeepAlive, SubstreamProtocol,
+        ConnectionHandler, ConnectionHandlerEvent, ConnectionId, SubstreamProtocol,
     },
 };
 use libp2p_identity::PeerId;
@@ -32,8 +28,6 @@ pub struct Handler<I, M> {
     interest: I,
     model: M,
     state: State,
-    keep_alive_duration: Duration,
-    keep_alive: KeepAlive,
     behavior_events_queue: VecDeque<FromHandler>,
 }
 
@@ -46,7 +40,6 @@ where
         peer_id: PeerId,
         connection_id: ConnectionId,
         state: State,
-        keep_alive_duration: Duration,
         interest: I,
         model: M,
     ) -> Self {
@@ -56,8 +49,6 @@ where
             interest,
             model,
             state,
-            keep_alive_duration,
-            keep_alive: KeepAlive::Yes,
             behavior_events_queue: VecDeque::new(),
         }
     }
@@ -66,8 +57,6 @@ where
     // See doc comment for State, each row of the transitions table
     // should map to exactly one call of this transition_state function.
     //
-    // TODO(WS1-1291): Remove uses of KeepAlive::Until
-    #[allow(deprecated)]
     fn transition_state(&mut self, state: State) {
         debug!(
             %self.remote_peer_id,
@@ -77,16 +66,6 @@ where
             "state transition"
         );
         self.state = state;
-        // Update KeepAlive
-        self.keep_alive = match (&self.state, self.keep_alive) {
-            (State::Idle, k @ KeepAlive::Until(_)) => k,
-            (State::Idle, _) => KeepAlive::Until(Instant::now() + self.keep_alive_duration),
-            (State::RequestOutbound { .. }, _)
-            | (State::WaitingInbound, _)
-            | (State::WaitingOutbound { .. }, _)
-            | (State::Outbound(_), _)
-            | (State::Inbound(_), _) => KeepAlive::Yes,
-        };
     }
 }
 
@@ -175,7 +154,6 @@ where
 {
     type FromBehaviour = FromBehaviour;
     type ToBehaviour = FromHandler;
-    type Error = Failure;
     type InboundProtocol = MultiReadyUpgrade<StreamSet>;
     type OutboundProtocol = MultiReadyUpgrade<StreamSet>;
     type OutboundOpenInfo = ();
@@ -190,22 +168,16 @@ where
         )
     }
 
-    fn connection_keep_alive(&self) -> KeepAlive {
-        self.keep_alive
+    fn connection_keep_alive(&self) -> bool {
+        // Only keep the connection alive if we are not idle
+        !matches!(&self.state, State::Idle)
     }
 
-    // TODO(WS1-1345): Remove uses of ConnectionHandler::Error
-    #[allow(deprecated)]
     fn poll(
         &mut self,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<
-        ConnectionHandlerEvent<
-            Self::OutboundProtocol,
-            Self::OutboundOpenInfo,
-            Self::ToBehaviour,
-            Self::Error,
-        >,
+        ConnectionHandlerEvent<Self::OutboundProtocol, Self::OutboundOpenInfo, Self::ToBehaviour>,
     > {
         if let Some(event) = self.behavior_events_queue.pop_back() {
             return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(event));
@@ -381,6 +353,9 @@ where
             }
             libp2p::swarm::handler::ConnectionEvent::RemoteProtocolsChange(changes) => {
                 debug!(?changes, "remote protocols change")
+            }
+            _ => {
+                debug!("ignoring unknown connection event")
             }
         }
     }

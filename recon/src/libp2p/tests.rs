@@ -22,7 +22,10 @@
 
 use ceramic_core::{Cid, EventId, Interest, Network, PeerId};
 use cid::multihash::{Code, MultihashDigest};
-use libp2p::swarm::{keep_alive, Swarm, SwarmEvent};
+use libp2p::{
+    ping,
+    swarm::{Swarm, SwarmEvent},
+};
 use libp2p_swarm_test::SwarmExt;
 use quickcheck::QuickCheck;
 use rand::{thread_rng, Rng};
@@ -141,7 +144,7 @@ fn recon_sync() {
         let mut swarm2 = build_swarm(&runtime, "swarm2", config);
 
         runtime.block_on(async {
-            swarm1.listen().await;
+            swarm1.listen().with_memory_addr_external().await;
             swarm2.connect(&mut swarm1).await;
 
             for _ in 0..drive_count.get() {
@@ -267,10 +270,10 @@ fn unsupported_does_not_fail() {
         .build()
         .unwrap();
 
-    let mut swarm1 = Swarm::new_ephemeral(|_| keep_alive::Behaviour);
+    let mut swarm1 = Swarm::new_ephemeral(|_| ping::Behaviour::default());
     let mut swarm2 = build_swarm(&runtime, "swarm2", Config::default());
     let result = runtime.block_on(async {
-        swarm1.listen().await;
+        swarm1.listen().with_memory_addr_external().await;
         swarm2.connect(&mut swarm1).await;
         runtime.spawn(swarm1.loop_on_next());
 
