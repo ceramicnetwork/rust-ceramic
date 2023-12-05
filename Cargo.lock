@@ -1305,6 +1305,9 @@ dependencies = [
  "sqlx",
  "swagger",
  "tokio",
+ "tokio-metrics",
+ "tokio-prometheus-client",
+ "tokio-util",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
@@ -9008,6 +9011,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokio-metrics"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eace09241d62c98b7eeb1107d4c5c64ca3bd7da92e8c218c153ab3a78f9be112"
+dependencies = [
+ "futures-util",
+ "pin-project-lite",
+ "tokio",
+ "tokio-stream",
+]
+
+[[package]]
 name = "tokio-native-tls"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9027,6 +9042,17 @@ dependencies = [
  "openssl",
  "openssl-sys",
  "tokio",
+]
+
+[[package]]
+name = "tokio-prometheus-client"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ce25ebd6fc492356e818bf65fe2667cc16e7112406230ec430a6c14f8cf32abd"
+dependencies = [
+ "prometheus-client",
+ "tokio-metrics",
+ "tracing",
 ]
 
 [[package]]
