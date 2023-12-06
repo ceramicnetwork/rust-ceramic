@@ -351,6 +351,16 @@ impl Daemon {
         );
         debug!(?opts, "using daemon options");
 
+        // Setup tokio-metrics
+        ceramic_metrics::MetricsHandle::register(|registry| {
+            let handle = tokio::runtime::Handle::current();
+            let runtime_monitor = tokio_metrics::RuntimeMonitor::new(&handle);
+            tokio_prometheus_client::register(
+                runtime_monitor,
+                registry.sub_registry_with_prefix("tokio"),
+            );
+        });
+
         // 1 path from options
         // 2 path $HOME/.ceramic-one
         // 3 pwd/.ceramic-one
