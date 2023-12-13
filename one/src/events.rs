@@ -3,7 +3,6 @@ use ceramic_p2p::SQLiteBlockStore;
 use chrono::{SecondsFormat, Utc};
 use cid::{multibase, multihash, Cid};
 use clap::{Args, Subcommand};
-use clio::{ClioPath, InputPath, OutputPath};
 use glob::{glob, Paths};
 use sqlx::sqlite::SqlitePool;
 use std::{fs, path::PathBuf};
@@ -18,15 +17,15 @@ pub enum EventsCommand {
 pub struct SlurpOpts {
     /// The path to the ipfs_repo [eg: ~/.ipfs/blocks]
     #[clap(long, short, value_parser)]
-    input_ipfs_path: Option<ClioPath>,
+    input_ipfs_path: Option<PathBuf>,
 
     /// The path to the input_ceramic_db [eg: ~/.ceramic-one/db.sqlite3]
     #[clap(long, short = 'c', value_parser)]
-    input_ceramic_db: Option<InputPath>,
+    input_ceramic_db: Option<PathBuf>,
 
     /// The path to the output_ceramic_db [eg: ~/.ceramic-one/db.sqlite3]
     #[clap(long, short, value_parser)]
-    output_ceramic_path: Option<OutputPath>,
+    output_ceramic_path: Option<PathBuf>,
 }
 
 pub async fn events(cmd: EventsCommand) -> Result<()> {
@@ -41,41 +40,41 @@ async fn slurp(opts: SlurpOpts) -> Result<()> {
 
     let output_ceramic_path = opts
         .output_ceramic_path
-        .unwrap_or_else(|| OutputPath::new(default_output_ceramic_path.as_path()).unwrap());
+        .unwrap_or(default_output_ceramic_path);
     println!(
         "{} Opening output ceramic SQLite DB at: {}",
         Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
-        output_ceramic_path
+        output_ceramic_path.display()
     );
 
     let pool: sqlx::Pool<sqlx::Sqlite> = SqlitePool::connect(&format!(
         "sqlite:{}?mode=rwc",
-        output_ceramic_path.path().path().display()
+        output_ceramic_path
+            .to_str()
+            .expect("path should be utf8 compatible")
     ))
     .await
     .unwrap();
     let store = SQLiteBlockStore::new(pool).await.unwrap();
 
-    if opts.input_ceramic_db.is_some() {
-        migrate_from_database(opts.input_ceramic_db, store.clone()).await;
+    if let Some(input_ceramic_db) = opts.input_ceramic_db {
+        migrate_from_database(input_ceramic_db, store.clone()).await;
     }
-    if opts.input_ipfs_path.is_some() {
-        migrate_from_filesystem(opts.input_ipfs_path, store.clone()).await;
+    if let Some(input_ipfs_path) = opts.input_ipfs_path {
+        migrate_from_filesystem(input_ipfs_path, store.clone()).await;
     }
     Ok(())
 }
 
-async fn migrate_from_filesystem(input_ipfs_path: Option<ClioPath>, store: SQLiteBlockStore) {
+async fn migrate_from_filesystem(input_ipfs_path: PathBuf, store: SQLiteBlockStore) {
     // the block store is split in to 1024 directories and then the blocks stored as files.
     // the dir structure is the penultimate two characters as dir then the b32 sha256 multihash of the block
     // The leading "B" for the b32 sha256 multihash is left off
     // ~/.ipfs/blocks/QV/CIQOHMGEIKMPYHAUTL57JSEZN64SIJ5OIHSGJG4TJSSJLGI3PBJLQVI.data // cspell:disable-line
     let p = input_ipfs_path
-        .unwrap()
-        .path()
         .join("**/*")
         .to_str()
-        .unwrap()
+        .expect("expect utf8")
         .to_owned();
     println!(
         "{} Opening IPFS Repo at: {}",
@@ -149,12 +148,8 @@ async fn migrate_from_filesystem(input_ipfs_path: Option<ClioPath>, store: SQLit
     );
 }
 
-async fn migrate_from_database(input_ceramic_db: Option<InputPath>, store: SQLiteBlockStore) {
-    let other = match input_ceramic_db {
-        Some(input_ceramic_db) => input_ceramic_db,
-        None => return,
-    };
-    let input_ceramic_db_filename = other.path().as_os_str().to_str().unwrap();
+async fn migrate_from_database(input_ceramic_db: PathBuf, store: SQLiteBlockStore) {
+    let input_ceramic_db_filename = input_ceramic_db.to_str().expect("expect utf8");
     println!(
         "{} Importing blocks from {}.",
         Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
