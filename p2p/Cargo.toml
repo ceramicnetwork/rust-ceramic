@@ -21,7 +21,6 @@ chrono = "0.4.31"
 cid.workspace = true
 clap-verbosity-flag = "2.0.1"
 clap.workspace = true
-clio = { version = "0.3.4", features = ["clap-parse"] }
 dirs = "5.0.1"
 expect-test.workspace = true
 futures-timer.workspace = true
