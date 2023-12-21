@@ -13,6 +13,7 @@ anyhow.workspace = true
 async-stream.workspace = true
 bytes.workspace = true
 cid.workspace = true
+ceramic-core.workspace = true
 futures.workspace = true
 iroh-rpc-types.workspace = true
 iroh-util.workspace = true

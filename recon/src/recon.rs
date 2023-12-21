@@ -8,10 +8,11 @@ use std::{fmt::Display, marker::PhantomData};
 use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
 use ceramic_core::{EventId, Interest, PeerId, RangeOpen};
+use ceramic_metrics::Recorder;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, instrument, trace};
 
-use crate::{Client, Sha256a};
+use crate::{metrics::KeyInsertEvent, Client, Metrics, Sha256a};
 
 /// Recon is a protocol for set reconciliation via a message passing paradigm.
 /// An initial message can be created and then messages are exchanged between two Recon instances
@@ -34,6 +35,7 @@ where
 {
     interests: I,
     store: S,
+    metrics: Metrics,
 }
 
 impl<K, H, S, I> Recon<K, H, S, I>
@@ -44,8 +46,12 @@ where
     I: InterestProvider<Key = K>,
 {
     /// Construct a new Recon instance.
-    pub fn new(store: S, interests: I) -> Self {
-        Self { store, interests }
+    pub fn new(store: S, interests: I, metrics: Metrics) -> Self {
+        Self {
+            store,
+            interests,
+            metrics,
+        }
     }
 
     /// Construct a message to send as the first message.
@@ -192,6 +198,9 @@ where
     /// Returns true if the key did not previously exist.
     pub async fn insert(&mut self, key: &K) -> Result<bool> {
         let new_key = self.store.insert(key).await?;
+        if new_key {
+            self.metrics.record(&KeyInsertEvent);
+        }
         Ok(new_key)
     }
 
@@ -278,7 +287,6 @@ pub trait Store: std::fmt::Debug {
     /// An exact middle is not necessary but performance will be better with a better approximation.
     ///
     /// The default implementation will count all elements and then find the middle.
-    #[instrument(skip(self), ret)]
     async fn middle(
         &mut self,
         left_fencepost: &Self::Key,
@@ -295,7 +303,6 @@ pub trait Store: std::fmt::Debug {
         }
     }
     /// Return the number of keys within the range.
-    #[instrument(skip(self), ret)]
     async fn count(
         &mut self,
         left_fencepost: &Self::Key,
@@ -307,7 +314,6 @@ pub trait Store: std::fmt::Debug {
             .count())
     }
     /// Return the first key within the range.
-    #[instrument(skip(self), ret)]
     async fn first(
         &mut self,
         left_fencepost: &Self::Key,
@@ -319,7 +325,6 @@ pub trait Store: std::fmt::Debug {
             .next())
     }
     /// Return the last key within the range.
-    #[instrument(skip(self), ret)]
     async fn last(
         &mut self,
         left_fencepost: &Self::Key,

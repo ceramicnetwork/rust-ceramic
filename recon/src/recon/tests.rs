@@ -6,6 +6,7 @@ lalrpop_util::lalrpop_mod!(
 use anyhow::Result;
 use async_trait::async_trait;
 use ceramic_core::{Bytes, RangeOpen};
+use prometheus_client::registry::Registry;
 use std::collections::BTreeSet;
 use std::fmt::Display;
 use tracing_test::traced_test;
@@ -21,7 +22,7 @@ use pretty::{Arena, DocAllocator, DocBuilder, Pretty};
 
 use crate::{
     recon::{FullInterests, InterestProvider},
-    AssociativeHash, BTreeStore, Key, Message, Recon, Sha256a, Store,
+    AssociativeHash, BTreeStore, Key, Message, Metrics, Recon, Sha256a, Store,
 };
 
 type Set = BTreeSet<Bytes>;
@@ -379,7 +380,11 @@ impl TryFrom<(Option<MessageItem>, Vec<MessageItem>)> for MessageData {
 #[tokio::test]
 async fn word_lists() {
     async fn recon_from_string(s: &str) -> ReconBytes {
-        let mut r = ReconBytes::new(BTreeStore::default(), FullInterests::default());
+        let mut r = ReconBytes::new(
+            BTreeStore::default(),
+            FullInterests::default(),
+            Metrics::register(&mut Registry::default()),
+        );
         for key in s.split([' ', '\n']).map(|s| s.to_string()) {
             if !s.is_empty() {
                 r.insert(&key.as_bytes().into()).await.unwrap();
@@ -422,7 +427,11 @@ async fn word_lists() {
     }
 
     // We are using a FullInterest so we can assume there is only ever one message per exchange.
-    let mut local = ReconBytes::new(BTreeStore::default(), FullInterests::default());
+    let mut local = ReconBytes::new(
+        BTreeStore::default(),
+        FullInterests::default(),
+        Metrics::register(&mut Registry::default()),
+    );
     async fn sync(local: &mut ReconBytes, peers: &mut [ReconBytes]) {
         for j in 0..3 {
             for (i, peer) in peers.iter_mut().enumerate() {
@@ -526,6 +535,7 @@ async fn response_is_synchronized() {
             Bytes::from("n"),
         ])),
         FullInterests::default(),
+        Metrics::register(&mut Registry::default()),
     );
     let mut x = ReconMemoryBytes::new(
         BTreeStore::from_set(BTreeSet::from_iter([
@@ -535,6 +545,7 @@ async fn response_is_synchronized() {
             Bytes::from("n"),
         ])),
         FullInterests::default(),
+        Metrics::register(&mut Registry::default()),
     );
     let response = x
         .process_messages(&a.initial_messages().await.unwrap())
@@ -561,6 +572,7 @@ fn hello() {
             Bytes::from("world"),
         ])),
         FullInterests::default(),
+        Metrics::register(&mut Registry::default()),
     );
     expect![[r#"
         Recon {
@@ -599,6 +611,12 @@ fn hello() {
                             2813893646,
                         ],
                     },
+                },
+            },
+            metrics: Metrics {
+                key_insert_count: Counter {
+                    value: 0,
+                    phantom: PhantomData<u64>,
                 },
             },
         }
@@ -727,6 +745,12 @@ fn test_parse_recon() {
                         },
                     },
                 },
+                metrics: Metrics {
+                    key_insert_count: Counter {
+                        value: 0,
+                        phantom: PhantomData<u64>,
+                    },
+                },
             },
             dog: Recon {
                 interests: FixedInterests(
@@ -809,6 +833,12 @@ fn test_parse_recon() {
                                 ),
                             },
                         },
+                    },
+                },
+                metrics: Metrics {
+                    key_insert_count: Counter {
+                        value: 0,
+                        phantom: PhantomData<u64>,
                     },
                 },
             },
@@ -1031,6 +1061,12 @@ dog: []
                         },
                     },
                 },
+                metrics: Metrics {
+                    key_insert_count: Counter {
+                        value: 0,
+                        phantom: PhantomData<u64>,
+                    },
+                },
             },
             dog: Recon {
                 interests: FixedInterests(
@@ -1047,6 +1083,12 @@ dog: []
                 ),
                 store: BTreeStore {
                     keys: {},
+                },
+                metrics: Metrics {
+                    key_insert_count: Counter {
+                        value: 0,
+                        phantom: PhantomData<u64>,
+                    },
                 },
             },
             iterations: [

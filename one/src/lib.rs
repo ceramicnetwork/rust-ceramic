@@ -448,14 +448,19 @@ impl Daemon {
         let model_store = ModelStore::new(sql_pool.clone(), "model".to_string()).await?;
 
         // Construct a recon implementation for interests.
-        let mut recon_interest =
-            Server::new(Recon::new(interest_store, InterestInterest::default()));
+        let recon_metrics = ceramic_metrics::MetricsHandle::register(recon::Metrics::register);
+        let mut recon_interest = Server::new(Recon::new(
+            interest_store,
+            InterestInterest::default(),
+            recon_metrics.clone(),
+        ));
 
         // Construct a recon implementation for models.
         let mut recon_model = Server::new(Recon::new(
             model_store,
             // Use recon interests as the InterestProvider for recon_model
             ModelInterest::new(peer_id, recon_interest.client()),
+            recon_metrics.clone(),
         ));
 
         let recons = if opts.recon {
@@ -502,6 +507,10 @@ impl Daemon {
             self.recon_interest.client(),
             self.recon_model.client(),
         );
+        let ceramic_metrics =
+            ceramic_metrics::MetricsHandle::register(ceramic_api::Metrics::register);
+        // Wrap server in metrics middleware
+        let ceramic_server = ceramic_api::MetricsMiddleware::new(ceramic_server, ceramic_metrics);
         let ceramic_service = ceramic_api_server::server::MakeService::new(ceramic_server);
         let ceramic_service = MakeAllowAllAuthenticator::new(ceramic_service, "");
         let ceramic_service =

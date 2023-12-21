@@ -6,7 +6,7 @@ use libp2p::{
 };
 use libp2p_identity::PeerId;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, trace};
+use tracing::{debug, info, trace};
 
 use crate::{
     libp2p::{stream_set::StreamSet, Recon},
@@ -27,7 +27,7 @@ pub async fn initiate_synchronize<S: AsyncRead + AsyncWrite + Unpin, R: Recon>(
     recon: R,
     stream: S,
 ) -> Result<StreamSet> {
-    debug!("start synchronize");
+    info!("initiate_synchronize");
     let codec = CborCodec::<Envelope<R::Key, R::Hash>, Envelope<R::Key, R::Hash>>::new();
     let mut framed = Framed::new(stream, codec);
 
@@ -52,7 +52,7 @@ pub async fn initiate_synchronize<S: AsyncRead + AsyncWrite + Unpin, R: Recon>(
     }
     framed.close().await?;
     debug!(
-        "finished synchronize, number of keys {}",
+        "finished initiate_synchronize, number of keys {}",
         recon.len().await?
     );
     Ok(stream_set)
@@ -68,7 +68,7 @@ pub async fn accept_synchronize<S: AsyncRead + AsyncWrite + Unpin, R: Recon>(
     recon: R,
     stream: S,
 ) -> Result<StreamSet> {
-    debug!("accept_synchronize_interests");
+    info!("accept_synchronize");
     let codec = CborCodec::<Envelope<R::Key, R::Hash>, Envelope<R::Key, R::Hash>>::new();
     let mut framed = Framed::new(stream, codec);
 
@@ -89,7 +89,7 @@ pub async fn accept_synchronize<S: AsyncRead + AsyncWrite + Unpin, R: Recon>(
     }
     framed.close().await?;
     debug!(
-        "finished synchronize, number of keys {}",
+        "finished accept_synchronize, number of keys {}",
         recon.len().await?
     );
     Ok(stream_set)

@@ -12,10 +12,18 @@ pub Record : Record = {
     },
 };
 Cat: ReconMemoryBytes<FixedInterests> = {
-    "cat:" <interests:Interests?> <set:Set> => ReconMemoryBytes::new(BTreeStore::from_set(set), interests.unwrap_or_else(|| FixedInterests::full())),
+    "cat:" <interests:Interests?> <set:Set> => ReconMemoryBytes::new(
+            BTreeStore::from_set(set),
+            interests.unwrap_or_else(|| FixedInterests::full()),
+            Metrics::register(&mut Registry::default()),
+        ),
 };
 Dog: ReconMemoryBytes<FixedInterests> = {
-    "dog:" <interests:Interests?> <set:Set> => ReconMemoryBytes::new(BTreeStore::from_set(set), interests.unwrap_or_else(|| FixedInterests::full())),
+    "dog:" <interests:Interests?> <set:Set> => ReconMemoryBytes::new(
+        BTreeStore::from_set(set),
+        interests.unwrap_or_else(|| FixedInterests::full()),
+        Metrics::register(&mut Registry::default()),
+    ),
 };
 
 Interests: FixedInterests = {
