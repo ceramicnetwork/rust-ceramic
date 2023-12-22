@@ -4,15 +4,11 @@ use anyhow::{anyhow, Error, Result};
 use ceramic_core::{EventId, StreamId};
 use ceramic_p2p::SQLiteBlockStore;
 use chrono::{SecondsFormat, Utc};
-use cid::{
-    multibase, multihash,
-    multihash::{Code, MultihashDigest},
-    Cid,
-};
+use cid::{multibase, multihash, Cid};
 use clap::{Args, Subcommand};
 use futures_util::StreamExt;
 use glob::{glob, Paths};
-use minicbor::{data::Tag, data::Type, display, Decode, Decoder};
+use minicbor::{data::Tag, data::Type, display, Decoder};
 use ordered_float::OrderedFloat;
 use sqlx::sqlite::SqlitePool;
 use std::collections::{btree_map::BTreeMap, BTreeSet};
@@ -25,7 +21,7 @@ use tracing::debug;
 pub enum EventsCommand {
     /// Slurp events into the local event database.
     Slurp(SlurpOpts),
-    ///
+    /// Scan Blockstore to find events and insert them in the recon table.
     ScanBlockstore(ScanBlockstoreOpts),
 }
 
@@ -196,34 +192,6 @@ pub struct ScanBlockstoreOpts {
     local_network_id: Option<u32>,
 }
 
-#[derive(Decode)]
-#[cbor(map)]
-pub struct Cose {
-    // JOSE: JSON Object Signing and Encryption
-    // COSE: CBOR Object Signing and Encryption
-    //
-    // {"payload": h'',
-    //  "signatures": [{"protected": h'',
-    //                  "signature": h''}]}
-    #[n(0)]
-    #[cbor(encode_with = "minicbor::bytes::encode")]
-    #[cbor(decode_with = "minicbor::bytes::decode")]
-    pub payload: Vec<u8>,
-    #[n(1)]
-    pub signatures: Vec<Signatures>,
-}
-
-#[derive(Decode)]
-struct Signatures {
-    // [ {"protected": h'', "signature": h''} ]
-    #[n(0)]
-    pub payload: Vec<u8>,
-    #[n(1)]
-    pub protected: Vec<u8>,
-    #[n(2)]
-    pub signature: Vec<u8>,
-}
-
 pub async fn scan_blockstore1(opts: ScanBlockstoreOpts) -> Result<()> {
     let dir = match opts.store_dir.clone() {
         Some(dir) => dir,
@@ -287,30 +255,22 @@ async fn scan_blockstore2(opts: ScanBlockstoreOpts, sql_store: SQLiteBlockStore)
     // {"payload": CID,
     //  "signatures": [{"protected": b'{"alg":"EdDSA","cap":"ipfs://CID","kid":"did:key:*"}',
     //                  "signature": SIG}]}
-    //
-    // if not cbor continue
-    // if not a map continue
-    // if map lacks header key continue
-    // if header is not map continue
-    // if header lacks controllers continue
-    // if controllers is not array continue
-    // if header lacks model continue
-    // if prev in header follow prev back to init to find hight
-    // build eventID.new(
-    //   network: &Network, // e.g. Network::Mainnet
-    //   sort_key: &str,    // e.g. "model"
-    //   sort_value: &str,  // e.g. "kh4q0ozorrgaq2mezktnrmdwleo1d" // cspell:disable-line
-    //   controller: &str,  // e.g. "did:key:z6MkgSV3tAuw7gUWqKCUY7ae6uWNxqYgdwPhUJbJhF9EFXm9"
-    //   init: &Cid, // e.g. Cid::from_str("bagcqceraplay4erv6l32qrki522uhiz7rf46xccwniw7ypmvs3cvu2b3oulq") // cspell:disable-line
-    //   event_height: u64, // e.g. 1
-    //   event_cid: &Cid, // e.g. Cid::from_str("bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy") // cspell:disable-line
-    // )
 
     let network = &opts.network.to_network(&opts.local_network_id)?;
 
-    let mut found_stream_ids = BTreeSet::<String>::new();
     let mut found_dids = BTreeMap::<String, u64>::new();
-    scan_for_stream_ids(&mut found_stream_ids, &sql_store).await?;
+    let mut found_stream_ids = BTreeSet::new();
+    let mut found_ids = BTreeSet::new();
+    let mut found_prevs = BTreeSet::new();
+    let mut found_payloads = BTreeSet::new();
+    scan_for_stream_ids(
+        &mut found_stream_ids,
+        &mut found_ids,
+        &mut found_prevs,
+        &mut found_payloads,
+        &sql_store,
+    )
+    .await?;
 
     let mut count = 0;
     let mut stream_id_parsed_count = 0;
@@ -348,7 +308,7 @@ async fn scan_blockstore2(opts: ScanBlockstoreOpts, sql_store: SQLiteBlockStore)
 
         if count % 100_000 == 0 {
             println!(
-                "{}/{}: ({}, {}, {}), {}, {}, {:?}, found_DIDs={}",
+                "{}/{}: ({}, {}, {}), {}, {}, {}, found_DIDs={}",
                 count,
                 count_stream_id,
                 init_block_found_count,
@@ -356,7 +316,7 @@ async fn scan_blockstore2(opts: ScanBlockstoreOpts, sql_store: SQLiteBlockStore)
                 not_found_count,
                 stream_id,
                 stream_id.cid,
-                bytes,
+                display(&bytes),
                 found_dids.len(),
             );
         }
@@ -446,101 +406,61 @@ async fn scan_blockstore2(opts: ScanBlockstoreOpts, sql_store: SQLiteBlockStore)
 
 async fn scan_for_stream_ids(
     found_stream_ids: &mut BTreeSet<String>,
+    found_ids: &mut BTreeSet<(Tag, Box<CborValue>)>,
+    found_prevs: &mut BTreeSet<(Tag, Box<CborValue>)>,
+    found_payloads: &mut BTreeSet<Vec<u8>>,
     sql_store: &SQLiteBlockStore,
 ) -> Result<()> {
     // Scan all blocks for StreamIDs
     let mut count = 0;
-    let mut count_not_cbor = 0;
-    let mut count_not_map = 0;
-    let mut count_map = 0;
-    let mut key_sets = BTreeMap::<String, u64>::new();
     let mut rows = sql_store.scan();
-    let mut block_numbers = BTreeMap::new();
     while let Some(row) = rows.next().await {
         count += 1;
+        if count % 100_000 == 0 {
+            println!(
+                "{}: found_stream_ids={}, found_ids={}, found_prevs={}, found_payloads={}",
+                count,
+                found_stream_ids.len(),
+                found_ids.len(),
+                found_prevs.len(),
+                found_payloads.len()
+            );
+        }
         let Ok(row) = row else {
             continue;
         };
-        if row.bytes.is_empty() || row.bytes[0] < 0b101_00000 || 0b101_11111 < row.bytes[0] {
-            continue; // skip if not a map (Major type 5 0b101)
-        };
         let Ok(cbor): Result<CborValue, Error> = CborValue::parse(row.bytes.as_slice()) else {
-            count_not_cbor += 1;
             continue;
         };
 
-        if let CborValue::String(model) = cbor.path(&["header", "model"]) {
-            println!("header.model: {}", model);
-        }
-        if let CborValue::String(model) = cbor.path(&["model"]) {
-            println!("model: {}", model);
-        }
-        if let CborValue::Tag((_t, b)) = cbor.path(&["blockNumber"]) {
-            let count = block_numbers
-                .entry(b)
-                .and_modify(|count| *count += 1)
-                .or_insert(1_u64);
-            *count += 1;
-        }
-
-        let map = match cbor {
-            CborValue::Map(m) => m,
-            _ => {
-                count_not_map += 1;
-                continue;
-            }
-        };
-        count_map += 1;
-
-        if let Some(CborValue::Array(stream_ids)) = &map.get(&"streamIds".into()) {
-            for stream_id in stream_ids.iter() {
+        if let CborValue::Array(stream_ids) = cbor.path(&["streamIds"]) {
+            for stream_id in stream_ids {
                 if let CborValue::String(stream_id) = stream_id {
                     found_stream_ids.insert(stream_id.to_owned());
                 }
             }
         }
 
-        let keys_string = map
-            .keys()
-            .map(|key| match key {
-                CborValue::String(s) => s.to_owned(),
-                _ => "".to_owned(),
-            })
-            .collect::<Vec<String>>()
-            .join(",");
-
-        let key_set_count = key_sets.entry(keys_string).or_insert(0);
-        *key_set_count += 1; // increment the count of block with this set of keys
-
-        if *key_set_count == 1 {
-            println!(
-                "{} display: {} {}",
-                count,
-                Cid::new_v1(0x71, Code::Sha2_256.digest(&row.bytes)),
-                display(&row.bytes)
-            );
+        if let CborValue::Tag(id) = cbor.path(&["id"]) {
+            found_ids.insert(id.to_owned());
         }
 
-        if count % 1_000_000 == 0 {
-            println!(
-                "{}: count_not_cbor={} count_not_map={}, count_map={},  key_sets={}, count_stream_id={}, |block_numbers|={}",
-                count,
-                count_not_cbor,
-                count_not_map,
-                count_map,
-                key_sets.len(),
-                found_stream_ids.len(),
-                block_numbers.len(),
-            );
+        if let CborValue::Tag(prev) = cbor.path(&["prev"]) {
+            found_prevs.insert(prev.to_owned());
+        }
+
+        if let CborValue::Bytes(payload) = cbor.path(&["payload"]) {
+            found_payloads.insert(payload.to_owned());
+            // todo this is an envelope add the cid to the ids set also
         }
     }
     println!(
-        "{}: count_map={}, count_not_map={}, key_sets={:?}, count_stream_id={}",
+        "{}: found_stream_ids={}, found_ids={}, found_prevs={}, found_payloads={}",
         count,
-        count_map,
-        count_not_map,
-        key_sets,
         found_stream_ids.len(),
+        found_ids.len(),
+        found_prevs.len(),
+        found_payloads.len()
     );
     Ok(())
 }
@@ -682,6 +602,17 @@ impl CborValue {
 impl From<&[u8]> for CborValue {
     fn from(bytes: &[u8]) -> Self {
         CborValue::Bytes(bytes.to_vec())
+    }
+}
+
+impl TryInto<Vec<u8>> for CborValue {
+    type Error = Error;
+    fn try_into(self) -> Result<Vec<u8>, Self::Error> {
+        match self {
+            CborValue::Bytes(bytes) => Ok(bytes.to_vec()),
+            CborValue::String(string) => Ok(string.as_bytes().to_vec()),
+            _ => Err(anyhow!("{} not Bytes or String", self.type_name())),
+        }
     }
 }
 
