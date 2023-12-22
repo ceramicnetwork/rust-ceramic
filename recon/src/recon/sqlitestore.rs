@@ -192,7 +192,7 @@ where
             .bind(offset as i64)
             .fetch_all(&self.pool)
             .await?;
-        debug!(count = rows.len(), "rows");
+        //debug!(count = rows.len(), "rows");
         Ok(Box::new(rows.into_iter().map(|row| {
             let bytes: Vec<u8> = row.get(0);
             K::from(bytes)

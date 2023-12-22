@@ -12,7 +12,10 @@ use ceramic_metrics::Recorder;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, instrument, trace};
 
-use crate::{metrics::KeyInsertEvent, Client, Metrics, Sha256a};
+use crate::{
+    metrics::{KeyInsertEvent, ValueInsertEvent},
+    Client, Metrics, Sha256a,
+};
 
 /// Recon is a protocol for set reconciliation via a message passing paradigm.
 /// An initial message can be created and then messages are exchanged between two Recon instances
@@ -95,7 +98,7 @@ where
     }
 
     /// Process an incoming message and respond with a message reply.
-    #[instrument(skip_all, ret)]
+    #[instrument(skip_all)]
     pub async fn process_messages(&mut self, received: &[Message<K, H>]) -> Result<Response<K, H>> {
         // First we must find the intersection of interests.
         // Then reply with a message per intersection.
@@ -144,9 +147,8 @@ where
                 let zero = &H::identity();
 
                 response_message.keys.push(left_fencepost.clone());
-                while !received.keys.is_empty()
-                    && left_fencepost < *received.keys.last().unwrap()
-                    && (response_message.keys.len() < 32 * 1024)
+                while !received.keys.is_empty() && left_fencepost < *received.keys.last().unwrap()
+                //&& (response_message.keys.len() < 32 * 1024)
                 {
                     response.is_synchronized &= response_message
                         .process_range(
@@ -202,7 +204,9 @@ where
     }
 
     pub async fn store_value_for_key(&mut self, key: K, value: Vec<u8>) -> Result<()> {
-        self.values.insert(key, value);
+        if self.values.insert(key, value).is_none() {
+            self.metrics.record(&ValueInsertEvent);
+        }
         Ok(())
     }
 
@@ -212,7 +216,6 @@ where
         let new_key = self.store.insert(key).await?;
         if new_key {
             self.metrics.record(&KeyInsertEvent);
-            trace!(?key, "inserted new key");
         }
         Ok(new_key)
     }
@@ -626,12 +629,11 @@ where
                     .fold(0, |sum, hash| if hash.is_zero() { sum + 1 } else { sum });
                 write!(
                     f,
-                    "{}, keys: {}, hashes: {}, zeros: {}, {}",
+                    "{}, keys: {}, hashes: {}, zeros: {}",
                     self.keys[0],
                     self.keys.len(),
                     self.hashes.len() - zeros,
                     zeros,
-                    self.keys[self.keys.len() - 1]
                 )?;
             } else {
                 for (k, h) in self.keys.iter().zip(self.hashes.iter()) {
@@ -869,11 +871,7 @@ where
             for m in &self.messages {
                 write!(f, "{:?}", m)?;
             }
-            write!(f, ") (")?;
-            for k in &self.new_keys {
-                write!(f, "{:?}", k)?;
-            }
-            write!(f, ")]")
+            write!(f, ") new_keys: {}", self.new_keys.len())
         }
     }
 }

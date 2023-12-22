@@ -17,12 +17,15 @@ use libp2p_identity::PeerId;
 use tracing::debug;
 
 use crate::{
-    libp2p::{protocol, stream_set::StreamSet, upgrade::MultiReadyUpgrade, Recon},
+    libp2p::{
+        metrics::Metrics, protocol, stream_set::StreamSet, upgrade::MultiReadyUpgrade, Recon,
+    },
     Sha256a,
 };
 
 #[derive(Debug)]
 pub struct Handler<I, M> {
+    metrics: Metrics,
     remote_peer_id: PeerId,
     connection_id: ConnectionId,
     interest: I,
@@ -37,6 +40,7 @@ where
     M: Recon<Key = EventId, Hash = Sha256a>,
 {
     pub fn new(
+        metrics: Metrics,
         peer_id: PeerId,
         connection_id: ConnectionId,
         state: State,
@@ -44,6 +48,7 @@ where
         model: M,
     ) -> Self {
         Self {
+            metrics,
             remote_peer_id: peer_id,
             connection_id,
             interest,
@@ -258,6 +263,7 @@ where
                                 self.interest.clone(),
                                 stream,
                                 false,
+                                self.metrics.clone(),
                             )
                             .boxed(),
                             StreamSet::Model => protocol::synchronize(
@@ -267,6 +273,7 @@ where
                                 self.model.clone(),
                                 stream,
                                 false,
+                                self.metrics.clone(),
                             )
                             .boxed(),
                         };
@@ -297,6 +304,7 @@ where
                                 self.interest.clone(),
                                 stream,
                                 true,
+                                self.metrics.clone(),
                             )
                             .boxed(),
                             StreamSet::Model => protocol::synchronize(
@@ -306,6 +314,7 @@ where
                                 self.model.clone(),
                                 stream,
                                 true,
+                                self.metrics.clone(),
                             )
                             .boxed(),
                         };

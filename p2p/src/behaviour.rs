@@ -217,7 +217,12 @@ where
                 .with_max_established_per_peer(Some(config.max_conns_per_peer)),
         );
         let recon = recons.map(|(interest, model)| {
-            recon::libp2p::Behaviour::new(interest, model, recon::libp2p::Config::default())
+            recon::libp2p::Behaviour::new(
+                peer_id,
+                interest,
+                model,
+                recon::libp2p::Config::default(),
+            )
         });
         Ok(NodeBehaviour {
             ping: Ping::default(),

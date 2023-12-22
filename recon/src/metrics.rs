@@ -5,6 +5,7 @@ use prometheus_client::{metrics::counter::Counter, registry::Registry};
 #[derive(Debug, Clone)]
 pub struct Metrics {
     key_insert_count: Counter,
+    value_insert_count: Counter,
 }
 
 impl Metrics {
@@ -18,8 +19,17 @@ impl Metrics {
             Counter::default(),
             sub_registry
         );
+        register!(
+            value_insert_count,
+            "Number times a new value is inserted into the datastore",
+            Counter::default(),
+            sub_registry
+        );
 
-        Self { key_insert_count }
+        Self {
+            key_insert_count,
+            value_insert_count,
+        }
     }
 }
 
@@ -29,5 +39,14 @@ pub struct KeyInsertEvent;
 impl Recorder<KeyInsertEvent> for Metrics {
     fn record(&self, _event: &KeyInsertEvent) {
         self.key_insert_count.inc();
+    }
+}
+
+#[derive(Debug)]
+pub struct ValueInsertEvent;
+
+impl Recorder<ValueInsertEvent> for Metrics {
+    fn record(&self, _event: &ValueInsertEvent) {
+        self.value_insert_count.inc();
     }
 }

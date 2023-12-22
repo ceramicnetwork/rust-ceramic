@@ -11,6 +11,7 @@
 //! completed a sync.
 
 mod handler;
+mod metrics;
 mod protocol;
 mod stream_set;
 #[cfg(test)]
@@ -36,6 +37,7 @@ use tracing::{debug, trace, warn};
 use crate::{
     libp2p::{
         handler::{FromBehaviour, FromHandler, Handler},
+        metrics::Metrics,
         stream_set::StreamSet,
     },
     recon::{Key, Response},
@@ -139,6 +141,8 @@ impl Default for Config {
 /// the application.
 #[derive(Debug)]
 pub struct Behaviour<I, M> {
+    metrics: Metrics,
+    local_peer_id: PeerId,
     interest: I,
     model: M,
     config: Config,
@@ -180,12 +184,16 @@ pub enum PeerStatus {
 
 impl<I, M> Behaviour<I, M> {
     /// Create a new Behavior with the provided Recon implementation.
-    pub fn new(interest: I, model: M, config: Config) -> Self
+    pub fn new(local_peer_id: PeerId, interest: I, model: M, config: Config) -> Self
     where
         I: Recon<Key = Interest, Hash = Sha256a>,
         M: Recon<Key = EventId, Hash = Sha256a>,
     {
+        // HACK: We should register the metrics in ceramic-one
+        let metrics = ceramic_metrics::MetricsHandle::register(Metrics::register);
         Self {
+            metrics,
+            local_peer_id,
             interest,
             model,
             config,
@@ -213,7 +221,7 @@ where
                         status: PeerStatus::Waiting,
                         connection_id: info.connection_id,
                         last_sync: None,
-                        dialer: matches!(info.endpoint, ConnectedPoint::Dialer { .. }),
+                        dialer: self.local_peer_id < info.peer_id,
                     },
                 );
             }
@@ -329,7 +337,7 @@ where
         }
         // Check each peer and start synchronization as needed.
         for (peer_id, info) in &mut self.peers {
-            //trace!(remote_peer_id = %peer_id, ?info, "polling peer state");
+            trace!(remote_peer_id = %peer_id, ?info, "polling peer state");
             // Expected the initial dialer to initiate a new synchronization.
             if info.dialer {
                 match info.status {
@@ -391,6 +399,7 @@ where
     ) -> std::result::Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
         debug!(%peer, ?connection_id, "handle_established_inbound_connection");
         Ok(Handler::new(
+            self.metrics.clone(),
             peer,
             connection_id,
             handler::State::WaitingInbound,
@@ -408,6 +417,7 @@ where
     ) -> std::result::Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
         debug!(%peer, ?connection_id, "handle_established_outbound_connection");
         Ok(Handler::new(
+            self.metrics.clone(),
             peer,
             connection_id,
             // Start synchronizing interests
