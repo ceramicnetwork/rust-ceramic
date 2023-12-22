@@ -79,6 +79,24 @@ where
         self.sender.send(Request::FullRange { ret }).await?;
         rx.await?
     }
+
+    /// Sends a full_range request to the server and awaits the response.
+    pub async fn value_for_key(&self, key: K) -> Result<Option<Vec<u8>>> {
+        let (ret, rx) = oneshot::channel();
+        self.sender.send(Request::ValueForKey { key, ret }).await?;
+        rx.await?
+    }
+    pub async fn store_value_for_key(&self, key: K, value: &[u8]) -> Result<()> {
+        let (ret, rx) = oneshot::channel();
+        self.sender
+            .send(Request::StoreValueForKey {
+                key,
+                value: value.to_vec(),
+                ret,
+            })
+            .await?;
+        rx.await?
+    }
 }
 
 enum Request<K, H> {
@@ -105,6 +123,15 @@ enum Request<K, H> {
     },
     FullRange {
         ret: oneshot::Sender<Result<Box<dyn Iterator<Item = K> + Send>>>,
+    },
+    ValueForKey {
+        key: K,
+        ret: oneshot::Sender<Result<Option<Vec<u8>>>>,
+    },
+    StoreValueForKey {
+        key: K,
+        value: Vec<u8>,
+        ret: oneshot::Sender<Result<()>>,
     },
 }
 
@@ -186,6 +213,14 @@ where
                     Request::FullRange { ret } => {
                         let keys = self.recon.full_range().await;
                         send(ret, keys);
+                    }
+                    Request::ValueForKey { key, ret } => {
+                        let value = self.recon.value_for_key(key).await;
+                        send(ret, value);
+                    }
+                    Request::StoreValueForKey { key, value, ret } => {
+                        let ok = self.recon.store_value_for_key(key, value).await;
+                        send(ret, ok);
                     }
                 };
             } else {

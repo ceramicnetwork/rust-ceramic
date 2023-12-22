@@ -111,7 +111,11 @@ components:
       type: object
       required:
         - eventId
+        - eventData
       properties:
         eventId:
           type: string
           description: Multibase encodeding of event id bytes.
+        eventData:
+          type: string
+          description: Multibase encodeding of event data.

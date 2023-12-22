@@ -74,6 +74,9 @@ pub trait Recon: Clone + Send + Sync + 'static {
     async fn is_empty(&self) -> Result<bool> {
         Ok(self.len().await? == 0)
     }
+
+    async fn value_for_key(&self, key: Self::Key) -> Result<Option<Vec<u8>>>;
+    async fn store_value_for_key(&self, key: Self::Key, value: &[u8]) -> Result<()>;
 }
 
 #[async_trait]
@@ -103,6 +106,13 @@ where
 
     async fn len(&self) -> Result<usize> {
         Client::len(self).await
+    }
+
+    async fn value_for_key(&self, key: Self::Key) -> Result<Option<Vec<u8>>> {
+        Client::value_for_key(self, key).await
+    }
+    async fn store_value_for_key(&self, key: Self::Key, value: &[u8]) -> Result<()> {
+        Client::store_value_for_key(self, key, value).await
     }
 }
 
@@ -319,7 +329,7 @@ where
         }
         // Check each peer and start synchronization as needed.
         for (peer_id, info) in &mut self.peers {
-            trace!(remote_peer_id = %peer_id, ?info, "polling peer state");
+            //trace!(remote_peer_id = %peer_id, ?info, "polling peer state");
             // Expected the initial dialer to initiate a new synchronization.
             if info.dialer {
                 match info.status {

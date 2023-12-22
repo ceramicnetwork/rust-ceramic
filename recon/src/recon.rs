@@ -3,7 +3,7 @@ pub mod sqlitestore;
 #[cfg(test)]
 pub mod tests;
 
-use std::{fmt::Display, marker::PhantomData};
+use std::{collections::BTreeMap, fmt::Display, marker::PhantomData};
 
 use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
@@ -36,6 +36,7 @@ where
     interests: I,
     store: S,
     metrics: Metrics,
+    values: BTreeMap<K, Vec<u8>>,
 }
 
 impl<K, H, S, I> Recon<K, H, S, I>
@@ -51,6 +52,7 @@ where
             store,
             interests,
             metrics,
+            values: Default::default(),
         }
     }
 
@@ -122,6 +124,7 @@ where
             for key in &received.keys {
                 if self.insert(key).await? {
                     response.is_synchronized = false;
+                    response.new_keys.push(key.clone());
                 }
             }
 
@@ -194,12 +197,22 @@ where
         Ok(response)
     }
 
+    pub async fn value_for_key(&mut self, key: K) -> Result<Option<Vec<u8>>> {
+        Ok(self.values.get(&key).cloned())
+    }
+
+    pub async fn store_value_for_key(&mut self, key: K, value: Vec<u8>) -> Result<()> {
+        self.values.insert(key, value);
+        Ok(())
+    }
+
     /// Insert a new key into the key space.
     /// Returns true if the key did not previously exist.
     pub async fn insert(&mut self, key: &K) -> Result<bool> {
         let new_key = self.store.insert(key).await?;
         if new_key {
             self.metrics.record(&KeyInsertEvent);
+            trace!(?key, "inserted new key");
         }
         Ok(new_key)
     }
@@ -836,24 +849,31 @@ struct BoundedMessage<K, H> {
 pub struct Response<K, H> {
     messages: Vec<Message<K, H>>,
     is_synchronized: bool,
+    new_keys: Vec<K>,
 }
 
 impl<K, H> std::fmt::Debug for Response<K, H>
 where
     Message<K, H>: std::fmt::Debug,
+    K: std::fmt::Debug,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if f.alternate() {
             f.debug_struct("Response")
                 .field("messages", &self.messages)
                 .field("is_synchronized", &self.is_synchronized)
+                .field("new_keys", &self.new_keys)
                 .finish()
         } else {
-            write!(f, "[ is_synchronized: {} ", self.is_synchronized)?;
+            write!(f, "[ is_synchronized: {} (", self.is_synchronized)?;
             for m in &self.messages {
                 write!(f, "{:?}", m)?;
             }
-            write!(f, "]")
+            write!(f, ") (")?;
+            for k in &self.new_keys {
+                write!(f, "{:?}", k)?;
+            }
+            write!(f, ")]")
         }
     }
 }
@@ -862,6 +882,7 @@ impl<K: Key, H> Default for Response<K, H> {
         Self {
             messages: Default::default(),
             is_synchronized: Default::default(),
+            new_keys: Default::default(),
         }
     }
 }
@@ -874,6 +895,9 @@ impl<K, H> Response<K, H> {
     /// Report if the response indicates that synchronization has completed
     pub fn is_synchronized(&self) -> bool {
         self.is_synchronized
+    }
+    pub fn new_keys(&self) -> &[K] {
+        &self.new_keys
     }
 }
 

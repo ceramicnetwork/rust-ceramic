@@ -251,20 +251,22 @@ where
                         self.behavior_events_queue
                             .push_front(FromHandler::Started { stream_set });
                         let stream = match stream_set {
-                            StreamSet::Interest => protocol::accept_synchronize(
+                            StreamSet::Interest => protocol::synchronize(
                                 self.remote_peer_id,
                                 self.connection_id,
                                 stream_set,
                                 self.interest.clone(),
                                 stream,
+                                false,
                             )
                             .boxed(),
-                            StreamSet::Model => protocol::accept_synchronize(
+                            StreamSet::Model => protocol::synchronize(
                                 self.remote_peer_id,
                                 self.connection_id,
                                 stream_set,
                                 self.model.clone(),
                                 stream,
+                                false,
                             )
                             .boxed(),
                         };
@@ -288,20 +290,22 @@ where
                             stream_set: *stream_set,
                         });
                         let stream = match stream_set {
-                            StreamSet::Interest => protocol::initiate_synchronize(
+                            StreamSet::Interest => protocol::synchronize(
                                 self.remote_peer_id,
                                 self.connection_id,
                                 *stream_set,
                                 self.interest.clone(),
                                 stream,
+                                true,
                             )
                             .boxed(),
-                            StreamSet::Model => protocol::initiate_synchronize(
+                            StreamSet::Model => protocol::synchronize(
                                 self.remote_peer_id,
                                 self.connection_id,
                                 *stream_set,
                                 self.model.clone(),
                                 stream,
+                                true,
                             )
                             .boxed(),
                         };

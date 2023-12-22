@@ -14,78 +14,68 @@ use crate::{
 };
 
 #[derive(Debug, Serialize, Deserialize)]
-struct Envelope<K: Key, H: AssociativeHash> {
-    messages: Vec<Message<K, H>>,
+enum Envelope<K: Key, H: AssociativeHash> {
+    Synchronize(Vec<Message<K, H>>, bool),
+    ValueRequest(K),
+    ValueResponse(K, Vec<u8>),
+    HangUp,
 }
 
 // Intiate Recon synchronization with a peer over a stream.
 #[tracing::instrument(skip(recon, stream), ret)]
-pub async fn initiate_synchronize<S: AsyncRead + AsyncWrite + Unpin, R: Recon>(
+pub async fn synchronize<S: AsyncRead + AsyncWrite + Unpin, R: Recon>(
     remote_peer_id: PeerId,
     connection_id: ConnectionId,
     stream_set: StreamSet,
     recon: R,
     stream: S,
+    initiate: bool,
 ) -> Result<StreamSet> {
     info!("initiate_synchronize");
     let codec = CborCodec::<Envelope<R::Key, R::Hash>, Envelope<R::Key, R::Hash>>::new();
     let mut framed = Framed::new(stream, codec);
 
-    let messages = recon.initial_messages().await?;
-    framed.send(Envelope { messages }).await?;
-
-    while let Some(request) = libp2p::futures::TryStreamExt::try_next(&mut framed).await? {
-        trace!(?request, "recon request");
-        let response = recon.process_messages(request.messages).await?;
-        trace!(?response, "recon response");
-
-        let is_synchronized = response.is_synchronized();
-        if is_synchronized {
-            // Do not send the last message since we initiated
-            break;
-        }
-        framed
-            .send(Envelope {
-                messages: response.into_messages(),
-            })
-            .await?;
+    if initiate {
+        let messages = recon.initial_messages().await?;
+        framed.send(Envelope::Synchronize(messages, false)).await?;
     }
-    framed.close().await?;
-    debug!(
-        "finished initiate_synchronize, number of keys {}",
-        recon.len().await?
-    );
-    Ok(stream_set)
-}
-
-// Perform Recon synchronization with a peer over a stream.
-// Expect the remote peer to initiate the communication.
-#[tracing::instrument(skip(stream, recon), ret)]
-pub async fn accept_synchronize<S: AsyncRead + AsyncWrite + Unpin, R: Recon>(
-    remote_peer_id: PeerId,
-    connection_id: ConnectionId,
-    stream_set: StreamSet,
-    recon: R,
-    stream: S,
-) -> Result<StreamSet> {
-    info!("accept_synchronize");
-    let codec = CborCodec::<Envelope<R::Key, R::Hash>, Envelope<R::Key, R::Hash>>::new();
-    let mut framed = Framed::new(stream, codec);
 
     while let Some(request) = libp2p::futures::TryStreamExt::try_next(&mut framed).await? {
         trace!(?request, "recon request");
-        let response = recon.process_messages(request.messages).await?;
-        trace!(?response, "recon response");
+        match request {
+            Envelope::Synchronize(messages, remote_synchronized) => {
+                let response = recon.process_messages(messages).await?;
+                trace!(?response, "recon response");
 
-        let is_synchronized = response.is_synchronized();
-        framed
-            .send(Envelope {
-                messages: response.into_messages(),
-            })
-            .await?;
-        if is_synchronized {
-            break;
-        }
+                let is_synchronized = response.is_synchronized();
+                if remote_synchronized && is_synchronized {
+                    framed.send(Envelope::HangUp).await?;
+                    break;
+                }
+
+                for key in response.new_keys() {
+                    framed.send(Envelope::ValueRequest(key.clone())).await?;
+                }
+
+                framed
+                    .send(Envelope::Synchronize(
+                        response.into_messages(),
+                        is_synchronized,
+                    ))
+                    .await?;
+            }
+            Envelope::ValueRequest(key) => {
+                // TODO queue up value requests for worker
+                let value = recon.value_for_key(key.clone()).await?;
+                if let Some(value) = value {
+                    framed.send(Envelope::ValueResponse(key, value)).await?;
+                }
+            }
+            Envelope::ValueResponse(key, value) => {
+                recon.store_value_for_key(key, &value).await?;
+            }
+            Envelope::HangUp => break,
+        };
     }
     framed.close().await?;
     debug!(

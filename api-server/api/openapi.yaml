@@ -118,11 +118,16 @@ components:
       description: A Ceramic event as part of a Ceramic Stream
       example:
         eventId: eventId
+        eventData: eventData
       properties:
         eventId:
           description: Multibase encodeding of event id bytes.
           type: string
+        eventData:
+          description: Multibase encodeding of event data.
+          type: string
       required:
+      - eventData
       - eventId
       title: A Ceramic Event
       type: object
