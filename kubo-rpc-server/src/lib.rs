@@ -11,8 +11,7 @@
 #![allow(clippy::derive_partial_eq_without_eq, clippy::disallowed_names)]
 
 use async_trait::async_trait;
-use futures::{stream::BoxStream, Stream};
-use hyper::body::Bytes;
+use futures::Stream;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::task::{Context, Poll};
@@ -117,45 +116,9 @@ pub enum PinRmPostResponse {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[must_use]
-pub enum PubsubLsPostResponse {
-    /// success
-    Success(models::PubsubLsPost200Response),
-    /// bad request
-    BadRequest(models::Error),
-}
-
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[must_use]
-pub enum PubsubPubPostResponse {
-    /// success
-    Success,
-    /// bad request
-    BadRequest(models::Error),
-}
-
-#[must_use]
-pub enum PubsubSubPostResponse {
-    /// success
-    Success(BoxStream<'static, Result<Bytes, Box<dyn std::error::Error + Send + Sync>>>),
-
-    /// bad request
-    BadRequest(models::Error),
-}
-
-impl std::fmt::Debug for PubsubSubPostResponse {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Success(arg0) => f.debug_tuple("Success").finish(),
-            Self::BadRequest(arg0) => f.debug_tuple("BadRequest").field(arg0).finish(),
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[must_use]
 pub enum SwarmConnectPostResponse {
     /// success
-    Success(models::PubsubLsPost200Response),
+    Success(models::SwarmConnectPost200Response),
     /// bad request
     BadRequest(models::Error),
 }
@@ -261,24 +224,6 @@ pub trait Api<C: Send + Sync> {
     /// Remove a block from the pin store
     async fn pin_rm_post(&self, arg: String, context: &C) -> Result<PinRmPostResponse, ApiError>;
 
-    /// List topic with active subscriptions
-    async fn pubsub_ls_post(&self, context: &C) -> Result<PubsubLsPostResponse, ApiError>;
-
-    /// Publish a message to a topic
-    async fn pubsub_pub_post(
-        &self,
-        arg: String,
-        file: swagger::ByteArray,
-        context: &C,
-    ) -> Result<PubsubPubPostResponse, ApiError>;
-
-    /// Subscribe to a topic, blocks until a message is received
-    async fn pubsub_sub_post(
-        &self,
-        arg: String,
-        context: &C,
-    ) -> Result<PubsubSubPostResponse, ApiError>;
-
     /// Connect to peers
     async fn swarm_connect_post(
         &self,
@@ -361,19 +306,6 @@ pub trait ApiNoContext<C: Send + Sync> {
 
     /// Remove a block from the pin store
     async fn pin_rm_post(&self, arg: String) -> Result<PinRmPostResponse, ApiError>;
-
-    /// List topic with active subscriptions
-    async fn pubsub_ls_post(&self) -> Result<PubsubLsPostResponse, ApiError>;
-
-    /// Publish a message to a topic
-    async fn pubsub_pub_post(
-        &self,
-        arg: String,
-        file: swagger::ByteArray,
-    ) -> Result<PubsubPubPostResponse, ApiError>;
-
-    /// Subscribe to a topic, blocks until a message is received
-    async fn pubsub_sub_post(&self, arg: String) -> Result<PubsubSubPostResponse, ApiError>;
 
     /// Connect to peers
     async fn swarm_connect_post(
@@ -507,28 +439,6 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
     async fn pin_rm_post(&self, arg: String) -> Result<PinRmPostResponse, ApiError> {
         let context = self.context().clone();
         self.api().pin_rm_post(arg, &context).await
-    }
-
-    /// List topic with active subscriptions
-    async fn pubsub_ls_post(&self) -> Result<PubsubLsPostResponse, ApiError> {
-        let context = self.context().clone();
-        self.api().pubsub_ls_post(&context).await
-    }
-
-    /// Publish a message to a topic
-    async fn pubsub_pub_post(
-        &self,
-        arg: String,
-        file: swagger::ByteArray,
-    ) -> Result<PubsubPubPostResponse, ApiError> {
-        let context = self.context().clone();
-        self.api().pubsub_pub_post(arg, file, &context).await
-    }
-
-    /// Subscribe to a topic, blocks until a message is received
-    async fn pubsub_sub_post(&self, arg: String) -> Result<PubsubSubPostResponse, ApiError> {
-        let context = self.context().clone();
-        self.api().pubsub_sub_post(arg, &context).await
     }
 
     /// Connect to peers

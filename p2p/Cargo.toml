@@ -56,7 +56,6 @@ features = [
     "dcutr",
     "dns",
     "ed25519",
-    "gossipsub",
     "identify",
     "kad",
     "macros",

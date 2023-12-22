@@ -15,7 +15,7 @@ To see how to make this your own, look here:
 [README]((https://openapi-generator.tech))
 
 - API version: 0.9.0
-- Build date: 2023-11-13T20:39:18.296854378Z[Etc/UTC]
+- Build date: 2023-12-22T09:16:10.851194724-07:00[America/Denver]
 
 
 
@@ -72,9 +72,6 @@ cargo run --example client DagResolvePost
 cargo run --example client IdPost
 cargo run --example client PinAddPost
 cargo run --example client PinRmPost
-cargo run --example client PubsubLsPost
-cargo run --example client PubsubPubPost
-cargo run --example client PubsubSubPost
 cargo run --example client SwarmConnectPost
 cargo run --example client SwarmPeersPost
 cargo run --example client VersionPost
@@ -121,9 +118,6 @@ Method | HTTP request | Description
 [****](docs/default_api.md#) | **POST** /id | Report identifying information about a node
 [****](docs/default_api.md#) | **POST** /pin/add | Add a block to the pin store
 [****](docs/default_api.md#) | **POST** /pin/rm | Remove a block from the pin store
-[****](docs/default_api.md#) | **POST** /pubsub/ls | List topic with active subscriptions
-[****](docs/default_api.md#) | **POST** /pubsub/pub | Publish a message to a topic
-[****](docs/default_api.md#) | **POST** /pubsub/sub | Subscribe to a topic, blocks until a message is received
 [****](docs/default_api.md#) | **POST** /swarm/connect | Connect to peers
 [****](docs/default_api.md#) | **POST** /swarm/peers | Report connected peers
 [****](docs/default_api.md#) | **POST** /version | Report server version
@@ -142,7 +136,7 @@ Method | HTTP request | Description
  - [IdPost200Response](docs/IdPost200Response.md)
  - [Multihash](docs/Multihash.md)
  - [PinAddPost200Response](docs/PinAddPost200Response.md)
- - [PubsubLsPost200Response](docs/PubsubLsPost200Response.md)
+ - [SwarmConnectPost200Response](docs/SwarmConnectPost200Response.md)
  - [SwarmPeersPost200Response](docs/SwarmPeersPost200Response.md)
  - [SwarmPeersPost200ResponsePeersInner](docs/SwarmPeersPost200ResponsePeersInner.md)
  - [VersionPost200Response](docs/VersionPost200Response.md)

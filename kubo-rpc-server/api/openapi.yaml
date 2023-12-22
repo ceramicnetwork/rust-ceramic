@@ -341,74 +341,6 @@ paths:
                 $ref: '#/components/schemas/Error'
           description: bad request
       summary: Remove a block from the pin store
-  /pubsub/ls:
-    post:
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/_pubsub_ls_post_200_response'
-          description: success
-        "400":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-          description: bad request
-      summary: List topic with active subscriptions
-  /pubsub/pub:
-    post:
-      parameters:
-      - description: Multibase encoded topic name
-        explode: true
-        in: query
-        name: arg
-        required: true
-        schema:
-          type: string
-        style: form
-      requestBody:
-        content:
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/_dag_put_post_request'
-      responses:
-        "200":
-          description: success
-        "400":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-          description: bad request
-      summary: Publish a message to a topic
-  /pubsub/sub:
-    post:
-      parameters:
-      - description: Multibase encoded topic name
-        explode: true
-        in: query
-        name: arg
-        required: true
-        schema:
-          type: string
-        style: form
-      responses:
-        "200":
-          content:
-            application/octet-stream:
-              schema:
-                format: binary
-                type: string
-          description: success
-        "400":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-          description: bad request
-      summary: "Subscribe to a topic, blocks until a message is received"
   /swarm/peers:
     post:
       responses:
@@ -443,7 +375,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/_pubsub_ls_post_200_response'
+                $ref: '#/components/schemas/_swarm_connect_post_200_response'
           description: success
         "400":
           content:
@@ -617,19 +549,6 @@ components:
       required:
       - Pins
       type: object
-    _pubsub_ls_post_200_response:
-      example:
-        Strings:
-        - Strings
-        - Strings
-      properties:
-        Strings:
-          items:
-            type: string
-          type: array
-      required:
-      - Strings
-      type: object
     _swarm_peers_post_200_response_Peers_inner:
       example:
         Peer: Peer
@@ -657,6 +576,19 @@ components:
           type: array
       required:
       - Peers
+      type: object
+    _swarm_connect_post_200_response:
+      example:
+        Strings:
+        - Strings
+        - Strings
+      properties:
+        Strings:
+          items:
+            type: string
+          type: array
+      required:
+      - Strings
       type: object
     _version_post_200_response:
       example:

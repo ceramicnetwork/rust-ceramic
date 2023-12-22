@@ -2,9 +2,8 @@ use async_trait::async_trait;
 use ceramic_kubo_rpc_server::{
     models, Api, BlockGetPostResponse, BlockPutPostResponse, BlockStatPostResponse,
     DagGetPostResponse, DagImportPostResponse, DagPutPostResponse, DagResolvePostResponse,
-    IdPostResponse, PinAddPostResponse, PinRmPostResponse, PubsubLsPostResponse,
-    PubsubPubPostResponse, PubsubSubPostResponse, SwarmConnectPostResponse, SwarmPeersPostResponse,
-    VersionPostResponse,
+    IdPostResponse, PinAddPostResponse, PinRmPostResponse, SwarmConnectPostResponse,
+    SwarmPeersPostResponse, VersionPostResponse,
 };
 use ceramic_metrics::Recorder;
 use futures_util::Future;
@@ -159,33 +158,6 @@ where
     /// Remove a block from the pin store
     async fn pin_rm_post(&self, arg: String, context: &C) -> Result<PinRmPostResponse, ApiError> {
         self.record("/pin/rm", self.api.pin_rm_post(arg, context))
-            .await
-    }
-
-    /// List topic with active subscriptions
-    async fn pubsub_ls_post(&self, context: &C) -> Result<PubsubLsPostResponse, ApiError> {
-        self.record("/pubsub/ls", self.api.pubsub_ls_post(context))
-            .await
-    }
-
-    /// Publish a message to a topic
-    async fn pubsub_pub_post(
-        &self,
-        arg: String,
-        file: ByteArray,
-        context: &C,
-    ) -> Result<PubsubPubPostResponse, ApiError> {
-        self.record("/pubsub/pub", self.api.pubsub_pub_post(arg, file, context))
-            .await
-    }
-
-    /// Subscribe to a topic, blocks until a message is received
-    async fn pubsub_sub_post(
-        &self,
-        arg: String,
-        context: &C,
-    ) -> Result<PubsubSubPostResponse, ApiError> {
-        self.record("/pubsub/sub", self.api.pubsub_sub_post(arg, context))
             .await
     }
 

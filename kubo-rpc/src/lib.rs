@@ -10,27 +10,21 @@ use std::{
     fmt::{self, Display, Formatter},
     io::Cursor,
     path::PathBuf,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Mutex,
-    },
+    sync::atomic::{AtomicUsize, Ordering},
 };
 use std::{str::FromStr, sync::Arc};
 
 use anyhow::{anyhow, Context};
 use async_trait::async_trait;
 use dag_jose::DagJoseCodec;
-use futures_util::stream::BoxStream;
 use iroh_rpc_client::P2pClient;
 use libipld::{cbor::DagCborCodec, json::DagJsonCodec, prelude::Decode};
-use libp2p::gossipsub::TopicHash;
 use tracing::{error, instrument, trace};
 
 // Pub use any types we export as part of an trait or struct
 pub use bytes::Bytes;
 pub use ceramic_metadata::Version;
 pub use cid::Cid;
-pub use iroh_rpc_types::GossipsubEvent;
 pub use libipld::Ipld;
 pub use libp2p::Multiaddr;
 pub use libp2p_identity::PeerId;
@@ -46,7 +40,6 @@ pub mod http;
 pub mod id;
 mod ipfs_metrics;
 pub mod pin;
-pub mod pubsub;
 pub mod swarm;
 pub mod version;
 
@@ -164,17 +157,6 @@ pub trait IpfsDep: Clone {
     async fn peers(&self) -> Result<HashMap<PeerId, Vec<Multiaddr>>, Error>;
     /// Connect to a specific peer node.
     async fn connect(&self, peer_id: PeerId, addrs: Vec<Multiaddr>) -> Result<(), Error>;
-    /// Publish a message on a pub/sub topic.
-    async fn publish(&self, topic: String, data: Bytes) -> Result<(), Error>;
-    /// Subscribe to a pub/sub topic.
-    async fn subscribe(
-        &self,
-        topic: String,
-    ) -> Result<BoxStream<'static, anyhow::Result<GossipsubEvent>>, Error>;
-    /// Unsubscribe from a pub/sub topic.
-    async fn unsubscribe(&self, topic: String) -> Result<(), Error>;
-    /// List topics to which, we are currently subscribed
-    async fn topics(&self) -> Result<Vec<String>, Error>;
     /// Current version of ceramic
     async fn version(&self) -> Result<ceramic_metadata::Version, Error>;
 }
@@ -184,7 +166,6 @@ pub struct IpfsService {
     p2p: P2pClient,
     store: SQLiteBlockStore,
     resolver: Resolver,
-    topics: Mutex<HashMap<String, isize>>,
 }
 
 impl IpfsService {
@@ -200,7 +181,6 @@ impl IpfsService {
             p2p,
             store,
             resolver,
-            topics: Mutex::new(HashMap::new()),
         }
     }
 }
@@ -298,76 +278,6 @@ impl IpfsDep for Arc<IpfsService> {
             .connect(peer_id, addrs)
             .await
             .map_err(Error::Internal)?)
-    }
-    #[instrument(skip(self))]
-    async fn publish(&self, topic: String, data: Bytes) -> Result<(), Error> {
-        let topic = TopicHash::from_raw(topic);
-        self.p2p
-            .gossipsub_publish(topic, data)
-            .await
-            .map_err(Error::Internal)?;
-        Ok(())
-    }
-    #[instrument(skip(self))]
-    async fn subscribe(
-        &self,
-        topic: String,
-    ) -> Result<BoxStream<'static, anyhow::Result<GossipsubEvent>>, Error> {
-        {
-            self.topics
-                .lock()
-                .expect("should be able to lock topics set")
-                .entry(topic.clone())
-                .and_modify(|count| *count += 1)
-                .or_insert(1);
-        }
-        let topic = TopicHash::from_raw(topic);
-        Ok(Box::pin(
-            self.p2p
-                .gossipsub_subscribe(topic)
-                .await
-                .map_err(Error::Internal)?,
-        ))
-    }
-    #[instrument(skip(self))]
-    async fn unsubscribe(&self, topic: String) -> Result<(), Error> {
-        let count = {
-            let mut topics = self
-                .topics
-                .lock()
-                .expect("should be able to lock topics set");
-
-            let count = if let Some(count) = topics.get_mut(&topic) {
-                *count -= 1;
-                *count
-            } else {
-                0
-            };
-            if count <= 0 {
-                topics.remove(&topic);
-            }
-            count
-        };
-        let topic = TopicHash::from_raw(topic);
-        // Only unsubscribe if this is the last subscription
-        if count <= 0 {
-            self.p2p
-                .gossipsub_unsubscribe(topic)
-                .await
-                .map_err(Error::Internal)?;
-        }
-        Ok(())
-    }
-    #[instrument(skip(self))]
-    async fn topics(&self) -> Result<Vec<String>, Error> {
-        Ok(self
-            .p2p
-            .gossipsub_topics()
-            .await
-            .map_err(Error::Internal)?
-            .iter()
-            .map(|t| t.to_string())
-            .collect())
     }
     #[instrument(skip(self))]
     async fn version(&self) -> Result<ceramic_metadata::Version, Error> {
@@ -539,10 +449,6 @@ pub(crate) mod tests {
             async fn resolve(&self, ipfs_path: &IpfsPath) -> Result<(Cid, String), Error>;
             async fn peers(&self) -> Result<HashMap<PeerId, Vec<Multiaddr>>, Error>;
             async fn connect(&self, peer_id: PeerId, addrs: Vec<Multiaddr>) -> Result<(), Error>;
-            async fn publish(&self, topic: String, data: Bytes) -> Result<(), Error>;
-            async fn subscribe( &self, topic: String) -> Result<BoxStream<'static, anyhow::Result<GossipsubEvent>>, Error>;
-            async fn unsubscribe(&self, topic: String) -> Result<(), Error>;
-            async fn topics(&self) -> Result<Vec<String>, Error>;
             async fn version(&self) -> Result<Version, Error>;
         }
         impl Clone for IpfsDepTest {

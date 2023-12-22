@@ -1,5 +1,5 @@
 use iroh_bitswap::BitswapEvent;
-use libp2p::{autonat, dcutr, gossipsub, identify, kad, mdns, ping, relay};
+use libp2p::{autonat, dcutr, identify, kad, mdns, ping, relay};
 
 use super::ceramic_peer_manager::PeerManagerEvent;
 
@@ -17,7 +17,6 @@ pub enum Event {
     Relay(relay::Event),
     RelayClient(relay::client::Event),
     Dcutr(dcutr::Event),
-    Gossipsub(gossipsub::Event),
     PeerManager(PeerManagerEvent),
     Recon(recon::libp2p::Event),
     Void,
@@ -50,12 +49,6 @@ impl From<mdns::Event> for Event {
 impl From<BitswapEvent> for Event {
     fn from(event: BitswapEvent) -> Self {
         Event::Bitswap(event)
-    }
-}
-
-impl From<gossipsub::Event> for Event {
-    fn from(event: gossipsub::Event) -> Self {
-        Event::Gossipsub(event)
     }
 }
 

@@ -2,7 +2,6 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
 use crate::config::Config;
-use crate::gateway::GatewayClient;
 use crate::network::P2pClient;
 use crate::status::{ClientStatus, ServiceStatus, ServiceType};
 use crate::store::StoreClient;
@@ -11,7 +10,6 @@ use futures::{Stream, StreamExt};
 
 #[derive(Debug, Clone)]
 pub struct Client {
-    pub gateway: Option<GatewayClient>,
     p2p: P2pLBClient,
     store: StoreLBClient,
 }
@@ -85,21 +83,10 @@ impl P2pLBClient {
 impl Client {
     pub async fn new(cfg: Config) -> Result<Self> {
         let Config {
-            gateway_addr,
             p2p_addr,
             store_addr,
             channels,
         } = cfg;
-
-        let gateway = if let Some(addr) = gateway_addr {
-            Some(
-                GatewayClient::new(addr)
-                    .await
-                    .context("Could not create gateway rpc client")?,
-            )
-        } else {
-            None
-        };
 
         let n_channels = channels.unwrap_or(1);
 
@@ -123,21 +110,11 @@ impl Client {
             }
         }
 
-        Ok(Client {
-            gateway,
-            p2p,
-            store,
-        })
+        Ok(Client { p2p, store })
     }
 
     pub fn try_p2p(&self) -> Result<P2pClient> {
         self.p2p.get().context("missing rpc p2p connnection")
-    }
-
-    pub fn try_gateway(&self) -> Result<&GatewayClient> {
-        self.gateway
-            .as_ref()
-            .context("missing rpc gateway connnection")
     }
 
     pub fn try_store(&self) -> Result<StoreClient> {
@@ -145,12 +122,6 @@ impl Client {
     }
 
     pub async fn check(&self) -> crate::status::ClientStatus {
-        let g = if let Some(ref g) = self.gateway {
-            let (s, v) = g.check().await;
-            Some(ServiceStatus::new(ServiceType::Gateway, s, v))
-        } else {
-            None
-        };
         let p = if let Some(ref p) = self.p2p.get() {
             let (s, v) = p.check().await;
             Some(ServiceStatus::new(ServiceType::P2p, s, v))
@@ -163,7 +134,7 @@ impl Client {
         } else {
             None
         };
-        ClientStatus::new(g, p, s)
+        ClientStatus::new(p, s)
     }
 
     pub async fn watch(self) -> impl Stream<Item = ClientStatus> {
@@ -171,11 +142,6 @@ impl Client {
             let mut status: ClientStatus = Default::default();
             let mut streams = Vec::new();
 
-            if let Some(ref g) = self.gateway {
-                let g = g.watch().await;
-                let g = g.map(|(status, version)| ServiceStatus::new(ServiceType::Gateway, status, version));
-                streams.push(g.boxed());
-            }
             if let Some(ref p) = self.p2p.get() {
                 let p = p.watch().await;
                 let p = p.map(|(status, version)| ServiceStatus::new(ServiceType::P2p, status, version));

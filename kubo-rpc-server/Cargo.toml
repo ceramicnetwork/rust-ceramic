@@ -18,7 +18,7 @@ server = [
     "multipart", "multipart/server",
    "serde_ignored", "hyper", "regex", "percent-encoding", "url", "lazy_static"
 ]
-conversion = ["frunk", "frunk_derives", "frunk_core", "frunk-enum-core", "frunk-enum-derive"]
+
 
 [target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "ios"))'.dependencies]
 native-tls = { version = "0.2", optional = true }

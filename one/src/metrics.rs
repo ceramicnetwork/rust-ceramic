@@ -1,49 +1,13 @@
 use std::{convert::Infallible, net::SocketAddr};
 
 use anyhow::Result;
-use ceramic_kubo_rpc::PeerId;
-use ceramic_metrics::Recorder;
 use hyper::{
     http::HeaderValue,
     service::{make_service_fn, service_fn},
     Body, Request, Response,
 };
-use prometheus_client::{encoding::EncodeLabelSet, metrics::counter::Counter};
-use prometheus_client::{encoding::EncodeLabelValue, metrics::family::Family};
-use prometheus_client::{metrics::info::Info, registry::Registry};
+use prometheus_client::{encoding::EncodeLabelSet, metrics::info::Info, registry::Registry};
 use tokio::{sync::oneshot, task::JoinHandle};
-
-use crate::pubsub;
-
-#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
-struct MsgLabels {
-    msg_type: MsgType,
-}
-
-#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelValue)]
-enum MsgType {
-    Update,
-    Query,
-    Response,
-    Keepalive,
-}
-
-#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
-struct PeerLabels {
-    peer_id: String,
-    version: String,
-}
-
-#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
-struct TipLoadLabels {
-    result: TipLoadResult,
-}
-
-#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelValue)]
-pub enum TipLoadResult {
-    Success,
-    Failure,
-}
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
 struct InfoLabels {
@@ -66,99 +30,16 @@ impl From<crate::Info> for InfoLabels {
     }
 }
 
-pub struct Metrics {
-    messages: Family<MsgLabels, Counter>,
-    peers: Family<PeerLabels, Counter>,
-    tip_loads: Family<TipLoadLabels, Counter>,
-}
+pub struct Metrics {}
 
 impl Metrics {
     pub fn register(info: crate::Info, registry: &mut Registry) -> Self {
         let sub_registry = registry.sub_registry_with_prefix("ceramic");
 
-        let messages = Family::<MsgLabels, Counter>::default();
-
-        // Create each combination of labels so that we have explicit zeros reported
-        // until the first message arrives.
-        messages
-            .get_or_create(&MsgLabels {
-                msg_type: MsgType::Update,
-            })
-            .get();
-        messages
-            .get_or_create(&MsgLabels {
-                msg_type: MsgType::Query,
-            })
-            .get();
-        messages
-            .get_or_create(&MsgLabels {
-                msg_type: MsgType::Response,
-            })
-            .get();
-        messages
-            .get_or_create(&MsgLabels {
-                msg_type: MsgType::Keepalive,
-            })
-            .get();
-
-        sub_registry.register(
-            "pubsub_messages",
-            "Number of ceramic pubsub messages received",
-            messages.clone(),
-        );
-
-        let peers = Family::<PeerLabels, Counter>::default();
-        sub_registry.register(
-            "peers",
-            "Number of keepalive messages from each peer, useful for understanding network topology",
-            peers.clone(),
-        );
-
-        let tip_loads = Family::<TipLoadLabels, Counter>::default();
-        sub_registry.register("tip_loads", "Number tip loads", tip_loads.clone());
-
         let info: Info<InfoLabels> = Info::new(info.into());
         sub_registry.register("one", "Information about the ceramic-one process", info);
 
-        Self {
-            messages,
-            peers,
-            tip_loads,
-        }
-    }
-}
-
-impl Recorder<(Option<PeerId>, pubsub::Message)> for Metrics {
-    fn record(&self, event: &(Option<PeerId>, pubsub::Message)) {
-        let msg_type = match &event.1 {
-            pubsub::Message::Update { .. } => MsgType::Update,
-            pubsub::Message::Query { .. } => MsgType::Query,
-            pubsub::Message::Response { .. } => MsgType::Response,
-            pubsub::Message::Keepalive { ver, .. } => {
-                // Record peers total
-                if let Some(source) = event.0 {
-                    self.peers
-                        .get_or_create(&PeerLabels {
-                            peer_id: source.to_string(),
-                            version: ver.to_owned(),
-                        })
-                        .inc();
-                }
-                MsgType::Keepalive
-            }
-        };
-        // Record messages total
-        self.messages.get_or_create(&MsgLabels { msg_type }).inc();
-    }
-}
-
-impl Recorder<TipLoadResult> for Metrics {
-    fn record(&self, result: &TipLoadResult) {
-        self.tip_loads
-            .get_or_create(&TipLoadLabels {
-                result: result.clone(),
-            })
-            .inc();
+        Self {}
     }
 }
 

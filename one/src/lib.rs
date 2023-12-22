@@ -5,36 +5,29 @@ mod events;
 mod http;
 mod metrics;
 mod network;
-mod pubsub;
 mod recon_loop;
 mod sql;
 
-use std::{env, num::NonZeroUsize, path::PathBuf, str::FromStr, sync::Arc, time::Duration};
+use std::{env, num::NonZeroUsize, path::PathBuf, time::Duration};
 
 use anyhow::{anyhow, Result};
 use ceramic_core::{EventId, Interest, PeerId};
-use ceramic_kubo_rpc::{dag, IpfsDep, IpfsPath, Multiaddr};
+use ceramic_kubo_rpc::Multiaddr;
 
-use ceramic_metrics::{config::Config as MetricsConfig, MetricsHandle, Recorder};
+use ceramic_metrics::{config::Config as MetricsConfig, MetricsHandle};
 use ceramic_p2p::{load_identity, DiskStorage, Keychain, Libp2pConfig};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use futures::StreamExt;
-use futures_util::future;
-use libipld::json::DagJsonCodec;
 use multibase::Base;
 use multihash::{Code, Hasher, Multihash, MultihashDigest};
 use recon::{FullInterests, Recon, ReconInterestProvider, SQLiteStore, Server, Sha256a};
 use signal_hook::consts::signal::*;
 use signal_hook_tokio::Signals;
 use swagger::{auth::MakeAllowAllAuthenticator, EmptyContext};
-use tokio::{io::AsyncReadExt, sync::oneshot, task, time::timeout};
+use tokio::{io::AsyncReadExt, sync::oneshot};
 use tracing::{debug, info, warn};
 
-use crate::{
-    metrics::{Metrics, TipLoadResult},
-    network::Ipfs,
-    pubsub::Message,
-};
+use crate::network::Ipfs;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -47,8 +40,6 @@ struct Cli {
 enum Command {
     /// Run a daemon process
     Daemon(DaemonOpts),
-    /// Run a process that locally pins all stream tips
-    Eye(EyeOpts),
     /// Event store tools
     #[command(subcommand)]
     Events(events::EventsCommand),
@@ -283,12 +274,6 @@ impl Network {
     }
 }
 
-#[derive(Args, Debug)]
-struct EyeOpts {
-    #[command(flatten)]
-    daemon: DaemonOpts,
-}
-
 /// Run the ceramic one binary process
 pub async fn run() -> Result<()> {
     let args = Cli::parse();
@@ -297,7 +282,6 @@ pub async fn run() -> Result<()> {
             let daemon = Daemon::build(opts).await?;
             daemon.run().await
         }
-        Command::Eye(opts) => eye(opts).await,
         Command::Events(opts) => events::events(opts).await,
     }
 }
@@ -316,7 +300,6 @@ struct Daemon {
     network: ceramic_core::Network,
     ipfs: Ipfs,
     metrics_handle: MetricsHandle,
-    metrics: Arc<Metrics>,
     recon_interest: ReconInterest,
     recon_model: ReconModel,
 }
@@ -341,10 +324,11 @@ impl Daemon {
         };
         info.apply_to_metrics_config(&mut metrics_config);
 
-        let metrics = ceramic_metrics::MetricsHandle::register(|registry| {
+        // Currently only an info metric is recoreded so we do not need to keep the handle to the
+        // Metrics struct. That will change once we add more metrics.
+        let _metrics = ceramic_metrics::MetricsHandle::register(|registry| {
             crate::metrics::Metrics::register(info.clone(), registry)
         });
-        let metrics = Arc::new(metrics);
 
         // Logging Tracing and metrics are initialized here,
         // debug,info etc will not work until after this line
@@ -390,7 +374,6 @@ impl Daemon {
             autonat: !opts.disable_autonat,
             relay_server: true,
             relay_client: true,
-            gossipsub: true,
             max_conns_out: opts.max_conns_out,
             max_conns_in: opts.max_conns_in,
             max_conns_pending_out: opts.max_conns_pending_out,
@@ -487,7 +470,6 @@ impl Daemon {
             network,
             ipfs,
             metrics_handle,
-            metrics,
             recon_interest,
             recon_model,
         })
@@ -618,99 +600,6 @@ async fn handle_signals(mut signals: Signals, shutdown: oneshot::Sender<()>) {
                 .expect("should be able to send shutdown message");
         }
     }
-}
-
-async fn eye(opts: EyeOpts) -> Result<()> {
-    let daemon = Daemon::build(opts.daemon).await?;
-
-    // Start subscription
-    let subscription = daemon
-        .ipfs
-        .api()
-        .subscribe(daemon.network.name().clone())
-        .await?;
-
-    let client = daemon.ipfs.api();
-    let metrics = daemon.metrics.clone();
-
-    let p2p_events_handle = task::spawn(subscription.for_each(move |event| {
-        match event.expect("should be a message") {
-            ceramic_kubo_rpc::GossipsubEvent::Subscribed { .. } => {}
-            ceramic_kubo_rpc::GossipsubEvent::Unsubscribed { .. } => {}
-            ceramic_kubo_rpc::GossipsubEvent::Message {
-                // From is the direct peer that forwarded the message
-                from: _,
-                id: _,
-                message: pubsub_msg,
-            } => {
-                let ceramic_msg: Message = serde_json::from_slice(pubsub_msg.data.as_slice())
-                    .expect("should be json message");
-                info!(?ceramic_msg);
-                match &ceramic_msg {
-                    Message::Update {
-                        stream: _,
-                        tip,
-                        model: _,
-                    } => {
-                        if let Ok(ipfs_path) = IpfsPath::from_str(tip) {
-                            // Spawn task to get the data for a stream tip when we see one
-                            let client = client.clone();
-                            let metrics = metrics.clone();
-                            task::spawn(async move { load_tip(client, metrics, &ipfs_path).await });
-                        } else {
-                            warn!("invalid update tip: {}", tip)
-                        }
-                    }
-                    Message::Response { id: _, tips } => {
-                        for tip in tips.values() {
-                            if let Ok(ipfs_path) = IpfsPath::from_str(tip) {
-                                // Spawn task to get the data for a stream tip when we see one
-                                let client = client.clone();
-                                let metrics = metrics.clone();
-                                task::spawn(
-                                    async move { load_tip(client, metrics, &ipfs_path).await },
-                                );
-                            } else {
-                                warn!("invalid update tip: {}", tip)
-                            }
-                        }
-                    }
-                    _ => {}
-                };
-                metrics.record(&(pubsub_msg.source, ceramic_msg));
-            }
-        }
-        future::ready(())
-    }));
-
-    daemon.run().await?;
-
-    p2p_events_handle.abort();
-    p2p_events_handle.await.ok();
-    Ok(())
-}
-
-async fn load_tip<T: IpfsDep>(client: T, metrics: Arc<Metrics>, ipfs_path: &IpfsPath) {
-    let result = timeout(
-        Duration::from_secs(60 * 60),
-        dag::get(client, ipfs_path, DagJsonCodec),
-    )
-    .await;
-    let lr = match result {
-        Ok(Ok(_)) => {
-            info!("succeed in loading stream tip: {}", ipfs_path);
-            TipLoadResult::Success
-        }
-        Ok(Err(err)) => {
-            warn!("failed to load stream tip: {}", err);
-            TipLoadResult::Failure
-        }
-        Err(_) => {
-            warn!("timeout loading stream tip");
-            TipLoadResult::Failure
-        }
-    };
-    metrics.record(&lr);
 }
 
 /// Static information about the current process.

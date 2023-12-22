@@ -25,7 +25,6 @@ pub struct ServiceStatus {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ServiceType {
-    Gateway,
     P2p,
     Store,
 }
@@ -33,7 +32,6 @@ pub enum ServiceType {
 impl ServiceType {
     pub fn name(&self) -> &'static str {
         match self {
-            ServiceType::Gateway => "gateway",
             ServiceType::P2p => "p2p",
             ServiceType::Store => "store",
         }
@@ -68,21 +66,13 @@ impl ServiceStatus {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientStatus {
-    pub gateway: ServiceStatus,
     pub p2p: ServiceStatus,
     pub store: ServiceStatus,
 }
 
 impl ClientStatus {
-    pub fn new(
-        gateway: Option<ServiceStatus>,
-        p2p: Option<ServiceStatus>,
-        store: Option<ServiceStatus>,
-    ) -> Self {
+    pub fn new(p2p: Option<ServiceStatus>, store: Option<ServiceStatus>) -> Self {
         Self {
-            gateway: gateway.unwrap_or_else(|| {
-                ServiceStatus::new(ServiceType::Gateway, StatusType::Unknown, "")
-            }),
             p2p: p2p
                 .unwrap_or_else(|| ServiceStatus::new(ServiceType::P2p, StatusType::Unknown, "")),
             store: store
@@ -99,7 +89,6 @@ impl ClientStatus {
 
     pub fn update(&mut self, s: ServiceStatus) {
         match s.typ {
-            ServiceType::Gateway => self.gateway = s,
             ServiceType::P2p => self.p2p = s,
             ServiceType::Store => self.store = s,
         }
@@ -119,7 +108,6 @@ impl Iterator for ClientStatusIterator<'_> {
         let current = match self.iter {
             0 => Some(self.table.store.to_owned()),
             1 => Some(self.table.p2p.to_owned()),
-            2 => Some(self.table.gateway.to_owned()),
             _ => None,
         };
 
@@ -130,7 +118,7 @@ impl Iterator for ClientStatusIterator<'_> {
 
 impl Default for ClientStatus {
     fn default() -> Self {
-        Self::new(None, None, None)
+        Self::new(None, None)
     }
 }
 
@@ -141,24 +129,19 @@ mod tests {
     #[test]
     fn service_status_new() {
         let expect = ServiceStatus {
-            typ: ServiceType::Gateway,
+            typ: ServiceType::P2p,
             status: StatusType::Serving,
             version: "0.1.0".to_string(),
         };
         assert_eq!(
             expect,
-            ServiceStatus::new(ServiceType::Gateway, StatusType::Serving, "0.1.0")
+            ServiceStatus::new(ServiceType::P2p, StatusType::Serving, "0.1.0")
         );
     }
 
     #[test]
     fn client_status_default() {
         let expect = ClientStatus {
-            gateway: ServiceStatus {
-                typ: ServiceType::Gateway,
-                status: StatusType::Unknown,
-                version: "".to_string(),
-            },
             p2p: ServiceStatus {
                 typ: ServiceType::P2p,
                 status: StatusType::Unknown,
@@ -177,11 +160,6 @@ mod tests {
     #[test]
     fn status_table_new() {
         let expect = ClientStatus {
-            gateway: ServiceStatus {
-                typ: ServiceType::Gateway,
-                status: StatusType::Unknown,
-                version: "test".to_string(),
-            },
             p2p: ServiceStatus {
                 typ: ServiceType::P2p,
                 status: StatusType::Unknown,
@@ -196,11 +174,6 @@ mod tests {
         assert_eq!(
             expect,
             ClientStatus::new(
-                Some(ServiceStatus::new(
-                    ServiceType::Gateway,
-                    StatusType::Unknown,
-                    "test"
-                )),
                 Some(ServiceStatus::new(
                     ServiceType::P2p,
                     StatusType::Unknown,
@@ -217,11 +190,6 @@ mod tests {
 
     #[test]
     fn status_table_update() {
-        let gateway = Some(ServiceStatus::new(
-            ServiceType::Gateway,
-            StatusType::Unknown,
-            "0.1.0",
-        ));
         let mut p2p = Some(ServiceStatus::new(
             ServiceType::P2p,
             StatusType::Unknown,
@@ -232,15 +200,15 @@ mod tests {
             StatusType::Unknown,
             "0.1.0",
         ));
-        let mut got = ClientStatus::new(gateway.clone(), p2p.clone(), store.clone());
+        let mut got = ClientStatus::new(p2p.clone(), store.clone());
 
         store.as_mut().unwrap().status = StatusType::Serving;
-        let expect = ClientStatus::new(gateway.clone(), p2p.clone(), store.clone());
+        let expect = ClientStatus::new(p2p.clone(), store.clone());
         got.update(store.clone().unwrap());
         assert_eq!(expect, got);
 
         p2p.as_mut().unwrap().status = StatusType::Down;
-        let expect = ClientStatus::new(gateway, p2p.clone(), store);
+        let expect = ClientStatus::new(p2p.clone(), store);
         got.update(p2p.unwrap());
         assert_eq!(expect, got);
     }
@@ -258,11 +226,6 @@ mod tests {
                 },
                 ServiceStatus {
                     typ: ServiceType::P2p,
-                    status: StatusType::Unknown,
-                    version: "".to_string(),
-                },
-                ServiceStatus {
-                    typ: ServiceType::Gateway,
                     status: StatusType::Unknown,
                     version: "".to_string(),
                 },

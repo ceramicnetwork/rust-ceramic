@@ -1,7 +1,6 @@
 //! Provides an http implementation of the Kubo RPC methods.
 
 mod metrics;
-mod stream_drop;
 
 pub use metrics::{api::MetricsMiddleware, Metrics};
 
@@ -13,32 +12,25 @@ use ceramic_kubo_rpc_server::{
     models::{
         self, BlockPutPost200Response, Codecs, DagImportPost200Response, DagPutPost200Response,
         DagPutPost200ResponseCid, DagResolvePost200Response, DagResolvePost200ResponseCid,
-        IdPost200Response, Multihash, PinAddPost200Response, PubsubLsPost200Response,
+        IdPost200Response, Multihash, PinAddPost200Response, SwarmConnectPost200Response,
         SwarmPeersPost200Response, SwarmPeersPost200ResponsePeersInner, VersionPost200Response,
     },
     Api, BlockGetPostResponse, BlockPutPostResponse, BlockStatPostResponse, DagGetPostResponse,
     DagImportPostResponse, DagPutPostResponse, DagResolvePostResponse, IdPostResponse,
-    PinAddPostResponse, PinRmPostResponse, PubsubLsPostResponse, PubsubPubPostResponse,
-    PubsubSubPostResponse, SwarmConnectPostResponse, SwarmPeersPostResponse, VersionPostResponse,
+    PinAddPostResponse, PinRmPostResponse, SwarmConnectPostResponse, SwarmPeersPostResponse,
+    VersionPostResponse,
 };
-use cid::{
-    multibase::{self, Base},
-    Cid,
-};
+use cid::Cid;
 use dag_jose::DagJoseCodec;
-use futures_util::StreamExt;
 use go_parse_duration::parse_duration;
 use libipld::{cbor::DagCborCodec, json::DagJsonCodec, raw::RawCodec};
-use libp2p::{gossipsub::Message, Multiaddr, PeerId};
+use libp2p::{Multiaddr, PeerId};
 use multiaddr::Protocol;
 use serde::Serialize;
 use swagger::{ApiError, ByteArray};
-use tracing::{instrument, warn, Level};
+use tracing::{instrument, Level};
 
-use crate::{
-    block, dag, http::stream_drop::StreamDrop, id, pin, pubsub, swarm, version, Bytes,
-    GossipsubEvent, IpfsDep, IpfsPath,
-};
+use crate::{block, dag, id, pin, swarm, version, IpfsDep, IpfsPath};
 
 /// Kubo RPC API Server implementation.
 #[derive(Clone)]
@@ -67,7 +59,7 @@ fn create_error(msg: &str) -> models::Error {
     models::Error {
         message: msg.to_string(),
         code: 0f64,
-        typ: "error".to_string(),
+        r#type: "error".to_string(),
     }
 }
 
@@ -380,112 +372,6 @@ where
     }
 
     #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
-    async fn pubsub_ls_post(&self, _context: &C) -> Result<PubsubLsPostResponse, ApiError> {
-        let topics = pubsub::topics(self.ipfs.clone())
-            .await
-            .map_err(to_api_error)?
-            .into_iter()
-            .map(|topic| multibase::encode(Base::Base64Url, topic))
-            .collect();
-        Ok(PubsubLsPostResponse::Success(PubsubLsPost200Response {
-            strings: topics,
-        }))
-    }
-
-    #[instrument(skip(self, _context, file), fields(file.len = file.0.len()), ret(level = Level::DEBUG), err(level = Level::ERROR))]
-    async fn pubsub_pub_post(
-        &self,
-        arg: String,
-        file: swagger::ByteArray,
-        _context: &C,
-    ) -> Result<PubsubPubPostResponse, ApiError> {
-        let (_base, topic_bytes) =
-            try_or_bad_request!(multibase::decode(&arg), PubsubPubPostResponse);
-
-        let topic = try_or_bad_request!(String::from_utf8(topic_bytes), PubsubPubPostResponse);
-
-        pubsub::publish(self.ipfs.clone(), topic, file.0.into())
-            .await
-            .map_err(to_api_error)?;
-        Ok(PubsubPubPostResponse::Success)
-    }
-
-    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
-    async fn pubsub_sub_post(
-        &self,
-        arg: String,
-        _context: &C,
-    ) -> Result<PubsubSubPostResponse, ApiError> {
-        let (_base, topic_bytes) =
-            try_or_bad_request!(multibase::decode(&arg), PubsubSubPostResponse);
-
-        let topic = try_or_bad_request!(String::from_utf8(topic_bytes), PubsubSubPostResponse);
-
-        let subscription = pubsub::subscribe(self.ipfs.clone(), topic.clone())
-            .await
-            .map_err(to_api_error)?;
-
-        #[derive(Serialize)]
-        struct MessageResponse {
-            from: String,
-            data: String,
-            seqno: String,
-            #[serde(rename = "topicIDs")]
-            topic_ids: Vec<String>,
-        }
-
-        let messages = subscription.map(|event| {
-            event
-                .map(|e| {
-                    let m = match e {
-                        // Ignore Subscribed and Unsubscribed events
-                        GossipsubEvent::Subscribed { .. } | GossipsubEvent::Unsubscribed { .. } => {
-                            return Bytes::default()
-                        }
-                        GossipsubEvent::Message {
-                            from: _,
-                            id: _,
-                            message:
-                                Message {
-                                    source,
-                                    data,
-                                    sequence_number,
-                                    topic,
-                                },
-                        } => MessageResponse {
-                            from: source.map(|p| p.to_string()).unwrap_or_default(),
-                            seqno: multibase::encode(
-                                Base::Base64Url,
-                                sequence_number
-                                    .map(|seqno| seqno.to_le_bytes())
-                                    .unwrap_or_default(),
-                            ),
-                            data: multibase::encode(Base::Base64Url, data),
-                            topic_ids: vec![multibase::encode(
-                                Base::Base64Url,
-                                topic.to_string().as_bytes(),
-                            )],
-                        },
-                    };
-                    let mut data =
-                        serde_json::to_vec(&m).expect("gossip event should serialize to JSON");
-                    data.push(b'\n');
-                    data.into()
-                })
-                .map_err(Box::<dyn std::error::Error + Send + Sync>::from)
-        });
-        let ipfs = self.ipfs.clone();
-        let messages = StreamDrop::new(messages, async move {
-            let ret = pubsub::unsubscribe(ipfs.clone(), topic.clone()).await;
-            if let Err(error) = ret {
-                warn!(topic, %error, "failed to unsubscribe");
-            };
-        });
-
-        Ok(PubsubSubPostResponse::Success(Box::pin(messages)))
-    }
-
-    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn swarm_connect_post(
         &self,
         arg: &Vec<String>,
@@ -534,9 +420,11 @@ where
         swarm::connect(self.ipfs.clone(), peer_id, addrs)
             .await
             .map_err(to_api_error)?;
-        Ok(SwarmConnectPostResponse::Success(PubsubLsPost200Response {
-            strings: vec![format!("connect {} success", peer_id)],
-        }))
+        Ok(SwarmConnectPostResponse::Success(
+            SwarmConnectPost200Response {
+                strings: vec![format!("connect {} success", peer_id)],
+            },
+        ))
     }
 
     #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
@@ -589,12 +477,9 @@ mod tests {
     use super::*;
     use crate::{tests::MockIpfsDepTest, PeerInfo};
 
-    use async_stream::stream;
+    use bytes::Bytes;
     use ceramic_metadata::Version;
-    use cid::multibase::{self, Base};
-    use futures_util::TryStreamExt;
     use libipld::{pb::DagPbCodec, prelude::Decode, Ipld};
-    use libp2p::gossipsub::{Message, TopicHash};
     use mockall::predicate;
     use tracing_test::traced_test;
 
@@ -746,7 +631,7 @@ mod tests {
                 Error {
                     message: "block was not found locally (offline)",
                     code: 0.0,
-                    typ: "error",
+                    type: "error",
                 },
             )
         "#]]
@@ -802,7 +687,7 @@ mod tests {
                 Error {
                     message: "Failed to parse multihash",
                     code: 0.0,
-                    typ: "error",
+                    type: "error",
                 },
             )
         "#]]
@@ -878,7 +763,7 @@ mod tests {
                 Error {
                     message: "recursive pinning is not supported",
                     code: 0.0,
-                    typ: "error",
+                    type: "error",
                 },
             )
         "#]]
@@ -934,7 +819,7 @@ mod tests {
                 Error {
                     message: "Failed to parse multihash",
                     code: 0.0,
-                    typ: "error",
+                    type: "error",
                 },
             )
         "#]]
@@ -1037,7 +922,7 @@ mod tests {
                 Error {
                     message: "invalid cid",
                     code: 0.0,
-                    typ: "error",
+                    type: "error",
                 },
             )
         "#]]
@@ -1196,7 +1081,7 @@ mod tests {
                 Error {
                     message: "unsupported codec combination, input-codec: dag-json, store-codec: raw",
                     code: 0.0,
-                    typ: "error",
+                    type: "error",
                 },
             )
         "#]]
@@ -1212,7 +1097,7 @@ mod tests {
                 Error {
                     message: "unsupported codec combination, input-codec: raw, store-codec: dag-cbor",
                     code: 0.0,
-                    typ: "error",
+                    type: "error",
                 },
             )
         "#]]
@@ -1304,7 +1189,7 @@ mod tests {
                 Error {
                     message: "invalid cid",
                     code: 0.0,
-                    typ: "error",
+                    type: "error",
                 },
             )
         "#]]
@@ -1470,7 +1355,7 @@ mod tests {
                 Error {
                     message: "base-58 decode error: provided string contained invalid character 'l' at byte 4",
                     code: 0.0,
-                    typ: "error",
+                    type: "error",
                 },
             )
         "#]]
@@ -1535,7 +1420,7 @@ mod tests {
                 Error {
                     message: "invalid cid",
                     code: 0.0,
-                    typ: "error",
+                    type: "error",
                 },
             )
         "#]]
@@ -1551,7 +1436,7 @@ mod tests {
                 Error {
                     message: "recursive pinning is not supported",
                     code: 0.0,
-                    typ: "error",
+                    type: "error",
                 },
             )
         "#]]
@@ -1567,7 +1452,7 @@ mod tests {
                 Error {
                     message: "pin progress is not supported",
                     code: 0.0,
-                    typ: "error",
+                    type: "error",
                 },
             )
         "#]]
@@ -1613,7 +1498,7 @@ mod tests {
                 Error {
                     message: "invalid cid",
                     code: 0.0,
-                    typ: "error",
+                    type: "error",
                 },
             )
         "#]]
@@ -1662,166 +1547,6 @@ mod tests {
         "#]]
         .assert_debug_eq(&resp);
     }
-    #[tokio::test]
-    #[traced_test]
-    async fn pubsub_ls() {
-        let mut mock_ipfs = MockIpfsDepTest::new();
-        mock_ipfs.expect_clone().once().return_once(|| {
-            let mut m = MockIpfsDepTest::new();
-            m.expect_topics()
-                .once()
-                .return_once(|| Ok(vec!["topic1".to_string(), "topic2".to_string()]));
-            m
-        });
-        let server = Server::new(mock_ipfs);
-        let resp = server.pubsub_ls_post(&Context).await.unwrap();
-
-        expect![[r#"
-            Success(
-                PubsubLsPost200Response {
-                    strings: [
-                        "udG9waWMx",
-                        "udG9waWMy",
-                    ],
-                },
-            )
-        "#]]
-        .assert_debug_eq(&resp);
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn pubsub_pub() {
-        let topic = "test-topic".to_string();
-        let topic_encoded = multibase::encode(Base::Base64, topic.as_bytes());
-        let message = b"message bytes";
-        let message_bytes = Bytes::from(&message[..]);
-
-        let mut mock_ipfs = MockIpfsDepTest::new();
-        mock_ipfs.expect_clone().once().return_once(move || {
-            let mut m = MockIpfsDepTest::new();
-            m.expect_publish()
-                .once()
-                .with(predicate::eq(topic), predicate::eq(message_bytes))
-                .return_once(|_, _| Ok(()));
-            m
-        });
-        let server = Server::new(mock_ipfs);
-        let resp = server
-            .pubsub_pub_post(topic_encoded, ByteArray(message.to_vec()), &Context)
-            .await
-            .unwrap();
-
-        expect![[r#"
-            Success
-        "#]]
-        .assert_debug_eq(&resp);
-    }
-    #[tokio::test]
-    #[traced_test]
-    async fn pubsub_sub() {
-        let topic = "test-topic".to_string();
-        let topic_encoded = multibase::encode(Base::Base64, topic.as_bytes());
-
-        let mut mock_ipfs = MockIpfsDepTest::new();
-        let t = topic.clone();
-        mock_ipfs.expect_clone().once().return_once(move || {
-            let mut m = MockIpfsDepTest::new();
-            m.expect_subscribe()
-                .once()
-                .with(predicate::eq(t))
-                .return_once(|_| {
-                    let first = Ok(GossipsubEvent::Message {
-                        from: PeerId::from_str(
-                            "12D3KooWHUfjwiTRVV8jxFcKRSQTPatayC4nQCNX86oxRF5XWzGe",
-                        )
-                        .unwrap(),
-                        id: libp2p::gossipsub::MessageId::new(&[]),
-                        message: Message {
-                            source: Some(
-                                PeerId::from_str(
-                                    "12D3KooWM68GyFKBT9JsuTRB6CYkF61PtMuSkynUauSQEGBX51JW",
-                                )
-                                .unwrap(),
-                            ),
-                            data: "message 1".as_bytes().to_vec(),
-                            sequence_number: Some(0),
-                            topic: TopicHash::from_raw("topicA"),
-                        },
-                    });
-                    let second = Ok(GossipsubEvent::Message {
-                        from: PeerId::from_str(
-                            "12D3KooWGnKwtpSh2ZLTvoC8mjiexMNRLNkT92pxq7MDgyJHktNJ",
-                        )
-                        .unwrap(),
-                        id: libp2p::gossipsub::MessageId::new(&[]),
-                        message: Message {
-                            source: Some(
-                                PeerId::from_str(
-                                    "12D3KooWQVU9Pv3BqD6bD9w96tJxLedKCj4VZ75oqX9Tav4R4rUS",
-                                )
-                                .unwrap(),
-                            ),
-                            data: "message 2".as_bytes().to_vec(),
-                            sequence_number: Some(1),
-                            topic: TopicHash::from_raw("topicA"),
-                        },
-                    });
-
-                    Ok(Box::pin(stream! {
-                        yield first;
-                        yield second;
-                    }))
-                });
-            m
-        });
-        let t = topic.clone();
-        mock_ipfs.expect_clone().once().return_once(move || {
-            let mut m = MockIpfsDepTest::new();
-            m.expect_unsubscribe()
-                .once()
-                .with(predicate::eq(t))
-                .return_once(|_| Ok(()));
-            m
-        });
-        let server = Server::new(mock_ipfs);
-        let resp = server
-            .pubsub_sub_post(topic_encoded, &Context)
-            .await
-            .unwrap();
-
-        if let PubsubSubPostResponse::Success(body) = resp {
-            let messages: Result<Vec<Bytes>, _> = body.try_collect().await;
-            let messages: Vec<UnquotedString> = messages
-                .unwrap()
-                .into_iter()
-                .map(|m| UnquotedString(bytes_to_pretty_str(m.to_vec())))
-                .collect();
-            expect![[r#"
-                [
-                    {
-                      "data": "ubWVzc2FnZSAx",
-                      "from": "12D3KooWM68GyFKBT9JsuTRB6CYkF61PtMuSkynUauSQEGBX51JW",
-                      "seqno": "uAAAAAAAAAAA",
-                      "topicIDs": [
-                        "udG9waWNB"
-                      ]
-                    },
-                    {
-                      "data": "ubWVzc2FnZSAy",
-                      "from": "12D3KooWQVU9Pv3BqD6bD9w96tJxLedKCj4VZ75oqX9Tav4R4rUS",
-                      "seqno": "uAQAAAAAAAAA",
-                      "topicIDs": [
-                        "udG9waWNB"
-                      ]
-                    },
-                ]
-            "#]]
-            .assert_debug_eq(&messages);
-        } else {
-            panic!("did not get success from server");
-        }
-    }
 
     #[tokio::test]
     #[traced_test]
@@ -1846,7 +1571,7 @@ mod tests {
 
         expect![[r#"
             Success(
-                PubsubLsPost200Response {
+                SwarmConnectPost200Response {
                     strings: [
                         "connect 12D3KooWFtPWZ1uHShnbvmxYJGmygUfTVmcb6iSQfiAm4XnmsQ8t success",
                     ],
@@ -1870,7 +1595,7 @@ mod tests {
                 Error {
                     message: "no peer id specificed in multiaddrs",
                     code: 0.0,
-                    typ: "error",
+                    type: "error",
                 },
             )
         "#]]
