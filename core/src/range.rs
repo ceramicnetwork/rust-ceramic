@@ -1,7 +1,9 @@
 use std::ops::{Bound, RangeBounds};
 
+use serde::{Deserialize, Serialize};
+
 /// An open interval from start to end, exclusive on both bounds.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RangeOpen<T> {
     /// Exclusive lower bound of the range
     pub start: T,

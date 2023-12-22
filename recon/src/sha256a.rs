@@ -5,11 +5,16 @@ use std::fmt::{self, Debug};
 use std::{convert::From, fmt::Formatter};
 
 use crate::{recon::Key, AssociativeHash};
-use ceramic_core::Bytes;
 
 /// Sha256a an associative hash function for use in set reconciliation
 #[derive(Default, PartialEq, Clone, Copy)]
 pub struct Sha256a([u32; 8]);
+
+impl fmt::Display for Sha256a {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.to_hex())
+    }
+}
 
 impl std::ops::Add for Sha256a {
     type Output = Self;
@@ -174,20 +179,6 @@ impl From<[u32; 8]> for Sha256a {
     }
 }
 
-impl From<String> for Sha256a {
-    /// new Sha256a with digest of input
-    fn from(input: String) -> Self {
-        Sha256a::digest(&Bytes::from(input))
-    }
-}
-
-impl From<&str> for Sha256a {
-    /// new Sha256a with digest of input
-    fn from(input: &str) -> Self {
-        Sha256a::digest(&Bytes::from(input))
-    }
-}
-
 impl Debug for Sha256a {
     fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         if f.alternate() {
@@ -202,47 +193,25 @@ impl Debug for Sha256a {
     }
 }
 
-impl Key for Bytes {
-    fn min_value() -> Self {
-        Vec::new().into()
-    }
-
-    fn max_value() -> Self {
-        // We need a value that sorts greater than any multiformat.
-        // Multiformats start with a multiformats.varint
-        // (https://github.com/multiformats/unsigned-varint)
-        // the max_value for a multiformat varint is 0x7fffffff_ffffffff (2^63-1)
-        //   multiformats.varint.encode(0x7fffffff_ffffffff)
-        //   b"\xff\xff\xff\xff\xff\xff\xff\xff\x7f"
-        // therefore all multiformat data will be less then
-        //   b"\xff\xff\xff\xff\xff\xff\xff\xff\x80"
-        b"\xff\xff\xff\xff\xff\xff\xff\xff\xff".as_slice().into()
-    }
-
-    fn as_bytes(&self) -> &[u8] {
-        self.as_slice()
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use crate::recon::AssociativeHash;
-
     use super::*;
-    use ceramic_core::Bytes;
+    use crate::recon::AssociativeHash;
+    use crate::tests::AlphaNumBytes;
+
     use expect_test::expect;
 
     #[test]
     fn hello() {
         assert_eq!(
-            Sha256a::digest(&Bytes::from("hello")).to_hex(),
+            Sha256a::digest(&AlphaNumBytes::from("hello")).to_hex(),
             "2CF24DBA5FB0A30E26E83B2AC5B9E29E1B161E5C1FA7425E73043362938B9824",
         )
     }
 
     #[test]
     fn other() {
-        let other_hash = Sha256a::digest(&Bytes::from("other"));
+        let other_hash = Sha256a::digest(&AlphaNumBytes::from("other"));
         expect![[r#"
             Sha256a {
                 hex: "D9298A10D1B0735837DC4BD85DAC641B0F3CEF27A47E5D53A54F2F3F5B2FCFFA",
@@ -266,14 +235,14 @@ mod tests {
         // JSON doesn't have a first class bytes value so its serializes values as a sequence of
         // integers.
         // Validate we can roundtrip this kind of serialization.
-        let hello = Sha256a::digest(&Bytes::from("hello"));
+        let hello = Sha256a::digest(&AlphaNumBytes::from("hello"));
         let data = serde_json::to_vec(&hello).unwrap();
         let new_hello: Sha256a = serde_json::from_slice(data.as_slice()).unwrap();
         assert_eq!(hello, new_hello);
     }
     #[test]
     fn serde_cbor() {
-        let hello = Sha256a::digest(&Bytes::from("hello"));
+        let hello = Sha256a::digest(&AlphaNumBytes::from("hello"));
         let data = serde_cbor::to_vec(&hello).unwrap();
         let new_hello: Sha256a = serde_cbor::from_slice(data.as_slice()).unwrap();
         assert_eq!(hello, new_hello);

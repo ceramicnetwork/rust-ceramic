@@ -133,7 +133,12 @@ impl std::fmt::Debug for EventId {
         if f.alternate() {
             f.debug_tuple("EventId").field(&self.0).finish()
         } else {
-            write!(f, "{}", hex::encode_upper(self.as_slice()))
+            let bytes = self.as_slice();
+            if bytes.len() < 6 {
+                write!(f, "{}", hex::encode_upper(bytes))
+            } else {
+                write!(f, "{}", hex::encode_upper(&bytes[bytes.len() - 6..]))
+            }
         }
     }
 }

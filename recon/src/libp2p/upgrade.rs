@@ -46,11 +46,11 @@ impl<C, P> OutboundUpgrade<C> for MultiReadyUpgrade<P>
 where
     P: AsRef<str> + Clone,
 {
-    type Output = C;
+    type Output = (P, C);
     type Error = Void;
     type Future = future::Ready<Result<Self::Output, Self::Error>>;
 
-    fn upgrade_outbound(self, stream: C, _: Self::Info) -> Self::Future {
-        future::ready(Ok(stream))
+    fn upgrade_outbound(self, stream: C, info: Self::Info) -> Self::Future {
+        future::ready(Ok((info, stream)))
     }
 }

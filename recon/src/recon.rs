@@ -11,9 +11,12 @@ use async_trait::async_trait;
 use ceramic_core::{EventId, Interest, PeerId, RangeOpen};
 use ceramic_metrics::Recorder;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, instrument, trace};
+use tracing::trace;
 
-use crate::{metrics::KeyInsertEvent, Client, Metrics, Sha256a};
+use crate::{
+    metrics::{KeyInsertEvent, ValueInsertEvent},
+    Client, Metrics, Sha256a,
+};
 
 /// Recon is a protocol for set reconciliation via a message passing paradigm.
 /// An initial message can be created and then messages are exchanged between two Recon instances
@@ -36,7 +39,8 @@ where
 {
     interests: I,
     store: S,
-    metrics: Metrics,
+    // allow metrics to be easily cloned
+    pub(crate) metrics: Metrics,
 }
 
 impl<K, H, S, I> Recon<K, H, S, I>
@@ -55,162 +59,177 @@ where
         }
     }
 
-    /// Construct a message to send as the first message.
-    pub async fn initial_messages(&mut self) -> Result<Vec<Message<K, H>>> {
-        let interests = self.interests().await?;
-        let mut messages = Vec::with_capacity(interests.len());
-        for range in interests {
-            let mut response = Message::new(&range.start, &range.end);
-            if let Some((first, last)) = self.store.first_and_last(&range.start, &range.end).await?
-            {
-                let count = self.store.count(&range.start, &range.end).await?;
-                match count {
-                    0 => {
-                        // this should be unreachable, but we explicitly add this case to be clear.
-                    }
-                    1 => {
-                        // -> (only_key)
-                        response.keys.push(first.to_owned());
-                    }
-                    2 => {
-                        // -> (first 0 last)
-                        response.keys.push(first.to_owned());
-                        response.hashes.push(H::identity());
-                        response.keys.push(last.to_owned());
-                    }
-                    _ => {
-                        // -> (first h(middle) last)
-                        response.keys.push(first.to_owned());
-                        let hash: H = self.store.hash_range(&first, &last).await?.hash;
-                        response.hashes.push(hash);
-                        response.keys.push(last.to_owned());
-                    }
-                }
-            }
-            messages.push(response)
-        }
-        Ok(messages)
-    }
-
-    /// Process an incoming message and respond with a message reply.
-    /// Return Result<(response_message, synced_count, syncing_count), Error>
-    #[instrument(skip_all, ret)]
-    pub async fn process_messages(&mut self, received: &[Message<K, H>]) -> Result<Response<K, H>> {
-        // First we must find the intersection of interests.
+    /// Compute the intersection of the remote interests with the local interests.
+    pub async fn process_interests(
+        &mut self,
+        remote_interests: &[RangeOpen<K>],
+    ) -> Result<Vec<RangeOpen<K>>> {
+        // Find the intersection of interests.
         // Then reply with a message per intersection.
         //
         // TODO: This is O(n^2) over the number of interests.
         // We should make this more efficient in the future.
         // Potentially we could use a variant of https://en.wikipedia.org/wiki/Bounding_volume_hierarchy
         // to quickly find intersections.
-        let mut intersections: Vec<(RangeOpen<K>, BoundedMessage<K, H>)> = Vec::new();
-        for range in self.interests().await? {
-            for msg in received {
-                if let Some(intersection) = range.intersect(&msg.range()) {
-                    let bounded = msg.bound(&intersection);
-                    intersections.push((intersection, bounded))
+        let mut intersections = Vec::with_capacity(remote_interests.len() * 2);
+        for local_range in self.interests().await? {
+            for remote_range in remote_interests {
+                if let Some(intersection) = local_range.intersect(remote_range) {
+                    intersections.push(intersection)
                 }
             }
         }
-
-        let mut response = Response {
-            is_synchronized: true,
-            ..Default::default()
-        };
-        let mut synced = 0;
-        let mut syncing = 0;
-        for (range, received) in intersections {
-            trace!(?range, "processing range");
-            let mut response_message = Message::new(&range.start, &range.end);
-            self.insert_many(received.keys.iter()).await?;
-
-            if let Some(mut left_fencepost) = self.store.first(&range.start, &range.end).await? {
-                let mut received_hashs = received.hashes.iter();
-                let mut received_keys = received.keys.iter();
-                let mut right_fencepost: K = match received_keys.next() {
-                    Some(k) => k.to_owned(),
-                    None => self
-                        .store
-                        .last(&range.start, &range.end)
-                        .await?
-                        .expect("should be at least one key"),
-                };
-
-                let mut received_hash = &H::identity();
-                let zero = &H::identity();
-
-                response_message.keys.push(left_fencepost.clone());
-                while !received.keys.is_empty()
-                    && left_fencepost < *received.keys.last().unwrap()
-                    && (response_message.keys.len() < 32 * 1024)
-                {
-                    let SynchronizedCount {
-                        is_synchronized,
-                        count,
-                    } = response_message
-                        .process_range(
-                            &left_fencepost,
-                            &right_fencepost,
-                            received_hash,
-                            &mut self.store,
-                        )
-                        .await?;
-                    response.is_synchronized &= is_synchronized;
-                    if is_synchronized {
-                        synced += count;
-                    } else {
-                        syncing += count;
-                    }
-                    left_fencepost = right_fencepost;
-                    right_fencepost = match received_keys.next() {
-                        Some(k) => k.to_owned(),
-                        None => self
-                            .store
-                            .last(&range.start, &range.end)
-                            .await?
-                            .expect("should be at least one key"),
-                    };
-                    received_hash = received_hashs.next().unwrap_or(zero);
-                }
-                if !received.keys.is_empty() {
-                    let SynchronizedCount {
-                        is_synchronized,
-                        count,
-                    } = response_message
-                        .process_range(
-                            received.keys.last().unwrap(),
-                            &self
-                                .store
-                                .last(&range.start, &range.end)
-                                .await?
-                                .expect("should be at least one key"),
-                            zero,
-                            &mut self.store,
-                        )
-                        .await?;
-                    response.is_synchronized &= is_synchronized;
-                    if is_synchronized {
-                        synced += count;
-                    } else {
-                        syncing += count;
-                    }
-                }
-                response_message
-                    .end_streak(
-                        &self
-                            .store
-                            .last(&range.start, &range.end)
-                            .await?
-                            .expect("should be at least one key"),
-                        &mut self.store,
-                    )
-                    .await?;
-            };
-            response.messages.push(response_message);
-            response.synchronized_count = synced;
-            response.synchronizing_count = syncing;
+        Ok(intersections)
+    }
+    /// Compute the hash of the keys within the range.
+    pub async fn initial_range(&mut self, interest: RangeOpen<K>) -> Result<Range<K, H>> {
+        let hash = self
+            .store
+            .hash_range(&interest.start, &interest.end)
+            .await?;
+        Ok(Range {
+            first: interest.start,
+            hash,
+            last: interest.end,
+        })
+    }
+    /// Processes a range from a remote.
+    ///
+    /// Reports any new keys and what the range indicates about how the local and remote node are
+    /// synchronized.
+    pub async fn process_range(&mut self, range: Range<K, H>) -> Result<(SyncState<K, H>, Vec<K>)> {
+        let mut new_keys = Vec::with_capacity(2);
+        if !range.first.is_fencepost() && self.insert(&range.first).await? {
+            new_keys.push(range.first.clone());
         }
-        Ok(response)
+        if !range.last.is_fencepost() && self.insert(&range.last).await? {
+            new_keys.push(range.last.clone());
+        }
+
+        let calculated_hash = self.store.hash_range(&range.first, &range.last).await?;
+
+        if calculated_hash == range.hash {
+            Ok((SyncState::Synchronized, new_keys))
+        } else if calculated_hash.hash.is_zero() {
+            Ok((
+                SyncState::Unsynchronized {
+                    ranges: vec![Range {
+                        first: range.first,
+                        hash: H::identity().into(),
+                        last: range.last,
+                    }],
+                },
+                new_keys,
+            ))
+        } else if range.hash.hash.is_zero() {
+            Ok((
+                SyncState::RemoteMissing {
+                    range: Range {
+                        first: range.first,
+                        hash: calculated_hash,
+                        last: range.last,
+                    },
+                },
+                new_keys,
+            ))
+        } else {
+            // We disagree on the hash for range.
+            // Split the range.
+            trace!(
+                ?range.first,
+                ?range.last,
+                ?range.hash,
+                ?calculated_hash,
+                "splitting",
+            );
+            Ok((
+                SyncState::Unsynchronized {
+                    ranges: self.compute_splits(range, calculated_hash.count).await?,
+                },
+                new_keys,
+            ))
+        }
+    }
+
+    async fn compute_splits(&mut self, range: Range<K, H>, count: u64) -> Result<Vec<Range<K, H>>> {
+        // If the number of keys in a range is <= SPLIT_THRESHOLD then directly send all the keys.
+        const SPLIT_THRESHOLD: u64 = 4;
+
+        if count <= SPLIT_THRESHOLD {
+            trace!(count, "small split sending all keys");
+            // We have only a few keys in the range. Let's short circuit the roundtrips and
+            // send the keys directly.
+            let keys: Vec<K> = self
+                .store
+                .range(&range.first, &range.last, 0, usize::MAX)
+                .await?
+                .collect();
+
+            let mut ranges = Vec::with_capacity(keys.len() + 1);
+            let mut prev = None;
+            for key in keys {
+                if let Some(prev) = prev {
+                    // Push range for each intermediate key.
+                    ranges.push(Range {
+                        first: prev,
+                        hash: H::identity().into(),
+                        last: key.clone(),
+                    });
+                } else {
+                    // Push first key in range.
+                    ranges.push(Range {
+                        first: range.first.clone(),
+                        hash: H::identity().into(),
+                        last: key.clone(),
+                    });
+                }
+                prev = Some(key);
+            }
+            if let Some(prev) = prev {
+                // Push last key in range.
+                ranges.push(Range {
+                    first: prev,
+                    hash: H::identity().into(),
+                    last: range.last,
+                });
+            }
+            Ok(ranges)
+        } else {
+            // Split the range in two
+            let mid_key = self.store.middle(&range.first, &range.last).await?;
+            trace!(?mid_key, "splitting on key");
+            if let Some(mid_key) = mid_key {
+                let first_half = self.store.hash_range(&range.first, &mid_key).await?;
+                let last_half = self.store.hash_range(&mid_key, &range.last).await?;
+                Ok(vec![
+                    Range {
+                        first: range.first,
+                        hash: first_half,
+                        last: mid_key.clone(),
+                    },
+                    Range {
+                        first: mid_key,
+                        hash: last_half,
+                        last: range.last,
+                    },
+                ])
+            } else {
+                bail!("unable to find a split key")
+            }
+        }
+    }
+
+    /// Retrieve a value associated with a recon key
+    pub async fn value_for_key(&mut self, key: K) -> Result<Option<Vec<u8>>> {
+        self.store.value_for_key(&key).await
+    }
+
+    /// Associate a value with a recon key
+    pub async fn store_value_for_key(&mut self, key: K, value: Vec<u8>) -> Result<()> {
+        if self.store.store_value_for_key(&key, &value).await? {
+            self.metrics.record(&ValueInsertEvent);
+        }
+        Ok(())
     }
 
     /// Insert a new key into the key space.
@@ -263,24 +282,51 @@ where
         self.store.full_range().await
     }
 
-    async fn interests(&self) -> Result<Vec<RangeOpen<K>>> {
+    /// Return the interests
+    pub async fn interests(&self) -> Result<Vec<RangeOpen<K>>> {
         self.interests.interests().await
     }
 }
 
-#[derive(Debug)]
-pub struct HashCount<H>
-where
-    H: AssociativeHash,
-{
+/// A hash with a count of how many values produced the hash.
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+pub struct HashCount<H> {
     hash: H,
     count: u64,
 }
 
-#[derive(Debug)]
-pub struct SynchronizedCount {
-    is_synchronized: bool,
-    count: u64,
+impl<H> std::fmt::Debug for HashCount<H>
+where
+    H: std::fmt::Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if f.alternate() {
+            f.debug_struct("HashCount")
+                .field("hash", &self.hash)
+                .field("count", &self.count)
+                .finish()
+        } else {
+            write!(f, "{:?}#{}", self.hash, self.count)
+        }
+    }
+}
+
+impl<H> std::fmt::Display for HashCount<H>
+where
+    H: std::fmt::Display,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}#{}", self.hash, self.count)
+    }
+}
+
+impl<H> From<H> for HashCount<H> {
+    fn from(value: H) -> Self {
+        Self {
+            hash: value,
+            count: 0,
+        }
+    }
 }
 
 /// Store defines the API needed to store the Recon set.
@@ -424,6 +470,18 @@ pub trait Store: std::fmt::Debug {
     async fn is_empty(&mut self) -> Result<bool> {
         Ok(self.len().await? == 0)
     }
+
+    /// store_value_for_key returns
+    /// Ok(true) if stored,
+    /// Ok(false) if already present, and
+    /// Err(e) if store failed.
+    async fn store_value_for_key(&mut self, key: &Self::Key, value: &[u8]) -> Result<bool>;
+
+    /// value_for_key returns
+    /// Ok(Some(value)) if stored,
+    /// Ok(None) if not stored, and
+    /// Err(e) if retrieving failed.
+    async fn value_for_key(&mut self, key: &Self::Key) -> Result<Option<Vec<u8>>>;
 }
 
 /// Represents a key that can be reconciled via Recon.
@@ -443,6 +501,8 @@ pub trait Key:
     fn to_hex(&self) -> String {
         hex::encode_upper(self.as_bytes())
     }
+    /// Report if this key is a fencepost and not an actual key
+    fn is_fencepost(&self) -> bool;
 }
 
 /// Associative hash function that is 32 bytes long.
@@ -455,6 +515,7 @@ pub trait AssociativeHash:
     + Default
     + PartialEq
     + std::fmt::Debug
+    + Display
     + From<[u32; 8]>
     + Send
     + Sync
@@ -606,355 +667,37 @@ where
     }
 }
 
-/// Messages are alternating keys and hashes.
-/// The hashes are of all keys in range from left to right.
-///
-/// -> (first, hash(...), middle, hash(...), last)
-///
-/// The key to the left of the hash is less then all keys in the hash.
-/// The key to the right of the hash is greater the all keys in the hash.
-///
-/// Represented as a struct of arrays.
-///   keys[]
-///   hashes[]
-/// with one more key then hashes.
-#[derive(PartialEq, Serialize, Deserialize)]
-pub struct Message<K, H> {
-    // Exclusive start bound, a value of None implies K::min_value
-    start: Option<K>,
-    // Exclusive end bound, a value of None implies K::max_value
-    end: Option<K>,
-    // keys must be 1 longer then hashs unless both are empty
-    keys: Vec<K>,
-
-    // hashes must be 1 shorter then keys
-    hashes: Vec<H>,
+/// Represents a synchronization unit, a pair of keys and the hash of values between the keys
+/// (exclusive of the keys).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Range<K, H> {
+    /// First key in the range
+    /// This key may be a fencepost, meaning its not an actual key but simply a boundary.
+    pub first: K,
+    /// Hash of all keys in between first and last exclusive.
+    /// Hash is zero if there are no keys within the range.
+    pub hash: HashCount<H>,
+    /// Last key in the range,
+    /// This key may be a fencepost, meaning its not an actual key but simply a boundary.
+    pub last: K,
 }
 
-// Explicitly implement default so that K and H do not have an unnecessary Default constraint.
-impl<K: Key, H> Default for Message<K, H> {
-    fn default() -> Self {
-        Self {
-            start: Default::default(),
-            end: Default::default(),
-            keys: Default::default(),
-            hashes: Default::default(),
-        }
-    }
-}
-
-impl<K, H> std::fmt::Debug for Message<K, H>
-where
-    K: Key,
-    H: AssociativeHash + std::fmt::Debug,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if f.alternate() {
-            f.debug_struct("Message")
-                .field("start", &self.start)
-                .field("end", &self.end)
-                .field("keys", &self.keys)
-                .field("hashes", &self.hashes)
-                .finish()
-        } else {
-            write!(f, "(")?;
-            if let Some(start) = &self.start {
-                write!(f, "<{start} ")?;
-            }
-            if self.keys.is_empty() {
-                // Do nothing
-            } else if self.keys.len() > 4 {
-                let zeros = self
-                    .hashes
-                    .iter()
-                    .fold(0, |sum, hash| if hash.is_zero() { sum + 1 } else { sum });
-                write!(
-                    f,
-                    "{}, keys: {}, hashes: {}, zeros: {}, {}",
-                    self.keys[0],
-                    self.keys.len(),
-                    self.hashes.len() - zeros,
-                    zeros,
-                    self.keys[self.keys.len() - 1]
-                )?;
-            } else {
-                for (k, h) in self.keys.iter().zip(self.hashes.iter()) {
-                    let hash_hex = if h.is_zero() {
-                        "0".to_string()
-                    } else {
-                        format!("{:?}", h)
-                    };
-                    write!(f, "{}, {}, ", k, hash_hex)?;
-                }
-                // Write final trailing key
-                write!(f, "{}", self.keys[self.keys.len() - 1])?;
-            }
-            if let Some(end) = &self.end {
-                write!(f, " {end}>")?;
-            }
-
-            write!(f, ")",)
-        }
-    }
-}
-
-impl<K, H> Message<K, H>
-where
-    K: Key,
-    H: AssociativeHash,
-{
-    fn new(start: &K, end: &K) -> Self {
-        Message {
-            start: if start == &K::min_value() {
-                None
-            } else {
-                Some(start.clone())
-            },
-            end: if end == &K::max_value() {
-                None
-            } else {
-                Some(end.clone())
-            },
-            ..Default::default()
-        }
-    }
-    // When a new key is added to the list of keys
-    // we add the accumulator to hashes and clear it
-    // if it is the first key there is no range so we don't push the accumulator
-    // keys must be pushed in lexical order
-
-    async fn end_streak<S>(&mut self, left_fencepost: &K, local_store: &mut S) -> Result<()>
-    where
-        S: Store<Key = K, Hash = H>,
-    {
-        let h = local_store
-            .hash_range(self.keys.last().unwrap(), left_fencepost)
-            .await?
-            .hash;
-        // If the left fencepost has not been sent send it now
-        if self.keys.last().unwrap() != left_fencepost {
-            // Add the left_fencepost to end the match streak.
-            self.keys.push(left_fencepost.to_owned());
-            self.hashes.push(h);
-        };
-        Ok(())
-    }
-
-    // Process keys within a specific range. The returned value is a SynchronizedCount, where is_synchronized indicates
-    // whether the range is in sync, and count is the count of keys in the range.
-    async fn process_range<S>(
-        &mut self,
-        left_fencepost: &K,
-        right_fencepost: &K,
-        received_hash: &H,
-        local_store: &mut S,
-    ) -> Result<SynchronizedCount>
-    where
-        S: Store<Key = K, Hash = H> + Send,
-    {
-        if left_fencepost == right_fencepost {
-            return Ok(SynchronizedCount {
-                is_synchronized: true,
-                count: 0,
-            }); // zero size range is in sync
-        }
-
-        let HashCount {
-            hash: calculated_hash,
-            count,
-        }: HashCount<H> = local_store
-            .hash_range(left_fencepost, right_fencepost)
-            .await?;
-
-        if &calculated_hash == received_hash {
-            // range is in sync, return sync count
-            return Ok(SynchronizedCount {
-                is_synchronized: true,
-                count,
-            });
-        }
-
-        self.end_streak(left_fencepost, local_store).await?;
-
-        if calculated_hash.is_zero() {
-            // we are missing all keys in range
-            // send a 0
-            self.keys.push(right_fencepost.to_owned());
-            self.hashes.push(H::identity());
-        } else if received_hash.is_zero() {
-            // remote is missing all keys in range send all the keys
-            debug!(
-                left_fencepost = left_fencepost.to_hex(),
-                right_fencepost = right_fencepost.to_hex(),
-                "sending all keys in range"
-            );
-            for key in local_store
-                .range(left_fencepost, right_fencepost, 0, usize::MAX)
-                .await?
-            {
-                self.keys.push(key.to_owned());
-                self.hashes.push(H::identity());
-            }
-        } else {
-            // We disagree on the hash for range.
-            // Split the range.
-            trace!(
-                "split ({},{}) {}!={}",
-                left_fencepost,
-                right_fencepost,
-                received_hash.to_hex(),
-                calculated_hash.to_hex()
-            );
-            self.send_split(left_fencepost, right_fencepost, local_store)
-                .await?;
-        }
-        Ok(SynchronizedCount {
-            is_synchronized: false,
-            count,
-        })
-    }
-
-    #[instrument(skip(self, local_store))]
-    async fn send_split<S>(
-        &mut self,
-        left_fencepost: &K,
-        right_fencepost: &K,
-        local_store: &mut S,
-    ) -> Result<()>
-    where
-        S: Store<Key = K, Hash = H> + Send,
-    {
-        // If less than SPLIT_THRESHOLD exist just send them, do not split.
-        const SPLIT_THRESHOLD: usize = 4;
-        let mut range = local_store
-            .range(left_fencepost, right_fencepost, 0, usize::MAX)
-            .await?;
-        let head: Vec<K> = range.by_ref().take(SPLIT_THRESHOLD).collect();
-
-        if head.len() < SPLIT_THRESHOLD {
-            trace!("sending all keys");
-            for key in head {
-                self.keys.push(key.to_owned());
-                self.hashes.push(H::identity());
-            }
-        } else {
-            let mid_key = local_store.middle(left_fencepost, right_fencepost).await?;
-            trace!(?mid_key, "splitting on key");
-            if let Some(mid_key) = mid_key {
-                self.keys.push(mid_key.to_owned());
-                self.hashes
-                    .push(local_store.hash_range(left_fencepost, &mid_key).await?.hash);
-
-                self.keys.push(right_fencepost.to_owned());
-                self.hashes.push(
-                    local_store
-                        .hash_range(&mid_key, right_fencepost)
-                        .await?
-                        .hash,
-                );
-            } else {
-                bail!("unable to find a split key")
-            };
-        }
-        Ok(())
-    }
-
-    fn bound(&self, range: &RangeOpen<K>) -> BoundedMessage<K, H> {
-        // TODO: Can we do this without allocating?
-        // Some challenges that make this hard currently:
-        //  1. The process_messages method iterates over the keys twice
-        //  2. We have to keep keys and hashes properly aligned
-
-        let mut hashes = self.hashes.iter();
-        let keys: Vec<K> = self
-            .keys
-            .iter()
-            .skip_while(|key| {
-                if *key <= &range.start {
-                    // Advance hashes
-                    hashes.next();
-                    true
-                } else {
-                    false
-                }
-            })
-            .take_while(|key| *key < &range.end)
-            .cloned()
-            // Collect the keys to ensure side effects of iteration have been applied.
-            .collect();
-
-        // Collect the hashes up to the last key.
-        let hashes = if keys.len() <= 1 {
-            Vec::new()
-        } else {
-            hashes.take(keys.len() - 1).cloned().collect()
-        };
-
-        BoundedMessage { keys, hashes }
-    }
-
-    fn range(&self) -> RangeOpen<K> {
-        RangeOpen {
-            start: self.start.to_owned().unwrap_or_else(|| K::min_value()),
-            end: self.end.to_owned().unwrap_or_else(|| K::max_value()),
-        }
-    }
-}
-
-// A derivative message that has had its keys and hashes bounded to a specific start and end range.
+/// Enumerates the possible synchronization states between local and remote peers.
 #[derive(Debug)]
-struct BoundedMessage<K, H> {
-    keys: Vec<K>,
-    hashes: Vec<H>,
-}
-
-/// Response from processing a message
-pub struct Response<K, H> {
-    messages: Vec<Message<K, H>>,
-    is_synchronized: bool,
-    synchronized_count: u64,
-    synchronizing_count: u64,
-}
-
-impl<K, H> std::fmt::Debug for Response<K, H>
-where
-    Message<K, H>: std::fmt::Debug,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if f.alternate() {
-            f.debug_struct("Response")
-                .field("messages", &self.messages)
-                .field("is_synchronized", &self.is_synchronized)
-                .finish()
-        } else {
-            write!(f, "[ is_synchronized: {} ", self.is_synchronized)?;
-            for m in &self.messages {
-                write!(f, "{:?}", m)?;
-            }
-            write!(f, "]")
-        }
-    }
-}
-impl<K: Key, H> Default for Response<K, H> {
-    fn default() -> Self {
-        Self {
-            messages: Default::default(),
-            is_synchronized: Default::default(),
-            synchronized_count: 0,
-            synchronizing_count: 0,
-        }
-    }
-}
-
-impl<K, H> Response<K, H> {
-    /// Consume the response and produce a message
-    pub fn into_messages(self) -> Vec<Message<K, H>> {
-        self.messages
-    }
-    /// Report if the response indicates that synchronization has completed
-    pub fn is_synchronized(&self) -> bool {
-        self.is_synchronized
-    }
+pub enum SyncState<K, H> {
+    /// The local is synchronized with the remote.
+    Synchronized,
+    /// The remote range is missing all data in the range.
+    RemoteMissing {
+        /// The range and hash of the local data the remote is missing.
+        range: Range<K, H>,
+    },
+    /// The local is out of sync with the remote.
+    Unsynchronized {
+        /// New set of ranges to deliver to the remote.
+        /// Often these are a split of the previous range or a zero if no local data was found.
+        ranges: Vec<Range<K, H>>,
+    },
 }
 
 impl Key for EventId {
@@ -970,6 +713,11 @@ impl Key for EventId {
     fn as_bytes(&self) -> &[u8] {
         self.as_slice()
     }
+
+    fn is_fencepost(&self) -> bool {
+        //An event is complete if it contains all values up to the event CID.
+        self.cid().is_none()
+    }
 }
 
 impl Key for Interest {
@@ -984,5 +732,10 @@ impl Key for Interest {
 
     fn as_bytes(&self) -> &[u8] {
         self.as_slice()
+    }
+
+    fn is_fencepost(&self) -> bool {
+        // An interest is only complete if it contains all values up to the not_after value.
+        self.not_after().is_err()
     }
 }

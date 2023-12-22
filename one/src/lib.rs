@@ -5,7 +5,6 @@ mod events;
 mod http;
 mod metrics;
 mod network;
-mod recon_loop;
 
 use std::{env, num::NonZeroUsize, path::PathBuf, time::Duration};
 
@@ -202,10 +201,6 @@ struct DaemonOpts {
         env = "CERAMIC_ONE_KADEMLIA_PROVIDER_RECORD_TTL_SECS"
     )]
     kademlia_provider_record_ttl_secs: u64,
-
-    /// When true Recon http will be used to synchronized events with peers.
-    #[arg(long, default_value_t = false, env = "CERAMIC_ONE_RECON_HTTP")]
-    recon_http: bool,
 }
 
 #[derive(ValueEnum, Debug, Clone, Default)]
@@ -531,14 +526,6 @@ impl Daemon {
             ("/api/v0/".to_string(), kubo_rpc_service),
         );
 
-        // Start recon tasks
-        let recon_event_loop_handle = match self.opts.recon_http {
-            true => Some(tokio::spawn(recon_loop::recon_event_loop(
-                self.recon_interest.client(),
-                self.recon_model.client(),
-            ))),
-            false => None,
-        };
         let recon_interest_handle = tokio::spawn(self.recon_interest.run());
         let recon_model_handle = tokio::spawn(self.recon_model.run());
 
@@ -575,12 +562,6 @@ impl Daemon {
             warn!(%err, "recon interest task error");
         }
         debug!("recon interests server stopped");
-        if let Some(handle) = recon_event_loop_handle {
-            if let Err(err) = handle.await {
-                warn!(%err, "recon event loop error");
-            }
-            debug!("recon event loop stopped");
-        }
 
         // Shutdown metrics server and collection handler
         tx_metrics_server_shutdown

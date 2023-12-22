@@ -159,8 +159,27 @@ where
     async fn len(&mut self) -> Result<usize> {
         StoreMetricsMiddleware::<S>::record(self.metrics.clone(), "len", self.store.len()).await
     }
+
     async fn is_empty(&mut self) -> Result<bool> {
         StoreMetricsMiddleware::<S>::record(self.metrics.clone(), "is_empty", self.store.is_empty())
             .await
+    }
+
+    async fn store_value_for_key(&mut self, key: &Self::Key, value: &[u8]) -> Result<bool> {
+        StoreMetricsMiddleware::<S>::record(
+            self.metrics.clone(),
+            "store_value_for_key",
+            self.store.store_value_for_key(key, value),
+        )
+        .await
+    }
+
+    async fn value_for_key(&mut self, key: &Self::Key) -> Result<Option<Vec<u8>>> {
+        StoreMetricsMiddleware::<S>::record(
+            self.metrics.clone(),
+            "value_for_key",
+            self.store.value_for_key(key),
+        )
+        .await
     }
 }

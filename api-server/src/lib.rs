@@ -35,12 +35,6 @@ pub enum LivenessGetResponse {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub enum ReconPostResponse {
-    /// success
-    Success(swagger::ByteArray),
-}
-
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub enum SubscribeSortKeySortValueGetResponse {
     /// success
     Success(Vec<models::Event>),
@@ -72,14 +66,6 @@ pub trait Api<C: Send + Sync> {
 
     /// Test the liveness of the Ceramic node
     async fn liveness_get(&self, context: &C) -> Result<LivenessGetResponse, ApiError>;
-
-    /// Sends a Recon message
-    async fn recon_post(
-        &self,
-        ring: models::Ring,
-        body: swagger::ByteArray,
-        context: &C,
-    ) -> Result<ReconPostResponse, ApiError>;
 
     /// Get events for a stream
     async fn subscribe_sort_key_sort_value_get(
@@ -113,13 +99,6 @@ pub trait ApiNoContext<C: Send + Sync> {
 
     /// Test the liveness of the Ceramic node
     async fn liveness_get(&self) -> Result<LivenessGetResponse, ApiError>;
-
-    /// Sends a Recon message
-    async fn recon_post(
-        &self,
-        ring: models::Ring,
-        body: swagger::ByteArray,
-    ) -> Result<ReconPostResponse, ApiError>;
 
     /// Get events for a stream
     async fn subscribe_sort_key_sort_value_get(
@@ -171,16 +150,6 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
     async fn liveness_get(&self) -> Result<LivenessGetResponse, ApiError> {
         let context = self.context().clone();
         self.api().liveness_get(&context).await
-    }
-
-    /// Sends a Recon message
-    async fn recon_post(
-        &self,
-        ring: models::Ring,
-        body: swagger::ByteArray,
-    ) -> Result<ReconPostResponse, ApiError> {
-        let context = self.context().clone();
-        self.api().recon_post(ring, body, &context).await
     }
 
     /// Get events for a stream

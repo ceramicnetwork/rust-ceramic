@@ -8,7 +8,7 @@ use ceramic_core::SqlitePool;
 use sqlx::Row;
 use std::marker::PhantomData;
 use std::result::Result::Ok;
-use tracing::{debug, instrument};
+use tracing::instrument;
 
 /// ReconSQLite is a implementation of Recon store
 #[derive(Debug)]
@@ -61,6 +61,7 @@ where
             ahash_6 INTEGER,
             ahash_7 INTEGER,
             CID TEXT,
+            value BLOB,
             block_retrieved BOOL, -- indicates if we still want the block
             PRIMARY KEY(sort_key, key)
         )";
@@ -209,7 +210,7 @@ where
             .bind(offset as i64)
             .fetch_all(self.pool.reader())
             .await?;
-        debug!(count = rows.len(), "rows");
+        //debug!(count = rows.len(), "rows");
         Ok(Box::new(rows.into_iter().map(|row| {
             let bytes: Vec<u8> = row.get(0);
             K::from(bytes)
@@ -357,32 +358,53 @@ where
             Ok(None)
         }
     }
+
+    #[instrument(skip(self))]
+    async fn store_value_for_key(&mut self, key: &Self::Key, value: &[u8]) -> Result<bool> {
+        let query = sqlx::query("UPDATE recon SET value=? WHERE sort_key=? AND key=?;");
+        query
+            .bind(value)
+            .bind(&self.sort_key)
+            .bind(key.as_bytes())
+            .fetch_all(self.pool.writer())
+            .await?;
+        Ok(true)
+    }
+
+    #[instrument(skip(self))]
+    async fn value_for_key(&mut self, key: &Self::Key) -> Result<Option<Vec<u8>>> {
+        let query = sqlx::query("SELECT value FROM recon WHERE sort_key=? AND key=?;");
+        let row = query
+            .bind(&self.sort_key)
+            .bind(key.as_bytes())
+            .fetch_optional(self.pool.reader())
+            .await?;
+        Ok(row.map(|row| row.get(0)))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    use crate::tests::AlphaNumBytes;
     use crate::Sha256a;
 
-    use ceramic_core::Bytes;
     use expect_test::expect;
-    use tokio::test;
-    use tracing_test::traced_test;
+    use test_log::test;
 
-    async fn new_store() -> SQLiteStore<Bytes, Sha256a> {
+    async fn new_store() -> SQLiteStore<AlphaNumBytes, Sha256a> {
         let conn = SqlitePool::connect("sqlite::memory:").await.unwrap();
-        SQLiteStore::<Bytes, Sha256a>::new(conn, "test".to_string())
+        SQLiteStore::<AlphaNumBytes, Sha256a>::new(conn, "test".to_string())
             .await
             .unwrap()
     }
 
-    #[test]
-    #[traced_test]
+    #[test(tokio::test)]
     async fn test_hash_range_query() {
         let mut store = new_store().await;
-        store.insert(&Bytes::from("hello")).await.unwrap();
-        store.insert(&Bytes::from("world")).await.unwrap();
+        store.insert(&AlphaNumBytes::from("hello")).await.unwrap();
+        store.insert(&AlphaNumBytes::from("world")).await.unwrap();
         let hash: Sha256a = store
             .hash_range(&b"a".as_slice().into(), &b"z".as_slice().into())
             .await
@@ -392,12 +414,11 @@ mod tests {
             .assert_eq(&hash.to_hex());
     }
 
-    #[test]
-    #[traced_test]
+    #[test(tokio::test)]
     async fn test_range_query() {
         let mut store = new_store().await;
-        store.insert(&Bytes::from("hello")).await.unwrap();
-        store.insert(&Bytes::from("world")).await.unwrap();
+        store.insert(&AlphaNumBytes::from("hello")).await.unwrap();
+        store.insert(&AlphaNumBytes::from("world")).await.unwrap();
         let ids = store
             .range(
                 &b"a".as_slice().into(),
@@ -417,11 +438,10 @@ mod tests {
             ),
         ]
         "#]]
-        .assert_debug_eq(&ids.collect::<Vec<Bytes>>());
+        .assert_debug_eq(&ids.collect::<Vec<AlphaNumBytes>>());
     }
 
-    #[test]
-    #[traced_test]
+    #[test(tokio::test)]
     async fn test_double_insert() {
         let mut store = new_store().await;
 
@@ -433,7 +453,7 @@ mod tests {
         )
         "#
         ]
-        .assert_debug_eq(&store.insert(&Bytes::from("hello")).await);
+        .assert_debug_eq(&store.insert(&AlphaNumBytes::from("hello")).await);
 
         // reject the second insert of same key
         expect![
@@ -443,19 +463,18 @@ mod tests {
         )
         "#
         ]
-        .assert_debug_eq(&store.insert(&Bytes::from("hello")).await);
+        .assert_debug_eq(&store.insert(&AlphaNumBytes::from("hello")).await);
     }
 
-    #[test]
-    #[traced_test]
+    #[test(tokio::test)]
     async fn test_first_and_last() {
         let mut store = new_store().await;
-        store.insert(&Bytes::from("hello")).await.unwrap();
-        store.insert(&Bytes::from("world")).await.unwrap();
+        store.insert(&AlphaNumBytes::from("hello")).await.unwrap();
+        store.insert(&AlphaNumBytes::from("world")).await.unwrap();
 
         // Only one key in range
         let ret = store
-            .first_and_last(&Bytes::from("a"), &Bytes::from("j"))
+            .first_and_last(&AlphaNumBytes::from("a"), &AlphaNumBytes::from("j"))
             .await
             .unwrap();
         expect![[r#"
@@ -474,7 +493,7 @@ mod tests {
 
         // No keys in range
         let ret = store
-            .first_and_last(&Bytes::from("j"), &Bytes::from("p"))
+            .first_and_last(&AlphaNumBytes::from("j"), &AlphaNumBytes::from("p"))
             .await
             .unwrap();
         expect![[r#"
@@ -484,7 +503,7 @@ mod tests {
 
         // Two keys in range
         let ret = store
-            .first_and_last(&Bytes::from("a"), &Bytes::from("z"))
+            .first_and_last(&AlphaNumBytes::from("a"), &AlphaNumBytes::from("z"))
             .await
             .unwrap();
         expect![[r#"
@@ -500,5 +519,19 @@ mod tests {
             )
         "#]]
         .assert_debug_eq(&ret);
+    }
+
+    #[test(tokio::test)]
+    async fn test_store_value_for_key() {
+        let mut store = new_store().await;
+        let key = AlphaNumBytes::from("hello");
+        let store_value = AlphaNumBytes::from("world");
+        store.insert(&key).await.unwrap();
+        store
+            .store_value_for_key(&key, store_value.as_slice())
+            .await
+            .unwrap();
+        let value = store.value_for_key(&key).await.unwrap().unwrap();
+        expect![[r#"776f726c64"#]].assert_eq(hex::encode(&value).as_str());
     }
 }

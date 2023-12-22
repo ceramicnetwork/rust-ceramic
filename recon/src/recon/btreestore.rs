@@ -1,9 +1,6 @@
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    ops::Bound,
-};
-
+use anyhow::Result;
 use async_trait::async_trait;
+use std::{collections::BTreeMap, ops::Bound};
 
 use crate::recon::{AssociativeHash, Key, MaybeHashedKey, Store};
 
@@ -18,6 +15,7 @@ where
 {
     /// The set of keys and their Sha256a hashes
     keys: BTreeMap<K, H>, // this will be a b#tree at some point in the future
+    values: BTreeMap<K, Vec<u8>>, // Map from keys to values.
 }
 
 impl<K, H> Default for BTreeStore<K, H>
@@ -28,6 +26,7 @@ where
     fn default() -> Self {
         Self {
             keys: Default::default(),
+            values: Default::default(),
         }
     }
 }
@@ -37,14 +36,16 @@ where
     K: Key,
     H: AssociativeHash,
 {
-    /// make a new recon form a set of Strings
-    pub fn from_set(s: BTreeSet<K>) -> Self {
+    /// make a new recon from a set of keys and values
+    pub fn from_set(s: BTreeMap<K, Vec<u8>>) -> Self {
         let mut r = Self {
-            keys: BTreeMap::default(),
+            keys: Default::default(),
+            values: Default::default(),
         };
-        for key in s {
+        for (key, value) in s {
             let hash = H::digest(&key);
-            r.keys.insert(key, hash);
+            r.keys.insert(key.clone(), hash);
+            r.values.insert(key, value);
         }
         r
     }
@@ -88,7 +89,7 @@ where
         right_fencepost: &K,
         offset: usize,
         limit: usize,
-    ) -> anyhow::Result<Box<dyn Iterator<Item = K> + Send + 'static>> {
+    ) -> Result<Box<dyn Iterator<Item = K> + Send + 'static>> {
         let range = (
             Bound::Excluded(left_fencepost),
             Bound::Excluded(right_fencepost),
@@ -114,7 +115,7 @@ where
     type Key = K;
     type Hash = H;
 
-    async fn insert(&mut self, key: &Self::Key) -> anyhow::Result<bool> {
+    async fn insert(&mut self, key: &Self::Key) -> Result<bool> {
         Ok(self.keys.insert(key.to_owned(), H::digest(key)).is_none())
     }
 
@@ -134,7 +135,7 @@ where
         right_fencepost: &Self::Key,
         offset: usize,
         limit: usize,
-    ) -> anyhow::Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
+    ) -> Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
         // Self does not need async to implement range, so it exposes a pub non async range function
         // and we delegate to its implementation here.
         BTreeStore::range(self, left_fencepost, right_fencepost, offset, limit)
@@ -144,7 +145,7 @@ where
         &mut self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
-    ) -> anyhow::Result<Option<Self::Key>> {
+    ) -> Result<Option<Self::Key>> {
         let range = (
             Bound::Excluded(left_fencepost),
             Bound::Excluded(right_fencepost),
@@ -160,7 +161,7 @@ where
         &mut self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
-    ) -> anyhow::Result<Option<(Self::Key, Self::Key)>> {
+    ) -> Result<Option<(Self::Key, Self::Key)>> {
         let range = (
             Bound::Excluded(left_fencepost),
             Bound::Excluded(right_fencepost),
@@ -176,5 +177,14 @@ where
         } else {
             Ok(None)
         }
+    }
+
+    /// store_value_for_key returns Some(true) is inserting, Some(false) if present, and Err if store failed.
+    async fn store_value_for_key(&mut self, key: &Self::Key, value: &[u8]) -> Result<bool> {
+        Ok(self.values.insert(key.clone(), value.to_vec()).is_none())
+    }
+    /// value_for_key returns an Error is retrieving failed and None if the key is not stored.
+    async fn value_for_key(&mut self, key: &Self::Key) -> Result<Option<Vec<u8>>> {
+        Ok(self.values.get(key).cloned())
     }
 }
