@@ -14,9 +14,6 @@ Method | HTTP request | Description
 ****](default_api.md#) | **POST** /id | Report identifying information about a node
 ****](default_api.md#) | **POST** /pin/add | Add a block to the pin store
 ****](default_api.md#) | **POST** /pin/rm | Remove a block from the pin store
-****](default_api.md#) | **POST** /pubsub/ls | List topic with active subscriptions
-****](default_api.md#) | **POST** /pubsub/pub | Publish a message to a topic
-****](default_api.md#) | **POST** /pubsub/sub | Subscribe to a topic, blocks until a message is received
 ****](default_api.md#) | **POST** /swarm/connect | Connect to peers
 ****](default_api.md#) | **POST** /swarm/peers | Report connected peers
 ****](default_api.md#) | **POST** /version | Report server version
@@ -330,80 +327,7 @@ No authorization required
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
 # ****
-> models::PubsubLsPost200Response ()
-List topic with active subscriptions
-
-### Required Parameters
-This endpoint does not need any parameter.
-
-### Return type
-
-[**models::PubsubLsPost200Response**](_pubsub_ls_post_200_response.md)
-
-### Authorization
-
-No authorization required
-
-### HTTP request headers
-
- - **Content-Type**: Not defined
- - **Accept**: application/json
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
-
-# ****
-> (arg, file)
-Publish a message to a topic
-
-### Required Parameters
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
-  **arg** | **String**| Multibase encoded topic name | 
-  **file** | **swagger::ByteArray**|  | 
-
-### Return type
-
- (empty response body)
-
-### Authorization
-
-No authorization required
-
-### HTTP request headers
-
- - **Content-Type**: multipart/form-data
- - **Accept**: application/json
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
-
-# ****
-> swagger::ByteArray (arg)
-Subscribe to a topic, blocks until a message is received
-
-### Required Parameters
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
-  **arg** | **String**| Multibase encoded topic name | 
-
-### Return type
-
-[**swagger::ByteArray**](file.md)
-
-### Authorization
-
-No authorization required
-
-### HTTP request headers
-
- - **Content-Type**: Not defined
- - **Accept**: application/json, application/octet-stream
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
-
-# ****
-> models::PubsubLsPost200Response (arg)
+> models::SwarmConnectPost200Response (arg)
 Connect to peers
 
 ### Required Parameters
@@ -414,7 +338,7 @@ Name | Type | Description  | Notes
 
 ### Return type
 
-[**models::PubsubLsPost200Response**](_pubsub_ls_post_200_response.md)
+[**models::SwarmConnectPost200Response**](_swarm_connect_post_200_response.md)
 
 ### Authorization
 

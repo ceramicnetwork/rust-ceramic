@@ -104,14 +104,14 @@ mod tests {
 
     #[test]
     fn test_addr_roundtrip_irpc_http2() {
-        use crate::gateway::GatewayAddr;
+        use crate::p2p::P2pAddr;
         use crate::Addr;
         use std::net::SocketAddr;
 
         let socket: SocketAddr = "198.168.2.1:1234".parse().unwrap();
         let addr = Addr::Irpc(socket);
 
-        assert_eq!(addr.to_string().parse::<GatewayAddr>().unwrap(), addr);
+        assert_eq!(addr.to_string().parse::<P2pAddr>().unwrap(), addr);
         assert_eq!(addr.to_string(), "irpc://198.168.2.1:1234");
     }
 }

@@ -1,13 +1,10 @@
 pub mod addr;
-pub mod gateway;
-mod gossipsub_event;
 pub mod p2p;
 pub mod store;
 
 use std::fmt;
 
 pub use addr::Addr;
-pub use gossipsub_event::{GossipsubEvent, GossipsubEventStream};
 
 use serde::{Deserialize, Serialize};
 

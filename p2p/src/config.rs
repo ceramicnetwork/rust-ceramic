@@ -52,8 +52,6 @@ pub struct Libp2pConfig {
     pub relay_server: bool,
     /// Relay client enabled.
     pub relay_client: bool,
-    /// Gossipsub enabled.
-    pub gossipsub: bool,
     pub max_conns_out: u32,
     pub max_conns_in: u32,
     pub max_conns_pending_out: u32,
@@ -119,7 +117,6 @@ impl Default for Libp2pConfig {
             autonat: true,
             relay_server: true,
             relay_client: true,
-            gossipsub: true,
             bitswap_client: true,
             bitswap_server: true,
             max_conns_pending_out: 256,
