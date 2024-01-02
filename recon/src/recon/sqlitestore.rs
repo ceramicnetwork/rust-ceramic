@@ -58,6 +58,7 @@ where
             ahash_6 INTEGER,
             ahash_7 INTEGER,
             CID TEXT,
+            value BLOB,
             block_retrieved BOOL, -- indicates if we still want the block
             PRIMARY KEY(sort_key, key)
         )";
@@ -340,6 +341,33 @@ where
             Ok(None)
         }
     }
+
+    #[instrument(skip(self))]
+    async fn store_value_for_key(&mut self, key: &Self::Key, value: &[u8]) -> Result<bool> {
+        let query = sqlx::query("UPDATE recon SET value=? WHERE sort_key=?, key=?;");
+        let resp = query
+            .bind(value)
+            .bind(&self.sort_key)
+            .bind(key.as_bytes())
+            .fetch_all(&self.pool)
+            .await;
+        match resp {
+            Ok(_) => Ok(true),
+            Err(err) => Err(err.into()),
+        }
+    }
+
+    #[instrument(skip(self))]
+    async fn value_for_key(&mut self, key: &Self::Key) -> Result<Option<Vec<u8>>> {
+        let query = sqlx::query("SELECT value FROM recon WHERE key=?;");
+        let rows = query.bind(key.as_bytes()).fetch_all(&self.pool).await?;
+        if let Some(row) = rows.get(0) {
+            let value: Vec<u8> = row.get(0);
+            Ok(Some(value))
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -482,5 +510,20 @@ mod tests {
             )
         "#]]
         .assert_debug_eq(&ret);
+    }
+
+    #[test]
+    #[traced_test]
+    async fn test_store_value_for_key() {
+        let mut store = new_store().await;
+        let key = Bytes::from("hello");
+        let store_value = Bytes::from("world");
+        store.insert(&key).await.unwrap();
+        store
+            .store_value_for_key(&key, store_value.as_slice())
+            .await
+            .unwrap();
+        let value = store.value_for_key(&key).await.unwrap().unwrap();
+        expect![[r#"776f726c64"#]].assert_eq(hex::encode(&value).as_str());
     }
 }

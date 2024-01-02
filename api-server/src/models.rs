@@ -9,11 +9,11 @@ use crate::models;
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]
 pub struct Event {
-    /// Multibase encodeding of event id bytes.
+    /// Multibase encoding of event id bytes.
     #[serde(rename = "eventId")]
     pub event_id: String,
 
-    /// Multibase encodeding of event data.
+    /// Multibase encoding of event data.
     #[serde(rename = "eventData")]
     pub event_data: String,
 }

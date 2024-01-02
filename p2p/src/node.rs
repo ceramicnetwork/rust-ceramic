@@ -1290,6 +1290,13 @@ mod tests {
         async fn len(&self) -> Result<usize> {
             unreachable!()
         }
+
+        async fn value_for_key(&self, _key: Self::Key) -> Result<Option<Vec<u8>>> {
+            Ok(None)
+        }
+        async fn store_value_for_key(&self, _key: Self::Key, _value: &[u8]) -> Result<()> {
+            Ok(())
+        }
     }
 
     impl TestRunnerBuilder {

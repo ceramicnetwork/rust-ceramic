@@ -24,7 +24,7 @@ use crate::{
 
 #[derive(Serialize, Deserialize)]
 pub(crate) enum Envelope<K: Key, H: AssociativeHash> {
-    Synchronize(Vec<Message<K, H>>, bool),
+    Synchronize(Vec<Message<K, H>>, bool /* in_sync */),
     ValueRequest(K),
     ValueResponse(K, Vec<u8>),
     HangUp,

@@ -86,6 +86,8 @@ where
         self.sender.send(Request::ValueForKey { key, ret }).await?;
         rx.await?
     }
+
+    /// Store the value associated with a key so we can sync it later.
     pub async fn store_value_for_key(&self, key: K, value: &[u8]) -> Result<()> {
         let (ret, rx) = oneshot::channel();
         self.sender

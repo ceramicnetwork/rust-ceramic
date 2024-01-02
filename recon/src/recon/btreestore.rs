@@ -1,11 +1,10 @@
+use crate::recon::{AssociativeHash, Key, MaybeHashedKey, Store};
+use anyhow::Result;
+use async_trait::async_trait;
 use std::{
     collections::{BTreeMap, BTreeSet},
     ops::Bound,
 };
-
-use async_trait::async_trait;
-
-use crate::recon::{AssociativeHash, Key, MaybeHashedKey, Store};
 
 /// An implementation of a Store that stores keys in an in-memory BTree
 #[derive(Clone, Debug)]
@@ -16,6 +15,7 @@ where
 {
     /// The set of keys and their Sha256a hashes
     keys: BTreeMap<K, H>, // this will be a b#tree at some point in the future
+    values: BTreeMap<K, Vec<u8>>, // Map from keys to values.
 }
 
 impl<K, H> Default for BTreeStore<K, H>
@@ -26,6 +26,7 @@ where
     fn default() -> Self {
         Self {
             keys: Default::default(),
+            values: Default::default(),
         }
     }
 }
@@ -38,7 +39,8 @@ where
     /// make a new recon form a set of Strings
     pub fn from_set(s: BTreeSet<K>) -> Self {
         let mut r = Self {
-            keys: BTreeMap::default(),
+            keys: Default::default(),
+            values: Default::default(),
         };
         for key in s {
             let hash = H::digest(&key);
@@ -49,7 +51,7 @@ where
 
     /// Return the hash of all keys in the range between left_fencepost and right_fencepost.
     /// Both range bounds are exclusive.
-    pub fn hash_range(&self, left_fencepost: &K, right_fencepost: &K) -> anyhow::Result<H> {
+    pub fn hash_range(&self, left_fencepost: &K, right_fencepost: &K) -> Result<H> {
         if left_fencepost >= right_fencepost {
             return Ok(H::identity());
         }
@@ -74,7 +76,7 @@ where
         right_fencepost: &K,
         offset: usize,
         limit: usize,
-    ) -> anyhow::Result<Box<dyn Iterator<Item = K> + Send + 'static>> {
+    ) -> Result<Box<dyn Iterator<Item = K> + Send + 'static>> {
         let range = (
             Bound::Excluded(left_fencepost),
             Bound::Excluded(right_fencepost),
@@ -100,7 +102,7 @@ where
     type Key = K;
     type Hash = H;
 
-    async fn insert(&mut self, key: &Self::Key) -> anyhow::Result<bool> {
+    async fn insert(&mut self, key: &Self::Key) -> Result<bool> {
         Ok(self.keys.insert(key.to_owned(), H::digest(key)).is_none())
     }
 
@@ -108,7 +110,7 @@ where
         &mut self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
-    ) -> anyhow::Result<Self::Hash> {
+    ) -> Result<Self::Hash> {
         // Self does not need async to implement hash_range, so it exposes a pub non async hash_range function
         // and we delegate to its implementation here.
         BTreeStore::hash_range(self, left_fencepost, right_fencepost)
@@ -120,7 +122,7 @@ where
         right_fencepost: &Self::Key,
         offset: usize,
         limit: usize,
-    ) -> anyhow::Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
+    ) -> Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
         // Self does not need async to implement range, so it exposes a pub non async range function
         // and we delegate to its implementation here.
         BTreeStore::range(self, left_fencepost, right_fencepost, offset, limit)
@@ -130,7 +132,7 @@ where
         &mut self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
-    ) -> anyhow::Result<Option<Self::Key>> {
+    ) -> Result<Option<Self::Key>> {
         let range = (
             Bound::Excluded(left_fencepost),
             Bound::Excluded(right_fencepost),
@@ -146,7 +148,7 @@ where
         &mut self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
-    ) -> anyhow::Result<Option<(Self::Key, Self::Key)>> {
+    ) -> Result<Option<(Self::Key, Self::Key)>> {
         let range = (
             Bound::Excluded(left_fencepost),
             Bound::Excluded(right_fencepost),
@@ -162,5 +164,14 @@ where
         } else {
             Ok(None)
         }
+    }
+
+    /// store_value_for_key returns Some(true) is inserting, Some(false) if present, and Err if store failed.
+    async fn store_value_for_key(&mut self, key: &Self::Key, value: &[u8]) -> Result<bool> {
+        Ok(self.values.insert(key.clone(), value.to_vec()).is_none())
+    }
+    /// value_for_key returns an Error is retrieving failed and None if the key is not stored.
+    async fn value_for_key(&mut self, key: &Self::Key) -> Result<Option<Vec<u8>>> {
+        Ok(self.values.get(key).map(|value| value.clone()))
     }
 }

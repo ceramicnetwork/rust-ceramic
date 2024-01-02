@@ -77,7 +77,10 @@ pub trait Recon: Clone + Send + Sync + 'static {
         Ok(self.len().await? == 0)
     }
 
+    /// retrieve a value associated with a recon key
     async fn value_for_key(&self, key: Self::Key) -> Result<Option<Vec<u8>>>;
+
+    /// associate a value with a recon key
     async fn store_value_for_key(&self, key: Self::Key, value: &[u8]) -> Result<()>;
 }
 

@@ -3,7 +3,7 @@ pub mod sqlitestore;
 #[cfg(test)]
 pub mod tests;
 
-use std::{collections::BTreeMap, fmt::Display, marker::PhantomData};
+use std::{fmt::Display, marker::PhantomData};
 
 use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
@@ -39,7 +39,6 @@ where
     interests: I,
     store: S,
     metrics: Metrics,
-    values: BTreeMap<K, Vec<u8>>,
 }
 
 impl<K, H, S, I> Recon<K, H, S, I>
@@ -55,7 +54,6 @@ where
             store,
             interests,
             metrics,
-            values: Default::default(),
         }
     }
 
@@ -199,12 +197,14 @@ where
         Ok(response)
     }
 
+    /// retrieve a value associated with a recon key
     pub async fn value_for_key(&mut self, key: K) -> Result<Option<Vec<u8>>> {
-        Ok(self.values.get(&key).cloned())
+        self.store.value_for_key(&key).await
     }
 
+    /// associate a value with a recon key
     pub async fn store_value_for_key(&mut self, key: K, value: Vec<u8>) -> Result<()> {
-        if self.values.insert(key, value).is_none() {
+        if self.store.store_value_for_key(&key, &value).await? {
             self.metrics.record(&ValueInsertEvent);
         }
         Ok(())
@@ -383,6 +383,18 @@ pub trait Store: std::fmt::Debug {
     async fn is_empty(&mut self) -> Result<bool> {
         Ok(self.len().await? == 0)
     }
+
+    /// store_value_for_key returns
+    /// Ok(true) if stored,
+    /// Ok(false) if already present, and
+    /// Err(e) if store failed.
+    async fn store_value_for_key(&mut self, key: &Self::Key, value: &[u8]) -> Result<bool>;
+
+    /// value_for_key returns
+    /// Ok(Some(value)) if stored,
+    /// Ok(None) if not stored, and
+    /// Err(e) if retrieving failed.
+    async fn value_for_key(&mut self, key: &Self::Key) -> Result<Option<Vec<u8>>>;
 }
 
 /// Represents a key that can be reconciled via Recon.
@@ -894,6 +906,7 @@ impl<K, H> Response<K, H> {
     pub fn is_synchronized(&self) -> bool {
         self.is_synchronized
     }
+    /// The set of keys newly learned from processing a recon message
     pub fn new_keys(&self) -> &[K] {
         &self.new_keys
     }

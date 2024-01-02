@@ -320,10 +320,10 @@ mod tests {
         ) -> Result<Vec<Self::Key>> {
             self.range(start, end, offset, limit)
         }
-        async fn value_for_key(&self, key: Self::Key) -> Result<Option<Vec<u8>>> {
+        async fn value_for_key(&self, _key: Self::Key) -> Result<Option<Vec<u8>>> {
             Ok(None)
         }
-        async fn store_value_for_key(&self, key: Self::Key, value: &[u8]) -> Result<()> {
+        async fn store_value_for_key(&self, _key: Self::Key, _value: &[u8]) -> Result<()> {
             Ok(())
         }
     }
@@ -359,10 +359,10 @@ mod tests {
         ) -> Result<Vec<Self::Key>> {
             self.range(start, end, offset, limit)
         }
-        async fn value_for_key(&self, key: Self::Key) -> Result<Option<Vec<u8>>> {
+        async fn value_for_key(&self, _key: Self::Key) -> Result<Option<Vec<u8>>> {
             Ok(None)
         }
-        async fn store_value_for_key(&self, key: Self::Key, value: &[u8]) -> Result<()> {
+        async fn store_value_for_key(&self, _key: Self::Key, _value: &[u8]) -> Result<()> {
             Ok(())
         }
     }
