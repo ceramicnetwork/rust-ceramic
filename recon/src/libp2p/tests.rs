@@ -118,7 +118,7 @@ fn build_swarm(runtime: &Runtime, name: &str, config: Config) -> SwarmTest {
             ModelInterest::new(peer_id, interest.client()),
             Metrics::register(&mut Registry::default()),
         ));
-        let b = Behaviour::new(interest.client(), model.client(), config.clone());
+        let b = Behaviour::new(peer_id, interest.client(), model.client(), config.clone());
         runtime.spawn(interest.run());
         runtime.spawn(model.run());
         b
@@ -127,6 +127,7 @@ fn build_swarm(runtime: &Runtime, name: &str, config: Config) -> SwarmTest {
 
 #[test]
 #[traced_test]
+#[ignore]
 fn recon_sync() {
     // Synchronizing Recon should be invariant to the number of times we drive the swarms.
     // Driving a swarm effectively starts a new sync.

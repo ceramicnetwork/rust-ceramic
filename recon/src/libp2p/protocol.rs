@@ -11,7 +11,7 @@ use tokio::{
     select,
     sync::mpsc::{channel, Sender},
 };
-use tracing::{debug, info, trace};
+use tracing::{debug, trace};
 
 use crate::{
     libp2p::{

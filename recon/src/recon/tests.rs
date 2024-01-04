@@ -612,9 +612,14 @@ fn hello() {
                         ],
                     },
                 },
+                values: {},
             },
             metrics: Metrics {
                 key_insert_count: Counter {
+                    value: 0,
+                    phantom: PhantomData<u64>,
+                },
+                value_insert_count: Counter {
                     value: 0,
                     phantom: PhantomData<u64>,
                 },
@@ -744,9 +749,14 @@ fn test_parse_recon() {
                             },
                         },
                     },
+                    values: {},
                 },
                 metrics: Metrics {
                     key_insert_count: Counter {
+                        value: 0,
+                        phantom: PhantomData<u64>,
+                    },
+                    value_insert_count: Counter {
                         value: 0,
                         phantom: PhantomData<u64>,
                     },
@@ -834,9 +844,14 @@ fn test_parse_recon() {
                             },
                         },
                     },
+                    values: {},
                 },
                 metrics: Metrics {
                     key_insert_count: Counter {
+                        value: 0,
+                        phantom: PhantomData<u64>,
+                    },
+                    value_insert_count: Counter {
                         value: 0,
                         phantom: PhantomData<u64>,
                     },
@@ -1060,9 +1075,14 @@ dog: []
                             },
                         },
                     },
+                    values: {},
                 },
                 metrics: Metrics {
                     key_insert_count: Counter {
+                        value: 0,
+                        phantom: PhantomData<u64>,
+                    },
+                    value_insert_count: Counter {
                         value: 0,
                         phantom: PhantomData<u64>,
                     },
@@ -1083,9 +1103,14 @@ dog: []
                 ),
                 store: BTreeStore {
                     keys: {},
+                    values: {},
                 },
                 metrics: Metrics {
                     key_insert_count: Counter {
+                        value: 0,
+                        phantom: PhantomData<u64>,
+                    },
+                    value_insert_count: Counter {
                         value: 0,
                         phantom: PhantomData<u64>,
                     },

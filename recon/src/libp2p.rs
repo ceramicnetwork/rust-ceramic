@@ -21,10 +21,7 @@ mod upgrade;
 use anyhow::Result;
 use async_trait::async_trait;
 use ceramic_core::{EventId, Interest};
-use libp2p::{
-    core::ConnectedPoint,
-    swarm::{ConnectionId, NetworkBehaviour, NotifyHandler, ToSwarm},
-};
+use libp2p::swarm::{ConnectionId, NetworkBehaviour, NotifyHandler, ToSwarm};
 use libp2p_identity::PeerId;
 use serde::{Deserialize, Serialize};
 use std::{

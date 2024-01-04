@@ -172,6 +172,6 @@ where
     }
     /// value_for_key returns an Error is retrieving failed and None if the key is not stored.
     async fn value_for_key(&mut self, key: &Self::Key) -> Result<Option<Vec<u8>>> {
-        Ok(self.values.get(key).map(|value| value.clone()))
+        Ok(self.values.get(key).cloned())
     }
 }

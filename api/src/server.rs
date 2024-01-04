@@ -394,7 +394,7 @@ mod tests {
             .events_post(
                 models::Event {
                     event_id: event_id_str,
-                    event_data: Default::default(),
+                    event_data: "f".to_string(),
                 },
                 &Context,
             )
@@ -445,7 +445,7 @@ mod tests {
             .build();
         let event = models::Event {
             event_id: multibase::encode(multibase::Base::Base16Lower, event_id.as_slice()),
-            event_data: Default::default(),
+            event_data: multibase::encode(multibase::Base::Base64, b""),
         };
         // Setup mock expectations
         let mut mock_interest = MockReconInterestTest::new();

@@ -700,7 +700,7 @@ mod tests {
         // Test data from:
         // https://ipld.io/specs/codecs/dag-json/fixtures/cross-codec/#array-mixed
         let cbor_cid =
-            Cid::from_str("bafyreidufmzzejc3p7gmh6ivp4fjvca5jfazk57nu6vdkvki4c4vpja724").unwrap();
+            Cid::from_str("bafyreidufmzzejc3p7gmh6ivp4fjvca5jfazk57nu6vdkvki4c4vpja724").unwrap(); // cspell:disable-line
 
         // Cbor encoded bytes
         let file = hex::decode("8c1b0016db6db6db6db71a000100001901f40200202238ff3aa5f702b33b0016db6db6db6db74261316fc48c6175657320c39f76c49b746521").unwrap();
@@ -729,7 +729,7 @@ mod tests {
             )
             .await
             .unwrap();
-
+        // cSpell:disable
         expect![[r#"
             Success(
                 BlockPutPost200Response {
@@ -739,6 +739,7 @@ mod tests {
             )
         "#]]
         .assert_debug_eq(&resp);
+        // cSpell:enable
     }
 
     #[tokio::test]
@@ -932,7 +933,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn dag_import() {
-        let car_file = include_bytes!("testdata/carv1-basic.car");
+        let car_file = include_bytes!("testdata/carv1-basic.car"); // cspell:disable-line
         let mut mock_ipfs = MockIpfsDepTest::new();
         mock_ipfs.expect_clone().once().return_once(move || {
             let mut m = MockIpfsDepTest::new();
@@ -988,9 +989,10 @@ mod tests {
         // Test data from:
         // https://ipld.io/specs/codecs/dag-json/fixtures/cross-codec/#array-mixed
         let cbor_cid =
-            Cid::from_str("bafyreidufmzzejc3p7gmh6ivp4fjvca5jfazk57nu6vdkvki4c4vpja724").unwrap();
+            Cid::from_str("bafyreidufmzzejc3p7gmh6ivp4fjvca5jfazk57nu6vdkvki4c4vpja724").unwrap(); // cspell:disable-line
 
-        let file = ByteArray(r#"[6433713753386423,65536,500,2,0,-1,-3,-256,-2784428724,-6433713753386424,{"/":{"bytes":"YTE"}},"Čaues ßvěte!"]"#.as_bytes().to_vec());
+        let file = ByteArray(r#"[6433713753386423,65536,500,2,0,-1,-3,-256,-2784428724,-6433713753386424,{"/":{"bytes":"YTE"}},"Čaues ßvěte!"]"#.as_bytes().to_vec()); // cspell:disable-line
+
         // Cbor encoded bytes
         let blob = Bytes::from(hex::decode("8c1b0016db6db6db6db71a000100001901f40200202238ff3aa5f702b33b0016db6db6db6db74261316fc48c6175657320c39f76c49b746521").unwrap());
         let mut mock_ipfs = MockIpfsDepTest::new();
@@ -1012,6 +1014,7 @@ mod tests {
             .await
             .unwrap();
 
+        // cSpell:disable
         expect![[r#"
             Success(
                 DagPutPost200Response {
@@ -1022,6 +1025,7 @@ mod tests {
             )
         "#]]
         .assert_debug_eq(&resp);
+        // cSpell:enable
     }
     #[tokio::test]
     #[traced_test]
@@ -1029,9 +1033,9 @@ mod tests {
         // Test data from:
         // https://ipld.io/specs/codecs/dag-json/fixtures/cross-codec/#array-mixed
         let json_cid =
-            Cid::from_str("baguqeera4iuxsgqusw3ctry362niptivjyio6dxnsn5afctijsahacub2eza").unwrap();
+            Cid::from_str("baguqeera4iuxsgqusw3ctry362niptivjyio6dxnsn5afctijsahacub2eza").unwrap(); // cspell:disable-line
+        let file = ByteArray(r#"[6433713753386423,65536,500,2,0,-1,-3,-256,-2784428724,-6433713753386424,{"/":{"bytes":"YTE"}},"Čaues ßvěte!"]"#.as_bytes().to_vec()); // cspell:disable-line
 
-        let file = ByteArray(r#"[6433713753386423,65536,500,2,0,-1,-3,-256,-2784428724,-6433713753386424,{"/":{"bytes":"YTE"}},"Čaues ßvěte!"]"#.as_bytes().to_vec());
         // JSON encoded bytes
         let blob = Bytes::from(file.0.clone());
         let mut mock_ipfs = MockIpfsDepTest::new();
@@ -1053,6 +1057,7 @@ mod tests {
             .await
             .unwrap();
 
+        // cSpell:disable
         expect![[r#"
             Success(
                 DagPutPost200Response {
@@ -1063,6 +1068,7 @@ mod tests {
             )
         "#]]
         .assert_debug_eq(&resp);
+        // cSpell:enable
     }
 
     #[tokio::test]
@@ -1107,10 +1113,10 @@ mod tests {
     #[traced_test]
     async fn dag_resolve() {
         // Test data uses getting started guide for IPFS:
-        // ipfs://QmQPeNsJPyVWPFDVHb77w8G42Fvo15z4bG2X8D2GhfbSXc
-        let path = "QmQPeNsJPyVWPFDVHb77w8G42Fvo15z4bG2X8D2GhfbSXc/ping";
+        // ipfs://QmQPeNsJPyVWPFDVHb77w8G42Fvo15z4bG2X8D2GhfbSXc // cspell:disable-line
+        let path = "QmQPeNsJPyVWPFDVHb77w8G42Fvo15z4bG2X8D2GhfbSXc/ping"; // cspell:disable-line
 
-        let cid = Cid::from_str("QmejvEPop4D7YUadeGqYWmZxHhLc4JBUCzJJHWMzdcMe2y").unwrap();
+        let cid = Cid::from_str("QmejvEPop4D7YUadeGqYWmZxHhLc4JBUCzJJHWMzdcMe2y").unwrap(); // cspell:disable-line
         let mut mock_ipfs = MockIpfsDepTest::new();
         mock_ipfs.expect_clone().once().return_once(move || {
             let mut m = MockIpfsDepTest::new();
@@ -1142,10 +1148,10 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn dag_resolve_remaining() {
-        let path = "bafyreih6aqnl3v2d6jlidqqnw6skf2ntrtswvra65xz73ymrqspdy2jfai/chainId";
+        let path = "bafyreih6aqnl3v2d6jlidqqnw6skf2ntrtswvra65xz73ymrqspdy2jfai/chainId"; // cspell:disable-line
 
         let cid =
-            Cid::from_str("bafyreih6aqnl3v2d6jlidqqnw6skf2ntrtswvra65xz73ymrqspdy2jfai").unwrap();
+            Cid::from_str("bafyreih6aqnl3v2d6jlidqqnw6skf2ntrtswvra65xz73ymrqspdy2jfai").unwrap(); // cspell:disable-line
         let mut mock_ipfs = MockIpfsDepTest::new();
         mock_ipfs.expect_clone().once().return_once(move || {
             let mut m = MockIpfsDepTest::new();

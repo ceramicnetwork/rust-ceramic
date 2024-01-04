@@ -5,7 +5,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use sqlx::{Row, SqlitePool};
 use std::marker::PhantomData;
-use tracing::{debug, instrument};
+use tracing::instrument;
 
 /// ReconSQLite is a implementation of Recon store
 #[derive(Debug)]
@@ -344,7 +344,7 @@ where
 
     #[instrument(skip(self))]
     async fn store_value_for_key(&mut self, key: &Self::Key, value: &[u8]) -> Result<bool> {
-        let query = sqlx::query("UPDATE recon SET value=? WHERE sort_key=?, key=?;");
+        let query = sqlx::query("UPDATE recon SET value=? WHERE sort_key=? AND key=?;");
         let resp = query
             .bind(value)
             .bind(&self.sort_key)
