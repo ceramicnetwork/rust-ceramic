@@ -44,7 +44,6 @@ use crate::{
     keys::{Keychain, Storage},
     metrics::{LoopEvent, Metrics},
     providers::Providers,
-    publisher::Publisher,
     rpc::{self, RpcMessage},
     rpc::{P2p, ProviderRequestKey},
     swarm::build_swarm,
@@ -83,9 +82,7 @@ where
     use_dht: bool,
     bitswap_sessions: BitswapSessions,
     providers: Providers,
-    publisher: Publisher,
     listen_addrs: Vec<Multiaddr>,
-
     trust_observed_addrs: bool,
     failed_external_addresses: HashSet<Multiaddr>,
     active_address_probe: Option<Multiaddr>,
@@ -178,14 +175,6 @@ where
             listen_addrs.push(addr.clone());
         }
 
-        let publisher = Publisher::new(
-            libp2p_config
-                .kademlia_provider_publication_interval
-                .unwrap_or_else(|| Duration::from_secs(12 * 60 * 60)),
-            block_store,
-            metrics.clone(),
-        );
-
         // The following two statements were intentionally placed right before the return. Having them sooner caused the
         // daemon to get stuck in a loop during shutdown, unable to bind to a listen address, if there was some
         // initialization error after the RPC task was spawned, e.g. while parsing bootstrap peer multiaddrs in the
@@ -237,7 +226,6 @@ where
             use_dht: libp2p_config.kademlia,
             bitswap_sessions: Default::default(),
             providers: Providers::new(4),
-            publisher,
             listen_addrs,
             trust_observed_addrs: libp2p_config.trust_observed_addrs,
             failed_external_addresses: Default::default(),
@@ -320,16 +308,6 @@ where
                         None => {
                             // shutdown
                             return Ok(());
-                        }
-                    }
-                }
-                // Poll publisher for records only after kademlia bootstrapped
-                provide_records = self.publisher.next(), if matches!(kad_state, KadBootstrapState::Bootstrapped) => {
-                    if let Some(kad) = self.swarm.behaviour_mut().kad.as_mut() {
-                        if let Some(key) = provide_records {
-                            if let Err(err) = kad.start_providing(key.clone()) {
-                                warn!(key=hex::encode(key.to_vec()), %err,"failed to provide record");
-                            }
                         }
                     }
                 }
@@ -602,10 +580,7 @@ where
                 } = e
                 {
                     match result {
-                        QueryResult::StartProviding(result) => {
-                            self.publisher.handle_start_providing_result(result);
-                            Ok(None)
-                        }
+                        QueryResult::StartProviding(_result) => Ok(None),
                         QueryResult::GetProviders(Ok(p)) => {
                             match p {
                                 GetProvidersOk::FoundProviders { key, providers } => {

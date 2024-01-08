@@ -4,7 +4,6 @@ mod keys;
 mod metrics;
 mod node;
 mod providers;
-mod publisher;
 pub mod rpc;
 mod sqliteblockstore;
 mod swarm;
