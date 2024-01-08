@@ -253,7 +253,7 @@ where
             .bind(right_fencepost.as_bytes())
             .fetch_all(&self.pool)
             .await?;
-        Ok(rows.get(0).map(|row| {
+        Ok(rows.first().map(|row| {
             let bytes: Vec<u8> = row.get(0);
             K::from(bytes)
         }))
@@ -286,7 +286,7 @@ where
             .bind(right_fencepost.as_bytes())
             .fetch_all(&self.pool)
             .await?;
-        Ok(rows.get(0).map(|row| {
+        Ok(rows.first().map(|row| {
             let bytes: Vec<u8> = row.get(0);
             K::from(bytes)
         }))
@@ -332,7 +332,7 @@ where
             .bind(right_fencepost.as_bytes())
             .fetch_all(&self.pool)
             .await?;
-        if let Some(row) = rows.get(0) {
+        if let Some(row) = rows.first() {
             let first = K::from(row.get(0));
             let last = K::from(row.get(1));
             Ok(Some((first, last)))

@@ -547,7 +547,7 @@ where
             .into_iter()
             .map(|(k, v)| SwarmPeersPost200ResponsePeersInner {
                 addr: v
-                    .get(0)
+                    .first()
                     .map(|a| a.to_string())
                     .unwrap_or_else(|| "".to_string()),
                 peer: k.to_string(),
