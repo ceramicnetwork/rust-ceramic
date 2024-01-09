@@ -22,7 +22,7 @@ struct EnvelopeLabels {
 impl<K: Key, H: AssociativeHash> From<&Envelope<K, H>> for EnvelopeLabels {
     fn from(value: &Envelope<K, H>) -> Self {
         match value {
-            Envelope::Synchronize(_, _) => Self {
+            Envelope::Synchronize(_) => Self {
                 envelope_type: "Synchronize",
             },
             Envelope::ValueRequest(_) => Self {

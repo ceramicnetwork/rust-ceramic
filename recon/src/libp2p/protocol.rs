@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::ops::RangeInclusive;
 
 use anyhow::{Context, Result};
 use asynchronous_codec::{CborCodec, Framed};
@@ -9,10 +9,7 @@ use libp2p::{
 };
 use libp2p_identity::PeerId;
 use serde::{Deserialize, Serialize};
-use tokio::{
-    select,
-    sync::mpsc::{channel, Sender},
-};
+use tokio::{select, sync::mpsc::channel};
 use tracing::{debug, trace};
 
 use crate::{
@@ -26,7 +23,7 @@ use crate::{
 
 #[derive(Serialize, Deserialize)]
 pub(crate) enum Envelope<K: Key, H: AssociativeHash> {
-    Synchronize(Vec<Message<K, H>>, bool /* in_sync */),
+    Synchronize(Vec<Message<K, H>>),
     ValueRequest(K),
     ValueResponse(K, Vec<u8>),
     HangUp,
@@ -35,11 +32,7 @@ pub(crate) enum Envelope<K: Key, H: AssociativeHash> {
 impl<K: Key, H: AssociativeHash> std::fmt::Debug for Envelope<K, H> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Synchronize(arg0, arg1) => f
-                .debug_tuple("Synchronize")
-                .field(arg0)
-                .field(arg1)
-                .finish(),
+            Self::Synchronize(arg0) => f.debug_tuple("Synchronize").field(arg0).finish(),
             Self::ValueRequest(arg0) => f.debug_tuple("ValueRequest").field(arg0).finish(),
             Self::ValueResponse(arg0, arg1) => f
                 .debug_tuple("ValueResponse")
@@ -68,7 +61,7 @@ pub async fn synchronize<S: AsyncRead + AsyncWrite + Unpin, R: Recon>(
 
     if initiate {
         let messages = recon.initial_messages().await.context("initial_messages")?;
-        let envelope = Envelope::Synchronize(messages, false);
+        let envelope = Envelope::Synchronize(messages);
         metrics.record(&EnvelopeSent(&envelope));
         framed
             .send(envelope)
@@ -76,38 +69,108 @@ pub async fn synchronize<S: AsyncRead + AsyncWrite + Unpin, R: Recon>(
             .context("sending initial messages")?;
     }
 
-    let flush_interval = tokio::time::interval(Duration::from_secs(1));
-    let (tx, mut rx) = channel(100000);
+    let (tx_want_values, mut rx_want_values) = channel(1000);
+    let (_tx_synched_ranges, mut rx_synced_ranges) = channel::<RangeInclusive<R::Key>>(1000);
 
-    pin_mut!(framed, flush_interval);
+    let mut local_is_done = false;
+    let mut remote_is_done = false;
+    let mut keys_synchronized = false;
+
+    let mut is_want_values_done = false;
+    let mut is_synched_ranges_done = false;
+
+    pin_mut!(framed);
     loop {
         select! {
-            biased;
             request = framed.try_next() => {
                 if let Some(request) = request? {
-                    if !do_recv(recon.clone(), request, tx.clone(), metrics.clone()).await? {
-                        break;
-                    }
+                    metrics.record(&EnvelopeRecv(&request));
+                    trace!(?request, "recon request");
+                    match request {
+                        Envelope::Synchronize(messages, ) => {
+                            let response = recon
+                                .process_messages(messages)
+                                .await
+                                .context("processing message")?;
+                            trace!(?response, "recon response");
+
+                            for key in response.new_keys() {
+                                let _ = tx_want_values.try_send(key.clone());
+                            }
+                            // TODO append synced_ranges
+
+                            let local_is_synchronized = response.is_synchronized();
+                            if local_is_synchronized {
+                                keys_synchronized = true;
+                                rx_want_values.close();
+                                rx_synced_ranges.close();
+                            }
+                            if !local_is_synchronized || !initiate {
+                                framed
+                                    .send(Envelope::Synchronize(response.into_messages()))
+                                    .await?;
+                            }
+                        }
+                        Envelope::ValueRequest(key) => {
+                            // TODO queue up value requests for worker
+                            let value = recon
+                                .value_for_key(key.clone())
+                                .await
+                                .context("value for key")?;
+                            if let Some(value) = value {
+                                framed.feed(Envelope::ValueResponse(key, value)).await?;
+                            }
+                        }
+                        Envelope::ValueResponse(key, value) => {
+                            recon
+                                .store_value_for_key(key, &value)
+                                .await
+                                .context("store value for key")?;
+                        }
+                        Envelope::HangUp => {
+                            remote_is_done = true;
+                        }
+                    };
                 }
             }
-            response = rx.recv() => {
-                if let Some(response) = response {
-                    metrics.record(&EnvelopeSent(&response));
-                    framed.feed(response).await.context("sending response")?;
+            // Send want value requests
+            key = rx_want_values.recv(), if !is_want_values_done => {
+                if let Some(key) = key {
+                    let envelope = Envelope::ValueRequest(key);
+                    metrics.record(&EnvelopeSent(&envelope));
+                    framed
+                        .feed(envelope)
+                        .await
+                        .context("feeding value request")?;
                 } else {
-                    unreachable!("rx should not be closed as tx is still in scope");
+                    trace!(is_want_values_done, "is_want_values_done");
+                    is_want_values_done = true;
                 }
             }
-            _ = flush_interval.tick() => {
-                framed.flush().await.context("flushing")?;
+            // Process any synchronized ranges
+            range = rx_synced_ranges.recv(), if !is_synched_ranges_done => {
+                if let Some(_range) = range {
+                    // TODO
+                } else {
+                    trace!(is_synched_ranges_done, "is_synched_ranges_done");
+                    is_synched_ranges_done = true;
+                }
             }
         }
-    }
-    // Send all pending responses
-    drop(tx);
-    while let Some(response) = rx.recv().await {
-        metrics.record(&EnvelopeSent(&response));
-        framed.send(response).await.context("sending response")?;
+
+        if keys_synchronized && is_want_values_done && is_synched_ranges_done {
+            trace!(local_is_done, "local is done");
+            if !local_is_done {
+                local_is_done = true;
+                framed
+                    .send(Envelope::HangUp)
+                    .await
+                    .context("feeding value request")?;
+            }
+            if remote_is_done {
+                break;
+            }
+        }
     }
 
     framed.close().await.context("closing stream")?;
@@ -116,61 +179,4 @@ pub async fn synchronize<S: AsyncRead + AsyncWrite + Unpin, R: Recon>(
         recon.len().await?
     );
     Ok(stream_set)
-}
-
-async fn do_recv<R: Recon>(
-    recon: R,
-    request: Envelope<R::Key, R::Hash>,
-    tx_envelope: Sender<Envelope<R::Key, R::Hash>>,
-    metrics: Metrics,
-) -> Result<bool> {
-    metrics.record(&EnvelopeRecv(&request));
-    trace!(?request, "recon request");
-    match request {
-        Envelope::Synchronize(messages, remote_synchronized) => {
-            let response = recon
-                .process_messages(messages)
-                .await
-                .context("processing message")?;
-            trace!(?response, "recon response");
-
-            let is_synchronized = response.is_synchronized();
-            if remote_synchronized && is_synchronized {
-                tx_envelope.send(Envelope::HangUp).await?;
-                return Ok(false);
-            }
-
-            for key in response.new_keys() {
-                tx_envelope
-                    .send(Envelope::ValueRequest(key.clone()))
-                    .await?;
-            }
-            tx_envelope
-                .send(Envelope::Synchronize(
-                    response.into_messages(),
-                    is_synchronized,
-                ))
-                .await?;
-        }
-        Envelope::ValueRequest(key) => {
-            // TODO queue up value requests for worker
-            let value = recon
-                .value_for_key(key.clone())
-                .await
-                .context("value for key")?;
-            if let Some(value) = value {
-                tx_envelope
-                    .send(Envelope::ValueResponse(key, value))
-                    .await?;
-            }
-        }
-        Envelope::ValueResponse(key, value) => {
-            recon
-                .store_value_for_key(key, &value)
-                .await
-                .context("store value for key")?;
-        }
-        Envelope::HangUp => return Ok(false),
-    };
-    Ok(true)
 }
