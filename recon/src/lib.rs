@@ -7,9 +7,11 @@ pub use crate::recon::{
 };
 pub use client::{Client, Server};
 
+pub use crate::metrics::Metrics;
 pub use sha256a::Sha256a;
 
 mod client;
 pub mod libp2p;
+mod metrics;
 mod recon;
 mod sha256a;

@@ -27,6 +27,7 @@ use libp2p::{
     swarm::{Swarm, SwarmEvent},
 };
 use libp2p_swarm_test::SwarmExt;
+use prometheus_client::registry::Registry;
 use quickcheck::QuickCheck;
 use rand::{thread_rng, Rng};
 use std::{num::NonZeroU8, time::Duration};
@@ -37,7 +38,7 @@ use tracing_test::traced_test;
 use crate::{
     libp2p::{stream_set::StreamSet, Behaviour, Config, Event, PeerEvent, PeerStatus},
     recon::{FullInterests, ReconInterestProvider},
-    BTreeStore, Client, Recon, Server, Sha256a,
+    BTreeStore, Client, Metrics, Recon, Server, Sha256a,
 };
 
 type InterestStore = BTreeStore<Interest, Sha256a>;
@@ -77,6 +78,7 @@ fn build_swarm(runtime: &Runtime, name: &str, config: Config) -> SwarmTest {
                 .into(),
             ),
             FullInterests::default(),
+            Metrics::register(&mut Registry::default()),
         ));
 
         let mut model = Server::new(ReconModel::new(
@@ -114,6 +116,7 @@ fn build_swarm(runtime: &Runtime, name: &str, config: Config) -> SwarmTest {
                 .into(),
             ),
             ModelInterest::new(peer_id, interest.client()),
+            Metrics::register(&mut Registry::default()),
         ));
         let b = Behaviour::new(interest.client(), model.client(), config.clone());
         runtime.spawn(interest.run());

@@ -76,11 +76,6 @@ pub trait Recon: Clone + Send + Sync + 'static {
     }
 }
 
-// Implement the  Recon trait using crate::recon::Recon
-//
-// NOTE: We use a std::sync::Mutex because we are not doing any async
-// logic within Recon itself, all async logic exists outside its scope.
-// We should use a tokio::sync::Mutex if we introduce any async logic into Recon.
 #[async_trait]
 impl<K, H> Recon for Client<K, H>
 where
