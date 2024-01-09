@@ -12,6 +12,8 @@ use crate::{libp2p::protocol::Envelope, AssociativeHash, Key};
 pub struct Metrics {
     envelope_received_count: Family<EnvelopeLabels, Counter>,
     envelope_sent_count: Family<EnvelopeLabels, Counter>,
+
+    want_enqueue_failed: Counter,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
@@ -57,9 +59,17 @@ impl Metrics {
             sub_registry
         );
 
+        register!(
+            want_enqueue_failed,
+            "Number times key is dropped when enqueing into the want_values queue",
+            Counter::default(),
+            sub_registry
+        );
+
         Self {
             envelope_received_count,
             envelope_sent_count,
+            want_enqueue_failed,
         }
     }
 }
@@ -77,5 +87,12 @@ impl<'a, K: Key, H: AssociativeHash> Recorder<EnvelopeSent<'a, K, H>> for Metric
     fn record(&self, event: &EnvelopeSent<'a, K, H>) {
         let labels = event.0.into();
         self.envelope_sent_count.get_or_create(&labels).inc();
+    }
+}
+
+pub(crate) struct WantEnqueueFailed;
+impl Recorder<WantEnqueueFailed> for Metrics {
+    fn record(&self, _event: &WantEnqueueFailed) {
+        self.want_enqueue_failed.inc();
     }
 }
