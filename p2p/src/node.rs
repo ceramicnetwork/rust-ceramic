@@ -851,8 +851,8 @@ where
                             if !is_connected {
                                 let dial_opts =
                                     DialOpts::peer_id(peer_id).addresses(vec![addr]).build();
-                                if let Err(e) = Swarm::dial(&mut self.swarm, dial_opts) {
-                                    warn!("invalid dial options: {:?}", e);
+                                if let Err(e) = self.swarm.dial(dial_opts) {
+                                    warn!("mdns dail failed: {:?}", e);
                                 }
                             }
                         }

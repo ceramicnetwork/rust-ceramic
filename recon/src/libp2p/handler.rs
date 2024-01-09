@@ -14,7 +14,7 @@ use libp2p::{
     },
 };
 use libp2p_identity::PeerId;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::{
     libp2p::{
@@ -99,7 +99,7 @@ pub enum State {
     Idle,
     WaitingInbound,
     RequestOutbound { stream_set: StreamSet },
-    WaitingOutbound { stream_set: StreamSet },
+    WaitingOutbound,
     Outbound(SyncFuture),
     Inbound(SyncFuture),
 }
@@ -113,10 +113,7 @@ impl std::fmt::Debug for State {
                 .debug_struct("RequestOutbound")
                 .field("stream_set", stream_set)
                 .finish(),
-            Self::WaitingOutbound { stream_set } => f
-                .debug_struct("WaitingOutbound")
-                .field("stream_set", stream_set)
-                .finish(),
+            Self::WaitingOutbound => f.debug_struct("WaitingOutbound").finish(),
             Self::Outbound(_) => f.debug_tuple("Outbound").field(&"_").finish(),
             Self::Inbound(_) => f.debug_tuple("Inbound").field(&"_").finish(),
         }
@@ -191,7 +188,7 @@ where
             State::Idle | State::WaitingOutbound { .. } | State::WaitingInbound => {}
             State::RequestOutbound { stream_set } => {
                 let stream_set = *stream_set;
-                self.transition_state(State::WaitingOutbound { stream_set });
+                self.transition_state(State::WaitingOutbound);
 
                 // Start outbound connection
                 let protocol = SubstreamProtocol::new(MultiReadyUpgrade::new(vec![stream_set]), ());
@@ -221,17 +218,14 @@ where
 
     fn on_behaviour_event(&mut self, event: Self::FromBehaviour) {
         match event {
-            FromBehaviour::StartSync { stream_set } => {
-                debug!("starting sync: {:?}", stream_set);
-                match self.state {
-                    State::Idle => self.transition_state(State::RequestOutbound { stream_set }),
-                    State::RequestOutbound { .. }
-                    | State::WaitingOutbound { .. }
-                    | State::WaitingInbound
-                    | State::Outbound(_)
-                    | State::Inbound(_) => {}
-                }
-            }
+            FromBehaviour::StartSync { stream_set } => match self.state {
+                State::Idle => self.transition_state(State::RequestOutbound { stream_set }),
+                State::RequestOutbound { .. }
+                | State::WaitingOutbound { .. }
+                | State::WaitingInbound
+                | State::Outbound(_)
+                | State::Inbound(_) => {}
+            },
         }
     }
 
@@ -288,19 +282,19 @@ where
             }
             libp2p::swarm::handler::ConnectionEvent::FullyNegotiatedOutbound(
                 FullyNegotiatedOutbound {
-                    protocol: stream, ..
+                    protocol: (stream_set, stream),
+                    ..
                 },
             ) => {
                 match &self.state {
-                    State::WaitingOutbound { stream_set } => {
-                        self.behavior_events_queue.push_front(FromHandler::Started {
-                            stream_set: *stream_set,
-                        });
+                    State::WaitingOutbound => {
+                        self.behavior_events_queue
+                            .push_front(FromHandler::Started { stream_set });
                         let stream = match stream_set {
                             StreamSet::Interest => protocol::synchronize(
                                 self.remote_peer_id,
                                 self.connection_id,
-                                *stream_set,
+                                stream_set,
                                 self.interest.clone(),
                                 stream,
                                 true,
@@ -310,7 +304,7 @@ where
                             StreamSet::Model => protocol::synchronize(
                                 self.remote_peer_id,
                                 self.connection_id,
-                                *stream_set,
+                                stream_set,
                                 self.model.clone(),
                                 stream,
                                 true,
@@ -330,11 +324,12 @@ where
             }
             libp2p::swarm::handler::ConnectionEvent::AddressChange(_) => {}
             // We failed to upgrade the inbound connection.
-            libp2p::swarm::handler::ConnectionEvent::ListenUpgradeError(_) => {
+            libp2p::swarm::handler::ConnectionEvent::ListenUpgradeError(err) => {
                 match self.state {
                     State::WaitingInbound => {
                         // We have stopped synchronization and cannot attempt again as we are unable to
                         // negotiate a protocol.
+                        warn!(?err, "handler listen upgrade error");
                         self.behavior_events_queue.push_front(FromHandler::Stopped);
                         self.transition_state(State::Idle)
                     }
@@ -346,11 +341,12 @@ where
                 }
             }
             // We failed to upgrade the outbound connection.
-            libp2p::swarm::handler::ConnectionEvent::DialUpgradeError(_) => {
+            libp2p::swarm::handler::ConnectionEvent::DialUpgradeError(err) => {
                 match self.state {
                     State::WaitingOutbound { .. } => {
                         // We have stopped synchronization and cannot attempt again as we are unable to
                         // negotiate a protocol.
+                        warn!(?err, "handler dial upgrade error");
                         self.behavior_events_queue.push_front(FromHandler::Stopped);
                         self.transition_state(State::Idle)
                     }

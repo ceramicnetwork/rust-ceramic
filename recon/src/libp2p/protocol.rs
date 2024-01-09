@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use anyhow::{Context, Result};
 use asynchronous_codec::{CborCodec, Framed};
 use ceramic_metrics::Recorder;
@@ -50,7 +52,7 @@ impl<K: Key, H: AssociativeHash> std::fmt::Debug for Envelope<K, H> {
 }
 
 // Intiate Recon synchronization with a peer over a stream.
-#[tracing::instrument(skip(recon, stream), ret)]
+#[tracing::instrument(skip(recon, stream, metrics), ret)]
 pub async fn synchronize<S: AsyncRead + AsyncWrite + Unpin, R: Recon>(
     remote_peer_id: PeerId,
     connection_id: ConnectionId,
@@ -74,9 +76,10 @@ pub async fn synchronize<S: AsyncRead + AsyncWrite + Unpin, R: Recon>(
             .context("sending initial messages")?;
     }
 
-    let (tx, mut rx) = channel(10000);
+    let flush_interval = tokio::time::interval(Duration::from_secs(1));
+    let (tx, mut rx) = channel(100000);
 
-    pin_mut!(framed);
+    pin_mut!(framed, flush_interval);
     loop {
         select! {
             biased;
@@ -90,12 +93,21 @@ pub async fn synchronize<S: AsyncRead + AsyncWrite + Unpin, R: Recon>(
             response = rx.recv() => {
                 if let Some(response) = response {
                     metrics.record(&EnvelopeSent(&response));
-                    framed.send(response).await.context("sending response")?;
+                    framed.feed(response).await.context("sending response")?;
                 } else {
-                    break;
+                    unreachable!("rx should not be closed as tx is still in scope");
                 }
             }
+            _ = flush_interval.tick() => {
+                framed.flush().await.context("flushing")?;
+            }
         }
+    }
+    // Send all pending responses
+    drop(tx);
+    while let Some(response) = rx.recv().await {
+        metrics.record(&EnvelopeSent(&response));
+        framed.send(response).await.context("sending response")?;
     }
 
     framed.close().await.context("closing stream")?;
