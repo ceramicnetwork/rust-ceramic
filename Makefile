@@ -91,6 +91,10 @@ run:
 publish-docker:
 	./ci-scripts/publish.sh
 
-.PHONY: schedule-deployment
-schedule-deployment:
-	./ci-scripts/deploy.sh "${DEPLOY_ENV}" "${DEPLOY_TARGET}" "${DEPLOY_TAG}" "${MANUAL_DEPLOY}"
+.PHONY: schedule-ecs-deployment
+schedule-ecs-deployment:
+	./ci-scripts/schedule_ecs_deploy.sh "${DEPLOY_ENV}" "${DEPLOY_TARGET}" "${DEPLOY_TAG}" "${MANUAL_DEPLOY}"
+
+.PHONY: schedule-k8s-deployment
+schedule-k8s-deployment:
+	./ci-scripts/schedule_k8s_deploy.sh "${DEPLOY_ENV}" "${DEPLOY_TAG}"

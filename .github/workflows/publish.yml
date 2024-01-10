@@ -57,4 +57,14 @@ jobs:
             deploy_target="release"
             deploy_tag=$(cargo metadata --format-version=1 --no-deps | jq '.packages[0].version' | tr -d '"')
           fi
-          make DEPLOY_ENV="${{ matrix.network }}" DEPLOY_TARGET="$deploy_target" DEPLOY_TAG="$deploy_tag" schedule-deployment
+          make DEPLOY_ENV="${{ matrix.network }}" DEPLOY_TARGET="$deploy_target" DEPLOY_TAG="$deploy_tag" schedule-ecs-deployment
+
+      -
+        name: Schedule k8s deployment
+        run: |
+          deploy_tag=$(echo ${{ github.SHA }} | head -c 12)
+          # If this workflow was run for a release, indicate that this is a release deployment.
+          if [[ ${{ contains(github.event.head_commit.message, 'chore: Release') }} == 'true' ]]; then
+            deploy_tag=$(cargo metadata --format-version=1 --no-deps | jq '.packages[0].version' | tr -d '"')
+          fi
+          make DEPLOY_ENV="${{ matrix.network }}" DEPLOY_TAG="$deploy_tag" schedule-k8s-deployment
