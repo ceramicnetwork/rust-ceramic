@@ -16,7 +16,6 @@ cid.workspace = true
 ceramic-core.workspace = true
 futures.workspace = true
 iroh-rpc-types.workspace = true
-iroh-util.workspace = true
 libp2p = { workspace = true, features = ["gossipsub"] }
 quic-rpc = { workspace = true, features = ["http2"] }
 serde = { workspace = true, features = ["derive"] }

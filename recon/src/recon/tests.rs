@@ -231,6 +231,7 @@ where
                     BTreeStore::from_set(set)
                         .hash_range(&Bytes::min_value(), &Bytes::max_value())
                         .unwrap()
+                        .hash
                 })
                 .collect(),
         }
@@ -527,7 +528,7 @@ async fn word_lists() {
 }
 #[tokio::test]
 async fn response_is_synchronized() {
-    let mut a = ReconMemoryBytes::new(
+    let mut client = ReconMemoryBytes::new(
         BTreeStore::from_set(BTreeSet::from_iter([
             Bytes::from("a"),
             Bytes::from("b"),
@@ -537,7 +538,7 @@ async fn response_is_synchronized() {
         FullInterests::default(),
         Metrics::register(&mut Registry::default()),
     );
-    let mut x = ReconMemoryBytes::new(
+    let mut server = ReconMemoryBytes::new(
         BTreeStore::from_set(BTreeSet::from_iter([
             Bytes::from("x"),
             Bytes::from("y"),
@@ -547,21 +548,40 @@ async fn response_is_synchronized() {
         FullInterests::default(),
         Metrics::register(&mut Registry::default()),
     );
-    let response = x
-        .process_messages(&a.initial_messages().await.unwrap())
+    // Client -> Server: Init
+    let server_first_response = server
+        .process_messages(&client.initial_messages().await.unwrap())
         .await
         .unwrap();
-    assert!(!response.is_synchronized);
-    let response = a.process_messages(&response.messages).await.unwrap();
-    assert!(!response.is_synchronized);
-    let response = x.process_messages(&response.messages).await.unwrap();
-    assert!(!response.is_synchronized);
+    // Server -> Client: Not yet in sync
+    assert!(!server_first_response.is_synchronized);
+    let client_first_response = client
+        .process_messages(&server_first_response.messages)
+        .await
+        .unwrap();
+    // Client -> Server: Not yet in sync
+    assert!(!client_first_response.is_synchronized);
 
     // After this message we should be synchronized
-    let response = a.process_messages(&response.messages).await.unwrap();
-    assert!(response.is_synchronized);
-    let response = x.process_messages(&response.messages).await.unwrap();
-    assert!(response.is_synchronized);
+    let server_second_response = server
+        .process_messages(&client_first_response.messages)
+        .await
+        .unwrap();
+    // Server -> Client: Synced
+    assert!(server_second_response.is_synchronized);
+    let client_second_response = client
+        .process_messages(&server_second_response.messages)
+        .await
+        .unwrap();
+    // Client -> Server: Synced
+    assert!(client_second_response.is_synchronized);
+    // Check that we remained in sync. This exchange is not needed for a real sync.
+    let server_third_response = server
+        .process_messages(&client_second_response.messages)
+        .await
+        .unwrap();
+    // Once synced, always synced.
+    assert!(server_third_response.is_synchronized);
 }
 
 #[test]

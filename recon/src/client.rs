@@ -129,7 +129,7 @@ where
     S: Store<Key = K, Hash = H> + Send + 'static,
     I: InterestProvider<Key = K> + 'static,
 {
-    /// Consturct a [`Server`] from a [`Recon`] instance.
+    /// Construct a [`Server`] from a [`Recon`] instance.
     pub fn new(recon: Recon<K, H, S, I>) -> Self {
         let (tx, rx) = channel(1024);
         Self {

@@ -9,7 +9,6 @@ publish = false
 
 [dependencies]
 console-subscriber = { workspace = true, optional = true }
-iroh-util.workspace = true
 lazy_static.workspace = true
 names.workspace = true
 opentelemetry = { workspace = true, features = ["rt-tokio"] }

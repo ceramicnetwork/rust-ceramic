@@ -19,21 +19,24 @@ use async_trait::async_trait;
 use futures::{future, Stream, StreamExt, TryFutureExt, TryStreamExt};
 use hyper::service::Service;
 use hyper::{server::conn::Http, Request};
-use recon::{AssociativeHash, InterestProvider, Key, Store};
-use swagger::{EmptyContext, XSpanIdString};
+use recon::{AssociativeHash, InterestProvider, Key, Message, Response, Store};
+use serde::{Deserialize, Serialize};
+use swagger::{ByteArray, EmptyContext, XSpanIdString};
 use tokio::net::TcpListener;
 use tracing::{debug, info, instrument, Level};
 
 use ceramic_api_server::{
     models::{self, Event},
-    EventsPostResponse, LivenessGetResponse, SubscribeSortKeySortValueGetResponse,
-    VersionPostResponse,
+    EventsPostResponse, LivenessGetResponse, ReconPostResponse,
+    SubscribeSortKeySortValueGetResponse, VersionPostResponse,
 };
 use ceramic_core::{EventId, Interest, Network, PeerId, StreamId};
 
 #[async_trait]
 pub trait Recon: Clone + Send + Sync {
     type Key: Key;
+    type Hash: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>;
+
     async fn insert(&self, key: Self::Key) -> Result<()>;
     async fn range(
         &self,
@@ -42,15 +45,21 @@ pub trait Recon: Clone + Send + Sync {
         offset: usize,
         limit: usize,
     ) -> Result<Vec<Self::Key>>;
+
+    async fn process_messages(
+        &self,
+        received: Vec<Message<Self::Key, Self::Hash>>,
+    ) -> Result<Response<Self::Key, Self::Hash>>;
 }
 
 #[async_trait]
 impl<K, H> Recon for recon::Client<K, H>
 where
     K: Key,
-    H: AssociativeHash,
+    H: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>,
 {
     type Key = K;
+    type Hash = H;
 
     async fn insert(&self, key: Self::Key) -> Result<()> {
         let _ = recon::Client::insert(self, key).await?;
@@ -67,6 +76,13 @@ where
         Ok(recon::Client::range(self, start, end, offset, limit)
             .await?
             .collect())
+    }
+
+    async fn process_messages(
+        &self,
+        received: Vec<Message<Self::Key, Self::Hash>>,
+    ) -> Result<Response<Self::Key, Self::Hash>> {
+        recon::Client::process_messages(self, received).await
     }
 }
 
@@ -136,6 +152,43 @@ where
             .await
             .map_err(|err| ApiError(format!("failed to insert key: {err}")))?;
         Ok(EventsPostResponse::Success)
+    }
+
+    async fn recon_post(
+        &self,
+        ring: models::Ring,
+        body: ByteArray,
+        _context: &C,
+    ) -> std::result::Result<ReconPostResponse, ApiError> {
+        let response = match ring {
+            models::Ring::Interest => {
+                let interest_messages: Vec<Message<<I as Recon>::Key, <I as Recon>::Hash>> =
+                    serde_cbor::de::from_slice(body.as_slice()).map_err(|e| {
+                        ApiError(format!("failed to deserialize interest messages: {e}"))
+                    })?;
+                let interest_response = self
+                    .interest
+                    .process_messages(interest_messages)
+                    .await
+                    .map_err(|e| ApiError(format!("failed to process interest messages: {e}")))?;
+                serde_cbor::to_vec(&interest_response.into_messages())
+                    .map_err(|e| ApiError(format!("failed to serialize interest response: {e}")))?
+            }
+            models::Ring::Model => {
+                let model_messages: Vec<Message<<M as Recon>::Key, <M as Recon>::Hash>> =
+                    serde_cbor::de::from_slice(body.as_slice()).map_err(|e| {
+                        ApiError(format!("failed to deserialize model messages: {e}"))
+                    })?;
+                let model_response = self
+                    .model
+                    .process_messages(model_messages)
+                    .await
+                    .map_err(|e| ApiError(format!("failed to process model messages: {e}")))?;
+                serde_cbor::to_vec(&model_response.into_messages())
+                    .map_err(|e| ApiError(format!("failed to serialize model response: {e}")))?
+            }
+        };
+        Ok(ReconPostResponse::Success(swagger::ByteArray(response)))
     }
 
     #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
@@ -255,6 +308,7 @@ mod tests {
     use expect_test::expect;
     use mockall::{mock, predicate};
     use multibase::Base;
+    use recon::Sha256a;
     use tracing_test::traced_test;
 
     struct Context;
@@ -278,6 +332,7 @@ mod tests {
     #[async_trait]
     impl Recon for MockReconInterestTest {
         type Key = Interest;
+        type Hash = Sha256a;
         async fn insert(&self, key: Self::Key) -> Result<()> {
             self.insert(key)
         }
@@ -289,6 +344,13 @@ mod tests {
             limit: usize,
         ) -> Result<Vec<Self::Key>> {
             self.range(start, end, offset, limit)
+        }
+        async fn process_messages(
+            &self,
+            received: Vec<Message<Self::Key, Self::Hash>>,
+        ) -> Result<Response<Self::Key, Self::Hash>> {
+            let _ = received;
+            todo!("not implemented")
         }
     }
 
@@ -311,6 +373,7 @@ mod tests {
     #[async_trait]
     impl Recon for MockReconModelTest {
         type Key = EventId;
+        type Hash = Sha256a;
         async fn insert(&self, key: Self::Key) -> Result<()> {
             self.insert(key)
         }
@@ -322,6 +385,13 @@ mod tests {
             limit: usize,
         ) -> Result<Vec<Self::Key>> {
             self.range(start, end, offset, limit)
+        }
+        async fn process_messages(
+            &self,
+            received: Vec<Message<Self::Key, Self::Hash>>,
+        ) -> Result<Response<Self::Key, Self::Hash>> {
+            let _ = received;
+            todo!("not implemented")
         }
     }
 

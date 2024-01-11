@@ -1,10 +1,12 @@
 #![warn(missing_docs, missing_debug_implementations, clippy::all)]
 
+use super::HashCount;
 use crate::{AssociativeHash, Key, Store};
 use anyhow::Result;
 use async_trait::async_trait;
 use sqlx::{Row, SqlitePool};
 use std::marker::PhantomData;
+use std::result::Result::Ok;
 use tracing::{debug, instrument};
 
 /// ReconSQLite is a implementation of Recon store
@@ -110,7 +112,7 @@ where
             .fetch_all(&self.pool)
             .await;
         match resp {
-            Ok(_) => Ok(true),
+            std::result::Result::Ok(_rows) => Ok(true),
             Err(sqlx::Error::Database(err)) => {
                 if err.is_unique_violation() {
                     Ok(false)
@@ -122,14 +124,18 @@ where
         }
     }
 
+    /// return the hash and count for a range
     #[instrument(skip(self))]
     async fn hash_range(
         &mut self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
-    ) -> Result<Self::Hash> {
+    ) -> Result<HashCount<Self::Hash>> {
         if left_fencepost >= right_fencepost {
-            return Ok(H::identity());
+            return Ok(HashCount {
+                hash: H::identity(),
+                count: 0,
+            });
         }
 
         let query = sqlx::query(
@@ -137,7 +143,8 @@ where
                TOTAL(ahash_0) & 0xFFFFFFFF, TOTAL(ahash_1) & 0xFFFFFFFF,
                TOTAL(ahash_2) & 0xFFFFFFFF, TOTAL(ahash_3) & 0xFFFFFFFF,
                TOTAL(ahash_4) & 0xFFFFFFFF, TOTAL(ahash_5) & 0xFFFFFFFF,
-               TOTAL(ahash_6) & 0xFFFFFFFF, TOTAL(ahash_7) & 0xFFFFFFFF
+               TOTAL(ahash_6) & 0xFFFFFFFF, TOTAL(ahash_7) & 0xFFFFFFFF,
+               COUNT(1)
              FROM recon WHERE sort_key = ? AND key > ? AND key < ?;",
         );
         let row = query
@@ -156,7 +163,14 @@ where
             row.get(6),
             row.get(7),
         ];
-        Ok(H::from(bytes))
+        let count: i64 = row.get(8); // sql int type is signed
+        let count: u64 = count
+            .try_into()
+            .expect("COUNT(1) should never return a negative number");
+        Ok(HashCount {
+            hash: H::from(bytes),
+            count,
+        })
     }
 
     #[instrument(skip(self))]
@@ -369,9 +383,10 @@ mod tests {
         let hash: Sha256a = store
             .hash_range(&b"a".as_slice().into(), &b"z".as_slice().into())
             .await
-            .unwrap();
+            .unwrap()
+            .hash;
         expect![[r#"7460F21C83815F5EDC682F7A4154BC09AA3A0AE5DD1A2DEDCD709888A12751CC"#]]
-            .assert_eq(&hash.to_hex())
+            .assert_eq(&hash.to_hex());
     }
 
     #[test]

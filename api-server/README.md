@@ -100,6 +100,7 @@ Method | HTTP request | Description
 ------------- | ------------- | -------------
 [****](docs/default_api.md#) | **POST** /events | Creates a new event
 [****](docs/default_api.md#) | **GET** /liveness | Test the liveness of the Ceramic node
+[****](docs/default_api.md#) | **POST** /recon | Sends a Recon message
 [****](docs/default_api.md#) | **GET** /subscribe/{sort_key}/{sort_value} | Get events for a stream
 [****](docs/default_api.md#) | **POST** /version | Get the version of the Ceramic node
 
@@ -107,6 +108,7 @@ Method | HTTP request | Description
 ## Documentation For Models
 
  - [Event](docs/Event.md)
+ - [Ring](docs/Ring.md)
  - [Version](docs/Version.md)
 
 

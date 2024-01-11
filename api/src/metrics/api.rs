@@ -1,11 +1,11 @@
 use async_trait::async_trait;
 use ceramic_api_server::{
-    models, Api, EventsPostResponse, LivenessGetResponse, SubscribeSortKeySortValueGetResponse,
-    VersionPostResponse,
+    models, Api, EventsPostResponse, LivenessGetResponse, ReconPostResponse,
+    SubscribeSortKeySortValueGetResponse, VersionPostResponse,
 };
 use ceramic_metrics::Recorder;
 use futures::Future;
-use swagger::ApiError;
+use swagger::{ApiError, ByteArray};
 use tokio::time::Instant;
 
 use crate::{metrics::Event, Metrics};
@@ -80,6 +80,16 @@ where
     /// Get the version of the Ceramic node
     async fn version_post(&self, context: &C) -> Result<VersionPostResponse, ApiError> {
         self.record("/version", self.api.version_post(context))
+            .await
+    }
+
+    async fn recon_post(
+        &self,
+        ring: models::Ring,
+        body: ByteArray,
+        context: &C,
+    ) -> std::result::Result<ReconPostResponse, ApiError> {
+        self.record("/recon", self.api.recon_post(ring, body, context))
             .await
     }
 }

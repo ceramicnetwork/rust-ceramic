@@ -37,7 +37,25 @@ impl EventId {
     pub fn builder() -> Builder<Init> {
         Builder { state: Init }
     }
-    /// EventId.new builds a Vec<u8> with the event id data.
+
+    ///  EventId.new builds a Vec<u8> with the event id data.
+    /// ## Example
+    /// ```
+    /// use std::str::FromStr;
+    /// use cid::Cid;
+    /// use ceramic_core::{EventId, Network};
+    ///
+    /// let event = EventId::new(
+    ///     &Network::Mainnet,
+    ///     "model",
+    ///     "kh4q0ozorrgaq2mezktnrmdwleo1d",
+    ///     "did:key:z6MkgSV3tAuw7gUWqKCUY7ae6uWNxqYgdwPhUJbJhF9EFXm9",
+    ///     &Cid::from_str("bagcqceraplay4erv6l32qrki522uhiz7rf46xccwniw7ypmvs3cvu2b3oulq").unwrap(),
+    ///     1,
+    ///     &Cid::from_str("bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy").unwrap(),
+    /// );
+    ///
+    /// ```
     pub fn new(
         network: &Network,
         sort_key: &str,
@@ -222,10 +240,10 @@ impl Builder<Init> {
     pub fn with_network(self, network: &Network) -> Builder<WithNetwork> {
         // Maximum EventId size is 72.
         //
-        // varint(0xce) + // streamid, 1 byte
-        // varint(0x05) + // cip-124 EventID, 1 byte
-        // varint(networkId), // 5 bytes for local network
-        //! last8Bytes(sha256(separator_key + "|" + separator_value)), // 16 bytes
+        // varint(0xce) + // streamid, 2 bytes b'\xce\x01'
+        // varint(0x05) + // cip-124 EventID, 1 byte b'\x05'
+        // varint(networkId), // 1-5 bytes for local network
+        // last8Bytes(sha256(separator_key + "|" + separator_value)), // 16 bytes
         // last8Bytes(sha256(stream_controller_DID)), // 8 bytes
         // last4Bytes(init_event_CID) // 4 bytes
         // cbor(eventHeight), // u64_max 9 bytes

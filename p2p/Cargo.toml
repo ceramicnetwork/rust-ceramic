@@ -32,7 +32,6 @@ hex.workspace = true
 iroh-bitswap.workspace = true
 iroh-rpc-client.workspace = true
 iroh-rpc-types.workspace = true
-iroh-util.workspace = true
 libp2p-identity.workspace = true
 lru.workspace = true
 multihash.workspace = true
