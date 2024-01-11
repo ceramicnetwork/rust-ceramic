@@ -143,7 +143,10 @@ where
                     && left_fencepost < *received.keys.last().unwrap()
                     && (response_message.keys.len() < 32 * 1024)
                 {
-                    let (synchronized, count) = response_message
+                    let SynchronizedCount {
+                        is_synchronized,
+                        count,
+                    } = response_message
                         .process_range(
                             &left_fencepost,
                             &right_fencepost,
@@ -151,8 +154,8 @@ where
                             &mut self.store,
                         )
                         .await?;
-                    response.is_synchronized &= synchronized;
-                    if synchronized {
+                    response.is_synchronized &= is_synchronized;
+                    if is_synchronized {
                         synced += count;
                     } else {
                         syncing += count;
@@ -169,7 +172,10 @@ where
                     received_hash = received_hashs.next().unwrap_or(zero);
                 }
                 if !received.keys.is_empty() {
-                    let (synchronized, count) = response_message
+                    let SynchronizedCount {
+                        is_synchronized,
+                        count,
+                    } = response_message
                         .process_range(
                             received.keys.last().unwrap(),
                             &self
@@ -181,8 +187,8 @@ where
                             &mut self.store,
                         )
                         .await?;
-                    response.is_synchronized &= synchronized;
-                    if synchronized {
+                    response.is_synchronized &= is_synchronized;
+                    if is_synchronized {
                         synced += count;
                     } else {
                         syncing += count;
@@ -267,6 +273,12 @@ where
     H: AssociativeHash,
 {
     hash: H,
+    count: u64,
+}
+
+#[derive(Debug)]
+pub struct SynchronizedCount {
+    is_synchronized: bool,
     count: u64,
 }
 
@@ -727,29 +739,38 @@ where
         Ok(())
     }
 
-    // Process keys within a specific range. Returns true if the ranges were already in sync.
+    // Process keys within a specific range. The returned value is a SynchronizedCount, where is_synchronized indicates
+    // whether the range is in sync, and count is the count of keys in the range.
     async fn process_range<S>(
         &mut self,
         left_fencepost: &K,
         right_fencepost: &K,
         received_hash: &H,
         local_store: &mut S,
-    ) -> Result<(bool, u64)>
+    ) -> Result<SynchronizedCount>
     where
         S: Store<Key = K, Hash = H> + Send,
     {
         if left_fencepost == right_fencepost {
-            return Ok((true, 0)); // zero size range is in sync
+            return Ok(SynchronizedCount {
+                is_synchronized: true,
+                count: 0,
+            }); // zero size range is in sync
         }
 
-        let HashCount { hash, count }: HashCount<H> = local_store
+        let HashCount {
+            hash: calculated_hash,
+            count,
+        }: HashCount<H> = local_store
             .hash_range(left_fencepost, right_fencepost)
             .await?;
-        let calculated_hash = hash;
 
         if &calculated_hash == received_hash {
             // range is in sync, return sync count
-            return Ok((true, count));
+            return Ok(SynchronizedCount {
+                is_synchronized: true,
+                count,
+            });
         }
 
         self.end_streak(left_fencepost, local_store).await?;
@@ -786,7 +807,10 @@ where
             self.send_split(left_fencepost, right_fencepost, local_store)
                 .await?;
         }
-        Ok((false, count))
+        Ok(SynchronizedCount {
+            is_synchronized: false,
+            count,
+        })
     }
 
     #[instrument(skip(self, local_store))]
