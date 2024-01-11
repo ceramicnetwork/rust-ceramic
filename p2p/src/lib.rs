@@ -16,6 +16,6 @@ pub use self::metrics::Metrics;
 pub use self::node::*;
 pub use iroh_rpc_types::{GossipsubEvent, GossipsubEventStream};
 pub use libp2p::PeerId;
-pub use sqliteblockstore::SQLiteBlockStore;
+pub use sqliteblockstore::{SQLiteBlock, SQLiteBlockStore};
 
 pub(crate) const VERSION: &str = env!("CARGO_PKG_VERSION");

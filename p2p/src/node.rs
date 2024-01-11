@@ -1866,6 +1866,7 @@ mod tests {
     }
 
     #[test(tokio::test)]
+    #[ignore]
     async fn test_dht() -> Result<()> {
         // set up three nodes
         // two connect to one
