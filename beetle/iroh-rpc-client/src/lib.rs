@@ -1,13 +1,11 @@
 pub mod client;
 pub mod config;
-pub mod gateway;
 pub mod network;
 pub mod status;
 pub mod store;
 pub use self::config::Config;
 pub use client::Client;
-pub use iroh_rpc_types::GossipsubEvent;
-use iroh_rpc_types::{gateway::GatewayService, p2p::P2pService, store::StoreService, Addr};
+use iroh_rpc_types::{p2p::P2pService, store::StoreService, Addr};
 pub use network::{Lookup, P2pClient};
 use quic_rpc::{
     transport::{combined, http2, CombinedChannelTypes, Http2ChannelTypes, MemChannelTypes},
@@ -36,7 +34,6 @@ pub type ServerSocket<S: Service, C: quic_rpc::ChannelTypes = ChannelTypes> =
     (C::SendSink<S::Res>, C::RecvStream<S::Req>);
 
 pub type StoreServer = RpcServer<StoreService, ChannelTypes>;
-pub type GatewayServer = RpcServer<GatewayService, ChannelTypes>;
 pub type P2pServer = RpcServer<P2pService, ChannelTypes>;
 
 pub async fn create_server<S: Service>(

@@ -3,8 +3,7 @@ use async_stream::stream;
 use bytes::Bytes;
 use cid::Cid;
 use futures::{Stream, StreamExt};
-use iroh_rpc_types::{p2p::*, GossipsubEvent, VersionRequest, WatchRequest};
-use libp2p::gossipsub::{MessageId, TopicHash};
+use iroh_rpc_types::{p2p::*, VersionRequest, WatchRequest};
 use libp2p::{Multiaddr, PeerId};
 use std::collections::{HashMap, HashSet};
 use tracing::{debug, warn};
@@ -183,97 +182,6 @@ impl P2pClient {
     pub async fn shutdown(&self) -> Result<()> {
         self.client.rpc(ShutdownRequest).await??;
         Ok(())
-    }
-
-    #[tracing::instrument(skip(self))]
-    pub async fn gossipsub_add_explicit_peer(&self, peer_id: PeerId) -> Result<()> {
-        self.client
-            .rpc(GossipsubAddExplicitPeerRequest { peer_id })
-            .await??;
-        Ok(())
-    }
-
-    #[tracing::instrument(skip(self))]
-    pub async fn gossipsub_all_mesh_peers(&self) -> Result<Vec<PeerId>> {
-        let res = self.client.rpc(GossipsubAllMeshPeersRequest).await??;
-        Ok(res.peers)
-    }
-
-    #[tracing::instrument(skip(self))]
-    pub async fn gossipsub_all_peers(&self) -> Result<Vec<(PeerId, Vec<TopicHash>)>> {
-        let res = self.client.rpc(GossipsubAllPeersRequest).await??;
-        let res = res
-            .all
-            .into_iter()
-            .map(|(peer_id, topics)| {
-                let topics = topics.into_iter().map(TopicHash::from_raw).collect();
-                Ok((peer_id, topics))
-            })
-            .collect::<anyhow::Result<_>>()?;
-        Ok(res)
-    }
-
-    #[tracing::instrument(skip(self))]
-    pub async fn gossipsub_mesh_peers(&self, topic: TopicHash) -> Result<Vec<PeerId>> {
-        let res = self
-            .client
-            .rpc(GossipsubMeshPeersRequest {
-                topic_hash: topic.to_string(),
-            })
-            .await??;
-        Ok(res.peers)
-    }
-
-    #[tracing::instrument(skip(self, data))]
-    pub async fn gossipsub_publish(&self, topic_hash: TopicHash, data: Bytes) -> Result<MessageId> {
-        let req = GossipsubPublishRequest {
-            topic_hash: topic_hash.to_string(),
-            data,
-        };
-        let res = self.client.rpc(req).await??;
-        let message_id = MessageId::new(&res.message_id);
-        Ok(message_id)
-    }
-
-    #[tracing::instrument(skip(self))]
-    pub async fn gossipsub_remove_explicit_peer(&self, peer_id: PeerId) -> Result<()> {
-        let req = GossipsubRemoveExplicitPeerRequest { peer_id };
-        self.client.rpc(req).await??;
-        Ok(())
-    }
-
-    #[tracing::instrument(skip(self))]
-    pub async fn gossipsub_subscribe(
-        &self,
-        topic: TopicHash,
-    ) -> Result<impl Stream<Item = Result<GossipsubEvent>>> {
-        let res = self
-            .client
-            .server_streaming(GossipsubSubscribeRequest {
-                topic_hash: topic.to_string(),
-            })
-            .await?;
-        let events = res.map(|e| {
-            let e = e?.event;
-            Ok(e)
-        });
-        Ok(events)
-    }
-
-    #[tracing::instrument(skip(self))]
-    pub async fn gossipsub_topics(&self) -> Result<Vec<TopicHash>> {
-        let res = self.client.rpc(GossipsubTopicsRequest).await??;
-        let topics = res.topics.into_iter().map(TopicHash::from_raw).collect();
-        Ok(topics)
-    }
-
-    #[tracing::instrument(skip(self))]
-    pub async fn gossipsub_unsubscribe(&self, topic: TopicHash) -> Result<bool> {
-        let req = GossipsubUnsubscribeRequest {
-            topic_hash: topic.to_string(),
-        };
-        let res = self.client.rpc(req).await??;
-        Ok(res.was_subscribed)
     }
 
     #[tracing::instrument(skip(self))]

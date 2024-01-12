@@ -1,10 +1,9 @@
 use anyhow::{anyhow, ensure, Context, Result};
-use bytes::Bytes;
 use cid::Cid;
 use futures::StreamExt;
 use futures::{
     stream::{BoxStream, Stream},
-    FutureExt, TryFutureExt,
+    TryFutureExt,
 };
 use iroh_bitswap::Block;
 use iroh_rpc_client::{
@@ -15,34 +14,25 @@ use iroh_rpc_types::{
         BitswapRequest, BitswapResponse, ConnectByPeerIdRequest, ConnectRequest, DisconnectRequest,
         ExternalAddrsRequest, ExternalAddrsResponse, FetchProvidersDhtRequest,
         FetchProvidersDhtResponse, GetListeningAddrsRequest, GetListeningAddrsResponse,
-        GetPeersRequest, GetPeersResponse, GossipsubAddExplicitPeerRequest,
-        GossipsubAllMeshPeersRequest, GossipsubAllPeersRequest, GossipsubAllPeersResponse,
-        GossipsubMeshPeersRequest, GossipsubPeersResponse, GossipsubPublishRequest,
-        GossipsubPublishResponse, GossipsubRemoveExplicitPeerRequest, GossipsubSubscribeRequest,
-        GossipsubSubscribeResponse, GossipsubTopicsRequest, GossipsubTopicsResponse,
-        GossipsubUnsubscribeRequest, GossipsubUnsubscribeResponse, ListenersRequest,
-        ListenersResponse, LocalPeerIdRequest, LocalPeerIdResponse, LookupLocalRequest,
-        LookupRequest, LookupResponse, NotifyNewBlocksBitswapRequest, P2pAddr, P2pRequest,
-        P2pService, ShutdownRequest, StartProvidingRequest, StopProvidingRequest,
-        StopSessionBitswapRequest,
+        GetPeersRequest, GetPeersResponse, ListenersRequest, ListenersResponse, LocalPeerIdRequest,
+        LocalPeerIdResponse, LookupLocalRequest, LookupRequest, LookupResponse,
+        NotifyNewBlocksBitswapRequest, P2pAddr, P2pRequest, P2pService, ShutdownRequest,
+        StartProvidingRequest, StopProvidingRequest, StopSessionBitswapRequest,
     },
     RpcError, RpcResult, VersionRequest, VersionResponse, WatchRequest, WatchResponse,
 };
 use libp2p::identify::Info as IdentifyInfo;
+use libp2p::kad::RecordKey;
 use libp2p::Multiaddr;
 use libp2p::PeerId;
-use libp2p::{
-    gossipsub::{MessageId, PublishError, TopicHash},
-    kad::RecordKey,
-};
 use std::collections::{HashMap, HashSet};
 use std::result;
-use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::sync::mpsc::{channel, Sender};
 use tokio::sync::oneshot;
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::{debug, info, trace};
 
-use crate::{GossipsubEvent, GossipsubEventStream, NetworkEvent, DEFAULT_PROVIDER_LIMIT, VERSION};
+use crate::{DEFAULT_PROVIDER_LIMIT, VERSION};
 
 #[derive(Clone)]
 pub(crate) struct P2p {
@@ -410,171 +400,6 @@ impl P2p {
         let lookup = r.await?;
         Ok(peer_info_from_lookup(lookup))
     }
-
-    #[tracing::instrument(skip(self))]
-    fn gossipsub_subscribe(self, req: GossipsubSubscribeRequest) -> GossipsubEventStream {
-        async move {
-            self.gossipsub_subscribe_0(req)
-                .await
-                .expect("FIX THIS - NEEDS TO BE ABLE TO RETURN A RESULT")
-        }
-        .flatten_stream()
-        .boxed()
-    }
-
-    #[tracing::instrument(skip(self))]
-    async fn gossipsub_subscribe_0(
-        self,
-        req: GossipsubSubscribeRequest,
-    ) -> Result<BoxStream<'static, Box<GossipsubSubscribeResponse>>> {
-        let t = TopicHash::from_raw(req.topic_hash);
-        let (s, r) = oneshot::channel();
-        self.sender
-            .send(RpcMessage::Gossipsub(GossipsubMessage::Subscribe(
-                s,
-                t.clone(),
-            )))
-            .await?;
-
-        let mut r = r.await??;
-        let stream = async_stream::stream! {
-            while let Some(network_event) = r.recv().await {
-                if let NetworkEvent::Gossipsub(event) = network_event {
-                    match &event {
-                        GossipsubEvent::Subscribed { topic, .. } |
-                            GossipsubEvent::Unsubscribed {topic, .. } |
-                            GossipsubEvent::Message { message: libp2p::gossipsub::Message{ topic , .. }, .. } => {
-                                if *topic == t {
-                                    yield Box::new(GossipsubSubscribeResponse {event});
-                                }
-                            },
-                    };
-                }
-            }
-        }
-        .boxed();
-        Ok(stream)
-    }
-
-    #[tracing::instrument(skip(self, req))]
-    async fn gossipsub_add_explicit_peer(self, req: GossipsubAddExplicitPeerRequest) -> Result<()> {
-        let (s, r) = oneshot::channel();
-        let msg = RpcMessage::Gossipsub(GossipsubMessage::AddExplicitPeer(s, req.peer_id));
-        self.sender.send(msg).await?;
-        r.await?;
-
-        Ok(())
-    }
-
-    #[tracing::instrument(skip(self))]
-    async fn gossipsub_all_mesh_peers(
-        self,
-        _: GossipsubAllMeshPeersRequest,
-    ) -> Result<GossipsubPeersResponse> {
-        let (s, r) = oneshot::channel();
-        let msg = RpcMessage::Gossipsub(GossipsubMessage::AllMeshPeers(s));
-        self.sender.send(msg).await?;
-        let peers = r.await?;
-        Ok(GossipsubPeersResponse { peers })
-    }
-
-    #[tracing::instrument(skip(self))]
-    async fn gossipsub_all_peers(
-        self,
-        _: GossipsubAllPeersRequest,
-    ) -> Result<GossipsubAllPeersResponse> {
-        let (s, r) = oneshot::channel();
-        let msg = RpcMessage::Gossipsub(GossipsubMessage::AllPeers(s));
-        self.sender.send(msg).await?;
-
-        let all_peers = r.await?;
-        let all = all_peers
-            .into_iter()
-            .map(|(peer_id, topics)| {
-                (
-                    peer_id,
-                    topics.into_iter().map(|t| t.into_string()).collect(),
-                )
-            })
-            .collect();
-
-        Ok(GossipsubAllPeersResponse { all })
-    }
-
-    #[tracing::instrument(skip(self, req))]
-    async fn gossipsub_mesh_peers(
-        self,
-        req: GossipsubMeshPeersRequest,
-    ) -> Result<GossipsubPeersResponse> {
-        let topic = TopicHash::from_raw(req.topic_hash);
-        let (s, r) = oneshot::channel();
-        let msg = RpcMessage::Gossipsub(GossipsubMessage::MeshPeers(s, topic));
-        self.sender.send(msg).await?;
-
-        let peers = r.await?;
-        Ok(GossipsubPeersResponse { peers })
-    }
-
-    #[tracing::instrument(skip(self, req))]
-    async fn gossipsub_publish(
-        self,
-        req: GossipsubPublishRequest,
-    ) -> Result<GossipsubPublishResponse> {
-        let data = req.data;
-        let topic_hash = TopicHash::from_raw(req.topic_hash);
-        let (s, r) = oneshot::channel();
-        let msg = RpcMessage::Gossipsub(GossipsubMessage::Publish(s, topic_hash, data));
-        self.sender.send(msg).await?;
-
-        let message_id = r.await??;
-
-        Ok(GossipsubPublishResponse {
-            message_id: message_id.0.into(),
-        })
-    }
-
-    #[tracing::instrument(skip(self, req))]
-    async fn gossipsub_remove_explicit_peer(
-        self,
-        req: GossipsubRemoveExplicitPeerRequest,
-    ) -> Result<()> {
-        let peer_id = req.peer_id;
-        let (s, r) = oneshot::channel();
-        let msg = RpcMessage::Gossipsub(GossipsubMessage::RemoveExplicitPeer(s, peer_id));
-        self.sender.send(msg).await?;
-
-        r.await?;
-        Ok(())
-    }
-
-    #[tracing::instrument(skip(self))]
-    async fn gossipsub_topics(self, _: GossipsubTopicsRequest) -> Result<GossipsubTopicsResponse> {
-        let (s, r) = oneshot::channel();
-        let msg = RpcMessage::Gossipsub(GossipsubMessage::Topics(s));
-
-        self.sender.send(msg).await?;
-
-        let topics: Vec<String> = r.await?.into_iter().map(|t| t.into_string()).collect();
-
-        Ok(GossipsubTopicsResponse { topics })
-    }
-
-    #[tracing::instrument(skip(self, req))]
-    async fn gossipsub_unsubscribe(
-        self,
-        req: GossipsubUnsubscribeRequest,
-    ) -> Result<GossipsubUnsubscribeResponse> {
-        let (s, r) = oneshot::channel();
-        let msg = RpcMessage::Gossipsub(GossipsubMessage::Unsubscribe(
-            s,
-            TopicHash::from_raw(req.topic_hash),
-        ));
-
-        self.sender.send(msg).await?;
-        let was_subscribed = r.await??;
-
-        Ok(GossipsubUnsubscribeResponse { was_subscribed })
-    }
 }
 
 /// dispatch a single request from the server 
@@ -586,15 +411,6 @@ async fn dispatch(s: P2pServer, req: P2pRequest, chan: ServerSocket<P2pService>,
         Version(req) => s.rpc(req, chan, target, P2p::version).await,
         Shutdown(req) => s.rpc_map_err(req, chan, target, P2p::shutdown).await,
         FetchBitswap(req) => s.rpc_map_err(req, chan, target, P2p::fetch_bitswap).await,
-        GossipsubAddExplicitPeer(req) => s.rpc_map_err(req, chan, target, P2p::gossipsub_add_explicit_peer).await,
-        GossipsubAllPeers(req) => s.rpc_map_err(req, chan, target, P2p::gossipsub_all_peers).await,
-        GossipsubMeshPeers(req) => s.rpc_map_err(req, chan, target, P2p::gossipsub_mesh_peers).await,
-        GossipsubAllMeshPeers(req) => s.rpc_map_err(req, chan, target, P2p::gossipsub_all_mesh_peers).await,
-        GossipsubPublish(req) => s.rpc_map_err(req, chan, target, P2p::gossipsub_publish).await,
-        GossipsubRemoveExplicitPeer(req) => s.rpc_map_err(req, chan, target, P2p::gossipsub_remove_explicit_peer).await,
-        GossipsubSubscribe(req) => s.server_streaming(req, chan, target, P2p::gossipsub_subscribe).await,
-        GossipsubTopics(req) => s.rpc_map_err(req, chan, target, P2p::gossipsub_topics).await,
-        GossipsubUnsubscribe(req) => s.rpc_map_err(req, chan, target, P2p::gossipsub_unsubscribe).await,
         StopSessionBitswap(req) => s.rpc_map_err(req, chan, target, P2p::stop_session_bitswap).await,
         StartProviding(req) => s.rpc_map_err(req, chan, target, P2p::start_providing).await,
         StopProviding(req) => s.rpc_map_err(req, chan, target, P2p::stop_providing).await,
@@ -689,7 +505,6 @@ pub enum RpcMessage {
     NetConnectByPeerId(oneshot::Sender<Result<()>>, PeerId),
     NetConnect(oneshot::Sender<Result<()>>, PeerId, Vec<Multiaddr>),
     NetDisconnect(oneshot::Sender<()>, PeerId),
-    Gossipsub(GossipsubMessage),
     FindPeerOnDHT(oneshot::Sender<Result<()>>, PeerId),
     LookupPeerInfo(oneshot::Sender<Option<IdentifyInfo>>, PeerId),
     ListenForIdentify(oneshot::Sender<Result<IdentifyInfo>>, PeerId),
@@ -697,24 +512,4 @@ pub enum RpcMessage {
     AddressesOfPeer(oneshot::Sender<Vec<Multiaddr>>, PeerId),
     LookupLocalPeerInfo(oneshot::Sender<Lookup>),
     Shutdown,
-}
-
-#[derive(Debug)]
-pub enum GossipsubMessage {
-    AddExplicitPeer(oneshot::Sender<()>, PeerId),
-    AllMeshPeers(oneshot::Sender<Vec<PeerId>>),
-    AllPeers(oneshot::Sender<Vec<(PeerId, Vec<TopicHash>)>>),
-    MeshPeers(oneshot::Sender<Vec<PeerId>>, TopicHash),
-    Publish(
-        oneshot::Sender<Result<MessageId, PublishError>>,
-        TopicHash,
-        Bytes,
-    ),
-    RemoveExplicitPeer(oneshot::Sender<()>, PeerId),
-    Subscribe(
-        oneshot::Sender<Result<Receiver<crate::node::NetworkEvent>>>,
-        TopicHash,
-    ),
-    Topics(oneshot::Sender<Vec<TopicHash>>),
-    Unsubscribe(oneshot::Sender<Result<bool, PublishError>>, TopicHash),
 }

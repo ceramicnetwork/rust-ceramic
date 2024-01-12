@@ -9,9 +9,7 @@ use iroh_rpc_client::Client;
 use libp2p::{
     autonat,
     connection_limits::{self, ConnectionLimits},
-    dcutr,
-    gossipsub::{self, MessageAuthenticity},
-    identify,
+    dcutr, identify,
     kad::{
         self,
         store::{MemoryStore, MemoryStoreConfig},
@@ -58,7 +56,6 @@ pub(crate) struct NodeBehaviour<I, M> {
     relay: Toggle<relay::Behaviour>,
     relay_client: Toggle<relay::client::Behaviour>,
     dcutr: Toggle<dcutr::Behaviour>,
-    pub(crate) gossipsub: Toggle<gossipsub::Behaviour>,
     recon: Toggle<recon::libp2p::Behaviour<I, M>>,
 }
 
@@ -211,19 +208,6 @@ where
             identify::Behaviour::new(config)
         };
 
-        let gossipsub = if config.gossipsub {
-            info!("init gossipsub");
-            let gossipsub_config = gossipsub::Config::default();
-            let message_authenticity = MessageAuthenticity::Signed(local_key.clone());
-            Some(
-                gossipsub::Behaviour::new(message_authenticity, gossipsub_config)
-                    .map_err(|e| anyhow::anyhow!("{}", e))?,
-            )
-        } else {
-            None
-        }
-        .into();
-
         let limits = connection_limits::Behaviour::new(
             ConnectionLimits::default()
                 .with_max_established_outgoing(Some(config.max_conns_out))
@@ -245,7 +229,6 @@ where
             relay,
             dcutr: dcutr.into(),
             relay_client: relay_client.into(),
-            gossipsub,
             peer_manager: CeramicPeerManager::new(&config.ceramic_peers, metrics)?,
             limits,
             recon: recon.into(),

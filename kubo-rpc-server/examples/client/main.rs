@@ -5,8 +5,7 @@ use ceramic_kubo_rpc_server::{
     models, Api, ApiNoContext, BlockGetPostResponse, BlockPutPostResponse, BlockStatPostResponse,
     Client, ContextWrapperExt, DagGetPostResponse, DagImportPostResponse, DagPutPostResponse,
     DagResolvePostResponse, IdPostResponse, PinAddPostResponse, PinRmPostResponse,
-    PubsubLsPostResponse, PubsubPubPostResponse, PubsubSubPostResponse, SwarmConnectPostResponse,
-    SwarmPeersPostResponse, VersionPostResponse,
+    SwarmConnectPostResponse, SwarmPeersPostResponse, VersionPostResponse,
 };
 use clap::{App, Arg};
 #[allow(unused_imports)]
@@ -46,9 +45,6 @@ fn main() {
                     "IdPost",
                     "PinAddPost",
                     "PinRmPost",
-                    "PubsubLsPost",
-                    "PubsubPubPost",
-                    "PubsubSubPost",
                     "SwarmConnectPost",
                     "SwarmPeersPost",
                     "VersionPost",
@@ -196,33 +192,6 @@ fn main() {
         }
         Some("PinRmPost") => {
             let result = rt.block_on(client.pin_rm_post("arg_example".to_string()));
-            info!(
-                "{:?} (X-Span-ID: {:?})",
-                result,
-                (client.context() as &dyn Has<XSpanIdString>).get().clone()
-            );
-        }
-        Some("PubsubLsPost") => {
-            let result = rt.block_on(client.pubsub_ls_post());
-            info!(
-                "{:?} (X-Span-ID: {:?})",
-                result,
-                (client.context() as &dyn Has<XSpanIdString>).get().clone()
-            );
-        }
-        Some("PubsubPubPost") => {
-            let result = rt.block_on(client.pubsub_pub_post(
-                "arg_example".to_string(),
-                swagger::ByteArray(Vec::from("BYTE_ARRAY_DATA_HERE")),
-            ));
-            info!(
-                "{:?} (X-Span-ID: {:?})",
-                result,
-                (client.context() as &dyn Has<XSpanIdString>).get().clone()
-            );
-        }
-        Some("PubsubSubPost") => {
-            let result = rt.block_on(client.pubsub_sub_post("arg_example".to_string()));
             info!(
                 "{:?} (X-Span-ID: {:?})",
                 result,

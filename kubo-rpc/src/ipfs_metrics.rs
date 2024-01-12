@@ -5,8 +5,7 @@ use bytes::Bytes;
 use ceramic_metadata::Version;
 use ceramic_metrics::Recorder;
 use cid::Cid;
-use futures_util::{stream::BoxStream, Future};
-use iroh_rpc_types::GossipsubEvent;
+use futures_util::Future;
 use libipld::Ipld;
 use libp2p_identity::PeerId;
 use multiaddr::Multiaddr;
@@ -139,22 +138,6 @@ where
     async fn connect(&self, peer_id: PeerId, addrs: Vec<Multiaddr>) -> Result<(), Error> {
         self.record("connect", self.ipfs.connect(peer_id, addrs))
             .await
-    }
-    async fn publish(&self, topic: String, data: Bytes) -> Result<(), Error> {
-        self.record("publish", self.ipfs.publish(topic, data)).await
-    }
-    async fn subscribe(
-        &self,
-        topic: String,
-    ) -> Result<BoxStream<'static, anyhow::Result<GossipsubEvent>>, Error> {
-        self.record("subscribe", self.ipfs.subscribe(topic)).await
-    }
-    async fn unsubscribe(&self, topic: String) -> Result<(), Error> {
-        self.record("unsubscribe", self.ipfs.unsubscribe(topic))
-            .await
-    }
-    async fn topics(&self) -> Result<Vec<String>, Error> {
-        self.record("topics", self.ipfs.topics()).await
     }
     async fn version(&self) -> Result<Version, Error> {
         self.record("version", self.ipfs.version()).await

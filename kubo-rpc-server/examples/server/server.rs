@@ -103,8 +103,8 @@ use ceramic_kubo_rpc_server::server::MakeService;
 use ceramic_kubo_rpc_server::{
     Api, BlockGetPostResponse, BlockPutPostResponse, BlockStatPostResponse, DagGetPostResponse,
     DagImportPostResponse, DagPutPostResponse, DagResolvePostResponse, IdPostResponse,
-    PinAddPostResponse, PinRmPostResponse, PubsubLsPostResponse, PubsubPubPostResponse,
-    PubsubSubPostResponse, SwarmConnectPostResponse, SwarmPeersPostResponse, VersionPostResponse,
+    PinAddPostResponse, PinRmPostResponse, SwarmConnectPostResponse, SwarmPeersPostResponse,
+    VersionPostResponse,
 };
 use std::error::Error;
 use swagger::ApiError;
@@ -270,48 +270,6 @@ where
         let context = context.clone();
         info!(
             "pin_rm_post(\"{}\") - X-Span-ID: {:?}",
-            arg,
-            context.get().0.clone()
-        );
-        Err(ApiError("Generic failure".into()))
-    }
-
-    /// List topic with active subscriptions
-    async fn pubsub_ls_post(&self, context: &C) -> Result<PubsubLsPostResponse, ApiError> {
-        let context = context.clone();
-        info!(
-            "pubsub_ls_post() - X-Span-ID: {:?}",
-            context.get().0.clone()
-        );
-        Err(ApiError("Generic failure".into()))
-    }
-
-    /// Publish a message to a topic
-    async fn pubsub_pub_post(
-        &self,
-        arg: String,
-        file: swagger::ByteArray,
-        context: &C,
-    ) -> Result<PubsubPubPostResponse, ApiError> {
-        let context = context.clone();
-        info!(
-            "pubsub_pub_post(\"{}\", {:?}) - X-Span-ID: {:?}",
-            arg,
-            file,
-            context.get().0.clone()
-        );
-        Err(ApiError("Generic failure".into()))
-    }
-
-    /// Subscribe to a topic, blocks until a message is received
-    async fn pubsub_sub_post(
-        &self,
-        arg: String,
-        context: &C,
-    ) -> Result<PubsubSubPostResponse, ApiError> {
-        let context = context.clone();
-        info!(
-            "pubsub_sub_post(\"{}\") - X-Span-ID: {:?}",
             arg,
             context.get().0.clone()
         );

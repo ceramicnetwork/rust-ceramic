@@ -18,7 +18,6 @@ use iroh_rpc_types::p2p::P2pAddr;
 use libp2p::{
     autonat::{self, OutboundProbeEvent},
     core::Multiaddr,
-    gossipsub::IdentTopic,
     identify,
     identity::Keypair,
     kad::{
@@ -49,7 +48,7 @@ use crate::{
     rpc::{self, RpcMessage},
     rpc::{P2p, ProviderRequestKey},
     swarm::build_swarm,
-    Config, GossipsubEvent,
+    Config,
 };
 use recon::{libp2p::Recon, Sha256a};
 
@@ -58,7 +57,6 @@ use recon::{libp2p::Recon, Sha256a};
 pub enum NetworkEvent {
     PeerConnected(PeerId),
     PeerDisconnected(PeerId),
-    Gossipsub(GossipsubEvent),
     CancelLookupQuery(PeerId),
 }
 
@@ -841,31 +839,6 @@ where
                 libp2p_metrics().record(&e);
                 Ok(None)
             }
-            Event::Gossipsub(e) => {
-                libp2p_metrics().record(&e);
-                if let libp2p::gossipsub::Event::Message {
-                    propagation_source,
-                    message_id,
-                    message,
-                } = e
-                {
-                    self.emit_network_event(NetworkEvent::Gossipsub(GossipsubEvent::Message {
-                        from: propagation_source,
-                        id: message_id,
-                        message,
-                    }));
-                } else if let libp2p::gossipsub::Event::Subscribed { peer_id, topic } = e {
-                    self.emit_network_event(NetworkEvent::Gossipsub(GossipsubEvent::Subscribed {
-                        peer_id,
-                        topic,
-                    }));
-                } else if let libp2p::gossipsub::Event::Unsubscribed { peer_id, topic } = e {
-                    self.emit_network_event(NetworkEvent::Gossipsub(
-                        GossipsubEvent::Unsubscribed { peer_id, topic },
-                    ));
-                }
-                Ok(None)
-            }
             Event::Mdns(e) => {
                 match e {
                     mdns::Event::Discovered(peers) => {
@@ -1116,79 +1089,6 @@ where
                     .send(())
                     .map_err(|_| anyhow!("sender dropped"))?;
             }
-            RpcMessage::Gossipsub(g) => {
-                let gossipsub = match self.swarm.behaviour_mut().gossipsub.as_mut() {
-                    Some(gossipsub) => gossipsub,
-                    None => {
-                        tracing::warn!("Unexpected gossipsub message");
-                        return Ok(false);
-                    }
-                };
-                match g {
-                    rpc::GossipsubMessage::AddExplicitPeer(response_channel, peer_id) => {
-                        gossipsub.add_explicit_peer(&peer_id);
-                        response_channel
-                            .send(())
-                            .map_err(|_| anyhow!("sender dropped"))?;
-                    }
-                    rpc::GossipsubMessage::AllMeshPeers(response_channel) => {
-                        let peers = gossipsub.all_mesh_peers().copied().collect();
-                        response_channel
-                            .send(peers)
-                            .map_err(|_| anyhow!("sender dropped"))?;
-                    }
-                    rpc::GossipsubMessage::AllPeers(response_channel) => {
-                        let all_peers = gossipsub
-                            .all_peers()
-                            .map(|(p, t)| (*p, t.into_iter().cloned().collect()))
-                            .collect();
-                        response_channel
-                            .send(all_peers)
-                            .map_err(|_| anyhow!("sender dropped"))?;
-                    }
-                    rpc::GossipsubMessage::MeshPeers(response_channel, topic_hash) => {
-                        let peers = gossipsub.mesh_peers(&topic_hash).copied().collect();
-                        response_channel
-                            .send(peers)
-                            .map_err(|_| anyhow!("sender dropped"))?;
-                    }
-                    rpc::GossipsubMessage::Publish(response_channel, topic_hash, bytes) => {
-                        let res = gossipsub
-                            .publish(IdentTopic::new(topic_hash.into_string()), bytes.to_vec());
-                        response_channel
-                            .send(res)
-                            .map_err(|_| anyhow!("sender dropped"))?;
-                    }
-                    rpc::GossipsubMessage::RemoveExplicitPeer(response_channel, peer_id) => {
-                        gossipsub.remove_explicit_peer(&peer_id);
-                        response_channel
-                            .send(())
-                            .map_err(|_| anyhow!("sender dropped"))?;
-                    }
-                    rpc::GossipsubMessage::Subscribe(response_channel, topic_hash) => {
-                        let t = IdentTopic::new(topic_hash.into_string());
-                        let res = gossipsub
-                            .subscribe(&t)
-                            .map(|_| self.network_events())
-                            .map_err(anyhow::Error::new);
-                        response_channel
-                            .send(res)
-                            .map_err(|_| anyhow!("sender dropped"))?;
-                    }
-                    rpc::GossipsubMessage::Topics(response_channel) => {
-                        let topics = gossipsub.topics().cloned().collect();
-                        response_channel
-                            .send(topics)
-                            .map_err(|_| anyhow!("sender dropped"))?;
-                    }
-                    rpc::GossipsubMessage::Unsubscribe(response_channel, topic_hash) => {
-                        let res = gossipsub.unsubscribe(&IdentTopic::new(topic_hash.into_string()));
-                        response_channel
-                            .send(res)
-                            .map_err(|_| anyhow!("sender dropped"))?;
-                    }
-                }
-            }
             RpcMessage::ListenForIdentify(response_channel, peer_id) => {
                 let channels = self.lookup_queries.entry(peer_id).or_default();
                 channels.push(response_channel);
@@ -1286,8 +1186,7 @@ mod tests {
     use crate::keys::Keypair;
 
     use async_trait::async_trait;
-    use bytes::Bytes;
-    use futures::{future, TryStreamExt};
+    use futures::TryStreamExt;
     use rand::prelude::*;
     use rand_chacha::ChaCha8Rng;
     use recon::Sha256a;
@@ -1720,148 +1619,6 @@ mod tests {
             anyhow::bail!("unexpected NetworkEvent {:#?}", event);
         }
 
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_gossipsub() -> Result<()> {
-        let mut test_runner_a = TestRunnerBuilder::new().no_bootstrap().build().await?;
-        // peer_id 12D3KooWLo6JTNKXfjkZtKf8ooLQoXVXUEeuu4YDY3CYqK6rxHXt
-        let test_runner_b = TestRunnerBuilder::new()
-            .no_bootstrap()
-            .with_seed(ChaCha8Rng::from_seed([0; 32]))
-            .build()
-            .await?;
-        let addrs_b = vec![test_runner_b.addr.clone()];
-
-        test_runner_a
-            .client
-            .connect(test_runner_b.peer_id, addrs_b)
-            .await?;
-
-        match test_runner_a.network_events.recv().await {
-            Some(NetworkEvent::PeerConnected(peer_id)) => {
-                assert_eq!(test_runner_b.peer_id, peer_id);
-            }
-            Some(n) => {
-                anyhow::bail!("unexpected network event: {:?}", n);
-            }
-            None => {
-                anyhow::bail!("expected NetworkEvent::PeerConnected, received no event");
-            }
-        };
-        let peers = test_runner_a.client.gossipsub_all_peers().await?;
-        assert!(peers.len() == 1);
-        let got_peer = peers.get(0).unwrap();
-        assert_eq!(test_runner_b.peer_id, got_peer.0);
-
-        // create topic
-        let topic = libp2p::gossipsub::TopicHash::from_raw("test_topic");
-        // subscribe both to same topic
-        let mut subscription_a = test_runner_a
-            .client
-            .gossipsub_subscribe(topic.clone())
-            .await?;
-        let subscription_b = test_runner_b
-            .client
-            .gossipsub_subscribe(topic.clone())
-            .await?;
-
-        // Spawn a task to read all messages from b, but ignore them.
-        // This ensures the subscription request is actually processed.
-        tokio::task::spawn(subscription_b.for_each(|_| future::ready(())));
-
-        match subscription_a.next().await {
-            Some(Ok(GossipsubEvent::Subscribed {
-                peer_id,
-                topic: subscribed_topic,
-            })) => {
-                assert_eq!(test_runner_b.peer_id, peer_id);
-                assert_eq!(topic, subscribed_topic);
-            }
-            Some(n) => {
-                anyhow::bail!(
-                    "unexpected network event, expecting a GossipsubEvent::Subscribed, got: {:?}",
-                    n
-                );
-            }
-            None => {
-                anyhow::bail!("expected GossipsubEvent::Subscribed, received no event");
-            }
-        };
-
-        let peers = test_runner_a.client.gossipsub_all_peers().await?;
-        assert!(peers.len() == 1);
-        let got_peer = peers.get(0).unwrap();
-        assert_eq!(test_runner_b.peer_id, got_peer.0);
-        assert_eq!(&topic, got_peer.1.get(0).unwrap());
-
-        // get mesh peer for topic
-        let peers = test_runner_a
-            .client
-            .gossipsub_mesh_peers(topic.clone())
-            .await?;
-
-        assert!(peers.len() == 1);
-        assert_eq!(test_runner_b.peer_id, *peers.get(0).unwrap());
-
-        let peers = test_runner_a.client.gossipsub_all_mesh_peers().await?;
-        assert!(peers.len() == 1);
-        assert_eq!(&test_runner_b.peer_id, peers.get(0).unwrap());
-
-        let msg = Bytes::from(&b"hello world!"[..]);
-        test_runner_b
-            .client
-            .gossipsub_publish(topic.clone(), msg.clone())
-            .await?;
-
-        match subscription_a.next().await {
-            Some(Ok(GossipsubEvent::Message { from, message, .. })) => {
-                assert_eq!(test_runner_b.peer_id, from);
-                assert_eq!(topic, message.topic);
-                assert_eq!(test_runner_b.peer_id, message.source.unwrap());
-                assert_eq!(msg.to_vec(), message.data);
-            }
-            Some(Ok(n)) => {
-                anyhow::bail!(
-                    "unexpected network event, expecting a GossipsubEvent::Message, got: {:?}",
-                    n
-                );
-            }
-            Some(Err(e)) => {
-                anyhow::bail!("unexpected network error: {:?}", e);
-            }
-            None => {
-                anyhow::bail!("expected GossipsubEvent::Message, received no event");
-            }
-        };
-
-        test_runner_b
-            .client
-            .gossipsub_unsubscribe(topic.clone())
-            .await?;
-
-        match subscription_a.next().await {
-            Some(Ok(GossipsubEvent::Unsubscribed {
-                peer_id,
-                topic: unsubscribe_topic,
-            })) => {
-                assert_eq!(test_runner_b.peer_id, peer_id);
-                assert_eq!(topic, unsubscribe_topic);
-            }
-            Some(Ok(n)) => {
-                anyhow::bail!(
-                    "unexpected network event, expecting a GossipsubEvent::Unsubscribed, got: {:?}",
-                    n
-                );
-            }
-            Some(Err(e)) => {
-                anyhow::bail!("unexpected network error: {:?}", e);
-            }
-            None => {
-                anyhow::bail!("expected NetworkEvent::Gossipsub(Unsubscribed), received no event");
-            }
-        };
         Ok(())
     }
 
