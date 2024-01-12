@@ -4,6 +4,7 @@
 
 .DS_Store
 .idea
+.vscode
 
 peer*
 sync_test.sh

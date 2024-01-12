@@ -429,6 +429,7 @@ mod tests {
             .unwrap();
         assert!(matches!(resp, EventsPostResponse::Success));
     }
+
     #[tokio::test]
     #[traced_test]
     async fn subscribe_sort_value() {
