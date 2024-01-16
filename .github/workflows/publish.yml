@@ -2,7 +2,7 @@ name: Publish and Deploy Image
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "temp-cd" ]
   workflow_dispatch:
 
 env:
