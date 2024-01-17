@@ -4,7 +4,8 @@ use super::HashCount;
 use crate::{AssociativeHash, Key, Store};
 use anyhow::Result;
 use async_trait::async_trait;
-use sqlx::{Row, SqlitePool};
+use ceramic_core::SqlitePool;
+use sqlx::Row;
 use std::marker::PhantomData;
 use std::result::Result::Ok;
 use tracing::{debug, instrument};
@@ -64,7 +65,9 @@ where
             PRIMARY KEY(sort_key, key)
         )";
 
-        sqlx::query(CREATE_RECON_TABLE).execute(&self.pool).await?;
+        sqlx::query(CREATE_RECON_TABLE)
+            .execute(self.pool.writer())
+            .await?;
         Ok(())
     }
 }
@@ -109,7 +112,7 @@ where
             .bind(hash.as_u32s()[6])
             .bind(hash.as_u32s()[7])
             .bind(false)
-            .fetch_all(&self.pool)
+            .fetch_all(self.pool.writer())
             .await;
         match resp {
             std::result::Result::Ok(_rows) => Ok(true),
@@ -151,7 +154,7 @@ where
             .bind(&self.sort_key)
             .bind(left_fencepost.as_bytes())
             .bind(right_fencepost.as_bytes())
-            .fetch_one(&self.pool)
+            .fetch_one(self.pool.reader())
             .await?;
         let bytes: [u32; 8] = [
             row.get(0),
@@ -204,7 +207,7 @@ where
             .bind(right_fencepost.as_bytes())
             .bind(limit as i64)
             .bind(offset as i64)
-            .fetch_all(&self.pool)
+            .fetch_all(self.pool.reader())
             .await?;
         debug!(count = rows.len(), "rows");
         Ok(Box::new(rows.into_iter().map(|row| {
@@ -234,7 +237,7 @@ where
             .bind(&self.sort_key)
             .bind(left_fencepost.as_bytes())
             .bind(right_fencepost.as_bytes())
-            .fetch_one(&self.pool)
+            .fetch_one(self.pool.reader())
             .await?;
         Ok(row.get::<'_, i64, _>(0) as usize)
     }
@@ -265,7 +268,7 @@ where
             .bind(&self.sort_key)
             .bind(left_fencepost.as_bytes())
             .bind(right_fencepost.as_bytes())
-            .fetch_all(&self.pool)
+            .fetch_all(self.pool.reader())
             .await?;
         Ok(rows.first().map(|row| {
             let bytes: Vec<u8> = row.get(0);
@@ -298,7 +301,7 @@ where
             .bind(&self.sort_key)
             .bind(left_fencepost.as_bytes())
             .bind(right_fencepost.as_bytes())
-            .fetch_all(&self.pool)
+            .fetch_all(self.pool.reader())
             .await?;
         Ok(rows.first().map(|row| {
             let bytes: Vec<u8> = row.get(0);
@@ -344,7 +347,7 @@ where
             .bind(&self.sort_key)
             .bind(left_fencepost.as_bytes())
             .bind(right_fencepost.as_bytes())
-            .fetch_all(&self.pool)
+            .fetch_all(self.pool.reader())
             .await?;
         if let Some(row) = rows.first() {
             let first = K::from(row.get(0));

@@ -6,12 +6,11 @@ mod http;
 mod metrics;
 mod network;
 mod recon_loop;
-mod sql;
 
 use std::{env, num::NonZeroUsize, path::PathBuf, time::Duration};
 
 use anyhow::{anyhow, Result};
-use ceramic_core::{EventId, Interest, PeerId};
+use ceramic_core::{EventId, Interest, PeerId, SqlitePool};
 use ceramic_kubo_rpc::Multiaddr;
 
 use ceramic_metrics::{config::Config as MetricsConfig, MetricsHandle};
@@ -426,7 +425,7 @@ impl Daemon {
 
         // Connect to sqlite
         let sql_db_path: PathBuf = dir.join("db.sqlite3");
-        let sql_pool = sql::connect(&sql_db_path).await?;
+        let sql_pool = SqlitePool::connect(&sql_db_path).await?;
 
         // Create recon store for interests.
         let interest_store = InterestStore::new(sql_pool.clone(), "interest".to_string()).await?;

@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use bytes::Bytes;
+use ceramic_core::SqlitePool;
 use cid::{
     multihash::Code::{Keccak256, Sha2_256},
     multihash::MultihashDigest,
@@ -9,7 +10,7 @@ use cid::{
 use futures_util::stream::BoxStream;
 use iroh_bitswap::{Block, Store};
 use multihash::Multihash;
-use sqlx::{sqlite::Sqlite, Error, Row, SqlitePool};
+use sqlx::{sqlite::Sqlite, Error, Row};
 
 #[derive(Debug, Clone)]
 pub struct SQLiteBlockStore {
@@ -49,7 +50,7 @@ impl SQLiteBlockStore {
         );
         ",
         )
-        .execute(&self.pool)
+        .execute(self.pool.writer())
         .await?;
         Ok(())
     }
@@ -76,13 +77,13 @@ impl SQLiteBlockStore {
             )
         };
         let hashes = hashes_query
-            .fetch_all(&self.pool)
+            .fetch_all(self.pool.reader())
             .await?
             .into_iter()
             .map(|row| Multihash::from_bytes(row.get::<'_, &[u8], _>(0)))
             .collect::<Result<Vec<Multihash>, multihash::Error>>()?;
         let remaining = remaining_query
-            .fetch_one(&self.pool)
+            .fetch_one(self.pool.reader())
             .await?
             .get::<'_, i64, _>(0)
             // Do not count the hashes we just got in the remaining count.
@@ -94,7 +95,7 @@ impl SQLiteBlockStore {
         Ok(Some(
             sqlx::query("SELECT length(bytes) FROM blocks WHERE multihash = ?;")
                 .bind(cid.hash().to_bytes())
-                .fetch_one(&self.pool)
+                .fetch_one(self.pool.reader())
                 .await?
                 .get::<'_, i64, _>(0) as u64,
         ))
@@ -103,14 +104,14 @@ impl SQLiteBlockStore {
     pub async fn get(&self, cid: Cid) -> Result<Option<Bytes>> {
         Ok(sqlx::query("SELECT bytes FROM blocks WHERE multihash = ?;")
             .bind(cid.hash().to_bytes())
-            .fetch_optional(&self.pool)
+            .fetch_optional(self.pool.reader())
             .await?
             .map(|row| row.get::<'_, Vec<u8>, _>(0).into()))
     }
 
     pub fn scan(&self) -> BoxStream<Result<SQLiteBlock, Error>> {
         sqlx::query_as::<Sqlite, SQLiteBlock>("SELECT multihash, bytes FROM blocks;")
-            .fetch(&self.pool)
+            .fetch(self.pool.reader())
     }
 
     /// Store a DAG node into IPFS.
@@ -138,7 +139,7 @@ impl SQLiteBlockStore {
         match sqlx::query("INSERT INTO blocks (multihash, bytes) VALUES (?, ?)")
             .bind(cid.hash().to_bytes())
             .bind(blob.to_vec())
-            .execute(&self.pool)
+            .execute(self.pool.writer())
             .await
         {
             Ok(_) => Ok(true),
@@ -158,7 +159,7 @@ impl SQLiteBlockStore {
             ",
         )
         .bind(input_ceramic_db_filename)
-        .execute(&self.pool)
+        .execute(self.pool.writer())
         .await?;
         Ok(())
     }
@@ -167,7 +168,7 @@ impl SQLiteBlockStore {
     pub async fn backup_to_sqlite(&self, output_ceramic_db_filename: &str) -> Result<()> {
         sqlx::query(".backup ?")
             .bind(output_ceramic_db_filename)
-            .execute(&self.pool)
+            .execute(self.pool.writer())
             .await?;
         Ok(())
     }
@@ -182,7 +183,7 @@ impl Store for SQLiteBlockStore {
         Ok(
             sqlx::query("SELECT length(bytes) FROM blocks WHERE multihash = ?;")
                 .bind(cid.hash().to_bytes())
-                .fetch_one(&self.pool)
+                .fetch_one(self.pool.reader())
                 .await?
                 .get::<'_, i64, _>(0) as usize,
         )
@@ -195,7 +196,7 @@ impl Store for SQLiteBlockStore {
         Ok(Block::new(
             sqlx::query("SELECT bytes FROM blocks WHERE multihash = ?;")
                 .bind(cid.hash().to_bytes())
-                .fetch_one(&self.pool)
+                .fetch_one(self.pool.reader())
                 .await?
                 .get::<'_, Vec<u8>, _>(0)
                 .into(),
@@ -210,7 +211,7 @@ impl Store for SQLiteBlockStore {
         Ok(
             sqlx::query("SELECT count(1) FROM blocks WHERE multihash = ?;")
                 .bind(cid.hash().to_bytes())
-                .fetch_one(&self.pool)
+                .fetch_one(self.pool.reader())
                 .await?
                 .get::<'_, i64, _>(0)
                 > 0,
@@ -225,10 +226,10 @@ mod tests {
     use crate::SQLiteBlockStore;
     use anyhow::Error;
     use bytes::Bytes;
+    use ceramic_core::SqlitePool;
     use cid::{Cid, CidGeneric};
     use expect_test::expect;
     use iroh_bitswap::Store;
-    use sqlx::SqlitePool;
 
     #[tokio::test]
     async fn test_store_block() {
