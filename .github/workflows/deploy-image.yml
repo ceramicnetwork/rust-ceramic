@@ -1,30 +1,22 @@
-name: Deploy Release or Commit
+name: Deploy to Durable Infra
 
 on:
   workflow_dispatch:
     inputs:
       environment:
         type: choice
-        description: Infrastructure environment to deploy to
+        description: Durable environment to deploy to
         required: true
-        default: dev
         options:
           - dev
           - qa
           - tnet
           - prod
-      type:
-        type: choice
-        description: Release or Commit
-        required: true
-        default: release
-        options:
-          - release
-          - commit
       tag:
         type: string
         description: Tag to deploy
         required: true
+        default: latest
 
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
@@ -38,23 +30,8 @@ jobs:
       -
         uses: actions/checkout@v3
       -
-        name: Schedule ECS deployment
-        run: |
-          deploy_env="${{ github.event.inputs.environment }}"
-          deploy_target="release"
-          deploy_tag="${{ github.event.inputs.tag }}"
-          if [[ ${{ github.event.inputs.type == 'commit' }} == 'true' ]]; then
-            # For commit deployments, the target is the same as the tag (i.e. the commit hash).
-            deploy_target="$deploy_tag"
-          fi
-          make DEPLOY_ENV="$deploy_env" DEPLOY_TARGET="$deploy_target" DEPLOY_TAG="$deploy_tag" MANUAL_DEPLOY="true" schedule-ecs-deployment
-      -
         name: Schedule k8s deployment
-        run: |
-          deploy_env="${{ github.event.inputs.environment }}"
-          deploy_tag="${{ github.event.inputs.tag }}"
-          # If this workflow was run for a release, indicate that this is a release deployment.
-          if [[ ${{ contains(github.event.head_commit.message, 'chore: Release') }} == 'true' ]]; then
-            deploy_tag=$(cargo metadata --format-version=1 --no-deps | jq '.packages[0].version' | tr -d '"')
-          fi
-          make DEPLOY_ENV="$deploy_env" DEPLOY_TAG="$deploy_tag" schedule-k8s-deployment
+        env:
+          DEPLOY_ENV: ${{ github.event.inputs.environment }}
+          DEPLOY_TAG: ${{ github.event.inputs.tag }}
+        run: make schedule-k8s-deployment
