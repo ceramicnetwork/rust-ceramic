@@ -190,7 +190,7 @@ xtaskops = "0.3"
 zeroize = "1.4"
 
 [workspace.package]
-version = "0.9.1"
+version = "0.10.0"
 edition = "2021"
 authors = [
     "Danny Browning <dbrowning@3box.io>",
