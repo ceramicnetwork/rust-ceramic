@@ -4,7 +4,7 @@ on:
   push:
     branches: [ "main" ]
   release:
-    types: [published]
+    types: [published, edited]
   workflow_dispatch:
 
 env:
@@ -59,7 +59,9 @@ jobs:
         # TODO: Uncomment and remove echo
         name: Schedule k8s deployment
         run: |
+          echo "Workflow triggered by: ${{ github.event_name }}"
           if [[ "${{ github.event_name }}" == "release" ]]; then
+            echo "Release action: ${{ github.event.action }}"
             if [${{ github.event.release.prerelease }}]; then
               DEPLOY_ENV="tnet"
             else
