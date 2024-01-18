@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.9.1] - 2024-01-18
+## [0.10.0] - 2024-01-18
 
 ### Bug Fixes
 
@@ -22,6 +22,7 @@ All notable changes to this project will be documented in this file.
 - Update deploy workflows for k8s (#216)
 - Naming
 - Branch name
+- Bug
 
 ### Features
 
@@ -37,6 +38,10 @@ All notable changes to this project will be documented in this file.
 - Remove all usage of gossipsub (#209)
 - Stop publishing CIDs to DHT on write (#211)
 - Pre-release workflow
+
+### Miscellaneous Tasks
+
+- Pre-release version v0.9.1
 
 ### Refactor
 
