@@ -75,3 +75,4 @@ git push --set-upstream origin feature/cd-rust-ceramic
 
 if["release_type" = "prerelease"]; then
         gh release create "v${version}" --target $commit_hash --title "$msg" --notes "$release_notes" --prerelease
+fi
