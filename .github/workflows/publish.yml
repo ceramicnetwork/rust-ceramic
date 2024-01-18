@@ -42,7 +42,7 @@ jobs:
           # Use the release tag to deploy, if one is available.
           DEPLOY_TAG=$RELEASE_TAG
         fi
-        make SHA="${{ github.SHA }}" SHA_TAG="$SHA_TAG" RELEASE_TAG="$RELEASE_TAG" publish-docker
+        # make SHA="${{ github.SHA }}" SHA_TAG="$SHA_TAG" RELEASE_TAG="$RELEASE_TAG" publish-docker
         echo "Deploy tag:"
         echo ${DEPLOY_TAG}
         echo "deploy_tag=${DEPLOY_TAG}" >> $GITHUB_OUTPUT
