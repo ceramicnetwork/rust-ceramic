@@ -27,6 +27,11 @@ level=$1
 # Release type
 release_type=$2
 
+# TODO : Remove when setting up PR 
+# checkout to main
+git checkout main
+git pull origin main
+
 # Print commits since last tag
 cargo release changes
 
@@ -68,9 +73,6 @@ cargo update -p ceramic-api-server
 # Using git commit directly for now
 # branch="release-v${version}"
 
-#TODO : Remove when setting up PR 
-git stash
-git checkout main
 msg="chore: pre-release version v${version}"
 git commit -am "$msg"
 commit_hash=$(git rev-parse HEAD)
