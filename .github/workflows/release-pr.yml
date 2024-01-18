@@ -1,5 +1,5 @@
 # Creates packages
-name: Create Release PR
+name: Create Release and Pre-release
 
 permissions:
   contents: write
@@ -8,9 +8,17 @@ permissions:
 on:
   workflow_dispatch:
     inputs:
-      level:
-        description: 'Release level'
+      release-type:
+        description: "Release Type"
         required: true
+        default: 'pre-release'
+        type: choice
+        options:
+          - pre-release
+          - release
+      level:
+        description: 'Pre-release level'
+        required: false
         default: 'minor'
         type: choice
         options:
@@ -37,4 +45,4 @@ jobs:
           git config user.name "Github Automation"
       - run: npm install @openapitools/openapi-generator-cli@2.6.0 -g
       - name: Create release PR
-        run: make RELEASE_LEVEL=${{ github.event.inputs.level }} release-pr
+        run: make RELEASE_LEVEL=${{ github.event.inputs.level }} RELEASE_TYPE=${{ github.event.inputs.release-type }} release-pr

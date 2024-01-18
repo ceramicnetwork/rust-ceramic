@@ -24,6 +24,9 @@ cd $(git rev-parse --show-toplevel)
 # First determine the next release level
 level=$1
 
+# Release type
+release-type=$2
+
 # Print commits since last tag
 cargo release changes
 
@@ -63,16 +66,12 @@ cargo update -p ceramic-api-server
 # Commit the specified packages
 # `cargo release commit` currently fails to build a good commit message.
 # Using git commit directly for now
-branch="release-v${version}"
-git checkout -b "$branch"
-msg="chore: release version v${version}"
+# branch="release-v${version}"
+git checkout feature/cd-rust-ceramic
+msg="chore: pre-release version v${version}"
 git commit -am "$msg"
-git push --set-upstream origin $branch
+commit_hash=$(git rev-parse HEAD)
+git push --set-upstream origin cd-rust-ceramic
 
-# Create a PR
-gh pr create \
-    --base main \
-    --head "$branch" \
-    --label release \
-    --title "$msg" \
-    --body "$release_notes"
+if["release-type" = "pre-release"]; then
+        gh release create "v${version}" --target $commit_hash --title "$msg" --notes "$release_notes" --prerelease
