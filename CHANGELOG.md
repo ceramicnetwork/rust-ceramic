@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.10.0] - 2024-01-18
+## [0.10.1] - 2024-01-18
 
 ### Bug Fixes
 
@@ -23,6 +23,7 @@ All notable changes to this project will be documented in this file.
 - Naming
 - Branch name
 - Bug
+- Bug in shell script
 
 ### Features
 
@@ -42,6 +43,7 @@ All notable changes to this project will be documented in this file.
 ### Miscellaneous Tasks
 
 - Pre-release version v0.9.1
+- Pre-release version v0.10.0
 
 ### Refactor
 
