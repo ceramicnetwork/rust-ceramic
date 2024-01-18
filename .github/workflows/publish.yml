@@ -5,7 +5,6 @@ on:
     branches: [ "main" ]
   release:
     types: [published]
-  workflow_dispatch:
 
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
@@ -56,16 +55,15 @@ jobs:
       -
         uses: actions/checkout@v3
       -
-        # TODO: Update this when we have multiple branches and a pre/release workflow
         name: Schedule k8s deployment
         run: |
           if [[ "${{ github.event_name }}" == "release" ]]; then
-            if ${{ github.event.release.prerelease }}; then
+            if [${{ github.event.release.prerelease }}]; then
               DEPLOY_ENV="tnet"
             else
               DEPLOY_ENV="prod"
-            fi
           else
             DEPLOY_ENV="qa"
           fi
-          make DEPLOY_ENV="$DEPLOY_ENV" DEPLOY_TAG=${{ needs.publish.outputs.deploy_tag }} schedule-k8s-deployment
+          # make DEPLOY_ENV="$DEPLOY_ENV" DEPLOY_TAG=${{ needs.publish.outputs.deploy_tag }} schedule-k8s-deployment
+          echo "DEPLOY_ENV is $DEPLOY_ENV"
