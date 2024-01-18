@@ -32,41 +32,41 @@ release_type=$2
 git checkout main
 git pull origin main
 
-# Print commits since last tag
-cargo release changes
+# # Print commits since last tag
+# cargo release changes
 
-# Bump crate versions
-cargo release version $level \
-    --verbose \
-    --execute \
-    --no-confirm
+# # Bump crate versions
+# cargo release version $level \
+#     --verbose \
+#     --execute \
+#     --no-confirm
 
-# Version determined by cargo release (without the 'v' prefix)
-version=$(cargo metadata --format-version=1 --no-deps | jq -r '.packages[0].version')
+# # Version determined by cargo release (without the 'v' prefix)
+# version=$(cargo metadata --format-version=1 --no-deps | jq -r '.packages[0].version')
 
-# Perform pre-release replacements
-cargo release replace \
-    --verbose \
-    --execute \
-    --no-confirm
+# # Perform pre-release replacements
+# cargo release replace \
+#     --verbose \
+#     --execute \
+#     --no-confirm
 
-# Run pre-release hooks
-cargo release hook \
-    --verbose \
-    --execute \
-    --no-confirm
+# # Run pre-release hooks
+# cargo release hook \
+#     --verbose \
+#     --execute \
+#     --no-confirm
 
-# Generate release notes
-release_notes=$(git cliff --unreleased --strip all --tag v$version)
-# Update CHANGELOG
-git cliff --tag v$version --output CHANGELOG.md
+# # Generate release notes
+# release_notes=$(git cliff --unreleased --strip all --tag v$version)
+# # Update CHANGELOG
+# git cliff --tag v$version --output CHANGELOG.md
 
-# Regenerate OpenAPI as we just updated the version metadata
-./ci-scripts/gen_api_server.sh
-./ci-scripts/gen_kubo_rpc_server.sh
-# Update Cargo.lock with new versions
-cargo update -p ceramic-kubo-rpc-server
-cargo update -p ceramic-api-server
+# # Regenerate OpenAPI as we just updated the version metadata
+# ./ci-scripts/gen_api_server.sh
+# ./ci-scripts/gen_kubo_rpc_server.sh
+# # Update Cargo.lock with new versions
+# cargo update -p ceramic-kubo-rpc-server
+# cargo update -p ceramic-api-server
 
 # Commit the specified packages
 # `cargo release commit` currently fails to build a good commit message.
