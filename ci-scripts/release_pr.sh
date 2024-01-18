@@ -73,11 +73,11 @@ git cliff --tag v$version --output CHANGELOG.md
 # Using git commit directly for now
 # branch="release-v${version}"
 
-msg="chore: pre-release version v${version}"
+msg="chore: version v${version}"
 # git commit -am "$msg"
 commit_hash=$(git rev-parse HEAD)
 # git push --set-upstream origin main
 
 if [ "$release_type" = "prerelease" ]; then
-        gh release create "v${version}" --target $commit_hash --title "$msg" --notes "$release_notes"
+        gh release create "v${version}" --target $commit_hash --title "$msg" --notes "$release_notes" --prerelease
 fi
