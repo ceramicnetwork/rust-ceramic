@@ -3,6 +3,8 @@ name: Publish and Deploy Image
 on:
   push:
     branches: [ "main" ]
+  release:
+    types: [published]
   workflow_dispatch:
 
 env:
@@ -41,7 +43,7 @@ jobs:
           # Use the release tag to deploy, if one is available.
           DEPLOY_TAG=$RELEASE_TAG
         fi
-        make SHA="${{ github.SHA }}" SHA_TAG="$SHA_TAG" RELEASE_TAG="$RELEASE_TAG" publish-docker
+        # make SHA="${{ github.SHA }}" SHA_TAG="$SHA_TAG" RELEASE_TAG="$RELEASE_TAG" publish-docker
         echo "Deploy tag:"
         echo ${DEPLOY_TAG}
         echo "deploy_tag=${DEPLOY_TAG}" >> $GITHUB_OUTPUT
@@ -54,6 +56,16 @@ jobs:
       -
         uses: actions/checkout@v3
       -
-        # TODO: Update this when we have multiple branches and a pre/release workflow
+        # TODO: Uncomment and remove echo
         name: Schedule k8s deployment
-        run: make DEPLOY_ENV="qa" DEPLOY_TAG=${{ needs.publish.outputs.deploy_tag }} schedule-k8s-deployment
+        run: |
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            if [${{ github.event.release.prerelease }}]; then
+              DEPLOY_ENV="tnet"
+            else
+              DEPLOY_ENV="prod"
+          else
+            DEPLOY_ENV="qa"
+          fi
+          # make DEPLOY_ENV="$DEPLOY_ENV" DEPLOY_TAG=${{ needs.publish.outputs.deploy_tag }} schedule-k8s-deployment
+          echo "DEPLOY_ENV is $DEPLOY_ENV"
