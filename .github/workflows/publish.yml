@@ -60,12 +60,13 @@ jobs:
         name: Schedule k8s deployment
         run: |
           echo "Workflow triggered by: ${{ github.event_name }}"
-          if [[ "${{ github.event_name }}" == "release" ]]; then
+          if [[ "${{github.event_name}}" == "release" ]]; then
             echo "Release action: ${{ github.event.action }}"
             if [${{ github.event.release.prerelease }}]; then
               DEPLOY_ENV="tnet"
             else
               DEPLOY_ENV="prod"
+            fi
           else
             DEPLOY_ENV="qa"
           fi
