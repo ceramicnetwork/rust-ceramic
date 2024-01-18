@@ -71,7 +71,7 @@ git checkout feature/cd-rust-ceramic
 msg="chore: pre-release version v${version}"
 git commit -am "$msg"
 commit_hash=$(git rev-parse HEAD)
-git push --set-upstream origin cd-rust-ceramic
+git push --set-upstream origin feature/cd-rust-ceramic
 
 if["release_type" = "prerelease"]; then
         gh release create "v${version}" --target $commit_hash --title "$msg" --notes "$release_notes" --prerelease
