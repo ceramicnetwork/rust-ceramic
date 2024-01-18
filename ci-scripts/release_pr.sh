@@ -79,5 +79,5 @@ commit_hash=$(git rev-parse HEAD)
 # git push --set-upstream origin main
 
 if [ "$release_type" = "prerelease" ]; then
-        gh release create "v${version}" --target $commit_hash --title "$msg" --notes "$release_notes" --prerelease
+        gh release create "v${version}" --target $commit_hash --title "$msg" --notes "$release_notes"
 fi
