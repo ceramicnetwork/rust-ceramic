@@ -59,7 +59,7 @@ release:
 # Prepare a release PR.
 .PHONY: release-pr
 release-pr:
-	./ci-scripts/release_pr.sh ${RELEASE_LEVEL}
+	./ci-scripts/release_pr.sh ${RELEASE_LEVEL} ${RELEASE_TYPE} 
 
 .PHONY: debug
 debug:

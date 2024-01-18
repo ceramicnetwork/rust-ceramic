@@ -24,6 +24,14 @@ cd $(git rev-parse --show-toplevel)
 # First determine the next release level
 level=$1
 
+# Release type
+release_type=$2
+
+# TODO : Remove when setting up PR 
+# checkout to main
+git checkout main
+git pull origin main
+
 # Print commits since last tag
 cargo release changes
 
@@ -48,31 +56,28 @@ cargo release hook \
     --execute \
     --no-confirm
 
-# Generate release notes
+# # Generate release notes
 release_notes=$(git cliff --unreleased --strip all --tag v$version)
-# Update CHANGELOG
+# # Update CHANGELOG
 git cliff --tag v$version --output CHANGELOG.md
 
-# Regenerate OpenAPI as we just updated the version metadata
-./ci-scripts/gen_api_server.sh
-./ci-scripts/gen_kubo_rpc_server.sh
-# Update Cargo.lock with new versions
-cargo update -p ceramic-kubo-rpc-server
-cargo update -p ceramic-api-server
+# # Regenerate OpenAPI as we just updated the version metadata
+# ./ci-scripts/gen_api_server.sh
+# ./ci-scripts/gen_kubo_rpc_server.sh
+# # Update Cargo.lock with new versions
+# cargo update -p ceramic-kubo-rpc-server
+# cargo update -p ceramic-api-server
 
 # Commit the specified packages
 # `cargo release commit` currently fails to build a good commit message.
 # Using git commit directly for now
-branch="release-v${version}"
-git checkout -b "$branch"
-msg="chore: release version v${version}"
-git commit -am "$msg"
-git push --set-upstream origin $branch
+# branch="release-v${version}"
 
-# Create a PR
-gh pr create \
-    --base main \
-    --head "$branch" \
-    --label release \
-    --title "$msg" \
-    --body "$release_notes"
+msg="chore: version v${version}"
+# git commit -am "$msg"
+commit_hash=$(git rev-parse HEAD)
+# git push --set-upstream origin main
+
+if [ "$release_type" = "prerelease" ]; then
+        gh release create "v${version}" --target $commit_hash --title "$msg" --notes "$release_notes" --prerelease
+fi
