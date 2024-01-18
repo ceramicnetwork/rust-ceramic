@@ -25,7 +25,7 @@ cd $(git rev-parse --show-toplevel)
 level=$1
 
 # Release type
-release-type=$2
+release_type=$2
 
 # Print commits since last tag
 cargo release changes
@@ -73,5 +73,5 @@ git commit -am "$msg"
 commit_hash=$(git rev-parse HEAD)
 git push --set-upstream origin cd-rust-ceramic
 
-if["release-type" = "pre-release"]; then
+if["release_type" = "prerelease"]; then
         gh release create "v${version}" --target $commit_hash --title "$msg" --notes "$release_notes" --prerelease

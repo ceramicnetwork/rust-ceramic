@@ -14,7 +14,7 @@ on:
         default: 'pre-release'
         type: choice
         options:
-          - pre-release
+          - prerelease
           - release
       level:
         description: 'Pre-release level'
