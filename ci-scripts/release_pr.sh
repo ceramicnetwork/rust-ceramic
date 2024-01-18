@@ -67,11 +67,11 @@ cargo update -p ceramic-api-server
 # `cargo release commit` currently fails to build a good commit message.
 # Using git commit directly for now
 # branch="release-v${version}"
-git checkout feature/cd-rust-ceramic
+git checkout main
 msg="chore: pre-release version v${version}"
 git commit -am "$msg"
 commit_hash=$(git rev-parse HEAD)
-git push --set-upstream origin feature/cd-rust-ceramic
+git push --set-upstream origin main
 
 if [ "$release_type" = "prerelease" ]; then
         gh release create "v${version}" --target $commit_hash --title "$msg" --notes "$release_notes" --prerelease
