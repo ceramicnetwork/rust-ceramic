@@ -67,6 +67,9 @@ cargo update -p ceramic-api-server
 # `cargo release commit` currently fails to build a good commit message.
 # Using git commit directly for now
 # branch="release-v${version}"
+
+#TODO : Remove when setting up PR 
+git stash
 git checkout main
 msg="chore: pre-release version v${version}"
 git commit -am "$msg"
