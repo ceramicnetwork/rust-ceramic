@@ -15,10 +15,11 @@ impl SqlitePool {
     /// Uses WAL journal mode.
     pub async fn connect(path: impl AsRef<Path>) -> anyhow::Result<Self> {
         let db_path = format!("sqlite:{}", path.as_ref().display());
+        // As we benchmark, we will likely adjust settings and make things configurable.
+        // A few ideas: number of RO connections, synchronize = NORMAL, mmap_size, temp_store = memory
         let conn_opts = SqliteConnectOptions::from_str(&db_path)?
             .journal_mode(SqliteJournalMode::Wal)
             .create_if_missing(true)
-            // .synchronous(sqlx::sqlite::SqliteSynchronous::Normal) // normally enough in WAL mode?
             .optimize_on_close(true, None);
 
         let ro_opts = conn_opts.clone().read_only(true);
@@ -28,7 +29,7 @@ impl SqlitePool {
             .connect_with(conn_opts)
             .await?;
         let reader = SqlitePoolOptions::new()
-            .max_connections(32) //TODO
+            .max_connections(8)
             .connect_with(ro_opts)
             .await?;
 
