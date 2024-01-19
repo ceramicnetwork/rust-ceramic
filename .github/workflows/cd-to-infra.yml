@@ -4,7 +4,7 @@ on:
   push:
     branches: [ "main" ]
   release:
-    types: [published, edited, prereleased, released]
+    types: [created, published, edited, prereleased, released]
 
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
