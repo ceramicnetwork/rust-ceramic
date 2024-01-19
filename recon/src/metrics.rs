@@ -67,6 +67,7 @@ impl Recorder<KeyInsertEvent> for Metrics {
     }
 }
 
+#[derive(Debug)]
 pub struct StoreQuery {
     pub(crate) name: &'static str,
     pub(crate) duration: Duration,
