@@ -7,7 +7,7 @@ use std::{sync::atomic::Ordering, time::Duration};
 
 use ahash::AHashMap;
 use anyhow::{anyhow, bail, Context, Result};
-use ceramic_core::{EventId, Interest};
+use ceramic_core::{EventId, Interest, SqlitePool};
 use ceramic_metrics::{libp2p_metrics, Recorder};
 use cid::Cid;
 use futures_util::stream::StreamExt;
@@ -30,7 +30,6 @@ use libp2p::{
     swarm::{dial_opts::DialOpts, NetworkBehaviour, SwarmEvent},
     PeerId, StreamProtocol, Swarm,
 };
-use sqlx::SqlitePool;
 use tokio::sync::oneshot::{self, Sender as OneShotSender};
 use tokio::task::JoinHandle;
 use tokio::{

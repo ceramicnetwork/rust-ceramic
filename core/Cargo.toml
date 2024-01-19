@@ -28,6 +28,7 @@ serde_bytes.workspace = true
 serde_ipld_dagcbor.workspace = true
 serde_json.workspace = true
 ssi.workspace = true
+sqlx.workspace = true
 unsigned-varint.workspace = true
 
 [dev-dependencies]

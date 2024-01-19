@@ -1,10 +1,10 @@
 use anyhow::Result;
+use ceramic_core::SqlitePool;
 use ceramic_p2p::SQLiteBlockStore;
 use chrono::{SecondsFormat, Utc};
 use cid::{multibase, multihash, Cid};
 use clap::{Args, Subcommand};
 use glob::{glob, Paths};
-use sqlx::sqlite::SqlitePool;
 use std::{fs, path::PathBuf};
 
 #[derive(Subcommand, Debug)]
@@ -47,14 +47,7 @@ async fn slurp(opts: SlurpOpts) -> Result<()> {
         output_ceramic_path.display()
     );
 
-    let pool: sqlx::Pool<sqlx::Sqlite> = SqlitePool::connect(&format!(
-        "sqlite:{}?mode=rwc",
-        output_ceramic_path
-            .to_str()
-            .expect("path should be utf8 compatible")
-    ))
-    .await
-    .unwrap();
+    let pool = SqlitePool::connect(output_ceramic_path).await.unwrap();
     let store = SQLiteBlockStore::new(pool).await.unwrap();
 
     if let Some(input_ceramic_db) = opts.input_ceramic_db {

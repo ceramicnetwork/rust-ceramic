@@ -3,14 +3,13 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use ceramic_core::{EventId, Interest};
+use ceramic_core::{EventId, Interest, SqlitePool};
 use ceramic_kubo_rpc::{IpfsMetrics, IpfsMetricsMiddleware, IpfsService};
 use ceramic_p2p::{Config as P2pConfig, Libp2pConfig, Node, SQLiteBlockStore};
 use iroh_rpc_client::P2pClient;
 use iroh_rpc_types::{p2p::P2pAddr, Addr};
 use libp2p::identity::Keypair;
 use recon::{libp2p::Recon, Sha256a};
-use sqlx::SqlitePool;
 use tokio::task::{self, JoinHandle};
 use tracing::{debug, error};
 
