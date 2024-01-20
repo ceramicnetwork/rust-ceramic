@@ -1,4 +1,4 @@
-name: Deploy to Durable Infra
+name: Manual Deployment to Infra
 
 on:
   workflow_dispatch:
