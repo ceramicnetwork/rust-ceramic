@@ -1,5 +1,8 @@
 name: Continuous Deployment to Infra
 
+permissions:
+  contents: write
+
 on:
   push:
     branches: [ "main" ]
