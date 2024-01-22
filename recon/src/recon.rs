@@ -1,5 +1,6 @@
 pub mod btreestore;
 pub mod sqlitestore;
+pub mod store_metrics;
 #[cfg(test)]
 pub mod tests;
 

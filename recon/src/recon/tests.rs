@@ -638,6 +638,11 @@ fn hello() {
                     value: 0,
                     phantom: PhantomData<u64>,
                 },
+                store_query_durations: Family {
+                    metrics: RwLock {
+                        data: {},
+                    },
+                },
             },
         }
     "#]]
@@ -770,6 +775,11 @@ fn test_parse_recon() {
                         value: 0,
                         phantom: PhantomData<u64>,
                     },
+                    store_query_durations: Family {
+                        metrics: RwLock {
+                            data: {},
+                        },
+                    },
                 },
             },
             dog: Recon {
@@ -859,6 +869,11 @@ fn test_parse_recon() {
                     key_insert_count: Counter {
                         value: 0,
                         phantom: PhantomData<u64>,
+                    },
+                    store_query_durations: Family {
+                        metrics: RwLock {
+                            data: {},
+                        },
                     },
                 },
             },
@@ -1086,6 +1101,11 @@ dog: []
                         value: 0,
                         phantom: PhantomData<u64>,
                     },
+                    store_query_durations: Family {
+                        metrics: RwLock {
+                            data: {},
+                        },
+                    },
                 },
             },
             dog: Recon {
@@ -1108,6 +1128,11 @@ dog: []
                     key_insert_count: Counter {
                         value: 0,
                         phantom: PhantomData<u64>,
+                    },
+                    store_query_durations: Family {
+                        metrics: RwLock {
+                            data: {},
+                        },
                     },
                 },
             },

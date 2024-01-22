@@ -19,7 +19,10 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use futures::StreamExt;
 use multibase::Base;
 use multihash::{Code, Hasher, Multihash, MultihashDigest};
-use recon::{FullInterests, Recon, ReconInterestProvider, SQLiteStore, Server, Sha256a};
+use recon::{
+    FullInterests, Recon, ReconInterestProvider, SQLiteStore, Server, Sha256a,
+    StoreMetricsMiddleware,
+};
 use signal_hook::consts::signal::*;
 use signal_hook_tokio::Signals;
 use swagger::{auth::MakeAllowAllAuthenticator, EmptyContext};
@@ -287,11 +290,12 @@ pub async fn run() -> Result<()> {
 
 type InterestStore = SQLiteStore<Interest, Sha256a>;
 type InterestInterest = FullInterests<Interest>;
-type ReconInterest = Server<Interest, Sha256a, InterestStore, InterestInterest>;
+type ReconInterest =
+    Server<Interest, Sha256a, StoreMetricsMiddleware<InterestStore>, InterestInterest>;
 
 type ModelStore = SQLiteStore<EventId, Sha256a>;
 type ModelInterest = ReconInterestProvider<Sha256a>;
-type ReconModel = Server<EventId, Sha256a, ModelStore, ModelInterest>;
+type ReconModel = Server<EventId, Sha256a, StoreMetricsMiddleware<ModelStore>, ModelInterest>;
 
 struct Daemon {
     opts: DaemonOpts,
@@ -427,14 +431,22 @@ impl Daemon {
         let sql_db_path: PathBuf = dir.join("db.sqlite3");
         let sql_pool = SqlitePool::connect(&sql_db_path).await?;
 
+        // Create recon metrics
+        let recon_metrics = ceramic_metrics::MetricsHandle::register(recon::Metrics::register);
+
         // Create recon store for interests.
-        let interest_store = InterestStore::new(sql_pool.clone(), "interest".to_string()).await?;
+        let interest_store = StoreMetricsMiddleware::new(
+            InterestStore::new(sql_pool.clone(), "interest".to_string()).await?,
+            recon_metrics.clone(),
+        );
 
         // Create second recon store for models.
-        let model_store = ModelStore::new(sql_pool.clone(), "model".to_string()).await?;
+        let model_store = StoreMetricsMiddleware::new(
+            ModelStore::new(sql_pool.clone(), "model".to_string()).await?,
+            recon_metrics.clone(),
+        );
 
         // Construct a recon implementation for interests.
-        let recon_metrics = ceramic_metrics::MetricsHandle::register(recon::Metrics::register);
         let mut recon_interest = Server::new(Recon::new(
             interest_store,
             InterestInterest::default(),
