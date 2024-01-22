@@ -1,10 +1,13 @@
 name: Continuous Deployment to Infra
 
+permissions:
+  contents: write
+
 on:
   push:
     branches: [ "main" ]
+  # Trigger on all release events until we can figure out the optimal selection
   release:
-    types: [created, published, edited, prereleased, released]
 
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
@@ -37,7 +40,8 @@ jobs:
       run: |
         SHA_TAG=$(echo ${{ github.SHA }} | head -c 12)
         DEPLOY_TAG=$SHA_TAG
-        if [[ ${{ contains(github.event.head_commit.message, 'chore: Release') }} == 'true' ]]; then
+        COMMIT_MESSAGE=$(git log -1 --pretty=%B)
+        if [[ $(echo "$COMMIT_MESSAGE" | grep 'chore: version v') ]]; then
           RELEASE_TAG=$(cargo metadata --format-version=1 --no-deps | jq '.packages[0].version' | tr -d '"')
           # Use the release tag to deploy, if one is available.
           DEPLOY_TAG=$RELEASE_TAG
@@ -60,7 +64,17 @@ jobs:
           echo "Workflow triggered by: ${{ github.event_name }}"
           if [[ "${{ github.event_name }}" == "release" ]]; then
             echo "Release action: ${{ github.event.action }}"
-            if [[ "${{ github.event.action }}" == "prereleased" ]]; then
+            # For some reason, GitHub won't trigger the "created" or "prereleased" events when a pre-release is created
+            # from the "publish-release.yml" workflow. This is despite using a PAT to create the pre-release, which is
+            # the recommended way to trigger one workflow from another.
+            #
+            # This would imply that there was some issue with the repo or workflow configuration but GitHub does trigger
+            # the "published" workflow. Because of this, we're detecting pre-releases through the "published" event and
+            # its "prerelease" flag.
+            #
+            # Strangely enough, the "edited" and "released" events are triggered when promoting the pre-release to a
+            # release through the GitHub console (╯°□°)╯︵ ┻━┻ 
+            if [[ "${{ github.event.action }}" == "published" && "${{ github.event.release.prerelease }}" == "true" ]]; then
               DEPLOY_ENV="tnet"
             elif [[ "${{ github.event.action }}" == "released" ]]; then
               DEPLOY_ENV="prod"
@@ -68,7 +82,7 @@ jobs:
           else
             DEPLOY_ENV="qa"
           fi
+          echo "DEPLOY_ENV is $DEPLOY_ENV"
           if [[ -n "$DEPLOY_ENV" ]]; then
             make DEPLOY_ENV="$DEPLOY_ENV" DEPLOY_TAG=${{ needs.publish.outputs.deploy_tag }} schedule-k8s-deployment
           fi
-          echo "DEPLOY_ENV is $DEPLOY_ENV"
