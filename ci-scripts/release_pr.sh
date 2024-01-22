@@ -63,15 +63,16 @@ cargo update -p ceramic-api-server
 # Commit the specified packages
 # `cargo release commit` currently fails to build a good commit message.
 # Using git commit directly for now
-branch="release-v${version}"
+branch="version-v${version}"
 git checkout -b "$branch"
-msg="chore: release version v${version}"
+msg="chore: version v${version}"
 git commit -am "$msg"
 git push --set-upstream origin $branch
 
 # Create a PR
+# TODO: Change to main
 gh pr create \
-    --base main \
+    --base "feature/cd" \
     --head "$branch" \
     --label release \
     --title "$msg" \
