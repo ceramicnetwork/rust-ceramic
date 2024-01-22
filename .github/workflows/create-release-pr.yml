@@ -26,7 +26,8 @@ jobs:
       # See https://github.com/3box/rust-builder
       image: public.ecr.aws/r5b3e0r5/3box/rust-builder:latest
     env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ secrets.GH_TOKEN_PAT }}
+      GITHUB_TOKEN: ${{ secrets.GH_TOKEN_PAT }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
