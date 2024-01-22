@@ -2,15 +2,61 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.1] - 2024-01-22
+
+### Bug Fixes
+
+- Check limits first before other behaviours (#183)
+- Panic with divide by zero duration math (#184)
+- Fix JSON log format errors (#185)
+- Update comment to pass clippy (#189)
+- Run publisher in its own task (#188)
+- Trickle publisher keys to swarm (#191)
+- Use AIMD for publisher batch size (#195)
+- Do not use bootstrap list with kademlia (#199)
+- Simplify the publisher (#200)
+- Always collect metrics (#202)
+- Typo (#203)
+- Upgrade to libp2p 0.53 (#205)
+- Clippy accessing first element with first (#212)
+- Update deploy workflows for k8s (#216)
+- Rename workflows (#223)
+
+### Features
+
+- Continously publish provider records (#175)
+- Add publisher batch metrics (#187)
+- Add config for republish_max_concurrent (#192)
+- Add peering support (#194)
+- Add tokio metrics (#206)
+- Merge migration script with ceramic-one (#190)
+- Add metrics to api and recon (#208)
+- Schedule_k8s_deploy github action (#213)
+- Recon-over-http (#168)
+- Remove all usage of gossipsub (#209)
+- Stop publishing CIDs to DHT on write (#211)
+- On tag publish deploy to envs (#220)
+- Add sqlite read/write pool split (#218)
+- Updated release workflow
+
+### Refactor
+
+- Update bitswap logs to use structured logging (#193)
+
 ## [0.9.0] - 2023-11-13
 
 ### Bug Fixes
 
 - Rename iroh to ceramic-one in agent (#181)
 
+### Features
+
+- Add control over autonat (#176)
+
 ### Miscellaneous Tasks
 
 - Pass manual flag through in deployment job (#180)
+- Release version v0.9.0 (#182)
 
 ## [0.8.3] - 2023-11-09
 
