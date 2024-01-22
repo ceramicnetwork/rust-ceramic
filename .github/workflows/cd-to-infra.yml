@@ -1,10 +1,14 @@
 name: Continuous Deployment to Infra
 
+permissions:
+  contents: write
+
 on:
   push:
     branches: [ "main" ]
   release:
-    types: [created, published, edited, prereleased, released]
+# TODO: We can scope release types once we're able to get reliable behavior with event triggers
+# types: [prereleased, released]
 
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
@@ -37,7 +41,7 @@ jobs:
       run: |
         SHA_TAG=$(echo ${{ github.SHA }} | head -c 12)
         DEPLOY_TAG=$SHA_TAG
-        if [[ ${{ contains(github.event.head_commit.message, 'chore: Release') }} == 'true' ]]; then
+        if [[ ${{ contains(github.event.head_commit.message, 'chore: version v') }} == 'true' ]]; then
           RELEASE_TAG=$(cargo metadata --format-version=1 --no-deps | jq '.packages[0].version' | tr -d '"')
           # Use the release tag to deploy, if one is available.
           DEPLOY_TAG=$RELEASE_TAG
