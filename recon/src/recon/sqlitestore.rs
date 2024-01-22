@@ -49,6 +49,7 @@ where
 {
     /// Initialize the recon table.
     async fn create_table_if_not_exists(&mut self) -> Result<()> {
+        // Do we want to remove CID and block_retrieved from the table?
         const CREATE_RECON_TABLE: &str = "CREATE TABLE IF NOT EXISTS recon (
             sort_key TEXT, -- the field in the event header to sort by e.g. model
             key BLOB, -- network_id sort_value controller StreamID height event_cid
@@ -61,12 +62,21 @@ where
             ahash_6 INTEGER,
             ahash_7 INTEGER,
             CID TEXT,
-            value BLOB,
             block_retrieved BOOL, -- indicates if we still want the block
             PRIMARY KEY(sort_key, key)
         )";
 
+        const CREATE_RECON_VALUE_TABLE: &str = "CREATE TABLE IF NOT EXISTS recon_value (
+            sort_key TEXT, 
+            key BLOB, 
+            value BLOB, 
+            PRIMARY KEY(sort_key, key)
+        )";
+
         sqlx::query(CREATE_RECON_TABLE)
+            .execute(self.pool.writer())
+            .await?;
+        sqlx::query(CREATE_RECON_VALUE_TABLE)
             .execute(self.pool.writer())
             .await?;
         Ok(())
@@ -361,8 +371,13 @@ where
 
     #[instrument(skip(self))]
     async fn store_value_for_key(&mut self, key: &Self::Key, value: &[u8]) -> Result<bool> {
-        let query = sqlx::query("UPDATE recon SET value=? WHERE sort_key=? AND key=?;");
-        query
+        let query = sqlx::query(
+            r#"INSERT INTO recon_value (value, sort_key, key) 
+            VALUES (?, ?, ?) 
+            ON CONFLICT (sort_key, key) DO UPDATE 
+            SET value=excluded.value;"#,
+        );
+        let resp = query
             .bind(value)
             .bind(&self.sort_key)
             .bind(key.as_bytes())
@@ -373,7 +388,7 @@ where
 
     #[instrument(skip(self))]
     async fn value_for_key(&mut self, key: &Self::Key) -> Result<Option<Vec<u8>>> {
-        let query = sqlx::query("SELECT value FROM recon WHERE sort_key=? AND key=?;");
+        let query = sqlx::query("SELECT value FROM recon_value WHERE sort_key=? AND key=?;");
         let row = query
             .bind(&self.sort_key)
             .bind(key.as_bytes())

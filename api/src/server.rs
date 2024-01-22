@@ -152,7 +152,7 @@ where
         self.model
             .store_value_for_key(event_id, &event_data)
             .await
-            .map_err(|err| ApiError(format!("failed to insert key: {err}")))?;
+            .map_err(|err| ApiError(format!("failed to insert value for key: {err}")))?;
         Ok(EventsPostResponse::Success)
     }
 
