@@ -63,16 +63,17 @@ cargo update -p ceramic-api-server
 # Commit the specified packages
 # `cargo release commit` currently fails to build a good commit message.
 # Using git commit directly for now
-branch="release-v${version}"
-git checkout -b "$branch"
-msg="chore: release version v${version}"
+current_branch=$(git rev-parse --abbrev-ref HEAD)
+pr_branch="version-v${version}"
+git checkout -b "$pr_branch"
+msg="chore: version v${version}"
 git commit -am "$msg"
-git push --set-upstream origin $branch
+git push --set-upstream origin "$pr_branch"
 
-# Create a PR
+# Create a PR against the branch this workflow is running on
 gh pr create \
-    --base main \
-    --head "$branch" \
+    --base "$current_branch" \
+    --head "$pr_branch" \
     --label release \
     --title "$msg" \
     --body "$release_notes"
