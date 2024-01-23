@@ -88,26 +88,6 @@ paths:
       responses:
         '204':
           description: success
-  /recon:
-    post:
-      parameters:
-        - name: ring
-          in: query
-          description: Recon ring
-          required: true
-          schema:
-            $ref: '#/components/schemas/Ring'
-      requestBody:
-        $ref: '#/components/requestBodies/Message'
-      responses:
-        '200':
-          description: success
-          content:
-            application/cbor-seq:
-              schema:
-                format: binary
-                type: string
-      summary: Sends a Recon message
 
 components:
   requestBodies:
@@ -139,12 +119,11 @@ components:
       type: object
       required:
         - eventId
+        - eventData
       properties:
         eventId:
           type: string
           description: Multibase encoding of event id bytes.
-    Ring:
-      type: string
-      enum:
-        - interest
-        - model
+        eventData:
+          type: string
+          description: Multibase encoding of event data.

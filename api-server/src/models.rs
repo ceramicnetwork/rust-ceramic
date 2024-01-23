@@ -12,12 +12,19 @@ pub struct Event {
     /// Multibase encoding of event id bytes.
     #[serde(rename = "eventId")]
     pub event_id: String,
+
+    /// Multibase encoding of event data.
+    #[serde(rename = "eventData")]
+    pub event_data: String,
 }
 
 impl Event {
     #[allow(clippy::new_without_default)]
-    pub fn new(event_id: String) -> Event {
-        Event { event_id }
+    pub fn new(event_id: String, event_data: String) -> Event {
+        Event {
+            event_id,
+            event_data,
+        }
     }
 }
 
@@ -26,8 +33,12 @@ impl Event {
 /// Should be implemented in a serde serializer
 impl std::string::ToString for Event {
     fn to_string(&self) -> String {
-        let params: Vec<Option<String>> =
-            vec![Some("eventId".to_string()), Some(self.event_id.to_string())];
+        let params: Vec<Option<String>> = vec![
+            Some("eventId".to_string()),
+            Some(self.event_id.to_string()),
+            Some("eventData".to_string()),
+            Some(self.event_data.to_string()),
+        ];
 
         params.into_iter().flatten().collect::<Vec<_>>().join(",")
     }
@@ -45,6 +56,7 @@ impl std::str::FromStr for Event {
         #[allow(dead_code)]
         struct IntermediateRep {
             pub event_id: Vec<String>,
+            pub event_data: Vec<String>,
         }
 
         let mut intermediate_rep = IntermediateRep::default();
@@ -70,6 +82,10 @@ impl std::str::FromStr for Event {
                     "eventId" => intermediate_rep.event_id.push(
                         <String as std::str::FromStr>::from_str(val).map_err(|x| x.to_string())?,
                     ),
+                    #[allow(clippy::redundant_clone)]
+                    "eventData" => intermediate_rep.event_data.push(
+                        <String as std::str::FromStr>::from_str(val).map_err(|x| x.to_string())?,
+                    ),
                     _ => {
                         return std::result::Result::Err(
                             "Unexpected key while parsing Event".to_string(),
@@ -89,6 +105,11 @@ impl std::str::FromStr for Event {
                 .into_iter()
                 .next()
                 .ok_or_else(|| "eventId missing in Event".to_string())?,
+            event_data: intermediate_rep
+                .event_data
+                .into_iter()
+                .next()
+                .ok_or_else(|| "eventData missing in Event".to_string())?,
         })
     }
 }
@@ -132,43 +153,6 @@ impl std::convert::TryFrom<hyper::header::HeaderValue> for header::IntoHeaderVal
                 "Unable to convert header: {:?} to string: {}",
                 hdr_value, e
             )),
-        }
-    }
-}
-
-/// Enumeration of values.
-/// Since this enum's variants do not hold data, we can easily define them as `#[repr(C)]`
-/// which helps with FFI.
-#[allow(non_camel_case_types)]
-#[repr(C)]
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
-)]
-#[cfg_attr(feature = "conversion", derive(frunk_enum_derive::LabelledGenericEnum))]
-pub enum Ring {
-    #[serde(rename = "interest")]
-    Interest,
-    #[serde(rename = "model")]
-    Model,
-}
-
-impl std::fmt::Display for Ring {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match *self {
-            Ring::Interest => write!(f, "interest"),
-            Ring::Model => write!(f, "model"),
-        }
-    }
-}
-
-impl std::str::FromStr for Ring {
-    type Err = String;
-
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        match s {
-            "interest" => std::result::Result::Ok(Ring::Interest),
-            "model" => std::result::Result::Ok(Ring::Model),
-            _ => std::result::Result::Err(format!("Value not valid: {}", s)),
         }
     }
 }

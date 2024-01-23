@@ -96,28 +96,6 @@ paths:
         "204":
           description: success
       summary: Creates a new event
-  /recon:
-    post:
-      parameters:
-      - description: Recon ring
-        explode: true
-        in: query
-        name: ring
-        required: true
-        schema:
-          $ref: '#/components/schemas/Ring'
-        style: form
-      requestBody:
-        $ref: '#/components/requestBodies/Message'
-      responses:
-        "200":
-          content:
-            application/cbor-seq:
-              schema:
-                format: binary
-                type: string
-          description: success
-      summary: Sends a Recon message
 components:
   requestBodies:
     Event:
@@ -148,17 +126,17 @@ components:
       description: A Ceramic event as part of a Ceramic Stream
       example:
         eventId: eventId
+        eventData: eventData
       properties:
         eventId:
           description: Multibase encoding of event id bytes.
           type: string
+        eventData:
+          description: Multibase encoding of event data.
+          type: string
       required:
+      - eventData
       - eventId
       title: A Ceramic Event
       type: object
-    Ring:
-      enum:
-      - interest
-      - model
-      type: string
 

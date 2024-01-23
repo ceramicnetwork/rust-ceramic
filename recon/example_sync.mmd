@@ -1,0 +1,19 @@
+sequenceDiagram
+    Initiator->>Responder: InterestRequest
+    Responder->>Initiator: InterestResponse
+    loop
+        Initiator->>Responder: RangeRequest
+        Responder->>Initiator: RangeResponse
+        loop
+        Initiator-->>Responder: ValueRequest
+        Responder-->>Initiator: ValueResponse
+        Responder-->>Initiator: ValueRequest
+        Initiator-->>Responder: ValueResponse
+        end
+    end
+    Initiator ->> Responder: HangUp
+    loop
+        Responder-->>Initiator: ValueRequest
+        Initiator-->>Responder: ValueResponse
+    end
+    Responder ->> Initiator: HangUp

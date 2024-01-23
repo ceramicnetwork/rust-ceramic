@@ -1,99 +1,56 @@
 use super::*;
-use ceramic_core::{Bytes,RangeOpen};
-use lalrpop_util::ParseError;
 
 grammar;
 
-pub Record : Record = {
-    <cat:Cat> <dog:Dog> <iterations:Iteration*> => Record {
+pub SequenceSetup : SequenceSetup<AlphaNumBytes> = {
+    "cat:" <cat:SetupState> "dog:" <dog:SetupState> => SequenceSetup {
         cat,
         dog,
-        iterations,
     },
 };
-Cat: ReconMemoryBytes<FixedInterests> = {
-    "cat:" <interests:Interests?> <set:Set> => ReconMemoryBytes::new(
-            BTreeStore::from_set(set),
-            interests.unwrap_or_else(|| FixedInterests::full()),
-            Metrics::register(&mut Registry::default()),
-        ),
-};
-Dog: ReconMemoryBytes<FixedInterests> = {
-    "dog:" <interests:Interests?> <set:Set> => ReconMemoryBytes::new(
-        BTreeStore::from_set(set),
-        interests.unwrap_or_else(|| FixedInterests::full()),
-        Metrics::register(&mut Registry::default()),
-    ),
+
+SetupState: SetupState<AlphaNumBytes> = {
+    <interests:Interests?> <state:State> => SetupState {
+        interests: interests.unwrap_or_else(|| FixedInterests::full()),
+        state,
+    }
 };
 
-Interests: FixedInterests = {
-    "<" <first:Interest?> <rest:("," <Interest>)*> ">" => {
+Interests: FixedInterests<AlphaNumBytes> = {
+    "<" <first:Interest> <rest:("," <Interest>)*> ">" => {
         let mut interests = Vec::new();
-        if let Some(first) = first {
-            interests.push(first);
-        }
+        interests.push(first);
         interests.extend(rest.into_iter());
         FixedInterests(interests)
     }
 };
 
-Interest: RangeOpen<Bytes> = {
-    "(" <start:Word> "," <end:Word> ")" => (Bytes::from(start), Bytes::from(end)).into()
+Interest: RangeOpen<AlphaNumBytes> = {
+    "(" <start:Word> "," <end:Word> ")" => (start, end).into()
 };
 
-Set: Set = {
-    "[" <SetInner> "]" => <>
+State: BTreeMap<AlphaNumBytes, AlphaNumBytes> = {
+    "[" <StateInner> "]" => <>
 };
 
-SetInner: Set = {
-    <first:Word?> <rest:("," <Word>)*> => {
-        let mut set = Set::new();
-        set.extend(rest.iter().map(Bytes::from));
+StateInner: BTreeMap<AlphaNumBytes, AlphaNumBytes> = {
+    <first:KeyValue?> <rest:("," <KeyValue>)*> => {
+        let mut state = BTreeMap::<AlphaNumBytes, AlphaNumBytes>::new();
+        state.extend(rest.into_iter());
         if let Some(first) = first {
-            set.insert(Bytes::from(first));
+            state.insert(first.0, first.1);
         }
-        set
+        state
     }
 };
 
-Word : String = {
-    r"[a-z][a-z0-9]*"=> <>.to_string(),
-};
-
-Iteration : Iteration = {
-    <dir:Direction> <messages:Messages> <set:Set> => Iteration {
-        dir,
-        messages,
-        set,
-    }
-};
-
-
-Direction : Direction = {
-    "->" => Direction::CatToDog,
-    "<-" => Direction::DogToCat,
-};
-
-Messages : Vec<MessageData> = {
-    <first:Message?> <rest:("," <Message>)*> => {
-        let mut messages = Vec::new();
-        if let Some(first) = first {
-            messages.push(first);
-        }
-        messages.extend(rest.into_iter());
-        messages
-    }
+KeyValue: (AlphaNumBytes, AlphaNumBytes) = {
+    <key:Word> ":" <value:Word> => (key.clone(), value),
 }
-Message : MessageData = {
-    "(" <MessageItem?> <("," <MessageItem>)*> ")" =>? (<>).try_into().map_err(|e: &'static str| ParseError::User{
-        error: e,
-    })
+
+Word : AlphaNumBytes = {
+    r"[a-zA-Z0-9]*"=> AlphaNumBytes::from(<>.to_string()),
+    r"𝚨"=> AlphaNumBytes::min_value(),
+    r"𝛀"=> AlphaNumBytes::max_value(),
 };
 
-MessageItem : MessageItem = {
-    "h(" <SetInner> ")" => MessageItem::Hash(<>),
-    "0"                 => MessageItem::Hash(Set::new()),
-    "<" <Word>          => MessageItem::Start(<>),
-    <Word> ">"          => MessageItem::End(<>),
-    Word                => MessageItem::Key(<>),
-};

@@ -19,7 +19,7 @@ use async_trait::async_trait;
 use futures::{future, Stream, StreamExt, TryFutureExt, TryStreamExt};
 use hyper::service::Service;
 use hyper::{server::conn::Http, Request};
-use recon::{AssociativeHash, InterestProvider, Key, Message, Response, Store};
+use recon::{AssociativeHash, InterestProvider, Key, Store};
 use serde::{Deserialize, Serialize};
 use swagger::{ByteArray, EmptyContext, XSpanIdString};
 use tokio::net::TcpListener;
@@ -27,8 +27,8 @@ use tracing::{debug, info, instrument, Level};
 
 use ceramic_api_server::{
     models::{self, Event},
-    EventsPostResponse, LivenessGetResponse, ReconPostResponse,
-    SubscribeSortKeySortValueGetResponse, VersionPostResponse,
+    EventsPostResponse, LivenessGetResponse, SubscribeSortKeySortValueGetResponse,
+    VersionPostResponse,
 };
 use ceramic_core::{EventId, Interest, Network, PeerId, StreamId};
 
@@ -46,10 +46,8 @@ pub trait Recon: Clone + Send + Sync {
         limit: usize,
     ) -> Result<Vec<Self::Key>>;
 
-    async fn process_messages(
-        &self,
-        received: Vec<Message<Self::Key, Self::Hash>>,
-    ) -> Result<Response<Self::Key, Self::Hash>>;
+    async fn value_for_key(&self, key: Self::Key) -> Result<Option<Vec<u8>>>;
+    async fn store_value_for_key(&self, key: Self::Key, value: &[u8]) -> Result<()>;
 }
 
 #[async_trait]
@@ -77,12 +75,11 @@ where
             .await?
             .collect())
     }
-
-    async fn process_messages(
-        &self,
-        received: Vec<Message<Self::Key, Self::Hash>>,
-    ) -> Result<Response<Self::Key, Self::Hash>> {
-        recon::Client::process_messages(self, received).await
+    async fn value_for_key(&self, key: Self::Key) -> Result<Option<Vec<u8>>> {
+        recon::Client::value_for_key(self, key).await
+    }
+    async fn store_value_for_key(&self, key: Self::Key, value: &[u8]) -> Result<()> {
+        recon::Client::store_value_for_key(self, key, value).await
     }
 }
 
@@ -147,48 +144,16 @@ where
     ) -> Result<EventsPostResponse, ApiError> {
         debug!(event_id = event.event_id, "events_post");
         let event_id = decode_event_id(&event.event_id)?;
+        let event_data = decode_event_data(&event.event_data)?;
         self.model
-            .insert(event_id)
+            .insert(event_id.clone())
+            .await
+            .map_err(|err| ApiError(format!("failed to insert key: {err}")))?;
+        self.model
+            .store_value_for_key(event_id, &event_data)
             .await
             .map_err(|err| ApiError(format!("failed to insert key: {err}")))?;
         Ok(EventsPostResponse::Success)
-    }
-
-    async fn recon_post(
-        &self,
-        ring: models::Ring,
-        body: ByteArray,
-        _context: &C,
-    ) -> std::result::Result<ReconPostResponse, ApiError> {
-        let response = match ring {
-            models::Ring::Interest => {
-                let interest_messages: Vec<Message<<I as Recon>::Key, <I as Recon>::Hash>> =
-                    serde_cbor::de::from_slice(body.as_slice()).map_err(|e| {
-                        ApiError(format!("failed to deserialize interest messages: {e}"))
-                    })?;
-                let interest_response = self
-                    .interest
-                    .process_messages(interest_messages)
-                    .await
-                    .map_err(|e| ApiError(format!("failed to process interest messages: {e}")))?;
-                serde_cbor::to_vec(&interest_response.into_messages())
-                    .map_err(|e| ApiError(format!("failed to serialize interest response: {e}")))?
-            }
-            models::Ring::Model => {
-                let model_messages: Vec<Message<<M as Recon>::Key, <M as Recon>::Hash>> =
-                    serde_cbor::de::from_slice(body.as_slice()).map_err(|e| {
-                        ApiError(format!("failed to deserialize model messages: {e}"))
-                    })?;
-                let model_response = self
-                    .model
-                    .process_messages(model_messages)
-                    .await
-                    .map_err(|e| ApiError(format!("failed to process model messages: {e}")))?;
-                serde_cbor::to_vec(&model_response.into_messages())
-                    .map_err(|e| ApiError(format!("failed to serialize model response: {e}")))?
-            }
-        };
-        Ok(ReconPostResponse::Success(swagger::ByteArray(response)))
     }
 
     #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
@@ -279,17 +244,30 @@ where
             .await
             .map_err(|err| ApiError(format!("failed to update interest: {err}")))?;
 
-        Ok(SubscribeSortKeySortValueGetResponse::Success(
-            self.model
-                .range(start, stop, offset, limit)
+        let mut events = Vec::new();
+        for id in self
+            .model
+            .range(start, stop, offset, limit)
+            .await
+            .map_err(|err| ApiError(format!("failed to get keys: {err}")))?
+            .into_iter()
+        {
+            let event_data = self
+                .model
+                .value_for_key(id.clone())
                 .await
-                .map_err(|err| ApiError(format!("failed to get keys: {err}")))?
-                .into_iter()
-                .map(|id| Event {
-                    event_id: multibase::encode(multibase::Base::Base16Lower, id.as_bytes()),
-                })
-                .collect(),
-        ))
+                .map_err(|err| ApiError(format!("failed to get event data: {err}")))?;
+            events.push(Event {
+                event_id: multibase::encode(multibase::Base::Base16Lower, id.as_bytes()),
+                event_data: multibase::encode(
+                    multibase::Base::Base64,
+                    // Use the empty bytes for keys with no value.
+                    // This way we are explicit there is no value rather that its just missing.
+                    &event_data.unwrap_or_default(),
+                ),
+            });
+        }
+        Ok(SubscribeSortKeySortValueGetResponse::Success(events))
     }
 }
 
@@ -298,6 +276,11 @@ fn decode_event_id(value: &str) -> Result<EventId, ApiError> {
         .map_err(|err| ApiError(format!("multibase error: {err}")))?
         .1
         .into())
+}
+fn decode_event_data(value: &str) -> Result<Vec<u8>, ApiError> {
+    Ok(multibase::decode(value)
+        .map_err(|err| ApiError(format!("multibase error: {err}")))?
+        .1)
 }
 
 #[cfg(test)]
@@ -345,12 +328,11 @@ mod tests {
         ) -> Result<Vec<Self::Key>> {
             self.range(start, end, offset, limit)
         }
-        async fn process_messages(
-            &self,
-            received: Vec<Message<Self::Key, Self::Hash>>,
-        ) -> Result<Response<Self::Key, Self::Hash>> {
-            let _ = received;
-            todo!("not implemented")
+        async fn value_for_key(&self, _key: Self::Key) -> Result<Option<Vec<u8>>> {
+            Ok(None)
+        }
+        async fn store_value_for_key(&self, _key: Self::Key, _value: &[u8]) -> Result<()> {
+            Ok(())
         }
     }
 
@@ -386,12 +368,11 @@ mod tests {
         ) -> Result<Vec<Self::Key>> {
             self.range(start, end, offset, limit)
         }
-        async fn process_messages(
-            &self,
-            received: Vec<Message<Self::Key, Self::Hash>>,
-        ) -> Result<Response<Self::Key, Self::Hash>> {
-            let _ = received;
-            todo!("not implemented")
+        async fn value_for_key(&self, _key: Self::Key) -> Result<Option<Vec<u8>>> {
+            Ok(None)
+        }
+        async fn store_value_for_key(&self, _key: Self::Key, _value: &[u8]) -> Result<()> {
+            Ok(())
         }
     }
 
@@ -422,6 +403,7 @@ mod tests {
             .events_post(
                 models::Event {
                     event_id: event_id_str,
+                    event_data: "f".to_string(),
                 },
                 &Context,
             )
@@ -473,6 +455,7 @@ mod tests {
             .build();
         let event = models::Event {
             event_id: multibase::encode(multibase::Base::Base16Lower, event_id.as_slice()),
+            event_data: multibase::encode(multibase::Base::Base64, b""),
         };
         // Setup mock expectations
         let mut mock_interest = MockReconInterestTest::new();

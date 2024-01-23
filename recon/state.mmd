@@ -1,0 +1,21 @@
+stateDiagram-v2
+  [*] --> Initiator: app(intiate=true)
+  state Initiator {
+    [*] --> InterestsSent: send(InterestRequest)
+    InterestsSent --> RangeSent: recv(InterestResponse)
+    RangeSent --> RangeRecv: recv(RangeResponse)
+    RangeRecv --> RangeSent: send(RangeRequest)
+    RangeRecv --> [*]: app(no more pending range requests)
+  }
+  [*] --> Responder: app(initiate=false)
+  state Responder {
+    [*] --> InterestsRecvd: recv(InterestRequest)
+    InterestsRecvd --> RangeWait: send(InterestResponse)
+    RangeWait --> RangeReply: recv(RangeRequest)
+    RangeReply --> RangeWait: send(RangeResponse)
+    RangeWait --> [*]: recv(HangUp)
+  }
+  Initiator --> SyncingValues
+  Responder --> SyncingValues
+  SynchingValues --> Synchronized: app(no more value or range wants), send(HangUp)
+  Synchronized --> [*]: recv(HangUp)

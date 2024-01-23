@@ -6,8 +6,8 @@ pub use crate::{
     metrics::Metrics,
     recon::{
         btreestore::BTreeStore, sqlitestore::SQLiteStore, store_metrics::StoreMetricsMiddleware,
-        AssociativeHash, FullInterests, InterestProvider, Key, Message, Recon,
-        ReconInterestProvider, Response, Store,
+        AssociativeHash, FullInterests, InterestProvider, Key, Range, Recon, ReconInterestProvider,
+        Store, SyncState,
     },
     sha256a::Sha256a,
 };
@@ -15,5 +15,9 @@ pub use crate::{
 mod client;
 pub mod libp2p;
 mod metrics;
+pub mod protocol;
 mod recon;
 mod sha256a;
+
+#[cfg(test)]
+mod tests;

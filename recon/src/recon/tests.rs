@@ -1,3 +1,14 @@
+//! Tests in the file rely on a few patterns.
+//!
+//! ## Debug + Display + Pretty
+//!
+//! We leverage Debug, Display, and Pretty various purposes.
+//!
+//! * Display - User facing representation of the data
+//! * Debug - Compact developer facing representation of the data (i.e. first few chars of a hash)
+//! * Debug Alternate ({:#?}) - Full debug representation of the data
+//! * Pretty - Psuedo sequence diagram representation (used for sequence tests)
+
 lalrpop_util::lalrpop_mod!(
     #[allow(clippy::all, missing_debug_implementations)]
     pub parser, "/recon/parser.rs"
@@ -5,11 +16,18 @@ lalrpop_util::lalrpop_mod!(
 
 use anyhow::Result;
 use async_trait::async_trait;
-use ceramic_core::{Bytes, RangeOpen};
+use ceramic_core::RangeOpen;
+use futures::{ready, Future, Sink, Stream};
+use pin_project::pin_project;
 use prometheus_client::registry::Registry;
-use std::collections::BTreeSet;
-use std::fmt::Display;
-use tracing_test::traced_test;
+use serde::{Deserialize, Serialize};
+use std::{collections::BTreeMap, fmt::Display};
+use std::{collections::BTreeSet, sync::Arc};
+use test_log::test;
+use tokio::sync::mpsc::channel;
+use tokio_stream::wrappers::ReceiverStream;
+use tokio_util::sync::PollSender;
+use tracing::debug;
 
 use codespan_reporting::{
     diagnostic::{Diagnostic, Label},
@@ -21,16 +39,46 @@ use lalrpop_util::ParseError;
 use pretty::{Arena, DocAllocator, DocBuilder, Pretty};
 
 use crate::{
-    recon::{FullInterests, InterestProvider},
-    AssociativeHash, BTreeStore, Key, Message, Metrics, Recon, Sha256a, Store,
+    protocol::{self, InitiatorMessage, ResponderMessage, ValueResponse},
+    recon::{FullInterests, HashCount, InterestProvider, Range},
+    tests::AlphaNumBytes,
+    AssociativeHash, BTreeStore, Client, Key, Metrics, Recon, Server, Sha256a, Store,
 };
 
-type Set = BTreeSet<Bytes>;
-
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct MemoryAHash {
     ahash: Sha256a,
-    set: BTreeSet<Bytes>,
+    set: BTreeSet<AlphaNumBytes>,
+}
+
+impl std::fmt::Debug for MemoryAHash {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if f.alternate() {
+            f.debug_struct("MemoryAHash")
+                .field("ahash", &self.ahash)
+                .field("set", &self.set)
+                .finish()
+        } else {
+            if self.is_zero() {
+                write!(f, "0")
+            } else {
+                write!(f, "h(")?;
+                for (i, key) in self.set.iter().enumerate() {
+                    if i != 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{key}")?;
+                }
+                write!(f, ")")
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for MemoryAHash {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.to_hex())
+    }
 }
 
 impl std::ops::Add for MemoryAHash {
@@ -71,57 +119,33 @@ impl From<[u32; 8]> for MemoryAHash {
     }
 }
 
-impl From<Message<Bytes, MemoryAHash>> for MessageData {
-    fn from(value: Message<Bytes, MemoryAHash>) -> Self {
-        Self {
-            // Treat min/max values as None
-            start: value
-                .start
-                .map(|start| {
-                    if start == Bytes::min_value() {
-                        None
-                    } else {
-                        Some(start.to_string())
-                    }
-                })
-                .unwrap_or_default(),
-            end: value
-                .end
-                .map(|end| {
-                    if end == Bytes::max_value() {
-                        None
-                    } else {
-                        Some(end.to_string())
-                    }
-                })
-                .unwrap_or_default(),
-            keys: value.keys.iter().map(|key| key.to_string()).collect(),
-            ahashs: value.hashes.into_iter().map(|h| h.set).collect(),
-        }
-    }
-}
-
 /// Recon type that uses Bytes for a Key and MemoryAHash for the Hash
-pub type ReconMemoryBytes<I> = Recon<Bytes, MemoryAHash, BTreeStore<Bytes, MemoryAHash>, I>;
+pub type ReconMemoryBytes = Recon<
+    AlphaNumBytes,
+    MemoryAHash,
+    BTreeStore<AlphaNumBytes, MemoryAHash>,
+    FixedInterests<AlphaNumBytes>,
+>;
 
 /// Recon type that uses Bytes for a Key and Sha256a for the Hash
-pub type ReconBytes = Recon<Bytes, Sha256a, BTreeStore<Bytes, Sha256a>, FullInterests<Bytes>>;
+pub type ReconBytes =
+    Recon<AlphaNumBytes, Sha256a, BTreeStore<AlphaNumBytes, Sha256a>, FullInterests<AlphaNumBytes>>;
 
 /// Implement InterestProvider for a fixed set of interests.
-#[derive(Debug, PartialEq)]
-pub struct FixedInterests(Vec<RangeOpen<Bytes>>);
+#[derive(Clone, Debug, PartialEq)]
+pub struct FixedInterests<K>(Vec<RangeOpen<K>>);
 
-impl FixedInterests {
+impl<K: Key> FixedInterests<K> {
     pub fn full() -> Self {
-        Self(vec![(Bytes::min_value(), Bytes::max_value()).into()])
+        Self(vec![(K::min_value(), K::max_value()).into()])
     }
     pub fn is_full(&self) -> bool {
         self == &Self::full()
     }
 }
 #[async_trait]
-impl InterestProvider for FixedInterests {
-    type Key = Bytes;
+impl<K: Key> InterestProvider for FixedInterests<K> {
+    type Key = K;
 
     async fn interests(&self) -> anyhow::Result<Vec<RangeOpen<Self::Key>>> {
         Ok(self.0.clone())
@@ -129,76 +153,17 @@ impl InterestProvider for FixedInterests {
 }
 
 #[derive(Debug)]
-pub struct Record {
-    cat: ReconMemoryBytes<FixedInterests>,
-    dog: ReconMemoryBytes<FixedInterests>,
-    iterations: Vec<Iteration>,
+pub struct Sequence<K: Key, H: AssociativeHash> {
+    setup: SequenceSetup<K>,
+    steps: Vec<SequenceStep<K, H>>,
+    r#final: SequenceFinal<K>,
 }
 
-impl<'a, D, A> Pretty<'a, D, A> for &'a Record
+impl<K, H> Display for Sequence<K, H>
 where
-    A: 'a + Clone,
-    D: DocAllocator<'a, A>,
-    D::Doc: Clone,
+    K: Key,
+    H: AssociativeHash,
 {
-    fn pretty(self, allocator: &'a D) -> DocBuilder<'a, D, A> {
-        let peer = |name, recon: &ReconMemoryBytes<FixedInterests>| {
-            let separator = allocator.text(",").append(allocator.softline_());
-            let interests = if !recon.interests.is_full() {
-                allocator.softline().append(
-                    allocator
-                        .intersperse(
-                            // The call to get interests is async so we can't easily call it
-                            // here. However we have a FixedInterests so we can access the
-                            // interests vector directly.
-                            recon.interests.0.iter().map(|range| {
-                                allocator
-                                    .text(range.start.to_string())
-                                    .append(separator.clone())
-                                    .append(allocator.text(range.end.to_string()))
-                                    .parens()
-                            }),
-                            separator.clone(),
-                        )
-                        .enclose("<", ">")
-                        .append(allocator.softline()),
-                )
-            } else {
-                allocator.softline()
-            };
-            let set: Vec<Bytes> = recon
-                .store
-                .range(&Bytes::min_value(), &Bytes::max_value(), 0, usize::MAX)
-                .unwrap()
-                .collect();
-            allocator
-                .text(name)
-                .append(allocator.text(":"))
-                .append(interests)
-                .append(
-                    allocator
-                        .intersperse(
-                            set.iter().map(|data| allocator.text(data.to_string())),
-                            separator,
-                        )
-                        .brackets(),
-                )
-        };
-
-        allocator
-            .nil()
-            .append(peer("cat", &self.cat))
-            .group()
-            .append(allocator.hardline())
-            .append(peer("dog", &self.dog))
-            .group()
-            .append(allocator.hardline())
-            .append(allocator.intersperse(self.iterations.iter(), allocator.hardline()))
-            .group()
-    }
-}
-
-impl Display for Record {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let arena: Arena<()> = Arena::new();
         let mut w = Vec::new();
@@ -207,180 +172,396 @@ impl Display for Record {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct MessageData {
-    pub start: Option<String>,
-    pub end: Option<String>,
-    pub keys: Vec<String>, // keys must be 1 longer then ahashs unless both are empty
-    pub ahashs: Vec<Set>,  // ahashs must be 1 shorter then keys
-}
-
-impl<H> From<MessageData> for Message<Bytes, H>
+impl<'a, D, A, K, H> Pretty<'a, D, A> for &'a Sequence<K, H>
 where
+    A: 'a + Clone,
+    D: DocAllocator<'a, A>,
+    D::Doc: Clone,
+    K: Key,
     H: AssociativeHash,
 {
-    fn from(value: MessageData) -> Self {
-        Self {
-            start: value.start.map(Bytes::from),
-            end: value.end.map(Bytes::from),
-            keys: value.keys.iter().map(Bytes::from).collect(),
-            hashes: value
-                .ahashs
-                .into_iter()
-                .map(|set| {
-                    BTreeStore::from_set(set)
-                        .hash_range(&Bytes::min_value(), &Bytes::max_value())
-                        .unwrap()
-                        .hash
-                })
-                .collect(),
-        }
+    fn pretty(self, allocator: &'a D) -> DocBuilder<'a, D, A> {
+        self.setup
+            .pretty(allocator)
+            .append(allocator.hardline())
+            .append(allocator.intersperse(&self.steps, allocator.hardline()))
+            .append(allocator.hardline())
+            .append(self.r#final.pretty(allocator))
+            .append(allocator.hardline())
     }
 }
 
-#[derive(Debug)]
-pub struct Iteration {
-    dir: Direction,
-    messages: Vec<MessageData>,
-    set: Set,
+#[derive(Clone, Debug)]
+pub struct SequenceSetup<K: Key> {
+    cat: SetupState<K>,
+    dog: SetupState<K>,
 }
 
-impl<'a, D, A> Pretty<'a, D, A> for &'a Iteration
+impl<'a, D, A, K> Pretty<'a, D, A> for &'a SequenceSetup<K>
 where
     A: 'a + Clone,
     D: DocAllocator<'a, A>,
     D::Doc: Clone,
+    K: Key,
 {
     fn pretty(self, allocator: &'a D) -> DocBuilder<'a, D, A> {
-        let space_sep = allocator.text(",").append(allocator.softline());
-        let no_space_sep = allocator.text(",");
-
-        // Construct doc for direction
-        let dir = match self.dir {
-            Direction::CatToDog => allocator.text("-> "),
-            Direction::DogToCat => allocator.text("<- "),
-        };
-        let messages = allocator.intersperse(self.messages.iter(), space_sep);
-
-        // Construct doc for set
-        let set = allocator.intersperse(
-            self.set.iter().map(|s| allocator.text(s.to_string())),
-            no_space_sep,
-        );
-
-        // Put it all together
-        dir.append(messages)
-            .append(allocator.softline())
-            .append(set.brackets())
-            .hang(4)
+        allocator
+            .text("cat: ")
+            .append(self.cat.pretty(allocator))
+            .append(allocator.hardline())
+            .append(allocator.text("dog: ").append(self.dog.pretty(allocator)))
     }
 }
 
-impl<'a, D, A> Pretty<'a, D, A> for &'a MessageData
+#[derive(Clone, Debug)]
+pub struct SetupState<K: Key> {
+    interests: FixedInterests<K>,
+    state: BTreeMap<K, K>,
+}
+
+impl From<SetupState<AlphaNumBytes>> for ReconMemoryBytes {
+    fn from(value: SetupState<AlphaNumBytes>) -> Self {
+        Recon {
+            interests: value.interests.into(),
+            store: BTreeStore::from_set(
+                value
+                    .state
+                    .into_iter()
+                    .map(|(k, v)| (k, v.into_inner()))
+                    .collect(),
+            ),
+            metrics: Metrics::register(&mut Registry::default()),
+        }
+    }
+}
+
+impl<'a, D, A, K> Pretty<'a, D, A> for &'a SetupState<K>
 where
     A: 'a + Clone,
     D: DocAllocator<'a, A>,
     D::Doc: Clone,
+    K: Key,
 {
     fn pretty(self, allocator: &'a D) -> DocBuilder<'a, D, A> {
-        let space_sep = allocator.text(",").append(allocator.softline());
-        let no_space_sep = allocator.text(",");
-        // Construct doc for msg
-        let mut msg = allocator.nil();
-        if let Some(start) = &self.start {
-            msg = msg
-                .append(allocator.text("<"))
-                .append(start)
-                .append(space_sep.clone());
-        }
-        let l = self.keys.len();
-        for i in 0..l {
-            msg = msg.append(allocator.text(self.keys[i].as_str()));
-            if i < l - 1 {
-                msg = msg.append(space_sep.clone());
-                if self.ahashs[i].is_empty() {
-                    msg = msg.append(allocator.text("0")).append(space_sep.clone());
-                } else {
-                    msg = msg
-                        .append(allocator.text("h("))
-                        .append(allocator.intersperse(
-                            self.ahashs[i].iter().map(|s| allocator.text(s.to_string())),
-                            no_space_sep.clone(),
-                        ))
-                        .append(allocator.text(")"))
-                        .append(space_sep.clone());
-                }
-            }
-        }
-        if let Some(end) = &self.end {
-            if l > 0 {
-                msg = msg.append(space_sep);
-            }
-            msg = msg.append(end).append(allocator.text(">"));
-        }
-
-        msg.parens()
-    }
-}
-
-#[derive(Debug)]
-pub enum Direction {
-    CatToDog,
-    DogToCat,
-}
-
-#[derive(Debug)]
-pub enum MessageItem {
-    Key(String),
-    Hash(Set),
-    Start(String),
-    End(String),
-}
-
-// Help implementation to construct a message from parsed [`MessageItem`]
-impl TryFrom<(Option<MessageItem>, Vec<MessageItem>)> for MessageData {
-    type Error = &'static str;
-
-    fn try_from(value: (Option<MessageItem>, Vec<MessageItem>)) -> Result<Self, Self::Error> {
-        let mut start = None;
-        let mut end = None;
-        let mut keys = Vec::new();
-        let mut ahashs = Vec::new();
-        match value.0 {
-            Some(MessageItem::Start(k)) => start = Some(k),
-            Some(MessageItem::Key(k)) => keys.push(k),
-            Some(MessageItem::Hash(_)) => return Err("message cannot begin with a hash"),
-            Some(MessageItem::End(_)) => return Err("message cannot begin with an end bound"),
-            None => {}
+        // Special case full interests as nil
+        let interests = if self.interests.is_full() {
+            allocator.nil()
+        } else {
+            allocator
+                .intersperse(
+                    self.interests.0.iter().map(PrettyRangeOpen),
+                    allocator.text(", "),
+                )
+                .angles()
+                .append(allocator.space())
         };
-        for item in value.1 {
-            if end.is_some() {
-                return Err("end bound must be the final message item");
-            }
-            match item {
-                MessageItem::Key(k) => keys.push(k),
-                MessageItem::Hash(set) => {
-                    ahashs.push(set);
-                }
-                MessageItem::Start(_) => return Err("start bound must start the message"),
-                MessageItem::End(k) => end = Some(k),
-            }
-        }
-        if !keys.is_empty() && keys.len() - 1 != ahashs.len() {
-            return Err("invalid message, unmatched keys and hashes");
-        }
-        Ok(MessageData {
-            start,
-            end,
-            keys,
-            ahashs,
-        })
+        interests.append(PrettySet(&self.state).pretty(allocator))
     }
 }
 
-#[tokio::test]
+#[derive(Debug)]
+pub struct SequenceStep<K, H>
+where
+    K: Key,
+    H: AssociativeHash,
+{
+    message: Message<K, H>,
+    state: BTreeMap<K, Option<K>>,
+}
+
+impl<'a, D, A, K, H> Pretty<'a, D, A> for &'a SequenceStep<K, H>
+where
+    A: 'a + Clone,
+    D: DocAllocator<'a, A>,
+    D::Doc: Clone,
+    K: Key,
+    H: AssociativeHash,
+{
+    fn pretty(self, allocator: &'a D) -> DocBuilder<'a, D, A> {
+        self.message
+            .pretty(allocator)
+            .append(allocator.hardline())
+            .append(
+                match self.message {
+                    Message::CatToDog(_) => allocator.text("cat: "),
+                    Message::DogToCat(_) => allocator.text("dog: "),
+                }
+                .append(PrettySetOpt(&self.state).pretty(allocator))
+                .indent(4),
+            )
+    }
+}
+
+#[derive(Debug)]
+pub enum Message<K, H>
+where
+    K: Key,
+    H: AssociativeHash,
+{
+    CatToDog(InitiatorMessage<K, H>),
+    DogToCat(ResponderMessage<K, H>),
+}
+
+impl<'a, D, A, K, H> Pretty<'a, D, A> for &'a Message<K, H>
+where
+    A: 'a + Clone,
+    D: DocAllocator<'a, A>,
+    D::Doc: Clone,
+    K: Key,
+    H: AssociativeHash,
+{
+    fn pretty(self, allocator: &'a D) -> DocBuilder<'a, D, A> {
+        match self {
+            Message::CatToDog(msg) => {
+                let dir = allocator.text("-> ");
+                match msg {
+                    InitiatorMessage::InterestRequest(ir) => dir.append(
+                        allocator.text("interest_req").append(
+                            allocator
+                                .intersperse(ir.iter().map(PrettyRangeOpen), allocator.text(", "))
+                                .parens(),
+                        ),
+                    ),
+                    InitiatorMessage::RangeRequest(rr) => dir.append(
+                        allocator
+                            .text("range_req")
+                            .append(PrettyRange(rr).pretty(allocator).parens()),
+                    ),
+                    InitiatorMessage::ValueRequest(key) => dir.append(
+                        allocator
+                            .text("value_req")
+                            .append(PrettyKey(key).pretty(allocator).parens()),
+                    ),
+                    InitiatorMessage::ValueResponse(vr) => dir.append(
+                        allocator
+                            .text("value_resp")
+                            .append(PrettyValueResponse(vr).pretty(allocator).parens()),
+                    ),
+                    InitiatorMessage::ListenOnly => dir.append(allocator.text("listen_only")),
+                    InitiatorMessage::Finished => dir.append(allocator.text("finished")),
+                }
+            }
+            Message::DogToCat(msg) => {
+                let dir = allocator.text("<- ");
+                match msg {
+                    ResponderMessage::InterestResponse(ir) => dir.append(
+                        allocator.text("interest_resp").append(
+                            allocator
+                                .intersperse(ir.iter().map(PrettyRangeOpen), allocator.text(", "))
+                                .parens(),
+                        ),
+                    ),
+                    ResponderMessage::RangeResponse(rr) => dir.append(
+                        allocator.text("range_resp").append(
+                            allocator
+                                .intersperse(rr.iter().map(PrettyRange), allocator.text(", "))
+                                .parens(),
+                        ),
+                    ),
+                    ResponderMessage::ValueRequest(key) => dir.append(
+                        allocator
+                            .text("value_req")
+                            .append(PrettyKey(key).pretty(allocator).parens()),
+                    ),
+                    ResponderMessage::ValueResponse(vr) => dir.append(
+                        allocator
+                            .text("value_resp")
+                            .append(PrettyValueResponse(vr).pretty(allocator).parens()),
+                    ),
+                    ResponderMessage::ListenOnly => dir.append(allocator.text("listen_only")),
+                }
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct SequenceFinal<K: Key> {
+    cat: BTreeMap<K, Option<K>>,
+    dog: BTreeMap<K, Option<K>>,
+}
+
+impl<'a, D, A, K> Pretty<'a, D, A> for &'a SequenceFinal<K>
+where
+    A: 'a + Clone,
+    D: DocAllocator<'a, A>,
+    D::Doc: Clone,
+    K: Key,
+{
+    fn pretty(self, allocator: &'a D) -> DocBuilder<'a, D, A> {
+        allocator
+            .text("cat: ")
+            .append(PrettySetOpt(&self.cat).pretty(allocator))
+            .append(allocator.hardline())
+            .append(allocator.text("dog: "))
+            .append(PrettySetOpt(&self.dog).pretty(allocator))
+    }
+}
+
+struct PrettyKey<'a, K>(pub &'a K);
+
+impl<'a, D, A, K> Pretty<'a, D, A> for PrettyKey<'a, K>
+where
+    A: 'a + Clone,
+    D: DocAllocator<'a, A>,
+    D::Doc: Clone,
+    K: Key,
+{
+    fn pretty(self, allocator: &'a D) -> DocBuilder<'a, D, A> {
+        // Use Alpha and Omega as the min and max values respectively
+        if self.0 == &K::min_value() {
+            allocator.text(format!("𝚨"))
+        } else if self.0 == &K::max_value() {
+            allocator.text(format!("𝛀 "))
+        } else {
+            allocator.text(format!("{:?}", self.0))
+        }
+    }
+}
+
+struct PrettyHash<'a, H>(pub &'a HashCount<H>);
+
+impl<'a, D, A, H> Pretty<'a, D, A> for PrettyHash<'a, H>
+where
+    A: 'a + Clone,
+    D: DocAllocator<'a, A>,
+    D::Doc: Clone,
+    H: AssociativeHash,
+{
+    fn pretty(self, allocator: &'a D) -> DocBuilder<'a, D, A> {
+        if self.0.hash.is_zero() {
+            allocator.text("0")
+        } else {
+            allocator.text(format!("{:?}", self.0))
+        }
+    }
+}
+
+struct PrettyRange<'a, K, H>(pub &'a Range<K, H>);
+
+impl<'a, D, A, K, H> Pretty<'a, D, A> for PrettyRange<'a, K, H>
+where
+    A: 'a + Clone,
+    D: DocAllocator<'a, A>,
+    D::Doc: Clone,
+    K: Key,
+    H: AssociativeHash,
+{
+    fn pretty(self, allocator: &'a D) -> DocBuilder<'a, D, A> {
+        PrettyKey(&self.0.first)
+            .pretty(allocator)
+            .append(allocator.space())
+            .append(PrettyHash(&self.0.hash).pretty(allocator))
+            .append(allocator.space())
+            .append(PrettyKey(&self.0.last).pretty(allocator))
+            .braces()
+    }
+}
+struct PrettyRangeOpen<'a, T>(pub &'a RangeOpen<T>);
+
+impl<'a, D, A, T> Pretty<'a, D, A> for PrettyRangeOpen<'a, T>
+where
+    A: 'a + Clone,
+    D: DocAllocator<'a, A>,
+    D::Doc: Clone,
+    T: Key,
+{
+    fn pretty(self, allocator: &'a D) -> DocBuilder<'a, D, A> {
+        PrettyKey(&self.0.start)
+            .pretty(allocator)
+            .append(allocator.text(", "))
+            .append(PrettyKey(&self.0.end).pretty(allocator))
+            .parens()
+    }
+}
+
+struct PrettyValueResponse<'a, K>(pub &'a ValueResponse<K>);
+
+impl<'a, D, A, K> Pretty<'a, D, A> for PrettyValueResponse<'a, K>
+where
+    A: 'a + Clone,
+    D: DocAllocator<'a, A>,
+    D::Doc: Clone,
+    K: Key,
+{
+    fn pretty(self, allocator: &'a D) -> DocBuilder<'a, D, A> {
+        PrettyKey(&self.0.key)
+            .pretty(allocator)
+            .append(allocator.text(": "))
+            .append(format!("{}", AlphaNumBytes::from(self.0.value.clone())))
+    }
+}
+
+struct PrettySet<'a, K, V>(pub &'a BTreeMap<K, V>);
+
+impl<'a, D, A, K, V> Pretty<'a, D, A> for PrettySet<'a, K, V>
+where
+    A: 'a + Clone,
+    D: DocAllocator<'a, A>,
+    D::Doc: Clone,
+    K: std::fmt::Display,
+    V: std::fmt::Display,
+{
+    fn pretty(self, allocator: &'a D) -> DocBuilder<'a, D, A> {
+        allocator
+            .intersperse(
+                self.0.iter().map(|(k, v)| {
+                    allocator
+                        .text(k.to_string())
+                        .append(allocator.text(": "))
+                        .append(allocator.text(v.to_string()))
+                }),
+                allocator.text(", "),
+            )
+            .brackets()
+    }
+}
+
+struct PrettySetOpt<'a, K, V>(pub &'a BTreeMap<K, Option<V>>);
+
+impl<'a, D, A, K, V> Pretty<'a, D, A> for PrettySetOpt<'a, K, V>
+where
+    A: 'a + Clone,
+    D: DocAllocator<'a, A>,
+    D::Doc: Clone,
+    K: std::fmt::Display,
+    V: std::fmt::Display,
+{
+    fn pretty(self, allocator: &'a D) -> DocBuilder<'a, D, A> {
+        allocator
+            .intersperse(
+                self.0.iter().map(|(k, v)| {
+                    allocator
+                        .text(k.to_string())
+                        .append(allocator.text(": "))
+                        .append(if let Some(v) = v {
+                            allocator.text(v.to_string())
+                        } else {
+                            allocator.nil()
+                        })
+                }),
+                allocator.text(", "),
+            )
+            .brackets()
+    }
+}
+
+fn start_recon<K, H, S, I>(recon: Recon<K, H, S, I>) -> Client<K, H>
+where
+    K: Key,
+    H: AssociativeHash,
+    S: Store<Key = K, Hash = H> + Send + Sync + 'static,
+    I: InterestProvider<Key = K> + Send + Sync + 'static,
+{
+    let mut server = Server::new(recon);
+    let client = server.client();
+    tokio::spawn(server.run());
+    client
+}
+
+#[test(tokio::test)]
 async fn word_lists() {
-    async fn recon_from_string(s: &str) -> ReconBytes {
+    async fn recon_from_string(s: &str) -> Client<AlphaNumBytes, Sha256a> {
         let mut r = ReconBytes::new(
             BTreeStore::default(),
             FullInterests::default(),
@@ -389,801 +570,106 @@ async fn word_lists() {
         for key in s.split([' ', '\n']).map(|s| s.to_string()) {
             if !s.is_empty() {
                 r.insert(&key.as_bytes().into()).await.unwrap();
+                r.store_value_for_key(key.as_bytes().into(), key.to_uppercase().as_bytes().into())
+                    .await
+                    .unwrap();
             }
         }
-        r
+        start_recon(r)
     }
     let mut peers = vec![
-        recon_from_string(include_str!("../tests/bip_39.txt")).await,
-        recon_from_string(include_str!("../tests/eff_large_wordlist.txt")).await,
-        recon_from_string(include_str!("../tests/eff_short_wordlist_1.txt")).await,
-        recon_from_string(include_str!("../tests/eff_short_wordlist_2.txt")).await,
-        recon_from_string(include_str!("../tests/wordle_words5_big.txt")).await,
-        recon_from_string(include_str!("../tests/wordle_words5.txt")).await,
-        // recon_from_string(include_str!("../tests/connectives.txt")).await,
-        // recon_from_string(include_str!("../tests/propernames.txt")).await,
-        // recon_from_string(include_str!("../tests/web2.txt")).await,
-        // recon_from_string(include_str!("../tests/web2a.txt")).await,
+        recon_from_string(include_str!("./testdata/bip_39.txt")).await,
+        recon_from_string(include_str!("./testdata/eff_large_wordlist.txt")).await,
+        recon_from_string(include_str!("./testdata/eff_short_wordlist_1.txt")).await,
+        recon_from_string(include_str!("./testdata/eff_short_wordlist_2.txt")).await,
+        recon_from_string(include_str!("./testdata/wordle_words5_big.txt")).await,
+        recon_from_string(include_str!("./testdata/wordle_words5.txt")).await,
     ];
-    let keys_len = 21139;
-    // let expected_first = "aahed";
-    // let expected_last = "zythum";
-    // let expected_ahash = "13BA255FBD4C2566CB2564EFA0C1782ABA61604AC07A8789D1DF9E391D73584E";
+    let expected_ahash =
+        expect![["495BF24CE0DB5C33CE846ADCD6D9A87592E05324585D85059C3DC2113B500F79#21139"]];
 
     for peer in &mut peers {
-        println!(
-            "peer  {} {} {}",
-            peer.store
-                .first(&Bytes::min_value(), &Bytes::max_value())
-                .await
-                .unwrap()
-                .unwrap(),
-            peer.store.len().await.unwrap(),
-            peer.store
-                .last(&Bytes::min_value(), &Bytes::max_value())
-                .await
-                .unwrap()
-                .unwrap(),
-        )
+        debug!(count = peer.len().await.unwrap(), "initial peer state");
     }
 
-    // We are using a FullInterest so we can assume there is only ever one message per exchange.
-    let mut local = ReconBytes::new(
+    let local = ReconBytes::new(
         BTreeStore::default(),
         FullInterests::default(),
         Metrics::register(&mut Registry::default()),
     );
-    async fn sync(local: &mut ReconBytes, peers: &mut [ReconBytes]) {
+    let local = start_recon(local);
+    async fn sync_pair(
+        local: Client<AlphaNumBytes, Sha256a>,
+        remote: Client<AlphaNumBytes, Sha256a>,
+    ) {
+        type InitiatorEnv = InitiatorMessage<AlphaNumBytes, Sha256a>;
+        type ResponderEnv = ResponderMessage<AlphaNumBytes, Sha256a>;
+
+        let (local_channel, remote_channel): (
+            DuplexChannel<InitiatorEnv, ResponderEnv>,
+            DuplexChannel<ResponderEnv, InitiatorEnv>,
+        ) = duplex(10000);
+
+        // Spawn a task for each half to make things go quick, we do not care about determinism
+        // here.
+        let local_handle = tokio::spawn(protocol::initiate_synchronize(local, local_channel));
+        let remote_handle = tokio::spawn(protocol::respond_synchronize(remote, remote_channel));
+        // Error if either synchronize method errors
+        let (local, remote) = tokio::join!(local_handle, remote_handle);
+        local.unwrap().unwrap();
+        remote.unwrap().unwrap();
+    }
+    async fn sync_all(
+        local: Client<AlphaNumBytes, Sha256a>,
+        peers: &[Client<AlphaNumBytes, Sha256a>],
+    ) {
         for j in 0..3 {
-            for (i, peer) in peers.iter_mut().enumerate() {
-                println!(
-                    "round:{} peer:{}\n\t[{}]\n\t[{}]",
-                    j,
-                    i,
-                    local.store.len().await.unwrap(),
-                    peer.store.len().await.unwrap(),
+            for (i, peer) in peers.iter().enumerate() {
+                debug!(
+                    round = j,
+                    local.count = local.len().await.unwrap(),
+                    remote.count = peer.len().await.unwrap(),
+                    remote.peer = i,
+                    "state before sync",
                 );
-                let mut next = local.initial_messages().await.unwrap();
-                for k in 0..50 {
-                    println!(
-                        "\t{}: -> {}[{}]",
-                        k,
-                        if next[0].keys.len() < 10 {
-                            format!("{:?}", next[0])
-                        } else {
-                            format!("({})", next[0].keys.len())
-                        },
-                        local.store.len().await.unwrap(),
-                    );
-
-                    let response = peer.process_messages(&next).await.unwrap();
-
-                    println!(
-                        "\t{}: <- {}[{}]",
-                        k,
-                        if response.messages[0].keys.len() < 10 {
-                            format!("{:?}", response.messages[0])
-                        } else {
-                            format!("({})", response.messages[0].keys.len())
-                        },
-                        peer.store.len().await.unwrap(),
-                    );
-
-                    next = local
-                        .process_messages(&response.messages)
-                        .await
-                        .unwrap()
-                        .messages;
-
-                    if response.messages[0].keys.len() < 3 && next[0].keys.len() < 3 {
-                        println!("\tpeers[{}] in sync", i);
-                        break;
-                    }
-                }
+                sync_pair(local.clone(), peer.clone()).await;
+                debug!(
+                    round = j,
+                    local.count = local.len().await.unwrap(),
+                    remote.count = peer.len().await.unwrap(),
+                    remote.peer = i,
+                    "state after sync",
+                );
             }
         }
     }
-    sync(&mut local, &mut peers).await;
-    for peer in &mut peers {
-        println!(
-            "after {} {} {}",
-            peer.store
-                .first(&Bytes::min_value(), &Bytes::max_value())
-                .await
-                .unwrap()
-                .unwrap(),
-            peer.store.len().await.unwrap(),
-            peer.store
-                .last(&Bytes::min_value(), &Bytes::max_value())
-                .await
-                .unwrap()
-                .unwrap(),
-        );
-    }
+    sync_all(local.clone(), &peers).await;
 
-    assert_eq!(local.store.len().await.unwrap(), keys_len);
-    for peer in &mut peers {
-        assert_eq!(peer.store.len().await.unwrap(), keys_len)
-    }
-    expect![[r#"
-        [
-            "aahed",
-            "zymic",
-        ]
-    "#]]
-    .assert_debug_eq(
-        &local
-            .initial_messages()
+    let mut all_peers = Vec::with_capacity(peers.len() + 1);
+    all_peers.push(local);
+    all_peers.append(&mut peers);
+
+    for peer in all_peers.iter_mut() {
+        let full_range = peer
+            .initial_range((AlphaNumBytes::min_value(), AlphaNumBytes::max_value()).into())
             .await
-            .unwrap()
-            .iter()
-            .flat_map(|msg| msg.keys.iter().map(|k| k.to_string()))
-            .collect::<Vec<String>>(),
-    );
-    expect![["13BA255FBD4C2566CB2564EFA0C1782ABA61604AC07A8789D1DF9E391D73584E"]]
-        .assert_eq(&local.initial_messages().await.unwrap()[0].hashes[0].to_hex());
-
-    local.insert(&b"ceramic".as_slice().into()).await.unwrap();
-    sync(&mut local, &mut peers).await;
-}
-#[tokio::test]
-async fn response_is_synchronized() {
-    let mut client = ReconMemoryBytes::new(
-        BTreeStore::from_set(BTreeSet::from_iter([
-            Bytes::from("a"),
-            Bytes::from("b"),
-            Bytes::from("c"),
-            Bytes::from("n"),
-        ])),
-        FullInterests::default(),
-        Metrics::register(&mut Registry::default()),
-    );
-    let mut server = ReconMemoryBytes::new(
-        BTreeStore::from_set(BTreeSet::from_iter([
-            Bytes::from("x"),
-            Bytes::from("y"),
-            Bytes::from("z"),
-            Bytes::from("n"),
-        ])),
-        FullInterests::default(),
-        Metrics::register(&mut Registry::default()),
-    );
-    // Client -> Server: Init
-    let server_first_response = server
-        .process_messages(&client.initial_messages().await.unwrap())
-        .await
-        .unwrap();
-    // Server -> Client: Not yet in sync
-    assert!(!server_first_response.is_synchronized);
-    let client_first_response = client
-        .process_messages(&server_first_response.messages)
-        .await
-        .unwrap();
-    // Client -> Server: Not yet in sync
-    assert!(!client_first_response.is_synchronized);
-
-    // After this message we should be synchronized
-    let server_second_response = server
-        .process_messages(&client_first_response.messages)
-        .await
-        .unwrap();
-    // Server -> Client: Synced
-    assert!(server_second_response.is_synchronized);
-    let client_second_response = client
-        .process_messages(&server_second_response.messages)
-        .await
-        .unwrap();
-    // Client -> Server: Synced
-    assert!(client_second_response.is_synchronized);
-    // Check that we remained in sync. This exchange is not needed for a real sync.
-    let server_third_response = server
-        .process_messages(&client_second_response.messages)
-        .await
-        .unwrap();
-    // Once synced, always synced.
-    assert!(server_third_response.is_synchronized);
+            .unwrap();
+        expected_ahash.assert_eq(&full_range.hash.to_string())
+    }
 }
 
-#[test]
-fn hello() {
-    let other_hash = ReconBytes::new(
-        BTreeStore::from_set(BTreeSet::from_iter([
-            Bytes::from("hello"),
-            Bytes::from("world"),
-        ])),
-        FullInterests::default(),
-        Metrics::register(&mut Registry::default()),
-    );
-    expect![[r#"
-        Recon {
-            interests: FullInterests(
-                PhantomData<ceramic_core::bytes::Bytes>,
-            ),
-            store: BTreeStore {
-                keys: {
-                    Bytes(
-                        "hello",
-                    ): Sha256a {
-                        hex: "2CF24DBA5FB0A30E26E83B2AC5B9E29E1B161E5C1FA7425E73043362938B9824",
-                        u32_8: [
-                            3125670444,
-                            245608543,
-                            708569126,
-                            2665658821,
-                            1545475611,
-                            1581426463,
-                            1647510643,
-                            613976979,
-                        ],
-                    },
-                    Bytes(
-                        "world",
-                    ): Sha256a {
-                        hex: "486EA46224D1BB4FB680F34F7C9AD96A8F24EC88BE73EA8E5A6C65260E9CB8A7",
-                        u32_8: [
-                            1654943304,
-                            1337708836,
-                            1341358262,
-                            1792645756,
-                            2297177231,
-                            2397729726,
-                            644181082,
-                            2813893646,
-                        ],
-                    },
-                },
-            },
-            metrics: Metrics {
-                key_insert_count: Counter {
-                    value: 0,
-                    phantom: PhantomData<u64>,
-                },
-                store_query_durations: Family {
-                    metrics: RwLock {
-                        data: {},
-                    },
-                },
-            },
-        }
-    "#]]
-    .assert_debug_eq(&other_hash)
-}
-
-#[tokio::test]
-async fn abcde() {
-    recon_test(expect![[r#"
-        cat: [b,c,d,e]
-        dog: [a,e]
-        -> (b, h(c,d), e) [a,b,e]
-        <- (a, 0, b, 0, e) [a,b,c,d,e]
-        -> (a, 0, b, 0, c, 0, d, 0, e) [a,b,c,d,e]
-        <- (a, h(b,c,d), e) [a,b,c,d,e]"#]])
-    .await
-}
-
-#[tokio::test]
-async fn two_in_a_row() {
-    recon_test(expect![[r#"
-    cat: [a,b,c,d,e]
-    dog: [a,d,e]
-    -> (a, h(b,c,d), e) [a,d,e]
-    <- (a, 0, d, 0, e) [a,b,c,d,e]
-    -> (a, 0, b, 0, c, h(d), e) [a,b,c,d,e]
-    <- (a, h(b,c,d), e) [a,b,c,d,e]"#]])
-    .await
-}
-
-#[test]
-fn test_parse_recon() {
-    let recon = r#"
-        cat: [a,b,c]
-        dog: [e,f,g]
-        -> (a, h(b), c) [a,c,e,f,g]
-        <- (a, 0, c, h(e,f), g) [a,b,c,g]
-        -> (a, 0, b, 0, c, 0, g) [a,b,c,e,f,g]
-        <- (a, h(b), c, 0, e, 0, f, 0, g) [a,b,c,e,f,g]
-        "#;
-    let record = parser::RecordParser::new().parse(recon).unwrap();
-
-    expect![[r#"
-        Record {
-            cat: Recon {
-                interests: FixedInterests(
-                    [
-                        RangeOpen {
-                            start: Bytes(
-                                "",
-                            ),
-                            end: Bytes(
-                                "0xFFFFFFFFFFFFFFFFFF",
-                            ),
-                        },
-                    ],
-                ),
-                store: BTreeStore {
-                    keys: {
-                        Bytes(
-                            "a",
-                        ): MemoryAHash {
-                            ahash: Sha256a {
-                                hex: "CA978112CA1BBDCAFAC231B39A23DC4DA786EFF8147C4E72B9807785AFEE48BB",
-                                u32_8: [
-                                    310482890,
-                                    3401391050,
-                                    3006382842,
-                                    1306272666,
-                                    4176447143,
-                                    1917746196,
-                                    2239201465,
-                                    3142119087,
-                                ],
-                            },
-                            set: {
-                                Bytes(
-                                    "a",
-                                ),
-                            },
-                        },
-                        Bytes(
-                            "b",
-                        ): MemoryAHash {
-                            ahash: Sha256a {
-                                hex: "3E23E8160039594A33894F6564E1B1348BBD7A0088D42C4ACB73EEAED59C009D",
-                                u32_8: [
-                                    384312126,
-                                    1247361280,
-                                    1699711283,
-                                    884072804,
-                                    8043915,
-                                    1244451976,
-                                    2934862795,
-                                    2634063061,
-                                ],
-                            },
-                            set: {
-                                Bytes(
-                                    "b",
-                                ),
-                            },
-                        },
-                        Bytes(
-                            "c",
-                        ): MemoryAHash {
-                            ahash: Sha256a {
-                                hex: "2E7D2C03A9507AE265ECF5B5356885A53393A2029D241394997265A1A25AEFC6",
-                                u32_8: [
-                                    53247278,
-                                    3799666857,
-                                    3052792933,
-                                    2776983605,
-                                    44208947,
-                                    2484282525,
-                                    2707780249,
-                                    3337575074,
-                                ],
-                            },
-                            set: {
-                                Bytes(
-                                    "c",
-                                ),
-                            },
-                        },
-                    },
-                },
-                metrics: Metrics {
-                    key_insert_count: Counter {
-                        value: 0,
-                        phantom: PhantomData<u64>,
-                    },
-                    store_query_durations: Family {
-                        metrics: RwLock {
-                            data: {},
-                        },
-                    },
-                },
-            },
-            dog: Recon {
-                interests: FixedInterests(
-                    [
-                        RangeOpen {
-                            start: Bytes(
-                                "",
-                            ),
-                            end: Bytes(
-                                "0xFFFFFFFFFFFFFFFFFF",
-                            ),
-                        },
-                    ],
-                ),
-                store: BTreeStore {
-                    keys: {
-                        Bytes(
-                            "e",
-                        ): MemoryAHash {
-                            ahash: Sha256a {
-                                hex: "3F79BB7B435B05321651DAEFD374CDC681DC06FAA65E374E38337B88CA046DEA",
-                                u32_8: [
-                                    2075883839,
-                                    839211843,
-                                    4024062230,
-                                    3335353555,
-                                    4194753665,
-                                    1312251558,
-                                    2289775416,
-                                    3933013194,
-                                ],
-                            },
-                            set: {
-                                Bytes(
-                                    "e",
-                                ),
-                            },
-                        },
-                        Bytes(
-                            "f",
-                        ): MemoryAHash {
-                            ahash: Sha256a {
-                                hex: "252F10C83610EBCA1A059C0BAE8255EBA2F95BE4D1D7BCFA89D7248A82D9F111",
-                                u32_8: [
-                                    3356503845,
-                                    3404402742,
-                                    194774298,
-                                    3948249774,
-                                    3831232930,
-                                    4206680017,
-                                    2317670281,
-                                    301062530,
-                                ],
-                            },
-                            set: {
-                                Bytes(
-                                    "f",
-                                ),
-                            },
-                        },
-                        Bytes(
-                            "g",
-                        ): MemoryAHash {
-                            ahash: Sha256a {
-                                hex: "CD0AA9856147B6C5B4FF2B7DFEE5DA20AA38253099EF1B4A64ACED233C9AFE29",
-                                u32_8: [
-                                    2242448077,
-                                    3317057377,
-                                    2100035508,
-                                    551216638,
-                                    807745706,
-                                    1243344793,
-                                    602778724,
-                                    704551484,
-                                ],
-                            },
-                            set: {
-                                Bytes(
-                                    "g",
-                                ),
-                            },
-                        },
-                    },
-                },
-                metrics: Metrics {
-                    key_insert_count: Counter {
-                        value: 0,
-                        phantom: PhantomData<u64>,
-                    },
-                    store_query_durations: Family {
-                        metrics: RwLock {
-                            data: {},
-                        },
-                    },
-                },
-            },
-            iterations: [
-                Iteration {
-                    dir: CatToDog,
-                    messages: [
-                        MessageData {
-                            start: None,
-                            end: None,
-                            keys: [
-                                "a",
-                                "c",
-                            ],
-                            ahashs: [
-                                {
-                                    Bytes(
-                                        "b",
-                                    ),
-                                },
-                            ],
-                        },
-                    ],
-                    set: {
-                        Bytes(
-                            "a",
-                        ),
-                        Bytes(
-                            "c",
-                        ),
-                        Bytes(
-                            "e",
-                        ),
-                        Bytes(
-                            "f",
-                        ),
-                        Bytes(
-                            "g",
-                        ),
-                    },
-                },
-                Iteration {
-                    dir: DogToCat,
-                    messages: [
-                        MessageData {
-                            start: None,
-                            end: None,
-                            keys: [
-                                "a",
-                                "c",
-                                "g",
-                            ],
-                            ahashs: [
-                                {},
-                                {
-                                    Bytes(
-                                        "e",
-                                    ),
-                                    Bytes(
-                                        "f",
-                                    ),
-                                },
-                            ],
-                        },
-                    ],
-                    set: {
-                        Bytes(
-                            "a",
-                        ),
-                        Bytes(
-                            "b",
-                        ),
-                        Bytes(
-                            "c",
-                        ),
-                        Bytes(
-                            "g",
-                        ),
-                    },
-                },
-                Iteration {
-                    dir: CatToDog,
-                    messages: [
-                        MessageData {
-                            start: None,
-                            end: None,
-                            keys: [
-                                "a",
-                                "b",
-                                "c",
-                                "g",
-                            ],
-                            ahashs: [
-                                {},
-                                {},
-                                {},
-                            ],
-                        },
-                    ],
-                    set: {
-                        Bytes(
-                            "a",
-                        ),
-                        Bytes(
-                            "b",
-                        ),
-                        Bytes(
-                            "c",
-                        ),
-                        Bytes(
-                            "e",
-                        ),
-                        Bytes(
-                            "f",
-                        ),
-                        Bytes(
-                            "g",
-                        ),
-                    },
-                },
-                Iteration {
-                    dir: DogToCat,
-                    messages: [
-                        MessageData {
-                            start: None,
-                            end: None,
-                            keys: [
-                                "a",
-                                "c",
-                                "e",
-                                "f",
-                                "g",
-                            ],
-                            ahashs: [
-                                {
-                                    Bytes(
-                                        "b",
-                                    ),
-                                },
-                                {},
-                                {},
-                                {},
-                            ],
-                        },
-                    ],
-                    set: {
-                        Bytes(
-                            "a",
-                        ),
-                        Bytes(
-                            "b",
-                        ),
-                        Bytes(
-                            "c",
-                        ),
-                        Bytes(
-                            "e",
-                        ),
-                        Bytes(
-                            "f",
-                        ),
-                        Bytes(
-                            "g",
-                        ),
-                    },
-                },
-            ],
-        }
-    "#]]
-        .assert_debug_eq(&record);
-}
-#[test]
-fn test_parse_recon_empty_set() {
-    let recon = r#"
-cat: [a]
-dog: []
--> (a) [a]
-<- (a) [a]
-"#;
-    let record = parser::RecordParser::new().parse(recon).unwrap();
-
-    expect![[r#"
-        Record {
-            cat: Recon {
-                interests: FixedInterests(
-                    [
-                        RangeOpen {
-                            start: Bytes(
-                                "",
-                            ),
-                            end: Bytes(
-                                "0xFFFFFFFFFFFFFFFFFF",
-                            ),
-                        },
-                    ],
-                ),
-                store: BTreeStore {
-                    keys: {
-                        Bytes(
-                            "a",
-                        ): MemoryAHash {
-                            ahash: Sha256a {
-                                hex: "CA978112CA1BBDCAFAC231B39A23DC4DA786EFF8147C4E72B9807785AFEE48BB",
-                                u32_8: [
-                                    310482890,
-                                    3401391050,
-                                    3006382842,
-                                    1306272666,
-                                    4176447143,
-                                    1917746196,
-                                    2239201465,
-                                    3142119087,
-                                ],
-                            },
-                            set: {
-                                Bytes(
-                                    "a",
-                                ),
-                            },
-                        },
-                    },
-                },
-                metrics: Metrics {
-                    key_insert_count: Counter {
-                        value: 0,
-                        phantom: PhantomData<u64>,
-                    },
-                    store_query_durations: Family {
-                        metrics: RwLock {
-                            data: {},
-                        },
-                    },
-                },
-            },
-            dog: Recon {
-                interests: FixedInterests(
-                    [
-                        RangeOpen {
-                            start: Bytes(
-                                "",
-                            ),
-                            end: Bytes(
-                                "0xFFFFFFFFFFFFFFFFFF",
-                            ),
-                        },
-                    ],
-                ),
-                store: BTreeStore {
-                    keys: {},
-                },
-                metrics: Metrics {
-                    key_insert_count: Counter {
-                        value: 0,
-                        phantom: PhantomData<u64>,
-                    },
-                    store_query_durations: Family {
-                        metrics: RwLock {
-                            data: {},
-                        },
-                    },
-                },
-            },
-            iterations: [
-                Iteration {
-                    dir: CatToDog,
-                    messages: [
-                        MessageData {
-                            start: None,
-                            end: None,
-                            keys: [
-                                "a",
-                            ],
-                            ahashs: [],
-                        },
-                    ],
-                    set: {
-                        Bytes(
-                            "a",
-                        ),
-                    },
-                },
-                Iteration {
-                    dir: DogToCat,
-                    messages: [
-                        MessageData {
-                            start: None,
-                            end: None,
-                            keys: [
-                                "a",
-                            ],
-                            ahashs: [],
-                        },
-                    ],
-                    set: {
-                        Bytes(
-                            "a",
-                        ),
-                    },
-                },
-            ],
-        }
-    "#]]
-        .assert_debug_eq(&record);
-}
-
-fn parse_recon(recon: &str) -> Record {
+fn parse_sequence(sequence: &str) -> SequenceSetup<AlphaNumBytes> {
+    // We only parse the setup which is the first two lines.
+    let setup = sequence
+        .split("\n")
+        .filter(|line| !line.trim().is_empty())
+        .take(2)
+        .collect::<Vec<&str>>()
+        .join("\n");
     // Setup codespan-reporting
     let mut files = SimpleFiles::new();
-    let file_id = files.add("test.recon", recon);
-    match parser::RecordParser::new().parse(recon) {
+    let file_id = files.add("sequence.recon", &setup);
+    match parser::SequenceSetupParser::new().parse(&setup) {
         Ok(r) => r,
         Err(e) => {
             let mut diagnostic = Diagnostic::error();
@@ -1223,331 +709,1317 @@ fn parse_recon(recon: &str) -> Record {
     }
 }
 
-// Run the recon simulation ignoring the expected iterations
-async fn recon_do(recon: &str) -> Record {
-    let mut record = parse_recon(recon);
-
-    // Remember initial state
-    let cat = record.cat.store.clone();
-    let dog = record.dog.store.clone();
-
-    let n = record.iterations.len();
-    record.iterations.clear();
-
-    // Run simulation for the number of iterations in the original record
-    let mut dir = Direction::CatToDog;
-    let mut messages: Vec<Message<Bytes, MemoryAHash>> =
-        record.cat.initial_messages().await.unwrap();
-    for _ in 0..n {
-        let (next_dir, response, mut set) = match dir {
-            Direction::CatToDog => (
-                Direction::DogToCat,
-                record.dog.process_messages(&messages).await.unwrap(),
-                record.dog.store.clone(),
-            ),
-            Direction::DogToCat => (
-                Direction::CatToDog,
-                record.cat.process_messages(&messages).await.unwrap(),
-                record.cat.store.clone(),
-            ),
-        };
-        record.iterations.push(Iteration {
-            dir,
-            messages: messages.into_iter().map(MessageData::from).collect(),
-            set: set.full_range().await.unwrap().collect(),
-        });
-        dir = next_dir;
-        messages = response.messages
-    }
-    // Restore initial sets
-    record.cat.store = cat;
-    record.dog.store = dog;
-    record
+fn test_parse_sequence(sequence: &str, expect: Expect) {
+    let setup = parse_sequence(sequence);
+    expect.assert_debug_eq(&setup);
 }
 
+#[test]
+fn parse_sequence_small() {
+    test_parse_sequence(
+        r#"
+        cat: [a:A,b:B,c:C]
+        dog: [e:E,f:F,g:G]
+        "#,
+        expect![[r#"
+            SequenceSetup {
+                cat: SetupState {
+                    interests: FixedInterests(
+                        [
+                            RangeOpen {
+                                start: Bytes(
+                                    "",
+                                ),
+                                end: Bytes(
+                                    "0xFF",
+                                ),
+                            },
+                        ],
+                    ),
+                    state: {
+                        Bytes(
+                            "a",
+                        ): Bytes(
+                            "A",
+                        ),
+                        Bytes(
+                            "b",
+                        ): Bytes(
+                            "B",
+                        ),
+                        Bytes(
+                            "c",
+                        ): Bytes(
+                            "C",
+                        ),
+                    },
+                },
+                dog: SetupState {
+                    interests: FixedInterests(
+                        [
+                            RangeOpen {
+                                start: Bytes(
+                                    "",
+                                ),
+                                end: Bytes(
+                                    "0xFF",
+                                ),
+                            },
+                        ],
+                    ),
+                    state: {
+                        Bytes(
+                            "e",
+                        ): Bytes(
+                            "E",
+                        ),
+                        Bytes(
+                            "f",
+                        ): Bytes(
+                            "F",
+                        ),
+                        Bytes(
+                            "g",
+                        ): Bytes(
+                            "G",
+                        ),
+                    },
+                },
+            }
+        "#]],
+    )
+}
+
+#[test]
+fn parse_sequence_empty_set() {
+    test_parse_sequence(
+        r#"
+cat: [a: X]
+dog: []
+        "#,
+        expect![[r#"
+            SequenceSetup {
+                cat: SetupState {
+                    interests: FixedInterests(
+                        [
+                            RangeOpen {
+                                start: Bytes(
+                                    "",
+                                ),
+                                end: Bytes(
+                                    "0xFF",
+                                ),
+                            },
+                        ],
+                    ),
+                    state: {
+                        Bytes(
+                            "a",
+                        ): Bytes(
+                            "X",
+                        ),
+                    },
+                },
+                dog: SetupState {
+                    interests: FixedInterests(
+                        [
+                            RangeOpen {
+                                start: Bytes(
+                                    "",
+                                ),
+                                end: Bytes(
+                                    "0xFF",
+                                ),
+                            },
+                        ],
+                    ),
+                    state: {},
+                },
+            }
+        "#]],
+    )
+}
+#[test]
+fn parse_sequence_interests_alpha_omega() {
+    test_parse_sequence(
+        r#"
+        cat: <(𝚨,c)> [a:A,b:B,c:C]
+        dog: <(b,f),(g,𝛀)> [e:E,f:F,g:G]
+        "#,
+        expect![[r#"
+            SequenceSetup {
+                cat: SetupState {
+                    interests: FixedInterests(
+                        [
+                            RangeOpen {
+                                start: Bytes(
+                                    "",
+                                ),
+                                end: Bytes(
+                                    "c",
+                                ),
+                            },
+                        ],
+                    ),
+                    state: {
+                        Bytes(
+                            "a",
+                        ): Bytes(
+                            "A",
+                        ),
+                        Bytes(
+                            "b",
+                        ): Bytes(
+                            "B",
+                        ),
+                        Bytes(
+                            "c",
+                        ): Bytes(
+                            "C",
+                        ),
+                    },
+                },
+                dog: SetupState {
+                    interests: FixedInterests(
+                        [
+                            RangeOpen {
+                                start: Bytes(
+                                    "b",
+                                ),
+                                end: Bytes(
+                                    "f",
+                                ),
+                            },
+                            RangeOpen {
+                                start: Bytes(
+                                    "g",
+                                ),
+                                end: Bytes(
+                                    "0xFF",
+                                ),
+                            },
+                        ],
+                    ),
+                    state: {
+                        Bytes(
+                            "e",
+                        ): Bytes(
+                            "E",
+                        ),
+                        Bytes(
+                            "f",
+                        ): Bytes(
+                            "F",
+                        ),
+                        Bytes(
+                            "g",
+                        ): Bytes(
+                            "G",
+                        ),
+                    },
+                },
+            }
+        "#]],
+    )
+}
+
+#[pin_project]
+struct DuplexChannel<In, Out> {
+    #[pin]
+    sender: PollSender<In>,
+    #[pin]
+    receiver: ReceiverStream<Out>,
+}
+
+impl<In, Out> Sink<In> for DuplexChannel<In, Out>
+where
+    In: Send + 'static,
+{
+    type Error = <PollSender<In> as Sink<In>>::Error;
+
+    fn poll_ready(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::result::Result<(), Self::Error>> {
+        let this = self.project();
+        this.sender.poll_ready(cx)
+    }
+
+    fn start_send(
+        self: std::pin::Pin<&mut Self>,
+        item: In,
+    ) -> std::result::Result<(), Self::Error> {
+        let this = self.project();
+        this.sender.start_send(item)
+    }
+
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::result::Result<(), Self::Error>> {
+        let this = self.project();
+        this.sender.poll_flush(cx)
+    }
+
+    fn poll_close(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::result::Result<(), Self::Error>> {
+        let this = self.project();
+        this.sender.poll_close(cx)
+    }
+}
+
+impl<In, Out> Stream for DuplexChannel<In, Out>
+where
+    In: Send + 'static,
+    Out: Send + 'static,
+{
+    type Item = std::result::Result<Out, <PollSender<In> as Sink<In>>::Error>;
+
+    fn poll_next(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        let this = self.project();
+        this.receiver.poll_next(cx).map(|o| o.map(|out| Ok(out)))
+    }
+}
+
+impl<T> StreamInspectExt for T
+where
+    T: Stream,
+    T: ?Sized,
+{
+}
+
+trait StreamInspectExt: Stream {
+    fn inspect_async<F, Fut>(self, f: F) -> InspectAsync<Self, Fut, F>
+    where
+        F: FnMut(Self::Item) -> Fut,
+        Fut: Future<Output = Self::Item>,
+        Self: Sized,
+    {
+        InspectAsync::new(self, f)
+    }
+}
+
+#[pin_project]
+#[must_use = "futures do nothing unless you `.await` or poll them"]
+struct InspectAsync<St, Fut, F>
+where
+    St: Stream,
+{
+    #[pin]
+    stream: St,
+    f: F,
+    #[pin]
+    next: Option<Fut>,
+}
+
+impl<St, Fut, F> InspectAsync<St, Fut, F>
+where
+    St: Stream,
+    F: FnMut(St::Item) -> Fut,
+    Fut: Future<Output = St::Item>,
+{
+    pub(super) fn new(stream: St, f: F) -> Self {
+        Self {
+            stream,
+            f,
+            next: None,
+        }
+    }
+}
+
+impl<St, Fut, F> Stream for InspectAsync<St, Fut, F>
+where
+    St: Stream,
+    F: FnMut(St::Item) -> Fut,
+    Fut: Future<Output = St::Item>,
+{
+    type Item = St::Item;
+
+    fn poll_next(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        let mut this = self.project();
+        loop {
+            if let Some(fut) = this.next.as_mut().as_pin_mut() {
+                let item = ready!(fut.poll(cx));
+                this.next.set(None);
+                return std::task::Poll::Ready(Some(item));
+            } else if let Some(item) = ready!(this.stream.as_mut().poll_next(cx)) {
+                this.next.set(Some((this.f)(item)));
+            } else {
+                return std::task::Poll::Ready(None);
+            }
+        }
+    }
+}
+
+impl<St, Fut, F, T> Sink<T> for InspectAsync<St, Fut, F>
+where
+    St: Stream + Sink<T>,
+    F: FnMut(St::Item) -> Fut,
+    Fut: Future<Output = St::Item>,
+{
+    type Error = <St as Sink<T>>::Error;
+
+    fn poll_ready(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::result::Result<(), Self::Error>> {
+        let this = self.project();
+        this.stream.poll_ready(cx)
+    }
+
+    fn start_send(self: std::pin::Pin<&mut Self>, item: T) -> std::result::Result<(), Self::Error> {
+        let this = self.project();
+        this.stream.start_send(item)
+    }
+
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::result::Result<(), Self::Error>> {
+        let this = self.project();
+        this.stream.poll_flush(cx)
+    }
+
+    fn poll_close(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::result::Result<(), Self::Error>> {
+        let this = self.project();
+        this.stream.poll_close(cx)
+    }
+}
+
+fn duplex<T, U>(max_buf_size: usize) -> (DuplexChannel<T, U>, DuplexChannel<U, T>)
+where
+    T: Send + 'static,
+    U: Send + 'static,
+{
+    let (tx_t, rx_t) = channel(max_buf_size);
+    let (tx_u, rx_u) = channel(max_buf_size);
+    (
+        DuplexChannel {
+            sender: PollSender::new(tx_t),
+            receiver: ReceiverStream::new(rx_u),
+        },
+        DuplexChannel {
+            sender: PollSender::new(tx_u),
+            receiver: ReceiverStream::new(rx_t),
+        },
+    )
+}
+
+// Run the recon simulation
+async fn recon_do(recon: &str) -> Sequence<AlphaNumBytes, MemoryAHash> {
+    async fn snapshot_state(
+        client: Client<AlphaNumBytes, MemoryAHash>,
+    ) -> Result<BTreeMap<AlphaNumBytes, Option<AlphaNumBytes>>> {
+        let mut state = BTreeMap::new();
+        let keys: Vec<AlphaNumBytes> = client.full_range().await?.collect();
+        for key in keys {
+            let value = client.value_for_key(key.clone()).await?;
+            state.insert(key, value.map(AlphaNumBytes::from));
+        }
+        Ok(state)
+    }
+
+    let setup = parse_sequence(recon);
+
+    let cat = start_recon(setup.cat.clone().into());
+    let dog = start_recon(setup.dog.clone().into());
+
+    let steps = Arc::new(std::sync::Mutex::new(Vec::<
+        SequenceStep<AlphaNumBytes, MemoryAHash>,
+    >::new()));
+
+    type InitiatorEnv = InitiatorMessage<AlphaNumBytes, MemoryAHash>;
+    type ResponderEnv = ResponderMessage<AlphaNumBytes, MemoryAHash>;
+
+    let (cat_channel, dog_channel): (
+        DuplexChannel<InitiatorEnv, ResponderEnv>,
+        DuplexChannel<ResponderEnv, InitiatorEnv>,
+    ) = duplex(100);
+
+    // Setup logic to capture the sequence of messages exchanged
+    let cat_channel = {
+        let steps = steps.clone();
+        let dog = dog.clone();
+        cat_channel.inspect_async(move |message| {
+            let steps = steps.clone();
+            let dog = dog.clone();
+            async move {
+                let state = snapshot_state(dog).await.unwrap();
+                steps.lock().unwrap().push(SequenceStep {
+                    message: Message::DogToCat(message.as_ref().unwrap().clone()),
+                    state,
+                });
+                message
+            }
+        })
+    };
+    let dog_channel = {
+        let steps = steps.clone();
+        let cat = cat.clone();
+        dog_channel.inspect_async(move |message| {
+            let cat = cat.clone();
+            let steps = steps.clone();
+            async move {
+                let state = snapshot_state(cat).await.unwrap();
+                steps.lock().unwrap().push(SequenceStep {
+                    message: Message::CatToDog(message.as_ref().unwrap().clone()),
+                    state,
+                });
+                message
+            }
+        })
+    };
+
+    let cat_fut = protocol::initiate_synchronize(cat.clone(), cat_channel);
+    let dog_fut = protocol::respond_synchronize(dog.clone(), dog_channel);
+    // Drive both synchronize futures on the same thread
+    // This is to ensure a deterministic behavior.
+    let (cat_ret, dog_ret) = tokio::join!(cat_fut, dog_fut);
+
+    // Error if either synchronize method errors
+    cat_ret.unwrap();
+    dog_ret.unwrap();
+
+    let steps = Arc::try_unwrap(steps).unwrap().into_inner().unwrap();
+
+    Sequence {
+        setup,
+        steps,
+        r#final: SequenceFinal {
+            cat: snapshot_state(cat).await.unwrap(),
+            dog: snapshot_state(dog).await.unwrap(),
+        },
+    }
+}
+
+// A recon test is composed of a single expect value.
+// The first two non empty lines of the expect value are parsed into the intial state of the nodes.
+// Then synchronization is performed and the interaction captured and formated using Pretty.
+// The rest of the expect value is that formatted sequence.
+//
+// This means that we only need to be able to parse the initial state data. The sequence steps can
+// be as verbose or terse as needed without worrying about parsability.
 async fn recon_test(recon: Expect) {
     let actual = format!("{}", recon_do(recon.data()).await);
     recon.assert_eq(&actual)
 }
 
-#[tokio::test]
-async fn abcd() {
+#[test(tokio::test)]
+async fn abcde() {
     recon_test(expect![[r#"
-        cat: [b,c,d,e]
-        dog: [a,e]
-        -> (b, h(c,d), e) [a,b,e]
-        <- (a, 0, b, 0, e) [a,b,c,d,e]
-        -> (a, 0, b, 0, c, 0, d, 0, e) [a,b,c,d,e]
-        <- (a, h(b,c,d), e) [a,b,c,d,e]"#]])
-    .await
-}
-#[tokio::test]
-async fn test_letters() {
-    recon_test(expect![[r#"
-        cat: [a,b,c]
-        dog: [e,f,g]
-        -> (a, h(b), c) [a,c,e,f,g]
-        <- (a, 0, c, 0, e, 0, f, 0, g) [a,b,c,e,f,g]
-        -> (a, 0, b, h(c,e,f), g) [a,b,c,e,f,g]
-        <- (a, h(b,c,e,f), g) [a,b,c,e,f,g]"#]])
+        cat: [b: B, c: C, d: D, e: E]
+        dog: [a: A, e: E]
+        -> interest_req((𝚨, 𝛀 ))
+            cat: [b: B, c: C, d: D, e: E]
+        <- interest_resp((𝚨, 𝛀 ))
+            dog: [a: A, e: E]
+        -> range_req({𝚨 h(b, c, d, e)#4 𝛀 })
+            cat: [b: B, c: C, d: D, e: E]
+        <- range_resp({𝚨 0 a}, {a 0 e}, {e 0 𝛀 })
+            dog: [a: A, e: E]
+        -> value_resp(b: B)
+            cat: [a: , b: B, c: C, d: D, e: E]
+        -> value_resp(c: C)
+            cat: [a: , b: B, c: C, d: D, e: E]
+        -> value_resp(d: D)
+            cat: [a: , b: B, c: C, d: D, e: E]
+        -> value_req(a)
+            cat: [a: , b: B, c: C, d: D, e: E]
+        -> listen_only
+            cat: [a: , b: B, c: C, d: D, e: E]
+        <- value_resp(a: A)
+            dog: [a: A, b: B, c: C, d: D, e: E]
+        <- listen_only
+            dog: [a: A, b: B, c: C, d: D, e: E]
+        -> finished
+            cat: [a: A, b: B, c: C, d: D, e: E]
+        cat: [a: A, b: B, c: C, d: D, e: E]
+        dog: [a: A, b: B, c: C, d: D, e: E]
+    "#]])
     .await
 }
 
-#[tokio::test]
-async fn test_one_us() {
+#[test(tokio::test)]
+async fn two_in_a_row() {
+    recon_test(expect![[r#"
+        cat: [a: A, b: B, c: C, d: D, e: E]
+        dog: [a: A, d: D, e: E]
+        -> interest_req((𝚨, 𝛀 ))
+            cat: [a: A, b: B, c: C, d: D, e: E]
+        <- interest_resp((𝚨, 𝛀 ))
+            dog: [a: A, d: D, e: E]
+        -> range_req({𝚨 h(a, b, c, d, e)#5 𝛀 })
+            cat: [a: A, b: B, c: C, d: D, e: E]
+        <- range_resp({𝚨 0 a}, {a 0 d}, {d 0 e}, {e 0 𝛀 })
+            dog: [a: A, d: D, e: E]
+        -> value_resp(b: B)
+            cat: [a: A, b: B, c: C, d: D, e: E]
+        -> value_resp(c: C)
+            cat: [a: A, b: B, c: C, d: D, e: E]
+        -> listen_only
+            cat: [a: A, b: B, c: C, d: D, e: E]
+        <- listen_only
+            dog: [a: A, b: B, c: C, d: D, e: E]
+        -> finished
+            cat: [a: A, b: B, c: C, d: D, e: E]
+        cat: [a: A, b: B, c: C, d: D, e: E]
+        dog: [a: A, b: B, c: C, d: D, e: E]
+    "#]])
+    .await
+}
+
+#[test(tokio::test)]
+async fn disjoint() {
+    recon_test(expect![[r#"
+        cat: [a: A, b: B, c: C]
+        dog: [e: E, f: F, g: G]
+        -> interest_req((𝚨, 𝛀 ))
+            cat: [a: A, b: B, c: C]
+        <- interest_resp((𝚨, 𝛀 ))
+            dog: [e: E, f: F, g: G]
+        -> range_req({𝚨 h(a, b, c)#3 𝛀 })
+            cat: [a: A, b: B, c: C]
+        <- range_resp({𝚨 0 e}, {e 0 f}, {f 0 g}, {g 0 𝛀 })
+            dog: [e: E, f: F, g: G]
+        -> value_resp(a: A)
+            cat: [a: A, b: B, c: C, e: ]
+        -> value_resp(b: B)
+            cat: [a: A, b: B, c: C, e: , f: , g: ]
+        -> value_resp(c: C)
+            cat: [a: A, b: B, c: C, e: , f: , g: ]
+        -> value_req(e)
+            cat: [a: A, b: B, c: C, e: , f: , g: ]
+        <- value_resp(e: E)
+            dog: [a: A, b: B, c: C, e: E, f: F, g: G]
+        -> value_req(f)
+            cat: [a: A, b: B, c: C, e: , f: , g: ]
+        -> value_req(g)
+            cat: [a: A, b: B, c: C, e: E, f: , g: ]
+        <- value_resp(f: F)
+            dog: [a: A, b: B, c: C, e: E, f: F, g: G]
+        -> listen_only
+            cat: [a: A, b: B, c: C, e: E, f: F, g: ]
+        <- value_resp(g: G)
+            dog: [a: A, b: B, c: C, e: E, f: F, g: G]
+        <- listen_only
+            dog: [a: A, b: B, c: C, e: E, f: F, g: G]
+        -> finished
+            cat: [a: A, b: B, c: C, e: E, f: F, g: G]
+        cat: [a: A, b: B, c: C, e: E, f: F, g: G]
+        dog: [a: A, b: B, c: C, e: E, f: F, g: G]
+    "#]])
+    .await
+}
+
+#[test(tokio::test)]
+async fn one_cat() {
     // if there is only one key it is its own message
     recon_test(expect![[r#"
-        cat: [a]
+        cat: [a: A]
         dog: []
-        -> (a) [a]
-        <- (a) [a]"#]])
+        -> interest_req((𝚨, 𝛀 ))
+            cat: [a: A]
+        <- interest_resp((𝚨, 𝛀 ))
+            dog: []
+        -> range_req({𝚨 h(a)#1 𝛀 })
+            cat: [a: A]
+        <- range_resp({𝚨 0 𝛀 })
+            dog: []
+        -> value_resp(a: A)
+            cat: [a: A]
+        -> listen_only
+            cat: [a: A]
+        <- listen_only
+            dog: [a: A]
+        -> finished
+            cat: [a: A]
+        cat: [a: A]
+        dog: [a: A]
+    "#]])
     .await
 }
 
-#[tokio::test]
-async fn test_one_them() {
+#[test(tokio::test)]
+async fn one_dog() {
     recon_test(expect![[r#"
         cat: []
-        dog: [a]
-        -> () [a]
-        <- (a) [a]
-        -> (a) [a]"#]])
+        dog: [a: A]
+        -> interest_req((𝚨, 𝛀 ))
+            cat: []
+        <- interest_resp((𝚨, 𝛀 ))
+            dog: [a: A]
+        -> range_req({𝚨 0 𝛀 })
+            cat: []
+        <- value_resp(a: A)
+            dog: [a: A]
+        <- range_resp({𝚨 h(a)#1 𝛀 })
+            dog: [a: A]
+        -> listen_only
+            cat: [a: A]
+        <- listen_only
+            dog: [a: A]
+        -> finished
+            cat: [a: A]
+        cat: [a: A]
+        dog: [a: A]
+    "#]])
     .await
 }
 
-#[tokio::test]
-#[traced_test]
-async fn test_none() {
+#[test(tokio::test)]
+async fn none() {
     recon_test(expect![[r#"
         cat: []
         dog: []
-        -> () []
-        <- () []
-        -> () []"#]])
+        -> interest_req((𝚨, 𝛀 ))
+            cat: []
+        <- interest_resp((𝚨, 𝛀 ))
+            dog: []
+        -> range_req({𝚨 0 𝛀 })
+            cat: []
+        <- range_resp({𝚨 0 𝛀 })
+            dog: []
+        -> listen_only
+            cat: []
+        <- listen_only
+            dog: []
+        -> finished
+            cat: []
+        cat: []
+        dog: []
+    "#]])
     .await
 }
 
-#[tokio::test]
-async fn test_two() {
+#[test(tokio::test)]
+async fn two_in_sync() {
     recon_test(expect![[r#"
-        cat: [a,z]
-        dog: [a,z]
-        -> (a, 0, z) [a,z]
-        <- (a, 0, z) [a,z]"#]])
+        cat: [a: A, z: Z]
+        dog: [a: A, z: Z]
+        -> interest_req((𝚨, 𝛀 ))
+            cat: [a: A, z: Z]
+        <- interest_resp((𝚨, 𝛀 ))
+            dog: [a: A, z: Z]
+        -> range_req({𝚨 h(a, z)#2 𝛀 })
+            cat: [a: A, z: Z]
+        <- range_resp({𝚨 h(a, z)#2 𝛀 })
+            dog: [a: A, z: Z]
+        -> listen_only
+            cat: [a: A, z: Z]
+        <- listen_only
+            dog: [a: A, z: Z]
+        -> finished
+            cat: [a: A, z: Z]
+        cat: [a: A, z: Z]
+        dog: [a: A, z: Z]
+    "#]])
     .await
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn paper() {
     recon_test(expect![[r#"
-        cat: [ape,eel,fox,gnu]
-        dog: [bee,cat,doe,eel,fox,hog]
-        -> (ape, h(eel,fox), gnu) [ape,bee,cat,doe,eel,fox,gnu,hog]
-        <- (ape, h(bee,cat), doe, h(eel,fox), gnu, 0, hog) [ape,doe,eel,fox,gnu,hog]
-        -> (ape, 0, doe, h(eel,fox,gnu), hog) [ape,bee,cat,doe,eel,fox,gnu,hog]
-        <- (ape, 0, bee, 0, cat, h(doe,eel,fox,gnu), hog) [ape,bee,cat,doe,eel,fox,gnu,hog]
-        -> (ape, h(bee,cat,doe,eel,fox,gnu), hog) [ape,bee,cat,doe,eel,fox,gnu,hog]
-        <- (ape, h(bee,cat,doe,eel,fox,gnu), hog) [ape,bee,cat,doe,eel,fox,gnu,hog]"#]])
+        cat: [ape: APE, eel: EEL, fox: FOX, gnu: GNU]
+        dog: [bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, hog: HOG]
+        -> interest_req((𝚨, 𝛀 ))
+            cat: [ape: APE, eel: EEL, fox: FOX, gnu: GNU]
+        <- interest_resp((𝚨, 𝛀 ))
+            dog: [bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, hog: HOG]
+        -> range_req({𝚨 h(ape, eel, fox, gnu)#4 𝛀 })
+            cat: [ape: APE, eel: EEL, fox: FOX, gnu: GNU]
+        <- range_resp({𝚨 h(bee, cot)#2 doe}, {doe h(eel, fox, hog)#3 𝛀 })
+            dog: [bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, hog: HOG]
+        -> range_req({𝚨 0 ape})
+            cat: [ape: APE, doe: , eel: EEL, fox: FOX, gnu: GNU]
+        -> range_req({ape 0 doe})
+            cat: [ape: APE, doe: , eel: EEL, fox: FOX, gnu: GNU]
+        <- range_resp({𝚨 0 ape})
+            dog: [ape: , bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, hog: HOG]
+        -> range_req({doe 0 eel})
+            cat: [ape: APE, doe: , eel: EEL, fox: FOX, gnu: GNU]
+        <- value_req(ape)
+            dog: [ape: , bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, hog: HOG]
+        -> range_req({eel 0 fox})
+            cat: [ape: APE, doe: , eel: EEL, fox: FOX, gnu: GNU]
+        <- value_resp(bee: BEE)
+            dog: [ape: , bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, hog: HOG]
+        -> range_req({fox 0 gnu})
+            cat: [ape: APE, doe: , eel: EEL, fox: FOX, gnu: GNU]
+        <- value_resp(cot: COT)
+            dog: [ape: , bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, hog: HOG]
+        -> range_req({gnu 0 𝛀 })
+            cat: [ape: APE, bee: BEE, doe: , eel: EEL, fox: FOX, gnu: GNU]
+        <- range_resp({ape h(bee, cot)#2 doe})
+            dog: [ape: , bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: , hog: HOG]
+        -> value_req(doe)
+            cat: [ape: APE, bee: BEE, cot: COT, doe: , eel: EEL, fox: FOX, gnu: GNU]
+        <- range_resp({doe 0 eel})
+            dog: [ape: , bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: , hog: HOG]
+        -> value_resp(ape: APE)
+            cat: [ape: APE, bee: BEE, cot: COT, doe: , eel: EEL, fox: FOX, gnu: GNU]
+        <- range_resp({eel 0 fox})
+            dog: [ape: , bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: , hog: HOG]
+        <- range_resp({fox 0 gnu})
+            dog: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: , hog: HOG]
+        <- value_req(gnu)
+            dog: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: , hog: HOG]
+        <- value_resp(hog: HOG)
+            dog: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: , hog: HOG]
+        -> value_resp(gnu: GNU)
+            cat: [ape: APE, bee: BEE, cot: COT, doe: , eel: EEL, fox: FOX, gnu: GNU]
+        <- range_resp({gnu h(hog)#1 𝛀 })
+            dog: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU, hog: HOG]
+        -> listen_only
+            cat: [ape: APE, bee: BEE, cot: COT, doe: , eel: EEL, fox: FOX, gnu: GNU, hog: HOG]
+        <- value_resp(doe: DOE)
+            dog: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU, hog: HOG]
+        <- listen_only
+            dog: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU, hog: HOG]
+        -> finished
+            cat: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU, hog: HOG]
+        cat: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU, hog: HOG]
+        dog: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU, hog: HOG]
+    "#]])
     .await;
 }
 
-#[tokio::test]
-async fn test_small_diff() {
+#[test(tokio::test)]
+async fn small_diff() {
     recon_test(expect![[r#"
-        cat: [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z]
-        dog: [a,b,c,d,e,f,g,h,i,j,k,l,m,o,p,q,r,s,t,u,w,x,y,z]
-        -> (a, h(b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y), z) [a,b,c,d,e,f,g,h,i,j,k,l,m,o,p,q,r,s,t,u,w,x,y,z]
-        <- (a, h(b,c,d,e,f,g,h,i,j,k), l, h(m,o,p,q,r,s,t,u,w,x,y), z) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z]
-        -> (a, h(b,c,d,e,f,g,h,i,j,k), l, h(m,n,o,p,q,r), s, h(t,u,v,w,x,y), z) [a,b,c,d,e,f,g,h,i,j,k,l,m,o,p,q,r,s,t,u,w,x,y,z]
-        <- (a, h(b,c,d,e,f,g,h,i,j,k), l, h(m,o), p, h(q,r), s, h(t,u), w, h(x,y), z) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z]
-        -> (a, h(b,c,d,e,f,g,h,i,j,k), l, 0, m, 0, n, 0, o, h(p,q,r), s, 0, t, 0, u, 0, v, h(w,x,y), z) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z]
-        <- (a, h(b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y), z) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z]"#]]).await;
+        cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        -> interest_req((𝚨, 𝛀 ))
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        <- interest_resp((𝚨, 𝛀 ))
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        -> range_req({𝚨 h(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z)#26 𝛀 })
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        <- range_resp({𝚨 h(a, b, c, d, e, f, g, h, i, j, k)#11 l}, {l h(m, o, p, q, r, s, t, u, w, x, y, z)#12 𝛀 })
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        -> range_req({l h(m, n, o, p, q, r)#6 s})
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        <- range_resp({l h(m, o)#2 p}, {p h(q, r)#2 s})
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        -> range_req({s h(t, u, v, w, x, y, z)#7 𝛀 })
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        <- range_resp({s h(t, u)#2 w}, {w h(x, y, z)#3 𝛀 })
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        -> range_req({l 0 m})
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        <- range_resp({l 0 m})
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        -> range_req({m 0 n})
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        -> range_req({n 0 o})
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        <- range_resp({m 0 n})
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: , o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        <- value_req(n)
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: , o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        -> range_req({o 0 p})
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        <- range_resp({n 0 o})
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: , o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        -> range_req({s 0 t})
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        <- range_resp({o 0 p})
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: , o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        -> range_req({t 0 u})
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        <- range_resp({s 0 t})
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: , o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        -> range_req({u 0 v})
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        <- range_resp({t 0 u})
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: , o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        -> range_req({v 0 w})
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        <- range_resp({u 0 v})
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: , o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: , w: W, x: X, y: Y, z: Z]
+        -> value_resp(n: N)
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        <- value_req(v)
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: , w: W, x: X, y: Y, z: Z]
+        <- range_resp({v 0 w})
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: , w: W, x: X, y: Y, z: Z]
+        -> value_resp(v: V)
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        -> listen_only
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        <- listen_only
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        -> finished
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+    "#]]).await;
 }
 
-#[tokio::test]
-async fn test_small_example() {
+#[test(tokio::test)]
+async fn small_diff_off_by_one() {
     recon_test(expect![[r#"
-    cat: [ape,eel,fox,gnu]
-    dog: [bee,cat,doe,eel,fox,hog]
-    -> (ape, h(eel,fox), gnu) [ape,bee,cat,doe,eel,fox,gnu,hog]
-    <- (ape, h(bee,cat), doe, h(eel,fox), gnu, 0, hog) [ape,doe,eel,fox,gnu,hog]
-    -> (ape, 0, doe, h(eel,fox,gnu), hog) [ape,bee,cat,doe,eel,fox,gnu,hog]
-    <- (ape, 0, bee, 0, cat, h(doe,eel,fox,gnu), hog) [ape,bee,cat,doe,eel,fox,gnu,hog]
-    -> (ape, h(bee,cat,doe,eel,fox,gnu), hog) [ape,bee,cat,doe,eel,fox,gnu,hog]
-    <- (ape, h(bee,cat,doe,eel,fox,gnu), hog) [ape,bee,cat,doe,eel,fox,gnu,hog]"#]])
+        cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        -> interest_req((𝚨, 𝛀 ))
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        <- interest_resp((𝚨, 𝛀 ))
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        -> range_req({𝚨 h(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z)#26 𝛀 })
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        <- range_resp({𝚨 h(a, b, c, d, e, f, g, h, i, j, k)#11 l}, {l h(m, n, p, q, r, s, t, u, w, x, y, z)#12 𝛀 })
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        -> range_req({l h(m, n, o, p, q, r)#6 s})
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        <- range_resp({l h(m, n)#2 p}, {p h(q, r)#2 s})
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        -> range_req({s h(t, u, v, w, x, y, z)#7 𝛀 })
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        <- range_resp({s h(t, u)#2 w}, {w h(x, y, z)#3 𝛀 })
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        -> range_req({l 0 m})
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        <- range_resp({l 0 m})
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        -> range_req({m 0 n})
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        <- range_resp({m 0 n})
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        -> range_req({n 0 o})
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        -> range_req({o 0 p})
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        <- range_resp({n 0 o})
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: , p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        <- value_req(o)
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: , p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        -> range_req({s 0 t})
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        <- range_resp({o 0 p})
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: , p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        -> range_req({t 0 u})
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        <- range_resp({s 0 t})
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: , p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        -> range_req({u 0 v})
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        <- range_resp({t 0 u})
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: , p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        -> range_req({v 0 w})
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        <- range_resp({u 0 v})
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: , p: P, q: Q, r: R, s: S, t: T, u: U, v: , w: W, x: X, y: Y, z: Z]
+        -> value_resp(o: O)
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        <- value_req(v)
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: , w: W, x: X, y: Y, z: Z]
+        -> value_resp(v: V)
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        <- range_resp({v 0 w})
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: , w: W, x: X, y: Y, z: Z]
+        -> listen_only
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        <- listen_only
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        -> finished
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+    "#]]).await;
+}
+
+#[test(tokio::test)]
+async fn alternating() {
+    recon_test(expect![[r#"
+        cat: [a: A, b: B, c: C, e: E, g: G, i: I, k: K, m: M, o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
+        dog: [a: A, c: C, d: D, f: F, h: H, j: J, l: L, n: N, p: P, q: Q, s: S, u: U, w: W, y: Y, z: Z]
+        -> interest_req((𝚨, 𝛀 ))
+            cat: [a: A, b: B, c: C, e: E, g: G, i: I, k: K, m: M, o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
+        <- interest_resp((𝚨, 𝛀 ))
+            dog: [a: A, c: C, d: D, f: F, h: H, j: J, l: L, n: N, p: P, q: Q, s: S, u: U, w: W, y: Y, z: Z]
+        -> range_req({𝚨 h(a, b, c, e, g, i, k, m, o, p, r, t, v, x, z)#15 𝛀 })
+            cat: [a: A, b: B, c: C, e: E, g: G, i: I, k: K, m: M, o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
+        <- range_resp({𝚨 h(a, c, d, f, h, j, l)#7 n}, {n h(p, q, s, u, w, y, z)#7 𝛀 })
+            dog: [a: A, c: C, d: D, f: F, h: H, j: J, l: L, n: N, p: P, q: Q, s: S, u: U, w: W, y: Y, z: Z]
+        -> range_req({𝚨 h(a, b, c)#3 e})
+            cat: [a: A, b: B, c: C, e: E, g: G, i: I, k: K, m: M, n: , o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
+        -> range_req({e h(g, i, k, m)#4 n})
+            cat: [a: A, b: B, c: C, e: E, g: G, i: I, k: K, m: M, n: , o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
+        <- range_resp({𝚨 0 a}, {a 0 c}, {c 0 d}, {d 0 e})
+            dog: [a: A, c: C, d: D, e: , f: F, h: H, j: J, l: L, n: N, p: P, q: Q, s: S, u: U, w: W, y: Y, z: Z]
+        -> range_req({n h(o, p, r)#3 t})
+            cat: [a: A, b: B, c: C, e: E, g: G, i: I, k: K, m: M, n: , o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
+        <- value_req(e)
+            dog: [a: A, c: C, d: D, e: , f: F, h: H, j: J, l: L, n: N, p: P, q: Q, s: S, u: U, w: W, y: Y, z: Z]
+        -> range_req({t h(v, x, z)#3 𝛀 })
+            cat: [a: A, b: B, c: C, d: , e: E, g: G, i: I, k: K, m: M, n: , o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
+        <- range_resp({e 0 f}, {f 0 h}, {h 0 j}, {j 0 l}, {l 0 n})
+            dog: [a: A, c: C, d: D, e: , f: F, h: H, j: J, l: L, n: N, p: P, q: Q, s: S, t: , u: U, w: W, y: Y, z: Z]
+        -> value_req(n)
+            cat: [a: A, b: B, c: C, d: , e: E, g: G, i: I, k: K, m: M, n: , o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
+        <- range_resp({n 0 p}, {p 0 q}, {q 0 s}, {s 0 t})
+            dog: [a: A, c: C, d: D, e: , f: F, h: H, j: J, l: L, n: N, p: P, q: Q, s: S, t: , u: U, w: W, y: Y, z: Z]
+        -> value_resp(b: B)
+            cat: [a: A, b: B, c: C, d: , e: E, f: , g: G, h: , i: I, j: , k: K, l: , m: M, n: , o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
+        <- value_req(t)
+            dog: [a: A, b: B, c: C, d: D, e: , f: F, h: H, j: J, l: L, n: N, p: P, q: Q, s: S, t: , u: U, w: W, y: Y, z: Z]
+        -> value_req(d)
+            cat: [a: A, b: B, c: C, d: , e: E, f: , g: G, h: , i: I, j: , k: K, l: , m: M, n: , o: O, p: P, q: , r: R, s: , t: T, v: V, x: X, z: Z]
+        <- range_resp({t 0 u}, {u 0 w}, {w 0 y}, {y 0 z}, {z 0 𝛀 })
+            dog: [a: A, b: B, c: C, d: D, e: , f: F, h: H, j: J, l: L, n: N, p: P, q: Q, s: S, t: , u: U, w: W, y: Y, z: Z]
+        -> value_resp(e: E)
+            cat: [a: A, b: B, c: C, d: , e: E, f: , g: G, h: , i: I, j: , k: K, l: , m: M, n: , o: O, p: P, q: , r: R, s: , t: T, v: V, x: X, z: Z]
+        <- value_resp(n: N)
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, h: H, j: J, l: L, n: N, p: P, q: Q, s: S, t: , u: U, w: W, y: Y, z: Z]
+        -> value_resp(g: G)
+            cat: [a: A, b: B, c: C, d: , e: E, f: , g: G, h: , i: I, j: , k: K, l: , m: M, n: , o: O, p: P, q: , r: R, s: , t: T, u: , v: V, w: , x: X, y: , z: Z]
+        <- value_resp(d: D)
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, h: H, j: J, l: L, n: N, p: P, q: Q, s: S, t: , u: U, w: W, y: Y, z: Z]
+        -> value_resp(i: I)
+            cat: [a: A, b: B, c: C, d: , e: E, f: , g: G, h: , i: I, j: , k: K, l: , m: M, n: N, o: O, p: P, q: , r: R, s: , t: T, u: , v: V, w: , x: X, y: , z: Z]
+        -> value_resp(k: K)
+            cat: [a: A, b: B, c: C, d: D, e: E, f: , g: G, h: , i: I, j: , k: K, l: , m: M, n: N, o: O, p: P, q: , r: R, s: , t: T, u: , v: V, w: , x: X, y: , z: Z]
+        -> value_resp(m: M)
+            cat: [a: A, b: B, c: C, d: D, e: E, f: , g: G, h: , i: I, j: , k: K, l: , m: M, n: N, o: O, p: P, q: , r: R, s: , t: T, u: , v: V, w: , x: X, y: , z: Z]
+        -> value_req(f)
+            cat: [a: A, b: B, c: C, d: D, e: E, f: , g: G, h: , i: I, j: , k: K, l: , m: M, n: N, o: O, p: P, q: , r: R, s: , t: T, u: , v: V, w: , x: X, y: , z: Z]
+        <- value_resp(f: F)
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, s: S, t: , u: U, w: W, y: Y, z: Z]
+        -> value_req(h)
+            cat: [a: A, b: B, c: C, d: D, e: E, f: , g: G, h: , i: I, j: , k: K, l: , m: M, n: N, o: O, p: P, q: , r: R, s: , t: T, u: , v: V, w: , x: X, y: , z: Z]
+        <- value_resp(h: H)
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, s: S, t: , u: U, w: W, y: Y, z: Z]
+        -> value_req(j)
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: , i: I, j: , k: K, l: , m: M, n: N, o: O, p: P, q: , r: R, s: , t: T, u: , v: V, w: , x: X, y: , z: Z]
+        <- value_resp(j: J)
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, s: S, t: , u: U, w: W, y: Y, z: Z]
+        -> value_req(l)
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: , k: K, l: , m: M, n: N, o: O, p: P, q: , r: R, s: , t: T, u: , v: V, w: , x: X, y: , z: Z]
+        <- value_resp(l: L)
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, s: S, t: , u: U, w: W, y: Y, z: Z]
+        -> value_resp(o: O)
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: , m: M, n: N, o: O, p: P, q: , r: R, s: , t: T, u: , v: V, w: , x: X, y: , z: Z]
+        -> value_resp(r: R)
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: , r: R, s: , t: T, u: , v: V, w: , x: X, y: , z: Z]
+        -> value_req(q)
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: , r: R, s: , t: T, u: , v: V, w: , x: X, y: , z: Z]
+        <- value_resp(q: Q)
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: , u: U, w: W, y: Y, z: Z]
+        -> value_req(s)
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: , r: R, s: , t: T, u: , v: V, w: , x: X, y: , z: Z]
+        <- value_resp(s: S)
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: , u: U, w: W, y: Y, z: Z]
+        -> value_resp(t: T)
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: , t: T, u: , v: V, w: , x: X, y: , z: Z]
+        -> value_resp(v: V)
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: , v: V, w: , x: X, y: , z: Z]
+        -> value_resp(x: X)
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: , v: V, w: , x: X, y: , z: Z]
+        -> value_req(u)
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: , v: V, w: , x: X, y: , z: Z]
+        -> value_req(w)
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: , v: V, w: , x: X, y: , z: Z]
+        <- value_resp(u: U)
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        -> value_req(y)
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: , x: X, y: , z: Z]
+        <- value_resp(w: W)
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        -> listen_only
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: , z: Z]
+        <- value_resp(y: Y)
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        <- listen_only
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        -> finished
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+        dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+    "#]]).await;
+}
+
+#[test(tokio::test)]
+async fn small_diff_zz() {
+    recon_test(expect![[r#"
+        cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
+        dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        -> interest_req((𝚨, 𝛀 ))
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
+        <- interest_resp((𝚨, 𝛀 ))
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        -> range_req({𝚨 h(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, zz)#27 𝛀 })
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
+        <- range_resp({𝚨 h(a, b, c, d, e, f, g, h, i, j, k)#11 l}, {l h(m, n, p, q, r, s, t, u, w, x, y, z)#12 𝛀 })
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        -> range_req({l h(m, n, o, p, q, r, s)#7 t})
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
+        <- range_resp({l h(m, n)#2 p}, {p h(q, r, s)#3 t})
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        -> range_req({t h(u, v, w, x, y, z, zz)#7 𝛀 })
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
+        <- range_resp({t h(u, w)#2 x}, {x h(y, z)#2 𝛀 })
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        -> range_req({l 0 m})
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
+        <- range_resp({l 0 m})
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        -> range_req({m 0 n})
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
+        <- range_resp({m 0 n})
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        -> range_req({n 0 o})
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
+        <- range_resp({n 0 o})
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: , p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        -> range_req({o 0 p})
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
+        <- value_req(o)
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: , p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        -> range_req({t 0 u})
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
+        <- range_resp({o 0 p})
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: , p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        -> range_req({u 0 v})
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
+        <- range_resp({t 0 u})
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: , p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        -> range_req({v 0 w})
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
+        <- range_resp({u 0 v})
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: , p: P, q: Q, r: R, s: S, t: T, u: U, v: , w: W, x: X, y: Y, z: Z]
+        -> range_req({w 0 x})
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
+        <- value_req(v)
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: , p: P, q: Q, r: R, s: S, t: T, u: U, v: , w: W, x: X, y: Y, z: Z]
+        -> range_req({x 0 y})
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
+        <- range_resp({v 0 w})
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: , p: P, q: Q, r: R, s: S, t: T, u: U, v: , w: W, x: X, y: Y, z: Z]
+        -> range_req({y 0 z})
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
+        <- range_resp({w 0 x})
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: , p: P, q: Q, r: R, s: S, t: T, u: U, v: , w: W, x: X, y: Y, z: Z]
+        -> range_req({z 0 zz})
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
+        <- range_resp({x 0 y})
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: , p: P, q: Q, r: R, s: S, t: T, u: U, v: , w: W, x: X, y: Y, z: Z]
+        -> range_req({zz 0 𝛀 })
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
+        <- range_resp({y 0 z})
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: , p: P, q: Q, r: R, s: S, t: T, u: U, v: , w: W, x: X, y: Y, z: Z, zz: ]
+        -> value_resp(o: O)
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
+        <- range_resp({z 0 zz})
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: , w: W, x: X, y: Y, z: Z, zz: ]
+        -> value_resp(v: V)
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
+        <- value_req(zz)
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ]
+        <- range_resp({zz 0 𝛀 })
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ]
+        -> value_resp(zz: ZZ)
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
+        -> listen_only
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
+        <- listen_only
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
+        -> finished
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
+        cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
+        dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
+    "#]]).await;
+}
+
+#[test(tokio::test)]
+async fn dog_linear_download() {
+    recon_test(expect![[r#"
+        cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+        dog: []
+        -> interest_req((𝚨, 𝛀 ))
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+        <- interest_resp((𝚨, 𝛀 ))
+            dog: []
+        -> range_req({𝚨 h(a, b, c, d, e, f, g)#7 𝛀 })
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+        <- range_resp({𝚨 0 𝛀 })
+            dog: []
+        -> value_resp(a: A)
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+        -> value_resp(b: B)
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+        -> value_resp(c: C)
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+        -> value_resp(d: D)
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+        -> value_resp(e: E)
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+        -> value_resp(f: F)
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+        -> value_resp(g: G)
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+        -> listen_only
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+        <- listen_only
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+        -> finished
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+        cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+        dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+    "#]])
+    .await
+}
+#[test(tokio::test)]
+async fn cat_linear_download() {
+    recon_test(expect![[r#"
+        cat: []
+        dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+        -> interest_req((𝚨, 𝛀 ))
+            cat: []
+        <- interest_resp((𝚨, 𝛀 ))
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+        -> range_req({𝚨 0 𝛀 })
+            cat: []
+        <- value_resp(a: A)
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+        <- value_resp(b: B)
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+        <- value_resp(c: C)
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+        <- value_resp(d: D)
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+        <- value_resp(e: E)
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+        <- value_resp(f: F)
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+        <- value_resp(g: G)
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+        <- range_resp({𝚨 h(a, b, c, d, e, f, g)#7 𝛀 })
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+        -> listen_only
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+        <- listen_only
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+        -> finished
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+        cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+        dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+    "#]])
+    .await
+}
+#[test(tokio::test)]
+async fn subset_interest() {
+    recon_test(expect![[r#"
+        cat: <(b, i), (m, r)> [c: C, f: F, g: G, r: R]
+        dog: <(a, z)> [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N]
+        -> interest_req((b, i), (m, r))
+            cat: [c: C, f: F, g: G, r: R]
+        <- interest_resp((b, i), (m, r))
+            dog: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N]
+        -> range_req({b h(c, f, g)#3 i})
+            cat: [c: C, f: F, g: G, r: R]
+        -> range_req({m 0 r})
+            cat: [c: C, f: F, g: G, r: R]
+        <- range_resp({b h(c, d)#2 e}, {e h(f, g, h)#3 i})
+            dog: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N]
+        -> range_req({b 0 c})
+            cat: [b: , c: C, e: , f: F, g: G, i: , r: R]
+        <- value_resp(n: N)
+            dog: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, r: ]
+        -> range_req({c 0 e})
+            cat: [b: , c: C, e: , f: F, g: G, i: , r: R]
+        -> range_req({e 0 f})
+            cat: [b: , c: C, e: , f: F, g: G, i: , n: N, r: R]
+        <- range_resp({m h(n)#1 r})
+            dog: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, r: ]
+        -> range_req({f 0 g})
+            cat: [b: , c: C, e: , f: F, g: G, i: , n: N, r: R]
+        <- value_req(r)
+            dog: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, r: ]
+        -> range_req({g 0 i})
+            cat: [b: , c: C, e: , f: F, g: G, i: , m: , n: N, r: R]
+        -> value_req(b)
+            cat: [b: , c: C, e: , f: F, g: G, i: , m: , n: N, r: R]
+        <- range_resp({b 0 c})
+            dog: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, r: ]
+        -> value_req(e)
+            cat: [b: , c: C, e: , f: F, g: G, i: , m: , n: N, r: R]
+        <- value_resp(d: D)
+            dog: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, r: ]
+        -> value_req(i)
+            cat: [b: , c: C, e: , f: F, g: G, i: , m: , n: N, r: R]
+        -> value_req(m)
+            cat: [b: , c: C, d: D, e: , f: F, g: G, i: , m: , n: N, r: R]
+        <- range_resp({c h(d)#1 e})
+            dog: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, r: ]
+        -> value_resp(r: R)
+            cat: [b: , c: C, d: D, e: , f: F, g: G, i: , m: , n: N, r: R]
+        <- range_resp({e 0 f})
+            dog: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, r: R]
+        <- range_resp({f 0 g})
+            dog: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, r: R]
+        <- value_resp(h: H)
+            dog: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, r: R]
+        <- range_resp({g h(h)#1 i})
+            dog: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, r: R]
+        -> listen_only
+            cat: [b: , c: C, d: D, e: , f: F, g: G, h: H, i: , m: , n: N, r: R]
+        <- value_resp(b: B)
+            dog: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, r: R]
+        <- value_resp(e: E)
+            dog: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, r: R]
+        <- value_resp(i: I)
+            dog: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, r: R]
+        <- value_resp(m: M)
+            dog: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, r: R]
+        <- listen_only
+            dog: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, r: R]
+        -> finished
+            cat: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, m: M, n: N, r: R]
+        cat: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, m: M, n: N, r: R]
+        dog: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, r: R]
+    "#]])
     .await;
 }
 
-#[tokio::test]
-async fn test_small_diff_off_by_one() {
+#[test(tokio::test)]
+async fn partial_interest() {
     recon_test(expect![[r#"
-        cat: [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z]
-        dog: [a,b,c,d,e,f,g,h,i,j,k,l,m,n,p,q,r,s,t,u,w,x,y,z]
-        -> (a, h(b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y), z) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,p,q,r,s,t,u,w,x,y,z]
-        <- (a, h(b,c,d,e,f,g,h,i,j,k), l, h(m,n,p,q,r,s,t,u,w,x,y), z) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z]
-        -> (a, h(b,c,d,e,f,g,h,i,j,k), l, h(m,n,o,p,q,r), s, h(t,u,v,w,x,y), z) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,p,q,r,s,t,u,w,x,y,z]
-        <- (a, h(b,c,d,e,f,g,h,i,j,k), l, h(m,n), p, h(q,r), s, h(t,u), w, h(x,y), z) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z]
-        -> (a, h(b,c,d,e,f,g,h,i,j,k), l, 0, m, 0, n, 0, o, h(p,q,r), s, 0, t, 0, u, 0, v, h(w,x,y), z) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z]
-        <- (a, h(b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y), z) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z]"#]]).await;
-}
-
-#[tokio::test]
-async fn test_alternating() {
-    recon_test(expect![[r#"
-        cat: [a,b,c,e,g,i,k,m,o,p,r,t,v,x,z]
-        dog: [a,c,d,f,h,j,l,n,p,q,s,u,w,y,z]
-        -> (a, h(b,c,e,g,i,k,m,o,p,r,t,v,x), z) [a,c,d,f,h,j,l,n,p,q,s,u,w,y,z]
-        <- (a, h(c,d,f,h,j,l), n, h(p,q,s,u,w,y), z) [a,b,c,e,g,i,k,m,n,o,p,r,t,v,x,z]
-        -> (a, h(b,c,e), g, h(i,k,m), n, h(o,p), r, h(t,v,x), z) [a,c,d,f,g,h,j,l,n,p,q,r,s,u,w,y,z]
-        <- (a, 0, c, 0, d, 0, f, 0, g, 0, h, 0, j, 0, l, 0, n, 0, p, 0, q, 0, r, h(s), u, h(w,y), z) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,t,u,v,x,z]
-        -> (a, 0, b, h(c), d, 0, e, h(f,g), h, 0, i, 0, j, 0, k, 0, l, 0, m, 0, n, 0, o, h(p,q), r, 0, t, 0, u, 0, v, 0, x, 0, z) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z]
-        <- (a, h(b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q), r, 0, s, h(t,u), v, 0, w, 0, x, 0, y, 0, z) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z]
-        -> (a, h(b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y), z) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z]
-        <- (a, h(b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y), z) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z]"#]]).await;
-}
-
-#[tokio::test]
-#[traced_test]
-async fn test_small_diff_zz() {
-    recon_test(expect![[r#"
-        cat: [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z,zz]
-        dog: [a,b,c,d,e,f,g,h,i,j,k,l,m,n,p,q,r,s,t,u,w,x,y,z]
-        -> (a, h(b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z), zz) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,p,q,r,s,t,u,w,x,y,z,zz]
-        <- (a, h(b,c,d,e,f,g,h,i,j,k,l), m, h(n,p,q,r,s,t,u,w,x,y,z), zz) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z,zz]
-        -> (a, h(b,c,d,e,f,g,h,i,j,k,l), m, h(n,o,p,q,r,s), t, h(u,v,w,x,y,z), zz) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,p,q,r,s,t,u,w,x,y,z,zz]
-        <- (a, h(b,c,d,e,f,g,h,i,j,k,l), m, h(n,p), q, h(r,s), t, h(u,w), x, h(y,z), zz) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z,zz]
-        -> (a, h(b,c,d,e,f,g,h,i,j,k,l), m, 0, n, 0, o, 0, p, h(q,r,s), t, 0, u, 0, v, 0, w, h(x,y,z), zz) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z,zz]
-        <- (a, h(b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z), zz) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z,zz]"#]]).await;
-}
-
-#[tokio::test]
-#[traced_test]
-async fn test_subset_interest() {
-    recon_test(expect![[r#"
-        cat: <(b,i),(m,r)> [c,f,g]
-        dog: <(a,z)> [b,c,d,e,f,g,h,i,j,k,l,m,n]
-        -> (<b, c, h(f), g, i>), (<m, r>) [b,c,d,e,f,g,h,i,j,k,l,m,n]
-        <- (<b, c, 0, d, 0, e, 0, f, h(g), h, i>), (<m, n, r>) [c,d,e,f,g,h,n]
-        -> (<b, c, h(d,e,f,g), h, i>), (<m, n, r>) [b,c,d,e,f,g,h,i,j,k,l,m,n]
-        <- (<b, c, h(d,e,f,g), h, i>), (<m, n, r>) [c,d,e,f,g,h,n]"#]])
+        cat: <(b, g), (i, q)> [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, o: O, p: P, q: Q]
+        dog: <(k, t), (u, z)> [j: J, k: K, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        -> interest_req((b, g), (i, q))
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, o: O, p: P, q: Q]
+        <- interest_resp((k, q))
+            dog: [j: J, k: K, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        -> range_req({k h(l, m, o, p)#4 q})
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, o: O, p: P, q: Q]
+        <- range_resp({k 0 n}, {n 0 o}, {o 0 p}, {p 0 q})
+            dog: [j: J, k: K, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        -> value_resp(l: L)
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: , o: O, p: P, q: Q]
+        -> value_resp(m: M)
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: , o: O, p: P, q: Q]
+        -> value_req(n)
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: , o: O, p: P, q: Q]
+        <- value_resp(n: N)
+            dog: [j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        -> listen_only
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: , o: O, p: P, q: Q]
+        <- listen_only
+            dog: [j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        -> finished
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q]
+        cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q]
+        dog: [j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+    "#]])
     .await;
-}
-
-#[tokio::test]
-async fn test_partial_interest() {
-    recon_test(expect![[r#"
-        cat: <(b,g),(i,q)> [a,b,c,d,e,f,g,h,i,j,k,l,m,o,p,q]
-        dog: <(k,t),(u,z)> [j,k,n,o,p,q,r,s,t,u,w,x,y,z]
-        -> (<b, c, h(d,e), f, g>), (<i, j, h(k,l,m,o), p, q>) [j,k,n,o,p,q,r,s,t,u,w,x,y,z]
-        <- (<k, n, 0, o, 0, p, q>) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q]
-        -> (<k, l, 0, m, h(n,o), p, q>) [j,k,l,m,n,o,p,q,r,s,t,u,w,x,y,z]
-        <- (<k, l, h(m,n,o), p, q>) [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q]
-        -> (<k, l, h(m,n,o), p, q>) [j,k,l,m,n,o,p,q,r,s,t,u,w,x,y,z]"#]])
-    .await;
-}
-
-#[tokio::test]
-async fn message_cbor_serialize_test() {
-    let received: Message<Bytes, Sha256a> = parse_recon(
-        r#"cat: [] dog: []
-        -> (a, h(b), c) []"#,
-    )
-    .iterations[0]
-        .messages[0]
-        .clone()
-        .into();
-    let received_cbor = hex::encode(serde_ipld_dagcbor::ser::to_vec(&received).unwrap());
-    println!("serde_json {}", serde_json::to_string(&received).unwrap()); // Message as json
-    expect!["a4657374617274f663656e64f6646b6579738241614163666861736865738158203e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d"].assert_eq(&received_cbor);
-}
-
-#[test]
-fn message_cbor_deserialize_test() {
-    let bytes = hex::decode("a2646b6579738241614163666861736865738158203e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d").unwrap();
-    let x = serde_ipld_dagcbor::de::from_slice(bytes.as_slice());
-    println!("{:?}", x);
-    let received: Message<Bytes, Sha256a> = x.unwrap();
-    expect![[r#"
-        Message {
-            start: None,
-            end: None,
-            keys: [
-                Bytes(
-                    "a",
-                ),
-                Bytes(
-                    "c",
-                ),
-            ],
-            hashes: [
-                Sha256a {
-                    hex: "3E23E8160039594A33894F6564E1B1348BBD7A0088D42C4ACB73EEAED59C009D",
-                    u32_8: [
-                        384312126,
-                        1247361280,
-                        1699711283,
-                        884072804,
-                        8043915,
-                        1244451976,
-                        2934862795,
-                        2634063061,
-                    ],
-                },
-            ],
-        }
-    "#]]
-    .assert_debug_eq(&received);
-}
-
-#[test]
-fn message_cbor_serialize_zero_hash() {
-    let received: Message<Bytes, Sha256a> = parse_recon(
-        r#"cat: [] dog: []
-        -> (a, 0, c) []"#,
-    )
-    .iterations[0]
-        .messages[0]
-        .clone()
-        .into();
-    let received_cbor = hex::encode(serde_ipld_dagcbor::ser::to_vec(&received).unwrap());
-    println!("serde_json {}", serde_json::to_string(&received).unwrap()); // Message as json
-    expect!["a4657374617274f663656e64f6646b6579738241614163666861736865738140"]
-        .assert_eq(&received_cbor);
-}
-#[test]
-fn message_cbor_deserialize_zero_hash() {
-    let bytes = hex::decode("a2646b6579738241614163666861736865738140").unwrap();
-    let x = serde_ipld_dagcbor::de::from_slice(bytes.as_slice());
-    println!("{:?}", x);
-    let received: Message<Bytes, Sha256a> = x.unwrap();
-    expect![[r#"
-        Message {
-            start: None,
-            end: None,
-            keys: [
-                Bytes(
-                    "a",
-                ),
-                Bytes(
-                    "c",
-                ),
-            ],
-            hashes: [
-                Sha256a {
-                    hex: "0000000000000000000000000000000000000000000000000000000000000000",
-                    u32_8: [
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                    ],
-                },
-            ],
-        }
-    "#]]
-    .assert_debug_eq(&received);
 }

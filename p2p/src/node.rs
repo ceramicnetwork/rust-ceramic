@@ -825,8 +825,8 @@ where
                             if !is_connected {
                                 let dial_opts =
                                     DialOpts::peer_id(peer_id).addresses(vec![addr]).build();
-                                if let Err(e) = Swarm::dial(&mut self.swarm, dial_opts) {
-                                    warn!("invalid dial options: {:?}", e);
+                                if let Err(e) = self.swarm.dial(dial_opts) {
+                                    debug!("mdns dial failed: {:?}", e);
                                 }
                             }
                         }
@@ -1160,10 +1160,11 @@ mod tests {
     use crate::keys::Keypair;
 
     use async_trait::async_trait;
+    use ceramic_core::RangeOpen;
     use futures::TryStreamExt;
     use rand::prelude::*;
     use rand_chacha::ChaCha8Rng;
-    use recon::Sha256a;
+    use recon::{Range, Sha256a, SyncState};
     use ssh_key::private::Ed25519Keypair;
     use test_log::test;
 
@@ -1246,22 +1247,56 @@ mod tests {
         type Key = K;
         type Hash = Sha256a;
 
-        async fn initial_messages(&self) -> Result<Vec<recon::Message<Self::Key, Self::Hash>>> {
-            unreachable!()
-        }
-
-        async fn process_messages(
-            &self,
-            _msg: Vec<recon::Message<Self::Key, Self::Hash>>,
-        ) -> Result<recon::Response<Self::Key, Self::Hash>> {
-            unreachable!()
-        }
-
         async fn insert(&self, _key: Self::Key) -> Result<()> {
             unreachable!()
         }
 
+        async fn range(
+            &self,
+            _left_fencepost: Self::Key,
+            _right_fencepost: Self::Key,
+            _offset: usize,
+            _limit: usize,
+        ) -> Result<Vec<Self::Key>> {
+            unreachable!()
+        }
+
         async fn len(&self) -> Result<usize> {
+            unreachable!()
+        }
+
+        async fn value_for_key(&self, _key: Self::Key) -> Result<Option<Vec<u8>>> {
+            Ok(None)
+        }
+        async fn store_value_for_key(&self, _key: Self::Key, _value: &[u8]) -> Result<()> {
+            Ok(())
+        }
+        async fn interests(&self) -> Result<Vec<RangeOpen<Self::Key>>> {
+            unreachable!()
+        }
+
+        async fn process_interests(
+            &self,
+            _interests: Vec<RangeOpen<Self::Key>>,
+        ) -> Result<Vec<RangeOpen<Self::Key>>> {
+            unreachable!()
+        }
+
+        async fn initial_range(
+            &self,
+            _interest: RangeOpen<Self::Key>,
+        ) -> Result<Range<Self::Key, Self::Hash>> {
+            unreachable!()
+        }
+
+        async fn process_range(
+            &self,
+            _range: Range<Self::Key, Self::Hash>,
+        ) -> Result<(SyncState<Self::Key, Self::Hash>, Vec<Self::Key>)> {
+            unreachable!()
+        }
+
+        fn metrics(&self) -> recon::Metrics {
             unreachable!()
         }
     }

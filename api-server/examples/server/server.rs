@@ -101,8 +101,8 @@ impl<C> Server<C> {
 
 use ceramic_api_server::server::MakeService;
 use ceramic_api_server::{
-    Api, EventsPostResponse, LivenessGetResponse, ReconPostResponse,
-    SubscribeSortKeySortValueGetResponse, VersionPostResponse,
+    Api, EventsPostResponse, LivenessGetResponse, SubscribeSortKeySortValueGetResponse,
+    VersionPostResponse,
 };
 use std::error::Error;
 use swagger::ApiError;
@@ -131,23 +131,6 @@ where
     async fn liveness_get(&self, context: &C) -> Result<LivenessGetResponse, ApiError> {
         let context = context.clone();
         info!("liveness_get() - X-Span-ID: {:?}", context.get().0.clone());
-        Err(ApiError("Generic failure".into()))
-    }
-
-    /// Sends a Recon message
-    async fn recon_post(
-        &self,
-        ring: models::Ring,
-        body: swagger::ByteArray,
-        context: &C,
-    ) -> Result<ReconPostResponse, ApiError> {
-        let context = context.clone();
-        info!(
-            "recon_post({:?}, {:?}) - X-Span-ID: {:?}",
-            ring,
-            body,
-            context.get().0.clone()
-        );
         Err(ApiError("Generic failure".into()))
     }
 

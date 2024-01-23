@@ -1,16 +1,21 @@
 use anyhow::Result;
+use ceramic_core::RangeOpen;
 use tokio::sync::{
     mpsc::{channel, Receiver, Sender},
     oneshot,
 };
 use tracing::warn;
 
-use crate::{AssociativeHash, InterestProvider, Key, Message, Recon, Response, Store};
+use crate::{
+    recon::{Range, SyncState},
+    AssociativeHash, InterestProvider, Key, Metrics, Recon, Store,
+};
 
 /// Client to a [`Recon`] [`Server`].
 #[derive(Debug, Clone)]
 pub struct Client<K, H> {
     sender: Sender<Request<K, H>>,
+    metrics: Metrics,
 }
 
 impl<K, H> Client<K, H>
@@ -18,21 +23,6 @@ where
     K: Key,
     H: AssociativeHash,
 {
-    /// Sends an initial_messages request to the server and awaits the response.
-    pub async fn initial_messages(&self) -> Result<Vec<Message<K, H>>> {
-        let (ret, rx) = oneshot::channel();
-        self.sender.send(Request::InitialMessages { ret }).await?;
-        rx.await?
-    }
-    /// Sends a process_messages request to the server and awaits the response.
-    pub async fn process_messages(&self, received: Vec<Message<K, H>>) -> Result<Response<K, H>> {
-        let (ret, rx) = oneshot::channel();
-        self.sender
-            .send(Request::ProcessMessages { received, ret })
-            .await?;
-        rx.await?
-    }
-
     /// Sends an insert request to the server and awaits the response.
     pub async fn insert(&self, key: K) -> Result<bool> {
         let (ret, rx) = oneshot::channel();
@@ -79,16 +69,68 @@ where
         self.sender.send(Request::FullRange { ret }).await?;
         rx.await?
     }
+
+    /// Sends a full_range request to the server and awaits the response.
+    pub async fn value_for_key(&self, key: K) -> Result<Option<Vec<u8>>> {
+        let (ret, rx) = oneshot::channel();
+        self.sender.send(Request::ValueForKey { key, ret }).await?;
+        rx.await?
+    }
+
+    /// Store the value associated with a key so we can sync it later.
+    pub async fn store_value_for_key(&self, key: K, value: &[u8]) -> Result<()> {
+        let (ret, rx) = oneshot::channel();
+        self.sender
+            .send(Request::StoreValueForKey {
+                key,
+                value: value.to_vec(),
+                ret,
+            })
+            .await?;
+        rx.await?
+    }
+
+    /// Report the local nodes interests.
+    pub async fn interests(&self) -> Result<Vec<RangeOpen<K>>> {
+        let (ret, rx) = oneshot::channel();
+        self.sender.send(Request::Interests { ret }).await?;
+        rx.await?
+    }
+    /// Compute the intersection of local and remote interests.
+    pub async fn process_interests(
+        &self,
+        interests: Vec<RangeOpen<K>>,
+    ) -> Result<Vec<RangeOpen<K>>> {
+        let (ret, rx) = oneshot::channel();
+        self.sender
+            .send(Request::ProcessInterests { interests, ret })
+            .await?;
+        rx.await?
+    }
+
+    /// Compute the hash of a range.
+    pub async fn initial_range(&self, interest: RangeOpen<K>) -> Result<Range<K, H>> {
+        let (ret, rx) = oneshot::channel();
+        self.sender
+            .send(Request::InitialRange { interest, ret })
+            .await?;
+        rx.await?
+    }
+    /// Compute the synchornization state from a remote range.
+    pub async fn process_range(&self, range: Range<K, H>) -> Result<(SyncState<K, H>, Vec<K>)> {
+        let (ret, rx) = oneshot::channel();
+        self.sender
+            .send(Request::ProcessRange { range, ret })
+            .await?;
+        rx.await?
+    }
+    /// Expose metrics
+    pub fn metrics(&self) -> Metrics {
+        self.metrics.clone()
+    }
 }
 
 enum Request<K, H> {
-    InitialMessages {
-        ret: oneshot::Sender<Result<Vec<Message<K, H>>>>,
-    },
-    ProcessMessages {
-        received: Vec<Message<K, H>>,
-        ret: oneshot::Sender<Result<Response<K, H>>>,
-    },
     Insert {
         key: K,
         ret: oneshot::Sender<Result<bool>>,
@@ -106,7 +148,33 @@ enum Request<K, H> {
     FullRange {
         ret: oneshot::Sender<Result<Box<dyn Iterator<Item = K> + Send>>>,
     },
+    ValueForKey {
+        key: K,
+        ret: oneshot::Sender<Result<Option<Vec<u8>>>>,
+    },
+    StoreValueForKey {
+        key: K,
+        value: Vec<u8>,
+        ret: oneshot::Sender<Result<()>>,
+    },
+    Interests {
+        ret: oneshot::Sender<Result<Vec<RangeOpen<K>>>>,
+    },
+    InitialRange {
+        interest: RangeOpen<K>,
+        ret: oneshot::Sender<Result<Range<K, H>>>,
+    },
+    ProcessInterests {
+        interests: Vec<RangeOpen<K>>,
+        ret: oneshot::Sender<Result<Vec<RangeOpen<K>>>>,
+    },
+    ProcessRange {
+        range: Range<K, H>,
+        ret: oneshot::Sender<RangeResult<K, H>>,
+    },
 }
+
+type RangeResult<K, H> = Result<(SyncState<K, H>, Vec<K>)>;
 
 /// Server that processed received Recon messages in a single task.
 #[derive(Debug)]
@@ -144,6 +212,7 @@ where
     pub fn client(&mut self) -> Client<K, H> {
         Client {
             sender: self.requests_sender.clone(),
+            metrics: self.recon.metrics.clone(),
         }
     }
 
@@ -158,12 +227,6 @@ where
             let request = self.requests.recv().await;
             if let Some(request) = request {
                 match request {
-                    Request::InitialMessages { ret } => {
-                        send(ret, self.recon.initial_messages().await);
-                    }
-                    Request::ProcessMessages { received, ret } => {
-                        send(ret, self.recon.process_messages(&received).await);
-                    }
                     Request::Insert { key, ret } => {
                         send(ret, self.recon.insert(&key).await);
                     }
@@ -186,6 +249,30 @@ where
                     Request::FullRange { ret } => {
                         let keys = self.recon.full_range().await;
                         send(ret, keys);
+                    }
+                    Request::ValueForKey { key, ret } => {
+                        let value = self.recon.value_for_key(key).await;
+                        send(ret, value);
+                    }
+                    Request::StoreValueForKey { key, value, ret } => {
+                        let ok = self.recon.store_value_for_key(key, value).await;
+                        send(ret, ok);
+                    }
+                    Request::Interests { ret } => {
+                        let value = self.recon.interests().await;
+                        send(ret, value);
+                    }
+                    Request::InitialRange { interest, ret } => {
+                        let value = self.recon.initial_range(interest).await;
+                        send(ret, value);
+                    }
+                    Request::ProcessInterests { interests, ret } => {
+                        let value = self.recon.process_interests(&interests).await;
+                        send(ret, value);
+                    }
+                    Request::ProcessRange { range, ret } => {
+                        let value = self.recon.process_range(range).await;
+                        send(ret, value);
                     }
                 };
             } else {
