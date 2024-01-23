@@ -36,7 +36,7 @@ pub struct Metrics {
     protocol_range_dequeued_count: Counter,
 
     protocol_loop_count: Counter,
-    protocol_run_count: Counter,
+    protocol_run_duration: Histogram,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
@@ -192,9 +192,9 @@ impl Metrics {
             sub_registry
         );
         register!(
-            protocol_run_count,
-            "Number times the protocol has run to completion",
-            Counter::default(),
+            protocol_run_duration,
+            "Duration of protocol runs to completion",
+            Histogram::new(exponential_buckets(0.005, 2.0, 20)),
             sub_registry
         );
 
@@ -211,7 +211,7 @@ impl Metrics {
             protocol_range_enqueued_count,
             protocol_range_dequeued_count,
             protocol_loop_count,
-            protocol_run_count,
+            protocol_run_duration,
         }
     }
 }
@@ -323,9 +323,9 @@ impl Recorder<ProtocolLoop> for Metrics {
         self.protocol_loop_count.inc();
     }
 }
-pub(crate) struct ProtocolRun;
+pub(crate) struct ProtocolRun(pub Duration);
 impl Recorder<ProtocolRun> for Metrics {
-    fn record(&self, _event: &ProtocolRun) {
-        self.protocol_run_count.inc();
+    fn record(&self, event: &ProtocolRun) {
+        self.protocol_run_duration.observe(event.0.as_secs_f64());
     }
 }

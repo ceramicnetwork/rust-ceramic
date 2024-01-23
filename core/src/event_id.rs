@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     cmp::{Eq, Ord},
     fmt::Display,
+    ops::Range,
 };
 use unsigned_varint::{decode::u64 as de_varint, encode::u64 as varint};
 
@@ -84,8 +85,34 @@ impl EventId {
         self.0.as_slice()
     }
 
-    /// try to parse a CID out of a CIP-124 EventID
+    /// Report the network id of the EventId
+    pub fn network_id(&self) -> Option<u64> {
+        self.as_parts().map(|parts| parts.network_id)
+    }
+    /// Report the separator bytes of the EventId
+    pub fn separator(&self) -> Option<&[u8]> {
+        self.as_parts().map(|parts| parts.separator)
+    }
+    /// Report the controller bytes of the EventId
+    pub fn controller(&self) -> Option<&[u8]> {
+        self.as_parts().map(|parts| parts.controller)
+    }
+    /// Report the stream_id bytes of the EventId
+    pub fn stream_id(&self) -> Option<&[u8]> {
+        self.as_parts().map(|parts| parts.stream_id)
+    }
+    /// Report the event height of the EventId
+    pub fn event_height(&self) -> Option<u64> {
+        self.as_parts().map(|parts| parts.height)
+    }
+
+    /// Report the event CID of the EventId
     pub fn cid(&self) -> Option<Cid> {
+        let parts = self.as_parts()?;
+        Cid::read_bytes(parts.cid).ok()
+    }
+
+    fn as_parts(&self) -> Option<EventIdParts<'_>> {
         let (streamid, remainder) = de_varint(&self.0).unwrap_or_default();
         if streamid != 0xce {
             return None; // not a streamid
@@ -96,49 +123,105 @@ impl EventId {
             return None; // not a CIP-124 EventID
         };
 
-        let (_network_id, mut remainder) = de_varint(remainder).unwrap_or_default();
+        let (network_id, remainder) = de_varint(remainder).unwrap_or_default();
 
-        // strip separator [u8; 8] controller [u8; 8] StreamID [u8; 4]
-        remainder = &remainder[(8 + 8 + 4)..];
+        // separator [u8; 8]
+        const SEPARATOR_RANGE: Range<usize> = 0..8;
+        // controller [u8; 8]
+        const CONTROLLER_RANGE: Range<usize> = 8..(8 + 8);
+        // StreamID [u8; 4]
+        const STREAM_ID_RANGE: Range<usize> = (8 + 8)..(8 + 8 + 4);
 
-        // height cbor unsigned integer
-        if remainder[0] <= 23 {
-            // 0 - 23
-            remainder = &remainder[1..]
-        } else if remainder[0] == 24 {
-            // u8
-            remainder = &remainder[2..]
-        } else if remainder[0] == 25 {
-            // u16
-            remainder = &remainder[3..]
-        } else if remainder[0] == 26 {
-            // u32
-            remainder = &remainder[5..]
-        } else if remainder[0] == 27 {
-            // u64
-            remainder = &remainder[9..]
-        } else {
-            // not a cbor unsigned int
-            return None;
-        };
-        match Cid::read_bytes(remainder) {
-            Ok(v) => Some(v),
-            Err(_) => None, // not a CID
-        }
+        let separator = &remainder[SEPARATOR_RANGE];
+        let controller = &remainder[CONTROLLER_RANGE];
+        let stream_id = &remainder[STREAM_ID_RANGE];
+
+        let (height, cid) = cbor_uint_decode(&remainder[STREAM_ID_RANGE.end..]);
+
+        height.map(|height| EventIdParts {
+            network_id,
+            separator,
+            controller,
+            stream_id,
+            height,
+            cid,
+        })
     }
+}
+// Decode a cbor unsigned integer and return the remaining bytes from the buffer
+fn cbor_uint_decode(data: &[u8]) -> (Option<u64>, &[u8]) {
+    // From the spec: https://datatracker.ietf.org/doc/html/rfc7049#section-2.1
+    //
+    // Major type 0:  an unsigned integer.  The 5-bit additional information
+    //  is either the integer itself (for additional information values 0
+    //  through 23) or the length of additional data.  Additional
+    //  information 24 means the value is represented in an additional
+    //  uint8_t, 25 means a uint16_t, 26 means a uint32_t, and 27 means a
+    //  uint64_t.  For example, the integer 10 is denoted as the one byte
+    //  0b000_01010 (major type 0, additional information 10).  The
+    //  integer 500 would be 0b000_11001 (major type 0, additional
+    //  information 25) followed by the two bytes 0x01f4, which is 500 in
+    //  decimal.
+
+    match data[0] {
+        // 0 - 23
+        x if x <= 23 => (Some(x as u64), &data[1..]),
+        // u8
+        24 => (
+            data[1..2]
+                .try_into()
+                .ok()
+                .map(|h| u8::from_be_bytes(h) as u64),
+            &data[2..],
+        ),
+        // u16
+        25 => (
+            data[1..3]
+                .try_into()
+                .ok()
+                .map(|h| u16::from_be_bytes(h) as u64),
+            &data[3..],
+        ),
+        // u32
+        26 => (
+            data[1..5]
+                .try_into()
+                .ok()
+                .map(|h| u32::from_be_bytes(h) as u64),
+            &data[5..],
+        ),
+        // u64
+        27 => (
+            data[1..9].try_into().ok().map(u64::from_be_bytes),
+            &data[9..],
+        ),
+        // not a cbor unsigned int
+        _ => (None, data),
+    }
+}
+
+struct EventIdParts<'a> {
+    network_id: u64,
+    separator: &'a [u8],
+    controller: &'a [u8],
+    stream_id: &'a [u8],
+    height: u64,
+    cid: &'a [u8],
 }
 
 impl std::fmt::Debug for EventId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if f.alternate() {
-            f.debug_tuple("EventId").field(&self.0).finish()
+            f.debug_struct("EventId")
+                .field("network_id", &self.network_id())
+                .field("separator", &self.separator().map(hex::encode))
+                .field("controller", &self.controller().map(hex::encode))
+                .field("stream_id", &self.stream_id().map(hex::encode))
+                .field("event_height", &self.event_height())
+                .field("cid", &self.cid().map(|cid| cid.to_string()))
+                .finish()
         } else {
-            let bytes = self.as_slice();
-            if bytes.len() < 6 {
-                write!(f, "{}", hex::encode_upper(bytes))
-            } else {
-                write!(f, "{}", hex::encode_upper(&bytes[bytes.len() - 6..]))
-            }
+            write!(f, "{}", hex::encode_upper(self.as_slice()))
         }
     }
 }
@@ -394,6 +477,7 @@ mod tests {
     use cid::multibase::{self, Base};
     use expect_test::expect;
     use std::str::FromStr;
+    use test_log::test;
 
     #[test]
     fn blessing() {
@@ -503,72 +587,26 @@ mod tests {
         let cid = received.cid();
         println!("{:?}, {:?}", &received, &cid);
         expect![[r#"
-            EventId(
-                [
-                    206,
-                    1,
-                    5,
+            EventId {
+                network_id: Some(
                     0,
-                    126,
-                    113,
-                    14,
-                    33,
-                    127,
-                    160,
-                    226,
-                    89,
-                    69,
-                    204,
-                    124,
-                    7,
-                    47,
-                    247,
-                    41,
-                    234,
-                    104,
-                    59,
-                    117,
-                    23,
-                    24,
+                ),
+                separator: Some(
+                    "7e710e217fa0e259",
+                ),
+                controller: Some(
+                    "45cc7c072ff729ea",
+                ),
+                stream_id: Some(
+                    "683b7517",
+                ),
+                event_height: Some(
                     255,
-                    1,
-                    113,
-                    18,
-                    32,
-                    244,
-                    239,
-                    126,
-                    194,
-                    8,
-                    148,
-                    77,
-                    37,
-                    112,
-                    37,
-                    64,
-                    139,
-                    182,
-                    71,
-                    148,
-                    158,
-                    107,
-                    114,
-                    147,
-                    5,
-                    32,
-                    188,
-                    128,
-                    243,
-                    77,
-                    139,
-                    251,
-                    175,
-                    210,
-                    100,
-                    61,
-                    134,
-                ],
-            )
+                ),
+                cid: Some(
+                    "bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy",
+                ),
+            }
         "#]]
         .assert_debug_eq(&received);
 
@@ -624,5 +662,82 @@ mod tests {
             .with_min_event_height()
             .build_fencepost();
         assert_eq!(None, event_id.cid());
+    }
+    #[test]
+    fn debug() {
+        let sort_key = "model".to_string();
+        let separator = "kh4q0ozorrgaq2mezktnrmdwleo1d".to_string(); // cspell:disable-line
+        let controller = "did:key:z6MkgSV3tAuw7gUWqKCUY7ae6uWNxqYgdwPhUJbJhF9EFXm9".to_string();
+        let init =
+            Cid::from_str("bagcqceraplay4erv6l32qrki522uhiz7rf46xccwniw7ypmvs3cvu2b3oulq").unwrap(); // cspell:disable-line
+        let event_height = 255; // so we get 2 bytes b'\x18\xff'
+        let event_cid =
+            Cid::from_str("bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy").unwrap(); // cspell:disable-line
+
+        let event_id = EventId::new(
+            &Network::TestnetClay,
+            &sort_key,
+            &separator,
+            &controller,
+            &init,
+            event_height,
+            &event_cid,
+        );
+        expect![[r#"
+            EventId {
+                network_id: Some(
+                    1,
+                ),
+                separator: Some(
+                    "7e710e217fa0e259",
+                ),
+                controller: Some(
+                    "45cc7c072ff729ea",
+                ),
+                stream_id: Some(
+                    "683b7517",
+                ),
+                event_height: Some(
+                    255,
+                ),
+                cid: Some(
+                    "bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy",
+                ),
+            }
+        "#]]
+        .assert_debug_eq(&event_id);
+    }
+    #[test]
+    fn event_height() {
+        let sort_key = "model".to_string();
+        let separator = "kh4q0ozorrgaq2mezktnrmdwleo1d".to_string(); // cspell:disable-line
+        let controller = "did:key:z6MkgSV3tAuw7gUWqKCUY7ae6uWNxqYgdwPhUJbJhF9EFXm9".to_string();
+        let init =
+            Cid::from_str("bagcqceraplay4erv6l32qrki522uhiz7rf46xccwniw7ypmvs3cvu2b3oulq").unwrap(); // cspell:disable-line
+        let event_cid =
+            Cid::from_str("bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy").unwrap(); // cspell:disable-line
+
+        for event_height in [
+            1,
+            18,
+            255,
+            256,
+            65535,
+            65536,
+            4294967295,
+            4294967296,
+            18446744073709551615,
+        ] {
+            let event_id = EventId::new(
+                &Network::TestnetClay,
+                &sort_key,
+                &separator,
+                &controller,
+                &init,
+                event_height,
+                &event_cid,
+            );
+            assert_eq!(Some(event_height), event_id.event_height());
+        }
     }
 }

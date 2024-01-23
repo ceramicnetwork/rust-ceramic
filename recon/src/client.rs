@@ -64,6 +64,26 @@ where
             .await?;
         rx.await?
     }
+    /// Sends a range request to the server and awaits the response.
+    pub async fn range_with_values(
+        &self,
+        left_fencepost: K,
+        right_fencepost: K,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Box<dyn Iterator<Item = (K, Vec<u8>)> + Send + '_>> {
+        let (ret, rx) = oneshot::channel();
+        self.sender
+            .send(Request::RangeWithValues {
+                left_fencepost,
+                right_fencepost,
+                offset,
+                limit,
+                ret,
+            })
+            .await?;
+        rx.await?
+    }
 
     /// Sends a full_range request to the server and awaits the response.
     pub async fn full_range(&self) -> Result<Box<dyn Iterator<Item = K> + Send + '_>> {
@@ -79,6 +99,14 @@ where
         rx.await?
     }
 
+    /// Report all keys in the range that are missing a value
+    pub async fn keys_with_missing_values(&self, range: RangeOpen<K>) -> Result<Vec<K>> {
+        let (ret, rx) = oneshot::channel();
+        self.sender
+            .send(Request::KeysWithMissingValues { range, ret })
+            .await?;
+        rx.await?
+    }
     /// Report the local nodes interests.
     pub async fn interests(&self) -> Result<Vec<RangeOpen<K>>> {
         let (ret, rx) = oneshot::channel();
@@ -135,12 +163,23 @@ enum Request<K, H> {
         limit: usize,
         ret: oneshot::Sender<Result<Box<dyn Iterator<Item = K> + Send>>>,
     },
+    RangeWithValues {
+        left_fencepost: K,
+        right_fencepost: K,
+        offset: usize,
+        limit: usize,
+        ret: oneshot::Sender<RangeWithValuesResult<K>>,
+    },
     FullRange {
         ret: oneshot::Sender<Result<Box<dyn Iterator<Item = K> + Send>>>,
     },
     ValueForKey {
         key: K,
         ret: oneshot::Sender<Result<Option<Vec<u8>>>>,
+    },
+    KeysWithMissingValues {
+        range: RangeOpen<K>,
+        ret: oneshot::Sender<Result<Vec<K>>>,
     },
     Interests {
         ret: oneshot::Sender<Result<Vec<RangeOpen<K>>>>,
@@ -155,11 +194,12 @@ enum Request<K, H> {
     },
     ProcessRange {
         range: Range<K, H>,
-        ret: oneshot::Sender<RangeResult<K, H>>,
+        ret: oneshot::Sender<ProcessRangeResult<K, H>>,
     },
 }
 
-type RangeResult<K, H> = Result<(SyncState<K, H>, Vec<K>)>;
+type RangeWithValuesResult<K> = Result<Box<dyn Iterator<Item = (K, Vec<u8>)> + Send>>;
+type ProcessRangeResult<K, H> = Result<(SyncState<K, H>, Vec<K>)>;
 
 /// Server that processed received Recon messages in a single task.
 #[derive(Debug)]
@@ -235,6 +275,19 @@ where
                             .await;
                         send(ret, keys);
                     }
+                    Request::RangeWithValues {
+                        left_fencepost,
+                        right_fencepost,
+                        offset,
+                        limit,
+                        ret,
+                    } => {
+                        let keys = self
+                            .recon
+                            .range_with_values(&left_fencepost, &right_fencepost, offset, limit)
+                            .await;
+                        send(ret, keys);
+                    }
                     Request::FullRange { ret } => {
                         let keys = self.recon.full_range().await;
                         send(ret, keys);
@@ -242,6 +295,10 @@ where
                     Request::ValueForKey { key, ret } => {
                         let value = self.recon.value_for_key(key).await;
                         send(ret, value);
+                    }
+                    Request::KeysWithMissingValues { range, ret } => {
+                        let ok = self.recon.keys_with_missing_values(range).await;
+                        send(ret, ok);
                     }
                     Request::Interests { ret } => {
                         let value = self.recon.interests().await;

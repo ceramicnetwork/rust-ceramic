@@ -4,7 +4,7 @@ use super::{HashCount, InsertResult, ReconItem};
 use crate::{AssociativeHash, Key, Store};
 use anyhow::Result;
 use async_trait::async_trait;
-use ceramic_core::{DbTx, SqlitePool};
+use ceramic_core::{DbTx, RangeOpen, SqlitePool};
 use sqlx::Row;
 use std::marker::PhantomData;
 use std::result::Result::Ok;
@@ -49,7 +49,7 @@ where
 {
     /// Initialize the recon table.
     async fn create_table_if_not_exists(&mut self) -> Result<()> {
-        // Do we want to remove CID and block_retrieved from the table?
+        // Do we want to remove CID from the table?
         const CREATE_RECON_TABLE: &str = "CREATE TABLE IF NOT EXISTS recon (
             sort_key TEXT, -- the field in the event header to sort by e.g. model
             key BLOB, -- network_id sort_value controller StreamID height event_cid
@@ -62,19 +62,25 @@ where
             ahash_6 INTEGER,
             ahash_7 INTEGER,
             CID TEXT,
-            block_retrieved BOOL, -- indicates if we still want the block
+            value_retrieved BOOL, -- indicates if we still want the value
             PRIMARY KEY(sort_key, key)
         )";
+        const CREATE_VALUE_RETRIEVED_INDEX: &str =
+            "CREATE INDEX IF NOT EXISTS idx_recon_value_retrieved
+            ON recon (sort_key, key, value_retrieved)";
 
         const CREATE_RECON_VALUE_TABLE: &str = "CREATE TABLE IF NOT EXISTS recon_value (
-            sort_key TEXT, 
-            key BLOB, 
-            value BLOB, 
+            sort_key TEXT,
+            key BLOB,
+            value BLOB,
             PRIMARY KEY(sort_key, key)
         )";
 
         let mut tx = self.pool.tx().await?;
         sqlx::query(CREATE_RECON_TABLE).execute(&mut *tx).await?;
+        sqlx::query(CREATE_VALUE_RETRIEVED_INDEX)
+            .execute(&mut *tx)
+            .await?;
         sqlx::query(CREATE_RECON_VALUE_TABLE)
             .execute(&mut *tx)
             .await?;
@@ -91,45 +97,64 @@ where
         // we insert the value first as it's possible we already have the key and can skip that step
         // as it happens in a transaction, we'll roll back the value insert if the key insert fails and try again
         if let Some(val) = item.value {
-            if self.insert_value_int(item.key, val, conn).await? {
+            // Update the value_retrieved flag, and report if the key already exists.
+            let key_exists = self.update_value_retrieved_int(item.key, conn).await?;
+            self.insert_value_int(item.key, val, conn).await?;
+            if key_exists {
                 return Ok((false, true));
             }
         }
-        let new_key = self.insert_key_int(item.key, conn).await?;
+        let new_key = self
+            .insert_key_int(item.key, item.value.is_some(), conn)
+            .await?;
         Ok((new_key, item.value.is_some()))
     }
 
+    // set value_retrieved to true and return if the key already exists
+    async fn update_value_retrieved_int(&mut self, key: &K, conn: &mut DbTx<'_>) -> Result<bool> {
+        let update =
+            sqlx::query("UPDATE recon SET value_retrieved = true WHERE sort_key = ? AND key = ?");
+        let resp = update
+            .bind(&self.sort_key)
+            .bind(key.as_bytes())
+            .execute(&mut **conn)
+            .await?;
+        let rows_affected = resp.rows_affected();
+        debug_assert!(rows_affected <= 1);
+        Ok(rows_affected == 1)
+    }
+
     /// returns true if the key already exists in the recon table
-    async fn insert_value_int(&mut self, key: &K, val: &[u8], conn: &mut DbTx<'_>) -> Result<bool> {
+    async fn insert_value_int(&mut self, key: &K, val: &[u8], conn: &mut DbTx<'_>) -> Result<()> {
         let value_insert = sqlx::query(
-            r#"INSERT INTO recon_value (value, sort_key, key) 
-                VALUES (?, ?, ?) 
-            ON CONFLICT (sort_key, key) DO UPDATE 
-                SET value=excluded.value
-            RETURNING 
-                EXISTS(select 1 from recon where sort_key=? and key=?)"#,
+            r#"INSERT INTO recon_value (value, sort_key, key)
+                VALUES (?, ?, ?)
+            ON CONFLICT (sort_key, key) DO UPDATE
+                SET value=excluded.value"#,
         );
 
-        let resp = value_insert
+        value_insert
             .bind(val)
             .bind(&self.sort_key)
             .bind(key.as_bytes())
-            .bind(&self.sort_key)
-            .bind(key.as_bytes())
-            .fetch_one(&mut **conn)
+            .execute(&mut **conn)
             .await?;
 
-        let v = resp.get::<'_, bool, _>(0);
-        Ok(v)
+        Ok(())
     }
 
-    async fn insert_key_int(&mut self, key: &K, conn: &mut DbTx<'_>) -> Result<bool> {
+    async fn insert_key_int(
+        &mut self,
+        key: &K,
+        has_value: bool,
+        conn: &mut DbTx<'_>,
+    ) -> Result<bool> {
         let key_insert = sqlx::query(
             "INSERT INTO recon (
                     sort_key, key,
                     ahash_0, ahash_1, ahash_2, ahash_3,
                     ahash_4, ahash_5, ahash_6, ahash_7,
-                    block_retrieved
+                    value_retrieved
                 ) VALUES (
                     ?, ?,
                     ?, ?, ?, ?,
@@ -150,7 +175,7 @@ where
             .bind(hash.as_u32s()[5])
             .bind(hash.as_u32s()[6])
             .bind(hash.as_u32s()[7])
-            .bind(false)
+            .bind(has_value)
             .execute(&mut **conn)
             .await;
         match resp {
@@ -296,6 +321,46 @@ where
         Ok(Box::new(rows.into_iter().map(|row| {
             let bytes: Vec<u8> = row.get(0);
             K::from(bytes)
+        })))
+    }
+    #[instrument(skip(self))]
+    async fn range_with_values(
+        &mut self,
+        left_fencepost: &Self::Key,
+        right_fencepost: &Self::Key,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>> {
+        let query = sqlx::query(
+            "
+        SELECT
+            key, value
+        FROM
+            recon_value
+        WHERE
+            sort_key = ? AND
+            key > ? AND key < ?
+            AND value IS NOT NULL
+        ORDER BY
+            key ASC
+        LIMIT
+            ?
+        OFFSET
+            ?;
+        ",
+        );
+        let rows = query
+            .bind(&self.sort_key)
+            .bind(left_fencepost.as_bytes())
+            .bind(right_fencepost.as_bytes())
+            .bind(limit as i64)
+            .bind(offset as i64)
+            .fetch_all(self.pool.reader())
+            .await?;
+        Ok(Box::new(rows.into_iter().map(|row| {
+            let key: Vec<u8> = row.get(0);
+            let value: Vec<u8> = row.get(1);
+            (K::from(key), value)
         })))
     }
     /// Return the number of keys within the range.
@@ -450,6 +515,34 @@ where
             .fetch_optional(self.pool.reader())
             .await?;
         Ok(row.map(|row| row.get(0)))
+    }
+
+    #[instrument(skip(self))]
+    async fn keys_with_missing_values(
+        &mut self,
+        range: RangeOpen<Self::Key>,
+    ) -> Result<Vec<Self::Key>> {
+        if range.start >= range.end {
+            return Ok(vec![]);
+        };
+        let query = sqlx::query(
+            "
+            SELECT key
+            FROM recon
+            WHERE
+                sort_key=?
+                AND key > ?
+                AND key < ?
+                AND value_retrieved = false
+            ;",
+        );
+        let row = query
+            .bind(&self.sort_key)
+            .bind(range.start.as_bytes())
+            .bind(range.end.as_bytes())
+            .fetch_all(self.pool.reader())
+            .await?;
+        Ok(row.into_iter().map(|row| K::from(row.get(0))).collect())
     }
 }
 
@@ -629,5 +722,37 @@ mod tests {
             .unwrap();
         let value = store.value_for_key(&key).await.unwrap().unwrap();
         expect![[r#"776f726c64"#]].assert_eq(hex::encode(&value).as_str());
+    }
+    #[test(tokio::test)]
+    async fn test_keys_with_missing_value() {
+        let mut store = new_store().await;
+        let key = AlphaNumBytes::from("hello");
+        store.insert(ReconItem::new(&key, None)).await.unwrap();
+        let missing_keys = store
+            .keys_with_missing_values(
+                (AlphaNumBytes::min_value(), AlphaNumBytes::max_value()).into(),
+            )
+            .await
+            .unwrap();
+        expect![[r#"
+            [
+                Bytes(
+                    "hello",
+                ),
+            ]
+        "#]]
+        .assert_debug_eq(&missing_keys);
+
+        store.insert(ReconItem::new(&key, Some(&[]))).await.unwrap();
+        let missing_keys = store
+            .keys_with_missing_values(
+                (AlphaNumBytes::min_value(), AlphaNumBytes::max_value()).into(),
+            )
+            .await
+            .unwrap();
+        expect![[r#"
+            []
+        "#]]
+        .assert_debug_eq(&missing_keys);
     }
 }

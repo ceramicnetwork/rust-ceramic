@@ -1,5 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
+use ceramic_core::RangeOpen;
 use std::{collections::BTreeMap, ops::Bound};
 
 use crate::recon::{AssociativeHash, Key, MaybeHashedKey, ReconItem, Store};
@@ -37,7 +38,7 @@ where
     H: AssociativeHash,
 {
     /// make a new recon from a set of keys and values
-    pub fn from_set(s: BTreeMap<K, Vec<u8>>) -> Self {
+    pub fn from_set(s: BTreeMap<K, Option<Vec<u8>>>) -> Self {
         let mut r = Self {
             keys: Default::default(),
             values: Default::default(),
@@ -45,7 +46,9 @@ where
         for (key, value) in s {
             let hash = H::digest(&key);
             r.keys.insert(key.clone(), hash);
-            r.values.insert(key, value);
+            if let Some(value) = value {
+                r.values.insert(key, value);
+            }
         }
         r
     }
@@ -101,6 +104,34 @@ where
             .take(limit)
             .map(|(key, _hash)| key)
             .cloned()
+            .collect();
+        Ok(Box::new(keys.into_iter()))
+    }
+    /// Return all keys and values in the range between left_fencepost and right_fencepost.
+    /// Both range bounds are exclusive.
+    ///
+    /// Offset and limit values are applied within the range of keys.
+    pub fn range_with_values(
+        &self,
+        left_fencepost: &K,
+        right_fencepost: &K,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Box<dyn Iterator<Item = (K, Vec<u8>)> + Send + 'static>> {
+        let range = (
+            Bound::Excluded(left_fencepost),
+            Bound::Excluded(right_fencepost),
+        );
+        let keys: Vec<(K, Vec<u8>)> = self
+            .keys
+            .range(range)
+            .skip(offset)
+            .take(limit)
+            .filter_map(|(key, _hash)| {
+                self.values
+                    .get(key)
+                    .map(|value| (key.clone(), value.clone()))
+            })
             .collect();
         Ok(Box::new(keys.into_iter()))
     }
@@ -163,6 +194,15 @@ where
         // and we delegate to its implementation here.
         BTreeStore::range(self, left_fencepost, right_fencepost, offset, limit)
     }
+    async fn range_with_values(
+        &mut self,
+        left_fencepost: &Self::Key,
+        right_fencepost: &Self::Key,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>> {
+        BTreeStore::range_with_values(self, left_fencepost, right_fencepost, offset, limit)
+    }
 
     async fn last(
         &mut self,
@@ -205,5 +245,15 @@ where
     /// value_for_key returns an Error is retrieving failed and None if the key is not stored.
     async fn value_for_key(&mut self, key: &Self::Key) -> Result<Option<Vec<u8>>> {
         Ok(self.values.get(key).cloned())
+    }
+    async fn keys_with_missing_values(
+        &mut self,
+        range: RangeOpen<Self::Key>,
+    ) -> Result<Vec<Self::Key>> {
+        Ok(self
+            .keys
+            .range(range)
+            .filter_map(|(key, _hash)| (!self.values.contains_key(key)).then(|| key.clone()))
+            .collect())
     }
 }

@@ -1,5 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
+use ceramic_core::RangeOpen;
 use ceramic_metrics::Recorder;
 use futures::Future;
 use tokio::time::Instant;
@@ -84,6 +85,21 @@ where
             "range",
             self.store
                 .range(left_fencepost, right_fencepost, offset, limit),
+        )
+        .await
+    }
+    async fn range_with_values(
+        &mut self,
+        left_fencepost: &Self::Key,
+        right_fencepost: &Self::Key,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>> {
+        StoreMetricsMiddleware::<S>::record(
+            self.metrics.clone(),
+            "range_with_values",
+            self.store
+                .range_with_values(left_fencepost, right_fencepost, offset, limit),
         )
         .await
     }
@@ -173,6 +189,17 @@ where
             self.metrics.clone(),
             "value_for_key",
             self.store.value_for_key(key),
+        )
+        .await
+    }
+    async fn keys_with_missing_values(
+        &mut self,
+        range: RangeOpen<Self::Key>,
+    ) -> Result<Vec<Self::Key>> {
+        StoreMetricsMiddleware::<S>::record(
+            self.metrics.clone(),
+            "keys_with_missing_values",
+            self.store.keys_with_missing_values(range),
         )
         .await
     }
