@@ -26,12 +26,17 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      DEPLOY_ENV: ${{ github.event.inputs.environment }}
+      DEPLOY_TAG: ${{ github.event.inputs.tag }}
     steps:
       -
         uses: actions/checkout@v3
       -
         name: Schedule k8s deployment
-        env:
-          DEPLOY_ENV: ${{ github.event.inputs.environment }}
-          DEPLOY_TAG: ${{ github.event.inputs.tag }}
         run: make schedule-k8s-deployment
+      -
+        name: Schedule post-deployment tests
+        run: |
+          # Just run "fast" tests for manual deployments
+          make TEST_SELECTOR="fast" schedule-tests
