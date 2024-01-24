@@ -1,5 +1,5 @@
-# Create a release from the latest tag
-name: Publish Release
+# Create a prerelease from the latest tag
+name: Publish Prerelease
 
 permissions:
   contents: write
@@ -11,10 +11,10 @@ on:
       - 'Cargo.toml'
 
 jobs:
-  # Build and packages all the things
+  # Build and package all the things
   build-binaries:
     if: |
-      contains(github.event.head_commit.message, 'chore: Release')
+      contains(github.event.head_commit.message, 'chore: version v')
     strategy:
       matrix:
         # For these target platforms
@@ -82,8 +82,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ secrets.GH_TOKEN_PAT }}
+      GITHUB_TOKEN: ${{ secrets.GH_TOKEN_PAT }}
     steps:
       - uses: actions/checkout@v3
         with:
@@ -100,4 +100,8 @@ jobs:
         run: |
           export TAG=$(cargo metadata --format-version=1 --no-deps | jq '.packages[0].version' | tr -d '"')
           echo "Releasing "$TAG
-          gh release create "v${TAG}" -n "Release of ${TAG}" -t "v${TAG}" --latest artifacts/**/*.tar.gz
+          # Generate a GitHub pre-release. This will trigger the "published" event that will deploy to Clay. When the
+          # pre-release is promoted to a release from the GitHub console, the "released" event will trigger and deploy
+          # to Prod.
+          current_branch=$(git rev-parse --abbrev-ref HEAD)
+          gh release create "v${TAG}" -t "v${TAG}" --target "$current_branch" --generate-notes --prerelease artifacts/**/*.tar.gz
