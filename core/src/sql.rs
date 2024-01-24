@@ -25,16 +25,20 @@ impl SqlitePool {
         // A few ideas: number of RO connections, synchronize = NORMAL, mmap_size, temp_store = memory
         let conn_opts = SqliteConnectOptions::from_str(&db_path)?
             .journal_mode(SqliteJournalMode::Wal)
+            .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
             .create_if_missing(true)
             .optimize_on_close(true, None);
 
         let ro_opts = conn_opts.clone().read_only(true);
 
         let writer = SqlitePoolOptions::new()
+            .min_connections(1)
             .max_connections(1)
+            .acquire_timeout(std::time::Duration::from_secs(1))
             .connect_with(conn_opts)
             .await?;
         let reader = SqlitePoolOptions::new()
+            .min_connections(1)
             .max_connections(8)
             .connect_with(ro_opts)
             .await?;
