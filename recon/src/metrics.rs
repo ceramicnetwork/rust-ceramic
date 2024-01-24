@@ -216,10 +216,12 @@ impl Metrics {
     }
 }
 
-pub(crate) struct KeyInsertEvent;
+pub(crate) struct KeyInsertEvent {
+    pub(crate) cnt: u64,
+}
 impl Recorder<KeyInsertEvent> for Metrics {
-    fn record(&self, _event: &KeyInsertEvent) {
-        self.key_insert_count.inc();
+    fn record(&self, event: &KeyInsertEvent) {
+        self.key_insert_count.inc_by(event.cnt);
     }
 }
 
@@ -237,10 +239,12 @@ impl Recorder<StoreQuery> for Metrics {
     }
 }
 
-pub(crate) struct ValueInsertEvent;
+pub(crate) struct ValueInsertEvent {
+    pub(crate) cnt: u64,
+}
 impl Recorder<ValueInsertEvent> for Metrics {
-    fn record(&self, _event: &ValueInsertEvent) {
-        self.value_insert_count.inc();
+    fn record(&self, event: &ValueInsertEvent) {
+        self.value_insert_count.inc_by(event.cnt);
     }
 }
 

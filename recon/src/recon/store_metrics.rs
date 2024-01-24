@@ -6,6 +6,8 @@ use tokio::time::Instant;
 
 use crate::{metrics::StoreQuery, recon::HashCount, AssociativeHash, Key, Metrics, Store};
 
+use super::{InsertResult, ReconItem};
+
 /// Implement the Store and record metrics
 #[derive(Debug)]
 pub struct StoreMetricsMiddleware<S> {
@@ -40,18 +42,19 @@ where
     type Key = K;
     type Hash = H;
 
-    async fn insert(&mut self, key: &Self::Key) -> Result<bool> {
-        StoreMetricsMiddleware::<S>::record(self.metrics.clone(), "insert", self.store.insert(key))
+    async fn insert(&mut self, item: ReconItem<'_, Self::Key>) -> Result<bool> {
+        StoreMetricsMiddleware::<S>::record(self.metrics.clone(), "insert", self.store.insert(item))
             .await
     }
-    async fn insert_many<'a, I>(&mut self, keys: I) -> Result<bool>
+
+    async fn insert_many<'a, I>(&mut self, items: I) -> Result<InsertResult>
     where
-        I: Iterator<Item = &'a Self::Key> + Send,
+        I: ExactSizeIterator<Item = ReconItem<'a, K>> + Send + Sync,
     {
         StoreMetricsMiddleware::<S>::record(
             self.metrics.clone(),
             "insert_many",
-            self.store.insert_many(keys),
+            self.store.insert_many(items),
         )
         .await
     }
@@ -163,15 +166,6 @@ where
     async fn is_empty(&mut self) -> Result<bool> {
         StoreMetricsMiddleware::<S>::record(self.metrics.clone(), "is_empty", self.store.is_empty())
             .await
-    }
-
-    async fn store_value_for_key(&mut self, key: &Self::Key, value: &[u8]) -> Result<bool> {
-        StoreMetricsMiddleware::<S>::record(
-            self.metrics.clone(),
-            "store_value_for_key",
-            self.store.store_value_for_key(key, value),
-        )
-        .await
     }
 
     async fn value_for_key(&mut self, key: &Self::Key) -> Result<Option<Vec<u8>>> {

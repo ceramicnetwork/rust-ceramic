@@ -7,7 +7,7 @@ use tokio::sync::{
 use tracing::warn;
 
 use crate::{
-    recon::{Range, SyncState},
+    recon::{Range, ReconItem, SyncState},
     AssociativeHash, InterestProvider, Key, Metrics, Recon, Store,
 };
 
@@ -24,9 +24,11 @@ where
     H: AssociativeHash,
 {
     /// Sends an insert request to the server and awaits the response.
-    pub async fn insert(&self, key: K) -> Result<bool> {
+    pub async fn insert(&self, key: K, value: Option<Vec<u8>>) -> Result<bool> {
         let (ret, rx) = oneshot::channel();
-        self.sender.send(Request::Insert { key, ret }).await?;
+        self.sender
+            .send(Request::Insert { key, value, ret })
+            .await?;
         rx.await?
     }
 
@@ -77,19 +79,6 @@ where
         rx.await?
     }
 
-    /// Store the value associated with a key so we can sync it later.
-    pub async fn store_value_for_key(&self, key: K, value: &[u8]) -> Result<()> {
-        let (ret, rx) = oneshot::channel();
-        self.sender
-            .send(Request::StoreValueForKey {
-                key,
-                value: value.to_vec(),
-                ret,
-            })
-            .await?;
-        rx.await?
-    }
-
     /// Report the local nodes interests.
     pub async fn interests(&self) -> Result<Vec<RangeOpen<K>>> {
         let (ret, rx) = oneshot::channel();
@@ -133,6 +122,7 @@ where
 enum Request<K, H> {
     Insert {
         key: K,
+        value: Option<Vec<u8>>,
         ret: oneshot::Sender<Result<bool>>,
     },
     Len {
@@ -151,11 +141,6 @@ enum Request<K, H> {
     ValueForKey {
         key: K,
         ret: oneshot::Sender<Result<Option<Vec<u8>>>>,
-    },
-    StoreValueForKey {
-        key: K,
-        value: Vec<u8>,
-        ret: oneshot::Sender<Result<()>>,
     },
     Interests {
         ret: oneshot::Sender<Result<Vec<RangeOpen<K>>>>,
@@ -227,8 +212,12 @@ where
             let request = self.requests.recv().await;
             if let Some(request) = request {
                 match request {
-                    Request::Insert { key, ret } => {
-                        send(ret, self.recon.insert(&key).await);
+                    Request::Insert { key, value, ret } => {
+                        let val = self
+                            .recon
+                            .insert(ReconItem::new(&key, value.as_deref()))
+                            .await;
+                        send(ret, val);
                     }
                     Request::Len { ret } => {
                         send(ret, self.recon.len().await);
@@ -253,10 +242,6 @@ where
                     Request::ValueForKey { key, ret } => {
                         let value = self.recon.value_for_key(key).await;
                         send(ret, value);
-                    }
-                    Request::StoreValueForKey { key, value, ret } => {
-                        let ok = self.recon.store_value_for_key(key, value).await;
-                        send(ret, ok);
                     }
                     Request::Interests { ret } => {
                         let value = self.recon.interests().await;

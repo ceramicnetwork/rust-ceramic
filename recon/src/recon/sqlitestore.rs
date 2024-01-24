@@ -1,10 +1,10 @@
 #![warn(missing_docs, missing_debug_implementations, clippy::all)]
 
-use super::HashCount;
+use super::{HashCount, InsertResult, ReconItem};
 use crate::{AssociativeHash, Key, Store};
 use anyhow::Result;
 use async_trait::async_trait;
-use ceramic_core::SqlitePool;
+use ceramic_core::{DbTx, SqlitePool};
 use sqlx::Row;
 use std::marker::PhantomData;
 use std::result::Result::Ok;
@@ -49,6 +49,7 @@ where
 {
     /// Initialize the recon table.
     async fn create_table_if_not_exists(&mut self) -> Result<()> {
+        // Do we want to remove CID and block_retrieved from the table?
         const CREATE_RECON_TABLE: &str = "CREATE TABLE IF NOT EXISTS recon (
             sort_key TEXT, -- the field in the event header to sort by e.g. model
             key BLOB, -- network_id sort_value controller StreamID height event_cid
@@ -61,15 +62,108 @@ where
             ahash_6 INTEGER,
             ahash_7 INTEGER,
             CID TEXT,
-            value BLOB,
             block_retrieved BOOL, -- indicates if we still want the block
             PRIMARY KEY(sort_key, key)
         )";
 
-        sqlx::query(CREATE_RECON_TABLE)
-            .execute(self.pool.writer())
+        const CREATE_RECON_VALUE_TABLE: &str = "CREATE TABLE IF NOT EXISTS recon_value (
+            sort_key TEXT, 
+            key BLOB, 
+            value BLOB, 
+            PRIMARY KEY(sort_key, key)
+        )";
+
+        let mut tx = self.pool.tx().await?;
+        sqlx::query(CREATE_RECON_TABLE).execute(&mut *tx).await?;
+        sqlx::query(CREATE_RECON_VALUE_TABLE)
+            .execute(&mut *tx)
             .await?;
+        tx.commit().await?;
         Ok(())
+    }
+
+    /// returns (new_key, new_val) tuple
+    async fn insert_item_int(
+        &mut self,
+        item: &ReconItem<'_, K>,
+        conn: &mut DbTx<'_>,
+    ) -> Result<(bool, bool)> {
+        // we insert the value first as it's possible we already have the key and can skip that step
+        // as it happens in a transaction, we'll roll back the value insert if the key insert fails and try again
+        if let Some(val) = item.value {
+            if self.insert_value_int(item.key, val, conn).await? {
+                return Ok((false, true));
+            }
+        }
+        let new_key = self.insert_key_int(item.key, conn).await?;
+        Ok((new_key, item.value.is_some()))
+    }
+
+    /// returns true if the key already exists in the recon table
+    async fn insert_value_int(&mut self, key: &K, val: &[u8], conn: &mut DbTx<'_>) -> Result<bool> {
+        let value_insert = sqlx::query(
+            r#"INSERT INTO recon_value (value, sort_key, key) 
+                VALUES (?, ?, ?) 
+            ON CONFLICT (sort_key, key) DO UPDATE 
+                SET value=excluded.value
+            RETURNING 
+                EXISTS(select 1 from recon where sort_key=? and key=?)"#,
+        );
+
+        let resp = value_insert
+            .bind(val)
+            .bind(&self.sort_key)
+            .bind(key.as_bytes())
+            .bind(&self.sort_key)
+            .bind(key.as_bytes())
+            .fetch_one(&mut **conn)
+            .await?;
+
+        let v = resp.get::<'_, bool, _>(0);
+        Ok(v)
+    }
+
+    async fn insert_key_int(&mut self, key: &K, conn: &mut DbTx<'_>) -> Result<bool> {
+        let key_insert = sqlx::query(
+            "INSERT INTO recon (
+                    sort_key, key,
+                    ahash_0, ahash_1, ahash_2, ahash_3,
+                    ahash_4, ahash_5, ahash_6, ahash_7,
+                    block_retrieved
+                ) VALUES (
+                    ?, ?,
+                    ?, ?, ?, ?,
+                    ?, ?, ?, ?,
+                    ?
+                );",
+        );
+
+        let hash = H::digest(key);
+        let resp = key_insert
+            .bind(&self.sort_key)
+            .bind(key.as_bytes())
+            .bind(hash.as_u32s()[0])
+            .bind(hash.as_u32s()[1])
+            .bind(hash.as_u32s()[2])
+            .bind(hash.as_u32s()[3])
+            .bind(hash.as_u32s()[4])
+            .bind(hash.as_u32s()[5])
+            .bind(hash.as_u32s()[6])
+            .bind(hash.as_u32s()[7])
+            .bind(false)
+            .execute(&mut **conn)
+            .await;
+        match resp {
+            std::result::Result::Ok(_rows) => Ok(true),
+            Err(sqlx::Error::Database(err)) => {
+                if err.is_unique_violation() {
+                    Ok(false)
+                } else {
+                    Err(sqlx::Error::Database(err).into())
+                }
+            }
+            Err(err) => Err(err.into()),
+        }
     }
 }
 
@@ -82,49 +176,37 @@ where
     type Key = K;
     type Hash = H;
 
-    // Ok(true): inserted the key
-    // Ok(false): did not insert the key ConstraintViolation
-    // Err(e): sql error
-    #[instrument(skip(self))]
-    async fn insert(&mut self, key: &Self::Key) -> Result<bool> {
-        let query = sqlx::query(
-            "INSERT INTO recon (
-                sort_key, key,
-                ahash_0, ahash_1, ahash_2, ahash_3,
-                ahash_4, ahash_5, ahash_6, ahash_7,
-                block_retrieved
-            ) VALUES (
-                ?, ?,
-                ?, ?, ?, ?,
-                ?, ?, ?, ?,
-                ?
-            );",
-        );
-        let hash = H::digest(key);
-        let resp = query
-            .bind(&self.sort_key)
-            .bind(key.as_bytes())
-            .bind(hash.as_u32s()[0])
-            .bind(hash.as_u32s()[1])
-            .bind(hash.as_u32s()[2])
-            .bind(hash.as_u32s()[3])
-            .bind(hash.as_u32s()[4])
-            .bind(hash.as_u32s()[5])
-            .bind(hash.as_u32s()[6])
-            .bind(hash.as_u32s()[7])
-            .bind(false)
-            .fetch_all(self.pool.writer())
-            .await;
-        match resp {
-            std::result::Result::Ok(_rows) => Ok(true),
-            Err(sqlx::Error::Database(err)) => {
-                if err.is_unique_violation() {
-                    Ok(false)
-                } else {
-                    Err(sqlx::Error::Database(err).into())
+    /// Returns true if the key was new. The value is always updated if included
+    async fn insert(&mut self, item: ReconItem<'_, Self::Key>) -> Result<bool> {
+        let mut tx = self.pool.writer().begin().await?;
+        let (new_key, _new_val) = self.insert_item_int(&item, &mut tx).await?;
+        tx.commit().await?;
+        Ok(new_key)
+    }
+
+    /// Insert new keys into the key space.
+    /// Returns true if a key did not previously exist.
+    async fn insert_many<'a, I>(&mut self, items: I) -> Result<InsertResult>
+    where
+        I: ExactSizeIterator<Item = ReconItem<'a, K>> + Send + Sync,
+    {
+        match items.len() {
+            0 => Ok(InsertResult::new(vec![], 0)),
+            _ => {
+                let mut results = vec![false; items.len()];
+                let mut new_val_cnt = 0;
+                let mut tx = self.pool.writer().begin().await?;
+
+                for (idx, item) in items.enumerate() {
+                    let (new_key, new_val) = self.insert_item_int(&item, &mut tx).await?;
+                    results[idx] = new_key;
+                    if new_val {
+                        new_val_cnt += 1;
+                    }
                 }
+                tx.commit().await?;
+                Ok(InsertResult::new(results, new_val_cnt))
             }
-            Err(err) => Err(err.into()),
         }
     }
 
@@ -360,20 +442,8 @@ where
     }
 
     #[instrument(skip(self))]
-    async fn store_value_for_key(&mut self, key: &Self::Key, value: &[u8]) -> Result<bool> {
-        let query = sqlx::query("UPDATE recon SET value=? WHERE sort_key=? AND key=?;");
-        query
-            .bind(value)
-            .bind(&self.sort_key)
-            .bind(key.as_bytes())
-            .fetch_all(self.pool.writer())
-            .await?;
-        Ok(true)
-    }
-
-    #[instrument(skip(self))]
     async fn value_for_key(&mut self, key: &Self::Key) -> Result<Option<Vec<u8>>> {
-        let query = sqlx::query("SELECT value FROM recon WHERE sort_key=? AND key=?;");
+        let query = sqlx::query("SELECT value FROM recon_value WHERE sort_key=? AND key=?;");
         let row = query
             .bind(&self.sort_key)
             .bind(key.as_bytes())
@@ -387,6 +457,7 @@ where
 mod tests {
     use super::*;
 
+    use crate::recon::ReconItem;
     use crate::tests::AlphaNumBytes;
     use crate::Sha256a;
 
@@ -403,8 +474,14 @@ mod tests {
     #[test(tokio::test)]
     async fn test_hash_range_query() {
         let mut store = new_store().await;
-        store.insert(&AlphaNumBytes::from("hello")).await.unwrap();
-        store.insert(&AlphaNumBytes::from("world")).await.unwrap();
+        store
+            .insert(ReconItem::new_key(&AlphaNumBytes::from("hello")))
+            .await
+            .unwrap();
+        store
+            .insert(ReconItem::new_key(&AlphaNumBytes::from("world")))
+            .await
+            .unwrap();
         let hash: Sha256a = store
             .hash_range(&b"a".as_slice().into(), &b"z".as_slice().into())
             .await
@@ -417,8 +494,14 @@ mod tests {
     #[test(tokio::test)]
     async fn test_range_query() {
         let mut store = new_store().await;
-        store.insert(&AlphaNumBytes::from("hello")).await.unwrap();
-        store.insert(&AlphaNumBytes::from("world")).await.unwrap();
+        store
+            .insert(ReconItem::new_key(&AlphaNumBytes::from("hello")))
+            .await
+            .unwrap();
+        store
+            .insert(ReconItem::new_key(&AlphaNumBytes::from("world")))
+            .await
+            .unwrap();
         let ids = store
             .range(
                 &b"a".as_slice().into(),
@@ -453,7 +536,11 @@ mod tests {
         )
         "#
         ]
-        .assert_debug_eq(&store.insert(&AlphaNumBytes::from("hello")).await);
+        .assert_debug_eq(
+            &store
+                .insert(ReconItem::new_key(&AlphaNumBytes::from("hello")))
+                .await,
+        );
 
         // reject the second insert of same key
         expect![
@@ -463,14 +550,24 @@ mod tests {
         )
         "#
         ]
-        .assert_debug_eq(&store.insert(&AlphaNumBytes::from("hello")).await);
+        .assert_debug_eq(
+            &store
+                .insert(ReconItem::new_key(&AlphaNumBytes::from("hello")))
+                .await,
+        );
     }
 
     #[test(tokio::test)]
     async fn test_first_and_last() {
         let mut store = new_store().await;
-        store.insert(&AlphaNumBytes::from("hello")).await.unwrap();
-        store.insert(&AlphaNumBytes::from("world")).await.unwrap();
+        store
+            .insert(ReconItem::new_key(&AlphaNumBytes::from("hello")))
+            .await
+            .unwrap();
+        store
+            .insert(ReconItem::new_key(&AlphaNumBytes::from("world")))
+            .await
+            .unwrap();
 
         // Only one key in range
         let ret = store
@@ -526,9 +623,8 @@ mod tests {
         let mut store = new_store().await;
         let key = AlphaNumBytes::from("hello");
         let store_value = AlphaNumBytes::from("world");
-        store.insert(&key).await.unwrap();
         store
-            .store_value_for_key(&key, store_value.as_slice())
+            .insert(ReconItem::new_with_value(&key, store_value.as_slice()))
             .await
             .unwrap();
         let value = store.value_for_key(&key).await.unwrap().unwrap();

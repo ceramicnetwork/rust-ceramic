@@ -1247,7 +1247,7 @@ mod tests {
         type Key = K;
         type Hash = Sha256a;
 
-        async fn insert(&self, _key: Self::Key) -> Result<()> {
+        async fn insert(&self, _key: Self::Key, _value: Option<Vec<u8>>) -> Result<()> {
             unreachable!()
         }
 
@@ -1268,9 +1268,7 @@ mod tests {
         async fn value_for_key(&self, _key: Self::Key) -> Result<Option<Vec<u8>>> {
             Ok(None)
         }
-        async fn store_value_for_key(&self, _key: Self::Key, _value: &[u8]) -> Result<()> {
-            Ok(())
-        }
+
         async fn interests(&self) -> Result<Vec<RangeOpen<Self::Key>>> {
             unreachable!()
         }

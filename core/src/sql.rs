@@ -1,6 +1,12 @@
 use std::{path::Path, str::FromStr};
 
-use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
+use sqlx::{
+    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
+    Sqlite, Transaction,
+};
+
+/// A trivial wrapper around a sqlx Sqlite database transaction
+pub type DbTx<'a> = Transaction<'a, Sqlite>;
 
 #[derive(Clone, Debug)]
 /// The sqlite pool is split into a writer and a reader pool.
@@ -19,16 +25,20 @@ impl SqlitePool {
         // A few ideas: number of RO connections, synchronize = NORMAL, mmap_size, temp_store = memory
         let conn_opts = SqliteConnectOptions::from_str(&db_path)?
             .journal_mode(SqliteJournalMode::Wal)
+            .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
             .create_if_missing(true)
             .optimize_on_close(true, None);
 
         let ro_opts = conn_opts.clone().read_only(true);
 
         let writer = SqlitePoolOptions::new()
+            .min_connections(1)
             .max_connections(1)
+            .acquire_timeout(std::time::Duration::from_secs(1))
             .connect_with(conn_opts)
             .await?;
         let reader = SqlitePoolOptions::new()
+            .min_connections(1)
             .max_connections(8)
             .connect_with(ro_opts)
             .await?;
@@ -37,8 +47,15 @@ impl SqlitePool {
     }
 
     /// Get a reference to the writer database pool. The writer pool has only one connection.
+    /// If you are going to do multiple writes in a row, instead use `tx` and `commit`.
     pub fn writer(&self) -> &sqlx::SqlitePool {
         &self.writer
+    }
+
+    /// Get a writer tranaction. The writer pool has only one connection so this is an exclusive lock.
+    /// Use this method to perform simultaneous writes to the database, calling `commit` when you are done.
+    pub async fn tx(&self) -> anyhow::Result<DbTx> {
+        Ok(self.writer.begin().await?)
     }
 
     /// Get a reference to the reader database pool. The reader pool has many connections.
