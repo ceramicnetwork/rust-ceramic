@@ -179,9 +179,9 @@ where
     /// Returns true if the key was new. The value is always updated if included
     async fn insert(&mut self, item: ReconItem<'_, Self::Key>) -> Result<bool> {
         let mut tx = self.pool.writer().begin().await?;
-        let (new_key, new_val) = self.insert_item_int(&item, &mut tx).await?;
+        let (new_key, _new_val) = self.insert_item_int(&item, &mut tx).await?;
         tx.commit().await?;
-        Ok(new_key || new_val)
+        Ok(new_key)
     }
 
     /// Insert new keys into the key space.
