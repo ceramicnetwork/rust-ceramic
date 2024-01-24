@@ -1302,10 +1302,10 @@ async fn disjoint() {
             cat: [a: A, b: B, c: C, e: , f: , g: ]
         -> value_req(e)
             cat: [a: A, b: B, c: C, e: , f: , g: ]
-        <- value_resp(e: E)
-            dog: [a: A, b: B, c: C, e: E, f: F, g: G]
         -> value_req(f)
             cat: [a: A, b: B, c: C, e: , f: , g: ]
+        <- value_resp(e: E)
+            dog: [a: A, b: B, c: C, e: E, f: F, g: G]
         -> value_req(g)
             cat: [a: A, b: B, c: C, e: E, f: , g: ]
         <- value_resp(f: F)
@@ -1482,10 +1482,10 @@ async fn paper() {
             cat: [ape: APE, bee: BEE, cot: COT, doe: , eel: EEL, fox: FOX, gnu: GNU]
         <- range_resp({gnu h(hog)#1 𝛀 })
             dog: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU, hog: HOG]
-        -> listen_only
-            cat: [ape: APE, bee: BEE, cot: COT, doe: , eel: EEL, fox: FOX, gnu: GNU, hog: HOG]
         <- value_resp(doe: DOE)
             dog: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU, hog: HOG]
+        -> listen_only
+            cat: [ape: APE, bee: BEE, cot: COT, doe: , eel: EEL, fox: FOX, gnu: GNU, hog: HOG]
         <- listen_only
             dog: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU, hog: HOG]
         -> finished
@@ -1729,18 +1729,18 @@ async fn alternating() {
             cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: , v: V, w: , x: X, y: , z: Z]
         -> value_req(u)
             cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: , v: V, w: , x: X, y: , z: Z]
+        <- value_resp(u: U)
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
         -> value_req(w)
             cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: , v: V, w: , x: X, y: , z: Z]
-        <- value_resp(u: U)
+        <- value_resp(w: W)
             dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
         -> value_req(y)
             cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: , x: X, y: , z: Z]
-        <- value_resp(w: W)
+        <- value_resp(y: Y)
             dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
         -> listen_only
             cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: , z: Z]
-        <- value_resp(y: Y)
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
         <- listen_only
             dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
         -> finished
@@ -1959,10 +1959,10 @@ async fn subset_interest() {
             dog: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, r: ]
         -> value_req(i)
             cat: [b: , c: C, e: , f: F, g: G, i: , m: , n: N, r: R]
-        -> value_req(m)
-            cat: [b: , c: C, d: D, e: , f: F, g: G, i: , m: , n: N, r: R]
         <- range_resp({c h(d)#1 e})
             dog: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, r: ]
+        -> value_req(m)
+            cat: [b: , c: C, d: D, e: , f: F, g: G, i: , m: , n: N, r: R]
         -> value_resp(r: R)
             cat: [b: , c: C, d: D, e: , f: F, g: G, i: , m: , n: N, r: R]
         <- range_resp({e 0 f})

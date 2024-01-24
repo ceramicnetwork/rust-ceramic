@@ -243,7 +243,7 @@ where
         self.store.value_for_key(&key).await
     }
 
-    /// Insert many keys into the key space. Includes an optional value.
+    /// Insert key into the key space. Includes an optional value.
     /// Returns a boolean (true) indicating if the key was new.
     pub async fn insert(&mut self, item: ReconItem<'_, K>) -> Result<bool> {
         let new_val = item.value.is_some();
