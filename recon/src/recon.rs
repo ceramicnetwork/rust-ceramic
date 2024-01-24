@@ -98,12 +98,31 @@ where
     /// Reports any new keys and what the range indicates about how the local and remote node are
     /// synchronized.
     pub async fn process_range(&mut self, range: Range<K, H>) -> Result<(SyncState<K, H>, Vec<K>)> {
+        let mut should_add = Vec::with_capacity(2);
         let mut new_keys = Vec::with_capacity(2);
-        if !range.first.is_fencepost() && self.insert(&range.first).await? {
-            new_keys.push(range.first.clone());
+
+        if !range.first.is_fencepost() {
+            should_add.push(range.first.clone());
         }
-        if !range.last.is_fencepost() && self.insert(&range.last).await? {
-            new_keys.push(range.last.clone());
+
+        if !range.last.is_fencepost() {
+            should_add.push(range.last.clone());
+        }
+
+        if !should_add.is_empty() {
+            let new = self
+                .insert_many(should_add.iter().map(|key| ReconItem::new_key(key)))
+                .await?;
+            debug_assert_eq!(
+                new.len(),
+                should_add.len(),
+                "new and should_add must be same length"
+            );
+            for (idx, key) in should_add.into_iter().enumerate() {
+                if new[idx] {
+                    new_keys.push(key);
+                }
+            }
         }
 
         let calculated_hash = self.store.hash_range(&range.first, &range.last).await?;
@@ -224,31 +243,40 @@ where
         self.store.value_for_key(&key).await
     }
 
-    /// Associate a value with a recon key
-    pub async fn store_value_for_key(&mut self, key: K, value: Vec<u8>) -> Result<()> {
-        if self.store.store_value_for_key(&key, &value).await? {
-            self.metrics.record(&ValueInsertEvent);
+    /// Insert many keys into the key space. Includes an optional value.
+    /// Returns a boolean (true) indicating if the key was new.
+    pub async fn insert(&mut self, item: ReconItem<'_, K>) -> Result<bool> {
+        let new_val = item.value.is_some();
+        let new = self.store.insert(item).await?;
+
+        if new {
+            self.metrics.record(&KeyInsertEvent { cnt: 1 });
         }
-        Ok(())
+        if new_val {
+            self.metrics.record(&ValueInsertEvent { cnt: 1 });
+        }
+
+        Ok(new)
     }
 
-    /// Insert a new key into the key space.
-    /// Returns true if the key did not previously exist.
-    pub async fn insert(&mut self, key: &K) -> Result<bool> {
-        let new_key = self.store.insert(key).await?;
-        if new_key {
-            self.metrics.record(&KeyInsertEvent);
-        }
-        Ok(new_key)
-    }
-
-    /// Insert many keys into the key space.
-    pub async fn insert_many<'a, IT>(&mut self, keys: IT) -> Result<bool>
+    /// Insert many keys into the key space. Includes an optional value for each key.
+    /// Returns an array with a boolean for each key indicating if the key was new.
+    /// The order is the same as the order of the keys. True means new, false means not new.
+    pub async fn insert_many<'a, IT>(&mut self, items: IT) -> Result<Vec<bool>>
     where
-        IT: Iterator<Item = &'a K> + Send,
+        IT: ExactSizeIterator<Item = ReconItem<'a, K>> + Send + Sync,
     {
-        let new_key = self.store.insert_many(keys).await?;
-        Ok(new_key)
+        let result = self.store.insert_many(items).await?;
+        let key_cnt = result.keys.iter().filter(|k| **k).count();
+
+        self.metrics.record(&KeyInsertEvent {
+            cnt: key_cnt as u64,
+        });
+        self.metrics.record(&ValueInsertEvent {
+            cnt: result.value_count as u64,
+        });
+
+        Ok(result.keys)
     }
 
     /// Reports total number of keys
@@ -329,6 +357,57 @@ impl<H> From<H> for HashCount<H> {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct ReconItem<'a, K>
+where
+    K: Key,
+{
+    pub key: &'a K,
+    pub value: Option<&'a [u8]>,
+}
+
+impl<'a, K> ReconItem<'a, K>
+where
+    K: Key,
+{
+    pub fn new(key: &'a K, value: Option<&'a [u8]>) -> Self {
+        Self { key, value }
+    }
+
+    pub fn new_key(key: &'a K) -> Self {
+        Self { key, value: None }
+    }
+
+    pub fn new_with_value(key: &'a K, value: &'a [u8]) -> Self {
+        Self {
+            key,
+            value: Some(value),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct InsertResult {
+    /// A true/false list indicating whether or not the key was new.
+    /// It is in the same order as the input list of keys.
+    pub keys: Vec<bool>,
+    pub value_count: usize,
+}
+
+impl InsertResult {
+    pub fn new(new_keys: Vec<bool>, value_count: usize) -> Self {
+        Self {
+            keys: new_keys,
+            value_count,
+        }
+    }
+
+    /// true if any key is new, false otherwise
+    pub fn included_new_key(&self) -> bool {
+        self.keys.iter().any(|new| *new)
+    }
+}
+
 /// Store defines the API needed to store the Recon set.
 #[async_trait]
 pub trait Store: std::fmt::Debug {
@@ -337,22 +416,16 @@ pub trait Store: std::fmt::Debug {
     /// Type of the AssociativeHash to compute over keys.
     type Hash: AssociativeHash;
 
-    /// Insert a new key into the key space.
-    /// Returns true if the key did not previously exist.
-    async fn insert(&mut self, key: &Self::Key) -> Result<bool>;
+    /// Insert a new key into the key space. Returns true if the key did not exist.
+    /// The value will be updated if included
+    async fn insert(&mut self, item: ReconItem<'_, Self::Key>) -> Result<bool>;
 
     /// Insert new keys into the key space.
-    /// Returns true if a key did not previously exist.
-    async fn insert_many<'a, I>(&mut self, keys: I) -> Result<bool>
+    /// Returns true for each key if it did not previously exist, in the
+    /// same order as the input iterator.
+    async fn insert_many<'a, I>(&mut self, items: I) -> Result<InsertResult>
     where
-        I: Iterator<Item = &'a Self::Key> + Send,
-    {
-        let mut new = false;
-        for key in keys {
-            new |= self.insert(key).await?;
-        }
-        Ok(new)
-    }
+        I: ExactSizeIterator<Item = ReconItem<'a, Self::Key>> + Send + Sync;
 
     /// Return the hash of all keys in the range between left_fencepost and right_fencepost.
     /// Both range bounds are exclusive.
@@ -470,12 +543,6 @@ pub trait Store: std::fmt::Debug {
     async fn is_empty(&mut self) -> Result<bool> {
         Ok(self.len().await? == 0)
     }
-
-    /// store_value_for_key returns
-    /// Ok(true) if stored,
-    /// Ok(false) if already present, and
-    /// Err(e) if store failed.
-    async fn store_value_for_key(&mut self, key: &Self::Key, value: &[u8]) -> Result<bool>;
 
     /// value_for_key returns
     /// Ok(Some(value)) if stored,

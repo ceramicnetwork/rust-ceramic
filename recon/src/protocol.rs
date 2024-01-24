@@ -678,11 +678,11 @@ where
         Ok(())
     }
     async fn process_value_response(&mut self, key: R::Key, value: Vec<u8>) -> Result<()> {
-        self.recon.insert(key.clone()).await.context("store key")?;
         self.recon
-            .store_value_for_key(key, &value)
+            .insert(key, Some(value))
             .await
-            .context("store value for key")
+            .context("process value response")?;
+        Ok(())
     }
     // The remote is missing all keys in the range send them over.
     async fn process_remote_missing_range(&mut self, range: &Range<R::Key, R::Hash>) -> Result<()> {
@@ -807,7 +807,7 @@ pub trait Recon: Clone + Send + Sync + 'static {
     type Hash: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>;
 
     /// Insert a new key into the key space.
-    async fn insert(&self, key: Self::Key) -> Result<()>;
+    async fn insert(&self, key: Self::Key, value: Option<Vec<u8>>) -> Result<()>;
 
     /// Get all keys in the specified range
     async fn range(
@@ -828,9 +828,6 @@ pub trait Recon: Clone + Send + Sync + 'static {
 
     /// retrieve a value associated with a recon key
     async fn value_for_key(&self, key: Self::Key) -> Result<Option<Vec<u8>>>;
-
-    /// associate a value with a recon key
-    async fn store_value_for_key(&self, key: Self::Key, value: &[u8]) -> Result<()>;
 
     /// Reports the interests of this recon instance
     async fn interests(&self) -> Result<Vec<RangeOpen<Self::Key>>>;
@@ -866,8 +863,8 @@ where
     type Key = K;
     type Hash = H;
 
-    async fn insert(&self, key: Self::Key) -> Result<()> {
-        let _ = Client::insert(self, key).await?;
+    async fn insert(&self, key: Self::Key, value: Option<Vec<u8>>) -> Result<()> {
+        let _ = Client::insert(self, key, value).await?;
         Ok(())
     }
 
@@ -892,9 +889,7 @@ where
     async fn value_for_key(&self, key: Self::Key) -> Result<Option<Vec<u8>>> {
         Client::value_for_key(self, key).await
     }
-    async fn store_value_for_key(&self, key: Self::Key, value: &[u8]) -> Result<()> {
-        Client::store_value_for_key(self, key, value).await
-    }
+
     async fn interests(&self) -> Result<Vec<RangeOpen<Self::Key>>> {
         Client::interests(self).await
     }

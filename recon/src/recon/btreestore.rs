@@ -2,9 +2,9 @@ use anyhow::Result;
 use async_trait::async_trait;
 use std::{collections::BTreeMap, ops::Bound};
 
-use crate::recon::{AssociativeHash, Key, MaybeHashedKey, Store};
+use crate::recon::{AssociativeHash, Key, MaybeHashedKey, ReconItem, Store};
 
-use super::HashCount;
+use super::{HashCount, InsertResult};
 
 /// An implementation of a Store that stores keys in an in-memory BTree
 #[derive(Clone, Debug)]
@@ -115,8 +115,31 @@ where
     type Key = K;
     type Hash = H;
 
-    async fn insert(&mut self, key: &Self::Key) -> Result<bool> {
-        Ok(self.keys.insert(key.to_owned(), H::digest(key)).is_none())
+    async fn insert(&mut self, item: ReconItem<'_, Self::Key>) -> Result<bool> {
+        let new = self
+            .keys
+            .insert(item.key.clone(), H::digest(item.key))
+            .is_none();
+
+        if let Some(val) = item.value {
+            self.values.insert(item.key.clone(), val.to_vec());
+        }
+        Ok(new)
+    }
+
+    async fn insert_many<'a, I>(&mut self, items: I) -> Result<InsertResult>
+    where
+        I: ExactSizeIterator<Item = ReconItem<'a, K>> + Send + Sync,
+    {
+        let mut new = vec![false; items.len()];
+        let mut new_val_cnt = 0;
+        for (idx, item) in items.enumerate() {
+            if item.value.is_some() {
+                new_val_cnt += 1;
+            }
+            new[idx] = self.insert(item).await?;
+        }
+        Ok(InsertResult::new(new, new_val_cnt))
     }
 
     async fn hash_range(
@@ -179,10 +202,6 @@ where
         }
     }
 
-    /// store_value_for_key returns Some(true) is inserting, Some(false) if present, and Err if store failed.
-    async fn store_value_for_key(&mut self, key: &Self::Key, value: &[u8]) -> Result<bool> {
-        Ok(self.values.insert(key.clone(), value.to_vec()).is_none())
-    }
     /// value_for_key returns an Error is retrieving failed and None if the key is not stored.
     async fn value_for_key(&mut self, key: &Self::Key) -> Result<Option<Vec<u8>>> {
         Ok(self.values.get(key).cloned())

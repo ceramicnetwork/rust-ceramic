@@ -37,7 +37,7 @@ pub trait Recon: Clone + Send + Sync {
     type Key: Key;
     type Hash: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>;
 
-    async fn insert(&self, key: Self::Key) -> Result<()>;
+    async fn insert(&self, key: Self::Key, value: Option<Vec<u8>>) -> Result<()>;
     async fn range(
         &self,
         start: Self::Key,
@@ -47,7 +47,6 @@ pub trait Recon: Clone + Send + Sync {
     ) -> Result<Vec<Self::Key>>;
 
     async fn value_for_key(&self, key: Self::Key) -> Result<Option<Vec<u8>>>;
-    async fn store_value_for_key(&self, key: Self::Key, value: &[u8]) -> Result<()>;
 }
 
 #[async_trait]
@@ -59,8 +58,8 @@ where
     type Key = K;
     type Hash = H;
 
-    async fn insert(&self, key: Self::Key) -> Result<()> {
-        let _ = recon::Client::insert(self, key).await?;
+    async fn insert(&self, key: Self::Key, value: Option<Vec<u8>>) -> Result<()> {
+        let _ = recon::Client::insert(self, key, value).await?;
         Ok(())
     }
 
@@ -77,9 +76,6 @@ where
     }
     async fn value_for_key(&self, key: Self::Key) -> Result<Option<Vec<u8>>> {
         recon::Client::value_for_key(self, key).await
-    }
-    async fn store_value_for_key(&self, key: Self::Key, value: &[u8]) -> Result<()> {
-        recon::Client::store_value_for_key(self, key, value).await
     }
 }
 
@@ -146,13 +142,10 @@ where
         let event_id = decode_event_id(&event.event_id)?;
         let event_data = decode_event_data(&event.event_data)?;
         self.model
-            .insert(event_id.clone())
+            .insert(event_id.clone(), Some(event_data))
             .await
             .map_err(|err| ApiError(format!("failed to insert key: {err}")))?;
-        self.model
-            .store_value_for_key(event_id, &event_data)
-            .await
-            .map_err(|err| ApiError(format!("failed to insert value for key: {err}")))?;
+
         Ok(EventsPostResponse::Success)
     }
 
@@ -240,7 +233,7 @@ where
             .with_not_after(0)
             .build();
         self.interest
-            .insert(interest)
+            .insert(interest, None)
             .await
             .map_err(|err| ApiError(format!("failed to update interest: {err}")))?;
 
@@ -297,7 +290,7 @@ mod tests {
     struct Context;
     mock! {
         pub ReconInterestTest {
-            fn insert(&self, key: Interest) -> Result<()>;
+            fn insert(&self, key: Interest, value: Option<Vec<u8>>) -> Result<()>;
             fn range(
                 &self,
                 start: Interest,
@@ -316,8 +309,8 @@ mod tests {
     impl Recon for MockReconInterestTest {
         type Key = Interest;
         type Hash = Sha256a;
-        async fn insert(&self, key: Self::Key) -> Result<()> {
-            self.insert(key)
+        async fn insert(&self, key: Self::Key, value: Option<Vec<u8>>) -> Result<()> {
+            self.insert(key, value)
         }
         async fn range(
             &self,
@@ -331,14 +324,11 @@ mod tests {
         async fn value_for_key(&self, _key: Self::Key) -> Result<Option<Vec<u8>>> {
             Ok(None)
         }
-        async fn store_value_for_key(&self, _key: Self::Key, _value: &[u8]) -> Result<()> {
-            Ok(())
-        }
     }
 
     mock! {
         pub ReconModelTest {
-            fn insert(&self, key: EventId) -> Result<()>;
+            fn insert(&self, key: EventId, value: Option<Vec<u8>>) -> Result<()>;
             fn range(
                 &self,
                 start: EventId,
@@ -356,8 +346,8 @@ mod tests {
     impl Recon for MockReconModelTest {
         type Key = EventId;
         type Hash = Sha256a;
-        async fn insert(&self, key: Self::Key) -> Result<()> {
-            self.insert(key)
+        async fn insert(&self, key: Self::Key, value: Option<Vec<u8>>) -> Result<()> {
+            self.insert(key, value)
         }
         async fn range(
             &self,
@@ -370,9 +360,6 @@ mod tests {
         }
         async fn value_for_key(&self, _key: Self::Key) -> Result<Option<Vec<u8>>> {
             Ok(None)
-        }
-        async fn store_value_for_key(&self, _key: Self::Key, _value: &[u8]) -> Result<()> {
-            Ok(())
         }
     }
 
@@ -391,19 +378,23 @@ mod tests {
             &Cid::from_str("baejbeicqtpe5si4qvbffs2s7vtbk5ccbsfg6owmpidfj3zeluqz4hlnz6m").unwrap(), // cspell:disable-line
         );
         let event_id_str = multibase::encode(Base::Base16Lower, event_id.to_bytes());
+        let event_data = "f".to_string();
         let mock_interest = MockReconInterestTest::new();
         let mut mock_model = MockReconModelTest::new();
         mock_model
             .expect_insert()
-            .with(predicate::eq(event_id))
+            .with(
+                predicate::eq(event_id),
+                predicate::eq(Some(decode_event_data(event_data.as_str()).unwrap())),
+            )
             .times(1)
-            .returning(|_| Ok(()));
+            .returning(|_, _| Ok(()));
         let server = Server::new(peer_id, network, mock_interest, mock_model);
         let resp = server
             .events_post(
                 models::Event {
                     event_id: event_id_str,
-                    event_data: "f".to_string(),
+                    event_data,
                 },
                 &Context,
             )
@@ -461,16 +452,19 @@ mod tests {
         let mut mock_interest = MockReconInterestTest::new();
         mock_interest
             .expect_insert()
-            .with(predicate::eq(
-                Interest::builder()
-                    .with_sort_key("model")
-                    .with_peer_id(&peer_id)
-                    .with_range((start.as_slice(), end.as_slice()))
-                    .with_not_after(0)
-                    .build(),
-            ))
+            .with(
+                predicate::eq(
+                    Interest::builder()
+                        .with_sort_key("model")
+                        .with_peer_id(&peer_id)
+                        .with_range((start.as_slice(), end.as_slice()))
+                        .with_not_after(0)
+                        .build(),
+                ),
+                predicate::eq(None),
+            )
             .times(1)
-            .returning(|_| Ok(()));
+            .returning(|_, _| Ok(()));
         let mut mock_model = MockReconModelTest::new();
         mock_model
             .expect_range()
@@ -524,16 +518,19 @@ mod tests {
         let mut mock_interest = MockReconInterestTest::new();
         mock_interest
             .expect_insert()
-            .with(predicate::eq(
-                Interest::builder()
-                    .with_sort_key("model")
-                    .with_peer_id(&peer_id)
-                    .with_range((start.as_slice(), end.as_slice()))
-                    .with_not_after(0)
-                    .build(),
-            ))
+            .with(
+                predicate::eq(
+                    Interest::builder()
+                        .with_sort_key("model")
+                        .with_peer_id(&peer_id)
+                        .with_range((start.as_slice(), end.as_slice()))
+                        .with_not_after(0)
+                        .build(),
+                ),
+                predicate::eq(None),
+            )
             .times(1)
-            .returning(|_| Ok(()));
+            .returning(|_, _| Ok(()));
         let mut mock_model = MockReconModelTest::new();
         mock_model
             .expect_range()
@@ -587,16 +584,19 @@ mod tests {
         let mut mock_interest = MockReconInterestTest::new();
         mock_interest
             .expect_insert()
-            .with(predicate::eq(
-                Interest::builder()
-                    .with_sort_key("model")
-                    .with_peer_id(&peer_id)
-                    .with_range((start.as_slice(), end.as_slice()))
-                    .with_not_after(0)
-                    .build(),
-            ))
+            .with(
+                predicate::eq(
+                    Interest::builder()
+                        .with_sort_key("model")
+                        .with_peer_id(&peer_id)
+                        .with_range((start.as_slice(), end.as_slice()))
+                        .with_not_after(0)
+                        .build(),
+                ),
+                predicate::eq(None),
+            )
             .times(1)
-            .returning(|_| Ok(()));
+            .returning(|_, _| Ok(()));
         let mut mock_model = MockReconModelTest::new();
         mock_model
             .expect_range()
@@ -650,16 +650,19 @@ mod tests {
         let mut mock_interest = MockReconInterestTest::new();
         mock_interest
             .expect_insert()
-            .with(predicate::eq(
-                Interest::builder()
-                    .with_sort_key("model")
-                    .with_peer_id(&peer_id)
-                    .with_range((start.as_slice(), end.as_slice()))
-                    .with_not_after(0)
-                    .build(),
-            ))
+            .with(
+                predicate::eq(
+                    Interest::builder()
+                        .with_sort_key("model")
+                        .with_peer_id(&peer_id)
+                        .with_range((start.as_slice(), end.as_slice()))
+                        .with_not_after(0)
+                        .build(),
+                ),
+                predicate::eq(None),
+            )
             .times(1)
-            .returning(|_| Ok(()));
+            .returning(|_, _| Ok(()));
         let mut mock_model = MockReconModelTest::new();
         mock_model
             .expect_range()

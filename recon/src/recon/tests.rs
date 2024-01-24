@@ -40,7 +40,7 @@ use pretty::{Arena, DocAllocator, DocBuilder, Pretty};
 
 use crate::{
     protocol::{self, InitiatorMessage, ResponderMessage, ValueResponse},
-    recon::{FullInterests, HashCount, InterestProvider, Range},
+    recon::{FullInterests, HashCount, InterestProvider, Range, ReconItem},
     tests::AlphaNumBytes,
     AssociativeHash, BTreeStore, Client, Key, Metrics, Recon, Server, Sha256a, Store,
 };
@@ -569,10 +569,12 @@ async fn word_lists() {
         );
         for key in s.split([' ', '\n']).map(|s| s.to_string()) {
             if !s.is_empty() {
-                r.insert(&key.as_bytes().into()).await.unwrap();
-                r.store_value_for_key(key.as_bytes().into(), key.to_uppercase().as_bytes().into())
-                    .await
-                    .unwrap();
+                r.insert(ReconItem::new(
+                    &key.as_bytes().into(),
+                    key.to_uppercase().as_bytes().into(),
+                ))
+                .await
+                .unwrap();
             }
         }
         start_recon(r)
