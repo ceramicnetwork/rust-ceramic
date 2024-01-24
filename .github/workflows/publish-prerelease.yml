@@ -1,5 +1,5 @@
-# Create a release from the latest tag
-name: Publish Release
+# Create a prerelease from the latest tag
+name: Publish Prerelease
 
 permissions:
   contents: write
