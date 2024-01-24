@@ -69,8 +69,8 @@ jobs:
             # the recommended way to trigger one workflow from another.
             #
             # This would imply that there was some issue with the repo or workflow configuration but GitHub does trigger
-            # the "published" workflow. Because of this, we're detecting pre-releases through the "published" event and
-            # its "prerelease" flag.
+            # the "published" event. Because of this, we're detecting pre-releases through the "published" event and its
+            # "prerelease" flag.
             #
             # Strangely enough, the "edited" and "released" events are triggered when promoting the pre-release to a
             # release through the GitHub console (╯°□°)╯︵ ┻━┻ 
