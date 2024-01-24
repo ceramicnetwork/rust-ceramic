@@ -6,7 +6,7 @@ cd $DIR/..
 
 
 # Generate crate
-npx @openapitools/openapi-generator-cli \
+./ci-scripts/openapi-generator-cli.sh \
     generate \
     -i api/ceramic.yaml \
     -g rust-server  \

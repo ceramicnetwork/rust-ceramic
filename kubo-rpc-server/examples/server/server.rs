@@ -122,7 +122,6 @@ where
         offline: Option<bool>,
         context: &C,
     ) -> Result<BlockGetPostResponse, ApiError> {
-        let context = context.clone();
         info!(
             "block_get_post(\"{}\", {:?}, {:?}) - X-Span-ID: {:?}",
             arg,
@@ -142,7 +141,6 @@ where
         pin: Option<bool>,
         context: &C,
     ) -> Result<BlockPutPostResponse, ApiError> {
-        let context = context.clone();
         info!(
             "block_put_post({:?}, {:?}, {:?}, {:?}) - X-Span-ID: {:?}",
             file,
@@ -160,7 +158,6 @@ where
         arg: String,
         context: &C,
     ) -> Result<BlockStatPostResponse, ApiError> {
-        let context = context.clone();
         info!(
             "block_stat_post(\"{}\") - X-Span-ID: {:?}",
             arg,
@@ -176,7 +173,6 @@ where
         output_codec: Option<models::Codecs>,
         context: &C,
     ) -> Result<DagGetPostResponse, ApiError> {
-        let context = context.clone();
         info!(
             "dag_get_post(\"{}\", {:?}) - X-Span-ID: {:?}",
             arg,
@@ -192,7 +188,6 @@ where
         file: swagger::ByteArray,
         context: &C,
     ) -> Result<DagImportPostResponse, ApiError> {
-        let context = context.clone();
         info!(
             "dag_import_post({:?}) - X-Span-ID: {:?}",
             file,
@@ -209,7 +204,6 @@ where
         input_codec: Option<models::Codecs>,
         context: &C,
     ) -> Result<DagPutPostResponse, ApiError> {
-        let context = context.clone();
         info!(
             "dag_put_post({:?}, {:?}, {:?}) - X-Span-ID: {:?}",
             file,
@@ -226,7 +220,6 @@ where
         arg: String,
         context: &C,
     ) -> Result<DagResolvePostResponse, ApiError> {
-        let context = context.clone();
         info!(
             "dag_resolve_post(\"{}\") - X-Span-ID: {:?}",
             arg,
@@ -237,7 +230,6 @@ where
 
     /// Report identifying information about a node
     async fn id_post(&self, arg: Option<String>, context: &C) -> Result<IdPostResponse, ApiError> {
-        let context = context.clone();
         info!(
             "id_post({:?}) - X-Span-ID: {:?}",
             arg,
@@ -254,7 +246,6 @@ where
         progress: Option<bool>,
         context: &C,
     ) -> Result<PinAddPostResponse, ApiError> {
-        let context = context.clone();
         info!(
             "pin_add_post(\"{}\", {:?}, {:?}) - X-Span-ID: {:?}",
             arg,
@@ -267,7 +258,6 @@ where
 
     /// Remove a block from the pin store
     async fn pin_rm_post(&self, arg: String, context: &C) -> Result<PinRmPostResponse, ApiError> {
-        let context = context.clone();
         info!(
             "pin_rm_post(\"{}\") - X-Span-ID: {:?}",
             arg,
@@ -282,7 +272,6 @@ where
         arg: &Vec<String>,
         context: &C,
     ) -> Result<SwarmConnectPostResponse, ApiError> {
-        let context = context.clone();
         info!(
             "swarm_connect_post({:?}) - X-Span-ID: {:?}",
             arg,
@@ -293,7 +282,6 @@ where
 
     /// Report connected peers
     async fn swarm_peers_post(&self, context: &C) -> Result<SwarmPeersPostResponse, ApiError> {
-        let context = context.clone();
         info!(
             "swarm_peers_post() - X-Span-ID: {:?}",
             context.get().0.clone()
@@ -303,7 +291,6 @@ where
 
     /// Report server version
     async fn version_post(&self, context: &C) -> Result<VersionPostResponse, ApiError> {
-        let context = context.clone();
         info!("version_post() - X-Span-ID: {:?}", context.get().0.clone());
         Err(ApiError("Generic failure".into()))
     }

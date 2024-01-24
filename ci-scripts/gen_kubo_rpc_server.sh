@@ -8,7 +8,7 @@ cd $DIR/..
 
 
 # Generate crate
-npx @openapitools/openapi-generator-cli \
+./ci-scripts/openapi-generator-cli.sh \
     generate \
     -i kubo-rpc/kubo-rpc.yaml \
     -g rust-server  \
