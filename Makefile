@@ -21,6 +21,9 @@ DEPLOY_TAG ?= latest
 # Whether or not this is a manual deployment
 MANUAL_DEPLOY ?= false
 
+# Test selector
+TEST_SELECTOR ?= .
+
 .PHONY: all
 all: build check-fmt check-clippy test
 
@@ -98,3 +101,7 @@ schedule-ecs-deployment:
 .PHONY: schedule-k8s-deployment
 schedule-k8s-deployment:
 	./ci-scripts/schedule_k8s_deploy.sh "${DEPLOY_ENV}" "${DEPLOY_TAG}"
+
+.PHONY: schedule-tests
+schedule-tests:
+	./ci-scripts/schedule_tests.sh "${DEPLOY_ENV}" "${TEST_SELECTOR}"
