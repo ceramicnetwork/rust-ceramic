@@ -1268,7 +1268,12 @@ mod tests {
         async fn value_for_key(&self, _key: Self::Key) -> Result<Option<Vec<u8>>> {
             Ok(None)
         }
-
+        async fn keys_with_missing_values(
+            &self,
+            _range: RangeOpen<Self::Key>,
+        ) -> Result<Vec<Self::Key>> {
+            unreachable!()
+        }
         async fn interests(&self) -> Result<Vec<RangeOpen<Self::Key>>> {
             unreachable!()
         }

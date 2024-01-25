@@ -99,12 +99,7 @@ impl std::fmt::Debug for Interest {
                 .field("not_after", &self.not_after().map_err(|_| std::fmt::Error)?)
                 .finish()
         } else {
-            let bytes = self.as_slice();
-            if bytes.len() < 6 {
-                write!(f, "{}", hex::encode_upper(bytes))
-            } else {
-                write!(f, "{}", hex::encode_upper(&bytes[bytes.len() - 6..]))
-            }
+            write!(f, "{}", hex::encode_upper(self.as_slice()))
         }
     }
 }

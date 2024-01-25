@@ -128,7 +128,7 @@ where
         let calculated_hash = self.store.hash_range(&range.first, &range.last).await?;
 
         if calculated_hash == range.hash {
-            Ok((SyncState::Synchronized, new_keys))
+            Ok((SyncState::Synchronized { range }, new_keys))
         } else if calculated_hash.hash.is_zero() {
             Ok((
                 SyncState::Unsynchronized {
@@ -258,6 +258,10 @@ where
 
         Ok(new)
     }
+    /// Report all keys in the range that are missing a value
+    pub async fn keys_with_missing_values(&mut self, range: RangeOpen<K>) -> Result<Vec<K>> {
+        self.store.keys_with_missing_values(range).await
+    }
 
     /// Insert many keys into the key space. Includes an optional value for each key.
     /// Returns an array with a boolean for each key indicating if the key was new.
@@ -302,6 +306,22 @@ where
     ) -> Result<Box<dyn Iterator<Item = K> + Send + 'static>> {
         self.store
             .range(left_fencepost, right_fencepost, offset, limit)
+            .await
+    }
+
+    /// Return all keys and values in the range between left_fencepost and right_fencepost.
+    /// Both range bounds are exclusive.
+    ///
+    /// Offset and limit values are applied within the range of keys.
+    pub async fn range_with_values(
+        &mut self,
+        left_fencepost: &K,
+        right_fencepost: &K,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Box<dyn Iterator<Item = (K, Vec<u8>)> + Send + 'static>> {
+        self.store
+            .range_with_values(left_fencepost, right_fencepost, offset, limit)
             .await
     }
 
@@ -448,6 +468,18 @@ pub trait Store: std::fmt::Debug {
         limit: usize,
     ) -> Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>>;
 
+    /// Return all keys and values in the range between left_fencepost and right_fencepost.
+    /// Both range bounds are exclusive.
+    ///
+    /// Offset and limit values are applied within the range of keys.
+    async fn range_with_values(
+        &mut self,
+        left_fencepost: &Self::Key,
+        right_fencepost: &Self::Key,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>>;
+
     /// Return all keys.
     async fn full_range(&mut self) -> Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
         self.range(
@@ -549,6 +581,12 @@ pub trait Store: std::fmt::Debug {
     /// Ok(None) if not stored, and
     /// Err(e) if retrieving failed.
     async fn value_for_key(&mut self, key: &Self::Key) -> Result<Option<Vec<u8>>>;
+
+    /// Report all keys in the range that are missing a value.
+    async fn keys_with_missing_values(
+        &mut self,
+        range: RangeOpen<Self::Key>,
+    ) -> Result<Vec<Self::Key>>;
 }
 
 /// Represents a key that can be reconciled via Recon.
@@ -749,11 +787,23 @@ pub struct Range<K, H> {
     pub last: K,
 }
 
+impl<K, H> From<Range<K, H>> for RangeOpen<K> {
+    fn from(value: Range<K, H>) -> Self {
+        Self {
+            start: value.first,
+            end: value.last,
+        }
+    }
+}
+
 /// Enumerates the possible synchronization states between local and remote peers.
 #[derive(Debug)]
 pub enum SyncState<K, H> {
     /// The local is synchronized with the remote.
-    Synchronized,
+    Synchronized {
+        /// The range and hash of the synchronized range
+        range: Range<K, H>,
+    },
     /// The remote range is missing all data in the range.
     RemoteMissing {
         /// The range and hash of the local data the remote is missing.

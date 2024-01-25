@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 use tokio::{
     select,
     sync::mpsc::{channel, Receiver, Sender},
+    time::Instant,
 };
 use tracing::{trace, Level};
 
@@ -35,6 +36,8 @@ use crate::{
 
 // Number of want value requests to buffer.
 const WANT_VALUES_BUFFER: usize = 10000;
+// Number of sync ranges to buffer.
+const SYNC_RANGES_BUFFER: usize = 1000;
 // Number of message to buffer on the sink before flushing.
 const SINK_BUFFER_COUNT: usize = 100;
 // Limit to the number of pending range requests.
@@ -62,10 +65,12 @@ where
     E: std::error::Error + Send + Sync + 'static,
 {
     let (tx_want_values, rx_want_values) = channel(WANT_VALUES_BUFFER);
+    let (tx_sync_ranges, rx_sync_ranges) = channel(SYNC_RANGES_BUFFER);
     let metrics = recon.metrics();
     let protocol = Protocol::new(
-        Initiator::new(stream, recon, tx_want_values),
+        Initiator::new(stream, recon, tx_want_values, tx_sync_ranges),
         rx_want_values,
+        rx_sync_ranges,
         metrics,
     );
     protocol.run().await?;
@@ -82,10 +87,12 @@ where
     E: std::error::Error + Send + Sync + 'static,
 {
     let (tx_want_values, rx_want_values) = channel(WANT_VALUES_BUFFER);
+    let (tx_sync_ranges, rx_sync_ranges) = channel(SYNC_RANGES_BUFFER);
     let metrics = recon.metrics();
     let protocol = Protocol::new(
-        Responder::new(stream, recon, tx_want_values),
+        Responder::new(stream, recon, tx_want_values, tx_sync_ranges),
         rx_want_values,
+        rx_sync_ranges,
         metrics,
     );
     protocol.run().await?;
@@ -151,10 +158,12 @@ struct Protocol<R: Role> {
     role: R,
 
     rx_want_values: Receiver<R::Key>,
+    rx_sync_ranges: Receiver<RangeOpen<R::Key>>,
 
     listen_only_sent: bool,
     remote_done: bool,
     want_values_done: bool,
+    sync_ranges_done: bool,
 
     metrics: Metrics,
 }
@@ -166,17 +175,25 @@ where
     R::Stream: Stream<Item = Result<R::In, E>>,
     E: std::error::Error + Send + Sync + 'static,
 {
-    fn new(role: R, rx_want_values: Receiver<R::Key>, metrics: Metrics) -> Self {
+    fn new(
+        role: R,
+        rx_want_values: Receiver<R::Key>,
+        rx_sync_ranges: Receiver<RangeOpen<R::Key>>,
+        metrics: Metrics,
+    ) -> Self {
         Self {
             role,
             rx_want_values,
+            rx_sync_ranges,
             listen_only_sent: false,
             remote_done: false,
             want_values_done: false,
+            sync_ranges_done: false,
             metrics,
         }
     }
     async fn run(mut self) -> Result<()> {
+        let start = Instant::now();
         self.role
             .init()
             .await
@@ -209,10 +226,22 @@ where
                         self.want_values_done = true;
                     }
                 }
+                // Handle any synchronized ranges
+                range = self.rx_sync_ranges.recv(), if !self.sync_ranges_done => {
+                    if let Some(range) = range {
+                        self.metrics.record(&RangeDequeued);
+                        self.role.handle_sync_range(range).await.context("handle sync range")?;
+                    } else {
+                        // We have drained all sync ranges,
+                        // we can now close and drain want values.
+                        self.rx_want_values.close();
+                        self.sync_ranges_done = true;
+                    }
+                }
             }
             self.role.each().await?;
 
-            if self.want_values_done && self.role.is_done() {
+            if self.sync_ranges_done && self.want_values_done && self.role.is_done() {
                 if !self.listen_only_sent {
                     self.listen_only_sent = true;
                     self.role
@@ -232,7 +261,7 @@ where
             .context("finishing protocol loop")?;
 
         self.role.close().await.context("closing stream")?;
-        self.metrics.record(&ProtocolRun);
+        self.metrics.record(&ProtocolRun(start.elapsed()));
         Ok(())
     }
 
@@ -241,9 +270,9 @@ where
             RemoteStatus::Active => {}
             RemoteStatus::ListenOnly => {
                 // Remote will no longer send ranges, therefore local will no longer enqueue any
-                // new wants. We close the channels to signal they will not grow and can be
+                // new ranges. We close the channel to signal it will not grow and can be
                 // drained.
-                self.rx_want_values.close();
+                self.rx_sync_ranges.close();
             }
             RemoteStatus::Finished => {
                 self.remote_done = true;
@@ -285,6 +314,8 @@ trait Role {
     async fn send_listen_only(&mut self) -> Result<()>;
     // Feed a want value request to the remote.
     async fn feed_want_value(&mut self, key: Self::Key) -> Result<()>;
+    // Handle a range that has been synchronized
+    async fn handle_sync_range(&mut self, range: RangeOpen<Self::Key>) -> Result<()>;
 }
 
 type InitiatorValueResponseFn<K, H> = fn(ValueResponse<K>) -> InitiatorMessage<K, H>;
@@ -311,7 +342,12 @@ where
         + Sink<InitiatorMessage<R::Key, R::Hash>, Error = E>,
     E: std::error::Error + Send + Sync + 'static,
 {
-    fn new(stream: S, recon: R, tx_want_values: Sender<R::Key>) -> Self {
+    fn new(
+        stream: S,
+        recon: R,
+        tx_want_values: Sender<R::Key>,
+        tx_sync_ranges: Sender<RangeOpen<R::Key>>,
+    ) -> Self {
         let metrics = recon.metrics();
         let stream = SinkFlusher::new(stream, metrics.clone());
         // Use a stack size large enough to handle the split factor of range requests.
@@ -323,6 +359,7 @@ where
                 recon,
                 value_resp_fn: InitiatorMessage::ValueResponse,
                 tx_want_values,
+                tx_sync_ranges,
                 metrics: metrics.clone(),
             },
             ranges_stack,
@@ -335,9 +372,8 @@ where
         let (sync_state, new_keys) = self.common.recon.process_range(remote_range).await?;
         self.common.process_new_keys(&new_keys);
         match sync_state {
-            SyncState::Synchronized => {
-                // TODO: This is where we can append this range to a queue of synced ranges to
-                // later process and ensure we have all values for this range.
+            SyncState::Synchronized { range } => {
+                self.common.enqueue_sync_range(range.into());
             }
             SyncState::RemoteMissing { range } => {
                 self.common.process_remote_missing_range(&range).await?;
@@ -492,6 +528,9 @@ where
     async fn send_listen_only(&mut self) -> Result<()> {
         self.common.stream.send(InitiatorMessage::ListenOnly).await
     }
+    async fn handle_sync_range(&mut self, range: RangeOpen<Self::Key>) -> Result<()> {
+        self.common.handle_sync_range(range).await
+    }
 }
 
 type ResponderValueResponseFn<K, H> = fn(ValueResponse<K>) -> ResponderMessage<K, H>;
@@ -511,7 +550,12 @@ where
         + Sink<ResponderMessage<R::Key, R::Hash>, Error = E>,
     E: std::error::Error + Send + Sync + 'static,
 {
-    fn new(stream: S, recon: R, tx_want_values: Sender<R::Key>) -> Self {
+    fn new(
+        stream: S,
+        recon: R,
+        tx_want_values: Sender<R::Key>,
+        tx_sync_ranges: Sender<RangeOpen<R::Key>>,
+    ) -> Self {
         let metrics = recon.metrics();
         let stream = SinkFlusher::new(stream, metrics.clone());
 
@@ -521,18 +565,18 @@ where
                 recon,
                 value_resp_fn: ResponderMessage::ValueResponse,
                 tx_want_values,
+                tx_sync_ranges,
                 metrics,
             },
         }
     }
 
     async fn process_range(&mut self, range: Range<R::Key, R::Hash>) -> Result<()> {
-        let (sync_state, new_keys) = self.common.recon.process_range(range.clone()).await?;
+        let (sync_state, new_keys) = self.common.recon.process_range(range).await?;
         self.common.process_new_keys(&new_keys);
         match sync_state {
-            SyncState::Synchronized => {
-                // TODO: This is where we can append this range to a queue of synced ranges to
-                // later process and ensure we have all values for this range.
+            SyncState::Synchronized { range } => {
+                self.common.enqueue_sync_range(range.clone().into());
 
                 // We are sync echo back the same range so that the remote learns we are in sync.
                 self.common
@@ -550,12 +594,10 @@ where
                     .await?;
             }
             SyncState::Unsynchronized { ranges: splits } => {
-                trace!("unsynchronized sending response");
                 self.common
                     .stream
                     .send(ResponderMessage::RangeResponse(splits))
                     .await?;
-                trace!("unsynchronized sent response");
             }
         }
         Ok(())
@@ -630,6 +672,9 @@ where
     async fn send_listen_only(&mut self) -> Result<()> {
         self.common.stream.send(ResponderMessage::ListenOnly).await
     }
+    async fn handle_sync_range(&mut self, range: RangeOpen<Self::Key>) -> Result<()> {
+        self.common.handle_sync_range(range).await
+    }
 }
 
 // Common implments common behaviors to both [`Initiator`] and [`Responder`].
@@ -640,6 +685,7 @@ struct Common<R: Recon, S, V> {
     value_resp_fn: V,
 
     tx_want_values: Sender<R::Key>,
+    tx_sync_ranges: Sender<RangeOpen<R::Key>>,
 
     metrics: Metrics,
 }
@@ -711,6 +757,18 @@ where
             .await
             .context("feeding value request")?;
         Ok(())
+    }
+    async fn handle_sync_range(&mut self, range: RangeOpen<R::Key>) -> Result<()> {
+        let keys = self.recon.keys_with_missing_values(range).await?;
+        self.process_new_keys(&keys);
+        Ok(())
+    }
+    fn enqueue_sync_range(&mut self, range: RangeOpen<R::Key>) {
+        if self.tx_sync_ranges.try_send(range).is_err() {
+            self.metrics.record(&RangeEnqueueFailed);
+        } else {
+            self.metrics.record(&RangeEnqueued);
+        }
     }
 }
 
@@ -826,8 +884,12 @@ pub trait Recon: Clone + Send + Sync + 'static {
         Ok(self.len().await? == 0)
     }
 
-    /// retrieve a value associated with a recon key
+    /// Retrieve a value associated with a recon key
     async fn value_for_key(&self, key: Self::Key) -> Result<Option<Vec<u8>>>;
+
+    /// Report all keys in the range that are missing a value
+    async fn keys_with_missing_values(&self, range: RangeOpen<Self::Key>)
+        -> Result<Vec<Self::Key>>;
 
     /// Reports the interests of this recon instance
     async fn interests(&self) -> Result<Vec<RangeOpen<Self::Key>>>;
@@ -889,7 +951,12 @@ where
     async fn value_for_key(&self, key: Self::Key) -> Result<Option<Vec<u8>>> {
         Client::value_for_key(self, key).await
     }
-
+    async fn keys_with_missing_values(
+        &self,
+        range: RangeOpen<Self::Key>,
+    ) -> Result<Vec<Self::Key>> {
+        Client::keys_with_missing_values(self, range).await
+    }
     async fn interests(&self) -> Result<Vec<RangeOpen<Self::Key>>> {
         Client::interests(self).await
     }
