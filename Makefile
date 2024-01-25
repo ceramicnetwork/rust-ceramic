@@ -4,7 +4,7 @@
 # Therefore may be useful in ensuring a change
 # is ready to pass CI checks.
 
-RUSTFLAGS = --cfg tokio_unstable
+RUSTFLAGS = -D warnings --cfg tokio_unstable
 CARGO = RUSTFLAGS='${RUSTFLAGS}' cargo
 
 RELEASE_LEVEL ?= minor
@@ -55,7 +55,6 @@ check-kubo-rpc-server:
 	./ci-scripts/check_kubo_rpc_server.sh
 
 .PHONY: release
-release: RUSTFLAGS += -D warnings
 release:
 	$(CARGO) build -p ceramic-one --locked --release
 

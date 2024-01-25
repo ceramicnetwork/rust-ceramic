@@ -420,9 +420,9 @@ where
                                                         CONTENT_TYPE,
                                                         HeaderValue::from_str("application/json")
                                                             .expect("Unable to create Content-Type header for SUBSCRIBE_SORT_KEY_SORT_VALUE_GET_SUCCESS"));
-                                let body = serde_json::to_string(&body)
+                                let body_content = serde_json::to_string(&body)
                                     .expect("impossible to fail to serialize");
-                                *response.body_mut() = Body::from(body);
+                                *response.body_mut() = Body::from(body_content);
                             }
                         },
                         Err(_) => {
@@ -461,9 +461,9 @@ where
                                                         CONTENT_TYPE,
                                                         HeaderValue::from_str("application/json")
                                                             .expect("Unable to create Content-Type header for VERSION_POST_SUCCESS"));
-                                let body = serde_json::to_string(&body)
+                                let body_content = serde_json::to_string(&body)
                                     .expect("impossible to fail to serialize");
-                                *response.body_mut() = Body::from(body);
+                                *response.body_mut() = Body::from(body_content);
                             }
                         },
                         Err(_) => {

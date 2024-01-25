@@ -118,7 +118,6 @@ where
         event: models::Event,
         context: &C,
     ) -> Result<EventsPostResponse, ApiError> {
-        let context = context.clone();
         info!(
             "events_post({:?}) - X-Span-ID: {:?}",
             event,
@@ -129,7 +128,6 @@ where
 
     /// Test the liveness of the Ceramic node
     async fn liveness_get(&self, context: &C) -> Result<LivenessGetResponse, ApiError> {
-        let context = context.clone();
         info!("liveness_get() - X-Span-ID: {:?}", context.get().0.clone());
         Err(ApiError("Generic failure".into()))
     }
@@ -145,14 +143,12 @@ where
         limit: Option<f64>,
         context: &C,
     ) -> Result<SubscribeSortKeySortValueGetResponse, ApiError> {
-        let context = context.clone();
         info!("subscribe_sort_key_sort_value_get(\"{}\", \"{}\", {:?}, {:?}, {:?}, {:?}) - X-Span-ID: {:?}", sort_key, sort_value, controller, stream_id, offset, limit, context.get().0.clone());
         Err(ApiError("Generic failure".into()))
     }
 
     /// Get the version of the Ceramic node
     async fn version_post(&self, context: &C) -> Result<VersionPostResponse, ApiError> {
-        let context = context.clone();
         info!("version_post() - X-Span-ID: {:?}", context.get().0.clone());
         Err(ApiError("Generic failure".into()))
     }

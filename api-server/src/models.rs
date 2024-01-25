@@ -1,12 +1,14 @@
 #![allow(clippy::useless_vec)]
 #![allow(unused_qualifications)]
 
+use validator::Validate;
+
 #[cfg(any(feature = "client", feature = "server"))]
 use crate::header;
 use crate::models;
 
 /// A Ceramic event as part of a Ceramic Stream
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, validator::Validate)]
 #[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]
 pub struct Event {
     /// Multibase encoding of event id bytes.
@@ -158,7 +160,7 @@ impl std::convert::TryFrom<hyper::header::HeaderValue> for header::IntoHeaderVal
 }
 
 /// Version of the Ceramic node in semver format, e.g. 2.1.0
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, validator::Validate)]
 #[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]
 pub struct Version {
     /// Version of the Ceramic node
@@ -182,7 +184,7 @@ impl std::string::ToString for Version {
         let params: Vec<Option<String>> = vec![self
             .version
             .as_ref()
-            .map(|version| vec!["version".to_string(), version.to_string()].join(","))];
+            .map(|version| ["version".to_string(), version.to_string()].join(","))];
 
         params.into_iter().flatten().collect::<Vec<_>>().join(",")
     }

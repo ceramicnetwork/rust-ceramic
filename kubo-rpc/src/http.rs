@@ -606,9 +606,6 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn block_get_offline_not_found() {
-        // Test data from:
-        // https://ipld.io/specs/codecs/dag-pb/fixtures/cross-codec/#dagpb_data_some
-        let data = hex::decode("0a050001020304").unwrap();
         let cid =
             Cid::from_str("bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom").unwrap();
         let mut mock_ipfs = MockIpfsDepTest::new();

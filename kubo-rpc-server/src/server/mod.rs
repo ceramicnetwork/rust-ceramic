@@ -271,8 +271,8 @@ where
                                                         CONTENT_TYPE,
                                                         HeaderValue::from_str("text/plain")
                                                             .expect("Unable to create Content-Type header for BLOCK_GET_POST_SUCCESS"));
-                                let body = body.0;
-                                *response.body_mut() = Body::from(body);
+                                let body_content = body.0;
+                                *response.body_mut() = Body::from(body_content);
                             }
                             BlockGetPostResponse::BadRequest(body) => {
                                 *response.status_mut() = StatusCode::from_u16(400)
@@ -281,9 +281,9 @@ where
                                                         CONTENT_TYPE,
                                                         HeaderValue::from_str("application/json")
                                                             .expect("Unable to create Content-Type header for BLOCK_GET_POST_BAD_REQUEST"));
-                                let body = serde_json::to_string(&body)
+                                let body_content = serde_json::to_string(&body)
                                     .expect("impossible to fail to serialize");
-                                *response.body_mut() = Body::from(body);
+                                *response.body_mut() = Body::from(body_content);
                             }
                             BlockGetPostResponse::InternalError(body) => {
                                 *response.status_mut() = StatusCode::from_u16(500)
@@ -292,9 +292,9 @@ where
                                                         CONTENT_TYPE,
                                                         HeaderValue::from_str("application/json")
                                                             .expect("Unable to create Content-Type header for BLOCK_GET_POST_INTERNAL_ERROR"));
-                                let body = serde_json::to_string(&body)
+                                let body_content = serde_json::to_string(&body)
                                     .expect("impossible to fail to serialize");
-                                *response.body_mut() = Body::from(body);
+                                *response.body_mut() = Body::from(body_content);
                             }
                         },
                         Err(_) => {
@@ -441,8 +441,8 @@ where
                                                         CONTENT_TYPE,
                                                         HeaderValue::from_str("application/json")
                                                             .expect("Unable to create Content-Type header for BLOCK_PUT_POST_SUCCESS"));
-                                                    let body = serde_json::to_string(&body).expect("impossible to fail to serialize");
-                                                    *response.body_mut() = Body::from(body);
+                                                    let body_content = serde_json::to_string(&body).expect("impossible to fail to serialize");
+                                                    *response.body_mut() = Body::from(body_content);
                                                 },
                                                 BlockPutPostResponse::BadRequest
                                                     (body)
@@ -452,8 +452,8 @@ where
                                                         CONTENT_TYPE,
                                                         HeaderValue::from_str("application/json")
                                                             .expect("Unable to create Content-Type header for BLOCK_PUT_POST_BAD_REQUEST"));
-                                                    let body = serde_json::to_string(&body).expect("impossible to fail to serialize");
-                                                    *response.body_mut() = Body::from(body);
+                                                    let body_content = serde_json::to_string(&body).expect("impossible to fail to serialize");
+                                                    *response.body_mut() = Body::from(body_content);
                                                 },
                                             },
                                             Err(_) => {
@@ -528,9 +528,9 @@ where
                                                         CONTENT_TYPE,
                                                         HeaderValue::from_str("application/json")
                                                             .expect("Unable to create Content-Type header for BLOCK_STAT_POST_SUCCESS"));
-                                let body = serde_json::to_string(&body)
+                                let body_content = serde_json::to_string(&body)
                                     .expect("impossible to fail to serialize");
-                                *response.body_mut() = Body::from(body);
+                                *response.body_mut() = Body::from(body_content);
                             }
                             BlockStatPostResponse::BadRequest(body) => {
                                 *response.status_mut() = StatusCode::from_u16(400)
@@ -539,9 +539,9 @@ where
                                                         CONTENT_TYPE,
                                                         HeaderValue::from_str("application/json")
                                                             .expect("Unable to create Content-Type header for BLOCK_STAT_POST_BAD_REQUEST"));
-                                let body = serde_json::to_string(&body)
+                                let body_content = serde_json::to_string(&body)
                                     .expect("impossible to fail to serialize");
-                                *response.body_mut() = Body::from(body);
+                                *response.body_mut() = Body::from(body_content);
                             }
                         },
                         Err(_) => {
@@ -633,8 +633,8 @@ where
                                                         CONTENT_TYPE,
                                                         HeaderValue::from_str("application/octet-stream")
                                                             .expect("Unable to create Content-Type header for DAG_GET_POST_SUCCESS"));
-                                let body = body.0;
-                                *response.body_mut() = Body::from(body);
+                                let body_content = body.0;
+                                *response.body_mut() = Body::from(body_content);
                             }
                             DagGetPostResponse::BadRequest(body) => {
                                 *response.status_mut() = StatusCode::from_u16(400)
@@ -643,9 +643,9 @@ where
                                                         CONTENT_TYPE,
                                                         HeaderValue::from_str("application/json")
                                                             .expect("Unable to create Content-Type header for DAG_GET_POST_BAD_REQUEST"));
-                                let body = serde_json::to_string(&body)
+                                let body_content = serde_json::to_string(&body)
                                     .expect("impossible to fail to serialize");
-                                *response.body_mut() = Body::from(body);
+                                *response.body_mut() = Body::from(body_content);
                             }
                         },
                         Err(_) => {
@@ -728,8 +728,8 @@ where
                                                         CONTENT_TYPE,
                                                         HeaderValue::from_str("application/json")
                                                             .expect("Unable to create Content-Type header for DAG_IMPORT_POST_SUCCESS"));
-                                                    let body = serde_json::to_string(&body).expect("impossible to fail to serialize");
-                                                    *response.body_mut() = Body::from(body);
+                                                    let body_content = serde_json::to_string(&body).expect("impossible to fail to serialize");
+                                                    *response.body_mut() = Body::from(body_content);
                                                 },
                                                 DagImportPostResponse::BadRequest
                                                     (body)
@@ -739,8 +739,8 @@ where
                                                         CONTENT_TYPE,
                                                         HeaderValue::from_str("application/json")
                                                             .expect("Unable to create Content-Type header for DAG_IMPORT_POST_BAD_REQUEST"));
-                                                    let body = serde_json::to_string(&body).expect("impossible to fail to serialize");
-                                                    *response.body_mut() = Body::from(body);
+                                                    let body_content = serde_json::to_string(&body).expect("impossible to fail to serialize");
+                                                    *response.body_mut() = Body::from(body_content);
                                                 },
                                             },
                                             Err(_) => {
@@ -874,8 +874,8 @@ where
                                                         CONTENT_TYPE,
                                                         HeaderValue::from_str("application/json")
                                                             .expect("Unable to create Content-Type header for DAG_PUT_POST_SUCCESS"));
-                                                    let body = serde_json::to_string(&body).expect("impossible to fail to serialize");
-                                                    *response.body_mut() = Body::from(body);
+                                                    let body_content = serde_json::to_string(&body).expect("impossible to fail to serialize");
+                                                    *response.body_mut() = Body::from(body_content);
                                                 },
                                                 DagPutPostResponse::BadRequest
                                                     (body)
@@ -885,8 +885,8 @@ where
                                                         CONTENT_TYPE,
                                                         HeaderValue::from_str("application/json")
                                                             .expect("Unable to create Content-Type header for DAG_PUT_POST_BAD_REQUEST"));
-                                                    let body = serde_json::to_string(&body).expect("impossible to fail to serialize");
-                                                    *response.body_mut() = Body::from(body);
+                                                    let body_content = serde_json::to_string(&body).expect("impossible to fail to serialize");
+                                                    *response.body_mut() = Body::from(body_content);
                                                 },
                                             },
                                             Err(_) => {
@@ -961,9 +961,9 @@ where
                                                         CONTENT_TYPE,
                                                         HeaderValue::from_str("application/json")
                                                             .expect("Unable to create Content-Type header for DAG_RESOLVE_POST_SUCCESS"));
-                                let body = serde_json::to_string(&body)
+                                let body_content = serde_json::to_string(&body)
                                     .expect("impossible to fail to serialize");
-                                *response.body_mut() = Body::from(body);
+                                *response.body_mut() = Body::from(body_content);
                             }
                             DagResolvePostResponse::BadRequest(body) => {
                                 *response.status_mut() = StatusCode::from_u16(400)
@@ -972,9 +972,9 @@ where
                                                         CONTENT_TYPE,
                                                         HeaderValue::from_str("application/json")
                                                             .expect("Unable to create Content-Type header for DAG_RESOLVE_POST_BAD_REQUEST"));
-                                let body = serde_json::to_string(&body)
+                                let body_content = serde_json::to_string(&body)
                                     .expect("impossible to fail to serialize");
-                                *response.body_mut() = Body::from(body);
+                                *response.body_mut() = Body::from(body_content);
                             }
                         },
                         Err(_) => {
@@ -1037,9 +1037,9 @@ where
                                                         CONTENT_TYPE,
                                                         HeaderValue::from_str("application/json")
                                                             .expect("Unable to create Content-Type header for ID_POST_SUCCESS"));
-                                    let body = serde_json::to_string(&body)
+                                    let body_content = serde_json::to_string(&body)
                                         .expect("impossible to fail to serialize");
-                                    *response.body_mut() = Body::from(body);
+                                    *response.body_mut() = Body::from(body_content);
                                 }
                                 IdPostResponse::BadRequest(body) => {
                                     *response.status_mut() = StatusCode::from_u16(400)
@@ -1048,9 +1048,9 @@ where
                                                         CONTENT_TYPE,
                                                         HeaderValue::from_str("application/json")
                                                             .expect("Unable to create Content-Type header for ID_POST_BAD_REQUEST"));
-                                    let body = serde_json::to_string(&body)
+                                    let body_content = serde_json::to_string(&body)
                                         .expect("impossible to fail to serialize");
-                                    *response.body_mut() = Body::from(body);
+                                    *response.body_mut() = Body::from(body_content);
                                 }
                             }
                         }
@@ -1160,9 +1160,9 @@ where
                                                         CONTENT_TYPE,
                                                         HeaderValue::from_str("application/json")
                                                             .expect("Unable to create Content-Type header for PIN_ADD_POST_SUCCESS"));
-                                let body = serde_json::to_string(&body)
+                                let body_content = serde_json::to_string(&body)
                                     .expect("impossible to fail to serialize");
-                                *response.body_mut() = Body::from(body);
+                                *response.body_mut() = Body::from(body_content);
                             }
                             PinAddPostResponse::BadRequest(body) => {
                                 *response.status_mut() = StatusCode::from_u16(400)
@@ -1171,9 +1171,9 @@ where
                                                         CONTENT_TYPE,
                                                         HeaderValue::from_str("application/json")
                                                             .expect("Unable to create Content-Type header for PIN_ADD_POST_BAD_REQUEST"));
-                                let body = serde_json::to_string(&body)
+                                let body_content = serde_json::to_string(&body)
                                     .expect("impossible to fail to serialize");
-                                *response.body_mut() = Body::from(body);
+                                *response.body_mut() = Body::from(body_content);
                             }
                         },
                         Err(_) => {
@@ -1242,9 +1242,9 @@ where
                                                         CONTENT_TYPE,
                                                         HeaderValue::from_str("application/json")
                                                             .expect("Unable to create Content-Type header for PIN_RM_POST_SUCCESS"));
-                                let body = serde_json::to_string(&body)
+                                let body_content = serde_json::to_string(&body)
                                     .expect("impossible to fail to serialize");
-                                *response.body_mut() = Body::from(body);
+                                *response.body_mut() = Body::from(body_content);
                             }
                             PinRmPostResponse::BadRequest(body) => {
                                 *response.status_mut() = StatusCode::from_u16(400)
@@ -1253,9 +1253,9 @@ where
                                                         CONTENT_TYPE,
                                                         HeaderValue::from_str("application/json")
                                                             .expect("Unable to create Content-Type header for PIN_RM_POST_BAD_REQUEST"));
-                                let body = serde_json::to_string(&body)
+                                let body_content = serde_json::to_string(&body)
                                     .expect("impossible to fail to serialize");
-                                *response.body_mut() = Body::from(body);
+                                *response.body_mut() = Body::from(body_content);
                             }
                         },
                         Err(_) => {
@@ -1307,9 +1307,9 @@ where
                                                         CONTENT_TYPE,
                                                         HeaderValue::from_str("application/json")
                                                             .expect("Unable to create Content-Type header for SWARM_CONNECT_POST_SUCCESS"));
-                                let body = serde_json::to_string(&body)
+                                let body_content = serde_json::to_string(&body)
                                     .expect("impossible to fail to serialize");
-                                *response.body_mut() = Body::from(body);
+                                *response.body_mut() = Body::from(body_content);
                             }
                             SwarmConnectPostResponse::BadRequest(body) => {
                                 *response.status_mut() = StatusCode::from_u16(400)
@@ -1318,9 +1318,9 @@ where
                                                         CONTENT_TYPE,
                                                         HeaderValue::from_str("application/json")
                                                             .expect("Unable to create Content-Type header for SWARM_CONNECT_POST_BAD_REQUEST"));
-                                let body = serde_json::to_string(&body)
+                                let body_content = serde_json::to_string(&body)
                                     .expect("impossible to fail to serialize");
-                                *response.body_mut() = Body::from(body);
+                                *response.body_mut() = Body::from(body_content);
                             }
                         },
                         Err(_) => {
@@ -1359,9 +1359,9 @@ where
                                                         CONTENT_TYPE,
                                                         HeaderValue::from_str("application/json")
                                                             .expect("Unable to create Content-Type header for SWARM_PEERS_POST_SUCCESS"));
-                                let body = serde_json::to_string(&body)
+                                let body_content = serde_json::to_string(&body)
                                     .expect("impossible to fail to serialize");
-                                *response.body_mut() = Body::from(body);
+                                *response.body_mut() = Body::from(body_content);
                             }
                             SwarmPeersPostResponse::BadRequest(body) => {
                                 *response.status_mut() = StatusCode::from_u16(400)
@@ -1370,9 +1370,9 @@ where
                                                         CONTENT_TYPE,
                                                         HeaderValue::from_str("application/json")
                                                             .expect("Unable to create Content-Type header for SWARM_PEERS_POST_BAD_REQUEST"));
-                                let body = serde_json::to_string(&body)
+                                let body_content = serde_json::to_string(&body)
                                     .expect("impossible to fail to serialize");
-                                *response.body_mut() = Body::from(body);
+                                *response.body_mut() = Body::from(body_content);
                             }
                         },
                         Err(_) => {
@@ -1411,9 +1411,9 @@ where
                                                         CONTENT_TYPE,
                                                         HeaderValue::from_str("application/json")
                                                             .expect("Unable to create Content-Type header for VERSION_POST_SUCCESS"));
-                                let body = serde_json::to_string(&body)
+                                let body_content = serde_json::to_string(&body)
                                     .expect("impossible to fail to serialize");
-                                *response.body_mut() = Body::from(body);
+                                *response.body_mut() = Body::from(body_content);
                             }
                             VersionPostResponse::BadRequest(body) => {
                                 *response.status_mut() = StatusCode::from_u16(400)
@@ -1422,9 +1422,9 @@ where
                                                         CONTENT_TYPE,
                                                         HeaderValue::from_str("application/json")
                                                             .expect("Unable to create Content-Type header for VERSION_POST_BAD_REQUEST"));
-                                let body = serde_json::to_string(&body)
+                                let body_content = serde_json::to_string(&body)
                                     .expect("impossible to fail to serialize");
-                                *response.body_mut() = Body::from(body);
+                                *response.body_mut() = Body::from(body_content);
                             }
                         },
                         Err(_) => {

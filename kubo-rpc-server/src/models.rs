@@ -1,10 +1,12 @@
 #![allow(unused_qualifications)]
 
+use validator::Validate;
+
 #[cfg(any(feature = "client", feature = "server"))]
 use crate::header;
 use crate::models;
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, validator::Validate)]
 #[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]
 pub struct BlockPutPost200Response {
     #[serde(rename = "Key")]
@@ -201,7 +203,7 @@ impl std::str::FromStr for Codecs {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, validator::Validate)]
 #[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]
 pub struct DagImportPost200Response {
     #[serde(rename = "Root")]
@@ -339,7 +341,7 @@ impl std::convert::TryFrom<hyper::header::HeaderValue>
     }
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, validator::Validate)]
 #[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]
 pub struct DagPutPost200Response {
     #[serde(rename = "Cid")]
@@ -477,7 +479,7 @@ impl std::convert::TryFrom<hyper::header::HeaderValue>
     }
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, validator::Validate)]
 #[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]
 pub struct DagPutPost200ResponseCid {
     #[serde(rename = "/")]
@@ -611,7 +613,7 @@ impl std::convert::TryFrom<hyper::header::HeaderValue>
     }
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, validator::Validate)]
 #[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]
 pub struct DagResolvePost200Response {
     #[serde(rename = "Cid")]
@@ -768,7 +770,7 @@ impl std::convert::TryFrom<hyper::header::HeaderValue>
 }
 
 /// root cid
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, validator::Validate)]
 #[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]
 pub struct DagResolvePost200ResponseCid {
     /// root cid
@@ -899,7 +901,7 @@ impl std::convert::TryFrom<hyper::header::HeaderValue>
     }
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, validator::Validate)]
 #[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]
 pub struct Error {
     #[serde(rename = "Message")]
@@ -1064,7 +1066,7 @@ impl std::convert::TryFrom<hyper::header::HeaderValue> for header::IntoHeaderVal
     }
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, validator::Validate)]
 #[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]
 pub struct IdPost200Response {
     #[serde(rename = "ID")]
@@ -1318,7 +1320,7 @@ impl std::str::FromStr for Multihash {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, validator::Validate)]
 #[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]
 pub struct PinAddPost200Response {
     #[serde(rename = "Pins")]
@@ -1454,7 +1456,7 @@ impl std::convert::TryFrom<hyper::header::HeaderValue>
     }
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, validator::Validate)]
 #[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]
 pub struct SwarmConnectPost200Response {
     #[serde(rename = "Strings")]
@@ -1590,7 +1592,7 @@ impl std::convert::TryFrom<hyper::header::HeaderValue>
     }
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, validator::Validate)]
 #[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]
 pub struct SwarmPeersPost200Response {
     #[serde(rename = "Peers")]
@@ -1722,7 +1724,7 @@ impl std::convert::TryFrom<hyper::header::HeaderValue>
     }
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, validator::Validate)]
 #[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]
 pub struct SwarmPeersPost200ResponsePeersInner {
     #[serde(rename = "Addr")]
@@ -1871,7 +1873,7 @@ impl std::convert::TryFrom<hyper::header::HeaderValue>
     }
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, validator::Validate)]
 #[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]
 pub struct VersionPost200Response {
     #[serde(rename = "Commit")]
