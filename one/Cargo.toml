@@ -10,6 +10,7 @@ publish = false
 
 [dependencies]
 anyhow.workspace = true
+async-trait.workspace = true
 ceramic-api-server.workspace = true
 ceramic-api.workspace = true
 ceramic-core.workspace = true
@@ -28,6 +29,7 @@ git-version = "0.3"
 glob = "0.3.1"
 home = "0.5"
 hyper.workspace = true
+iroh-car.workspace = true
 iroh-rpc-client.workspace = true
 iroh-rpc-types.workspace = true
 libipld.workspace = true

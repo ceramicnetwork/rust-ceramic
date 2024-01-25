@@ -5,6 +5,7 @@ mod events;
 mod http;
 mod metrics;
 mod network;
+mod recon_car_block_store;
 
 use std::{env, num::NonZeroUsize, path::PathBuf, time::Duration};
 
@@ -13,7 +14,7 @@ use ceramic_core::{EventId, Interest, PeerId, SqlitePool};
 use ceramic_kubo_rpc::Multiaddr;
 
 use ceramic_metrics::{config::Config as MetricsConfig, MetricsHandle};
-use ceramic_p2p::{load_identity, DiskStorage, Keychain, Libp2pConfig};
+use ceramic_p2p::{load_identity, DiskStorage, Keychain, Libp2pConfig, SQLiteBlockStore};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use futures::StreamExt;
 use multibase::Base;
@@ -28,7 +29,7 @@ use swagger::{auth::MakeAllowAllAuthenticator, EmptyContext};
 use tokio::{io::AsyncReadExt, sync::oneshot};
 use tracing::{debug, info, warn};
 
-use crate::network::Ipfs;
+use crate::{network::Ipfs, recon_car_block_store::ReconCarBlockStore};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -288,7 +289,7 @@ type InterestInterest = FullInterests<Interest>;
 type ReconInterest =
     Server<Interest, Sha256a, StoreMetricsMiddleware<InterestStore>, InterestInterest>;
 
-type ModelStore = SQLiteStore<EventId, Sha256a>;
+type ModelStore = ReconCarBlockStore<SQLiteStore<EventId, Sha256a>>;
 type ModelInterest = ReconInterestProvider<Sha256a>;
 type ReconModel = Server<EventId, Sha256a, StoreMetricsMiddleware<ModelStore>, ModelInterest>;
 
@@ -437,7 +438,10 @@ impl Daemon {
 
         // Create second recon store for models.
         let model_store = StoreMetricsMiddleware::new(
-            ModelStore::new(sql_pool.clone(), "model".to_string()).await?,
+            ReconCarBlockStore::new(
+                SQLiteStore::new(sql_pool.clone(), "model".to_string()).await?,
+                SQLiteBlockStore::new(sql_pool.clone()).await?,
+            ),
             recon_metrics.clone(),
         );
 

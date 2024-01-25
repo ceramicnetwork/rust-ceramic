@@ -1279,6 +1279,7 @@ name = "ceramic-one"
 version = "0.9.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "ceramic-api",
  "ceramic-api-server",
  "ceramic-core",
@@ -1298,6 +1299,7 @@ dependencies = [
  "glob",
  "home",
  "hyper",
+ "iroh-car",
  "iroh-rpc-client",
  "iroh-rpc-types",
  "libipld 0.16.0",
