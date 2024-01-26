@@ -3,9 +3,9 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use ceramic_core::{EventId, Interest, SqlitePool};
+use ceramic_core::{EventId, Interest};
 use ceramic_kubo_rpc::{IpfsMetrics, IpfsMetricsMiddleware, IpfsService};
-use ceramic_p2p::{Config as P2pConfig, Libp2pConfig, Node, SQLiteBlockStore};
+use ceramic_p2p::{Config as P2pConfig, Libp2pConfig, Node};
 use iroh_rpc_client::P2pClient;
 use iroh_rpc_types::{p2p::P2pAddr, Addr};
 use libp2p::identity::Keypair;
@@ -33,17 +33,18 @@ impl BuilderState for WithP2p {}
 
 /// Configure the p2p service
 impl Builder<Init> {
-    pub async fn with_p2p<I, M>(
+    pub async fn with_p2p<I, M, S>(
         self,
         libp2p_config: Libp2pConfig,
         keypair: Keypair,
         recons: Option<(I, M)>,
-        sql_pool: SqlitePool,
+        block_store: S,
         metrics: ceramic_p2p::Metrics,
     ) -> anyhow::Result<Builder<WithP2p>>
     where
         I: Recon<Key = Interest, Hash = Sha256a>,
         M: Recon<Key = EventId, Hash = Sha256a>,
+        S: iroh_bitswap::Store,
     {
         let addr = Addr::new_mem();
 
@@ -51,7 +52,8 @@ impl Builder<Init> {
 
         config.libp2p = libp2p_config;
 
-        let mut p2p = Node::new(config, addr.clone(), keypair, recons, sql_pool, metrics).await?;
+        let mut p2p =
+            Node::new(config, addr.clone(), keypair, recons, block_store, metrics).await?;
 
         let task = task::spawn(async move {
             if let Err(err) = p2p.run().await {
@@ -70,10 +72,13 @@ impl Builder<Init> {
 
 /// Finish the build
 impl Builder<WithP2p> {
-    pub async fn build(self, sql_pool: SqlitePool, ipfs_metrics: IpfsMetrics) -> Result<Ipfs> {
+    pub async fn build<S>(self, block_store: S, ipfs_metrics: IpfsMetrics) -> Result<Ipfs<S>>
+    where
+        S: iroh_bitswap::Store,
+    {
         let ipfs_service = Arc::new(IpfsService::new(
             P2pClient::new(self.state.p2p.addr.clone()).await?,
-            SQLiteBlockStore::new(sql_pool).await?,
+            block_store,
         ));
         let ipfs_service = IpfsMetricsMiddleware::new(ipfs_service, ipfs_metrics);
         Ok(Ipfs {
@@ -84,16 +89,16 @@ impl Builder<WithP2p> {
 }
 
 // Provides Ipfs node implementation
-pub struct Ipfs {
-    api: IpfsMetricsMiddleware<Arc<IpfsService>>,
+pub struct Ipfs<S> {
+    api: IpfsMetricsMiddleware<Arc<IpfsService<S>>>,
     p2p: Service<P2pAddr>,
 }
 
-impl Ipfs {
+impl<S> Ipfs<S> {
     pub fn builder() -> Builder<Init> {
         Builder { state: Init {} }
     }
-    pub fn api(&self) -> IpfsMetricsMiddleware<Arc<IpfsService>> {
+    pub fn api(&self) -> IpfsMetricsMiddleware<Arc<IpfsService<S>>> {
         self.api.clone()
     }
     pub async fn stop(self) -> Result<()> {

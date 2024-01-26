@@ -343,6 +343,13 @@ pub struct HashCount<H> {
     count: u64,
 }
 
+impl<H> HashCount<H> {
+    /// Construct a new HashCount
+    pub fn new(hash: H, count: u64) -> Self {
+        Self { hash, count }
+    }
+}
+
 impl<H> std::fmt::Debug for HashCount<H>
 where
     H: std::fmt::Debug,
@@ -377,12 +384,15 @@ impl<H> From<H> for HashCount<H> {
     }
 }
 
+/// A key value pair to store
 #[derive(Clone, Debug)]
 pub struct ReconItem<'a, K>
 where
     K: Key,
 {
+    /// The key.
     pub key: &'a K,
+    /// The value, if not set no value is stored.
     pub value: Option<&'a [u8]>,
 }
 
@@ -390,14 +400,17 @@ impl<'a, K> ReconItem<'a, K>
 where
     K: Key,
 {
+    /// Construct a new item with a key and optional value
     pub fn new(key: &'a K, value: Option<&'a [u8]>) -> Self {
         Self { key, value }
     }
 
+    /// Construct a new with only a key
     pub fn new_key(key: &'a K) -> Self {
         Self { key, value: None }
     }
 
+    /// Construct a new with a key and a value
     pub fn new_with_value(key: &'a K, value: &'a [u8]) -> Self {
         Self {
             key,
@@ -406,15 +419,18 @@ where
     }
 }
 
+/// The result of an insert operation.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct InsertResult {
     /// A true/false list indicating whether or not the key was new.
     /// It is in the same order as the input list of keys.
     pub keys: Vec<bool>,
+    /// Number of values inserted.
     pub value_count: usize,
 }
 
 impl InsertResult {
+    /// Construct an insert result
     pub fn new(new_keys: Vec<bool>, value_count: usize) -> Self {
         Self {
             keys: new_keys,

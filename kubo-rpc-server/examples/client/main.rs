@@ -2,10 +2,10 @@
 
 #[allow(unused_imports)]
 use ceramic_kubo_rpc_server::{
-    models, Api, ApiNoContext, BlockGetPostResponse, BlockPutPostResponse, BlockStatPostResponse,
-    Client, ContextWrapperExt, DagGetPostResponse, DagImportPostResponse, DagPutPostResponse,
-    DagResolvePostResponse, IdPostResponse, PinAddPostResponse, PinRmPostResponse,
-    SwarmConnectPostResponse, SwarmPeersPostResponse, VersionPostResponse,
+    models, Api, ApiNoContext, BlockGetPostResponse, BlockStatPostResponse, Client,
+    ContextWrapperExt, DagGetPostResponse, DagResolvePostResponse, IdPostResponse,
+    PinAddPostResponse, PinRmPostResponse, SwarmConnectPostResponse, SwarmPeersPostResponse,
+    VersionPostResponse,
 };
 use clap::{App, Arg};
 #[allow(unused_imports)]
@@ -36,11 +36,8 @@ fn main() {
                 .help("Sets the operation to run")
                 .possible_values(&[
                     "BlockGetPost",
-                    "BlockPutPost",
                     "BlockStatPost",
                     "DagGetPost",
-                    "DagImportPost",
-                    "DagPutPost",
                     "DagResolvePost",
                     "IdPost",
                     "PinAddPost",
@@ -115,19 +112,6 @@ fn main() {
                 (client.context() as &dyn Has<XSpanIdString>).get().clone()
             );
         }
-        Some("BlockPutPost") => {
-            let result = rt.block_on(client.block_put_post(
-                swagger::ByteArray(Vec::from("BYTE_ARRAY_DATA_HERE")),
-                None,
-                None,
-                None,
-            ));
-            info!(
-                "{:?} (X-Span-ID: {:?})",
-                result,
-                (client.context() as &dyn Has<XSpanIdString>).get().clone()
-            );
-        }
         Some("BlockStatPost") => {
             let result = rt.block_on(client.block_stat_post("arg_example".to_string()));
             info!(
@@ -138,28 +122,6 @@ fn main() {
         }
         Some("DagGetPost") => {
             let result = rt.block_on(client.dag_get_post("arg_example".to_string(), None));
-            info!(
-                "{:?} (X-Span-ID: {:?})",
-                result,
-                (client.context() as &dyn Has<XSpanIdString>).get().clone()
-            );
-        }
-        Some("DagImportPost") => {
-            let result = rt.block_on(
-                client.dag_import_post(swagger::ByteArray(Vec::from("BYTE_ARRAY_DATA_HERE"))),
-            );
-            info!(
-                "{:?} (X-Span-ID: {:?})",
-                result,
-                (client.context() as &dyn Has<XSpanIdString>).get().clone()
-            );
-        }
-        Some("DagPutPost") => {
-            let result = rt.block_on(client.dag_put_post(
-                swagger::ByteArray(Vec::from("BYTE_ARRAY_DATA_HERE")),
-                None,
-                None,
-            ));
             info!(
                 "{:?} (X-Span-ID: {:?})",
                 result,

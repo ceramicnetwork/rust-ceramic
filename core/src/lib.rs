@@ -2,7 +2,7 @@
 //! Core functionality for ceramic, including the StreamId, Cid, and Jws types.
 #![warn(missing_docs)]
 mod bytes;
-mod event_id;
+pub mod event_id;
 mod interest;
 mod jwk;
 mod jws;

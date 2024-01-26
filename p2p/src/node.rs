@@ -7,7 +7,7 @@ use std::{sync::atomic::Ordering, time::Duration};
 
 use ahash::AHashMap;
 use anyhow::{anyhow, bail, Context, Result};
-use ceramic_core::{EventId, Interest, SqlitePool};
+use ceramic_core::{EventId, Interest};
 use ceramic_metrics::{libp2p_metrics, Recorder};
 use cid::Cid;
 use futures_util::stream::StreamExt;
@@ -61,13 +61,14 @@ pub enum NetworkEvent {
 /// Node implements a peer to peer node that participates on the Ceramic network.
 ///
 /// Node provides an external API via RpcMessages.
-pub struct Node<I, M>
+pub struct Node<I, M, S>
 where
     I: Recon<Key = Interest, Hash = Sha256a>,
     M: Recon<Key = EventId, Hash = Sha256a>,
+    S: iroh_bitswap::Store,
 {
     metrics: Metrics,
-    swarm: Swarm<NodeBehaviour<I, M>>,
+    swarm: Swarm<NodeBehaviour<I, M, S>>,
     supported_protocols: HashSet<String>,
     net_receiver_in: Receiver<RpcMessage>,
     dial_queries: AHashMap<PeerId, Vec<OneShotSender<Result<()>>>>,
@@ -87,10 +88,11 @@ where
     active_address_probe: Option<Multiaddr>,
 }
 
-impl<I, M> fmt::Debug for Node<I, M>
+impl<I, M, S> fmt::Debug for Node<I, M, S>
 where
     I: Recon<Key = Interest, Hash = Sha256a>,
     M: Recon<Key = EventId, Hash = Sha256a>,
+    S: iroh_bitswap::Store,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Node")
@@ -119,10 +121,11 @@ const NICE_INTERVAL: Duration = Duration::from_secs(6);
 const BOOTSTRAP_INTERVAL: Duration = Duration::from_secs(5 * 60);
 const EXPIRY_INTERVAL: Duration = Duration::from_secs(1);
 
-impl<I, M> Drop for Node<I, M>
+impl<I, M, S> Drop for Node<I, M, S>
 where
     I: Recon<Key = Interest, Hash = Sha256a>,
     M: Recon<Key = EventId, Hash = Sha256a>,
+    S: iroh_bitswap::Store,
 {
     fn drop(&mut self) {
         self.rpc_task.abort();
@@ -131,18 +134,19 @@ where
 
 // Allow IntoConnectionHandler deprecated associated type.
 // We are not using IntoConnectionHandler directly only referencing the type as part of this event signature.
-type NodeSwarmEvent<I, M> = SwarmEvent<<NodeBehaviour<I, M> as NetworkBehaviour>::ToSwarm>;
-impl<I, M> Node<I, M>
+type NodeSwarmEvent<I, M, S> = SwarmEvent<<NodeBehaviour<I, M, S> as NetworkBehaviour>::ToSwarm>;
+impl<I, M, S> Node<I, M, S>
 where
     I: Recon<Key = Interest, Hash = Sha256a>,
     M: Recon<Key = EventId, Hash = Sha256a>,
+    S: iroh_bitswap::Store,
 {
     pub async fn new(
         config: Config,
         rpc_addr: P2pAddr,
         keypair: Keypair,
         recons: Option<(I, M)>,
-        sql_pool: SqlitePool,
+        block_store: S,
         metrics: Metrics,
     ) -> Result<Self> {
         let (network_sender_in, network_receiver_in) = channel(1024); // TODO: configurable
@@ -153,12 +157,11 @@ where
             ..
         } = config;
 
-        let block_store = crate::SQLiteBlockStore::new(sql_pool).await?;
         let mut swarm = build_swarm(
             &libp2p_config,
             keypair,
             recons,
-            block_store.clone(),
+            block_store,
             metrics.clone(),
         )
         .await?;
@@ -449,7 +452,7 @@ where
     #[tracing::instrument(skip_all)]
     fn handle_swarm_event(
         &mut self,
-        event: NodeSwarmEvent<I, M>,
+        event: NodeSwarmEvent<I, M, S>,
     ) -> Result<Option<SwarmEventResult>> {
         libp2p_metrics().record(&event);
         match event {
@@ -1160,7 +1163,7 @@ mod tests {
     use crate::keys::Keypair;
 
     use async_trait::async_trait;
-    use ceramic_core::RangeOpen;
+    use ceramic_core::{RangeOpen, SqlitePool};
     use futures::TryStreamExt;
     use rand::prelude::*;
     use rand_chacha::ChaCha8Rng;
@@ -1386,7 +1389,7 @@ mod tests {
                 rpc_server_addr,
                 keypair.into(),
                 None::<(DummyRecon<Interest>, DummyRecon<EventId>)>,
-                sql_pool,
+                ceramic_store::Store::new(sql_pool).await?,
                 metrics,
             )
             .await?;

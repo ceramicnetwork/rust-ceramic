@@ -4,26 +4,24 @@ mod metrics;
 
 pub use metrics::{api::MetricsMiddleware, Metrics};
 
-use std::{collections::HashSet, io::Cursor, marker::PhantomData, str::FromStr, time::Duration};
+use std::{collections::HashSet, marker::PhantomData, str::FromStr, time::Duration};
 
 use anyhow::anyhow;
 use async_trait::async_trait;
 use ceramic_kubo_rpc_server::{
     models::{
-        self, BlockPutPost200Response, Codecs, DagImportPost200Response, DagPutPost200Response,
-        DagPutPost200ResponseCid, DagResolvePost200Response, DagResolvePost200ResponseCid,
-        IdPost200Response, Multihash, PinAddPost200Response, SwarmConnectPost200Response,
-        SwarmPeersPost200Response, SwarmPeersPost200ResponsePeersInner, VersionPost200Response,
+        self, BlockStatPost200Response, Codecs, DagResolvePost200Response,
+        DagResolvePost200ResponseCid, IdPost200Response, PinAddPost200Response,
+        SwarmConnectPost200Response, SwarmPeersPost200Response,
+        SwarmPeersPost200ResponsePeersInner, VersionPost200Response,
     },
-    Api, BlockGetPostResponse, BlockPutPostResponse, BlockStatPostResponse, DagGetPostResponse,
-    DagImportPostResponse, DagPutPostResponse, DagResolvePostResponse, IdPostResponse,
-    PinAddPostResponse, PinRmPostResponse, SwarmConnectPostResponse, SwarmPeersPostResponse,
-    VersionPostResponse,
+    Api, BlockGetPostResponse, BlockStatPostResponse, DagGetPostResponse, DagResolvePostResponse,
+    IdPostResponse, PinAddPostResponse, PinRmPostResponse, SwarmConnectPostResponse,
+    SwarmPeersPostResponse, VersionPostResponse,
 };
 use cid::Cid;
-use dag_jose::DagJoseCodec;
 use go_parse_duration::parse_duration;
-use libipld::{cbor::DagCborCodec, json::DagJsonCodec, raw::RawCodec};
+use libipld::{cbor::DagCborCodec, json::DagJsonCodec};
 use libp2p::{Multiaddr, PeerId};
 use multiaddr::Protocol;
 use serde::Serialize;
@@ -95,9 +93,15 @@ where
         const BLOCK_NOT_FOUND_LOCALLY: &str = "block was not found locally (offline)";
         const CONTEXT_DEADLINE_EXCEEDED: &str = "context deadline exceeded";
 
+        // Online is the default so we expect that offline=true is explicitly passed.
+        if !offline.unwrap_or(false) {
+            return Ok(BlockGetPostResponse::BadRequest(create_error(
+                "only offline mode is supported",
+            )));
+        }
+
         let cid = try_or_bad_request!(Cid::from_str(&arg), BlockGetPostResponse);
-        let offline = offline.unwrap_or(false);
-        let data_fut = block::get(self.ipfs.clone(), cid, offline);
+        let data_fut = block::get(self.ipfs.clone(), cid);
         let data = if let Some(timeout) = timeout {
             let timeout = try_or_bad_request!(
                 parse_duration(&timeout).map_err(|err| match err {
@@ -133,51 +137,6 @@ where
         Ok(BlockGetPostResponse::Success(ByteArray(data)))
     }
 
-    #[instrument(skip(self, _context, file), fields(file.len = file.0.len()), ret(level = Level::DEBUG), err(level = Level::ERROR))]
-    async fn block_put_post(
-        &self,
-        file: ByteArray,
-        cid_codec: Option<Codecs>,
-        mhtype: Option<Multihash>,
-        pin: Option<bool>,
-        _context: &C,
-    ) -> Result<BlockPutPostResponse, ApiError> {
-        if let Some(pin) = pin {
-            if pin {
-                return Ok(BlockPutPostResponse::BadRequest(create_error(
-                    "recursive pinning is not supported",
-                )));
-            }
-        };
-        if let Some(mhtype) = mhtype {
-            if mhtype != Multihash::Sha2256 {
-                return Ok(BlockPutPostResponse::BadRequest(create_error(
-                    "unsupported multihash type",
-                )));
-            }
-        };
-
-        let size = file.0.len();
-        let cid = match cid_codec.unwrap_or(Codecs::Raw) {
-            Codecs::Raw => block::put(self.ipfs.clone(), RawCodec, file.0)
-                .await
-                .map_err(to_api_error)?,
-            Codecs::DagCbor => block::put(self.ipfs.clone(), DagCborCodec, file.0)
-                .await
-                .map_err(to_api_error)?,
-            Codecs::DagJson => block::put(self.ipfs.clone(), DagJsonCodec, file.0)
-                .await
-                .map_err(to_api_error)?,
-            Codecs::DagJose => block::put(self.ipfs.clone(), DagJoseCodec, file.0)
-                .await
-                .map_err(to_api_error)?,
-        };
-        Ok(BlockPutPostResponse::Success(BlockPutPost200Response {
-            key: cid.to_string(),
-            size: size as f64,
-        }))
-    }
-
     #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn block_stat_post(
         &self,
@@ -188,7 +147,7 @@ where
         let size = block::stat(self.ipfs.clone(), cid)
             .await
             .map_err(to_api_error)?;
-        Ok(BlockStatPostResponse::Success(BlockPutPost200Response {
+        Ok(BlockStatPostResponse::Success(BlockStatPost200Response {
             key: cid.to_string(),
             size: size as f64,
         }))
@@ -217,73 +176,6 @@ where
                 &format!("unsupported output codec: {output_codec:?}"),
             ))),
         }
-    }
-
-    #[instrument(skip(self, _context, file), fields(file.len = file.0.len()), ret(level = Level::DEBUG), err(level = Level::ERROR))]
-    async fn dag_import_post(
-        &self,
-        file: swagger::ByteArray,
-        _context: &C,
-    ) -> Result<DagImportPostResponse, ApiError> {
-        let cids = dag::import(self.ipfs.clone(), file.0.as_slice())
-            .await
-            .map_err(to_api_error)?;
-        Ok(DagImportPostResponse::Success(DagImportPost200Response {
-            root: DagPutPost200Response {
-                cid: DagPutPost200ResponseCid {
-                    // We know that the CAR file will have at least one root at this point,
-                    // otherwise we'd have errored out during the import.
-                    slash: cids[0].to_string(),
-                },
-            },
-        }))
-    }
-
-    #[instrument(skip(self, _context, file), fields(file.len = file.0.len()), ret(level = Level::DEBUG), err(level = Level::ERROR))]
-    async fn dag_put_post(
-        &self,
-        file: ByteArray,
-        store_codec: Option<Codecs>,
-        input_codec: Option<Codecs>,
-        _context: &C,
-    ) -> Result<DagPutPostResponse, ApiError> {
-        let mut file = Cursor::new(file.0);
-        let cid = match (
-            input_codec.unwrap_or(Codecs::DagJson),
-            store_codec.unwrap_or(Codecs::DagCbor),
-        ) {
-            (Codecs::DagJson, Codecs::DagJson) => {
-                dag::put(self.ipfs.clone(), DagJsonCodec, DagJsonCodec, &mut file)
-                    .await
-                    .map_err(to_api_error)?
-            }
-            (Codecs::DagJson, Codecs::DagCbor) => {
-                dag::put(self.ipfs.clone(), DagJsonCodec, DagCborCodec, &mut file)
-                    .await
-                    .map_err(to_api_error)?
-            }
-            (Codecs::DagCbor, Codecs::DagCbor) => {
-                dag::put(self.ipfs.clone(), DagCborCodec, DagCborCodec, &mut file)
-                    .await
-                    .map_err(to_api_error)?
-            }
-            (Codecs::DagJose, Codecs::DagJose) => {
-                dag::put(self.ipfs.clone(), DagJoseCodec, DagJoseCodec, &mut file)
-                    .await
-                    .map_err(to_api_error)?
-            }
-            (input, store) => {
-                return Ok(DagPutPostResponse::BadRequest(create_error(&format!(
-                    "unsupported codec combination, input-codec: {input}, store-codec: {store}",
-                ))))
-            }
-        };
-
-        Ok(DagPutPostResponse::Success(DagPutPost200Response {
-            cid: DagPutPost200ResponseCid {
-                slash: cid.to_string(),
-            },
-        }))
     }
 
     #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
@@ -472,7 +364,7 @@ struct ErrorJson<'a> {
 #[cfg(test)]
 mod tests {
 
-    use std::collections::HashMap;
+    use std::{collections::HashMap, io::Cursor};
 
     use super::*;
     use crate::{tests::MockIpfsDepTest, PeerInfo};
@@ -545,20 +437,9 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn block_get() {
-        // Test data from:
-        // https://ipld.io/specs/codecs/dag-pb/fixtures/cross-codec/#dagpb_data_some
-        let data = hex::decode("0a050001020304").unwrap();
         let cid =
             Cid::from_str("bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom").unwrap();
-        let mut mock_ipfs = MockIpfsDepTest::new();
-        mock_ipfs.expect_clone().once().return_once(move || {
-            let mut m = MockIpfsDepTest::new();
-            m.expect_block_get()
-                .once()
-                .with(predicate::eq(cid), predicate::eq(false))
-                .return_once(move |_, _| Ok(Bytes::from(data)));
-            m
-        });
+        let mock_ipfs = MockIpfsDepTest::new();
         let server = Server::new(mock_ipfs);
         let resp = server
             .block_get_post(cid.to_string(), None, None, &Context)
@@ -566,8 +447,12 @@ mod tests {
             .unwrap();
 
         expect![[r#"
-            Success(
-                0a050001020304,
+            BadRequest(
+                Error {
+                    message: "only offline mode is supported",
+                    code: 0.0,
+                    type: "error",
+                },
             )
         "#]]
         .assert_debug_eq(&DebugResponse::from(resp));
@@ -586,8 +471,8 @@ mod tests {
             let mut m = MockIpfsDepTest::new();
             m.expect_block_get()
                 .once()
-                .with(predicate::eq(cid), predicate::eq(true))
-                .return_once(move |_, _| Ok(Bytes::from(data)));
+                .with(predicate::eq(cid))
+                .return_once(move |_| Ok(Bytes::from(data)));
             m
         });
         let server = Server::new(mock_ipfs);
@@ -613,8 +498,8 @@ mod tests {
             let mut m = MockIpfsDepTest::new();
             m.expect_block_get()
                 .once()
-                .with(predicate::eq(cid), predicate::eq(true))
-                .return_once(move |_, _| Err(crate::error::Error::NotFound));
+                .with(predicate::eq(cid))
+                .return_once(move |_| Err(crate::error::Error::NotFound));
             m
         });
         let server = Server::new(mock_ipfs);
@@ -648,14 +533,19 @@ mod tests {
             let mut m = MockIpfsDepTest::new();
             m.expect_block_get()
                 .once()
-                .with(predicate::eq(cid), predicate::eq(false))
-                .return_once(move |_, _| Ok(Bytes::from(data)));
+                .with(predicate::eq(cid))
+                .return_once(move |_| Ok(Bytes::from(data)));
             m
         });
         let server = Server::new(mock_ipfs);
 
         let resp = server
-            .block_get_post(cid.to_string(), Some("1s".to_string()), None, &Context)
+            .block_get_post(
+                cid.to_string(),
+                Some("1s".to_string()),
+                Some(true),
+                &Context,
+            )
             .await
             .unwrap();
 
@@ -675,7 +565,7 @@ mod tests {
         let server = Server::new(mock_ipfs);
 
         let resp = server
-            .block_get_post("invalid cid".to_string(), None, None, &Context)
+            .block_get_post("invalid cid".to_string(), None, Some(true), &Context)
             .await
             .unwrap();
 
@@ -689,83 +579,6 @@ mod tests {
             )
         "#]]
         .assert_debug_eq(&DebugResponse::from(resp));
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn block_put() {
-        // Test data from:
-        // https://ipld.io/specs/codecs/dag-json/fixtures/cross-codec/#array-mixed
-        let cbor_cid =
-            Cid::from_str("bafyreidufmzzejc3p7gmh6ivp4fjvca5jfazk57nu6vdkvki4c4vpja724").unwrap(); // cspell:disable-line
-
-        // Cbor encoded bytes
-        let file = hex::decode("8c1b0016db6db6db6db71a000100001901f40200202238ff3aa5f702b33b0016db6db6db6db74261316fc48c6175657320c39f76c49b746521").unwrap();
-        let blob = Bytes::from(file.clone());
-        let mut mock_ipfs = MockIpfsDepTest::new();
-        mock_ipfs.expect_clone().once().return_once(move || {
-            let mut m = MockIpfsDepTest::new();
-            m.expect_put()
-                .once()
-                .with(
-                    predicate::eq(cbor_cid),
-                    predicate::eq(blob),
-                    predicate::eq(vec![]),
-                )
-                .return_once(move |_, _, _| Ok(()));
-            m
-        });
-        let server = Server::new(mock_ipfs);
-        let resp = server
-            .block_put_post(
-                ByteArray(file),
-                Some(Codecs::DagCbor),
-                Some(Multihash::Sha2256),
-                Some(false),
-                &Context,
-            )
-            .await
-            .unwrap();
-        // cSpell:disable
-        expect![[r#"
-            Success(
-                BlockPutPost200Response {
-                    key: "bafyreidufmzzejc3p7gmh6ivp4fjvca5jfazk57nu6vdkvki4c4vpja724",
-                    size: 57.0,
-                },
-            )
-        "#]]
-        .assert_debug_eq(&resp);
-        // cSpell:enable
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn block_put_bad_request() {
-        let mock_ipfs = MockIpfsDepTest::new();
-        let server = Server::new(mock_ipfs);
-
-        let resp = server
-            .block_put_post(
-                ByteArray(vec![]),
-                Some(Codecs::DagCbor),
-                Some(Multihash::Sha2256),
-                Some(true),
-                &Context,
-            )
-            .await
-            .unwrap();
-
-        expect![[r#"
-            BadRequest(
-                Error {
-                    message: "recursive pinning is not supported",
-                    code: 0.0,
-                    type: "error",
-                },
-            )
-        "#]]
-        .assert_debug_eq(&resp);
     }
 
     #[tokio::test]
@@ -792,7 +605,7 @@ mod tests {
 
         expect![[r#"
             Success(
-                BlockPutPost200Response {
+                BlockStatPost200Response {
                     key: "bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom",
                     size: 7.0,
                 },
@@ -927,185 +740,6 @@ mod tests {
         .assert_debug_eq(&resp);
     }
 
-    #[tokio::test]
-    #[traced_test]
-    async fn dag_import() {
-        let car_file = include_bytes!("testdata/carv1-basic.car"); // cspell:disable-line
-        let mut mock_ipfs = MockIpfsDepTest::new();
-        mock_ipfs.expect_clone().once().return_once(move || {
-            let mut m = MockIpfsDepTest::new();
-
-            fn expect_put(m: &mut MockIpfsDepTest, cid: &str) {
-                m.expect_put()
-                    .once()
-                    .with(
-                        predicate::eq(Cid::from_str(cid).unwrap()),
-                        predicate::always(),
-                        predicate::always(),
-                    )
-                    .return_once(|_, _, _| Ok(()));
-            }
-
-            for cid in [
-                "bafyreihyrpefhacm6kkp4ql6j6udakdit7g3dmkzfriqfykhjw6cad5lrm",
-                "QmNX6Tffavsya4xgBi2VJQnSuqy9GsxongxZZ9uZBqp16d",
-                "bafkreifw7plhl6mofk6sfvhnfh64qmkq73oeqwl6sloru6rehaoujituke",
-                "QmWXZxVQ9yZfhQxLD35eDR8LiMRsYtHxYqTFCBbJoiJVys",
-                "bafkreiebzrnroamgos2adnbpgw5apo3z4iishhbdx77gldnbk57d4zdio4",
-                "QmdwjhxpxzcMsR3qUuj7vUL8pbA7MgR3GAxWi2GLHjsKCT",
-                "bafkreidbxzk2ryxwwtqxem4l3xyyjvw35yu4tcct4cqeqxwo47zhxgxqwq",
-                "bafyreidj5idub6mapiupjwjsyyxhyhedxycv4vihfsicm2vt46o7morwlm",
-            ] {
-                expect_put(&mut m, cid)
-            }
-            m
-        });
-        let server = Server::new(mock_ipfs);
-        let resp = server
-            .dag_import_post(ByteArray(car_file.to_vec()), &Context)
-            .await
-            .unwrap();
-
-        expect![[r#"
-            Success(
-                DagImportPost200Response {
-                    root: DagPutPost200Response {
-                        cid: DagPutPost200ResponseCid {
-                            slash: "bafyreihyrpefhacm6kkp4ql6j6udakdit7g3dmkzfriqfykhjw6cad5lrm",
-                        },
-                    },
-                },
-            )
-        "#]]
-        .assert_debug_eq(&resp);
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn dag_put() {
-        // Test data from:
-        // https://ipld.io/specs/codecs/dag-json/fixtures/cross-codec/#array-mixed
-        let cbor_cid =
-            Cid::from_str("bafyreidufmzzejc3p7gmh6ivp4fjvca5jfazk57nu6vdkvki4c4vpja724").unwrap(); // cspell:disable-line
-
-        let file = ByteArray(r#"[6433713753386423,65536,500,2,0,-1,-3,-256,-2784428724,-6433713753386424,{"/":{"bytes":"YTE"}},"Čaues ßvěte!"]"#.as_bytes().to_vec()); // cspell:disable-line
-
-        // Cbor encoded bytes
-        let blob = Bytes::from(hex::decode("8c1b0016db6db6db6db71a000100001901f40200202238ff3aa5f702b33b0016db6db6db6db74261316fc48c6175657320c39f76c49b746521").unwrap());
-        let mut mock_ipfs = MockIpfsDepTest::new();
-        mock_ipfs.expect_clone().once().return_once(move || {
-            let mut m = MockIpfsDepTest::new();
-            m.expect_put()
-                .once()
-                .with(
-                    predicate::eq(cbor_cid),
-                    predicate::eq(blob),
-                    predicate::eq(vec![]),
-                )
-                .return_once(move |_, _, _| Ok(()));
-            m
-        });
-        let server = Server::new(mock_ipfs);
-        let resp = server
-            .dag_put_post(file, None, None, &Context)
-            .await
-            .unwrap();
-
-        // cSpell:disable
-        expect![[r#"
-            Success(
-                DagPutPost200Response {
-                    cid: DagPutPost200ResponseCid {
-                        slash: "bafyreidufmzzejc3p7gmh6ivp4fjvca5jfazk57nu6vdkvki4c4vpja724",
-                    },
-                },
-            )
-        "#]]
-        .assert_debug_eq(&resp);
-        // cSpell:enable
-    }
-    #[tokio::test]
-    #[traced_test]
-    async fn dag_put_store_json() {
-        // Test data from:
-        // https://ipld.io/specs/codecs/dag-json/fixtures/cross-codec/#array-mixed
-        let json_cid =
-            Cid::from_str("baguqeera4iuxsgqusw3ctry362niptivjyio6dxnsn5afctijsahacub2eza").unwrap(); // cspell:disable-line
-        let file = ByteArray(r#"[6433713753386423,65536,500,2,0,-1,-3,-256,-2784428724,-6433713753386424,{"/":{"bytes":"YTE"}},"Čaues ßvěte!"]"#.as_bytes().to_vec()); // cspell:disable-line
-
-        // JSON encoded bytes
-        let blob = Bytes::from(file.0.clone());
-        let mut mock_ipfs = MockIpfsDepTest::new();
-        mock_ipfs.expect_clone().once().return_once(move || {
-            let mut m = MockIpfsDepTest::new();
-            m.expect_put()
-                .once()
-                .with(
-                    predicate::eq(json_cid),
-                    predicate::eq(blob),
-                    predicate::eq(vec![]),
-                )
-                .return_once(move |_, _, _| Ok(()));
-            m
-        });
-        let server = Server::new(mock_ipfs);
-        let resp = server
-            .dag_put_post(file, Some(Codecs::DagJson), None, &Context)
-            .await
-            .unwrap();
-
-        // cSpell:disable
-        expect![[r#"
-            Success(
-                DagPutPost200Response {
-                    cid: DagPutPost200ResponseCid {
-                        slash: "baguqeera4iuxsgqusw3ctry362niptivjyio6dxnsn5afctijsahacub2eza",
-                    },
-                },
-            )
-        "#]]
-        .assert_debug_eq(&resp);
-        // cSpell:enable
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn dag_put_bad_request() {
-        let mock_ipfs = MockIpfsDepTest::new();
-        let server = Server::new(mock_ipfs);
-
-        let resp = server
-            .dag_put_post(ByteArray(vec![]), Some(Codecs::Raw), None, &Context)
-            .await
-            .unwrap();
-
-        expect![[r#"
-            BadRequest(
-                Error {
-                    message: "unsupported codec combination, input-codec: dag-json, store-codec: raw",
-                    code: 0.0,
-                    type: "error",
-                },
-            )
-        "#]]
-        .assert_debug_eq(&resp);
-
-        let resp = server
-            .dag_put_post(ByteArray(vec![]), None, Some(Codecs::Raw), &Context)
-            .await
-            .unwrap();
-
-        expect![[r#"
-            BadRequest(
-                Error {
-                    message: "unsupported codec combination, input-codec: raw, store-codec: dag-cbor",
-                    code: 0.0,
-                    type: "error",
-                },
-            )
-        "#]]
-        .assert_debug_eq(&resp);
-    }
     #[tokio::test]
     #[traced_test]
     async fn dag_resolve() {

@@ -2,8 +2,6 @@ use futures::{future, future::BoxFuture, future::FutureExt, stream, stream::TryS
 use hyper::header::{HeaderName, HeaderValue, CONTENT_TYPE};
 use hyper::{Body, HeaderMap, Request, Response, StatusCode};
 use log::warn;
-use multipart::server::save::SaveResult;
-use multipart::server::Multipart;
 #[allow(unused_imports)]
 use std::convert::{TryFrom, TryInto};
 use std::error::Error;
@@ -24,10 +22,9 @@ pub use crate::context;
 type ServiceFuture = BoxFuture<'static, Result<Response<Body>, crate::ServiceError>>;
 
 use crate::{
-    Api, BlockGetPostResponse, BlockPutPostResponse, BlockStatPostResponse, DagGetPostResponse,
-    DagImportPostResponse, DagPutPostResponse, DagResolvePostResponse, IdPostResponse,
-    PinAddPostResponse, PinRmPostResponse, SwarmConnectPostResponse, SwarmPeersPostResponse,
-    VersionPostResponse,
+    Api, BlockGetPostResponse, BlockStatPostResponse, DagGetPostResponse, DagResolvePostResponse,
+    IdPostResponse, PinAddPostResponse, PinRmPostResponse, SwarmConnectPostResponse,
+    SwarmPeersPostResponse, VersionPostResponse,
 };
 
 mod paths {
@@ -36,11 +33,8 @@ mod paths {
     lazy_static! {
         pub static ref GLOBAL_REGEX_SET: regex::RegexSet = regex::RegexSet::new(vec![
             r"^/api/v0/block/get$",
-            r"^/api/v0/block/put$",
             r"^/api/v0/block/stat$",
             r"^/api/v0/dag/get$",
-            r"^/api/v0/dag/import$",
-            r"^/api/v0/dag/put$",
             r"^/api/v0/dag/resolve$",
             r"^/api/v0/id$",
             r"^/api/v0/pin/add$",
@@ -52,18 +46,15 @@ mod paths {
         .expect("Unable to create global regex set");
     }
     pub(crate) static ID_BLOCK_GET: usize = 0;
-    pub(crate) static ID_BLOCK_PUT: usize = 1;
-    pub(crate) static ID_BLOCK_STAT: usize = 2;
-    pub(crate) static ID_DAG_GET: usize = 3;
-    pub(crate) static ID_DAG_IMPORT: usize = 4;
-    pub(crate) static ID_DAG_PUT: usize = 5;
-    pub(crate) static ID_DAG_RESOLVE: usize = 6;
-    pub(crate) static ID_ID: usize = 7;
-    pub(crate) static ID_PIN_ADD: usize = 8;
-    pub(crate) static ID_PIN_RM: usize = 9;
-    pub(crate) static ID_SWARM_CONNECT: usize = 10;
-    pub(crate) static ID_SWARM_PEERS: usize = 11;
-    pub(crate) static ID_VERSION: usize = 12;
+    pub(crate) static ID_BLOCK_STAT: usize = 1;
+    pub(crate) static ID_DAG_GET: usize = 2;
+    pub(crate) static ID_DAG_RESOLVE: usize = 3;
+    pub(crate) static ID_ID: usize = 4;
+    pub(crate) static ID_PIN_ADD: usize = 5;
+    pub(crate) static ID_PIN_RM: usize = 6;
+    pub(crate) static ID_SWARM_CONNECT: usize = 7;
+    pub(crate) static ID_SWARM_PEERS: usize = 8;
+    pub(crate) static ID_VERSION: usize = 9;
 }
 
 pub struct MakeService<T, C>
@@ -308,171 +299,6 @@ where
                     Ok(response)
                 }
 
-                // BlockPutPost - POST /block/put
-                hyper::Method::POST if path.matched(paths::ID_BLOCK_PUT) => {
-                    let boundary =
-                        match swagger::multipart::form::boundary(&headers) {
-                            Some(boundary) => boundary.to_string(),
-                            None => return Ok(Response::builder()
-                                .status(StatusCode::BAD_REQUEST)
-                                .body(Body::from("Couldn't find valid multipart body".to_string()))
-                                .expect(
-                                    "Unable to create Bad Request response for incorrect boundary",
-                                )),
-                        };
-
-                    // Query parameters (note that non-required or collection query parameters will ignore garbage values, rather than causing a 400 response)
-                    let query_params =
-                        form_urlencoded::parse(uri.query().unwrap_or_default().as_bytes())
-                            .collect::<Vec<_>>();
-                    let param_cid_codec = query_params
-                        .iter()
-                        .filter(|e| e.0 == "cid-codec")
-                        .map(|e| e.1.clone())
-                        .next();
-                    let param_cid_codec = match param_cid_codec {
-                        Some(param_cid_codec) => {
-                            let param_cid_codec =
-                                <models::Codecs as std::str::FromStr>::from_str(&param_cid_codec);
-                            match param_cid_codec {
-                            Ok(param_cid_codec) => Some(param_cid_codec),
-                            Err(e) => return Ok(Response::builder()
-                                .status(StatusCode::BAD_REQUEST)
-                                .body(Body::from(format!("Couldn't parse query parameter cid-codec - doesn't match schema: {}", e)))
-                                .expect("Unable to create Bad Request response for invalid query parameter cid-codec")),
-                        }
-                        }
-                        None => None,
-                    };
-                    let param_mhtype = query_params
-                        .iter()
-                        .filter(|e| e.0 == "mhtype")
-                        .map(|e| e.1.clone())
-                        .next();
-                    let param_mhtype = match param_mhtype {
-                        Some(param_mhtype) => {
-                            let param_mhtype =
-                                <models::Multihash as std::str::FromStr>::from_str(&param_mhtype);
-                            match param_mhtype {
-                            Ok(param_mhtype) => Some(param_mhtype),
-                            Err(e) => return Ok(Response::builder()
-                                .status(StatusCode::BAD_REQUEST)
-                                .body(Body::from(format!("Couldn't parse query parameter mhtype - doesn't match schema: {}", e)))
-                                .expect("Unable to create Bad Request response for invalid query parameter mhtype")),
-                        }
-                        }
-                        None => None,
-                    };
-                    let param_pin = query_params
-                        .iter()
-                        .filter(|e| e.0 == "pin")
-                        .map(|e| e.1.clone())
-                        .next();
-                    let param_pin = match param_pin {
-                        Some(param_pin) => {
-                            let param_pin = <bool as std::str::FromStr>::from_str(&param_pin);
-                            match param_pin {
-                            Ok(param_pin) => Some(param_pin),
-                            Err(e) => return Ok(Response::builder()
-                                .status(StatusCode::BAD_REQUEST)
-                                .body(Body::from(format!("Couldn't parse query parameter pin - doesn't match schema: {}", e)))
-                                .expect("Unable to create Bad Request response for invalid query parameter pin")),
-                        }
-                        }
-                        None => None,
-                    };
-
-                    // Form Body parameters (note that non-required body parameters will ignore garbage
-                    // values, rather than causing a 400 response). Produce warning header and logs for
-                    // any unused fields.
-                    let result = body.into_raw();
-                    match result.await {
-                            Ok(body) => {
-                                use std::io::Read;
-
-                                // Read Form Parameters from body
-                                let mut entries = match Multipart::with_body(&body.to_vec()[..], boundary).save().temp() {
-                                    SaveResult::Full(entries) => {
-                                        entries
-                                    },
-                                    _ => {
-                                        return Ok(Response::builder()
-                                                        .status(StatusCode::BAD_REQUEST)
-                                                        .body(Body::from("Unable to process all message parts".to_string()))
-                                                        .expect("Unable to create Bad Request response due to failure to process all message"))
-                                    },
-                                };
-                                let field_file = entries.fields.remove("file");
-                                let param_file = match field_file {
-                                    Some(field) => {
-                                        let mut reader = field[0].data.readable().expect("Unable to read field for file");
-                                        let mut data = vec![];
-                                        reader.read_to_end(&mut data).expect("Reading saved binary data should never fail");
-                                        swagger::ByteArray(data)
-                                    },
-                                    None => {
-                                        return Ok(
-                                            Response::builder()
-                                            .status(StatusCode::BAD_REQUEST)
-                                            .body(Body::from("Missing required form parameter file".to_string()))
-                                            .expect("Unable to create Bad Request due to missing required form parameter file"))
-                                    }
-                                };
-                                let result = api_impl.block_put_post(
-                                            param_file,
-                                            param_cid_codec,
-                                            param_mhtype,
-                                            param_pin,
-                                        &context
-                                    ).await;
-                                let mut response = Response::new(Body::empty());
-                                response.headers_mut().insert(
-                                            HeaderName::from_static("x-span-id"),
-                                            HeaderValue::from_str((&context as &dyn Has<XSpanIdString>).get().0.clone().as_str())
-                                                .expect("Unable to create X-Span-ID header value"));
-
-                                        match result {
-                                            Ok(rsp) => match rsp {
-                                                BlockPutPostResponse::Success
-                                                    (body)
-                                                => {
-                                                    *response.status_mut() = StatusCode::from_u16(200).expect("Unable to turn 200 into a StatusCode");
-                                                    response.headers_mut().insert(
-                                                        CONTENT_TYPE,
-                                                        HeaderValue::from_str("application/json")
-                                                            .expect("Unable to create Content-Type header for BLOCK_PUT_POST_SUCCESS"));
-                                                    let body_content = serde_json::to_string(&body).expect("impossible to fail to serialize");
-                                                    *response.body_mut() = Body::from(body_content);
-                                                },
-                                                BlockPutPostResponse::BadRequest
-                                                    (body)
-                                                => {
-                                                    *response.status_mut() = StatusCode::from_u16(400).expect("Unable to turn 400 into a StatusCode");
-                                                    response.headers_mut().insert(
-                                                        CONTENT_TYPE,
-                                                        HeaderValue::from_str("application/json")
-                                                            .expect("Unable to create Content-Type header for BLOCK_PUT_POST_BAD_REQUEST"));
-                                                    let body_content = serde_json::to_string(&body).expect("impossible to fail to serialize");
-                                                    *response.body_mut() = Body::from(body_content);
-                                                },
-                                            },
-                                            Err(_) => {
-                                                // Application code returned an error. This should not happen, as the implementation should
-                                                // return a valid response.
-                                                *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
-                                                *response.body_mut() = Body::from("An internal error occurred");
-                                            },
-                                        }
-
-                                        Ok(response)
-                            },
-                            Err(e) => Ok(Response::builder()
-                                                .status(StatusCode::BAD_REQUEST)
-                                                .body(Body::from("Couldn't read multipart body".to_string()))
-                                                .expect("Unable to create Bad Request response due to unable read multipart body")),
-                        }
-                }
-
                 // BlockStatPost - POST /block/stat
                 hyper::Method::POST if path.matched(paths::ID_BLOCK_STAT) => {
                     // Query parameters (note that non-required or collection query parameters will ignore garbage values, rather than causing a 400 response)
@@ -657,253 +483,6 @@ where
                     }
 
                     Ok(response)
-                }
-
-                // DagImportPost - POST /dag/import
-                hyper::Method::POST if path.matched(paths::ID_DAG_IMPORT) => {
-                    let boundary =
-                        match swagger::multipart::form::boundary(&headers) {
-                            Some(boundary) => boundary.to_string(),
-                            None => return Ok(Response::builder()
-                                .status(StatusCode::BAD_REQUEST)
-                                .body(Body::from("Couldn't find valid multipart body".to_string()))
-                                .expect(
-                                    "Unable to create Bad Request response for incorrect boundary",
-                                )),
-                        };
-
-                    // Form Body parameters (note that non-required body parameters will ignore garbage
-                    // values, rather than causing a 400 response). Produce warning header and logs for
-                    // any unused fields.
-                    let result = body.into_raw();
-                    match result.await {
-                            Ok(body) => {
-                                use std::io::Read;
-
-                                // Read Form Parameters from body
-                                let mut entries = match Multipart::with_body(&body.to_vec()[..], boundary).save().temp() {
-                                    SaveResult::Full(entries) => {
-                                        entries
-                                    },
-                                    _ => {
-                                        return Ok(Response::builder()
-                                                        .status(StatusCode::BAD_REQUEST)
-                                                        .body(Body::from("Unable to process all message parts".to_string()))
-                                                        .expect("Unable to create Bad Request response due to failure to process all message"))
-                                    },
-                                };
-                                let field_file = entries.fields.remove("file");
-                                let param_file = match field_file {
-                                    Some(field) => {
-                                        let mut reader = field[0].data.readable().expect("Unable to read field for file");
-                                        let mut data = vec![];
-                                        reader.read_to_end(&mut data).expect("Reading saved binary data should never fail");
-                                        swagger::ByteArray(data)
-                                    },
-                                    None => {
-                                        return Ok(
-                                            Response::builder()
-                                            .status(StatusCode::BAD_REQUEST)
-                                            .body(Body::from("Missing required form parameter file".to_string()))
-                                            .expect("Unable to create Bad Request due to missing required form parameter file"))
-                                    }
-                                };
-                                let result = api_impl.dag_import_post(
-                                            param_file,
-                                        &context
-                                    ).await;
-                                let mut response = Response::new(Body::empty());
-                                response.headers_mut().insert(
-                                            HeaderName::from_static("x-span-id"),
-                                            HeaderValue::from_str((&context as &dyn Has<XSpanIdString>).get().0.clone().as_str())
-                                                .expect("Unable to create X-Span-ID header value"));
-
-                                        match result {
-                                            Ok(rsp) => match rsp {
-                                                DagImportPostResponse::Success
-                                                    (body)
-                                                => {
-                                                    *response.status_mut() = StatusCode::from_u16(200).expect("Unable to turn 200 into a StatusCode");
-                                                    response.headers_mut().insert(
-                                                        CONTENT_TYPE,
-                                                        HeaderValue::from_str("application/json")
-                                                            .expect("Unable to create Content-Type header for DAG_IMPORT_POST_SUCCESS"));
-                                                    let body_content = serde_json::to_string(&body).expect("impossible to fail to serialize");
-                                                    *response.body_mut() = Body::from(body_content);
-                                                },
-                                                DagImportPostResponse::BadRequest
-                                                    (body)
-                                                => {
-                                                    *response.status_mut() = StatusCode::from_u16(400).expect("Unable to turn 400 into a StatusCode");
-                                                    response.headers_mut().insert(
-                                                        CONTENT_TYPE,
-                                                        HeaderValue::from_str("application/json")
-                                                            .expect("Unable to create Content-Type header for DAG_IMPORT_POST_BAD_REQUEST"));
-                                                    let body_content = serde_json::to_string(&body).expect("impossible to fail to serialize");
-                                                    *response.body_mut() = Body::from(body_content);
-                                                },
-                                            },
-                                            Err(_) => {
-                                                // Application code returned an error. This should not happen, as the implementation should
-                                                // return a valid response.
-                                                *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
-                                                *response.body_mut() = Body::from("An internal error occurred");
-                                            },
-                                        }
-
-                                        Ok(response)
-                            },
-                            Err(e) => Ok(Response::builder()
-                                                .status(StatusCode::BAD_REQUEST)
-                                                .body(Body::from("Couldn't read multipart body".to_string()))
-                                                .expect("Unable to create Bad Request response due to unable read multipart body")),
-                        }
-                }
-
-                // DagPutPost - POST /dag/put
-                hyper::Method::POST if path.matched(paths::ID_DAG_PUT) => {
-                    let boundary =
-                        match swagger::multipart::form::boundary(&headers) {
-                            Some(boundary) => boundary.to_string(),
-                            None => return Ok(Response::builder()
-                                .status(StatusCode::BAD_REQUEST)
-                                .body(Body::from("Couldn't find valid multipart body".to_string()))
-                                .expect(
-                                    "Unable to create Bad Request response for incorrect boundary",
-                                )),
-                        };
-
-                    // Query parameters (note that non-required or collection query parameters will ignore garbage values, rather than causing a 400 response)
-                    let query_params =
-                        form_urlencoded::parse(uri.query().unwrap_or_default().as_bytes())
-                            .collect::<Vec<_>>();
-                    let param_store_codec = query_params
-                        .iter()
-                        .filter(|e| e.0 == "store-codec")
-                        .map(|e| e.1.clone())
-                        .next();
-                    let param_store_codec = match param_store_codec {
-                        Some(param_store_codec) => {
-                            let param_store_codec =
-                                <models::Codecs as std::str::FromStr>::from_str(&param_store_codec);
-                            match param_store_codec {
-                            Ok(param_store_codec) => Some(param_store_codec),
-                            Err(e) => return Ok(Response::builder()
-                                .status(StatusCode::BAD_REQUEST)
-                                .body(Body::from(format!("Couldn't parse query parameter store-codec - doesn't match schema: {}", e)))
-                                .expect("Unable to create Bad Request response for invalid query parameter store-codec")),
-                        }
-                        }
-                        None => None,
-                    };
-                    let param_input_codec = query_params
-                        .iter()
-                        .filter(|e| e.0 == "input-codec")
-                        .map(|e| e.1.clone())
-                        .next();
-                    let param_input_codec = match param_input_codec {
-                        Some(param_input_codec) => {
-                            let param_input_codec =
-                                <models::Codecs as std::str::FromStr>::from_str(&param_input_codec);
-                            match param_input_codec {
-                            Ok(param_input_codec) => Some(param_input_codec),
-                            Err(e) => return Ok(Response::builder()
-                                .status(StatusCode::BAD_REQUEST)
-                                .body(Body::from(format!("Couldn't parse query parameter input-codec - doesn't match schema: {}", e)))
-                                .expect("Unable to create Bad Request response for invalid query parameter input-codec")),
-                        }
-                        }
-                        None => None,
-                    };
-
-                    // Form Body parameters (note that non-required body parameters will ignore garbage
-                    // values, rather than causing a 400 response). Produce warning header and logs for
-                    // any unused fields.
-                    let result = body.into_raw();
-                    match result.await {
-                            Ok(body) => {
-                                use std::io::Read;
-
-                                // Read Form Parameters from body
-                                let mut entries = match Multipart::with_body(&body.to_vec()[..], boundary).save().temp() {
-                                    SaveResult::Full(entries) => {
-                                        entries
-                                    },
-                                    _ => {
-                                        return Ok(Response::builder()
-                                                        .status(StatusCode::BAD_REQUEST)
-                                                        .body(Body::from("Unable to process all message parts".to_string()))
-                                                        .expect("Unable to create Bad Request response due to failure to process all message"))
-                                    },
-                                };
-                                let field_file = entries.fields.remove("file");
-                                let param_file = match field_file {
-                                    Some(field) => {
-                                        let mut reader = field[0].data.readable().expect("Unable to read field for file");
-                                        let mut data = vec![];
-                                        reader.read_to_end(&mut data).expect("Reading saved binary data should never fail");
-                                        swagger::ByteArray(data)
-                                    },
-                                    None => {
-                                        return Ok(
-                                            Response::builder()
-                                            .status(StatusCode::BAD_REQUEST)
-                                            .body(Body::from("Missing required form parameter file".to_string()))
-                                            .expect("Unable to create Bad Request due to missing required form parameter file"))
-                                    }
-                                };
-                                let result = api_impl.dag_put_post(
-                                            param_file,
-                                            param_store_codec,
-                                            param_input_codec,
-                                        &context
-                                    ).await;
-                                let mut response = Response::new(Body::empty());
-                                response.headers_mut().insert(
-                                            HeaderName::from_static("x-span-id"),
-                                            HeaderValue::from_str((&context as &dyn Has<XSpanIdString>).get().0.clone().as_str())
-                                                .expect("Unable to create X-Span-ID header value"));
-
-                                        match result {
-                                            Ok(rsp) => match rsp {
-                                                DagPutPostResponse::Success
-                                                    (body)
-                                                => {
-                                                    *response.status_mut() = StatusCode::from_u16(200).expect("Unable to turn 200 into a StatusCode");
-                                                    response.headers_mut().insert(
-                                                        CONTENT_TYPE,
-                                                        HeaderValue::from_str("application/json")
-                                                            .expect("Unable to create Content-Type header for DAG_PUT_POST_SUCCESS"));
-                                                    let body_content = serde_json::to_string(&body).expect("impossible to fail to serialize");
-                                                    *response.body_mut() = Body::from(body_content);
-                                                },
-                                                DagPutPostResponse::BadRequest
-                                                    (body)
-                                                => {
-                                                    *response.status_mut() = StatusCode::from_u16(400).expect("Unable to turn 400 into a StatusCode");
-                                                    response.headers_mut().insert(
-                                                        CONTENT_TYPE,
-                                                        HeaderValue::from_str("application/json")
-                                                            .expect("Unable to create Content-Type header for DAG_PUT_POST_BAD_REQUEST"));
-                                                    let body_content = serde_json::to_string(&body).expect("impossible to fail to serialize");
-                                                    *response.body_mut() = Body::from(body_content);
-                                                },
-                                            },
-                                            Err(_) => {
-                                                // Application code returned an error. This should not happen, as the implementation should
-                                                // return a valid response.
-                                                *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
-                                                *response.body_mut() = Body::from("An internal error occurred");
-                                            },
-                                        }
-
-                                        Ok(response)
-                            },
-                            Err(e) => Ok(Response::builder()
-                                                .status(StatusCode::BAD_REQUEST)
-                                                .body(Body::from("Couldn't read multipart body".to_string()))
-                                                .expect("Unable to create Bad Request response due to unable read multipart body")),
-                        }
                 }
 
                 // DagResolvePost - POST /dag/resolve
@@ -1439,11 +1018,8 @@ where
                 }
 
                 _ if path.matched(paths::ID_BLOCK_GET) => method_not_allowed(),
-                _ if path.matched(paths::ID_BLOCK_PUT) => method_not_allowed(),
                 _ if path.matched(paths::ID_BLOCK_STAT) => method_not_allowed(),
                 _ if path.matched(paths::ID_DAG_GET) => method_not_allowed(),
-                _ if path.matched(paths::ID_DAG_IMPORT) => method_not_allowed(),
-                _ if path.matched(paths::ID_DAG_PUT) => method_not_allowed(),
                 _ if path.matched(paths::ID_DAG_RESOLVE) => method_not_allowed(),
                 _ if path.matched(paths::ID_ID) => method_not_allowed(),
                 _ if path.matched(paths::ID_PIN_ADD) => method_not_allowed(),
@@ -1469,16 +1045,10 @@ impl<T> RequestParser<T> for ApiRequestParser {
         match *request.method() {
             // BlockGetPost - POST /block/get
             hyper::Method::POST if path.matched(paths::ID_BLOCK_GET) => Some("BlockGetPost"),
-            // BlockPutPost - POST /block/put
-            hyper::Method::POST if path.matched(paths::ID_BLOCK_PUT) => Some("BlockPutPost"),
             // BlockStatPost - POST /block/stat
             hyper::Method::POST if path.matched(paths::ID_BLOCK_STAT) => Some("BlockStatPost"),
             // DagGetPost - POST /dag/get
             hyper::Method::POST if path.matched(paths::ID_DAG_GET) => Some("DagGetPost"),
-            // DagImportPost - POST /dag/import
-            hyper::Method::POST if path.matched(paths::ID_DAG_IMPORT) => Some("DagImportPost"),
-            // DagPutPost - POST /dag/put
-            hyper::Method::POST if path.matched(paths::ID_DAG_PUT) => Some("DagPutPost"),
             // DagResolvePost - POST /dag/resolve
             hyper::Method::POST if path.matched(paths::ID_DAG_RESOLVE) => Some("DagResolvePost"),
             // IdPost - POST /id

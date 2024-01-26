@@ -119,15 +119,11 @@ where
     async fn block_size(&self, cid: Cid) -> Result<u64, Error> {
         self.record("block_size", self.ipfs.block_size(cid)).await
     }
-    async fn block_get(&self, cid: Cid, offline: bool) -> Result<Bytes, Error> {
-        self.record("block_get", self.ipfs.block_get(cid, offline))
-            .await
+    async fn block_get(&self, cid: Cid) -> Result<Bytes, Error> {
+        self.record("block_get", self.ipfs.block_get(cid)).await
     }
     async fn get(&self, ipfs_path: &IpfsPath) -> Result<(Cid, Ipld), Error> {
         self.record("get", self.ipfs.get(ipfs_path)).await
-    }
-    async fn put(&self, cid: Cid, blob: Bytes, links: Vec<Cid>) -> Result<(), Error> {
-        self.record("put", self.ipfs.put(cid, blob, links)).await
     }
     async fn resolve(&self, ipfs_path: &IpfsPath) -> Result<(Cid, String), Error> {
         self.record("resolve", self.ipfs.resolve(ipfs_path)).await

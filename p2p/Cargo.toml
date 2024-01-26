@@ -79,6 +79,7 @@ features = [
 criterion.workspace = true
 rand_chacha.workspace = true
 test-log.workspace = true
+ceramic-store.workspace = true
 
 [[bench]]
 name = "lru_cache"

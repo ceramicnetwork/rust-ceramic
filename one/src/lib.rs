@@ -288,7 +288,7 @@ type InterestInterest = FullInterests<Interest>;
 type ReconInterest =
     Server<Interest, Sha256a, StoreMetricsMiddleware<InterestStore>, InterestInterest>;
 
-type ModelStore = SQLiteStore<EventId, Sha256a>;
+type ModelStore = ceramic_store::Store;
 type ModelInterest = ReconInterestProvider<Sha256a>;
 type ReconModel = Server<EventId, Sha256a, StoreMetricsMiddleware<ModelStore>, ModelInterest>;
 
@@ -296,7 +296,7 @@ struct Daemon {
     opts: DaemonOpts,
     peer_id: PeerId,
     network: ceramic_core::Network,
-    ipfs: Ipfs,
+    ipfs: Ipfs<ModelStore>,
     metrics_handle: MetricsHandle,
     recon_interest: ReconInterest,
     recon_model: ReconModel,
@@ -436,10 +436,10 @@ impl Daemon {
         );
 
         // Create second recon store for models.
-        let model_store = StoreMetricsMiddleware::new(
-            ModelStore::new(sql_pool.clone(), "model".to_string()).await?,
-            recon_metrics.clone(),
-        );
+        let model_block_store = ModelStore::new(sql_pool.clone()).await?;
+
+        let model_store =
+            StoreMetricsMiddleware::new(model_block_store.clone(), recon_metrics.clone());
 
         // Construct a recon implementation for interests.
         let mut recon_interest = Server::new(Recon::new(
@@ -464,10 +464,16 @@ impl Daemon {
         let ipfs_metrics =
             ceramic_metrics::MetricsHandle::register(ceramic_kubo_rpc::IpfsMetrics::register);
         let p2p_metrics = ceramic_metrics::MetricsHandle::register(ceramic_p2p::Metrics::register);
-        let ipfs = Ipfs::builder()
-            .with_p2p(p2p_config, keypair, recons, sql_pool.clone(), p2p_metrics)
+        let ipfs = Ipfs::<ModelStore>::builder()
+            .with_p2p(
+                p2p_config,
+                keypair,
+                recons,
+                model_block_store.clone(),
+                p2p_metrics,
+            )
             .await?
-            .build(sql_pool.clone(), ipfs_metrics)
+            .build(model_block_store, ipfs_metrics)
             .await?;
 
         Ok(Daemon {

@@ -4,18 +4,19 @@ use libp2p::{noise, relay, swarm::Executor, tcp, tls, yamux, Swarm, SwarmBuilder
 use libp2p_identity::Keypair;
 use recon::{libp2p::Recon, Sha256a};
 
-use crate::{behaviour::NodeBehaviour, Libp2pConfig, Metrics, SQLiteBlockStore};
+use crate::{behaviour::NodeBehaviour, Libp2pConfig, Metrics};
 
-pub(crate) async fn build_swarm<I, M>(
+pub(crate) async fn build_swarm<I, M, S>(
     config: &Libp2pConfig,
     keypair: Keypair,
     recons: Option<(I, M)>,
-    block_store: SQLiteBlockStore,
+    block_store: S,
     metrics: Metrics,
-) -> Result<Swarm<NodeBehaviour<I, M>>>
+) -> Result<Swarm<NodeBehaviour<I, M, S>>>
 where
     I: Recon<Key = Interest, Hash = Sha256a>,
     M: Recon<Key = EventId, Hash = Sha256a>,
+    S: iroh_bitswap::Store,
 {
     let builder = SwarmBuilder::with_existing_identity(keypair)
         .with_tokio()
@@ -68,17 +69,18 @@ where
     }
 }
 
-fn new_behavior<I, M>(
+fn new_behavior<I, M, S>(
     config: &Libp2pConfig,
     keypair: &Keypair,
     relay_client: Option<relay::client::Behaviour>,
     recons: Option<(I, M)>,
-    block_store: SQLiteBlockStore,
+    block_store: S,
     metrics: Metrics,
-) -> Result<NodeBehaviour<I, M>>
+) -> Result<NodeBehaviour<I, M, S>>
 where
     I: Recon<Key = Interest, Hash = Sha256a> + Send,
     M: Recon<Key = EventId, Hash = Sha256a> + Send,
+    S: iroh_bitswap::Store,
 {
     // TODO(WS1-1363): Remove bitswap async initialization
     let keypair = keypair.clone();

@@ -1,13 +1,12 @@
 use async_trait::async_trait;
 use ceramic_kubo_rpc_server::{
-    models, Api, BlockGetPostResponse, BlockPutPostResponse, BlockStatPostResponse,
-    DagGetPostResponse, DagImportPostResponse, DagPutPostResponse, DagResolvePostResponse,
-    IdPostResponse, PinAddPostResponse, PinRmPostResponse, SwarmConnectPostResponse,
-    SwarmPeersPostResponse, VersionPostResponse,
+    models, Api, BlockGetPostResponse, BlockStatPostResponse, DagGetPostResponse,
+    DagResolvePostResponse, IdPostResponse, PinAddPostResponse, PinRmPostResponse,
+    SwarmConnectPostResponse, SwarmPeersPostResponse, VersionPostResponse,
 };
 use ceramic_metrics::Recorder;
 use futures_util::Future;
-use swagger::{ApiError, ByteArray};
+use swagger::ApiError;
 use tokio::time::Instant;
 
 use crate::http::{metrics::Event, Metrics};
@@ -58,23 +57,6 @@ where
         .await
     }
 
-    /// Put a single IPFS block
-    async fn block_put_post(
-        &self,
-        file: ByteArray,
-        cid_codec: Option<models::Codecs>,
-        mhtype: Option<models::Multihash>,
-        pin: Option<bool>,
-        context: &C,
-    ) -> Result<BlockPutPostResponse, ApiError> {
-        self.record(
-            "/block/put",
-            self.api
-                .block_put_post(file, cid_codec, mhtype, pin, context),
-        )
-        .await
-    }
-
     /// Report statistics about a block
     async fn block_stat_post(
         &self,
@@ -95,32 +77,6 @@ where
         self.record(
             "/dag/get",
             self.api.dag_get_post(arg, output_codec, context),
-        )
-        .await
-    }
-
-    /// Import a CAR file of IPLD nodes into IPFS
-    async fn dag_import_post(
-        &self,
-        file: ByteArray,
-        context: &C,
-    ) -> Result<DagImportPostResponse, ApiError> {
-        self.record("/dag/import", self.api.dag_import_post(file, context))
-            .await
-    }
-
-    /// Put an IPLD node into IPFS
-    async fn dag_put_post(
-        &self,
-        file: ByteArray,
-        store_codec: Option<models::Codecs>,
-        input_codec: Option<models::Codecs>,
-        context: &C,
-    ) -> Result<DagPutPostResponse, ApiError> {
-        self.record(
-            "/dag/put",
-            self.api
-                .dag_put_post(file, store_codec, input_codec, context),
         )
         .await
     }

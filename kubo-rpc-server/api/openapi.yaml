@@ -46,65 +46,6 @@ paths:
                 $ref: '#/components/schemas/Error'
           description: bad request
       summary: Get an IPLD node from IPFS
-  /dag/put:
-    post:
-      parameters:
-      - description: IPFS path to DAG node
-        explode: true
-        in: query
-        name: store-codec
-        required: false
-        schema:
-          $ref: '#/components/schemas/Codecs'
-        style: form
-      - description: Output encoding of the data
-        explode: true
-        in: query
-        name: input-codec
-        required: false
-        schema:
-          $ref: '#/components/schemas/Codecs'
-        style: form
-      requestBody:
-        content:
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/_dag_put_post_request'
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/_dag_put_post_200_response'
-          description: success
-        "400":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-          description: bad request
-      summary: Put an IPLD node into IPFS
-  /dag/import:
-    post:
-      requestBody:
-        content:
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/_dag_put_post_request'
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/_dag_import_post_200_response'
-          description: success
-        "400":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-          description: bad request
-      summary: Import a CAR file of IPLD nodes into IPFS
   /dag/resolve:
     post:
       parameters:
@@ -179,52 +120,6 @@ paths:
                 $ref: '#/components/schemas/Error'
           description: internal error
       summary: Get a single IPFS block
-  /block/put:
-    post:
-      parameters:
-      - description: Codec of the block data
-        explode: true
-        in: query
-        name: cid-codec
-        required: false
-        schema:
-          $ref: '#/components/schemas/Codecs'
-        style: form
-      - description: Multihash type
-        explode: true
-        in: query
-        name: mhtype
-        required: false
-        schema:
-          $ref: '#/components/schemas/Multihash'
-        style: form
-      - description: Whether to recursively pin the block
-        explode: true
-        in: query
-        name: pin
-        required: false
-        schema:
-          type: bool
-        style: form
-      requestBody:
-        content:
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/_dag_put_post_request'
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/_block_put_post_200_response'
-          description: success
-        "400":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-          description: bad request
-      summary: Put a single IPFS block
   /block/stat:
     post:
       parameters:
@@ -241,7 +136,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/_block_put_post_200_response'
+                $ref: '#/components/schemas/_block_stat_post_200_response'
           description: success
         "400":
           content:
@@ -426,44 +321,6 @@ components:
       - Message
       - Type
       type: object
-    _dag_put_post_request:
-      properties:
-        file:
-          format: byte
-          type: string
-      required:
-      - file
-      type: object
-    _dag_put_post_200_response_Cid:
-      example:
-        /: /
-      properties:
-        /:
-          type: string
-      required:
-      - /
-      type: object
-    _dag_put_post_200_response:
-      example:
-        Cid:
-          /: /
-      properties:
-        Cid:
-          $ref: '#/components/schemas/_dag_put_post_200_response_Cid'
-      required:
-      - Cid
-      type: object
-    _dag_import_post_200_response:
-      example:
-        Root:
-          Cid:
-            /: /
-      properties:
-        Root:
-          $ref: '#/components/schemas/_dag_put_post_200_response'
-      required:
-      - Root
-      type: object
     _dag_resolve_post_200_response_Cid:
       description: root cid
       example:
@@ -490,7 +347,7 @@ components:
       - Cid
       - RemPath
       type: object
-    _block_put_post_200_response:
+    _block_stat_post_200_response:
       example:
         Size: 0.8008281904610115
         Key: Key
