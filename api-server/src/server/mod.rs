@@ -22,8 +22,8 @@ pub use crate::context;
 type ServiceFuture = BoxFuture<'static, Result<Response<Body>, crate::ServiceError>>;
 
 use crate::{
-    Api, EventsPostResponse, LivenessGetResponse, SubscribeSortKeySortValueGetResponse,
-    VersionPostResponse,
+    Api, EventsPostResponse, InterestsSortKeySortValuePostResponse, LivenessGetResponse,
+    SubscribeSortKeySortValueGetResponse, VersionPostResponse,
 };
 
 mod paths {
@@ -32,6 +32,7 @@ mod paths {
     lazy_static! {
         pub static ref GLOBAL_REGEX_SET: regex::RegexSet = regex::RegexSet::new(vec![
             r"^/ceramic/events$",
+            r"^/ceramic/interests/(?P<sort_key>[^/?#]*)/(?P<sort_value>[^/?#]*)$",
             r"^/ceramic/liveness$",
             r"^/ceramic/subscribe/(?P<sort_key>[^/?#]*)/(?P<sort_value>[^/?#]*)$",
             r"^/ceramic/version$"
@@ -39,8 +40,17 @@ mod paths {
         .expect("Unable to create global regex set");
     }
     pub(crate) static ID_EVENTS: usize = 0;
-    pub(crate) static ID_LIVENESS: usize = 1;
-    pub(crate) static ID_SUBSCRIBE_SORT_KEY_SORT_VALUE: usize = 2;
+    pub(crate) static ID_INTERESTS_SORT_KEY_SORT_VALUE: usize = 1;
+    lazy_static! {
+        pub static ref REGEX_INTERESTS_SORT_KEY_SORT_VALUE: regex::Regex =
+            #[allow(clippy::invalid_regex)]
+            regex::Regex::new(
+                r"^/ceramic/interests/(?P<sort_key>[^/?#]*)/(?P<sort_value>[^/?#]*)$"
+            )
+            .expect("Unable to create regex for INTERESTS_SORT_KEY_SORT_VALUE");
+    }
+    pub(crate) static ID_LIVENESS: usize = 2;
+    pub(crate) static ID_SUBSCRIBE_SORT_KEY_SORT_VALUE: usize = 3;
     lazy_static! {
         pub static ref REGEX_SUBSCRIBE_SORT_KEY_SORT_VALUE: regex::Regex =
             #[allow(clippy::invalid_regex)]
@@ -49,7 +59,7 @@ mod paths {
             )
             .expect("Unable to create regex for SUBSCRIBE_SORT_KEY_SORT_VALUE");
     }
-    pub(crate) static ID_VERSION: usize = 3;
+    pub(crate) static ID_VERSION: usize = 4;
 }
 
 pub struct MakeService<T, C>
@@ -233,6 +243,128 @@ where
                                                 .body(Body::from(format!("Couldn't read body parameter Event: {}", e)))
                                                 .expect("Unable to create Bad Request response due to unable to read body parameter Event")),
                         }
+                }
+
+                // InterestsSortKeySortValuePost - POST /interests/{sort_key}/{sort_value}
+                hyper::Method::POST if path.matched(paths::ID_INTERESTS_SORT_KEY_SORT_VALUE) => {
+                    // Path parameters
+                    let path: &str = uri.path();
+                    let path_params =
+                    paths::REGEX_INTERESTS_SORT_KEY_SORT_VALUE
+                    .captures(path)
+                    .unwrap_or_else(||
+                        panic!("Path {} matched RE INTERESTS_SORT_KEY_SORT_VALUE in set but failed match against \"{}\"", path, paths::REGEX_INTERESTS_SORT_KEY_SORT_VALUE.as_str())
+                    );
+
+                    let param_sort_key = match percent_encoding::percent_decode(path_params["sort_key"].as_bytes()).decode_utf8() {
+                    Ok(param_sort_key) => match param_sort_key.parse::<String>() {
+                        Ok(param_sort_key) => param_sort_key,
+                        Err(e) => return Ok(Response::builder()
+                                        .status(StatusCode::BAD_REQUEST)
+                                        .body(Body::from(format!("Couldn't parse path parameter sort_key: {}", e)))
+                                        .expect("Unable to create Bad Request response for invalid path parameter")),
+                    },
+                    Err(_) => return Ok(Response::builder()
+                                        .status(StatusCode::BAD_REQUEST)
+                                        .body(Body::from(format!("Couldn't percent-decode path parameter as UTF-8: {}", &path_params["sort_key"])))
+                                        .expect("Unable to create Bad Request response for invalid percent decode"))
+                };
+
+                    let param_sort_value = match percent_encoding::percent_decode(path_params["sort_value"].as_bytes()).decode_utf8() {
+                    Ok(param_sort_value) => match param_sort_value.parse::<String>() {
+                        Ok(param_sort_value) => param_sort_value,
+                        Err(e) => return Ok(Response::builder()
+                                        .status(StatusCode::BAD_REQUEST)
+                                        .body(Body::from(format!("Couldn't parse path parameter sort_value: {}", e)))
+                                        .expect("Unable to create Bad Request response for invalid path parameter")),
+                    },
+                    Err(_) => return Ok(Response::builder()
+                                        .status(StatusCode::BAD_REQUEST)
+                                        .body(Body::from(format!("Couldn't percent-decode path parameter as UTF-8: {}", &path_params["sort_value"])))
+                                        .expect("Unable to create Bad Request response for invalid percent decode"))
+                };
+
+                    // Query parameters (note that non-required or collection query parameters will ignore garbage values, rather than causing a 400 response)
+                    let query_params =
+                        form_urlencoded::parse(uri.query().unwrap_or_default().as_bytes())
+                            .collect::<Vec<_>>();
+                    let param_controller = query_params
+                        .iter()
+                        .filter(|e| e.0 == "controller")
+                        .map(|e| e.1.clone())
+                        .next();
+                    let param_controller = match param_controller {
+                        Some(param_controller) => {
+                            let param_controller =
+                                <String as std::str::FromStr>::from_str(&param_controller);
+                            match param_controller {
+                            Ok(param_controller) => Some(param_controller),
+                            Err(e) => return Ok(Response::builder()
+                                .status(StatusCode::BAD_REQUEST)
+                                .body(Body::from(format!("Couldn't parse query parameter controller - doesn't match schema: {}", e)))
+                                .expect("Unable to create Bad Request response for invalid query parameter controller")),
+                        }
+                        }
+                        None => None,
+                    };
+                    let param_stream_id = query_params
+                        .iter()
+                        .filter(|e| e.0 == "streamId")
+                        .map(|e| e.1.clone())
+                        .next();
+                    let param_stream_id = match param_stream_id {
+                        Some(param_stream_id) => {
+                            let param_stream_id =
+                                <String as std::str::FromStr>::from_str(&param_stream_id);
+                            match param_stream_id {
+                            Ok(param_stream_id) => Some(param_stream_id),
+                            Err(e) => return Ok(Response::builder()
+                                .status(StatusCode::BAD_REQUEST)
+                                .body(Body::from(format!("Couldn't parse query parameter streamId - doesn't match schema: {}", e)))
+                                .expect("Unable to create Bad Request response for invalid query parameter streamId")),
+                        }
+                        }
+                        None => None,
+                    };
+
+                    let result = api_impl
+                        .interests_sort_key_sort_value_post(
+                            param_sort_key,
+                            param_sort_value,
+                            param_controller,
+                            param_stream_id,
+                            &context,
+                        )
+                        .await;
+                    let mut response = Response::new(Body::empty());
+                    response.headers_mut().insert(
+                        HeaderName::from_static("x-span-id"),
+                        HeaderValue::from_str(
+                            (&context as &dyn Has<XSpanIdString>)
+                                .get()
+                                .0
+                                .clone()
+                                .as_str(),
+                        )
+                        .expect("Unable to create X-Span-ID header value"),
+                    );
+
+                    match result {
+                        Ok(rsp) => match rsp {
+                            InterestsSortKeySortValuePostResponse::Success => {
+                                *response.status_mut() = StatusCode::from_u16(204)
+                                    .expect("Unable to turn 204 into a StatusCode");
+                            }
+                        },
+                        Err(_) => {
+                            // Application code returned an error. This should not happen, as the implementation should
+                            // return a valid response.
+                            *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                            *response.body_mut() = Body::from("An internal error occurred");
+                        }
+                    }
+
+                    Ok(response)
                 }
 
                 // LivenessGet - GET /liveness
@@ -478,6 +610,7 @@ where
                 }
 
                 _ if path.matched(paths::ID_EVENTS) => method_not_allowed(),
+                _ if path.matched(paths::ID_INTERESTS_SORT_KEY_SORT_VALUE) => method_not_allowed(),
                 _ if path.matched(paths::ID_LIVENESS) => method_not_allowed(),
                 _ if path.matched(paths::ID_SUBSCRIBE_SORT_KEY_SORT_VALUE) => method_not_allowed(),
                 _ if path.matched(paths::ID_VERSION) => method_not_allowed(),
@@ -499,6 +632,10 @@ impl<T> RequestParser<T> for ApiRequestParser {
         match *request.method() {
             // EventsPost - POST /events
             hyper::Method::POST if path.matched(paths::ID_EVENTS) => Some("EventsPost"),
+            // InterestsSortKeySortValuePost - POST /interests/{sort_key}/{sort_value}
+            hyper::Method::POST if path.matched(paths::ID_INTERESTS_SORT_KEY_SORT_VALUE) => {
+                Some("InterestsSortKeySortValuePost")
+            }
             // LivenessGet - GET /liveness
             hyper::Method::GET if path.matched(paths::ID_LIVENESS) => Some("LivenessGet"),
             // SubscribeSortKeySortValueGet - GET /subscribe/{sort_key}/{sort_value}
