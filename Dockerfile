@@ -12,6 +12,7 @@ ARG BUILD_MODE=release
 
 # Copy in source code
 COPY . .
+COPY .git .git
 
 # Build application using a docker cache
 # To clear the cache use:
