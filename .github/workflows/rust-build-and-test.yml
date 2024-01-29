@@ -163,6 +163,6 @@ jobs:
         run: |
           ./bin/hermetic-driver test \
             --network basic-rust.yaml \
-            --flavor smoke \
+            --flavor correctness \
             --test-selector "fast"
 
