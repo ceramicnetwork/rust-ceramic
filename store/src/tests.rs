@@ -77,7 +77,10 @@ async fn build_car_file(count: usize) -> (Vec<Block>, Vec<u8>) {
     });
     let mut root_bytes = Vec::new();
     root.encode(DagCborCodec, &mut root_bytes).unwrap();
-    let root_cid = Cid::new_v1(0x71, MultihashDigest::digest(&Code::Sha2_256, &root_bytes));
+    let root_cid = Cid::new_v1(
+        DagCborCodec.into(),
+        MultihashDigest::digest(&Code::Sha2_256, &root_bytes),
+    );
     let mut car = Vec::new();
     let roots: Vec<Cid> = vec![root_cid];
     let mut writer = CarWriter::new(CarHeader::V1(roots.into()), &mut car);
@@ -224,12 +227,13 @@ async fn range_query_with_values() {
     recon::Store::insert(&mut store, ReconItem::new(&two_id, Some(&two_car)))
         .await
         .unwrap();
+    // Insert new event without a value to ensure we skip it in the query
     recon::Store::insert(
         &mut store,
         ReconItem::new(
             &random_event_id(
                 Some(2),
-                Some("baeabeibmek7v4ljsu575ohgjhovdxhcw6p6oivgb55hzkeap5po7ghzqty"),
+                Some("baeabeicyxeqioadjgy6v6cpy62a3gngylax54sds7rols2b67yetzaw5r4"),
             ),
             None,
         ),
@@ -255,7 +259,7 @@ async fn double_insert() {
     let mut store = new_store().await;
     let id = random_event_id(Some(10), None);
 
-    // do take the first one
+    // first insert reports its a new key
     expect![
         r#"
         Ok(
@@ -265,7 +269,7 @@ async fn double_insert() {
     ]
     .assert_debug_eq(&recon::Store::insert(&mut store, ReconItem::new_key(&id)).await);
 
-    // reject the second insert of same key
+    // second insert of same key reports it already existed
     expect![
         r#"
         Ok(
@@ -274,6 +278,66 @@ async fn double_insert() {
         "#
     ]
     .assert_debug_eq(&recon::Store::insert(&mut store, ReconItem::new_key(&id)).await);
+}
+
+#[test(tokio::test)]
+async fn double_insert_with_value() {
+    let mut store = new_store().await;
+    let id = random_event_id(Some(10), None);
+    let (_, car) = build_car_file(2).await;
+
+    let item = ReconItem::new_with_value(&id, &car);
+
+    // do take the first one
+    expect![
+        r#"
+        Ok(
+            true,
+        )
+        "#
+    ]
+    .assert_debug_eq(&recon::Store::insert(&mut store, item.clone()).await);
+
+    // reject the second insert of same key with value. Do not override values
+    expect![[r#"
+        Err(
+            Database(
+                SqliteError {
+                    code: 1555,
+                    message: "UNIQUE constraint failed: store_block.cid",
+                },
+            ),
+        )
+    "#]]
+    .assert_debug_eq(&recon::Store::insert(&mut store, item).await);
+}
+
+#[test(tokio::test)]
+async fn update_missing_value() {
+    let mut store = new_store().await;
+    let id = random_event_id(Some(10), None);
+    let (_, car) = build_car_file(2).await;
+
+    let item_without_value = ReconItem::new_key(&id);
+    let item_with_value = ReconItem::new_with_value(&id, &car);
+
+    // do take the first one
+    expect![
+        r#"
+        Ok(
+            true,
+        )
+        "#
+    ]
+    .assert_debug_eq(&recon::Store::insert(&mut store, item_without_value).await);
+
+    // accept the second insert of same key with the value
+    expect![[r#"
+        Ok(
+            false,
+        )
+    "#]]
+    .assert_debug_eq(&recon::Store::insert(&mut store, item_with_value).await);
 }
 
 #[test(tokio::test)]
