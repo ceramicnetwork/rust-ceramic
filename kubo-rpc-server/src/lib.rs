@@ -35,18 +35,9 @@ pub enum BlockGetPostResponse {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[must_use]
-pub enum BlockPutPostResponse {
-    /// success
-    Success(models::BlockPutPost200Response),
-    /// bad request
-    BadRequest(models::Error),
-}
-
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[must_use]
 pub enum BlockStatPostResponse {
     /// success
-    Success(models::BlockPutPost200Response),
+    Success(models::BlockStatPost200Response),
     /// bad request
     BadRequest(models::Error),
 }
@@ -56,24 +47,6 @@ pub enum BlockStatPostResponse {
 pub enum DagGetPostResponse {
     /// success
     Success(swagger::ByteArray),
-    /// bad request
-    BadRequest(models::Error),
-}
-
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[must_use]
-pub enum DagImportPostResponse {
-    /// success
-    Success(models::DagImportPost200Response),
-    /// bad request
-    BadRequest(models::Error),
-}
-
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[must_use]
-pub enum DagPutPostResponse {
-    /// success
-    Success(models::DagPutPost200Response),
     /// bad request
     BadRequest(models::Error),
 }
@@ -161,16 +134,6 @@ pub trait Api<C: Send + Sync> {
         context: &C,
     ) -> Result<BlockGetPostResponse, ApiError>;
 
-    /// Put a single IPFS block
-    async fn block_put_post(
-        &self,
-        file: swagger::ByteArray,
-        cid_codec: Option<models::Codecs>,
-        mhtype: Option<models::Multihash>,
-        pin: Option<bool>,
-        context: &C,
-    ) -> Result<BlockPutPostResponse, ApiError>;
-
     /// Report statistics about a block
     async fn block_stat_post(
         &self,
@@ -185,22 +148,6 @@ pub trait Api<C: Send + Sync> {
         output_codec: Option<models::Codecs>,
         context: &C,
     ) -> Result<DagGetPostResponse, ApiError>;
-
-    /// Import a CAR file of IPLD nodes into IPFS
-    async fn dag_import_post(
-        &self,
-        file: swagger::ByteArray,
-        context: &C,
-    ) -> Result<DagImportPostResponse, ApiError>;
-
-    /// Put an IPLD node into IPFS
-    async fn dag_put_post(
-        &self,
-        file: swagger::ByteArray,
-        store_codec: Option<models::Codecs>,
-        input_codec: Option<models::Codecs>,
-        context: &C,
-    ) -> Result<DagPutPostResponse, ApiError>;
 
     /// Resolve an IPFS path to a DAG node
     async fn dag_resolve_post(
@@ -257,15 +204,6 @@ pub trait ApiNoContext<C: Send + Sync> {
         offline: Option<bool>,
     ) -> Result<BlockGetPostResponse, ApiError>;
 
-    /// Put a single IPFS block
-    async fn block_put_post(
-        &self,
-        file: swagger::ByteArray,
-        cid_codec: Option<models::Codecs>,
-        mhtype: Option<models::Multihash>,
-        pin: Option<bool>,
-    ) -> Result<BlockPutPostResponse, ApiError>;
-
     /// Report statistics about a block
     async fn block_stat_post(&self, arg: String) -> Result<BlockStatPostResponse, ApiError>;
 
@@ -275,20 +213,6 @@ pub trait ApiNoContext<C: Send + Sync> {
         arg: String,
         output_codec: Option<models::Codecs>,
     ) -> Result<DagGetPostResponse, ApiError>;
-
-    /// Import a CAR file of IPLD nodes into IPFS
-    async fn dag_import_post(
-        &self,
-        file: swagger::ByteArray,
-    ) -> Result<DagImportPostResponse, ApiError>;
-
-    /// Put an IPLD node into IPFS
-    async fn dag_put_post(
-        &self,
-        file: swagger::ByteArray,
-        store_codec: Option<models::Codecs>,
-        input_codec: Option<models::Codecs>,
-    ) -> Result<DagPutPostResponse, ApiError>;
 
     /// Resolve an IPFS path to a DAG node
     async fn dag_resolve_post(&self, arg: String) -> Result<DagResolvePostResponse, ApiError>;
@@ -358,20 +282,6 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
             .await
     }
 
-    /// Put a single IPFS block
-    async fn block_put_post(
-        &self,
-        file: swagger::ByteArray,
-        cid_codec: Option<models::Codecs>,
-        mhtype: Option<models::Multihash>,
-        pin: Option<bool>,
-    ) -> Result<BlockPutPostResponse, ApiError> {
-        let context = self.context().clone();
-        self.api()
-            .block_put_post(file, cid_codec, mhtype, pin, &context)
-            .await
-    }
-
     /// Report statistics about a block
     async fn block_stat_post(&self, arg: String) -> Result<BlockStatPostResponse, ApiError> {
         let context = self.context().clone();
@@ -386,28 +296,6 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
     ) -> Result<DagGetPostResponse, ApiError> {
         let context = self.context().clone();
         self.api().dag_get_post(arg, output_codec, &context).await
-    }
-
-    /// Import a CAR file of IPLD nodes into IPFS
-    async fn dag_import_post(
-        &self,
-        file: swagger::ByteArray,
-    ) -> Result<DagImportPostResponse, ApiError> {
-        let context = self.context().clone();
-        self.api().dag_import_post(file, &context).await
-    }
-
-    /// Put an IPLD node into IPFS
-    async fn dag_put_post(
-        &self,
-        file: swagger::ByteArray,
-        store_codec: Option<models::Codecs>,
-        input_codec: Option<models::Codecs>,
-    ) -> Result<DagPutPostResponse, ApiError> {
-        let context = self.context().clone();
-        self.api()
-            .dag_put_post(file, store_codec, input_codec, &context)
-            .await
     }
 
     /// Resolve an IPFS path to a DAG node

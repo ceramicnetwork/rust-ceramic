@@ -9,13 +9,9 @@ edition = "2018"
 [features]
 default = ["client", "server"]
 client = [
-    "mime_0_2",
-    "multipart", "multipart/client", "swagger/multipart_form",
     "hyper", "hyper-openssl", "hyper-tls", "native-tls", "openssl", "url"
 ]
 server = [
-    "mime_0_2",
-    "multipart", "multipart/server",
    "serde_ignored", "hyper", "regex", "percent-encoding", "url", "lazy_static"
 ]
 
@@ -42,8 +38,6 @@ serde_json = "1.0"
 validator = { version = "0.16", features = ["derive"] }
 
 # Crates included if required by the API definition
-mime_0_2 = { package = "mime", version = "0.2.6", optional = true }
-multipart = { version = "0.16", default-features = false, optional = true }
 
 # Common between server and client features
 hyper = {version = "0.14", features = ["full"], optional = true}

@@ -5,11 +5,8 @@ All URIs are relative to */api/v0*
 Method | HTTP request | Description
 ------------- | ------------- | -------------
 ****](default_api.md#) | **POST** /block/get | Get a single IPFS block
-****](default_api.md#) | **POST** /block/put | Put a single IPFS block
 ****](default_api.md#) | **POST** /block/stat | Report statistics about a block
 ****](default_api.md#) | **POST** /dag/get | Get an IPLD node from IPFS
-****](default_api.md#) | **POST** /dag/import | Import a CAR file of IPLD nodes into IPFS
-****](default_api.md#) | **POST** /dag/put | Put an IPLD node into IPFS
 ****](default_api.md#) | **POST** /dag/resolve | Resolve an IPFS path to a DAG node
 ****](default_api.md#) | **POST** /id | Report identifying information about a node
 ****](default_api.md#) | **POST** /pin/add | Add a block to the pin store
@@ -55,43 +52,7 @@ No authorization required
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
 # ****
-> models::BlockPutPost200Response (file, optional)
-Put a single IPFS block
-
-### Required Parameters
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
-  **file** | **swagger::ByteArray**|  | 
- **optional** | **map[string]interface{}** | optional parameters | nil if no parameters
-
-### Optional Parameters
-Optional parameters are passed through a map[string]interface{}.
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
- **file** | **swagger::ByteArray**|  | 
- **cid_codec** | [****](.md)| Codec of the block data | 
- **mhtype** | [****](.md)| Multihash type | 
- **pin** | [****](.md)| Whether to recursively pin the block | 
-
-### Return type
-
-[**models::BlockPutPost200Response**](_block_put_post_200_response.md)
-
-### Authorization
-
-No authorization required
-
-### HTTP request headers
-
- - **Content-Type**: multipart/form-data
- - **Accept**: application/json
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
-
-# ****
-> models::BlockPutPost200Response (arg)
+> models::BlockStatPost200Response (arg)
 Report statistics about a block
 
 ### Required Parameters
@@ -102,7 +63,7 @@ Name | Type | Description  | Notes
 
 ### Return type
 
-[**models::BlockPutPost200Response**](_block_put_post_200_response.md)
+[**models::BlockStatPost200Response**](_block_stat_post_200_response.md)
 
 ### Authorization
 
@@ -146,66 +107,6 @@ No authorization required
 
  - **Content-Type**: Not defined
  - **Accept**: application/json, application/octet-stream
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
-
-# ****
-> models::DagImportPost200Response (file)
-Import a CAR file of IPLD nodes into IPFS
-
-### Required Parameters
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
-  **file** | **swagger::ByteArray**|  | 
-
-### Return type
-
-[**models::DagImportPost200Response**](_dag_import_post_200_response.md)
-
-### Authorization
-
-No authorization required
-
-### HTTP request headers
-
- - **Content-Type**: multipart/form-data
- - **Accept**: application/json
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
-
-# ****
-> models::DagPutPost200Response (file, optional)
-Put an IPLD node into IPFS
-
-### Required Parameters
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
-  **file** | **swagger::ByteArray**|  | 
- **optional** | **map[string]interface{}** | optional parameters | nil if no parameters
-
-### Optional Parameters
-Optional parameters are passed through a map[string]interface{}.
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
- **file** | **swagger::ByteArray**|  | 
- **store_codec** | [****](.md)| IPFS path to DAG node | 
- **input_codec** | [****](.md)| Output encoding of the data | 
-
-### Return type
-
-[**models::DagPutPost200Response**](_dag_put_post_200_response.md)
-
-### Authorization
-
-No authorization required
-
-### HTTP request headers
-
- - **Content-Type**: multipart/form-data
- - **Accept**: application/json
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 

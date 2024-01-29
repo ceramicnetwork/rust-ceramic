@@ -3,11 +3,8 @@
 Cargo.toml
 README.md
 api/openapi.yaml
-docs/BlockPutPost200Response.md
+docs/BlockStatPost200Response.md
 docs/Codecs.md
-docs/DagImportPost200Response.md
-docs/DagPutPost200Response.md
-docs/DagPutPost200ResponseCid.md
 docs/DagResolvePost200Response.md
 docs/DagResolvePost200ResponseCid.md
 docs/Error.md

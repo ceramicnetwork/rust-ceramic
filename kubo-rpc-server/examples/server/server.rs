@@ -101,10 +101,9 @@ impl<C> Server<C> {
 
 use ceramic_kubo_rpc_server::server::MakeService;
 use ceramic_kubo_rpc_server::{
-    Api, BlockGetPostResponse, BlockPutPostResponse, BlockStatPostResponse, DagGetPostResponse,
-    DagImportPostResponse, DagPutPostResponse, DagResolvePostResponse, IdPostResponse,
-    PinAddPostResponse, PinRmPostResponse, SwarmConnectPostResponse, SwarmPeersPostResponse,
-    VersionPostResponse,
+    Api, BlockGetPostResponse, BlockStatPostResponse, DagGetPostResponse, DagResolvePostResponse,
+    IdPostResponse, PinAddPostResponse, PinRmPostResponse, SwarmConnectPostResponse,
+    SwarmPeersPostResponse, VersionPostResponse,
 };
 use std::error::Error;
 use swagger::ApiError;
@@ -127,26 +126,6 @@ where
             arg,
             timeout,
             offline,
-            context.get().0.clone()
-        );
-        Err(ApiError("Generic failure".into()))
-    }
-
-    /// Put a single IPFS block
-    async fn block_put_post(
-        &self,
-        file: swagger::ByteArray,
-        cid_codec: Option<models::Codecs>,
-        mhtype: Option<models::Multihash>,
-        pin: Option<bool>,
-        context: &C,
-    ) -> Result<BlockPutPostResponse, ApiError> {
-        info!(
-            "block_put_post({:?}, {:?}, {:?}, {:?}) - X-Span-ID: {:?}",
-            file,
-            cid_codec,
-            mhtype,
-            pin,
             context.get().0.clone()
         );
         Err(ApiError("Generic failure".into()))
@@ -177,38 +156,6 @@ where
             "dag_get_post(\"{}\", {:?}) - X-Span-ID: {:?}",
             arg,
             output_codec,
-            context.get().0.clone()
-        );
-        Err(ApiError("Generic failure".into()))
-    }
-
-    /// Import a CAR file of IPLD nodes into IPFS
-    async fn dag_import_post(
-        &self,
-        file: swagger::ByteArray,
-        context: &C,
-    ) -> Result<DagImportPostResponse, ApiError> {
-        info!(
-            "dag_import_post({:?}) - X-Span-ID: {:?}",
-            file,
-            context.get().0.clone()
-        );
-        Err(ApiError("Generic failure".into()))
-    }
-
-    /// Put an IPLD node into IPFS
-    async fn dag_put_post(
-        &self,
-        file: swagger::ByteArray,
-        store_codec: Option<models::Codecs>,
-        input_codec: Option<models::Codecs>,
-        context: &C,
-    ) -> Result<DagPutPostResponse, ApiError> {
-        info!(
-            "dag_put_post({:?}, {:?}, {:?}) - X-Span-ID: {:?}",
-            file,
-            store_codec,
-            input_codec,
             context.get().0.clone()
         );
         Err(ApiError("Generic failure".into()))

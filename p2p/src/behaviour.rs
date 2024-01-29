@@ -1,11 +1,8 @@
 use std::time::Duration;
 
 use anyhow::Result;
-use async_trait::async_trait;
 use ceramic_core::{EventId, Interest};
-use cid::Cid;
-use iroh_bitswap::{Bitswap, Block, Config as BitswapConfig, Store};
-use iroh_rpc_client::Client;
+use iroh_bitswap::{Bitswap, Block, Config as BitswapConfig};
 use libp2p::{
     autonat,
     connection_limits::{self, ConnectionLimits},
@@ -27,7 +24,6 @@ use tracing::{info, warn};
 use self::ceramic_peer_manager::CeramicPeerManager;
 pub use self::event::Event;
 use crate::config::Libp2pConfig;
-use crate::sqliteblockstore::SQLiteBlockStore;
 use crate::Metrics;
 
 mod ceramic_peer_manager;
@@ -39,7 +35,10 @@ pub const AGENT_VERSION: &str = concat!("ceramic-one/", env!("CARGO_PKG_VERSION"
 /// Libp2p behaviour for the node.
 #[derive(NetworkBehaviour)]
 #[behaviour(to_swarm = "Event")]
-pub(crate) struct NodeBehaviour<I, M> {
+pub(crate) struct NodeBehaviour<I, M, S>
+where
+    S: iroh_bitswap::Store,
+{
     // Place limits first in the behaviour tree.
     // Behaviours are called in order and the limits behaviour can deny connections etc.
     // It keeps things simpler in other behaviours if they are never called for connections that
@@ -49,7 +48,7 @@ pub(crate) struct NodeBehaviour<I, M> {
     pub(crate) peer_manager: CeramicPeerManager,
     ping: Ping,
     pub(crate) identify: identify::Behaviour,
-    pub(crate) bitswap: Toggle<Bitswap<SQLiteBlockStore>>,
+    pub(crate) bitswap: Toggle<Bitswap<S>>,
     pub(crate) kad: Toggle<kad::Behaviour<MemoryStore>>,
     mdns: Toggle<Mdns>,
     pub(crate) autonat: Toggle<autonat::Behaviour>,
@@ -59,50 +58,18 @@ pub(crate) struct NodeBehaviour<I, M> {
     recon: Toggle<recon::libp2p::Behaviour<I, M>>,
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct BitswapStore(Client);
-
-#[async_trait]
-impl Store for BitswapStore {
-    async fn get(&self, cid: &Cid) -> Result<Block> {
-        let store = self.0.try_store()?;
-        let cid = *cid;
-        let data = store
-            .get(cid)
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("not found"))?;
-        Ok(Block::new(data, cid))
-    }
-
-    async fn get_size(&self, cid: &Cid) -> Result<usize> {
-        let store = self.0.try_store()?;
-        let cid = *cid;
-        let size = store
-            .get_size(cid)
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("not found"))?;
-        Ok(size as usize)
-    }
-
-    async fn has(&self, cid: &Cid) -> Result<bool> {
-        let store = self.0.try_store()?;
-        let cid = *cid;
-        let res = store.has(cid).await?;
-        Ok(res)
-    }
-}
-
-impl<I, M> NodeBehaviour<I, M>
+impl<I, M, S> NodeBehaviour<I, M, S>
 where
     I: Recon<Key = Interest, Hash = Sha256a>,
     M: Recon<Key = EventId, Hash = Sha256a>,
+    S: iroh_bitswap::Store,
 {
     pub async fn new(
         local_key: &Keypair,
         config: &Libp2pConfig,
         relay_client: Option<relay::client::Behaviour>,
         recons: Option<(I, M)>,
-        block_store: SQLiteBlockStore,
+        block_store: S,
         metrics: Metrics,
     ) -> Result<Self> {
         let pub_key = local_key.public();
@@ -116,7 +83,7 @@ where
             } else {
                 BitswapConfig::default_client_mode()
             };
-            Some(Bitswap::<SQLiteBlockStore>::new(peer_id, block_store, bs_config).await)
+            Some(Bitswap::<S>::new(peer_id, block_store, bs_config).await)
         } else {
             None
         }
@@ -251,21 +218,5 @@ where
             kad.bootstrap()?;
         }
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use libp2p::swarm::dummy;
-
-    use super::*;
-
-    fn assert_send<T: Send>() {}
-
-    #[test]
-    fn test_traits() {
-        assert_send::<Bitswap<BitswapStore>>();
-        assert_send::<NodeBehaviour<Toggle<dummy::Behaviour>, Toggle<dummy::Behaviour>>>();
-        assert_send::<&Bitswap<BitswapStore>>();
     }
 }

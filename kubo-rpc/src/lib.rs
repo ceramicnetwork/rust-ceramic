@@ -10,7 +10,6 @@ use std::{
     fmt::{self, Display, Formatter},
     io::Cursor,
     path::PathBuf,
-    sync::atomic::{AtomicUsize, Ordering},
 };
 use std::{str::FromStr, sync::Arc};
 
@@ -19,7 +18,7 @@ use async_trait::async_trait;
 use dag_jose::DagJoseCodec;
 use iroh_rpc_client::P2pClient;
 use libipld::{cbor::DagCborCodec, json::DagJsonCodec, prelude::Decode};
-use tracing::{error, instrument, trace};
+use tracing::instrument;
 
 // Pub use any types we export as part of an trait or struct
 pub use bytes::Bytes;
@@ -44,7 +43,6 @@ pub mod swarm;
 pub mod version;
 
 use crate::error::Error;
-use ceramic_p2p::SQLiteBlockStore;
 
 /// Information about a peer
 #[derive(Debug)]
@@ -145,12 +143,10 @@ pub trait IpfsDep: Clone {
     /// Get the size of an IPFS block.
     async fn block_size(&self, cid: Cid) -> Result<u64, Error>;
     /// Get a block from IPFS
-    async fn block_get(&self, cid: Cid, offline: bool) -> Result<Bytes, Error>;
+    async fn block_get(&self, cid: Cid) -> Result<Bytes, Error>;
     /// Get a DAG node from IPFS returning the Cid of the resolved path and the bytes of the node.
     /// This will locally store the data as a result.
     async fn get(&self, ipfs_path: &IpfsPath) -> Result<(Cid, Ipld), Error>;
-    /// Store a DAG node into IPFS.
-    async fn put(&self, cid: Cid, blob: Bytes, links: Vec<Cid>) -> Result<(), Error>;
     /// Resolve an IPLD block.
     async fn resolve(&self, ipfs_path: &IpfsPath) -> Result<(Cid, String), Error>;
     /// Report all connected peers of the current node.
@@ -162,21 +158,19 @@ pub trait IpfsDep: Clone {
 }
 
 /// Implementation of IPFS APIs
-pub struct IpfsService {
+pub struct IpfsService<S> {
     p2p: P2pClient,
-    store: SQLiteBlockStore,
-    resolver: Resolver,
+    store: S,
+    resolver: Resolver<S>,
 }
 
-impl IpfsService {
+impl<S> IpfsService<S>
+where
+    S: iroh_bitswap::Store + Clone,
+{
     /// Create new IpfsService
-    pub fn new(p2p: P2pClient, store: SQLiteBlockStore) -> Self {
-        let loader = Loader {
-            p2p: p2p.clone(),
-            store: store.clone(),
-            session_counter: AtomicUsize::new(0),
-        };
-        let resolver = Resolver::new(loader);
+    pub fn new(p2p: P2pClient, store: S) -> Self {
+        let resolver = Resolver::new(store.clone());
         Self {
             p2p,
             store,
@@ -186,7 +180,10 @@ impl IpfsService {
 }
 
 #[async_trait]
-impl IpfsDep for Arc<IpfsService> {
+impl<S> IpfsDep for Arc<IpfsService<S>>
+where
+    S: iroh_bitswap::Store,
+{
     /// Get the ID of the local peer.
     #[instrument(skip(self))]
     async fn lookup_local(&self) -> Result<PeerInfo, Error> {
@@ -217,27 +214,19 @@ impl IpfsDep for Arc<IpfsService> {
     }
     #[instrument(skip(self))]
     async fn block_size(&self, cid: Cid) -> Result<u64, Error> {
-        Ok(self
-            .store
-            .get_size(cid)
-            .await
-            .map_err(Error::Internal)?
-            .ok_or(Error::NotFound)?)
+        if self.store.has(&cid).await.map_err(Error::Internal)? {
+            Ok(self.store.get_size(&cid).await.map_err(Error::Internal)? as u64)
+        } else {
+            Err(Error::NotFound)
+        }
     }
     #[instrument(skip(self))]
-    async fn block_get(&self, cid: Cid, offline: bool) -> Result<Bytes, Error> {
-        if offline {
-            // Read directly from the store
-            Ok(self
-                .store
-                .get(cid)
-                .await
-                .map_err(Error::Internal)
-                .transpose()
-                .unwrap_or(Err(Error::NotFound))?)
+    async fn block_get(&self, cid: Cid) -> Result<Bytes, Error> {
+        // Read directly from the store
+        if self.store.has(&cid).await.map_err(Error::Internal)? {
+            Ok(self.store.get(&cid).await.map_err(Error::Internal)?.data)
         } else {
-            // TODO do we want to advertise on the DHT all Cids we have?
-            Ok(self.resolver.load_cid_bytes(cid).await?)
+            Err(Error::NotFound)
         }
     }
     #[instrument(skip(self))]
@@ -245,15 +234,6 @@ impl IpfsDep for Arc<IpfsService> {
         // TODO do we want to advertise on the DHT all Cids we have?
         let node = self.resolver.resolve(ipfs_path).await?;
         Ok((node.cid, node.data))
-    }
-    #[instrument(skip(self, blob))]
-    async fn put(&self, cid: Cid, blob: Bytes, links: Vec<Cid>) -> Result<(), Error> {
-        let _new = self
-            .store
-            .put(cid, blob, links)
-            .await
-            .map_err(Error::Internal)?;
-        Ok(())
     }
     #[instrument(skip(self))]
     async fn resolve(&self, ipfs_path: &IpfsPath) -> Result<(Cid, String), Error> {
@@ -283,8 +263,8 @@ impl IpfsDep for Arc<IpfsService> {
 // * dag-cbor
 // * dag-json
 // * dag-jose
-struct Resolver {
-    loader: Loader,
+struct Resolver<S> {
+    store: S,
 }
 
 // Represents an IPFS DAG node
@@ -297,9 +277,12 @@ struct Node {
     data: Ipld,
 }
 
-impl Resolver {
-    fn new(loader: Loader) -> Self {
-        Resolver { loader }
+impl<S> Resolver<S>
+where
+    S: iroh_bitswap::Store,
+{
+    fn new(store: S) -> Self {
+        Resolver { store }
     }
     #[instrument(skip(self))]
     async fn resolve(&self, path: &IpfsPath) -> Result<Node, Error> {
@@ -343,7 +326,8 @@ impl Resolver {
     }
     #[instrument(skip(self))]
     async fn load_cid_bytes(&self, cid: Cid) -> Result<Bytes, Error> {
-        self.loader.load_cid(cid).await.map_err(Error::Internal)
+        // Get the cid directly from the store
+        Ok(self.store.get(&cid).await.map_err(Error::Internal)?.data)
     }
     #[instrument(skip(self))]
     async fn load_cid(&self, cid: Cid) -> Result<Node, Error> {
@@ -369,60 +353,6 @@ impl Resolver {
     }
 }
 
-/// Loader is responsible for fetching Cids.
-/// It tries local storage and then the network (via bitswap).
-struct Loader {
-    p2p: P2pClient,
-    store: SQLiteBlockStore,
-    session_counter: AtomicUsize,
-}
-
-impl Loader {
-    // Load a Cid returning its bytes.
-    // If the Cid was not stored locally it will be added to the local store.
-    #[instrument(skip(self))]
-    async fn load_cid(&self, cid: Cid) -> anyhow::Result<Bytes> {
-        trace!("loading cid");
-
-        if let Some(loaded) = self.fetch_store(cid).await? {
-            trace!("loaded from store");
-            return Ok(loaded);
-        }
-
-        let loaded = self.fetch_bitswap(cid).await?;
-        trace!("loaded from bitswap");
-
-        // Add loaded cid to the local store
-        self.store_data(cid, loaded.clone());
-        Ok(loaded)
-    }
-
-    #[instrument(skip(self))]
-    async fn fetch_store(&self, cid: Cid) -> anyhow::Result<Option<Bytes>> {
-        self.store.get(cid).await
-    }
-    #[instrument(skip(self))]
-    async fn fetch_bitswap(&self, cid: Cid) -> anyhow::Result<Bytes> {
-        let session = self.session_counter.fetch_add(1, Ordering::SeqCst) as u64;
-        self.p2p
-            .fetch_bitswap(session, cid, Default::default())
-            .await
-    }
-
-    #[instrument(skip(self))]
-    fn store_data(&self, cid: Cid, data: Bytes) {
-        // trigger storage in the background
-        let store = self.store.clone();
-
-        tokio::spawn(async move {
-            match store.put(cid, data, vec![]).await {
-                Ok(_) => {}
-                Err(err) => error!(?err, "failed to put cid into local store"),
-            }
-        });
-    }
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -436,9 +366,8 @@ pub(crate) mod tests {
             async fn lookup_local(&self) -> Result<PeerInfo, Error>;
             async fn lookup(&self, peer_id: PeerId) -> Result<PeerInfo, Error>;
             async fn block_size(&self, cid: Cid) -> Result<u64, Error>;
-            async fn block_get(&self, cid: Cid, offline: bool) -> Result<Bytes, Error>;
+            async fn block_get(&self, cid: Cid) -> Result<Bytes, Error>;
             async fn get(&self, ipfs_path: &IpfsPath) -> Result<(Cid, Ipld), Error>;
-            async fn put(&self, cid: Cid, blob: Bytes, links: Vec<Cid>) -> Result<(), Error>;
             async fn resolve(&self, ipfs_path: &IpfsPath) -> Result<(Cid, String), Error>;
             async fn peers(&self) -> Result<HashMap<PeerId, Vec<Multiaddr>>, Error>;
             async fn connect(&self, peer_id: PeerId, addrs: Vec<Multiaddr>) -> Result<(), Error>;

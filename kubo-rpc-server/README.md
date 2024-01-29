@@ -15,7 +15,7 @@ To see how to make this your own, look here:
 [README]((https://openapi-generator.tech))
 
 - API version: 0.9.0
-- Build date: 2024-01-24T14:39:45.959361295-07:00[America/Denver]
+- Build date: 2024-01-26T13:55:46.024253330-07:00[America/Denver]
 
 
 
@@ -63,11 +63,8 @@ To run a client, follow one of the following simple steps:
 
 ```
 cargo run --example client BlockGetPost
-cargo run --example client BlockPutPost
 cargo run --example client BlockStatPost
 cargo run --example client DagGetPost
-cargo run --example client DagImportPost
-cargo run --example client DagPutPost
 cargo run --example client DagResolvePost
 cargo run --example client IdPost
 cargo run --example client PinAddPost
@@ -109,11 +106,8 @@ All URIs are relative to */api/v0*
 Method | HTTP request | Description
 ------------- | ------------- | -------------
 [****](docs/default_api.md#) | **POST** /block/get | Get a single IPFS block
-[****](docs/default_api.md#) | **POST** /block/put | Put a single IPFS block
 [****](docs/default_api.md#) | **POST** /block/stat | Report statistics about a block
 [****](docs/default_api.md#) | **POST** /dag/get | Get an IPLD node from IPFS
-[****](docs/default_api.md#) | **POST** /dag/import | Import a CAR file of IPLD nodes into IPFS
-[****](docs/default_api.md#) | **POST** /dag/put | Put an IPLD node into IPFS
 [****](docs/default_api.md#) | **POST** /dag/resolve | Resolve an IPFS path to a DAG node
 [****](docs/default_api.md#) | **POST** /id | Report identifying information about a node
 [****](docs/default_api.md#) | **POST** /pin/add | Add a block to the pin store
@@ -125,11 +119,8 @@ Method | HTTP request | Description
 
 ## Documentation For Models
 
- - [BlockPutPost200Response](docs/BlockPutPost200Response.md)
+ - [BlockStatPost200Response](docs/BlockStatPost200Response.md)
  - [Codecs](docs/Codecs.md)
- - [DagImportPost200Response](docs/DagImportPost200Response.md)
- - [DagPutPost200Response](docs/DagPutPost200Response.md)
- - [DagPutPost200ResponseCid](docs/DagPutPost200ResponseCid.md)
  - [DagResolvePost200Response](docs/DagResolvePost200Response.md)
  - [DagResolvePost200ResponseCid](docs/DagResolvePost200ResponseCid.md)
  - [Error](docs/Error.md)

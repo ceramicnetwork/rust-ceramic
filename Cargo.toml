@@ -6,12 +6,13 @@ members = [
     "core",
     "event",
     "kubo-rpc",
+    "kubo-rpc-server",
     "metadata",
     "metrics",
-    "kubo-rpc-server",
     "one",
     "p2p",
     "recon",
+    "store",
     "beetle/iroh-bitswap",
     "beetle/iroh-car",
     "beetle/iroh-rpc-client",
@@ -54,6 +55,7 @@ ceramic-metadata = { path = "./metadata" }
 ceramic-metrics = { path = "./metrics" }
 ceramic-one = { path = "./one" }
 ceramic-p2p = { path = "./p2p" }
+ceramic-store = { path = "./store" }
 cid = { version = "0.10", features = ["serde-codec"] }
 clap = { version = "4", features = ["derive", "env"] }
 clap_mangen = "0.2.2"

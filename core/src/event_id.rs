@@ -325,6 +325,7 @@ pub struct WithEvent {
 impl BuilderState for WithEvent {}
 
 impl Builder<Init> {
+    /// Specify the network of the event
     pub fn with_network(self, network: &Network) -> Builder<WithNetwork> {
         // Maximum EventId size is 72.
         //
@@ -350,8 +351,9 @@ impl Builder<Init> {
     }
 }
 impl Builder<WithNetwork> {
-    // TODO sort_value should be bytes not str
+    /// Specify the sort key and value of the event
     pub fn with_sort_value(mut self, sort_key: &str, sort_value: &str) -> Builder<WithSortValue> {
+        // TODO sort_value should be bytes not str
         self.state.bytes.extend(last8_bytes(&sha256_digest(&format!(
             "{}|{}",
             sort_key, sort_value,
@@ -364,6 +366,7 @@ impl Builder<WithNetwork> {
     }
 }
 impl Builder<WithSortValue> {
+    /// Specify that the minimum controller value should be used for the event
     pub fn with_min_controller(mut self) -> Builder<WithController> {
         self.state.bytes.extend(ZEROS_8);
         Builder {
@@ -372,6 +375,7 @@ impl Builder<WithSortValue> {
             },
         }
     }
+    /// Specify that the maximum controller value should be used for the event
     pub fn with_max_controller(mut self) -> Builder<WithController> {
         self.state.bytes.extend(FFS_8);
         Builder {
@@ -380,6 +384,7 @@ impl Builder<WithSortValue> {
             },
         }
     }
+    /// Specify the controller for the event
     pub fn with_controller(mut self, controller: &str) -> Builder<WithController> {
         self.state
             .bytes
@@ -392,6 +397,7 @@ impl Builder<WithSortValue> {
     }
 }
 impl Builder<WithController> {
+    /// Specify that the minimum init value should be used for the event
     pub fn with_min_init(mut self) -> Builder<WithInit> {
         self.state.bytes.extend(ZEROS_4);
         Builder {
@@ -400,6 +406,7 @@ impl Builder<WithController> {
             },
         }
     }
+    /// Specify that the maximum init value should be used for the event
     pub fn with_max_init(mut self) -> Builder<WithInit> {
         self.state.bytes.extend(FFS_4);
         Builder {
@@ -408,6 +415,7 @@ impl Builder<WithController> {
             },
         }
     }
+    /// Specify the init cid of the event
     pub fn with_init(mut self, init: &Cid) -> Builder<WithInit> {
         self.state
             .bytes
@@ -420,6 +428,7 @@ impl Builder<WithController> {
     }
 }
 impl Builder<WithInit> {
+    /// Specify that the minimum event height should be used for the event
     pub fn with_min_event_height(mut self) -> Builder<WithEventHeight> {
         // 0x00 is the cbor encoding of 0.
         self.state.bytes.push(0x00);
@@ -429,6 +438,7 @@ impl Builder<WithInit> {
             },
         }
     }
+    /// Specify that the maximum event height should be used for the event
     pub fn with_max_event_height(mut self) -> Builder<WithEventHeight> {
         // 0xFF is the break stop code in CBOR, and will sort higher than any cbor encoded unsigned
         // integer.
@@ -439,6 +449,7 @@ impl Builder<WithInit> {
             },
         }
     }
+    /// Specify event height for the event
     pub fn with_event_height(mut self, event_height: u64) -> Builder<WithEventHeight> {
         let event_height_cbor = minicbor::to_vec(event_height).unwrap();
         // event_height cbor unsigned int
@@ -451,10 +462,13 @@ impl Builder<WithInit> {
     }
 }
 impl Builder<WithEventHeight> {
-    /// Builds the final EventId as a fencepost
+    /// Builds the final EventId as a fencepost.
+    /// A fencepost is a value that sorts before and after specific events but is itself not a
+    /// complete EventId.
     pub fn build_fencepost(self) -> EventId {
         EventId(self.state.bytes)
     }
+    /// Specify the event cid
     pub fn with_event(mut self, event: &Cid) -> Builder<WithEvent> {
         self.state.bytes.extend(event.to_bytes());
         Builder {
