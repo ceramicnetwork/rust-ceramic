@@ -125,8 +125,8 @@ Migration
     ```zsh
     ./migration --input-ipfs-path '~/.ipfs/blocks' --output-ceramic-path '~/.ceramic-one/db.sqlite3'
     ```
-  * Pass in the input path to the blocks folder the script will import all blocks 
-    in the directory that is named with its multihash. 
+  * Pass in the input path to the blocks folder the script will import all blocks
+    in the directory that is named with its multihash.
   * Pass in the where you would like the sqlite database as the output path.
 * Move the sqlite3 database to the new rust-ceramic node.
 * Start the new rust-ceramic server and point the compose DB node to it.
@@ -147,3 +147,7 @@ Re-run the migration to pick up any new block that were crated after the first m
 ## License
 
 Fully open source and dual-licensed under MIT and Apache 2.
+
+# Github Actions
+
+## CI
