@@ -29,6 +29,12 @@ pub enum EventsPostResponse {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub enum InterestsSortKeySortValuePostResponse {
+    /// success
+    Success,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub enum LivenessGetResponse {
     /// success
     Success,
@@ -64,6 +70,16 @@ pub trait Api<C: Send + Sync> {
         context: &C,
     ) -> Result<EventsPostResponse, ApiError>;
 
+    /// Register interest for a sort key
+    async fn interests_sort_key_sort_value_post(
+        &self,
+        sort_key: String,
+        sort_value: String,
+        controller: Option<String>,
+        stream_id: Option<String>,
+        context: &C,
+    ) -> Result<InterestsSortKeySortValuePostResponse, ApiError>;
+
     /// Test the liveness of the Ceramic node
     async fn liveness_get(&self, context: &C) -> Result<LivenessGetResponse, ApiError>;
 
@@ -96,6 +112,15 @@ pub trait ApiNoContext<C: Send + Sync> {
 
     /// Creates a new event
     async fn events_post(&self, event: models::Event) -> Result<EventsPostResponse, ApiError>;
+
+    /// Register interest for a sort key
+    async fn interests_sort_key_sort_value_post(
+        &self,
+        sort_key: String,
+        sort_value: String,
+        controller: Option<String>,
+        stream_id: Option<String>,
+    ) -> Result<InterestsSortKeySortValuePostResponse, ApiError>;
 
     /// Test the liveness of the Ceramic node
     async fn liveness_get(&self) -> Result<LivenessGetResponse, ApiError>;
@@ -144,6 +169,22 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
     async fn events_post(&self, event: models::Event) -> Result<EventsPostResponse, ApiError> {
         let context = self.context().clone();
         self.api().events_post(event, &context).await
+    }
+
+    /// Register interest for a sort key
+    async fn interests_sort_key_sort_value_post(
+        &self,
+        sort_key: String,
+        sort_value: String,
+        controller: Option<String>,
+        stream_id: Option<String>,
+    ) -> Result<InterestsSortKeySortValuePostResponse, ApiError> {
+        let context = self.context().clone();
+        self.api()
+            .interests_sort_key_sort_value_post(
+                sort_key, sort_value, controller, stream_id, &context,
+            )
+            .await
     }
 
     /// Test the liveness of the Ceramic node

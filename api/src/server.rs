@@ -27,8 +27,8 @@ use tracing::{debug, info, instrument, Level};
 
 use ceramic_api_server::{
     models::{self, Event},
-    EventsPostResponse, LivenessGetResponse, SubscribeSortKeySortValueGetResponse,
-    VersionPostResponse,
+    EventsPostResponse, InterestsSortKeySortValuePostResponse, LivenessGetResponse,
+    SubscribeSortKeySortValueGetResponse, VersionPostResponse,
 };
 use ceramic_core::{EventId, Interest, Network, PeerId, StreamId};
 
@@ -103,6 +103,70 @@ where
             model,
             marker: PhantomData,
         }
+    }
+
+    async fn store_interest(
+        &self,
+        sort_key: String,
+        sort_value: String,
+        controller: Option<String>,
+        stream_id: Option<String>,
+    ) -> Result<(EventId, EventId), ApiError> {
+        // Construct start and stop event id based on provided data.
+        let start_builder = EventId::builder()
+            .with_network(&self.network)
+            .with_sort_value(&sort_key, &sort_value);
+        let stop_builder = EventId::builder()
+            .with_network(&self.network)
+            .with_sort_value(&sort_key, &sort_value);
+
+        let (start_builder, stop_builder) = match (controller, stream_id) {
+            (Some(controller), Some(stream_id)) => {
+                let stream_id = StreamId::from_str(&stream_id)
+                    .map_err(|err| ApiError(format!("stream_id: {err}")))?;
+                (
+                    start_builder
+                        .with_controller(&controller)
+                        .with_init(&stream_id.cid),
+                    stop_builder
+                        .with_controller(&controller)
+                        .with_init(&stream_id.cid),
+                )
+            }
+            (Some(controller), None) => (
+                start_builder.with_controller(&controller).with_min_init(),
+                stop_builder.with_controller(&controller).with_max_init(),
+            ),
+            (None, Some(_)) => {
+                return Err(ApiError(
+                    "controller is required if stream_id is specified".to_owned(),
+                ))
+            }
+            (None, None) => (
+                start_builder.with_min_controller().with_min_init(),
+                stop_builder.with_max_controller().with_max_init(),
+            ),
+        };
+
+        let start = start_builder.with_min_event_height().build_fencepost();
+        let stop = stop_builder.with_max_event_height().build_fencepost();
+
+        // Update interest ranges to include this new subscription.
+        let interest = Interest::builder()
+            .with_sort_key(&sort_key)
+            .with_peer_id(&self.peer_id)
+            .with_range((start.as_slice(), stop.as_slice()))
+            .with_not_after(0)
+            .build();
+        self.interest
+            // We must store a value for the interest otherwise Recon will try forever to
+            // synchronize the value.
+            // In the case of interests an empty value is sufficient.
+            .insert(interest, Some(vec![]))
+            .await
+            .map_err(|err| ApiError(format!("failed to update interest: {err}")))?;
+
+        Ok((start, stop))
     }
 }
 
@@ -187,59 +251,10 @@ where
             })
             .transpose()?
             .unwrap_or(usize::MAX);
-        // Construct start and stop event id based on provided data.
-        let start_builder = EventId::builder()
-            .with_network(&self.network)
-            .with_sort_value(&sort_key, &sort_value);
-        let stop_builder = EventId::builder()
-            .with_network(&self.network)
-            .with_sort_value(&sort_key, &sort_value);
 
-        let (start_builder, stop_builder) = match (controller, stream_id) {
-            (Some(controller), Some(stream_id)) => {
-                let stream_id = StreamId::from_str(&stream_id)
-                    .map_err(|err| ApiError(format!("stream_id: {err}")))?;
-                (
-                    start_builder
-                        .with_controller(&controller)
-                        .with_init(&stream_id.cid),
-                    stop_builder
-                        .with_controller(&controller)
-                        .with_init(&stream_id.cid),
-                )
-            }
-            (Some(controller), None) => (
-                start_builder.with_controller(&controller).with_min_init(),
-                stop_builder.with_controller(&controller).with_max_init(),
-            ),
-            (None, Some(_)) => {
-                return Err(ApiError(
-                    "controller is required if stream_id is specified".to_owned(),
-                ))
-            }
-            (None, None) => (
-                start_builder.with_min_controller().with_min_init(),
-                stop_builder.with_max_controller().with_max_init(),
-            ),
-        };
-
-        let start = start_builder.with_min_event_height().build_fencepost();
-        let stop = stop_builder.with_max_event_height().build_fencepost();
-
-        // Update interest ranges to include this new subscription.
-        let interest = Interest::builder()
-            .with_sort_key(&sort_key)
-            .with_peer_id(&self.peer_id)
-            .with_range((start.as_slice(), stop.as_slice()))
-            .with_not_after(0)
-            .build();
-        self.interest
-            // We must store a value for the interest otherwise Recon will try forever to
-            // synchronize the value.
-            // In the case of interests an empty value is sufficient.
-            .insert(interest, Some(vec![]))
-            .await
-            .map_err(|err| ApiError(format!("failed to update interest: {err}")))?;
+        let (start, stop) = self
+            .store_interest(sort_key, sort_value, controller, stream_id)
+            .await?;
 
         let events = self
             .model
@@ -253,6 +268,20 @@ where
             })
             .collect();
         Ok(SubscribeSortKeySortValueGetResponse::Success(events))
+    }
+
+    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
+    async fn interests_sort_key_sort_value_post(
+        &self,
+        sort_key: String,
+        sort_value: String,
+        controller: Option<String>,
+        stream_id: Option<String>,
+        _context: &C,
+    ) -> Result<InterestsSortKeySortValuePostResponse, ApiError> {
+        self.store_interest(sort_key, sort_value, controller, stream_id)
+            .await?;
+        Ok(InterestsSortKeySortValuePostResponse::Success)
     }
 }
 
@@ -681,5 +710,166 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp, SubscribeSortKeySortValueGetResponse::Success(vec![]));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn register_interest_sort_value() {
+        let peer_id = PeerId::random();
+        let network = Network::InMemory;
+        let model = "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9"; // cspell:disable-line
+
+        // Construct start and end event ids
+        let start = EventId::builder()
+            .with_network(&network)
+            .with_sort_value("model", model)
+            .with_min_controller()
+            .with_min_init()
+            .with_min_event_height()
+            .build_fencepost();
+        let end = EventId::builder()
+            .with_network(&network)
+            .with_sort_value("model", model)
+            .with_max_controller()
+            .with_max_init()
+            .with_max_event_height()
+            .build_fencepost();
+
+        // Setup mock expectations
+        let mut mock_interest = MockReconInterestTest::new();
+        mock_interest
+            .expect_insert()
+            .with(
+                predicate::eq(
+                    Interest::builder()
+                        .with_sort_key("model")
+                        .with_peer_id(&peer_id)
+                        .with_range((start.as_slice(), end.as_slice()))
+                        .with_not_after(0)
+                        .build(),
+                ),
+                predicate::eq(Some(vec![])),
+            )
+            .times(1)
+            .returning(|_, _| Ok(()));
+        let mock_model = MockReconModelTest::new();
+        let server = Server::new(peer_id, network, mock_interest, mock_model);
+        let resp = server
+            .interests_sort_key_sort_value_post(
+                "model".to_string(),
+                model.to_owned(),
+                None,
+                None,
+                &Context,
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp, InterestsSortKeySortValuePostResponse::Success);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn register_interest_sort_value_controller() {
+        let peer_id = PeerId::random();
+        let network = Network::InMemory;
+        let model = "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9"; // cspell:disable-line
+        let controller = "did:key:zGs1Det7LHNeu7DXT4nvoYrPfj3n6g7d6bj2K4AMXEvg1";
+        let start = EventId::builder()
+            .with_network(&network)
+            .with_sort_value("model", model)
+            .with_controller(controller)
+            .with_min_init()
+            .with_min_event_height()
+            .build_fencepost();
+        let end = EventId::builder()
+            .with_network(&network)
+            .with_sort_value("model", model)
+            .with_controller(controller)
+            .with_max_init()
+            .with_max_event_height()
+            .build_fencepost();
+        let mut mock_interest = MockReconInterestTest::new();
+        mock_interest
+            .expect_insert()
+            .with(
+                predicate::eq(
+                    Interest::builder()
+                        .with_sort_key("model")
+                        .with_peer_id(&peer_id)
+                        .with_range((start.as_slice(), end.as_slice()))
+                        .with_not_after(0)
+                        .build(),
+                ),
+                predicate::eq(Some(vec![])),
+            )
+            .times(1)
+            .returning(|_, _| Ok(()));
+        let mock_model = MockReconModelTest::new();
+        let server = Server::new(peer_id, network, mock_interest, mock_model);
+        let resp = server
+            .interests_sort_key_sort_value_post(
+                "model".to_string(),
+                model.to_owned(),
+                Some(controller.to_owned()),
+                None,
+                &Context,
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp, InterestsSortKeySortValuePostResponse::Success);
+    }
+    #[tokio::test]
+    #[traced_test]
+    async fn register_interest_value_controller_stream() {
+        let peer_id = PeerId::random();
+        let network = Network::InMemory;
+        let model = "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9"; // cspell:disable-line
+        let controller = "did:key:zGs1Det7LHNeu7DXT4nvoYrPfj3n6g7d6bj2K4AMXEvg1";
+        let stream =
+            StreamId::from_str("k2t6wz4ylx0qs435j9oi1s6469uekyk6qkxfcb21ikm5ag2g1cook14ole90aw") // cspell:disable-line
+                .unwrap();
+        let start = EventId::builder()
+            .with_network(&network)
+            .with_sort_value("model", model)
+            .with_controller(controller)
+            .with_init(&stream.cid)
+            .with_min_event_height()
+            .build_fencepost();
+        let end = EventId::builder()
+            .with_network(&network)
+            .with_sort_value("model", model)
+            .with_controller(controller)
+            .with_init(&stream.cid)
+            .with_max_event_height()
+            .build_fencepost();
+        let mut mock_interest = MockReconInterestTest::new();
+        mock_interest
+            .expect_insert()
+            .with(
+                predicate::eq(
+                    Interest::builder()
+                        .with_sort_key("model")
+                        .with_peer_id(&peer_id)
+                        .with_range((start.as_slice(), end.as_slice()))
+                        .with_not_after(0)
+                        .build(),
+                ),
+                predicate::eq(Some(vec![])),
+            )
+            .times(1)
+            .returning(|_, _| Ok(()));
+        let mock_model = MockReconModelTest::new();
+        let server = Server::new(peer_id, network, mock_interest, mock_model);
+        let resp = server
+            .interests_sort_key_sort_value_post(
+                "model".to_string(),
+                model.to_owned(),
+                Some(controller.to_owned()),
+                Some(stream.to_string()),
+                &Context,
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp, InterestsSortKeySortValuePostResponse::Success);
     }
 }

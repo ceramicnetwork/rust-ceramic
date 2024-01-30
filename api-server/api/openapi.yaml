@@ -96,6 +96,45 @@ paths:
         "204":
           description: success
       summary: Creates a new event
+  /interests/{sort_key}/{sort_value}:
+    post:
+      parameters:
+      - description: name of the sort_key
+        explode: false
+        in: path
+        name: sort_key
+        required: true
+        schema:
+          type: string
+        style: simple
+      - description: value associated with the sort key
+        explode: false
+        in: path
+        name: sort_value
+        required: true
+        schema:
+          type: string
+        style: simple
+      - description: the controller to register interest for
+        explode: true
+        in: query
+        name: controller
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: the stream to register interest for
+        explode: true
+        in: query
+        name: streamId
+        required: false
+        schema:
+          type: string
+        style: form
+      responses:
+        "204":
+          description: success
+      summary: Register interest for a sort key
 components:
   requestBodies:
     Event:

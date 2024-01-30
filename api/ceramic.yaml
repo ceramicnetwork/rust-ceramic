@@ -89,6 +89,38 @@ paths:
         '204':
           description: success
 
+  '/interests/{sort_key}/{sort_value}':
+    post:
+      summary: Register interest for a sort key
+      parameters:
+        - name: sort_key
+          in: path
+          description: name of the sort_key
+          schema:
+            type: string
+          required: true
+        - name: sort_value
+          in: path
+          description: value associated with the sort key
+          schema:
+            type: string
+          required: true
+        - name: controller
+          in: query
+          description: the controller to register interest for
+          required: false
+          schema:
+            type: string
+        - name: streamId
+          in: query
+          description: the stream to register interest for
+          required: false
+          schema:
+            type: string
+      responses:
+        '204':
+          description: success
+
 components:
   requestBodies:
     Event:

@@ -101,8 +101,8 @@ impl<C> Server<C> {
 
 use ceramic_api_server::server::MakeService;
 use ceramic_api_server::{
-    Api, EventsPostResponse, LivenessGetResponse, SubscribeSortKeySortValueGetResponse,
-    VersionPostResponse,
+    Api, EventsPostResponse, InterestsSortKeySortValuePostResponse, LivenessGetResponse,
+    SubscribeSortKeySortValueGetResponse, VersionPostResponse,
 };
 use std::error::Error;
 use swagger::ApiError;
@@ -121,6 +121,26 @@ where
         info!(
             "events_post({:?}) - X-Span-ID: {:?}",
             event,
+            context.get().0.clone()
+        );
+        Err(ApiError("Generic failure".into()))
+    }
+
+    /// Register interest for a sort key
+    async fn interests_sort_key_sort_value_post(
+        &self,
+        sort_key: String,
+        sort_value: String,
+        controller: Option<String>,
+        stream_id: Option<String>,
+        context: &C,
+    ) -> Result<InterestsSortKeySortValuePostResponse, ApiError> {
+        info!(
+            "interests_sort_key_sort_value_post(\"{}\", \"{}\", {:?}, {:?}) - X-Span-ID: {:?}",
+            sort_key,
+            sort_value,
+            controller,
+            stream_id,
             context.get().0.clone()
         );
         Err(ApiError("Generic failure".into()))
