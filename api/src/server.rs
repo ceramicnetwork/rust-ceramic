@@ -279,10 +279,6 @@ where
         stream_id: Option<String>,
         _context: &C,
     ) -> Result<InterestsSortKeySortValuePostResponse, ApiError> {
-        debug!(
-            ?self.network,
-            sort_key, sort_value, controller, "interest registration params"
-        );
         self.store_interest(sort_key, sort_value, controller, stream_id)
             .await?;
         Ok(InterestsSortKeySortValuePostResponse::Success)
