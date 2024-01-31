@@ -2167,8 +2167,7 @@ dependencies = [
 [[package]]
 name = "did-method-key"
 version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8663f0a89682282e5afb994da3bae67d48333ebc32a372bc3cdbb99c2e2cfad"
+source = "git+https://github.com/dbcfd/ssi?branch=feat/wasi#728fb9b37b2b0f78121310c3d17fa34b27add558"
 dependencies = [
  "async-trait",
  "k256 0.13.3",
@@ -2185,8 +2184,7 @@ dependencies = [
 [[package]]
 name = "did-pkh"
 version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "074c4ae82880d60a25048cd3bf2e8aaaa881922d7c73fbb9ec29fc67fa0d33e4"
+source = "git+https://github.com/dbcfd/ssi?branch=feat/wasi#728fb9b37b2b0f78121310c3d17fa34b27add558"
 dependencies = [
  "async-trait",
  "bech32",
@@ -7900,8 +7898,7 @@ dependencies = [
 [[package]]
 name = "ssi"
 version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8d6e7ea685d83ca9683a0c7876c6b99196049d000dc22dfabb1398603b935e56"
+source = "git+https://github.com/dbcfd/ssi?branch=feat/wasi#728fb9b37b2b0f78121310c3d17fa34b27add558"
 dependencies = [
  "ssi-caips",
  "ssi-core",
@@ -7912,6 +7909,7 @@ dependencies = [
  "ssi-jws",
  "ssi-jwt",
  "ssi-ldp",
+ "ssi-sd-jwt",
  "ssi-ssh",
  "ssi-tzkey",
  "ssi-ucan",
@@ -7922,8 +7920,7 @@ dependencies = [
 [[package]]
 name = "ssi-caips"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da2c479690955bebece0279a5b1ab9d7d584402caed9f56ecec346d0bc63661f"
+source = "git+https://github.com/dbcfd/ssi?branch=feat/wasi#728fb9b37b2b0f78121310c3d17fa34b27add558"
 dependencies = [
  "bs58 0.4.0",
  "ssi-jwk",
@@ -7933,14 +7930,12 @@ dependencies = [
 [[package]]
 name = "ssi-contexts"
 version = "0.1.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3009b82cbae3d88a76f15460fb5fb3f30a1673eb0359ac6917ffaa3c57f7164"
+source = "git+https://github.com/dbcfd/ssi?branch=feat/wasi#728fb9b37b2b0f78121310c3d17fa34b27add558"
 
 [[package]]
 name = "ssi-core"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e43f42016b80dc3e5eae8f7d2b22db3debbfe97b38e4fa449433497b3513048"
+source = "git+https://github.com/dbcfd/ssi?branch=feat/wasi#728fb9b37b2b0f78121310c3d17fa34b27add558"
 dependencies = [
  "async-trait",
  "serde",
@@ -7950,8 +7945,7 @@ dependencies = [
 [[package]]
 name = "ssi-crypto"
 version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c511fdba8466006f4de1086fee5f38fd220eac5eeaf0270dbfde3e9d538030e7"
+source = "git+https://github.com/dbcfd/ssi?branch=feat/wasi#728fb9b37b2b0f78121310c3d17fa34b27add558"
 dependencies = [
  "bs58 0.4.0",
  "digest 0.9.0",
@@ -7966,8 +7960,7 @@ dependencies = [
 [[package]]
 name = "ssi-dids"
 version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62e3c375b0fb2129c691e65e776c9105290ade34b56f39755f4f9c40ba98e41c"
+source = "git+https://github.com/dbcfd/ssi?branch=feat/wasi#728fb9b37b2b0f78121310c3d17fa34b27add558"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -7991,8 +7984,7 @@ dependencies = [
 [[package]]
 name = "ssi-json-ld"
 version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "50912984a4f415dd419853d461938b2daaa428dcafb8a5dfcde8dc07371371da"
+source = "git+https://github.com/dbcfd/ssi?branch=feat/wasi#728fb9b37b2b0f78121310c3d17fa34b27add558"
 dependencies = [
  "async-std",
  "combination",
@@ -8013,8 +8005,7 @@ dependencies = [
 [[package]]
 name = "ssi-jwk"
 version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2d7b2b056993e04945eade2b0bbd3049f1bb65cd2fcf661ccb15b615683b384"
+source = "git+https://github.com/dbcfd/ssi?branch=feat/wasi#728fb9b37b2b0f78121310c3d17fa34b27add558"
 dependencies = [
  "base64 0.12.3",
  "blake2b_simd 0.5.11",
@@ -8041,8 +8032,7 @@ dependencies = [
 [[package]]
 name = "ssi-jws"
 version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d30d8f88b2bd2f13fb0a2f8de75ad44f5062e876311ea231d64ecd0f422b50df"
+source = "git+https://github.com/dbcfd/ssi?branch=feat/wasi#728fb9b37b2b0f78121310c3d17fa34b27add558"
 dependencies = [
  "base64 0.12.3",
  "blake2",
@@ -8064,8 +8054,7 @@ dependencies = [
 [[package]]
 name = "ssi-jwt"
 version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "46522391b37f4b749911bb29b3960a7e2e0b9936c7debf52035f431480b40123"
+source = "git+https://github.com/dbcfd/ssi?branch=feat/wasi#728fb9b37b2b0f78121310c3d17fa34b27add558"
 dependencies = [
  "chrono",
  "serde",
@@ -8079,8 +8068,7 @@ dependencies = [
 [[package]]
 name = "ssi-ldp"
 version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "17cae2987783f69dc6a8634d387eb3f8cfce81eff67b8710971f9c4535023afb"
+source = "git+https://github.com/dbcfd/ssi?branch=feat/wasi#728fb9b37b2b0f78121310c3d17fa34b27add558"
 dependencies = [
  "async-trait",
  "bs58 0.4.0",
@@ -8089,18 +8077,14 @@ dependencies = [
  "hex",
  "iref",
  "json-syntax",
- "k256 0.13.3",
- "keccak-hash",
  "lazy_static",
  "locspan",
  "multibase 0.8.0",
- "p256 0.13.2",
  "rdf-types",
  "serde",
  "serde_jcs",
  "serde_json",
  "sha2 0.10.8",
- "sha3",
  "ssi-caips",
  "ssi-contexts",
  "ssi-core",
@@ -8109,16 +8093,30 @@ dependencies = [
  "ssi-json-ld",
  "ssi-jwk",
  "ssi-jws",
- "ssi-tzkey",
  "static-iref",
+ "thiserror",
+]
+
+[[package]]
+name = "ssi-sd-jwt"
+version = "0.1.0"
+source = "git+https://github.com/dbcfd/ssi?branch=feat/wasi#728fb9b37b2b0f78121310c3d17fa34b27add558"
+dependencies = [
+ "base64 0.12.3",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "sha2 0.10.8",
+ "ssi-jwk",
+ "ssi-jws",
+ "ssi-jwt",
  "thiserror",
 ]
 
 [[package]]
 name = "ssi-ssh"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22967c7882e2457a2813badebf613a1b6ea3240f77ccac5c7c03858806d56618"
+source = "git+https://github.com/dbcfd/ssi?branch=feat/wasi#728fb9b37b2b0f78121310c3d17fa34b27add558"
 dependencies = [
  "sshkeys",
  "ssi-jwk",
@@ -8128,8 +8126,7 @@ dependencies = [
 [[package]]
 name = "ssi-tzkey"
 version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe876a9fa30749b1140be05099d969c7a009b6e809d3f5b191536016a7fd480b"
+source = "git+https://github.com/dbcfd/ssi?branch=feat/wasi#728fb9b37b2b0f78121310c3d17fa34b27add558"
 dependencies = [
  "bs58 0.4.0",
  "ed25519-dalek 2.1.1",
@@ -8141,8 +8138,7 @@ dependencies = [
 [[package]]
 name = "ssi-ucan"
 version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0982f62c7860922026a9d9edc6c604de79693ee4c5c6bd65be11e2ff66b1df09"
+source = "git+https://github.com/dbcfd/ssi?branch=feat/wasi#728fb9b37b2b0f78121310c3d17fa34b27add558"
 dependencies = [
  "base64 0.12.3",
  "chrono",
@@ -8162,8 +8158,7 @@ dependencies = [
 [[package]]
 name = "ssi-vc"
 version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "641e7b76bc44ea53d72257245487cc2daeea77b0e48cd2196779a6fc545caab5"
+source = "git+https://github.com/dbcfd/ssi?branch=feat/wasi#728fb9b37b2b0f78121310c3d17fa34b27add558"
 dependencies = [
  "async-trait",
  "base64 0.12.3",
@@ -8192,8 +8187,7 @@ dependencies = [
 [[package]]
 name = "ssi-zcap-ld"
 version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8380152589e8876e91bb765ce1b363909bc071788c1550bfdb730152c5b7afe"
+source = "git+https://github.com/dbcfd/ssi?branch=feat/wasi#728fb9b37b2b0f78121310c3d17fa34b27add558"
 dependencies = [
  "async-trait",
  "iref",
