@@ -25,7 +25,6 @@ rand = "0.8.5"
 serde.workspace = true
 serde_ipld_dagcbor.workspace = true
 serde_json.workspace = true
-sqlx.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 void.workspace = true

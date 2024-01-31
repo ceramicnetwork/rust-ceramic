@@ -1,6 +1,6 @@
 use anyhow::Result;
-use ceramic_core::SqlitePool;
 use ceramic_p2p::SQLiteBlockStore;
+use ceramic_store::SqlitePool;
 use chrono::{SecondsFormat, Utc};
 use cid::{multibase, multihash, Cid};
 use clap::{Args, Subcommand};

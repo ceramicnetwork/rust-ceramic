@@ -9,7 +9,6 @@ mod jws;
 mod network;
 mod range;
 mod signer;
-mod sql;
 mod stream_id;
 
 pub use bytes::Bytes;
@@ -20,7 +19,6 @@ pub use jws::{Jws, JwsSignature};
 pub use network::Network;
 pub use range::RangeOpen;
 pub use signer::{JwkSigner, Signer};
-pub use sql::{DbTx, SqlitePool};
 pub use stream_id::{StreamId, StreamIdType};
 
 pub use cid::Cid;

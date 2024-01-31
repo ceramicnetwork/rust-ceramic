@@ -1163,7 +1163,8 @@ mod tests {
     use crate::keys::Keypair;
 
     use async_trait::async_trait;
-    use ceramic_core::{RangeOpen, SqlitePool};
+    use ceramic_core::RangeOpen;
+    use ceramic_store::SqlitePool;
     use futures::TryStreamExt;
     use rand::prelude::*;
     use rand_chacha::ChaCha8Rng;
@@ -1389,7 +1390,7 @@ mod tests {
                 rpc_server_addr,
                 keypair.into(),
                 None::<(DummyRecon<Interest>, DummyRecon<EventId>)>,
-                ceramic_store::Store::new(sql_pool).await?,
+                ceramic_store::ModelStore::new(sql_pool).await?,
                 metrics,
             )
             .await?;
@@ -1421,7 +1422,7 @@ mod tests {
                     .await
                     .context("timed out before getting a listening address for the node")??;
             let mut dial_addr = addr.clone();
-            dial_addr.push(Protocol::P2p(peer_id.into()));
+            dial_addr.push(Protocol::P2p(peer_id));
             Ok(TestRunner {
                 task,
                 client,

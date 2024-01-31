@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use bytes::Bytes;
-use ceramic_core::SqlitePool;
+use ceramic_store::SqlitePool;
 use cid::{
     multihash::Code::{Keccak256, Sha2_256},
     multihash::MultihashDigest,
@@ -226,7 +226,7 @@ mod tests {
     use crate::SQLiteBlockStore;
     use anyhow::Error;
     use bytes::Bytes;
-    use ceramic_core::SqlitePool;
+    use ceramic_store::SqlitePool;
     use cid::{Cid, CidGeneric};
     use expect_test::expect;
     use iroh_bitswap::Store;

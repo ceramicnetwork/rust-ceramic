@@ -17,6 +17,7 @@ backoff.workspace = true
 bytes.workspace = true
 ceramic-core.workspace = true
 ceramic-metrics.workspace = true
+ceramic-store.workspace = true
 chrono = "0.4.31"
 cid.workspace = true
 clap-verbosity-flag = "2.0.1"
