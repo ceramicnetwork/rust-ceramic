@@ -20,12 +20,10 @@ hyper.workspace = true
 multibase.workspace = true
 recon.workspace = true
 serde.workspace = true
-serde_cbor.workspace = true
 swagger.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 prometheus-client.workspace = true
-iroh-rpc-client.workspace = true
 
 [dev-dependencies]
 expect-test.workspace = true

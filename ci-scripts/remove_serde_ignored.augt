@@ -1,0 +1,20 @@
+# Augtool commands to delete the serde_ignored dependency from Cargo.toml
+
+# Load Cargo.toml
+set /augeas/load/Toml/lens "Toml.lns"
+set /augeas/load/Toml/incl "Cargo.toml"
+load
+
+# Remove serde_ignored from the list of dependencies for th server feature
+# 
+# Use copy hack to remove unlabled nodes.
+# In short we copy the array out mutate it and put it back
+# This removes unlabeled nodes and allows for proper tree to be saved
+
+cp /files/Cargo.toml/table[. = "features"]/entry[. = "server"]/array /files/tmp
+rm /files/tmp/string[. = "serde_ignored"]
+cp /files/tmp /files/Cargo.toml/table[. = "features"]/entry[. = "server"]/array
+
+# Remove serde_ignored from the dependencies table
+rm /files/Cargo.toml/table[. = "dependencies"]/entry[. = "serde_ignored"]
+

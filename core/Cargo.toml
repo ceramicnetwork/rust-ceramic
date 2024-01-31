@@ -35,3 +35,9 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 test-log.workspace = true
 expect-test.workspace = true
+
+[package.metadata.cargo-machete]
+ignored = [
+    # Used in a macro invocation to serialize a type
+    "serde_bytes",
+]

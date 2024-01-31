@@ -7,7 +7,7 @@ jar=openapi-generator-cli.jar
 
 if [ ! -f $jar ]
 then
-    wget https://repo1.maven.org/maven2/org/openapitools/openapi-generator-cli/${VERSION}/openapi-generator-cli-${VERSION}.jar -O $jar
+    curl https://repo1.maven.org/maven2/org/openapitools/openapi-generator-cli/${VERSION}/openapi-generator-cli-${VERSION}.jar -o $jar
 fi
 
 java -ea                          \
