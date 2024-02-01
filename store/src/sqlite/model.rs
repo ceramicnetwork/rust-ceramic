@@ -67,12 +67,12 @@ where
             ON model_key (key, value_retrieved)";
 
         const CREATE_MODEL_BLOCK_TABLE: &str = "CREATE TABLE IF NOT EXISTS model_block (
+            cid BLOB, -- the cid of the Block as bytes no 0x00 prefix
             key BLOB, -- network_id sort_value controller StreamID height event_cid
             idx INTEGER, -- the index of the block in the CAR file
             root BOOL, -- when true the block is a root in the CAR file
-            cid BLOB, -- the cid of the Block as bytes no 0x00 prefix
             bytes BLOB, -- the Block
-            PRIMARY KEY(cid)
+            PRIMARY KEY(cid, key)
         )";
         // TODO should this include idx or not?
         const CREATE_BLOCK_ORDER_INDEX: &str = "CREATE INDEX IF NOT EXISTS idx_model_block_key
@@ -899,7 +899,7 @@ mod test {
                 Database(
                     SqliteError {
                         code: 1555,
-                        message: "UNIQUE constraint failed: model_block.cid",
+                        message: "UNIQUE constraint failed: model_block.cid, model_block.key",
                     },
                 ),
             )
