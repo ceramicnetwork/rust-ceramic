@@ -124,7 +124,11 @@ jobs:
       name: Build and Publish Docker Image
       id: build
       run: |
-        BUILD_TAG=$(echo ${{ github.event.pull_request.head.sha }} | head -c 12)
+        if [ "${{ github.event_name }}" == "pull_request" ]; then
+          BUILD_TAG=$(echo ${{ github.event.pull_request.head.sha }} | head -c 12)
+        else
+          BUILD_TAG=$(echo ${{ github.sha }} | head -c 12)
+        fi
         make SHA_TAG="$BUILD_TAG" publish-docker
         echo "Build tag:"
         echo ${BUILD_TAG}
