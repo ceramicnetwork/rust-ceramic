@@ -240,7 +240,9 @@ where
             Interest::from(bytes)
         })))
     }
+
     #[instrument(skip(self))]
+    /// This doesn't make sense for interests as there is no value, so it's always an empty set
     async fn range_with_values(
         &mut self,
         left_fencepost: &Self::Key,
@@ -248,35 +250,10 @@ where
         offset: usize,
         limit: usize,
     ) -> Result<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>> {
-        let query = sqlx::query(
-            "
-        SELECT
-            key, value
-        FROM
-            recon_value
-        WHERE
-            key > ? AND key < ?
-            AND value IS NOT NULL
-        ORDER BY
-            key ASC
-        LIMIT
-            ?
-        OFFSET
-            ?;
-        ",
-        );
-        let rows = query
-            .bind(left_fencepost.as_bytes())
-            .bind(right_fencepost.as_bytes())
-            .bind(limit as i64)
-            .bind(offset as i64)
-            .fetch_all(self.pool.reader())
+        let rows = self
+            .range(left_fencepost, right_fencepost, offset, limit)
             .await?;
-        Ok(Box::new(rows.into_iter().map(|row| {
-            let key: Vec<u8> = row.get(0);
-            let value: Vec<u8> = row.get(1);
-            (Interest::from(key), value)
-        })))
+        Ok(Box::new(rows.into_iter().map(|key| (key, Vec::new()))))
     }
     /// Return the number of keys within the range.
     #[instrument(skip(self))]
@@ -483,6 +460,45 @@ mod interest_tests {
             .await
             .unwrap();
         let interests = ids.collect::<Vec<Interest>>();
+        assert_eq!(2, interests.len());
+        assert_eq!(vec![hello_interest, world_interest], interests);
+        // TODO: need to fix bug in interests format impl and regenerate/fix these expects
+        // expect![[r#"
+        // [
+        //     Bytes(
+        //         "hello",
+        //     ),
+        //     Bytes(
+        //         "world",
+        //     ),
+        // ]
+        // "#]]
+        // .assert_debug_eq(&ids.collect::<Vec<Interest>>());
+    }
+
+    #[test(tokio::test)]
+    async fn test_range_with_values_query() {
+        let mut store = new_store().await;
+        let hello_interest = Interest::from("hello".as_bytes());
+        let world_interest = Interest::from("world".as_bytes());
+        store
+            .insert(ReconItem::new_key(&hello_interest))
+            .await
+            .unwrap();
+        store
+            .insert(ReconItem::new_key(&world_interest))
+            .await
+            .unwrap();
+        let ids = store
+            .range_with_values(
+                &b"a".as_slice().into(),
+                &b"z".as_slice().into(),
+                0,
+                usize::MAX,
+            )
+            .await
+            .unwrap();
+        let interests = ids.into_iter().map(|(i, _v)| i).collect::<Vec<Interest>>();
         assert_eq!(2, interests.len());
         assert_eq!(vec![hello_interest, world_interest], interests);
         // TODO: need to fix bug in interests format impl and regenerate/fix these expects
