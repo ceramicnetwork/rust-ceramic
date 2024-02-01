@@ -124,20 +124,8 @@ jobs:
       name: Build and Publish Docker Image
       id: build
       run: |
-        SHA_TAG=$(echo ${{ github.SHA }} | head -c 12)
-        BUILD_TAG=$SHA_TAG
-        COMMIT_MESSAGE=$(git log -1 --pretty=%B)
-        if [[ $(echo "$COMMIT_MESSAGE" | grep 'chore: version v') ]]; then
-          RELEASE_TAG=$(cargo metadata --format-version=1 --no-deps | jq '.packages[0].version' | tr -d '"')
-          # Use the release tag to deploy, if one is available.
-          BUILD_TAG=$RELEASE_TAG
-        fi
-        if [[ "${{ github.event_name }}" == "pull_request" && "${{ github.base_ref }}" == "main" ]]; then
-          # Use PR commit sha on PRs for main
-          RELEASE_TAG=$(echo ${{ github.event.pull_request.head.sha }} | head -c 12)
-          BUILD_TAG=$RELEASE_TAG
-        fi
-        make SHA="${{ github.SHA }}" SHA_TAG="$SHA_TAG" RELEASE_TAG="$RELEASE_TAG" publish-docker
+        BUILD_TAG=$(echo ${{ github.event.pull_request.head.sha }} | head -c 12)
+        make SHA_TAG="$BUILD_TAG" publish-docker
         echo "Build tag:"
         echo ${BUILD_TAG}
         echo "build_tag=${BUILD_TAG}" >> $GITHUB_OUTPUT
