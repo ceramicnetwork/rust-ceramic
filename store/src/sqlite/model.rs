@@ -67,7 +67,6 @@ where
             ON model_key (key, value_retrieved)";
 
         const CREATE_MODEL_BLOCK_TABLE: &str = "CREATE TABLE IF NOT EXISTS model_block (
-            sort_key TEXT, -- the field in the event header to sort by e.g. model
             key BLOB, -- network_id sort_value controller StreamID height event_cid
             idx INTEGER, -- the index of the block in the CAR file
             root BOOL, -- when true the block is a root in the CAR file

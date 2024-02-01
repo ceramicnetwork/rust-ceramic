@@ -24,7 +24,7 @@ impl<H> InterestStore<H>
 where
     H: AssociativeHash,
 {
-    /// Make a new InterestSqliteStore from a connection and sort_key.
+    /// Make a new InterestSqliteStore from a connection pool.
     /// This will create the interest_key table if it does not already exist.
     pub async fn new(pool: SqlitePool) -> Result<Self> {
         let mut store = InterestStore {
