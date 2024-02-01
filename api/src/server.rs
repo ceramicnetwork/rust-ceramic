@@ -33,7 +33,22 @@ use ceramic_api_server::{
 use ceramic_core::{EventId, Interest, Network, PeerId, StreamId};
 
 #[async_trait]
-pub trait Recon: Clone + Send + Sync {
+pub trait ReconInterest: Clone + Send + Sync {
+    type Key: Key;
+    type Hash: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>;
+
+    async fn insert(&self, key: Self::Key) -> Result<()>;
+    async fn range(
+        &self,
+        start: Self::Key,
+        end: Self::Key,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Vec<Self::Key>>;
+}
+
+#[async_trait]
+pub trait ReconModel: Clone + Send + Sync {
     type Key: Key;
     type Hash: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>;
 
@@ -50,7 +65,34 @@ pub trait Recon: Clone + Send + Sync {
 }
 
 #[async_trait]
-impl<K, H> Recon for recon::Client<K, H>
+impl<K, H> ReconInterest for recon::Client<K, H>
+where
+    K: Key,
+    H: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>,
+{
+    type Key = K;
+    type Hash = H;
+
+    async fn insert(&self, key: Self::Key) -> Result<()> {
+        let _ = recon::Client::insert(self, key, None).await?;
+        Ok(())
+    }
+
+    async fn range(
+        &self,
+        start: Self::Key,
+        end: Self::Key,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Vec<Self::Key>> {
+        Ok(recon::Client::range(self, start, end, offset, limit)
+            .await?
+            .collect())
+    }
+}
+
+#[async_trait]
+impl<K, H> ReconModel for recon::Client<K, H>
 where
     K: Key,
     H: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>,
@@ -92,8 +134,8 @@ pub struct Server<C, I, M> {
 
 impl<C, I, M> Server<C, I, M>
 where
-    I: Recon<Key = Interest>,
-    M: Recon<Key = EventId>,
+    I: ReconInterest<Key = Interest>,
+    M: ReconModel<Key = EventId>,
 {
     pub fn new(peer_id: PeerId, network: Network, interest: I, model: M) -> Self {
         Server {
@@ -159,10 +201,7 @@ where
             .with_not_after(0)
             .build();
         self.interest
-            // We must store a value for the interest otherwise Recon will try forever to
-            // synchronize the value.
-            // In the case of interests an empty value is sufficient.
-            .insert(interest, Some(vec![]))
+            .insert(interest)
             .await
             .map_err(|err| ApiError(format!("failed to update interest: {err}")))?;
 
@@ -179,8 +218,8 @@ use swagger::ApiError;
 impl<C, I, M> Api<C> for Server<C, I, M>
 where
     C: Send + Sync,
-    I: Recon<Key = Interest> + Sync,
-    M: Recon<Key = EventId> + Sync,
+    I: ReconInterest<Key = Interest> + Sync,
+    M: ReconModel<Key = EventId> + Sync,
 {
     #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn liveness_get(
@@ -327,23 +366,21 @@ mod tests {
     }
 
     #[async_trait]
-    impl Recon for MockReconInterestTest {
+    impl ReconInterest for MockReconInterestTest {
         type Key = Interest;
         type Hash = Sha256a;
-        async fn insert(&self, key: Self::Key, value: Option<Vec<u8>>) -> Result<()> {
-            self.insert(key, value)
+        async fn insert(&self, key: Self::Key) -> Result<()> {
+            self.insert(key, None)
         }
-        async fn range_with_values(
+        async fn range(
             &self,
             start: Self::Key,
             end: Self::Key,
             offset: usize,
             limit: usize,
-        ) -> Result<Vec<(Self::Key, Vec<u8>)>> {
-            self.range_with_values(start, end, offset, limit)
-        }
-        async fn value_for_key(&self, _key: Self::Key) -> Result<Option<Vec<u8>>> {
-            Ok(None)
+        ) -> Result<Vec<Self::Key>> {
+            let res = self.range_with_values(start, end, offset, limit)?;
+            Ok(res.into_iter().map(|(k, _)| k).collect())
         }
     }
 
@@ -364,7 +401,7 @@ mod tests {
     }
 
     #[async_trait]
-    impl Recon for MockReconModelTest {
+    impl ReconModel for MockReconModelTest {
         type Key = EventId;
         type Hash = Sha256a;
         async fn insert(&self, key: Self::Key, value: Option<Vec<u8>>) -> Result<()> {
@@ -483,7 +520,7 @@ mod tests {
                         .with_not_after(0)
                         .build(),
                 ),
-                predicate::eq(Some(vec![])),
+                predicate::eq(None),
             )
             .times(1)
             .returning(|_, _| Ok(()));
@@ -549,7 +586,7 @@ mod tests {
                         .with_not_after(0)
                         .build(),
                 ),
-                predicate::eq(Some(vec![])),
+                predicate::eq(None),
             )
             .times(1)
             .returning(|_, _| Ok(()));
@@ -615,7 +652,7 @@ mod tests {
                         .with_not_after(0)
                         .build(),
                 ),
-                predicate::eq(Some(vec![])),
+                predicate::eq(None),
             )
             .times(1)
             .returning(|_, _| Ok(()));
@@ -681,7 +718,7 @@ mod tests {
                         .with_not_after(0)
                         .build(),
                 ),
-                predicate::eq(Some(vec![])),
+                predicate::eq(None),
             )
             .times(1)
             .returning(|_, _| Ok(()));
@@ -748,7 +785,7 @@ mod tests {
                         .with_not_after(0)
                         .build(),
                 ),
-                predicate::eq(Some(vec![])),
+                predicate::eq(None),
             )
             .times(1)
             .returning(|_, _| Ok(()));
@@ -800,7 +837,7 @@ mod tests {
                         .with_not_after(0)
                         .build(),
                 ),
-                predicate::eq(Some(vec![])),
+                predicate::eq(None),
             )
             .times(1)
             .returning(|_, _| Ok(()));
@@ -854,7 +891,7 @@ mod tests {
                         .with_not_after(0)
                         .build(),
                 ),
-                predicate::eq(Some(vec![])),
+                predicate::eq(None),
             )
             .times(1)
             .returning(|_, _| Ok(()));
