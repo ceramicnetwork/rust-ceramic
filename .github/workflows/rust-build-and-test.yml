@@ -170,9 +170,7 @@ jobs:
           set -ex
           export RUST_CERAMIC_IMAGE=${RUST_CERAMIC_IMAGE_REPO}:${RUST_CERAMIC_IMAGE_TAG}
           export KERAMIK_NETWORK_NAME=hermetic-rust-ceramic-${RUST_CERAMIC_IMAGE_TAG}
-          echo "KERAMIK_NETWORK_NAME=${KERAMIK_NETWORK_NAME}" >> "$GITHUB_ENV"
           mkdir ./bin
-          sudo apt-get update && sudo apt-get install -y curl
           curl -L https://github.com/mikefarah/yq/releases/download/v4.40.5/yq_linux_amd64 -o ./bin/yq
           chmod +x ./bin/yq
           curl -L https://github.com/3box/ceramic-tests/releases/download/v0.2.0/hermetic-driver-x86_64-linux -o ./bin/hermetic-driver
@@ -184,9 +182,9 @@ jobs:
 
       -
         name: Run correctness-tests
-        # test if the event is a pr (synchronize), run fast,
-        # if it's in the merge group trigger, run fast and slow, "."
-        # Add an option for workflow_dispatch
+        # On PRs run fast tests
+        # On merges to main, run all tests
+        # Workflow_dispatch picks what to run
         run: |
           set -ex
           if [ "${{ github.event_name }}" == "pull_request" ]; then
@@ -201,6 +199,3 @@ jobs:
             --flavor correctness \
             --test-selector ${TESTS}
 
-      - name: Clean up correctness-test
-        run: |
-            echo "Removing network ${KERAMIK_NETWORK_NAME}"
