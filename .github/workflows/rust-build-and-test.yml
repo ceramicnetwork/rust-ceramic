@@ -1,13 +1,20 @@
 name: Rust Build and Test
 
 on:
-  push:
-    branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
   merge_group:
     branches: [ "main" ]
   workflow_dispatch:
+    inputs:
+      test_selector:
+        description: 'Test selector'
+        required: false
+        default: '.'
+        options:
+          - "fast"
+          - "slow"
+          - "."
 
 env:
   CARGO_TERM_COLOR: always
@@ -75,6 +82,8 @@ jobs:
       run: make test
   build:
     runs-on: ubuntu-latest
+    outputs:
+      build_tag: ${{ steps.build.outputs.build_tag }}
     steps:
     - uses: actions/checkout@v3
     - uses: dtolnay/rust-toolchain@stable
@@ -99,5 +108,82 @@ jobs:
         echo "PROTOC_INCLUDE=/usr/local/include" >> $GITHUB_ENV
     - name: Build
       run: make build
+    -
+      name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+    -
+      name: Login to Public ECR
+      uses: docker/login-action@v2
+      with:
+        registry: public.ecr.aws
+        username: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        password: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      env:
+        AWS_REGION: us-east-1
+    -
+      name: Build and Publish Docker Image
+      id: build
+      run: |
+        BUILD_TAG=$(echo ${{ github.event.pull_request.head.sha }} | head -c 12)
+        make SHA_TAG="$BUILD_TAG" publish-docker
+        echo "Build tag:"
+        echo ${BUILD_TAG}
+        echo "build_tag=${BUILD_TAG}" >> $GITHUB_OUTPUT
 
+  correctness-tests:
+    runs-on: ubuntu-latest
+    environment: github-tests-2024
+    needs:
+      - build
+    steps:
+      - uses: actions/checkout@v3
+      -
+        name: Setup GKE auth
+        uses: 'google-github-actions/auth@v1'
+        with:
+          credentials_json: ${{ secrets.GKE_SA_KEY }}
+      -
+        name: Get GKE credentials
+        uses: 'google-github-actions/get-gke-credentials@v1'
+        with:
+          cluster_name: ${{ vars.GKE_CLUSTER }}
+          location: ${{ vars.GKE_ZONE }}
+
+      -
+        name: Get Network template and update
+        env:
+          RUST_CERAMIC_IMAGE_TAG: ${{ needs.build.outputs.build_tag }}
+          RUST_CERAMIC_IMAGE_REPO: public.ecr.aws/r5b3e0r5/3box/ceramic-one
+        run: |
+          set -ex
+          export RUST_CERAMIC_IMAGE=${RUST_CERAMIC_IMAGE_REPO}:${RUST_CERAMIC_IMAGE_TAG}
+          export KERAMIK_NETWORK_NAME=hermetic-rust-ceramic-${RUST_CERAMIC_IMAGE_TAG}
+          mkdir ./bin
+          curl -L https://github.com/mikefarah/yq/releases/download/v4.40.5/yq_linux_amd64 -o ./bin/yq
+          chmod +x ./bin/yq
+          curl -L https://github.com/3box/ceramic-tests/releases/download/v0.2.0/hermetic-driver-x86_64-linux -o ./bin/hermetic-driver
+          chmod +x ./bin/hermetic-driver
+          curl -LO https://raw.githubusercontent.com/3box/ceramic-tests/main/networks/basic-rust.yaml
+          ./bin/yq -i '.spec.ceramic[0].ipfs.rust.image = strenv(RUST_CERAMIC_IMAGE)' basic-rust.yaml
+          ./bin/yq -i '.metadata.name = strenv(KERAMIK_NETWORK_NAME)' basic-rust.yaml
+          ./bin/yq --no-colors basic-rust.yaml
+
+      -
+        name: Run correctness-tests
+        # On PRs run fast tests
+        # On merges to main, run all tests
+        # Workflow_dispatch picks what to run
+        run: |
+          set -ex
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            TESTS="fast"
+          elif [ "${{ github.event_name }}" == "merge_group" ]; then
+            TESTS="."
+          elif [ "${{ github.event_name}}" == "workflow_dispatch" ]; then
+            TESTS="${{ github.event.inputs.test_selector || '.' }}"
+          fi
+          ./bin/hermetic-driver test \
+            --network basic-rust.yaml \
+            --flavor correctness \
+            --test-selector ${TESTS}
 
