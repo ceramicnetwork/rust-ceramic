@@ -2,6 +2,7 @@
 set -ex
 export RUST_CERAMIC_IMAGE=${RUST_CERAMIC_IMAGE_REPO}:${RUST_CERAMIC_IMAGE_TAG}
 export KERAMIK_NETWORK_NAME=hermetic-rust-ceramic-${RUST_CERAMIC_IMAGE_TAG}
+echo "KERAMIK_NETWORK_NAME=${KERAMIK_NETWORK_NAME}" >> "$GITHUB_ENV"
 mkdir ./bin
 curl -L https://github.com/mikefarah/yq/releases/download/v4.40.5/yq_linux_amd64 -o ./bin/yq
 chmod +x ./bin/yq
