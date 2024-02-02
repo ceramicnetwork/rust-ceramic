@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
+
 # Script to generate kubo-server crate from OpenAPI definition.
+# Requires augeas/augtool to be installed
 
 set -e
 
@@ -21,7 +23,15 @@ echo "#![allow(suspicious_double_ref_op)]" | cat - ./kubo-rpc-server/examples/se
 mv ./kubo-rpc-server/examples/server/server.rs.tmp ./kubo-rpc-server/examples/server/server.rs
 
 # Remove conversion feature from generated code because it doesn't build and we do not use it.
-sed -i 's/conversion = .*//' ./kubo-rpc-server/Cargo.toml
+augtool -s -L \
+    -r ./kubo-rpc-server/ \
+    -f ./ci-scripts/remove_conversion.augt
+
+# Remove the serde_ignored dependency as it is unused
+augtool -s -L \
+    -r ./kubo-rpc-server/ \
+    -f ./ci-scripts/remove_serde_ignored.augt
+
 
 # Format the generated code
 cargo fmt -p ceramic-kubo-rpc-server

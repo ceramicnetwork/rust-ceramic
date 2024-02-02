@@ -25,7 +25,7 @@ MANUAL_DEPLOY ?= false
 TEST_SELECTOR ?= .
 
 .PHONY: all
-all: build check-fmt check-clippy test
+all: build check-fmt check-clippy check-deps test
 
 .PHONY: build
 build:
@@ -84,6 +84,10 @@ check-clippy:
 	$(CARGO) clippy --workspace --locked --release -- -D warnings --no-deps
 	# Check with all features
 	$(CARGO) clippy --workspace --locked --release --all-features -- -D warnings --no-deps
+
+.PHONY: check-deps
+check-deps:
+	$(CARGO) machete
 
 .PHONY: run
 run:

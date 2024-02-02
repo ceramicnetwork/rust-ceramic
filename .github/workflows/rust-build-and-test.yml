@@ -24,9 +24,9 @@ env:
 jobs:
   check:
     runs-on: ubuntu-latest
+    container: 'public.ecr.aws/r5b3e0r5/3box/rust-builder:latest'
     steps:
     - uses: actions/checkout@v3
-    - uses: dtolnay/rust-toolchain@stable
     - uses: Swatinem/rust-cache@v2
       with:
         # The prefix cache key, this can be changed to start a new cache manually.
@@ -35,17 +35,6 @@ jobs:
         # Cache only the cargo registry
         cache-targets: false
     - uses: mozilla-actions/sccache-action@v0.0.3
-    - name: Install Protoc
-      run: |
-        PROTOC_VERSION=3.20.1
-        PROTOC_ARCH=linux-x86_64
-        PROTOC_ZIP=protoc-$PROTOC_VERSION-$PROTOC_ARCH.zip
-        curl --retry 3 --retry-max-time 90 -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" -OL https://github.com/protocolbuffers/protobuf/releases/download/v$PROTOC_VERSION/$PROTOC_ZIP
-        sudo unzip -o $PROTOC_ZIP -d /usr/local bin/protoc
-        sudo unzip -o $PROTOC_ZIP -d /usr/local 'include/*'
-        rm -f $PROTOC_ZIP
-        echo "PROTOC=/usr/local/bin/protoc" >> $GITHUB_ENV
-        echo "PROTOC_INCLUDE=/usr/local/include" >> $GITHUB_ENV
     - name: Check fmt
       run: make check-fmt
     - name: Check clippy
@@ -54,11 +43,13 @@ jobs:
       run: |
         make check-api-server
         make check-kubo-rpc-server
+    - name: Check deps
+      run: make check-deps
   test:
     runs-on: ubuntu-latest
+    container: 'public.ecr.aws/r5b3e0r5/3box/rust-builder:latest'
     steps:
     - uses: actions/checkout@v3
-    - uses: dtolnay/rust-toolchain@stable
     - uses: Swatinem/rust-cache@v2
       with:
         # The prefix cache key, this can be changed to start a new cache manually.
@@ -67,17 +58,6 @@ jobs:
         # Cache only the cargo registry
         cache-targets: false
     - uses: mozilla-actions/sccache-action@v0.0.3
-    - name: Install Protoc
-      run: |
-        PROTOC_VERSION=3.20.1
-        PROTOC_ARCH=linux-x86_64
-        PROTOC_ZIP=protoc-$PROTOC_VERSION-$PROTOC_ARCH.zip
-        curl --retry 3 --retry-max-time 90 -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" -OL https://github.com/protocolbuffers/protobuf/releases/download/v$PROTOC_VERSION/$PROTOC_ZIP
-        sudo unzip -o $PROTOC_ZIP -d /usr/local bin/protoc
-        sudo unzip -o $PROTOC_ZIP -d /usr/local 'include/*'
-        rm -f $PROTOC_ZIP
-        echo "PROTOC=/usr/local/bin/protoc" >> $GITHUB_ENV
-        echo "PROTOC_INCLUDE=/usr/local/include" >> $GITHUB_ENV
     - name: Run tests
       run: make test
   build:
@@ -86,7 +66,6 @@ jobs:
       build_tag: ${{ steps.build.outputs.build_tag }}
     steps:
     - uses: actions/checkout@v3
-    - uses: dtolnay/rust-toolchain@stable
     - uses: Swatinem/rust-cache@v2
       with:
         # The prefix cache key, this can be changed to start a new cache manually.
@@ -95,19 +74,6 @@ jobs:
         # Cache only the cargo registry
         cache-targets: false
     - uses: mozilla-actions/sccache-action@v0.0.3
-    - name: Install Protoc
-      run: |
-        PROTOC_VERSION=3.20.1
-        PROTOC_ARCH=linux-x86_64
-        PROTOC_ZIP=protoc-$PROTOC_VERSION-$PROTOC_ARCH.zip
-        curl --retry 3 --retry-max-time 90 -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" -OL https://github.com/protocolbuffers/protobuf/releases/download/v$PROTOC_VERSION/$PROTOC_ZIP
-        sudo unzip -o $PROTOC_ZIP -d /usr/local bin/protoc
-        sudo unzip -o $PROTOC_ZIP -d /usr/local 'include/*'
-        rm -f $PROTOC_ZIP
-        echo "PROTOC=/usr/local/bin/protoc" >> $GITHUB_ENV
-        echo "PROTOC_INCLUDE=/usr/local/include" >> $GITHUB_ENV
-    - name: Build
-      run: make build
     -
       name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v2
@@ -124,7 +90,11 @@ jobs:
       name: Build and Publish Docker Image
       id: build
       run: |
-        BUILD_TAG=$(echo ${{ github.event.pull_request.head.sha }} | head -c 12)
+        if [ "${{ github.event_name }}" == "pull_request" ]; then
+          BUILD_TAG=$(echo ${{ github.event.pull_request.head.sha }} | head -c 12)
+        else
+          BUILD_TAG=$(echo ${{ github.sha }} | head -c 12)
+        fi
         make SHA_TAG="$BUILD_TAG" publish-docker
         echo "Build tag:"
         echo ${BUILD_TAG}

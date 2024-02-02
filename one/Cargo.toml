@@ -22,8 +22,6 @@ chrono = "0.4.31"
 cid.workspace = true
 clap.workspace = true
 dirs = "5.0.1"
-futures-timer.workspace = true
-futures-util.workspace = true
 futures.workspace = true
 git-version = "0.3"
 glob = "0.3.1"
@@ -32,7 +30,6 @@ hyper.workspace = true
 iroh-rpc-client.workspace = true
 iroh-rpc-types.workspace = true
 iroh-bitswap.workspace = true
-libipld.workspace = true
 libp2p.workspace = true
 multiaddr.workspace = true
 multibase.workspace = true
@@ -40,16 +37,11 @@ multihash.workspace = true
 names.workspace = true
 prometheus-client.workspace = true
 recon.workspace = true
-serde = "1"
-serde_cbor.workspace = true
-serde_json = "1"
-serde_repr = "0.1"
 signal-hook = "0.3.17"
 signal-hook-tokio = { version = "0.3.1", features = ["futures-v0_3"] }
 swagger.workspace = true
 tokio-metrics = { version = "0.3.1", features = ["rt"] }
 tokio-prometheus-client = "0.1"
-tokio-util.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
