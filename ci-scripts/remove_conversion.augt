@@ -1,0 +1,17 @@
+# Augtool commands to delete the conversion feature from Cargo.toml
+
+# Load Cargo.toml
+set /augeas/load/Toml/lens "Toml.lns"
+set /augeas/load/Toml/incl "Cargo.toml"
+load
+
+# Delete conversion feature
+rm /files/Cargo.toml/table[. = "features"]/entry[. = "conversion"]
+# Delete conversion feature dependencies
+rm /files/Cargo.toml/table[. = "dependencies"]/#comment[. = "Conversion"]
+rm /files/Cargo.toml/table[. = "dependencies"]/entry[. = "frunk"]
+rm /files/Cargo.toml/table[. = "dependencies"]/entry[. = "frunk_core"]
+rm /files/Cargo.toml/table[. = "dependencies"]/entry[. = "frunk_derives"]
+rm /files/Cargo.toml/table[. = "dependencies"]/entry[. = "frunk-enum-core"]
+rm /files/Cargo.toml/table[. = "dependencies"]/entry[. = "frunk-enum-derive"]
+rm /files/Cargo.toml/table[. = "dependencies"]/entry[. = "mime"]

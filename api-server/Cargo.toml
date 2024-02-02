@@ -14,7 +14,6 @@ client = [
 server = [
    "serde_ignored", "hyper", "regex", "percent-encoding", "url", "lazy_static"
 ]
-conversion = ["frunk", "frunk_derives", "frunk_core", "frunk-enum-core", "frunk-enum-derive"]
 
 [target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "ios"))'.dependencies]
 native-tls = { version = "0.2", optional = true }
@@ -31,7 +30,6 @@ chrono = { version = "0.4", features = ["serde"] }
 futures = "0.3"
 swagger = { version = "6.1", features = ["serdejson", "server", "client", "tls", "tcp"] }
 log = "0.4.0"
-mime = "0.3"
 
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -51,12 +49,6 @@ lazy_static = { version = "1.4", optional = true }
 percent-encoding = {version = "2.1.0", optional = true}
 regex = {version = "1.3", optional = true}
 
-# Conversion
-frunk = { version = "0.3.0", optional = true }
-frunk_derives = { version = "0.3.0", optional = true }
-frunk_core = { version = "0.3.0", optional = true }
-frunk-enum-derive = { version = "0.2.0", optional = true }
-frunk-enum-core = { version = "0.2.0", optional = true }
 
 [dev-dependencies]
 clap = "2.25"
