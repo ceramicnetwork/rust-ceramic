@@ -593,7 +593,7 @@ pub trait Store: std::fmt::Debug {
 
 /// Represents a key that can be reconciled via Recon.
 pub trait Key:
-    From<Vec<u8>> + Ord + Clone + Display + std::fmt::Debug + Send + Sync + 'static
+    TryFrom<Vec<u8>> + Ord + Clone + Display + std::fmt::Debug + Send + Sync + 'static
 {
     /// Produce the key that is less than all other keys.
     fn min_value() -> Self;
@@ -763,8 +763,8 @@ where
             .range(self.start.clone(), self.end.clone(), 0, usize::MAX)
             .await?
             .map(|interest| {
-                if let Some(RangeOpen { start, end }) = interest.range()? {
-                    let range = (EventId::from(start), EventId::from(end)).into();
+                if let Some(RangeOpen { start, end }) = interest.range() {
+                    let range = (EventId::try_from(start)?, EventId::try_from(end)?).into();
                     Ok(range)
                 } else {
                     Err(anyhow!("stored interest does not contain a range"))
@@ -821,12 +821,11 @@ pub enum SyncState<K, H> {
 
 impl Key for EventId {
     fn min_value() -> Self {
-        Vec::new().into()
+        EventId::builder().build_min_fencepost()
     }
 
     fn max_value() -> Self {
-        // No EventId starts with an 0xFF byte
-        vec![0xFF].into()
+        EventId::builder().build_max_fencepost()
     }
 
     fn as_bytes(&self) -> &[u8] {
@@ -841,12 +840,11 @@ impl Key for EventId {
 
 impl Key for Interest {
     fn min_value() -> Self {
-        Vec::new().into()
+        Interest::builder().build_min_fencepost()
     }
 
     fn max_value() -> Self {
-        // No Interest starts with an 0xFF byte
-        vec![0xFF].into()
+        Interest::builder().build_max_fencepost()
     }
 
     fn as_bytes(&self) -> &[u8] {
@@ -855,6 +853,6 @@ impl Key for Interest {
 
     fn is_fencepost(&self) -> bool {
         // An interest is only complete if it contains all values up to the not_after value.
-        self.not_after().is_err()
+        self.not_after().is_none()
     }
 }
