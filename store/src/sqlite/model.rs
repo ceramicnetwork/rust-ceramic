@@ -67,16 +67,16 @@ where
             ON model_key (key, value_retrieved)";
 
         const CREATE_MODEL_BLOCK_TABLE: &str = "CREATE TABLE IF NOT EXISTS model_block (
-            cid BLOB, -- the cid of the Block as bytes no 0x00 prefix
             key BLOB, -- network_id sort_value controller StreamID height event_cid
+            cid BLOB, -- the cid of the Block as bytes no 0x00 prefix
             idx INTEGER, -- the index of the block in the CAR file
             root BOOL, -- when true the block is a root in the CAR file
             bytes BLOB, -- the Block
-            PRIMARY KEY(cid, key)
+            PRIMARY KEY(key, cid)
         )";
         // TODO should this include idx or not?
-        const CREATE_BLOCK_ORDER_INDEX: &str = "CREATE INDEX IF NOT EXISTS idx_model_block_key
-            ON model_block (key)";
+        const CREATE_BLOCK_ORDER_INDEX: &str = "CREATE INDEX IF NOT EXISTS idx_model_block_cid
+            ON model_block (cid)";
 
         let mut tx = self.pool.tx().await?;
         sqlx::query(CREATE_STORE_KEY_TABLE)
@@ -406,6 +406,7 @@ where
             model_block
         ON
             key.key = model_block.key
+            ORDER BY model_block.key, model_block.idx
         ;",
         );
         let all_blocks = query
@@ -899,7 +900,7 @@ mod test {
                 Database(
                     SqliteError {
                         code: 1555,
-                        message: "UNIQUE constraint failed: model_block.cid, model_block.key",
+                        message: "UNIQUE constraint failed: model_block.key, model_block.cid",
                     },
                 ),
             )

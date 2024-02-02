@@ -42,7 +42,7 @@ where
 {
     /// Initialize the interest_key table.
     async fn create_table_if_not_exists(&mut self) -> Result<()> {
-        const CREATE_INTEREST_TABLE: &str = "CREATE TABLE IF NOT EXISTS interest_key (
+        const CREATE_INTEREST_KEY_TABLE: &str = "CREATE TABLE IF NOT EXISTS interest_key (
             key BLOB, -- network_id sort_value controller StreamID height event_cid
             ahash_0 INTEGER, -- the ahash is decomposed as [u32; 8]
             ahash_1 INTEGER,
@@ -56,7 +56,9 @@ where
         )";
 
         let mut tx = self.pool.tx().await?;
-        sqlx::query(CREATE_INTEREST_TABLE).execute(&mut *tx).await?;
+        sqlx::query(CREATE_INTEREST_KEY_TABLE)
+            .execute(&mut *tx)
+            .await?;
         tx.commit().await?;
         Ok(())
     }
@@ -242,7 +244,7 @@ where
     }
 
     #[instrument(skip(self))]
-    /// This doesn't make sense for interests as there is no value, so it's always an empty set
+    /// Interests don't have values, so the value will always be an empty vec. Use `range` instead.
     async fn range_with_values(
         &mut self,
         left_fencepost: &Self::Key,
