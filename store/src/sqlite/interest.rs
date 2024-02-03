@@ -394,7 +394,7 @@ where
 
     #[instrument(skip(self))]
     async fn value_for_key(&mut self, _key: &Self::Key) -> Result<Option<Vec<u8>>> {
-        Ok(None)
+        Ok(Some(vec![]))
     }
 
     #[instrument(skip(self))]
@@ -665,5 +665,16 @@ mod interest_tests {
             []
         "#]]
         .assert_debug_eq(&missing_keys);
+    }
+
+    #[test(tokio::test)]
+    async fn test_value_for_key() {
+        let mut store = new_store().await;
+        let key = Interest::from("hello".as_bytes());
+        store.insert(ReconItem::new(&key, None)).await.unwrap();
+        let value = store.value_for_key(&key).await.unwrap();
+        let val = value.unwrap();
+        let empty: Vec<u8> = vec![];
+        assert_eq!(empty, val);
     }
 }
