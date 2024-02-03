@@ -1,40 +1,34 @@
 #![warn(missing_docs, missing_debug_implementations, clippy::all)]
 
-use super::{HashCount, InsertResult, ReconItem};
-use crate::{AssociativeHash, Key, Store};
 use anyhow::Result;
 use async_trait::async_trait;
-use ceramic_core::{DbTx, RangeOpen, SqlitePool};
+use ceramic_core::{Interest, RangeOpen};
+use recon::{AssociativeHash, HashCount, InsertResult, Key, ReconItem, Store};
 use sqlx::Row;
 use std::marker::PhantomData;
-use std::result::Result::Ok;
 use tracing::instrument;
 
-/// ReconSQLite is a implementation of Recon store
+use crate::{DbTx, SqlitePool};
+
 #[derive(Debug)]
-pub struct SQLiteStore<K, H>
+/// InterestStore is a [`recon::Store`] implementation for Interests.
+pub struct InterestStore<H>
 where
-    K: Key,
     H: AssociativeHash,
 {
-    key: PhantomData<K>,
     hash: PhantomData<H>,
     pool: SqlitePool,
-    sort_key: String,
 }
 
-impl<K, H> SQLiteStore<K, H>
+impl<H> InterestStore<H>
 where
-    K: Key,
     H: AssociativeHash,
 {
-    /// Make a new SQLiteStore from a connection and sort_key.
-    /// This will create the recon table if it does not already exist.
-    pub async fn new(pool: SqlitePool, sort_key: String) -> Result<Self> {
-        let mut store = SQLiteStore {
+    /// Make a new InterestSqliteStore from a connection pool.
+    /// This will create the interest_key table if it does not already exist.
+    pub async fn new(pool: SqlitePool) -> Result<Self> {
+        let mut store = InterestStore {
             pool,
-            sort_key,
-            key: PhantomData,
             hash: PhantomData,
         };
         store.create_table_if_not_exists().await?;
@@ -42,16 +36,13 @@ where
     }
 }
 
-impl<K, H> SQLiteStore<K, H>
+impl<H> InterestStore<H>
 where
-    K: Key,
     H: AssociativeHash + std::convert::From<[u32; 8]>,
 {
-    /// Initialize the recon table.
+    /// Initialize the interest_key table.
     async fn create_table_if_not_exists(&mut self) -> Result<()> {
-        // Do we want to remove CID from the table?
-        const CREATE_RECON_TABLE: &str = "CREATE TABLE IF NOT EXISTS recon (
-            sort_key TEXT, -- the field in the event header to sort by e.g. model
+        const CREATE_INTEREST_KEY_TABLE: &str = "CREATE TABLE IF NOT EXISTS interest_key (
             key BLOB, -- network_id sort_value controller StreamID height event_cid
             ahash_0 INTEGER, -- the ahash is decomposed as [u32; 8]
             ahash_1 INTEGER,
@@ -61,27 +52,11 @@ where
             ahash_5 INTEGER,
             ahash_6 INTEGER,
             ahash_7 INTEGER,
-            CID TEXT,
-            value_retrieved BOOL, -- indicates if we still want the value
-            PRIMARY KEY(sort_key, key)
-        )";
-        const CREATE_VALUE_RETRIEVED_INDEX: &str =
-            "CREATE INDEX IF NOT EXISTS idx_recon_value_retrieved
-            ON recon (sort_key, key, value_retrieved)";
-
-        const CREATE_RECON_VALUE_TABLE: &str = "CREATE TABLE IF NOT EXISTS recon_value (
-            sort_key TEXT,
-            key BLOB,
-            value BLOB,
-            PRIMARY KEY(sort_key, key)
+            PRIMARY KEY(key)
         )";
 
         let mut tx = self.pool.tx().await?;
-        sqlx::query(CREATE_RECON_TABLE).execute(&mut *tx).await?;
-        sqlx::query(CREATE_VALUE_RETRIEVED_INDEX)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query(CREATE_RECON_VALUE_TABLE)
+        sqlx::query(CREATE_INTEREST_KEY_TABLE)
             .execute(&mut *tx)
             .await?;
         tx.commit().await?;
@@ -91,81 +66,36 @@ where
     /// returns (new_key, new_val) tuple
     async fn insert_item_int(
         &mut self,
-        item: &ReconItem<'_, K>,
+        item: &ReconItem<'_, Interest>,
         conn: &mut DbTx<'_>,
     ) -> Result<(bool, bool)> {
-        // we insert the value first as it's possible we already have the key and can skip that step
-        // as it happens in a transaction, we'll roll back the value insert if the key insert fails and try again
+        // interests don't have values, if someone gives us something we throw an error but allow None/vec![]
         if let Some(val) = item.value {
-            // Update the value_retrieved flag, and report if the key already exists.
-            let key_exists = self.update_value_retrieved_int(item.key, conn).await?;
-            self.insert_value_int(item.key, val, conn).await?;
-            if key_exists {
-                return Ok((false, true));
+            if !val.is_empty() {
+                return Err(anyhow::anyhow!(
+                    "Interests do not support values! Invalid request."
+                ));
             }
         }
-        let new_key = self
-            .insert_key_int(item.key, item.value.is_some(), conn)
-            .await?;
+        let new_key = self.insert_key_int(item.key, conn).await?;
         Ok((new_key, item.value.is_some()))
     }
 
-    // set value_retrieved to true and return if the key already exists
-    async fn update_value_retrieved_int(&mut self, key: &K, conn: &mut DbTx<'_>) -> Result<bool> {
-        let update =
-            sqlx::query("UPDATE recon SET value_retrieved = true WHERE sort_key = ? AND key = ?");
-        let resp = update
-            .bind(&self.sort_key)
-            .bind(key.as_bytes())
-            .execute(&mut **conn)
-            .await?;
-        let rows_affected = resp.rows_affected();
-        debug_assert!(rows_affected <= 1);
-        Ok(rows_affected == 1)
-    }
-
-    /// returns true if the key already exists in the recon table
-    async fn insert_value_int(&mut self, key: &K, val: &[u8], conn: &mut DbTx<'_>) -> Result<()> {
-        let value_insert = sqlx::query(
-            r#"INSERT INTO recon_value (value, sort_key, key)
-                VALUES (?, ?, ?)
-            ON CONFLICT (sort_key, key) DO UPDATE
-                SET value=excluded.value"#,
-        );
-
-        value_insert
-            .bind(val)
-            .bind(&self.sort_key)
-            .bind(key.as_bytes())
-            .execute(&mut **conn)
-            .await?;
-
-        Ok(())
-    }
-
-    async fn insert_key_int(
-        &mut self,
-        key: &K,
-        has_value: bool,
-        conn: &mut DbTx<'_>,
-    ) -> Result<bool> {
+    async fn insert_key_int(&mut self, key: &Interest, conn: &mut DbTx<'_>) -> Result<bool> {
         let key_insert = sqlx::query(
-            "INSERT INTO recon (
-                    sort_key, key,
+            "INSERT INTO interest_key (
+                    key,
                     ahash_0, ahash_1, ahash_2, ahash_3,
-                    ahash_4, ahash_5, ahash_6, ahash_7,
-                    value_retrieved
+                    ahash_4, ahash_5, ahash_6, ahash_7
                 ) VALUES (
-                    ?, ?,
+                    ?, 
                     ?, ?, ?, ?,
-                    ?, ?, ?, ?,
-                    ?
+                    ?, ?, ?, ?
                 );",
         );
 
         let hash = H::digest(key);
         let resp = key_insert
-            .bind(&self.sort_key)
             .bind(key.as_bytes())
             .bind(hash.as_u32s()[0])
             .bind(hash.as_u32s()[1])
@@ -175,7 +105,6 @@ where
             .bind(hash.as_u32s()[5])
             .bind(hash.as_u32s()[6])
             .bind(hash.as_u32s()[7])
-            .bind(has_value)
             .execute(&mut **conn)
             .await;
         match resp {
@@ -193,12 +122,11 @@ where
 }
 
 #[async_trait]
-impl<K, H> Store for SQLiteStore<K, H>
+impl<H> Store for InterestStore<H>
 where
-    K: Key,
     H: AssociativeHash,
 {
-    type Key = K;
+    type Key = Interest;
     type Hash = H;
 
     /// Returns true if the key was new. The value is always updated if included
@@ -213,7 +141,7 @@ where
     /// Returns true if a key did not previously exist.
     async fn insert_many<'a, I>(&mut self, items: I) -> Result<InsertResult>
     where
-        I: ExactSizeIterator<Item = ReconItem<'a, K>> + Send + Sync,
+        I: ExactSizeIterator<Item = ReconItem<'a, Interest>> + Send + Sync,
     {
         match items.len() {
             0 => Ok(InsertResult::new(vec![], 0)),
@@ -243,10 +171,7 @@ where
         right_fencepost: &Self::Key,
     ) -> Result<HashCount<Self::Hash>> {
         if left_fencepost >= right_fencepost {
-            return Ok(HashCount {
-                hash: H::identity(),
-                count: 0,
-            });
+            return Ok(HashCount::new(H::identity(), 0));
         }
 
         let query = sqlx::query(
@@ -256,10 +181,9 @@ where
                TOTAL(ahash_4) & 0xFFFFFFFF, TOTAL(ahash_5) & 0xFFFFFFFF,
                TOTAL(ahash_6) & 0xFFFFFFFF, TOTAL(ahash_7) & 0xFFFFFFFF,
                COUNT(1)
-             FROM recon WHERE sort_key = ? AND key > ? AND key < ?;",
+             FROM interest_key WHERE key > ? AND key < ?;",
         );
         let row = query
-            .bind(&self.sort_key)
             .bind(left_fencepost.as_bytes())
             .bind(right_fencepost.as_bytes())
             .fetch_one(self.pool.reader())
@@ -278,10 +202,7 @@ where
         let count: u64 = count
             .try_into()
             .expect("COUNT(1) should never return a negative number");
-        Ok(HashCount {
-            hash: H::from(bytes),
-            count,
-        })
+        Ok(HashCount::new(H::from(bytes), count))
     }
 
     #[instrument(skip(self))]
@@ -297,9 +218,8 @@ where
         SELECT
             key
         FROM
-            recon
+            interest_key
         WHERE
-            sort_key = ? AND
             key > ? AND key < ?
         ORDER BY
             key ASC
@@ -310,7 +230,6 @@ where
         ",
         );
         let rows = query
-            .bind(&self.sort_key)
             .bind(left_fencepost.as_bytes())
             .bind(right_fencepost.as_bytes())
             .bind(limit as i64)
@@ -320,10 +239,12 @@ where
         //debug!(count = rows.len(), "rows");
         Ok(Box::new(rows.into_iter().map(|row| {
             let bytes: Vec<u8> = row.get(0);
-            K::from(bytes)
+            Interest::from(bytes)
         })))
     }
+
     #[instrument(skip(self))]
+    /// Interests don't have values, so the value will always be an empty vec. Use `range` instead.
     async fn range_with_values(
         &mut self,
         left_fencepost: &Self::Key,
@@ -331,37 +252,10 @@ where
         offset: usize,
         limit: usize,
     ) -> Result<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>> {
-        let query = sqlx::query(
-            "
-        SELECT
-            key, value
-        FROM
-            recon_value
-        WHERE
-            sort_key = ? AND
-            key > ? AND key < ?
-            AND value IS NOT NULL
-        ORDER BY
-            key ASC
-        LIMIT
-            ?
-        OFFSET
-            ?;
-        ",
-        );
-        let rows = query
-            .bind(&self.sort_key)
-            .bind(left_fencepost.as_bytes())
-            .bind(right_fencepost.as_bytes())
-            .bind(limit as i64)
-            .bind(offset as i64)
-            .fetch_all(self.pool.reader())
+        let rows = self
+            .range(left_fencepost, right_fencepost, offset, limit)
             .await?;
-        Ok(Box::new(rows.into_iter().map(|row| {
-            let key: Vec<u8> = row.get(0);
-            let value: Vec<u8> = row.get(1);
-            (K::from(key), value)
-        })))
+        Ok(Box::new(rows.into_iter().map(|key| (key, Vec::new()))))
     }
     /// Return the number of keys within the range.
     #[instrument(skip(self))]
@@ -375,14 +269,12 @@ where
         SELECT
             count(key)
         FROM
-            recon
+            interest_key
         WHERE
-            sort_key = ? AND
             key > ? AND key < ?
         ;",
         );
         let row = query
-            .bind(&self.sort_key)
             .bind(left_fencepost.as_bytes())
             .bind(right_fencepost.as_bytes())
             .fetch_one(self.pool.reader())
@@ -402,9 +294,8 @@ where
     SELECT
         key
     FROM
-        recon
+        interest_key
     WHERE
-        sort_key = ? AND
         key > ? AND key < ?
     ORDER BY
         key ASC
@@ -413,14 +304,13 @@ where
     ; ",
         );
         let rows = query
-            .bind(&self.sort_key)
             .bind(left_fencepost.as_bytes())
             .bind(right_fencepost.as_bytes())
             .fetch_all(self.pool.reader())
             .await?;
         Ok(rows.first().map(|row| {
             let bytes: Vec<u8> = row.get(0);
-            K::from(bytes)
+            Interest::from(bytes)
         }))
     }
 
@@ -435,9 +325,8 @@ where
         SELECT
             key
         FROM
-            recon
+            interest_key
         WHERE
-            sort_key = ? AND
             key > ? AND key < ?
         ORDER BY
             key DESC
@@ -446,14 +335,13 @@ where
         ;",
         );
         let rows = query
-            .bind(&self.sort_key)
             .bind(left_fencepost.as_bytes())
             .bind(right_fencepost.as_bytes())
             .fetch_all(self.pool.reader())
             .await?;
         Ok(rows.first().map(|row| {
             let bytes: Vec<u8> = row.get(0);
-            K::from(bytes)
+            Interest::from(bytes)
         }))
     }
 
@@ -469,9 +357,8 @@ where
         FROM
             (
                 SELECT key
-                FROM recon
+                FROM interest_key
                 WHERE
-                            sort_key = ? AND
                             key > ? AND key < ?
                 ORDER BY key ASC
                 LIMIT 1
@@ -479,9 +366,8 @@ where
         JOIN
             (
                 SELECT key
-                FROM recon
+                FROM interest_key
                 WHERE
-                            sort_key = ? AND
                             key > ? AND key < ?
                 ORDER BY key DESC
                 LIMIT 1
@@ -489,17 +375,17 @@ where
         ;",
         );
         let rows = query
-            .bind(&self.sort_key)
             .bind(left_fencepost.as_bytes())
             .bind(right_fencepost.as_bytes())
-            .bind(&self.sort_key)
             .bind(left_fencepost.as_bytes())
             .bind(right_fencepost.as_bytes())
             .fetch_all(self.pool.reader())
             .await?;
         if let Some(row) = rows.first() {
-            let first = K::from(row.get(0));
-            let last = K::from(row.get(1));
+            let f_bytes: Vec<u8> = row.get(0);
+            let l_bytes: Vec<u8> = row.get(1);
+            let first = Interest::from(f_bytes);
+            let last = Interest::from(l_bytes);
             Ok(Some((first, last)))
         } else {
             Ok(None)
@@ -507,92 +393,63 @@ where
     }
 
     #[instrument(skip(self))]
-    async fn value_for_key(&mut self, key: &Self::Key) -> Result<Option<Vec<u8>>> {
-        let query = sqlx::query("SELECT value FROM recon_value WHERE sort_key=? AND key=?;");
-        let row = query
-            .bind(&self.sort_key)
-            .bind(key.as_bytes())
-            .fetch_optional(self.pool.reader())
-            .await?;
-        Ok(row.map(|row| row.get(0)))
+    async fn value_for_key(&mut self, _key: &Self::Key) -> Result<Option<Vec<u8>>> {
+        Ok(Some(vec![]))
     }
 
     #[instrument(skip(self))]
     async fn keys_with_missing_values(
         &mut self,
-        range: RangeOpen<Self::Key>,
+        _range: RangeOpen<Self::Key>,
     ) -> Result<Vec<Self::Key>> {
-        if range.start >= range.end {
-            return Ok(vec![]);
-        };
-        let query = sqlx::query(
-            "
-            SELECT key
-            FROM recon
-            WHERE
-                sort_key=?
-                AND key > ?
-                AND key < ?
-                AND value_retrieved = false
-            ;",
-        );
-        let row = query
-            .bind(&self.sort_key)
-            .bind(range.start.as_bytes())
-            .bind(range.end.as_bytes())
-            .fetch_all(self.pool.reader())
-            .await?;
-        Ok(row.into_iter().map(|row| K::from(row.get(0))).collect())
+        Ok(vec![])
     }
 }
 
 #[cfg(test)]
-mod tests {
+mod interest_tests {
     use super::*;
 
-    use crate::recon::ReconItem;
-    use crate::tests::AlphaNumBytes;
-    use crate::Sha256a;
+    use recon::{AssociativeHash, Key, ReconItem, Sha256a, Store};
 
     use expect_test::expect;
     use test_log::test;
 
-    async fn new_store() -> SQLiteStore<AlphaNumBytes, Sha256a> {
+    async fn new_store() -> InterestStore<Sha256a> {
         let conn = SqlitePool::connect("sqlite::memory:").await.unwrap();
-        SQLiteStore::<AlphaNumBytes, Sha256a>::new(conn, "test".to_string())
-            .await
-            .unwrap()
+        InterestStore::<Sha256a>::new(conn).await.unwrap()
     }
 
     #[test(tokio::test)]
     async fn test_hash_range_query() {
         let mut store = new_store().await;
         store
-            .insert(ReconItem::new_key(&AlphaNumBytes::from("hello")))
+            .insert(ReconItem::new_key(&Interest::from("hello".as_bytes())))
             .await
             .unwrap();
         store
-            .insert(ReconItem::new_key(&AlphaNumBytes::from("world")))
+            .insert(ReconItem::new_key(&Interest::from("world".as_bytes())))
             .await
             .unwrap();
-        let hash: Sha256a = store
+        let hash_cnt = store
             .hash_range(&b"a".as_slice().into(), &b"z".as_slice().into())
             .await
-            .unwrap()
-            .hash;
+            .unwrap();
         expect![[r#"7460F21C83815F5EDC682F7A4154BC09AA3A0AE5DD1A2DEDCD709888A12751CC"#]]
-            .assert_eq(&hash.to_hex());
+            .assert_eq(&hash_cnt.hash().to_hex());
     }
 
     #[test(tokio::test)]
     async fn test_range_query() {
         let mut store = new_store().await;
+        let hello_interest = Interest::from("hello".as_bytes());
+        let world_interest = Interest::from("world".as_bytes());
         store
-            .insert(ReconItem::new_key(&AlphaNumBytes::from("hello")))
+            .insert(ReconItem::new_key(&hello_interest))
             .await
             .unwrap();
         store
-            .insert(ReconItem::new_key(&AlphaNumBytes::from("world")))
+            .insert(ReconItem::new_key(&world_interest))
             .await
             .unwrap();
         let ids = store
@@ -604,17 +461,60 @@ mod tests {
             )
             .await
             .unwrap();
-        expect![[r#"
-        [
-            Bytes(
-                "hello",
-            ),
-            Bytes(
-                "world",
-            ),
-        ]
-        "#]]
-        .assert_debug_eq(&ids.collect::<Vec<AlphaNumBytes>>());
+        let interests = ids.collect::<Vec<Interest>>();
+        assert_eq!(2, interests.len());
+        assert_eq!(vec![hello_interest, world_interest], interests);
+        // TODO: need to fix bug in interests format impl and regenerate/fix these expects
+        // expect![[r#"
+        // [
+        //     Bytes(
+        //         "hello",
+        //     ),
+        //     Bytes(
+        //         "world",
+        //     ),
+        // ]
+        // "#]]
+        // .assert_debug_eq(&ids.collect::<Vec<Interest>>());
+    }
+
+    #[test(tokio::test)]
+    async fn test_range_with_values_query() {
+        let mut store = new_store().await;
+        let hello_interest = Interest::from("hello".as_bytes());
+        let world_interest = Interest::from("world".as_bytes());
+        store
+            .insert(ReconItem::new_key(&hello_interest))
+            .await
+            .unwrap();
+        store
+            .insert(ReconItem::new_key(&world_interest))
+            .await
+            .unwrap();
+        let ids = store
+            .range_with_values(
+                &b"a".as_slice().into(),
+                &b"z".as_slice().into(),
+                0,
+                usize::MAX,
+            )
+            .await
+            .unwrap();
+        let interests = ids.into_iter().map(|(i, _v)| i).collect::<Vec<Interest>>();
+        assert_eq!(2, interests.len());
+        assert_eq!(vec![hello_interest, world_interest], interests);
+        // TODO: need to fix bug in interests format impl and regenerate/fix these expects
+        // expect![[r#"
+        // [
+        //     Bytes(
+        //         "hello",
+        //     ),
+        //     Bytes(
+        //         "world",
+        //     ),
+        // ]
+        // "#]]
+        // .assert_debug_eq(&ids.collect::<Vec<Interest>>());
     }
 
     #[test(tokio::test)]
@@ -631,7 +531,7 @@ mod tests {
         ]
         .assert_debug_eq(
             &store
-                .insert(ReconItem::new_key(&AlphaNumBytes::from("hello")))
+                .insert(ReconItem::new_key(&Interest::from("hello".as_bytes())))
                 .await,
         );
 
@@ -645,7 +545,7 @@ mod tests {
         ]
         .assert_debug_eq(
             &store
-                .insert(ReconItem::new_key(&AlphaNumBytes::from("hello")))
+                .insert(ReconItem::new_key(&Interest::from("hello".as_bytes())))
                 .await,
         );
     }
@@ -653,37 +553,49 @@ mod tests {
     #[test(tokio::test)]
     async fn test_first_and_last() {
         let mut store = new_store().await;
+        let hello_interest = Interest::from("hello".as_bytes());
+        let world_interest = Interest::from("world".as_bytes());
         store
-            .insert(ReconItem::new_key(&AlphaNumBytes::from("hello")))
+            .insert(ReconItem::new_key(&hello_interest))
             .await
             .unwrap();
         store
-            .insert(ReconItem::new_key(&AlphaNumBytes::from("world")))
+            .insert(ReconItem::new_key(&world_interest))
             .await
             .unwrap();
 
         // Only one key in range
         let ret = store
-            .first_and_last(&AlphaNumBytes::from("a"), &AlphaNumBytes::from("j"))
-            .await
-            .unwrap();
-        expect![[r#"
-            Some(
-                (
-                    Bytes(
-                        "hello",
-                    ),
-                    Bytes(
-                        "hello",
-                    ),
-                ),
+            .first_and_last(
+                &Interest::from("a".as_bytes()),
+                &Interest::from("j".as_bytes()),
             )
-        "#]]
-        .assert_debug_eq(&ret);
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(hello_interest, ret.0);
+        assert_eq!(hello_interest, ret.1);
+        // expect![[r#"
+        //     Some(
+        //         (
+        //             Bytes(
+        //                 "hello",
+        //             ),
+        //             Bytes(
+        //                 "hello",
+        //             ),
+        //         ),
+        //     )
+        // "#]]
+        // .assert_debug_eq(&ret);
 
         // No keys in range
         let ret = store
-            .first_and_last(&AlphaNumBytes::from("j"), &AlphaNumBytes::from("p"))
+            .first_and_last(
+                &Interest::from("j".as_bytes()),
+                &Interest::from("p".as_bytes()),
+            )
             .await
             .unwrap();
         expect![[r#"
@@ -693,66 +605,76 @@ mod tests {
 
         // Two keys in range
         let ret = store
-            .first_and_last(&AlphaNumBytes::from("a"), &AlphaNumBytes::from("z"))
-            .await
-            .unwrap();
-        expect![[r#"
-            Some(
-                (
-                    Bytes(
-                        "hello",
-                    ),
-                    Bytes(
-                        "world",
-                    ),
-                ),
+            .first_and_last(
+                &Interest::from("a".as_bytes()),
+                &Interest::from("z".as_bytes()),
             )
-        "#]]
-        .assert_debug_eq(&ret);
+            .await
+            .unwrap()
+            .unwrap();
+        // both keys exist
+        assert_eq!(hello_interest, ret.0);
+        assert_eq!(world_interest, ret.1);
+        // expect![[r#"
+        //     Some(
+        //         (
+        //             Bytes(
+        //                 "hello",
+        //             ),
+        //             Bytes(
+        //                 "world",
+        //             ),
+        //         ),
+        //     )
+        // "#]]
+        // .assert_debug_eq(&ret);
     }
 
     #[test(tokio::test)]
-    async fn test_store_value_for_key() {
+    #[should_panic(expected = "Interests do not support values! Invalid request.")]
+    async fn test_store_value_for_key_error() {
         let mut store = new_store().await;
-        let key = AlphaNumBytes::from("hello");
-        let store_value = AlphaNumBytes::from("world");
+        let key = Interest::from("hello".as_bytes());
+        let store_value = Interest::from("world".as_bytes());
         store
             .insert(ReconItem::new_with_value(&key, store_value.as_slice()))
             .await
             .unwrap();
-        let value = store.value_for_key(&key).await.unwrap().unwrap();
-        expect![[r#"776f726c64"#]].assert_eq(hex::encode(&value).as_str());
     }
+
     #[test(tokio::test)]
     async fn test_keys_with_missing_value() {
         let mut store = new_store().await;
-        let key = AlphaNumBytes::from("hello");
+        let key = Interest::from("hello".as_bytes());
         store.insert(ReconItem::new(&key, None)).await.unwrap();
         let missing_keys = store
-            .keys_with_missing_values(
-                (AlphaNumBytes::min_value(), AlphaNumBytes::max_value()).into(),
-            )
-            .await
-            .unwrap();
-        expect![[r#"
-            [
-                Bytes(
-                    "hello",
-                ),
-            ]
-        "#]]
-        .assert_debug_eq(&missing_keys);
-
-        store.insert(ReconItem::new(&key, Some(&[]))).await.unwrap();
-        let missing_keys = store
-            .keys_with_missing_values(
-                (AlphaNumBytes::min_value(), AlphaNumBytes::max_value()).into(),
-            )
+            .keys_with_missing_values((Interest::min_value(), Interest::max_value()).into())
             .await
             .unwrap();
         expect![[r#"
             []
         "#]]
         .assert_debug_eq(&missing_keys);
+
+        store.insert(ReconItem::new(&key, Some(&[]))).await.unwrap();
+        let missing_keys = store
+            .keys_with_missing_values((Interest::min_value(), Interest::max_value()).into())
+            .await
+            .unwrap();
+        expect![[r#"
+            []
+        "#]]
+        .assert_debug_eq(&missing_keys);
+    }
+
+    #[test(tokio::test)]
+    async fn test_value_for_key() {
+        let mut store = new_store().await;
+        let key = Interest::from("hello".as_bytes());
+        store.insert(ReconItem::new(&key, None)).await.unwrap();
+        let value = store.value_for_key(&key).await.unwrap();
+        let val = value.unwrap();
+        let empty: Vec<u8> = vec![];
+        assert_eq!(empty, val);
     }
 }

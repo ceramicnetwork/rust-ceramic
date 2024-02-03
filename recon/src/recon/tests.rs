@@ -58,19 +58,17 @@ impl std::fmt::Debug for MemoryAHash {
                 .field("ahash", &self.ahash)
                 .field("set", &self.set)
                 .finish()
+        } else if self.is_zero() {
+            write!(f, "0")
         } else {
-            if self.is_zero() {
-                write!(f, "0")
-            } else {
-                write!(f, "h(")?;
-                for (i, key) in self.set.iter().enumerate() {
-                    if i != 0 {
-                        write!(f, ", ")?;
-                    }
-                    write!(f, "{key}")?;
+            write!(f, "h(")?;
+            for (i, key) in self.set.iter().enumerate() {
+                if i != 0 {
+                    write!(f, ", ")?;
                 }
-                write!(f, ")")
+                write!(f, "{key}")?;
             }
+            write!(f, ")")
         }
     }
 }

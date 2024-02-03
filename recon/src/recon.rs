@@ -1,5 +1,4 @@
 pub mod btreestore;
-pub mod sqlitestore;
 pub mod store_metrics;
 #[cfg(test)]
 pub mod tests;
@@ -347,6 +346,16 @@ impl<H> HashCount<H> {
     /// Construct a new HashCount
     pub fn new(hash: H, count: u64) -> Self {
         Self { hash, count }
+    }
+
+    /// The hash of the values.
+    pub fn hash(&self) -> &H {
+        &self.hash
+    }
+
+    /// The number of values that produced the hash.
+    pub fn count(&self) -> u64 {
+        self.count
     }
 }
 

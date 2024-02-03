@@ -9,7 +9,7 @@ mod network;
 use std::{env, num::NonZeroUsize, path::PathBuf, time::Duration};
 
 use anyhow::{anyhow, Result};
-use ceramic_core::{EventId, Interest, PeerId, SqlitePool};
+use ceramic_core::{EventId, Interest, PeerId};
 use ceramic_kubo_rpc::Multiaddr;
 
 use ceramic_metrics::{config::Config as MetricsConfig, MetricsHandle};
@@ -18,10 +18,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use futures::StreamExt;
 use multibase::Base;
 use multihash::{Code, Hasher, Multihash, MultihashDigest};
-use recon::{
-    FullInterests, Recon, ReconInterestProvider, SQLiteStore, Server, Sha256a,
-    StoreMetricsMiddleware,
-};
+use recon::{FullInterests, Recon, ReconInterestProvider, Server, Sha256a, StoreMetricsMiddleware};
 use signal_hook::consts::signal::*;
 use signal_hook_tokio::Signals;
 use swagger::{auth::MakeAllowAllAuthenticator, EmptyContext};
@@ -283,12 +280,12 @@ pub async fn run() -> Result<()> {
     }
 }
 
-type InterestStore = SQLiteStore<Interest, Sha256a>;
+type InterestStore = ceramic_store::InterestStore<Sha256a>;
 type InterestInterest = FullInterests<Interest>;
 type ReconInterest =
     Server<Interest, Sha256a, StoreMetricsMiddleware<InterestStore>, InterestInterest>;
 
-type ModelStore = ceramic_store::Store;
+type ModelStore = ceramic_store::ModelStore<Sha256a>;
 type ModelInterest = ReconInterestProvider<Sha256a>;
 type ReconModel = Server<EventId, Sha256a, StoreMetricsMiddleware<ModelStore>, ModelInterest>;
 
@@ -424,14 +421,14 @@ impl Daemon {
 
         // Connect to sqlite
         let sql_db_path: PathBuf = dir.join("db.sqlite3");
-        let sql_pool = SqlitePool::connect(&sql_db_path).await?;
+        let sql_pool = ceramic_store::SqlitePool::connect(&sql_db_path).await?;
 
         // Create recon metrics
         let recon_metrics = ceramic_metrics::MetricsHandle::register(recon::Metrics::register);
 
         // Create recon store for interests.
         let interest_store = StoreMetricsMiddleware::new(
-            InterestStore::new(sql_pool.clone(), "interest".to_string()).await?,
+            InterestStore::new(sql_pool.clone()).await?,
             recon_metrics.clone(),
         );
 

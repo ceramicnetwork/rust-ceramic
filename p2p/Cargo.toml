@@ -17,6 +17,7 @@ backoff.workspace = true
 bytes.workspace = true
 ceramic-core.workspace = true
 ceramic-metrics.workspace = true
+ceramic-store.workspace = true
 cid.workspace = true
 expect-test.workspace = true
 futures-util.workspace = true
