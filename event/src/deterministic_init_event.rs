@@ -5,14 +5,16 @@ use serde::Serialize;
 use std::fmt::Formatter;
 
 /// A deterministic init event, where it will always hash the same way
+#[derive(Serialize)]
 pub struct DeterministicInitEvent {
     /// The encoded event
+    #[serde(flatten)]
     pub encoded: DagCborEncoded,
 }
 
 impl DeterministicInitEvent {
     /// Create a deterministic init event from an unsigned event
-    pub fn new<T: Serialize>(evt: &UnsignedEvent<'_, T>) -> Result<Self> {
+    pub fn new(evt: &UnsignedEvent<()>) -> Result<Self> {
         let data = DagCborEncoded::new(&evt)?;
         Ok(Self { encoded: data })
     }
