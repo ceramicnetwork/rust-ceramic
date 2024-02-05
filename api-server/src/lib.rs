@@ -23,6 +23,12 @@ pub const BASE_PATH: &str = "/ceramic";
 pub const API_VERSION: &str = "0.9.0";
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub enum EventsEventIdGetResponse {
+    /// success
+    Success(models::Event),
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub enum EventsPostResponse {
     /// success
     Success,
@@ -62,6 +68,13 @@ pub trait Api<C: Send + Sync> {
     ) -> Poll<Result<(), Box<dyn Error + Send + Sync + 'static>>> {
         Poll::Ready(Ok(()))
     }
+
+    /// Get event data
+    async fn events_event_id_get(
+        &self,
+        event_id: String,
+        context: &C,
+    ) -> Result<EventsEventIdGetResponse, ApiError>;
 
     /// Creates a new event
     async fn events_post(
@@ -109,6 +122,12 @@ pub trait ApiNoContext<C: Send + Sync> {
     ) -> Poll<Result<(), Box<dyn Error + Send + Sync + 'static>>>;
 
     fn context(&self) -> &C;
+
+    /// Get event data
+    async fn events_event_id_get(
+        &self,
+        event_id: String,
+    ) -> Result<EventsEventIdGetResponse, ApiError>;
 
     /// Creates a new event
     async fn events_post(&self, event: models::Event) -> Result<EventsPostResponse, ApiError>;
@@ -163,6 +182,15 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
 
     fn context(&self) -> &C {
         ContextWrapper::context(self)
+    }
+
+    /// Get event data
+    async fn events_event_id_get(
+        &self,
+        event_id: String,
+    ) -> Result<EventsEventIdGetResponse, ApiError> {
+        let context = self.context().clone();
+        self.api().events_event_id_get(event_id, &context).await
     }
 
     /// Creates a new event

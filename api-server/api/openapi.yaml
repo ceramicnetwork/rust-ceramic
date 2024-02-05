@@ -96,6 +96,25 @@ paths:
         "204":
           description: success
       summary: Creates a new event
+  /events/{event_id}:
+    get:
+      parameters:
+      - description: identifier of the event
+        explode: false
+        in: path
+        name: event_id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+          description: success
+      summary: Get event data
   /interests/{sort_key}/{sort_value}:
     post:
       parameters:

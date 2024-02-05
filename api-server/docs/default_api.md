@@ -4,12 +4,38 @@ All URIs are relative to */ceramic*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
+****](default_api.md#) | **GET** /events/{event_id} | Get event data
 ****](default_api.md#) | **POST** /events | Creates a new event
 ****](default_api.md#) | **POST** /interests/{sort_key}/{sort_value} | Register interest for a sort key
 ****](default_api.md#) | **GET** /liveness | Test the liveness of the Ceramic node
 ****](default_api.md#) | **GET** /subscribe/{sort_key}/{sort_value} | Get events for a stream
 ****](default_api.md#) | **POST** /version | Get the version of the Ceramic node
 
+
+# ****
+> models::Event (event_id)
+Get event data
+
+### Required Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+  **event_id** | **String**| identifier of the event | 
+
+### Return type
+
+[**models::Event**](Event.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
 # ****
 > (event)

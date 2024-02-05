@@ -2,8 +2,8 @@
 
 #[allow(unused_imports)]
 use ceramic_api_server::{
-    models, Api, ApiNoContext, Client, ContextWrapperExt, EventsPostResponse,
-    InterestsSortKeySortValuePostResponse, LivenessGetResponse,
+    models, Api, ApiNoContext, Client, ContextWrapperExt, EventsEventIdGetResponse,
+    EventsPostResponse, InterestsSortKeySortValuePostResponse, LivenessGetResponse,
     SubscribeSortKeySortValueGetResponse, VersionPostResponse,
 };
 use clap::{App, Arg};
@@ -34,6 +34,7 @@ fn main() {
             Arg::with_name("operation")
                 .help("Sets the operation to run")
                 .possible_values(&[
+                    "EventsEventIdGet",
                     "InterestsSortKeySortValuePost",
                     "LivenessGet",
                     "SubscribeSortKeySortValueGet",
@@ -93,6 +94,14 @@ fn main() {
     let mut rt = tokio::runtime::Runtime::new().unwrap();
 
     match matches.value_of("operation") {
+        Some("EventsEventIdGet") => {
+            let result = rt.block_on(client.events_event_id_get("event_id_example".to_string()));
+            info!(
+                "{:?} (X-Span-ID: {:?})",
+                result,
+                (client.context() as &dyn Has<XSpanIdString>).get().clone()
+            );
+        }
         /* Disabled because there's no example.
         Some("EventsPost") => {
             let result = rt.block_on(client.events_post(
