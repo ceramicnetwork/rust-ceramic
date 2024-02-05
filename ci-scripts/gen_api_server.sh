@@ -3,6 +3,8 @@
 # Script to generate api-server crate from OpenAPI definition.
 # Requires augeas/augtool to be installed
 
+set -e
+
 DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 cd $DIR/..
 
