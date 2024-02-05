@@ -297,7 +297,7 @@ where
                         multibase::Base::Base16Lower,
                         decoded_event_id.as_bytes(),
                     ),
-                    event_data: multibase::encode(multibase::Base::Base64, &data),
+                    event_data: multibase::encode(multibase::Base::Base64, data),
                 };
                 Ok(EventsEventIdGetResponse::Success(event))
             }
