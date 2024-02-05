@@ -2,6 +2,13 @@
 
 #![allow(unused_imports)]
 
+use anyhow::{bail, Result};
+use async_trait::async_trait;
+use futures::{future, Stream, StreamExt, TryFutureExt, TryStreamExt};
+use hyper::service::Service;
+use hyper::{server::conn::Http, Request};
+use recon::{AssociativeHash, InterestProvider, Key, Store};
+use serde::{Deserialize, Serialize};
 use std::{future::Future, ops::Range};
 use std::{marker::PhantomData, ops::RangeBounds};
 use std::{net::SocketAddr, ops::Bound};
@@ -13,21 +20,14 @@ use std::{
     str::FromStr,
     sync::{Arc, Mutex},
 };
-use anyhow::{bail, Result};
-use async_trait::async_trait;
-use futures::{future, Stream, StreamExt, TryFutureExt, TryStreamExt};
-use hyper::service::Service;
-use hyper::{server::conn::Http, Request};
-use recon::{AssociativeHash, InterestProvider, Key, Store};
-use serde::{Deserialize, Serialize};
 use swagger::{ByteArray, EmptyContext, XSpanIdString};
 use tokio::net::TcpListener;
 use tracing::{debug, info, instrument, Level};
 
 use ceramic_api_server::{
     models::{self, Event},
-    EventsPostResponse, InterestsSortKeySortValuePostResponse, LivenessGetResponse,
-    SubscribeSortKeySortValueGetResponse, VersionPostResponse, EventsEventIdGetResponse
+    EventsEventIdGetResponse, EventsPostResponse, InterestsSortKeySortValuePostResponse,
+    LivenessGetResponse, SubscribeSortKeySortValueGetResponse, VersionPostResponse,
 };
 use ceramic_core::{EventId, Interest, Network, PeerId, StreamId};
 
@@ -293,18 +293,19 @@ where
         match self.model.value_for_key(decoded_event_id.clone()).await {
             Ok(Some(data)) => {
                 let event = Event {
-                    event_id: multibase::encode(multibase::Base::Base16Lower, decoded_event_id.as_bytes()),
+                    event_id: multibase::encode(
+                        multibase::Base::Base16Lower,
+                        decoded_event_id.as_bytes(),
+                    ),
                     event_data: multibase::encode(multibase::Base::Base64, &data),
                 };
                 Ok(EventsEventIdGetResponse::Success(event))
-            },
+            }
             Ok(None) => Err(ApiError("Event not found".to_owned())),
             Err(err) => Err(ApiError(format!("failed to get event: {err}"))),
         }
     }
-    
 }
-
 
 fn decode_event_id(value: &str) -> Result<EventId, ApiError> {
     Ok(multibase::decode(value)
@@ -915,7 +916,8 @@ mod tests {
         let event_data_base64 = multibase::encode(multibase::Base::Base64, &event_data);
 
         let mut mock_model = MockReconModelTest::new();
-        mock_model.expect_value_for_key()
+        mock_model
+            .expect_value_for_key()
             .with(predicate::eq(event_id.clone()))
             .times(1)
             .returning(move |_| Ok(Some(event_data.clone())));
@@ -924,13 +926,13 @@ mod tests {
 
         let server = Server::new(peer_id, network, mock_interest, mock_model);
 
-        let result = server.events_event_id_get(
-            event_id_str,
-            &Context,
-        ).await;
+        let result = server.events_event_id_get(event_id_str, &Context).await;
 
         let EventsEventIdGetResponse::Success(event) = result.unwrap();
-        assert_eq!(event.event_id, multibase::encode(multibase::Base::Base16Lower, event_id.as_bytes()));
+        assert_eq!(
+            event.event_id,
+            multibase::encode(multibase::Base::Base16Lower, event_id.as_bytes())
+        );
         assert_eq!(event.event_data, event_data_base64);
-}
+    }
 }

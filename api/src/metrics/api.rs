@@ -1,7 +1,8 @@
 use async_trait::async_trait;
 use ceramic_api_server::{
-    models, Api, EventsPostResponse, InterestsSortKeySortValuePostResponse, LivenessGetResponse,
-    SubscribeSortKeySortValueGetResponse, VersionPostResponse, EventsEventIdGetResponse
+    models, Api, EventsEventIdGetResponse, EventsPostResponse,
+    InterestsSortKeySortValuePostResponse, LivenessGetResponse,
+    SubscribeSortKeySortValueGetResponse, VersionPostResponse,
 };
 use ceramic_metrics::Recorder;
 use futures::Future;
@@ -107,8 +108,9 @@ where
         context: &C,
     ) -> std::result::Result<EventsEventIdGetResponse, ApiError> {
         self.record(
-            "/events/{event_id}", 
+            "/events/{event_id}",
             self.api.events_event_id_get(event_id, context),
-        ).await
+        )
+        .await
     }
 }
