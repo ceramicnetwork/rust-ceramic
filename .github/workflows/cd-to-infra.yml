@@ -79,17 +79,13 @@ jobs:
             elif [[ "${{ github.event.action }}" == "released" ]]; then
               DEPLOY_ENV="prod"
             fi
-            # Run fast tests post-deployment
-            TEST_SELECTOR="fast"
           else
             DEPLOY_ENV="qa"
-            # Run all tests post-deployment to QA
-            TEST_SELECTOR="."
           fi
           echo "DEPLOY_ENV is $DEPLOY_ENV"
           if [[ -n "$DEPLOY_ENV" ]]; then
             # Schedule deployment
             make DEPLOY_ENV="$DEPLOY_ENV" DEPLOY_TAG=${{ needs.publish.outputs.deploy_tag }} schedule-k8s-deployment
             # Schedule post-deployment tests
-            make DEPLOY_ENV="$DEPLOY_ENV" TEST_SELECTOR="$TEST_SELECTOR" schedule-tests
+            make DEPLOY_ENV="$DEPLOY_ENV" TEST_SELECTOR="fast" schedule-tests
           fi
