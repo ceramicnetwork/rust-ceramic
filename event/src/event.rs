@@ -19,8 +19,8 @@ pub struct Event {
 
 impl Event {
     /// Create a new event from an unsigned event, signer, and jwk
-    pub async fn new<'a, T: Serialize>(
-        unsigned: &'a UnsignedEvent<'a, T>,
+    pub async fn new<T: Serialize>(
+        unsigned: UnsignedEvent<T>,
         signer: &impl Signer,
     ) -> Result<Self> {
         // encode our event with dag cbor, hashing that to create cid
