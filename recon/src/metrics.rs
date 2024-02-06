@@ -1,6 +1,10 @@
 use std::time::Duration;
 
-use ceramic_metrics::{register, Recorder};
+use ceramic_metrics::{
+    register,
+    // storage::{InsertEvent, QueryLabels, StorageQuery},
+    Recorder,
+};
 use prometheus_client::{
     encoding::EncodeLabelSet,
     metrics::{
@@ -19,11 +23,6 @@ use crate::{
 /// Metrics for Recon P2P events
 #[derive(Debug, Clone)]
 pub struct Metrics {
-    key_insert_count: Counter,
-    value_insert_count: Counter,
-
-    store_query_durations: Family<QueryLabels, Histogram>,
-
     protocol_message_received_count: Family<MessageLabels, Counter>,
     protocol_message_sent_count: Family<MessageLabels, Counter>,
 
@@ -91,43 +90,10 @@ impl<K: Key, H: AssociativeHash> From<&ResponderMessage<K, H>> for MessageLabels
     }
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
-struct QueryLabels {
-    name: &'static str,
-}
-
-impl From<&StoreQuery> for QueryLabels {
-    fn from(value: &StoreQuery) -> Self {
-        Self { name: value.name }
-    }
-}
-
 impl Metrics {
     /// Register and construct Metrics
     pub fn register(registry: &mut Registry) -> Self {
         let sub_registry = registry.sub_registry_with_prefix("recon");
-
-        register!(
-            key_insert_count,
-            "Number times a new key is inserted into the datastore",
-            Counter::default(),
-            sub_registry
-        );
-        register!(
-            value_insert_count,
-            "Number times a new value is inserted into the datastore",
-            Counter::default(),
-            sub_registry
-        );
-
-        register!(
-            store_query_durations,
-            "Durations of store queries in seconds",
-            Family::<QueryLabels, Histogram>::new_with_constructor(|| {
-                Histogram::new(exponential_buckets(0.005, 2.0, 20))
-            }),
-            sub_registry
-        );
 
         register!(
             protocol_message_received_count,
@@ -199,9 +165,6 @@ impl Metrics {
         );
 
         Self {
-            key_insert_count,
-            value_insert_count,
-            store_query_durations,
             protocol_message_received_count,
             protocol_message_sent_count,
             protocol_want_enqueue_failed_count,
@@ -213,38 +176,6 @@ impl Metrics {
             protocol_loop_count,
             protocol_run_duration,
         }
-    }
-}
-
-pub(crate) struct KeyInsertEvent {
-    pub(crate) cnt: u64,
-}
-impl Recorder<KeyInsertEvent> for Metrics {
-    fn record(&self, event: &KeyInsertEvent) {
-        self.key_insert_count.inc_by(event.cnt);
-    }
-}
-
-pub(crate) struct StoreQuery {
-    pub(crate) name: &'static str,
-    pub(crate) duration: Duration,
-}
-
-impl Recorder<StoreQuery> for Metrics {
-    fn record(&self, event: &StoreQuery) {
-        let labels: QueryLabels = event.into();
-        self.store_query_durations
-            .get_or_create(&labels)
-            .observe(event.duration.as_secs_f64());
-    }
-}
-
-pub(crate) struct ValueInsertEvent {
-    pub(crate) cnt: u64,
-}
-impl Recorder<ValueInsertEvent> for Metrics {
-    fn record(&self, event: &ValueInsertEvent) {
-        self.value_insert_count.inc_by(event.cnt);
     }
 }
 

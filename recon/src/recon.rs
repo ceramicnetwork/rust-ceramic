@@ -1,5 +1,4 @@
 pub mod btreestore;
-pub mod store_metrics;
 #[cfg(test)]
 pub mod tests;
 
@@ -8,14 +7,10 @@ use std::{fmt::Display, marker::PhantomData};
 use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
 use ceramic_core::{EventId, Interest, PeerId, RangeOpen};
-use ceramic_metrics::Recorder;
 use serde::{Deserialize, Serialize};
 use tracing::trace;
 
-use crate::{
-    metrics::{KeyInsertEvent, ValueInsertEvent},
-    Client, Metrics, Sha256a,
-};
+use crate::{Client, Metrics, Sha256a};
 
 /// Recon is a protocol for set reconciliation via a message passing paradigm.
 /// An initial message can be created and then messages are exchanged between two Recon instances
@@ -245,17 +240,7 @@ where
     /// Insert key into the key space. Includes an optional value.
     /// Returns a boolean (true) indicating if the key was new.
     pub async fn insert(&mut self, item: ReconItem<'_, K>) -> Result<bool> {
-        let new_val = item.value.is_some();
-        let new = self.store.insert(item).await?;
-
-        if new {
-            self.metrics.record(&KeyInsertEvent { cnt: 1 });
-        }
-        if new_val {
-            self.metrics.record(&ValueInsertEvent { cnt: 1 });
-        }
-
-        Ok(new)
+        self.store.insert(item).await
     }
     /// Report all keys in the range that are missing a value
     pub async fn keys_with_missing_values(&mut self, range: RangeOpen<K>) -> Result<Vec<K>> {
@@ -270,14 +255,6 @@ where
         IT: ExactSizeIterator<Item = ReconItem<'a, K>> + Send + Sync,
     {
         let result = self.store.insert_many(items).await?;
-        let key_cnt = result.keys.iter().filter(|k| **k).count();
-
-        self.metrics.record(&KeyInsertEvent {
-            cnt: key_cnt as u64,
-        });
-        self.metrics.record(&ValueInsertEvent {
-            cnt: result.value_count as u64,
-        });
 
         Ok(result.keys)
     }

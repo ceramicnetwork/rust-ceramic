@@ -33,11 +33,12 @@ use ceramic_api_server::{
 use ceramic_core::{EventId, Interest, Network, PeerId, StreamId};
 
 #[async_trait]
-pub trait ReconInterest: Clone + Send + Sync {
+pub trait AccessInterestStore: Clone + Send + Sync {
     type Key: Key;
     type Hash: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>;
 
-    async fn insert(&self, key: Self::Key) -> Result<()>;
+    /// Returns true if the key was newly inserted, false if it already existed.
+    async fn insert(&self, key: Self::Key) -> Result<bool>;
     async fn range(
         &self,
         start: Self::Key,
@@ -48,11 +49,12 @@ pub trait ReconInterest: Clone + Send + Sync {
 }
 
 #[async_trait]
-pub trait ReconModel: Clone + Send + Sync {
+pub trait AccessModelStore: Clone + Send + Sync {
     type Key: Key;
     type Hash: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>;
 
-    async fn insert(&self, key: Self::Key, value: Option<Vec<u8>>) -> Result<()>;
+    /// Returns (new_key, new_value) where true if was newly inserted, false if it already existed.
+    async fn insert(&self, key: Self::Key, value: Option<Vec<u8>>) -> Result<(bool, bool)>;
     async fn range_with_values(
         &self,
         start: Self::Key,
@@ -62,65 +64,6 @@ pub trait ReconModel: Clone + Send + Sync {
     ) -> Result<Vec<(Self::Key, Vec<u8>)>>;
 
     async fn value_for_key(&self, key: Self::Key) -> Result<Option<Vec<u8>>>;
-}
-
-#[async_trait]
-impl<K, H> ReconInterest for recon::Client<K, H>
-where
-    K: Key,
-    H: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>,
-{
-    type Key = K;
-    type Hash = H;
-
-    async fn insert(&self, key: Self::Key) -> Result<()> {
-        let _ = recon::Client::insert(self, key, None).await?;
-        Ok(())
-    }
-
-    async fn range(
-        &self,
-        start: Self::Key,
-        end: Self::Key,
-        offset: usize,
-        limit: usize,
-    ) -> Result<Vec<Self::Key>> {
-        Ok(recon::Client::range(self, start, end, offset, limit)
-            .await?
-            .collect())
-    }
-}
-
-#[async_trait]
-impl<K, H> ReconModel for recon::Client<K, H>
-where
-    K: Key,
-    H: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>,
-{
-    type Key = K;
-    type Hash = H;
-
-    async fn insert(&self, key: Self::Key, value: Option<Vec<u8>>) -> Result<()> {
-        let _ = recon::Client::insert(self, key, value).await?;
-        Ok(())
-    }
-
-    async fn range_with_values(
-        &self,
-        start: Self::Key,
-        end: Self::Key,
-        offset: usize,
-        limit: usize,
-    ) -> Result<Vec<(Self::Key, Vec<u8>)>> {
-        Ok(
-            recon::Client::range_with_values(self, start, end, offset, limit)
-                .await?
-                .collect(),
-        )
-    }
-    async fn value_for_key(&self, key: Self::Key) -> Result<Option<Vec<u8>>> {
-        recon::Client::value_for_key(self, key).await
-    }
 }
 
 #[derive(Clone)]
@@ -134,8 +77,8 @@ pub struct Server<C, I, M> {
 
 impl<C, I, M> Server<C, I, M>
 where
-    I: ReconInterest<Key = Interest>,
-    M: ReconModel<Key = EventId>,
+    I: AccessInterestStore<Key = Interest>,
+    M: AccessModelStore<Key = EventId>,
 {
     pub fn new(peer_id: PeerId, network: Network, interest: I, model: M) -> Self {
         Server {
@@ -218,8 +161,8 @@ use swagger::ApiError;
 impl<C, I, M> Api<C> for Server<C, I, M>
 where
     C: Send + Sync,
-    I: ReconInterest<Key = Interest> + Sync,
-    M: ReconModel<Key = EventId> + Sync,
+    I: AccessInterestStore<Key = Interest> + Sync,
+    M: AccessModelStore<Key = EventId> + Sync,
 {
     #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn liveness_get(
@@ -350,7 +293,7 @@ mod tests {
     struct Context;
     mock! {
         pub ReconInterestTest {
-            fn insert(&self, key: Interest, value: Option<Vec<u8>>) -> Result<()>;
+            fn insert(&self, key: Interest, value: Option<Vec<u8>>) -> Result<bool>;
             fn range_with_values(
                 &self,
                 start: Interest,
@@ -366,10 +309,10 @@ mod tests {
     }
 
     #[async_trait]
-    impl ReconInterest for MockReconInterestTest {
+    impl AccessInterestStore for MockReconInterestTest {
         type Key = Interest;
         type Hash = Sha256a;
-        async fn insert(&self, key: Self::Key) -> Result<()> {
+        async fn insert(&self, key: Self::Key) -> Result<bool> {
             self.insert(key, None)
         }
         async fn range(
@@ -386,7 +329,7 @@ mod tests {
 
     mock! {
         pub ReconModelTest {
-            fn insert(&self, key: EventId, value: Option<Vec<u8>>) -> Result<()>;
+            fn insert(&self, key: EventId, value: Option<Vec<u8>>) -> Result<(bool, bool)>;
             fn range_with_values(
                 &self,
                 start: EventId,
@@ -401,10 +344,10 @@ mod tests {
     }
 
     #[async_trait]
-    impl ReconModel for MockReconModelTest {
+    impl AccessModelStore for MockReconModelTest {
         type Key = EventId;
         type Hash = Sha256a;
-        async fn insert(&self, key: Self::Key, value: Option<Vec<u8>>) -> Result<()> {
+        async fn insert(&self, key: Self::Key, value: Option<Vec<u8>>) -> Result<(bool, bool)> {
             self.insert(key, value)
         }
         async fn range_with_values(
@@ -446,7 +389,7 @@ mod tests {
                 predicate::eq(Some(decode_event_data(event_data.as_str()).unwrap())),
             )
             .times(1)
-            .returning(|_, _| Ok(()));
+            .returning(|_, _| Ok((true, true)));
         let server = Server::new(peer_id, network, mock_interest, mock_model);
         let resp = server
             .events_post(
@@ -523,7 +466,7 @@ mod tests {
                 predicate::eq(None),
             )
             .times(1)
-            .returning(|_, _| Ok(()));
+            .returning(|_, _| Ok(true));
         let mut mock_model = MockReconModelTest::new();
         mock_model
             .expect_range_with_values()
@@ -589,7 +532,7 @@ mod tests {
                 predicate::eq(None),
             )
             .times(1)
-            .returning(|_, _| Ok(()));
+            .returning(|_, _| Ok(true));
         let mut mock_model = MockReconModelTest::new();
         mock_model
             .expect_range_with_values()
@@ -655,7 +598,7 @@ mod tests {
                 predicate::eq(None),
             )
             .times(1)
-            .returning(|_, _| Ok(()));
+            .returning(|_, _| Ok(true));
         let mut mock_model = MockReconModelTest::new();
         mock_model
             .expect_range_with_values()
@@ -721,7 +664,7 @@ mod tests {
                 predicate::eq(None),
             )
             .times(1)
-            .returning(|_, _| Ok(()));
+            .returning(|_, _| Ok(true));
         let mut mock_model = MockReconModelTest::new();
         mock_model
             .expect_range_with_values()
@@ -788,7 +731,7 @@ mod tests {
                 predicate::eq(None),
             )
             .times(1)
-            .returning(|_, _| Ok(()));
+            .returning(|_, _| Ok(true));
         let mock_model = MockReconModelTest::new();
         let server = Server::new(peer_id, network, mock_interest, mock_model);
         let resp = server
@@ -840,7 +783,7 @@ mod tests {
                 predicate::eq(None),
             )
             .times(1)
-            .returning(|_, _| Ok(()));
+            .returning(|_, _| Ok(true));
         let mock_model = MockReconModelTest::new();
         let server = Server::new(peer_id, network, mock_interest, mock_model);
         let resp = server
@@ -894,7 +837,7 @@ mod tests {
                 predicate::eq(None),
             )
             .times(1)
-            .returning(|_, _| Ok(()));
+            .returning(|_, _| Ok(true));
         let mock_model = MockReconModelTest::new();
         let server = Server::new(peer_id, network, mock_interest, mock_model);
         let resp = server

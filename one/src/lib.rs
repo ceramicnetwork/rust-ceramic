@@ -18,7 +18,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use futures::StreamExt;
 use multibase::Base;
 use multihash::{Code, Hasher, Multihash, MultihashDigest};
-use recon::{FullInterests, Recon, ReconInterestProvider, Server, Sha256a, StoreMetricsMiddleware};
+use recon::{FullInterests, Recon, ReconInterestProvider, Server, Sha256a};
 use signal_hook::consts::signal::*;
 use signal_hook_tokio::Signals;
 use swagger::{auth::MakeAllowAllAuthenticator, EmptyContext};
@@ -282,12 +282,12 @@ pub async fn run() -> Result<()> {
 
 type InterestStore = ceramic_store::InterestStore<Sha256a>;
 type InterestInterest = FullInterests<Interest>;
-type ReconInterest =
-    Server<Interest, Sha256a, StoreMetricsMiddleware<InterestStore>, InterestInterest>;
+type ReconInterest = Server<Interest, Sha256a, MetricsStore<InterestStore>, InterestInterest>;
 
 type ModelStore = ceramic_store::ModelStore<Sha256a>;
 type ModelInterest = ReconInterestProvider<Sha256a>;
-type ReconModel = Server<EventId, Sha256a, StoreMetricsMiddleware<ModelStore>, ModelInterest>;
+type MetricsStore<T> = ceramic_store::StoreMetricsMiddleware<T>;
+type ReconModel = Server<EventId, Sha256a, MetricsStore<ModelStore>, ModelInterest>;
 
 struct Daemon {
     opts: DaemonOpts,
@@ -297,6 +297,8 @@ struct Daemon {
     metrics_handle: MetricsHandle,
     recon_interest: ReconInterest,
     recon_model: ReconModel,
+    model_store: MetricsStore<ModelStore>,
+    interest_store: MetricsStore<InterestStore>,
 }
 
 impl Daemon {
@@ -425,29 +427,34 @@ impl Daemon {
 
         // Create recon metrics
         let recon_metrics = ceramic_metrics::MetricsHandle::register(recon::Metrics::register);
+        let store_metrics =
+            ceramic_metrics::MetricsHandle::register(ceramic_store::Metrics::register);
 
+        let interest_db_store = InterestStore::new(sql_pool.clone()).await?;
         // Create recon store for interests.
-        let interest_store = StoreMetricsMiddleware::new(
-            InterestStore::new(sql_pool.clone()).await?,
-            recon_metrics.clone(),
+        let interest_store = ceramic_store::StoreMetricsMiddleware::new(
+            interest_db_store.clone(),
+            store_metrics.clone(),
         );
 
         // Create second recon store for models.
         let model_block_store = ModelStore::new(sql_pool.clone()).await?;
 
-        let model_store =
-            StoreMetricsMiddleware::new(model_block_store.clone(), recon_metrics.clone());
+        let model_store = ceramic_store::StoreMetricsMiddleware::new(
+            model_block_store.clone(),
+            store_metrics.clone(),
+        );
 
         // Construct a recon implementation for interests.
         let mut recon_interest = Server::new(Recon::new(
-            interest_store,
+            interest_store.clone(),
             InterestInterest::default(),
             recon_metrics.clone(),
         ));
 
         // Construct a recon implementation for models.
         let mut recon_model = Server::new(Recon::new(
-            model_store,
+            model_store.clone(),
             // Use recon interests as the InterestProvider for recon_model
             ModelInterest::new(peer_id, recon_interest.client()),
             recon_metrics.clone(),
@@ -481,10 +488,12 @@ impl Daemon {
             metrics_handle,
             recon_interest,
             recon_model,
+            interest_store,
+            model_store,
         })
     }
     // Start the daemon, future does not return until the daemon is finished.
-    async fn run(mut self) -> Result<()> {
+    async fn run(self) -> Result<()> {
         // Start metrics server
         debug!(
             bind_address = self.opts.metrics_bind_address,
@@ -498,8 +507,8 @@ impl Daemon {
         let ceramic_server = ceramic_api::Server::new(
             self.peer_id,
             network,
-            self.recon_interest.client(),
-            self.recon_model.client(),
+            self.interest_store.clone(),
+            self.model_store.clone(),
         );
         let ceramic_metrics =
             ceramic_metrics::MetricsHandle::register(ceramic_api::Metrics::register);

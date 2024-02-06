@@ -4,4 +4,4 @@ mod server;
 pub use metrics::api::MetricsMiddleware;
 pub use metrics::Metrics;
 
-pub use server::Server;
+pub use server::{AccessInterestStore, AccessModelStore, Server};
