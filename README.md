@@ -60,8 +60,9 @@ However running `make` before publishing a PR will provide a good signal if you 
 
 There are two OpenAPI based servers that are generated.
 The `ceramic-api-server` and `ceramic-kubo-rpc-server` crates are generated using OpenAPI.
-Install `@openapitools/openapi-generator-cli` and make to generate the crates:
+Install `@openapitools/openapi-generator-cli` and make to generate the crates. You will need to install augtools to run the checks:
 
+      # Install augtools e.g. brew install augeas or apt-get install augeas-tools
       npm install @openapitools/openapi-generator-cli@2.6.0 -g
       make gen-api-server
       make gen-kubo-rpc-server
