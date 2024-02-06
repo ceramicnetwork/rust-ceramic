@@ -35,6 +35,8 @@ jobs:
         # Cache only the cargo registry
         cache-targets: false
     - uses: mozilla-actions/sccache-action@v0.0.3
+    - name: git file permission config
+      run: git config --global --add safe.directory '*'
     - name: Check fmt
       run: make check-fmt
     - name: Check clippy
