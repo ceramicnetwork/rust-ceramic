@@ -22,8 +22,8 @@ pub use crate::context;
 type ServiceFuture = BoxFuture<'static, Result<Response<Body>, crate::ServiceError>>;
 
 use crate::{
-    Api, EventsPostResponse, InterestsSortKeySortValuePostResponse, LivenessGetResponse,
-    SubscribeSortKeySortValueGetResponse, VersionPostResponse,
+    Api, EventsEventIdGetResponse, EventsPostResponse, InterestsSortKeySortValuePostResponse,
+    LivenessGetResponse, SubscribeSortKeySortValueGetResponse, VersionPostResponse,
 };
 
 mod paths {
@@ -32,6 +32,7 @@ mod paths {
     lazy_static! {
         pub static ref GLOBAL_REGEX_SET: regex::RegexSet = regex::RegexSet::new(vec![
             r"^/ceramic/events$",
+            r"^/ceramic/events/(?P<event_id>[^/?#]*)$",
             r"^/ceramic/interests/(?P<sort_key>[^/?#]*)/(?P<sort_value>[^/?#]*)$",
             r"^/ceramic/liveness$",
             r"^/ceramic/subscribe/(?P<sort_key>[^/?#]*)/(?P<sort_value>[^/?#]*)$",
@@ -40,7 +41,14 @@ mod paths {
         .expect("Unable to create global regex set");
     }
     pub(crate) static ID_EVENTS: usize = 0;
-    pub(crate) static ID_INTERESTS_SORT_KEY_SORT_VALUE: usize = 1;
+    pub(crate) static ID_EVENTS_EVENT_ID: usize = 1;
+    lazy_static! {
+        pub static ref REGEX_EVENTS_EVENT_ID: regex::Regex =
+            #[allow(clippy::invalid_regex)]
+            regex::Regex::new(r"^/ceramic/events/(?P<event_id>[^/?#]*)$")
+                .expect("Unable to create regex for EVENTS_EVENT_ID");
+    }
+    pub(crate) static ID_INTERESTS_SORT_KEY_SORT_VALUE: usize = 2;
     lazy_static! {
         pub static ref REGEX_INTERESTS_SORT_KEY_SORT_VALUE: regex::Regex =
             #[allow(clippy::invalid_regex)]
@@ -49,8 +57,8 @@ mod paths {
             )
             .expect("Unable to create regex for INTERESTS_SORT_KEY_SORT_VALUE");
     }
-    pub(crate) static ID_LIVENESS: usize = 2;
-    pub(crate) static ID_SUBSCRIBE_SORT_KEY_SORT_VALUE: usize = 3;
+    pub(crate) static ID_LIVENESS: usize = 3;
+    pub(crate) static ID_SUBSCRIBE_SORT_KEY_SORT_VALUE: usize = 4;
     lazy_static! {
         pub static ref REGEX_SUBSCRIBE_SORT_KEY_SORT_VALUE: regex::Regex =
             #[allow(clippy::invalid_regex)]
@@ -59,7 +67,7 @@ mod paths {
             )
             .expect("Unable to create regex for SUBSCRIBE_SORT_KEY_SORT_VALUE");
     }
-    pub(crate) static ID_VERSION: usize = 4;
+    pub(crate) static ID_VERSION: usize = 5;
 }
 
 pub struct MakeService<T, C>
@@ -172,6 +180,80 @@ where
             let path = paths::GLOBAL_REGEX_SET.matches(uri.path());
 
             match method {
+                // EventsEventIdGet - GET /events/{event_id}
+                hyper::Method::GET if path.matched(paths::ID_EVENTS_EVENT_ID) => {
+                    // Path parameters
+                    let path: &str = uri.path();
+                    let path_params =
+                    paths::REGEX_EVENTS_EVENT_ID
+                    .captures(path)
+                    .unwrap_or_else(||
+                        panic!("Path {} matched RE EVENTS_EVENT_ID in set but failed match against \"{}\"", path, paths::REGEX_EVENTS_EVENT_ID.as_str())
+                    );
+
+                    let param_event_id = match percent_encoding::percent_decode(path_params["event_id"].as_bytes()).decode_utf8() {
+                    Ok(param_event_id) => match param_event_id.parse::<String>() {
+                        Ok(param_event_id) => param_event_id,
+                        Err(e) => return Ok(Response::builder()
+                                        .status(StatusCode::BAD_REQUEST)
+                                        .body(Body::from(format!("Couldn't parse path parameter event_id: {}", e)))
+                                        .expect("Unable to create Bad Request response for invalid path parameter")),
+                    },
+                    Err(_) => return Ok(Response::builder()
+                                        .status(StatusCode::BAD_REQUEST)
+                                        .body(Body::from(format!("Couldn't percent-decode path parameter as UTF-8: {}", &path_params["event_id"])))
+                                        .expect("Unable to create Bad Request response for invalid percent decode"))
+                };
+
+                    let result = api_impl.events_event_id_get(param_event_id, &context).await;
+                    let mut response = Response::new(Body::empty());
+                    response.headers_mut().insert(
+                        HeaderName::from_static("x-span-id"),
+                        HeaderValue::from_str(
+                            (&context as &dyn Has<XSpanIdString>)
+                                .get()
+                                .0
+                                .clone()
+                                .as_str(),
+                        )
+                        .expect("Unable to create X-Span-ID header value"),
+                    );
+
+                    match result {
+                        Ok(rsp) => match rsp {
+                            EventsEventIdGetResponse::Success(body) => {
+                                *response.status_mut() = StatusCode::from_u16(200)
+                                    .expect("Unable to turn 200 into a StatusCode");
+                                response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for EVENTS_EVENT_ID_GET_SUCCESS"));
+                                let body_content = serde_json::to_string(&body)
+                                    .expect("impossible to fail to serialize");
+                                *response.body_mut() = Body::from(body_content);
+                            }
+                            EventsEventIdGetResponse::EventNotFound(body) => {
+                                *response.status_mut() = StatusCode::from_u16(404)
+                                    .expect("Unable to turn 404 into a StatusCode");
+                                response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("text/plain")
+                                                            .expect("Unable to create Content-Type header for EVENTS_EVENT_ID_GET_EVENT_NOT_FOUND"));
+                                let body_content = body;
+                                *response.body_mut() = Body::from(body_content);
+                            }
+                        },
+                        Err(_) => {
+                            // Application code returned an error. This should not happen, as the implementation should
+                            // return a valid response.
+                            *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                            *response.body_mut() = Body::from("An internal error occurred");
+                        }
+                    }
+
+                    Ok(response)
+                }
+
                 // EventsPost - POST /events
                 hyper::Method::POST if path.matched(paths::ID_EVENTS) => {
                     // Body parameters (note that non-required body parameters will ignore garbage
@@ -610,6 +692,7 @@ where
                 }
 
                 _ if path.matched(paths::ID_EVENTS) => method_not_allowed(),
+                _ if path.matched(paths::ID_EVENTS_EVENT_ID) => method_not_allowed(),
                 _ if path.matched(paths::ID_INTERESTS_SORT_KEY_SORT_VALUE) => method_not_allowed(),
                 _ if path.matched(paths::ID_LIVENESS) => method_not_allowed(),
                 _ if path.matched(paths::ID_SUBSCRIBE_SORT_KEY_SORT_VALUE) => method_not_allowed(),
@@ -630,6 +713,10 @@ impl<T> RequestParser<T> for ApiRequestParser {
     fn parse_operation_id(request: &Request<T>) -> Option<&'static str> {
         let path = paths::GLOBAL_REGEX_SET.matches(request.uri().path());
         match *request.method() {
+            // EventsEventIdGet - GET /events/{event_id}
+            hyper::Method::GET if path.matched(paths::ID_EVENTS_EVENT_ID) => {
+                Some("EventsEventIdGet")
+            }
             // EventsPost - POST /events
             hyper::Method::POST if path.matched(paths::ID_EVENTS) => Some("EventsPost"),
             // InterestsSortKeySortValuePost - POST /interests/{sort_key}/{sort_value}
