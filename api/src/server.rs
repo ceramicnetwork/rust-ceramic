@@ -28,8 +28,8 @@ use tracing::{debug, info, instrument, Level};
 
 use ceramic_api_server::{
     models::{self, Event},
-    EventsPostResponse, InterestsSortKeySortValuePostResponse, LivenessGetResponse,
-    SubscribeSortKeySortValueGetResponse, VersionPostResponse,
+    EventsEventIdGetResponse, EventsPostResponse, InterestsSortKeySortValuePostResponse,
+    LivenessGetResponse, SubscribeSortKeySortValueGetResponse, VersionPostResponse,
 };
 use ceramic_core::{EventId, Interest, Network, PeerId, StreamId};
 
@@ -312,6 +312,32 @@ where
             .await?;
         Ok(InterestsSortKeySortValuePostResponse::Success)
     }
+
+    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
+    async fn events_event_id_get(
+        &self,
+        event_id: String,
+        _context: &C,
+    ) -> Result<EventsEventIdGetResponse, ApiError> {
+        let decoded_event_id = decode_event_id(&event_id)?;
+        match self.model.value_for_key(decoded_event_id.clone()).await {
+            Ok(Some(data)) => {
+                let event = Event {
+                    id: multibase::encode(
+                        multibase::Base::Base16Lower,
+                        decoded_event_id.as_bytes(),
+                    ),
+                    data: multibase::encode(multibase::Base::Base64, data),
+                };
+                Ok(EventsEventIdGetResponse::Success(event))
+            }
+            Ok(None) => Ok(EventsEventIdGetResponse::EventNotFound(format!(
+                "Event not found : {}",
+                event_id
+            ))),
+            Err(err) => Err(ApiError(format!("failed to get event: {err}"))),
+        }
+    }
 }
 
 fn decode_event_id(value: &str) -> Result<EventId, ApiError> {
@@ -335,6 +361,7 @@ mod tests {
     use mockall::{mock, predicate};
     use multibase::Base;
     use recon::Sha256a;
+    use tracing::event;
     use tracing_test::traced_test;
 
     struct Context;
@@ -384,6 +411,7 @@ mod tests {
                 offset: usize,
                 limit: usize,
             ) -> Result<Vec<(EventId,Vec<u8>)>>;
+            fn value_for_key(&self, key: EventId) -> Result<Option<Vec<u8>>>;
         }
         impl Clone for ReconModelTest {
             fn clone(&self) -> Self;
@@ -406,8 +434,8 @@ mod tests {
         ) -> Result<Vec<(Self::Key, Vec<u8>)>> {
             self.range_with_values(start, end, offset, limit)
         }
-        async fn value_for_key(&self, _key: Self::Key) -> Result<Option<Vec<u8>>> {
-            Ok(None)
+        async fn value_for_key(&self, key: Self::Key) -> Result<Option<Vec<u8>>> {
+            self.value_for_key(key)
         }
 
         async fn keys_since_highwater_mark(
@@ -906,5 +934,46 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp, InterestsSortKeySortValuePostResponse::Success);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_events_event_id_get_success() {
+        let peer_id = PeerId::random();
+        let network = Network::InMemory;
+        let event_id = EventId::new(
+            &network,
+            "model",
+            "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9", // cspell:disable-line
+            "did:key:zGs1Det7LHNeu7DXT4nvoYrPfj3n6g7d6bj2K4AMXEvg1",          // cspell:disable-line
+            &Cid::from_str("baejbeihyr3kf77etqdccjfoc33dmko2ijyugn6qk6yucfkioasjssz3bbu").unwrap(), // cspell:disable-line
+            0,
+            &Cid::from_str("baejbeicqtpe5si4qvbffs2s7vtbk5ccbsfg6owmpidfj3zeluqz4hlnz6m").unwrap(), // cspell:disable-line
+        );
+        let event_id_str = multibase::encode(Base::Base16Lower, event_id.to_bytes());
+        let event_data = b"event data".to_vec();
+        let event_data_base64 = multibase::encode(multibase::Base::Base64, &event_data);
+
+        let mut mock_model = MockReconModelTest::new();
+        mock_model
+            .expect_value_for_key()
+            .with(predicate::eq(event_id.clone()))
+            .times(1)
+            .returning(move |_| Ok(Some(event_data.clone())));
+
+        let mock_interest = MockReconInterestTest::new();
+
+        let server = Server::new(peer_id, network, mock_interest, mock_model);
+
+        let result = server.events_event_id_get(event_id_str, &Context).await;
+
+        let EventsEventIdGetResponse::Success(event) = result.unwrap() else {
+            panic!("Expected EventsEventIdGetResponse::Success but got another variant");
+        };
+        assert_eq!(
+            event.id,
+            multibase::encode(multibase::Base::Base16Lower, event_id.as_bytes())
+        );
+        assert_eq!(event.data, event_data_base64);
     }
 }

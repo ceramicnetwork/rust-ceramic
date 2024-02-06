@@ -89,6 +89,29 @@ paths:
         '204':
           description: success
 
+  /events/{event_id}:
+    get:
+      summary: Get event data
+      parameters:
+        - name: event_id
+          in: path
+          description: identifier of the event
+          schema:
+            type: string
+          required: true
+      responses:
+        '200':
+          description: success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+        '404':
+          description: Event not found
+          content:
+            text/plain:
+              schema:
+                type: string
   '/interests/{sort_key}/{sort_value}':
     post:
       summary: Register interest for a sort key

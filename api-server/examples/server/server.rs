@@ -101,8 +101,9 @@ impl<C> Server<C> {
 
 use ceramic_api_server::server::MakeService;
 use ceramic_api_server::{
-    Api, EventsPostResponse, FeedEventsGetResponse, InterestsSortKeySortValuePostResponse,
-    LivenessGetResponse, SubscribeSortKeySortValueGetResponse, VersionPostResponse,
+    Api, EventsEventIdGetResponse, EventsPostResponse, FeedEventsGetResponse,
+    InterestsSortKeySortValuePostResponse, LivenessGetResponse,
+    SubscribeSortKeySortValueGetResponse, VersionPostResponse,
 };
 use std::error::Error;
 use swagger::ApiError;
@@ -112,6 +113,20 @@ impl<C> Api<C> for Server<C>
 where
     C: Has<XSpanIdString> + Send + Sync,
 {
+    /// Get event data
+    async fn events_event_id_get(
+        &self,
+        event_id: String,
+        context: &C,
+    ) -> Result<EventsEventIdGetResponse, ApiError> {
+        info!(
+            "events_event_id_get(\"{}\") - X-Span-ID: {:?}",
+            event_id,
+            context.get().0.clone()
+        );
+        Err(ApiError("Generic failure".into()))
+    }
+
     /// Creates a new event
     async fn events_post(
         &self,
