@@ -22,8 +22,8 @@ pub use crate::context;
 type ServiceFuture = BoxFuture<'static, Result<Response<Body>, crate::ServiceError>>;
 
 use crate::{
-    Api, EventsPostResponse, InterestsSortKeySortValuePostResponse, LivenessGetResponse,
-    SubscribeSortKeySortValueGetResponse, VersionPostResponse,
+    Api, EventsPostResponse, FeedEventsGetResponse, InterestsSortKeySortValuePostResponse,
+    LivenessGetResponse, SubscribeSortKeySortValueGetResponse, VersionPostResponse,
 };
 
 mod paths {
@@ -32,6 +32,7 @@ mod paths {
     lazy_static! {
         pub static ref GLOBAL_REGEX_SET: regex::RegexSet = regex::RegexSet::new(vec![
             r"^/ceramic/events$",
+            r"^/ceramic/feed/events$",
             r"^/ceramic/interests/(?P<sort_key>[^/?#]*)/(?P<sort_value>[^/?#]*)$",
             r"^/ceramic/liveness$",
             r"^/ceramic/subscribe/(?P<sort_key>[^/?#]*)/(?P<sort_value>[^/?#]*)$",
@@ -40,7 +41,8 @@ mod paths {
         .expect("Unable to create global regex set");
     }
     pub(crate) static ID_EVENTS: usize = 0;
-    pub(crate) static ID_INTERESTS_SORT_KEY_SORT_VALUE: usize = 1;
+    pub(crate) static ID_FEED_EVENTS: usize = 1;
+    pub(crate) static ID_INTERESTS_SORT_KEY_SORT_VALUE: usize = 2;
     lazy_static! {
         pub static ref REGEX_INTERESTS_SORT_KEY_SORT_VALUE: regex::Regex =
             #[allow(clippy::invalid_regex)]
@@ -49,8 +51,8 @@ mod paths {
             )
             .expect("Unable to create regex for INTERESTS_SORT_KEY_SORT_VALUE");
     }
-    pub(crate) static ID_LIVENESS: usize = 2;
-    pub(crate) static ID_SUBSCRIBE_SORT_KEY_SORT_VALUE: usize = 3;
+    pub(crate) static ID_LIVENESS: usize = 3;
+    pub(crate) static ID_SUBSCRIBE_SORT_KEY_SORT_VALUE: usize = 4;
     lazy_static! {
         pub static ref REGEX_SUBSCRIBE_SORT_KEY_SORT_VALUE: regex::Regex =
             #[allow(clippy::invalid_regex)]
@@ -59,7 +61,7 @@ mod paths {
             )
             .expect("Unable to create regex for SUBSCRIBE_SORT_KEY_SORT_VALUE");
     }
-    pub(crate) static ID_VERSION: usize = 4;
+    pub(crate) static ID_VERSION: usize = 5;
 }
 
 pub struct MakeService<T, C>
@@ -243,6 +245,102 @@ where
                                                 .body(Body::from(format!("Couldn't read body parameter Event: {}", e)))
                                                 .expect("Unable to create Bad Request response due to unable to read body parameter Event")),
                         }
+                }
+
+                // FeedEventsGet - GET /feed/events
+                hyper::Method::GET if path.matched(paths::ID_FEED_EVENTS) => {
+                    // Query parameters (note that non-required or collection query parameters will ignore garbage values, rather than causing a 400 response)
+                    let query_params =
+                        form_urlencoded::parse(uri.query().unwrap_or_default().as_bytes())
+                            .collect::<Vec<_>>();
+                    let param_resume_at = query_params
+                        .iter()
+                        .filter(|e| e.0 == "resumeAt")
+                        .map(|e| e.1.clone())
+                        .next();
+                    let param_resume_at = match param_resume_at {
+                        Some(param_resume_at) => {
+                            let param_resume_at =
+                                <String as std::str::FromStr>::from_str(&param_resume_at);
+                            match param_resume_at {
+                            Ok(param_resume_at) => Some(param_resume_at),
+                            Err(e) => return Ok(Response::builder()
+                                .status(StatusCode::BAD_REQUEST)
+                                .body(Body::from(format!("Couldn't parse query parameter resumeAt - doesn't match schema: {}", e)))
+                                .expect("Unable to create Bad Request response for invalid query parameter resumeAt")),
+                        }
+                        }
+                        None => None,
+                    };
+                    let param_limit = query_params
+                        .iter()
+                        .filter(|e| e.0 == "limit")
+                        .map(|e| e.1.clone())
+                        .next();
+                    let param_limit = match param_limit {
+                        Some(param_limit) => {
+                            let param_limit = <i32 as std::str::FromStr>::from_str(&param_limit);
+                            match param_limit {
+                            Ok(param_limit) => Some(param_limit),
+                            Err(e) => return Ok(Response::builder()
+                                .status(StatusCode::BAD_REQUEST)
+                                .body(Body::from(format!("Couldn't parse query parameter limit - doesn't match schema: {}", e)))
+                                .expect("Unable to create Bad Request response for invalid query parameter limit")),
+                        }
+                        }
+                        None => None,
+                    };
+
+                    let result = api_impl
+                        .feed_events_get(param_resume_at, param_limit, &context)
+                        .await;
+                    let mut response = Response::new(Body::empty());
+                    response.headers_mut().insert(
+                        HeaderName::from_static("x-span-id"),
+                        HeaderValue::from_str(
+                            (&context as &dyn Has<XSpanIdString>)
+                                .get()
+                                .0
+                                .clone()
+                                .as_str(),
+                        )
+                        .expect("Unable to create X-Span-ID header value"),
+                    );
+
+                    match result {
+                        Ok(rsp) => match rsp {
+                            FeedEventsGetResponse::Success(body) => {
+                                *response.status_mut() = StatusCode::from_u16(200)
+                                    .expect("Unable to turn 200 into a StatusCode");
+                                response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for FEED_EVENTS_GET_SUCCESS"));
+                                let body_content = serde_json::to_string(&body)
+                                    .expect("impossible to fail to serialize");
+                                *response.body_mut() = Body::from(body_content);
+                            }
+                            FeedEventsGetResponse::BadRequest(body) => {
+                                *response.status_mut() = StatusCode::from_u16(400)
+                                    .expect("Unable to turn 400 into a StatusCode");
+                                response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for FEED_EVENTS_GET_BAD_REQUEST"));
+                                let body_content = serde_json::to_string(&body)
+                                    .expect("impossible to fail to serialize");
+                                *response.body_mut() = Body::from(body_content);
+                            }
+                        },
+                        Err(_) => {
+                            // Application code returned an error. This should not happen, as the implementation should
+                            // return a valid response.
+                            *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                            *response.body_mut() = Body::from("An internal error occurred");
+                        }
+                    }
+
+                    Ok(response)
                 }
 
                 // InterestsSortKeySortValuePost - POST /interests/{sort_key}/{sort_value}
@@ -610,6 +708,7 @@ where
                 }
 
                 _ if path.matched(paths::ID_EVENTS) => method_not_allowed(),
+                _ if path.matched(paths::ID_FEED_EVENTS) => method_not_allowed(),
                 _ if path.matched(paths::ID_INTERESTS_SORT_KEY_SORT_VALUE) => method_not_allowed(),
                 _ if path.matched(paths::ID_LIVENESS) => method_not_allowed(),
                 _ if path.matched(paths::ID_SUBSCRIBE_SORT_KEY_SORT_VALUE) => method_not_allowed(),
@@ -632,6 +731,8 @@ impl<T> RequestParser<T> for ApiRequestParser {
         match *request.method() {
             // EventsPost - POST /events
             hyper::Method::POST if path.matched(paths::ID_EVENTS) => Some("EventsPost"),
+            // FeedEventsGet - GET /feed/events
+            hyper::Method::GET if path.matched(paths::ID_FEED_EVENTS) => Some("FeedEventsGet"),
             // InterestsSortKeySortValuePost - POST /interests/{sort_key}/{sort_value}
             hyper::Method::POST if path.matched(paths::ID_INTERESTS_SORT_KEY_SORT_VALUE) => {
                 Some("InterestsSortKeySortValuePost")

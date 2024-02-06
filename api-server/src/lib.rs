@@ -29,6 +29,15 @@ pub enum EventsPostResponse {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[must_use]
+pub enum FeedEventsGetResponse {
+    /// success
+    Success(models::EventFeed),
+    /// bad request
+    BadRequest(String),
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub enum InterestsSortKeySortValuePostResponse {
     /// success
     Success,
@@ -69,6 +78,14 @@ pub trait Api<C: Send + Sync> {
         event: models::Event,
         context: &C,
     ) -> Result<EventsPostResponse, ApiError>;
+
+    /// Get all new event keys since resume token
+    async fn feed_events_get(
+        &self,
+        resume_at: Option<String>,
+        limit: Option<i32>,
+        context: &C,
+    ) -> Result<FeedEventsGetResponse, ApiError>;
 
     /// Register interest for a sort key
     async fn interests_sort_key_sort_value_post(
@@ -112,6 +129,13 @@ pub trait ApiNoContext<C: Send + Sync> {
 
     /// Creates a new event
     async fn events_post(&self, event: models::Event) -> Result<EventsPostResponse, ApiError>;
+
+    /// Get all new event keys since resume token
+    async fn feed_events_get(
+        &self,
+        resume_at: Option<String>,
+        limit: Option<i32>,
+    ) -> Result<FeedEventsGetResponse, ApiError>;
 
     /// Register interest for a sort key
     async fn interests_sort_key_sort_value_post(
@@ -169,6 +193,16 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
     async fn events_post(&self, event: models::Event) -> Result<EventsPostResponse, ApiError> {
         let context = self.context().clone();
         self.api().events_post(event, &context).await
+    }
+
+    /// Get all new event keys since resume token
+    async fn feed_events_get(
+        &self,
+        resume_at: Option<String>,
+        limit: Option<i32>,
+    ) -> Result<FeedEventsGetResponse, ApiError> {
+        let context = self.context().clone();
+        self.api().feed_events_get(resume_at, limit, &context).await
     }
 
     /// Register interest for a sort key

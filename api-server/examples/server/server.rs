@@ -101,8 +101,8 @@ impl<C> Server<C> {
 
 use ceramic_api_server::server::MakeService;
 use ceramic_api_server::{
-    Api, EventsPostResponse, InterestsSortKeySortValuePostResponse, LivenessGetResponse,
-    SubscribeSortKeySortValueGetResponse, VersionPostResponse,
+    Api, EventsPostResponse, FeedEventsGetResponse, InterestsSortKeySortValuePostResponse,
+    LivenessGetResponse, SubscribeSortKeySortValueGetResponse, VersionPostResponse,
 };
 use std::error::Error;
 use swagger::ApiError;
@@ -121,6 +121,22 @@ where
         info!(
             "events_post({:?}) - X-Span-ID: {:?}",
             event,
+            context.get().0.clone()
+        );
+        Err(ApiError("Generic failure".into()))
+    }
+
+    /// Get all new event keys since resume token
+    async fn feed_events_get(
+        &self,
+        resume_at: Option<String>,
+        limit: Option<i32>,
+        context: &C,
+    ) -> Result<FeedEventsGetResponse, ApiError> {
+        info!(
+            "feed_events_get({:?}, {:?}) - X-Span-ID: {:?}",
+            resume_at,
+            limit,
             context.get().0.clone()
         );
         Err(ApiError("Generic failure".into()))

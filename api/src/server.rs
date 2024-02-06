@@ -64,6 +64,14 @@ pub trait AccessModelStore: Clone + Send + Sync {
     ) -> Result<Vec<(Self::Key, Vec<u8>)>>;
 
     async fn value_for_key(&self, key: Self::Key) -> Result<Option<Vec<u8>>>;
+
+    // it's likely `highwater` will be a string or struct when we have alternative storage for now we
+    // keep it simple to allow easier error propagation. This isn't currently public outside of this repo.
+    async fn keys_since_highwater_mark(
+        &self,
+        highwater: i64,
+        limit: i64,
+    ) -> anyhow::Result<(i64, Vec<Self::Key>)>;
 }
 
 #[derive(Clone)]
@@ -153,9 +161,11 @@ where
 }
 
 use ceramic_api_server::server::MakeService;
-use ceramic_api_server::Api;
+use ceramic_api_server::{Api, FeedEventsGetResponse};
 use std::error::Error;
 use swagger::ApiError;
+
+use crate::ResumeToken;
 
 #[async_trait]
 impl<C, I, M> Api<C> for Server<C, I, M>
@@ -180,6 +190,42 @@ where
         Ok(resp)
     }
 
+    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
+    async fn feed_events_get(
+        &self,
+        resume_at: Option<String>,
+        limit: Option<i32>,
+        _context: &C,
+    ) -> Result<FeedEventsGetResponse, ApiError> {
+        let hw = resume_at.map(ResumeToken::new).unwrap_or_default();
+        let limit = limit.unwrap_or(10000) as usize;
+        let hw = match (&hw).try_into() {
+            Ok(hw) => hw,
+            Err(err) => {
+                return Ok(FeedEventsGetResponse::BadRequest(format!(
+                    "Invalid resume token '{}'. {}",
+                    hw, err
+                )))
+            }
+        };
+        let (new_hw, event_ids) = self
+            .model
+            .keys_since_highwater_mark(hw, limit as i64)
+            .await
+            .map_err(|e| ApiError(format!("failed to get keys: {e}")))?;
+        let events = event_ids
+            .into_iter()
+            .map(|id| Event {
+                event_id: multibase::encode(multibase::Base::Base16Lower, id.as_bytes()),
+                event_data: String::default(),
+            })
+            .collect();
+
+        Ok(FeedEventsGetResponse::Success(models::EventFeed {
+            resume_token: new_hw.to_string(),
+            events,
+        }))
+    }
     #[instrument(skip(self, _context, event), fields(event.id = event.event_id, event.data.len = event.event_data.len()), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn events_post(
         &self,
@@ -361,6 +407,14 @@ mod tests {
         }
         async fn value_for_key(&self, _key: Self::Key) -> Result<Option<Vec<u8>>> {
             Ok(None)
+        }
+
+        async fn keys_since_highwater_mark(
+            &self,
+            _highwater: i64,
+            _limit: i64,
+        ) -> anyhow::Result<(i64, Vec<Self::Key>)> {
+            Ok((0, vec![]))
         }
     }
 

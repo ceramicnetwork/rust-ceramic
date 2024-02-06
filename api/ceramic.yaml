@@ -121,6 +121,35 @@ paths:
         '204':
           description: success
 
+  '/feed/events':
+    get:
+      summary: Get all new event keys since resume token
+      parameters:
+        - name: resumeAt
+          in: query
+          description: token that designates the point to resume from, that is find keys added after this point
+          schema:
+            type: string
+          required: false
+        - name: limit
+          in: query
+          description: the maximum number of events to return, default is 10000.
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventFeed'
+        '400':
+          description: bad request
+          content:
+            application/json:
+              schema:
+                type: string
 components:
   requestBodies:
     Event:
@@ -159,3 +188,20 @@ components:
         eventData:
           type: string
           description: Multibase encoding of event data.
+    EventFeed:
+      title: Ceramic Event feed data
+      description: Ceramic event keys as part of a Ceramic Stream
+      type: object
+      required:
+        - events
+        - resumeToken
+      properties:
+        events:
+          type: array
+          items:
+            schema:
+            $ref: '#/components/schemas/Event'
+          description: An array of events. For now, the value is empty.
+        resumeToken:
+          type: string
+          description: The token/highwater mark to used as resumeAt on a future request

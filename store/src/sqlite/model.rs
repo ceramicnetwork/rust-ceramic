@@ -777,15 +777,13 @@ impl AccessModelStore for ModelStore<Sha256a> {
         self.value_for_key_int(&key).await
     }
 
-    // async fn keys_since_highwater_mark(
-    //     &self,
-    //     highwater: i64,
-    //     limit: usize,
-    // ) -> anyhow::Result<(i64, Vec<Self::Key>)> {
-    //     // self.new_keys_since_value_rowid(highwater, limit as i64)
-    //     //     .await
-    //     todo!();
-    // }
+    async fn keys_since_highwater_mark(
+        &self,
+        highwater: i64,
+        limit: i64,
+    ) -> anyhow::Result<(i64, Vec<Self::Key>)> {
+        self.new_keys_since_value_rowid(highwater, limit).await
+    }
 }
 
 #[cfg(test)]

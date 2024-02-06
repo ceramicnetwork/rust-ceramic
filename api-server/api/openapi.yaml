@@ -135,6 +135,40 @@ paths:
         "204":
           description: success
       summary: Register interest for a sort key
+  /feed/events:
+    get:
+      parameters:
+      - description: "token that designates the point to resume from, that is find\
+          \ keys added after this point"
+        explode: true
+        in: query
+        name: resumeAt
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: "the maximum number of events to return, default is 10000."
+        explode: true
+        in: query
+        name: limit
+        required: false
+        schema:
+          type: integer
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventFeed'
+          description: success
+        "400":
+          content:
+            application/json:
+              schema:
+                type: string
+          description: bad request
+      summary: Get all new event keys since resume token
 components:
   requestBodies:
     Event:
@@ -177,5 +211,28 @@ components:
       - eventData
       - eventId
       title: A Ceramic Event
+      type: object
+    EventFeed:
+      description: Ceramic event keys as part of a Ceramic Stream
+      example:
+        resumeToken: resumeToken
+        events:
+        - eventId: eventId
+          eventData: eventData
+        - eventId: eventId
+          eventData: eventData
+      properties:
+        events:
+          description: "An array of events. For now, the value is empty."
+          items:
+            $ref: '#/components/schemas/Event'
+          type: array
+        resumeToken:
+          description: The token/highwater mark to used as resumeAt on a future request
+          type: string
+      required:
+      - events
+      - resumeToken
+      title: Ceramic Event feed data
       type: object
 

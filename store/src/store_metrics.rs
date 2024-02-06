@@ -234,6 +234,19 @@ where
         )
         .await
     }
+
+    async fn keys_since_highwater_mark(
+        &self,
+        highwater: i64,
+        limit: i64,
+    ) -> anyhow::Result<(i64, Vec<Self::Key>)> {
+        StoreMetricsMiddleware::<S>::record(
+            &self.metrics,
+            "model_keys_since_highwater_mark",
+            self.store.keys_since_highwater_mark(highwater, limit),
+        )
+        .await
+    }
 }
 
 #[async_trait]

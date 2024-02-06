@@ -15,7 +15,7 @@ To see how to make this your own, look here:
 [README]((https://openapi-generator.tech))
 
 - API version: 0.9.0
-- Build date: 2024-01-31T10:10:25.973864005-07:00[America/Denver]
+- Build date: 2024-02-05T19:40:01.955604-07:00[America/Denver]
 
 
 
@@ -62,6 +62,7 @@ cargo run --example server
 To run a client, follow one of the following simple steps:
 
 ```
+cargo run --example client FeedEventsGet
 cargo run --example client InterestsSortKeySortValuePost
 cargo run --example client LivenessGet
 cargo run --example client SubscribeSortKeySortValueGet
@@ -100,6 +101,7 @@ All URIs are relative to */ceramic*
 Method | HTTP request | Description
 ------------- | ------------- | -------------
 [****](docs/default_api.md#) | **POST** /events | Creates a new event
+[****](docs/default_api.md#) | **GET** /feed/events | Get all new event keys since resume token
 [****](docs/default_api.md#) | **POST** /interests/{sort_key}/{sort_value} | Register interest for a sort key
 [****](docs/default_api.md#) | **GET** /liveness | Test the liveness of the Ceramic node
 [****](docs/default_api.md#) | **GET** /subscribe/{sort_key}/{sort_value} | Get events for a stream
@@ -109,6 +111,7 @@ Method | HTTP request | Description
 ## Documentation For Models
 
  - [Event](docs/Event.md)
+ - [EventFeed](docs/EventFeed.md)
  - [Version](docs/Version.md)
 
 
