@@ -39,7 +39,7 @@ where
 {
     /// Create an instance of the store initializing any neccessary tables.
     pub async fn new(pool: SqlitePool) -> Result<Self> {
-        let mut store = ModelStore {
+        let store = ModelStore {
             pool,
             hash: PhantomData,
         };
@@ -48,7 +48,7 @@ where
     }
 
     /// Initialize the recon table.
-    async fn create_table_if_not_exists(&mut self) -> Result<()> {
+    async fn create_table_if_not_exists(&self) -> Result<()> {
         const CREATE_STORE_KEY_TABLE: &str = "CREATE TABLE IF NOT EXISTS model_key (
             key BLOB, -- network_id sort_value controller StreamID height event_cid
             ahash_0 INTEGER, -- the ahash is decomposed as [u32; 8]
@@ -95,9 +95,128 @@ where
         tx.commit().await?;
         Ok(())
     }
+
+    async fn insert_item(&self, item: &ReconItem<'_, EventId>) -> Result<(bool, bool)> {
+        let mut tx = self.pool.writer().begin().await?;
+        let (new_key, new_val) = self.insert_item_int(item, &mut tx).await?;
+        tx.commit().await?;
+        Ok((new_key, new_val))
+    }
+
+    async fn range_with_values_int(
+        &self,
+        left_fencepost: &EventId,
+        right_fencepost: &EventId,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Box<dyn Iterator<Item = (EventId, Vec<u8>)> + Send + 'static>> {
+        let query = sqlx::query(
+            "
+        SELECT
+            model_block.key, model_block.cid, model_block.root, model_block.bytes
+        FROM (
+            SELECT
+                key
+            FROM model_key
+            WHERE
+                key > ? AND key < ?
+                AND value_retrieved = true
+            ORDER BY
+                key ASC
+            LIMIT
+                ?
+            OFFSET
+                ?
+        ) key
+        JOIN
+            model_block
+        ON
+            key.key = model_block.key
+            ORDER BY model_block.key, model_block.idx
+        ;",
+        );
+        let all_blocks = query
+            .bind(left_fencepost.as_bytes())
+            .bind(right_fencepost.as_bytes())
+            .bind(limit as i64)
+            .bind(offset as i64)
+            .fetch_all(self.pool.reader())
+            .await?;
+
+        // Consume all block into groups of blocks by their key.
+        let all_blocks: Vec<(EventId, Vec<BlockRow>)> = process_results(
+            all_blocks.into_iter().map(|row| {
+                Cid::read_bytes(row.get::<&[u8], _>(1))
+                    .map_err(anyhow::Error::from)
+                    .map(|cid| {
+                        (
+                            EventId::from(row.get::<Vec<u8>, _>(0)),
+                            cid,
+                            row.get(2),
+                            row.get(3),
+                        )
+                    })
+            }),
+            |blocks| {
+                blocks
+                    .group_by(|(key, _, _, _)| key.clone())
+                    .into_iter()
+                    .map(|(key, group)| {
+                        (
+                            key,
+                            group
+                                .map(|(_key, cid, root, bytes)| BlockRow { cid, root, bytes })
+                                .collect::<Vec<BlockRow>>(),
+                        )
+                    })
+                    .collect()
+            },
+        )?;
+
+        let mut values: Vec<(EventId, Vec<u8>)> = Vec::new();
+        for (key, blocks) in all_blocks {
+            if let Some(value) = self.rebuild_car(blocks).await? {
+                values.push((key.clone(), value));
+            }
+        }
+        Ok(Box::new(values.into_iter()))
+    }
+
+    async fn value_for_key_int(&self, key: &EventId) -> Result<Option<Vec<u8>>> {
+        let query = sqlx::query(
+            "
+            SELECT
+                cid, root, bytes
+            FROM model_block
+            WHERE
+                key=?
+            ORDER BY idx
+            ;",
+        );
+        let blocks = query
+            .bind(key.as_bytes())
+            .fetch_all(self.pool.reader())
+            .await?;
+        self.rebuild_car(
+            blocks
+                .into_iter()
+                .map(|row| {
+                    Cid::read_bytes(row.get::<&[u8], _>(0))
+                        .map_err(anyhow::Error::from)
+                        .map(|cid| BlockRow {
+                            cid,
+                            root: row.get(1),
+                            bytes: row.get(2),
+                        })
+                })
+                .collect::<Result<Vec<_>>>()?,
+        )
+        .await
+    }
+
     /// returns (new_key, new_val) tuple
     async fn insert_item_int(
-        &mut self,
+        &self,
         item: &ReconItem<'_, EventId>,
         conn: &mut DbTx<'_>,
     ) -> Result<(bool, bool)> {
@@ -128,11 +247,7 @@ where
     }
 
     // set value_retrieved to true and return if the key already exists
-    async fn update_value_retrieved_int(
-        &mut self,
-        key: &EventId,
-        conn: &mut DbTx<'_>,
-    ) -> Result<bool> {
+    async fn update_value_retrieved_int(&self, key: &EventId, conn: &mut DbTx<'_>) -> Result<bool> {
         let update = sqlx::query("UPDATE model_key SET value_retrieved = true WHERE key = ?");
         let resp = update.bind(key.as_bytes()).execute(&mut **conn).await?;
         let rows_affected = resp.rows_affected();
@@ -181,7 +296,7 @@ where
     }
 
     async fn insert_key_int(
-        &mut self,
+        &self,
         key: &EventId,
         has_value: bool,
         conn: &mut DbTx<'_>,
@@ -227,7 +342,7 @@ where
         }
     }
 
-    async fn rebuild_car(&mut self, blocks: Vec<BlockRow>) -> Result<Option<Vec<u8>>> {
+    async fn rebuild_car(&self, blocks: Vec<BlockRow>) -> Result<Option<Vec<u8>>> {
         if blocks.is_empty() {
             return Ok(None);
         }
@@ -253,6 +368,51 @@ where
         writer.finish().await?;
         Ok(Some(car))
     }
+
+    /// Returns all the keys found after the given row_id.
+    /// Uses the rowid of the value (block) table and makes sure to flatten keys
+    /// when there are multiple blocks for a single key. This relies on the fact that
+    /// we insert the blocks in order inside a transaction and that we don't delete, which
+    /// means that the all the entries for a key will be contiguous.
+    pub async fn new_keys_since_value_rowid(
+        &self,
+        row_id: i64,
+        limit: i64,
+    ) -> Result<(i64, Vec<EventId>)> {
+        let query = sqlx::query(
+            "WITH entries AS (
+                    SELECT key, MAX(rowid) as max_rowid
+                FROM model_block
+                    WHERE rowid >= ? -- we return rowid+1 so we must match it next search
+                GROUP BY key
+                ORDER BY rowid
+                LIMIT ?
+            )
+            SELECT 
+                key, 
+                (SELECT MAX(max_rowid) + 1 FROM entries) as new_highwater_mark 
+            from entries;",
+        );
+        let rows = query
+            .bind(row_id)
+            .bind(limit)
+            .fetch_all(self.pool.reader())
+            .await?;
+        // every row has the same new_highwater_mark value
+        let row_id: i64 = rows
+            .first()
+            .and_then(|r| r.get("new_highwater_mark"))
+            .unwrap_or(0);
+        let rows = rows
+            .into_iter()
+            .map(|row| {
+                let bytes: Vec<u8> = row.get(0);
+                EventId::from(bytes)
+            })
+            .collect();
+
+        Ok((row_id, rows))
+    }
 }
 
 #[async_trait]
@@ -265,10 +425,8 @@ where
 
     /// Returns true if the key was new. The value is always updated if included
     async fn insert(&mut self, item: ReconItem<'_, Self::Key>) -> Result<bool> {
-        let mut tx = self.pool.writer().begin().await?;
-        let (new_key, _new_val) = self.insert_item_int(&item, &mut tx).await?;
-        tx.commit().await?;
-        Ok(new_key)
+        let (new, _new_val) = self.insert_item(&item).await?;
+        Ok(new)
     }
 
     /// Insert new keys into the key space.
@@ -384,77 +542,10 @@ where
         offset: usize,
         limit: usize,
     ) -> Result<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>> {
-        let query = sqlx::query(
-            "
-        SELECT
-            model_block.key, model_block.cid, model_block.root, model_block.bytes
-        FROM (
-            SELECT
-                key
-            FROM model_key
-            WHERE
-                key > ? AND key < ?
-                AND value_retrieved = true
-            ORDER BY
-                key ASC
-            LIMIT
-                ?
-            OFFSET
-                ?
-        ) key
-        JOIN
-            model_block
-        ON
-            key.key = model_block.key
-            ORDER BY model_block.key, model_block.idx
-        ;",
-        );
-        let all_blocks = query
-            .bind(left_fencepost.as_bytes())
-            .bind(right_fencepost.as_bytes())
-            .bind(limit as i64)
-            .bind(offset as i64)
-            .fetch_all(self.pool.reader())
-            .await?;
-
-        // Consume all block into groups of blocks by their key.
-        let all_blocks: Vec<(Self::Key, Vec<BlockRow>)> = process_results(
-            all_blocks.into_iter().map(|row| {
-                Cid::read_bytes(row.get::<&[u8], _>(1))
-                    .map_err(anyhow::Error::from)
-                    .map(|cid| {
-                        (
-                            Self::Key::from(row.get::<Vec<u8>, _>(0)),
-                            cid,
-                            row.get(2),
-                            row.get(3),
-                        )
-                    })
-            }),
-            |blocks| {
-                blocks
-                    .group_by(|(key, _, _, _)| key.clone())
-                    .into_iter()
-                    .map(|(key, group)| {
-                        (
-                            key,
-                            group
-                                .map(|(_key, cid, root, bytes)| BlockRow { cid, root, bytes })
-                                .collect::<Vec<BlockRow>>(),
-                        )
-                    })
-                    .collect()
-            },
-        )?;
-
-        let mut values: Vec<(Self::Key, Vec<u8>)> = Vec::new();
-        for (key, blocks) in all_blocks {
-            if let Some(value) = self.rebuild_car(blocks).await? {
-                values.push((key.clone(), value));
-            }
-        }
-        Ok(Box::new(values.into_iter()))
+        self.range_with_values_int(left_fencepost, right_fencepost, offset, limit)
+            .await
     }
+
     /// Return the number of keys within the range.
     #[instrument(skip(self))]
     async fn count(
@@ -590,35 +681,7 @@ where
 
     #[instrument(skip(self))]
     async fn value_for_key(&mut self, key: &Self::Key) -> Result<Option<Vec<u8>>> {
-        let query = sqlx::query(
-            "
-            SELECT
-                cid, root, bytes
-            FROM model_block
-            WHERE
-                key=?
-            ORDER BY idx
-            ;",
-        );
-        let blocks = query
-            .bind(key.as_bytes())
-            .fetch_all(self.pool.reader())
-            .await?;
-        self.rebuild_car(
-            blocks
-                .into_iter()
-                .map(|row| {
-                    Cid::read_bytes(row.get::<&[u8], _>(0))
-                        .map_err(anyhow::Error::from)
-                        .map(|cid| BlockRow {
-                            cid,
-                            root: row.get(1),
-                            bytes: row.get(2),
-                        })
-                })
-                .collect::<Result<Vec<_>>>()?,
-        )
-        .await
+        self.value_for_key_int(key).await
     }
 
     #[instrument(skip(self))]
@@ -684,6 +747,47 @@ impl iroh_bitswap::Store for ModelStore<Sha256a> {
                 .get::<'_, i64, _>(0)
                 > 0,
         )
+    }
+}
+
+/// We intentionally expose the store to the API, separately from the recon::Store trait.
+/// This allows us better control over the API functionality, particularly CRUD, that are related
+/// to recon, but not explicitly part of the recon protocol. Eventually, it might be nice to reduce the
+/// scope of the recon::Store trait (or remove the &mut self requirement), but for now we have both.
+/// Anything that implements `ceramic_api::AccessModelStore` should also implement `recon::Store`.
+/// This guarantees that regardless of entry point (api or recon), the data is stored and retrieved in the same way.
+#[async_trait::async_trait]
+impl ceramic_api::AccessModelStore for ModelStore<Sha256a> {
+    type Key = EventId;
+    type Hash = Sha256a;
+
+    async fn insert(&self, key: Self::Key, value: Option<Vec<u8>>) -> Result<(bool, bool)> {
+        self.insert_item(&ReconItem::new(&key, value.as_deref()))
+            .await
+    }
+
+    async fn range_with_values(
+        &self,
+        start: Self::Key,
+        end: Self::Key,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Vec<(Self::Key, Vec<u8>)>> {
+        let res = self
+            .range_with_values_int(&start, &end, offset, limit)
+            .await?;
+        Ok(res.collect())
+    }
+    async fn value_for_key(&self, key: Self::Key) -> Result<Option<Vec<u8>>> {
+        self.value_for_key_int(&key).await
+    }
+
+    async fn keys_since_highwater_mark(
+        &self,
+        highwater: i64,
+        limit: i64,
+    ) -> anyhow::Result<(i64, Vec<Self::Key>)> {
+        self.new_keys_since_value_rowid(highwater, limit).await
     }
 }
 
@@ -1181,5 +1285,64 @@ mod test {
             let value = iroh_bitswap::Store::get(&store, &block.cid).await.unwrap();
             assert_eq!(block, value);
         }
+    }
+
+    // stores 3 keys with 3,5,10 block long CAR files
+    // each one takes n+1 blocks as it needs to store the root and all blocks so we expect 3+5+10+3=21
+    async fn prep_highwater_tests(store: &mut ModelStore<Sha256a>) -> (EventId, EventId, EventId) {
+        let key_a = random_event_id(None, None);
+        let key_b = random_event_id(None, None);
+        let key_c = random_event_id(None, None);
+        for (x, key) in [3, 5, 10].into_iter().zip([&key_a, &key_b, &key_c]) {
+            let (_blocks, store_value) = build_car_file(x).await;
+            assert_eq!(_blocks.len(), x);
+            recon::Store::insert(
+                store,
+                ReconItem::new_with_value(key, store_value.as_slice()),
+            )
+            .await
+            .unwrap();
+        }
+
+        (key_a, key_b, key_c)
+    }
+
+    #[test(tokio::test)]
+    async fn keys_since_highwater_mark_all() {
+        let mut store: ModelStore<Sha256a> = new_store().await;
+        let (key_a, key_b, key_c) = prep_highwater_tests(&mut store).await;
+
+        let (hw, res) = store.new_keys_since_value_rowid(0, 10).await.unwrap();
+        assert_eq!(3, res.len());
+        assert_eq!(22, hw); // see comment in prep_highwater_tests
+        assert_eq!([key_a, key_b, key_c], res.as_slice());
+    }
+
+    #[test(tokio::test)]
+    async fn keys_since_highwater_mark_limit_1() {
+        let mut store: ModelStore<Sha256a> = new_store().await;
+        let (key_a, _key_b, _key_c) = prep_highwater_tests(&mut store).await;
+
+        let (hw, res) = store.new_keys_since_value_rowid(0, 1).await.unwrap();
+        assert_eq!(1, res.len());
+        assert_eq!(5, hw); // see comment in prep_highwater_tests
+        assert_eq!([key_a], res.as_slice());
+    }
+
+    #[test(tokio::test)]
+    async fn keys_since_highwater_mark_middle_start() {
+        let mut store: ModelStore<Sha256a> = new_store().await;
+        let (key_a, key_b, key_c) = prep_highwater_tests(&mut store).await;
+
+        // starting at rowid 1 which is in the middle of key A should still return key A
+        let (hw, res) = store.new_keys_since_value_rowid(1, 2).await.unwrap();
+        assert_eq!(2, res.len());
+        assert_eq!(11, hw); // see comment in prep_highwater_tests
+        assert_eq!([key_a, key_b], res.as_slice());
+
+        let (hw, res) = store.new_keys_since_value_rowid(hw, 1).await.unwrap();
+        assert_eq!(1, res.len());
+        assert_eq!(22, hw); // see comment in prep_highwater_tests
+        assert_eq!([key_c], res.as_slice());
     }
 }

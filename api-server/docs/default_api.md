@@ -6,6 +6,7 @@ Method | HTTP request | Description
 ------------- | ------------- | -------------
 ****](default_api.md#) | **GET** /events/{event_id} | Get event data
 ****](default_api.md#) | **POST** /events | Creates a new event
+****](default_api.md#) | **GET** /feed/events | Get all new event keys since resume token
 ****](default_api.md#) | **POST** /interests/{sort_key}/{sort_value} | Register interest for a sort key
 ****](default_api.md#) | **GET** /liveness | Test the liveness of the Ceramic node
 ****](default_api.md#) | **GET** /subscribe/{sort_key}/{sort_value} | Get events for a stream
@@ -38,14 +39,14 @@ No authorization required
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
 # ****
-> (event)
+> (event_deprecated)
 Creates a new event
 
 ### Required Parameters
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
-  **event** | [**Event**](Event.md)| Event to add to the node | 
+  **event_deprecated** | [**EventDeprecated**](EventDeprecated.md)| Event to add to the node | 
 
 ### Return type
 
@@ -59,6 +60,39 @@ No authorization required
 
  - **Content-Type**: application/json
  - **Accept**: Not defined
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# ****
+> models::EventFeed (optional)
+Get all new event keys since resume token
+
+### Required Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **optional** | **map[string]interface{}** | optional parameters | nil if no parameters
+
+### Optional Parameters
+Optional parameters are passed through a map[string]interface{}.
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **resume_at** | **String**| token that designates the point to resume from, that is find keys added after this point | 
+ **limit** | **i32**| the maximum number of events to return, default is 10000. | 
+
+### Return type
+
+[**models::EventFeed**](EventFeed.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: application/json
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
@@ -122,7 +156,7 @@ No authorization required
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
 # ****
-> Vec<models::Event> (sort_key, sort_value, optional)
+> Vec<models::EventDeprecated> (sort_key, sort_value, optional)
 Get events for a stream
 
 ### Required Parameters
@@ -147,7 +181,7 @@ Name | Type | Description  | Notes
 
 ### Return type
 
-[**Vec<models::Event>**](Event.md)
+[**Vec<models::EventDeprecated>**](EventDeprecated.md)
 
 ### Authorization
 

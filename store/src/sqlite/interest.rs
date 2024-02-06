@@ -3,14 +3,15 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use ceramic_core::{Interest, RangeOpen};
-use recon::{AssociativeHash, HashCount, InsertResult, Key, ReconItem, Store};
+use recon::{AssociativeHash, HashCount, InsertResult, Key, ReconItem};
+use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use std::marker::PhantomData;
 use tracing::instrument;
 
 use crate::{DbTx, SqlitePool};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 /// InterestStore is a [`recon::Store`] implementation for Interests.
 pub struct InterestStore<H>
 where
@@ -27,7 +28,7 @@ where
     /// Make a new InterestSqliteStore from a connection pool.
     /// This will create the interest_key table if it does not already exist.
     pub async fn new(pool: SqlitePool) -> Result<Self> {
-        let mut store = InterestStore {
+        let store = InterestStore {
             pool,
             hash: PhantomData,
         };
@@ -41,7 +42,7 @@ where
     H: AssociativeHash + std::convert::From<[u32; 8]>,
 {
     /// Initialize the interest_key table.
-    async fn create_table_if_not_exists(&mut self) -> Result<()> {
+    async fn create_table_if_not_exists(&self) -> Result<()> {
         const CREATE_INTEREST_KEY_TABLE: &str = "CREATE TABLE IF NOT EXISTS interest_key (
             key BLOB, -- network_id sort_value controller StreamID height event_cid
             ahash_0 INTEGER, -- the ahash is decomposed as [u32; 8]
@@ -63,25 +64,20 @@ where
         Ok(())
     }
 
-    /// returns (new_key, new_val) tuple
-    async fn insert_item_int(
-        &mut self,
-        item: &ReconItem<'_, Interest>,
-        conn: &mut DbTx<'_>,
-    ) -> Result<(bool, bool)> {
-        // interests don't have values, if someone gives us something we throw an error but allow None/vec![]
-        if let Some(val) = item.value {
-            if !val.is_empty() {
-                return Err(anyhow::anyhow!(
-                    "Interests do not support values! Invalid request."
-                ));
-            }
-        }
-        let new_key = self.insert_key_int(item.key, conn).await?;
-        Ok((new_key, item.value.is_some()))
+    async fn insert_item(&self, key: &Interest) -> Result<bool> {
+        let mut tx = self.pool.writer().begin().await?;
+        let new_key = self.insert_item_int(key, &mut tx).await?;
+        tx.commit().await?;
+        Ok(new_key)
     }
 
-    async fn insert_key_int(&mut self, key: &Interest, conn: &mut DbTx<'_>) -> Result<bool> {
+    /// returns (new_key, new_val) tuple
+    async fn insert_item_int(&self, item: &Interest, conn: &mut DbTx<'_>) -> Result<bool> {
+        let new_key = self.insert_key_int(item, conn).await?;
+        Ok(new_key)
+    }
+
+    async fn insert_key_int(&self, key: &Interest, conn: &mut DbTx<'_>) -> Result<bool> {
         let key_insert = sqlx::query(
             "INSERT INTO interest_key (
                     key,
@@ -119,10 +115,75 @@ where
             Err(err) => Err(err.into()),
         }
     }
+
+    async fn range_int(
+        &self,
+        left_fencepost: &Interest,
+        right_fencepost: &Interest,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Box<dyn Iterator<Item = Interest> + Send + 'static>> {
+        let query = sqlx::query(
+            "
+        SELECT
+            key
+        FROM
+            interest_key
+        WHERE
+            key > ? AND key < ?
+        ORDER BY
+            key ASC
+        LIMIT
+            ?
+        OFFSET
+            ?;
+        ",
+        );
+        let rows = query
+            .bind(left_fencepost.as_bytes())
+            .bind(right_fencepost.as_bytes())
+            .bind(limit as i64)
+            .bind(offset as i64)
+            .fetch_all(self.pool.reader())
+            .await?;
+        //debug!(count = rows.len(), "rows");
+        Ok(Box::new(rows.into_iter().map(|row| {
+            let bytes: Vec<u8> = row.get(0);
+            Interest::from(bytes)
+        })))
+    }
+}
+
+/// We intentionally expose the store to the API, separately from the recon::Store trait.
+/// This allows us better control over the API functionality, particularly CRUD, that are related
+/// to recon, but not explicitly part of the recon protocol. Eventually, it might be nice to reduce the
+/// scope of the recon::Store trait (or remove the &mut self requirement), but for now we have both.
+/// Anything that implements `ceramic_api::AccessInterestStore` should also implement `recon::Store`.
+/// This guarantees that regardless of entry point (api or recon), the data is stored and retrieved in the same way.
+#[async_trait::async_trait]
+impl<H> ceramic_api::AccessInterestStore for InterestStore<H>
+where
+    H: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>,
+{
+    type Key = Interest;
+    type Hash = H;
+
+    async fn insert(&self, key: Self::Key) -> Result<bool> {
+        self.insert_item(&key).await
+    }
+    async fn range(
+        &self,
+        start: Self::Key,
+        end: Self::Key,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Vec<Self::Key>> {
+        Ok(self.range_int(&start, &end, offset, limit).await?.collect())
+    }
 }
 
 #[async_trait]
-impl<H> Store for InterestStore<H>
+impl<H> recon::Store for InterestStore<H>
 where
     H: AssociativeHash,
 {
@@ -131,10 +192,15 @@ where
 
     /// Returns true if the key was new. The value is always updated if included
     async fn insert(&mut self, item: ReconItem<'_, Self::Key>) -> Result<bool> {
-        let mut tx = self.pool.writer().begin().await?;
-        let (new_key, _new_val) = self.insert_item_int(&item, &mut tx).await?;
-        tx.commit().await?;
-        Ok(new_key)
+        // interests don't have values, if someone gives us something we throw an error but allow None/vec![]
+        if let Some(val) = item.value {
+            if !val.is_empty() {
+                return Err(anyhow::anyhow!(
+                    "Interests do not support values! Invalid request."
+                ));
+            }
+        }
+        self.insert_item(item.key).await
     }
 
     /// Insert new keys into the key space.
@@ -151,9 +217,9 @@ where
                 let mut tx = self.pool.writer().begin().await?;
 
                 for (idx, item) in items.enumerate() {
-                    let (new_key, new_val) = self.insert_item_int(&item, &mut tx).await?;
+                    let new_key = self.insert_item_int(item.key, &mut tx).await?;
                     results[idx] = new_key;
-                    if new_val {
+                    if item.value.is_some() {
                         new_val_cnt += 1;
                     }
                 }
@@ -213,34 +279,8 @@ where
         offset: usize,
         limit: usize,
     ) -> Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
-        let query = sqlx::query(
-            "
-        SELECT
-            key
-        FROM
-            interest_key
-        WHERE
-            key > ? AND key < ?
-        ORDER BY
-            key ASC
-        LIMIT
-            ?
-        OFFSET
-            ?;
-        ",
-        );
-        let rows = query
-            .bind(left_fencepost.as_bytes())
-            .bind(right_fencepost.as_bytes())
-            .bind(limit as i64)
-            .bind(offset as i64)
-            .fetch_all(self.pool.reader())
-            .await?;
-        //debug!(count = rows.len(), "rows");
-        Ok(Box::new(rows.into_iter().map(|row| {
-            let bytes: Vec<u8> = row.get(0);
-            Interest::from(bytes)
-        })))
+        self.range_int(left_fencepost, right_fencepost, offset, limit)
+            .await
     }
 
     #[instrument(skip(self))]
@@ -410,6 +450,7 @@ where
 mod interest_tests {
     use super::*;
 
+    use ceramic_api::AccessInterestStore;
     use recon::{AssociativeHash, Key, ReconItem, Sha256a, Store};
 
     use expect_test::expect;
@@ -421,16 +462,45 @@ mod interest_tests {
     }
 
     #[test(tokio::test)]
+    // This is the same as the recon::Store range test, but with the interest store (hits all its methods)
+    async fn access_interest_model() {
+        let store = new_store().await;
+        let hello_interest = Interest::from("hello".as_bytes());
+        let world_interest = Interest::from("world".as_bytes());
+        AccessInterestStore::insert(&store, hello_interest.clone())
+            .await
+            .unwrap();
+        AccessInterestStore::insert(&store, world_interest.clone())
+            .await
+            .unwrap();
+        let interests = AccessInterestStore::range(
+            &store,
+            b"a".as_slice().into(),
+            b"z".as_slice().into(),
+            0,
+            usize::MAX,
+        )
+        .await
+        .unwrap();
+        assert_eq!(2, interests.len());
+        assert_eq!(vec![hello_interest, world_interest], interests);
+    }
+
+    #[test(tokio::test)]
     async fn test_hash_range_query() {
         let mut store = new_store().await;
-        store
-            .insert(ReconItem::new_key(&Interest::from("hello".as_bytes())))
-            .await
-            .unwrap();
-        store
-            .insert(ReconItem::new_key(&Interest::from("world".as_bytes())))
-            .await
-            .unwrap();
+        recon::Store::insert(
+            &mut store,
+            ReconItem::new_key(&Interest::from("hello".as_bytes())),
+        )
+        .await
+        .unwrap();
+        recon::Store::insert(
+            &mut store,
+            ReconItem::new_key(&Interest::from("world".as_bytes())),
+        )
+        .await
+        .unwrap();
         let hash_cnt = store
             .hash_range(&b"a".as_slice().into(), &b"z".as_slice().into())
             .await
@@ -444,23 +514,21 @@ mod interest_tests {
         let mut store = new_store().await;
         let hello_interest = Interest::from("hello".as_bytes());
         let world_interest = Interest::from("world".as_bytes());
-        store
-            .insert(ReconItem::new_key(&hello_interest))
+        recon::Store::insert(&mut store, ReconItem::new_key(&hello_interest))
             .await
             .unwrap();
-        store
-            .insert(ReconItem::new_key(&world_interest))
+        recon::Store::insert(&mut store, ReconItem::new_key(&world_interest))
             .await
             .unwrap();
-        let ids = store
-            .range(
-                &b"a".as_slice().into(),
-                &b"z".as_slice().into(),
-                0,
-                usize::MAX,
-            )
-            .await
-            .unwrap();
+        let ids = recon::Store::range(
+            &mut store,
+            &b"a".as_slice().into(),
+            &b"z".as_slice().into(),
+            0,
+            usize::MAX,
+        )
+        .await
+        .unwrap();
         let interests = ids.collect::<Vec<Interest>>();
         assert_eq!(2, interests.len());
         assert_eq!(vec![hello_interest, world_interest], interests);
@@ -483,12 +551,10 @@ mod interest_tests {
         let mut store = new_store().await;
         let hello_interest = Interest::from("hello".as_bytes());
         let world_interest = Interest::from("world".as_bytes());
-        store
-            .insert(ReconItem::new_key(&hello_interest))
+        recon::Store::insert(&mut store, ReconItem::new_key(&hello_interest))
             .await
             .unwrap();
-        store
-            .insert(ReconItem::new_key(&world_interest))
+        recon::Store::insert(&mut store, ReconItem::new_key(&world_interest))
             .await
             .unwrap();
         let ids = store
@@ -530,9 +596,11 @@ mod interest_tests {
         "#
         ]
         .assert_debug_eq(
-            &store
-                .insert(ReconItem::new_key(&Interest::from("hello".as_bytes())))
-                .await,
+            &recon::Store::insert(
+                &mut store,
+                ReconItem::new_key(&Interest::from("hello".as_bytes())),
+            )
+            .await,
         );
 
         // reject the second insert of same key
@@ -544,9 +612,11 @@ mod interest_tests {
         "#
         ]
         .assert_debug_eq(
-            &store
-                .insert(ReconItem::new_key(&Interest::from("hello".as_bytes())))
-                .await,
+            &recon::Store::insert(
+                &mut store,
+                ReconItem::new_key(&Interest::from("hello".as_bytes())),
+            )
+            .await,
         );
     }
 
@@ -555,12 +625,10 @@ mod interest_tests {
         let mut store = new_store().await;
         let hello_interest = Interest::from("hello".as_bytes());
         let world_interest = Interest::from("world".as_bytes());
-        store
-            .insert(ReconItem::new_key(&hello_interest))
+        recon::Store::insert(&mut store, ReconItem::new_key(&hello_interest))
             .await
             .unwrap();
-        store
-            .insert(ReconItem::new_key(&world_interest))
+        recon::Store::insert(&mut store, ReconItem::new_key(&world_interest))
             .await
             .unwrap();
 
@@ -636,17 +704,21 @@ mod interest_tests {
         let mut store = new_store().await;
         let key = Interest::from("hello".as_bytes());
         let store_value = Interest::from("world".as_bytes());
-        store
-            .insert(ReconItem::new_with_value(&key, store_value.as_slice()))
-            .await
-            .unwrap();
+        recon::Store::insert(
+            &mut store,
+            ReconItem::new_with_value(&key, store_value.as_slice()),
+        )
+        .await
+        .unwrap();
     }
 
     #[test(tokio::test)]
     async fn test_keys_with_missing_value() {
         let mut store = new_store().await;
         let key = Interest::from("hello".as_bytes());
-        store.insert(ReconItem::new(&key, None)).await.unwrap();
+        recon::Store::insert(&mut store, ReconItem::new(&key, None))
+            .await
+            .unwrap();
         let missing_keys = store
             .keys_with_missing_values((Interest::min_value(), Interest::max_value()).into())
             .await
@@ -656,7 +728,9 @@ mod interest_tests {
         "#]]
         .assert_debug_eq(&missing_keys);
 
-        store.insert(ReconItem::new(&key, Some(&[]))).await.unwrap();
+        recon::Store::insert(&mut store, ReconItem::new(&key, Some(&[])))
+            .await
+            .unwrap();
         let missing_keys = store
             .keys_with_missing_values((Interest::min_value(), Interest::max_value()).into())
             .await
@@ -671,7 +745,9 @@ mod interest_tests {
     async fn test_value_for_key() {
         let mut store = new_store().await;
         let key = Interest::from("hello".as_bytes());
-        store.insert(ReconItem::new(&key, None)).await.unwrap();
+        recon::Store::insert(&mut store, ReconItem::new(&key, None))
+            .await
+            .unwrap();
         let value = store.value_for_key(&key).await.unwrap();
         let val = value.unwrap();
         let empty: Vec<u8> = vec![];

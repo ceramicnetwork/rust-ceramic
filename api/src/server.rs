@@ -2,13 +2,6 @@
 
 #![allow(unused_imports)]
 
-use anyhow::{bail, Result};
-use async_trait::async_trait;
-use futures::{future, Stream, StreamExt, TryFutureExt, TryStreamExt};
-use hyper::service::Service;
-use hyper::{server::conn::Http, Request};
-use recon::{AssociativeHash, InterestProvider, Key, Store};
-use serde::{Deserialize, Serialize};
 use std::{future::Future, ops::Range};
 use std::{marker::PhantomData, ops::RangeBounds};
 use std::{net::SocketAddr, ops::Bound};
@@ -20,6 +13,15 @@ use std::{
     str::FromStr,
     sync::{Arc, Mutex},
 };
+
+use anyhow::{bail, Result};
+use async_trait::async_trait;
+use ceramic_api_server::models::EventDeprecated;
+use futures::{future, Stream, StreamExt, TryFutureExt, TryStreamExt};
+use hyper::service::Service;
+use hyper::{server::conn::Http, Request};
+use recon::{AssociativeHash, InterestProvider, Key, Store};
+use serde::{Deserialize, Serialize};
 use swagger::{ByteArray, EmptyContext, XSpanIdString};
 use tokio::net::TcpListener;
 use tracing::{debug, info, instrument, Level};
@@ -32,11 +34,28 @@ use ceramic_api_server::{
 use ceramic_core::{EventId, Interest, Network, PeerId, StreamId};
 
 #[async_trait]
-pub trait Recon: Clone + Send + Sync {
+pub trait AccessInterestStore: Clone + Send + Sync {
     type Key: Key;
     type Hash: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>;
 
-    async fn insert(&self, key: Self::Key, value: Option<Vec<u8>>) -> Result<()>;
+    /// Returns true if the key was newly inserted, false if it already existed.
+    async fn insert(&self, key: Self::Key) -> Result<bool>;
+    async fn range(
+        &self,
+        start: Self::Key,
+        end: Self::Key,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Vec<Self::Key>>;
+}
+
+#[async_trait]
+pub trait AccessModelStore: Clone + Send + Sync {
+    type Key: Key;
+    type Hash: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>;
+
+    /// Returns (new_key, new_value) where true if was newly inserted, false if it already existed.
+    async fn insert(&self, key: Self::Key, value: Option<Vec<u8>>) -> Result<(bool, bool)>;
     async fn range_with_values(
         &self,
         start: Self::Key,
@@ -46,38 +65,14 @@ pub trait Recon: Clone + Send + Sync {
     ) -> Result<Vec<(Self::Key, Vec<u8>)>>;
 
     async fn value_for_key(&self, key: Self::Key) -> Result<Option<Vec<u8>>>;
-}
 
-#[async_trait]
-impl<K, H> Recon for recon::Client<K, H>
-where
-    K: Key,
-    H: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>,
-{
-    type Key = K;
-    type Hash = H;
-
-    async fn insert(&self, key: Self::Key, value: Option<Vec<u8>>) -> Result<()> {
-        let _ = recon::Client::insert(self, key, value).await?;
-        Ok(())
-    }
-
-    async fn range_with_values(
+    // it's likely `highwater` will be a string or struct when we have alternative storage for now we
+    // keep it simple to allow easier error propagation. This isn't currently public outside of this repo.
+    async fn keys_since_highwater_mark(
         &self,
-        start: Self::Key,
-        end: Self::Key,
-        offset: usize,
-        limit: usize,
-    ) -> Result<Vec<(Self::Key, Vec<u8>)>> {
-        Ok(
-            recon::Client::range_with_values(self, start, end, offset, limit)
-                .await?
-                .collect(),
-        )
-    }
-    async fn value_for_key(&self, key: Self::Key) -> Result<Option<Vec<u8>>> {
-        recon::Client::value_for_key(self, key).await
-    }
+        highwater: i64,
+        limit: i64,
+    ) -> anyhow::Result<(i64, Vec<Self::Key>)>;
 }
 
 #[derive(Clone)]
@@ -91,8 +86,8 @@ pub struct Server<C, I, M> {
 
 impl<C, I, M> Server<C, I, M>
 where
-    I: Recon<Key = Interest>,
-    M: Recon<Key = EventId>,
+    I: AccessInterestStore<Key = Interest>,
+    M: AccessModelStore<Key = EventId>,
 {
     pub fn new(peer_id: PeerId, network: Network, interest: I, model: M) -> Self {
         Server {
@@ -158,10 +153,7 @@ where
             .with_not_after(0)
             .build();
         self.interest
-            // We must store a value for the interest otherwise Recon will try forever to
-            // synchronize the value.
-            // In the case of interests an empty value is sufficient.
-            .insert(interest, Some(vec![]))
+            .insert(interest)
             .await
             .map_err(|err| ApiError(format!("failed to update interest: {err}")))?;
 
@@ -170,16 +162,18 @@ where
 }
 
 use ceramic_api_server::server::MakeService;
-use ceramic_api_server::Api;
+use ceramic_api_server::{Api, FeedEventsGetResponse};
 use std::error::Error;
 use swagger::ApiError;
+
+use crate::ResumeToken;
 
 #[async_trait]
 impl<C, I, M> Api<C> for Server<C, I, M>
 where
     C: Send + Sync,
-    I: Recon<Key = Interest> + Sync,
-    M: Recon<Key = EventId> + Sync,
+    I: AccessInterestStore<Key = Interest> + Sync,
+    M: AccessModelStore<Key = EventId> + Sync,
 {
     #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn liveness_get(
@@ -197,10 +191,46 @@ where
         Ok(resp)
     }
 
+    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
+    async fn feed_events_get(
+        &self,
+        resume_at: Option<String>,
+        limit: Option<i32>,
+        _context: &C,
+    ) -> Result<FeedEventsGetResponse, ApiError> {
+        let hw = resume_at.map(ResumeToken::new).unwrap_or_default();
+        let limit = limit.unwrap_or(10000) as usize;
+        let hw = match (&hw).try_into() {
+            Ok(hw) => hw,
+            Err(err) => {
+                return Ok(FeedEventsGetResponse::BadRequest(format!(
+                    "Invalid resume token '{}'. {}",
+                    hw, err
+                )))
+            }
+        };
+        let (new_hw, event_ids) = self
+            .model
+            .keys_since_highwater_mark(hw, limit as i64)
+            .await
+            .map_err(|e| ApiError(format!("failed to get keys: {e}")))?;
+        let events = event_ids
+            .into_iter()
+            .map(|id| Event {
+                id: multibase::encode(multibase::Base::Base16Lower, id.as_bytes()),
+                data: String::default(),
+            })
+            .collect();
+
+        Ok(FeedEventsGetResponse::Success(models::EventFeed {
+            resume_token: new_hw.to_string(),
+            events,
+        }))
+    }
     #[instrument(skip(self, _context, event), fields(event.id = event.event_id, event.data.len = event.event_data.len()), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn events_post(
         &self,
-        event: Event,
+        event: EventDeprecated,
         _context: &C,
     ) -> Result<EventsPostResponse, ApiError> {
         let event_id = decode_event_id(&event.event_id)?;
@@ -261,7 +291,7 @@ where
             .await
             .map_err(|err| ApiError(format!("failed to get keys: {err}")))?
             .into_iter()
-            .map(|(id, data)| Event {
+            .map(|(id, data)| EventDeprecated {
                 event_id: multibase::encode(multibase::Base::Base16Lower, id.as_bytes()),
                 event_data: multibase::encode(multibase::Base::Base64, data),
             })
@@ -293,11 +323,11 @@ where
         match self.model.value_for_key(decoded_event_id.clone()).await {
             Ok(Some(data)) => {
                 let event = Event {
-                    event_id: multibase::encode(
+                    id: multibase::encode(
                         multibase::Base::Base16Lower,
                         decoded_event_id.as_bytes(),
                     ),
-                    event_data: multibase::encode(multibase::Base::Base64, data),
+                    data: multibase::encode(multibase::Base::Base64, data),
                 };
                 Ok(EventsEventIdGetResponse::Success(event))
             }
@@ -337,7 +367,7 @@ mod tests {
     struct Context;
     mock! {
         pub ReconInterestTest {
-            fn insert(&self, key: Interest, value: Option<Vec<u8>>) -> Result<()>;
+            fn insert(&self, key: Interest, value: Option<Vec<u8>>) -> Result<bool>;
             fn range_with_values(
                 &self,
                 start: Interest,
@@ -353,29 +383,27 @@ mod tests {
     }
 
     #[async_trait]
-    impl Recon for MockReconInterestTest {
+    impl AccessInterestStore for MockReconInterestTest {
         type Key = Interest;
         type Hash = Sha256a;
-        async fn insert(&self, key: Self::Key, value: Option<Vec<u8>>) -> Result<()> {
-            self.insert(key, value)
+        async fn insert(&self, key: Self::Key) -> Result<bool> {
+            self.insert(key, None)
         }
-        async fn range_with_values(
+        async fn range(
             &self,
             start: Self::Key,
             end: Self::Key,
             offset: usize,
             limit: usize,
-        ) -> Result<Vec<(Self::Key, Vec<u8>)>> {
-            self.range_with_values(start, end, offset, limit)
-        }
-        async fn value_for_key(&self, _key: Self::Key) -> Result<Option<Vec<u8>>> {
-            Ok(None)
+        ) -> Result<Vec<Self::Key>> {
+            let res = self.range_with_values(start, end, offset, limit)?;
+            Ok(res.into_iter().map(|(k, _)| k).collect())
         }
     }
 
     mock! {
         pub ReconModelTest {
-            fn insert(&self, key: EventId, value: Option<Vec<u8>>) -> Result<()>;
+            fn insert(&self, key: EventId, value: Option<Vec<u8>>) -> Result<(bool, bool)>;
             fn range_with_values(
                 &self,
                 start: EventId,
@@ -391,10 +419,10 @@ mod tests {
     }
 
     #[async_trait]
-    impl Recon for MockReconModelTest {
+    impl AccessModelStore for MockReconModelTest {
         type Key = EventId;
         type Hash = Sha256a;
-        async fn insert(&self, key: Self::Key, value: Option<Vec<u8>>) -> Result<()> {
+        async fn insert(&self, key: Self::Key, value: Option<Vec<u8>>) -> Result<(bool, bool)> {
             self.insert(key, value)
         }
         async fn range_with_values(
@@ -408,6 +436,14 @@ mod tests {
         }
         async fn value_for_key(&self, key: Self::Key) -> Result<Option<Vec<u8>>> {
             self.value_for_key(key)
+        }
+
+        async fn keys_since_highwater_mark(
+            &self,
+            _highwater: i64,
+            _limit: i64,
+        ) -> anyhow::Result<(i64, Vec<Self::Key>)> {
+            Ok((0, vec![]))
         }
     }
 
@@ -436,11 +472,11 @@ mod tests {
                 predicate::eq(Some(decode_event_data(event_data.as_str()).unwrap())),
             )
             .times(1)
-            .returning(|_, _| Ok(()));
+            .returning(|_, _| Ok((true, true)));
         let server = Server::new(peer_id, network, mock_interest, mock_model);
         let resp = server
             .events_post(
-                models::Event {
+                models::EventDeprecated {
                     event_id: event_id_str,
                     event_data,
                 },
@@ -493,7 +529,7 @@ mod tests {
             )
             .build();
         let event_data = b"hello world";
-        let event = models::Event {
+        let event = models::EventDeprecated {
             event_id: multibase::encode(multibase::Base::Base16Lower, event_id.as_slice()),
             event_data: multibase::encode(multibase::Base::Base64, event_data),
         };
@@ -510,10 +546,10 @@ mod tests {
                         .with_not_after(0)
                         .build(),
                 ),
-                predicate::eq(Some(vec![])),
+                predicate::eq(None),
             )
             .times(1)
-            .returning(|_, _| Ok(()));
+            .returning(|_, _| Ok(true));
         let mut mock_model = MockReconModelTest::new();
         mock_model
             .expect_range_with_values()
@@ -576,10 +612,10 @@ mod tests {
                         .with_not_after(0)
                         .build(),
                 ),
-                predicate::eq(Some(vec![])),
+                predicate::eq(None),
             )
             .times(1)
-            .returning(|_, _| Ok(()));
+            .returning(|_, _| Ok(true));
         let mut mock_model = MockReconModelTest::new();
         mock_model
             .expect_range_with_values()
@@ -642,10 +678,10 @@ mod tests {
                         .with_not_after(0)
                         .build(),
                 ),
-                predicate::eq(Some(vec![])),
+                predicate::eq(None),
             )
             .times(1)
-            .returning(|_, _| Ok(()));
+            .returning(|_, _| Ok(true));
         let mut mock_model = MockReconModelTest::new();
         mock_model
             .expect_range_with_values()
@@ -708,10 +744,10 @@ mod tests {
                         .with_not_after(0)
                         .build(),
                 ),
-                predicate::eq(Some(vec![])),
+                predicate::eq(None),
             )
             .times(1)
-            .returning(|_, _| Ok(()));
+            .returning(|_, _| Ok(true));
         let mut mock_model = MockReconModelTest::new();
         mock_model
             .expect_range_with_values()
@@ -775,10 +811,10 @@ mod tests {
                         .with_not_after(0)
                         .build(),
                 ),
-                predicate::eq(Some(vec![])),
+                predicate::eq(None),
             )
             .times(1)
-            .returning(|_, _| Ok(()));
+            .returning(|_, _| Ok(true));
         let mock_model = MockReconModelTest::new();
         let server = Server::new(peer_id, network, mock_interest, mock_model);
         let resp = server
@@ -827,10 +863,10 @@ mod tests {
                         .with_not_after(0)
                         .build(),
                 ),
-                predicate::eq(Some(vec![])),
+                predicate::eq(None),
             )
             .times(1)
-            .returning(|_, _| Ok(()));
+            .returning(|_, _| Ok(true));
         let mock_model = MockReconModelTest::new();
         let server = Server::new(peer_id, network, mock_interest, mock_model);
         let resp = server
@@ -881,10 +917,10 @@ mod tests {
                         .with_not_after(0)
                         .build(),
                 ),
-                predicate::eq(Some(vec![])),
+                predicate::eq(None),
             )
             .times(1)
-            .returning(|_, _| Ok(()));
+            .returning(|_, _| Ok(true));
         let mock_model = MockReconModelTest::new();
         let server = Server::new(peer_id, network, mock_interest, mock_model);
         let resp = server
@@ -935,9 +971,9 @@ mod tests {
             panic!("Expected EventsEventIdGetResponse::Success but got another variant");
         };
         assert_eq!(
-            event.event_id,
+            event.id,
             multibase::encode(multibase::Base::Base16Lower, event_id.as_bytes())
         );
-        assert_eq!(event.event_data, event_data_base64);
+        assert_eq!(event.data, event_data_base64);
     }
 }

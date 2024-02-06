@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use ceramic_api_server::{
-    models, Api, EventsEventIdGetResponse, EventsPostResponse,
+    models, Api, EventsEventIdGetResponse, EventsPostResponse, FeedEventsGetResponse,
     InterestsSortKeySortValuePostResponse, LivenessGetResponse,
     SubscribeSortKeySortValueGetResponse, VersionPostResponse,
 };
@@ -45,7 +45,7 @@ where
     /// Creates a new event
     async fn events_post(
         &self,
-        event: models::Event,
+        event: models::EventDeprecated,
         context: &C,
     ) -> Result<EventsPostResponse, ApiError> {
         self.record("/events", self.api.events_post(event, context))
@@ -56,6 +56,21 @@ where
     async fn liveness_get(&self, context: &C) -> Result<LivenessGetResponse, ApiError> {
         self.record("/liveness", self.api.liveness_get(context))
             .await
+    }
+
+    /// Get event data
+    async fn feed_events_get(
+        &self,
+        param_resume_at: Option<String>,
+        param_limit: Option<i32>,
+        context: &C,
+    ) -> Result<FeedEventsGetResponse, ApiError> {
+        self.record(
+            "/feed/events",
+            self.api
+                .feed_events_get(param_resume_at, param_limit, context),
+        )
+        .await
     }
 
     /// Get events for a stream

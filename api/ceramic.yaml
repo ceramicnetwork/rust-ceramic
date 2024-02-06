@@ -79,7 +79,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/Event'
+                  $ref: '#/components/schemas/EventDeprecated'
   /events:
     post:
       summary: Creates a new event
@@ -144,13 +144,42 @@ paths:
         '204':
           description: success
 
+  '/feed/events':
+    get:
+      summary: Get all new event keys since resume token
+      parameters:
+        - name: resumeAt
+          in: query
+          description: token that designates the point to resume from, that is find keys added after this point
+          schema:
+            type: string
+          required: false
+        - name: limit
+          in: query
+          description: the maximum number of events to return, default is 10000.
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventFeed'
+        '400':
+          description: bad request
+          content:
+            application/json:
+              schema:
+                type: string
 components:
   requestBodies:
     Event:
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/Event'
+            $ref: '#/components/schemas/EventDeprecated'
       description: Event to add to the node
       required: true
     Message:
@@ -168,8 +197,8 @@ components:
         version:
           type: string
           description: Version of the Ceramic node
-    Event:
-      title: A Ceramic Event
+    EventDeprecated:
+      title: A Ceramic Event (deprecated. Use Event instead)
       description: A Ceramic event as part of a Ceramic Stream
       type: object
       required:
@@ -182,3 +211,34 @@ components:
         eventData:
           type: string
           description: Multibase encoding of event data.
+    Event:
+      title: A Ceramic Event
+      description: A Ceramic event as part of a Ceramic Stream
+      type: object
+      required:
+        - id
+        - data
+      properties:
+        id:
+          type: string
+          description: Multibase encoding of event id bytes.
+        data:
+          type: string
+          description: Multibase encoding of event data.
+    EventFeed:
+      title: Ceramic Event feed data
+      description: Ceramic event keys as part of a Ceramic Stream
+      type: object
+      required:
+        - events
+        - resumeToken
+      properties:
+        events:
+          type: array
+          items:
+            schema:
+            $ref: '#/components/schemas/Event'
+          description: An array of events. For now, the value is empty.
+        resumeToken:
+          type: string
+          description: The token/highwater mark to used as resumeAt on a future request
