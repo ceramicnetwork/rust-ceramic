@@ -106,7 +106,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Event'
-        '400':
+        '404':
           description: Event not found
           content:
             text/plain:

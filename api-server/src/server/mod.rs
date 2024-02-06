@@ -233,8 +233,8 @@ where
                                 *response.body_mut() = Body::from(body_content);
                             }
                             EventsEventIdGetResponse::EventNotFound(body) => {
-                                *response.status_mut() = StatusCode::from_u16(400)
-                                    .expect("Unable to turn 400 into a StatusCode");
+                                *response.status_mut() = StatusCode::from_u16(404)
+                                    .expect("Unable to turn 404 into a StatusCode");
                                 response.headers_mut().insert(
                                                         CONTENT_TYPE,
                                                         HeaderValue::from_str("text/plain")

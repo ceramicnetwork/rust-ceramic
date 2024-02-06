@@ -107,7 +107,10 @@ where
         event_id: String,
         context: &C,
     ) -> std::result::Result<EventsEventIdGetResponse, ApiError> {
-        self.record("/events", self.api.events_event_id_get(event_id, context))
-            .await
+        self.record(
+            "/events/{event_id}",
+            self.api.events_event_id_get(event_id, context),
+        )
+        .await
     }
 }

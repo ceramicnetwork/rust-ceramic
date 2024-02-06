@@ -459,7 +459,7 @@ where
                 })?;
                 Ok(EventsEventIdGetResponse::Success(body))
             }
-            400 => {
+            404 => {
                 let body = response.into_body();
                 let body = body
                     .into_raw()
