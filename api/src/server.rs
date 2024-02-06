@@ -16,6 +16,7 @@ use std::{
 
 use anyhow::{bail, Result};
 use async_trait::async_trait;
+use ceramic_api_server::models::EventDeprecated;
 use futures::{future, Stream, StreamExt, TryFutureExt, TryStreamExt};
 use hyper::service::Service;
 use hyper::{server::conn::Http, Request};
@@ -216,8 +217,8 @@ where
         let events = event_ids
             .into_iter()
             .map(|id| Event {
-                event_id: multibase::encode(multibase::Base::Base16Lower, id.as_bytes()),
-                event_data: String::default(),
+                id: multibase::encode(multibase::Base::Base16Lower, id.as_bytes()),
+                data: String::default(),
             })
             .collect();
 
@@ -229,7 +230,7 @@ where
     #[instrument(skip(self, _context, event), fields(event.id = event.event_id, event.data.len = event.event_data.len()), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn events_post(
         &self,
-        event: Event,
+        event: EventDeprecated,
         _context: &C,
     ) -> Result<EventsPostResponse, ApiError> {
         let event_id = decode_event_id(&event.event_id)?;
@@ -290,7 +291,7 @@ where
             .await
             .map_err(|err| ApiError(format!("failed to get keys: {err}")))?
             .into_iter()
-            .map(|(id, data)| Event {
+            .map(|(id, data)| EventDeprecated {
                 event_id: multibase::encode(multibase::Base::Base16Lower, id.as_bytes()),
                 event_data: multibase::encode(multibase::Base::Base64, data),
             })
@@ -447,7 +448,7 @@ mod tests {
         let server = Server::new(peer_id, network, mock_interest, mock_model);
         let resp = server
             .events_post(
-                models::Event {
+                models::EventDeprecated {
                     event_id: event_id_str,
                     event_data,
                 },
@@ -500,7 +501,7 @@ mod tests {
             )
             .build();
         let event_data = b"hello world";
-        let event = models::Event {
+        let event = models::EventDeprecated {
             event_id: multibase::encode(multibase::Base::Base16Lower, event_id.as_slice()),
             event_data: multibase::encode(multibase::Base::Base64, event_data),
         };

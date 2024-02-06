@@ -392,7 +392,7 @@ where
 
     async fn events_post(
         &self,
-        param_event: models::Event,
+        param_event_deprecated: models::EventDeprecated,
         context: &C,
     ) -> Result<EventsPostResponse, ApiError> {
         let mut client_service = self.client_service.clone();
@@ -423,7 +423,8 @@ where
         };
 
         // Body parameter
-        let body = serde_json::to_string(&param_event).expect("impossible to fail to serialize");
+        let body = serde_json::to_string(&param_event_deprecated)
+            .expect("impossible to fail to serialize");
         *request.body_mut() = Body::from(body);
 
         let header = "application/json";
@@ -819,9 +820,10 @@ where
                     .await?;
                 let body = str::from_utf8(&body)
                     .map_err(|e| ApiError(format!("Response was not valid UTF8: {}", e)))?;
-                let body = serde_json::from_str::<Vec<models::Event>>(body).map_err(|e| {
-                    ApiError(format!("Response body did not match the schema: {}", e))
-                })?;
+                let body =
+                    serde_json::from_str::<Vec<models::EventDeprecated>>(body).map_err(|e| {
+                        ApiError(format!("Response body did not match the schema: {}", e))
+                    })?;
                 Ok(SubscribeSortKeySortValueGetResponse::Success(body))
             }
             code => {

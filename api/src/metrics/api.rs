@@ -44,7 +44,7 @@ where
     /// Creates a new event
     async fn events_post(
         &self,
-        event: models::Event,
+        event: models::EventDeprecated,
         context: &C,
     ) -> Result<EventsPostResponse, ApiError> {
         self.record("/events", self.api.events_post(event, context))

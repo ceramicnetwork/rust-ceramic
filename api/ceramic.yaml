@@ -79,7 +79,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/Event'
+                  $ref: '#/components/schemas/EventDeprecated'
   /events:
     post:
       summary: Creates a new event
@@ -156,7 +156,7 @@ components:
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/Event'
+            $ref: '#/components/schemas/EventDeprecated'
       description: Event to add to the node
       required: true
     Message:
@@ -174,8 +174,8 @@ components:
         version:
           type: string
           description: Version of the Ceramic node
-    Event:
-      title: A Ceramic Event
+    EventDeprecated:
+      title: A Ceramic Event (deprecated. Use Event instead)
       description: A Ceramic event as part of a Ceramic Stream
       type: object
       required:
@@ -186,6 +186,20 @@ components:
           type: string
           description: Multibase encoding of event id bytes.
         eventData:
+          type: string
+          description: Multibase encoding of event data.
+    Event:
+      title: A Ceramic Event
+      description: A Ceramic event as part of a Ceramic Stream
+      type: object
+      required:
+        - id
+        - data
+      properties:
+        id:
+          type: string
+          description: Multibase encoding of event id bytes.
+        data:
           type: string
           description: Multibase encoding of event data.
     EventFeed:

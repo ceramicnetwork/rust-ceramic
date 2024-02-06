@@ -13,14 +13,14 @@ Method | HTTP request | Description
 
 
 # ****
-> (event)
+> (event_deprecated)
 Creates a new event
 
 ### Required Parameters
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
-  **event** | [**Event**](Event.md)| Event to add to the node | 
+  **event_deprecated** | [**EventDeprecated**](EventDeprecated.md)| Event to add to the node | 
 
 ### Return type
 
@@ -130,7 +130,7 @@ No authorization required
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
 # ****
-> Vec<models::Event> (sort_key, sort_value, optional)
+> Vec<models::EventDeprecated> (sort_key, sort_value, optional)
 Get events for a stream
 
 ### Required Parameters
@@ -155,7 +155,7 @@ Name | Type | Description  | Notes
 
 ### Return type
 
-[**Vec<models::Event>**](Event.md)
+[**Vec<models::EventDeprecated>**](EventDeprecated.md)
 
 ### Authorization
 

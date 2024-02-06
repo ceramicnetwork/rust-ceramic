@@ -183,31 +183,31 @@ where
                     match result {
                             Ok(body) => {
                                 let mut unused_elements = Vec::new();
-                                let param_event: Option<models::Event> = if !body.is_empty() {
+                                let param_event_deprecated: Option<models::EventDeprecated> = if !body.is_empty() {
                                     let deserializer = &mut serde_json::Deserializer::from_slice(&body);
                                     match serde_ignored::deserialize(deserializer, |path| {
                                             warn!("Ignoring unknown field in body: {}", path);
                                             unused_elements.push(path.to_string());
                                     }) {
-                                        Ok(param_event) => param_event,
+                                        Ok(param_event_deprecated) => param_event_deprecated,
                                         Err(e) => return Ok(Response::builder()
                                                         .status(StatusCode::BAD_REQUEST)
-                                                        .body(Body::from(format!("Couldn't parse body parameter Event - doesn't match schema: {}", e)))
-                                                        .expect("Unable to create Bad Request response for invalid body parameter Event due to schema")),
+                                                        .body(Body::from(format!("Couldn't parse body parameter EventDeprecated - doesn't match schema: {}", e)))
+                                                        .expect("Unable to create Bad Request response for invalid body parameter EventDeprecated due to schema")),
                                     }
                                 } else {
                                     None
                                 };
-                                let param_event = match param_event {
-                                    Some(param_event) => param_event,
+                                let param_event_deprecated = match param_event_deprecated {
+                                    Some(param_event_deprecated) => param_event_deprecated,
                                     None => return Ok(Response::builder()
                                                         .status(StatusCode::BAD_REQUEST)
-                                                        .body(Body::from("Missing required body parameter Event"))
-                                                        .expect("Unable to create Bad Request response for missing body parameter Event")),
+                                                        .body(Body::from("Missing required body parameter EventDeprecated"))
+                                                        .expect("Unable to create Bad Request response for missing body parameter EventDeprecated")),
                                 };
 
                                 let result = api_impl.events_post(
-                                            param_event,
+                                            param_event_deprecated,
                                         &context
                                     ).await;
                                 let mut response = Response::new(Body::empty());
@@ -242,8 +242,8 @@ where
                             },
                             Err(e) => Ok(Response::builder()
                                                 .status(StatusCode::BAD_REQUEST)
-                                                .body(Body::from(format!("Couldn't read body parameter Event: {}", e)))
-                                                .expect("Unable to create Bad Request response due to unable to read body parameter Event")),
+                                                .body(Body::from(format!("Couldn't read body parameter EventDeprecated: {}", e)))
+                                                .expect("Unable to create Bad Request response due to unable to read body parameter EventDeprecated")),
                         }
                 }
 

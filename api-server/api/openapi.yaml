@@ -84,7 +84,7 @@ paths:
             application/json:
               schema:
                 items:
-                  $ref: '#/components/schemas/Event'
+                  $ref: '#/components/schemas/EventDeprecated'
                 type: array
           description: success
       summary: Get events for a stream
@@ -175,7 +175,7 @@ components:
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/Event'
+            $ref: '#/components/schemas/EventDeprecated'
       description: Event to add to the node
       required: true
     Message:
@@ -195,7 +195,7 @@ components:
         version:
           description: Version of the Ceramic node
           type: string
-    Event:
+    EventDeprecated:
       description: A Ceramic event as part of a Ceramic Stream
       example:
         eventId: eventId
@@ -210,6 +210,23 @@ components:
       required:
       - eventData
       - eventId
+      title: A Ceramic Event (deprecated. Use Event instead)
+      type: object
+    Event:
+      description: A Ceramic event as part of a Ceramic Stream
+      example:
+        data: data
+        id: id
+      properties:
+        id:
+          description: Multibase encoding of event id bytes.
+          type: string
+        data:
+          description: Multibase encoding of event data.
+          type: string
+      required:
+      - data
+      - id
       title: A Ceramic Event
       type: object
     EventFeed:
@@ -217,10 +234,10 @@ components:
       example:
         resumeToken: resumeToken
         events:
-        - eventId: eventId
-          eventData: eventData
-        - eventId: eventId
-          eventData: eventData
+        - data: data
+          id: id
+        - data: data
+          id: id
       properties:
         events:
           description: "An array of events. For now, the value is empty."
