@@ -2,10 +2,10 @@
 //! This unified implementation allows for exposing Recon values as IPFS blocks
 #![warn(missing_docs)]
 
+mod metrics;
 mod sqlite;
-mod store_metrics;
 #[cfg(test)]
 mod tests;
 
+pub use metrics::{Metrics, StoreMetricsMiddleware};
 pub use sqlite::{DbTx, InterestStore, ModelStore, SqlitePool};
-pub use store_metrics::{Metrics, StoreMetricsMiddleware};

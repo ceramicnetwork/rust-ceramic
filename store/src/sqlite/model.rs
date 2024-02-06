@@ -3,7 +3,6 @@ use std::{collections::BTreeSet, marker::PhantomData};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use bytes::Bytes;
-use ceramic_api::AccessModelStore;
 use ceramic_core::{EventId, RangeOpen};
 use cid::Cid;
 use iroh_bitswap::Block;
@@ -751,8 +750,14 @@ impl iroh_bitswap::Store for ModelStore<Sha256a> {
     }
 }
 
+/// We intentionally expose the store to the API, separately from the recon::Store trait.
+/// This allows us better control over the API functionality, particularly CRUD, that are related
+/// to recon, but not explicitly part of the recon protocol. Eventually, it might be nice to reduce the
+/// scope of the recon::Store trait (or remove the &mut self requirement), but for now we have both.
+/// Anything that implements `ceramic_api::AccessModelStore` should also implement `recon::Store`.
+/// This guarantees that regardless of entry point (api or recon), the data is stored and retrieved in the same way.
 #[async_trait::async_trait]
-impl AccessModelStore for ModelStore<Sha256a> {
+impl ceramic_api::AccessModelStore for ModelStore<Sha256a> {
     type Key = EventId;
     type Hash = Sha256a;
 

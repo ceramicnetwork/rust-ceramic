@@ -2,7 +2,6 @@ use std::time::Duration;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use ceramic_api::{AccessInterestStore, AccessModelStore};
 use ceramic_core::RangeOpen;
 use ceramic_metrics::{register, Recorder};
 use futures::Future;
@@ -155,9 +154,9 @@ impl<S> StoreMetricsMiddleware<S> {
 }
 
 #[async_trait]
-impl<S, K, H> AccessInterestStore for StoreMetricsMiddleware<S>
+impl<S, K, H> ceramic_api::AccessInterestStore for StoreMetricsMiddleware<S>
 where
-    S: AccessInterestStore<Key = K, Hash = H>,
+    S: ceramic_api::AccessInterestStore<Key = K, Hash = H>,
     K: recon::Key,
     H: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>,
 {
@@ -191,9 +190,9 @@ where
 }
 
 #[async_trait]
-impl<S, K, H> AccessModelStore for StoreMetricsMiddleware<S>
+impl<S, K, H> ceramic_api::AccessModelStore for StoreMetricsMiddleware<S>
 where
-    S: AccessModelStore<Key = K, Hash = H>,
+    S: ceramic_api::AccessModelStore<Key = K, Hash = H>,
     K: recon::Key,
     H: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>,
 {

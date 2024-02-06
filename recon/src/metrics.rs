@@ -1,10 +1,6 @@
 use std::time::Duration;
 
-use ceramic_metrics::{
-    register,
-    // storage::{InsertEvent, QueryLabels, StorageQuery},
-    Recorder,
-};
+use ceramic_metrics::{register, Recorder};
 use prometheus_client::{
     encoding::EncodeLabelSet,
     metrics::{

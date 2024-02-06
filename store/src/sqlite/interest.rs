@@ -2,9 +2,8 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
-use ceramic_api::AccessInterestStore;
 use ceramic_core::{Interest, RangeOpen};
-use recon::{AssociativeHash, HashCount, InsertResult, Key, ReconItem, Store};
+use recon::{AssociativeHash, HashCount, InsertResult, Key, ReconItem};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use std::marker::PhantomData;
@@ -155,8 +154,14 @@ where
     }
 }
 
+/// We intentionally expose the store to the API, separately from the recon::Store trait.
+/// This allows us better control over the API functionality, particularly CRUD, that are related
+/// to recon, but not explicitly part of the recon protocol. Eventually, it might be nice to reduce the
+/// scope of the recon::Store trait (or remove the &mut self requirement), but for now we have both.
+/// Anything that implements `ceramic_api::AccessInterestStore` should also implement `recon::Store`. 
+/// This guarantees that regardless of entry point (api or recon), the data is stored and retrieved in the same way.
 #[async_trait::async_trait]
-impl<H> AccessInterestStore for InterestStore<H>
+impl<H> ceramic_api::AccessInterestStore for InterestStore<H>
 where
     H: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>,
 {
@@ -178,7 +183,7 @@ where
 }
 
 #[async_trait]
-impl<H> Store for InterestStore<H>
+impl<H> recon::Store for InterestStore<H>
 where
     H: AssociativeHash,
 {
@@ -445,6 +450,7 @@ where
 mod interest_tests {
     use super::*;
 
+    use ceramic_api::AccessInterestStore;
     use recon::{AssociativeHash, Key, ReconItem, Sha256a, Store};
 
     use expect_test::expect;
