@@ -232,6 +232,16 @@ where
                                     .expect("impossible to fail to serialize");
                                 *response.body_mut() = Body::from(body_content);
                             }
+                            EventsEventIdGetResponse::EventNotFound(body) => {
+                                *response.status_mut() = StatusCode::from_u16(400)
+                                    .expect("Unable to turn 400 into a StatusCode");
+                                response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("text/plain")
+                                                            .expect("Unable to create Content-Type header for EVENTS_EVENT_ID_GET_EVENT_NOT_FOUND"));
+                                let body_content = body;
+                                *response.body_mut() = Body::from(body_content);
+                            }
                         },
                         Err(_) => {
                             // Application code returned an error. This should not happen, as the implementation should

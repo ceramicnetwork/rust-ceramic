@@ -301,7 +301,10 @@ where
                 };
                 Ok(EventsEventIdGetResponse::Success(event))
             }
-            Ok(None) => Err(ApiError("Event not found".to_owned())),
+            Ok(None) => Ok(EventsEventIdGetResponse::EventNotFound(format!(
+                "Event not found : {}",
+                event_id
+            ))),
             Err(err) => Err(ApiError(format!("failed to get event: {err}"))),
         }
     }
@@ -928,7 +931,9 @@ mod tests {
 
         let result = server.events_event_id_get(event_id_str, &Context).await;
 
-        let EventsEventIdGetResponse::Success(event) = result.unwrap();
+        let EventsEventIdGetResponse::Success(event) = result.unwrap() else {
+            panic!("Expected EventsEventIdGetResponse::Success but got another variant");
+        };
         assert_eq!(
             event.event_id,
             multibase::encode(multibase::Base::Base16Lower, event_id.as_bytes())

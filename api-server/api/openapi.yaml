@@ -114,6 +114,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/Event'
           description: success
+        "400":
+          content:
+            text/plain:
+              schema:
+                type: string
+          description: Event not found
       summary: Get event data
   /interests/{sort_key}/{sort_value}:
     post:

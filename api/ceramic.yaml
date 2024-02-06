@@ -106,6 +106,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Event'
+        '400':
+          description: Event not found
+          content:
+            text/plain:
+              schema:
+                type: string
   '/interests/{sort_key}/{sort_value}':
     post:
       summary: Register interest for a sort key

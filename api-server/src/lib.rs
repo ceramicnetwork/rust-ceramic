@@ -23,9 +23,12 @@ pub const BASE_PATH: &str = "/ceramic";
 pub const API_VERSION: &str = "0.9.0";
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[must_use]
 pub enum EventsEventIdGetResponse {
     /// success
     Success(models::Event),
+    /// Event not found
+    EventNotFound(String),
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
