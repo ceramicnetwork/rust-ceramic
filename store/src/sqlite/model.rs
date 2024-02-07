@@ -223,17 +223,28 @@ where
         // we insert the value first as it's possible we already have the key and can skip that step
         // as it happens in a transaction, we'll roll back the value insert if the key insert fails and try again
         if let Some(val) = item.value {
-            // Update the value_retrieved flag, and report if the key already exists.
-            let key_exists = self.update_value_retrieved_int(item.key, conn).await?;
+            // Check if  the value_retrieved flag is set and report if the key already exists.
+            let (key_exists, value_exists) = self.is_value_retrieved_int(item.key, conn).await?;
 
-            // Put each block from the car file
-            let mut reader = CarReader::new(val).await?;
-            let roots: BTreeSet<Cid> = reader.header().roots().iter().cloned().collect();
-            let mut idx = 0;
-            while let Some((cid, data)) = reader.next_block().await? {
-                self.insert_block_int(item.key, idx, roots.contains(&cid), cid, &data.into(), conn)
+            if !value_exists {
+                self.update_value_retrieved_int(item.key, conn).await?;
+
+                // Put each block from the car file
+                let mut reader = CarReader::new(val).await?;
+                let roots: BTreeSet<Cid> = reader.header().roots().iter().cloned().collect();
+                let mut idx = 0;
+                while let Some((cid, data)) = reader.next_block().await? {
+                    self.insert_block_int(
+                        item.key,
+                        idx,
+                        roots.contains(&cid),
+                        cid,
+                        &data.into(),
+                        conn,
+                    )
                     .await?;
-                idx += 1;
+                    idx += 1;
+                }
             }
 
             if key_exists {
@@ -246,13 +257,29 @@ where
         Ok((new_key, item.value.is_some()))
     }
 
+    // Read the value_retrieved column. Report if the key exists and the value exists
+    async fn is_value_retrieved_int(
+        &self,
+        key: &EventId,
+        conn: &mut DbTx<'_>,
+    ) -> Result<(bool, bool)> {
+        let query = sqlx::query("SELECT value_retrieved FROM model_key WHERE key = ?");
+        let row = query
+            .bind(key.as_bytes())
+            .fetch_optional(&mut **conn)
+            .await?;
+        if let Some(row) = row {
+            Ok((true, row.get(0)))
+        } else {
+            Ok((false, false))
+        }
+    }
+
     // set value_retrieved to true and return if the key already exists
-    async fn update_value_retrieved_int(&self, key: &EventId, conn: &mut DbTx<'_>) -> Result<bool> {
+    async fn update_value_retrieved_int(&self, key: &EventId, conn: &mut DbTx<'_>) -> Result<()> {
         let update = sqlx::query("UPDATE model_key SET value_retrieved = true WHERE key = ?");
-        let resp = update.bind(key.as_bytes()).execute(&mut **conn).await?;
-        let rows_affected = resp.rows_affected();
-        debug_assert!(rows_affected <= 1);
-        Ok(rows_affected == 1)
+        update.bind(key.as_bytes()).execute(&mut **conn).await?;
+        Ok(())
     }
 
     // store a block in the db.
@@ -998,15 +1025,11 @@ mod test {
         ]
         .assert_debug_eq(&recon::Store::insert(&mut store, item.clone()).await);
 
-        // reject the second insert of same key with value. Do not override values
+        // the second insert of same key with value reports it already exists.
+        // Do not override values
         expect![[r#"
-            Err(
-                Database(
-                    SqliteError {
-                        code: 1555,
-                        message: "UNIQUE constraint failed: model_block.key, model_block.cid",
-                    },
-                ),
+            Ok(
+                false,
             )
         "#]]
         .assert_debug_eq(&recon::Store::insert(&mut store, item).await);
