@@ -664,8 +664,16 @@ mod interest_tests {
                         "1AdgHpWeBKTU3F2tUkAQqL2Y2Geh4QgHJwcWMPuiY1qiRQ",
                     ),
                     range: RangeOpen {
-                        start: [],
-                        end: [],
+                        start: Ok(
+                            EventId {
+                                bytes: "MIN",
+                            },
+                        ),
+                        end: Ok(
+                            EventId {
+                                bytes: "MIN",
+                            },
+                        ),
                     },
                     not_after: 42,
                 },
@@ -676,8 +684,16 @@ mod interest_tests {
                         "1AdgHpWeBKTU3F2tUkAQqL2Y2Geh4QgHJwcWMPuiY1qiRQ",
                     ),
                     range: RangeOpen {
-                        start: [],
-                        end: [],
+                        start: Ok(
+                            EventId {
+                                bytes: "MIN",
+                            },
+                        ),
+                        end: Ok(
+                            EventId {
+                                bytes: "MIN",
+                            },
+                        ),
                     },
                     not_after: 42,
                 },
@@ -717,8 +733,16 @@ mod interest_tests {
                         "1AdgHpWeBKTU3F2tUkAQqL2Y2Geh4QgHJwcWMPuiY1qiRQ",
                     ),
                     range: RangeOpen {
-                        start: [],
-                        end: [],
+                        start: Ok(
+                            EventId {
+                                bytes: "MIN",
+                            },
+                        ),
+                        end: Ok(
+                            EventId {
+                                bytes: "MIN",
+                            },
+                        ),
                     },
                     not_after: 42,
                 },
@@ -729,8 +753,16 @@ mod interest_tests {
                         "1AdgHpWeBKTU3F2tUkAQqL2Y2Geh4QgHJwcWMPuiY1qiRQ",
                     ),
                     range: RangeOpen {
-                        start: [],
-                        end: [],
+                        start: Ok(
+                            EventId {
+                                bytes: "MIN",
+                            },
+                        ),
+                        end: Ok(
+                            EventId {
+                                bytes: "MIN",
+                            },
+                        ),
                     },
                     not_after: 43,
                 },

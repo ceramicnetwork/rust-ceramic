@@ -8,7 +8,7 @@ use std::{fmt::Display, str::FromStr};
 
 pub use libp2p_identity::PeerId;
 
-use crate::RangeOpen;
+use crate::{EventId, RangeOpen};
 
 const MIN_BYTES: [u8; 0] = [];
 const MAX_BYTES: [u8; 1] = [0xFF];
@@ -106,12 +106,21 @@ impl std::fmt::Debug for Interest {
                         &hex::encode(self.sort_key_hash().ok_or(std::fmt::Error)?),
                     )
                     .field("peer_id", &self.peer_id().ok_or(std::fmt::Error)?)
-                    .field("range", &self.range().ok_or(std::fmt::Error)?)
+                    .field(
+                        "range",
+                        // NOTE: This is a bit of a hack. Interests are designed to range over
+                        // arbitrary bytes so decoding the range as EventId is not generally
+                        // correct. However interests only range over EventIds in the current
+                        // implementation. When we get a second type we can update this code
+                        // accordingly. In the meantime decoding EventIds is very helpful for
+                        // debugging.
+                        &self.range().ok_or(std::fmt::Error)?.map(EventId::try_from),
+                    )
                     .field("not_after", &self.not_after().ok_or(std::fmt::Error)?)
                     .finish()
             }
         } else {
-            write!(f, "{}", dbg!(hex::encode_upper(self.as_slice())))
+            write!(f, "{}", hex::encode_upper(self.as_slice()))
         }
     }
 }
@@ -292,15 +301,26 @@ impl TryFrom<Vec<u8>> for Interest {
             Ok(interest)
         } else {
             // Parse the interest to ensure its valid
-            interest.as_parts().ok_or(InvalidInterest)?;
-            Ok(interest)
+            if interest.as_parts().is_some() {
+                Ok(interest)
+            } else {
+                Err(InvalidInterest(interest.0))
+            }
         }
     }
 }
 
-/// Error when constructing an interest
-#[derive(Debug)]
-pub struct InvalidInterest;
+/// Error when constructing an interest.
+/// Holds the bytes of the invalid interest.
+pub struct InvalidInterest(pub Vec<u8>);
+
+impl std::fmt::Debug for InvalidInterest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("InvalidInterest")
+            .field(&hex::encode(&self.0))
+            .finish()
+    }
+}
 
 impl std::fmt::Display for InvalidInterest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

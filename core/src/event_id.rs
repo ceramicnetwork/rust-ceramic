@@ -106,7 +106,7 @@ impl EventId {
     }
     /// Report the event height of the EventId
     pub fn event_height(&self) -> Option<u64> {
-        self.as_parts().map(|parts| parts.height)
+        self.as_parts()?.height
     }
 
     /// Report the event CID of the EventId
@@ -141,7 +141,7 @@ impl EventId {
 
         let (height, cid) = cbor_uint_decode(&remainder[STREAM_ID_RANGE.end..]);
 
-        height.map(|height| EventIdParts {
+        Some(EventIdParts {
             network_id,
             separator,
             controller,
@@ -208,7 +208,7 @@ struct EventIdParts<'a> {
     separator: &'a [u8],
     controller: &'a [u8],
     stream_id: &'a [u8],
-    height: u64,
+    height: Option<u64>,
     cid: &'a [u8],
 }
 
@@ -251,15 +251,26 @@ impl TryFrom<Vec<u8>> for EventId {
             Ok(event_id)
         } else {
             // Parse the event id to ensure its valid
-            event_id.as_parts().ok_or(InvalidEventId)?;
-            Ok(event_id)
+            if event_id.as_parts().is_some() {
+                Ok(event_id)
+            } else {
+                Err(InvalidEventId(event_id.0))
+            }
         }
     }
 }
 
-/// Error when constructing an event id
-#[derive(Debug)]
-pub struct InvalidEventId;
+/// Error when constructing an event id.
+/// Holds the bytes of the invalid event id.
+pub struct InvalidEventId(pub Vec<u8>);
+
+impl std::fmt::Debug for InvalidEventId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("InvalidEventId")
+            .field(&hex::encode(&self.0))
+            .finish()
+    }
+}
 
 impl std::fmt::Display for InvalidEventId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
