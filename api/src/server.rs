@@ -341,10 +341,11 @@ where
 }
 
 fn decode_event_id(value: &str) -> Result<EventId, ApiError> {
-    Ok(multibase::decode(value)
+    multibase::decode(value)
         .map_err(|err| ApiError(format!("multibase error: {err}")))?
         .1
-        .into())
+        .try_into()
+        .map_err(|err| ApiError(format!("invalid event id: {err}")))
 }
 fn decode_event_data(value: &str) -> Result<Vec<u8>, ApiError> {
     Ok(multibase::decode(value)

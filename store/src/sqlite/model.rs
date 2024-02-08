@@ -33,6 +33,8 @@ struct BlockRow {
     bytes: Vec<u8>,
 }
 
+type EventIdError = <EventId as TryFrom<Vec<u8>>>::Error;
+
 impl<H> ModelStore<H>
 where
     H: AssociativeHash + std::convert::From<[u32; 8]>,
@@ -145,18 +147,13 @@ where
 
         // Consume all block into groups of blocks by their key.
         let all_blocks: Vec<(EventId, Vec<BlockRow>)> = process_results(
-            all_blocks.into_iter().map(|row| {
-                Cid::read_bytes(row.get::<&[u8], _>(1))
-                    .map_err(anyhow::Error::from)
-                    .map(|cid| {
-                        (
-                            EventId::from(row.get::<Vec<u8>, _>(0)),
-                            cid,
-                            row.get(2),
-                            row.get(3),
-                        )
-                    })
-            }),
+            all_blocks.into_iter().map(
+                |row| -> Result<(EventId, cid::CidGeneric<64>, bool, Vec<u8>), anyhow::Error> {
+                    let event_id = EventId::try_from(row.get::<Vec<u8>, _>(0))?;
+                    let cid = Cid::read_bytes(row.get::<&[u8], _>(1))?;
+                    Ok((event_id, cid, row.get(2), row.get(3)))
+                },
+            ),
             |blocks| {
                 blocks
                     .group_by(|(key, _, _, _)| key.clone())
@@ -434,9 +431,9 @@ where
             .into_iter()
             .map(|row| {
                 let bytes: Vec<u8> = row.get(0);
-                EventId::from(bytes)
+                EventId::try_from(bytes)
             })
-            .collect();
+            .collect::<Result<Vec<EventId>, EventIdError>>()?;
 
         Ok((row_id, rows))
     }
@@ -555,11 +552,14 @@ where
             .bind(offset as i64)
             .fetch_all(self.pool.reader())
             .await?;
-        //debug!(count = rows.len(), "rows");
-        Ok(Box::new(rows.into_iter().map(|row| {
-            let bytes: Vec<u8> = row.get(0);
-            EventId::from(bytes)
-        })))
+        let rows = rows
+            .into_iter()
+            .map(|row| {
+                let bytes: Vec<u8> = row.get(0);
+                EventId::try_from(bytes)
+            })
+            .collect::<Result<Vec<Self::Key>, EventIdError>>()?;
+        Ok(Box::new(rows.into_iter()))
     }
     #[instrument(skip(self))]
     async fn range_with_values(
@@ -624,10 +624,13 @@ where
             .bind(right_fencepost.as_bytes())
             .fetch_all(self.pool.reader())
             .await?;
-        Ok(rows.first().map(|row| {
-            let bytes: Vec<u8> = row.get(0);
-            EventId::from(bytes)
-        }))
+        Ok(rows
+            .first()
+            .map(|row| {
+                let bytes: Vec<u8> = row.get(0);
+                EventId::try_from(bytes)
+            })
+            .transpose()?)
     }
 
     #[instrument(skip(self))]
@@ -655,10 +658,13 @@ where
             .bind(right_fencepost.as_bytes())
             .fetch_all(self.pool.reader())
             .await?;
-        Ok(rows.first().map(|row| {
-            let bytes: Vec<u8> = row.get(0);
-            EventId::from(bytes)
-        }))
+        Ok(rows
+            .first()
+            .map(|row| {
+                let bytes: Vec<u8> = row.get(0);
+                EventId::try_from(bytes)
+            })
+            .transpose()?)
     }
 
     #[instrument(skip(self))]
@@ -698,8 +704,8 @@ where
             .fetch_all(self.pool.reader())
             .await?;
         if let Some(row) = rows.first() {
-            let first = EventId::from(row.get::<Vec<u8>, _>(0));
-            let last = EventId::from(row.get::<Vec<u8>, _>(1));
+            let first = EventId::try_from(row.get::<Vec<u8>, _>(0))?;
+            let last = EventId::try_from(row.get::<Vec<u8>, _>(1))?;
             Ok(Some((first, last)))
         } else {
             Ok(None)
@@ -736,8 +742,8 @@ where
             .await?;
         Ok(row
             .into_iter()
-            .map(|row| EventId::from(row.get::<Vec<u8>, _>(0)))
-            .collect())
+            .map(|row| EventId::try_from(row.get::<Vec<u8>, _>(0)))
+            .collect::<Result<Vec<Self::Key>, EventIdError>>()?)
     }
 }
 
@@ -890,6 +896,7 @@ mod test {
         expect![[r#"
             [
                 EventId {
+                    bytes: "ce010502b51217a029eb540d4f16d8429ae87f86ead3ca3c01010012204739d813c902e3011034902f4ca39146c88163cde9d94fe73d3332f2d03f3dd7",
                     network_id: Some(
                         2,
                     ),
@@ -910,6 +917,7 @@ mod test {
                     ),
                 },
                 EventId {
+                    bytes: "ce010502b51217a029eb540d4f16d8429ae87f86ead3ca3c02010012202c22bf5e2d32a77fd71cc93baa3b9c56f3fce454c1ef4f95100febddf31f309e",
                     network_id: Some(
                         2,
                     ),
@@ -1097,6 +1105,7 @@ mod test {
             Some(
                 (
                     EventId {
+                        bytes: "ce010502b51217a029eb540d4f16d8429ae87f86ead3ca3c0a010012209a089111fffeecffee792270263fea656ea7210c007fcde556b8fab9b96f8005",
                         network_id: Some(
                             2,
                         ),
@@ -1117,6 +1126,7 @@ mod test {
                         ),
                     },
                     EventId {
+                        bytes: "ce010502b51217a029eb540d4f16d8429ae87f86ead3ca3c0a010012209a089111fffeecffee792270263fea656ea7210c007fcde556b8fab9b96f8005",
                         network_id: Some(
                             2,
                         ),
@@ -1166,6 +1176,7 @@ mod test {
             Some(
                 (
                     EventId {
+                        bytes: "ce010502b51217a029eb540d4f16d8429ae87f86ead3ca3c0a010012209a089111fffeecffee792270263fea656ea7210c007fcde556b8fab9b96f8005",
                         network_id: Some(
                             2,
                         ),
@@ -1186,6 +1197,7 @@ mod test {
                         ),
                     },
                     EventId {
+                        bytes: "ce010502b51217a029eb540d4f16d8429ae87f86ead3ca3c0b010012200d2ceb194fa14839ad0dc3f50bcd3d9655917f45f13500db4af859693ef89ba1",
                         network_id: Some(
                             2,
                         ),
@@ -1247,6 +1259,7 @@ mod test {
         expect![[r#"
             [
                 EventId {
+                    bytes: "ce010502b51217a029eb540d4f16d8429ae87f86ead3ca3c0401001220c2e9076a8b9fa2fc122df756d6618d0f8a3a7b78bbe7e5ea478f1e6c223e300d",
                     network_id: Some(
                         2,
                     ),

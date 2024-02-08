@@ -48,4 +48,11 @@ where
             None
         }
     }
+    /// Map a RangeOpen<T> to a RangeOpen<U>
+    pub fn map<U>(self, f: impl Fn(T) -> U) -> RangeOpen<U> {
+        RangeOpen {
+            start: f(self.start),
+            end: f(self.end),
+        }
+    }
 }

@@ -3,7 +3,7 @@
 #![warn(missing_docs)]
 mod bytes;
 pub mod event_id;
-mod interest;
+pub mod interest;
 mod jwk;
 mod jws;
 mod network;

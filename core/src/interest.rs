@@ -1,3 +1,4 @@
+//! Interest is a structure that declares a range of data in which a node is interested.
 use anyhow::Result;
 use cid::multihash::{Hasher, Sha2_256};
 use minicbor::{Decoder, Encoder};
@@ -7,7 +8,10 @@ use std::{fmt::Display, str::FromStr};
 
 pub use libp2p_identity::PeerId;
 
-use crate::RangeOpen;
+use crate::{EventId, RangeOpen};
+
+const MIN_BYTES: [u8; 0] = [];
+const MAX_BYTES: [u8; 1] = [0xFF];
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Serialize, Deserialize)]
 /// Interest declares an interest in a keyspace for a given peer.
@@ -27,77 +31,94 @@ impl Interest {
     }
 
     /// Report the sort key
-    pub fn sort_key_hash(&self) -> Result<&[u8]> {
-        let mut decoder = Decoder::new(&self.0);
-        Ok(decoder.bytes()?)
+    pub fn sort_key_hash(&self) -> Option<&[u8]> {
+        Some(self.as_parts()?.sort_key_hash)
     }
 
     /// Report the PeerId value
-    pub fn peer_id(&self) -> Result<PeerId> {
-        let mut decoder = Decoder::new(&self.0);
-        // Skip sort key
-        decoder.skip()?;
-        let peer_id_bytes = decoder.bytes();
-        Ok(PeerId::from_bytes(peer_id_bytes?)?)
+    pub fn peer_id(&self) -> Option<PeerId> {
+        PeerId::from_bytes(self.as_parts()?.peer_id).ok()
     }
 
     /// Report the range value.
-    ///
-    /// Returns an error when the Interest is invalid.
-    /// Returns Ok(None) when the Interest does not contain a range.
-    pub fn range(&self) -> Result<Option<RangeOpen<Vec<u8>>>> {
-        let mut decoder = Decoder::new(&self.0);
-        // Skip sort key
-        decoder.skip()?;
-        // Skip peer_id
-        decoder.skip()?;
-        let indicator = decoder.u8()?;
-        if indicator != 1 {
-            // No range encoded
-            Ok(None)
-        } else {
-            let start = decoder.bytes()?.to_vec();
-            let end = decoder.bytes()?.to_vec();
-            Ok(Some(RangeOpen { start, end }))
-        }
+    /// Returns None if no range can be decoded.
+    pub fn range(&self) -> Option<RangeOpen<Vec<u8>>> {
+        self.as_parts()?.range.map(|(start, end)| RangeOpen {
+            start: start.to_vec(),
+            end: end.to_vec(),
+        })
     }
 
     /// Report the not after value
-    pub fn not_after(&self) -> Result<u64> {
-        let mut decoder = Decoder::new(&self.0);
-        // Skip sort key
-        decoder.skip()?;
-        // Skip peer_id
-        decoder.skip()?;
-        // Skip start_key indicator
-        decoder.skip()?;
-        // Skip start_key
-        decoder.skip()?;
-        // Skip end_key
-        decoder.skip()?;
-
-        Ok(decoder.u64()?)
+    pub fn not_after(&self) -> Option<u64> {
+        self.as_parts()?.not_after
     }
 
     /// Return the interest as a slice of bytes.
     pub fn as_slice(&self) -> &[u8] {
         self.0.as_slice()
     }
+
+    // Parses the interest into its parts
+    // A valid interest may not contain all parts.
+    // However a None from this method indicates an invalid interest.
+    fn as_parts(&self) -> Option<InterestParts<'_>> {
+        let mut decoder = Decoder::new(&self.0);
+        let sort_key_hash = decoder.bytes().ok()?;
+        let peer_id = decoder.bytes().ok()?;
+        let indicator = decoder.u8().ok()?;
+        let (range, not_after) = if indicator != 1 {
+            (None, None)
+        } else {
+            (
+                Some((decoder.bytes().ok()?, decoder.bytes().ok()?)),
+                Some(decoder.u64().ok()?),
+            )
+        };
+        Some(InterestParts {
+            sort_key_hash,
+            peer_id,
+            range,
+            not_after,
+        })
+    }
+}
+
+struct InterestParts<'a> {
+    sort_key_hash: &'a [u8],
+    peer_id: &'a [u8],
+    range: Option<(&'a [u8], &'a [u8])>,
+    not_after: Option<u64>,
 }
 
 impl std::fmt::Debug for Interest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if f.alternate() {
-            f.debug_struct("Interest")
-                .field("bytes", &hex::encode(&self.0))
-                .field(
-                    "sort_key_hash",
-                    &hex::encode(self.sort_key_hash().map_err(|_| std::fmt::Error)?),
-                )
-                .field("peer_id", &self.peer_id().map_err(|_| std::fmt::Error)?)
-                .field("range", &self.range().map_err(|_| std::fmt::Error)?)
-                .field("not_after", &self.not_after().map_err(|_| std::fmt::Error)?)
-                .finish()
+            if self.0 == MIN_BYTES {
+                f.debug_struct("Interest").field("bytes", &"MIN").finish()
+            } else if self.0 == MAX_BYTES {
+                f.debug_struct("Interest").field("bytes", &"MAX").finish()
+            } else {
+                f.debug_struct("Interest")
+                    .field("bytes", &hex::encode(&self.0))
+                    .field(
+                        "sort_key_hash",
+                        &hex::encode(self.sort_key_hash().ok_or(std::fmt::Error)?),
+                    )
+                    .field("peer_id", &self.peer_id().ok_or(std::fmt::Error)?)
+                    .field(
+                        "range",
+                        // NOTE: This is a bit of a hack. Interests are designed to range over
+                        // arbitrary bytes so decoding the range as EventId is not generally
+                        // correct. However interests only range over EventIds in the current
+                        // implementation. When we get a second type we can update this code
+                        // accordingly. In the meantime decoding EventIds is very helpful for
+                        // debugging.
+                        &self.range().ok_or(std::fmt::Error)?.map(EventId::try_from),
+                    )
+                    .field("not_after", &self.not_after().ok_or(std::fmt::Error)?)
+                    .finish()
+            }
         } else {
             write!(f, "{}", hex::encode_upper(self.as_slice()))
         }
@@ -157,6 +178,15 @@ pub struct WithNotAfter {
 impl BuilderState for WithNotAfter {}
 
 impl Builder<Init> {
+    /// Builds the minimum possible Interest
+    pub fn build_min_fencepost(self) -> Interest {
+        Interest(MIN_BYTES.into())
+    }
+    /// Builds the maximum possible Interest
+    pub fn build_max_fencepost(self) -> Interest {
+        Interest(MAX_BYTES.into())
+    }
+    /// Builds an interest starting with a specific sort key.
     pub fn with_sort_key(self, sort_key: &str) -> Builder<WithSortKey> {
         // A typical interest contains:
         //
@@ -185,6 +215,7 @@ impl Builder<Init> {
     }
 }
 impl Builder<WithSortKey> {
+    /// Builds interest with specific peer id.
     pub fn with_peer_id(mut self, peer_id: &PeerId) -> Builder<WithPeerId> {
         self.state
             .encoder
@@ -198,6 +229,7 @@ impl Builder<WithSortKey> {
     }
 }
 impl Builder<WithPeerId> {
+    /// Builds interest with minimum possible range.
     pub fn with_min_range(mut self) -> Builder<WithRange> {
         self.state.encoder.u8(0).expect("min range should encode");
         Builder {
@@ -206,6 +238,7 @@ impl Builder<WithPeerId> {
             },
         }
     }
+    /// Builds interest with max possible range.
     pub fn with_max_range(mut self) -> Builder<WithRange> {
         self.state.encoder.u8(2).expect("min range should encode");
         Builder {
@@ -214,6 +247,7 @@ impl Builder<WithPeerId> {
             },
         }
     }
+    /// Builds interest with specific range.
     pub fn with_range<'a>(mut self, range: impl Into<RangeOpen<&'a [u8]>>) -> Builder<WithRange> {
         let range = range.into();
         self.state
@@ -232,9 +266,11 @@ impl Builder<WithPeerId> {
     }
 }
 impl Builder<WithRange> {
+    /// Builds interest as fencepost.
     pub fn build_fencepost(self) -> Interest {
         Interest(self.state.encoder.into_writer())
     }
+    /// Builds interest with specific not_after value
     pub fn with_not_after(mut self, not_after: u64) -> Builder<WithNotAfter> {
         self.state
             .encoder
@@ -249,27 +285,49 @@ impl Builder<WithRange> {
 }
 
 impl Builder<WithNotAfter> {
+    /// Builds a complete interest.
     pub fn build(self) -> Interest {
         Interest(self.state.encoder.into_writer())
     }
 }
 
-impl From<&[u8]> for Interest {
-    fn from(bytes: &[u8]) -> Self {
-        Self(bytes.to_owned())
+impl TryFrom<Vec<u8>> for Interest {
+    type Error = InvalidInterest;
+
+    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+        let interest = Self(value);
+        if interest.0 == MIN_BYTES || interest.0 == MAX_BYTES {
+            // We have a min or max interest which is valid but does not parse
+            Ok(interest)
+        } else {
+            // Parse the interest to ensure its valid
+            if interest.as_parts().is_some() {
+                Ok(interest)
+            } else {
+                Err(InvalidInterest(interest.0))
+            }
+        }
     }
 }
 
-impl From<Vec<u8>> for Interest {
-    fn from(bytes: Vec<u8>) -> Self {
-        Self(bytes)
+/// Error when constructing an interest.
+/// Holds the bytes of the invalid interest.
+pub struct InvalidInterest(pub Vec<u8>);
+
+impl std::fmt::Debug for InvalidInterest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("InvalidInterest")
+            .field(&hex::encode(&self.0))
+            .finish()
     }
 }
-impl From<&Vec<u8>> for Interest {
-    fn from(bytes: &Vec<u8>) -> Self {
-        Self(bytes.to_owned())
+
+impl std::fmt::Display for InvalidInterest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "invalid interest bytes")
     }
 }
+impl std::error::Error for InvalidInterest {}
 
 #[cfg(test)]
 mod tests {
@@ -313,20 +371,18 @@ mod tests {
         "#]]
         .assert_debug_eq(&interest.peer_id().unwrap().to_string());
         expect![[r#"
-            Some(
-                RangeOpen {
-                    start: [
-                        0,
-                        1,
-                        2,
-                    ],
-                    end: [
-                        0,
-                        1,
-                        9,
-                    ],
-                },
-            )
+            RangeOpen {
+                start: [
+                    0,
+                    1,
+                    2,
+                ],
+                end: [
+                    0,
+                    1,
+                    9,
+                ],
+            }
         "#]]
         .assert_debug_eq(&interest.range().unwrap());
         expect![[r#"

@@ -29,6 +29,9 @@ use unsigned_varint::{decode::u64 as de_varint, encode::u64 as varint};
 
 use crate::network::Network;
 
+const MIN_BYTES: [u8; 0] = [];
+const MAX_BYTES: [u8; 1] = [0xFF];
+
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Serialize, Deserialize)]
 /// EventId is the event data as a recon key
 pub struct EventId(#[serde(with = "serde_bytes")] Vec<u8>);
@@ -103,7 +106,7 @@ impl EventId {
     }
     /// Report the event height of the EventId
     pub fn event_height(&self) -> Option<u64> {
-        self.as_parts().map(|parts| parts.height)
+        self.as_parts()?.height
     }
 
     /// Report the event CID of the EventId
@@ -138,7 +141,7 @@ impl EventId {
 
         let (height, cid) = cbor_uint_decode(&remainder[STREAM_ID_RANGE.end..]);
 
-        height.map(|height| EventIdParts {
+        Some(EventIdParts {
             network_id,
             separator,
             controller,
@@ -205,21 +208,28 @@ struct EventIdParts<'a> {
     separator: &'a [u8],
     controller: &'a [u8],
     stream_id: &'a [u8],
-    height: u64,
+    height: Option<u64>,
     cid: &'a [u8],
 }
 
 impl std::fmt::Debug for EventId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if f.alternate() {
-            f.debug_struct("EventId")
-                .field("network_id", &self.network_id())
-                .field("separator", &self.separator().map(hex::encode))
-                .field("controller", &self.controller().map(hex::encode))
-                .field("stream_id", &self.stream_id().map(hex::encode))
-                .field("event_height", &self.event_height())
-                .field("cid", &self.cid().map(|cid| cid.to_string()))
-                .finish()
+            if self.0 == MIN_BYTES {
+                f.debug_struct("EventId").field("bytes", &"MIN").finish()
+            } else if self.0 == MAX_BYTES {
+                f.debug_struct("EventId").field("bytes", &"MAX").finish()
+            } else {
+                f.debug_struct("EventId")
+                    .field("bytes", &hex::encode(&self.0))
+                    .field("network_id", &self.network_id())
+                    .field("separator", &self.separator().map(hex::encode))
+                    .field("controller", &self.controller().map(hex::encode))
+                    .field("stream_id", &self.stream_id().map(hex::encode))
+                    .field("event_height", &self.event_height())
+                    .field("cid", &self.cid().map(|cid| cid.to_string()))
+                    .finish()
+            }
         } else {
             write!(f, "{}", hex::encode_upper(self.as_slice()))
         }
@@ -232,22 +242,42 @@ impl Display for EventId {
     }
 }
 
-impl From<&[u8]> for EventId {
-    fn from(bytes: &[u8]) -> Self {
-        EventId(bytes.to_owned())
+impl TryFrom<Vec<u8>> for EventId {
+    type Error = InvalidEventId;
+    fn try_from(bytes: Vec<u8>) -> Result<Self, Self::Error> {
+        let event_id = Self(bytes);
+        if event_id.0 == MIN_BYTES || event_id.0 == MAX_BYTES {
+            // We have a min or max event id which is valid but does not parse
+            Ok(event_id)
+        } else {
+            // Parse the event id to ensure its valid
+            if event_id.as_parts().is_some() {
+                Ok(event_id)
+            } else {
+                Err(InvalidEventId(event_id.0))
+            }
+        }
     }
 }
 
-impl From<Vec<u8>> for EventId {
-    fn from(bytes: Vec<u8>) -> Self {
-        EventId(bytes)
+/// Error when constructing an event id.
+/// Holds the bytes of the invalid event id.
+pub struct InvalidEventId(pub Vec<u8>);
+
+impl std::fmt::Debug for InvalidEventId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("InvalidEventId")
+            .field(&hex::encode(&self.0))
+            .finish()
     }
 }
-impl From<&Vec<u8>> for EventId {
-    fn from(bytes: &Vec<u8>) -> Self {
-        EventId(bytes.to_owned())
+
+impl std::fmt::Display for InvalidEventId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "invalid event id bytes")
     }
 }
+impl std::error::Error for InvalidEventId {}
 
 fn sha256_digest(s: &str) -> [u8; 32] {
     let mut hasher = Sha2_256::default();
@@ -325,6 +355,14 @@ pub struct WithEvent {
 impl BuilderState for WithEvent {}
 
 impl Builder<Init> {
+    /// Builds the minimum possible EventId
+    pub fn build_min_fencepost(self) -> EventId {
+        EventId(MIN_BYTES.into())
+    }
+    /// Builds the maximum possible EventId
+    pub fn build_max_fencepost(self) -> EventId {
+        EventId(MAX_BYTES.into())
+    }
     /// Specify the network of the event
     pub fn with_network(self, network: &Network) -> Builder<WithNetwork> {
         // Maximum EventId size is 72.
@@ -602,6 +640,7 @@ mod tests {
         println!("{:?}, {:?}", &received, &cid);
         expect![[r#"
             EventId {
+                bytes: "ce0105007e710e217fa0e25945cc7c072ff729ea683b751718ff01711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86",
                 network_id: Some(
                     0,
                 ),
@@ -699,6 +738,7 @@ mod tests {
         );
         expect![[r#"
             EventId {
+                bytes: "ce0105017e710e217fa0e25945cc7c072ff729ea683b751718ff01711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86",
                 network_id: Some(
                     1,
                 ),
