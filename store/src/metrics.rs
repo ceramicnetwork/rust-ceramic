@@ -60,7 +60,7 @@ impl Metrics {
     /// Register and construct Metrics
     pub fn register(registry: &mut Registry) -> Self {
         // TODO: a new sub registry that doesn't duplicate recon (need to match for now to keep tests passing)
-        let sub_registry = registry.sub_registry_with_prefix("recon");
+        let sub_registry = registry.sub_registry_with_prefix("ceramic_store");
 
         register!(
             key_insert_count,
