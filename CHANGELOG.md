@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.10.1] - 2024-02-08
+
+### Bug Fixes
+
+- Allow double insert of key/value pairs in Recon (#264)
+- Use try_from on recon keys (#263)
+
 ## [0.10.0] - 2024-02-06
 
 ### Bug Fixes
@@ -61,6 +68,7 @@ All notable changes to this project will be documented in this file.
 - Adding ci for cargo machete (#252)
 - Run fast post-deployment tests for all envs (#257)
 - Fix false positive in checking generated servers (#260)
+- Version v0.10.0 (#261)
 
 ### Refactor
 
