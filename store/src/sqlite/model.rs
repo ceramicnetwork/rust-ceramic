@@ -429,7 +429,7 @@ where
         let row_id: i64 = rows
             .first()
             .and_then(|r| r.get("new_highwater_mark"))
-            .unwrap_or(0);
+            .unwrap_or(row_id);
         let rows = rows
             .into_iter()
             .map(|row| {
@@ -1365,7 +1365,11 @@ mod test {
 
         let (hw, res) = store.new_keys_since_value_rowid(hw, 1).await.unwrap();
         assert_eq!(1, res.len());
-        assert_eq!(22, hw); // see comment in prep_highwater_tests
+        assert_eq!(22, hw);
         assert_eq!([key_c], res.as_slice());
+
+        let (hw, res) = store.new_keys_since_value_rowid(hw, 1).await.unwrap();
+        assert_eq!(0, res.len());
+        assert_eq!(22, hw); // previously returned 0
     }
 }
