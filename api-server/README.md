@@ -14,8 +14,8 @@ To see how to make this your own, look here:
 
 [README]((https://openapi-generator.tech))
 
-- API version: 0.10.0
-- Build date: 2024-02-06T23:16:38.846842842Z[Etc/UTC]
+- API version: 0.10.1
+- Build date: 2024-02-08T16:59:26.485961797Z[Etc/UTC]
 
 
 
