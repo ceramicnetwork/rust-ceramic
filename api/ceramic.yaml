@@ -193,10 +193,10 @@ components:
               data:
                 type: string
                 description: Multibase encoding of event data.
-              event_id:
+              eventId:
                 type: string
                 description: Multibase encoding of event id bytes.
-              event_data:
+              eventData:
                 type: string
                 description: Multibase encoding of event data.
             description: Event to add to the node. Temp while we transition to id/data style, at which time we can swap this out for the Event schema.

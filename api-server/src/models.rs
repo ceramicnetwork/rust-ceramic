@@ -484,12 +484,12 @@ pub struct EventsPostRequest {
     pub data: Option<String>,
 
     /// Multibase encoding of event id bytes.
-    #[serde(rename = "event_id")]
+    #[serde(rename = "eventId")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub event_id: Option<String>,
 
     /// Multibase encoding of event data.
-    #[serde(rename = "event_data")]
+    #[serde(rename = "eventData")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub event_data: Option<String>,
 }
@@ -520,10 +520,10 @@ impl std::string::ToString for EventsPostRequest {
                 .map(|data| ["data".to_string(), data.to_string()].join(",")),
             self.event_id
                 .as_ref()
-                .map(|event_id| ["event_id".to_string(), event_id.to_string()].join(",")),
+                .map(|event_id| ["eventId".to_string(), event_id.to_string()].join(",")),
             self.event_data
                 .as_ref()
-                .map(|event_data| ["event_data".to_string(), event_data.to_string()].join(",")),
+                .map(|event_data| ["eventData".to_string(), event_data.to_string()].join(",")),
         ];
 
         params.into_iter().flatten().collect::<Vec<_>>().join(",")
@@ -575,11 +575,11 @@ impl std::str::FromStr for EventsPostRequest {
                         <String as std::str::FromStr>::from_str(val).map_err(|x| x.to_string())?,
                     ),
                     #[allow(clippy::redundant_clone)]
-                    "event_id" => intermediate_rep.event_id.push(
+                    "eventId" => intermediate_rep.event_id.push(
                         <String as std::str::FromStr>::from_str(val).map_err(|x| x.to_string())?,
                     ),
                     #[allow(clippy::redundant_clone)]
-                    "event_data" => intermediate_rep.event_data.push(
+                    "eventData" => intermediate_rep.event_data.push(
                         <String as std::str::FromStr>::from_str(val).map_err(|x| x.to_string())?,
                     ),
                     _ => {

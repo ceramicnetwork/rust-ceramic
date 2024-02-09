@@ -299,10 +299,10 @@ components:
         data:
           description: Multibase encoding of event data.
           type: string
-        event_id:
+        eventId:
           description: Multibase encoding of event id bytes.
           type: string
-        event_data:
+        eventData:
           description: Multibase encoding of event data.
           type: string
       type: object
