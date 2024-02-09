@@ -39,14 +39,14 @@ No authorization required
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
 # ****
-> (event_deprecated)
+> (events_post_request)
 Creates a new event
 
 ### Required Parameters
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
-  **event_deprecated** | [**EventDeprecated**](EventDeprecated.md)| Event to add to the node | 
+  **events_post_request** | [**EventsPostRequest**](EventsPostRequest.md)|  | 
 
 ### Return type
 
@@ -59,7 +59,7 @@ No authorization required
 ### HTTP request headers
 
  - **Content-Type**: application/json
- - **Accept**: Not defined
+ - **Accept**: application/json
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 

@@ -27,7 +27,7 @@ use tokio::net::TcpListener;
 use tracing::{debug, info, instrument, Level};
 
 use ceramic_api_server::{
-    models::{self, Event},
+    models::{self, Event, EventsPostRequest},
     EventsEventIdGetResponse, EventsPostResponse, InterestsSortKeySortValuePostResponse,
     LivenessGetResponse, SubscribeSortKeySortValueGetResponse, VersionPostResponse,
 };
@@ -227,16 +227,30 @@ where
             events,
         }))
     }
-    #[instrument(skip(self, _context, event), fields(event.id = event.event_id, event.data.len = event.event_data.len()), ret(level = Level::DEBUG), err(level = Level::ERROR))]
+    #[instrument(skip(self, _context, event), fields(event.id = event.id.as_ref().or(event.event_id.as_ref()), event.data.len = event.data.as_ref().or(event.event_data.as_ref()).map(|d| d.len()).unwrap_or(0)), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn events_post(
         &self,
-        event: EventDeprecated,
+        event: EventsPostRequest,
         _context: &C,
     ) -> Result<EventsPostResponse, ApiError> {
-        let event_id = decode_event_id(&event.event_id)?;
-        let event_data = decode_event_data(&event.event_data)?;
+        // we want to support event_id/event_data and id/data without breaking the API.
+        // openAPI generator doesn't support oneOf very well right now (it'd be better as an untagged enum with serde)
+        // so we have a temp type that has everything optional that we manually validate.
+        let (id, data) = if event.id.is_some() && event.data.is_some() {
+            (event.id.unwrap(), event.data.unwrap())
+        } else if event.event_id.is_some() && event.event_data.is_some() {
+            (event.event_id.unwrap(), event.event_data.unwrap())
+        } else {
+            return Ok(EventsPostResponse::BadRequest(
+                "event fields 'id' and 'data' or 'event_id' and 'event_data' are required"
+                    .to_owned(),
+            ));
+        };
+
+        let event_id = decode_event_id(&id)?;
+        let event_data = decode_event_data(&data)?;
         self.model
-            .insert(event_id.clone(), Some(event_data))
+            .insert(event_id, Some(event_data))
             .await
             .map_err(|err| ApiError(format!("failed to insert key: {err}")))?;
 
@@ -477,9 +491,11 @@ mod tests {
         let server = Server::new(peer_id, network, mock_interest, mock_model);
         let resp = server
             .events_post(
-                models::EventDeprecated {
-                    event_id: event_id_str,
-                    event_data,
+                models::EventsPostRequest {
+                    event_id: Some(event_id_str),
+                    event_data: Some(event_data),
+                    data: None,
+                    id: None,
                 },
                 &Context,
             )
