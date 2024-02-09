@@ -84,10 +84,16 @@ paths:
     post:
       summary: Creates a new event
       requestBody:
-        $ref: '#/components/requestBodies/Event'
+        $ref: '#/components/requestBodies/EventTemp'
       responses:
         '204':
           description: success
+        '400':
+          description: bad request
+          content:
+            application/json:
+              schema:
+                type: string
 
   /events/{event_id}:
     get:
@@ -175,11 +181,31 @@ paths:
                 type: string
 components:
   requestBodies:
+    EventTemp:
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              id:
+                type: string
+                description: Multibase encoding of event id bytes.
+              data:
+                type: string
+                description: Multibase encoding of event data.
+              event_id:
+                type: string
+                description: Multibase encoding of event id bytes.
+              event_data:
+                type: string
+                description: Multibase encoding of event data.
+            description: Event to add to the node. Temp while we transition to id/data style, at which time we can swap this out for the Event schema.
+      required: true
     Event:
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/EventDeprecated'
+              $ref: '#/components/schemas/Event'
       description: Event to add to the node
       required: true
     Message:

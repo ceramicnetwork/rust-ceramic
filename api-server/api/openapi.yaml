@@ -91,10 +91,16 @@ paths:
   /events:
     post:
       requestBody:
-        $ref: '#/components/requestBodies/Event'
+        $ref: '#/components/requestBodies/EventTemp'
       responses:
         "204":
           description: success
+        "400":
+          content:
+            application/json:
+              schema:
+                type: string
+          description: bad request
       summary: Creates a new event
   /events/{event_id}:
     get:
@@ -196,11 +202,17 @@ paths:
       summary: Get all new event keys since resume token
 components:
   requestBodies:
+    EventTemp:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/_events_post_request'
+      required: true
     Event:
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/EventDeprecated'
+            $ref: '#/components/schemas/Event'
       description: Event to add to the node
       required: true
     Message:
@@ -276,5 +288,22 @@ components:
       - events
       - resumeToken
       title: Ceramic Event feed data
+      type: object
+    _events_post_request:
+      description: "Event to add to the node. Temp while we transition to id/data\
+        \ style, at which time we can swap this out for the Event schema."
+      properties:
+        id:
+          description: Multibase encoding of event id bytes.
+          type: string
+        data:
+          description: Multibase encoding of event data.
+          type: string
+        event_id:
+          description: Multibase encoding of event id bytes.
+          type: string
+        event_data:
+          description: Multibase encoding of event data.
+          type: string
       type: object
 

@@ -32,9 +32,12 @@ pub enum EventsEventIdGetResponse {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[must_use]
 pub enum EventsPostResponse {
     /// success
     Success,
+    /// bad request
+    BadRequest(String),
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -91,7 +94,7 @@ pub trait Api<C: Send + Sync> {
     /// Creates a new event
     async fn events_post(
         &self,
-        event_deprecated: models::EventDeprecated,
+        events_post_request: models::EventsPostRequest,
         context: &C,
     ) -> Result<EventsPostResponse, ApiError>;
 
@@ -152,7 +155,7 @@ pub trait ApiNoContext<C: Send + Sync> {
     /// Creates a new event
     async fn events_post(
         &self,
-        event_deprecated: models::EventDeprecated,
+        events_post_request: models::EventsPostRequest,
     ) -> Result<EventsPostResponse, ApiError>;
 
     /// Get all new event keys since resume token
@@ -226,10 +229,10 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
     /// Creates a new event
     async fn events_post(
         &self,
-        event_deprecated: models::EventDeprecated,
+        events_post_request: models::EventsPostRequest,
     ) -> Result<EventsPostResponse, ApiError> {
         let context = self.context().clone();
-        self.api().events_post(event_deprecated, &context).await
+        self.api().events_post(events_post_request, &context).await
     }
 
     /// Get all new event keys since resume token

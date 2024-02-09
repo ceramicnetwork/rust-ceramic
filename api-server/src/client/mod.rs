@@ -492,7 +492,7 @@ where
 
     async fn events_post(
         &self,
-        param_event_deprecated: models::EventDeprecated,
+        param_events_post_request: models::EventsPostRequest,
         context: &C,
     ) -> Result<EventsPostResponse, ApiError> {
         let mut client_service = self.client_service.clone();
@@ -522,7 +522,7 @@ where
             Err(e) => return Err(ApiError(format!("Unable to create request: {}", e))),
         };
 
-        let body = serde_json::to_string(&param_event_deprecated)
+        let body = serde_json::to_string(&param_events_post_request)
             .expect("impossible to fail to serialize");
         *request.body_mut() = Body::from(body);
 
@@ -560,6 +560,19 @@ where
 
         match response.status().as_u16() {
             204 => Ok(EventsPostResponse::Success),
+            400 => {
+                let body = response.into_body();
+                let body = body
+                    .into_raw()
+                    .map_err(|e| ApiError(format!("Failed to read response: {}", e)))
+                    .await?;
+                let body = str::from_utf8(&body)
+                    .map_err(|e| ApiError(format!("Response was not valid UTF8: {}", e)))?;
+                let body = serde_json::from_str::<String>(body).map_err(|e| {
+                    ApiError(format!("Response body did not match the schema: {}", e))
+                })?;
+                Ok(EventsPostResponse::BadRequest(body))
+            }
             code => {
                 let headers = response.headers().clone();
                 let body = response.into_body().take(100).into_raw().await;

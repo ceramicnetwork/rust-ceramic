@@ -130,12 +130,12 @@ where
     /// Creates a new event
     async fn events_post(
         &self,
-        event_deprecated: models::EventDeprecated,
+        events_post_request: models::EventsPostRequest,
         context: &C,
     ) -> Result<EventsPostResponse, ApiError> {
         info!(
             "events_post({:?}) - X-Span-ID: {:?}",
-            event_deprecated,
+            events_post_request,
             context.get().0.clone()
         );
         Err(ApiError("Generic failure".into()))
