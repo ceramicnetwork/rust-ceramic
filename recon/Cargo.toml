@@ -23,6 +23,7 @@ prometheus-client.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
+tokio-stream.workspace = true
 tracing.workspace = true
 void.workspace = true
 
@@ -39,7 +40,6 @@ regex = "1"
 serde_cbor.workspace = true
 tracing-test.workspace = true
 test-log.workspace = true
-tokio-stream.workspace = true
 tokio-util.workspace = true
 tracing-subscriber.workspace = true
 
