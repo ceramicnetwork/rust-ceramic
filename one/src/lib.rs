@@ -112,10 +112,6 @@ struct DaemonOpts {
     #[arg(long, default_value_t = false, env = "CERAMIC_ONE_MDNS")]
     mdns: bool,
 
-    /// When set Recon will be used to synchronized events with peers.
-    #[arg(long, default_value_t = false, env = "CERAMIC_ONE_RECON")]
-    recon: bool,
-
     /// When set autonat will not be used to discover external address or allow other peers
     /// to directly dial the local peer.
     #[arg(long, default_value_t = false, env = "CERAMIC_ONE_DISABLE_AUTONAT")]
@@ -460,11 +456,7 @@ impl Daemon {
             recon_metrics.clone(),
         ));
 
-        let recons = if opts.recon {
-            Some((recon_interest.client(), recon_model.client()))
-        } else {
-            None
-        };
+        let recons = Some((recon_interest.client(), recon_model.client()));
         let ipfs_metrics =
             ceramic_metrics::MetricsHandle::register(ceramic_kubo_rpc::IpfsMetrics::register);
         let p2p_metrics = ceramic_metrics::MetricsHandle::register(ceramic_p2p::Metrics::register);
