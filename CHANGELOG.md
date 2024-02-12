@@ -2,12 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.11.0] - 2024-02-12
+
+### Bug Fixes
+
+- Store metrics under own registry (not recon) (#266)
+
+### Features
+
+- Enable recon by default (#270)
+- Support new id/data event payload for event creation (POST /events) (#269)
+
 ## [0.10.1] - 2024-02-08
 
 ### Bug Fixes
 
 - Allow double insert of key/value pairs in Recon (#264)
 - Use try_from on recon keys (#263)
+- Resume token should return previous (not 0) when nothing found (#265)
+
+### Miscellaneous Tasks
+
+- Version v0.10.1 (#267)
 
 ## [0.10.0] - 2024-02-06
 
