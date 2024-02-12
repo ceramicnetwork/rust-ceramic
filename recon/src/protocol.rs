@@ -379,30 +379,51 @@ where
                 self.common.process_remote_missing_range(&range).await?;
             }
             SyncState::Unsynchronized { ranges } => {
-                if self.pending_ranges < PENDING_RANGES_LIMIT {
-                    self.pending_ranges += ranges.len();
-                    self.common
-                        .stream
-                        .send_all(
-                            ranges
-                                .into_iter()
-                                .map(InitiatorMessage::RangeRequest)
-                                .collect(),
-                        )
-                        .await?;
-                } else {
-                    for range in ranges {
-                        if self.ranges_stack.len() < self.ranges_stack.capacity() {
-                            self.ranges_stack.push(range);
-                            self.metrics.record(&RangeEnqueued);
-                        } else {
-                            self.metrics.record(&RangeEnqueueFailed);
-                        }
-                    }
-                }
+                self.send_ranges(ranges.into_iter()).await?;
             }
         }
 
+        Ok(())
+    }
+    // Send ranges to the remote while buffering any ranges over the [`PENDING_RANGES_LIMIT`].
+    async fn send_ranges(
+        &mut self,
+        ranges: impl Iterator<Item = Range<R::Key, R::Hash>> + ExactSizeIterator,
+    ) -> Result<()> {
+        // Do all ranges fit under the limit, if so send them all
+        if self.pending_ranges < PENDING_RANGES_LIMIT {
+            self.pending_ranges += ranges.len();
+            self.common
+                .stream
+                .send_all(
+                    ranges
+                        .into_iter()
+                        .map(InitiatorMessage::RangeRequest)
+                        .collect(),
+                )
+                .await?;
+        } else {
+            // Send as many as fit under the limit and buffer the rest
+            let mut fed = false;
+            for range in ranges {
+                if self.pending_ranges < PENDING_RANGES_LIMIT {
+                    fed = true;
+                    self.pending_ranges += 1;
+                    self.common
+                        .stream
+                        .feed(InitiatorMessage::RangeRequest(range))
+                        .await?;
+                } else if self.ranges_stack.len() < self.ranges_stack.capacity() {
+                    self.ranges_stack.push(range);
+                    self.metrics.record(&RangeEnqueued);
+                } else {
+                    self.metrics.record(&RangeEnqueueFailed);
+                }
+            }
+            if fed {
+                self.common.stream.flush().await?;
+            }
+        };
         Ok(())
     }
 }
@@ -461,25 +482,17 @@ where
         trace!(?message, "handle_incoming");
         match message {
             ResponderMessage::InterestResponse(interests) => {
-                self.pending_ranges += interests.len();
+                let mut ranges = Vec::with_capacity(interests.len());
                 for interest in interests {
-                    let range = self
-                        .common
-                        .recon
-                        .initial_range(interest)
-                        .await
-                        .context("querying initial range")?;
-                    self.common
-                        .stream
-                        .feed(InitiatorMessage::RangeRequest(range))
-                        .await
-                        .context("feeding range request")?;
+                    ranges.push(
+                        self.common
+                            .recon
+                            .initial_range(interest)
+                            .await
+                            .context("querying initial range")?,
+                    );
                 }
-                self.common
-                    .stream
-                    .flush()
-                    .await
-                    .context("flushing range requests")?;
+                self.send_ranges(ranges.into_iter()).await?;
                 // Handle the case of no interests in common
                 if self.is_done() {
                     Ok(RemoteStatus::ListenOnly)
