@@ -3,8 +3,9 @@
 #[allow(unused_imports)]
 use ceramic_api_server::{
     models, Api, ApiNoContext, Client, ContextWrapperExt, EventsEventIdGetResponse,
-    EventsPostResponse, FeedEventsGetResponse, InterestsSortKeySortValuePostResponse,
-    LivenessGetResponse, SubscribeSortKeySortValueGetResponse, VersionPostResponse,
+    EventsPostResponse, EventsSortKeySortValueGetResponse, FeedEventsGetResponse,
+    InterestsSortKeySortValuePostResponse, LivenessGetResponse,
+    SubscribeSortKeySortValueGetResponse, VersionPostResponse,
 };
 use clap::{App, Arg};
 #[allow(unused_imports)]
@@ -35,6 +36,7 @@ fn main() {
                 .help("Sets the operation to run")
                 .possible_values(&[
                     "EventsEventIdGet",
+                    "EventsSortKeySortValueGet",
                     "FeedEventsGet",
                     "InterestsSortKeySortValuePost",
                     "LivenessGet",
@@ -111,6 +113,21 @@ fn main() {
             info!("{:?} (X-Span-ID: {:?})", result, (client.context() as &dyn Has<XSpanIdString>).get().clone());
         },
         */
+        Some("EventsSortKeySortValueGet") => {
+            let result = rt.block_on(client.events_sort_key_sort_value_get(
+                "sort_key_example".to_string(),
+                "sort_value_example".to_string(),
+                Some("controller_example".to_string()),
+                Some("stream_id_example".to_string()),
+                Some(56),
+                Some(56),
+            ));
+            info!(
+                "{:?} (X-Span-ID: {:?})",
+                result,
+                (client.context() as &dyn Has<XSpanIdString>).get().clone()
+            );
+        }
         Some("FeedEventsGet") => {
             let result = rt
                 .block_on(client.feed_events_get(Some("resume_at_example".to_string()), Some(56)));

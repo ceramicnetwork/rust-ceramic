@@ -41,6 +41,12 @@ pub enum EventsPostResponse {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub enum EventsSortKeySortValueGetResponse {
+    /// success
+    Success(models::EventsGet),
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[must_use]
 pub enum FeedEventsGetResponse {
     /// success
@@ -97,6 +103,18 @@ pub trait Api<C: Send + Sync> {
         events_post_request: models::EventsPostRequest,
         context: &C,
     ) -> Result<EventsPostResponse, ApiError>;
+
+    /// Get events matching the interest stored on the node
+    async fn events_sort_key_sort_value_get(
+        &self,
+        sort_key: String,
+        sort_value: String,
+        controller: Option<String>,
+        stream_id: Option<String>,
+        offset: Option<i32>,
+        limit: Option<i32>,
+        context: &C,
+    ) -> Result<EventsSortKeySortValueGetResponse, ApiError>;
 
     /// Get all new event keys since resume token
     async fn feed_events_get(
@@ -157,6 +175,17 @@ pub trait ApiNoContext<C: Send + Sync> {
         &self,
         events_post_request: models::EventsPostRequest,
     ) -> Result<EventsPostResponse, ApiError>;
+
+    /// Get events matching the interest stored on the node
+    async fn events_sort_key_sort_value_get(
+        &self,
+        sort_key: String,
+        sort_value: String,
+        controller: Option<String>,
+        stream_id: Option<String>,
+        offset: Option<i32>,
+        limit: Option<i32>,
+    ) -> Result<EventsSortKeySortValueGetResponse, ApiError>;
 
     /// Get all new event keys since resume token
     async fn feed_events_get(
@@ -233,6 +262,24 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
     ) -> Result<EventsPostResponse, ApiError> {
         let context = self.context().clone();
         self.api().events_post(events_post_request, &context).await
+    }
+
+    /// Get events matching the interest stored on the node
+    async fn events_sort_key_sort_value_get(
+        &self,
+        sort_key: String,
+        sort_value: String,
+        controller: Option<String>,
+        stream_id: Option<String>,
+        offset: Option<i32>,
+        limit: Option<i32>,
+    ) -> Result<EventsSortKeySortValueGetResponse, ApiError> {
+        let context = self.context().clone();
+        self.api()
+            .events_sort_key_sort_value_get(
+                sort_key, sort_value, controller, stream_id, offset, limit, &context,
+            )
+            .await
     }
 
     /// Get all new event keys since resume token
