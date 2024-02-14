@@ -1015,6 +1015,70 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
+    async fn get_events_for_interest_range() {
+        let peer_id = PeerId::random();
+        let network = Network::InMemory;
+        let model = "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9"; // cspell:disable-line
+        let controller = "did:key:zGs1Det7LHNeu7DXT4nvoYrPfj3n6g7d6bj2K4AMXEvg1";
+        let stream =
+            StreamId::from_str("k2t6wz4ylx0qs435j9oi1s6469uekyk6qkxfcb21ikm5ag2g1cook14ole90aw") // cspell:disable-line
+                .unwrap();
+        let start = EventId::builder()
+            .with_network(&network)
+            .with_sort_value("model", model)
+            .with_controller(controller)
+            .with_init(&stream.cid)
+            .with_min_event_height()
+            .build_fencepost();
+        let end = EventId::builder()
+            .with_network(&network)
+            .with_sort_value("model", model)
+            .with_controller(controller)
+            .with_init(&stream.cid)
+            .with_max_event_height()
+            .build_fencepost();
+        /*
+        l: Success(EventsGet { events: [Event { id: "fce0105ff012616e0f0c1e987ef0f772afbe2c7f05c50102bc800", data: "" }, Event { id: "fce0105ff012616e0f0c1e987ef0f772afbe2c7f05c50102bc8ff", data: "" }], resume_offset: 2, is_complete: false })
+        r: Success(EventsGet { events: [Event { id: "fce0105ff012616e0f0c1e987ef0f772afbe2c7f05c50102bc800", data: "" }], resume_offset: 1, is_complete: false })
+                */
+        let mock_interest = MockReconInterestTest::new();
+        let expected = BuildResponse::event(start.clone(), vec![]);
+        let mut mock_model = MockReconModelTest::new();
+        mock_model
+            .expect_range_with_values()
+            .with(
+                predicate::eq(start),
+                predicate::eq(end),
+                predicate::eq(0),
+                predicate::eq(1),
+            )
+            .times(1)
+            .returning(|s, _, _, _| Ok(vec![(s, vec![])]));
+        let server = Server::new(peer_id, network, mock_interest, mock_model);
+        let resp = server
+            .events_sort_key_sort_value_get(
+                "model".to_string(),
+                model.to_owned(),
+                Some(controller.to_owned()),
+                Some(stream.to_string()),
+                None,
+                Some(1),
+                &Context,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            resp,
+            EventsSortKeySortValueGetResponse::Success(models::EventsGet {
+                resume_offset: 1,
+                events: vec![expected],
+                is_complete: false,
+            })
+        );
+    }
+
+    #[tokio::test]
+    #[traced_test]
     async fn test_events_event_id_get_success() {
         let peer_id = PeerId::random();
         let network = Network::InMemory;
