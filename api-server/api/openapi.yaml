@@ -166,6 +166,66 @@ paths:
         "204":
           description: success
       summary: Register interest for a sort key
+  /events/{sort_key}/{sort_value}:
+    get:
+      parameters:
+      - description: name of the sort_key e.g. 'model'
+        explode: false
+        in: path
+        name: sort_key
+        required: true
+        schema:
+          type: string
+        style: simple
+      - description: value associated with the sort key e.g. model ID
+        explode: false
+        in: path
+        name: sort_value
+        required: true
+        schema:
+          type: string
+        style: simple
+      - description: the controller to filter
+        explode: true
+        in: query
+        name: controller
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: the stream to filter
+        explode: true
+        in: query
+        name: streamId
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: "token that designates the point to resume from, that is find\
+          \ keys added after this point"
+        explode: true
+        in: query
+        name: offset
+        required: false
+        schema:
+          type: integer
+        style: form
+      - description: "the maximum number of events to return, default is 10000."
+        explode: true
+        in: query
+        name: limit
+        required: false
+        schema:
+          type: integer
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventsGet'
+          description: success
+      summary: Get events matching the interest stored on the node
   /feed/events:
     get:
       parameters:
@@ -288,6 +348,36 @@ components:
       - events
       - resumeToken
       title: Ceramic Event feed data
+      type: object
+    EventsGet:
+      description: Ceramic event keys as part of a Ceramic Stream
+      example:
+        resumeOffset: 0
+        events:
+        - data: data
+          id: id
+        - data: data
+          id: id
+        isComplete: true
+      properties:
+        events:
+          description: An array of events
+          items:
+            $ref: '#/components/schemas/Event'
+          type: array
+        resumeOffset:
+          description: An integer specifying where to resume the request. Only works
+            correctly for the same input parameters.
+          type: integer
+        isComplete:
+          description: A boolean specifying if there are more events to be fetched.
+            Repeat with the resumeOffset to get next set.
+          type: boolean
+      required:
+      - events
+      - isComplete
+      - resumeOffset
+      title: Information about multiple events.
       type: object
     _events_post_request:
       description: "Event to add to the node. Temp while we transition to id/data\

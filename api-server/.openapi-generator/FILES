@@ -6,6 +6,7 @@ api/openapi.yaml
 docs/Event.md
 docs/EventDeprecated.md
 docs/EventFeed.md
+docs/EventsGet.md
 docs/EventsPostRequest.md
 docs/Version.md
 docs/default_api.md

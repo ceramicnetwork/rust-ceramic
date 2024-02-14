@@ -99,20 +99,19 @@ where
         }
     }
 
-    async fn store_interest(
+    fn build_start_stop_range(
         &self,
-        sort_key: String,
-        sort_value: String,
+        sort_key: &str,
+        sort_value: &str,
         controller: Option<String>,
         stream_id: Option<String>,
     ) -> Result<(EventId, EventId), ApiError> {
-        // Construct start and stop event id based on provided data.
         let start_builder = EventId::builder()
             .with_network(&self.network)
-            .with_sort_value(&sort_key, &sort_value);
+            .with_sort_value(sort_key, sort_value);
         let stop_builder = EventId::builder()
             .with_network(&self.network)
-            .with_sort_value(&sort_key, &sort_value);
+            .with_sort_value(sort_key, sort_value);
 
         let (start_builder, stop_builder) = match (controller, stream_id) {
             (Some(controller), Some(stream_id)) => {
@@ -144,7 +143,19 @@ where
 
         let start = start_builder.with_min_event_height().build_fencepost();
         let stop = stop_builder.with_max_event_height().build_fencepost();
+        Ok((start, stop))
+    }
 
+    async fn store_interest(
+        &self,
+        sort_key: String,
+        sort_value: String,
+        controller: Option<String>,
+        stream_id: Option<String>,
+    ) -> Result<(EventId, EventId), ApiError> {
+        // Construct start and stop event id based on provided data.
+        let (start, stop) =
+            self.build_start_stop_range(&sort_key, &sort_value, controller, stream_id)?;
         // Update interest ranges to include this new subscription.
         let interest = Interest::builder()
             .with_sort_key(&sort_key)
@@ -162,11 +173,35 @@ where
 }
 
 use ceramic_api_server::server::MakeService;
-use ceramic_api_server::{Api, FeedEventsGetResponse};
+use ceramic_api_server::{Api, EventsSortKeySortValueGetResponse, FeedEventsGetResponse};
 use std::error::Error;
 use swagger::ApiError;
 
 use crate::ResumeToken;
+
+// Helper to build responses consistent as we can't implement for the api_server::models directly
+struct BuildResponse {}
+impl BuildResponse {
+    fn event(id: EventId, data: Vec<u8>) -> models::Event {
+        let id = multibase::encode(multibase::Base::Base16Lower, id.as_bytes());
+        let data = if data.is_empty() {
+            String::default()
+        } else {
+            multibase::encode(multibase::Base::Base64, data)
+        };
+        models::Event::new(id, data)
+    }
+
+    fn event_deprecated(id: EventId, data: Vec<u8>) -> models::EventDeprecated {
+        let id = multibase::encode(multibase::Base::Base16Lower, id.as_bytes());
+        let data = if data.is_empty() {
+            String::default()
+        } else {
+            multibase::encode(multibase::Base::Base64, data)
+        };
+        models::EventDeprecated::new(id, data)
+    }
+}
 
 #[async_trait]
 impl<C, I, M> Api<C> for Server<C, I, M>
@@ -216,10 +251,7 @@ where
             .map_err(|e| ApiError(format!("failed to get keys: {e}")))?;
         let events = event_ids
             .into_iter()
-            .map(|id| Event {
-                id: multibase::encode(multibase::Base::Base16Lower, id.as_bytes()),
-                data: String::default(),
-            })
+            .map(|id| BuildResponse::event(id, vec![]))
             .collect();
 
         Ok(FeedEventsGetResponse::Success(models::EventFeed {
@@ -227,6 +259,43 @@ where
             events,
         }))
     }
+
+    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
+    async fn events_sort_key_sort_value_get(
+        &self,
+        sort_key: String,
+        sort_value: String,
+        controller: Option<String>,
+        stream_id: Option<String>,
+        offset: Option<i32>,
+        limit: Option<i32>,
+        _context: &C,
+    ) -> Result<EventsSortKeySortValueGetResponse, ApiError> {
+        let limit: usize =
+            limit.map_or(10000, |l| if l.is_negative() { 10000 } else { l }) as usize;
+        let offset = offset.map_or(0, |o| if o.is_negative() { 0 } else { o }) as usize;
+        let (start, stop) =
+            self.build_start_stop_range(&sort_key, &sort_value, controller, stream_id)?;
+
+        let events = self
+            .model
+            .range_with_values(start, stop, offset, limit)
+            .await
+            .map_err(|err| ApiError(format!("failed to get keys: {err}")))?
+            .into_iter()
+            .map(|(id, data)| BuildResponse::event(id, data))
+            .collect::<Vec<_>>();
+
+        let event_cnt = events.len();
+        Ok(EventsSortKeySortValueGetResponse::Success(
+            models::EventsGet {
+                resume_offset: (offset + event_cnt) as i32,
+                events,
+                is_complete: event_cnt < limit,
+            },
+        ))
+    }
+
     #[instrument(skip(self, _context, event), fields(event.id = event.id.as_ref().or(event.event_id.as_ref()), event.data.len = event.data.as_ref().or(event.event_data.as_ref()).map(|d| d.len()).unwrap_or(0)), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn events_post(
         &self,
@@ -305,10 +374,7 @@ where
             .await
             .map_err(|err| ApiError(format!("failed to get keys: {err}")))?
             .into_iter()
-            .map(|(id, data)| EventDeprecated {
-                event_id: multibase::encode(multibase::Base::Base16Lower, id.as_bytes()),
-                event_data: multibase::encode(multibase::Base::Base64, data),
-            })
+            .map(|(id, data)| BuildResponse::event_deprecated(id, data))
             .collect();
         Ok(SubscribeSortKeySortValueGetResponse::Success(events))
     }
@@ -336,13 +402,7 @@ where
         let decoded_event_id = decode_event_id(&event_id)?;
         match self.model.value_for_key(decoded_event_id.clone()).await {
             Ok(Some(data)) => {
-                let event = Event {
-                    id: multibase::encode(
-                        multibase::Base::Base16Lower,
-                        decoded_event_id.as_bytes(),
-                    ),
-                    data: multibase::encode(multibase::Base::Base64, data),
-                };
+                let event = BuildResponse::event(decoded_event_id, data);
                 Ok(EventsEventIdGetResponse::Success(event))
             }
             Ok(None) => Ok(EventsEventIdGetResponse::EventNotFound(format!(
