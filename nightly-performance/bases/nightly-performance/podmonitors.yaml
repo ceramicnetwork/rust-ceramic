@@ -4,12 +4,14 @@ metadata:
   name: otel
 spec:
   podMetricsEndpoints:
-  - interval: 10s
-    path: /metrics
-    targetPort: 9465
+    - interval: 10s
+      path: /metrics
+      targetPort: 9465
   selector:
     matchLabels:
       app: otel
+  podTargetLabels:
+    - affinity
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
@@ -17,12 +19,14 @@ metadata:
   name: ceramic
 spec:
   podMetricsEndpoints:
-  - interval: 10s
-    path: /metrics
-    targetPort: 9464
+    - interval: 10s
+      path: /metrics
+      targetPort: 9464
   selector:
     matchLabels:
       app: ceramic
+  podTargetLabels:
+    - affinity
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
@@ -30,9 +34,11 @@ metadata:
   name: ceramic-one
 spec:
   podMetricsEndpoints:
-  - interval: 10s
-    path: /metrics
-    targetPort: 9465
+    - interval: 10s
+      path: /metrics
+      targetPort: 9465
   selector:
     matchLabels:
       app: ceramic
+  podTargetLabels:
+    - affinity
