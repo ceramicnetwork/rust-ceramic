@@ -1,0 +1,8 @@
+namespace: nightly-performance-dev-hermetic
+resources:
+  - ../bases/nightly-performance
+
+configMapGenerator:
+  - name: local-config
+    envs:
+      - ./local-config.env

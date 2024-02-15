@@ -1,0 +1,10 @@
+apiVersion: "keramik.3box.io/v1alpha1"
+kind: Simulation
+metadata:
+  name: nightly-performance # replaced by script
+  namespace: keramik-nightly-performance # replaced by script
+spec:
+  scenario: recon-event-sync
+  users: 10
+  runTime: 20
+  #successRequestTarget: 0

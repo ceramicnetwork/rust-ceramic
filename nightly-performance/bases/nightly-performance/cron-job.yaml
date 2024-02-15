@@ -1,0 +1,48 @@
+kind: CronJob
+apiVersion: batch/v1
+metadata:
+  name: nightly-performance
+spec:
+  concurrencyPolicy: Forbid
+  schedule: "25 * * * *"
+  failedJobsHistoryLimit: 12
+  successfulJobsHistoryLimit: 12
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: nightly-performance
+          containers:
+            - name: nightly-performance
+              image: google/cloud-sdk
+              command: ["bash", "/config/nightly-performance.sh"]
+              env:
+                - name: JOB_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+                - name: GRAFANA_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: grafana-api-key
+                      key: api-key
+              envFrom:
+                - configMapRef:
+                    name: local-config
+              resources:
+                requests:
+                  memory: "1Gi"
+                  cpu: "1"
+                limits:
+                  memory: "2Gi"
+                  cpu: "2"
+              volumeMounts:
+                - name: nightly-performance
+                  mountPath: /config
+          restartPolicy: Never
+          volumes:
+            - name: nightly-performance
+              configMap:
+                name: nightly-performance
+
+
