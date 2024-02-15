@@ -12,8 +12,12 @@ anyhow.workspace = true
 async-trait.workspace = true
 base64 = "0.21.2"
 cid.workspace = true
-did-method-key = "0.2.1"
-did-pkh = "0.2.1"
+#did-method-key = "0.2.1"
+did-method-key = { git = "https://github.com/dbcfd/ssi", branch = "feat/wasi" }
+#did-method-key = { path = "/Users/dbrowning/code/oss/ssi/did-key" }
+#did-pkh = "0.2.1"
+did-pkh = { git = "https://github.com/dbcfd/ssi", branch = "feat/wasi" }
+#did-pkh = { path = "/Users/dbrowning/code/oss/ssi/did-pkh" }
 hex.workspace = true
 int-enum = "0.5.0"
 libp2p-identity.workspace = true
@@ -27,6 +31,9 @@ serde_ipld_dagcbor.workspace = true
 serde_json.workspace = true
 ssi.workspace = true
 unsigned-varint.workspace = true
+
+[target.'cfg(not(all(target_arch = "wasm32", target_os = "wasi")))'.dependencies]
+sqlx.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }

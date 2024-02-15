@@ -2,7 +2,7 @@ use crate::DidDocument;
 use cid::multibase;
 use once_cell::sync::Lazy;
 use ssi::did::{Resource, VerificationMethod};
-use ssi::did_resolve::{dereference, Content, DIDResolver, DereferencingInputMetadata};
+use ssi::did::did_resolve::{dereference, Content, DIDResolver, DereferencingInputMetadata};
 use ssi::jwk::{Base64urlUInt, OctetParams, Params, JWK};
 use std::ops::Deref;
 

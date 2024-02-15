@@ -55,6 +55,7 @@ ceramic-metadata = { path = "./metadata" }
 ceramic-metrics = { path = "./metrics" }
 ceramic-one = { path = "./one" }
 ceramic-p2p = { path = "./p2p" }
+ceramic-sql = { path = "./sql" }
 ceramic-store = { path = "./store" }
 cid = { version = "0.10", features = ["serde-codec"] }
 clap = { version = "4", features = ["derive", "env"] }
@@ -145,7 +146,9 @@ sha2 = { version = "0.10", default-features = false }
 smallvec = "1.10"
 sqlx = { version = "0.7", features = ["sqlite", "runtime-tokio"] }
 ssh-key = { version = "0.5.1", default-features = false }
-ssi = { version = "0.7", features = ["ed25519"] }
+#ssi = { version = "0.7", default-features = false, features = ["ed25519"] }
+ssi = { git = "https://github.com/dbcfd/ssi", branch = "feat/wasi", default-features = false, features = ["ed25519"] }
+#ssi = { path = "/Users/dbrowning/code/oss/ssi", default-features = false, features = ["ed25519"] }
 swagger = { version = "6.1", features = [
     "serdejson",
     "server",
