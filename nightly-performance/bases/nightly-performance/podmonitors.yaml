@@ -12,6 +12,7 @@ spec:
       app: otel
   podTargetLabels:
     - affinity
+    - storageClass
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor

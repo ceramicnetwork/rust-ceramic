@@ -5,7 +5,7 @@ metadata:
   name: nightly-dev-hermetic
 spec:
   replicas: 2
-  ttlSeconds: 43200
+  ttlSeconds: 14400
   ceramic:
     - ipfs:
         rust:

@@ -4,6 +4,9 @@ kind: ClusterRole
 metadata:
   name: nightly-performance
 rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "patch", "update", "watch"]
 - apiGroups: ["keramik.3box.io"]
   resources: ["networks", "simulations"]
   verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]

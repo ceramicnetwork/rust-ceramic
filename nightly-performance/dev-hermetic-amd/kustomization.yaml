@@ -1,4 +1,4 @@
-namespace: nightly-performance-dev-hermetic
+namespace: nightly-performance-dev-hermetic-amd
 resources:
   - ../bases/nightly-performance
 
