@@ -492,7 +492,7 @@ where
 
     async fn events_post(
         &self,
-        param_events_post_request: models::EventsPostRequest,
+        param_event: models::Event,
         context: &C,
     ) -> Result<EventsPostResponse, ApiError> {
         let mut client_service = self.client_service.clone();
@@ -522,8 +522,7 @@ where
             Err(e) => return Err(ApiError(format!("Unable to create request: {}", e))),
         };
 
-        let body = serde_json::to_string(&param_events_post_request)
-            .expect("impossible to fail to serialize");
+        let body = serde_json::to_string(&param_event).expect("impossible to fail to serialize");
         *request.body_mut() = Body::from(body);
 
         let header = "application/json";

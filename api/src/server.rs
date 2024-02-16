@@ -26,7 +26,7 @@ use tokio::net::TcpListener;
 use tracing::{debug, info, instrument, Level};
 
 use ceramic_api_server::{
-    models::{self, Event, EventsPostRequest},
+    models::{self, Event},
     EventsEventIdGetResponse, EventsPostResponse, InterestsSortKeySortValuePostResponse,
     LivenessGetResponse, VersionPostResponse,
 };
@@ -285,28 +285,14 @@ where
         ))
     }
 
-    #[instrument(skip(self, _context, event), fields(event.id = event.id.as_ref().or(event.event_id.as_ref()), event.data.len = event.data.as_ref().or(event.event_data.as_ref()).map(|d| d.len()).unwrap_or(0)), ret(level = Level::DEBUG), err(level = Level::ERROR))]
+    #[instrument(skip(self, _context, event), fields(event.id = event.id, event.data.len = event.data.len()), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn events_post(
         &self,
-        event: EventsPostRequest,
+        event: Event,
         _context: &C,
     ) -> Result<EventsPostResponse, ApiError> {
-        // we want to support event_id/event_data and id/data without breaking the API.
-        // openAPI generator doesn't support oneOf very well right now (it'd be better as an untagged enum with serde)
-        // so we have a temp type that has everything optional that we manually validate.
-        let (id, data) = if event.id.is_some() && event.data.is_some() {
-            (event.id.unwrap(), event.data.unwrap())
-        } else if event.event_id.is_some() && event.event_data.is_some() {
-            (event.event_id.unwrap(), event.event_data.unwrap())
-        } else {
-            return Ok(EventsPostResponse::BadRequest(
-                "event fields 'id' and 'data' or 'event_id' and 'event_data' are required"
-                    .to_owned(),
-            ));
-        };
-
-        let event_id = decode_event_id(&id)?;
-        let event_data = decode_event_data(&data)?;
+        let event_id = decode_event_id(&event.id)?;
+        let event_data = decode_event_data(&event.data)?;
         self.model
             .insert(event_id, Some(event_data))
             .await
@@ -487,11 +473,9 @@ mod tests {
         let server = Server::new(peer_id, network, mock_interest, mock_model);
         let resp = server
             .events_post(
-                models::EventsPostRequest {
-                    event_id: Some(event_id_str),
-                    event_data: Some(event_data),
-                    data: None,
-                    id: None,
+                models::Event {
+                    id: event_id_str,
+                    data: event_data,
                 },
                 &Context,
             )
