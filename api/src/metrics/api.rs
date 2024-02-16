@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use ceramic_api_server::{
     models, Api, EventsEventIdGetResponse, EventsPostResponse, EventsSortKeySortValueGetResponse,
     FeedEventsGetResponse, InterestsSortKeySortValuePostResponse, LivenessGetResponse,
-    SubscribeSortKeySortValueGetResponse, VersionPostResponse,
+    VersionPostResponse,
 };
 use ceramic_metrics::Recorder;
 use futures::Future;
@@ -87,26 +87,6 @@ where
         self.record(
             "/events",
             self.api.events_sort_key_sort_value_get(
-                sort_key, sort_value, controller, stream_id, offset, limit, context,
-            ),
-        )
-        .await
-    }
-
-    /// Get events for a stream
-    async fn subscribe_sort_key_sort_value_get(
-        &self,
-        sort_key: String,
-        sort_value: String,
-        controller: Option<String>,
-        stream_id: Option<String>,
-        offset: Option<f64>,
-        limit: Option<f64>,
-        context: &C,
-    ) -> Result<SubscribeSortKeySortValueGetResponse, ApiError> {
-        self.record(
-            "/subscribe",
-            self.api.subscribe_sort_key_sort_value_get(
                 sort_key, sort_value, controller, stream_id, offset, limit, context,
             ),
         )
