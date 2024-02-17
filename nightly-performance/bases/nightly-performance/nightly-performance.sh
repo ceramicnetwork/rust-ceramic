@@ -31,13 +31,13 @@ kubectl apply -n "${NETWORK_NAMESPACE}" -f /config/podmonitors.yaml
 
 # Wait for CAS to be ready
 while true; do
+  sleep 10
   READY_REPLICAS=$(kubectl get statefulset cas -n "${NETWORK_NAMESPACE}" -o jsonpath='{.status.readyReplicas}')
   if [[ "$READY_REPLICAS" -ge 1 ]]; then
     echo "StatefulSet 'cas' has at least 1 ready replica."
     break
   else
     echo "Waiting for StatefulSet 'cas' to have at least 1 ready replica..."
-    sleep 10
   fi
 done
 
@@ -45,11 +45,13 @@ done
 STORAGECLASS_NAME=$(./yq '.spec.ceramic[0].ipfs.rust.storageClass' network-merged.yaml)
 if [ -n "$STORAGECLASS_NAME" ]; then
   kubectl label pods -l app=ceramic storageClass="$STORAGECLASS_NAME" -n "${NETWORK_NAMESPACE}"
+  kubectl label pods -l app=otel storageClass="$STORAGECLASS_NAME" -n "${NETWORK_NAMESPACE}"
 fi
 
 # Label the workload with an affinity tag, if it exists
 if [ -n "$AFFINITY_TAG" ]; then
   kubectl label pods -l app=ceramic affinity="$AFFINITY_TAG" -n "${NETWORK_NAMESPACE}"
+  kubectl label pods -l app=otel affinity="$AFFINITY_TAG" -n "${NETWORK_NAMESPACE}"
 fi
 
 sleep 300 # wait for the network to stabilize and bootstrap
@@ -73,6 +75,9 @@ SUCCEEDED=$(kubectl  get job simulate-manager -n "${NETWORK_NAMESPACE}" -o jsonp
 FAILED=$(kubectl  get job simulate-manager -n "${NETWORK_NAMESPACE}" -o jsonpath='{.status.failed}')
 if [[ "$SUCCEEDED" -gt 0 ]]; then
   SIMULATION_STATUS_TAG="succeeded"
+  if [[ -n $RETAIN_NETWORK ]] && [[ $RETAIN_NETWORK -eq 1 ]]; then
+    kubectl delete -f network-merged.yaml
+  fi
 elif [[ "$FAILED" -gt 0 ]]; then
   SIMULATION_STATUS_TAG="failed"
 else

@@ -1,6 +1,7 @@
-namespace: nightly-performance-dev-hermetic
+namespace: nightly-performance-dev-hermetic-intel
 resources:
   - ../bases/nightly-performance
+  - ./clusterrolebinding.yaml
 
 configMapGenerator:
   - name: local-config
