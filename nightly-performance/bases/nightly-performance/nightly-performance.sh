@@ -57,14 +57,20 @@ fi
 sleep 300 # wait for the network to stabilize and bootstrap
 kubectl wait --for=condition=complete job/bootstrap -n "${NETWORK_NAMESPACE}"
 
+# Start the simulation and tag resources
 ./yq -e '.metadata.name = env(SIM_NAME), .metadata.namespace = env(NETWORK_NAMESPACE)' \
   /config/sim.yaml > simulation.yaml
 kubectl apply -f simulation.yaml
 SIMULATION_RUNTIME=$(./yq e '.spec.runTime' simulation.yaml)
-sleep $((SIMULATION_RUNTIME * 60))
-
+sleep 60 # wait for the simulation to start
 KERAMIK_SIMULATE_NAME=$(kubectl get job simulate-manager \
   -o jsonpath='{.spec.template.spec.containers[?(@.name=="manager")].env[?(@.name=="SIMULATE_NAME")].value}' -n "${NETWORK_NAMESPACE}")
+if [ -n "$KERAMIK_SIMULATE_NAME" ]; then
+  kubectl label pods -l app=ceramic simulation="$KERAMIK_SIMULATE_NAME" -n "${NETWORK_NAMESPACE}"
+  kubectl label pods -l app=otel simulation="$KERAMIK_SIMULATE_NAME" -n "${NETWORK_NAMESPACE}"
+fi
+
+sleep $((SIMULATION_RUNTIME * 60))
 
 # why is this not working?
 # Maybe loop and watch for conditions
