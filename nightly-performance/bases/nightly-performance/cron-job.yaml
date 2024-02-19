@@ -4,7 +4,7 @@ metadata:
   name: nightly-performance
 spec:
   concurrencyPolicy: Forbid
-  schedule: "0 */2 * * *"
+  schedule: "0 * * * *"
   failedJobsHistoryLimit: 12
   successfulJobsHistoryLimit: 12
   jobTemplate:

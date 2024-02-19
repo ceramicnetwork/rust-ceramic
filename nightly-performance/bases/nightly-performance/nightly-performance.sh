@@ -70,6 +70,7 @@ if [ -n "$KERAMIK_SIMULATE_NAME" ]; then
   kubectl label pods -l app=otel simulation="$KERAMIK_SIMULATE_NAME" -n "${NETWORK_NAMESPACE}"
 fi
 
+echo "Simulation will run for $SIMULATION_RUNTIME minutes"
 sleep $((SIMULATION_RUNTIME * 60))
 
 # why is this not working?

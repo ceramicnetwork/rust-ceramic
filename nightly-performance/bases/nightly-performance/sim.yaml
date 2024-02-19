@@ -6,5 +6,5 @@ metadata:
 spec:
   scenario: recon-event-sync
   users: 10
-  runTime: 60
+  runTime: 20
   #successRequestTarget: 0
