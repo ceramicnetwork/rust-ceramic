@@ -1,0 +1,25 @@
+---
+apiVersion: "keramik.3box.io/v1alpha1"
+kind: Network
+metadata:
+  name: nightly-dev-hermetic
+spec:
+  networkType: testnet-clay
+  replicas: 2
+  casApiUrl: https://cas-clay.3boxlabs.com
+  ethRpcUrl: ""
+  ceramic:
+    - image: ceramicnetwork/js-ceramic:latest
+      ipfs:
+        rust:
+          env:
+            CERAMIC_ONE_NETWORK: testnet-clay
+            CERAMIC_ONE_RECON: "true"
+          image: public.ecr.aws/r5b3e0r5/3box/ceramic-one:latest
+          resourceLimits:
+            cpu: "4"
+            memory: 1Gi
+      resourceLimits:
+        storage: 3Gi
+  monitoring:
+    namespaced: true

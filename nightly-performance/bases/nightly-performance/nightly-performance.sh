@@ -11,8 +11,12 @@ export NETWORK_NAMESPACE
 curl -L https://github.com/mikefarah/yq/releases/download/v4.40.7/yq_linux_amd64 -o yq
 chmod +x yq
 
-# Customize the network name
-./yq -e '.metadata.name = env(NETWORK_NAME)' /config/network.yaml > network.yaml
+# Customize the network name, use custom network.yaml if it exists
+if [ -f /network/network.yaml ]; then
+  ./yq -e '.metadata.name = env(NETWORK_NAME)' /network/network.yaml > network.yaml
+else
+  ./yq -e '.metadata.name = env(NETWORK_NAME)' /config/network.yaml > network.yaml
+fi
 
 cat network.yaml
 
@@ -30,16 +34,21 @@ kubectl apply -f network-merged.yaml
 kubectl apply -n "${NETWORK_NAMESPACE}" -f /config/podmonitors.yaml
 
 # Wait for CAS to be ready
-while true; do
-  sleep 10
-  READY_REPLICAS=$(kubectl get statefulset cas -n "${NETWORK_NAMESPACE}" -o jsonpath='{.status.readyReplicas}')
-  if [[ "$READY_REPLICAS" -ge 1 ]]; then
-    echo "StatefulSet 'cas' has at least 1 ready replica."
-    break
-  else
-    echo "Waiting for StatefulSet 'cas' to have at least 1 ready replica..."
-  fi
-done
+CAS=$(./yq e '.spec.ceramic[0].cas' network-merged.yaml)
+## Only wait for CAS if it is enabled
+if [ -n "$CAS" ] && [ "$CAS" != "null" ]; then
+  echo "Waiting for StatefulSet 'cas' to have at least 1 ready replica..."
+  while true; do
+    sleep 10
+    READY_REPLICAS=$(kubectl get statefulset cas -n "${NETWORK_NAMESPACE}" -o jsonpath='{.status.readyReplicas}')
+    if [[ "$READY_REPLICAS" -ge 1 ]]; then
+      echo "StatefulSet 'cas' has at least 1 ready replica."
+      break
+    else
+      echo "Waiting for StatefulSet 'cas' to have at least 1 ready replica..."
+    fi
+  done
+fi
 
 # Label the workload with a storageClass, if it exists
 STORAGECLASS_NAME=$(./yq '.spec.ceramic[0].ipfs.rust.storageClass' network-merged.yaml)

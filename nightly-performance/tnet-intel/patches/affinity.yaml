@@ -1,0 +1,24 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: nightly-performance
+spec:
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          volumes:
+            - name: affinity
+              configMap:
+                name: affinity
+            - name: network
+              configMap:
+                name: network
+          containers:
+            - name: nightly-performance
+              volumeMounts:
+                - name: affinity
+                  mountPath: /affinity
+                - name: network
+                  mountPath: /network
+

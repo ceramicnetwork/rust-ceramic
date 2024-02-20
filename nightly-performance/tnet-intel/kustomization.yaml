@@ -1,0 +1,19 @@
+namespace: nightly-performance-tnet-intel
+resources:
+  - ../bases/nightly-performance
+  - ./clusterrolebinding.yaml
+
+configMapGenerator:
+  - name: local-config
+    envs:
+      - ./local-config.env
+  - name: network
+    files:
+      - ./network.yaml
+  - name: affinity
+    files:
+      - ./affinity.yaml
+
+# patch the cronb job to mount the configmap for affinity
+patchesStrategicMerge:
+  - patches/affinity.yaml

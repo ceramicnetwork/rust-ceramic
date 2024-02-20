@@ -1,0 +1,6 @@
+nodeSelectorTerms:
+  - matchExpressions:
+      - key: "cpu"
+        operator: "In"
+        values:
+          - "intel"
