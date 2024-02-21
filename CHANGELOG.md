@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.12.0] - 2024-02-21
+
+### Bug Fixes
+
+- Use PAT for create-release-pr workflow (#275)
+- Honor PENDING_RANGES_LIMIT for initial ranges (#271)
+
+### Features
+
+- Create GET endpoint to return events for an interest range (#276)
+
 ## [0.11.0] - 2024-02-12
 
 ### Bug Fixes
@@ -12,6 +23,10 @@ All notable changes to this project will be documented in this file.
 
 - Enable recon by default (#270)
 - Support new id/data event payload for event creation (POST /events) (#269)
+
+### Miscellaneous Tasks
+
+- Version v0.11.0 (#274)
 
 ## [0.10.1] - 2024-02-08
 
