@@ -1,0 +1,31 @@
+{
+    "embeds": [
+      {
+        "title": "$SIMULATION_STATUS_TAG",
+        "description": "[Dashboard](https://threebox.grafana.net/d/adc2vf8f58idcd/keramik-simulation?orgId=1&var-cluster=github-tests-2024&var-simulation=$KERAMIK_SIMULATE_NAME&from=now-6h&to=now)",
+        "color": $SIMULATION_COLOR,
+        "fields": [
+          {
+            "name": "Cluster",
+            "value": "$CLUSTER_NAME",
+            "inline": true
+          },
+          {
+            "name": "Namespace",
+            "value": "$NETWORK_NAMESPACE",
+            "inline": true
+          },
+          {
+            "name": "Simulation",
+            "value": "$KERAMIK_SIMULATE_NAME",
+            "inline": true
+          },
+          {
+            "name": "Duration",
+            "value": "$SIMULATION_RUNTIME",
+            "inline": true
+          }
+        ]
+      }
+    ]
+  }
