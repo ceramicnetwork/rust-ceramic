@@ -718,7 +718,7 @@ fn parse_sequence_small() {
     test_parse_sequence(
         r#"
         cat: [a:A,b:B,c:C]
-        dog: [e:E,f:F,g:G]
+        dog: [e:E,f:F,g:H]
         "#,
         expect![[r#"
             SequenceSetup {
@@ -791,7 +791,7 @@ fn parse_sequence_small() {
                             "g",
                         ): Some(
                             Bytes(
-                                "G",
+                                "H",
                             ),
                         ),
                     },

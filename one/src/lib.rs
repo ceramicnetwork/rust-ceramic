@@ -238,6 +238,9 @@ pub async fn run() -> Result<()> {
 }
 
 type InterestInterest = FullInterests<Interest>;
+type ReconInterest = Server<Interest, Sha256a, MetricsStore<InterestStore>, InterestInterest>;
+
+type ModelStore = ceramic_store::RedTree<EventId, Sha256a, ceramic_store::ModelStore<Sha256a>>;
 type ModelInterest = ReconInterestProvider<Sha256a>;
 
 impl DaemonOpts {
@@ -442,6 +445,12 @@ impl Daemon {
             ceramic_store::StoreMetricsMiddleware::new(interest_api_store, store_metrics.clone());
 
         // Create second recon store for models.
+        let model_block_store = ceramic_store::ModelStore::new(sql_pool.clone()).await?;
+        // Build RedTree cache in front of model_block_store.
+        // This immediately quieries the store and constructs the tree in memory.
+        let model_block_store =
+            ceramic_store::RedTree::new(2, 2_u64.pow(16), model_block_store).await?;
+
         let model_store = ceramic_store::StoreMetricsMiddleware::new(
             model_recon_store.clone(),
             store_metrics.clone(),

@@ -317,6 +317,11 @@ impl<H> HashCount<H> {
     pub fn count(&self) -> u64 {
         self.count
     }
+
+    /// Consume the hash count returning its hash and count
+    pub fn into_inner(self) -> (H, u64) {
+        (self.hash, self.count)
+    }
 }
 
 impl<H> Add<Self> for HashCount<H>
@@ -453,7 +458,6 @@ pub trait Store {
         )
         .await
     }
-
     /// Return a key that is approximately in the middle of the range.
     /// An exact middle is not necessary but performance will be better with a better approximation.
     ///

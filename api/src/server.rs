@@ -138,8 +138,7 @@ pub trait AccessInterestStore: Send + Sync {
     async fn insert(&self, key: Interest) -> Result<bool>;
     async fn range(
         &self,
-        start: &Interest,
-        end: &Interest,
+        range: Range<&Interest>,
         offset: usize,
         limit: usize,
     ) -> Result<Vec<Interest>>;
@@ -153,12 +152,11 @@ impl<S: AccessInterestStore> AccessInterestStore for Arc<S> {
 
     async fn range(
         &self,
-        start: &Interest,
-        end: &Interest,
+        range: Range<&Interest>,
         offset: usize,
         limit: usize,
     ) -> Result<Vec<Interest>> {
-        self.as_ref().range(start, end, offset, limit).await
+        self.as_ref().range(range, offset, limit).await
     }
 }
 
@@ -168,8 +166,7 @@ pub trait AccessModelStore: Send + Sync {
     async fn insert_many(&self, items: &[(EventId, Vec<u8>)]) -> Result<Vec<bool>>;
     async fn range_with_values(
         &self,
-        start: &EventId,
-        end: &EventId,
+        range: Range<&EventId>,
         offset: usize,
         limit: usize,
     ) -> Result<Vec<(EventId, Vec<u8>)>>;
@@ -193,14 +190,11 @@ impl<S: AccessModelStore> AccessModelStore for Arc<S> {
 
     async fn range_with_values(
         &self,
-        start: &EventId,
-        end: &EventId,
+        range: Range<&EventId>,
         offset: usize,
         limit: usize,
     ) -> Result<Vec<(EventId, Vec<u8>)>> {
-        self.as_ref()
-            .range_with_values(start, end, offset, limit)
-            .await
+        self.as_ref().range_with_values(range, offset, limit).await
     }
 
     async fn value_for_key(&self, key: &EventId) -> Result<Option<Vec<u8>>> {
@@ -373,7 +367,7 @@ where
 
         let events = self
             .model
-            .range_with_values(&start, &stop, offset, limit)
+            .range_with_values(&start..&stop, offset, limit)
             .await
             .map_err(|err| ErrorResponse::new(format!("failed to get keys: {err}")))?
             .into_iter()
