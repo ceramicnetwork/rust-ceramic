@@ -26,6 +26,11 @@ spec:
                     secretKeyRef:
                       name: grafana-api-key
                       key: api-key
+                - name: DISCORD_WEBHOOK_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: discord
+                      key: DISCORD_WEBHOOK_URL
               envFrom:
                 - configMapRef:
                     name: local-config
@@ -39,10 +44,15 @@ spec:
               volumeMounts:
                 - name: nightly-performance
                   mountPath: /config
+                - name: notifications
+                  mountPath: /notifications
           restartPolicy: Never
           volumes:
             - name: nightly-performance
               configMap:
                 name: nightly-performance
+            - name: notifications
+              configMap:
+                name: notifications
 
 

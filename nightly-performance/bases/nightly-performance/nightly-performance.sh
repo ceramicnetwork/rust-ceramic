@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euxo pipefail
 
+apt-get update && apt-get install -y jq gettext-base
+
 SIM_NAME=${JOB_NAMESPACE}-$(date +%Y-%m-%d-%H)
 export SIM_NAME
 NETWORK_NAME=${JOB_NAMESPACE}-$(date +%Y-%m-%d-%H)
@@ -71,9 +73,11 @@ kubectl wait --for=condition=complete job/bootstrap -n "${NETWORK_NAMESPACE}"
   /config/sim.yaml > simulation.yaml
 kubectl apply -f simulation.yaml
 SIMULATION_RUNTIME=$(./yq e '.spec.runTime' simulation.yaml)
+export SIMULATION_RUNTIME
 sleep 60 # wait for the simulation to start
 KERAMIK_SIMULATE_NAME=$(kubectl get job simulate-manager \
   -o jsonpath='{.spec.template.spec.containers[?(@.name=="manager")].env[?(@.name=="SIMULATE_NAME")].value}' -n "${NETWORK_NAMESPACE}")
+export KERAMIK_SIMULATE_NAME
 if [ -n "$KERAMIK_SIMULATE_NAME" ]; then
   kubectl label pods -l app=ceramic simulation="$KERAMIK_SIMULATE_NAME" -n "${NETWORK_NAMESPACE}"
   kubectl label pods -l app=otel simulation="$KERAMIK_SIMULATE_NAME" -n "${NETWORK_NAMESPACE}"
@@ -91,14 +95,23 @@ SUCCEEDED=$(kubectl  get job simulate-manager -n "${NETWORK_NAMESPACE}" -o jsonp
 FAILED=$(kubectl  get job simulate-manager -n "${NETWORK_NAMESPACE}" -o jsonpath='{.status.failed}')
 if [[ "$SUCCEEDED" -gt 0 ]]; then
   SIMULATION_STATUS_TAG="succeeded"
-  if [[ -n $RETAIN_NETWORK ]] && [[ $RETAIN_NETWORK -eq 1 ]]; then
-    kubectl delete -f network-merged.yaml
-  fi
+  SIMULATION_COLOR=5763719
+  kubectl delete -f network-merged.yaml
 elif [[ "$FAILED" -gt 0 ]]; then
   SIMULATION_STATUS_TAG="failed"
+  SIMULATION_COLOR=15548997
 else
   SIMULATION_STATUS_TAG="unknown"
+  SIMULATION_COLOR=10070709
 fi
+
+export SIMULATION_STATUS_TAG
+export SIMULATION_COLOR
+
+# Send Discord notification
+envsubst < /notifications/notification-template.json  > message.json
+cat message.json
+curl -v -H "Content-Type: application/json" -X POST -d @./message.json $DISCORD_WEBHOOK_URL
 
 ANNOTATION=$(cat <<EOF
 {

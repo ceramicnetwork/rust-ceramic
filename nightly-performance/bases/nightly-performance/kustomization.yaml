@@ -10,3 +10,6 @@ configMapGenerator:
       - sim.yaml
       - podmonitors.yaml
       - nightly-performance.sh
+  - name: notifications
+    files:
+      - notification-template.json
