@@ -3,9 +3,11 @@
 #![warn(missing_docs)]
 
 mod metrics;
+mod red_tree;
 mod sqlite;
 #[cfg(test)]
 mod tests;
 
 pub use metrics::{Metrics, StoreMetricsMiddleware};
+pub use red_tree::RedTree;
 pub use sqlite::{DbTx, InterestStore, ModelStore, SqlitePool};

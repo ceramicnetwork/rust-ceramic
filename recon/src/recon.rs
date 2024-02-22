@@ -2,7 +2,11 @@ pub mod btreestore;
 #[cfg(test)]
 pub mod tests;
 
-use std::{fmt::Display, marker::PhantomData};
+use std::{
+    fmt::Display,
+    marker::PhantomData,
+    ops::{Add, AddAssign},
+};
 
 use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
@@ -313,7 +317,7 @@ where
 }
 
 /// A hash with a count of how many values produced the hash.
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct HashCount<H> {
     hash: H,
     count: u64,
@@ -333,6 +337,20 @@ impl<H> HashCount<H> {
     /// The number of values that produced the hash.
     pub fn count(&self) -> u64 {
         self.count
+    }
+}
+
+impl<H> Add<Self> for HashCount<H>
+where
+    H: AssociativeHash,
+{
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self::Output {
+            hash: self.hash + rhs.hash,
+            count: self.count + rhs.count,
+        }
     }
 }
 
