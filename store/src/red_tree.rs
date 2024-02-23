@@ -167,24 +167,32 @@ where
                     // Bucket is full, we need to create a new bucket.
                     // Need to split a bucket which means querying storage for the middle of the
                     // range and the hashes.
-                    let start = &node
-                        .keys
-                        .get(idx)
-                        .cloned()
-                        .unwrap_or_else(|| EventId::min_value());
-                    let end = &node
-                        .keys
-                        .get(idx + 1)
-                        .cloned()
-                        .unwrap_or_else(|| EventId::max_value());
+                    let bucket_lower_bound = if idx == 0 {
+                        EventId::min_value()
+                    } else {
+                        node.keys[idx - 1].clone()
+                    };
+                    let bucket_upper_bound = if idx == node.keys.len() {
+                        EventId::max_value()
+                    } else {
+                        node.keys[idx].clone()
+                    };
                     let middle = self
                         .store
-                        .middle(start, end)
+                        .middle(&bucket_lower_bound, &bucket_upper_bound)
                         .await?
                         .expect("should have a middle key as the range should not be empty");
-                    let left_hash = self.store.hash_range(start, &middle).await?;
-                    let right_hash = self.store.hash_range(&middle, end).await?;
-                    debug!( ?node.buckets, ?idx, ?left_hash, ?right_hash, ?middle, "split bucket");
+                    let mut left_hash = self.store.hash_range(&bucket_lower_bound..&middle).await?;
+                    let mut right_hash =
+                        self.store.hash_range(&middle..=&bucket_upper_bound).await?;
+                    debug!(?node.keys, ?node.buckets, ?idx, ?left_hash, ?right_hash, ?bucket_lower_bound, ?middle, ?bucket_upper_bound, "split bucket");
+
+                    // Add new key to corresponding bucket
+                    if kv.key <= middle {
+                        left_hash = left_hash + kv.value.clone()
+                    } else {
+                        right_hash = right_hash + kv.value.clone()
+                    }
                     node.buckets[idx] = left_hash;
                     node.buckets.insert(idx + 1, right_hash);
                     node.keys.insert(idx, middle);
@@ -432,14 +440,85 @@ mod tests {
     use super::*;
 
     #[test(tokio::test)]
-    async fn insert() -> Result<()> {
+    async fn insert_bucket_split() -> Result<()> {
+        // Sequnce of event cids and out of order event heights
+        let event_cids = [
+            (
+                10,
+                "baeabeihs6d6uqgwmzx6ecfp7xhyh6xjtkfyz7uk3isl6ltdugvhdlnz2t4",
+            ),
+            (
+                65,
+                "baeabeihmehptgvwi6dze6u47dudpr4xlqo5l5uf2uvtfbxe3djgkuycssu",
+            ),
+            (
+                42,
+                "baeabeifrumdf3z6lpr3jvkntch6odg67pax7mh3xc4iexvruy7hyytqrey",
+            ),
+            (
+                88,
+                "baeabeieyfbocqcfwpbbevuqihadytl7r7lb5l7itpl2whxvcvdspywmmhm",
+            ),
+            (
+                62,
+                "baeabeidzmhuu2dlzae2hiemgo7vt4ukfd3lrgb5cbmnpxqmmdndndrtrli",
+            ),
+            (
+                98,
+                "baeabeiflb4ouht2xjyolq7jonivirkfmehtdhvvysi7vm2ecv2re7p66qi",
+            ),
+            (
+                91,
+                "baeabeih4l5ju2t4zwecj27vxk7kive35wifztuy2qgcidvpysfj7nkaiqi",
+            ),
+            (
+                16,
+                "baeabeifj4s7qqpfo2dybtfzcw7szcxyn7ncrxbhtjdxis4ite2cvnila5e",
+            ),
+            (
+                37,
+                "baeabeifuxzbsklgahpo4dec3hlc5tusp4qwc4hpco7ekdpvwjcjfv7padq",
+            ),
+            (
+                19,
+                "baeabeigwafzjidramjofzakjpdhe6zokt3yuh4knwljkjqbgqivukzdrgy",
+            ),
+            (
+                45,
+                "baeabeif7b3eqabqkbixtf6miyc4x5bsaa56jkbifn2y4zfxylm75ecjefa",
+            ),
+            (
+                54,
+                "baeabeifufg43ekvzalgcaf3gn4qq4ycsme24sfrm6c75nqq3gdbvpzjlua",
+            ),
+            (
+                85,
+                "baeabeidv26lfoqaqimfq3g6ssjgps3gpdcfn3xcr44s3hw5xi4ojdu4aau",
+            ),
+            (
+                79,
+                "baeabeia6e7c4bjvtd2gpfm5azmsdnzhrrgdksydr2trg44t3jekamcaffi",
+            ),
+            (
+                46,
+                "baeabeida7l2dayfgniuu6fy6e6hxxhkc4lfg43ppvicvu6hqsqcpmturiu",
+            ),
+            (
+                79,
+                "baeabeiccwx2fqh5u2omxmeyoxqictcze7xnanf7pe5hvpr3xxnox32ayhm",
+            ),
+        ];
         let mut tree = RedTree::<recon::BTreeStore<EventId, Sha256a>>::builder()
             .with_b(2)
             .with_bucket_size(4)
             .build(recon::BTreeStore::default());
-        for _ in 0..16 {
-            tree.insert(ReconItem::new_key(&random_event_id(None, None)))
-                .await?;
+        for (i, cid) in &event_cids {
+            tree.insert(ReconItem::new_key(&random_event_id(
+                Some(*i as u64),
+                Some(cid),
+            )))
+            .await?;
+            println!("{i}\n{tree:#?}");
         }
         expect![""].assert_debug_eq(&tree);
         Ok(())
