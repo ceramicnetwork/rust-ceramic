@@ -26,11 +26,16 @@ spec:
                     secretKeyRef:
                       name: grafana-api-key
                       key: api-key
-                - name: DISCORD_WEBHOOK_URL
+                - name: DISCORD_WEBHOOK_URL_SUCCEEDED
                   valueFrom:
                     secretKeyRef:
                       name: discord
-                      key: DISCORD_WEBHOOK_URL
+                      key: DISCORD_WEBHOOK_URL_SUCCEEDED
+                - name: DISCORD_WEBHOOK_URL_FAILED
+                  valueFrom:
+                    secretKeyRef:
+                      name: discord
+                      key: DISCORD_WEBHOOK_URL_FAILED
               envFrom:
                 - configMapRef:
                     name: local-config
