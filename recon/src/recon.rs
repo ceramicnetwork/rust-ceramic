@@ -383,7 +383,7 @@ impl<H> From<H> for HashCount<H> {
     fn from(value: H) -> Self {
         Self {
             hash: value,
-            count: 0,
+            count: 1,
         }
     }
 }

@@ -1,27 +1,62 @@
+use anyhow::Result;
+use async_recursion::async_recursion;
 use ceramic_core::{EventId, RangeOpen};
-use recon::{HashCount, Sha256a};
+use recon::{AssociativeHash, HashCount, Key, ReconItem, Sha256a};
 use tracing::debug;
 
 /// Red(uction)Tree is a variant of BTree that is only the top portion of a btree.
 /// The tree is in memory and can serve queries about the large ranges of the tree but delegates to
 /// another implementation for more fine grained ranges of the tree.
-#[derive(Debug)]
-pub struct RedTree {
+///
+/// It is named a Reduction Tree because the only query supported is a reduction of values within a
+/// range. The value must be associative and communitative so that it can be partially reduced and
+/// store on intermediate nodes.
+pub struct RedTree<S> {
     root: Option<Node>,
+    b: usize,
+    bucket_size: u64,
+    store: S,
+}
+
+impl<S> std::fmt::Debug for RedTree<S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RedTree")
+            .field("root", &self.root)
+            .field("b", &self.b)
+            .field("bucket_size", &self.bucket_size)
+            .finish()
+    }
+}
+
+pub struct Builder {
     b: usize,
     bucket_size: u64,
 }
 
-impl Default for RedTree {
-    fn default() -> Self {
+impl Builder {
+    pub fn with_b(self, b: usize) -> Self {
+        Self { b, ..self }
+    }
+    pub fn with_bucket_size(self, bucket_size: u64) -> Self {
         Self {
+            bucket_size,
+            ..self
+        }
+    }
+    pub fn build<S>(self, store: S) -> RedTree<S>
+    where
+        S: recon::Store<Key = EventId, Hash = Sha256a>,
+    {
+        RedTree {
             root: None,
-            b: 16,
-            bucket_size: 2_u64.pow(15),
+            store,
+            b: self.b,
+            bucket_size: self.bucket_size,
         }
     }
 }
 
+#[derive(Clone)]
 pub struct Entry {
     key: EventId,
     value: HashCount<Sha256a>,
@@ -34,43 +69,39 @@ impl Entry {
     }
 }
 
-impl RedTree {
-    /// Construct a new empty RedTree with the configure branching factor and bucket size.
-    pub fn new(b: usize, bucket_size: u64) -> Self {
-        Self {
-            root: None,
-            b,
-            bucket_size,
+impl<S> RedTree<S> {
+    /// Create a builder for constructing a RedTree.
+    pub fn builder() -> Builder {
+        Builder {
+            b: 16,
+            bucket_size: 2_u64.pow(15),
         }
     }
-
-    pub fn new_internal_node(&self) -> Internal {
-        let size = 2 * self.b - 1;
-        Internal {
-            keys: Vec::with_capacity(size - 1),
-            children: Vec::with_capacity(size),
-            values: Vec::with_capacity(size),
-        }
-    }
-
-    fn new_leaf_node(&self) -> Leaf {
-        let size = 2 * self.b - 1;
-        let mut buckets = Vec::with_capacity(size);
-        buckets.push(HashCount::default());
-        Leaf {
-            keys: Vec::with_capacity(size),
-            buckets,
-        }
+}
+impl<S> RedTree<S>
+where
+    S: recon::Store<Key = EventId, Hash = Sha256a> + Send,
+{
+    /// Insert a ReconItem into the store
+    pub async fn insert(&mut self, item: ReconItem<'_, EventId>) -> Result<bool> {
+        // First update the RedTree
+        self.insert_hash(Entry {
+            key: item.key.clone(),
+            value: Sha256a::digest(item.key).into(),
+        })
+        .await?;
+        // Second insert into the store.
+        self.store.insert(item).await
     }
     /// Insert a key value pair possibly splitting nodes along the way.
-    pub fn insert(&mut self, kv: Entry) {
+    async fn insert_hash(&mut self, kv: Entry) -> Result<()> {
         if let Some(mut root) = self.root.take() {
             if self.is_node_full(&root) {
                 // split the root creating a new root and child nodes along the way.
                 let (median, sibling) = root.split(self.b);
                 let root_value = root.reduce();
                 let sibling_value = sibling.reduce();
-                let mut new_root = self.new_internal_node();
+                let mut new_root = Internal::new(self.b);
                 new_root.children.push(root);
                 new_root.children.push(sibling);
                 new_root.keys.push(median);
@@ -78,19 +109,21 @@ impl RedTree {
                 new_root.values.push(sibling_value);
                 root = Node::Internal(new_root);
             }
-            // Continue recursively
-            self.insert_non_full(&mut root, kv);
+            let ret = self.insert_non_full(&mut root, kv).await;
             self.root = Some(root);
+            ret
         } else {
-            let mut root = Node::Leaf(self.new_leaf_node());
-            self.insert_non_full(&mut root, kv);
+            let mut root = Node::Leaf(Leaf::new(self.b));
+            let ret = self.insert_non_full(&mut root, kv).await;
             self.root = Some(root);
+            ret
         }
     }
 
     /// insert_non_full (recursively) finds a node rooted at a given non-full node.
     /// to insert a given key-value pair.
-    fn insert_non_full(&self, node: &mut Node, kv: Entry) {
+    #[async_recursion]
+    async fn insert_non_full(&mut self, node: &mut Node, kv: Entry) -> Result<()> {
         match node {
             Node::Internal(node) => {
                 let idx = node.keys.binary_search(&kv.key).unwrap_or_else(|x| x);
@@ -98,11 +131,11 @@ impl RedTree {
                 if self.is_node_full(&child) {
                     let (median, mut sibling) = child.split(self.b);
 
-                    // Continue recursively.
-                    if kv.key <= median {
-                        self.insert_non_full(child, kv);
+                    // Recurse
+                    let ret = if kv.key <= median {
+                        self.insert_non_full(child, kv).await
                     } else {
-                        self.insert_non_full(&mut sibling, kv);
+                        self.insert_non_full(&mut sibling, kv).await
                     };
 
                     // Now that both child and sibling are udpated we can update the current node.
@@ -115,24 +148,50 @@ impl RedTree {
                     // at the next index.
                     node.children.insert(idx + 1, sibling);
                     node.keys.insert(idx, median.clone());
+
+                    ret
                 } else {
-                    // Child is not full, simply update its value and recurse
-                    node.values[idx] = node.values[idx].clone() + kv.value.clone();
-                    self.insert_non_full(child, kv);
+                    // Child is not full, simply recurse and update its value
+                    let ret = self.insert_non_full(child, kv.clone()).await;
+                    if ret.is_ok() {
+                        // Only update our local value if we are successful in inserting the value.
+                        node.values[idx] = node.values[idx].clone() + kv.value;
+                    }
+                    ret
                 }
             }
             Node::Leaf(node) => {
                 let idx = node.keys.binary_search(&kv.key).unwrap_or_else(|x| x);
                 let bucket = &node.buckets[idx];
                 if bucket.count() >= self.bucket_size {
-                    // Bucket is full, we need to create a new bucket
-                    // Need to split a bucket which means querying storage for the split of the
-                    // range.
-                    // Can we do that out of band without needing to block on storage?
-                    todo!()
+                    // Bucket is full, we need to create a new bucket.
+                    // Need to split a bucket which means querying storage for the middle of the
+                    // range and the hashes.
+                    let start = &node
+                        .keys
+                        .get(idx)
+                        .cloned()
+                        .unwrap_or_else(|| EventId::min_value());
+                    let end = &node
+                        .keys
+                        .get(idx + 1)
+                        .cloned()
+                        .unwrap_or_else(|| EventId::max_value());
+                    let middle = self
+                        .store
+                        .middle(start, end)
+                        .await?
+                        .expect("should have a middle key as the range should not be empty");
+                    let left_hash = self.store.hash_range(start, &middle).await?;
+                    let right_hash = self.store.hash_range(&middle, end).await?;
+                    debug!( ?node.buckets, ?idx, ?left_hash, ?right_hash, ?middle, "split bucket");
+                    node.buckets[idx] = left_hash;
+                    node.buckets.insert(idx + 1, right_hash);
+                    node.keys.insert(idx, middle);
                 } else {
                     node.buckets[idx] = bucket.clone() + kv.value.clone();
                 }
+                Ok(())
             }
         }
     }
@@ -146,9 +205,9 @@ impl RedTree {
         }
     }
 
-    pub fn reduce(&self, range: RangeOpen<EventId>) -> HashCount<Sha256a> {
+    pub async fn reduce(&self, range: RangeOpen<EventId>) -> HashCount<Sha256a> {
         if let Some(root) = &self.root {
-            self.reduce_node(root, &range).1
+            self.reduce_node(&root, &range).1
         } else {
             HashCount::default()
         }
@@ -287,6 +346,17 @@ struct Internal {
     // Reduced values for each child
     values: Vec<HashCount<Sha256a>>,
 }
+
+impl Internal {
+    fn new(b: usize) -> Internal {
+        let size = 2 * b - 1;
+        Internal {
+            keys: Vec::with_capacity(size - 1),
+            children: Vec::with_capacity(size),
+            values: Vec::with_capacity(size),
+        }
+    }
+}
 impl std::fmt::Debug for Internal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Internal")
@@ -317,6 +387,18 @@ struct Leaf {
     buckets: Vec<HashCount<Sha256a>>,
 }
 
+impl Leaf {
+    fn new(b: usize) -> Leaf {
+        let size = 2 * b - 1;
+        let mut buckets = Vec::with_capacity(size);
+        buckets.push(HashCount::default());
+        Leaf {
+            keys: Vec::with_capacity(size),
+            buckets,
+        }
+    }
+}
+
 impl std::fmt::Debug for Leaf {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Leaf")
@@ -343,28 +425,23 @@ impl std::fmt::Debug for Leaf {
 #[cfg(test)]
 mod tests {
     use expect_test::expect;
-    use rand::{thread_rng, Rng};
+    use test_log::test;
 
     use crate::tests::random_event_id;
 
     use super::*;
 
-    fn random_hash() -> HashCount<Sha256a> {
-        let mut hash: [u32; 8] = [0; 8];
-        thread_rng().fill(&mut hash);
-        HashCount::new(Sha256a::from(hash), 1)
-    }
-
-    #[test]
-    fn insert() {
-        let mut tree = RedTree::new(2, 4);
-        tree.insert(Entry::new(random_event_id(None, None), random_hash()));
-        tree.insert(Entry::new(random_event_id(None, None), random_hash()));
-        tree.insert(Entry::new(random_event_id(None, None), random_hash()));
-        tree.insert(Entry::new(random_event_id(None, None), random_hash()));
-        tree.insert(Entry::new(random_event_id(None, None), random_hash()));
-        tree.insert(Entry::new(random_event_id(None, None), random_hash()));
-        tree.insert(Entry::new(random_event_id(None, None), random_hash()));
+    #[test(tokio::test)]
+    async fn insert() -> Result<()> {
+        let mut tree = RedTree::<recon::BTreeStore<EventId, Sha256a>>::builder()
+            .with_b(2)
+            .with_bucket_size(4)
+            .build(recon::BTreeStore::default());
+        for _ in 0..16 {
+            tree.insert(ReconItem::new_key(&random_event_id(None, None)))
+                .await?;
+        }
         expect![""].assert_debug_eq(&tree);
+        Ok(())
     }
 }
