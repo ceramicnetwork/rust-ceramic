@@ -65,12 +65,19 @@ if [ -n "$AFFINITY_TAG" ]; then
   kubectl label pods -l app=otel affinity="$AFFINITY_TAG" -n "${NETWORK_NAMESPACE}"
 fi
 
-sleep 300 # wait for the network to stabilize and bootstrap
+echo "Waiting for the network to stabilize and bootstrap"
+sleep 300
 kubectl wait --for=condition=complete job/bootstrap -n "${NETWORK_NAMESPACE}"
 
 # Start the simulation and tag resources
-./yq -e '.metadata.name = env(SIM_NAME), .metadata.namespace = env(NETWORK_NAMESPACE)' \
-  /config/sim.yaml > simulation.yaml
+if [ -f /simulation/simulation.yaml ]; then
+  ./yq -e '.metadata.name = env(SIM_NAME), .metadata.namespace = env(NETWORK_NAMESPACE)' \
+  /simulation/simulation.yaml > simulation.yaml
+else
+  ./yq -e '.metadata.name = env(SIM_NAME), .metadata.namespace = env(NETWORK_NAMESPACE)' \
+    /config/simulation.yaml > simulation.yaml
+fi
+
 kubectl apply -f simulation.yaml
 SIMULATION_RUNTIME=$(./yq e '.spec.runTime' simulation.yaml)
 export SIMULATION_RUNTIME
@@ -111,7 +118,7 @@ export SIMULATION_COLOR
 # Send Discord notification
 envsubst < /notifications/notification-template.json  > message.json
 cat message.json
-curl -v -H "Content-Type: application/json" -X POST -d @./message.json $DISCORD_WEBHOOK_URL
+curl -v -H "Content-Type: application/json" -X POST -d @./message.json "$DISCORD_WEBHOOK_URL"
 
 ANNOTATION=$(cat <<EOF
 {

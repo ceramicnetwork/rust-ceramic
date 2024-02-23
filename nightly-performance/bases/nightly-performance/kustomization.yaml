@@ -7,7 +7,7 @@ configMapGenerator:
   - name: nightly-performance
     files:
       - network.yaml
-      - sim.yaml
+      - simulation.yaml
       - podmonitors.yaml
       - nightly-performance.sh
   - name: notifications
