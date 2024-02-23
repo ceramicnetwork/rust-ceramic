@@ -1,0 +1,23 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: nightly-performance
+spec:
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          volumes:
+            - name: network
+              configMap:
+                name: network
+            - name: simulation
+              configMap:
+                name: simulation
+          containers:
+            - name: nightly-performance
+              volumeMounts:
+                - name: network
+                  mountPath: /network
+                - name: simulation
+                  mountPath: /simulation

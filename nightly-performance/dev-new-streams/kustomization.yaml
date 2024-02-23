@@ -1,0 +1,22 @@
+namespace: nightly-performance-dev-new-streams
+resources:
+  - ../bases/nightly-performance
+  - ./clusterrolebinding.yaml
+
+configMapGenerator:
+  - name: local-config
+    envs:
+      - ./local-config.env
+  # - name: affinity
+  #   files:
+  #     - ./affinity.yaml
+  - name: simulation
+    files:
+      - ./simulation.yaml
+  - name: network
+    files:
+      - ./network.yaml
+
+# patch the cronb job to mount the configmap for affinity
+patchesStrategicMerge:
+  - patches/network-sim.yaml

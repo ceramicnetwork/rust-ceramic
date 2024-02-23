@@ -81,13 +81,15 @@ fi
 kubectl apply -f simulation.yaml
 SIMULATION_RUNTIME=$(./yq e '.spec.runTime' simulation.yaml)
 export SIMULATION_RUNTIME
+SIMULATION_SCENARIO=$(./yq e '.spec.scenario' simulation.yaml)
+export SIMULATION_SCENARIO
 sleep 60 # wait for the simulation to start
 KERAMIK_SIMULATE_NAME=$(kubectl get job simulate-manager \
   -o jsonpath='{.spec.template.spec.containers[?(@.name=="manager")].env[?(@.name=="SIMULATE_NAME")].value}' -n "${NETWORK_NAMESPACE}")
 export KERAMIK_SIMULATE_NAME
 if [ -n "$KERAMIK_SIMULATE_NAME" ]; then
-  kubectl label pods -l app=ceramic simulation="$KERAMIK_SIMULATE_NAME" -n "${NETWORK_NAMESPACE}"
-  kubectl label pods -l app=otel simulation="$KERAMIK_SIMULATE_NAME" -n "${NETWORK_NAMESPACE}"
+  kubectl label pods -l app=ceramic scenario="$SIMULATION_SCENARIO" simulation="$KERAMIK_SIMULATE_NAME" -n "${NETWORK_NAMESPACE}"
+  kubectl label pods -l app=otel scenario="$SIMULATION_SCENARIO" simulation="$KERAMIK_SIMULATE_NAME" -n "${NETWORK_NAMESPACE}"
 fi
 
 echo "Simulation will run for $SIMULATION_RUNTIME minutes"

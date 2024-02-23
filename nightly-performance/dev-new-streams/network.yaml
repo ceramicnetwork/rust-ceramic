@@ -1,0 +1,26 @@
+---
+apiVersion: "keramik.3box.io/v1alpha1"
+kind: Network
+metadata:
+  name: nightly-dev-hermetic
+spec:
+  replicas: 2
+  ttlSeconds: 14400
+  ceramic:
+    - env:
+        CERAMIC_RECON_MODE: "true"
+      ipfs:
+        rust:
+          env:
+            RUST_LOG: info,recon=trace
+          resourceLimits:
+            cpu: "4"
+            memory: 1Gi
+          image: public.ecr.aws/r5b3e0r5/3box/ceramic-one:latest
+          storageClass: keramik-ssd
+  # Use Kubo with CAS because it still needs pubsub
+  cas:
+    ipfs:
+      go: {}
+  monitoring:
+    namespaced: true

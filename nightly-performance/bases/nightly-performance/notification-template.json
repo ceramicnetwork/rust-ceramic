@@ -11,19 +11,23 @@
             "inline": true
           },
           {
-            "name": "Namespace",
-            "value": "$NETWORK_NAMESPACE",
+            "name": "Simulation",
+            "value": "$KERAMIK_SIMULATE_NAME",
             "inline": true
           },
           {
-            "name": "Simulation",
-            "value": "$KERAMIK_SIMULATE_NAME",
+            "name": "Scenario",
+            "value": "$SIMULATION_SCENARIO",
             "inline": true
           },
           {
             "name": "Duration",
             "value": "$SIMULATION_RUNTIME",
             "inline": true
+          },
+          {
+            "name": "Namespace",
+            "value": "$NETWORK_NAMESPACE"
           }
         ]
       }
