@@ -1264,18 +1264,24 @@ dependencies = [
  "futures",
  "git-version",
  "glob",
+ "hex",
  "home",
  "hyper",
  "iroh-bitswap",
  "iroh-rpc-client",
  "iroh-rpc-types",
  "libp2p",
+ "minicbor",
  "multiaddr",
  "multibase 0.9.1",
  "multihash 0.18.1",
  "names",
+ "ordered-float",
  "prometheus-client",
  "recon",
+ "reqwest",
+ "serde",
+ "serde_json",
  "signal-hook",
  "signal-hook-tokio",
  "swagger",
@@ -5780,6 +5786,15 @@ name = "option-ext"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
+
+[[package]]
+name = "ordered-float"
+version = "4.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a76df7075c7d4d01fdcb46c912dd17fba5b60c78ea480b475f2b6ab6f666584e"
+dependencies = [
+ "num-traits",
+]
 
 [[package]]
 name = "os_str_bytes"
