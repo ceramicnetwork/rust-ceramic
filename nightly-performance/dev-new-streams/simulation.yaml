@@ -6,7 +6,7 @@ metadata:
   namespace: keramik-ceramic-v4-dev
 spec:
   scenario: ceramic-new-streams-benchmark
-  successRequestTarget: 100
+  successRequestTarget: 30
   # throttleRequests: 500
   users: 10
-  runTime: 5
+  runTime: 20

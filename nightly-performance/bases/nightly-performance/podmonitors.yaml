@@ -13,6 +13,8 @@ spec:
   podTargetLabels:
     - affinity
     - storageClass
+    - scenario
+    - simulation
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
@@ -28,6 +30,8 @@ spec:
       app: ceramic
   podTargetLabels:
     - affinity
+    - scenario
+    - simulation
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
@@ -43,3 +47,5 @@ spec:
       app: ceramic
   podTargetLabels:
     - affinity
+    - scenario
+    - simulation
