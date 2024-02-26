@@ -68,12 +68,6 @@ pub enum LivenessGetResponse {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub enum SubscribeSortKeySortValueGetResponse {
-    /// success
-    Success(Vec<models::EventDeprecated>),
-}
-
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub enum VersionPostResponse {
     /// success
     Success(models::Version),
@@ -137,18 +131,6 @@ pub trait Api<C: Send + Sync> {
     /// Test the liveness of the Ceramic node
     async fn liveness_get(&self, context: &C) -> Result<LivenessGetResponse, ApiError>;
 
-    /// Get events for a stream
-    async fn subscribe_sort_key_sort_value_get(
-        &self,
-        sort_key: String,
-        sort_value: String,
-        controller: Option<String>,
-        stream_id: Option<String>,
-        offset: Option<f64>,
-        limit: Option<f64>,
-        context: &C,
-    ) -> Result<SubscribeSortKeySortValueGetResponse, ApiError>;
-
     /// Get the version of the Ceramic node
     async fn version_post(&self, context: &C) -> Result<VersionPostResponse, ApiError>;
 }
@@ -205,17 +187,6 @@ pub trait ApiNoContext<C: Send + Sync> {
 
     /// Test the liveness of the Ceramic node
     async fn liveness_get(&self) -> Result<LivenessGetResponse, ApiError>;
-
-    /// Get events for a stream
-    async fn subscribe_sort_key_sort_value_get(
-        &self,
-        sort_key: String,
-        sort_value: String,
-        controller: Option<String>,
-        stream_id: Option<String>,
-        offset: Option<f64>,
-        limit: Option<f64>,
-    ) -> Result<SubscribeSortKeySortValueGetResponse, ApiError>;
 
     /// Get the version of the Ceramic node
     async fn version_post(&self) -> Result<VersionPostResponse, ApiError>;
@@ -312,24 +283,6 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
     async fn liveness_get(&self) -> Result<LivenessGetResponse, ApiError> {
         let context = self.context().clone();
         self.api().liveness_get(&context).await
-    }
-
-    /// Get events for a stream
-    async fn subscribe_sort_key_sort_value_get(
-        &self,
-        sort_key: String,
-        sort_value: String,
-        controller: Option<String>,
-        stream_id: Option<String>,
-        offset: Option<f64>,
-        limit: Option<f64>,
-    ) -> Result<SubscribeSortKeySortValueGetResponse, ApiError> {
-        let context = self.context().clone();
-        self.api()
-            .subscribe_sort_key_sort_value_get(
-                sort_key, sort_value, controller, stream_id, offset, limit, &context,
-            )
-            .await
     }
 
     /// Get the version of the Ceramic node

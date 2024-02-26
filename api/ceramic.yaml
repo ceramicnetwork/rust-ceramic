@@ -31,55 +31,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/Version'
           description: success
-  '/subscribe/{sort_key}/{sort_value}':
-    get:
-      summary: Get events for a stream
-      parameters:
-        - name: sort_key
-          in: path
-          description: name of the sort_key
-          schema:
-            type: string
-          required: true
-        - name: sort_value
-          in: path
-          description: value associated with the sort key
-          schema:
-            type: string
-          required: true
-        - name: controller
-          in: query
-          description: the controller to subscribe to.
-          required: false
-          schema:
-            type: string
-        - name: streamId
-          in: query
-          description: the stream to subscribe to.
-          required: false
-          schema:
-            type: string
-        - name: offset
-          in: query
-          description: the number of events to skip in the given range, default is 0.
-          required: false
-          schema:
-            type: number
-        - name: limit
-          in: query
-          description: the maximum number of events to return, default is no limit.
-          required: false
-          schema:
-            type: number
-      responses:
-        '200':
-          description: success
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/EventDeprecated'
   /events:
     post:
       summary: Creates a new event
@@ -271,20 +222,6 @@ components:
         version:
           type: string
           description: Version of the Ceramic node
-    EventDeprecated:
-      title: A Ceramic Event (deprecated. Use Event instead)
-      description: A Ceramic event as part of a Ceramic Stream
-      type: object
-      required:
-        - eventId
-        - eventData
-      properties:
-        eventId:
-          type: string
-          description: Multibase encoding of event id bytes.
-        eventData:
-          type: string
-          description: Multibase encoding of event data.
     Event:
       title: A Ceramic Event
       description: A Ceramic event as part of a Ceramic Stream

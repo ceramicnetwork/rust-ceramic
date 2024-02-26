@@ -4,8 +4,7 @@
 use ceramic_api_server::{
     models, Api, ApiNoContext, Client, ContextWrapperExt, EventsEventIdGetResponse,
     EventsPostResponse, EventsSortKeySortValueGetResponse, FeedEventsGetResponse,
-    InterestsSortKeySortValuePostResponse, LivenessGetResponse,
-    SubscribeSortKeySortValueGetResponse, VersionPostResponse,
+    InterestsSortKeySortValuePostResponse, LivenessGetResponse, VersionPostResponse,
 };
 use clap::{App, Arg};
 #[allow(unused_imports)]
@@ -40,7 +39,6 @@ fn main() {
                     "FeedEventsGet",
                     "InterestsSortKeySortValuePost",
                     "LivenessGet",
-                    "SubscribeSortKeySortValueGet",
                     "VersionPost",
                 ])
                 .required(true)
@@ -152,21 +150,6 @@ fn main() {
         }
         Some("LivenessGet") => {
             let result = rt.block_on(client.liveness_get());
-            info!(
-                "{:?} (X-Span-ID: {:?})",
-                result,
-                (client.context() as &dyn Has<XSpanIdString>).get().clone()
-            );
-        }
-        Some("SubscribeSortKeySortValueGet") => {
-            let result = rt.block_on(client.subscribe_sort_key_sort_value_get(
-                "sort_key_example".to_string(),
-                "sort_value_example".to_string(),
-                Some("controller_example".to_string()),
-                Some("stream_id_example".to_string()),
-                Some(8.14),
-                Some(8.14),
-            ));
             info!(
                 "{:?} (X-Span-ID: {:?})",
                 result,

@@ -103,7 +103,7 @@ use ceramic_api_server::server::MakeService;
 use ceramic_api_server::{
     Api, EventsEventIdGetResponse, EventsPostResponse, EventsSortKeySortValueGetResponse,
     FeedEventsGetResponse, InterestsSortKeySortValuePostResponse, LivenessGetResponse,
-    SubscribeSortKeySortValueGetResponse, VersionPostResponse,
+    VersionPostResponse,
 };
 use std::error::Error;
 use swagger::ApiError;
@@ -195,21 +195,6 @@ where
     /// Test the liveness of the Ceramic node
     async fn liveness_get(&self, context: &C) -> Result<LivenessGetResponse, ApiError> {
         info!("liveness_get() - X-Span-ID: {:?}", context.get().0.clone());
-        Err(ApiError("Generic failure".into()))
-    }
-
-    /// Get events for a stream
-    async fn subscribe_sort_key_sort_value_get(
-        &self,
-        sort_key: String,
-        sort_value: String,
-        controller: Option<String>,
-        stream_id: Option<String>,
-        offset: Option<f64>,
-        limit: Option<f64>,
-        context: &C,
-    ) -> Result<SubscribeSortKeySortValueGetResponse, ApiError> {
-        info!("subscribe_sort_key_sort_value_get(\"{}\", \"{}\", {:?}, {:?}, {:?}, {:?}) - X-Span-ID: {:?}", sort_key, sort_value, controller, stream_id, offset, limit, context.get().0.clone());
         Err(ApiError("Generic failure".into()))
     }
 

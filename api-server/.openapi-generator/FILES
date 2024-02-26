@@ -4,7 +4,6 @@ Cargo.toml
 README.md
 api/openapi.yaml
 docs/Event.md
-docs/EventDeprecated.md
 docs/EventFeed.md
 docs/EventsGet.md
 docs/EventsPostRequest.md
