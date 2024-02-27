@@ -6,8 +6,9 @@ use cid::{multibase, multihash, Cid};
 use clap::{Args, Subcommand};
 use glob::{glob, Paths};
 use minicbor::{data::Tag, data::Type, display, Decoder};
-use multihash::Multihash;
+use multihash::{Multihash, Sha2_256};
 use ordered_float::OrderedFloat;
+use recon::{Key, Sha256a, Store};
 use std::collections::BTreeMap;
 use std::{fs, path::PathBuf};
 
@@ -45,7 +46,7 @@ pub struct ValidateOpts {
 
     /// Ethereum RPC URL
     #[arg(short, long, env = "ETHEREUM_RPC_URL")]
-    ethereum_rpc_url: Option<String>,
+    ethereum_rpc_url: String,
 }
 
 pub async fn events(cmd: EventsCommand) -> Result<()> {
@@ -96,11 +97,21 @@ async fn validate(opts: ValidateOpts) -> Result<()> {
         .unwrap();
     let store = SQLiteBlockStore::new(pool).await.unwrap();
 
-    // To validate a Time Event, we need:
-    // - TimeEvent/prev == TimeEvent/proof/root/${TimeEvent/path}
-    // - TimeEvent/proof/root is in the Root Store
-    // - Validated time is the time from the Root Store
-    let block = store.get(opts.cid).await?;
+    let timestamp = validate_time_event(&opts.cid, store, opts.ethereum_rpc_url.as_str()).await?;
+    println!("proof validated at timestamp: {}", timestamp);
+    Ok(())
+}
+
+// To validate a Time Event, we need to prove:
+// - TimeEvent/prev == TimeEvent/proof/root/${TimeEvent/path}
+// - TimeEvent/proof/root is in the Root Store
+// - Validated time is the time from the Root Store
+async fn validate_time_event(
+    proof_cid: &Cid,
+    block_store: Store<Sha256a>,
+    ethereum_rpc_url: &str,
+) -> Result<u64> {
+    let block = block_store.get(proof_cid).await?;
     if let Some(block) = block {
         // Destructure the proof to get the tag and the value
         let proof_cid: Cid = CborValue::parse(&block)?.path(&["proof"]).try_into()?;
@@ -110,19 +121,20 @@ async fn validate(opts: ValidateOpts) -> Result<()> {
                 .path(&["txHash"])
                 .try_into()?;
             if let Some(ethereum_rpc_url) = opts.ethereum_rpc_url {
-                let (block_hash, input) = eth_transaction_by_hash().await?;
-                let timestamp = eth_block_by_hash(block_hash).await?;
-            } else {
-                println!("hash CID: {:?}, hash bytes: {:?}", tx_hash_cid, tx_hash);
+                let (root, timestamp) =
+                    eth_transaction_by_hash(tx_hash_cid, ethereum_rpc_url.as_str()).await?;
+                println!("root: {}, timestamp: {}", root, timestamp);
+
+                // Validate the Time Event
+                validate_time_event(&root)?;
             }
         }
     } else {
         println!("CID: {} not found", opts.cid);
     }
-    Ok(())
 }
 
-async fn eth_transaction_by_hash(cid: Cid, ethereum_rpc_url: String) -> Result<(Cid, u64)> {
+async fn eth_transaction_by_hash(cid: Cid, ethereum_rpc_url: &str) -> Result<(Cid, u64)> {
     // curl https://mainnet.infura.io/v3/{api_token} \
     //   -X POST \
     //   -H "Content-Type: application/json" \
@@ -130,7 +142,7 @@ async fn eth_transaction_by_hash(cid: Cid, ethereum_rpc_url: String) -> Result<(
     let tx_hash = format!("0x{}", hex::encode(cid.hash().digest()));
     let client = reqwest::Client::new();
     let res = client
-        .post(ethereum_rpc_url.clone()
+        .post(ethereum_rpc_url)
         .json(&serde_json::json!({
             "jsonrpc": "2.0",
             "method": "eth_getTransactionByHash",
@@ -143,18 +155,22 @@ async fn eth_transaction_by_hash(cid: Cid, ethereum_rpc_url: String) -> Result<(
     println!("json: {}", json);
     if let Some(result) = json.get("result") {
         if let Some(block_hash) = result.get("blockHash") {
-            if let Some(root) = result.get("input") {
-                return Ok((
-                    get_root_from_input(root.to_string())?,
-                    eth_block_by_hash(block_hash.to_string(), ethereum_rpc_url).await?,
-                ));
+            if let Some(block_hash) = block_hash.as_str() {
+                if let Some(input) = result.get("input") {
+                    if let Some(input) = input.as_str() {
+                        return Ok((
+                            get_root_from_input(input)?,
+                            eth_block_by_hash(block_hash, ethereum_rpc_url).await?,
+                        ));
+                    }
+                }
             }
         }
     }
     Err(anyhow!("missing fields"))
 }
 
-async fn eth_block_by_hash(block_hash: String, ethereum_rpc_url: String) -> Result<u64> {
+async fn eth_block_by_hash(block_hash: &str, ethereum_rpc_url: &str) -> Result<u64> {
     // curl https://mainnet.infura.io/v3/{api_token} \
     //     -X POST \
     //     -H "Content-Type: application/json" \
@@ -174,12 +190,15 @@ async fn eth_block_by_hash(block_hash: String, ethereum_rpc_url: String) -> Resu
     println!("json: {}", json);
     if let Some(result) = json.get("result") {
         if let Some(timestamp) = result.get("timestamp") {
-            return Ok(timestamp);
+            if let Some(timestamp) = timestamp.as_str() {
+                return get_timestamp_from_hex_string(timestamp);
+            }
         }
     }
+    Err(anyhow!("missing fields"))
 }
 
-fn get_root_from_input(input: String) -> Result<Cid> {
+fn get_root_from_input(input: &str) -> Result<Cid> {
     if input.starts_with("0x97ad09eb") {
         // Strip "0x97ad09eb" from the input and convert it into a cidv1 - dag-cbor - (sha2-256 : 256)
         // 0x12 -> sha2-256
@@ -188,33 +207,16 @@ fn get_root_from_input(input: String) -> Result<Cid> {
         root_bytes.append(hex::decode(&input[10..])?.as_mut());
         Ok(Cid::new_v1(0x71, Multihash::from_bytes(&root_bytes)?))
     } else {
-        return Err(anyhow!("input is not anchor-cbor"));
+        Err(anyhow!("input is not anchor-cbor"))
     }
 }
 
-async fn block_hash_for_eth_tx_cid(cid: Cid, ethereum_rpc_url: String) -> Result<()> {
-    // curl https://mainnet.infura.io/v3/{api_token} \
-    //   -X POST \
-    //   -H "Content-Type: application/json" \
-    //   -d '{"jsonrpc":"2.0","method":"eth_getTransactionByHash", "params":["0x{tx_hash}"],"id":1}'
-    let tx_hash = format!("0x{}", hex::encode(cid.hash().digest()));
-    let client = reqwest::Client::new();
-    let res = client
-        .post(ethereum_rpc_url)
-        .json(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "method": "eth_getTransactionByHash",
-            "params": [tx_hash],
-            "id": 1,
-        }))
-        .send()
-        .await?;
-    let json: serde_json::Value = res.json().await?;
-    println!("json: {}", json);
-    if let Some(result) = json.get("result") {
-        if let Some(block_hash) = result.get("blockHash") {
-            println!("blockHash: {}", block_hash);
-        }
+fn get_timestamp_from_hex_string(ts: &str) -> Result<u64> {
+    // Strip "0x" from the timestamp and convert it to a u64
+    if let Some(ts) = ts.strip_prefix("0x") {
+        Ok(u64::from_str_radix(ts, 16)?)
+    } else {
+        Err(anyhow!("timestamp is not valid hex"))
     }
 }
 
