@@ -116,12 +116,20 @@ async fn validate_time_event(
     ethereum_rpc_url: &str,
 ) -> Result<i64> {
     if let Some(block) = block_store.get(cid.to_owned()).await? {
+        let time_event = CborValue::parse(&block)?;
         // Destructure the proof to get the tag and the value
-        let proof_cid: Cid = CborValue::parse(&block)?.path(&["proof"]).try_into()?;
+        let proof_cid: Cid = time_event.path(&["proof"]).try_into()?;
+        let prev: Cid =  time_event.path(&["prev"]).try_into()?;
         if let Some(proof_block) = block_store.get(proof_cid).await? {
             println!("proof block: {}", display(&proof_block));
             let proof_cbor = CborValue::parse(&proof_block)?;
             let proof_root: Cid = proof_cbor.path(&["root"]).try_into()?;
+            let path: String = proof_cbor.path(&["path"]).try_into()?;
+
+            if !prev_in_root(prev, proof_root, path, block_store)? {
+                return Err(anyhow!("prev {} not in root {}", prev, proof_root));
+            }
+
             // if root in root_store return timestamp.
             // note: at some point we will need a negative cache to exponentially backoff eth_getTransactionByHash
             if let Ok(Some(timestamp)) = root_store.get(proof_root.hash().digest()).await {
@@ -151,6 +159,10 @@ async fn validate_time_event(
         println!("CID: {} not found", cid);
         Err(anyhow!("CID {} not found", cid))
     } 
+}
+
+fn prev_in_root(prev: Cid,proof_root: Cid, path: String, block_store: &SQLiteBlockStore) -> Result<bool> {
+    return Ok(true);
 }
 
 async fn eth_transaction_by_hash(cid: Cid, ethereum_rpc_url: &str) -> Result<(Cid, i64)> {
@@ -418,6 +430,17 @@ impl TryInto<Cid> for CborValue {
             Cid::try_from(&cid_bytes[1..]).map_err(|e| e.into())
         } else {
             Err(anyhow!("{} not a CID", self.type_name()))
+        }
+    }
+}
+
+impl TryInto<String> for CborValue {
+    type Error = Error;
+    fn try_into(self) -> Result<String, Self::Error> {
+        if let CborValue::String(s) = self {
+            Ok(s)
+        } else {
+            Err(anyhow!("{} not a String", self.type_name()))
         }
     }
 }
