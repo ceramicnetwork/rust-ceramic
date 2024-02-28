@@ -1,8 +1,10 @@
 #![warn(missing_docs, missing_debug_implementations, clippy::all)]
 
+use std::ops::Range;
+
 use anyhow::anyhow;
 use async_trait::async_trait;
-use ceramic_core::{Interest, RangeOpen};
+use ceramic_core::Interest;
 use recon::{
     AssociativeHash, Error as ReconError, HashCount, InsertResult, Key, ReconItem,
     Result as ReconResult, Sha256a,
@@ -76,15 +78,14 @@ impl SqliteInterestStore {
 
     async fn range_int(
         &self,
-        left_fencepost: &Interest,
-        right_fencepost: &Interest,
+        range: Range<&Interest>,
         offset: usize,
         limit: usize,
     ) -> Result<Box<dyn Iterator<Item = Interest> + Send + 'static>> {
         let query = sqlx::query(ReconQuery::range(ReconType::Interest));
         let rows = query
-            .bind(left_fencepost.as_bytes())
-            .bind(right_fencepost.as_bytes())
+            .bind(range.start.as_bytes())
+            .bind(range.end.as_bytes())
             .bind(limit as i64)
             .bind(offset as i64)
             .fetch_all(self.pool.reader())
@@ -119,7 +120,7 @@ impl ceramic_api::AccessInterestStore for SqliteInterestStore {
         offset: usize,
         limit: usize,
     ) -> anyhow::Result<Vec<Interest>> {
-        Ok(self.range_int(start, end, offset, limit).await?.collect())
+        Ok(self.range_int(start..end, offset, limit).await?.collect())
     }
 }
 
@@ -166,21 +167,17 @@ impl recon::Store for SqliteInterestStore {
 
     /// return the hash and count for a range
     #[instrument(skip(self))]
-    async fn hash_range(
-        &self,
-        left_fencepost: &Interest,
-        right_fencepost: &Interest,
-    ) -> ReconResult<HashCount<Self::Hash>> {
-        if left_fencepost >= right_fencepost {
-            return Ok(HashCount::new(Self::Hash::identity(), 0));
+    async fn hash_range(&self, range: Range<&Interest>) -> ReconResult<HashCount<Self::Hash>> {
+        if range.start >= range.end {
+            return Ok(HashCount::new(Sha256a::identity(), 0));
         }
 
         let res: ReconHash = sqlx::query_as(ReconQuery::hash_range(
             ReconType::Interest,
             SqlBackend::Sqlite,
         ))
-        .bind(left_fencepost.as_bytes())
-        .bind(right_fencepost.as_bytes())
+        .bind(range.start.as_bytes())
+        .bind(range.end.as_bytes())
         .fetch_one(self.pool.reader())
         .await
         .map_err(Error::from)?;
@@ -191,40 +188,30 @@ impl recon::Store for SqliteInterestStore {
     #[instrument(skip(self))]
     async fn range(
         &self,
-        left_fencepost: &Interest,
-        right_fencepost: &Interest,
+        range: Range<&Interest>,
         offset: usize,
         limit: usize,
     ) -> ReconResult<Box<dyn Iterator<Item = Interest> + Send + 'static>> {
-        Ok(self
-            .range_int(left_fencepost, right_fencepost, offset, limit)
-            .await?)
+        Ok(self.range_int(range, offset, limit).await?)
     }
 
     #[instrument(skip(self))]
     /// Interests don't have values, so the value will always be an empty vec. Use `range` instead.
     async fn range_with_values(
         &self,
-        left_fencepost: &Interest,
-        right_fencepost: &Interest,
+        range: Range<&Interest>,
         offset: usize,
         limit: usize,
     ) -> ReconResult<Box<dyn Iterator<Item = (Interest, Vec<u8>)> + Send + 'static>> {
-        let rows = self
-            .range(left_fencepost, right_fencepost, offset, limit)
-            .await?;
+        let rows = self.range(range, offset, limit).await?;
         Ok(Box::new(rows.into_iter().map(|key| (key, Vec::new()))))
     }
     /// Return the number of keys within the range.
     #[instrument(skip(self))]
-    async fn count(
-        &self,
-        left_fencepost: &Interest,
-        right_fencepost: &Interest,
-    ) -> ReconResult<usize> {
+    async fn count(&self, range: Range<&Interest>) -> ReconResult<usize> {
         let row = sqlx::query(ReconQuery::count(ReconType::Interest, SqlBackend::Sqlite))
-            .bind(left_fencepost.as_bytes())
-            .bind(right_fencepost.as_bytes())
+            .bind(range.start.as_bytes())
+            .bind(range.end.as_bytes())
             .fetch_one(self.pool.reader())
             .await
             .map_err(Error::from)?;
@@ -234,16 +221,12 @@ impl recon::Store for SqliteInterestStore {
 
     /// Return the first key within the range.
     #[instrument(skip(self))]
-    async fn first(
-        &self,
-        left_fencepost: &Interest,
-        right_fencepost: &Interest,
-    ) -> ReconResult<Option<Interest>> {
+    async fn first(&self, range: Range<&Interest>) -> ReconResult<Option<Interest>> {
         let query = sqlx::query(ReconQuery::first_key(ReconType::Interest));
 
         let rows = query
-            .bind(left_fencepost.as_bytes())
-            .bind(right_fencepost.as_bytes())
+            .bind(range.start.as_bytes())
+            .bind(range.end.as_bytes())
             .fetch_all(self.pool.reader())
             .await
             .map_err(Error::from)?;
@@ -257,15 +240,11 @@ impl recon::Store for SqliteInterestStore {
     }
 
     #[instrument(skip(self))]
-    async fn last(
-        &self,
-        left_fencepost: &Interest,
-        right_fencepost: &Interest,
-    ) -> ReconResult<Option<Interest>> {
+    async fn last(&self, range: Range<&Interest>) -> ReconResult<Option<Interest>> {
         let query = sqlx::query(ReconQuery::last_key(ReconType::Interest));
         let rows = query
-            .bind(left_fencepost.as_bytes())
-            .bind(right_fencepost.as_bytes())
+            .bind(range.start.as_bytes())
+            .bind(range.end.as_bytes())
             .fetch_all(self.pool.reader())
             .await
             .map_err(Error::from)?;
@@ -281,16 +260,15 @@ impl recon::Store for SqliteInterestStore {
     #[instrument(skip(self))]
     async fn first_and_last(
         &self,
-        left_fencepost: &Interest,
-        right_fencepost: &Interest,
+        range: Range<&Interest>,
     ) -> ReconResult<Option<(Interest, Interest)>> {
         let query = sqlx::query(ReconQuery::first_and_last(
             ReconType::Interest,
             SqlBackend::Sqlite,
         ));
         let rows = query
-            .bind(left_fencepost.as_bytes())
-            .bind(right_fencepost.as_bytes())
+            .bind(range.start.as_bytes())
+            .bind(range.end.as_bytes())
             .fetch_all(self.pool.reader())
             .await
             .map_err(|e| ReconError::new_app(anyhow!(e)))?;
@@ -308,13 +286,5 @@ impl recon::Store for SqliteInterestStore {
     #[instrument(skip(self))]
     async fn value_for_key(&self, _key: &Interest) -> ReconResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
-    }
-
-    #[instrument(skip(self))]
-    async fn keys_with_missing_values(
-        &self,
-        _range: RangeOpen<Interest>,
-    ) -> ReconResult<Vec<Interest>> {
-        Ok(vec![])
     }
 }
