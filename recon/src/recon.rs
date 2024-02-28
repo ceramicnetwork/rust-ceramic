@@ -2,11 +2,7 @@ pub mod btreestore;
 #[cfg(test)]
 pub mod tests;
 
-use std::{
-    fmt::Display,
-    marker::PhantomData,
-    ops::{Add, AddAssign},
-};
+use std::{fmt::Display, marker::PhantomData, ops::Add};
 
 use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
@@ -132,7 +128,7 @@ where
                 SyncState::Unsynchronized {
                     ranges: vec![Range {
                         first: range.first,
-                        hash: H::identity().into(),
+                        hash: HashCount::default(),
                         last: range.last,
                     }],
                 },
@@ -189,14 +185,14 @@ where
                     // Push range for each intermediate key.
                     ranges.push(Range {
                         first: prev,
-                        hash: H::identity().into(),
+                        hash: HashCount::default(),
                         last: key.clone(),
                     });
                 } else {
                     // Push first key in range.
                     ranges.push(Range {
                         first: range.first.clone(),
-                        hash: H::identity().into(),
+                        hash: HashCount::default(),
                         last: key.clone(),
                     });
                 }
@@ -206,7 +202,7 @@ where
                 // Push last key in range.
                 ranges.push(Range {
                     first: prev,
-                    hash: H::identity().into(),
+                    hash: HashCount::default(),
                     last: range.last,
                 });
             }
@@ -510,7 +506,6 @@ pub trait Store: std::fmt::Debug {
         )
         .await
     }
-
     /// Return a key that is approximately in the middle of the range.
     /// An exact middle is not necessary but performance will be better with a better approximation.
     ///
@@ -525,11 +520,43 @@ pub trait Store: std::fmt::Debug {
             Ok(None)
         } else {
             Ok(self
-                .range(left_fencepost, right_fencepost, (count - 1) / 2, 1)
+                .range(left_fencepost, right_fencepost, count / 2, 1)
                 .await?
                 .next())
         }
     }
+
+    /// Return any number of splits of the range.
+    /// An exact split is not necessary but performance will be better with a better approximation.
+    ///
+    /// The left_fencepost and right_fencepost are not part of the returned split as they are the
+    /// implicit outermost bounds of the split.
+    ///
+    /// The default implementation uses middle to split the range approximately in two.
+    async fn split(
+        &mut self,
+        left_fencepost: &Self::Key,
+        right_fencepost: &Self::Key,
+    ) -> Result<Split<Self::Key, Self::Hash>> {
+        if let Some(middle) = self.middle(left_fencepost, right_fencepost).await? {
+            let left = self.hash_range(&left_fencepost, &middle).await?;
+            let right = self.hash_range(&middle, &right_fencepost).await?;
+            Ok(Split {
+                keys: vec![middle],
+                hashes: vec![left, right],
+            })
+        } else {
+            // No keys in range return empty split
+            Ok(Split {
+                keys: vec![],
+                hashes: vec![HashCount {
+                    hash: Self::Hash::identity(),
+                    count: 0,
+                }],
+            })
+        }
+    }
+
     /// Return the number of keys within the range.
     async fn count(
         &mut self,
@@ -814,6 +841,16 @@ impl<K, H> From<Range<K, H>> for RangeOpen<K> {
             end: value.last,
         }
     }
+}
+
+/// Represent a sequence of ranges where the end key is the start key of the subsequent range.
+#[derive(Debug)]
+pub struct Split<K, H> {
+    /// They keys split the hashses, as such there are always one less key than hash.
+    pub keys: Vec<K>,
+    ///  The hashes of the split ranges,where the outer hashes are the implicitly bounded by the
+    ///  bounds used to compute the split.
+    pub hashes: Vec<HashCount<H>>,
 }
 
 /// Enumerates the possible synchronization states between local and remote peers.
