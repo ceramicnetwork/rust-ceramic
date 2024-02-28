@@ -2,7 +2,11 @@ pub mod btreestore;
 #[cfg(test)]
 pub mod tests;
 
-use std::{fmt::Display, marker::PhantomData};
+use std::{
+    fmt::Display,
+    marker::PhantomData,
+    ops::{Add, Range},
+};
 
 use anyhow::anyhow;
 use async_trait::async_trait;
@@ -76,12 +80,12 @@ where
         Ok(intersections)
     }
     /// Compute the hash of the keys within the range.
-    pub async fn initial_range(&self, interest: RangeOpen<K>) -> Result<Range<K, H>> {
+    pub async fn initial_range(&mut self, interest: RangeOpen<K>) -> Result<RangeHash<K, H>> {
         let hash = self
             .store
-            .hash_range(&interest.start, &interest.end)
+            .hash_range(&interest.start..&interest.end)
             .await?;
-        Ok(Range {
+        Ok(RangeHash {
             first: interest.start,
             hash,
             last: interest.end,
@@ -91,7 +95,10 @@ where
     ///
     /// Reports any new keys and what the range indicates about how the local and remote node are
     /// synchronized.
-    pub async fn process_range(&self, range: Range<K, H>) -> Result<(SyncState<K, H>, Vec<K>)> {
+    pub async fn process_range(
+        &mut self,
+        range: RangeHash<K, H>,
+    ) -> Result<(SyncState<K, H>, Vec<K>)> {
         let mut should_add = Vec::with_capacity(2);
         let mut new_keys = Vec::with_capacity(2);
 
@@ -117,25 +124,28 @@ where
             }
         }
 
-        let calculated_hash = self.store.hash_range(&range.first, &range.last).await?;
+        let calculated_hash = self.store.hash_range(&range.first..&range.last).await?;
 
         if calculated_hash == range.hash {
             Ok((SyncState::Synchronized { range }, new_keys))
         } else if calculated_hash.hash.is_zero() {
             Ok((
                 SyncState::Unsynchronized {
-                    ranges: vec![Range {
+                    ranges: vec![RangeHash {
                         first: range.first,
-                        hash: H::identity().into(),
+                        hash: HashCount::default(),
                         last: range.last,
                     }],
                 },
                 new_keys,
             ))
-        } else if range.hash.hash.is_zero() {
+        } else if range.hash.hash.is_zero()
+            || (!range.first.is_fencepost() && range.hash.count == 1)
+        {
+            // Remote does not have any data (except for the first key) in the range.
             Ok((
                 SyncState::RemoteMissing {
-                    range: Range {
+                    range: RangeHash {
                         first: range.first,
                         hash: calculated_hash,
                         last: range.last,
@@ -162,7 +172,11 @@ where
         }
     }
 
-    async fn compute_splits(&self, range: Range<K, H>, count: u64) -> Result<Vec<Range<K, H>>> {
+    async fn compute_splits(
+        &mut self,
+        range: RangeHash<K, H>,
+        count: u64,
+    ) -> Result<Vec<RangeHash<K, H>>> {
         // If the number of keys in a range is <= SPLIT_THRESHOLD then directly send all the keys.
         const SPLIT_THRESHOLD: u64 = 4;
 
@@ -172,7 +186,7 @@ where
             // send the keys directly.
             let keys: Vec<K> = self
                 .store
-                .range(&range.first, &range.last, 0, usize::MAX)
+                .range(&range.first..&range.last, 0, usize::MAX)
                 .await?
                 .collect();
 
@@ -181,16 +195,16 @@ where
             for key in keys {
                 if let Some(prev) = prev {
                     // Push range for each intermediate key.
-                    ranges.push(Range {
+                    ranges.push(RangeHash {
                         first: prev,
-                        hash: H::identity().into(),
+                        hash: HashCount::default(),
                         last: key.clone(),
                     });
                 } else {
                     // Push first key in range.
-                    ranges.push(Range {
+                    ranges.push(RangeHash {
                         first: range.first.clone(),
-                        hash: H::identity().into(),
+                        hash: HashCount::default(),
                         last: key.clone(),
                     });
                 }
@@ -198,27 +212,27 @@ where
             }
             if let Some(prev) = prev {
                 // Push last key in range.
-                ranges.push(Range {
+                ranges.push(RangeHash {
                     first: prev,
-                    hash: H::identity().into(),
+                    hash: HashCount::default(),
                     last: range.last,
                 });
             }
             Ok(ranges)
         } else {
             // Split the range in two
-            let mid_key = self.store.middle(&range.first, &range.last).await?;
+            let mid_key = self.store.middle(&range.first..&range.last).await?;
             trace!(?mid_key, "splitting on key");
             if let Some(mid_key) = mid_key {
-                let first_half = self.store.hash_range(&range.first, &mid_key).await?;
-                let last_half = self.store.hash_range(&mid_key, &range.last).await?;
+                let first_half = self.store.hash_range(&range.first..&mid_key).await?;
+                let last_half = self.store.hash_range(&mid_key..&range.last).await?;
                 Ok(vec![
-                    Range {
+                    RangeHash {
                         first: range.first,
                         hash: first_half,
                         last: mid_key.clone(),
                     },
-                    Range {
+                    RangeHash {
                         first: mid_key,
                         hash: last_half,
                         last: range.last,
@@ -241,7 +255,7 @@ where
         self.store.insert(item).await
     }
     /// Report all keys in the range that are missing a value
-    pub async fn keys_with_missing_values(&self, range: RangeOpen<K>) -> Result<Vec<K>> {
+    pub async fn keys_with_missing_values(&mut self, range: Range<&K>) -> Result<Vec<K>> {
         self.store.keys_with_missing_values(range).await
     }
 
@@ -276,7 +290,7 @@ where
         limit: usize,
     ) -> Result<Box<dyn Iterator<Item = K> + Send + 'static>> {
         self.store
-            .range(left_fencepost, right_fencepost, offset, limit)
+            .range(left_fencepost..right_fencepost, offset, limit)
             .await
     }
 
@@ -292,7 +306,7 @@ where
         limit: usize,
     ) -> Result<Box<dyn Iterator<Item = (K, Vec<u8>)> + Send + 'static>> {
         self.store
-            .range_with_values(left_fencepost, right_fencepost, offset, limit)
+            .range_with_values(left_fencepost..right_fencepost, offset, limit)
             .await
     }
 
@@ -308,7 +322,7 @@ where
 }
 
 /// A hash with a count of how many values produced the hash.
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct HashCount<H> {
     hash: H,
     count: u64,
@@ -328,6 +342,20 @@ impl<H> HashCount<H> {
     /// The number of values that produced the hash.
     pub fn count(&self) -> u64 {
         self.count
+    }
+}
+
+impl<H> Add<Self> for HashCount<H>
+where
+    H: AssociativeHash,
+{
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self::Output {
+            hash: self.hash + rhs.hash,
+            count: self.count + rhs.count,
+        }
     }
 }
 
@@ -445,11 +473,7 @@ pub trait Store {
     /// Return the hash of all keys in the range between left_fencepost and right_fencepost.
     /// Both range bounds are exclusive.
     /// Returns Result<(Hash, count), Err>
-    async fn hash_range(
-        &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Result<HashCount<Self::Hash>>;
+    async fn hash_range(&self, range: Range<&Self::Key>) -> Result<HashCount<Self::Hash>>;
 
     /// Return all keys in the range between left_fencepost and right_fencepost.
     /// Both range bounds are exclusive.
@@ -457,8 +481,7 @@ pub trait Store {
     /// Offset and limit values are applied within the range of keys.
     async fn range(
         &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
+        range: Range<&Self::Key>,
         offset: usize,
         limit: usize,
     ) -> Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>>;
@@ -469,8 +492,7 @@ pub trait Store {
     /// Offset and limit values are applied within the range of keys.
     async fn range_with_values(
         &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
+        range: Range<&Self::Key>,
         offset: usize,
         limit: usize,
     ) -> Result<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>>;
@@ -478,8 +500,7 @@ pub trait Store {
     /// Return all keys.
     async fn full_range(&self) -> Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
         self.range(
-            &Self::Key::min_value(),
-            &Self::Key::max_value(),
+            &Self::Key::min_value()..&Self::Key::max_value(),
             0,
             usize::MAX,
         )
@@ -490,65 +511,62 @@ pub trait Store {
     /// An exact middle is not necessary but performance will be better with a better approximation.
     ///
     /// The default implementation will count all elements and then find the middle.
-    async fn middle(
-        &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Result<Option<Self::Key>> {
-        let count = self.count(left_fencepost, right_fencepost).await?;
+    async fn middle(&self, range: Range<&Self::Key>) -> Result<Option<Self::Key>> {
+        let count = self.count(range.clone()).await?;
         if count == 0 {
             Ok(None)
         } else {
-            Ok(self
-                .range(left_fencepost, right_fencepost, (count - 1) / 2, 1)
-                .await?
-                .next())
+            Ok(self.range(range, count / 2, 1).await?.next())
         }
     }
+
+    /// Return any number of splits of the range.
+    /// An exact split is not necessary but performance will be better with a better approximation.
+    ///
+    /// The left_fencepost and right_fencepost are not part of the returned split as they are the
+    /// implicit outermost bounds of the split.
+    ///
+    /// The default implementation uses middle to split the range approximately in two.
+    async fn split(&self, range: Range<&Self::Key>) -> Result<Split<Self::Key, Self::Hash>> {
+        if let Some(middle) = self.middle(range.clone()).await? {
+            let left = self.hash_range(&range.start..&middle).await?;
+            let right = self.hash_range(&middle..&range.end).await?;
+            Ok(Split {
+                keys: vec![middle],
+                hashes: vec![left, right],
+            })
+        } else {
+            // No keys in range return empty split
+            Ok(Split {
+                keys: vec![],
+                hashes: vec![HashCount {
+                    hash: Self::Hash::identity(),
+                    count: 0,
+                }],
+            })
+        }
+    }
+
     /// Return the number of keys within the range.
-    async fn count(
-        &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Result<usize> {
-        Ok(self
-            .range(left_fencepost, right_fencepost, 0, usize::MAX)
-            .await?
-            .count())
+    async fn count(&self, range: Range<&Self::Key>) -> Result<usize> {
+        Ok(self.range(range, 0, usize::MAX).await?.count())
     }
     /// Return the first key within the range.
-    async fn first(
-        &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Result<Option<Self::Key>> {
-        Ok(self
-            .range(left_fencepost, right_fencepost, 0, 1)
-            .await?
-            .next())
+    async fn first(&self, range: Range<&Self::Key>) -> Result<Option<Self::Key>> {
+        Ok(self.range(range, 0, 1).await?.next())
     }
     /// Return the last key within the range.
-    async fn last(
-        &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Result<Option<Self::Key>> {
-        Ok(self
-            .range(left_fencepost, right_fencepost, 0, usize::MAX)
-            .await?
-            .last())
+    async fn last(&self, range: Range<&Self::Key>) -> Result<Option<Self::Key>> {
+        Ok(self.range(range, 0, usize::MAX).await?.last())
     }
 
     /// Return the first and last keys within the range.
     /// If the range contains only a single key it will be returned as both first and last.
     async fn first_and_last(
         &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
+        range: Range<&Self::Key>,
     ) -> Result<Option<(Self::Key, Self::Key)>> {
-        let mut range = self
-            .range(left_fencepost, right_fencepost, 0, usize::MAX)
-            .await?;
+        let mut range = self.range(range, 0, usize::MAX).await?;
         let first = range.next();
         if let Some(first) = first {
             if let Some(last) = range.last() {
@@ -563,7 +581,7 @@ pub trait Store {
 
     /// Reports total number of keys
     async fn len(&self) -> Result<usize> {
-        self.count(&Self::Key::min_value(), &Self::Key::max_value())
+        self.count(&Self::Key::min_value()..&Self::Key::max_value())
             .await
     }
     /// Reports of there are no keys stored.
@@ -578,8 +596,7 @@ pub trait Store {
     async fn value_for_key(&self, key: &Self::Key) -> Result<Option<Vec<u8>>>;
 
     /// Report all keys in the range that are missing a value.
-    async fn keys_with_missing_values(&self, range: RangeOpen<Self::Key>)
-        -> Result<Vec<Self::Key>>;
+    async fn keys_with_missing_values(&self, range: Range<&Self::Key>) -> Result<Vec<Self::Key>>;
 }
 
 #[async_trait::async_trait]
@@ -600,48 +617,33 @@ where
         self.as_ref().insert_many(items).await
     }
 
-    async fn hash_range(
-        &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Result<HashCount<Self::Hash>> {
-        self.as_ref()
-            .hash_range(left_fencepost, right_fencepost)
-            .await
+    async fn hash_range(&self, range: Range<&Self::Key>) -> Result<HashCount<Self::Hash>> {
+        self.as_ref().hash_range(range).await
     }
 
     async fn range(
         &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
+        range: Range<&Self::Key>,
         offset: usize,
         limit: usize,
     ) -> Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
-        self.as_ref()
-            .range(left_fencepost, right_fencepost, offset, limit)
-            .await
+        self.as_ref().range(range, offset, limit).await
     }
 
     async fn range_with_values(
         &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
+        range: Range<&Self::Key>,
         offset: usize,
         limit: usize,
     ) -> Result<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>> {
-        self.as_ref()
-            .range_with_values(left_fencepost, right_fencepost, offset, limit)
-            .await
+        self.as_ref().range_with_values(range, offset, limit).await
     }
 
     async fn value_for_key(&self, key: &Self::Key) -> Result<Option<Vec<u8>>> {
         self.as_ref().value_for_key(key).await
     }
 
-    async fn keys_with_missing_values(
-        &self,
-        range: RangeOpen<Self::Key>,
-    ) -> Result<Vec<Self::Key>> {
+    async fn keys_with_missing_values(&self, range: Range<&Self::Key>) -> Result<Vec<Self::Key>> {
         self.as_ref().keys_with_missing_values(range).await
     }
 }
@@ -844,7 +846,7 @@ where
 /// Represents a synchronization unit, a pair of keys and the hash of values between the keys
 /// (exclusive of the keys).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Range<K, H> {
+pub struct RangeHash<K, H> {
     /// First key in the range
     /// This key may be a fencepost, meaning its not an actual key but simply a boundary.
     pub first: K,
@@ -856,13 +858,32 @@ pub struct Range<K, H> {
     pub last: K,
 }
 
-impl<K, H> From<Range<K, H>> for RangeOpen<K> {
-    fn from(value: Range<K, H>) -> Self {
+impl<K, H> From<RangeHash<K, H>> for RangeOpen<K> {
+    fn from(value: RangeHash<K, H>) -> Self {
         Self {
             start: value.first,
             end: value.last,
         }
     }
+}
+
+impl<K, H> From<RangeHash<K, H>> for Range<K> {
+    fn from(value: RangeHash<K, H>) -> Self {
+        Self {
+            start: value.first,
+            end: value.last,
+        }
+    }
+}
+
+/// Represent a sequence of ranges where the end key is the start key of the subsequent range.
+#[derive(Debug)]
+pub struct Split<K, H> {
+    /// They keys split the hashses, as such there are always one less key than hash.
+    pub keys: Vec<K>,
+    ///  The hashes of the split ranges,where the outer hashes are the implicitly bounded by the
+    ///  bounds used to compute the split.
+    pub hashes: Vec<HashCount<H>>,
 }
 
 /// Enumerates the possible synchronization states between local and remote peers.
@@ -871,18 +892,18 @@ pub enum SyncState<K, H> {
     /// The local is synchronized with the remote.
     Synchronized {
         /// The range and hash of the synchronized range
-        range: Range<K, H>,
+        range: RangeHash<K, H>,
     },
     /// The remote range is missing all data in the range.
     RemoteMissing {
         /// The range and hash of the local data the remote is missing.
-        range: Range<K, H>,
+        range: RangeHash<K, H>,
     },
     /// The local is out of sync with the remote.
     Unsynchronized {
         /// New set of ranges to deliver to the remote.
         /// Often these are a split of the previous range or a zero if no local data was found.
-        ranges: Vec<Range<K, H>>,
+        ranges: Vec<RangeHash<K, H>>,
     },
 }
 

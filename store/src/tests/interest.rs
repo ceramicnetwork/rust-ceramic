@@ -125,7 +125,7 @@ where
     .await
     .unwrap();
     let hash_cnt = store
-        .hash_range(&random_interest_min(), &random_interest_max())
+        .hash_range(&random_interest_min()..&random_interest_max())
         .await
         .unwrap();
     expect!["D6C3CBCCE02E4AF2900ACF7FC84BE91168A42A0B1164534C426C782057E13BBC"]
@@ -153,8 +153,7 @@ where
         .unwrap();
     let ids = recon::Store::range(
         &store,
-        &random_interest_min(),
-        &random_interest_max(),
+        &random_interest_min()..&random_interest_max(),
         0,
         usize::MAX,
     )
@@ -187,8 +186,7 @@ where
         .unwrap();
     let ids = store
         .range_with_values(
-            &random_interest_min(),
-            &random_interest_max(),
+            &random_interest_min()..&random_interest_max(),
             0,
             usize::MAX,
         )
@@ -255,8 +253,8 @@ where
     // Only one key in range, we expect to get the same key as first and last
     let ret = store
         .first_and_last(
-            &random_interest(Some((&[], &[])), Some(40)),
-            &random_interest(Some((&[], &[])), Some(43)),
+            &random_interest(Some((&[], &[])), Some(40))
+                ..&random_interest(Some((&[], &[])), Some(43)),
         )
         .await
         .unwrap()
@@ -311,8 +309,8 @@ where
     // No keys in range
     let ret = store
         .first_and_last(
-            &random_interest(Some((&[], &[])), Some(50)),
-            &random_interest(Some((&[], &[])), Some(53)),
+            &random_interest(Some((&[], &[])), Some(50))
+                ..&random_interest(Some((&[], &[])), Some(53)),
         )
         .await
         .unwrap();
@@ -324,8 +322,8 @@ where
     // Two keys in range
     let ret = store
         .first_and_last(
-            &random_interest(Some((&[], &[])), Some(40)),
-            &random_interest(Some((&[], &[])), Some(50)),
+            &random_interest(Some((&[], &[])), Some(40))
+                ..&random_interest(Some((&[], &[])), Some(50)),
         )
         .await
         .unwrap()
@@ -412,7 +410,7 @@ where
         .await
         .unwrap();
     let missing_keys = store
-        .keys_with_missing_values((Interest::min_value(), Interest::max_value()).into())
+        .keys_with_missing_values(&Interest::min_value()..&Interest::max_value())
         .await
         .unwrap();
     expect![[r#"
@@ -424,7 +422,7 @@ where
         .await
         .unwrap();
     let missing_keys = store
-        .keys_with_missing_values((Interest::min_value(), Interest::max_value()).into())
+        .keys_with_missing_values(&Interest::min_value()..&Interest::max_value())
         .await
         .unwrap();
     expect![[r#"

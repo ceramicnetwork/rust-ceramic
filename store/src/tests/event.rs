@@ -71,7 +71,7 @@ where
     )
     .await
     .unwrap();
-    let hash = recon::Store::hash_range(&store, &random_event_id_min(), &random_event_id_max())
+    let hash = recon::Store::hash_range(&store, &random_event_id_min()..&random_event_id_max())
         .await
         .unwrap();
     expect!["65C7A25327CC05C19AB5812103EEB8D1156595832B453C7BAC6A186F4811FA0A#2"]
@@ -112,8 +112,7 @@ where
     .unwrap();
     let ids = recon::Store::range(
         &store,
-        &random_event_id_min(),
-        &random_event_id_max(),
+        &random_event_id_min()..&random_event_id_max(),
         0,
         usize::MAX,
     )
@@ -214,8 +213,7 @@ where
     .unwrap();
     let values: Vec<(EventId, Vec<u8>)> = recon::Store::range_with_values(
         &store,
-        &random_event_id_min(),
-        &random_event_id_max(),
+        &random_event_id_min()..&random_event_id_max(),
         0,
         usize::MAX,
     )
@@ -374,8 +372,8 @@ where
     // Only one key in range
     let ret = recon::Store::first_and_last(
         &store,
-        &event_id_builder().with_event_height(9).build_fencepost(),
-        &event_id_builder().with_event_height(11).build_fencepost(),
+        &event_id_builder().with_event_height(9).build_fencepost()
+            ..&event_id_builder().with_event_height(11).build_fencepost(),
     )
     .await
     .unwrap();
@@ -432,8 +430,8 @@ where
     // No keys in range
     let ret = recon::Store::first_and_last(
         &store,
-        &event_id_builder().with_event_height(12).build_fencepost(),
-        &event_id_builder().with_max_event_height().build_fencepost(),
+        &event_id_builder().with_event_height(12).build_fencepost()
+            ..&event_id_builder().with_max_event_height().build_fencepost(),
     )
     .await
     .unwrap();
@@ -443,7 +441,7 @@ where
     .assert_debug_eq(&ret);
 
     // Two keys in range
-    let ret = recon::Store::first_and_last(&store, &random_event_id_min(), &random_event_id_max())
+    let ret = recon::Store::first_and_last(&store, &random_event_id_min()..&random_event_id_max())
         .await
         .unwrap();
     expect![[r#"
@@ -548,7 +546,7 @@ where
         .unwrap();
     let missing_keys = recon::Store::keys_with_missing_values(
         &store,
-        (EventId::min_value(), EventId::max_value()).into(),
+        &EventId::min_value()..&EventId::max_value(),
     )
     .await
     .unwrap();
@@ -585,7 +583,7 @@ where
         .unwrap();
     let missing_keys = recon::Store::keys_with_missing_values(
         &store,
-        (EventId::min_value(), EventId::max_value()).into(),
+        &EventId::min_value()..&EventId::max_value(),
     )
     .await
     .unwrap();

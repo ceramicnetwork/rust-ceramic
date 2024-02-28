@@ -40,7 +40,7 @@ use pretty::{Arena, DocAllocator, DocBuilder, Pretty};
 
 use crate::{
     protocol::{self, InitiatorMessage, ReconMessage, ResponderMessage, ValueResponse},
-    recon::{FullInterests, HashCount, InterestProvider, Range, ReconItem},
+    recon::{FullInterests, HashCount, InterestProvider, RangeHash, ReconItem},
     tests::AlphaNumBytes,
     AssociativeHash, BTreeStore, Client, Key, Metrics, Recon, Result as ReconResult, Server,
     Sha256a, Store,
@@ -435,7 +435,7 @@ where
     }
 }
 
-struct PrettyRange<'a, K, H>(pub &'a Range<K, H>);
+struct PrettyRange<'a, K, H>(pub &'a RangeHash<K, H>);
 
 impl<'a, D, A, K, H> Pretty<'a, D, A> for PrettyRange<'a, K, H>
 where
