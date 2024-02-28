@@ -124,7 +124,7 @@ async fn validate_time_event(
             println!("proof block: {}", display(&proof_block));
             let proof_cbor = CborValue::parse(&proof_block)?;
             let proof_root: Cid = proof_cbor.path(&["root"]).try_into()?;
-            let path: String = proof_cbor.path(&["path"]).try_into()?;
+            let path: String = time_event.path(&["path"]).try_into()?;
 
             if !prev_in_root(prev, proof_root, path, block_store)? {
                 return Err(anyhow!("prev {} not in root {}", prev, proof_root));
@@ -161,7 +161,7 @@ async fn validate_time_event(
     } 
 }
 
-fn prev_in_root(prev: Cid,proof_root: Cid, path: String, block_store: &SQLiteBlockStore) -> Result<bool> {
+fn prev_in_root(prev: Cid, proof_root: Cid, path: String, block_store: &SQLiteBlockStore) -> Result<bool> {
     return Ok(true);
 }
 
@@ -219,14 +219,11 @@ async fn eth_block_by_hash(block_hash: &str, ethereum_rpc_url: &str) -> Result<i
         .await?;
     let json: serde_json::Value = res.json().await?;
     println!("json: {}", json);
-    if let Some(result) = json.get("result") {
-        if let Some(timestamp) = result.get("timestamp") {
-            if let Some(timestamp) = timestamp.as_str() {
-                return get_timestamp_from_hex_string(timestamp);
-            }
-        }
+    if let Some(timestamp) = json["result"]["timestamp"].as_str() {
+        get_timestamp_from_hex_string(timestamp)
+    } else {
+        Err(anyhow!("missing fields"))
     }
-    Err(anyhow!("missing fields"))
 }
 
 fn get_root_from_input(input: &str) -> Result<Cid> {
