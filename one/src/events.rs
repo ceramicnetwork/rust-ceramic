@@ -9,6 +9,7 @@ use minicbor::{data::Tag, data::Type, display, Decoder};
 use multihash::{Multihash, Sha2_256};
 use ordered_float::OrderedFloat;
 use recon::{Key, Sha256a, Store};
+use sqlx::Row;
 use std::collections::BTreeMap;
 use std::{fs, path::PathBuf};
 
@@ -70,13 +71,13 @@ async fn slurp(opts: SlurpOpts) -> Result<()> {
     );
 
     let pool = SqlitePool::connect(output_ceramic_path).await.unwrap();
-    let store = SQLiteBlockStore::new(pool).await.unwrap();
+    let block_store = SQLiteBlockStore::new(pool).await.unwrap();
 
     if let Some(input_ceramic_db) = opts.input_ceramic_db {
-        migrate_from_database(input_ceramic_db, store.clone()).await;
+        migrate_from_database(input_ceramic_db, block_store.clone()).await;
     }
     if let Some(input_ipfs_path) = opts.input_ipfs_path {
-        migrate_from_filesystem(input_ipfs_path, store.clone()).await;
+        migrate_from_filesystem(input_ipfs_path, block_store.clone()).await;
     }
     Ok(())
 }
@@ -95,9 +96,10 @@ async fn validate(opts: ValidateOpts) -> Result<()> {
     let pool = SqlitePool::connect(store_dir.join("db.sqlite3"))
         .await
         .unwrap();
-    let store = SQLiteBlockStore::new(pool).await.unwrap();
+    let block_store = SQLiteBlockStore::new(pool.clone()).await.unwrap();
+    let root_store = SQLiteRootStore::new(pool).await.unwrap();
 
-    let timestamp = validate_time_event(&opts.cid, store, opts.ethereum_rpc_url.as_str()).await?;
+    let timestamp = validate_time_event(&opts.cid, &block_store, &root_store, opts.ethereum_rpc_url.as_str()).await?;
     println!("proof validated at timestamp: {}", timestamp);
     Ok(())
 }
@@ -107,31 +109,37 @@ async fn validate(opts: ValidateOpts) -> Result<()> {
 // - TimeEvent/proof/root is in the Root Store
 // - Validated time is the time from the Root Store
 async fn validate_time_event(
-    proof_cid: &Cid,
-    block_store: Store<Sha256a>,
+    cid: &Cid,
+    block_store: &SQLiteBlockStore,
+    root_store: &SQLiteRootStore,
     ethereum_rpc_url: &str,
 ) -> Result<u64> {
-    let block = block_store.get(proof_cid).await?;
-    if let Some(block) = block {
+    if let Some(block) = block_store.get(cid.to_owned()).await? {
         // Destructure the proof to get the tag and the value
         let proof_cid: Cid = CborValue::parse(&block)?.path(&["proof"]).try_into()?;
-        if let Some(proof_block) = store.get(proof_cid).await? {
+        if let Some(proof_block) = block_store.get(proof_cid).await? {
             println!("proof block: {}", display(&proof_block));
-            let tx_hash_cid: Cid = CborValue::parse(&proof_block)?
-                .path(&["txHash"])
-                .try_into()?;
-            if let Some(ethereum_rpc_url) = opts.ethereum_rpc_url {
-                let (root, timestamp) =
-                    eth_transaction_by_hash(tx_hash_cid, ethereum_rpc_url.as_str()).await?;
-                println!("root: {}, timestamp: {}", root, timestamp);
+            let proof_cbor = CborValue::parse(&proof_block)?;
+            let tx_hash_cid: Cid = proof_cbor.path(&["txHash"]).try_into()?;
+            let proof_root: Cid = proof_cbor.path(&["root"]).try_into()?;
 
-                // Validate the Time Event
-                validate_time_event(&root)?;
+            let (transaction_root, timestamp) =
+                eth_transaction_by_hash(tx_hash_cid, ethereum_rpc_url).await?;
+            println!("root: {}, timestamp: {}", transaction_root, timestamp);
+
+            if transaction_root == proof_root{
+                // TODO validate that prev is in root
+                Ok(timestamp)
+            } else {
+                Err(anyhow!("root from transaction {} != root from proof {}", transaction_root, proof_root))
             }
+        } else {
+            Err(anyhow!("proof {} not found", cid))
         }
     } else {
-        println!("CID: {} not found", opts.cid);
-    }
+        println!("CID: {} not found", cid);
+        Err(anyhow!("CID {} not found", cid))
+    } 
 }
 
 async fn eth_transaction_by_hash(cid: Cid, ethereum_rpc_url: &str) -> Result<(Cid, u64)> {
@@ -499,4 +507,50 @@ async fn migrate_from_database(input_ceramic_db: PathBuf, store: SQLiteBlockStor
         input_ceramic_db_filename
     );
     result.unwrap()
+}
+
+#[derive(Debug, Clone)]
+pub struct SQLiteRootStore {
+    pool: SqlitePool,
+}
+
+impl SQLiteRootStore {
+    // ```sql
+    // CREATE TABLE IF NOT EXISTS recon (root BLOB, timestamp INTEGER PRIMARY KEY(root, timestamp))
+    // ```
+    pub async fn new(pool: SqlitePool) -> Result<Self> {
+        let store = Self { pool };
+        store.create_table_if_not_exists().await?;
+        Ok(store)
+    }
+
+    async fn create_table_if_not_exists(&self) -> Result<()> {
+        // this will need to be moved to migration logic if we ever change the schema
+        sqlx::query("CREATE TABLE IF NOT EXISTS roots (root BLOB, timestamp INTEGER, PRIMARY KEY(root, timestamp));",
+        )
+        .execute(self.pool.writer())
+        .await?;
+        Ok(())
+    }
+
+    /// Store root, timestamp.
+    pub async fn put(&self, root: Vec<u8>, timestamp: i64) -> Result<()> {
+        match sqlx::query("INSERT OR IGNORE INTO roots (root, timestamp) VALUES (?, ?)")
+            .bind(root)
+            .bind(timestamp)
+            .execute(self.pool.writer())
+            .await
+        {
+            Ok(_) => Ok(()),
+            Err(err) => Err(err.into()),
+        }
+    }
+
+    pub async fn get(&self, root: Vec<u8>) -> Result<Option<i64>> {
+        Ok(sqlx::query("SELECT timestamp FROM roots WHERE root = ?;")
+            .bind(root)
+            .fetch_optional(self.pool.reader())
+            .await?
+            .map(|row| row.get::<'_, i64, _>(0).into()))
+    }
 }
