@@ -6,9 +6,8 @@ use cid::{multibase, multihash, Cid};
 use clap::{Args, Subcommand};
 use glob::{glob, Paths};
 use minicbor::{data::Tag, data::Type, display, Decoder};
-use multihash::{Multihash, Sha2_256};
+use multihash::Multihash;
 use ordered_float::OrderedFloat;
-use recon::{Key, Sha256a, Store};
 use sqlx::Row;
 use std::collections::BTreeMap;
 use std::{fs, path::PathBuf};
@@ -107,21 +106,32 @@ async fn validate(opts: ValidateOpts) -> Result<()> {
 // To validate a Time Event, we need to prove:
 // - TimeEvent/prev == TimeEvent/proof/root/${TimeEvent/path}
 // - TimeEvent/proof/root is in the Root Store
+// 
+// - If root not in local root store try to read it from txHash.
 // - Validated time is the time from the Root Store
 async fn validate_time_event(
     cid: &Cid,
     block_store: &SQLiteBlockStore,
     root_store: &SQLiteRootStore,
     ethereum_rpc_url: &str,
-) -> Result<u64> {
+) -> Result<i64> {
     if let Some(block) = block_store.get(cid.to_owned()).await? {
         // Destructure the proof to get the tag and the value
         let proof_cid: Cid = CborValue::parse(&block)?.path(&["proof"]).try_into()?;
         if let Some(proof_block) = block_store.get(proof_cid).await? {
             println!("proof block: {}", display(&proof_block));
             let proof_cbor = CborValue::parse(&proof_block)?;
-            let tx_hash_cid: Cid = proof_cbor.path(&["txHash"]).try_into()?;
             let proof_root: Cid = proof_cbor.path(&["root"]).try_into()?;
+            // if root in root_store return timestamp.
+            // note: at some point we will need a negative cache to exponentially backoff eth_getTransactionByHash
+            if let Ok(Some(timestamp)) = root_store.get(proof_root.hash().digest()).await {
+                return Ok(timestamp);
+            }
+            // else eth_transaction_by_hash
+
+
+            let tx_hash_cid: Cid = proof_cbor.path(&["txHash"]).try_into()?;
+            
 
             let (transaction_root, timestamp) =
                 eth_transaction_by_hash(tx_hash_cid, ethereum_rpc_url).await?;
@@ -129,6 +139,7 @@ async fn validate_time_event(
 
             if transaction_root == proof_root{
                 // TODO validate that prev is in root
+                root_store.put(transaction_root.hash().digest(), timestamp).await?;
                 Ok(timestamp)
             } else {
                 Err(anyhow!("root from transaction {} != root from proof {}", transaction_root, proof_root))
@@ -142,7 +153,7 @@ async fn validate_time_event(
     } 
 }
 
-async fn eth_transaction_by_hash(cid: Cid, ethereum_rpc_url: &str) -> Result<(Cid, u64)> {
+async fn eth_transaction_by_hash(cid: Cid, ethereum_rpc_url: &str) -> Result<(Cid, i64)> {
     // curl https://mainnet.infura.io/v3/{api_token} \
     //   -X POST \
     //   -H "Content-Type: application/json" \
@@ -178,7 +189,7 @@ async fn eth_transaction_by_hash(cid: Cid, ethereum_rpc_url: &str) -> Result<(Ci
     Err(anyhow!("missing fields"))
 }
 
-async fn eth_block_by_hash(block_hash: &str, ethereum_rpc_url: &str) -> Result<u64> {
+async fn eth_block_by_hash(block_hash: &str, ethereum_rpc_url: &str) -> Result<i64> {
     // curl https://mainnet.infura.io/v3/{api_token} \
     //     -X POST \
     //     -H "Content-Type: application/json" \
@@ -219,10 +230,10 @@ fn get_root_from_input(input: &str) -> Result<Cid> {
     }
 }
 
-fn get_timestamp_from_hex_string(ts: &str) -> Result<u64> {
+fn get_timestamp_from_hex_string(ts: &str) -> Result<i64> {
     // Strip "0x" from the timestamp and convert it to a u64
     if let Some(ts) = ts.strip_prefix("0x") {
-        Ok(u64::from_str_radix(ts, 16)?)
+        Ok(i64::from_str_radix(ts, 16)?)
     } else {
         Err(anyhow!("timestamp is not valid hex"))
     }
@@ -534,7 +545,7 @@ impl SQLiteRootStore {
     }
 
     /// Store root, timestamp.
-    pub async fn put(&self, root: Vec<u8>, timestamp: i64) -> Result<()> {
+    pub async fn put(&self, root: &[u8], timestamp: i64) -> Result<()> {
         match sqlx::query("INSERT OR IGNORE INTO roots (root, timestamp) VALUES (?, ?)")
             .bind(root)
             .bind(timestamp)
@@ -546,7 +557,7 @@ impl SQLiteRootStore {
         }
     }
 
-    pub async fn get(&self, root: Vec<u8>) -> Result<Option<i64>> {
+    pub async fn get(&self, root: &[u8]) -> Result<Option<i64>> {
         Ok(sqlx::query("SELECT timestamp FROM roots WHERE root = ?;")
             .bind(root)
             .fetch_optional(self.pool.reader())
