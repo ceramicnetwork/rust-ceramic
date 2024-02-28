@@ -68,6 +68,7 @@
         "PROTO",
         "quic",
         "quickcheck",
+        "reqwest",
         "serde",
         "softline",
         "sqliteblockstore",

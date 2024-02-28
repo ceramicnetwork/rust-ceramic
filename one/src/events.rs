@@ -1,15 +1,17 @@
 use anyhow::{anyhow, Error, Result};
 use ceramic_p2p::SQLiteBlockStore;
 use ceramic_store::SqlitePool;
-use chrono::{SecondsFormat, Utc};
+use chrono::{SecondsFormat, TimeZone, Utc};
 use cid::{multibase, multihash, Cid};
 use clap::{Args, Subcommand};
+use enum_as_inner::EnumAsInner;
 use glob::{glob, Paths};
 use minicbor::{data::Tag, data::Type, display, Decoder};
 use multihash::Multihash;
 use ordered_float::OrderedFloat;
 use sqlx::Row;
 use std::collections::BTreeMap;
+use std::str::FromStr;
 use std::{fs, path::PathBuf};
 
 #[derive(Subcommand, Debug)]
@@ -87,7 +89,7 @@ async fn validate(opts: ValidateOpts) -> Result<()> {
         .store_dir
         .unwrap_or(home.join(".ceramic-one/db.sqlite3"));
     println!(
-        "{} Opening ceramic SQLite DB at: {}",
+        "{} SQLite DB: {}",
         Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
         store_dir.display()
     );
@@ -98,15 +100,27 @@ async fn validate(opts: ValidateOpts) -> Result<()> {
     let block_store = SQLiteBlockStore::new(pool.clone()).await.unwrap();
     let root_store = SQLiteRootStore::new(pool).await.unwrap();
 
-    let timestamp = validate_time_event(&opts.cid, &block_store, &root_store, opts.ethereum_rpc_url.as_str()).await?;
-    println!("proof validated at timestamp: {}", timestamp);
+    let timestamp = validate_time_event(
+        &opts.cid,
+        &block_store,
+        &root_store,
+        opts.ethereum_rpc_url.as_str(),
+    )
+    .await;
+    match timestamp {
+        Ok(timestamp) => {
+            let rfc3339 = Utc.timestamp_opt(timestamp, 0).unwrap().to_rfc3339_opts(SecondsFormat::Secs, true);
+            println!("{} validated at timestamp {} ({})", opts.cid, timestamp, rfc3339)
+        },
+        Err(e) => println!("{} failed with error: {:?}",opts.cid,  e),
+    }
     Ok(())
 }
 
 // To validate a Time Event, we need to prove:
 // - TimeEvent/prev == TimeEvent/proof/root/${TimeEvent/path}
 // - TimeEvent/proof/root is in the Root Store
-// 
+//
 // - If root not in local root store try to read it from txHash.
 // - Validated time is the time from the Root Store
 async fn validate_time_event(
@@ -119,14 +133,14 @@ async fn validate_time_event(
         let time_event = CborValue::parse(&block)?;
         // Destructure the proof to get the tag and the value
         let proof_cid: Cid = time_event.path(&["proof"]).try_into()?;
-        let prev: Cid =  time_event.path(&["prev"]).try_into()?;
+        let prev: Cid = time_event.path(&["prev"]).try_into()?;
         if let Some(proof_block) = block_store.get(proof_cid).await? {
-            println!("proof block: {}", display(&proof_block));
             let proof_cbor = CborValue::parse(&proof_block)?;
             let proof_root: Cid = proof_cbor.path(&["root"]).try_into()?;
             let path: String = time_event.path(&["path"]).try_into()?;
 
-            if !prev_in_root(prev, proof_root, path, block_store)? {
+            // If prev not in root then TimeEvent is not valid.
+            if !prev_in_root(prev, proof_root, path, block_store).await? {
                 return Err(anyhow!("prev {} not in root {}", prev, proof_root));
             }
 
@@ -135,22 +149,24 @@ async fn validate_time_event(
             if let Ok(Some(timestamp)) = root_store.get(proof_root.hash().digest()).await {
                 return Ok(timestamp);
             }
+
             // else eth_transaction_by_hash
-
-
             let tx_hash_cid: Cid = proof_cbor.path(&["txHash"]).try_into()?;
-            
-
             let (transaction_root, timestamp) =
                 eth_transaction_by_hash(tx_hash_cid, ethereum_rpc_url).await?;
             println!("root: {}, timestamp: {}", transaction_root, timestamp);
 
-            if transaction_root == proof_root{
-                // TODO validate that prev is in root
-                root_store.put(transaction_root.hash().digest(), timestamp).await?;
+            if transaction_root == proof_root {
+                root_store
+                    .put(transaction_root.hash().digest(), timestamp)
+                    .await?;
                 Ok(timestamp)
             } else {
-                Err(anyhow!("root from transaction {} != root from proof {}", transaction_root, proof_root))
+                Err(anyhow!(
+                    "root from transaction {} != root from proof {}",
+                    transaction_root,
+                    proof_root
+                ))
             }
         } else {
             Err(anyhow!("proof {} not found", cid))
@@ -158,11 +174,29 @@ async fn validate_time_event(
     } else {
         println!("CID: {} not found", cid);
         Err(anyhow!("CID {} not found", cid))
-    } 
+    }
 }
 
-fn prev_in_root(prev: Cid, proof_root: Cid, path: String, block_store: &SQLiteBlockStore) -> Result<bool> {
-    return Ok(true);
+async fn prev_in_root(
+    prev: Cid,
+    root: Cid,
+    path: String,
+    block_store: &SQLiteBlockStore,
+) -> Result<bool> {
+    let mut current_cid = root;
+    for segment in path.split("/") {
+        let Some(block) = block_store.get(current_cid).await? else {
+            return Err(anyhow!(
+                "CID {} not found in prev_in_root test",
+                current_cid
+            ));
+        };
+        let current = CborValue::parse(&block)?;
+        current_cid = current.as_array().unwrap()[usize::from_str(segment)?]
+            .clone()
+            .try_into()?;
+    }
+    return Ok(prev == current_cid);
 }
 
 async fn eth_transaction_by_hash(cid: Cid, ethereum_rpc_url: &str) -> Result<(Cid, i64)> {
@@ -248,7 +282,7 @@ fn get_timestamp_from_hex_string(ts: &str) -> Result<i64> {
     }
 }
 
-#[derive(Eq, PartialEq, Ord, PartialOrd, Clone, Debug)]
+#[derive(Eq, PartialEq, Ord, PartialOrd, Clone, Debug, EnumAsInner)]
 pub enum CborValue {
     // not clear if Indef should be treated distinctly from the finite versions
     Bool(bool),
