@@ -1,9 +1,9 @@
-use std::num::TryFromIntError;
+use std::{num::TryFromIntError, ops::Range};
 
 use anyhow::anyhow;
 use async_trait::async_trait;
 use bytes::Bytes;
-use ceramic_core::{event_id::InvalidEventId, EventId, RangeOpen};
+use ceramic_core::{event_id::InvalidEventId, EventId};
 
 use cid::Cid;
 use iroh_bitswap::Block;
@@ -69,8 +69,7 @@ impl SqliteEventStore {
 
     async fn range_with_values_int(
         &self,
-        left_fencepost: &EventId,
-        right_fencepost: &EventId,
+        range: Range<&EventId>,
         offset: usize,
         limit: usize,
     ) -> Result<Box<dyn Iterator<Item = (EventId, Vec<u8>)> + Send + 'static>> {
@@ -78,8 +77,8 @@ impl SqliteEventStore {
         let limit: i64 = limit.try_into().unwrap_or(i64::MAX);
         let all_blocks: Vec<EventBlockRaw> =
             sqlx::query_as(EventQuery::value_blocks_by_order_key_many())
-                .bind(left_fencepost.as_bytes())
-                .bind(right_fencepost.as_bytes())
+                .bind(range.start.as_bytes())
+                .bind(range.end.as_bytes())
                 .bind(limit)
                 .bind(offset)
                 .fetch_all(self.pool.reader())
@@ -89,31 +88,8 @@ impl SqliteEventStore {
         Ok(Box::new(values.into_iter()))
     }
 
-    async fn keys_with_missing_values_int(
-        &self,
-        range: RangeOpen<EventId>,
-    ) -> Result<Vec<EventId>> {
-        if range.start >= range.end {
-            return Ok(vec![]);
-        };
-        let start = range.start.as_bytes();
-        let end = range.end.as_bytes();
-        let row: Vec<OrderKey> = sqlx::query_as(EventQuery::missing_values())
-            .bind(start)
-            .bind(end)
-            .fetch_all(self.pool.reader())
-            .await?;
-
-        let res = row
-            .into_iter()
-            .map(|row| EventId::try_from(row.order_key).map_err(|e| Error::new_app(anyhow!(e))))
-            .collect::<Result<Vec<EventId>>>()?;
-
-        Ok(res)
-    }
-
-    async fn value_for_order_key_int(&self, key: &EventId) -> Result<Option<Vec<u8>>> {
-        let blocks: Vec<BlockRow> = sqlx::query_as(EventQuery::value_blocks_by_order_key_one())
+    async fn value_for_key_int(&self, key: &EventId) -> Result<Option<Vec<u8>>> {
+        let blocks: Vec<BlockRow> = sqlx::query_as(EventQuery::value_blocks_one())
             .bind(key.as_bytes())
             .fetch_all(self.pool.reader())
             .await?;
@@ -354,15 +330,11 @@ impl recon::Store for SqliteEventStore {
 
     /// return the hash and count for a range
     #[instrument(skip(self))]
-    async fn hash_range(
-        &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> ReconResult<HashCount<Self::Hash>> {
+    async fn hash_range(&self, range: Range<&Self::Key>) -> ReconResult<HashCount<Self::Hash>> {
         let row: ReconHash =
             sqlx::query_as(ReconQuery::hash_range(ReconType::Event, SqlBackend::Sqlite))
-                .bind(left_fencepost.as_bytes())
-                .bind(right_fencepost.as_bytes())
+                .bind(range.start.as_bytes())
+                .bind(range.end.as_bytes())
                 .fetch_one(self.pool.reader())
                 .await
                 .map_err(Error::from)?;
@@ -372,8 +344,7 @@ impl recon::Store for SqliteEventStore {
     #[instrument(skip(self))]
     async fn range(
         &self,
-        left_fencepost: &EventId,
-        right_fencepost: &EventId,
+        range: Range<&Self::Key>,
         offset: usize,
         limit: usize,
     ) -> ReconResult<Box<dyn Iterator<Item = EventId> + Send + 'static>> {
@@ -382,8 +353,8 @@ impl recon::Store for SqliteEventStore {
         })?;
         let limit = limit.try_into().unwrap_or(100000); // 100k is still a huge limit
         let rows: Vec<OrderKey> = sqlx::query_as(ReconQuery::range(ReconType::Event))
-            .bind(left_fencepost.as_bytes())
-            .bind(right_fencepost.as_bytes())
+            .bind(range.start.as_bytes())
+            .bind(range.end.as_bytes())
             .bind(limit)
             .bind(offset)
             .fetch_all(self.pool.reader())
@@ -398,26 +369,19 @@ impl recon::Store for SqliteEventStore {
     #[instrument(skip(self))]
     async fn range_with_values(
         &self,
-        left_fencepost: &EventId,
-        right_fencepost: &EventId,
+        range: Range<&Self::Key>,
         offset: usize,
         limit: usize,
     ) -> ReconResult<Box<dyn Iterator<Item = (EventId, Vec<u8>)> + Send + 'static>> {
-        Ok(self
-            .range_with_values_int(left_fencepost, right_fencepost, offset, limit)
-            .await?)
+        Ok(self.range_with_values_int(range, offset, limit).await?)
     }
 
     /// Return the number of keys within the range.
     #[instrument(skip(self))]
-    async fn count(
-        &self,
-        left_fencepost: &EventId,
-        right_fencepost: &EventId,
-    ) -> ReconResult<usize> {
+    async fn count(&self, range: Range<&Self::Key>) -> ReconResult<usize> {
         let row: CountRow = sqlx::query_as(ReconQuery::count(ReconType::Event, SqlBackend::Sqlite))
-            .bind(left_fencepost.as_bytes())
-            .bind(right_fencepost.as_bytes())
+            .bind(range.start.as_bytes())
+            .bind(range.end.as_bytes())
             .fetch_one(self.pool.reader())
             .await
             .map_err(Error::from)?;
@@ -426,14 +390,10 @@ impl recon::Store for SqliteEventStore {
 
     /// Return the first key within the range.
     #[instrument(skip(self))]
-    async fn first(
-        &self,
-        left_fencepost: &EventId,
-        right_fencepost: &EventId,
-    ) -> ReconResult<Option<EventId>> {
+    async fn first(&self, range: Range<&Self::Key>) -> ReconResult<Option<EventId>> {
         let row: Option<OrderKey> = sqlx::query_as(ReconQuery::first_key(ReconType::Event))
-            .bind(left_fencepost.as_bytes())
-            .bind(right_fencepost.as_bytes())
+            .bind(range.start.as_bytes())
+            .bind(range.end.as_bytes())
             .fetch_optional(self.pool.reader())
             .await
             .map_err(Error::from)?;
@@ -444,14 +404,10 @@ impl recon::Store for SqliteEventStore {
     }
 
     #[instrument(skip(self))]
-    async fn last(
-        &self,
-        left_fencepost: &EventId,
-        right_fencepost: &EventId,
-    ) -> ReconResult<Option<EventId>> {
+    async fn last(&self, range: Range<&Self::Key>) -> ReconResult<Option<EventId>> {
         let row: Option<OrderKey> = sqlx::query_as(ReconQuery::last_key(ReconType::Event))
-            .bind(left_fencepost.as_bytes())
-            .bind(right_fencepost.as_bytes())
+            .bind(range.start.as_bytes())
+            .bind(range.end.as_bytes())
             .fetch_optional(self.pool.reader())
             .await
             .map_err(Error::from)?;
@@ -464,17 +420,16 @@ impl recon::Store for SqliteEventStore {
     #[instrument(skip(self))]
     async fn first_and_last(
         &self,
-        left_fencepost: &EventId,
-        right_fencepost: &EventId,
+        range: Range<&Self::Key>,
     ) -> ReconResult<Option<(EventId, EventId)>> {
         let row: Option<FirstAndLast> = sqlx::query_as(ReconQuery::first_and_last(
             ReconType::Event,
             SqlBackend::Sqlite,
         ))
-        .bind(left_fencepost.as_bytes())
-        .bind(right_fencepost.as_bytes())
-        .bind(left_fencepost.as_bytes())
-        .bind(right_fencepost.as_bytes())
+        .bind(range.start.as_bytes())
+        .bind(range.end.as_bytes())
+        .bind(range.start.as_bytes())
+        .bind(range.end.as_bytes())
         .fetch_optional(self.pool.reader())
         .await
         .map_err(Error::from)?;
@@ -492,14 +447,6 @@ impl recon::Store for SqliteEventStore {
     #[instrument(skip(self))]
     async fn value_for_key(&self, key: &EventId) -> ReconResult<Option<Vec<u8>>> {
         Ok(self.value_for_order_key_int(key).await?)
-    }
-
-    #[instrument(skip(self))]
-    async fn keys_with_missing_values(
-        &self,
-        range: RangeOpen<EventId>,
-    ) -> ReconResult<Vec<EventId>> {
-        Ok(self.keys_with_missing_values_int(range).await?)
     }
 }
 

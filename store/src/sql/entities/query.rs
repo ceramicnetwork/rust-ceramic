@@ -56,7 +56,7 @@ impl EventQuery {
                 FROM ceramic_one_event e
                 WHERE
                     EXISTS (SELECT 1 FROM ceramic_one_event_block where event_cid = e.cid)
-                    AND e.order_key > $1 AND e.order_key < $2
+                    AND e.order_key >= $1 AND e.order_key < $2
                 ORDER BY
                     e.order_key ASC
                 LIMIT
@@ -90,16 +90,6 @@ impl EventQuery {
     /// Updates the delivered column in the event table so it can be set to the client
     pub fn mark_ready_to_deliver() -> &'static str {
         "UPDATE ceramic_one_event SET delivered = $1 WHERE order_key = $2;"
-    }
-
-    /// Finds event keys that are missing values
-    pub fn missing_values() -> &'static str {
-        r#"SELECT order_key 
-        FROM ceramic_one_event e
-        WHERE
-            NOT EXISTS (SELECT 1 FROM ceramic_one_event_block where order_key = e.order_key) 
-            AND order_key > $1
-            AND order_key < $2;"#
     }
 }
 
@@ -164,7 +154,7 @@ impl ReconQuery {
                     TOTAL(ahash_6) & 0xFFFFFFFF as ahash_6, TOTAL(ahash_7) & 0xFFFFFFFF as ahash_7,
                     COUNT(1) as count
                 FROM ceramic_one_event 
-                WHERE order_key > $1 AND order_key < $2;"#
+                WHERE order_key >= $1 AND order_key < $2;"#
             }
             (ReconType::Interest, SqlBackend::Sqlite) => {
                 r#"SELECT
@@ -174,7 +164,7 @@ impl ReconQuery {
                     TOTAL(ahash_6) & 0xFFFFFFFF as ahash_6, TOTAL(ahash_7) & 0xFFFFFFFF as ahash_7,
                     COUNT(1) as count
                 FROM ceramic_one_interest
-                WHERE order_key > $1 AND order_key < $2;"#
+                WHERE order_key >= $1 AND order_key < $2;"#
             }
         }
     }
@@ -187,7 +177,7 @@ impl ReconQuery {
                     FROM
                     ceramic_one_event
                     WHERE
-                        order_key > $1 AND order_key < $2
+                        order_key >= $1 AND order_key < $2
                     ORDER BY
                         order_key ASC
                     LIMIT
@@ -201,7 +191,7 @@ impl ReconQuery {
                     FROM
                         ceramic_one_interest
                     WHERE
-                        order_key > $1 AND order_key < $2
+                        order_key >= $1 AND order_key < $2
                     ORDER BY
                         order_key ASC
                     LIMIT
@@ -220,7 +210,7 @@ impl ReconQuery {
                 FROM
                     ceramic_one_event
                 WHERE
-                    order_key > $1 AND order_key < $2"#
+                    order_key >= $1 AND order_key < $2"#
             }
             (ReconType::Interest, SqlBackend::Sqlite) => {
                 r#"SELECT
@@ -228,7 +218,7 @@ impl ReconQuery {
                 FROM
                     ceramic_one_interest
                 WHERE
-                    order_key > $1 AND order_key < $2"#
+                    order_key >= $1 AND order_key < $2"#
             }
         }
     }
@@ -242,7 +232,7 @@ impl ReconQuery {
                     FROM
                         ceramic_one_event
                     WHERE
-                        order_key > $1 AND order_key < $2
+                        order_key >= $1 AND order_key < $2
                     ORDER BY
                         order_key ASC
                     LIMIT
@@ -254,7 +244,7 @@ impl ReconQuery {
                     FROM
                         ceramic_one_interest
                     WHERE
-                        order_key > $1 AND order_key < $2
+                        order_key >= $1 AND order_key < $2
                     ORDER BY
                         order_key ASC
                     LIMIT
@@ -272,7 +262,7 @@ impl ReconQuery {
                 FROM
                     ceramic_one_event
                 WHERE
-                    order_key > $1 AND order_key < $2
+                    order_key >= $1 AND order_key < $2
                 ORDER BY
                     order_key DESC
                 LIMIT
@@ -284,7 +274,7 @@ impl ReconQuery {
                 FROM
                     ceramic_one_interest
                 WHERE
-                    order_key > $1 AND order_key < $2
+                    order_key >= $1 AND order_key < $2
                 ORDER BY
                     order_key DESC
                 LIMIT
@@ -303,7 +293,7 @@ impl ReconQuery {
                             SELECT order_key
                             FROM ceramic_one_event
                             WHERE
-                                order_key > $1 AND order_key < $2
+                                order_key >= $1 AND order_key < $2
                             ORDER BY order_key ASC
                             LIMIT 1
                         ) as first
@@ -312,7 +302,7 @@ impl ReconQuery {
                             SELECT order_key
                             FROM ceramic_one_event
                             WHERE
-                                order_key > $3 AND order_key < $4
+                                order_key >= $3 AND order_key < $4
                             ORDER BY order_key DESC
                             LIMIT 1
                         ) as last;"#
@@ -324,7 +314,7 @@ impl ReconQuery {
                         SELECT order_key
                         FROM ceramic_one_interest
                         WHERE
-                            order_key > $1 AND order_key < $2
+                            order_key >= $1 AND order_key < $2
                         ORDER BY order_key ASC
                         LIMIT 1
                     ) as first
@@ -333,7 +323,7 @@ impl ReconQuery {
                         SELECT order_key
                         FROM ceramic_one_interest
                         WHERE
-                            order_key > $1 AND order_key < $2
+                            order_key >= $1 AND order_key < $2
                         ORDER BY order_key DESC
                         LIMIT 1
                     ) as last

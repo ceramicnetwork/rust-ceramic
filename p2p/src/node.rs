@@ -1159,7 +1159,7 @@ pub async fn load_identity<S: Storage>(kc: &mut Keychain<S>) -> Result<Keypair> 
 
 #[cfg(test)]
 mod tests {
-    use std::marker::PhantomData;
+    use std::{marker::PhantomData, ops::Range};
 
     use crate::keys::Keypair;
 
@@ -1169,7 +1169,7 @@ mod tests {
     use futures::TryStreamExt;
     use rand::prelude::*;
     use rand_chacha::ChaCha8Rng;
-    use recon::{Range, Result as ReconResult, Sha256a, SyncState};
+    use recon::{RangeHash, Result as ReconResult, Sha256a, SyncState};
     use ssh_key::private::Ed25519Keypair;
 
     use libp2p::{identity::Keypair as Libp2pKeypair, kad::RecordKey};
@@ -1274,7 +1274,7 @@ mod tests {
         }
         async fn keys_with_missing_values(
             &self,
-            _range: RangeOpen<Self::Key>,
+            _range: Range<&Self::Key>,
         ) -> ReconResult<Vec<Self::Key>> {
             unreachable!()
         }
@@ -1292,14 +1292,14 @@ mod tests {
         async fn initial_range(
             &self,
             _interest: RangeOpen<Self::Key>,
-        ) -> ReconResult<Range<Self::Key, Self::Hash>> {
+        ) -> ReconResult<RangeHash<Self::Key, Self::Hash>> {
             unreachable!()
         }
 
         async fn process_range(
             &self,
-            _range: Range<Self::Key, Self::Hash>,
-        ) -> ReconResult<(SyncState<Self::Key, Self::Hash>, Vec<Self::Key>)> {
+            _range: RangeHash<Self::Key, Self::Hash>,
+        ) -> ReconResult<SyncState<Self::Key, Self::Hash>> {
             unreachable!()
         }
 

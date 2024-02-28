@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use crate::{
     libp2p::{stream_set::StreamSet, PeerEvent, PeerStatus},
     AssociativeHash, BTreeStore, Error, FullInterests, HashCount, InsertResult, InterestProvider,
@@ -5,7 +7,6 @@ use crate::{
 };
 
 use async_trait::async_trait;
-use ceramic_core::RangeOpen;
 use ceramic_metrics::init_local_tracing;
 use libp2p::{metrics::Registry, PeerId, Swarm};
 use libp2p_swarm_test::SwarmExt;
@@ -86,77 +87,52 @@ where
         self.inner.insert_many(items).await
     }
 
-    async fn hash_range(
-        &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> ReconResult<HashCount<Self::Hash>> {
+    async fn hash_range(&self, range: Range<&Self::Key>) -> ReconResult<HashCount<Self::Hash>> {
         self.as_error()?;
 
-        self.inner.hash_range(left_fencepost, right_fencepost).await
+        self.inner.hash_range(range).await
     }
 
     async fn range(
         &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
+        range: Range<&Self::Key>,
         offset: usize,
         limit: usize,
     ) -> ReconResult<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
         self.as_error()?;
 
-        self.inner
-            .range(left_fencepost, right_fencepost, offset, limit)
-            .await
+        self.inner.range(range, offset, limit).await
     }
     async fn range_with_values(
         &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
+        range: Range<&Self::Key>,
         offset: usize,
         limit: usize,
     ) -> ReconResult<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>> {
         self.as_error()?;
 
-        self.inner
-            .range_with_values(left_fencepost, right_fencepost, offset, limit)
-            .await
+        self.inner.range_with_values(range, offset, limit).await
     }
 
-    async fn last(
-        &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> ReconResult<Option<Self::Key>> {
+    async fn last(&self, range: Range<&Self::Key>) -> ReconResult<Option<Self::Key>> {
         self.as_error()?;
 
-        self.inner.last(left_fencepost, right_fencepost).await
+        self.inner.last(range).await
     }
 
     async fn first_and_last(
         &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
+        range: Range<&Self::Key>,
     ) -> ReconResult<Option<(Self::Key, Self::Key)>> {
         self.as_error()?;
 
-        self.inner
-            .first_and_last(left_fencepost, right_fencepost)
-            .await
+        self.inner.first_and_last(range).await
     }
 
     async fn value_for_key(&self, key: &Self::Key) -> ReconResult<Option<Vec<u8>>> {
         self.as_error()?;
 
         self.inner.value_for_key(key).await
-    }
-    async fn keys_with_missing_values(
-        &self,
-        range: RangeOpen<Self::Key>,
-    ) -> ReconResult<Vec<Self::Key>> {
-        self.as_error()?;
-
-        self.inner.keys_with_missing_values(range).await
     }
 }
 
