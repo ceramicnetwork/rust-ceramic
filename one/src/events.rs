@@ -109,10 +109,16 @@ async fn validate(opts: ValidateOpts) -> Result<()> {
     .await;
     match timestamp {
         Ok(timestamp) => {
-            let rfc3339 = Utc.timestamp_opt(timestamp, 0).unwrap().to_rfc3339_opts(SecondsFormat::Secs, true);
-            println!("{} validated at timestamp {} ({})", opts.cid, timestamp, rfc3339)
-        },
-        Err(e) => println!("{} failed with error: {:?}",opts.cid,  e),
+            let rfc3339 = Utc
+                .timestamp_opt(timestamp, 0)
+                .unwrap()
+                .to_rfc3339_opts(SecondsFormat::Secs, true);
+            println!(
+                "{} validated at timestamp {} ({})",
+                opts.cid, timestamp, rfc3339
+            )
+        }
+        Err(e) => println!("{} failed with error: {:?}", opts.cid, e),
     }
     Ok(())
 }
