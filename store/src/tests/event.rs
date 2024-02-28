@@ -6,7 +6,7 @@ use ceramic_api::AccessModelStore;
 use cid::{Cid, CidGeneric};
 use expect_test::expect;
 use iroh_bitswap::Store;
-use recon::{Key, ReconItem, Sha256a};
+use recon::{ReconItem, Sha256a};
 
 use super::*;
 
@@ -71,7 +71,7 @@ where
     )
     .await
     .unwrap();
-    let hash = recon::Store::hash_range(&store, &random_event_id_min(), &random_event_id_max())
+    let hash = recon::Store::hash_range(&store, &random_event_id_min()..&random_event_id_max())
         .await
         .unwrap();
     expect!["65C7A25327CC05C19AB5812103EEB8D1156595832B453C7BAC6A186F4811FA0A#2"]
@@ -112,8 +112,7 @@ where
     .unwrap();
     let ids = recon::Store::range(
         &store,
-        &random_event_id_min(),
-        &random_event_id_max(),
+        &random_event_id_min()..&random_event_id_max(),
         0,
         usize::MAX,
     )
@@ -214,8 +213,7 @@ where
     .unwrap();
     let values: Vec<(EventId, Vec<u8>)> = recon::Store::range_with_values(
         &store,
-        &random_event_id_min(),
-        &random_event_id_max(),
+        &random_event_id_min()..&random_event_id_max(),
         0,
         usize::MAX,
     )
@@ -374,8 +372,8 @@ where
     // Only one key in range
     let ret = recon::Store::first_and_last(
         &store,
-        &event_id_builder().with_event_height(9).build_fencepost(),
-        &event_id_builder().with_event_height(11).build_fencepost(),
+        &event_id_builder().with_event_height(9).build_fencepost()
+            ..&event_id_builder().with_event_height(11).build_fencepost(),
     )
     .await
     .unwrap();
@@ -432,8 +430,8 @@ where
     // No keys in range
     let ret = recon::Store::first_and_last(
         &store,
-        &event_id_builder().with_event_height(12).build_fencepost(),
-        &event_id_builder().with_max_event_height().build_fencepost(),
+        &event_id_builder().with_event_height(12).build_fencepost()
+            ..&event_id_builder().with_max_event_height().build_fencepost(),
     )
     .await
     .unwrap();
@@ -443,7 +441,7 @@ where
     .assert_debug_eq(&ret);
 
     // Two keys in range
-    let ret = recon::Store::first_and_last(&store, &random_event_id_min(), &random_event_id_max())
+    let ret = recon::Store::first_and_last(&store, &random_event_id_min()..&random_event_id_max())
         .await
         .unwrap();
     expect![[r#"
@@ -523,76 +521,6 @@ where
         .unwrap()
         .unwrap();
     assert_eq!(hex::encode(store_value), hex::encode(value));
-}
-
-test_with_dbs!(
-    keys_with_missing_value,
-    keys_with_missing_value,
-    [
-        "delete from ceramic_one_event_block",
-        "delete from ceramic_one_event",
-        "delete from ceramic_one_block",
-    ]
-);
-
-async fn keys_with_missing_value<S>(store: S)
-where
-    S: recon::Store<Key = EventId, Hash = Sha256a>,
-{
-    let key = random_event_id(
-        Some(4),
-        Some("baeabeigc5edwvc47ul6belpxk3lgddipri5hw6f347s6ur4pdzwceprqbu"),
-    );
-    recon::Store::insert(&store, &ReconItem::new(&key, None))
-        .await
-        .unwrap();
-    let missing_keys = recon::Store::keys_with_missing_values(
-        &store,
-        (EventId::min_value(), EventId::max_value()).into(),
-    )
-    .await
-    .unwrap();
-    expect![[r#"
-            [
-                EventId {
-                    bytes: "ce010502b51217a029eb540d4f16d8429ae87f86ead3ca3c0401001220c2e9076a8b9fa2fc122df756d6618d0f8a3a7b78bbe7e5ea478f1e6c223e300d",
-                    network_id: Some(
-                        2,
-                    ),
-                    separator: Some(
-                        "b51217a029eb540d",
-                    ),
-                    controller: Some(
-                        "4f16d8429ae87f86",
-                    ),
-                    stream_id: Some(
-                        "ead3ca3c",
-                    ),
-                    event_height: Some(
-                        4,
-                    ),
-                    cid: Some(
-                        "baeabeigc5edwvc47ul6belpxk3lgddipri5hw6f347s6ur4pdzwceprqbu",
-                    ),
-                },
-            ]
-        "#]]
-        .assert_debug_eq(&missing_keys);
-
-    let (_, value) = build_car_file(2).await;
-    recon::Store::insert(&store, &ReconItem::new(&key, Some(&value)))
-        .await
-        .unwrap();
-    let missing_keys = recon::Store::keys_with_missing_values(
-        &store,
-        (EventId::min_value(), EventId::max_value()).into(),
-    )
-    .await
-    .unwrap();
-    expect![[r#"
-                []
-            "#]]
-    .assert_debug_eq(&missing_keys);
 }
 
 test_with_dbs!(
