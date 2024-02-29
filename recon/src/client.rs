@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use anyhow::Result;
 use ceramic_core::RangeOpen;
 use tokio::sync::{
@@ -7,7 +9,7 @@ use tokio::sync::{
 use tracing::warn;
 
 use crate::{
-    recon::{Range, ReconItem, SyncState},
+    recon::{RangeHash, ReconItem, SyncState},
     AssociativeHash, InterestProvider, Key, Metrics, Recon, Store,
 };
 
@@ -100,10 +102,13 @@ where
     }
 
     /// Report all keys in the range that are missing a value
-    pub async fn keys_with_missing_values(&self, range: RangeOpen<K>) -> Result<Vec<K>> {
+    pub async fn keys_with_missing_values(&self, range: Range<&K>) -> Result<Vec<K>> {
         let (ret, rx) = oneshot::channel();
         self.sender
-            .send(Request::KeysWithMissingValues { range, ret })
+            .send(Request::KeysWithMissingValues {
+                range: range.start.clone()..range.end.clone(),
+                ret,
+            })
             .await?;
         rx.await?
     }
@@ -126,7 +131,7 @@ where
     }
 
     /// Compute the hash of a range.
-    pub async fn initial_range(&self, interest: RangeOpen<K>) -> Result<Range<K, H>> {
+    pub async fn initial_range(&self, interest: RangeOpen<K>) -> Result<RangeHash<K, H>> {
         let (ret, rx) = oneshot::channel();
         self.sender
             .send(Request::InitialRange { interest, ret })
@@ -134,7 +139,7 @@ where
         rx.await?
     }
     /// Compute the synchornization state from a remote range.
-    pub async fn process_range(&self, range: Range<K, H>) -> Result<(SyncState<K, H>, Vec<K>)> {
+    pub async fn process_range(&self, range: RangeHash<K, H>) -> Result<(SyncState<K, H>, Vec<K>)> {
         let (ret, rx) = oneshot::channel();
         self.sender
             .send(Request::ProcessRange { range, ret })
@@ -178,7 +183,7 @@ enum Request<K, H> {
         ret: oneshot::Sender<Result<Option<Vec<u8>>>>,
     },
     KeysWithMissingValues {
-        range: RangeOpen<K>,
+        range: Range<K>,
         ret: oneshot::Sender<Result<Vec<K>>>,
     },
     Interests {
@@ -186,14 +191,14 @@ enum Request<K, H> {
     },
     InitialRange {
         interest: RangeOpen<K>,
-        ret: oneshot::Sender<Result<Range<K, H>>>,
+        ret: oneshot::Sender<Result<RangeHash<K, H>>>,
     },
     ProcessInterests {
         interests: Vec<RangeOpen<K>>,
         ret: oneshot::Sender<Result<Vec<RangeOpen<K>>>>,
     },
     ProcessRange {
-        range: Range<K, H>,
+        range: RangeHash<K, H>,
         ret: oneshot::Sender<ProcessRangeResult<K, H>>,
     },
 }
@@ -297,7 +302,10 @@ where
                         send(ret, value);
                     }
                     Request::KeysWithMissingValues { range, ret } => {
-                        let ok = self.recon.keys_with_missing_values(range).await;
+                        let ok = self
+                            .recon
+                            .keys_with_missing_values(&range.start..&range.end)
+                            .await;
                         send(ret, ok);
                     }
                     Request::Interests { ret } => {

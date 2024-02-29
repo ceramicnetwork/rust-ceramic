@@ -1,7 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use ceramic_core::RangeOpen;
-use std::{collections::BTreeMap, ops::Bound};
+use std::{collections::BTreeMap, ops::Range};
 
 use crate::recon::{AssociativeHash, Key, MaybeHashedKey, ReconItem, Store};
 
@@ -55,24 +54,16 @@ where
 
     /// Return the hash of all keys in the range between left_fencepost and right_fencepost.
     /// Both range bounds are exclusive.
-    pub fn hash_range(
-        &self,
-        left_fencepost: &K,
-        right_fencepost: &K,
-    ) -> anyhow::Result<HashCount<H>> {
-        if left_fencepost >= right_fencepost {
+    pub fn hash_range(&self, range: Range<&K>) -> anyhow::Result<HashCount<H>> {
+        if range.start >= range.end {
             return Ok(HashCount {
                 hash: H::identity(),
                 count: 0,
             });
         }
-        let range = (
-            Bound::Excluded(left_fencepost),
-            Bound::Excluded(right_fencepost),
-        );
         let hash: H = H::identity().digest_many(
             self.keys
-                .range(range)
+                .range(range.clone())
                 .map(|(key, hash)| MaybeHashedKey::new(key, Some(hash))),
         );
         let count: usize = self.keys.range(range).count();
@@ -88,15 +79,10 @@ where
     /// Offset and limit values are applied within the range of keys.
     pub fn range(
         &self,
-        left_fencepost: &K,
-        right_fencepost: &K,
+        range: Range<&K>,
         offset: usize,
         limit: usize,
     ) -> Result<Box<dyn Iterator<Item = K> + Send + 'static>> {
-        let range = (
-            Bound::Excluded(left_fencepost),
-            Bound::Excluded(right_fencepost),
-        );
         let keys: Vec<K> = self
             .keys
             .range(range)
@@ -113,15 +99,10 @@ where
     /// Offset and limit values are applied within the range of keys.
     pub fn range_with_values(
         &self,
-        left_fencepost: &K,
-        right_fencepost: &K,
+        range: Range<&K>,
         offset: usize,
         limit: usize,
     ) -> Result<Box<dyn Iterator<Item = (K, Vec<u8>)> + Send + 'static>> {
-        let range = (
-            Bound::Excluded(left_fencepost),
-            Bound::Excluded(right_fencepost),
-        );
         let keys: Vec<(K, Vec<u8>)> = self
             .keys
             .range(range)
@@ -175,44 +156,33 @@ where
 
     async fn hash_range(
         &mut self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
+        range: Range<&Self::Key>,
     ) -> anyhow::Result<HashCount<Self::Hash>> {
         // Self does not need async to implement hash_range, so it exposes a pub non async hash_range function
         // and we delegate to its implementation here.
-        BTreeStore::hash_range(self, left_fencepost, right_fencepost)
+        BTreeStore::hash_range(self, range)
     }
 
     async fn range(
         &mut self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
+        range: Range<&Self::Key>,
         offset: usize,
         limit: usize,
     ) -> Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
         // Self does not need async to implement range, so it exposes a pub non async range function
         // and we delegate to its implementation here.
-        BTreeStore::range(self, left_fencepost, right_fencepost, offset, limit)
+        BTreeStore::range(self, range, offset, limit)
     }
     async fn range_with_values(
         &mut self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
+        range: Range<&Self::Key>,
         offset: usize,
         limit: usize,
     ) -> Result<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>> {
-        BTreeStore::range_with_values(self, left_fencepost, right_fencepost, offset, limit)
+        BTreeStore::range_with_values(self, range, offset, limit)
     }
 
-    async fn last(
-        &mut self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Result<Option<Self::Key>> {
-        let range = (
-            Bound::Excluded(left_fencepost),
-            Bound::Excluded(right_fencepost),
-        );
+    async fn last(&mut self, range: Range<&Self::Key>) -> Result<Option<Self::Key>> {
         Ok(self
             .keys
             .range(range)
@@ -222,13 +192,8 @@ where
 
     async fn first_and_last(
         &mut self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
+        range: Range<&Self::Key>,
     ) -> Result<Option<(Self::Key, Self::Key)>> {
-        let range = (
-            Bound::Excluded(left_fencepost),
-            Bound::Excluded(right_fencepost),
-        );
         let mut range = self.keys.range(range);
         let first = range.next().map(|(k, _)| k);
         if let Some(first) = first {
@@ -248,7 +213,7 @@ where
     }
     async fn keys_with_missing_values(
         &mut self,
-        range: RangeOpen<Self::Key>,
+        range: Range<&Self::Key>,
     ) -> Result<Vec<Self::Key>> {
         Ok(self
             .keys

@@ -10,7 +10,7 @@
 //!
 //! Encoding and framing of messages is outside the scope of this crate.
 //! However the message types do implement serde::Serialize and serde::Deserialize.
-use std::pin::Pin;
+use std::{ops::Range, pin::Pin};
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -30,7 +30,7 @@ use crate::{
         MessageLabels, MessageRecv, MessageSent, Metrics, ProtocolLoop, ProtocolRun, RangeDequeued,
         RangeEnqueueFailed, RangeEnqueued, WantDequeued, WantEnqueueFailed, WantEnqueued,
     },
-    recon::{Range, SyncState},
+    recon::{RangeHash, SyncState},
     AssociativeHash, Client, Key,
 };
 
@@ -105,7 +105,7 @@ pub enum InitiatorMessage<K: Key, H: AssociativeHash> {
     /// Declares interestes to the responder.
     InterestRequest(Vec<RangeOpen<K>>),
     /// Request to synchronize a range.
-    RangeRequest(Range<K, H>),
+    RangeRequest(RangeHash<K, H>),
     /// Request a value from the responder.
     ValueRequest(K),
     /// Send a value to the responder.
@@ -124,7 +124,7 @@ pub enum ResponderMessage<K: Key, H: AssociativeHash> {
     /// Respond with the intersection of interests
     InterestResponse(Vec<RangeOpen<K>>),
     /// Respond to a range request with the same range or splits according to sync status.
-    RangeResponse(Vec<Range<K, H>>),
+    RangeResponse(Vec<RangeHash<K, H>>),
     /// Request a value from the initiator
     ValueRequest(K),
     /// Send a value to the initiator
@@ -158,7 +158,7 @@ struct Protocol<R: Role> {
     role: R,
 
     rx_want_values: Receiver<R::Key>,
-    rx_sync_ranges: Receiver<RangeOpen<R::Key>>,
+    rx_sync_ranges: Receiver<Range<R::Key>>,
 
     listen_only_sent: bool,
     remote_done: bool,
@@ -178,7 +178,7 @@ where
     fn new(
         role: R,
         rx_want_values: Receiver<R::Key>,
-        rx_sync_ranges: Receiver<RangeOpen<R::Key>>,
+        rx_sync_ranges: Receiver<Range<R::Key>>,
         metrics: Metrics,
     ) -> Self {
         Self {
@@ -315,7 +315,7 @@ trait Role {
     // Feed a want value request to the remote.
     async fn feed_want_value(&mut self, key: Self::Key) -> Result<()>;
     // Handle a range that has been synchronized
-    async fn handle_sync_range(&mut self, range: RangeOpen<Self::Key>) -> Result<()>;
+    async fn handle_sync_range(&mut self, range: Range<Self::Key>) -> Result<()>;
 }
 
 type InitiatorValueResponseFn<K, H> = fn(ValueResponse<K>) -> InitiatorMessage<K, H>;
@@ -329,7 +329,7 @@ where
 
     // Use a stack for buffered ranges as this ensures we traverse depth first
     // through the key space tree.
-    ranges_stack: Vec<Range<R::Key, R::Hash>>,
+    ranges_stack: Vec<RangeHash<R::Key, R::Hash>>,
     pending_ranges: usize,
 
     metrics: Metrics,
@@ -346,7 +346,7 @@ where
         stream: S,
         recon: R,
         tx_want_values: Sender<R::Key>,
-        tx_sync_ranges: Sender<RangeOpen<R::Key>>,
+        tx_sync_ranges: Sender<Range<R::Key>>,
     ) -> Self {
         let metrics = recon.metrics();
         let stream = SinkFlusher::new(stream, metrics.clone());
@@ -368,7 +368,7 @@ where
         }
     }
 
-    async fn process_range(&mut self, remote_range: Range<R::Key, R::Hash>) -> Result<()> {
+    async fn process_range(&mut self, remote_range: RangeHash<R::Key, R::Hash>) -> Result<()> {
         let (sync_state, new_keys) = self.common.recon.process_range(remote_range).await?;
         self.common.process_new_keys(&new_keys);
         match sync_state {
@@ -388,7 +388,7 @@ where
     // Send ranges to the remote while buffering any ranges over the [`PENDING_RANGES_LIMIT`].
     async fn send_ranges(
         &mut self,
-        ranges: impl Iterator<Item = Range<R::Key, R::Hash>> + ExactSizeIterator,
+        ranges: impl Iterator<Item = RangeHash<R::Key, R::Hash>> + ExactSizeIterator,
     ) -> Result<()> {
         // Do all ranges fit under the limit, if so send them all
         if self.pending_ranges < PENDING_RANGES_LIMIT {
@@ -541,7 +541,7 @@ where
     async fn send_listen_only(&mut self) -> Result<()> {
         self.common.stream.send(InitiatorMessage::ListenOnly).await
     }
-    async fn handle_sync_range(&mut self, range: RangeOpen<Self::Key>) -> Result<()> {
+    async fn handle_sync_range(&mut self, range: Range<Self::Key>) -> Result<()> {
         self.common.handle_sync_range(range).await
     }
 }
@@ -567,7 +567,7 @@ where
         stream: S,
         recon: R,
         tx_want_values: Sender<R::Key>,
-        tx_sync_ranges: Sender<RangeOpen<R::Key>>,
+        tx_sync_ranges: Sender<Range<R::Key>>,
     ) -> Self {
         let metrics = recon.metrics();
         let stream = SinkFlusher::new(stream, metrics.clone());
@@ -584,7 +584,7 @@ where
         }
     }
 
-    async fn process_range(&mut self, range: Range<R::Key, R::Hash>) -> Result<()> {
+    async fn process_range(&mut self, range: RangeHash<R::Key, R::Hash>) -> Result<()> {
         let (sync_state, new_keys) = self.common.recon.process_range(range).await?;
         self.common.process_new_keys(&new_keys);
         match sync_state {
@@ -685,7 +685,7 @@ where
     async fn send_listen_only(&mut self) -> Result<()> {
         self.common.stream.send(ResponderMessage::ListenOnly).await
     }
-    async fn handle_sync_range(&mut self, range: RangeOpen<Self::Key>) -> Result<()> {
+    async fn handle_sync_range(&mut self, range: Range<Self::Key>) -> Result<()> {
         self.common.handle_sync_range(range).await
     }
 }
@@ -698,7 +698,7 @@ struct Common<R: Recon, S, V> {
     value_resp_fn: V,
 
     tx_want_values: Sender<R::Key>,
-    tx_sync_ranges: Sender<RangeOpen<R::Key>>,
+    tx_sync_ranges: Sender<Range<R::Key>>,
 
     metrics: Metrics,
 }
@@ -744,7 +744,10 @@ where
         Ok(())
     }
     // The remote is missing all keys in the range send them over.
-    async fn process_remote_missing_range(&mut self, range: &Range<R::Key, R::Hash>) -> Result<()> {
+    async fn process_remote_missing_range(
+        &mut self,
+        range: &RangeHash<R::Key, R::Hash>,
+    ) -> Result<()> {
         // TODO: This logic has two potential failure modes we need to test them
         // 1. We allocate memory of all keys in the range, this can be very large.
         // 2. We spend a lot of time writing out to the stream but not reading from the stream.
@@ -752,7 +755,8 @@ where
         //    keys at the same time.
         let keys = self
             .recon
-            .range(range.first.clone(), range.last.clone(), 0, usize::MAX)
+            // TODO this now includes the first key in the response, HACK offset=1, better fix?
+            .range(range.first.clone(), range.last.clone(), 1, usize::MAX)
             .await?;
         for key in keys {
             if let Some(value) = self.recon.value_for_key(key.clone()).await? {
@@ -771,12 +775,15 @@ where
             .context("feeding value request")?;
         Ok(())
     }
-    async fn handle_sync_range(&mut self, range: RangeOpen<R::Key>) -> Result<()> {
-        let keys = self.recon.keys_with_missing_values(range).await?;
+    async fn handle_sync_range(&mut self, range: Range<R::Key>) -> Result<()> {
+        let keys = self
+            .recon
+            .keys_with_missing_values(&range.start..&range.end)
+            .await?;
         self.process_new_keys(&keys);
         Ok(())
     }
-    fn enqueue_sync_range(&mut self, range: RangeOpen<R::Key>) {
+    fn enqueue_sync_range(&mut self, range: Range<R::Key>) {
         if self.tx_sync_ranges.try_send(range).is_err() {
             self.metrics.record(&RangeEnqueueFailed);
         } else {
@@ -901,8 +908,7 @@ pub trait Recon: Clone + Send + Sync + 'static {
     async fn value_for_key(&self, key: Self::Key) -> Result<Option<Vec<u8>>>;
 
     /// Report all keys in the range that are missing a value
-    async fn keys_with_missing_values(&self, range: RangeOpen<Self::Key>)
-        -> Result<Vec<Self::Key>>;
+    async fn keys_with_missing_values(&self, range: Range<&Self::Key>) -> Result<Vec<Self::Key>>;
 
     /// Reports the interests of this recon instance
     async fn interests(&self) -> Result<Vec<RangeOpen<Self::Key>>>;
@@ -917,12 +923,12 @@ pub trait Recon: Clone + Send + Sync + 'static {
     async fn initial_range(
         &self,
         interest: RangeOpen<Self::Key>,
-    ) -> Result<Range<Self::Key, Self::Hash>>;
+    ) -> Result<RangeHash<Self::Key, Self::Hash>>;
 
     /// Computes a response to a remote range
     async fn process_range(
         &self,
-        range: Range<Self::Key, Self::Hash>,
+        range: RangeHash<Self::Key, Self::Hash>,
     ) -> Result<(SyncState<Self::Key, Self::Hash>, Vec<Self::Key>)>;
 
     /// Create a handle to the metrics
@@ -964,10 +970,7 @@ where
     async fn value_for_key(&self, key: Self::Key) -> Result<Option<Vec<u8>>> {
         Client::value_for_key(self, key).await
     }
-    async fn keys_with_missing_values(
-        &self,
-        range: RangeOpen<Self::Key>,
-    ) -> Result<Vec<Self::Key>> {
+    async fn keys_with_missing_values(&self, range: Range<&Self::Key>) -> Result<Vec<Self::Key>> {
         Client::keys_with_missing_values(self, range).await
     }
     async fn interests(&self) -> Result<Vec<RangeOpen<Self::Key>>> {
@@ -983,13 +986,13 @@ where
     async fn initial_range(
         &self,
         interest: RangeOpen<Self::Key>,
-    ) -> Result<Range<Self::Key, Self::Hash>> {
+    ) -> Result<RangeHash<Self::Key, Self::Hash>> {
         Client::initial_range(self, interest).await
     }
 
     async fn process_range(
         &self,
-        range: Range<Self::Key, Self::Hash>,
+        range: RangeHash<Self::Key, Self::Hash>,
     ) -> Result<(SyncState<Self::Key, Self::Hash>, Vec<Self::Key>)> {
         Client::process_range(self, range).await
     }
@@ -1008,7 +1011,7 @@ mod tests {
 
     #[test]
     fn message_serializes() {
-        let msg = InitiatorMessage::RangeRequest(Range {
+        let msg = InitiatorMessage::RangeRequest(RangeHash {
             first: AlphaNumBytes::min_value(),
             hash: Sha256a::digest(&AlphaNumBytes::from("hello world")).into(),
             last: AlphaNumBytes::max_value(),
@@ -1020,7 +1023,7 @@ mod tests {
 
     #[test]
     fn message_serializes_with_small_zero_hash() {
-        let msg = InitiatorMessage::RangeRequest(Range {
+        let msg = InitiatorMessage::RangeRequest(RangeHash {
             first: AlphaNumBytes::min_value(),
             hash: Sha256a::identity().into(),
             last: AlphaNumBytes::max_value(),

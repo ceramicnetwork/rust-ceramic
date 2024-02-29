@@ -2,11 +2,11 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
-use ceramic_core::{Interest, RangeOpen};
+use ceramic_core::Interest;
 use recon::{AssociativeHash, HashCount, InsertResult, Key, ReconItem};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
-use std::marker::PhantomData;
+use std::{marker::PhantomData, ops::Range};
 use tracing::instrument;
 
 use crate::{DbTx, SqlitePool};
@@ -120,8 +120,7 @@ where
 
     async fn range_int(
         &self,
-        left_fencepost: &Interest,
-        right_fencepost: &Interest,
+        range: Range<&Interest>,
         offset: usize,
         limit: usize,
     ) -> Result<Box<dyn Iterator<Item = Interest> + Send + 'static>> {
@@ -132,7 +131,7 @@ where
         FROM
             interest_key
         WHERE
-            key > ? AND key < ?
+            key >= ? AND key < ?
         ORDER BY
             key ASC
         LIMIT
@@ -142,8 +141,8 @@ where
         ",
         );
         let rows = query
-            .bind(left_fencepost.as_bytes())
-            .bind(right_fencepost.as_bytes())
+            .bind(range.start.as_bytes())
+            .bind(range.end.as_bytes())
             .bind(limit as i64)
             .bind(offset as i64)
             .fetch_all(self.pool.reader())
@@ -183,7 +182,7 @@ where
         offset: usize,
         limit: usize,
     ) -> Result<Vec<Self::Key>> {
-        Ok(self.range_int(&start, &end, offset, limit).await?.collect())
+        Ok(self.range_int(&start..&end, offset, limit).await?.collect())
     }
 }
 
@@ -236,12 +235,8 @@ where
 
     /// return the hash and count for a range
     #[instrument(skip(self))]
-    async fn hash_range(
-        &mut self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Result<HashCount<Self::Hash>> {
-        if left_fencepost >= right_fencepost {
+    async fn hash_range(&mut self, range: Range<&Self::Key>) -> Result<HashCount<Self::Hash>> {
+        if range.start >= range.end {
             return Ok(HashCount::new(H::identity(), 0));
         }
 
@@ -252,11 +247,11 @@ where
                TOTAL(ahash_4) & 0xFFFFFFFF, TOTAL(ahash_5) & 0xFFFFFFFF,
                TOTAL(ahash_6) & 0xFFFFFFFF, TOTAL(ahash_7) & 0xFFFFFFFF,
                COUNT(1)
-             FROM interest_key WHERE key > ? AND key < ?;",
+             FROM interest_key WHERE key >= ? AND key < ?;",
         );
         let row = query
-            .bind(left_fencepost.as_bytes())
-            .bind(right_fencepost.as_bytes())
+            .bind(range.start.as_bytes())
+            .bind(range.end.as_bytes())
             .fetch_one(self.pool.reader())
             .await?;
         let bytes: [u32; 8] = [
@@ -279,36 +274,27 @@ where
     #[instrument(skip(self))]
     async fn range(
         &mut self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
+        range: Range<&Self::Key>,
         offset: usize,
         limit: usize,
     ) -> Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
-        self.range_int(left_fencepost, right_fencepost, offset, limit)
-            .await
+        self.range_int(range, offset, limit).await
     }
 
     #[instrument(skip(self))]
     /// Interests don't have values, so the value will always be an empty vec. Use `range` instead.
     async fn range_with_values(
         &mut self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
+        range: Range<&Self::Key>,
         offset: usize,
         limit: usize,
     ) -> Result<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>> {
-        let rows = self
-            .range(left_fencepost, right_fencepost, offset, limit)
-            .await?;
+        let rows = self.range(range, offset, limit).await?;
         Ok(Box::new(rows.into_iter().map(|key| (key, Vec::new()))))
     }
     /// Return the number of keys within the range.
     #[instrument(skip(self))]
-    async fn count(
-        &mut self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Result<usize> {
+    async fn count(&mut self, range: Range<&Self::Key>) -> Result<usize> {
         let query = sqlx::query(
             "
         SELECT
@@ -316,12 +302,12 @@ where
         FROM
             interest_key
         WHERE
-            key > ? AND key < ?
+            key >= ? AND key < ?
         ;",
         );
         let row = query
-            .bind(left_fencepost.as_bytes())
-            .bind(right_fencepost.as_bytes())
+            .bind(range.start.as_bytes())
+            .bind(range.end.as_bytes())
             .fetch_one(self.pool.reader())
             .await?;
         Ok(row.get::<'_, i64, _>(0) as usize)
@@ -329,11 +315,7 @@ where
 
     /// Return the first key within the range.
     #[instrument(skip(self))]
-    async fn first(
-        &mut self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Result<Option<Self::Key>> {
+    async fn first(&mut self, range: Range<&Self::Key>) -> Result<Option<Self::Key>> {
         let query = sqlx::query(
             "
     SELECT
@@ -341,7 +323,7 @@ where
     FROM
         interest_key
     WHERE
-        key > ? AND key < ?
+        key >= ? AND key < ?
     ORDER BY
         key ASC
     LIMIT
@@ -349,8 +331,8 @@ where
     ; ",
         );
         let rows = query
-            .bind(left_fencepost.as_bytes())
-            .bind(right_fencepost.as_bytes())
+            .bind(range.start.as_bytes())
+            .bind(range.end.as_bytes())
             .fetch_all(self.pool.reader())
             .await?;
         Ok(rows
@@ -363,11 +345,7 @@ where
     }
 
     #[instrument(skip(self))]
-    async fn last(
-        &mut self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Result<Option<Self::Key>> {
+    async fn last(&mut self, range: Range<&Self::Key>) -> Result<Option<Self::Key>> {
         let query = sqlx::query(
             "
         SELECT
@@ -375,7 +353,7 @@ where
         FROM
             interest_key
         WHERE
-            key > ? AND key < ?
+            key >= ? AND key < ?
         ORDER BY
             key DESC
         LIMIT
@@ -383,8 +361,8 @@ where
         ;",
         );
         let rows = query
-            .bind(left_fencepost.as_bytes())
-            .bind(right_fencepost.as_bytes())
+            .bind(range.start.as_bytes())
+            .bind(range.end.as_bytes())
             .fetch_all(self.pool.reader())
             .await?;
         Ok(rows
@@ -399,8 +377,7 @@ where
     #[instrument(skip(self))]
     async fn first_and_last(
         &mut self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
+        range: Range<&Self::Key>,
     ) -> Result<Option<(Self::Key, Self::Key)>> {
         let query = sqlx::query(
             "
@@ -410,7 +387,7 @@ where
                 SELECT key
                 FROM interest_key
                 WHERE
-                            key > ? AND key < ?
+                            key >= ? AND key < ?
                 ORDER BY key ASC
                 LIMIT 1
             ) as first
@@ -419,17 +396,17 @@ where
                 SELECT key
                 FROM interest_key
                 WHERE
-                            key > ? AND key < ?
+                            key >= ? AND key < ?
                 ORDER BY key DESC
                 LIMIT 1
             ) as last
         ;",
         );
         let rows = query
-            .bind(left_fencepost.as_bytes())
-            .bind(right_fencepost.as_bytes())
-            .bind(left_fencepost.as_bytes())
-            .bind(right_fencepost.as_bytes())
+            .bind(range.start.as_bytes())
+            .bind(range.end.as_bytes())
+            .bind(range.start.as_bytes())
+            .bind(range.end.as_bytes())
             .fetch_all(self.pool.reader())
             .await?;
         if let Some(row) = rows.first() {
@@ -451,7 +428,7 @@ where
     #[instrument(skip(self))]
     async fn keys_with_missing_values(
         &mut self,
-        _range: RangeOpen<Self::Key>,
+        _range: Range<&Self::Key>,
     ) -> Result<Vec<Self::Key>> {
         Ok(vec![])
     }
@@ -553,7 +530,7 @@ mod interest_tests {
         .await
         .unwrap();
         let hash_cnt = store
-            .hash_range(&random_interest_min(), &random_interest_max())
+            .hash_range(&random_interest_min()..&random_interest_max())
             .await
             .unwrap();
         expect!["D6C3CBCCE02E4AF2900ACF7FC84BE91168A42A0B1164534C426C782057E13BBC"]
@@ -573,8 +550,7 @@ mod interest_tests {
             .unwrap();
         let ids = recon::Store::range(
             &mut store,
-            &random_interest_min(),
-            &random_interest_max(),
+            &random_interest_min()..&random_interest_max(),
             0,
             usize::MAX,
         )
@@ -593,8 +569,7 @@ mod interest_tests {
         store.insert(interest_1.clone()).await.unwrap();
         let ids = store
             .range_with_values(
-                &random_interest_min(),
-                &random_interest_max(),
+                &random_interest_min()..&random_interest_max(),
                 0,
                 usize::MAX,
             )
@@ -648,8 +623,8 @@ mod interest_tests {
         // Only one key in range, we expect to get the same key as first and last
         let ret = store
             .first_and_last(
-                &random_interest(Some((&[], &[])), Some(40)),
-                &random_interest(Some((&[], &[])), Some(43)),
+                &random_interest(Some((&[], &[])), Some(40))
+                    ..&random_interest(Some((&[], &[])), Some(43)),
             )
             .await
             .unwrap()
@@ -704,8 +679,8 @@ mod interest_tests {
         // No keys in range
         let ret = store
             .first_and_last(
-                &random_interest(Some((&[], &[])), Some(50)),
-                &random_interest(Some((&[], &[])), Some(53)),
+                &random_interest(Some((&[], &[])), Some(50))
+                    ..&random_interest(Some((&[], &[])), Some(53)),
             )
             .await
             .unwrap();
@@ -717,8 +692,8 @@ mod interest_tests {
         // Two keys in range
         let ret = store
             .first_and_last(
-                &random_interest(Some((&[], &[])), Some(40)),
-                &random_interest(Some((&[], &[])), Some(50)),
+                &random_interest(Some((&[], &[])), Some(40))
+                    ..&random_interest(Some((&[], &[])), Some(50)),
             )
             .await
             .unwrap()
@@ -793,7 +768,7 @@ mod interest_tests {
             .await
             .unwrap();
         let missing_keys = store
-            .keys_with_missing_values((Interest::min_value(), Interest::max_value()).into())
+            .keys_with_missing_values(&Interest::min_value()..&Interest::max_value())
             .await
             .unwrap();
         expect![[r#"
@@ -805,7 +780,7 @@ mod interest_tests {
             .await
             .unwrap();
         let missing_keys = store
-            .keys_with_missing_values((Interest::min_value(), Interest::max_value()).into())
+            .keys_with_missing_values(&Interest::min_value()..&Interest::max_value())
             .await
             .unwrap();
         expect![[r#"

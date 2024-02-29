@@ -1,11 +1,7 @@
-use std::{
-    cmp::min,
-    ops::{Add, AddAssign},
-};
+use std::ops::{Add, AddAssign, Range};
 
 use anyhow::Result;
 use async_recursion::async_recursion;
-use ceramic_core::RangeOpen;
 use recon::{HashCount, ReconItem};
 use tracing::debug;
 
@@ -14,8 +10,8 @@ use tracing::debug;
 /// another implementation for more fine grained ranges of the tree.
 ///
 /// It is named a Reduction Tree because the only query supported is a reduction of values within a
-/// range. The value must be associative and communitative so that it can be partially reduced and
-/// store on intermediate nodes.
+/// range. The reduction of the value must be associative and commutative so that it can be incrementally reduced and
+/// stored on intermediate nodes.
 pub struct RedTree<K, V, S> {
     root: Option<Node<K, V>>,
     b: usize,
@@ -118,11 +114,17 @@ where
                 let (median, sibling) = root.split(self.b);
                 let root_value = root.reduce();
                 let sibling_value = sibling.reduce();
-                let mut new_root = Internal::new(self.b);
-                new_root.keys_reduction = Bucket::from(V::from(&median));
+                let size = 2 * self.b - 1;
+                let mut new_root = Internal {
+                    keys: Vec::with_capacity(size + 1),
+                    children: Vec::with_capacity(size),
+                    values: Vec::with_capacity(size),
+                };
+                new_root.keys.push(K::min_value());
+                new_root.keys.push(median);
+                new_root.keys.push(K::max_value());
                 new_root.children.push(root);
                 new_root.children.push(sibling);
-                new_root.keys.push(median);
                 new_root.values.push(root_value);
                 new_root.values.push(sibling_value);
                 root = Node::Internal(new_root);
@@ -144,8 +146,11 @@ where
     async fn insert_non_full(&mut self, node: &mut Node<K, V>, kv: &Entry<K, V>) -> Result<()> {
         match node {
             Node::Internal(node) => {
-                let idx = node.keys.binary_search(&kv.key).unwrap_or_else(|x| x);
-                let child = &mut node.children[idx];
+                // Returns the index of the first key that is greater than kv.key
+                let key_idx = node.keys.partition_point(|key| key <= &kv.key);
+                // Translate the key index into an index into the children vector.
+                let child_idx = key_idx - 1;
+                let child = &mut node.children[child_idx];
                 if self.is_node_full(&child) {
                     let (median, mut sibling) = child.split(self.b);
 
@@ -156,48 +161,55 @@ where
                         self.insert_non_full(&mut sibling, kv).await
                     };
 
-                    // Now that both child and sibling are udpated we can update the current node.
-                    node.keys_reduction += &V::from(&median);
+                    // Now that both child and sibling are updated we can update the current node.
                     // Update/Insert values for new children
-                    node.values[idx] = child.reduce();
-                    node.values.insert(idx + 1, sibling.reduce());
+                    node.values[child_idx] = child.reduce();
 
-                    // Siblings keys are larger than the original child thus need to be inserted
+                    // Siblings keys are greater than the original child thus need to be inserted
                     // at the next index.
-                    node.children.insert(idx + 1, sibling);
-                    node.keys.insert(idx, median.clone());
+                    node.values.insert(child_idx + 1, sibling.reduce());
+                    node.children.insert(child_idx + 1, sibling);
+
+                    // Insert new median key
+                    node.keys.insert(key_idx, median.clone());
 
                     ret
                 } else {
                     // Child is not full, simply recurse and update its value
                     let ret = self.insert_non_full(child, &kv).await;
                     if ret.is_ok() {
+                        // TODO: This is almost certainly not enough error recovery protection.
+                        // We will need to build a more robust _transaction_ into the red tree.
+                        //
                         // Only update our local value if we are successful in inserting the value.
-                        node.values[idx] += &kv.value;
+                        node.values[child_idx] += &kv.value;
                     }
                     ret
                 }
             }
             Node::Leaf(node) => {
-                let idx = node.keys.binary_search(&kv.key).unwrap_or_else(|x| x) - 1;
-                let bucket = &mut node.buckets[idx];
+                // Returns the index of the first key that is greater than kv.key
+                let key_idx = node.keys.partition_point(|key| key <= &kv.key);
+                let bucket_idx = key_idx - 1;
+                let bucket = &mut node.buckets[bucket_idx];
                 if bucket.count >= self.bucket_size {
                     // Bucket is full, we need to create a new bucket.
                     // Need to split a bucket which means querying storage for the splits of the
                     // range and the hashes.
-                    let bucket_lower_bound = &node.keys[idx];
-                    let bucket_upper_bound = &node.keys[idx + 1];
+                    let bucket_lower_bound = &node.keys[key_idx - 1];
+                    let bucket_upper_bound = &node.keys[key_idx];
                     let split = self
                         .store
                         //TODO: make this split_at and provide a count, all callers already have a
-                        //count of values in the range so we can approximate the middle by dividing
+                        //count of values in the range so we can approximate the split by dividing
                         //the count.
-                        .split(&bucket_lower_bound, &bucket_upper_bound)
+                        .split(&bucket_lower_bound..&bucket_upper_bound)
                         .await?;
                     debug!(
                         ?node.keys,
                         ?node.buckets,
-                        ?idx,
+                        ?key_idx,
+                        ?bucket_idx,
                         ?split,
                         ?bucket_lower_bound,
                         ?bucket_upper_bound,
@@ -213,7 +225,7 @@ where
 
                     // Replace the split bucket with the new hashes.
                     node.buckets.splice(
-                        idx..idx + 1,
+                        bucket_idx..bucket_idx + 1,
                         split.hashes.into_iter().map(|hc| Bucket {
                             // TODO add API to HashCount type to consumer inner without cloning
                             reduction: hc.hash().clone(),
@@ -221,13 +233,8 @@ where
                         }),
                     );
 
-                    // Update the keys_reduction with the new keys
-                    node.keys_reduction = split
-                        .keys
-                        .iter()
-                        .fold(node.keys_reduction.clone(), |acc, key| acc + V::from(key));
                     // Insert the new keys, leaving existing keys untouched.
-                    node.keys.splice(idx + 1..idx + 1, split.keys.into_iter());
+                    node.keys.splice(key_idx..key_idx, split.keys.into_iter());
 
                     // Note: The key has already been inserted into the store so we do not need to
                     // update the new buckets with the entry.
@@ -246,7 +253,8 @@ where
         }
     }
 
-    pub async fn reduce(&mut self, range: &RangeOpen<K>) -> Result<V> {
+    pub async fn reduce(&mut self, range: Range<&K>) -> Result<V> {
+        debug!(?range, "reduce");
         if range.start >= range.end {
             Ok(V::default())
         } else if let Some(root) = self.root.take() {
@@ -259,32 +267,41 @@ where
     }
 
     #[async_recursion]
-    async fn reduce_node(
-        &mut self,
+    async fn reduce_node<'a>(
+        &'a mut self,
         node: &Node<K, V>,
-        search: &RangeOpen<K>,
+        search: Range<&'a K>,
     ) -> Result<(ReduceControl, V)> {
         match node {
             Node::Internal(node) => {
-                let start = node.keys.binary_search(&search.start).unwrap_or_else(|x| x) + 1;
-                let start = if start < node.keys.len() && node.keys[start] == search.start {
-                    start + 1
-                } else if start == node.keys.len() {
-                    start - 1
-                } else {
-                    start
-                };
-                let child = &node.children[start];
-                let (ctl, mut reduction) = self.reduce_node(&child, search).await?;
+                // Returns the index of the first key that is greater than search.start.
+                let start_key_idx = node.keys.partition_point(|key| key <= &search.start);
+                // Based on the tree structure we are guaranteed that search.start is greater than
+                // or equal to the minimum key.
+                debug_assert!(0 < start_key_idx);
+                // Translate the key index into an index into the children vector.
+                let start_child_idx = start_key_idx - 1;
+                let child = &node.children[start_child_idx];
+                let (ctl, mut reduction) = self.reduce_node(&child, search.clone()).await?;
                 match ctl {
                     ReduceControl::Exclude => Ok((ReduceControl::Exclude, reduction)),
                     ReduceControl::Include => {
-                        let end = node.keys.binary_search(&search.end).unwrap_or_else(|x| x);
-                        let included_children = &node.children[start + 1..=end];
-                        for child in included_children {
+                        // Returns the index of the first key that is greater than search.end.
+                        let end_key_idx = node.keys.partition_point(|key| key <= &search.end);
+                        // Translate the key index into an index into the children vector.
+                        let end_child_idx = if end_key_idx == node.keys.len() {
+                            // The search range goes past the end of this node, the end child is
+                            // the last child.
+                            node.children.len() - 1
+                        } else {
+                            end_key_idx - 1
+                        };
+                        for child in &node.children[start_child_idx + 1..=end_child_idx] {
                             reduction += &self.reduce_node_include(&child, &search.end).await?;
                         }
-                        if included_children.is_empty() {
+                        if &node.keys[node.keys.len() - 1] > search.end {
+                            // We span the entire search range, we no longer need to
+                            // search for siblings nodes.
                             Ok((ReduceControl::Exclude, reduction))
                         } else {
                             Ok((ReduceControl::Include, reduction))
@@ -292,118 +309,7 @@ where
                     }
                 }
             }
-            Node::Leaf(node) => {
-                //
-                // keys:     MIN,  2,  4,  MAX
-                // buckets:      1,  3,  5,
-
-                // There are three cases
-                // 1. Search Range > Leaf Range
-                // 2. Search Range <= Leaf Range
-                // 3. Search Range <= A single bucket on the leaf
-                //
-                // Case 3 is a subcase of 2 however when its true we can make a single db query and
-                // we optimize for it.
-                //
-                // In case 1 we need to include:
-                //  * left hand partial bucket
-                //  * keys in the range
-                //  * rest of the buckets in the leaf
-                //
-                // In case 2 we need to include:
-                //  * left hand partial bucket
-                //  * keys in the range
-                //  * only the buckets before end
-                //  * right hand partial bucket
-
-                // The keys index that is >= search.start
-                let start = node.keys.binary_search(&search.start).unwrap_or_else(|x| x);
-                // Based on the tree structure we are guaranteed that search.start is not the greater than
-                // or equal to the last key.
-                debug_assert!(start < node.keys.len());
-
-                // The keys index that is >= search.end
-                let end = node.keys.binary_search(&search.end).unwrap_or_else(|x| x);
-
-                let lower_bucket_bound = if start > 0 {
-                    &node.keys[start - 1]
-                } else {
-                    &node.keys[0]
-                };
-                let upper_bucket_bound = if end < node.keys.len() {
-                    &node.keys[end]
-                } else {
-                    &node.keys[node.keys.len() - 1]
-                };
-                debug!(?lower_bucket_bound, ?upper_bucket_bound, "case 3?");
-                if lower_bucket_bound <= &search.start && upper_bucket_bound >= &search.end {
-                    // We have case 3, make a single query to the db and return
-                    return Ok((
-                        ReduceControl::Exclude,
-                        self.store
-                            .hash_range(&search.start, &search.end)
-                            .await?
-                            .hash()
-                            .clone(),
-                    ));
-                }
-
-                // In case 1 this will be the last bucket of the leaf.
-                // In case 2 this will be the last bucket that does not contain any keys outside the range.
-                let last_full_bucket = if end == node.keys.len() || &search.end < &node.keys[end] {
-                    end - 1
-                } else {
-                    end
-                };
-
-                // Always compute the left hand partial bucket
-                let mut reduction = self
-                    .store
-                    .hash_range(&search.start, min(&node.keys[start], &search.end))
-                    .await?
-                    .hash()
-                    .clone();
-                debug!(
-                    ?search,
-                    start,
-                    end,
-                    last_full_bucket,
-                    ?reduction,
-                    "reduce leaf"
-                );
-
-                // Include keys in range being careful to honor exclusive bounds
-                for key in &node.keys[start..end] {
-                    if key != &search.start {
-                        // TODO cache the value for a key somewhere
-                        debug!(?key, "including key");
-                        reduction += &V::from(key)
-                    }
-                }
-
-                // Include buckets that are fully spanned by the range
-                if start < last_full_bucket {
-                    for bucket in &node.buckets[start..last_full_bucket] {
-                        debug!(?bucket.reduction, "including bucket");
-                        reduction += &bucket.reduction;
-                    }
-                }
-
-                // Case 2 we need to include the right hand partial bucket
-                if &search.end < upper_bucket_bound {
-                    let red = self
-                        .store
-                        .hash_range(&node.keys[last_full_bucket], &search.end)
-                        .await?;
-                    debug!(?red, "right hand extra");
-                    reduction += red.hash();
-                    // All data in the range was contained in this leaf, no need to include
-                    // other nodes.
-                    return Ok((ReduceControl::Exclude, reduction));
-                }
-                // Range spans adjacent Leaf nodes recurse up and include their values
-                Ok((ReduceControl::Include, reduction))
-            }
+            Node::Leaf(node) => self.reduce_leaf(node, search).await,
         }
     }
     // Reduce all values in this node and child nodes up to end
@@ -412,46 +318,154 @@ where
         match node {
             Node::Internal(node) => {
                 let mut reduction = V::default();
-                let idx = node.keys.binary_search(end).unwrap_or_else(|x| x);
+                // Returns the index of the first key that is greater than end
+                let idx = node.keys.partition_point(|key| key <= end);
+                // Translate the key index into an index into the children vector.
+                let child_idx = if idx == node.keys.len() {
+                    // The end goes past this node so the target child is the last child
+                    node.children.len() - 1
+                } else {
+                    idx - 1
+                };
                 // Do not recurse into children that are fully covered by the range
-                for i in 0..idx {
+                for i in 0..child_idx {
                     debug!("skipping recursion into child");
                     reduction += &node.values[i].reduction;
-                    reduction += &V::from(&node.keys[i + 1]);
                 }
                 // Recurse into last matching child as it may be only a partial match
-                let child = &node.children[idx];
+                let child = &node.children[child_idx];
                 Ok(reduction + self.reduce_node_include(child, end).await?)
             }
-            Node::Leaf(node) => {
-                let idx = node.keys.binary_search(&end).unwrap_or_else(|x| x);
-                let upper_bucket_bound = if idx < node.keys.len() {
-                    &node.keys[idx]
-                } else {
-                    &node.keys[node.keys.len() - 1]
-                };
-                let last_full_bucket = if idx == node.keys.len() || end < &node.keys[idx] {
-                    idx - 1
-                } else {
-                    idx
-                };
-                let mut reduction = V::default();
-                for key in &node.keys[1..idx] {
-                    // TODO cache the value for a key somewhere
-                    reduction += &V::from(key)
-                }
-                for bucket in &node.buckets[0..last_full_bucket] {
-                    reduction += &bucket.reduction;
-                }
-                if end < upper_bucket_bound {
-                    reduction += self
-                        .store
-                        .hash_range(&node.keys[last_full_bucket], &end)
-                        .await?
-                        .hash();
-                }
-                Ok(reduction)
+            Node::Leaf(node) => Ok(self.reduce_leaf(node, &node.keys[0]..end).await?.1),
+        }
+    }
+
+    async fn reduce_leaf(
+        &mut self,
+        node: &Leaf<K, V>,
+        range: Range<&K>,
+    ) -> Result<(ReduceControl, V)> {
+        // Returns the index of the first key that is greater than search.start.
+        let start_key_idx = node.keys.partition_point(|key| key <= range.start);
+        // Based on the tree structure we are guaranteed that search.start is not the greater than
+        // or equal to the last key and that its greater than the first key
+        debug_assert!(0 < start_key_idx && start_key_idx < node.keys.len());
+
+        // Returns the index of the first key that is greater than search.end.
+        let end_key_idx = node.keys.partition_point(|key| key <= range.end);
+        // Based on the tree structure we are guaranteed that search.end
+        //  * is greater than the minimum key of the node
+        //  * is greater or equal to the start key index
+        //
+        //  However end_key_idx may be equal to keys.len() meaning the range goes past the
+        //  end of this node.
+        debug_assert!(0 < end_key_idx && start_key_idx <= end_key_idx);
+
+        // Translate the key indexes into bucket indexes
+        // start_bucket_idx is the index of the first bucket that intersects with the range
+        let start_bucket_idx = start_key_idx - 1;
+        // end_bucket_idx is the index of the last bucket that intersects with the range
+        let end_bucket_idx = if end_key_idx == node.keys.len() {
+            // Search range goes past the end of this node, end bucket is the last bucket
+            node.buckets.len() - 1
+        } else {
+            end_key_idx - 1
+        };
+
+        // The lower bound of the starting bucket
+        let lower_bucket_bound = &node.keys[start_key_idx - 1];
+        // The upper bound of the ending bucket
+        let upper_bucket_bound = if end_key_idx < node.keys.len() {
+            &node.keys[end_key_idx]
+        } else {
+            &node.keys[node.keys.len() - 1]
+        };
+
+        debug!(?lower_bucket_bound, ?upper_bucket_bound, "bounds");
+        if lower_bucket_bound <= range.start && range.end <= upper_bucket_bound {
+            // The search range is completely within a single bucket, make a single db
+            // query and return.
+            return Ok((
+                ReduceControl::Exclude,
+                self.store
+                    .hash_range(range.start..range.end)
+                    .await?
+                    .hash()
+                    .clone(),
+            ));
+        }
+
+        // Index of the first bucket that is completely enclosed within the search range.
+        let first_complete_bucket = if range.start == lower_bucket_bound {
+            // The search range starts exactly on the start of the bucket so the entire
+            // bucket is enclosed within the search range.
+            start_bucket_idx
+        } else {
+            start_bucket_idx + 1
+        };
+
+        // Index of the last bucket that is completely enclosed within the search range.
+        // In case 1 this will be the last bucket of the leaf.
+        // In case 2 this will be the last bucket that does not contain any keys outside the range.
+        let last_complete_bucket =
+            if end_key_idx == node.keys.len() || &node.keys[end_key_idx] < range.end {
+                // The search extends past the end of this bucket so the end_bucket_idx is the
+                // last complete bucket
+                end_bucket_idx
+            } else {
+                // The search range ends before the end_bucket_idx range ends, therefore the last
+                // complete bucket is the previous bucket
+                end_bucket_idx - 1
+            };
+
+        let mut reduction = if first_complete_bucket != start_bucket_idx {
+            // We have a partial starting bucket, compute the reduction
+            let red = self
+                .store
+                .hash_range(range.start..&node.keys[start_key_idx])
+                .await?
+                .hash()
+                // TODO avoid clone
+                .clone();
+            debug!(?red, "left hand reduction");
+            red
+        } else {
+            V::default()
+        };
+        debug!(
+            ?range,
+            start_key_idx,
+            start_bucket_idx,
+            end_key_idx,
+            end_bucket_idx,
+            last_complete_bucket,
+            ?reduction,
+            "reduce leaf"
+        );
+
+        // Include buckets that are fully spanned by the range
+        if first_complete_bucket <= last_complete_bucket {
+            for bucket in &node.buckets[first_complete_bucket..=last_complete_bucket] {
+                debug!(?bucket.reduction, "including bucket");
+                reduction += &bucket.reduction;
             }
+        }
+
+        if last_complete_bucket != end_bucket_idx {
+            // We have a partial ending bucket, compute the reduction
+            let red = self
+                .store
+                .hash_range(&node.keys[end_key_idx - 1]..range.end)
+                .await?;
+            debug!(?red, "right hand reduction");
+            reduction += red.hash();
+
+            // All data in the range was contained in this leaf, no need to include
+            // other nodes.
+            Ok((ReduceControl::Exclude, reduction))
+        } else {
+            // Range spans adjacent Leaf nodes include their values
+            Ok((ReduceControl::Include, reduction))
         }
     }
 }
@@ -494,31 +508,29 @@ where
     fn split(&mut self, b: usize) -> (K, Self) {
         match self {
             Node::Internal(Internal {
-                keys_reduction,
                 keys,
                 children,
                 values,
             }) => {
-                // Populate siblings keys.
-                let mut sibling_keys = keys.split_off(b - 1);
-                // Pop median key - to be added to the parent..
-                let median_key = sibling_keys.remove(0);
-                // Populate siblings children.
+                // Split keys into self and sibling
+                let sibling_keys = keys.split_off(b);
+                // Get copy of the median key, we leave the duplicate key on both leaves.
+                let median_key = sibling_keys[0].clone();
+                keys.push(median_key.clone());
+
+                // Split the children into self and sibling
                 let sibling_children = children.split_off(b);
-                // Populate siblings values.
+                // Split the values into self and sibling
                 let sibling_values = values.split_off(b);
-                // Update our keys_reduction
-                *keys_reduction = keys
-                    .iter()
-                    .fold(Bucket::default(), |acc, key| acc + V::from(key));
-                debug_assert_eq!(keys.len() + 1, children.len());
-                debug_assert_eq!(sibling_keys.len() + 1, sibling_children.len());
+
+                debug_assert_eq!(keys.len(), children.len() + 1);
+                debug_assert_eq!(children.len(), values.len());
+
+                debug_assert_eq!(sibling_keys.len(), sibling_children.len() + 1);
+                debug_assert_eq!(sibling_children.len(), sibling_values.len());
                 (
                     median_key,
                     Node::Internal(Internal {
-                        keys_reduction: sibling_keys
-                            .iter()
-                            .fold(Bucket::default(), |acc, key| acc + V::from(key)),
                         keys: sibling_keys,
                         children: sibling_children,
                         values: sibling_values,
@@ -526,33 +538,22 @@ where
                 )
             }
 
-            Node::Leaf(Leaf {
-                keys_reduction,
-                keys,
-                buckets,
-            }) => {
-                // Populate siblings keys.
+            Node::Leaf(Leaf { keys, buckets }) => {
+                // Split keys into self and sibling
                 let sibling_keys = keys.split_off(b);
 
                 // Get copy of the median key, we leave the duplicate key on both leaves.
                 let median_key = sibling_keys[0].clone();
                 keys.push(median_key.clone());
 
-                // Populate siblings values.
+                // Split the buckets into self and sibling
                 let sibling_buckets = buckets.split_off(b);
 
-                // Update our keys_reduction
-                *keys_reduction = keys[1..keys.len() - 1]
-                    .iter()
-                    .fold(Bucket::default(), |acc, key| acc + V::from(key));
                 debug_assert_eq!(keys.len(), buckets.len() + 1);
                 debug_assert_eq!(sibling_keys.len(), sibling_buckets.len() + 1);
                 (
                     median_key,
                     Node::Leaf(Leaf {
-                        keys_reduction: sibling_keys[1..sibling_keys.len() - 1]
-                            .iter()
-                            .fold(Bucket::default(), |acc, key| acc + V::from(key)),
                         keys: sibling_keys,
                         buckets: sibling_buckets,
                     }),
@@ -563,27 +564,19 @@ where
 
     fn reduce(&self) -> Bucket<V> {
         match self {
-            Node::Internal(Internal {
-                values,
-                keys_reduction,
-                ..
-            })
+            Node::Internal(Internal { values, .. })
             | Node::Leaf(Leaf {
-                buckets: values,
-                keys_reduction,
-                ..
+                buckets: values, ..
             }) => values
                 .iter()
-                .fold(keys_reduction.clone(), |acc, bucket| acc + bucket),
+                .fold(Bucket::default(), |acc, bucket| acc + bucket),
         }
     }
 }
 
 struct Internal<K, V> {
-    // Keys are actual values not represented in the buckets
-    // Therefore we keep the reduced value of the keys for the node.
-    keys_reduction: Bucket<V>,
-    // Keys that split the children, keys.len() + 1 == children.len() always
+    // Keys that bound the children, keys.len() == children.len() + 1 always
+    // Children are bounded by the surrounding keys.
     keys: Vec<K>,
     // List of children of the node
     children: Vec<Node<K, V>>,
@@ -591,20 +584,6 @@ struct Internal<K, V> {
     values: Vec<Bucket<V>>,
 }
 
-impl<K, V> Internal<K, V>
-where
-    V: Default,
-{
-    fn new(b: usize) -> Self {
-        let size = 2 * b - 1;
-        Internal {
-            keys_reduction: Bucket::default(),
-            keys: Vec::with_capacity(size - 1),
-            children: Vec::with_capacity(size),
-            values: Vec::with_capacity(size),
-        }
-    }
-}
 impl<K, V> std::fmt::Debug for Internal<K, V>
 where
     K: std::fmt::Debug,
@@ -612,7 +591,6 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Internal")
-            .field("keys_reduction", &format!("{:?}", &self.keys_reduction))
             .field(
                 "keys",
                 &self
@@ -634,13 +612,9 @@ where
     }
 }
 struct Leaf<K, V> {
-    // Keys are actual values not represented in the buckets
-    // Therefore we keep the reduced value of the keys for the node.
-    keys_reduction: Bucket<V>,
     // Keys that bound buckets, keys.len() == buckets.len() + 1 always
     // Buckets are bounded by the surrounding keys.
-    // The first and last keys are duplicated in the tree and as such not considered part of the
-    // data of the node
+    // The first and last keys are duplicated in the tree
     keys: Vec<K>,
     // Reduced values for each child
     buckets: Vec<Bucket<V>>,
@@ -657,11 +631,7 @@ where
         keys.push(bounds.1);
         let mut buckets = Vec::with_capacity(size);
         buckets.push(Bucket::default());
-        Leaf {
-            keys_reduction: Bucket::default(),
-            keys,
-            buckets,
-        }
+        Leaf { keys, buckets }
     }
 }
 
@@ -672,7 +642,6 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Leaf")
-            .field("keys_reduction", &format!("{:?}", &self.keys_reduction))
             .field(
                 "keys",
                 &self
@@ -771,11 +740,7 @@ where
 #[cfg(test)]
 mod tests {
 
-    use std::{
-        array::TryFromSliceError,
-        collections::BTreeSet,
-        ops::{Bound, Range},
-    };
+    use std::{array::TryFromSliceError, collections::BTreeSet};
 
     use expect_test::expect;
     use proptest::prelude::*;
@@ -1020,38 +985,41 @@ mod tests {
             let start = keys[range.0] as u32;
             let end = keys[range.1] as u32;
             if start == end {
+                // This can happen if the generated input keys has duplicates
                 continue;
             }
             let reduction = tree
-                .reduce(&RangeOpen {
-                    start: TestKey::new(start),
-                    end: TestKey::new(end),
-                })
+                .reduce(&TestKey::new(start)..&TestKey::new(end))
                 .await
                 .unwrap();
-            let range = (Bound::Excluded(start), Bound::Excluded(end));
             println!(
                 "Ranged Keys: {:?}",
-                &keys_set.range(range).collect::<Vec<_>>()
+                &keys_set.range(start..end).collect::<Vec<_>>()
             );
             assert_eq!(
                 keys_set
-                    .range(range)
+                    .range(start..end)
                     .fold(0 as u32, |acc, v| acc + (*v as u32)),
                 reduction.0,
             )
         }
     }
 
-    fn vec_and_ranges() -> impl Strategy<Value = (Vec<u16>, Vec<(usize, usize)>)> {
-        prop::collection::vec(1..u16::MAX, 1..50).prop_flat_map(|vec| {
+    // Produce a set of keys and some ranges over those keys
+    fn keys_and_ranges() -> impl Strategy<Value = (Vec<u16>, Vec<(usize, usize)>)> {
+        prop::collection::vec(1..u16::MAX - 1, 2..500).prop_flat_map(|vec| {
             let len = vec.len();
+            debug!(num = len, "num keys");
             (
                 Just(vec),
-                prop::collection::vec(0..len - 1, 1..5).prop_flat_map(move |start| {
+                prop::collection::vec(0..len - 1, 1..10).prop_flat_map(move |start| {
+                    debug!(num = start.len(), "num ranges");
                     start
                         .into_iter()
-                        .map(|start| (Just(start), start + 1..len))
+                        .map(|start| {
+                            debug!(start, len, "range");
+                            (Just(start), start + 1..len)
+                        })
                         .collect::<Vec<(Just<usize>, Range<usize>)>>()
                 }),
             )
@@ -1060,7 +1028,7 @@ mod tests {
 
     proptest! {
         #[test]
-        fn insert_reduce(b in 2..10usize, bucket_size in 2..10usize, keys_and_ranges in vec_and_ranges()) {
+        fn insert_reduce(b in 2..100usize, bucket_size in 2..100usize, keys_and_ranges in keys_and_ranges()) {
             tokio::runtime::Runtime::new().unwrap().block_on(do_insert_reduce(b, bucket_size, keys_and_ranges))
         }
     }

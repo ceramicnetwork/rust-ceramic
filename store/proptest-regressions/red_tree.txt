@@ -4,7 +4,6 @@
 #
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
-cc 527b1a6f5f5e3d0a3bf8a311b22501c91a41db24b92e10976e5aa8be1e46a74b # shrinks to b = 2, bucket_size = 1, keys_and_ranges = ([15720, 10158, 60543, 36170, 43898, 52735, 2678, 281, 15715, 63697, 10375], [(1, 10)])
 cc 5552ca3b7d1c86c7b3228d74868f23935ae08a2af2fa0d1be846f511f5b3b3cf # shrinks to b = 2, bucket_size = 2, keys_and_ranges = ([1717, 57039, 46210, 35047, 58066, 31222, 40009, 56659, 7065, 46442, 21737, 26525, 30365, 47995, 19317, 10192, 15260, 28550, 53107], [(1, 6)])
 cc 87a3d56c1d141ecfa437c8ffbca8abf2ef07619814f26fb18287f9134bce618e # shrinks to b = 2, bucket_size = 2, keys_and_ranges = ([1, 2, 3, 4], [(2, 3)])
 cc 03dbaf7c332a555961b51b74f53e7e88c2dfb82723567a407f9d78b2980e7a96 # shrinks to b = 2, bucket_size = 2, keys_and_ranges = ([1, 2, 3, 4], [(2, 3)])
