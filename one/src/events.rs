@@ -11,6 +11,7 @@ use multihash::Multihash;
 use ordered_float::OrderedFloat;
 use sqlx::Row;
 use std::{collections::BTreeMap, fs, ops::Index, path::PathBuf, str::FromStr};
+use tracing::debug;
 
 #[derive(Subcommand, Debug)]
 pub enum EventsCommand {
@@ -44,7 +45,7 @@ pub struct ValidateOpts {
     #[arg(short, long)]
     cid: Cid,
 
-    /// Ethereum RPC URL
+    /// Ethereum RPC URL, e.g. ETHEREUM_RPC_URL=https://mainnet.infura.io/v3/<api_key>
     #[arg(short, long, env = "ETHEREUM_RPC_URL")]
     ethereum_rpc_url: String,
 }
@@ -87,7 +88,7 @@ async fn validate(opts: ValidateOpts) -> Result<()> {
         .store_dir
         .unwrap_or(home.join(".ceramic-one/db.sqlite3"));
     println!(
-        "{} SQLite DB: {}",
+        "{} Opening ceramic SQLite DB at: {}",
         Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
         store_dir.display()
     );
@@ -112,7 +113,7 @@ async fn validate(opts: ValidateOpts) -> Result<()> {
                 .unwrap()
                 .to_rfc3339_opts(SecondsFormat::Secs, true);
             println!(
-                "{} validated at timestamp {} ({})",
+                "TimeEvent({}) validated at Timestamp({}) = {}",
                 opts.cid, timestamp, rfc3339
             )
         }
@@ -158,7 +159,7 @@ async fn validate_time_event(
             let tx_hash_cid: Cid = proof_cbor.path(&["txHash"]).try_into()?;
             let (transaction_root, timestamp) =
                 eth_transaction_by_hash(tx_hash_cid, ethereum_rpc_url).await?;
-            println!("root: {}, timestamp: {}", transaction_root, timestamp);
+            debug!("root: {}, timestamp: {}", transaction_root, timestamp);
 
             if transaction_root == proof_root {
                 root_store
@@ -176,7 +177,6 @@ async fn validate_time_event(
             Err(anyhow!("proof {} not found", cid))
         }
     } else {
-        println!("CID: {} not found", cid);
         Err(anyhow!("CID {} not found", cid))
     }
 }
@@ -188,7 +188,7 @@ async fn prev_in_root(
     block_store: &SQLiteBlockStore,
 ) -> Result<bool> {
     let mut current_cid = root;
-    for segment in path.split("/") {
+    for segment in path.split('/') {
         let Some(block) = block_store.get(current_cid).await? else {
             return Err(anyhow!(
                 "CID {} not found in prev_in_root test",
@@ -200,7 +200,7 @@ async fn prev_in_root(
             .clone()
             .try_into()?;
     }
-    return Ok(prev == current_cid);
+    Ok(prev == current_cid)
 }
 
 async fn eth_transaction_by_hash(cid: Cid, ethereum_rpc_url: &str) -> Result<(Cid, i64)> {
@@ -221,7 +221,7 @@ async fn eth_transaction_by_hash(cid: Cid, ethereum_rpc_url: &str) -> Result<(Ci
         .send()
         .await?;
     let json: serde_json::Value = res.json().await?;
-    println!("json: {}", json);
+    debug!("txByHash response: {}", json);
     if let Some(result) = json.get("result") {
         if let Some(block_hash) = result.get("blockHash") {
             if let Some(block_hash) = block_hash.as_str() {
@@ -256,7 +256,7 @@ async fn eth_block_by_hash(block_hash: &str, ethereum_rpc_url: &str) -> Result<i
         .send()
         .await?;
     let json: serde_json::Value = res.json().await?;
-    println!("json: {}", json);
+    debug!("blockByHash response: {}", json);
     if let Some(timestamp) = json["result"]["timestamp"].as_str() {
         get_timestamp_from_hex_string(timestamp)
     } else {
@@ -265,12 +265,11 @@ async fn eth_block_by_hash(block_hash: &str, ethereum_rpc_url: &str) -> Result<i
 }
 
 fn get_root_from_input(input: &str) -> Result<Cid> {
-    if input.starts_with("0x97ad09eb") {
+    if let Some(input) = input.strip_prefix("0x97ad09eb") {
         // Strip "0x97ad09eb" from the input and convert it into a cidv1 - dag-cbor - (sha2-256 : 256)
         // 0x12 -> sha2-256
         // 0x20 -> 256 bits of hash
-        let mut root_bytes = vec![0x12_u8, 0x20];
-        root_bytes.append(hex::decode(&input[10..])?.as_mut());
+        let root_bytes = [vec![0x12_u8, 0x20], hex::decode(input)?.to_vec()].concat();
         Ok(Cid::new_v1(0x71, Multihash::from_bytes(&root_bytes)?))
     } else {
         Err(anyhow!("input is not anchor-cbor"))
@@ -311,7 +310,7 @@ impl CborValue {
         let mut decoder = Decoder::new(bytes);
         let c = CborValue::next(&mut decoder);
         if decoder.position() != bytes.len() {
-            println!("decoder not at end {}/{}", decoder.position(), bytes.len());
+            debug!("decoder not at end {}/{}", decoder.position(), bytes.len());
             return Err(anyhow!("CborValue decode error not at end"));
         }
         c
@@ -428,13 +427,13 @@ impl CborValue {
         }
     }
 
-    pub fn get_index(&self, index: usize) -> Option<&CborValue> {
-        self.as_array()?.get(index)
-    }
-
-    pub fn get_key(&self, key: &str) -> Option<&CborValue> {
-        self.as_map()?.get(&CborValue::String(key.to_owned()))
-    }
+    // pub fn get_index(&self, index: usize) -> Option<&CborValue> {
+    //     self.as_array()?.get(index)
+    // }
+    //
+    // pub fn get_key(&self, key: &str) -> Option<&CborValue> {
+    //     self.as_map()?.get(&CborValue::String(key.to_owned()))
+    // }
 }
 
 impl From<&[u8]> for CborValue {
@@ -551,7 +550,7 @@ async fn migrate_from_filesystem(input_ipfs_path: PathBuf, store: SQLiteBlockSto
             err_count += 1;
             continue;
         };
-        let Ok(hash) = multihash::Multihash::from_bytes(&hash_bytes) else {
+        let Ok(hash) = Multihash::from_bytes(&hash_bytes) else {
             println!(
                 "{} {:?} is not a base32upper multihash.",
                 Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
@@ -654,6 +653,142 @@ impl SQLiteRootStore {
             .bind(root)
             .fetch_optional(self.pool.reader())
             .await?
-            .map(|row| row.get::<'_, i64, _>(0).into()))
+            .map(|row| row.get::<'_, i64, _>(0)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use multihash::{Code, MultihashDigest};
+
+    #[tokio::test]
+    async fn test_validate_time_event() {
+        // Create an in-memory SQLite pool
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+
+        // Create a new SQLiteBlockStore and SQLiteRootStore
+        let block_store = SQLiteBlockStore::new(pool.clone()).await.unwrap();
+        let root_store = SQLiteRootStore::new(pool.clone()).await.unwrap();
+
+        // Add all the blocks for the Time Event to the block store
+        let blocks = vec![
+            "a4626964d82a58260001850112207ac18e1235f2f7a84548eeb543a33f89
+             79eb88566a2dfc3d9596c55a683b7517647061746873302f302f302f302f
+             302f302f302f302f302f306470726576d82a58260001850112207ac18e12
+             35f2f7a84548eeb543a33f8979eb88566a2dfc3d9596c55a683b75176570
+             726f6f66d82a58250001711220664fe7627b86f38a74cfbbcdb702d77fe9
+             38533e5402b6ce867777078d706df5",
+            "a464726f6f74d82a5825000171122041b6408c1b4be5016f652396ef47c0
+             982c36d5877ebb874919bae3a9b854d8e166747848617368d82a58260001
+             93011b20bf7bc715a09dea3177866ac4fc294ac9800ee2b49e09c55f5607
+             8579bfbbf158667478547970656a6628627974657333322967636861696e
+             4964686569703135353a31",
+            "83d82a58250001711220e71cf20b225c878c15446675b1a209d14448eee5
+             f51f5f378b192c7c64cfe1f0d82a5825000171122002920cb2496290eca3
+             dff550072251d8b70b8995c243cf7808cbc305960c7962d82a5825000171
+             12202d5794752351a770a7eba07e67a0d29119ac7a67fd32eacbffb690fc
+             3e4f7ffb",
+            "82d82a58250001711220b44e4681002e0c7bce248e9c91d49d85a3229aa7
+             bdd1c43c7d245e3a7b8fc24ed82a582500017112206cf2b9460adabb65f5
+             9369aeb45eaeab359501ea9a183efaf68c72af2dbaaa27",
+            "82d82a582500017112200a07aa83a2ad17ed2809359d5c81cfd46213fa6b
+             1a215639d3b973f122c8c04cd82a5825000171122079c9e24051148f5ec6
+             6ceb6ea7c3ef24b3d219794a3ce738306380676eb92af0",
+            "82d82a58250001711220a3261c31bfce9e22eb83ed305b017cb2b1b2edd2
+             a90a294dd09f40201887020dd82a582500017112202096f43b3646196715
+             a7cd7c503b020ebd21e1a4856952029782fb43abe3e54b",
+            "82d82a58250001711220838a384925aa1d757b17b2a22607130d333efb75
+             ab9523250d0d17c2e5cbbfc7d82a5825000171122035f019bfe0ae32bc3f
+             47acc4babc8526f98185696fc3b5eb45757f8b05f7de0e",
+            "82d82a58250001711220c0c93bdc49b93ac0786346a0118567ca66e4cfbd
+             1d4c0519618c83ecbaa6e2aad82a582500017112202f3352cde99e1fe491
+             18f2b5d598369add98957792c00b525e36757468086fcb",
+            "82d82a582500017112204a813e0e1151f11776d02e88897fb615ae1ba3c6
+             43fc5a486ed3378fa5fcf49dd82a58250001711220269d5384e44b53c54b
+             5035b15bf13a8f4e3513e5ead4a23bfdeaa4af141ad37c",
+            "82d82a582500017112201e48beab1c3fef5b29838492361155bd5c9c6389
+             98bccc2da00625db5a9359cfd82a582500017112200d1bf984f229cddb85
+             6fea0c8a6fd5c716defa3926b27b1ffc8308a29be4006c",
+            "82d82a58250001711220015067f14cae18a15faebcacd1d07c1c3dcf2a24
+             2334c7148de4d235f27308c6d82a58250001711220749e6401d5f860a457
+             5c94f1742a8976f6d625fa47f1923132de758184e4b599",
+            "82d82a58260001850112207ac18e1235f2f7a84548eeb543a33f8979eb88
+             566a2dfc3d9596c55a683b7517d82a58260001850112209ef4cd6403d5ed
+             4ebeb221809d141fbedb6686b6866a9c6e9230b802fd6353cd",
+            "a3646c696e6bd82a58250001711220cb63d41a0489a815f44ee0a771bd70
+             2f21a717bce67fcac4c4be0f14a25ad71f677061796c6f61647830415845
+             53494d746a31426f45696167563945376770334739634338687078653835
+             6e5f4b784d532d44785369577463666a7369676e61747572657381a26970
+             726f74656374656478ac65794a68624763694f694a465a45525451534973
+             496d74705a434936496d52705a4470725a586b36656a5a4e61326454566a
+             4e30515856334e3264565633464c5131565a4e32466c4e6e5658546e6878
+             5757646b6431426f56557069536d68474f5556475747303549336f325457
+             746e5531597a64454631647a646e5656647853304e56575464685a545a31
+             5630353463566c6e5a4864516146564b596b706f526a6c46526c68744f53
+             4a39697369676e617475726578564f386c6f6358572d59657a56536b7976
+             6773584976526b34773235536865337962517a4b5a466c386d706d684930
+             3775543652356a5072624842664c36436a2d397a7061736b334643686b31
+             38377269733374784177",
+            "a26464617461a7646e616d6568426c657373696e67657669657773a16661
+             7574686f72a164747970656f646f63756d656e744163636f756e74667363
+             68656d61a66474797065666f626a656374652464656673a16a4772617068
+             514c444944a4647479706566737472696e67657469746c656a4772617068
+             514c444944677061747465726e788f5e6469643a5b612d7a412d5a302d39
+             2e2123242526272a2b5c2f3d3f5e5f607b7c7d7e2d5d2b3a5b612d7a412d
+             5a302d392e2123242526272a2b5c2f3d3f5e5f607b7c7d7e2d5d2a3a3f5b
+             612d7a412d5a302d392e2123242526272a2b5c2f3d3f5e5f607b7c7d7e2d
+             5d2a3a3f5b612d7a412d5a302d392e2123242526272a2b5c2f3d3f5e5f60
+             7b7c7d7e2d5d2a24696d61784c656e67746818646724736368656d61782c
+             68747470733a2f2f6a736f6e2d736368656d612e6f72672f64726166742f
+             323032302d31322f736368656d616872657175697265648162746f6a7072
+             6f70657274696573a262746fa1642472656672232f24646566732f477261
+             7068514c4449446474657874a2647479706566737472696e67696d61784c
+             656e67746818f0746164646974696f6e616c50726f70657274696573f467
+             76657273696f6e63312e306972656c6174696f6e73a06b64657363726970
+             74696f6e6a4120626c657373696e676f6163636f756e7452656c6174696f
+             6ea16474797065646c69737466686561646572a363736570656d6f64656c
+             656d6f64656c52ce01040171710b0009686d6f64656c2d76316b636f6e74
+             726f6c6c6572738178386469643a6b65793a7a364d6b6753563374417577
+             37675557714b4355593761653675574e7871596764775068554a624a6846
+             394546586d39",
+        ];
+        for block in blocks {
+            // Strip whitespace and decode the block from hex
+            let block = hex::decode(block.replace(['\n', ' '], "")).unwrap();
+            // Create the CID and store the block.
+            let hash = Code::Sha2_256.digest(block.as_slice());
+            let cid = Cid::new_v1(0x71, hash);
+            block_store.put(cid, block.into(), vec![]).await.unwrap();
+        }
+
+        // Retrieve the Ethereum RPC URL from the environment, e.g. ETHEREUM_RPC_URL=https://mainnet.infura.io/v3/<api_key>
+        let ethereum_rpc_url = std::env::var("ETHEREUM_RPC_URL").unwrap();
+        assert_eq!(
+            validate_time_event(
+                &Cid::try_from("bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy")
+                    .unwrap(),
+                &block_store,
+                &root_store,
+                ethereum_rpc_url.as_str(),
+            )
+            .await
+            .unwrap(),
+            1682958731
+        );
+        // Call validation a second time with an invalid Ethereum RPC URL. The validation should still work because the
+        // result from the previous call was cached.
+        assert_eq!(
+            validate_time_event(
+                &Cid::try_from("bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy")
+                    .unwrap(),
+                &block_store,
+                &root_store,
+                "",
+            )
+            .await
+            .unwrap(),
+            1682958731
+        );
     }
 }
