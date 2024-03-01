@@ -99,27 +99,80 @@ async fn validate(opts: ValidateOpts) -> Result<()> {
     let block_store = SQLiteBlockStore::new(pool.clone()).await.unwrap();
     let root_store = SQLiteRootStore::new(pool).await.unwrap();
 
-    let timestamp = validate_time_event(
-        &opts.cid,
-        &block_store,
-        &root_store,
-        opts.ethereum_rpc_url.as_str(),
-    )
-    .await;
-    match timestamp {
-        Ok(timestamp) => {
-            let rfc3339 = Utc
-                .timestamp_opt(timestamp, 0)
-                .unwrap()
-                .to_rfc3339_opts(SecondsFormat::Secs, true);
-            println!(
-                "TimeEvent({}) validated at Timestamp({}) = {}",
-                opts.cid, timestamp, rfc3339
-            )
+    // Validate that the CID is either DAG-CBOR or DAG-JOSE
+    if (opts.cid.codec() != 0x71) && (opts.cid.codec() != 0x85) {
+        return Err(anyhow!("CID {} is not a valid Ceramic event", opts.cid));
+    }
+
+    // If the CID is a DAG-JOSE, the event is either a signed Data Event or a signed Init Event, both of which can be
+    // validated similarly.
+    if opts.cid.codec() == 0x85 {
+        let controller = validate_data_event_envelope().await;
+        match controller {
+            Ok(controller) => {
+                println!(
+                    "DataEvent({}) validated as authored by Controller({})",
+                    opts.cid, controller
+                )
+            }
+            Err(e) => println!("{} failed with error: {:?}", opts.cid, e),
         }
-        Err(e) => println!("{} failed with error: {:?}", opts.cid, e),
+        return Ok(());
+    }
+    // If the CID is a DAG-CBOR, the event is either a Time Event or an unsigned Init Event. In this case, we'll pull
+    // the block from the store and use the presence of the "proof" field to determine whether this is a Time Event or
+    // an unsigned Init Event.
+    //
+    // When validating events from Recon, the block store will be a CARFileBlockStore that wraps the CAR file received
+    // over Recon.
+    if let Some(block) = block_store.get(opts.cid).await? {
+        let event = CborValue::parse(&block)?;
+        if event.get_key("proof").is_some() {
+            let timestamp = validate_time_event(
+                &opts.cid,
+                &block_store,
+                &root_store,
+                opts.ethereum_rpc_url.as_str(),
+            )
+            .await;
+            match timestamp {
+                Ok(timestamp) => {
+                    let rfc3339 = Utc
+                        .timestamp_opt(timestamp, 0)
+                        .unwrap()
+                        .to_rfc3339_opts(SecondsFormat::Secs, true);
+                    println!(
+                        "TimeEvent({}) validated at Timestamp({}) = {}",
+                        opts.cid, timestamp, rfc3339
+                    )
+                }
+                Err(e) => println!("{} failed with error: {:?}", opts.cid, e),
+            }
+        } else {
+            if event.get_key("data").is_some() {
+                println!("UnsignedDataEvent({}) is not signed", opts.cid);
+            }
+            let controller = validate_data_event_payload().await;
+            match controller {
+                Ok(controller) => {
+                    println!(
+                        "UnsignedEvent({}) validated as authored by Controller({})",
+                        opts.cid, controller
+                    )
+                }
+                Err(e) => println!("{} failed with error: {:?}", opts.cid, e),
+            }
+        }
     }
     Ok(())
+}
+
+async fn validate_data_event_envelope() -> Result<String> {
+    todo!("implement me")
+}
+
+async fn validate_data_event_payload() -> Result<String> {
+    todo!("implement me")
 }
 
 // To validate a Time Event, we need to prove:
@@ -430,10 +483,10 @@ impl CborValue {
     // pub fn get_index(&self, index: usize) -> Option<&CborValue> {
     //     self.as_array()?.get(index)
     // }
-    //
-    // pub fn get_key(&self, key: &str) -> Option<&CborValue> {
-    //     self.as_map()?.get(&CborValue::String(key.to_owned()))
-    // }
+
+    pub fn get_key(&self, key: &str) -> Option<&CborValue> {
+        self.as_map()?.get(&CborValue::String(key.to_owned()))
+    }
 }
 
 impl From<&[u8]> for CborValue {
