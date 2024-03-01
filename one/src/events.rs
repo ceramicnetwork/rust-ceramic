@@ -6,13 +6,11 @@ use cid::{multibase, multihash, Cid};
 use clap::{Args, Subcommand};
 use enum_as_inner::EnumAsInner;
 use glob::{glob, Paths};
-use minicbor::{data::Tag, data::Type, display, Decoder};
+use minicbor::{data::Tag, data::Type, Decoder};
 use multihash::Multihash;
 use ordered_float::OrderedFloat;
 use sqlx::Row;
-use std::collections::BTreeMap;
-use std::str::FromStr;
-use std::{fs, path::PathBuf};
+use std::{collections::BTreeMap, fs, ops::Index, path::PathBuf, str::FromStr};
 
 #[derive(Subcommand, Debug)]
 pub enum EventsCommand {
@@ -429,6 +427,14 @@ impl CborValue {
             CborValue::Unknown(_) => "unknown".to_string(),
         }
     }
+
+    pub fn get_index(&self, index: usize) -> Option<&CborValue> {
+        self.as_array()?.get(index)
+    }
+
+    pub fn get_key(&self, key: &str) -> Option<&CborValue> {
+        self.as_map()?.get(&CborValue::String(key.to_owned()))
+    }
 }
 
 impl From<&[u8]> for CborValue {
@@ -479,6 +485,32 @@ impl TryInto<String> for CborValue {
         } else {
             Err(anyhow!("{} not a String", self.type_name()))
         }
+    }
+}
+
+impl Index<usize> for CborValue {
+    type Output = Self;
+
+    /// Returns a reference to the value corresponding to the supplied key.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the key is not present in the `Vec`.
+    fn index(&self, index: usize) -> &Self {
+        &self.as_array().unwrap()[index]
+    }
+}
+
+impl Index<&CborValue> for CborValue {
+    type Output = Self;
+
+    /// Returns a reference to the value corresponding to the supplied key.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the key is not present in the `BTreeMap`.
+    fn index(&self, key: &CborValue) -> &Self {
+        &self.as_map().unwrap()[key]
     }
 }
 
@@ -587,7 +619,7 @@ pub struct SQLiteRootStore {
 
 impl SQLiteRootStore {
     // ```sql
-    // CREATE TABLE IF NOT EXISTS recon (root BLOB, timestamp INTEGER PRIMARY KEY(root, timestamp))
+    // CREATE TABLE recon (root BLOB, timestamp INTEGER)
     // ```
     pub async fn new(pool: SqlitePool) -> Result<Self> {
         let store = Self { pool };
