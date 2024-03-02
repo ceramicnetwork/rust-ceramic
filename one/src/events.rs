@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Error, Result};
+use ceramic_core::{ssi, Base64UrlString, DidDocument, Jwk};
 use ceramic_p2p::SQLiteBlockStore;
 use ceramic_store::SqlitePool;
 use chrono::{SecondsFormat, TimeZone, Utc};
@@ -107,7 +108,7 @@ async fn validate(opts: ValidateOpts) -> Result<()> {
     // If the CID is a DAG-JOSE, the event is either a signed Data Event or a signed Init Event, both of which can be
     // validated similarly.
     if opts.cid.codec() == 0x85 {
-        let controller = validate_data_event_envelope().await;
+        let controller = validate_data_event_envelope(&opts.cid, &block_store).await;
         match controller {
             Ok(controller) => {
                 println!(
@@ -152,27 +153,60 @@ async fn validate(opts: ValidateOpts) -> Result<()> {
             if event.get_key("data").is_some() {
                 println!("UnsignedDataEvent({}) is not signed", opts.cid);
             }
-            let controller = validate_data_event_payload().await;
-            match controller {
-                Ok(controller) => {
-                    println!(
-                        "UnsignedEvent({}) validated as authored by Controller({})",
-                        opts.cid, controller
-                    )
-                }
-                Err(e) => println!("{} failed with error: {:?}", opts.cid, e),
-            }
+            validate_data_event_payload(&opts.cid, &block_store, None).await?;
         }
     }
     Ok(())
 }
 
-async fn validate_data_event_envelope() -> Result<String> {
-    todo!("implement me")
+async fn validate_data_event_envelope(cid: &Cid, block_store: &SQLiteBlockStore) -> Result<String> {
+    let block = block_store.get(cid.to_owned()).await?.unwrap();
+    let envelope = CborValue::parse(&block)?;
+    let signatures_0 = envelope
+        .get_key("signatures")
+        .unwrap()
+        .get_index(0)
+        .unwrap();
+    let protected = signatures_0
+        .get_key("protected")
+        .unwrap()
+        .as_bytes()
+        .unwrap()
+        .as_slice();
+    // Deserialize protected as JSON
+    let protected_json: serde_json::Value = serde_json::from_slice(&protected)?;
+    let controller = protected_json.get("kid").unwrap().as_str().unwrap();
+    let protected: Base64UrlString = protected.try_into()?;
+    let signature: Base64UrlString = signatures_0
+        .get_key("signature")
+        .unwrap()
+        .as_bytes()
+        .unwrap()
+        .as_slice()
+        .try_into()?;
+    let payload: Base64UrlString = envelope
+        .get_key("payload")
+        .unwrap()
+        .as_bytes()
+        .unwrap()
+        .as_slice()
+        .try_into()?;
+    let compact = format!("{}.{}.{}", protected, payload, signature);
+    let did = DidDocument::new(&controller);
+    let jwk = Jwk::new(&did).await.unwrap();
+    ssi::jws::decode_verify(&compact, &jwk)?;
+    validate_data_event_payload(cid, block_store, Some(did.id.clone())).await?;
+    Ok(did.id)
 }
 
-async fn validate_data_event_payload() -> Result<String> {
-    todo!("implement me")
+// TODO: Validate the Data Event payload structure
+// TODO: Validate CACAO
+async fn validate_data_event_payload(
+    _payload_cid: &Cid,
+    _block_store: &SQLiteBlockStore,
+    _controller: Option<String>,
+) -> Result<()> {
+    Ok(())
 }
 
 // To validate a Time Event, we need to prove:
@@ -480,9 +514,9 @@ impl CborValue {
         }
     }
 
-    // pub fn get_index(&self, index: usize) -> Option<&CborValue> {
-    //     self.as_array()?.get(index)
-    // }
+    pub fn get_index(&self, index: usize) -> Option<&CborValue> {
+        self.as_array()?.get(index)
+    }
 
     pub fn get_key(&self, key: &str) -> Option<&CborValue> {
         self.as_map()?.get(&CborValue::String(key.to_owned()))
@@ -769,20 +803,16 @@ mod tests {
             "82d82a58260001850112207ac18e1235f2f7a84548eeb543a33f8979eb88
              566a2dfc3d9596c55a683b7517d82a58260001850112209ef4cd6403d5ed
              4ebeb221809d141fbedb6686b6866a9c6e9230b802fd6353cd",
-            "a3646c696e6bd82a58250001711220cb63d41a0489a815f44ee0a771bd70
-             2f21a717bce67fcac4c4be0f14a25ad71f677061796c6f61647830415845
-             53494d746a31426f45696167563945376770334739634338687078653835
-             6e5f4b784d532d44785369577463666a7369676e61747572657381a26970
-             726f74656374656478ac65794a68624763694f694a465a45525451534973
-             496d74705a434936496d52705a4470725a586b36656a5a4e61326454566a
-             4e30515856334e3264565633464c5131565a4e32466c4e6e5658546e6878
-             5757646b6431426f56557069536d68474f5556475747303549336f325457
-             746e5531597a64454631647a646e5656647853304e56575464685a545a31
-             5630353463566c6e5a4864516146564b596b706f526a6c46526c68744f53
-             4a39697369676e617475726578564f386c6f6358572d59657a56536b7976
-             6773584976526b34773235536865337962517a4b5a466c386d706d684930
-             3775543652356a5072624842664c36436a2d397a7061736b334643686b31
-             38377269733374784177",
+            "a2677061796c6f6164582401711220cb63d41a0489a815f44ee0a771bd70
+             2f21a717bce67fcac4c4be0f14a25ad71f6a7369676e61747572657381a2
+             6970726f74656374656458817b22616c67223a224564445341222c226b69
+             64223a226469643a6b65793a7a364d6b675356337441757737675557714b
+             4355593761653675574e7871596764775068554a624a6846394546586d39
+             237a364d6b675356337441757737675557714b4355593761653675574e78
+             71596764775068554a624a6846394546586d39227d697369676e61747572
+             6558403bc9687175be61ecd54a4caf82c5c8bd1938c36e5285edf26d0cca
+             64597c9a99a1234eee4fa4798cfadb1c17cbe828fef73a5ab24dc50a1935
+             f3bae2b37b7103",
             "a26464617461a7646e616d6568426c657373696e67657669657773a16661
              7574686f72a164747970656f646f63756d656e744163636f756e74667363
              68656d61a66474797065666f626a656374652464656673a16a4772617068
