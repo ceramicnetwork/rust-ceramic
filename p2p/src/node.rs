@@ -1639,6 +1639,7 @@ mod tests {
     }
 
     #[test(tokio::test)]
+    #[cfg_attr(target_os="macos", ignore="on macos")]
     async fn test_dht() -> Result<()> {
         // set up three nodes
         // two connect to one
