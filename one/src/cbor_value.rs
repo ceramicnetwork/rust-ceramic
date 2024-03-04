@@ -1,10 +1,10 @@
-use ordered_float::OrderedFloat;
-use minicbor::{data::Tag, data::Type, Decoder};
-use tracing::debug;
-use std::{collections::BTreeMap, ops::Index};
-use enum_as_inner::EnumAsInner;
 use anyhow::{anyhow, Error, Result};
 use cid::Cid;
+use enum_as_inner::EnumAsInner;
+use minicbor::{data::Tag, data::Type, Decoder};
+use ordered_float::OrderedFloat;
+use std::{collections::BTreeMap, ops::Index};
+use tracing::debug;
 
 /// CborValue
 /// a enum for working with dynamic values from decoding CBOR values.

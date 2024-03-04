@@ -1,9 +1,12 @@
 use anyhow::{anyhow, Result};
 use cid::{multihash, Cid};
-use tracing::debug;
 use multihash::Multihash;
+use tracing::debug;
 
-pub ( crate ) async fn eth_transaction_by_hash(cid: Cid, ethereum_rpc_url: &str) -> Result<(Cid, i64)> {
+pub(crate) async fn eth_transaction_by_hash(
+    cid: Cid,
+    ethereum_rpc_url: &str,
+) -> Result<(Cid, i64)> {
     // curl https://mainnet.infura.io/v3/{api_token} \
     //   -X POST \
     //   -H "Content-Type: application/json" \

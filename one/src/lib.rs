@@ -1,12 +1,12 @@
 //! Ceramic implements a single binary ceramic node.
 #![warn(missing_docs)]
 
+mod cbor_value;
+mod ethereum_rpc;
 mod events;
 mod http;
 mod metrics;
 mod network;
-mod ethereum_rpc;
-mod cbor_value;
 
 use std::{env, num::NonZeroUsize, path::PathBuf, time::Duration};
 

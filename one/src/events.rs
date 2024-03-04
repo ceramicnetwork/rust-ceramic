@@ -1,3 +1,5 @@
+use crate::ethereum_rpc::eth_transaction_by_hash;
+use crate::CborValue;
 use anyhow::{anyhow, Result};
 use ceramic_core::{ssi, Base64UrlString, DidDocument, Jwk};
 use ceramic_p2p::SQLiteBlockStore;
@@ -6,12 +8,10 @@ use chrono::{SecondsFormat, TimeZone, Utc};
 use cid::{multibase, multihash, Cid};
 use clap::{Args, Subcommand};
 use glob::{glob, Paths};
-use crate::CborValue;
+use multihash::Multihash;
 use sqlx::Row;
 use std::{fs, path::PathBuf, str::FromStr};
 use tracing::debug;
-use crate::ethereum_rpc::eth_transaction_by_hash;
-use multihash::Multihash;
 
 #[derive(Subcommand, Debug)]
 pub enum EventsCommand {
@@ -83,19 +83,7 @@ async fn slurp(opts: SlurpOpts) -> Result<()> {
 }
 
 async fn validate(opts: ValidateOpts) -> Result<()> {
-    let home: PathBuf = dirs::home_dir().unwrap_or("/data/".into());
-    let store_dir = opts
-        .store_dir
-        .unwrap_or(home.join(".ceramic-one/db.sqlite3"));
-    println!(
-        "{} Opening ceramic SQLite DB at: {}",
-        Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
-        store_dir.display()
-    );
-
-    let pool = SqlitePool::connect(store_dir.join("db.sqlite3"))
-        .await
-        .unwrap();
+    let pool = SqlitePool::from_store_dir(opts.store_dir).await.unwrap();
     let block_store = SQLiteBlockStore::new(pool.clone()).await.unwrap();
     let root_store = SQLiteRootStore::new(pool).await.unwrap();
 
@@ -289,8 +277,6 @@ async fn prev_in_root(
     Ok(prev == current_cid)
 }
 
-
-
 async fn migrate_from_filesystem(input_ipfs_path: PathBuf, store: SQLiteBlockStore) {
     // the block store is split in to 1024 directories and then the blocks stored as files.
     // the dir structure is the penultimate two characters as dir then the b32 sha256 multihash of the block
@@ -449,51 +435,65 @@ mod tests {
         let block_store = SQLiteBlockStore::new(pool.clone()).await.unwrap();
         let root_store = SQLiteRootStore::new(pool.clone()).await.unwrap();
 
-        // Add all the blocks for the Time Event to the block store
+        // Add all the blocks for the Data Event & Time Event to the block store
         let blocks = vec![
+            // bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy
             "a4626964d82a58260001850112207ac18e1235f2f7a84548eeb543a33f89
              79eb88566a2dfc3d9596c55a683b7517647061746873302f302f302f302f
              302f302f302f302f302f306470726576d82a58260001850112207ac18e12
              35f2f7a84548eeb543a33f8979eb88566a2dfc3d9596c55a683b75176570
              726f6f66d82a58250001711220664fe7627b86f38a74cfbbcdb702d77fe9
              38533e5402b6ce867777078d706df5",
+            // bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy/proof/
             "a464726f6f74d82a5825000171122041b6408c1b4be5016f652396ef47c0
              982c36d5877ebb874919bae3a9b854d8e166747848617368d82a58260001
              93011b20bf7bc715a09dea3177866ac4fc294ac9800ee2b49e09c55f5607
              8579bfbbf158667478547970656a6628627974657333322967636861696e
              4964686569703135353a31",
+            // bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy/proof/root/
             "83d82a58250001711220e71cf20b225c878c15446675b1a209d14448eee5
              f51f5f378b192c7c64cfe1f0d82a5825000171122002920cb2496290eca3
              dff550072251d8b70b8995c243cf7808cbc305960c7962d82a5825000171
              12202d5794752351a770a7eba07e67a0d29119ac7a67fd32eacbffb690fc
              3e4f7ffb",
+            // bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy/proof/root/0/
             "82d82a58250001711220b44e4681002e0c7bce248e9c91d49d85a3229aa7
              bdd1c43c7d245e3a7b8fc24ed82a582500017112206cf2b9460adabb65f5
              9369aeb45eaeab359501ea9a183efaf68c72af2dbaaa27",
+            // bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy/proof/root/0/0/
             "82d82a582500017112200a07aa83a2ad17ed2809359d5c81cfd46213fa6b
              1a215639d3b973f122c8c04cd82a5825000171122079c9e24051148f5ec6
              6ceb6ea7c3ef24b3d219794a3ce738306380676eb92af0",
+            // bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy/proof/root/0/0/0/
             "82d82a58250001711220a3261c31bfce9e22eb83ed305b017cb2b1b2edd2
              a90a294dd09f40201887020dd82a582500017112202096f43b3646196715
              a7cd7c503b020ebd21e1a4856952029782fb43abe3e54b",
+            // bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy/proof/root/0/0/0/0/
             "82d82a58250001711220838a384925aa1d757b17b2a22607130d333efb75
              ab9523250d0d17c2e5cbbfc7d82a5825000171122035f019bfe0ae32bc3f
              47acc4babc8526f98185696fc3b5eb45757f8b05f7de0e",
+            // bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy/proof/root/0/0/0/0/0/
             "82d82a58250001711220c0c93bdc49b93ac0786346a0118567ca66e4cfbd
              1d4c0519618c83ecbaa6e2aad82a582500017112202f3352cde99e1fe491
              18f2b5d598369add98957792c00b525e36757468086fcb",
+            // bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy/proof/root/0/0/0/0/0/0/
             "82d82a582500017112204a813e0e1151f11776d02e88897fb615ae1ba3c6
              43fc5a486ed3378fa5fcf49dd82a58250001711220269d5384e44b53c54b
              5035b15bf13a8f4e3513e5ead4a23bfdeaa4af141ad37c",
+            // bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy/proof/root/0/0/0/0/0/0/0/
             "82d82a582500017112201e48beab1c3fef5b29838492361155bd5c9c6389
              98bccc2da00625db5a9359cfd82a582500017112200d1bf984f229cddb85
              6fea0c8a6fd5c716defa3926b27b1ffc8308a29be4006c",
+            // bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy/proof/root/0/0/0/0/0/0/0/0/
             "82d82a58250001711220015067f14cae18a15faebcacd1d07c1c3dcf2a24
              2334c7148de4d235f27308c6d82a58250001711220749e6401d5f860a457
              5c94f1742a8976f6d625fa47f1923132de758184e4b599",
+            // bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy/proof/root/0/0/0/0/0/0/0/0/0/
             "82d82a58260001850112207ac18e1235f2f7a84548eeb543a33f8979eb88
              566a2dfc3d9596c55a683b7517d82a58260001850112209ef4cd6403d5ed
              4ebeb221809d141fbedb6686b6866a9c6e9230b802fd6353cd",
+            // bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy/proof/root/0/0/0/0/0/0/0/0/0/0/
+            // bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy/prev
             "a2677061796c6f6164582401711220cb63d41a0489a815f44ee0a771bd70
              2f21a717bce67fcac4c4be0f14a25ad71f6a7369676e61747572657381a2
              6970726f74656374656458817b22616c67223a224564445341222c226b69
@@ -504,6 +504,8 @@ mod tests {
              6558403bc9687175be61ecd54a4caf82c5c8bd1938c36e5285edf26d0cca
              64597c9a99a1234eee4fa4798cfadb1c17cbe828fef73a5ab24dc50a1935
              f3bae2b37b7103",
+            // bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy/proof/root/0/0/0/0/0/0/0/0/0/0/link
+            // bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy/prev/link
             "a26464617461a7646e616d6568426c657373696e67657669657773a16661
              7574686f72a164747970656f646f63756d656e744163636f756e74667363
              68656d61a66474797065666f626a656374652464656673a16a4772617068
@@ -540,7 +542,7 @@ mod tests {
         let ethereum_rpc_url = std::env::var("ETHEREUM_RPC_URL").unwrap();
         assert_eq!(
             validate_time_event(
-                &Cid::try_from("bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy")  // cspell:disable-line
+                &Cid::try_from("bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy") // cspell:disable-line
                     .unwrap(),
                 &block_store,
                 &root_store,

@@ -4,7 +4,11 @@ mod model;
 pub use interest::InterestStore;
 pub use model::ModelStore;
 
-use std::{path::Path, str::FromStr};
+use std::{
+    path::{Path, PathBuf},
+    str::FromStr,
+};
+use chrono::{SecondsFormat, Utc};
 
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
@@ -67,5 +71,21 @@ impl SqlitePool {
     /// Get a reference to the reader database pool. The reader pool has many connections.
     pub fn reader(&self) -> &sqlx::SqlitePool {
         &self.reader
+    }
+
+    /// Connect to a SQLite file that is stored in store_dir/db.sqlite3
+    /// if store_dir is None connect to $HOME/.ceramic-one/db.sqlite3
+    /// if $HOME is undefined connect to /data/.ceramic-one/db.sqlite3
+    pub async fn from_store_dir(store_dir: Option<PathBuf>) -> Result<Self, anyhow::Error> {
+        let home: PathBuf = dirs::home_dir().unwrap_or("/data/".into());
+        let store_dir = store_dir.unwrap_or(home.join(".ceramic-one/"));
+        println!(
+            "{} Opening ceramic SQLite DB at: {}",
+            Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
+            store_dir.display()
+        );
+        let pool = Self::connect(store_dir.join("db.sqlite3"))
+            .await;
+        pool
     }
 }
