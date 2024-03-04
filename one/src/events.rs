@@ -1,4 +1,4 @@
-use crate::ethereum_rpc::eth_transaction_by_hash;
+use crate::ethereum_rpc::{EthRpc, HttpEthRpc};
 use crate::CborValue;
 use anyhow::{anyhow, Result};
 use ceramic_core::{ssi, Base64UrlString, DidDocument, Jwk};
@@ -120,7 +120,7 @@ async fn validate(opts: ValidateOpts) -> Result<()> {
                 &opts.cid,
                 &block_store,
                 &root_store,
-                opts.ethereum_rpc_url.as_str(),
+                &HttpEthRpc::new(opts.ethereum_rpc_url),
             )
             .await;
             match timestamp {
@@ -206,7 +206,7 @@ async fn validate_time_event(
     cid: &Cid,
     block_store: &SQLiteBlockStore,
     root_store: &SQLiteRootStore,
-    ethereum_rpc_url: &str,
+    eth_rpc: &impl EthRpc,
 ) -> Result<i64> {
     if let Some(block) = block_store.get(cid.to_owned()).await? {
         let time_event = CborValue::parse(&block)?;
@@ -232,7 +232,7 @@ async fn validate_time_event(
             // else eth_transaction_by_hash
             let tx_hash_cid: Cid = proof_cbor.path(&["txHash"]).try_into()?;
             let (transaction_root, timestamp) =
-                eth_transaction_by_hash(tx_hash_cid, ethereum_rpc_url).await?;
+                eth_rpc.eth_transaction_by_hash(tx_hash_cid).await?;
             debug!("root: {}, timestamp: {}", transaction_root, timestamp);
 
             if transaction_root == proof_root {
@@ -424,7 +424,27 @@ impl SQLiteRootStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ethereum_rpc::EthRpc;
     use multihash::{Code, MultihashDigest};
+
+    struct HardCodedEthRpc {}
+    impl EthRpc for HardCodedEthRpc {
+        async fn eth_transaction_by_hash(&self, cid: Cid) -> Result<(Cid, i64)> {
+            let _cid = cid;
+            Ok((
+                Cid::from_str("bafyreicbwzaiyg2l4uaw6zjds3xupqeyfq3nlb36xodusgn24ou3qvgy4e") // cspell:disable-line
+                    .unwrap(),
+                1682958731,
+            ))
+        }
+    }
+    struct NeverCalledEthRpc {}
+    impl EthRpc for NeverCalledEthRpc {
+        async fn eth_transaction_by_hash(&self, cid: Cid) -> Result<(Cid, i64)> {
+            let _cid = cid;
+            panic!("If we get here the test failed");
+        }
+    }
 
     #[tokio::test]
     async fn test_validate_time_event() {
@@ -538,29 +558,27 @@ mod tests {
             block_store.put(cid, block.into(), vec![]).await.unwrap();
         }
 
-        // Retrieve the Ethereum RPC URL from the environment, e.g. ETHEREUM_RPC_URL=https://mainnet.infura.io/v3/<api_key>
-        let ethereum_rpc_url = std::env::var("ETHEREUM_RPC_URL").unwrap();
         assert_eq!(
             validate_time_event(
                 &Cid::try_from("bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy") // cspell:disable-line
                     .unwrap(),
                 &block_store,
                 &root_store,
-                ethereum_rpc_url.as_str(),
+                &HardCodedEthRpc{},
             )
             .await
             .unwrap(),
             1682958731
         );
-        // Call validation a second time with an invalid Ethereum RPC URL. The validation should still work because the
-        // result from the previous call was cached.
+        // Call validation a second time with an invalid NeverCalledEthRpc.
+        // The validation should still work because the result from the previous call was cached.
         assert_eq!(
             validate_time_event(
                 &Cid::try_from("bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy") // cspell:disable-line
                     .unwrap(),
                 &block_store,
                 &root_store,
-                "",
+                &NeverCalledEthRpc{},
             )
             .await
             .unwrap(),
