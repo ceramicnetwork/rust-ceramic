@@ -30,6 +30,7 @@ docker run --rm -i \
         \"repo\":     {\"S\": \"ceramic-infra\"},           \
         \"ref\":      {\"S\": \"$branch\"},                 \
         \"workflow\": {\"S\": \"update_image.yml\"},        \
+        \"labels\":   {\"L\": [{\"S\": \"deploy\"}]},       \
         \"inputs\":   {                                     \
           \"M\": {                                          \
             \"ceramic_one_image\": {\"S\": \"$image\"},     \
