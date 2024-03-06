@@ -1,0 +1,167 @@
+```
+Run a daemon process
+
+Usage: ceramic-one daemon [OPTIONS]
+
+Options:
+  -b, --bind-address <BIND_ADDRESS>
+          Bind address of the API endpoint
+
+          [env: CERAMIC_ONE_BIND_ADDRESS=]
+          [default: 127.0.0.1:5001]
+
+      --swarm-addresses <SWARM_ADDRESSES>
+          Listen address of the p2p swarm
+
+          [env: CERAMIC_ONE_SWARM_ADDRESSES=]
+          [default: /ip4/0.0.0.0/tcp/4001 /ip4/0.0.0.0/udp/4001/quic-v1]
+
+      --extra-ceramic-peer-addresses <EXTRA_CERAMIC_PEER_ADDRESSES>
+          Extra addresses of peers that participate in the Ceramic network. A best-effort attempt will be made to maintain a connection to these addresses
+
+          [env: CERAMIC_ONE_EXTRA_CERAMIC_PEER_ADDRESSES=]
+
+  -s, --store-dir <STORE_DIR>
+          Path to storage directory
+
+          [env: CERAMIC_ONE_STORE_DIR=]
+
+  -m, --metrics-bind-address <METRICS_BIND_ADDRESS>
+          Bind address of the metrics endpoint
+
+          [env: CERAMIC_ONE_METRICS_BIND_ADDRESS=]
+          [default: 127.0.0.1:9464]
+
+      --metrics
+          When true metrics will be exported
+
+          [env: CERAMIC_ONE_METRICS=]
+
+      --tracing
+          When true traces will be exported
+
+          [env: CERAMIC_ONE_TRACING=]
+
+      --tokio-console
+          When true the tokio console will be exposed
+
+          [env: CERAMIC_ONE_TOKIO_CONSOLE=]
+
+      --network <NETWORK>
+          Unique key used to find other Ceramic peers via the DHT
+
+          [env: CERAMIC_ONE_NETWORK=]
+          [default: testnet-clay]
+
+          Possible values:
+          - mainnet:      Production network
+          - testnet-clay: Test network
+          - dev-unstable: Development network
+          - local:        Local network with unique id
+          - in-memory:    Singleton network in memory
+
+      --local-network-id <LOCAL_NETWORK_ID>
+          Unique id when the network type is 'local'
+
+          [env: CERAMIC_ONE_LOCAL_NETWORK_ID=]
+
+      --mdns
+          When set mdns will be used to discover peers
+
+          [env: CERAMIC_ONE_MDNS=]
+
+      --disable-autonat
+          When set autonat will not be used to discover external address or allow other peers to directly dial the local peer
+
+          [env: CERAMIC_ONE_DISABLE_AUTONAT=]
+
+      --log-format <LOG_FORMAT>
+          Specify the format of log events
+
+          [env: CERAMIC_ONE_LOG_FORMAT=]
+          [default: multi-line]
+
+          Possible values:
+          - multi-line:  Format log events on multiple lines using ANSI colors
+          - single-line: Format log events on a single line using ANSI colors
+          - json:        Format log events newline delimited JSON objects. No ANSI colors are used
+
+      --max-conns-out <MAX_CONNS_OUT>
+          Specify maximum established outgoing connections
+
+          [env: CERAMIC_ONE_MAX_CONNS_OUT=]
+          [default: 2000]
+
+      --max-conns-in <MAX_CONNS_IN>
+          Specify maximum established incoming connections
+
+          [env: CERAMIC_ONE_MAX_CONNS_IN=]
+          [default: 2000]
+
+      --max-conns-pending-out <MAX_CONNS_PENDING_OUT>
+          Specify maximum pending outgoing connections
+
+          [env: CERAMIC_ONE_MAX_CONNS_PENDING_OUT=]
+          [default: 256]
+
+      --max-conns-pending-in <MAX_CONNS_PENDING_IN>
+          Specify maximum pending incoming connections
+
+          [env: CERAMIC_ONE_MAX_CONNS_PENDING_IN=]
+          [default: 256]
+
+      --max-conns-per-peer <MAX_CONNS_PER_PEER>
+          Specify maximum established connections per peer regardless of direction (incoming or outgoing)
+
+          [env: CERAMIC_ONE_MAX_CONNS_PER_PEER=]
+          [default: 8]
+
+      --idle-conns-timeout-ms <IDLE_CONNS_TIMEOUT_MS>
+          Specify idle connection timeout in milliseconds
+
+          [env: CERAMIC_ONE_IDLE_CONNS_TIMEOUT_MS=]
+          [default: 30000]
+
+      --kademlia-replication <KADEMLIA_REPLICATION>
+          Sets to how many closest peers a record is replicated
+
+          [env: CERAMIC_ONE_KADEMLIA_REPLICATION=]
+          [default: 20]
+
+      --kademlia-parallelism <KADEMLIA_PARALLELISM>
+          Sets the allowed level of parallelism for iterative queries
+
+          [env: CERAMIC_ONE_KADEMLIA_PARALLELISM=]
+          [default: 16]
+
+      --kademlia-query-timeout-secs <KADEMLIA_QUERY_TIMEOUT_SECS>
+          Sets the timeout in seconds for a single query.
+
+          **Note**: A single query usually comprises at least as many requests as the replication factor, i.e. this is not a request timeout.
+
+          [env: CERAMIC_ONE_KADEMLIA_QUERY_TIMEOUT_SECS=]
+          [default: 60]
+
+      --kademlia-provider-publication-interval-secs <KADEMLIA_PROVIDER_PUBLICATION_INTERVAL_SECS>
+          Sets the interval in seconds at which provider records for keys provided by the local node are re-published.
+
+          `0` means that stored provider records are never automatically re-published.
+
+          Must be significantly less than the provider record TTL.
+
+          [env: CERAMIC_ONE_KADEMLIA_PROVIDER_PUBLICATION_INTERVAL_SECS=]
+          [default: 43200]
+
+      --kademlia-provider-record-ttl-secs <KADEMLIA_PROVIDER_RECORD_TTL_SECS>
+          Sets the TTL in seconds for provider records.
+
+          `0` means that stored provider records never expire.
+
+          Must be significantly larger than the provider publication interval.
+
+          [env: CERAMIC_ONE_KADEMLIA_PROVIDER_RECORD_TTL_SECS=]
+          [default: 86400]
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
