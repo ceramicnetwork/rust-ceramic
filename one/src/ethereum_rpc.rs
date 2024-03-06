@@ -3,8 +3,13 @@ use cid::{multihash, Cid};
 use multihash::Multihash;
 use tracing::debug;
 
+pub(crate) struct RootTime {
+    pub root: Cid,
+    pub timestamp: i64,
+}
+
 pub trait EthRpc {
-    async fn eth_transaction_by_hash(&self, cid: Cid) -> Result<(Cid, i64)>;
+    async fn eth_transaction_by_hash(&self, cid: Cid) -> Result<RootTime>;
 }
 
 pub(crate) struct HttpEthRpc {
@@ -18,7 +23,7 @@ impl HttpEthRpc {
 }
 
 impl EthRpc for HttpEthRpc {
-    async fn eth_transaction_by_hash(&self, cid: Cid) -> Result<(Cid, i64)> {
+    async fn eth_transaction_by_hash(&self, cid: Cid) -> Result<RootTime> {
         // curl https://mainnet.infura.io/v3/{api_token} \
         //   -X POST \
         //   -H "Content-Type: application/json" \
@@ -42,10 +47,10 @@ impl EthRpc for HttpEthRpc {
                 if let Some(block_hash) = block_hash.as_str() {
                     if let Some(input) = result.get("input") {
                         if let Some(input) = input.as_str() {
-                            return Ok((
-                                get_root_from_input(input)?,
-                                eth_block_by_hash(block_hash, &self.url).await?,
-                            ));
+                            return Ok(RootTime {
+                                root: get_root_from_input(input)?,
+                                timestamp: eth_block_by_hash(block_hash, &self.url).await?,
+                            });
                         }
                     }
                 }

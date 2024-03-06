@@ -1,4 +1,4 @@
-use crate::ethereum_rpc::{EthRpc, HttpEthRpc};
+use crate::ethereum_rpc::{EthRpc, HttpEthRpc, RootTime};
 use crate::CborValue;
 use anyhow::{anyhow, Result};
 use ceramic_core::{ssi, Base64UrlString, DidDocument, Jwk};
@@ -231,8 +231,10 @@ async fn validate_time_event(
 
             // else eth_transaction_by_hash
             let tx_hash_cid: Cid = proof_cbor.path(&["txHash"]).try_into()?;
-            let (transaction_root, timestamp) =
-                eth_rpc.eth_transaction_by_hash(tx_hash_cid).await?;
+            let RootTime {
+                root: transaction_root,
+                timestamp,
+            } = eth_rpc.eth_transaction_by_hash(tx_hash_cid).await?;
             debug!("root: {}, timestamp: {}", transaction_root, timestamp);
 
             if transaction_root == proof_root {
@@ -429,18 +431,17 @@ mod tests {
 
     struct HardCodedEthRpc {}
     impl EthRpc for HardCodedEthRpc {
-        async fn eth_transaction_by_hash(&self, cid: Cid) -> Result<(Cid, i64)> {
-            let _cid = cid;
-            Ok((
-                Cid::from_str("bafyreicbwzaiyg2l4uaw6zjds3xupqeyfq3nlb36xodusgn24ou3qvgy4e") // cspell:disable-line
+        async fn eth_transaction_by_hash(&self, cid: Cid) -> Result<RootTime> {
+            Ok(RootTime {
+                root: Cid::from_str("bafyreicbwzaiyg2l4uaw6zjds3xupqeyfq3nlb36xodusgn24ou3qvgy4e") // cspell:disable-line
                     .unwrap(),
-                1682958731,
-            ))
+                timestamp: 1682958731,
+            })
         }
     }
     struct NeverCalledEthRpc {}
     impl EthRpc for NeverCalledEthRpc {
-        async fn eth_transaction_by_hash(&self, cid: Cid) -> Result<(Cid, i64)> {
+        async fn eth_transaction_by_hash(&self, cid: Cid) -> Result<RootTime> {
             let _cid = cid;
             panic!("If we get here the test failed");
         }
@@ -564,7 +565,7 @@ mod tests {
                     .unwrap(),
                 &block_store,
                 &root_store,
-                &HardCodedEthRpc{},
+                &HardCodedEthRpc {},
             )
             .await
             .unwrap(),
@@ -578,7 +579,7 @@ mod tests {
                     .unwrap(),
                 &block_store,
                 &root_store,
-                &NeverCalledEthRpc{},
+                &NeverCalledEthRpc {},
             )
             .await
             .unwrap(),
