@@ -32,6 +32,7 @@ docker run --rm -i \
         \"repo\":     {\"S\": \"ceramic-tests\"},           \
         \"ref\":      {\"S\": \"main\"},                    \
         \"workflow\": {\"S\": \"run-durable.yml\"},         \
+        \"labels\":   {\"L\": [{\"S\": \"test\"}]},         \
         \"inputs\":   {                                     \
           \"M\": {                                          \
             \"test_selector\": {\"S\": \"$test_selector\"}  \
