@@ -27,5 +27,6 @@ prometheus-client.workspace = true
 
 [dev-dependencies]
 expect-test.workspace = true
-tracing-test.workspace = true
+test-log.workspace = true
+tracing-subscriber.workspace = true
 mockall.workspace = true

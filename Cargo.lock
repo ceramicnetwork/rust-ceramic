@@ -1069,9 +1069,10 @@ dependencies = [
  "recon",
  "serde",
  "swagger",
+ "test-log",
  "tokio",
  "tracing",
- "tracing-test",
+ "tracing-subscriber",
 ]
 
 [[package]]
