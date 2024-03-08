@@ -30,7 +30,7 @@ impl Network {
             TESTNET_CLAY => Ok(Network::TestnetClay),
             DEV_UNSTABLE => Ok(Network::DevUnstable),
             IN_MEMORY => Ok(Network::InMemory),
-            id if id > LOCAL_OFFSET => Ok(Network::Local((id - LOCAL_OFFSET) as u32)),
+            id if id >= LOCAL_OFFSET => Ok(Network::Local((id - LOCAL_OFFSET) as u32)),
             id => Err(anyhow!("unknown network id: {}", id)),
         }
     }
@@ -60,5 +60,26 @@ impl Network {
 impl std::fmt::Display for Network {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.name())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn convert() {
+        for network in [
+            Network::Mainnet,
+            Network::TestnetClay,
+            Network::DevUnstable,
+            Network::Local(0),
+            Network::Local(541651),
+            Network::Local(u32::MAX),
+            Network::InMemory,
+        ] {
+            let id = network.id();
+            assert_eq!(network, Network::try_from_id(id).unwrap());
+        }
     }
 }
