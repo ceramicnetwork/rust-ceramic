@@ -21,6 +21,12 @@ paths:
       responses:
         "200":
           description: success
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /version:
     post:
       summary: Get the version of the Ceramic node
@@ -29,23 +35,34 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Version'
+                $ref: "#/components/schemas/Version"
           description: success
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /events:
     post:
       summary: Creates a new event
       requestBody:
-        $ref: '#/components/requestBodies/Event'
+        $ref: "#/components/requestBodies/Event"
       responses:
-        '204':
+        "204":
           description: success
-        '400':
+        "400":
           description: bad request
           content:
             application/json:
               schema:
                 type: string
-
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /events/{event_id}:
     get:
       summary: Get event data
@@ -57,19 +74,25 @@ paths:
             type: string
           required: true
       responses:
-        '200':
+        "200":
           description: success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Event'
-        '404':
+                $ref: "#/components/schemas/Event"
+        "404":
           description: Event not found
           content:
             text/plain:
               schema:
                 type: string
-  '/interests/{sort_key}/{sort_value}':
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  "/interests/{sort_key}/{sort_value}":
     post:
       summary: Register interest for a sort key
       parameters:
@@ -98,12 +121,18 @@ paths:
           schema:
             type: string
       responses:
-        '204':
+        "204":
           description: success
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
-  '/events/{sort_key}/{sort_value}':
+  "/events/{sort_key}/{sort_value}":
     get:
-      summary: Get events matching the interest stored on the node 
+      summary: Get events matching the interest stored on the node
       parameters:
         - name: sort_key
           in: path
@@ -119,13 +148,13 @@ paths:
           required: true
         - name: controller
           in: query
-          description: the controller to filter 
+          description: the controller to filter
           required: false
           schema:
             type: string
         - name: streamId
           in: query
-          description: the stream to filter 
+          description: the stream to filter
           required: false
           schema:
             type: string
@@ -142,14 +171,20 @@ paths:
           schema:
             type: integer
       responses:
-        '200':
+        "200":
           description: success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EventsGet'
+                $ref: "#/components/schemas/EventsGet"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
-  '/feed/events':
+  "/feed/events":
     get:
       summary: Get all new event keys since resume token
       parameters:
@@ -166,25 +201,31 @@ paths:
           schema:
             type: integer
       responses:
-        '200':
+        "200":
           description: success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EventFeed'
-        '400':
+                $ref: "#/components/schemas/EventFeed"
+        "400":
           description: bad request
           content:
             application/json:
               schema:
                 type: string
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 components:
   requestBodies:
     Event:
       content:
         application/json:
           schema:
-              $ref: '#/components/schemas/Event'
+            $ref: "#/components/schemas/Event"
       description: Event to add to the node
       required: true
     Message:
@@ -228,13 +269,13 @@ components:
           type: array
           items:
             schema:
-            $ref: '#/components/schemas/Event'
+            $ref: "#/components/schemas/Event"
           description: An array of events. For now, the value is empty.
         resumeToken:
           type: string
           description: The token/highwater mark to used as resumeAt on a future request
     EventsGet:
-      title: Information about multiple events. 
+      title: Information about multiple events.
       description: Ceramic event keys as part of a Ceramic Stream
       type: object
       required:
@@ -246,7 +287,7 @@ components:
           type: array
           items:
             schema:
-            $ref: '#/components/schemas/Event'
+            $ref: "#/components/schemas/Event"
           description: An array of events
         resumeOffset:
           type: integer
@@ -254,3 +295,13 @@ components:
         isComplete:
           type: boolean
           description: A boolean specifying if there are more events to be fetched. Repeat with the resumeOffset to get next set.
+    ErrorResponse:
+      title: Error response
+      description: Error response
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          description: Error message

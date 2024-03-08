@@ -3,6 +3,7 @@
 Cargo.toml
 README.md
 api/openapi.yaml
+docs/ErrorResponse.md
 docs/Event.md
 docs/EventFeed.md
 docs/EventsGet.md

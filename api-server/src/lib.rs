@@ -29,6 +29,8 @@ pub enum EventsEventIdGetResponse {
     Success(models::Event),
     /// Event not found
     EventNotFound(String),
+    /// Internal server error
+    InternalServerError(models::ErrorResponse),
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -38,12 +40,17 @@ pub enum EventsPostResponse {
     Success,
     /// bad request
     BadRequest(String),
+    /// Internal server error
+    InternalServerError(models::ErrorResponse),
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[must_use]
 pub enum EventsSortKeySortValueGetResponse {
     /// success
     Success(models::EventsGet),
+    /// Internal server error
+    InternalServerError(models::ErrorResponse),
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -53,24 +60,35 @@ pub enum FeedEventsGetResponse {
     Success(models::EventFeed),
     /// bad request
     BadRequest(String),
+    /// Internal server error
+    InternalServerError(models::ErrorResponse),
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[must_use]
 pub enum InterestsSortKeySortValuePostResponse {
     /// success
     Success,
+    /// Internal server error
+    InternalServerError(models::ErrorResponse),
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[must_use]
 pub enum LivenessGetResponse {
     /// success
     Success,
+    /// Internal server error
+    InternalServerError(models::ErrorResponse),
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[must_use]
 pub enum VersionPostResponse {
     /// success
     Success(models::Version),
+    /// Internal server error
+    InternalServerError(models::ErrorResponse),
 }
 
 /// API
