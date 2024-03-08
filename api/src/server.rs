@@ -307,6 +307,27 @@ where
 
         let event_id = decode_event_id(&id)?;
         let event_data = decode_event_data(&data)?;
+
+        if let Some(network_id) = event_id.network_id() {
+            if let Ok(event_network) = Network::try_from_id(network_id) {
+                if event_network != self.network {
+                    return Ok(EventsPostResponse::BadRequest(format!(
+                        "event network does not match node network: {} != {}",
+                        event_network, self.network
+                    )));
+                }
+            } else {
+                return Ok(EventsPostResponse::BadRequest(format!(
+                    "event does not have valid network id {}",
+                    network_id,
+                )));
+            }
+        } else {
+            return Ok(EventsPostResponse::BadRequest(
+                "event does not have network id".to_string(),
+            ));
+        }
+
         self.model
             .insert(event_id, Some(event_data))
             .await
@@ -372,8 +393,8 @@ mod tests {
     use mockall::{mock, predicate};
     use multibase::Base;
     use recon::Sha256a;
+    use test_log::test;
     use tracing::event;
-    use tracing_test::traced_test;
 
     struct Context;
     mock! {
@@ -458,8 +479,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    #[traced_test]
+    #[test(tokio::test)]
     async fn create_event() {
         let peer_id = PeerId::random();
         let network = Network::InMemory;
@@ -500,8 +520,7 @@ mod tests {
         assert!(matches!(resp, EventsPostResponse::Success));
     }
 
-    #[tokio::test]
-    #[traced_test]
+    #[test(tokio::test)]
     async fn register_interest_sort_value() {
         let peer_id = PeerId::random();
         let network = Network::InMemory;
@@ -555,8 +574,7 @@ mod tests {
         assert_eq!(resp, InterestsSortKeySortValuePostResponse::Success);
     }
 
-    #[tokio::test]
-    #[traced_test]
+    #[test(tokio::test)]
     async fn register_interest_sort_value_controller() {
         let peer_id = PeerId::random();
         let network = Network::InMemory;
@@ -606,8 +624,7 @@ mod tests {
             .unwrap();
         assert_eq!(resp, InterestsSortKeySortValuePostResponse::Success);
     }
-    #[tokio::test]
-    #[traced_test]
+    #[test(tokio::test)]
     async fn register_interest_value_controller_stream() {
         let peer_id = PeerId::random();
         let network = Network::InMemory;
@@ -661,8 +678,7 @@ mod tests {
         assert_eq!(resp, InterestsSortKeySortValuePostResponse::Success);
     }
 
-    #[tokio::test]
-    #[traced_test]
+    #[test(tokio::test)]
     async fn get_events_for_interest_range() {
         let peer_id = PeerId::random();
         let network = Network::InMemory;
@@ -725,8 +741,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    #[traced_test]
+    #[test(tokio::test)]
     async fn test_events_event_id_get_success() {
         let peer_id = PeerId::random();
         let network = Network::InMemory;
@@ -764,5 +779,45 @@ mod tests {
             multibase::encode(multibase::Base::Base16Lower, event_id.as_bytes())
         );
         assert_eq!(event.data, event_data_base64);
+    }
+
+    #[test(tokio::test)]
+    async fn test_events_bad_event_network() {
+        let peer_id = PeerId::random();
+        let network = Network::InMemory;
+        let event_id = EventId::new(
+            &network,
+            "model",
+            "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9", // cspell:disable-line
+            "did:key:zGs1Det7LHNeu7DXT4nvoYrPfj3n6g7d6bj2K4AMXEvg1",          // cspell:disable-line
+            &Cid::from_str("baejbeihyr3kf77etqdccjfoc33dmko2ijyugn6qk6yucfkioasjssz3bbu").unwrap(), // cspell:disable-line
+            0,
+            &Cid::from_str("baejbeicqtpe5si4qvbffs2s7vtbk5ccbsfg6owmpidfj3zeluqz4hlnz6m").unwrap(), // cspell:disable-line
+        );
+        let event_id_str = multibase::encode(Base::Base16Lower, event_id.to_bytes());
+        let event_data = "f".to_string();
+        let mock_interest = MockReconInterestTest::new();
+        let mock_model = MockReconModelTest::new();
+        // Use a differnet network for the server than the event
+        let server = Server::new(peer_id, Network::DevUnstable, mock_interest, mock_model);
+
+        let result = server
+            .events_post(
+                models::EventsPostRequest {
+                    id: Some(event_id_str),
+                    data: Some(event_data),
+                    event_id: None,
+                    event_data: None,
+                },
+                &Context,
+            )
+            .await
+            .unwrap();
+        expect![[r#"
+            BadRequest(
+                "event network does not match node network: /ceramic/inmemory != /ceramic/dev-unstable",
+            )
+        "#]]
+        .assert_debug_eq(&result);
     }
 }
