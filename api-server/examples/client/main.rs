@@ -3,9 +3,9 @@
 #[allow(unused_imports)]
 use ceramic_api_server::{
     models, Api, ApiNoContext, Client, ContextWrapperExt, EventsEventIdGetResponse,
-    EventsPostResponse, EventsSortKeySortValueGetResponse, FeedEventsGetResponse,
-    InterestsPostResponse, InterestsSortKeySortValuePostResponse, LivenessGetResponse,
-    VersionPostResponse,
+    EventsPostResponse, EventsSortKeySortValueGetResponse, ExperimentalEventsSepModelGetResponse,
+    FeedEventsGetResponse, InterestsPostResponse, InterestsSortKeySortValuePostResponse,
+    LivenessGetResponse, VersionPostResponse,
 };
 use clap::{App, Arg};
 #[allow(unused_imports)]
@@ -37,6 +37,7 @@ fn main() {
                 .possible_values(&[
                     "EventsEventIdGet",
                     "EventsSortKeySortValueGet",
+                    "ExperimentalEventsSepModelGet",
                     "FeedEventsGet",
                     "InterestsSortKeySortValuePost",
                     "LivenessGet",
@@ -116,6 +117,21 @@ fn main() {
             let result = rt.block_on(client.events_sort_key_sort_value_get(
                 "sort_key_example".to_string(),
                 "sort_value_example".to_string(),
+                Some("controller_example".to_string()),
+                Some("stream_id_example".to_string()),
+                Some(56),
+                Some(56),
+            ));
+            info!(
+                "{:?} (X-Span-ID: {:?})",
+                result,
+                (client.context() as &dyn Has<XSpanIdString>).get().clone()
+            );
+        }
+        Some("ExperimentalEventsSepModelGet") => {
+            let result = rt.block_on(client.experimental_events_sep_model_get(
+                "sep_example".to_string(),
+                "model_example".to_string(),
                 Some("controller_example".to_string()),
                 Some("stream_id_example".to_string()),
                 Some(56),
