@@ -135,7 +135,26 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
-
+  "/interests":
+    post:
+      summary: Register interest for a sort key
+      requestBody:
+        $ref: "#/components/requestBodies/Interest"
+      responses:
+        "204":
+          description: success
+        "400":
+          description: bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BadRequestResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   "/events/{sort_key}/{sort_value}":
     get:
       summary: Get events matching the interest stored on the node
@@ -248,6 +267,13 @@ components:
             type: string
       description: Recon message to send
       required: true
+    Interest:
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Interest"
+      description: Interest to register on the node
+      required: true
   schemas:
     Version:
       description: Version of the Ceramic node in semver format, e.g. 2.1.0
@@ -327,3 +353,23 @@ components:
         message:
           type: string
           description: Error message
+    Interest:
+      title: A recon interest
+      description: Describes a recon interest range to store and synchronize
+      type: object
+      required:
+        - sep
+        - model
+      properties:
+        sep:
+          type: string
+          description: Separator value, typically 'model' (sometimes called sort_key)
+        model:
+          type: string
+          description: Multibase encoded stream ID (sometimes called sort_value)
+        controller:
+          type: string
+          description: Decentralized identifier (DID) string
+        streamId:
+          type: string
+          description: Multibase encoded stream ID.

@@ -753,6 +753,190 @@ impl std::convert::TryFrom<hyper::header::HeaderValue> for header::IntoHeaderVal
     }
 }
 
+/// Describes a recon interest range to store and synchronize
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, validator::Validate)]
+#[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]
+pub struct Interest {
+    /// Separator value, typically 'model' (sometimes called sort_key)
+    #[serde(rename = "sep")]
+    pub sep: String,
+
+    /// Multibase encoded stream ID (sometimes called sort_value)
+    #[serde(rename = "model")]
+    pub model: String,
+
+    /// Decentralized identifier (DID) string
+    #[serde(rename = "controller")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub controller: Option<String>,
+
+    /// Multibase encoded stream ID.
+    #[serde(rename = "streamId")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream_id: Option<String>,
+}
+
+impl Interest {
+    #[allow(clippy::new_without_default)]
+    pub fn new(sep: String, model: String) -> Interest {
+        Interest {
+            sep,
+            model,
+            controller: None,
+            stream_id: None,
+        }
+    }
+}
+
+/// Converts the Interest value to the Query Parameters representation (style=form, explode=false)
+/// specified in https://swagger.io/docs/specification/serialization/
+/// Should be implemented in a serde serializer
+impl std::string::ToString for Interest {
+    fn to_string(&self) -> String {
+        let params: Vec<Option<String>> = vec![
+            Some("sep".to_string()),
+            Some(self.sep.to_string()),
+            Some("model".to_string()),
+            Some(self.model.to_string()),
+            self.controller
+                .as_ref()
+                .map(|controller| ["controller".to_string(), controller.to_string()].join(",")),
+            self.stream_id
+                .as_ref()
+                .map(|stream_id| ["streamId".to_string(), stream_id.to_string()].join(",")),
+        ];
+
+        params.into_iter().flatten().collect::<Vec<_>>().join(",")
+    }
+}
+
+/// Converts Query Parameters representation (style=form, explode=false) to a Interest value
+/// as specified in https://swagger.io/docs/specification/serialization/
+/// Should be implemented in a serde deserializer
+impl std::str::FromStr for Interest {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        /// An intermediate representation of the struct to use for parsing.
+        #[derive(Default)]
+        #[allow(dead_code)]
+        struct IntermediateRep {
+            pub sep: Vec<String>,
+            pub model: Vec<String>,
+            pub controller: Vec<String>,
+            pub stream_id: Vec<String>,
+        }
+
+        let mut intermediate_rep = IntermediateRep::default();
+
+        // Parse into intermediate representation
+        let mut string_iter = s.split(',');
+        let mut key_result = string_iter.next();
+
+        while key_result.is_some() {
+            let val = match string_iter.next() {
+                Some(x) => x,
+                None => {
+                    return std::result::Result::Err(
+                        "Missing value while parsing Interest".to_string(),
+                    )
+                }
+            };
+
+            if let Some(key) = key_result {
+                #[allow(clippy::match_single_binding)]
+                match key {
+                    #[allow(clippy::redundant_clone)]
+                    "sep" => intermediate_rep.sep.push(
+                        <String as std::str::FromStr>::from_str(val).map_err(|x| x.to_string())?,
+                    ),
+                    #[allow(clippy::redundant_clone)]
+                    "model" => intermediate_rep.model.push(
+                        <String as std::str::FromStr>::from_str(val).map_err(|x| x.to_string())?,
+                    ),
+                    #[allow(clippy::redundant_clone)]
+                    "controller" => intermediate_rep.controller.push(
+                        <String as std::str::FromStr>::from_str(val).map_err(|x| x.to_string())?,
+                    ),
+                    #[allow(clippy::redundant_clone)]
+                    "streamId" => intermediate_rep.stream_id.push(
+                        <String as std::str::FromStr>::from_str(val).map_err(|x| x.to_string())?,
+                    ),
+                    _ => {
+                        return std::result::Result::Err(
+                            "Unexpected key while parsing Interest".to_string(),
+                        )
+                    }
+                }
+            }
+
+            // Get the next key
+            key_result = string_iter.next();
+        }
+
+        // Use the intermediate representation to return the struct
+        std::result::Result::Ok(Interest {
+            sep: intermediate_rep
+                .sep
+                .into_iter()
+                .next()
+                .ok_or_else(|| "sep missing in Interest".to_string())?,
+            model: intermediate_rep
+                .model
+                .into_iter()
+                .next()
+                .ok_or_else(|| "model missing in Interest".to_string())?,
+            controller: intermediate_rep.controller.into_iter().next(),
+            stream_id: intermediate_rep.stream_id.into_iter().next(),
+        })
+    }
+}
+
+// Methods for converting between header::IntoHeaderValue<Interest> and hyper::header::HeaderValue
+
+#[cfg(any(feature = "client", feature = "server"))]
+impl std::convert::TryFrom<header::IntoHeaderValue<Interest>> for hyper::header::HeaderValue {
+    type Error = String;
+
+    fn try_from(
+        hdr_value: header::IntoHeaderValue<Interest>,
+    ) -> std::result::Result<Self, Self::Error> {
+        let hdr_value = hdr_value.to_string();
+        match hyper::header::HeaderValue::from_str(&hdr_value) {
+            std::result::Result::Ok(value) => std::result::Result::Ok(value),
+            std::result::Result::Err(e) => std::result::Result::Err(format!(
+                "Invalid header value for Interest - value: {} is invalid {}",
+                hdr_value, e
+            )),
+        }
+    }
+}
+
+#[cfg(any(feature = "client", feature = "server"))]
+impl std::convert::TryFrom<hyper::header::HeaderValue> for header::IntoHeaderValue<Interest> {
+    type Error = String;
+
+    fn try_from(hdr_value: hyper::header::HeaderValue) -> std::result::Result<Self, Self::Error> {
+        match hdr_value.to_str() {
+            std::result::Result::Ok(value) => {
+                match <Interest as std::str::FromStr>::from_str(value) {
+                    std::result::Result::Ok(value) => {
+                        std::result::Result::Ok(header::IntoHeaderValue(value))
+                    }
+                    std::result::Result::Err(err) => std::result::Result::Err(format!(
+                        "Unable to convert header value '{}' into Interest - {}",
+                        value, err
+                    )),
+                }
+            }
+            std::result::Result::Err(e) => std::result::Result::Err(format!(
+                "Unable to convert header: {:?} to string: {}",
+                hdr_value, e
+            )),
+        }
+    }
+}
+
 /// Version of the Ceramic node in semver format, e.g. 2.1.0
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, validator::Validate)]
 #[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]

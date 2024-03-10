@@ -32,8 +32,10 @@ use ceramic_api_server::{
     EventsEventIdGetResponse, EventsPostResponse, InterestsSortKeySortValuePostResponse,
     LivenessGetResponse, VersionPostResponse,
 };
-use ceramic_api_server::{Api, EventsSortKeySortValueGetResponse, FeedEventsGetResponse};
-use ceramic_core::{EventId, Interest, Network, PeerId, StreamId};
+use ceramic_api_server::{
+    Api, EventsSortKeySortValueGetResponse, FeedEventsGetResponse, InterestsPostResponse,
+};
+use ceramic_core::{interest, EventId, Interest, Network, PeerId, StreamId};
 use std::error::Error;
 use swagger::ApiError;
 
@@ -50,6 +52,64 @@ impl BuildResponse {
             multibase::encode(multibase::Base::Base64, data)
         };
         models::Event::new(id, data)
+    }
+}
+
+fn convert_base(input: &str, to: multibase::Base) -> Result<String, String> {
+    if input.is_empty() {
+        Err("Input cannot be empty. Expected multibase encoded value.".to_owned())
+    } else {
+        let (base, bytes) =
+            multibase::decode(input).map_err(|err| format!("multibase error: {err}"))?;
+        if base == to {
+            Ok(input.to_owned())
+        } else {
+            Ok(multibase::encode(to, bytes))
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ValidatedInterest {
+    /// 'model' typically
+    sep: String,
+    /// Base36 encoded stream ID
+    model: String,
+    /// DID
+    controller: Option<String>,
+    /// Base36 encoded stream ID
+    stream_id: Option<String>,
+}
+
+impl TryFrom<models::Interest> for ValidatedInterest {
+    type Error = String;
+    fn try_from(interest: models::Interest) -> Result<Self, Self::Error> {
+        let sep = if interest.sep.is_empty() {
+            return Err("'sep' cannot be empty".to_owned());
+        } else {
+            interest.sep
+        };
+        let model = convert_base(&interest.model, multibase::Base::Base36Lower)?;
+        let controller = interest
+            .controller
+            .map(|c| {
+                if c.is_empty() {
+                    Err("'controller' cannot be empty if it's included")
+                } else {
+                    Ok(c)
+                }
+            })
+            .transpose()?;
+        let stream_id = interest
+            .stream_id
+            .map(|id| convert_base(&id, multibase::Base::Base36Lower))
+            .transpose()?;
+        Ok(ValidatedInterest {
+            sep,
+            model,
+            controller,
+            stream_id,
+        })
     }
 }
 
@@ -198,16 +258,20 @@ where
         Ok(EventsPostResponse::Success)
     }
 
-    pub async fn post_interests_sort_key_sort_value(
+    pub async fn post_interests(
         &self,
-        sort_key: String,
-        sort_value: String,
-        controller: Option<String>,
-        stream_id: Option<String>,
-    ) -> Result<InterestsSortKeySortValuePostResponse, ErrorResponse> {
-        self.store_interest(sort_key, sort_value, controller, stream_id)
-            .await?;
-        Ok(InterestsSortKeySortValuePostResponse::Success)
+        interest: models::Interest,
+    ) -> Result<InterestsPostResponse, ErrorResponse> {
+        let interest = match ValidatedInterest::try_from(interest) {
+            Ok(v) => v,
+            Err(e) => {
+                return Ok(InterestsPostResponse::BadRequest(
+                    models::BadRequestResponse::new(e),
+                ))
+            }
+        };
+        self.store_interest(interest).await?;
+        Ok(InterestsPostResponse::Success)
     }
 
     pub async fn get_events_event_id(
@@ -277,17 +341,18 @@ where
 
     async fn store_interest(
         &self,
-        sort_key: String,
-        sort_value: String,
-        controller: Option<String>,
-        stream_id: Option<String>,
+        interest: ValidatedInterest,
     ) -> Result<(EventId, EventId), ErrorResponse> {
         // Construct start and stop event id based on provided data.
-        let (start, stop) =
-            self.build_start_stop_range(&sort_key, &sort_value, controller, stream_id)?;
+        let (start, stop) = self.build_start_stop_range(
+            &interest.sep,
+            &interest.model,
+            interest.controller,
+            interest.stream_id,
+        )?;
         // Update interest ranges to include this new subscription.
         let interest = Interest::builder()
-            .with_sort_key(&sort_key)
+            .with_sort_key(&interest.sep)
             .with_peer_id(&self.peer_id)
             .with_range((start.as_slice(), stop.as_slice()))
             .with_not_after(0)
@@ -378,6 +443,16 @@ where
             .or_else(|err| Ok(EventsPostResponse::InternalServerError(err)))
     }
 
+    async fn interests_post(
+        &self,
+        interest: models::Interest,
+        _context: &C,
+    ) -> Result<InterestsPostResponse, ApiError> {
+        self.post_interests(interest)
+            .await
+            .or_else(|err| Ok(InterestsPostResponse::InternalServerError(err)))
+    }
+
     #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn interests_sort_key_sort_value_post(
         &self,
@@ -387,13 +462,28 @@ where
         stream_id: Option<String>,
         _context: &C,
     ) -> Result<InterestsSortKeySortValuePostResponse, ApiError> {
-        self.post_interests_sort_key_sort_value(sort_key, sort_value, controller, stream_id)
-            .await
-            .or_else(|err| {
-                Ok(InterestsSortKeySortValuePostResponse::InternalServerError(
-                    err,
-                ))
-            })
+        let interest = models::Interest {
+            sep: sort_key,
+            model: sort_value,
+            controller,
+            stream_id,
+        };
+        match self.post_interests(interest).await {
+            Ok(v) => match v {
+                InterestsPostResponse::Success => {
+                    Ok(InterestsSortKeySortValuePostResponse::Success)
+                }
+                InterestsPostResponse::BadRequest(r) => {
+                    Ok(InterestsSortKeySortValuePostResponse::BadRequest(r))
+                }
+                InterestsPostResponse::InternalServerError(e) => Ok(
+                    InterestsSortKeySortValuePostResponse::InternalServerError(e),
+                ),
+            },
+            Err(err) => Ok(InterestsSortKeySortValuePostResponse::InternalServerError(
+                err,
+            )),
+        }
     }
 
     #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
@@ -585,17 +675,36 @@ mod tests {
             .returning(|_, _| Ok(true));
         let mock_model = MockReconModelTest::new();
         let server = Server::new(peer_id, network, mock_interest, mock_model);
-        let resp = server
-            .interests_sort_key_sort_value_post(
-                "model".to_string(),
-                model.to_owned(),
-                None,
-                None,
-                &Context,
-            )
-            .await
-            .unwrap();
-        assert_eq!(resp, InterestsSortKeySortValuePostResponse::Success);
+        let interest = models::Interest {
+            sep: "model".to_string(),
+            model: model.to_owned(),
+            controller: None,
+            stream_id: None,
+        };
+        let resp = server.interests_post(interest, &Context).await.unwrap();
+        assert_eq!(resp, InterestsPostResponse::Success);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn register_interest_sort_value_bad_request() {
+        let peer_id = PeerId::random();
+        let network = Network::InMemory;
+
+        let model = "2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9"; //missing 'k' cspell:disable-line
+
+        // Setup mock expectations
+        let mock_interest = MockReconInterestTest::new();
+        let mock_model = MockReconModelTest::new();
+        let server = Server::new(peer_id, network, mock_interest, mock_model);
+        let interest = models::Interest {
+            sep: "model".to_string(),
+            model: model.to_owned(),
+            controller: None,
+            stream_id: None,
+        };
+        let resp = server.interests_post(interest, &Context).await.unwrap();
+        assert!(matches!(resp, InterestsPostResponse::BadRequest(_)));
     }
 
     #[tokio::test]
@@ -603,18 +712,20 @@ mod tests {
     async fn register_interest_sort_value_controller() {
         let peer_id = PeerId::random();
         let network = Network::InMemory;
-        let model = "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9"; // cspell:disable-line
+        let model = "z3KWHw5Efh2qLou2FEdz3wB8ZvLgURJP94HeijLVurxtF1Ntv6fkg2G"; // base58 encoded should work cspell:disable-line
+        // we convert to base36 before storing
+        let model_base36 = "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9"; // cspell:disable-line
         let controller = "did:key:zGs1Det7LHNeu7DXT4nvoYrPfj3n6g7d6bj2K4AMXEvg1";
         let start = EventId::builder()
             .with_network(&network)
-            .with_sort_value("model", model)
+            .with_sort_value("model", model_base36)
             .with_controller(controller)
             .with_min_init()
             .with_min_event_height()
             .build_fencepost();
         let end = EventId::builder()
             .with_network(&network)
-            .with_sort_value("model", model)
+            .with_sort_value("model", model_base36)
             .with_controller(controller)
             .with_max_init()
             .with_max_event_height()

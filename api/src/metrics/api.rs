@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use ceramic_api_server::{
     models, Api, EventsEventIdGetResponse, EventsPostResponse, EventsSortKeySortValueGetResponse,
-    FeedEventsGetResponse, InterestsSortKeySortValuePostResponse, LivenessGetResponse,
-    VersionPostResponse,
+    FeedEventsGetResponse, InterestsPostResponse, InterestsSortKeySortValuePostResponse,
+    LivenessGetResponse, VersionPostResponse,
 };
 use ceramic_metrics::Recorder;
 use futures::Future;
@@ -96,6 +96,16 @@ where
     /// Get the version of the Ceramic node
     async fn version_post(&self, context: &C) -> Result<VersionPostResponse, ApiError> {
         self.record("/version", self.api.version_post(context))
+            .await
+    }
+
+    /// Register interest for a sort key
+    async fn interests_post(
+        &self,
+        interest: models::Interest,
+        context: &C,
+    ) -> Result<InterestsPostResponse, ApiError> {
+        self.record("/interests", self.api.interests_post(interest, context))
             .await
     }
 

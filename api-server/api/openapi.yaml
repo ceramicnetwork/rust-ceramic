@@ -140,6 +140,26 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
           description: Internal server error
       summary: Register interest for a sort key
+  /interests:
+    post:
+      requestBody:
+        $ref: '#/components/requestBodies/Interest'
+      responses:
+        "204":
+          description: success
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: bad request
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Internal server error
+      summary: Register interest for a sort key
   /events/{sort_key}/{sort_value}:
     get:
       parameters:
@@ -269,6 +289,13 @@ components:
             type: string
       description: Recon message to send
       required: true
+    Interest:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Interest'
+      description: Interest to register on the node
+      required: true
   schemas:
     Version:
       description: "Version of the Ceramic node in semver format, e.g. 2.1.0"
@@ -367,5 +394,30 @@ components:
       required:
       - message
       title: Error response
+      type: object
+    Interest:
+      description: Describes a recon interest range to store and synchronize
+      example:
+        controller: controller
+        streamId: streamId
+        model: model
+        sep: sep
+      properties:
+        sep:
+          description: "Separator value, typically 'model' (sometimes called sort_key)"
+          type: string
+        model:
+          description: Multibase encoded stream ID (sometimes called sort_value)
+          type: string
+        controller:
+          description: Decentralized identifier (DID) string
+          type: string
+        streamId:
+          description: Multibase encoded stream ID.
+          type: string
+      required:
+      - model
+      - sep
+      title: A recon interest
       type: object
 
