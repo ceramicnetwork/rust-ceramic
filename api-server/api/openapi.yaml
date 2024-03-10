@@ -49,7 +49,7 @@ paths:
           content:
             application/json:
               schema:
-                type: string
+                $ref: '#/components/schemas/BadRequestResponse'
           description: bad request
         "500":
           content:
@@ -127,6 +127,12 @@ paths:
       responses:
         "204":
           description: success
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: bad request
         "500":
           content:
             application/json:
@@ -193,6 +199,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/EventsGet'
           description: success
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: bad request
         "500":
           content:
             application/json:
@@ -231,7 +243,7 @@ paths:
           content:
             application/json:
               schema:
-                type: string
+                $ref: '#/components/schemas/BadRequestResponse'
           description: bad request
         "500":
           content:
@@ -266,6 +278,16 @@ components:
         version:
           description: Version of the Ceramic node
           type: string
+    BadRequestResponse:
+      description: Bad request (input error)
+      properties:
+        message:
+          description: Message describing the error
+          type: string
+      required:
+      - message
+      title: Response to a bad request (400)
+      type: object
     Event:
       description: A Ceramic event as part of a Ceramic Stream
       example:

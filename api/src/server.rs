@@ -129,10 +129,12 @@ where
         let hw = match (&hw).try_into() {
             Ok(hw) => hw,
             Err(err) => {
-                return Ok(FeedEventsGetResponse::BadRequest(format!(
-                    "Invalid resume token '{}'. {}",
-                    hw, err
-                )))
+                return Ok(FeedEventsGetResponse::BadRequest(
+                    models::BadRequestResponse::new(format!(
+                        "Invalid resume token '{}'. {}",
+                        hw, err
+                    )),
+                ))
             }
         };
         let (new_hw, event_ids) = self

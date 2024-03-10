@@ -15,7 +15,7 @@ To see how to make this your own, look here:
 [README]((https://openapi-generator.tech))
 
 - API version: 0.13.0
-- Build date: 2024-03-19T10:03:40.368742-06:00[America/Denver]
+- Build date: 2024-03-19T10:12:55.935129-06:00[America/Denver]
 
 
 
@@ -112,6 +112,7 @@ Method | HTTP request | Description
 
 ## Documentation For Models
 
+ - [BadRequestResponse](docs/BadRequestResponse.md)
  - [ErrorResponse](docs/ErrorResponse.md)
  - [Event](docs/Event.md)
  - [EventFeed](docs/EventFeed.md)

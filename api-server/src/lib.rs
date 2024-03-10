@@ -39,7 +39,7 @@ pub enum EventsPostResponse {
     /// success
     Success,
     /// bad request
-    BadRequest(String),
+    BadRequest(models::BadRequestResponse),
     /// Internal server error
     InternalServerError(models::ErrorResponse),
 }
@@ -49,6 +49,8 @@ pub enum EventsPostResponse {
 pub enum EventsSortKeySortValueGetResponse {
     /// success
     Success(models::EventsGet),
+    /// bad request
+    BadRequest(models::BadRequestResponse),
     /// Internal server error
     InternalServerError(models::ErrorResponse),
 }
@@ -59,7 +61,7 @@ pub enum FeedEventsGetResponse {
     /// success
     Success(models::EventFeed),
     /// bad request
-    BadRequest(String),
+    BadRequest(models::BadRequestResponse),
     /// Internal server error
     InternalServerError(models::ErrorResponse),
 }
@@ -69,6 +71,8 @@ pub enum FeedEventsGetResponse {
 pub enum InterestsSortKeySortValuePostResponse {
     /// success
     Success,
+    /// bad request
+    BadRequest(models::BadRequestResponse),
     /// Internal server error
     InternalServerError(models::ErrorResponse),
 }

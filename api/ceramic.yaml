@@ -56,7 +56,7 @@ paths:
           content:
             application/json:
               schema:
-                type: string
+                $ref: "#/components/schemas/BadRequestResponse"
         "500":
           description: Internal server error
           content:
@@ -123,6 +123,12 @@ paths:
       responses:
         "204":
           description: success
+        "400":
+          description: bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BadRequestResponse"
         "500":
           description: Internal server error
           content:
@@ -177,6 +183,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/EventsGet"
+        "400":
+          description: bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BadRequestResponse"
         "500":
           description: Internal server error
           content:
@@ -212,7 +224,7 @@ paths:
           content:
             application/json:
               schema:
-                type: string
+                $ref: "#/components/schemas/BadRequestResponse"
         "500":
           description: Internal server error
           content:
@@ -243,6 +255,16 @@ components:
         version:
           type: string
           description: Version of the Ceramic node
+    BadRequestResponse:
+      title: Response to a bad request (400)
+      description: Bad request (input error)
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          description: Message describing the error
     Event:
       title: A Ceramic Event
       description: A Ceramic event as part of a Ceramic Stream

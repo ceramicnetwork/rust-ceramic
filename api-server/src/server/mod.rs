@@ -516,6 +516,17 @@ where
                                     .expect("impossible to fail to serialize");
                                 *response.body_mut() = Body::from(body_content);
                             }
+                            EventsSortKeySortValueGetResponse::BadRequest(body) => {
+                                *response.status_mut() = StatusCode::from_u16(400)
+                                    .expect("Unable to turn 400 into a StatusCode");
+                                response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for EVENTS_SORT_KEY_SORT_VALUE_GET_BAD_REQUEST"));
+                                let body_content = serde_json::to_string(&body)
+                                    .expect("impossible to fail to serialize");
+                                *response.body_mut() = Body::from(body_content);
+                            }
                             EventsSortKeySortValueGetResponse::InternalServerError(body) => {
                                 *response.status_mut() = StatusCode::from_u16(500)
                                     .expect("Unable to turn 500 into a StatusCode");
@@ -755,6 +766,17 @@ where
                             InterestsSortKeySortValuePostResponse::Success => {
                                 *response.status_mut() = StatusCode::from_u16(204)
                                     .expect("Unable to turn 204 into a StatusCode");
+                            }
+                            InterestsSortKeySortValuePostResponse::BadRequest(body) => {
+                                *response.status_mut() = StatusCode::from_u16(400)
+                                    .expect("Unable to turn 400 into a StatusCode");
+                                response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for INTERESTS_SORT_KEY_SORT_VALUE_POST_BAD_REQUEST"));
+                                let body_content = serde_json::to_string(&body)
+                                    .expect("impossible to fail to serialize");
+                                *response.body_mut() = Body::from(body_content);
                             }
                             InterestsSortKeySortValuePostResponse::InternalServerError(body) => {
                                 *response.status_mut() = StatusCode::from_u16(500)

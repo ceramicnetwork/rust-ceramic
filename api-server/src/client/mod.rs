@@ -580,9 +580,10 @@ where
                     .await?;
                 let body = str::from_utf8(&body)
                     .map_err(|e| ApiError(format!("Response was not valid UTF8: {}", e)))?;
-                let body = serde_json::from_str::<String>(body).map_err(|e| {
-                    ApiError(format!("Response body did not match the schema: {}", e))
-                })?;
+                let body =
+                    serde_json::from_str::<models::BadRequestResponse>(body).map_err(|e| {
+                        ApiError(format!("Response body did not match the schema: {}", e))
+                    })?;
                 Ok(EventsPostResponse::BadRequest(body))
             }
             500 => {
@@ -704,6 +705,20 @@ where
                 })?;
                 Ok(EventsSortKeySortValueGetResponse::Success(body))
             }
+            400 => {
+                let body = response.into_body();
+                let body = body
+                    .into_raw()
+                    .map_err(|e| ApiError(format!("Failed to read response: {}", e)))
+                    .await?;
+                let body = str::from_utf8(&body)
+                    .map_err(|e| ApiError(format!("Response was not valid UTF8: {}", e)))?;
+                let body =
+                    serde_json::from_str::<models::BadRequestResponse>(body).map_err(|e| {
+                        ApiError(format!("Response body did not match the schema: {}", e))
+                    })?;
+                Ok(EventsSortKeySortValueGetResponse::BadRequest(body))
+            }
             500 => {
                 let body = response.into_body();
                 let body = body
@@ -816,9 +831,10 @@ where
                     .await?;
                 let body = str::from_utf8(&body)
                     .map_err(|e| ApiError(format!("Response was not valid UTF8: {}", e)))?;
-                let body = serde_json::from_str::<String>(body).map_err(|e| {
-                    ApiError(format!("Response body did not match the schema: {}", e))
-                })?;
+                let body =
+                    serde_json::from_str::<models::BadRequestResponse>(body).map_err(|e| {
+                        ApiError(format!("Response body did not match the schema: {}", e))
+                    })?;
                 Ok(FeedEventsGetResponse::BadRequest(body))
             }
             500 => {
@@ -920,6 +936,20 @@ where
 
         match response.status().as_u16() {
             204 => Ok(InterestsSortKeySortValuePostResponse::Success),
+            400 => {
+                let body = response.into_body();
+                let body = body
+                    .into_raw()
+                    .map_err(|e| ApiError(format!("Failed to read response: {}", e)))
+                    .await?;
+                let body = str::from_utf8(&body)
+                    .map_err(|e| ApiError(format!("Response was not valid UTF8: {}", e)))?;
+                let body =
+                    serde_json::from_str::<models::BadRequestResponse>(body).map_err(|e| {
+                        ApiError(format!("Response body did not match the schema: {}", e))
+                    })?;
+                Ok(InterestsSortKeySortValuePostResponse::BadRequest(body))
+            }
             500 => {
                 let body = response.into_body();
                 let body = body
