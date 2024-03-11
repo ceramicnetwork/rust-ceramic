@@ -61,9 +61,9 @@ where
             ahash_5 INTEGER,
             ahash_6 INTEGER,
             ahash_7 INTEGER,
-            value_retrieved BOOL, -- indicates if we have the value
-            PRIMARY KEY(key)
-        )";
+            value_retrieved INTEGER, -- 0 false/1 true (indicates we have the value)
+            PRIMARY KEY(key) 
+        ) STRICT";
         const CREATE_VALUE_RETRIEVED_INDEX: &str =
             "CREATE INDEX IF NOT EXISTS idx_key_value_retrieved
             ON model_key (key, value_retrieved)";
@@ -72,10 +72,10 @@ where
             key BLOB, -- network_id sort_value controller StreamID height event_cid
             cid BLOB, -- the cid of the Block as bytes no 0x00 prefix
             idx INTEGER, -- the index of the block in the CAR file
-            root BOOL, -- when true the block is a root in the CAR file
+            root INTEGER, -- when 1 the block is a root in the CAR file
             bytes BLOB, -- the Block
             PRIMARY KEY(key, cid)
-        )";
+        ) STRICT";
         // TODO should this include idx or not?
         const CREATE_BLOCK_ORDER_INDEX: &str = "CREATE INDEX IF NOT EXISTS idx_model_block_cid
             ON model_block (cid)";

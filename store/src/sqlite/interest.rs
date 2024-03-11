@@ -56,7 +56,7 @@ where
             ahash_6 INTEGER,
             ahash_7 INTEGER,
             PRIMARY KEY(key)
-        )";
+        ) STRICT";
 
         let mut tx = self.pool.tx().await?;
         sqlx::query(CREATE_INTEREST_KEY_TABLE)

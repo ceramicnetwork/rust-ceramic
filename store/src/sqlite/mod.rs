@@ -32,6 +32,10 @@ impl SqlitePool {
         let conn_opts = SqliteConnectOptions::from_str(&db_path)?
             .journal_mode(SqliteJournalMode::Wal)
             .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
+            .statement_cache_capacity(1000)
+            .foreign_keys(true)
+            .pragma("cache_size", "1000000") // on both pools but really only for RO. page size 4096 * 1000000 = 4GB
+            .pragma("temp_store", "memory")
             .create_if_missing(true)
             .optimize_on_close(true, None);
 
