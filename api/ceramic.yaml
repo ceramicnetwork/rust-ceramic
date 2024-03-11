@@ -359,14 +359,14 @@ components:
       type: object
       required:
         - sep
-        - model
+        - sepValue
       properties:
         sep:
           type: string
-          description: Separator value, typically 'model' (sometimes called sort_key)
-        model:
+          description: Separator key, typically 'model' (sometimes called sort_key)
+        sepValue:
           type: string
-          description: Multibase encoded stream ID (sometimes called sort_value)
+          description: Multibase encoded separator value (sometimes called sort_value, typically a stream ID)
         controller:
           type: string
           description: Decentralized identifier (DID) string

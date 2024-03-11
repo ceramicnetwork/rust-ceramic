@@ -74,7 +74,7 @@ struct ValidatedInterest {
     /// 'model' typically
     sep: String,
     /// Base36 encoded stream ID
-    model: String,
+    sep_value: String,
     /// DID
     controller: Option<String>,
     /// Base36 encoded stream ID
@@ -89,7 +89,7 @@ impl TryFrom<models::Interest> for ValidatedInterest {
         } else {
             interest.sep
         };
-        let model = convert_base(&interest.model, multibase::Base::Base36Lower)?;
+        let sep_value = convert_base(&interest.sep_value, multibase::Base::Base36Lower)?;
         let controller = interest
             .controller
             .map(|c| {
@@ -106,7 +106,7 @@ impl TryFrom<models::Interest> for ValidatedInterest {
             .transpose()?;
         Ok(ValidatedInterest {
             sep,
-            model,
+            sep_value,
             controller,
             stream_id,
         })
@@ -346,7 +346,7 @@ where
         // Construct start and stop event id based on provided data.
         let (start, stop) = self.build_start_stop_range(
             &interest.sep,
-            &interest.model,
+            &interest.sep_value,
             interest.controller,
             interest.stream_id,
         )?;
@@ -464,7 +464,7 @@ where
     ) -> Result<InterestsSortKeySortValuePostResponse, ApiError> {
         let interest = models::Interest {
             sep: sort_key,
-            model: sort_value,
+            sep_value: sort_value,
             controller,
             stream_id,
         };
@@ -677,7 +677,7 @@ mod tests {
         let server = Server::new(peer_id, network, mock_interest, mock_model);
         let interest = models::Interest {
             sep: "model".to_string(),
-            model: model.to_owned(),
+            sep_value: model.to_owned(),
             controller: None,
             stream_id: None,
         };
@@ -699,7 +699,7 @@ mod tests {
         let server = Server::new(peer_id, network, mock_interest, mock_model);
         let interest = models::Interest {
             sep: "model".to_string(),
-            model: model.to_owned(),
+            sep_value: model.to_owned(),
             controller: None,
             stream_id: None,
         };
@@ -713,7 +713,7 @@ mod tests {
         let peer_id = PeerId::random();
         let network = Network::InMemory;
         let model = "z3KWHw5Efh2qLou2FEdz3wB8ZvLgURJP94HeijLVurxtF1Ntv6fkg2G"; // base58 encoded should work cspell:disable-line
-        // we convert to base36 before storing
+                                                                               // we convert to base36 before storing
         let model_base36 = "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9"; // cspell:disable-line
         let controller = "did:key:zGs1Det7LHNeu7DXT4nvoYrPfj3n6g7d6bj2K4AMXEvg1";
         let start = EventId::builder()

@@ -400,14 +400,15 @@ components:
       example:
         controller: controller
         streamId: streamId
-        model: model
+        sepValue: sepValue
         sep: sep
       properties:
         sep:
-          description: "Separator value, typically 'model' (sometimes called sort_key)"
+          description: "Separator key, typically 'model' (sometimes called sort_key)"
           type: string
-        model:
-          description: Multibase encoded stream ID (sometimes called sort_value)
+        sepValue:
+          description: "Multibase encoded separator value (sometimes called sort_value,\
+            \ typically a stream ID)"
           type: string
         controller:
           description: Decentralized identifier (DID) string
@@ -416,8 +417,8 @@ components:
           description: Multibase encoded stream ID.
           type: string
       required:
-      - model
       - sep
+      - sepValue
       title: A recon interest
       type: object
 

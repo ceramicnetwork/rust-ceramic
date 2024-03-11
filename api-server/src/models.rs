@@ -757,13 +757,13 @@ impl std::convert::TryFrom<hyper::header::HeaderValue> for header::IntoHeaderVal
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, validator::Validate)]
 #[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]
 pub struct Interest {
-    /// Separator value, typically 'model' (sometimes called sort_key)
+    /// Separator key, typically 'model' (sometimes called sort_key)
     #[serde(rename = "sep")]
     pub sep: String,
 
-    /// Multibase encoded stream ID (sometimes called sort_value)
-    #[serde(rename = "model")]
-    pub model: String,
+    /// Multibase encoded separator value (sometimes called sort_value, typically a stream ID)
+    #[serde(rename = "sepValue")]
+    pub sep_value: String,
 
     /// Decentralized identifier (DID) string
     #[serde(rename = "controller")]
@@ -778,10 +778,10 @@ pub struct Interest {
 
 impl Interest {
     #[allow(clippy::new_without_default)]
-    pub fn new(sep: String, model: String) -> Interest {
+    pub fn new(sep: String, sep_value: String) -> Interest {
         Interest {
             sep,
-            model,
+            sep_value,
             controller: None,
             stream_id: None,
         }
@@ -796,8 +796,8 @@ impl std::string::ToString for Interest {
         let params: Vec<Option<String>> = vec![
             Some("sep".to_string()),
             Some(self.sep.to_string()),
-            Some("model".to_string()),
-            Some(self.model.to_string()),
+            Some("sepValue".to_string()),
+            Some(self.sep_value.to_string()),
             self.controller
                 .as_ref()
                 .map(|controller| ["controller".to_string(), controller.to_string()].join(",")),
@@ -822,7 +822,7 @@ impl std::str::FromStr for Interest {
         #[allow(dead_code)]
         struct IntermediateRep {
             pub sep: Vec<String>,
-            pub model: Vec<String>,
+            pub sep_value: Vec<String>,
             pub controller: Vec<String>,
             pub stream_id: Vec<String>,
         }
@@ -851,7 +851,7 @@ impl std::str::FromStr for Interest {
                         <String as std::str::FromStr>::from_str(val).map_err(|x| x.to_string())?,
                     ),
                     #[allow(clippy::redundant_clone)]
-                    "model" => intermediate_rep.model.push(
+                    "sepValue" => intermediate_rep.sep_value.push(
                         <String as std::str::FromStr>::from_str(val).map_err(|x| x.to_string())?,
                     ),
                     #[allow(clippy::redundant_clone)]
@@ -881,11 +881,11 @@ impl std::str::FromStr for Interest {
                 .into_iter()
                 .next()
                 .ok_or_else(|| "sep missing in Interest".to_string())?,
-            model: intermediate_rep
-                .model
+            sep_value: intermediate_rep
+                .sep_value
                 .into_iter()
                 .next()
-                .ok_or_else(|| "model missing in Interest".to_string())?,
+                .ok_or_else(|| "sepValue missing in Interest".to_string())?,
             controller: intermediate_rep.controller.into_iter().next(),
             stream_id: intermediate_rep.stream_id.into_iter().next(),
         })
