@@ -14,7 +14,7 @@ use libp2p::{
     },
 };
 use libp2p_identity::PeerId;
-use tracing::{debug, trace, warn};
+use tracing::{debug, trace};
 
 use crate::{
     libp2p::{protocol, stream_set::StreamSet, upgrade::MultiReadyUpgrade, Recon},
@@ -311,12 +311,12 @@ where
             }
             libp2p::swarm::handler::ConnectionEvent::AddressChange(_) => {}
             // We failed to upgrade the inbound connection.
-            libp2p::swarm::handler::ConnectionEvent::ListenUpgradeError(err) => {
+            libp2p::swarm::handler::ConnectionEvent::ListenUpgradeError(_err) => {
                 match self.state {
                     State::WaitingInbound => {
                         // We have stopped synchronization and cannot attempt again as we are unable to
                         // negotiate a protocol.
-                        warn!(?err, "handler listen upgrade error");
+                        // This is expected if we connected to a node that does not speak Recon
                         self.behavior_events_queue.push_front(FromHandler::Stopped);
                         self.transition_state(State::Idle)
                     }
@@ -328,12 +328,12 @@ where
                 }
             }
             // We failed to upgrade the outbound connection.
-            libp2p::swarm::handler::ConnectionEvent::DialUpgradeError(err) => {
+            libp2p::swarm::handler::ConnectionEvent::DialUpgradeError(_err) => {
                 match self.state {
                     State::WaitingOutbound { .. } => {
                         // We have stopped synchronization and cannot attempt again as we are unable to
                         // negotiate a protocol.
-                        warn!(?err, "handler dial upgrade error");
+                        // This is expected if we connected to a node that does not speak Recon
                         self.behavior_events_queue.push_front(FromHandler::Stopped);
                         self.transition_state(State::Idle)
                     }
