@@ -234,7 +234,7 @@ async fn validate_time_event(
             let RootTime {
                 root: transaction_root,
                 timestamp,
-            } = eth_rpc.eth_transaction_by_hash(tx_hash_cid).await?;
+            } = eth_rpc.root_time_by_transaction_cid(tx_hash_cid).await?;
             debug!("root: {}, timestamp: {}", transaction_root, timestamp);
 
             if transaction_root == proof_root {
@@ -431,7 +431,8 @@ mod tests {
 
     struct HardCodedEthRpc {}
     impl EthRpc for HardCodedEthRpc {
-        async fn eth_transaction_by_hash(&self, cid: Cid) -> Result<RootTime> {
+        async fn root_time_by_transaction_cid(&self, cid: Cid) -> Result<RootTime> {
+            let _ = cid;
             Ok(RootTime {
                 root: Cid::from_str("bafyreicbwzaiyg2l4uaw6zjds3xupqeyfq3nlb36xodusgn24ou3qvgy4e") // cspell:disable-line
                     .unwrap(),
@@ -441,7 +442,7 @@ mod tests {
     }
     struct NeverCalledEthRpc {}
     impl EthRpc for NeverCalledEthRpc {
-        async fn eth_transaction_by_hash(&self, cid: Cid) -> Result<RootTime> {
+        async fn root_time_by_transaction_cid(&self, cid: Cid) -> Result<RootTime> {
             let _cid = cid;
             panic!("If we get here the test failed");
         }

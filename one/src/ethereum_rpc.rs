@@ -9,79 +9,150 @@ pub(crate) struct RootTime {
 }
 
 pub trait EthRpc {
-    async fn eth_transaction_by_hash(&self, cid: Cid) -> Result<RootTime>;
+    async fn root_time_by_transaction_cid(&self, cid: Cid) -> Result<RootTime>;
 }
 
 pub(crate) struct HttpEthRpc {
     url: String,
+    client: reqwest::Client,
 }
 
 impl HttpEthRpc {
     pub fn new(url: String) -> Self {
-        Self { url }
+        Self {
+            url: url,
+            client: reqwest::Client::new(),
+        }
     }
-}
 
-impl EthRpc for HttpEthRpc {
-    async fn eth_transaction_by_hash(&self, cid: Cid) -> Result<RootTime> {
+    async fn eth_block_number(&self) -> Result<serde_json::Value> {
+        // Get the latest block number.
+        // curl https://mainnet.infura.io/v3/{api_token} \
+        // -X POST \
+        // -H "Content-Type: application/json" \
+        // -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params": [],"id":1}'
+        // >> {"jsonrpc": "2.0", "id": 1, "result": "0x127cc18"}
+        Ok(self
+            .client
+            .post(&self.url)
+            .json(&serde_json::json!({
+                "jsonrpc": "2.0",
+                "method": "eth_blockNumber",
+                "params": [],
+                "id": 1,
+            }))
+            .send()
+            .await?
+            .json()
+            .await?)
+    }
+
+    async fn eth_block_by_hash(&self, block_hash: &str) -> Result<serde_json::Value> {
+        // curl https://mainnet.infura.io/v3/{api_token} \
+        //     -X POST \
+        //     -H "Content-Type: application/json" \
+        //     -d '{"jsonrpc":"2.0","method":"eth_getBlockByHash","params": ["0x{block_hash}",false],"id":1}'
+        // >> {"jsonrpc": "2.0", "id": 1, "result": {"number": "0x105f34f", "timestamp": "0x644fe98b"}}
+        Ok(self
+            .client
+            .post(&self.url)
+            .json(&serde_json::json!({
+                "jsonrpc": "2.0",
+                "method": "eth_getBlockByHash",
+                "params": [block_hash, false],
+                "id": 1,
+            }))
+            .send()
+            .await?
+            .json()
+            .await?)
+    }
+
+    async fn eth_transaction_by_hash(&self, transaction_hash: &str) -> Result<serde_json::Value> {
+        // Get the block_hash and input from the transaction.
         // curl https://mainnet.infura.io/v3/{api_token} \
         //   -X POST \
         //   -H "Content-Type: application/json" \
-        //   -d '{"jsonrpc":"2.0","method":"eth_getTransactionByHash", "params":["0x{tx_hash}"],"id":1}'
-        let tx_hash = format!("0x{}", hex::encode(cid.hash().digest()));
-        let client = reqwest::Client::new();
-        let res = client
+        //   -d '{"jsonrpc":"2.0","method":"eth_getTransactionByHash",
+        //        "params":["0xBF7BC715A09DEA3177866AC4FC294AC9800EE2B49E09C55F56078579BFBBF158"],"id":1}'
+        // >> {"jsonrpc":"2.0", "id":1, "result": {
+        //       "blockHash": "0x783cd5a6febe13d08ac0d59fa7e666483d5e476542b29688a6f0bec3d15febd4",
+        //       "blockNumber": "0x105f34f",
+        //       "input": "0x97ad09eb41b6408c1b4be5016f652396ef47c0982c36d5877ebb874919bae3a9b854d8e1"
+        //    }}
+        Ok(self
+            .client
             .post(&self.url)
             .json(&serde_json::json!({
                 "jsonrpc": "2.0",
                 "method": "eth_getTransactionByHash",
-                "params": [tx_hash],
+                "params": [transaction_hash],
                 "id": 1,
             }))
             .send()
-            .await?;
-        let json: serde_json::Value = res.json().await?;
-        debug!("txByHash response: {}", json);
-        if let Some(result) = json.get("result") {
-            if let Some(block_hash) = result.get("blockHash") {
-                if let Some(block_hash) = block_hash.as_str() {
-                    if let Some(input) = result.get("input") {
-                        if let Some(input) = input.as_str() {
-                            return Ok(RootTime {
-                                root: get_root_from_input(input)?,
-                                timestamp: eth_block_by_hash(block_hash, &self.url).await?,
-                            });
-                        }
-                    }
-                }
-            }
-        }
-        Err(anyhow!("missing fields"))
+            .await?
+            .json()
+            .await?)
     }
 }
 
-async fn eth_block_by_hash(block_hash: &str, ethereum_rpc_url: &str) -> Result<i64> {
-    // curl https://mainnet.infura.io/v3/{api_token} \
-    //     -X POST \
-    //     -H "Content-Type: application/json" \
-    //     -d '{"jsonrpc":"2.0","method":"eth_getBlockByHash","params": ["0x{block_hash}",false],"id":1}'
-    let client = reqwest::Client::new();
-    let res = client
-        .post(ethereum_rpc_url)
-        .json(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "method": "eth_getBlockByHash",
-            "params": [block_hash, false],
-            "id": 1,
-        }))
-        .send()
-        .await?;
-    let json: serde_json::Value = res.json().await?;
-    debug!("blockByHash response: {}", json);
-    if let Some(timestamp) = json["result"]["timestamp"].as_str() {
-        get_timestamp_from_hex_string(timestamp)
-    } else {
-        Err(anyhow!("missing fields"))
+impl EthRpc for HttpEthRpc {
+    async fn root_time_by_transaction_cid(&self, cid: Cid) -> Result<RootTime> {
+        // transaction to blockHash, blockNumber, input
+        let tx_hash = format!("0x{}", hex::encode(cid.hash().digest()));
+        let json: serde_json::Value = self.eth_transaction_by_hash(&tx_hash).await?;
+        debug!("txByHash response: {}", json);
+        let Some(result) = json.get("result") else {
+            return Err(anyhow!("missing field result"));
+        };
+        let Some(block_hash) = result.get("blockHash") else {
+            return Err(anyhow!("missing field result.blockHash"));
+        };
+        let Some(block_hash) = block_hash.as_str() else {
+            return Err(anyhow!("missing field result.blockHash was not a string"));
+        };
+        let Some(block_number) = result.get("blockNumber") else {
+            return Err(anyhow!("missing field result.blockNumber"));
+        };
+        let Some(block_number) = block_number.as_str() else {
+            return Err(anyhow!("missing field result.blockNumber was not a string"));
+        };
+        let Ok(block_number) = get_timestamp_from_hex_string(block_number) else {
+            return Err(anyhow!(
+                "missing field result.blockNumber was not a hex timestamp"
+            ));
+        };
+
+        let Some(input) = result.get("input") else {
+            return Err(anyhow!("missing field result.input"));
+        };
+        let Some(input) = input.as_str() else {
+            return Err(anyhow!("missing field result.input was not a string"));
+        };
+        let root = get_root_from_input(input)?;
+
+        // Get the block with block_hash if latest block number minus result.number grater then 3 the block is stable.
+        let Some(Ok(latest_block_number)) = self.eth_block_number().await?["result"]
+            .as_str()
+            .map(get_timestamp_from_hex_string)
+        else {
+            return Err(anyhow!("latest_block_number not found"));
+        };
+        if latest_block_number - block_number < 3 {
+            return Err(anyhow!("latest_block_number - block_number < 3"));
+        }
+
+        // Get the block time.
+        let json: serde_json::Value = self.eth_block_by_hash(block_hash).await?;
+        debug!("blockByHash response: {}", json);
+
+        let Some(timestamp) = json["result"]["timestamp"].as_str() else {
+            return Err(anyhow!(
+                "missing field result.timestamp or was not a string"
+            ));
+        };
+        let timestamp = get_timestamp_from_hex_string(timestamp)?;
+        Ok(RootTime { root, timestamp })
     }
 }
 
