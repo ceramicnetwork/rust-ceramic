@@ -4,11 +4,11 @@ mod model;
 pub use interest::InterestStore;
 pub use model::ModelStore;
 
+use chrono::{SecondsFormat, Utc};
 use std::{
     path::{Path, PathBuf},
     str::FromStr,
 };
-use chrono::{SecondsFormat, Utc};
 
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
@@ -84,8 +84,6 @@ impl SqlitePool {
             Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
             store_dir.display()
         );
-        let pool = Self::connect(store_dir.join("db.sqlite3"))
-            .await;
-        pool
+        Self::connect(store_dir.join("db.sqlite3")).await
     }
 }

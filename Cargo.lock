@@ -1281,7 +1281,6 @@ dependencies = [
  "prometheus-client",
  "recon",
  "reqwest",
- "serde",
  "serde_json",
  "signal-hook",
  "signal-hook-tokio",

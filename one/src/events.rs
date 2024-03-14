@@ -161,25 +161,25 @@ async fn validate_data_event_envelope(cid: &Cid, block_store: &SQLiteBlockStore)
         .unwrap()
         .as_slice();
     // Deserialize protected as JSON
-    let protected_json: serde_json::Value = serde_json::from_slice(&protected)?;
+    let protected_json: serde_json::Value = serde_json::from_slice(protected)?;
     let controller = protected_json.get("kid").unwrap().as_str().unwrap();
-    let protected: Base64UrlString = protected.try_into()?;
+    let protected: Base64UrlString = protected.into();
     let signature: Base64UrlString = signatures_0
         .get_key("signature")
         .unwrap()
         .as_bytes()
         .unwrap()
         .as_slice()
-        .try_into()?;
+        .into();
     let payload: Base64UrlString = envelope
         .get_key("payload")
         .unwrap()
         .as_bytes()
         .unwrap()
         .as_slice()
-        .try_into()?;
+        .into();
     let compact = format!("{}.{}.{}", protected, payload, signature);
-    let did = DidDocument::new(&controller);
+    let did = DidDocument::new(controller);
     let jwk = Jwk::new(&did).await.unwrap();
     ssi::jws::decode_verify(&compact, &jwk)?;
     validate_data_event_payload(cid, block_store, Some(did.id.clone())).await?;
@@ -514,7 +514,7 @@ mod tests {
             "82d82a58260001850112207ac18e1235f2f7a84548eeb543a33f8979eb88
              566a2dfc3d9596c55a683b7517d82a58260001850112209ef4cd6403d5ed
              4ebeb221809d141fbedb6686b6866a9c6e9230b802fd6353cd",
-            // bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy/proof/root/0/0/0/0/0/0/0/0/0/0/
+            // bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy/proof/root/0/0/0/0/0/0/0/0/0/0/  // cspell:disable-line
             // bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy/prev
             "a2677061796c6f6164582401711220cb63d41a0489a815f44ee0a771bd70
              2f21a717bce67fcac4c4be0f14a25ad71f6a7369676e61747572657381a2
@@ -526,7 +526,7 @@ mod tests {
              6558403bc9687175be61ecd54a4caf82c5c8bd1938c36e5285edf26d0cca
              64597c9a99a1234eee4fa4798cfadb1c17cbe828fef73a5ab24dc50a1935
              f3bae2b37b7103",
-            // bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy/proof/root/0/0/0/0/0/0/0/0/0/0/link
+            // bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy/proof/root/0/0/0/0/0/0/0/0/0/0/link  // cspell:disable-line
             // bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy/prev/link
             "a26464617461a7646e616d6568426c657373696e67657669657773a16661
              7574686f72a164747970656f646f63756d656e744163636f756e74667363

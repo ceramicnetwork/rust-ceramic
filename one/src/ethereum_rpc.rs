@@ -20,7 +20,7 @@ pub(crate) struct HttpEthRpc {
 impl HttpEthRpc {
     pub fn new(url: String) -> Self {
         Self {
-            url: url,
+            url,
             client: reqwest::Client::new(),
         }
     }
