@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Metrics - rust-ceramic</title>
+        <title>Docker - rust-ceramic</title>
 
 
         <!-- Custom HTML head -->
@@ -88,7 +88,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded "><a href="introduction.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded "><a href="install.html"><strong aria-hidden="true">2.</strong> Installation</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="releases.html"><strong aria-hidden="true">2.1.</strong> Releases</a></li><li class="chapter-item expanded "><a href="source.html"><strong aria-hidden="true">2.2.</strong> Source</a></li><li class="chapter-item expanded "><a href="docker.html"><strong aria-hidden="true">2.3.</strong> Docker</a></li></ol></li><li class="chapter-item expanded "><a href="usage.html"><strong aria-hidden="true">3.</strong> Usage</a></li><li class="chapter-item expanded "><a href="advanced.html"><strong aria-hidden="true">4.</strong> Advanced</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="configuration.html"><strong aria-hidden="true">4.1.</strong> Configuration</a></li><li class="chapter-item expanded "><a href="metrics.html" class="active"><strong aria-hidden="true">4.2.</strong> Metrics</a></li></ol></li><li class="chapter-item expanded "><a href="help.html"><strong aria-hidden="true">5.</strong> help</a></li><li class="chapter-item expanded "><a href="contributing.html"><strong aria-hidden="true">6.</strong> Contributing</a></li><li class="chapter-item expanded "><a href="license.html"><strong aria-hidden="true">7.</strong> License</a></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded "><a href="introduction.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded "><a href="install.html"><strong aria-hidden="true">2.</strong> Installation</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="releases.html"><strong aria-hidden="true">2.1.</strong> Releases</a></li><li class="chapter-item expanded "><a href="source.html"><strong aria-hidden="true">2.2.</strong> Source</a></li><li class="chapter-item expanded "><a href="docker.html" class="active"><strong aria-hidden="true">2.3.</strong> Docker</a></li></ol></li><li class="chapter-item expanded "><a href="usage.html"><strong aria-hidden="true">3.</strong> Usage</a></li><li class="chapter-item expanded "><a href="advanced.html"><strong aria-hidden="true">4.</strong> Advanced</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="configuration.html"><strong aria-hidden="true">4.1.</strong> Configuration</a></li><li class="chapter-item expanded "><a href="metrics.html"><strong aria-hidden="true">4.2.</strong> Metrics</a></li></ol></li><li class="chapter-item expanded "><a href="help.html"><strong aria-hidden="true">5.</strong> Help</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="help-daemon.html"><strong aria-hidden="true">5.1.</strong> Daemon</a></li><li class="chapter-item expanded "><a href="help-events.html"><strong aria-hidden="true">5.2.</strong> Events</a></li></ol></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle">
                 <div class="sidebar-resize-indicator"></div>
@@ -173,27 +173,21 @@
 
                 <div id="content" class="content">
                     <main>
-                        <h1 id="metrics"><a class="header" href="#metrics">Metrics</a></h1>
-<p>Available metrics are:</p>
-<ul>
-<li><code>ceramic_api_requests_total</code>: Total number of Ceramic API requests</li>
-<li><code>ceramic_one_info</code>: Information about the Ceramic node</li>
-<li><code>ceramic_store_key_insert_count_total</code>: Total number of keys inserted into the store</li>
-<li><code>ceramic_store_value_insert_count_total</code>: Total number of values inserted into the store</li>
-<li><code>ceramic_store_store_query_durations_[sum, buckets, count]</code>: Store query durations</li>
-<li><code>ceramic_api_request_durations_[sum, buckets, count]</code>: API request durations</li>
-<li><code>ceramic_api_api_info</code>: Information about the Ceramic API</li>
-</ul>
+                        <h1 id="docker"><a class="header" href="#docker">Docker</a></h1>
+<p>Docker images for rust-ceramic are available from our AWS container registry.</p>
+<p>Currently, the latest release is <code>0.12.0</code>.</p>
+<pre><code>docker pull public.ecr.aws/r5b3e0r5/3box/ceramic-one:0.12.0
+</code></pre>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="configuration.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="source.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <i class="fa fa-angle-left"></i>
                             </a>
 
-                            <a rel="next prefetch" href="help.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="usage.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <i class="fa fa-angle-right"></i>
                             </a>
 
@@ -203,11 +197,11 @@
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="configuration.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="source.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <i class="fa fa-angle-left"></i>
                     </a>
 
-                    <a rel="next prefetch" href="help.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="usage.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <i class="fa fa-angle-right"></i>
                     </a>
             </nav>

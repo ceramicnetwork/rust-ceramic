@@ -1,0 +1,13 @@
+Slurp events into the local event database
+
+Usage: ceramic-one events slurp [OPTIONS]
+
+Options:
+  -i, --input-ipfs-path <INPUT_IPFS_PATH>
+          The path to the ipfs_repo [eg: ~/.ipfs/blocks]
+  -c, --input-ceramic-db <INPUT_CERAMIC_DB>
+          The path to the input_ceramic_db [eg: ~/.ceramic-one/db.sqlite3]
+  -o, --output-ceramic-path <OUTPUT_CERAMIC_PATH>
+          The path to the output_ceramic_db [eg: ~/.ceramic-one/db.sqlite3]
+  -h, --help
+          Print help

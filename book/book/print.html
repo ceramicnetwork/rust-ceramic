@@ -3,7 +3,8 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>help - rust-ceramic</title>
+        <title>rust-ceramic</title>
+        <meta name="robots" content="noindex">
 
 
         <!-- Custom HTML head -->
@@ -88,7 +89,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded "><a href="introduction.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded "><a href="install.html"><strong aria-hidden="true">2.</strong> Installation</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="releases.html"><strong aria-hidden="true">2.1.</strong> Releases</a></li><li class="chapter-item expanded "><a href="source.html"><strong aria-hidden="true">2.2.</strong> Source</a></li><li class="chapter-item expanded "><a href="docker.html"><strong aria-hidden="true">2.3.</strong> Docker</a></li></ol></li><li class="chapter-item expanded "><a href="usage.html"><strong aria-hidden="true">3.</strong> Usage</a></li><li class="chapter-item expanded "><a href="advanced.html"><strong aria-hidden="true">4.</strong> Advanced</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="configuration.html"><strong aria-hidden="true">4.1.</strong> Configuration</a></li><li class="chapter-item expanded "><a href="metrics.html"><strong aria-hidden="true">4.2.</strong> Metrics</a></li></ol></li><li class="chapter-item expanded "><a href="help.html" class="active"><strong aria-hidden="true">5.</strong> help</a></li><li class="chapter-item expanded "><a href="contributing.html"><strong aria-hidden="true">6.</strong> Contributing</a></li><li class="chapter-item expanded "><a href="license.html"><strong aria-hidden="true">7.</strong> License</a></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded "><a href="introduction.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded "><a href="install.html"><strong aria-hidden="true">2.</strong> Installation</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="releases.html"><strong aria-hidden="true">2.1.</strong> Releases</a></li><li class="chapter-item expanded "><a href="source.html"><strong aria-hidden="true">2.2.</strong> Source</a></li><li class="chapter-item expanded "><a href="docker.html"><strong aria-hidden="true">2.3.</strong> Docker</a></li></ol></li><li class="chapter-item expanded "><a href="usage.html"><strong aria-hidden="true">3.</strong> Usage</a></li><li class="chapter-item expanded "><a href="advanced.html"><strong aria-hidden="true">4.</strong> Advanced</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="configuration.html"><strong aria-hidden="true">4.1.</strong> Configuration</a></li><li class="chapter-item expanded "><a href="metrics.html"><strong aria-hidden="true">4.2.</strong> Metrics</a></li></ol></li><li class="chapter-item expanded "><a href="help.html"><strong aria-hidden="true">5.</strong> Help</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="help-daemon.html"><strong aria-hidden="true">5.1.</strong> Daemon</a></li><li class="chapter-item expanded "><a href="help-events.html"><strong aria-hidden="true">5.2.</strong> Events</a></li></ol></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle">
                 <div class="sidebar-resize-indicator"></div>
@@ -173,57 +174,153 @@
 
                 <div id="content" class="content">
                     <main>
-                        <pre><code>Run a daemon process
+                        <h1 id="introduction"><a class="header" href="#introduction">Introduction</a></h1>
+<p><code>rust-ceramic</code> is a Rust library for working with the <a href="https://ceramic.network">Ceramic Network</a> and is under active development.</p>
+<p>The current implementation requires a running <a href="https://github.com/ceramicnetwork/js-ceramic">js-ceramic</a> daemon to be available.</p>
+<h2 id="features"><a class="header" href="#features">Features</a></h2>
+<p>Replace IPFS as the data storage layer for js-ceramic with a Rust-based implementation.</p>
+<h2 id="limitations"><a class="header" href="#limitations">Limitations</a></h2>
+<p>rust-ceramic is currently in an alpha state and is not yet suitable for production use. The API is subject to change and there are known limitations and bugs.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="installation"><a class="header" href="#installation">Installation</a></h1>
+<p>Installation of rust-ceramic is covered here, but a functioning js-ceramic node requires a running js-ceramic daemon to be available.</p>
+<p>See <a href="https://developers.ceramic.network/docs/composedb/set-up-your-environment#2c-installation-using-javascript-package-managers">developers.ceramic.network</a> for instructions on how to install js-ceramic.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="releases"><a class="header" href="#releases">Releases</a></h1>
+<h2 id="install-from-release"><a class="header" href="#install-from-release">Install from release</a></h2>
+<p>You can download the latest release from the <a href="https://github.com/ceramicnetwork/rust-ceramic/releases">rust-ceramic GitHub releases page</a>.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="source"><a class="header" href="#source">Source</a></h1>
+<h2 id="pre-requisites"><a class="header" href="#pre-requisites">Pre-requisites</a></h2>
+<p>Building from source requires the following dependencies:</p>
+<ul>
+<li>rust</li>
+<li>make</li>
+<li>protobuf</li>
+<li>protoc</li>
+<li>libssl-dev</li>
+<li>pkg-config</li>
+</ul>
+<h3 id="packages"><a class="header" href="#packages">Packages</a></h3>
+<p>On Ubuntu, you can install most dependencies by running the following command:</p>
+<pre><code class="language-bash">sudo apt-get install -y build-essential pkg-config openssl libssl-dev unzip
+</code></pre>
+<p>On MacOS, you can install most dependencies by running the following command:</p>
+<pre><code class="language-bash">brew install openssl
+</code></pre>
+<h3 id="protobuf"><a class="header" href="#protobuf">Protobuf</a></h3>
+<p>Installing <code>protobuf</code> and <code>protoc</code> can be done by following the instructions on the <a href="https://developers.google.com/protocol-buffers">protobuf website</a>.</p>
+<p>Currently, <code>rust-ceramic</code> uses version 3.20.1.
+Install this version on x86 Linux by running the following commands:</p>
+<pre><code class="language-bash">PROTOC_VERSION=3.20.1
+PROTOC_ZIP=protoc-$PROTOC_VERSION-linux-x86_64.zip
+curl --retry 3 --retry-max-time 90 -OL https://github.com/protocolbuffers/protobuf/releases/download/v$PROTOC_VERSION/$PROTOC_ZIP \
+    &amp;&amp; unzip -o $PROTOC_ZIP -d /usr/local bin/protoc \
+    &amp;&amp; unzip -o $PROTOC_ZIP -d /usr/local 'include/*' \
+    &amp;&amp; rm -f $PROTOC_ZIP
+</code></pre>
+<h2 id="rust"><a class="header" href="#rust">Rust</a></h2>
+<p>To install from source, you will need to have Rust installed. You can install Rust by following the instructions on the <a href="https://www.rust-lang.org/tools/install">Rust website</a>.</p>
+<h2 id="building"><a class="header" href="#building">Building</a></h2>
+<p>Once the pre-requisites are satisfied, you can build <code>rust-ceramic</code> by running the following command:</p>
+<pre><code class="language-bash">make build
+</code></pre>
+<p>The generated binary will be located at <code>target/release/ceramic</code>.</p>
+<p>Verify it's functioning by running:</p>
+<pre><code class="language-bash">./target/release/ceramic --help
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="docker"><a class="header" href="#docker">Docker</a></h1>
+<p>Docker images for rust-ceramic are available from our AWS container registry.</p>
+<p>Currently, the latest release is <code>0.12.0</code>.</p>
+<pre><code>docker pull public.ecr.aws/r5b3e0r5/3box/ceramic-one:0.12.0
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="usage"><a class="header" href="#usage">Usage</a></h1>
+<h2 id="run-a-daemon-process"><a class="header" href="#run-a-daemon-process">Run a daemon process</a></h2>
+<p>Start a daemon process for use by a js-ceramic instance.</p>
+<p>The default configuration:</p>
+<ul>
+<li>uses the testnet-clay network</li>
+<li>binds to <code>4001</code> for peer-to-peer communication</li>
+<li>binds to <code>5001</code> for the HTTP API (private)</li>
+<li>binds to <code>9464</code> for metrics (private)</li>
+<li>writes data to <code>~/.ceramic-one/</code></li>
+</ul>
+<p>See the <a href="./configuration.html">configuration</a> section for more information on how to customize the daemon.</p>
+<p>Run it with:</p>
+<pre><code>ceramic-one daemon
+</code></pre>
+<h2 id="event-store-tools"><a class="header" href="#event-store-tools">Event store tools</a></h2>
+<pre><code>ceramic-one events
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="advanced"><a class="header" href="#advanced">Advanced</a></h1>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="configuration"><a class="header" href="#configuration">Configuration</a></h1>
+<p>Configuration is done via environment variables. The following environment variables are available:</p>
+<ul>
+<li><code>CERAMIC_ONE_NETWORK</code>: Ceramic network (default: <code>testnet-clay</code>)</li>
+<li><code>CERAMIC_ONE_STORE_DIR</code>: Path to storage directory (default: <code>~/.ceramic-one</code>)</li>
+<li><code>CERAMIC_ONE_BIND_ADDRESS</code>: Bind address of the metrics endpoint (default: <code>5001</code>)</li>
+<li><code>CERAMIC_ONE_METRICS_BIND_ADDRESS</code>: Bind address of the metrics endpoint (default: <code>9464</code>)</li>
+<li><code>CERAMIC_ONE_SWARM_ADDRESSES</code>: Listen address of the p2p swarm (default: <code>/ip4/0.0.0.0/tcp/4001</code>)</li>
+<li><code>CERAMIC_ONE_LOCAL_NETWORK_ID</code></li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="metrics"><a class="header" href="#metrics">Metrics</a></h1>
+<p>Available metrics are:</p>
+<ul>
+<li><code>ceramic_api_requests_total</code>: Total number of Ceramic API requests</li>
+<li><code>ceramic_one_info</code>: Information about the Ceramic node</li>
+<li><code>ceramic_store_key_insert_count_total</code>: Total number of keys inserted into the store</li>
+<li><code>ceramic_store_value_insert_count_total</code>: Total number of values inserted into the store</li>
+<li><code>ceramic_store_store_query_durations_[sum, buckets, count]</code>: Store query durations</li>
+<li><code>ceramic_api_request_durations_[sum, buckets, count]</code>: API request durations</li>
+<li><code>ceramic_api_api_info</code>: Information about the Ceramic API</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="help"><a class="header" href="#help">Help</a></h1>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="daemon"><a class="header" href="#daemon">daemon</a></h1>
+<p>The <code>daemon</code> command is used to start the Ceramic One daemon. The daemon is the main process that runs the Ceramic network and provides the HTTP API for interacting with the network.</p>
+<p><code>ceramic-one daemon --help</code></p>
+<pre><code>Run a daemon process
 
 Usage: ceramic-one daemon [OPTIONS]
 
 Options:
   -b, --bind-address &lt;BIND_ADDRESS&gt;
           Bind address of the API endpoint
-
+          
           [env: CERAMIC_ONE_BIND_ADDRESS=]
           [default: 127.0.0.1:5001]
 
       --swarm-addresses &lt;SWARM_ADDRESSES&gt;
           Listen address of the p2p swarm
-
+          
           [env: CERAMIC_ONE_SWARM_ADDRESSES=]
           [default: /ip4/0.0.0.0/tcp/4001 /ip4/0.0.0.0/udp/4001/quic-v1]
 
       --extra-ceramic-peer-addresses &lt;EXTRA_CERAMIC_PEER_ADDRESSES&gt;
           Extra addresses of peers that participate in the Ceramic network. A best-effort attempt will be made to maintain a connection to these addresses
-
+          
           [env: CERAMIC_ONE_EXTRA_CERAMIC_PEER_ADDRESSES=]
 
   -s, --store-dir &lt;STORE_DIR&gt;
           Path to storage directory
-
+          
           [env: CERAMIC_ONE_STORE_DIR=]
 
   -m, --metrics-bind-address &lt;METRICS_BIND_ADDRESS&gt;
           Bind address of the metrics endpoint
-
+          
           [env: CERAMIC_ONE_METRICS_BIND_ADDRESS=]
           [default: 127.0.0.1:9464]
 
       --metrics
           When true metrics will be exported
-
+          
           [env: CERAMIC_ONE_METRICS=]
 
       --tracing
           When true traces will be exported
-
+          
           [env: CERAMIC_ONE_TRACING=]
-
-      --tokio-console
-          When true the tokio console will be exposed
-
-          [env: CERAMIC_ONE_TOKIO_CONSOLE=]
 
       --network &lt;NETWORK&gt;
           Unique key used to find other Ceramic peers via the DHT
-
+          
           [env: CERAMIC_ONE_NETWORK=]
           [default: testnet-clay]
 
@@ -236,22 +333,22 @@ Options:
 
       --local-network-id &lt;LOCAL_NETWORK_ID&gt;
           Unique id when the network type is 'local'
-
+          
           [env: CERAMIC_ONE_LOCAL_NETWORK_ID=]
 
       --mdns
           When set mdns will be used to discover peers
-
+          
           [env: CERAMIC_ONE_MDNS=]
 
       --disable-autonat
           When set autonat will not be used to discover external address or allow other peers to directly dial the local peer
-
+          
           [env: CERAMIC_ONE_DISABLE_AUTONAT=]
 
       --log-format &lt;LOG_FORMAT&gt;
           Specify the format of log events
-
+          
           [env: CERAMIC_ONE_LOG_FORMAT=]
           [default: multi-line]
 
@@ -262,95 +359,107 @@ Options:
 
       --max-conns-out &lt;MAX_CONNS_OUT&gt;
           Specify maximum established outgoing connections
-
+          
           [env: CERAMIC_ONE_MAX_CONNS_OUT=]
           [default: 2000]
 
       --max-conns-in &lt;MAX_CONNS_IN&gt;
           Specify maximum established incoming connections
-
+          
           [env: CERAMIC_ONE_MAX_CONNS_IN=]
           [default: 2000]
 
       --max-conns-pending-out &lt;MAX_CONNS_PENDING_OUT&gt;
           Specify maximum pending outgoing connections
-
+          
           [env: CERAMIC_ONE_MAX_CONNS_PENDING_OUT=]
           [default: 256]
 
       --max-conns-pending-in &lt;MAX_CONNS_PENDING_IN&gt;
           Specify maximum pending incoming connections
-
+          
           [env: CERAMIC_ONE_MAX_CONNS_PENDING_IN=]
           [default: 256]
 
       --max-conns-per-peer &lt;MAX_CONNS_PER_PEER&gt;
           Specify maximum established connections per peer regardless of direction (incoming or outgoing)
-
+          
           [env: CERAMIC_ONE_MAX_CONNS_PER_PEER=]
           [default: 8]
 
       --idle-conns-timeout-ms &lt;IDLE_CONNS_TIMEOUT_MS&gt;
           Specify idle connection timeout in milliseconds
-
+          
           [env: CERAMIC_ONE_IDLE_CONNS_TIMEOUT_MS=]
           [default: 30000]
 
       --kademlia-replication &lt;KADEMLIA_REPLICATION&gt;
           Sets to how many closest peers a record is replicated
-
+          
           [env: CERAMIC_ONE_KADEMLIA_REPLICATION=]
           [default: 20]
 
       --kademlia-parallelism &lt;KADEMLIA_PARALLELISM&gt;
           Sets the allowed level of parallelism for iterative queries
-
+          
           [env: CERAMIC_ONE_KADEMLIA_PARALLELISM=]
           [default: 16]
 
       --kademlia-query-timeout-secs &lt;KADEMLIA_QUERY_TIMEOUT_SECS&gt;
           Sets the timeout in seconds for a single query.
-
+          
           **Note**: A single query usually comprises at least as many requests as the replication factor, i.e. this is not a request timeout.
-
+          
           [env: CERAMIC_ONE_KADEMLIA_QUERY_TIMEOUT_SECS=]
           [default: 60]
 
       --kademlia-provider-publication-interval-secs &lt;KADEMLIA_PROVIDER_PUBLICATION_INTERVAL_SECS&gt;
           Sets the interval in seconds at which provider records for keys provided by the local node are re-published.
-
+          
           `0` means that stored provider records are never automatically re-published.
-
+          
           Must be significantly less than the provider record TTL.
-
+          
           [env: CERAMIC_ONE_KADEMLIA_PROVIDER_PUBLICATION_INTERVAL_SECS=]
           [default: 43200]
 
       --kademlia-provider-record-ttl-secs &lt;KADEMLIA_PROVIDER_RECORD_TTL_SECS&gt;
           Sets the TTL in seconds for provider records.
-
+          
           `0` means that stored provider records never expire.
-
+          
           Must be significantly larger than the provider publication interval.
-
+          
           [env: CERAMIC_ONE_KADEMLIA_PROVIDER_RECORD_TTL_SECS=]
           [default: 86400]
 
   -h, --help
           Print help (see a summary with '-h')
 </code></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="events"><a class="header" href="#events">events</a></h1>
+<p>The <code>events</code> command is used to display the events that have been emitted by the Ceramic daemon. This can be useful for debugging and monitoring purposes.</p>
+<h2 id="slurp"><a class="header" href="#slurp">slurp</a></h2>
+<p><code>ceramic-one events slurp --help</code></p>
+<pre><code>Slurp events into the local event database
+
+Usage: ceramic-one events slurp [OPTIONS]
+
+Options:
+  -i, --input-ipfs-path &lt;INPUT_IPFS_PATH&gt;
+          The path to the ipfs_repo [eg: ~/.ipfs/blocks]
+  -c, --input-ceramic-db &lt;INPUT_CERAMIC_DB&gt;
+          The path to the input_ceramic_db [eg: ~/.ceramic-one/db.sqlite3]
+  -o, --output-ceramic-path &lt;OUTPUT_CERAMIC_PATH&gt;
+          The path to the output_ceramic_db [eg: ~/.ceramic-one/db.sqlite3]
+  -h, --help
+          Print help
+</code></pre>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="metrics.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
-                                <i class="fa fa-angle-left"></i>
-                            </a>
 
-                            <a rel="next prefetch" href="contributing.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
-                                <i class="fa fa-angle-right"></i>
-                            </a>
 
                         <div style="clear: both"></div>
                     </nav>
@@ -358,13 +467,7 @@ Options:
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="metrics.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
-                        <i class="fa fa-angle-left"></i>
-                    </a>
 
-                    <a rel="next prefetch" href="contributing.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
-                        <i class="fa fa-angle-right"></i>
-                    </a>
             </nav>
 
         </div>
@@ -403,6 +506,11 @@ Options:
 
         <!-- Custom JS scripts -->
 
+        <script>
+        window.addEventListener('load', function() {
+            window.setTimeout(window.print, 100);
+        });
+        </script>
 
     </div>
     </body>

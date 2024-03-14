@@ -9,7 +9,8 @@
 - [Advanced](./advanced.md)
   - [Configuration](./configuration.md)
   - [Metrics](./metrics.md)
-- [help](./help.md)
-- [Contributing](./contributing.md)
-- [License](./license.md)
+- [Help](./help.md)
+  - [Daemon](./help-daemon.md)
+  - [Events](./help-events.md)
+
 

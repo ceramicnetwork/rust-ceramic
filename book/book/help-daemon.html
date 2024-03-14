@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Installation - rust-ceramic</title>
+        <title>Daemon - rust-ceramic</title>
 
 
         <!-- Custom HTML head -->
@@ -88,7 +88,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded "><a href="introduction.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded "><a href="install.html" class="active"><strong aria-hidden="true">2.</strong> Installation</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="releases.html"><strong aria-hidden="true">2.1.</strong> Releases</a></li><li class="chapter-item expanded "><a href="source.html"><strong aria-hidden="true">2.2.</strong> Source</a></li><li class="chapter-item expanded "><a href="docker.html"><strong aria-hidden="true">2.3.</strong> Docker</a></li></ol></li><li class="chapter-item expanded "><a href="usage.html"><strong aria-hidden="true">3.</strong> Usage</a></li><li class="chapter-item expanded "><a href="advanced.html"><strong aria-hidden="true">4.</strong> Advanced</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="configuration.html"><strong aria-hidden="true">4.1.</strong> Configuration</a></li><li class="chapter-item expanded "><a href="metrics.html"><strong aria-hidden="true">4.2.</strong> Metrics</a></li></ol></li><li class="chapter-item expanded "><a href="help.html"><strong aria-hidden="true">5.</strong> help</a></li><li class="chapter-item expanded "><a href="contributing.html"><strong aria-hidden="true">6.</strong> Contributing</a></li><li class="chapter-item expanded "><a href="license.html"><strong aria-hidden="true">7.</strong> License</a></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded "><a href="introduction.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded "><a href="install.html"><strong aria-hidden="true">2.</strong> Installation</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="releases.html"><strong aria-hidden="true">2.1.</strong> Releases</a></li><li class="chapter-item expanded "><a href="source.html"><strong aria-hidden="true">2.2.</strong> Source</a></li><li class="chapter-item expanded "><a href="docker.html"><strong aria-hidden="true">2.3.</strong> Docker</a></li></ol></li><li class="chapter-item expanded "><a href="usage.html"><strong aria-hidden="true">3.</strong> Usage</a></li><li class="chapter-item expanded "><a href="advanced.html"><strong aria-hidden="true">4.</strong> Advanced</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="configuration.html"><strong aria-hidden="true">4.1.</strong> Configuration</a></li><li class="chapter-item expanded "><a href="metrics.html"><strong aria-hidden="true">4.2.</strong> Metrics</a></li></ol></li><li class="chapter-item expanded "><a href="help.html"><strong aria-hidden="true">5.</strong> Help</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="help-daemon.html" class="active"><strong aria-hidden="true">5.1.</strong> Daemon</a></li><li class="chapter-item expanded "><a href="help-events.html"><strong aria-hidden="true">5.2.</strong> Events</a></li></ol></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle">
                 <div class="sidebar-resize-indicator"></div>
@@ -173,19 +173,180 @@
 
                 <div id="content" class="content">
                     <main>
-                        <h1 id="installation"><a class="header" href="#installation">Installation</a></h1>
-<p>Installation of rust-ceramic is covered here, but a functioning js-ceramic node requires a running js-ceramic daemon to be available.</p>
-<p>See <a href="https://developers.ceramic.network/docs/composedb/set-up-your-environment#2c-installation-using-javascript-package-managers">developers.ceramic.network</a> for instructions on how to install js-ceramic.</p>
+                        <h1 id="daemon"><a class="header" href="#daemon">daemon</a></h1>
+<p>The <code>daemon</code> command is used to start the Ceramic One daemon. The daemon is the main process that runs the Ceramic network and provides the HTTP API for interacting with the network.</p>
+<p><code>ceramic-one daemon --help</code></p>
+<pre><code>Run a daemon process
+
+Usage: ceramic-one daemon [OPTIONS]
+
+Options:
+  -b, --bind-address &lt;BIND_ADDRESS&gt;
+          Bind address of the API endpoint
+          
+          [env: CERAMIC_ONE_BIND_ADDRESS=]
+          [default: 127.0.0.1:5001]
+
+      --swarm-addresses &lt;SWARM_ADDRESSES&gt;
+          Listen address of the p2p swarm
+          
+          [env: CERAMIC_ONE_SWARM_ADDRESSES=]
+          [default: /ip4/0.0.0.0/tcp/4001 /ip4/0.0.0.0/udp/4001/quic-v1]
+
+      --extra-ceramic-peer-addresses &lt;EXTRA_CERAMIC_PEER_ADDRESSES&gt;
+          Extra addresses of peers that participate in the Ceramic network. A best-effort attempt will be made to maintain a connection to these addresses
+          
+          [env: CERAMIC_ONE_EXTRA_CERAMIC_PEER_ADDRESSES=]
+
+  -s, --store-dir &lt;STORE_DIR&gt;
+          Path to storage directory
+          
+          [env: CERAMIC_ONE_STORE_DIR=]
+
+  -m, --metrics-bind-address &lt;METRICS_BIND_ADDRESS&gt;
+          Bind address of the metrics endpoint
+          
+          [env: CERAMIC_ONE_METRICS_BIND_ADDRESS=]
+          [default: 127.0.0.1:9464]
+
+      --metrics
+          When true metrics will be exported
+          
+          [env: CERAMIC_ONE_METRICS=]
+
+      --tracing
+          When true traces will be exported
+          
+          [env: CERAMIC_ONE_TRACING=]
+
+      --network &lt;NETWORK&gt;
+          Unique key used to find other Ceramic peers via the DHT
+          
+          [env: CERAMIC_ONE_NETWORK=]
+          [default: testnet-clay]
+
+          Possible values:
+          - mainnet:      Production network
+          - testnet-clay: Test network
+          - dev-unstable: Development network
+          - local:        Local network with unique id
+          - in-memory:    Singleton network in memory
+
+      --local-network-id &lt;LOCAL_NETWORK_ID&gt;
+          Unique id when the network type is 'local'
+          
+          [env: CERAMIC_ONE_LOCAL_NETWORK_ID=]
+
+      --mdns
+          When set mdns will be used to discover peers
+          
+          [env: CERAMIC_ONE_MDNS=]
+
+      --disable-autonat
+          When set autonat will not be used to discover external address or allow other peers to directly dial the local peer
+          
+          [env: CERAMIC_ONE_DISABLE_AUTONAT=]
+
+      --log-format &lt;LOG_FORMAT&gt;
+          Specify the format of log events
+          
+          [env: CERAMIC_ONE_LOG_FORMAT=]
+          [default: multi-line]
+
+          Possible values:
+          - multi-line:  Format log events on multiple lines using ANSI colors
+          - single-line: Format log events on a single line using ANSI colors
+          - json:        Format log events newline delimited JSON objects. No ANSI colors are used
+
+      --max-conns-out &lt;MAX_CONNS_OUT&gt;
+          Specify maximum established outgoing connections
+          
+          [env: CERAMIC_ONE_MAX_CONNS_OUT=]
+          [default: 2000]
+
+      --max-conns-in &lt;MAX_CONNS_IN&gt;
+          Specify maximum established incoming connections
+          
+          [env: CERAMIC_ONE_MAX_CONNS_IN=]
+          [default: 2000]
+
+      --max-conns-pending-out &lt;MAX_CONNS_PENDING_OUT&gt;
+          Specify maximum pending outgoing connections
+          
+          [env: CERAMIC_ONE_MAX_CONNS_PENDING_OUT=]
+          [default: 256]
+
+      --max-conns-pending-in &lt;MAX_CONNS_PENDING_IN&gt;
+          Specify maximum pending incoming connections
+          
+          [env: CERAMIC_ONE_MAX_CONNS_PENDING_IN=]
+          [default: 256]
+
+      --max-conns-per-peer &lt;MAX_CONNS_PER_PEER&gt;
+          Specify maximum established connections per peer regardless of direction (incoming or outgoing)
+          
+          [env: CERAMIC_ONE_MAX_CONNS_PER_PEER=]
+          [default: 8]
+
+      --idle-conns-timeout-ms &lt;IDLE_CONNS_TIMEOUT_MS&gt;
+          Specify idle connection timeout in milliseconds
+          
+          [env: CERAMIC_ONE_IDLE_CONNS_TIMEOUT_MS=]
+          [default: 30000]
+
+      --kademlia-replication &lt;KADEMLIA_REPLICATION&gt;
+          Sets to how many closest peers a record is replicated
+          
+          [env: CERAMIC_ONE_KADEMLIA_REPLICATION=]
+          [default: 20]
+
+      --kademlia-parallelism &lt;KADEMLIA_PARALLELISM&gt;
+          Sets the allowed level of parallelism for iterative queries
+          
+          [env: CERAMIC_ONE_KADEMLIA_PARALLELISM=]
+          [default: 16]
+
+      --kademlia-query-timeout-secs &lt;KADEMLIA_QUERY_TIMEOUT_SECS&gt;
+          Sets the timeout in seconds for a single query.
+          
+          **Note**: A single query usually comprises at least as many requests as the replication factor, i.e. this is not a request timeout.
+          
+          [env: CERAMIC_ONE_KADEMLIA_QUERY_TIMEOUT_SECS=]
+          [default: 60]
+
+      --kademlia-provider-publication-interval-secs &lt;KADEMLIA_PROVIDER_PUBLICATION_INTERVAL_SECS&gt;
+          Sets the interval in seconds at which provider records for keys provided by the local node are re-published.
+          
+          `0` means that stored provider records are never automatically re-published.
+          
+          Must be significantly less than the provider record TTL.
+          
+          [env: CERAMIC_ONE_KADEMLIA_PROVIDER_PUBLICATION_INTERVAL_SECS=]
+          [default: 43200]
+
+      --kademlia-provider-record-ttl-secs &lt;KADEMLIA_PROVIDER_RECORD_TTL_SECS&gt;
+          Sets the TTL in seconds for provider records.
+          
+          `0` means that stored provider records never expire.
+          
+          Must be significantly larger than the provider publication interval.
+          
+          [env: CERAMIC_ONE_KADEMLIA_PROVIDER_RECORD_TTL_SECS=]
+          [default: 86400]
+
+  -h, --help
+          Print help (see a summary with '-h')
+</code></pre>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="introduction.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="help.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <i class="fa fa-angle-left"></i>
                             </a>
 
-                            <a rel="next prefetch" href="releases.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="help-events.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <i class="fa fa-angle-right"></i>
                             </a>
 
@@ -195,11 +356,11 @@
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="introduction.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="help.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <i class="fa fa-angle-left"></i>
                     </a>
 
-                    <a rel="next prefetch" href="releases.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="help-events.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <i class="fa fa-angle-right"></i>
                     </a>
             </nav>

@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Usage - rust-ceramic</title>
+        <title>Events - rust-ceramic</title>
 
 
         <!-- Custom HTML head -->
@@ -88,7 +88,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded "><a href="introduction.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded "><a href="install.html"><strong aria-hidden="true">2.</strong> Installation</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="releases.html"><strong aria-hidden="true">2.1.</strong> Releases</a></li><li class="chapter-item expanded "><a href="source.html"><strong aria-hidden="true">2.2.</strong> Source</a></li><li class="chapter-item expanded "><a href="docker.html"><strong aria-hidden="true">2.3.</strong> Docker</a></li></ol></li><li class="chapter-item expanded "><a href="usage.html" class="active"><strong aria-hidden="true">3.</strong> Usage</a></li><li class="chapter-item expanded "><a href="advanced.html"><strong aria-hidden="true">4.</strong> Advanced</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="configuration.html"><strong aria-hidden="true">4.1.</strong> Configuration</a></li><li class="chapter-item expanded "><a href="metrics.html"><strong aria-hidden="true">4.2.</strong> Metrics</a></li></ol></li><li class="chapter-item expanded "><a href="help.html"><strong aria-hidden="true">5.</strong> help</a></li><li class="chapter-item expanded "><a href="contributing.html"><strong aria-hidden="true">6.</strong> Contributing</a></li><li class="chapter-item expanded "><a href="license.html"><strong aria-hidden="true">7.</strong> License</a></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded "><a href="introduction.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded "><a href="install.html"><strong aria-hidden="true">2.</strong> Installation</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="releases.html"><strong aria-hidden="true">2.1.</strong> Releases</a></li><li class="chapter-item expanded "><a href="source.html"><strong aria-hidden="true">2.2.</strong> Source</a></li><li class="chapter-item expanded "><a href="docker.html"><strong aria-hidden="true">2.3.</strong> Docker</a></li></ol></li><li class="chapter-item expanded "><a href="usage.html"><strong aria-hidden="true">3.</strong> Usage</a></li><li class="chapter-item expanded "><a href="advanced.html"><strong aria-hidden="true">4.</strong> Advanced</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="configuration.html"><strong aria-hidden="true">4.1.</strong> Configuration</a></li><li class="chapter-item expanded "><a href="metrics.html"><strong aria-hidden="true">4.2.</strong> Metrics</a></li></ol></li><li class="chapter-item expanded "><a href="help.html"><strong aria-hidden="true">5.</strong> Help</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="help-daemon.html"><strong aria-hidden="true">5.1.</strong> Daemon</a></li><li class="chapter-item expanded "><a href="help-events.html" class="active"><strong aria-hidden="true">5.2.</strong> Events</a></li></ol></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle">
                 <div class="sidebar-resize-indicator"></div>
@@ -173,36 +173,33 @@
 
                 <div id="content" class="content">
                     <main>
-                        <h1 id="usage"><a class="header" href="#usage">Usage</a></h1>
-<h2 id="run-a-daemon-process"><a class="header" href="#run-a-daemon-process">Run a daemon process</a></h2>
-<p>Start a daemon process for use by a js-ceramic instance.</p>
-<p>The default configuration:</p>
-<ul>
-<li>uses the testnet-clay network</li>
-<li>binds to <code>4001</code> for peer-to-peer communication</li>
-<li>binds to <code>5001</code> for the HTTP API (private)</li>
-<li>binds to <code>9464</code> for metrics (private)</li>
-<li>writes data to <code>~/.ceramic-one/</code></li>
-</ul>
-<p>See the <a href="./configuration.html">configuration</a> section for more information on how to customize the daemon.</p>
-<p>Run it with:</p>
-<pre><code>ceramic-one daemon
-</code></pre>
-<h2 id="event-store-tools"><a class="header" href="#event-store-tools">Event store tools</a></h2>
-<pre><code>ceramic-one events
+                        <h1 id="events"><a class="header" href="#events">events</a></h1>
+<p>The <code>events</code> command is used to display the events that have been emitted by the Ceramic daemon. This can be useful for debugging and monitoring purposes.</p>
+<h2 id="slurp"><a class="header" href="#slurp">slurp</a></h2>
+<p><code>ceramic-one events slurp --help</code></p>
+<pre><code>Slurp events into the local event database
+
+Usage: ceramic-one events slurp [OPTIONS]
+
+Options:
+  -i, --input-ipfs-path &lt;INPUT_IPFS_PATH&gt;
+          The path to the ipfs_repo [eg: ~/.ipfs/blocks]
+  -c, --input-ceramic-db &lt;INPUT_CERAMIC_DB&gt;
+          The path to the input_ceramic_db [eg: ~/.ceramic-one/db.sqlite3]
+  -o, --output-ceramic-path &lt;OUTPUT_CERAMIC_PATH&gt;
+          The path to the output_ceramic_db [eg: ~/.ceramic-one/db.sqlite3]
+  -h, --help
+          Print help
 </code></pre>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="docker.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="help-daemon.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <i class="fa fa-angle-left"></i>
                             </a>
 
-                            <a rel="next prefetch" href="advanced.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
-                                <i class="fa fa-angle-right"></i>
-                            </a>
 
                         <div style="clear: both"></div>
                     </nav>
@@ -210,13 +207,10 @@
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="docker.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="help-daemon.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <i class="fa fa-angle-left"></i>
                     </a>
 
-                    <a rel="next prefetch" href="advanced.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
-                        <i class="fa fa-angle-right"></i>
-                    </a>
             </nav>
 
         </div>
