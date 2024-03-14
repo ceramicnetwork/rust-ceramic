@@ -224,7 +224,7 @@ curl --retry 3 --retry-max-time 90 -OL https://github.com/protocolbuffers/protob
 </code></pre>
 <p>The generated binary will be located at <code>target/release/ceramic</code>.</p>
 <p>Verify it's functioning by running:</p>
-<pre><code class="language-bash">./target/release/ceramic --help
+<pre><code class="language-bash">./target/release/ceramic-one --help
 </code></pre>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="docker"><a class="header" href="#docker">Docker</a></h1>
 <p>Docker images for rust-ceramic are available from our AWS container registry.</p>
@@ -234,6 +234,7 @@ curl --retry 3 --retry-max-time 90 -OL https://github.com/protocolbuffers/protob
 <div style="break-before: page; page-break-before: always;"></div><h1 id="usage"><a class="header" href="#usage">Usage</a></h1>
 <h2 id="run-a-daemon-process"><a class="header" href="#run-a-daemon-process">Run a daemon process</a></h2>
 <p>Start a daemon process for use by a js-ceramic instance.</p>
+<p>See <a href="./configuration.html">Configuration</a> for more information on how to customize the daemon.</p>
 <p>The default configuration:</p>
 <ul>
 <li>uses the testnet-clay network</li>
@@ -251,7 +252,9 @@ curl --retry 3 --retry-max-time 90 -OL https://github.com/protocolbuffers/protob
 </code></pre>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="advanced"><a class="header" href="#advanced">Advanced</a></h1>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="configuration"><a class="header" href="#configuration">Configuration</a></h1>
-<p>Configuration is done via environment variables. The following environment variables are available:</p>
+<p>Configuration is done via environment variables and flags.</p>
+<p>See the <a href="./help-daemon.html">Daemon</a> section for more information on how to use the <code>ceramic-one</code> flags.</p>
+<p>The following environment variables are important, refer to the page above for the complete list.</p>
 <ul>
 <li><code>CERAMIC_ONE_NETWORK</code>: Ceramic network (default: <code>testnet-clay</code>)</li>
 <li><code>CERAMIC_ONE_STORE_DIR</code>: Path to storage directory (default: <code>~/.ceramic-one</code>)</li>

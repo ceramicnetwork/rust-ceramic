@@ -4,6 +4,8 @@
 
 Start a daemon process for use by a js-ceramic instance.
 
+See [Configuration](./configuration.md) for more information on how to customize the daemon.
+
 The default configuration:
 - uses the testnet-clay network
 - binds to `4001` for peer-to-peer communication

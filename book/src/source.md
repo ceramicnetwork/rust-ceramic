@@ -54,5 +54,5 @@ The generated binary will be located at `target/release/ceramic`.
 Verify it's functioning by running:
 
 ```bash
-./target/release/ceramic --help
+./target/release/ceramic-one --help
 ```
