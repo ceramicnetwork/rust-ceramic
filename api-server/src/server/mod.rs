@@ -264,31 +264,31 @@ where
                     match result {
                             Ok(body) => {
                                 let mut unused_elements = Vec::new();
-                                let param_events_post_request: Option<models::EventsPostRequest> = if !body.is_empty() {
+                                let param_event: Option<models::Event> = if !body.is_empty() {
                                     let deserializer = &mut serde_json::Deserializer::from_slice(&body);
                                     match serde_ignored::deserialize(deserializer, |path| {
                                             warn!("Ignoring unknown field in body: {}", path);
                                             unused_elements.push(path.to_string());
                                     }) {
-                                        Ok(param_events_post_request) => param_events_post_request,
+                                        Ok(param_event) => param_event,
                                         Err(e) => return Ok(Response::builder()
                                                         .status(StatusCode::BAD_REQUEST)
-                                                        .body(Body::from(format!("Couldn't parse body parameter EventsPostRequest - doesn't match schema: {}", e)))
-                                                        .expect("Unable to create Bad Request response for invalid body parameter EventsPostRequest due to schema")),
+                                                        .body(Body::from(format!("Couldn't parse body parameter Event - doesn't match schema: {}", e)))
+                                                        .expect("Unable to create Bad Request response for invalid body parameter Event due to schema")),
                                     }
                                 } else {
                                     None
                                 };
-                                let param_events_post_request = match param_events_post_request {
-                                    Some(param_events_post_request) => param_events_post_request,
+                                let param_event = match param_event {
+                                    Some(param_event) => param_event,
                                     None => return Ok(Response::builder()
                                                         .status(StatusCode::BAD_REQUEST)
-                                                        .body(Body::from("Missing required body parameter EventsPostRequest"))
-                                                        .expect("Unable to create Bad Request response for missing body parameter EventsPostRequest")),
+                                                        .body(Body::from("Missing required body parameter Event"))
+                                                        .expect("Unable to create Bad Request response for missing body parameter Event")),
                                 };
 
                                 let result = api_impl.events_post(
-                                            param_events_post_request,
+                                            param_event,
                                         &context
                                     ).await;
                                 let mut response = Response::new(Body::empty());
@@ -334,8 +334,8 @@ where
                             },
                             Err(e) => Ok(Response::builder()
                                                 .status(StatusCode::BAD_REQUEST)
-                                                .body(Body::from(format!("Couldn't read body parameter EventsPostRequest: {}", e)))
-                                                .expect("Unable to create Bad Request response due to unable to read body parameter EventsPostRequest")),
+                                                .body(Body::from(format!("Couldn't read body parameter Event: {}", e)))
+                                                .expect("Unable to create Bad Request response due to unable to read body parameter Event")),
                         }
                 }
 

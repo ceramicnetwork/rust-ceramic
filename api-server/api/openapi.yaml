@@ -29,7 +29,7 @@ paths:
   /events:
     post:
       requestBody:
-        $ref: '#/components/requestBodies/EventTemp'
+        $ref: '#/components/requestBodies/Event'
       responses:
         "204":
           description: success
@@ -200,12 +200,6 @@ paths:
       summary: Get all new event keys since resume token
 components:
   requestBodies:
-    EventTemp:
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/_events_post_request'
-      required: true
     Event:
       content:
         application/json:
@@ -299,22 +293,5 @@ components:
       - isComplete
       - resumeOffset
       title: Information about multiple events.
-      type: object
-    _events_post_request:
-      description: "Event to add to the node. Temp while we transition to id/data\
-        \ style, at which time we can swap this out for the Event schema."
-      properties:
-        id:
-          description: Multibase encoding of event id bytes.
-          type: string
-        data:
-          description: Multibase encoding of event data.
-          type: string
-        eventId:
-          description: Multibase encoding of event id bytes.
-          type: string
-        eventData:
-          description: Multibase encoding of event data.
-          type: string
       type: object
 

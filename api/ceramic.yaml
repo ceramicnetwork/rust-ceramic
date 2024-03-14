@@ -35,7 +35,7 @@ paths:
     post:
       summary: Creates a new event
       requestBody:
-        $ref: '#/components/requestBodies/EventTemp'
+        $ref: '#/components/requestBodies/Event'
       responses:
         '204':
           description: success
@@ -180,26 +180,6 @@ paths:
                 type: string
 components:
   requestBodies:
-    EventTemp:
-      content:
-        application/json:
-          schema:
-            type: object
-            properties:
-              id:
-                type: string
-                description: Multibase encoding of event id bytes.
-              data:
-                type: string
-                description: Multibase encoding of event data.
-              eventId:
-                type: string
-                description: Multibase encoding of event id bytes.
-              eventData:
-                type: string
-                description: Multibase encoding of event data.
-            description: Event to add to the node. Temp while we transition to id/data style, at which time we can swap this out for the Event schema.
-      required: true
     Event:
       content:
         application/json:

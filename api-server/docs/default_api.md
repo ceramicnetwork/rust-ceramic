@@ -39,14 +39,14 @@ No authorization required
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
 # ****
-> (events_post_request)
+> (event)
 Creates a new event
 
 ### Required Parameters
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
-  **events_post_request** | [**EventsPostRequest**](EventsPostRequest.md)|  | 
+  **event** | [**Event**](Event.md)| Event to add to the node | 
 
 ### Return type
 
