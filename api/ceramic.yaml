@@ -155,9 +155,69 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  "/experimental/events/{sep}/{sepValue}":
+    get:
+      summary: Get events matching the interest stored on the node
+      parameters:
+        - name: sep
+          in: path
+          description: Name of the field in the Events header that holds the separator value e.g. 'model'
+          schema:
+            type: string
+          required: true
+        - name: sepValue
+          in: path
+          description: The value of the field in the Events header indicated by the separator key me.g. multibase encoded model ID
+          schema:
+            type: string
+          required: true
+        - name: controller
+          in: query
+          description: the controller to filter (DID string)
+          required: false
+          schema:
+            type: string
+        - name: streamId
+          in: query
+          description: the stream to filter (multibase encoded stream ID)
+          required: false
+          schema:
+            type: string
+        - name: offset
+          in: query
+          description: token that designates the point to resume from, that is find keys added after this point
+          schema:
+            type: integer
+          required: false
+        - name: limit
+          in: query
+          description: the maximum number of events to return, default is 10000.
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventsGet"
+        "400":
+          description: bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BadRequestResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   "/events/{sort_key}/{sort_value}":
     get:
       summary: Get events matching the interest stored on the node
+      deprecated: true
       parameters:
         - name: sort_key
           in: path

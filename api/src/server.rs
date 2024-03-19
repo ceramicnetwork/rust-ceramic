@@ -33,7 +33,8 @@ use ceramic_api_server::{
     LivenessGetResponse, VersionPostResponse,
 };
 use ceramic_api_server::{
-    Api, EventsSortKeySortValueGetResponse, FeedEventsGetResponse, InterestsPostResponse,
+    Api, EventsSortKeySortValueGetResponse, ExperimentalEventsSepSepValueGetResponse,
+    FeedEventsGetResponse, InterestsPostResponse,
 };
 use ceramic_core::{interest, EventId, Interest, Network, PeerId, StreamId};
 use std::error::Error;
@@ -221,10 +222,11 @@ where
         stream_id: Option<String>,
         offset: Option<i32>,
         limit: Option<i32>,
-    ) -> Result<EventsSortKeySortValueGetResponse, ErrorResponse> {
+    ) -> Result<ExperimentalEventsSepSepValueGetResponse, ErrorResponse> {
         let limit: usize =
             limit.map_or(10000, |l| if l.is_negative() { 10000 } else { l }) as usize;
         let offset = offset.map_or(0, |o| if o.is_negative() { 0 } else { o }) as usize;
+        // Should we validate that sort_value and stream_id are base36 encoded or just rely on input directly?
         let (start, stop) =
             self.build_start_stop_range(&sort_key, &sort_value, controller, stream_id)?;
 
@@ -238,7 +240,7 @@ where
             .collect::<Vec<_>>();
 
         let event_cnt = events.len();
-        Ok(EventsSortKeySortValueGetResponse::Success(
+        Ok(ExperimentalEventsSepSepValueGetResponse::Success(
             models::EventsGet {
                 resume_offset: (offset + event_cnt) as i32,
                 events,
@@ -415,6 +417,22 @@ where
     }
 
     #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
+    async fn experimental_events_sep_sep_value_get(
+        &self,
+        sep: String,
+        sep_value: String,
+        controller: Option<String>,
+        stream_id: Option<String>,
+        offset: Option<i32>,
+        limit: Option<i32>,
+        _context: &C,
+    ) -> Result<ExperimentalEventsSepSepValueGetResponse, ApiError> {
+        self.get_events_sort_key_sort_value(sep, sep_value, controller, stream_id, offset, limit)
+            .await
+            .or_else(|err| Ok(ExperimentalEventsSepSepValueGetResponse::InternalServerError(err)))
+    }
+
+    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn events_sort_key_sort_value_get(
         &self,
         sort_key: String,
@@ -425,11 +443,25 @@ where
         limit: Option<i32>,
         _context: &C,
     ) -> Result<EventsSortKeySortValueGetResponse, ApiError> {
-        self.get_events_sort_key_sort_value(
-            sort_key, sort_value, controller, stream_id, offset, limit,
-        )
-        .await
-        .or_else(|err| Ok(EventsSortKeySortValueGetResponse::InternalServerError(err)))
+        match self
+            .get_events_sort_key_sort_value(
+                sort_key, sort_value, controller, stream_id, offset, limit,
+            )
+            .await
+        {
+            Ok(v) => match v {
+                ExperimentalEventsSepSepValueGetResponse::Success(s) => {
+                    Ok(EventsSortKeySortValueGetResponse::Success(s))
+                }
+                ExperimentalEventsSepSepValueGetResponse::BadRequest(r) => {
+                    Ok(EventsSortKeySortValueGetResponse::BadRequest(r))
+                }
+                ExperimentalEventsSepSepValueGetResponse::InternalServerError(err) => {
+                    Ok(EventsSortKeySortValueGetResponse::InternalServerError(err))
+                }
+            },
+            Err(err) => Ok(EventsSortKeySortValueGetResponse::InternalServerError(err)),
+        }
     }
 
     #[instrument(skip(self, _context, event), fields(event.id = event.id, event.data.len = event.data.len()), ret(level = Level::DEBUG), err(level = Level::ERROR))]

@@ -160,8 +160,83 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
           description: Internal server error
       summary: Register interest for a sort key
+  /experimental/events/{sep}/{sepValue}:
+    get:
+      parameters:
+      - description: Name of the field in the Events header that holds the separator
+          value e.g. 'model'
+        explode: false
+        in: path
+        name: sep
+        required: true
+        schema:
+          type: string
+        style: simple
+      - description: The value of the field in the Events header indicated by the
+          separator key me.g. multibase encoded model ID
+        explode: false
+        in: path
+        name: sepValue
+        required: true
+        schema:
+          type: string
+        style: simple
+      - description: the controller to filter (DID string)
+        explode: true
+        in: query
+        name: controller
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: the stream to filter (multibase encoded stream ID)
+        explode: true
+        in: query
+        name: streamId
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: "token that designates the point to resume from, that is find\
+          \ keys added after this point"
+        explode: true
+        in: query
+        name: offset
+        required: false
+        schema:
+          type: integer
+        style: form
+      - description: "the maximum number of events to return, default is 10000."
+        explode: true
+        in: query
+        name: limit
+        required: false
+        schema:
+          type: integer
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventsGet'
+          description: success
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: bad request
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Internal server error
+      summary: Get events matching the interest stored on the node
   /events/{sort_key}/{sort_value}:
     get:
+      deprecated: true
       parameters:
       - description: name of the sort_key e.g. 'model'
         explode: false

@@ -57,6 +57,17 @@ pub enum EventsSortKeySortValueGetResponse {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[must_use]
+pub enum ExperimentalEventsSepSepValueGetResponse {
+    /// success
+    Success(models::EventsGet),
+    /// bad request
+    BadRequest(models::BadRequestResponse),
+    /// Internal server error
+    InternalServerError(models::ErrorResponse),
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[must_use]
 pub enum FeedEventsGetResponse {
     /// success
     Success(models::EventFeed),
@@ -143,6 +154,18 @@ pub trait Api<C: Send + Sync> {
         context: &C,
     ) -> Result<EventsSortKeySortValueGetResponse, ApiError>;
 
+    /// Get events matching the interest stored on the node
+    async fn experimental_events_sep_sep_value_get(
+        &self,
+        sep: String,
+        sep_value: String,
+        controller: Option<String>,
+        stream_id: Option<String>,
+        offset: Option<i32>,
+        limit: Option<i32>,
+        context: &C,
+    ) -> Result<ExperimentalEventsSepSepValueGetResponse, ApiError>;
+
     /// Get all new event keys since resume token
     async fn feed_events_get(
         &self,
@@ -205,6 +228,17 @@ pub trait ApiNoContext<C: Send + Sync> {
         offset: Option<i32>,
         limit: Option<i32>,
     ) -> Result<EventsSortKeySortValueGetResponse, ApiError>;
+
+    /// Get events matching the interest stored on the node
+    async fn experimental_events_sep_sep_value_get(
+        &self,
+        sep: String,
+        sep_value: String,
+        controller: Option<String>,
+        stream_id: Option<String>,
+        offset: Option<i32>,
+        limit: Option<i32>,
+    ) -> Result<ExperimentalEventsSepSepValueGetResponse, ApiError>;
 
     /// Get all new event keys since resume token
     async fn feed_events_get(
@@ -289,6 +323,24 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
         self.api()
             .events_sort_key_sort_value_get(
                 sort_key, sort_value, controller, stream_id, offset, limit, &context,
+            )
+            .await
+    }
+
+    /// Get events matching the interest stored on the node
+    async fn experimental_events_sep_sep_value_get(
+        &self,
+        sep: String,
+        sep_value: String,
+        controller: Option<String>,
+        stream_id: Option<String>,
+        offset: Option<i32>,
+        limit: Option<i32>,
+    ) -> Result<ExperimentalEventsSepSepValueGetResponse, ApiError> {
+        let context = self.context().clone();
+        self.api()
+            .experimental_events_sep_sep_value_get(
+                sep, sep_value, controller, stream_id, offset, limit, &context,
             )
             .await
     }
