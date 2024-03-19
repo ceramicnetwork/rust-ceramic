@@ -2,68 +2,68 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.12.0] - 2024-02-21
+## [0.13.0] - 2024-03-19
 
-### Bug Fixes
+### 🚀 Features
+
+- Add rust-ceramic clay bootstrap nodes (#288)
+
+### 🐛 Bug Fixes
+
+- Pass job labels to designate notification channels (#281)
+- Remove loud warn from Recon (#287)
+
+### ⚙️ Miscellaneous Tasks
+
+- Delete subscribe endpoint (#277)
+- Only lint single commit or PR title (#279)
+- Remove support for old event payload during creation (#272)
+
+## [0.12.0] - 2024-02-22
+
+### 🚀 Features
+
+- Create GET endpoint to return events for an interest range (#276)
+
+### 🐛 Bug Fixes
 
 - Use PAT for create-release-pr workflow (#275)
 - Honor PENDING_RANGES_LIMIT for initial ranges (#271)
 
-### Features
+### ⚙️ Miscellaneous Tasks
 
-- Create GET endpoint to return events for an interest range (#276)
+- Version v0.12.0 (#278)
 
 ## [0.11.0] - 2024-02-12
 
-### Bug Fixes
-
-- Store metrics under own registry (not recon) (#266)
-
-### Features
+### 🚀 Features
 
 - Enable recon by default (#270)
 - Support new id/data event payload for event creation (POST /events) (#269)
 
-### Miscellaneous Tasks
+### 🐛 Bug Fixes
+
+- Store metrics under own registry (not recon) (#266)
+
+### ⚙️ Miscellaneous Tasks
 
 - Version v0.11.0 (#274)
 
 ## [0.10.1] - 2024-02-08
 
-### Bug Fixes
+### 🐛 Bug Fixes
 
 - Allow double insert of key/value pairs in Recon (#264)
 - Use try_from on recon keys (#263)
 - Resume token should return previous (not 0) when nothing found (#265)
 
-### Miscellaneous Tasks
+### ⚙️ Miscellaneous Tasks
 
 - Version v0.10.1 (#267)
 
 ## [0.10.0] - 2024-02-06
 
-### Bug Fixes
-
-- Check limits first before other behaviours (#183)
-- Panic with divide by zero duration math (#184)
-- Fix JSON log format errors (#185)
-- Update comment to pass clippy (#189)
-- Run publisher in its own task (#188)
-- Trickle publisher keys to swarm (#191)
-- Use AIMD for publisher batch size (#195)
-- Do not use bootstrap list with kademlia (#199)
-- Simplify the publisher (#200)
-- Always collect metrics (#202)
-- Typo (#203)
-- Upgrade to libp2p 0.53 (#205)
-- Clippy accessing first element with first (#212)
-- Update deploy workflows for k8s (#216)
-- Rename workflows (#223)
-- Add a BUILD tag if it's not a PR merge (#256)
-- Refactor recon storage and remove sqlx dependency from recon and core crates (#254)
-- Update git config for release pr workflow
-
-### Features
+### 🚀 Features
 
 - Continously publish provider records (#175)
 - Add publisher batch metrics (#187)
@@ -92,7 +92,32 @@ All notable changes to this project will be documented in this file.
 - Add API to fetch eventData from event String (#258)
 - Add feed endpoint to propagate event data to js-ceramic (#255)
 
-### Miscellaneous Tasks
+### 🐛 Bug Fixes
+
+- Check limits first before other behaviours (#183)
+- Panic with divide by zero duration math (#184)
+- Fix JSON log format errors (#185)
+- Update comment to pass clippy (#189)
+- Run publisher in its own task (#188)
+- Trickle publisher keys to swarm (#191)
+- Use AIMD for publisher batch size (#195)
+- Do not use bootstrap list with kademlia (#199)
+- Simplify the publisher (#200)
+- Always collect metrics (#202)
+- Typo (#203)
+- Upgrade to libp2p 0.53 (#205)
+- Clippy accessing first element with first (#212)
+- Update deploy workflows for k8s (#216)
+- Rename workflows (#223)
+- Add a BUILD tag if it's not a PR merge (#256)
+- Refactor recon storage and remove sqlx dependency from recon and core crates (#254)
+- Update git config for release pr workflow
+
+### 🚜 Refactor
+
+- Update bitswap logs to use structured logging (#193)
+
+### ⚙️ Miscellaneous Tasks
 
 - Use latest stable openapi-generator-cli (#222)
 - Use docker root user (#251)
@@ -101,47 +126,35 @@ All notable changes to this project will be documented in this file.
 - Fix false positive in checking generated servers (#260)
 - Version v0.10.0 (#261)
 
-### Refactor
-
-- Update bitswap logs to use structured logging (#193)
-
 ## [0.9.0] - 2023-11-13
 
-### Bug Fixes
-
-- Rename iroh to ceramic-one in agent (#181)
-
-### Features
+### 🚀 Features
 
 - Add control over autonat (#176)
 
-### Miscellaneous Tasks
+### 🐛 Bug Fixes
+
+- Rename iroh to ceramic-one in agent (#181)
+
+### ⚙️ Miscellaneous Tasks
 
 - Pass manual flag through in deployment job (#180)
 - Release version v0.9.0 (#182)
 
 ## [0.8.3] - 2023-11-09
 
-### Bug Fixes
+### 🐛 Bug Fixes
 
 - Call correct api method for removing block from pin store (#178)
 - Be explicit about release deployments (#177)
 
-### Miscellaneous Tasks
+### ⚙️ Miscellaneous Tasks
 
 - Release version v0.8.3 (#179)
 
 ## [0.8.2] - 2023-11-08
 
-### Bug Fixes
-
-- Use rust-builder latest
-- Remove Ceramic peer discovery
-- Readd main.rs after move
-- Only provide records on the DHT when they are new
-- Work around github's dumb syntax for conditionals (#173)
-
-### Features
+### 🚀 Features
 
 - Add explicit log format CLI option
 - Add ceramic_one_info metric
@@ -154,40 +167,52 @@ All notable changes to this project will be documented in this file.
 - Expose basic kademlia config
 - Cd (#172)
 
-### Miscellaneous Tasks
+### 🐛 Bug Fixes
 
-- Release version v0.8.2 (#174)
+- Use rust-builder latest
+- Remove Ceramic peer discovery
+- Readd main.rs after move
+- Only provide records on the DHT when they are new
+- Work around github's dumb syntax for conditionals (#173)
 
-### Refactor
+### 🚜 Refactor
 
 - Move iroh-metrics to ceramic-metrics
 - Allow uses of deprecated metrics traits
 
+### ⚙️ Miscellaneous Tasks
+
+- Release version v0.8.2 (#174)
+
 ## [0.8.1] - 2023-10-26
 
-### Miscellaneous Tasks
+### ⚙️ Miscellaneous Tasks
 
 - Add CHANGELOG.md
 - Release version v0.8.1
 
 ## [0.8.0] - 2023-10-25
 
-### Bug Fixes
-
-- Need to install the openapi generator
-
-### Features
+### 🚀 Features
 
 - Add offline parameter to block/get
 
-### Miscellaneous Tasks
+### 🐛 Bug Fixes
+
+- Need to install the openapi generator
+
+### ⚙️ Miscellaneous Tasks
 
 - Add new release pr workflow based on container
 - Release version v0.8.0
 
 ## [0.7.0] - 2023-10-23
 
-### Bug Fixes
+### 🚀 Features
+
+- Allow comma-separated bootstrap addresses
+
+### 🐛 Bug Fixes
 
 - Upgrade ssi to fix incompatibilities
 - Kubo rpc alignment
@@ -200,11 +225,7 @@ All notable changes to this project will be documented in this file.
 - Improve API instrumentation
 - Update external address handling for kad
 
-### Features
-
-- Allow comma-separated bootstrap addresses
-
-### Miscellaneous Tasks
+### ⚙️ Miscellaneous Tasks
 
 - Remove unused deps
 - Cargo update
@@ -213,35 +234,74 @@ All notable changes to this project will be documented in this file.
 
 ## [0.6.0] - 2023-09-20
 
-### Bug Fixes
+### 🐛 Bug Fixes
 
-- Release conditional on PR message
 - Use multiline for conditional
 - Only check for top level changes
 
-### Miscellaneous Tasks
+### ⚙️ Miscellaneous Tasks
 
 - Release (#130)
 - Release (#131)
 
 ## [0.4.0] - 2023-09-20
 
-### Bug Fixes
-
-- Target set after arch/os
-- Bin path needs target
-
-### Features
+### 🚀 Features
 
 - Add liveness endpoint (#127)
 
-### Miscellaneous Tasks
+### 🐛 Bug Fixes
+
+- Target set after arch/os
+- Bin path needs target
+- Release conditional on PR message
+
+### ⚙️ Miscellaneous Tasks
 
 - Release (#128)
 
 ## [0.3.0] - 2023-09-19
 
-### Bug Fixes
+### 🚀 Features
+
+- Add initial implementation of Kubo RPC API
+- Add support for pubsub/* HTTP endpoints
+- Add pin endpoints
+- Add block endpoints
+- Adds id endpoint and adds dag-jose resolving support
+- Adds eye command
+- Add /metrics endpoint
+- *(event)* Add event (commit) libraries for creating events for ceramic
+- Add AHash and Recon
+- Add necessary fixes for keramik usage
+- Implement libp2p Recon protocol
+- Serialize eventid
+- Add ceramic peer discovery
+- Recon-bytes
+- Add openapi implementation of events api
+- Add offset/limit to subscribe endpoint
+- Add sort-key in path
+- Add eventId cid parsing
+- Add synchronization of interest ranges
+- Api subscribe now creates an interest
+- Upgrade Recon protocol to honor interest ranges
+- Sqlite durability
+- Separator from "sort_key|sort_key"
+- Recon kilo test fixes
+- Msg-size
+- Dapp functionality
+- Add missing kubo endpoints for import and version
+- Use debian image
+- Adjustments for js-ceramic tests
+- Add version endpoint to ceramic api server
+- Add switch to disable/enable Recon
+- Release workflow
+- Msg-size
+- Perform release (#121)
+- Release by creating a PR to create a tag, that when merged triggers a release (#123)
+- Merge-from-sqlite
+
+### 🐛 Bug Fixes
 
 - Fix all clippy errors
 - Require docs and no warnings
@@ -307,50 +367,24 @@ All notable changes to this project will be documented in this file.
 - Can only use tgz files
 - Should listen to copilot
 
-### Documentation
+### 🚜 Refactor
+
+- Moves http logic into a single module
+- Break http into multiple modules
+- Replace iroh-p2p with ceramic-p2p
+- Make Recon generic over keys
+- Use RangeOpen instead of Range
+- Rename sqlitestore
+- Remove mutex locking of Recon
+- Update if let into match for readability
+- Reworks kubo-rpc as an openapi server
+- Move beetle locally
+
+### 📚 Documentation
 
 - Add readme and license
 
-### Features
-
-- Add initial implementation of Kubo RPC API
-- Add support for pubsub/* HTTP endpoints
-- Add pin endpoints
-- Add block endpoints
-- Adds id endpoint and adds dag-jose resolving support
-- Adds eye command
-- Add /metrics endpoint
-- Add event (commit) libraries for creating events for ceramic
-- Add AHash and Recon
-- Add necessary fixes for keramik usage
-- Implement libp2p Recon protocol
-- Serialize eventid
-- Add ceramic peer discovery
-- Recon-bytes
-- Add openapi implementation of events api
-- Add offset/limit to subscribe endpoint
-- Add sort-key in path
-- Add eventId cid parsing
-- Add synchronization of interest ranges
-- Api subscribe now creates an interest
-- Upgrade Recon protocol to honor interest ranges
-- Sqlite durability
-- Separator from "sort_key|sort_key"
-- Recon kilo test fixes
-- Msg-size
-- Dapp functionality
-- Add missing kubo endpoints for import and version
-- Use debian image
-- Adjustments for js-ceramic tests
-- Add version endpoint to ceramic api server
-- Add switch to disable/enable Recon
-- Release workflow
-- Msg-size
-- Perform release (#121)
-- Release by creating a PR to create a tag, that when merged triggers a release (#123)
-- Merge-from-sqlite
-
-### Miscellaneous Tasks
+### ⚙️ Miscellaneous Tasks
 
 - Add basic CI workflows
 - Add protoc install step
@@ -375,19 +409,6 @@ All notable changes to this project will be documented in this file.
 - Use sccache for better Rust caches
 - Release (#125)
 - Release (#126)
-
-### Refactor
-
-- Moves http logic into a single module
-- Break http into multiple modules
-- Replace iroh-p2p with ceramic-p2p
-- Make Recon generic over keys
-- Use RangeOpen instead of Range
-- Rename sqlitestore
-- Remove mutex locking of Recon
-- Update if let into match for readability
-- Reworks kubo-rpc as an openapi server
-- Move beetle locally
 
 ### Wip
 
