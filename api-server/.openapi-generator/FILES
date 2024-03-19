@@ -3,10 +3,12 @@
 Cargo.toml
 README.md
 api/openapi.yaml
+docs/BadRequestResponse.md
 docs/ErrorResponse.md
 docs/Event.md
 docs/EventFeed.md
 docs/EventsGet.md
+docs/Interest.md
 docs/Version.md
 docs/default_api.md
 examples/ca.pem

@@ -15,7 +15,7 @@ To see how to make this your own, look here:
 [README]((https://openapi-generator.tech))
 
 - API version: 0.13.0
-- Build date: 2024-03-19T10:03:40.368742-06:00[America/Denver]
+- Build date: 2024-03-19T10:14:35.778106-06:00[America/Denver]
 
 
 
@@ -105,6 +105,7 @@ Method | HTTP request | Description
 [****](docs/default_api.md#) | **POST** /events | Creates a new event
 [****](docs/default_api.md#) | **GET** /events/{sort_key}/{sort_value} | Get events matching the interest stored on the node
 [****](docs/default_api.md#) | **GET** /feed/events | Get all new event keys since resume token
+[****](docs/default_api.md#) | **POST** /interests | Register interest for a sort key
 [****](docs/default_api.md#) | **POST** /interests/{sort_key}/{sort_value} | Register interest for a sort key
 [****](docs/default_api.md#) | **GET** /liveness | Test the liveness of the Ceramic node
 [****](docs/default_api.md#) | **POST** /version | Get the version of the Ceramic node
@@ -112,10 +113,12 @@ Method | HTTP request | Description
 
 ## Documentation For Models
 
+ - [BadRequestResponse](docs/BadRequestResponse.md)
  - [ErrorResponse](docs/ErrorResponse.md)
  - [Event](docs/Event.md)
  - [EventFeed](docs/EventFeed.md)
  - [EventsGet](docs/EventsGet.md)
+ - [Interest](docs/Interest.md)
  - [Version](docs/Version.md)
 
 

@@ -23,8 +23,8 @@ type ServiceFuture = BoxFuture<'static, Result<Response<Body>, crate::ServiceErr
 
 use crate::{
     Api, EventsEventIdGetResponse, EventsPostResponse, EventsSortKeySortValueGetResponse,
-    FeedEventsGetResponse, InterestsSortKeySortValuePostResponse, LivenessGetResponse,
-    VersionPostResponse,
+    FeedEventsGetResponse, InterestsPostResponse, InterestsSortKeySortValuePostResponse,
+    LivenessGetResponse, VersionPostResponse,
 };
 
 mod paths {
@@ -36,6 +36,7 @@ mod paths {
             r"^/ceramic/events/(?P<event_id>[^/?#]*)$",
             r"^/ceramic/events/(?P<sort_key>[^/?#]*)/(?P<sort_value>[^/?#]*)$",
             r"^/ceramic/feed/events$",
+            r"^/ceramic/interests$",
             r"^/ceramic/interests/(?P<sort_key>[^/?#]*)/(?P<sort_value>[^/?#]*)$",
             r"^/ceramic/liveness$",
             r"^/ceramic/version$"
@@ -58,7 +59,8 @@ mod paths {
                 .expect("Unable to create regex for EVENTS_SORT_KEY_SORT_VALUE");
     }
     pub(crate) static ID_FEED_EVENTS: usize = 3;
-    pub(crate) static ID_INTERESTS_SORT_KEY_SORT_VALUE: usize = 4;
+    pub(crate) static ID_INTERESTS: usize = 4;
+    pub(crate) static ID_INTERESTS_SORT_KEY_SORT_VALUE: usize = 5;
     lazy_static! {
         pub static ref REGEX_INTERESTS_SORT_KEY_SORT_VALUE: regex::Regex =
             #[allow(clippy::invalid_regex)]
@@ -67,8 +69,8 @@ mod paths {
             )
             .expect("Unable to create regex for INTERESTS_SORT_KEY_SORT_VALUE");
     }
-    pub(crate) static ID_LIVENESS: usize = 5;
-    pub(crate) static ID_VERSION: usize = 6;
+    pub(crate) static ID_LIVENESS: usize = 6;
+    pub(crate) static ID_VERSION: usize = 7;
 }
 
 pub struct MakeService<T, C>
@@ -516,6 +518,17 @@ where
                                     .expect("impossible to fail to serialize");
                                 *response.body_mut() = Body::from(body_content);
                             }
+                            EventsSortKeySortValueGetResponse::BadRequest(body) => {
+                                *response.status_mut() = StatusCode::from_u16(400)
+                                    .expect("Unable to turn 400 into a StatusCode");
+                                response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for EVENTS_SORT_KEY_SORT_VALUE_GET_BAD_REQUEST"));
+                                let body_content = serde_json::to_string(&body)
+                                    .expect("impossible to fail to serialize");
+                                *response.body_mut() = Body::from(body_content);
+                            }
                             EventsSortKeySortValueGetResponse::InternalServerError(body) => {
                                 *response.status_mut() = StatusCode::from_u16(500)
                                     .expect("Unable to turn 500 into a StatusCode");
@@ -646,6 +659,101 @@ where
                     Ok(response)
                 }
 
+                // InterestsPost - POST /interests
+                hyper::Method::POST if path.matched(paths::ID_INTERESTS) => {
+                    // Body parameters (note that non-required body parameters will ignore garbage
+                    // values, rather than causing a 400 response). Produce warning header and logs for
+                    // any unused fields.
+                    let result = body.into_raw().await;
+                    match result {
+                            Ok(body) => {
+                                let mut unused_elements = Vec::new();
+                                let param_interest: Option<models::Interest> = if !body.is_empty() {
+                                    let deserializer = &mut serde_json::Deserializer::from_slice(&body);
+                                    match serde_ignored::deserialize(deserializer, |path| {
+                                            warn!("Ignoring unknown field in body: {}", path);
+                                            unused_elements.push(path.to_string());
+                                    }) {
+                                        Ok(param_interest) => param_interest,
+                                        Err(e) => return Ok(Response::builder()
+                                                        .status(StatusCode::BAD_REQUEST)
+                                                        .body(Body::from(format!("Couldn't parse body parameter Interest - doesn't match schema: {}", e)))
+                                                        .expect("Unable to create Bad Request response for invalid body parameter Interest due to schema")),
+                                    }
+                                } else {
+                                    None
+                                };
+                                let param_interest = match param_interest {
+                                    Some(param_interest) => param_interest,
+                                    None => return Ok(Response::builder()
+                                                        .status(StatusCode::BAD_REQUEST)
+                                                        .body(Body::from("Missing required body parameter Interest"))
+                                                        .expect("Unable to create Bad Request response for missing body parameter Interest")),
+                                };
+
+                                let result = api_impl.interests_post(
+                                            param_interest,
+                                        &context
+                                    ).await;
+                                let mut response = Response::new(Body::empty());
+                                response.headers_mut().insert(
+                                            HeaderName::from_static("x-span-id"),
+                                            HeaderValue::from_str((&context as &dyn Has<XSpanIdString>).get().0.clone().as_str())
+                                                .expect("Unable to create X-Span-ID header value"));
+
+                                        if !unused_elements.is_empty() {
+                                            response.headers_mut().insert(
+                                                HeaderName::from_static("warning"),
+                                                HeaderValue::from_str(format!("Ignoring unknown fields in body: {:?}", unused_elements).as_str())
+                                                    .expect("Unable to create Warning header value"));
+                                        }
+
+                                        match result {
+                                            Ok(rsp) => match rsp {
+                                                InterestsPostResponse::Success
+                                                => {
+                                                    *response.status_mut() = StatusCode::from_u16(204).expect("Unable to turn 204 into a StatusCode");
+                                                },
+                                                InterestsPostResponse::BadRequest
+                                                    (body)
+                                                => {
+                                                    *response.status_mut() = StatusCode::from_u16(400).expect("Unable to turn 400 into a StatusCode");
+                                                    response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for INTERESTS_POST_BAD_REQUEST"));
+                                                    let body_content = serde_json::to_string(&body).expect("impossible to fail to serialize");
+                                                    *response.body_mut() = Body::from(body_content);
+                                                },
+                                                InterestsPostResponse::InternalServerError
+                                                    (body)
+                                                => {
+                                                    *response.status_mut() = StatusCode::from_u16(500).expect("Unable to turn 500 into a StatusCode");
+                                                    response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for INTERESTS_POST_INTERNAL_SERVER_ERROR"));
+                                                    let body_content = serde_json::to_string(&body).expect("impossible to fail to serialize");
+                                                    *response.body_mut() = Body::from(body_content);
+                                                },
+                                            },
+                                            Err(_) => {
+                                                // Application code returned an error. This should not happen, as the implementation should
+                                                // return a valid response.
+                                                *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                                                *response.body_mut() = Body::from("An internal error occurred");
+                                            },
+                                        }
+
+                                        Ok(response)
+                            },
+                            Err(e) => Ok(Response::builder()
+                                                .status(StatusCode::BAD_REQUEST)
+                                                .body(Body::from(format!("Couldn't read body parameter Interest: {}", e)))
+                                                .expect("Unable to create Bad Request response due to unable to read body parameter Interest")),
+                        }
+                }
+
                 // InterestsSortKeySortValuePost - POST /interests/{sort_key}/{sort_value}
                 hyper::Method::POST if path.matched(paths::ID_INTERESTS_SORT_KEY_SORT_VALUE) => {
                     // Path parameters
@@ -755,6 +863,17 @@ where
                             InterestsSortKeySortValuePostResponse::Success => {
                                 *response.status_mut() = StatusCode::from_u16(204)
                                     .expect("Unable to turn 204 into a StatusCode");
+                            }
+                            InterestsSortKeySortValuePostResponse::BadRequest(body) => {
+                                *response.status_mut() = StatusCode::from_u16(400)
+                                    .expect("Unable to turn 400 into a StatusCode");
+                                response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for INTERESTS_SORT_KEY_SORT_VALUE_POST_BAD_REQUEST"));
+                                let body_content = serde_json::to_string(&body)
+                                    .expect("impossible to fail to serialize");
+                                *response.body_mut() = Body::from(body_content);
                             }
                             InterestsSortKeySortValuePostResponse::InternalServerError(body) => {
                                 *response.status_mut() = StatusCode::from_u16(500)
@@ -880,6 +999,7 @@ where
                 _ if path.matched(paths::ID_EVENTS_EVENT_ID) => method_not_allowed(),
                 _ if path.matched(paths::ID_EVENTS_SORT_KEY_SORT_VALUE) => method_not_allowed(),
                 _ if path.matched(paths::ID_FEED_EVENTS) => method_not_allowed(),
+                _ if path.matched(paths::ID_INTERESTS) => method_not_allowed(),
                 _ if path.matched(paths::ID_INTERESTS_SORT_KEY_SORT_VALUE) => method_not_allowed(),
                 _ if path.matched(paths::ID_LIVENESS) => method_not_allowed(),
                 _ if path.matched(paths::ID_VERSION) => method_not_allowed(),
@@ -911,6 +1031,8 @@ impl<T> RequestParser<T> for ApiRequestParser {
             }
             // FeedEventsGet - GET /feed/events
             hyper::Method::GET if path.matched(paths::ID_FEED_EVENTS) => Some("FeedEventsGet"),
+            // InterestsPost - POST /interests
+            hyper::Method::POST if path.matched(paths::ID_INTERESTS) => Some("InterestsPost"),
             // InterestsSortKeySortValuePost - POST /interests/{sort_key}/{sort_value}
             hyper::Method::POST if path.matched(paths::ID_INTERESTS_SORT_KEY_SORT_VALUE) => {
                 Some("InterestsSortKeySortValuePost")

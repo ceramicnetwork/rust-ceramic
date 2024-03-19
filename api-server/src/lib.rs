@@ -39,7 +39,7 @@ pub enum EventsPostResponse {
     /// success
     Success,
     /// bad request
-    BadRequest(String),
+    BadRequest(models::BadRequestResponse),
     /// Internal server error
     InternalServerError(models::ErrorResponse),
 }
@@ -49,6 +49,8 @@ pub enum EventsPostResponse {
 pub enum EventsSortKeySortValueGetResponse {
     /// success
     Success(models::EventsGet),
+    /// bad request
+    BadRequest(models::BadRequestResponse),
     /// Internal server error
     InternalServerError(models::ErrorResponse),
 }
@@ -59,7 +61,18 @@ pub enum FeedEventsGetResponse {
     /// success
     Success(models::EventFeed),
     /// bad request
-    BadRequest(String),
+    BadRequest(models::BadRequestResponse),
+    /// Internal server error
+    InternalServerError(models::ErrorResponse),
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[must_use]
+pub enum InterestsPostResponse {
+    /// success
+    Success,
+    /// bad request
+    BadRequest(models::BadRequestResponse),
     /// Internal server error
     InternalServerError(models::ErrorResponse),
 }
@@ -69,6 +82,8 @@ pub enum FeedEventsGetResponse {
 pub enum InterestsSortKeySortValuePostResponse {
     /// success
     Success,
+    /// bad request
+    BadRequest(models::BadRequestResponse),
     /// Internal server error
     InternalServerError(models::ErrorResponse),
 }
@@ -137,6 +152,13 @@ pub trait Api<C: Send + Sync> {
     ) -> Result<FeedEventsGetResponse, ApiError>;
 
     /// Register interest for a sort key
+    async fn interests_post(
+        &self,
+        interest: models::Interest,
+        context: &C,
+    ) -> Result<InterestsPostResponse, ApiError>;
+
+    /// Register interest for a sort key
     async fn interests_sort_key_sort_value_post(
         &self,
         sort_key: String,
@@ -190,6 +212,12 @@ pub trait ApiNoContext<C: Send + Sync> {
         resume_at: Option<String>,
         limit: Option<i32>,
     ) -> Result<FeedEventsGetResponse, ApiError>;
+
+    /// Register interest for a sort key
+    async fn interests_post(
+        &self,
+        interest: models::Interest,
+    ) -> Result<InterestsPostResponse, ApiError>;
 
     /// Register interest for a sort key
     async fn interests_sort_key_sort_value_post(
@@ -273,6 +301,15 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
     ) -> Result<FeedEventsGetResponse, ApiError> {
         let context = self.context().clone();
         self.api().feed_events_get(resume_at, limit, &context).await
+    }
+
+    /// Register interest for a sort key
+    async fn interests_post(
+        &self,
+        interest: models::Interest,
+    ) -> Result<InterestsPostResponse, ApiError> {
+        let context = self.context().clone();
+        self.api().interests_post(interest, &context).await
     }
 
     /// Register interest for a sort key

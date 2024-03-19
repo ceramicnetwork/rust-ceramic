@@ -4,7 +4,8 @@
 use ceramic_api_server::{
     models, Api, ApiNoContext, Client, ContextWrapperExt, EventsEventIdGetResponse,
     EventsPostResponse, EventsSortKeySortValueGetResponse, FeedEventsGetResponse,
-    InterestsSortKeySortValuePostResponse, LivenessGetResponse, VersionPostResponse,
+    InterestsPostResponse, InterestsSortKeySortValuePostResponse, LivenessGetResponse,
+    VersionPostResponse,
 };
 use clap::{App, Arg};
 #[allow(unused_imports)]
@@ -135,6 +136,14 @@ fn main() {
                 (client.context() as &dyn Has<XSpanIdString>).get().clone()
             );
         }
+        /* Disabled because there's no example.
+        Some("InterestsPost") => {
+            let result = rt.block_on(client.interests_post(
+                  ???
+            ));
+            info!("{:?} (X-Span-ID: {:?})", result, (client.context() as &dyn Has<XSpanIdString>).get().clone());
+        },
+        */
         Some("InterestsSortKeySortValuePost") => {
             let result = rt.block_on(client.interests_sort_key_sort_value_post(
                 "sort_key_example".to_string(),
