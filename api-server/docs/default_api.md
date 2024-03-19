@@ -113,7 +113,7 @@ Get events matching the interest stored on the node
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
   **sep** | **String**| Name of the field in the Events header that holds the separator value e.g. 'model' | 
-  **sep_value** | **String**| The value of the field in the Events header indicated by the separator key e.g. multibase encoded model ID | 
+  **sep_value** | **String**| The value of the field in the Events header indicated by the separator key me.g. multibase encoded model ID | 
  **optional** | **map[string]interface{}** | optional parameters | nil if no parameters
 
 ### Optional Parameters
@@ -122,7 +122,7 @@ Optional parameters are passed through a map[string]interface{}.
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
  **sep** | **String**| Name of the field in the Events header that holds the separator value e.g. 'model' | 
- **sep_value** | **String**| The value of the field in the Events header indicated by the separator key e.g. multibase encoded model ID | 
+ **sep_value** | **String**| The value of the field in the Events header indicated by the separator key me.g. multibase encoded model ID | 
  **controller** | **String**| the controller to filter (DID string) | 
  **stream_id** | **String**| the stream to filter (multibase encoded stream ID) | 
  **offset** | **i32**| token that designates the point to resume from, that is find keys added after this point | 

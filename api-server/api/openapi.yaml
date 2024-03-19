@@ -173,7 +173,7 @@ paths:
           type: string
         style: simple
       - description: The value of the field in the Events header indicated by the
-          separator key e.g. multibase encoded model ID
+          separator key me.g. multibase encoded model ID
         explode: false
         in: path
         name: sepValue
