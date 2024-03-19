@@ -243,6 +243,17 @@ where
                                 let body_content = body;
                                 *response.body_mut() = Body::from(body_content);
                             }
+                            EventsEventIdGetResponse::InternalServerError(body) => {
+                                *response.status_mut() = StatusCode::from_u16(500)
+                                    .expect("Unable to turn 500 into a StatusCode");
+                                response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for EVENTS_EVENT_ID_GET_INTERNAL_SERVER_ERROR"));
+                                let body_content = serde_json::to_string(&body)
+                                    .expect("impossible to fail to serialize");
+                                *response.body_mut() = Body::from(body_content);
+                            }
                         },
                         Err(_) => {
                             // Application code returned an error. This should not happen, as the implementation should
@@ -318,6 +329,17 @@ where
                                                         CONTENT_TYPE,
                                                         HeaderValue::from_str("application/json")
                                                             .expect("Unable to create Content-Type header for EVENTS_POST_BAD_REQUEST"));
+                                                    let body_content = serde_json::to_string(&body).expect("impossible to fail to serialize");
+                                                    *response.body_mut() = Body::from(body_content);
+                                                },
+                                                EventsPostResponse::InternalServerError
+                                                    (body)
+                                                => {
+                                                    *response.status_mut() = StatusCode::from_u16(500).expect("Unable to turn 500 into a StatusCode");
+                                                    response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for EVENTS_POST_INTERNAL_SERVER_ERROR"));
                                                     let body_content = serde_json::to_string(&body).expect("impossible to fail to serialize");
                                                     *response.body_mut() = Body::from(body_content);
                                                 },
@@ -494,6 +516,17 @@ where
                                     .expect("impossible to fail to serialize");
                                 *response.body_mut() = Body::from(body_content);
                             }
+                            EventsSortKeySortValueGetResponse::InternalServerError(body) => {
+                                *response.status_mut() = StatusCode::from_u16(500)
+                                    .expect("Unable to turn 500 into a StatusCode");
+                                response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for EVENTS_SORT_KEY_SORT_VALUE_GET_INTERNAL_SERVER_ERROR"));
+                                let body_content = serde_json::to_string(&body)
+                                    .expect("impossible to fail to serialize");
+                                *response.body_mut() = Body::from(body_content);
+                            }
                         },
                         Err(_) => {
                             // Application code returned an error. This should not happen, as the implementation should
@@ -586,6 +619,17 @@ where
                                                         CONTENT_TYPE,
                                                         HeaderValue::from_str("application/json")
                                                             .expect("Unable to create Content-Type header for FEED_EVENTS_GET_BAD_REQUEST"));
+                                let body_content = serde_json::to_string(&body)
+                                    .expect("impossible to fail to serialize");
+                                *response.body_mut() = Body::from(body_content);
+                            }
+                            FeedEventsGetResponse::InternalServerError(body) => {
+                                *response.status_mut() = StatusCode::from_u16(500)
+                                    .expect("Unable to turn 500 into a StatusCode");
+                                response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for FEED_EVENTS_GET_INTERNAL_SERVER_ERROR"));
                                 let body_content = serde_json::to_string(&body)
                                     .expect("impossible to fail to serialize");
                                 *response.body_mut() = Body::from(body_content);
@@ -712,6 +756,17 @@ where
                                 *response.status_mut() = StatusCode::from_u16(204)
                                     .expect("Unable to turn 204 into a StatusCode");
                             }
+                            InterestsSortKeySortValuePostResponse::InternalServerError(body) => {
+                                *response.status_mut() = StatusCode::from_u16(500)
+                                    .expect("Unable to turn 500 into a StatusCode");
+                                response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for INTERESTS_SORT_KEY_SORT_VALUE_POST_INTERNAL_SERVER_ERROR"));
+                                let body_content = serde_json::to_string(&body)
+                                    .expect("impossible to fail to serialize");
+                                *response.body_mut() = Body::from(body_content);
+                            }
                         },
                         Err(_) => {
                             // Application code returned an error. This should not happen, as the implementation should
@@ -745,6 +800,17 @@ where
                             LivenessGetResponse::Success => {
                                 *response.status_mut() = StatusCode::from_u16(200)
                                     .expect("Unable to turn 200 into a StatusCode");
+                            }
+                            LivenessGetResponse::InternalServerError(body) => {
+                                *response.status_mut() = StatusCode::from_u16(500)
+                                    .expect("Unable to turn 500 into a StatusCode");
+                                response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for LIVENESS_GET_INTERNAL_SERVER_ERROR"));
+                                let body_content = serde_json::to_string(&body)
+                                    .expect("impossible to fail to serialize");
+                                *response.body_mut() = Body::from(body_content);
                             }
                         },
                         Err(_) => {
@@ -783,6 +849,17 @@ where
                                                         CONTENT_TYPE,
                                                         HeaderValue::from_str("application/json")
                                                             .expect("Unable to create Content-Type header for VERSION_POST_SUCCESS"));
+                                let body_content = serde_json::to_string(&body)
+                                    .expect("impossible to fail to serialize");
+                                *response.body_mut() = Body::from(body_content);
+                            }
+                            VersionPostResponse::InternalServerError(body) => {
+                                *response.status_mut() = StatusCode::from_u16(500)
+                                    .expect("Unable to turn 500 into a StatusCode");
+                                response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for VERSION_POST_INTERNAL_SERVER_ERROR"));
                                 let body_content = serde_json::to_string(&body)
                                     .expect("impossible to fail to serialize");
                                 *response.body_mut() = Body::from(body_content);

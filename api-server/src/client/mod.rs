@@ -471,6 +471,19 @@ where
                 let body = body.to_string();
                 Ok(EventsEventIdGetResponse::EventNotFound(body))
             }
+            500 => {
+                let body = response.into_body();
+                let body = body
+                    .into_raw()
+                    .map_err(|e| ApiError(format!("Failed to read response: {}", e)))
+                    .await?;
+                let body = str::from_utf8(&body)
+                    .map_err(|e| ApiError(format!("Response was not valid UTF8: {}", e)))?;
+                let body = serde_json::from_str::<models::ErrorResponse>(body).map_err(|e| {
+                    ApiError(format!("Response body did not match the schema: {}", e))
+                })?;
+                Ok(EventsEventIdGetResponse::InternalServerError(body))
+            }
             code => {
                 let headers = response.headers().clone();
                 let body = response.into_body().take(100).into_raw().await;
@@ -571,6 +584,19 @@ where
                     ApiError(format!("Response body did not match the schema: {}", e))
                 })?;
                 Ok(EventsPostResponse::BadRequest(body))
+            }
+            500 => {
+                let body = response.into_body();
+                let body = body
+                    .into_raw()
+                    .map_err(|e| ApiError(format!("Failed to read response: {}", e)))
+                    .await?;
+                let body = str::from_utf8(&body)
+                    .map_err(|e| ApiError(format!("Response was not valid UTF8: {}", e)))?;
+                let body = serde_json::from_str::<models::ErrorResponse>(body).map_err(|e| {
+                    ApiError(format!("Response body did not match the schema: {}", e))
+                })?;
+                Ok(EventsPostResponse::InternalServerError(body))
             }
             code => {
                 let headers = response.headers().clone();
@@ -678,6 +704,19 @@ where
                 })?;
                 Ok(EventsSortKeySortValueGetResponse::Success(body))
             }
+            500 => {
+                let body = response.into_body();
+                let body = body
+                    .into_raw()
+                    .map_err(|e| ApiError(format!("Failed to read response: {}", e)))
+                    .await?;
+                let body = str::from_utf8(&body)
+                    .map_err(|e| ApiError(format!("Response was not valid UTF8: {}", e)))?;
+                let body = serde_json::from_str::<models::ErrorResponse>(body).map_err(|e| {
+                    ApiError(format!("Response body did not match the schema: {}", e))
+                })?;
+                Ok(EventsSortKeySortValueGetResponse::InternalServerError(body))
+            }
             code => {
                 let headers = response.headers().clone();
                 let body = response.into_body().take(100).into_raw().await;
@@ -782,6 +821,19 @@ where
                 })?;
                 Ok(FeedEventsGetResponse::BadRequest(body))
             }
+            500 => {
+                let body = response.into_body();
+                let body = body
+                    .into_raw()
+                    .map_err(|e| ApiError(format!("Failed to read response: {}", e)))
+                    .await?;
+                let body = str::from_utf8(&body)
+                    .map_err(|e| ApiError(format!("Response was not valid UTF8: {}", e)))?;
+                let body = serde_json::from_str::<models::ErrorResponse>(body).map_err(|e| {
+                    ApiError(format!("Response body did not match the schema: {}", e))
+                })?;
+                Ok(FeedEventsGetResponse::InternalServerError(body))
+            }
             code => {
                 let headers = response.headers().clone();
                 let body = response.into_body().take(100).into_raw().await;
@@ -868,6 +920,21 @@ where
 
         match response.status().as_u16() {
             204 => Ok(InterestsSortKeySortValuePostResponse::Success),
+            500 => {
+                let body = response.into_body();
+                let body = body
+                    .into_raw()
+                    .map_err(|e| ApiError(format!("Failed to read response: {}", e)))
+                    .await?;
+                let body = str::from_utf8(&body)
+                    .map_err(|e| ApiError(format!("Response was not valid UTF8: {}", e)))?;
+                let body = serde_json::from_str::<models::ErrorResponse>(body).map_err(|e| {
+                    ApiError(format!("Response body did not match the schema: {}", e))
+                })?;
+                Ok(InterestsSortKeySortValuePostResponse::InternalServerError(
+                    body,
+                ))
+            }
             code => {
                 let headers = response.headers().clone();
                 let body = response.into_body().take(100).into_raw().await;
@@ -936,6 +1003,19 @@ where
 
         match response.status().as_u16() {
             200 => Ok(LivenessGetResponse::Success),
+            500 => {
+                let body = response.into_body();
+                let body = body
+                    .into_raw()
+                    .map_err(|e| ApiError(format!("Failed to read response: {}", e)))
+                    .await?;
+                let body = str::from_utf8(&body)
+                    .map_err(|e| ApiError(format!("Response was not valid UTF8: {}", e)))?;
+                let body = serde_json::from_str::<models::ErrorResponse>(body).map_err(|e| {
+                    ApiError(format!("Response body did not match the schema: {}", e))
+                })?;
+                Ok(LivenessGetResponse::InternalServerError(body))
+            }
             code => {
                 let headers = response.headers().clone();
                 let body = response.into_body().take(100).into_raw().await;
@@ -1015,6 +1095,19 @@ where
                     ApiError(format!("Response body did not match the schema: {}", e))
                 })?;
                 Ok(VersionPostResponse::Success(body))
+            }
+            500 => {
+                let body = response.into_body();
+                let body = body
+                    .into_raw()
+                    .map_err(|e| ApiError(format!("Failed to read response: {}", e)))
+                    .await?;
+                let body = str::from_utf8(&body)
+                    .map_err(|e| ApiError(format!("Response was not valid UTF8: {}", e)))?;
+                let body = serde_json::from_str::<models::ErrorResponse>(body).map_err(|e| {
+                    ApiError(format!("Response body did not match the schema: {}", e))
+                })?;
+                Ok(VersionPostResponse::InternalServerError(body))
             }
             code => {
                 let headers = response.headers().clone();
