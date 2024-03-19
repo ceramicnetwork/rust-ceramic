@@ -15,7 +15,7 @@ To see how to make this your own, look here:
 [README]((https://openapi-generator.tech))
 
 - API version: 0.13.0
-- Build date: 2024-03-19T10:17:26.010196-06:00[America/Denver]
+- Build date: 2024-03-19T10:20:12.691788-06:00[America/Denver]
 
 
 
@@ -64,7 +64,7 @@ To run a client, follow one of the following simple steps:
 ```
 cargo run --example client EventsEventIdGet
 cargo run --example client EventsSortKeySortValueGet
-cargo run --example client ExperimentalEventsSepModelGet
+cargo run --example client ExperimentalEventsSepSepValueGet
 cargo run --example client FeedEventsGet
 cargo run --example client InterestsSortKeySortValuePost
 cargo run --example client LivenessGet
@@ -105,7 +105,7 @@ Method | HTTP request | Description
 [****](docs/default_api.md#) | **GET** /events/{event_id} | Get event data
 [****](docs/default_api.md#) | **POST** /events | Creates a new event
 [****](docs/default_api.md#) | **GET** /events/{sort_key}/{sort_value} | Get events matching the interest stored on the node
-[****](docs/default_api.md#) | **GET** /experimental/events/{sep}/{model} | Get events matching the interest stored on the node
+[****](docs/default_api.md#) | **GET** /experimental/events/{sep}/{sepValue} | Get events matching the interest stored on the node
 [****](docs/default_api.md#) | **GET** /feed/events | Get all new event keys since resume token
 [****](docs/default_api.md#) | **POST** /interests | Register interest for a sort key
 [****](docs/default_api.md#) | **POST** /interests/{sort_key}/{sort_value} | Register interest for a sort key

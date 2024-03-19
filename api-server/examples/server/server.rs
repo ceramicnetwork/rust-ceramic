@@ -102,7 +102,7 @@ impl<C> Server<C> {
 use ceramic_api_server::server::MakeService;
 use ceramic_api_server::{
     Api, EventsEventIdGetResponse, EventsPostResponse, EventsSortKeySortValueGetResponse,
-    ExperimentalEventsSepModelGetResponse, FeedEventsGetResponse, InterestsPostResponse,
+    ExperimentalEventsSepSepValueGetResponse, FeedEventsGetResponse, InterestsPostResponse,
     InterestsSortKeySortValuePostResponse, LivenessGetResponse, VersionPostResponse,
 };
 use std::error::Error;
@@ -157,17 +157,17 @@ where
     }
 
     /// Get events matching the interest stored on the node
-    async fn experimental_events_sep_model_get(
+    async fn experimental_events_sep_sep_value_get(
         &self,
         sep: String,
-        model: String,
+        sep_value: String,
         controller: Option<String>,
         stream_id: Option<String>,
         offset: Option<i32>,
         limit: Option<i32>,
         context: &C,
-    ) -> Result<ExperimentalEventsSepModelGetResponse, ApiError> {
-        info!("experimental_events_sep_model_get(\"{}\", \"{}\", {:?}, {:?}, {:?}, {:?}) - X-Span-ID: {:?}", sep, model, controller, stream_id, offset, limit, context.get().0.clone());
+    ) -> Result<ExperimentalEventsSepSepValueGetResponse, ApiError> {
+        info!("experimental_events_sep_sep_value_get(\"{}\", \"{}\", {:?}, {:?}, {:?}, {:?}) - X-Span-ID: {:?}", sep, sep_value, controller, stream_id, offset, limit, context.get().0.clone());
         Err(ApiError("Generic failure".into()))
     }
 

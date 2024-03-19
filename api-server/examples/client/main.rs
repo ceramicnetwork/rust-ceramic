@@ -3,9 +3,9 @@
 #[allow(unused_imports)]
 use ceramic_api_server::{
     models, Api, ApiNoContext, Client, ContextWrapperExt, EventsEventIdGetResponse,
-    EventsPostResponse, EventsSortKeySortValueGetResponse, ExperimentalEventsSepModelGetResponse,
-    FeedEventsGetResponse, InterestsPostResponse, InterestsSortKeySortValuePostResponse,
-    LivenessGetResponse, VersionPostResponse,
+    EventsPostResponse, EventsSortKeySortValueGetResponse,
+    ExperimentalEventsSepSepValueGetResponse, FeedEventsGetResponse, InterestsPostResponse,
+    InterestsSortKeySortValuePostResponse, LivenessGetResponse, VersionPostResponse,
 };
 use clap::{App, Arg};
 #[allow(unused_imports)]
@@ -37,7 +37,7 @@ fn main() {
                 .possible_values(&[
                     "EventsEventIdGet",
                     "EventsSortKeySortValueGet",
-                    "ExperimentalEventsSepModelGet",
+                    "ExperimentalEventsSepSepValueGet",
                     "FeedEventsGet",
                     "InterestsSortKeySortValuePost",
                     "LivenessGet",
@@ -128,10 +128,10 @@ fn main() {
                 (client.context() as &dyn Has<XSpanIdString>).get().clone()
             );
         }
-        Some("ExperimentalEventsSepModelGet") => {
-            let result = rt.block_on(client.experimental_events_sep_model_get(
+        Some("ExperimentalEventsSepSepValueGet") => {
+            let result = rt.block_on(client.experimental_events_sep_sep_value_get(
                 "sep_example".to_string(),
-                "model_example".to_string(),
+                "sep_value_example".to_string(),
                 Some("controller_example".to_string()),
                 Some("stream_id_example".to_string()),
                 Some(56),

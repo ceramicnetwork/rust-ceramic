@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use ceramic_api_server::{
     models, Api, EventsEventIdGetResponse, EventsPostResponse, EventsSortKeySortValueGetResponse,
-    ExperimentalEventsSepModelGetResponse, FeedEventsGetResponse, InterestsPostResponse,
+    ExperimentalEventsSepSepValueGetResponse, FeedEventsGetResponse, InterestsPostResponse,
     InterestsSortKeySortValuePostResponse, LivenessGetResponse, VersionPostResponse,
 };
 use ceramic_metrics::Recorder;
@@ -74,20 +74,20 @@ where
     }
 
     /// Get events for a stream
-    async fn experimental_events_sep_model_get(
+    async fn experimental_events_sep_sep_value_get(
         &self,
-        sort_key: String,
-        sort_value: String,
+        sep: String,
+        sep_value: String,
         controller: Option<String>,
         stream_id: Option<String>,
         offset: Option<i32>,
         limit: Option<i32>,
         context: &C,
-    ) -> Result<ExperimentalEventsSepModelGetResponse, ApiError> {
+    ) -> Result<ExperimentalEventsSepSepValueGetResponse, ApiError> {
         self.record(
             "/experimental/events",
-            self.api.experimental_events_sep_model_get(
-                sort_key, sort_value, controller, stream_id, offset, limit, context,
+            self.api.experimental_events_sep_sep_value_get(
+                sep, sep_value, controller, stream_id, offset, limit, context,
             ),
         )
         .await

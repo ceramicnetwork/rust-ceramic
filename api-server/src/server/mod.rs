@@ -23,7 +23,7 @@ type ServiceFuture = BoxFuture<'static, Result<Response<Body>, crate::ServiceErr
 
 use crate::{
     Api, EventsEventIdGetResponse, EventsPostResponse, EventsSortKeySortValueGetResponse,
-    ExperimentalEventsSepModelGetResponse, FeedEventsGetResponse, InterestsPostResponse,
+    ExperimentalEventsSepSepValueGetResponse, FeedEventsGetResponse, InterestsPostResponse,
     InterestsSortKeySortValuePostResponse, LivenessGetResponse, VersionPostResponse,
 };
 
@@ -35,7 +35,7 @@ mod paths {
             r"^/ceramic/events$",
             r"^/ceramic/events/(?P<event_id>[^/?#]*)$",
             r"^/ceramic/events/(?P<sort_key>[^/?#]*)/(?P<sort_value>[^/?#]*)$",
-            r"^/ceramic/experimental/events/(?P<sep>[^/?#]*)/(?P<model>[^/?#]*)$",
+            r"^/ceramic/experimental/events/(?P<sep>[^/?#]*)/(?P<sepValue>[^/?#]*)$",
             r"^/ceramic/feed/events$",
             r"^/ceramic/interests$",
             r"^/ceramic/interests/(?P<sort_key>[^/?#]*)/(?P<sort_value>[^/?#]*)$",
@@ -59,14 +59,14 @@ mod paths {
             regex::Regex::new(r"^/ceramic/events/(?P<sort_key>[^/?#]*)/(?P<sort_value>[^/?#]*)$")
                 .expect("Unable to create regex for EVENTS_SORT_KEY_SORT_VALUE");
     }
-    pub(crate) static ID_EXPERIMENTAL_EVENTS_SEP_MODEL: usize = 3;
+    pub(crate) static ID_EXPERIMENTAL_EVENTS_SEP_SEPVALUE: usize = 3;
     lazy_static! {
-        pub static ref REGEX_EXPERIMENTAL_EVENTS_SEP_MODEL: regex::Regex =
+        pub static ref REGEX_EXPERIMENTAL_EVENTS_SEP_SEPVALUE: regex::Regex =
             #[allow(clippy::invalid_regex)]
             regex::Regex::new(
-                r"^/ceramic/experimental/events/(?P<sep>[^/?#]*)/(?P<model>[^/?#]*)$"
+                r"^/ceramic/experimental/events/(?P<sep>[^/?#]*)/(?P<sepValue>[^/?#]*)$"
             )
-            .expect("Unable to create regex for EXPERIMENTAL_EVENTS_SEP_MODEL");
+            .expect("Unable to create regex for EXPERIMENTAL_EVENTS_SEP_SEPVALUE");
     }
     pub(crate) static ID_FEED_EVENTS: usize = 4;
     pub(crate) static ID_INTERESTS: usize = 5;
@@ -562,15 +562,15 @@ where
                     Ok(response)
                 }
 
-                // ExperimentalEventsSepModelGet - GET /experimental/events/{sep}/{model}
-                hyper::Method::GET if path.matched(paths::ID_EXPERIMENTAL_EVENTS_SEP_MODEL) => {
+                // ExperimentalEventsSepSepValueGet - GET /experimental/events/{sep}/{sepValue}
+                hyper::Method::GET if path.matched(paths::ID_EXPERIMENTAL_EVENTS_SEP_SEPVALUE) => {
                     // Path parameters
                     let path: &str = uri.path();
                     let path_params =
-                    paths::REGEX_EXPERIMENTAL_EVENTS_SEP_MODEL
+                    paths::REGEX_EXPERIMENTAL_EVENTS_SEP_SEPVALUE
                     .captures(path)
                     .unwrap_or_else(||
-                        panic!("Path {} matched RE EXPERIMENTAL_EVENTS_SEP_MODEL in set but failed match against \"{}\"", path, paths::REGEX_EXPERIMENTAL_EVENTS_SEP_MODEL.as_str())
+                        panic!("Path {} matched RE EXPERIMENTAL_EVENTS_SEP_SEPVALUE in set but failed match against \"{}\"", path, paths::REGEX_EXPERIMENTAL_EVENTS_SEP_SEPVALUE.as_str())
                     );
 
                     let param_sep = match percent_encoding::percent_decode(path_params["sep"].as_bytes()).decode_utf8() {
@@ -587,17 +587,17 @@ where
                                         .expect("Unable to create Bad Request response for invalid percent decode"))
                 };
 
-                    let param_model = match percent_encoding::percent_decode(path_params["model"].as_bytes()).decode_utf8() {
-                    Ok(param_model) => match param_model.parse::<String>() {
-                        Ok(param_model) => param_model,
+                    let param_sep_value = match percent_encoding::percent_decode(path_params["sepValue"].as_bytes()).decode_utf8() {
+                    Ok(param_sep_value) => match param_sep_value.parse::<String>() {
+                        Ok(param_sep_value) => param_sep_value,
                         Err(e) => return Ok(Response::builder()
                                         .status(StatusCode::BAD_REQUEST)
-                                        .body(Body::from(format!("Couldn't parse path parameter model: {}", e)))
+                                        .body(Body::from(format!("Couldn't parse path parameter sepValue: {}", e)))
                                         .expect("Unable to create Bad Request response for invalid path parameter")),
                     },
                     Err(_) => return Ok(Response::builder()
                                         .status(StatusCode::BAD_REQUEST)
-                                        .body(Body::from(format!("Couldn't percent-decode path parameter as UTF-8: {}", &path_params["model"])))
+                                        .body(Body::from(format!("Couldn't percent-decode path parameter as UTF-8: {}", &path_params["sepValue"])))
                                         .expect("Unable to create Bad Request response for invalid percent decode"))
                 };
 
@@ -681,9 +681,9 @@ where
                     };
 
                     let result = api_impl
-                        .experimental_events_sep_model_get(
+                        .experimental_events_sep_sep_value_get(
                             param_sep,
-                            param_model,
+                            param_sep_value,
                             param_controller,
                             param_stream_id,
                             param_offset,
@@ -706,35 +706,35 @@ where
 
                     match result {
                         Ok(rsp) => match rsp {
-                            ExperimentalEventsSepModelGetResponse::Success(body) => {
+                            ExperimentalEventsSepSepValueGetResponse::Success(body) => {
                                 *response.status_mut() = StatusCode::from_u16(200)
                                     .expect("Unable to turn 200 into a StatusCode");
                                 response.headers_mut().insert(
                                                         CONTENT_TYPE,
                                                         HeaderValue::from_str("application/json")
-                                                            .expect("Unable to create Content-Type header for EXPERIMENTAL_EVENTS_SEP_MODEL_GET_SUCCESS"));
+                                                            .expect("Unable to create Content-Type header for EXPERIMENTAL_EVENTS_SEP_SEP_VALUE_GET_SUCCESS"));
                                 let body_content = serde_json::to_string(&body)
                                     .expect("impossible to fail to serialize");
                                 *response.body_mut() = Body::from(body_content);
                             }
-                            ExperimentalEventsSepModelGetResponse::BadRequest(body) => {
+                            ExperimentalEventsSepSepValueGetResponse::BadRequest(body) => {
                                 *response.status_mut() = StatusCode::from_u16(400)
                                     .expect("Unable to turn 400 into a StatusCode");
                                 response.headers_mut().insert(
                                                         CONTENT_TYPE,
                                                         HeaderValue::from_str("application/json")
-                                                            .expect("Unable to create Content-Type header for EXPERIMENTAL_EVENTS_SEP_MODEL_GET_BAD_REQUEST"));
+                                                            .expect("Unable to create Content-Type header for EXPERIMENTAL_EVENTS_SEP_SEP_VALUE_GET_BAD_REQUEST"));
                                 let body_content = serde_json::to_string(&body)
                                     .expect("impossible to fail to serialize");
                                 *response.body_mut() = Body::from(body_content);
                             }
-                            ExperimentalEventsSepModelGetResponse::InternalServerError(body) => {
+                            ExperimentalEventsSepSepValueGetResponse::InternalServerError(body) => {
                                 *response.status_mut() = StatusCode::from_u16(500)
                                     .expect("Unable to turn 500 into a StatusCode");
                                 response.headers_mut().insert(
                                                         CONTENT_TYPE,
                                                         HeaderValue::from_str("application/json")
-                                                            .expect("Unable to create Content-Type header for EXPERIMENTAL_EVENTS_SEP_MODEL_GET_INTERNAL_SERVER_ERROR"));
+                                                            .expect("Unable to create Content-Type header for EXPERIMENTAL_EVENTS_SEP_SEP_VALUE_GET_INTERNAL_SERVER_ERROR"));
                                 let body_content = serde_json::to_string(&body)
                                     .expect("impossible to fail to serialize");
                                 *response.body_mut() = Body::from(body_content);
@@ -1197,7 +1197,9 @@ where
                 _ if path.matched(paths::ID_EVENTS) => method_not_allowed(),
                 _ if path.matched(paths::ID_EVENTS_EVENT_ID) => method_not_allowed(),
                 _ if path.matched(paths::ID_EVENTS_SORT_KEY_SORT_VALUE) => method_not_allowed(),
-                _ if path.matched(paths::ID_EXPERIMENTAL_EVENTS_SEP_MODEL) => method_not_allowed(),
+                _ if path.matched(paths::ID_EXPERIMENTAL_EVENTS_SEP_SEPVALUE) => {
+                    method_not_allowed()
+                }
                 _ if path.matched(paths::ID_FEED_EVENTS) => method_not_allowed(),
                 _ if path.matched(paths::ID_INTERESTS) => method_not_allowed(),
                 _ if path.matched(paths::ID_INTERESTS_SORT_KEY_SORT_VALUE) => method_not_allowed(),
@@ -1229,9 +1231,9 @@ impl<T> RequestParser<T> for ApiRequestParser {
             hyper::Method::GET if path.matched(paths::ID_EVENTS_SORT_KEY_SORT_VALUE) => {
                 Some("EventsSortKeySortValueGet")
             }
-            // ExperimentalEventsSepModelGet - GET /experimental/events/{sep}/{model}
-            hyper::Method::GET if path.matched(paths::ID_EXPERIMENTAL_EVENTS_SEP_MODEL) => {
-                Some("ExperimentalEventsSepModelGet")
+            // ExperimentalEventsSepSepValueGet - GET /experimental/events/{sep}/{sepValue}
+            hyper::Method::GET if path.matched(paths::ID_EXPERIMENTAL_EVENTS_SEP_SEPVALUE) => {
+                Some("ExperimentalEventsSepSepValueGet")
             }
             // FeedEventsGet - GET /feed/events
             hyper::Method::GET if path.matched(paths::ID_FEED_EVENTS) => Some("FeedEventsGet"),

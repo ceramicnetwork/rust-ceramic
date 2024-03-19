@@ -33,7 +33,7 @@ use ceramic_api_server::{
     LivenessGetResponse, VersionPostResponse,
 };
 use ceramic_api_server::{
-    Api, EventsSortKeySortValueGetResponse, ExperimentalEventsSepModelGetResponse,
+    Api, EventsSortKeySortValueGetResponse, ExperimentalEventsSepSepValueGetResponse,
     FeedEventsGetResponse, InterestsPostResponse,
 };
 use ceramic_core::{interest, EventId, Interest, Network, PeerId, StreamId};
@@ -222,7 +222,7 @@ where
         stream_id: Option<String>,
         offset: Option<i32>,
         limit: Option<i32>,
-    ) -> Result<ExperimentalEventsSepModelGetResponse, ErrorResponse> {
+    ) -> Result<ExperimentalEventsSepSepValueGetResponse, ErrorResponse> {
         let limit: usize =
             limit.map_or(10000, |l| if l.is_negative() { 10000 } else { l }) as usize;
         let offset = offset.map_or(0, |o| if o.is_negative() { 0 } else { o }) as usize;
@@ -240,7 +240,7 @@ where
             .collect::<Vec<_>>();
 
         let event_cnt = events.len();
-        Ok(ExperimentalEventsSepModelGetResponse::Success(
+        Ok(ExperimentalEventsSepSepValueGetResponse::Success(
             models::EventsGet {
                 resume_offset: (offset + event_cnt) as i32,
                 events,
@@ -417,25 +417,19 @@ where
     }
 
     #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
-    async fn experimental_events_sep_model_get(
+    async fn experimental_events_sep_sep_value_get(
         &self,
-        sort_key: String,
-        sort_value: String,
+        sep: String,
+        sep_value: String,
         controller: Option<String>,
         stream_id: Option<String>,
         offset: Option<i32>,
         limit: Option<i32>,
         _context: &C,
-    ) -> Result<ExperimentalEventsSepModelGetResponse, ApiError> {
-        self.get_events_sort_key_sort_value(
-            sort_key, sort_value, controller, stream_id, offset, limit,
-        )
-        .await
-        .or_else(|err| {
-            Ok(ExperimentalEventsSepModelGetResponse::InternalServerError(
-                err,
-            ))
-        })
+    ) -> Result<ExperimentalEventsSepSepValueGetResponse, ApiError> {
+        self.get_events_sort_key_sort_value(sep, sep_value, controller, stream_id, offset, limit)
+            .await
+            .or_else(|err| Ok(ExperimentalEventsSepSepValueGetResponse::InternalServerError(err)))
     }
 
     #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
@@ -456,13 +450,13 @@ where
             .await
         {
             Ok(v) => match v {
-                ExperimentalEventsSepModelGetResponse::Success(s) => {
+                ExperimentalEventsSepSepValueGetResponse::Success(s) => {
                     Ok(EventsSortKeySortValueGetResponse::Success(s))
                 }
-                ExperimentalEventsSepModelGetResponse::BadRequest(r) => {
+                ExperimentalEventsSepSepValueGetResponse::BadRequest(r) => {
                     Ok(EventsSortKeySortValueGetResponse::BadRequest(r))
                 }
-                ExperimentalEventsSepModelGetResponse::InternalServerError(err) => {
+                ExperimentalEventsSepSepValueGetResponse::InternalServerError(err) => {
                     Ok(EventsSortKeySortValueGetResponse::InternalServerError(err))
                 }
             },

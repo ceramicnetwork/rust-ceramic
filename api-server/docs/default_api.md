@@ -7,7 +7,7 @@ Method | HTTP request | Description
 ****](default_api.md#) | **GET** /events/{event_id} | Get event data
 ****](default_api.md#) | **POST** /events | Creates a new event
 ****](default_api.md#) | **GET** /events/{sort_key}/{sort_value} | Get events matching the interest stored on the node
-****](default_api.md#) | **GET** /experimental/events/{sep}/{model} | Get events matching the interest stored on the node
+****](default_api.md#) | **GET** /experimental/events/{sep}/{sepValue} | Get events matching the interest stored on the node
 ****](default_api.md#) | **GET** /feed/events | Get all new event keys since resume token
 ****](default_api.md#) | **POST** /interests | Register interest for a sort key
 ****](default_api.md#) | **POST** /interests/{sort_key}/{sort_value} | Register interest for a sort key
@@ -105,15 +105,15 @@ No authorization required
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
 # ****
-> models::EventsGet (sep, model, optional)
+> models::EventsGet (sep, sep_value, optional)
 Get events matching the interest stored on the node
 
 ### Required Parameters
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
-  **sep** | **String**| name of the separator/sort_key e.g. 'model' | 
-  **model** | **String**| value associated with the sort key e.g. multibase encoded model ID | 
+  **sep** | **String**| Name of the field in the Events header that holds the separator value e.g. 'model' | 
+  **sep_value** | **String**| The value of the field in the Events header indicated by the separator key e.g. multibase encoded model ID | 
  **optional** | **map[string]interface{}** | optional parameters | nil if no parameters
 
 ### Optional Parameters
@@ -121,8 +121,8 @@ Optional parameters are passed through a map[string]interface{}.
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **sep** | **String**| name of the separator/sort_key e.g. 'model' | 
- **model** | **String**| value associated with the sort key e.g. multibase encoded model ID | 
+ **sep** | **String**| Name of the field in the Events header that holds the separator value e.g. 'model' | 
+ **sep_value** | **String**| The value of the field in the Events header indicated by the separator key e.g. multibase encoded model ID | 
  **controller** | **String**| the controller to filter (DID string) | 
  **stream_id** | **String**| the stream to filter (multibase encoded stream ID) | 
  **offset** | **i32**| token that designates the point to resume from, that is find keys added after this point | 

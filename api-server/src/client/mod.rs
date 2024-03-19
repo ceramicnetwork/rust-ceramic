@@ -43,7 +43,7 @@ const ID_ENCODE_SET: &AsciiSet = &FRAGMENT_ENCODE_SET.add(b'|');
 
 use crate::{
     Api, EventsEventIdGetResponse, EventsPostResponse, EventsSortKeySortValueGetResponse,
-    ExperimentalEventsSepModelGetResponse, FeedEventsGetResponse, InterestsPostResponse,
+    ExperimentalEventsSepSepValueGetResponse, FeedEventsGetResponse, InterestsPostResponse,
     InterestsSortKeySortValuePostResponse, LivenessGetResponse, VersionPostResponse,
 };
 
@@ -751,22 +751,22 @@ where
         }
     }
 
-    async fn experimental_events_sep_model_get(
+    async fn experimental_events_sep_sep_value_get(
         &self,
         param_sep: String,
-        param_model: String,
+        param_sep_value: String,
         param_controller: Option<String>,
         param_stream_id: Option<String>,
         param_offset: Option<i32>,
         param_limit: Option<i32>,
         context: &C,
-    ) -> Result<ExperimentalEventsSepModelGetResponse, ApiError> {
+    ) -> Result<ExperimentalEventsSepSepValueGetResponse, ApiError> {
         let mut client_service = self.client_service.clone();
         let mut uri = format!(
-            "{}/ceramic/experimental/events/{sep}/{model}",
+            "{}/ceramic/experimental/events/{sep}/{sep_value}",
             self.base_path,
             sep = utf8_percent_encode(&param_sep.to_string(), ID_ENCODE_SET),
-            model = utf8_percent_encode(&param_model.to_string(), ID_ENCODE_SET)
+            sep_value = utf8_percent_encode(&param_sep_value.to_string(), ID_ENCODE_SET)
         );
 
         // Query parameters
@@ -836,7 +836,7 @@ where
                 let body = serde_json::from_str::<models::EventsGet>(body).map_err(|e| {
                     ApiError(format!("Response body did not match the schema: {}", e))
                 })?;
-                Ok(ExperimentalEventsSepModelGetResponse::Success(body))
+                Ok(ExperimentalEventsSepSepValueGetResponse::Success(body))
             }
             400 => {
                 let body = response.into_body();
@@ -850,7 +850,7 @@ where
                     serde_json::from_str::<models::BadRequestResponse>(body).map_err(|e| {
                         ApiError(format!("Response body did not match the schema: {}", e))
                     })?;
-                Ok(ExperimentalEventsSepModelGetResponse::BadRequest(body))
+                Ok(ExperimentalEventsSepSepValueGetResponse::BadRequest(body))
             }
             500 => {
                 let body = response.into_body();
@@ -863,9 +863,7 @@ where
                 let body = serde_json::from_str::<models::ErrorResponse>(body).map_err(|e| {
                     ApiError(format!("Response body did not match the schema: {}", e))
                 })?;
-                Ok(ExperimentalEventsSepModelGetResponse::InternalServerError(
-                    body,
-                ))
+                Ok(ExperimentalEventsSepSepValueGetResponse::InternalServerError(body))
             }
             code => {
                 let headers = response.headers().clone();

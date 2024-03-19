@@ -155,19 +155,19 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
-  "/experimental/events/{sep}/{model}":
+  "/experimental/events/{sep}/{sepValue}":
     get:
       summary: Get events matching the interest stored on the node
       parameters:
         - name: sep
           in: path
-          description: name of the separator/sort_key e.g. 'model'
+          description: Name of the field in the Events header that holds the separator value e.g. 'model'
           schema:
             type: string
           required: true
-        - name: model
+        - name: sepValue
           in: path
-          description: value associated with the sort key e.g. multibase encoded model ID
+          description: The value of the field in the Events header indicated by the separator key me.g. multibase encoded model ID
           schema:
             type: string
           required: true

@@ -160,10 +160,11 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
           description: Internal server error
       summary: Register interest for a sort key
-  /experimental/events/{sep}/{model}:
+  /experimental/events/{sep}/{sepValue}:
     get:
       parameters:
-      - description: name of the separator/sort_key e.g. 'model'
+      - description: Name of the field in the Events header that holds the separator
+          value e.g. 'model'
         explode: false
         in: path
         name: sep
@@ -171,11 +172,11 @@ paths:
         schema:
           type: string
         style: simple
-      - description: value associated with the sort key e.g. multibase encoded model
-          ID
+      - description: The value of the field in the Events header indicated by the
+          separator key e.g. multibase encoded model ID
         explode: false
         in: path
-        name: model
+        name: sepValue
         required: true
         schema:
           type: string

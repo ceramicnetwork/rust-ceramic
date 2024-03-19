@@ -57,7 +57,7 @@ pub enum EventsSortKeySortValueGetResponse {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[must_use]
-pub enum ExperimentalEventsSepModelGetResponse {
+pub enum ExperimentalEventsSepSepValueGetResponse {
     /// success
     Success(models::EventsGet),
     /// bad request
@@ -155,16 +155,16 @@ pub trait Api<C: Send + Sync> {
     ) -> Result<EventsSortKeySortValueGetResponse, ApiError>;
 
     /// Get events matching the interest stored on the node
-    async fn experimental_events_sep_model_get(
+    async fn experimental_events_sep_sep_value_get(
         &self,
         sep: String,
-        model: String,
+        sep_value: String,
         controller: Option<String>,
         stream_id: Option<String>,
         offset: Option<i32>,
         limit: Option<i32>,
         context: &C,
-    ) -> Result<ExperimentalEventsSepModelGetResponse, ApiError>;
+    ) -> Result<ExperimentalEventsSepSepValueGetResponse, ApiError>;
 
     /// Get all new event keys since resume token
     async fn feed_events_get(
@@ -230,15 +230,15 @@ pub trait ApiNoContext<C: Send + Sync> {
     ) -> Result<EventsSortKeySortValueGetResponse, ApiError>;
 
     /// Get events matching the interest stored on the node
-    async fn experimental_events_sep_model_get(
+    async fn experimental_events_sep_sep_value_get(
         &self,
         sep: String,
-        model: String,
+        sep_value: String,
         controller: Option<String>,
         stream_id: Option<String>,
         offset: Option<i32>,
         limit: Option<i32>,
-    ) -> Result<ExperimentalEventsSepModelGetResponse, ApiError>;
+    ) -> Result<ExperimentalEventsSepSepValueGetResponse, ApiError>;
 
     /// Get all new event keys since resume token
     async fn feed_events_get(
@@ -328,19 +328,19 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
     }
 
     /// Get events matching the interest stored on the node
-    async fn experimental_events_sep_model_get(
+    async fn experimental_events_sep_sep_value_get(
         &self,
         sep: String,
-        model: String,
+        sep_value: String,
         controller: Option<String>,
         stream_id: Option<String>,
         offset: Option<i32>,
         limit: Option<i32>,
-    ) -> Result<ExperimentalEventsSepModelGetResponse, ApiError> {
+    ) -> Result<ExperimentalEventsSepSepValueGetResponse, ApiError> {
         let context = self.context().clone();
         self.api()
-            .experimental_events_sep_model_get(
-                sep, model, controller, stream_id, offset, limit, &context,
+            .experimental_events_sep_sep_value_get(
+                sep, sep_value, controller, stream_id, offset, limit, &context,
             )
             .await
     }
