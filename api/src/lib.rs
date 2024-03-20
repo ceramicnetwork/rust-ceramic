@@ -7,3 +7,6 @@ pub use metrics::Metrics;
 pub use resume_token::ResumeToken;
 
 pub use server::{AccessInterestStore, AccessModelStore, Server};
+
+#[cfg(test)]
+mod test;
