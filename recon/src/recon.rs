@@ -430,6 +430,18 @@ impl InsertResult {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Block {
+    pub cid: ceramic_core::Cid,
+    pub bytes: Vec<u8>,
+}
+
+/// Store defines the API needed to store the Recon set.
+#[async_trait]
+pub trait BlockStore: std::fmt::Debug {
+    async fn get(&self, cid: &ceramic_core::Cid) -> Result<Option<Block>>;
+}
+
 /// Store defines the API needed to store the Recon set.
 #[async_trait]
 pub trait Store: std::fmt::Debug {
