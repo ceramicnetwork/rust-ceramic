@@ -190,6 +190,28 @@ async fn register_interest_sort_value() {
 
 #[tokio::test]
 #[traced_test]
+async fn register_interest_sort_value_bad_request() {
+    let peer_id = PeerId::random();
+    let network = Network::InMemory;
+
+    let model = "2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9"; //missing 'k' cspell:disable-line
+
+    // Setup mock expectations
+    let mock_interest = MockReconInterestTest::new();
+    let mock_model = MockReconModelTest::new();
+    let server = Server::new(peer_id, network, mock_interest, mock_model);
+    let interest = models::Interest {
+        sep: "model".to_string(),
+        sep_value: model.to_owned(),
+        controller: None,
+        stream_id: None,
+    };
+    let resp = server.interests_post(interest, &Context).await.unwrap();
+    assert!(matches!(resp, InterestsPostResponse::BadRequest(_)));
+}
+
+#[tokio::test]
+#[traced_test]
 async fn register_interest_sort_value_controller() {
     let peer_id = PeerId::random();
     let network = Network::InMemory;
