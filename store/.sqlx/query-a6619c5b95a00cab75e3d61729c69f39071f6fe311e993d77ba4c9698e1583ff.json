@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT first.id as first, last.id as last\n                FROM\n                    (\n                        SELECT id\n                        FROM event\n                        WHERE\n                            id > ? AND id < ?\n                        ORDER BY id ASC\n                        LIMIT 1\n                    ) as first\n                JOIN\n                    (\n                        SELECT id\n                        FROM event\n                        WHERE\n                            id > ? AND id < ?\n                        ORDER BY id DESC\n                        LIMIT 1\n                    ) as last;",
+  "describe": {
+    "columns": [
+      {
+        "name": "first",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "last",
+        "ordinal": 1,
+        "type_info": "Blob"
+      }
+    ],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "a6619c5b95a00cab75e3d61729c69f39071f6fe311e993d77ba4c9698e1583ff"
+}

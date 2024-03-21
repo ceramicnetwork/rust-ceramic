@@ -10,3 +10,4 @@ peer*
 sync_test.sh
 
 openapi-generator-cli.jar
+.env

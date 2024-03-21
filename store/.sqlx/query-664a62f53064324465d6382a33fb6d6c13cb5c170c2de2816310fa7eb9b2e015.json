@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT id\n            FROM event\n            WHERE\n                id > ?\n                AND id < ?\n                AND value_retrieved = false\n            ;",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Blob"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "664a62f53064324465d6382a33fb6d6c13cb5c170c2de2816310fa7eb9b2e015"
+}

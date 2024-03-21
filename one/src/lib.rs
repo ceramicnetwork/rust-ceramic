@@ -421,7 +421,7 @@ impl Daemon {
 
         // Connect to sqlite
         let sql_db_path: PathBuf = dir.join("db.sqlite3");
-        let sql_pool = ceramic_store::SqlitePool::connect(&sql_db_path).await?;
+        let sql_pool = ceramic_store::SqlitePool::connect(&sql_db_path, true).await?;
 
         // Create recon metrics
         let recon_metrics = ceramic_metrics::MetricsHandle::register(recon::Metrics::register);

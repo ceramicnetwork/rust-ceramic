@@ -1,0 +1,44 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n                event_block.id, event_block.cid, event_block.root, event_block.idx, block.bytes\n            FROM (\n                SELECT\n                    id\n                FROM event\n                WHERE\n                    id > ? AND id < ?\n                    AND value_retrieved = true\n                ORDER BY\n                    id ASC\n                LIMIT\n                    ?\n                OFFSET\n                    ?\n            ) key\n            JOIN\n                event_block ON key.id = event_block.id\n            JOIN block on block.cid = event_block.cid\n                ORDER BY event_block.id, event_block.idx\n            ;",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "cid",
+        "ordinal": 1,
+        "type_info": "Blob"
+      },
+      {
+        "name": "root",
+        "ordinal": 2,
+        "type_info": "Bool"
+      },
+      {
+        "name": "idx",
+        "ordinal": 3,
+        "type_info": "Int64"
+      },
+      {
+        "name": "bytes",
+        "ordinal": 4,
+        "type_info": "Blob"
+      }
+    ],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "f2d640daf5ad8dd81ddcf2fcf52f8d82eeb3966519132fa136719c452aa6e7d6"
+}

@@ -19,7 +19,7 @@ use rand::Rng;
 use recon::Sha256a;
 
 pub(crate) async fn new_store() -> ModelStore<Sha256a> {
-    let conn = SqlitePool::connect("sqlite::memory:").await.unwrap();
+    let conn = SqlitePool::connect("sqlite::memory:", true).await.unwrap();
     ModelStore::new(conn).await.unwrap()
 }
 

@@ -5,12 +5,13 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use ceramic_core::{EventId, RangeOpen};
 use cid::Cid;
+use futures::stream::BoxStream;
 use iroh_bitswap::Block;
 use iroh_car::{CarHeader, CarReader, CarWriter};
 use itertools::{process_results, Itertools};
-use multihash::{Code, MultihashDigest};
+use multihash::{Code, Multihash, MultihashDigest};
 use recon::{AssociativeHash, HashCount, InsertResult, Key, ReconItem, Sha256a};
-use sqlx::Row;
+use sqlx::{sqlite::SqliteRow, FromRow, Row};
 use tracing::instrument;
 
 use crate::{DbTx, SqlitePool};
@@ -27,10 +28,23 @@ where
 }
 
 #[derive(Debug)]
-struct BlockRow {
+/// A CID identified block of (ipfs) data
+pub struct BlockRow {
     cid: Cid,
     root: bool,
     bytes: Vec<u8>,
+}
+
+// unfortunately, query! macros require the exact field names, not the FromRow implementation so we need to impl
+// the decode/type stuff for CID/EventId to get that to work as expected
+impl FromRow<'_, SqliteRow> for BlockRow {
+    fn from_row(row: &SqliteRow) -> sqlx::Result<Self> {
+        let cid: &[u8] = row.try_get("cid")?;
+        let root: bool = row.try_get("root")?;
+        let bytes = row.try_get("bytes")?;
+        let cid = Cid::read_bytes(cid).map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+        Ok(Self { cid, root, bytes })
+    }
 }
 
 type EventIdError = <EventId as TryFrom<Vec<u8>>>::Error;
@@ -45,57 +59,17 @@ where
             pool,
             hash: PhantomData,
         };
-        store.create_table_if_not_exists().await?;
         Ok(store)
     }
 
-    /// Initialize the recon table.
-    async fn create_table_if_not_exists(&self) -> Result<()> {
-        const CREATE_STORE_KEY_TABLE: &str = "CREATE TABLE IF NOT EXISTS model_key (
-            key BLOB, -- network_id sort_value controller StreamID height event_cid
-            ahash_0 INTEGER, -- the ahash is decomposed as [u32; 8]
-            ahash_1 INTEGER,
-            ahash_2 INTEGER,
-            ahash_3 INTEGER,
-            ahash_4 INTEGER,
-            ahash_5 INTEGER,
-            ahash_6 INTEGER,
-            ahash_7 INTEGER,
-            value_retrieved BOOL, -- indicates if we have the value
-            PRIMARY KEY(key)
-        )";
-        const CREATE_VALUE_RETRIEVED_INDEX: &str =
-            "CREATE INDEX IF NOT EXISTS idx_key_value_retrieved
-            ON model_key (key, value_retrieved)";
+    /// Begin a database transaction.
+    pub async fn begin_tx(&self) -> Result<DbTx<'_>> {
+        self.pool.tx().await
+    }
 
-        const CREATE_MODEL_BLOCK_TABLE: &str = "CREATE TABLE IF NOT EXISTS model_block (
-            key BLOB, -- network_id sort_value controller StreamID height event_cid
-            cid BLOB, -- the cid of the Block as bytes no 0x00 prefix
-            idx INTEGER, -- the index of the block in the CAR file
-            root BOOL, -- when true the block is a root in the CAR file
-            bytes BLOB, -- the Block
-            PRIMARY KEY(key, cid)
-        )";
-        // TODO should this include idx or not?
-        const CREATE_BLOCK_ORDER_INDEX: &str = "CREATE INDEX IF NOT EXISTS idx_model_block_cid
-            ON model_block (cid)";
-
-        let mut tx = self.pool.tx().await?;
-        sqlx::query(CREATE_STORE_KEY_TABLE)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query(CREATE_VALUE_RETRIEVED_INDEX)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query(CREATE_MODEL_BLOCK_TABLE)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query(CREATE_BLOCK_ORDER_INDEX)
-            .execute(&mut *tx)
-            .await?;
-
-        tx.commit().await?;
-        Ok(())
+    /// Commit the database transaction.
+    pub async fn commit_tx(&self, tx: DbTx<'_>) -> Result<()> {
+        Ok(tx.commit().await?)
     }
 
     async fn insert_item(&self, item: &ReconItem<'_, EventId>) -> Result<(bool, bool)> {
@@ -112,46 +86,50 @@ where
         offset: usize,
         limit: usize,
     ) -> Result<Box<dyn Iterator<Item = (EventId, Vec<u8>)> + Send + 'static>> {
-        let query = sqlx::query(
-            "
-        SELECT
-            model_block.key, model_block.cid, model_block.root, model_block.bytes
-        FROM (
-            SELECT
-                key
-            FROM model_key
-            WHERE
-                key > ? AND key < ?
-                AND value_retrieved = true
-            ORDER BY
-                key ASC
-            LIMIT
-                ?
-            OFFSET
-                ?
-        ) key
-        JOIN
-            model_block
-        ON
-            key.key = model_block.key
-            ORDER BY model_block.key, model_block.idx
-        ;",
-        );
-        let all_blocks = query
-            .bind(left_fencepost.as_bytes())
-            .bind(right_fencepost.as_bytes())
-            .bind(limit as i64)
-            .bind(offset as i64)
-            .fetch_all(self.pool.reader())
-            .await?;
+        // hit temporary dropped while in use errors even with the copy types
+        // see https://github.com/launchbadge/sqlx/issues/1151
+        let lfp = left_fencepost.as_bytes();
+        let rfp = right_fencepost.as_bytes();
+        let offset = offset as i64;
+        let limit = limit as i64;
 
-        // Consume all block into groups of blocks by their key.
+        let all_blocks = sqlx::query!(
+            "SELECT
+                event_block.id, event_block.cid, event_block.root, event_block.idx, block.bytes
+            FROM (
+                SELECT
+                    id
+                FROM event
+                WHERE
+                    id > ? AND id < ?
+                    AND value_retrieved = true
+                ORDER BY
+                    id ASC
+                LIMIT
+                    ?
+                OFFSET
+                    ?
+            ) key
+            JOIN
+                event_block ON key.id = event_block.id
+            JOIN block on block.cid = event_block.cid
+                ORDER BY event_block.id, event_block.idx
+            ;",
+            lfp,
+            rfp,
+            limit,
+            offset
+        )
+        .fetch_all(self.pool.reader())
+        .await?;
+
+        // // Consume all block into groups of blocks by their key.
         let all_blocks: Vec<(EventId, Vec<BlockRow>)> = process_results(
             all_blocks.into_iter().map(
                 |row| -> Result<(EventId, cid::CidGeneric<64>, bool, Vec<u8>), anyhow::Error> {
-                    let event_id = EventId::try_from(row.get::<Vec<u8>, _>(0))?;
-                    let cid = Cid::read_bytes(row.get::<&[u8], _>(1))?;
-                    Ok((event_id, cid, row.get(2), row.get(3)))
+                    let event_id = EventId::try_from(row.id)?;
+                    let cid = Cid::read_bytes(&row.cid[..])?;
+                    Ok((event_id, cid, row.root, row.bytes))
                 },
             ),
             |blocks| {
@@ -180,35 +158,22 @@ where
     }
 
     async fn value_for_key_int(&self, key: &EventId) -> Result<Option<Vec<u8>>> {
-        let query = sqlx::query(
+        let query = sqlx::query_as::<_, BlockRow>(
             "
             SELECT
-                cid, root, bytes
-            FROM model_block
+                eb.cid, eb.root, b.bytes
+            FROM event_block eb join block b on eb.cid = b.cid
             WHERE
-                key=?
-            ORDER BY idx
+                eb.id=?
+            ORDER BY eb.idx
             ;",
         );
+
         let blocks = query
             .bind(key.as_bytes())
             .fetch_all(self.pool.reader())
             .await?;
-        self.rebuild_car(
-            blocks
-                .into_iter()
-                .map(|row| {
-                    Cid::read_bytes(row.get::<&[u8], _>(0))
-                        .map_err(anyhow::Error::from)
-                        .map(|cid| BlockRow {
-                            cid,
-                            root: row.get(1),
-                            bytes: row.get(2),
-                        })
-                })
-                .collect::<Result<Vec<_>>>()?,
-        )
-        .await
+        self.rebuild_car(blocks).await
     }
 
     /// returns (new_key, new_val) tuple
@@ -217,70 +182,78 @@ where
         item: &ReconItem<'_, EventId>,
         conn: &mut DbTx<'_>,
     ) -> Result<(bool, bool)> {
-        // we insert the value first as it's possible we already have the key and can skip that step
-        // as it happens in a transaction, we'll roll back the value insert if the key insert fails and try again
-        if let Some(val) = item.value {
-            // Check if  the value_retrieved flag is set and report if the key already exists.
-            let (key_exists, value_exists) = self.is_value_retrieved_int(item.key, conn).await?;
-
-            if !value_exists {
-                self.update_value_retrieved_int(item.key, conn).await?;
-
-                // Put each block from the car file
-                let mut reader = CarReader::new(val).await?;
-                let roots: BTreeSet<Cid> = reader.header().roots().iter().cloned().collect();
-                let mut idx = 0;
-                while let Some((cid, data)) = reader.next_block().await? {
-                    self.insert_block_int(
-                        item.key,
-                        idx,
-                        roots.contains(&cid),
-                        cid,
-                        &data.into(),
-                        conn,
-                    )
-                    .await?;
-                    idx += 1;
-                }
-            }
-
-            if key_exists {
-                return Ok((false, true));
-            }
-        }
+        // We make sure the key exists as we require it as an FK to add the event_block record.
+        // It'd be nice to UPSERT here so we could set the value_retrieved value for an existing record,
+        // but we can't easily determine if the key was new in that case in sqlite (could in postgres).
+        // Instead we just run the update statement after if needed to make sure it's all set.
         let new_key = self
             .insert_key_int(item.key, item.value.is_some(), conn)
             .await?;
+
+        if let Some(val) = item.value {
+            self.update_value_retrieved_int(item.key, conn).await?;
+
+            // Put each block from the car file. Should we check if value already existed and skip this?
+            // It will no-op but will still try to insert the blocks again
+            let mut reader = CarReader::new(val).await?;
+            let roots: BTreeSet<Cid> = reader.header().roots().iter().cloned().collect();
+            let mut idx = 0;
+            while let Some((cid, data)) = reader.next_block().await? {
+                self.insert_event_block_int(
+                    item.key,
+                    idx,
+                    roots.contains(&cid),
+                    cid,
+                    &data.into(),
+                    conn,
+                )
+                .await?;
+                idx += 1;
+            }
+        }
         Ok((new_key, item.value.is_some()))
     }
 
-    // Read the value_retrieved column. Report if the key exists and the value exists
-    async fn is_value_retrieved_int(
-        &self,
-        key: &EventId,
-        conn: &mut DbTx<'_>,
-    ) -> Result<(bool, bool)> {
-        let query = sqlx::query("SELECT value_retrieved FROM model_key WHERE key = ?");
-        let row = query
-            .bind(key.as_bytes())
-            .fetch_optional(&mut **conn)
-            .await?;
-        if let Some(row) = row {
-            Ok((true, row.get(0)))
-        } else {
-            Ok((false, false))
-        }
-    }
-
-    // set value_retrieved to true and return if the key already exists
+    /// set value_retrieved to true
     async fn update_value_retrieved_int(&self, key: &EventId, conn: &mut DbTx<'_>) -> Result<()> {
-        let update = sqlx::query("UPDATE model_key SET value_retrieved = true WHERE key = ?");
-        update.bind(key.as_bytes()).execute(&mut **conn).await?;
+        let id = key.as_bytes();
+        let _update = sqlx::query!("UPDATE event SET value_retrieved = true WHERE id = ?", id)
+            .execute(&mut **conn)
+            .await?;
         Ok(())
     }
 
+    /// Add a block, returns true if the block is new
+    pub async fn put_block(&self, cid: &Cid, blob: &Bytes) -> Result<bool> {
+        let mut tx = self.pool.tx().await?;
+        let res = self.put_block_tx(cid, blob, &mut tx).await?;
+        tx.commit().await?;
+        Ok(res)
+    }
+
+    /// Add a block, returns true if the block is new
+    pub async fn put_block_tx(&self, cid: &Cid, blob: &Bytes, conn: &mut DbTx<'_>) -> Result<bool> {
+        let cid = cid.to_bytes();
+        let blob = blob.to_vec();
+        let resp = sqlx::query!("INSERT INTO block (cid, bytes) VALUES (?, ?);", cid, blob,)
+            .execute(&mut **conn)
+            .await;
+
+        match resp {
+            std::result::Result::Ok(_rows) => Ok(true),
+            Err(sqlx::Error::Database(err)) => {
+                if err.is_unique_violation() {
+                    Ok(false)
+                } else {
+                    Err(sqlx::Error::Database(err).into())
+                }
+            }
+            Err(err) => Err(err.into()),
+        }
+    }
+
     // store a block in the db.
-    async fn insert_block_int(
+    async fn insert_event_block_int(
         &self,
         key: &EventId,
         idx: i32,
@@ -308,14 +281,19 @@ where
             ));
         }
 
-        sqlx::query("INSERT INTO model_block (key, idx, root, cid, bytes) VALUES (?, ?, ?, ?, ?)")
-            .bind(key.as_bytes())
-            .bind(idx)
-            .bind(root)
-            .bind(cid.to_bytes())
-            .bind(blob.to_vec())
-            .execute(&mut **conn)
-            .await?;
+        let _new = self.put_block_tx(&cid, blob, conn).await?;
+
+        let cid = cid.to_bytes();
+        let id = key.as_bytes();
+        sqlx::query!(
+            "INSERT INTO event_block (id, idx, root, cid) VALUES (?, ?, ?, ?) on conflict do nothing;",
+            id,
+            idx,
+            root,
+            cid
+        )
+        .execute(&mut **conn)
+        .await?;
         Ok(())
     }
 
@@ -325,34 +303,37 @@ where
         has_value: bool,
         conn: &mut DbTx<'_>,
     ) -> Result<bool> {
-        let key_insert = sqlx::query(
-            "INSERT INTO model_key (
-                    key,
+        let id = key.as_bytes();
+        let cid = key.cid().map(|cid| cid.to_bytes());
+        let hash = Sha256a::digest(key);
+
+        let resp = sqlx::query!(
+            "INSERT INTO event (
+                    id, cid,
                     ahash_0, ahash_1, ahash_2, ahash_3,
                     ahash_4, ahash_5, ahash_6, ahash_7,
                     value_retrieved
                 ) VALUES (
-                    ?,
+                    ?, ?,
                     ?, ?, ?, ?,
                     ?, ?, ?, ?,
                     ?
                 );",
-        );
+            id,
+            cid,
+            hash.as_u32s()[0],
+            hash.as_u32s()[1],
+            hash.as_u32s()[2],
+            hash.as_u32s()[3],
+            hash.as_u32s()[4],
+            hash.as_u32s()[5],
+            hash.as_u32s()[6],
+            hash.as_u32s()[7],
+            has_value
+        )
+        .execute(&mut **conn)
+        .await;
 
-        let hash = Sha256a::digest(key);
-        let resp = key_insert
-            .bind(key.as_bytes())
-            .bind(hash.as_u32s()[0])
-            .bind(hash.as_u32s()[1])
-            .bind(hash.as_u32s()[2])
-            .bind(hash.as_u32s()[3])
-            .bind(hash.as_u32s()[4])
-            .bind(hash.as_u32s()[5])
-            .bind(hash.as_u32s()[6])
-            .bind(hash.as_u32s()[7])
-            .bind(has_value)
-            .execute(&mut **conn)
-            .await;
         match resp {
             std::result::Result::Ok(_rows) => Ok(true),
             Err(sqlx::Error::Database(err)) => {
@@ -403,39 +384,114 @@ where
         row_id: i64,
         limit: i64,
     ) -> Result<(i64, Vec<EventId>)> {
-        let query = sqlx::query(
-            "WITH entries AS (
-                    SELECT key, MAX(rowid) as max_rowid
-                FROM model_block
+        struct Highwater {
+            id: Vec<u8>,
+            new_highwater_mark: Option<i64>,
+        }
+        // unable to get query! to coerce and keep getting `unsupported type NULL of column #2 ("new_highwater_mark")`
+        let rows = sqlx::query_as!(
+            Highwater,
+            r#"WITH entries AS (
+                    SELECT id, MAX(rowid) as max_rowid
+                FROM event_block
                     WHERE rowid >= ? -- we return rowid+1 so we must match it next search
-                GROUP BY key
+                GROUP BY id
                 ORDER BY rowid
                 LIMIT ?
             )
             SELECT 
-                key, 
-                (SELECT MAX(max_rowid) + 1 FROM entries) as new_highwater_mark 
-            from entries;",
-        );
-        let rows = query
-            .bind(row_id)
-            .bind(limit)
-            .fetch_all(self.pool.reader())
-            .await?;
+                id, 
+                (SELECT MAX(max_rowid) + 1 FROM entries) as "new_highwater_mark: _"
+            from entries;"#,
+            row_id,
+            limit
+        )
+        .fetch_all(self.pool.reader())
+        .await?;
+
         // every row has the same new_highwater_mark value
         let row_id: i64 = rows
             .first()
-            .and_then(|r| r.get("new_highwater_mark"))
+            .and_then(|r| r.new_highwater_mark)
             .unwrap_or(row_id);
         let rows = rows
             .into_iter()
-            .map(|row| {
-                let bytes: Vec<u8> = row.get(0);
-                EventId::try_from(bytes)
-            })
+            .map(|row| EventId::try_from(row.id))
             .collect::<Result<Vec<EventId>, EventIdError>>()?;
 
         Ok((row_id, rows))
+    }
+
+    /// Return a range of block hashes starting at hash exclusively.
+    pub async fn block_range(
+        &self,
+        hash: Option<Multihash>,
+        limit: i64,
+    ) -> Result<(Vec<Multihash>, i64)> {
+        let (hashes_query, remaining_query) = if let Some(hash) = hash {
+            (
+                sqlx::query("SELECT cid FROM block WHERE cid > ? ORDER BY cid LIMIT ?;")
+                    .bind(hash.to_bytes())
+                    .bind(limit),
+                sqlx::query("SELECT count(cid) FROM block WHERE cid > ?").bind(hash.to_bytes()),
+            )
+        } else {
+            (
+                sqlx::query("SELECT DISTINCT cid FROM event_block ORDER BY cid LIMIT ?;")
+                    .bind(limit),
+                sqlx::query("SELECT count(DISTINCT cid) FROM blocks;"),
+            )
+        };
+        let hashes = hashes_query
+            .fetch_all(self.pool.reader())
+            .await?
+            .into_iter()
+            .map(|row| Multihash::from_bytes(row.get::<'_, &[u8], _>(0)))
+            .collect::<Result<Vec<Multihash>, multihash::Error>>()?;
+        let remaining = remaining_query
+                .fetch_one(self.pool.reader())
+                .await?
+                .get::<'_, i64, _>(0)
+                // Do not count the hashes we just got in the remaining count.
+                - (hashes.len() as i64);
+        Ok((hashes, remaining))
+    }
+
+    /// Return rows in the blocks table as a stream to iterate.
+    pub fn scan_blocks(&self) -> BoxStream<Result<BlockRow, sqlx::Error>> {
+        // TODO: should this include idx (all event block info) or just be cid/bytes?
+        sqlx::query_as(
+            "SELECT cid, idx, root, bytes
+        FROM event_block
+        GROUP BY cid
+        ORDER BY (key, cid, idx);",
+        )
+        .fetch(self.pool.reader())
+    }
+
+    /// merge_from_sqlite takes the filepath to a sqlite file.
+    /// If the file dose not exist the ATTACH DATABASE command will create it.
+    /// This function assumes that the database contains a table named blocks with cid, bytes columns.
+    pub async fn merge_from_sqlite(&self, input_ceramic_db_filename: &str) -> Result<()> {
+        sqlx::query(
+            "
+                    ATTACH DATABASE ? AS other;
+                    INSERT OR IGNORE INTO blocks SELECT cid, bytes FROM other.blocks;
+                ",
+        )
+        .bind(input_ceramic_db_filename)
+        .execute(self.pool.writer())
+        .await?;
+        Ok(())
+    }
+
+    /// Backup the database to a filepath output_ceramic_db_filename.
+    pub async fn backup_to_sqlite(&self, output_ceramic_db_filename: &str) -> Result<()> {
+        sqlx::query(".backup ?")
+            .bind(output_ceramic_db_filename)
+            .execute(self.pool.writer())
+            .await?;
+        Ok(())
     }
 }
 
@@ -497,7 +553,7 @@ where
                TOTAL(ahash_4) & 0xFFFFFFFF, TOTAL(ahash_5) & 0xFFFFFFFF,
                TOTAL(ahash_6) & 0xFFFFFFFF, TOTAL(ahash_7) & 0xFFFFFFFF,
                COUNT(1)
-             FROM model_key WHERE key > ? AND key < ?;",
+             FROM event WHERE id > ? AND id < ?;",
         );
         let row = query
             .bind(left_fencepost.as_bytes())
@@ -532,13 +588,13 @@ where
         let query = sqlx::query(
             "
         SELECT
-            key
+            id
         FROM
-            model_key
+            event
         WHERE
-            key > ? AND key < ?
+            id > ? AND id < ?
         ORDER BY
-            key ASC
+            id ASC
         LIMIT
             ?
         OFFSET
@@ -580,22 +636,23 @@ where
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
     ) -> Result<usize> {
-        let query = sqlx::query(
+        let lfp = left_fencepost.as_bytes();
+        let rpf = right_fencepost.as_bytes();
+        let row = sqlx::query!(
             "
         SELECT
-            count(key)
+            count(id) as cnt
         FROM
-            model_key
+            event
         WHERE
-            key > ? AND key < ?
+            id > ? AND id < ?
         ;",
-        );
-        let row = query
-            .bind(left_fencepost.as_bytes())
-            .bind(right_fencepost.as_bytes())
-            .fetch_one(self.pool.reader())
-            .await?;
-        Ok(row.get::<'_, i64, _>(0) as usize)
+            lfp,
+            rpf
+        )
+        .fetch_one(self.pool.reader())
+        .await?;
+        Ok(row.cnt as usize)
     }
 
     /// Return the first key within the range.
@@ -605,32 +662,26 @@ where
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
     ) -> Result<Option<Self::Key>> {
-        let query = sqlx::query(
-            "
-    SELECT
-        key
-    FROM
-        model_key
-    WHERE
-        key > ? AND key < ?
-    ORDER BY
-        key ASC
-    LIMIT
-        1
-    ; ",
-        );
-        let rows = query
-            .bind(left_fencepost.as_bytes())
-            .bind(right_fencepost.as_bytes())
-            .fetch_all(self.pool.reader())
-            .await?;
-        Ok(rows
-            .first()
-            .map(|row| {
-                let bytes: Vec<u8> = row.get(0);
-                EventId::try_from(bytes)
-            })
-            .transpose()?)
+        let lfp = left_fencepost.as_bytes();
+        let rpf = right_fencepost.as_bytes();
+        let row = sqlx::query!(
+            "SELECT
+                id
+            FROM
+                event
+            WHERE
+                id > ? AND id < ?
+            ORDER BY
+                id ASC
+            LIMIT
+            1",
+            lfp,
+            rpf
+        )
+        .fetch_optional(self.pool.reader())
+        .await?;
+        let res = row.map(|row| EventId::try_from(row.id)).transpose()?;
+        Ok(res)
     }
 
     #[instrument(skip(self))]
@@ -639,32 +690,28 @@ where
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
     ) -> Result<Option<Self::Key>> {
-        let query = sqlx::query(
+        let lfp = left_fencepost.as_bytes();
+        let rpf = right_fencepost.as_bytes();
+        let row = sqlx::query!(
             "
         SELECT
-            key
+            id
         FROM
-            model_key
+            event
         WHERE
-            key > ? AND key < ?
+            id > ? AND id < ?
         ORDER BY
-            key DESC
+            id DESC
         LIMIT
             1
         ;",
-        );
-        let rows = query
-            .bind(left_fencepost.as_bytes())
-            .bind(right_fencepost.as_bytes())
-            .fetch_all(self.pool.reader())
-            .await?;
-        Ok(rows
-            .first()
-            .map(|row| {
-                let bytes: Vec<u8> = row.get(0);
-                EventId::try_from(bytes)
-            })
-            .transpose()?)
+            lfp,
+            rpf
+        )
+        .fetch_optional(self.pool.reader())
+        .await?;
+        let res = row.map(|row| EventId::try_from(row.id)).transpose()?;
+        Ok(res)
     }
 
     #[instrument(skip(self))]
@@ -673,39 +720,38 @@ where
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
     ) -> Result<Option<(Self::Key, Self::Key)>> {
-        let query = sqlx::query(
-            "
-        SELECT first.key, last.key
-        FROM
-            (
-                SELECT key
-                FROM model_key
-                WHERE
-                    key > ? AND key < ?
-                ORDER BY key ASC
-                LIMIT 1
-            ) as first
-        JOIN
-            (
-                SELECT key
-                FROM model_key
-                WHERE
-                    key > ? AND key < ?
-                ORDER BY key DESC
-                LIMIT 1
-            ) as last
-        ;",
-        );
-        let rows = query
-            .bind(left_fencepost.as_bytes())
-            .bind(right_fencepost.as_bytes())
-            .bind(left_fencepost.as_bytes())
-            .bind(right_fencepost.as_bytes())
-            .fetch_all(self.pool.reader())
-            .await?;
-        if let Some(row) = rows.first() {
-            let first = EventId::try_from(row.get::<Vec<u8>, _>(0))?;
-            let last = EventId::try_from(row.get::<Vec<u8>, _>(1))?;
+        let lfp = left_fencepost.as_bytes();
+        let rfp = right_fencepost.as_bytes();
+        let row = sqlx::query!(
+            "SELECT first.id as first, last.id as last
+                FROM
+                    (
+                        SELECT id
+                        FROM event
+                        WHERE
+                            id > ? AND id < ?
+                        ORDER BY id ASC
+                        LIMIT 1
+                    ) as first
+                JOIN
+                    (
+                        SELECT id
+                        FROM event
+                        WHERE
+                            id > ? AND id < ?
+                        ORDER BY id DESC
+                        LIMIT 1
+                    ) as last;",
+            lfp,
+            rfp,
+            lfp,
+            rfp,
+        )
+        .fetch_optional(self.pool.reader())
+        .await?;
+        if let Some(row) = row {
+            let first = EventId::try_from(row.first)?;
+            let last = EventId::try_from(row.last)?;
             Ok(Some((first, last)))
         } else {
             Ok(None)
@@ -725,24 +771,25 @@ where
         if range.start >= range.end {
             return Ok(vec![]);
         };
-        let query = sqlx::query(
+        let start = range.start.as_bytes();
+        let end = range.end.as_bytes();
+        let row = sqlx::query!(
             "
-            SELECT key
-            FROM model_key
+            SELECT id
+            FROM event
             WHERE
-                key > ?
-                AND key < ?
+                id > ?
+                AND id < ?
                 AND value_retrieved = false
             ;",
-        );
-        let row = query
-            .bind(range.start.as_bytes())
-            .bind(range.end.as_bytes())
-            .fetch_all(self.pool.reader())
-            .await?;
+            start,
+            end
+        )
+        .fetch_all(self.pool.reader())
+        .await?;
         Ok(row
             .into_iter()
-            .map(|row| EventId::try_from(row.get::<Vec<u8>, _>(0)))
+            .map(|row| EventId::try_from(row.id))
             .collect::<Result<Vec<Self::Key>, EventIdError>>()?)
     }
 }
@@ -751,7 +798,7 @@ where
 impl iroh_bitswap::Store for ModelStore<Sha256a> {
     async fn get_size(&self, cid: &Cid) -> Result<usize> {
         Ok(
-            sqlx::query("SELECT length(bytes) FROM model_block WHERE cid = ?;")
+            sqlx::query("SELECT length(bytes) FROM block WHERE cid = ?;")
                 .bind(cid.to_bytes())
                 .fetch_one(self.pool.reader())
                 .await?
@@ -761,7 +808,7 @@ impl iroh_bitswap::Store for ModelStore<Sha256a> {
 
     async fn get(&self, cid: &Cid) -> Result<Block> {
         Ok(Block::new(
-            sqlx::query("SELECT bytes FROM model_block WHERE cid = ?;")
+            sqlx::query("SELECT bytes FROM block WHERE cid = ?;")
                 .bind(cid.to_bytes())
                 .fetch_one(self.pool.reader())
                 .await?
@@ -772,14 +819,12 @@ impl iroh_bitswap::Store for ModelStore<Sha256a> {
     }
 
     async fn has(&self, cid: &Cid) -> Result<bool> {
-        Ok(
-            sqlx::query("SELECT count(1) FROM model_block WHERE cid = ?;")
-                .bind(cid.to_bytes())
-                .fetch_one(self.pool.reader())
-                .await?
-                .get::<'_, i64, _>(0)
-                > 0,
-        )
+        Ok(sqlx::query("SELECT count(1) FROM block WHERE cid = ?;")
+            .bind(cid.to_bytes())
+            .fetch_one(self.pool.reader())
+            .await?
+            .get::<'_, i64, _>(0)
+            > 0)
     }
 }
 
@@ -827,12 +872,18 @@ impl ceramic_api::AccessModelStore for ModelStore<Sha256a> {
 #[cfg(test)]
 mod test {
 
-    use crate::tests::*;
+    use std::str::FromStr;
 
-    use super::*;
+    use anyhow::Error;
+    use bytes::Bytes;
+    use cid::{Cid, CidGeneric};
     use expect_test::expect;
+    use iroh_bitswap::Store;
     use recon::{Key, ReconItem};
     use test_log::test;
+
+    use super::*;
+    use crate::tests::*;
 
     #[test(tokio::test)]
     async fn hash_range_query() {
@@ -1384,5 +1435,76 @@ mod test {
         let (hw, res) = store.new_keys_since_value_rowid(hw, 1).await.unwrap();
         assert_eq!(0, res.len());
         assert_eq!(22, hw); // previously returned 0
+    }
+
+    #[tokio::test]
+    async fn test_store_block() {
+        let blob: Bytes = hex::decode("0a050001020304").unwrap().into();
+        let cid: CidGeneric<64> =
+            Cid::from_str("bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom").unwrap(); // cspell:disable-line
+
+        let pool = SqlitePool::connect("sqlite::memory:", true).await.unwrap();
+        let store = ModelStore::<Sha256a>::new(pool).await.unwrap();
+
+        let result = store.put_block(&cid, &blob).await.unwrap();
+        // assert the block is new
+        assert!(result);
+
+        let has: Result<bool, Error> = Store::has(&store, &cid).await;
+        expect![["true"]].assert_eq(&has.unwrap().to_string());
+
+        let size: Result<usize, Error> = Store::get_size(&store, &cid).await;
+        expect![["7"]].assert_eq(&size.unwrap().to_string());
+
+        let block = Store::get(&store, &cid).await.unwrap();
+        expect!["bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom"] // cspell:disable-line
+            .assert_eq(&block.cid().to_string());
+        expect![["0A050001020304"]].assert_eq(&hex::encode_upper(block.data()));
+    }
+
+    #[tokio::test]
+    async fn test_double_store_block() {
+        let blob: Bytes = hex::decode("0a050001020304").unwrap().into();
+        let cid: CidGeneric<64> =
+            Cid::from_str("bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom").unwrap(); // cspell:disable-line
+
+        let pool = SqlitePool::connect("sqlite::memory:", true).await.unwrap();
+        let store = ModelStore::<Sha256a>::new(pool).await.unwrap();
+
+        let result = store.put_block(&cid, &blob).await;
+        // Assert that the block is new
+        assert!(result.unwrap());
+
+        // Try to put the block again
+        let result = store.put_block(&cid, &blob).await;
+        // Assert that the block already existed
+        assert!(!result.unwrap());
+
+        let has: Result<bool, Error> = Store::has(&store, &cid).await;
+        expect![["true"]].assert_eq(&has.unwrap().to_string());
+
+        let size: Result<usize, Error> = Store::get_size(&store, &cid).await;
+        expect![["7"]].assert_eq(&size.unwrap().to_string());
+
+        let block = Store::get(&store, &cid).await.unwrap();
+        expect!["bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom"] // cspell:disable-line
+            .assert_eq(&block.cid().to_string());
+        expect![["0A050001020304"]].assert_eq(&hex::encode_upper(block.data()));
+    }
+
+    #[tokio::test]
+    async fn test_get_nonexistent_block() {
+        let pool = SqlitePool::connect("sqlite::memory:", true).await.unwrap();
+        let store = ModelStore::<Sha256a>::new(pool).await.unwrap();
+
+        let cid =
+            Cid::from_str("bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom").unwrap(); // cspell:disable-line
+
+        let err = store.get(&cid).await.unwrap_err().to_string();
+        assert!(
+            err.contains("no rows returned by a query that expected to return at least one row"),
+            "{}",
+            err
+        );
     }
 }
