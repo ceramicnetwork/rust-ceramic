@@ -10,7 +10,7 @@ use ceramic_api_server::Api;
 use ceramic_api_server::{
     models::{self},
     EventsEventIdGetResponse, EventsPostResponse, EventsSortKeySortValueGetResponse,
-    InterestsSortKeySortValuePostResponse,
+    InterestsPostResponse, InterestsSortKeySortValuePostResponse,
 };
 use ceramic_core::{Cid, Interest};
 use ceramic_core::{EventId, Network, PeerId, StreamId};
@@ -126,11 +126,9 @@ async fn create_event() {
     let server = Server::new(peer_id, network, mock_interest, mock_model);
     let resp = server
         .events_post(
-            models::EventsPostRequest {
-                event_id: Some(event_id_str),
-                event_data: Some(event_data),
-                data: None,
-                id: None,
+            models::Event {
+                id: event_id_str,
+                data: event_data,
             },
             &Context,
         )
@@ -144,7 +142,8 @@ async fn register_interest_sort_value() {
     let peer_id = PeerId::random();
     let network = Network::InMemory;
     let model = "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9"; // cspell:disable-line
-                                                                                  // Construct start and end event ids
+
+    // Construct start and end event ids
     let start = EventId::builder()
         .with_network(&network)
         .with_sort_value("model", model)
@@ -159,6 +158,7 @@ async fn register_interest_sort_value() {
         .with_max_init()
         .with_max_event_height()
         .build_fencepost();
+
     // Setup mock expectations
     let mut mock_interest = MockReconInterestTest::new();
     mock_interest
@@ -178,35 +178,35 @@ async fn register_interest_sort_value() {
         .returning(|_, _| Ok(true));
     let mock_model = MockReconModelTest::new();
     let server = Server::new(peer_id, network, mock_interest, mock_model);
-    let resp = server
-        .interests_sort_key_sort_value_post(
-            "model".to_string(),
-            model.to_owned(),
-            None,
-            None,
-            &Context,
-        )
-        .await
-        .unwrap();
-    assert_eq!(resp, InterestsSortKeySortValuePostResponse::Success);
+    let interest = models::Interest {
+        sep: "model".to_string(),
+        sep_value: model.to_owned(),
+        controller: None,
+        stream_id: None,
+    };
+    let resp = server.interests_post(interest, &Context).await.unwrap();
+    assert_eq!(resp, InterestsPostResponse::Success);
 }
+
 #[tokio::test]
 #[traced_test]
 async fn register_interest_sort_value_controller() {
     let peer_id = PeerId::random();
     let network = Network::InMemory;
-    let model = "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9"; // cspell:disable-line
+    let model = "z3KWHw5Efh2qLou2FEdz3wB8ZvLgURJP94HeijLVurxtF1Ntv6fkg2G"; // base58 encoded should work cspell:disable-line
+                                                                           // we convert to base36 before storing
+    let model_base36 = "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9"; // cspell:disable-line
     let controller = "did:key:zGs1Det7LHNeu7DXT4nvoYrPfj3n6g7d6bj2K4AMXEvg1";
     let start = EventId::builder()
         .with_network(&network)
-        .with_sort_value("model", model)
+        .with_sort_value("model", model_base36)
         .with_controller(controller)
         .with_min_init()
         .with_min_event_height()
         .build_fencepost();
     let end = EventId::builder()
         .with_network(&network)
-        .with_sort_value("model", model)
+        .with_sort_value("model", model_base36)
         .with_controller(controller)
         .with_max_init()
         .with_max_event_height()
@@ -241,6 +241,7 @@ async fn register_interest_sort_value_controller() {
         .unwrap();
     assert_eq!(resp, InterestsSortKeySortValuePostResponse::Success);
 }
+
 #[tokio::test]
 #[traced_test]
 async fn register_interest_value_controller_stream() {
