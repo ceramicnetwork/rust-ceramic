@@ -1,0 +1,6 @@
+%syntax-version=1.0.0
+%project=ceramic-one
+%uri=https://github.com/sqitchers/sqitch-sqlite-intro/
+
+model_key 2024-03-18T17:51:07Z 3Box Labs <support@3box.io> # Creates table to track keys
+model_block 2024-03-18T17:51:11Z 3Box Labs <support@3box.io> # Creates table to track keys to blocks

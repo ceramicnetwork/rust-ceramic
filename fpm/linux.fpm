@@ -6,3 +6,8 @@
 --description "Ceramic API Server"
 --url "https://ceramic.network"
 --maintainer "3Box Labs <support@3box.com>"
+--depends sqitch
+--depends libdbd-sqlite3-perl
+--depends sqlite3
+--deb-systemd fpm/ceramic-one.service
+--inputs fpm/linux.inputs

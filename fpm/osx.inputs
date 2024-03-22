@@ -1,0 +1,3 @@
+ceramic-one=$INSTALL_DIR/ceramic-one
+migration=migration
+sqitch.conf=sqitch.conf

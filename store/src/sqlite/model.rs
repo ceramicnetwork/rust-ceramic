@@ -45,57 +45,7 @@ where
             pool,
             hash: PhantomData,
         };
-        store.create_table_if_not_exists().await?;
         Ok(store)
-    }
-
-    /// Initialize the recon table.
-    async fn create_table_if_not_exists(&self) -> Result<()> {
-        const CREATE_STORE_KEY_TABLE: &str = "CREATE TABLE IF NOT EXISTS model_key (
-            key BLOB, -- network_id sort_value controller StreamID height event_cid
-            ahash_0 INTEGER, -- the ahash is decomposed as [u32; 8]
-            ahash_1 INTEGER,
-            ahash_2 INTEGER,
-            ahash_3 INTEGER,
-            ahash_4 INTEGER,
-            ahash_5 INTEGER,
-            ahash_6 INTEGER,
-            ahash_7 INTEGER,
-            value_retrieved BOOL, -- indicates if we have the value
-            PRIMARY KEY(key)
-        )";
-        const CREATE_VALUE_RETRIEVED_INDEX: &str =
-            "CREATE INDEX IF NOT EXISTS idx_key_value_retrieved
-            ON model_key (key, value_retrieved)";
-
-        const CREATE_MODEL_BLOCK_TABLE: &str = "CREATE TABLE IF NOT EXISTS model_block (
-            key BLOB, -- network_id sort_value controller StreamID height event_cid
-            cid BLOB, -- the cid of the Block as bytes no 0x00 prefix
-            idx INTEGER, -- the index of the block in the CAR file
-            root BOOL, -- when true the block is a root in the CAR file
-            bytes BLOB, -- the Block
-            PRIMARY KEY(key, cid)
-        )";
-        // TODO should this include idx or not?
-        const CREATE_BLOCK_ORDER_INDEX: &str = "CREATE INDEX IF NOT EXISTS idx_model_block_cid
-            ON model_block (cid)";
-
-        let mut tx = self.pool.tx().await?;
-        sqlx::query(CREATE_STORE_KEY_TABLE)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query(CREATE_VALUE_RETRIEVED_INDEX)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query(CREATE_MODEL_BLOCK_TABLE)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query(CREATE_BLOCK_ORDER_INDEX)
-            .execute(&mut *tx)
-            .await?;
-
-        tx.commit().await?;
-        Ok(())
     }
 
     async fn insert_item(&self, item: &ReconItem<'_, EventId>) -> Result<(bool, bool)> {

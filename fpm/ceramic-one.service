@@ -1,0 +1,25 @@
+#   Comments can only go at the beginning of the line!
+
+[Unit]
+Description=Start the NoIP IP update daemon.  This runs every 30 minutes and reports our current IP to NoIP.com to update Love2d.ddns.net.
+Documentation=https://no-ip.com/
+Documentation=file:///nobak/Installers/NoIP/noip-2.1.9-1/README.FIRST
+
+
+[Service]
+# 'forking' because process returns after starting daemon (traditional unix daemon).
+Type=forking
+
+# This program runs and returns, leaving the running daemon
+ExecStart=/usr/local/bin/ceramic-one-start.sh
+
+# Be in no hurry to start this.  Max nice is +19.
+Nice=15
+
+# If it dies for any reason, then restart it
+Restart=always
+
+
+[Install]
+# Installs a hook to use this unit file when the system boots or shuts down
+WantedBy=multi-user.target

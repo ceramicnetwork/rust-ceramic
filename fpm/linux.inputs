@@ -1,0 +1,4 @@
+ceramic-one=$INSTALL_DIR/ceramic-one
+ceramic-one-start.sh=fpm/ceramic-one-start.sh
+migration=migration
+sqitch.conf=sqitch.conf
