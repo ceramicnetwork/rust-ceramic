@@ -1,5 +1,5 @@
 use anyhow::Result;
-use ceramic_store::{ModelStore, SqlitePool};
+use ceramic_store::{EventStore, SqlitePool};
 use chrono::{SecondsFormat, Utc};
 use cid::{multibase, multihash, Cid};
 use clap::{Args, Subcommand};
@@ -50,7 +50,7 @@ async fn slurp(opts: SlurpOpts) -> Result<()> {
     let pool = SqlitePool::connect(output_ceramic_path, true)
         .await
         .unwrap();
-    let store = ModelStore::new(pool).await.unwrap();
+    let store = EventStore::new(pool).await.unwrap();
 
     if let Some(input_ceramic_db) = opts.input_ceramic_db {
         migrate_from_database(input_ceramic_db, store.clone()).await;
@@ -61,7 +61,7 @@ async fn slurp(opts: SlurpOpts) -> Result<()> {
     Ok(())
 }
 
-async fn migrate_from_filesystem(input_ipfs_path: PathBuf, store: ModelStore<Sha256a>) {
+async fn migrate_from_filesystem(input_ipfs_path: PathBuf, store: EventStore<Sha256a>) {
     // the block store is split in to 1024 directories and then the blocks stored as files.
     // the dir structure is the penultimate two characters as dir then the b32 sha256 multihash of the block
     // The leading "B" for the b32 sha256 multihash is left off
@@ -149,7 +149,7 @@ async fn migrate_from_filesystem(input_ipfs_path: PathBuf, store: ModelStore<Sha
     );
 }
 
-async fn migrate_from_database(input_ceramic_db: PathBuf, store: ModelStore<Sha256a>) {
+async fn migrate_from_database(input_ceramic_db: PathBuf, store: EventStore<Sha256a>) {
     let input_ceramic_db_filename = input_ceramic_db.to_str().expect("expect utf8");
     println!(
         "{} Importing blocks from {}.",

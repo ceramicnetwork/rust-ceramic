@@ -282,7 +282,7 @@ type InterestStore = ceramic_store::InterestStore<Sha256a>;
 type InterestInterest = FullInterests<Interest>;
 type ReconInterest = Server<Interest, Sha256a, MetricsStore<InterestStore>, InterestInterest>;
 
-type ModelStore = ceramic_store::ModelStore<Sha256a>;
+type ModelStore = ceramic_store::EventStore<Sha256a>;
 type ModelInterest = ReconInterestProvider<Sha256a>;
 type MetricsStore<T> = ceramic_store::StoreMetricsMiddleware<T>;
 type ReconModel = Server<EventId, Sha256a, MetricsStore<ModelStore>, ModelInterest>;

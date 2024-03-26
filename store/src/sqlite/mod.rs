@@ -1,8 +1,8 @@
+mod event;
 mod interest;
-mod model;
 
+pub use event::EventStore;
 pub use interest::InterestStore;
-pub use model::ModelStore;
 
 use std::{path::Path, str::FromStr};
 

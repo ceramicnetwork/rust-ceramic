@@ -19,7 +19,7 @@ use crate::{DbTx, SqlitePool};
 /// Unified implementation of [`recon::Store`] and [`iroh_bitswap::Store`] that can expose the
 /// individual blocks from the CAR files directly.
 #[derive(Clone, Debug)]
-pub struct ModelStore<H>
+pub struct EventStore<H>
 where
     H: AssociativeHash,
 {
@@ -49,13 +49,13 @@ impl FromRow<'_, SqliteRow> for BlockRow {
 
 type EventIdError = <EventId as TryFrom<Vec<u8>>>::Error;
 
-impl<H> ModelStore<H>
+impl<H> EventStore<H>
 where
     H: AssociativeHash + std::convert::From<[u32; 8]>,
 {
     /// Create an instance of the store initializing any neccessary tables.
     pub async fn new(pool: SqlitePool) -> Result<Self> {
-        let store = ModelStore {
+        let store = EventStore {
             pool,
             hash: PhantomData,
         };
@@ -496,7 +496,7 @@ where
 }
 
 #[async_trait]
-impl<H> recon::Store for ModelStore<H>
+impl<H> recon::Store for EventStore<H>
 where
     H: AssociativeHash,
 {
@@ -795,7 +795,7 @@ where
 }
 
 #[async_trait]
-impl iroh_bitswap::Store for ModelStore<Sha256a> {
+impl iroh_bitswap::Store for EventStore<Sha256a> {
     async fn get_size(&self, cid: &Cid) -> Result<usize> {
         Ok(
             sqlx::query("SELECT length(bytes) FROM block WHERE cid = ?;")
@@ -835,7 +835,7 @@ impl iroh_bitswap::Store for ModelStore<Sha256a> {
 /// Anything that implements `ceramic_api::AccessModelStore` should also implement `recon::Store`.
 /// This guarantees that regardless of entry point (api or recon), the data is stored and retrieved in the same way.
 #[async_trait::async_trait]
-impl ceramic_api::AccessModelStore for ModelStore<Sha256a> {
+impl ceramic_api::AccessModelStore for EventStore<Sha256a> {
     type Key = EventId;
     type Hash = Sha256a;
 
@@ -1376,7 +1376,7 @@ mod test {
 
     // stores 3 keys with 3,5,10 block long CAR files
     // each one takes n+1 blocks as it needs to store the root and all blocks so we expect 3+5+10+3=21
-    async fn prep_highwater_tests(store: &mut ModelStore<Sha256a>) -> (EventId, EventId, EventId) {
+    async fn prep_highwater_tests(store: &mut EventStore<Sha256a>) -> (EventId, EventId, EventId) {
         let key_a = random_event_id(None, None);
         let key_b = random_event_id(None, None);
         let key_c = random_event_id(None, None);
@@ -1396,7 +1396,7 @@ mod test {
 
     #[test(tokio::test)]
     async fn keys_since_highwater_mark_all() {
-        let mut store: ModelStore<Sha256a> = new_store().await;
+        let mut store: EventStore<Sha256a> = new_store().await;
         let (key_a, key_b, key_c) = prep_highwater_tests(&mut store).await;
 
         let (hw, res) = store.new_keys_since_value_rowid(0, 10).await.unwrap();
@@ -1407,7 +1407,7 @@ mod test {
 
     #[test(tokio::test)]
     async fn keys_since_highwater_mark_limit_1() {
-        let mut store: ModelStore<Sha256a> = new_store().await;
+        let mut store: EventStore<Sha256a> = new_store().await;
         let (key_a, _key_b, _key_c) = prep_highwater_tests(&mut store).await;
 
         let (hw, res) = store.new_keys_since_value_rowid(0, 1).await.unwrap();
@@ -1418,7 +1418,7 @@ mod test {
 
     #[test(tokio::test)]
     async fn keys_since_highwater_mark_middle_start() {
-        let mut store: ModelStore<Sha256a> = new_store().await;
+        let mut store: EventStore<Sha256a> = new_store().await;
         let (key_a, key_b, key_c) = prep_highwater_tests(&mut store).await;
 
         // starting at rowid 1 which is in the middle of key A should still return key A
@@ -1444,7 +1444,7 @@ mod test {
             Cid::from_str("bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom").unwrap(); // cspell:disable-line
 
         let pool = SqlitePool::connect("sqlite::memory:", true).await.unwrap();
-        let store = ModelStore::<Sha256a>::new(pool).await.unwrap();
+        let store = EventStore::<Sha256a>::new(pool).await.unwrap();
 
         let result = store.put_block(&cid, &blob).await.unwrap();
         // assert the block is new
@@ -1469,7 +1469,7 @@ mod test {
             Cid::from_str("bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom").unwrap(); // cspell:disable-line
 
         let pool = SqlitePool::connect("sqlite::memory:", true).await.unwrap();
-        let store = ModelStore::<Sha256a>::new(pool).await.unwrap();
+        let store = EventStore::<Sha256a>::new(pool).await.unwrap();
 
         let result = store.put_block(&cid, &blob).await;
         // Assert that the block is new
@@ -1495,7 +1495,7 @@ mod test {
     #[tokio::test]
     async fn test_get_nonexistent_block() {
         let pool = SqlitePool::connect("sqlite::memory:", true).await.unwrap();
-        let store = ModelStore::<Sha256a>::new(pool).await.unwrap();
+        let store = EventStore::<Sha256a>::new(pool).await.unwrap();
 
         let cid =
             Cid::from_str("bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom").unwrap(); // cspell:disable-line

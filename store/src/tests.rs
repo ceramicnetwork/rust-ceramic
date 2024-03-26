@@ -1,4 +1,4 @@
-use self::ModelStore;
+use self::EventStore;
 
 use super::*;
 
@@ -18,9 +18,9 @@ use multihash::{Code, MultihashDigest};
 use rand::Rng;
 use recon::Sha256a;
 
-pub(crate) async fn new_store() -> ModelStore<Sha256a> {
+pub(crate) async fn new_store() -> EventStore<Sha256a> {
     let conn = SqlitePool::connect("sqlite::memory:", true).await.unwrap();
-    ModelStore::new(conn).await.unwrap()
+    EventStore::new(conn).await.unwrap()
 }
 
 #[tokio::test]
