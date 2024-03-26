@@ -39,7 +39,7 @@ use tokio::{
 use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::{
-    behaviour::{Event, NodeBehaviour},
+    behaviour::{Event, NodeBehaviour, KAD_PROTOCOL},
     keys::{Keychain, Storage},
     metrics::{LoopEvent, Metrics},
     providers::Providers,
@@ -742,7 +742,7 @@ where
                                 .behaviour()
                                 .peer_manager
                                 .is_ceramic_peer(&peer_id)
-                                || protocol == &kad::PROTOCOL_NAME
+                                || protocol == &KAD_PROTOCOL
                             {
                                 for addr in &info.listen_addrs {
                                     if let Some(kad) = self.swarm.behaviour_mut().kad.as_mut() {
@@ -1569,7 +1569,7 @@ mod tests {
             "/ipfs/bitswap/1.1.0",
             "/ipfs/bitswap/1.0.0",
             "/ipfs/bitswap",
-            "/ipfs/kad/1.0.0",
+            "/ceramic/kad/1.0.0",
             "/libp2p/autonat/1.0.0",
             "/libp2p/circuit/relay/0.2.0/hop",
             "/libp2p/circuit/relay/0.2.0/stop",
