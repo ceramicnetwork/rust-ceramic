@@ -97,13 +97,7 @@ jobs:
         else
           BUILD_TAG=$(echo ${{ github.sha }} | head -c 12)
         fi
-        # Tag with latest if merge to main
-        if [ "${{ github.event_name }}" == "merge_group" ]; then
-          TAG_LATEST=true
-        else
-          TAG_LATEST=false
-        fi
-        make SHA_TAG="$BUILD_TAG" TAG_LATEST="$TAG_LATEST" publish-docker
+        make SHA_TAG="$BUILD_TAG" TAG_LATEST="false" publish-docker
         echo "Build tag:"
         echo ${BUILD_TAG}
         echo "build_tag=${BUILD_TAG}" >> $GITHUB_OUTPUT
