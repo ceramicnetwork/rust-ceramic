@@ -174,23 +174,23 @@ impl CborValue {
     }
 
     /// get a printable string of the type_name
-    pub fn type_name(&self) -> String {
+    pub fn type_name(&self) -> &str {
         match self {
-            CborValue::Bool(_) => "bool".to_string(),
-            CborValue::Null => "null".to_string(),
-            CborValue::Undefined => "undefined".to_string(),
-            CborValue::U64(_) => "u64".to_string(),
-            CborValue::I64(_) => "i64".to_string(),
-            CborValue::Int(_) => "int".to_string(),
-            CborValue::F64(_) => "f64".to_string(),
-            CborValue::Simple(_) => "simple".to_string(),
-            CborValue::Bytes(_) => "bytes".to_string(),
-            CborValue::String(_) => "string".to_string(),
-            CborValue::Array(_) => "array".to_string(),
-            CborValue::Map(_) => "map".to_string(),
-            CborValue::Tag(_) => "tag".to_string(),
-            CborValue::Break => "break".to_string(),
-            CborValue::Unknown(_) => "unknown".to_string(),
+            CborValue::Bool(_) => "bool",
+            CborValue::Null => "null",
+            CborValue::Undefined => "undefined",
+            CborValue::U64(_) => "u64",
+            CborValue::I64(_) => "i64",
+            CborValue::Int(_) => "int",
+            CborValue::F64(_) => "f64",
+            CborValue::Simple(_) => "simple",
+            CborValue::Bytes(_) => "bytes",
+            CborValue::String(_) => "string",
+            CborValue::Array(_) => "array",
+            CborValue::Map(_) => "map",
+            CborValue::Tag(_) => "tag",
+            CborValue::Break => "break",
+            CborValue::Unknown(_) => "unknown",
         }
     }
 

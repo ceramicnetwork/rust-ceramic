@@ -5,6 +5,7 @@ use tracing::debug;
 
 pub(crate) struct RootTime {
     pub root: Cid,
+    pub block_hash: String,
     pub timestamp: i64,
 }
 
@@ -152,7 +153,11 @@ impl EthRpc for HttpEthRpc {
             ));
         };
         let timestamp = get_timestamp_from_hex_string(timestamp)?;
-        Ok(RootTime { root, timestamp })
+        Ok(RootTime {
+            root,
+            block_hash: block_hash.to_string(),
+            timestamp,
+        })
     }
 }
 

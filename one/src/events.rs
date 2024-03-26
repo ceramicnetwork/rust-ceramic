@@ -1,6 +1,6 @@
 use crate::ethereum_rpc::{EthRpc, HttpEthRpc, RootTime};
 use crate::CborValue;
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use ceramic_core::{ssi, Base64UrlString, DidDocument, Jwk};
 use ceramic_p2p::SQLiteBlockStore;
 use ceramic_store::SqlitePool;
@@ -151,14 +151,14 @@ async fn validate_data_event_envelope(cid: &Cid, block_store: &SQLiteBlockStore)
     let envelope = CborValue::parse(&block)?;
     let signatures_0 = envelope
         .get_key("signatures")
-        .unwrap()
+        .context("Not an envelope")?
         .get_index(0)
-        .unwrap();
+        .context("Not an envelope")?;
     let protected = signatures_0
         .get_key("protected")
-        .unwrap()
+        .context("Not an envelope")?
         .as_bytes()
-        .unwrap()
+        .context("Not an envelope")?
         .as_slice();
     // Deserialize protected as JSON
     let protected_json: serde_json::Value = serde_json::from_slice(protected)?;
@@ -166,16 +166,16 @@ async fn validate_data_event_envelope(cid: &Cid, block_store: &SQLiteBlockStore)
     let protected: Base64UrlString = protected.into();
     let signature: Base64UrlString = signatures_0
         .get_key("signature")
-        .unwrap()
+        .context("Not an envelope")?
         .as_bytes()
-        .unwrap()
+        .context("Not an envelope")?
         .as_slice()
         .into();
     let payload: Base64UrlString = envelope
         .get_key("payload")
-        .unwrap()
+        .context("Not an envelope")?
         .as_bytes()
-        .unwrap()
+        .context("Not an envelope")?
         .as_slice()
         .into();
     let compact = format!("{}.{}.{}", protected, payload, signature);
@@ -217,6 +217,7 @@ async fn validate_time_event(
             let proof_cbor = CborValue::parse(&proof_block)?;
             let proof_root: Cid = proof_cbor.path(&["root"]).try_into()?;
             let path: String = time_event.path(&["path"]).try_into()?;
+            let tx_hash_cid: Cid = proof_cbor.path(&["txHash"]).try_into()?;
 
             // If prev not in root then TimeEvent is not valid.
             if !prev_in_root(prev, proof_root, path, block_store).await? {
@@ -225,21 +226,27 @@ async fn validate_time_event(
 
             // if root in root_store return timestamp.
             // note: at some point we will need a negative cache to exponentially backoff eth_getTransactionByHash
-            if let Ok(Some(timestamp)) = root_store.get(proof_root.hash().digest()).await {
+            if let Ok(Some(timestamp)) = root_store.get(tx_hash_cid.hash().digest()).await {
                 return Ok(timestamp);
             }
 
             // else eth_transaction_by_hash
-            let tx_hash_cid: Cid = proof_cbor.path(&["txHash"]).try_into()?;
+
             let RootTime {
                 root: transaction_root,
+                block_hash,
                 timestamp,
             } = eth_rpc.root_time_by_transaction_cid(tx_hash_cid).await?;
             debug!("root: {}, timestamp: {}", transaction_root, timestamp);
 
             if transaction_root == proof_root {
                 root_store
-                    .put(transaction_root.hash().digest(), timestamp)
+                    .put(
+                        tx_hash_cid.hash().digest(),
+                        transaction_root.hash().digest(),
+                        block_hash,
+                        timestamp,
+                    )
                     .await?;
                 Ok(timestamp)
             } else {
@@ -377,6 +384,12 @@ async fn migrate_from_database(input_ceramic_db: PathBuf, store: SQLiteBlockStor
     result.unwrap()
 }
 
+/// We use the SQLiteRootStore as a local cache of the EthereumRootStore
+///
+/// The EthereumRootStore is the authoritative root store but it is also immutable  
+/// once the blocks are final.
+/// We only pull each txHash once and store the root, blockHash and timestamp.
+/// After that Time Events validation can be done locally.
 #[derive(Debug, Clone)]
 pub struct SQLiteRootStore {
     pool: SqlitePool,
@@ -392,31 +405,43 @@ impl SQLiteRootStore {
         Ok(store)
     }
 
+    /// create_table_if_not_exists make the roots table.
+    /// We can call this at startup it will be ignored if the table exists.
     async fn create_table_if_not_exists(&self) -> Result<()> {
         // this will need to be moved to migration logic if we ever change the schema
-        sqlx::query("CREATE TABLE IF NOT EXISTS roots (root BLOB, timestamp INTEGER, PRIMARY KEY(root, timestamp));",
+        sqlx::query("CREATE TABLE IF NOT EXISTS roots (txHash BLOB, root BLOB, blockHash TEXT, timestamp INTEGER, PRIMARY KEY(txHash)) STRICT;",
         )
         .execute(self.pool.writer())
         .await?;
         Ok(())
     }
 
-    /// Store root, timestamp.
-    pub async fn put(&self, root: &[u8], timestamp: i64) -> Result<()> {
-        match sqlx::query("INSERT OR IGNORE INTO roots (root, timestamp) VALUES (?, ?)")
-            .bind(root)
-            .bind(timestamp)
-            .execute(self.pool.writer())
-            .await
+    /// Store tx_hash, root, and timestamp in roots.
+    pub async fn put(
+        &self,
+        tx_hash: &[u8],
+        root: &[u8],
+        block_hash: String, // 0xhex_hash
+        timestamp: i64,
+    ) -> Result<()> {
+        match sqlx::query(
+            "INSERT OR IGNORE INTO roots (txHash, root, blockHash, timestamp) VALUES (?, ?, ?, ?)",
+        )
+        .bind(tx_hash)
+        .bind(root)
+        .bind(block_hash)
+        .bind(timestamp)
+        .execute(self.pool.writer())
+        .await
         {
             Ok(_) => Ok(()),
             Err(err) => Err(err.into()),
         }
     }
 
-    pub async fn get(&self, root: &[u8]) -> Result<Option<i64>> {
-        Ok(sqlx::query("SELECT timestamp FROM roots WHERE root = ?;")
-            .bind(root)
+    pub async fn get(&self, tx_hash: &[u8]) -> Result<Option<i64>> {
+        Ok(sqlx::query("SELECT timestamp FROM roots WHERE txHash = ?;")
+            .bind(tx_hash)
             .fetch_optional(self.pool.reader())
             .await?
             .map(|row| row.get::<'_, i64, _>(0)))
@@ -437,6 +462,8 @@ mod tests {
                 root: Cid::from_str("bafyreicbwzaiyg2l4uaw6zjds3xupqeyfq3nlb36xodusgn24ou3qvgy4e") // cspell:disable-line
                     .unwrap(),
                 timestamp: 1682958731,
+                block_hash: "0x783cd5a6febe13d08ac0d59fa7e666483d5e476542b29688a6f0bec3d15febd4"
+                    .to_string(),
             })
         }
     }
@@ -450,6 +477,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_validate_time_event() {
+        // todo: add a negative test.
         // Create an in-memory SQLite pool
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
 

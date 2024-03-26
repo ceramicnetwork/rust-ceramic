@@ -320,7 +320,7 @@ impl Daemon {
         };
         info.apply_to_metrics_config(&mut metrics_config);
 
-        // Currently only an info metric is recorged so we do not need to keep the handle to the
+        // Currently only an info metric is recorded so we do not need to keep the handle to the
         // Metrics struct. That will change once we add more metrics.
         let _metrics = ceramic_metrics::MetricsHandle::register(|registry| {
             crate::metrics::Metrics::register(info.clone(), registry)
