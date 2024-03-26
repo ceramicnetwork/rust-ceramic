@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use cid::{multihash, Cid};
 use multihash::Multihash;
 use tracing::debug;
@@ -103,33 +103,25 @@ impl EthRpc for HttpEthRpc {
         let tx_hash = format!("0x{}", hex::encode(cid.hash().digest()));
         let json: serde_json::Value = self.eth_transaction_by_hash(&tx_hash).await?;
         debug!("txByHash response: {}", json);
-        let Some(result) = json.get("result") else {
-            return Err(anyhow!("missing field result"));
-        };
-        let Some(block_hash) = result.get("blockHash") else {
-            return Err(anyhow!("missing field result.blockHash"));
-        };
-        let Some(block_hash) = block_hash.as_str() else {
-            return Err(anyhow!("missing field result.blockHash was not a string"));
-        };
-        let Some(block_number) = result.get("blockNumber") else {
-            return Err(anyhow!("missing field result.blockNumber"));
-        };
-        let Some(block_number) = block_number.as_str() else {
-            return Err(anyhow!("missing field result.blockNumber was not a string"));
-        };
-        let Ok(block_number) = get_timestamp_from_hex_string(block_number) else {
-            return Err(anyhow!(
-                "missing field result.blockNumber was not a hex timestamp"
-            ));
-        };
-
-        let Some(input) = result.get("input") else {
-            return Err(anyhow!("missing field result.input"));
-        };
-        let Some(input) = input.as_str() else {
-            return Err(anyhow!("missing field result.input was not a string"));
-        };
+        let result = json.get("result").context("missing field result")?;
+        let block_hash = result
+            .get("blockHash")
+            .context("missing field result.blockHash")?;
+        let block_hash = block_hash
+            .as_str()
+            .context("missing field result.blockHash was not a string")?;
+        let block_number = result
+            .get("blockNumber")
+            .context("missing field result.blockNumber")?;
+        let block_number = block_number
+            .as_str()
+            .context("missing field result.blockNumber was not a string")?;
+        let block_number = get_timestamp_from_hex_string(block_number)
+            .context("missing field result.blockNumber was not a hex timestamp")?;
+        let input = result.get("input").context("missing field result.input")?;
+        let input = input
+            .as_str()
+            .context("missing field result.input was not a string")?;
         let root = get_root_from_input(input)?;
 
         // Get the block with block_hash if latest block number minus result.number grater then 3 the block is stable.
