@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.14.0] - 2024-03-26
+
+### 🚀 Features
+
+- Standard 500 error response body (ws1-1518) (#284)
+- Add POST interests route that accepts body instead of path/query parameters (#285)
+- Move GET events by interest route under experimental (#286)
+
+### 🐛 Bug Fixes
+
+- Moved api tests to a separate file (#268)
+
+### 📚 Documentation
+
+- Added explicit deps to build steps (#291)
+
 ## [0.13.0] - 2024-03-19
 
 ### 🚀 Features
@@ -18,6 +34,7 @@ All notable changes to this project will be documented in this file.
 - Delete subscribe endpoint (#277)
 - Only lint single commit or PR title (#279)
 - Remove support for old event payload during creation (#272)
+- Version v0.13.0 (#290)
 
 ## [0.12.0] - 2024-02-22
 
@@ -65,17 +82,6 @@ All notable changes to this project will be documented in this file.
 
 ### 🚀 Features
 
-- Continously publish provider records (#175)
-- Add publisher batch metrics (#187)
-- Add config for republish_max_concurrent (#192)
-- Add peering support (#194)
-- Add tokio metrics (#206)
-- Merge migration script with ceramic-one (#190)
-- Add metrics to api and recon (#208)
-- Schedule_k8s_deploy github action (#213)
-- Recon-over-http (#168)
-- Remove all usage of gossipsub (#209)
-- Stop publishing CIDs to DHT on write (#211)
 - On tag publish deploy to envs (#220)
 - Add sqlite read/write pool split (#218)
 - Add recon store metrics (#221)
@@ -94,6 +100,38 @@ All notable changes to this project will be documented in this file.
 
 ### 🐛 Bug Fixes
 
+- Rename workflows (#223)
+- Add a BUILD tag if it's not a PR merge (#256)
+- Refactor recon storage and remove sqlx dependency from recon and core crates (#254)
+- Update git config for release pr workflow
+
+### ⚙️ Miscellaneous Tasks
+
+- Use latest stable openapi-generator-cli (#222)
+- Use docker root user (#251)
+- Adding ci for cargo machete (#252)
+- Run fast post-deployment tests for all envs (#257)
+- Fix false positive in checking generated servers (#260)
+- Version v0.10.0 (#261)
+
+## [1.0.0] - 2024-01-17
+
+### 🚀 Features
+
+- Continously publish provider records (#175)
+- Add publisher batch metrics (#187)
+- Add config for republish_max_concurrent (#192)
+- Add peering support (#194)
+- Add tokio metrics (#206)
+- Merge migration script with ceramic-one (#190)
+- Add metrics to api and recon (#208)
+- Schedule_k8s_deploy github action (#213)
+- Recon-over-http (#168)
+- Remove all usage of gossipsub (#209)
+- Stop publishing CIDs to DHT on write (#211)
+
+### 🐛 Bug Fixes
+
 - Check limits first before other behaviours (#183)
 - Panic with divide by zero duration math (#184)
 - Fix JSON log format errors (#185)
@@ -108,23 +146,10 @@ All notable changes to this project will be documented in this file.
 - Upgrade to libp2p 0.53 (#205)
 - Clippy accessing first element with first (#212)
 - Update deploy workflows for k8s (#216)
-- Rename workflows (#223)
-- Add a BUILD tag if it's not a PR merge (#256)
-- Refactor recon storage and remove sqlx dependency from recon and core crates (#254)
-- Update git config for release pr workflow
 
 ### 🚜 Refactor
 
 - Update bitswap logs to use structured logging (#193)
-
-### ⚙️ Miscellaneous Tasks
-
-- Use latest stable openapi-generator-cli (#222)
-- Use docker root user (#251)
-- Adding ci for cargo machete (#252)
-- Run fast post-deployment tests for all envs (#257)
-- Fix false positive in checking generated servers (#260)
-- Version v0.10.0 (#261)
 
 ## [0.9.0] - 2023-11-13
 
