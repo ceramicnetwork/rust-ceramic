@@ -14,26 +14,21 @@ anyhow.workspace = true
 async-stream.workspace = true
 async-trait.workspace = true
 backoff.workspace = true
-bytes.workspace = true
 ceramic-core.workspace = true
 ceramic-metrics.workspace = true
 ceramic-store.workspace = true
 cid.workspace = true
-expect-test.workspace = true
 futures-util.workspace = true
 futures.workspace = true
-hex.workspace = true
 iroh-bitswap.workspace = true
 iroh-rpc-client.workspace = true
 iroh-rpc-types.workspace = true
 libp2p-identity.workspace = true
 lru.workspace = true
-multihash.workspace = true
 prometheus-client.workspace = true
 rand.workspace = true
 recon.workspace = true
 serde = { workspace = true, features = ["derive"] }
-sqlx.workspace = true
 ssh-key = { workspace = true, features = ["ed25519", "std", "rand_core"] }
 tempfile.workspace = true
 tokio = { workspace = true, features = ["fs", "time", "sync", "macros"] }
