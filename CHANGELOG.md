@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.14.0] - 2024-03-26
+
+### 🚀 Features
+
+- Standard 500 error response body (ws1-1518) (#284)
+- Add POST interests route that accepts body instead of path/query parameters (#285)
+- Move GET events by interest route under experimental (#286)
+
+### 🐛 Bug Fixes
+
+- Moved api tests to a separate file (#268)
+
+### 📚 Documentation
+
+- Added explicit deps to build steps (#291)
+
 ## [0.13.0] - 2024-03-19
 
 ### 🚀 Features
@@ -18,6 +34,7 @@ All notable changes to this project will be documented in this file.
 - Delete subscribe endpoint (#277)
 - Only lint single commit or PR title (#279)
 - Remove support for old event payload during creation (#272)
+- Version v0.13.0 (#290)
 
 ## [0.12.0] - 2024-02-22
 

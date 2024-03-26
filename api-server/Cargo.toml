@@ -1,6 +1,6 @@
 [package]
 name = "ceramic-api-server"
-version = "0.13.0"
+version = "0.14.0"
 authors = ["OpenAPI Generator team and contributors"]
 description = "This is the Ceramic API for working with streams and events "
 license = "MIT"
