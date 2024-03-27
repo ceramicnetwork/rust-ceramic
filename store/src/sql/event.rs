@@ -101,14 +101,14 @@ where
                     id
                 FROM event
                 WHERE
-                    id > ? AND id < ?
+                    id > $1 AND id < $2
                     AND value_retrieved = true
                 ORDER BY
                     id ASC
                 LIMIT
-                    ?
+                    $3
                 OFFSET
-                    ?
+                    $4
             ) key
             JOIN
                 event_block ON key.id = event_block.id
@@ -164,7 +164,7 @@ where
                 eb.cid, eb.root, b.bytes
             FROM event_block eb join block b on eb.cid = b.cid
             WHERE
-                eb.id=?
+                eb.id = $1
             ORDER BY eb.idx
             ;",
         );
@@ -217,7 +217,7 @@ where
     /// set value_retrieved to true
     async fn update_value_retrieved_int(&self, key: &EventId, conn: &mut DbTx<'_>) -> Result<()> {
         let id = key.as_bytes();
-        let _update = sqlx::query!("UPDATE event SET value_retrieved = true WHERE id = ?", id)
+        let _update = sqlx::query!("UPDATE event SET value_retrieved = true WHERE id = $1", id)
             .execute(&mut **conn)
             .await?;
         Ok(())
@@ -235,7 +235,7 @@ where
     pub async fn put_block_tx(&self, cid: &Cid, blob: &Bytes, conn: &mut DbTx<'_>) -> Result<bool> {
         let cid = cid.to_bytes();
         let blob = blob.to_vec();
-        let resp = sqlx::query!("INSERT INTO block (cid, bytes) VALUES (?, ?);", cid, blob,)
+        let resp = sqlx::query!("INSERT INTO block (cid, bytes) VALUES ($1, $2);", cid, blob,)
             .execute(&mut **conn)
             .await;
 
@@ -286,7 +286,7 @@ where
         let cid = cid.to_bytes();
         let id = key.as_bytes();
         sqlx::query!(
-            "INSERT INTO event_block (id, idx, root, cid) VALUES (?, ?, ?, ?) on conflict do nothing;",
+            "INSERT INTO event_block (id, idx, root, cid) VALUES ($1, $2, $3, $4) on conflict do nothing;",
             id,
             idx,
             root,
@@ -314,10 +314,10 @@ where
                     ahash_4, ahash_5, ahash_6, ahash_7,
                     value_retrieved
                 ) VALUES (
-                    ?, ?,
-                    ?, ?, ?, ?,
-                    ?, ?, ?, ?,
-                    ?
+                    $1, $2,
+                    $3, $4, $5, $6,
+                    $7, $8, $9, $10,
+                    $11
                 );",
             id,
             cid,
@@ -394,10 +394,10 @@ where
             r#"WITH entries AS (
                     SELECT id, MAX(rowid) as max_rowid
                 FROM event_block
-                    WHERE rowid >= ? -- we return rowid+1 so we must match it next search
+                    WHERE rowid >= $1 -- we return rowid+1 so we must match it next search
                 GROUP BY id
                 ORDER BY rowid
-                LIMIT ?
+                LIMIT $2
             )
             SELECT 
                 id, 
@@ -430,14 +430,14 @@ where
     ) -> Result<(Vec<Multihash>, i64)> {
         let (hashes_query, remaining_query) = if let Some(hash) = hash {
             (
-                sqlx::query("SELECT cid FROM block WHERE cid > ? ORDER BY cid LIMIT ?;")
+                sqlx::query("SELECT cid FROM block WHERE cid > $1 ORDER BY cid LIMIT $2;")
                     .bind(hash.to_bytes())
                     .bind(limit),
-                sqlx::query("SELECT count(cid) FROM block WHERE cid > ?").bind(hash.to_bytes()),
+                sqlx::query("SELECT count(cid) FROM block WHERE cid > $1").bind(hash.to_bytes()),
             )
         } else {
             (
-                sqlx::query("SELECT DISTINCT cid FROM event_block ORDER BY cid LIMIT ?;")
+                sqlx::query("SELECT DISTINCT cid FROM event_block ORDER BY cid LIMIT $1;")
                     .bind(limit),
                 sqlx::query("SELECT count(DISTINCT cid) FROM blocks;"),
             )
@@ -475,7 +475,7 @@ where
     pub async fn merge_from_sqlite(&self, input_ceramic_db_filename: &str) -> Result<()> {
         sqlx::query(
             "
-                    ATTACH DATABASE ? AS other;
+                    ATTACH DATABASE $1 AS other;
                     INSERT OR IGNORE INTO blocks SELECT cid, bytes FROM other.blocks;
                 ",
         )
@@ -487,7 +487,7 @@ where
 
     /// Backup the database to a filepath output_ceramic_db_filename.
     pub async fn backup_to_sqlite(&self, output_ceramic_db_filename: &str) -> Result<()> {
-        sqlx::query(".backup ?")
+        sqlx::query(".backup $1")
             .bind(output_ceramic_db_filename)
             .execute(self.pool.writer())
             .await?;
@@ -553,7 +553,7 @@ where
                TOTAL(ahash_4) & 0xFFFFFFFF, TOTAL(ahash_5) & 0xFFFFFFFF,
                TOTAL(ahash_6) & 0xFFFFFFFF, TOTAL(ahash_7) & 0xFFFFFFFF,
                COUNT(1)
-             FROM event WHERE id > ? AND id < ?;",
+             FROM event WHERE id > $1 AND id < $2;",
         );
         let row = query
             .bind(left_fencepost.as_bytes())
@@ -592,13 +592,13 @@ where
         FROM
             event
         WHERE
-            id > ? AND id < ?
+            id > $1 AND id < $2
         ORDER BY
             id ASC
         LIMIT
-            ?
+            $3
         OFFSET
-            ?;
+            $4;
         ",
         );
         let rows = query
@@ -645,7 +645,7 @@ where
         FROM
             event
         WHERE
-            id > ? AND id < ?
+            id > $1 AND id < $2
         ;",
             lfp,
             rpf
@@ -670,7 +670,7 @@ where
             FROM
                 event
             WHERE
-                id > ? AND id < ?
+                id > $1 AND id < $2
             ORDER BY
                 id ASC
             LIMIT
@@ -699,7 +699,7 @@ where
         FROM
             event
         WHERE
-            id > ? AND id < ?
+            id > $1 AND id < $2
         ORDER BY
             id DESC
         LIMIT
@@ -729,7 +729,7 @@ where
                         SELECT id
                         FROM event
                         WHERE
-                            id > ? AND id < ?
+                            id > $1 AND id < $2
                         ORDER BY id ASC
                         LIMIT 1
                     ) as first
@@ -738,12 +738,10 @@ where
                         SELECT id
                         FROM event
                         WHERE
-                            id > ? AND id < ?
+                            id > $1 AND id < $2
                         ORDER BY id DESC
                         LIMIT 1
                     ) as last;",
-            lfp,
-            rfp,
             lfp,
             rfp,
         )
@@ -778,8 +776,8 @@ where
             SELECT id
             FROM event
             WHERE
-                id > ?
-                AND id < ?
+                id > $1
+                AND id < $2
                 AND value_retrieved = false
             ;",
             start,
@@ -798,7 +796,7 @@ where
 impl iroh_bitswap::Store for EventStore<Sha256a> {
     async fn get_size(&self, cid: &Cid) -> Result<usize> {
         Ok(
-            sqlx::query("SELECT length(bytes) FROM block WHERE cid = ?;")
+            sqlx::query("SELECT length(bytes) FROM block WHERE cid = $1;")
                 .bind(cid.to_bytes())
                 .fetch_one(self.pool.reader())
                 .await?
@@ -808,7 +806,7 @@ impl iroh_bitswap::Store for EventStore<Sha256a> {
 
     async fn get(&self, cid: &Cid) -> Result<Block> {
         Ok(Block::new(
-            sqlx::query("SELECT bytes FROM block WHERE cid = ?;")
+            sqlx::query("SELECT bytes FROM block WHERE cid = $1;")
                 .bind(cid.to_bytes())
                 .fetch_one(self.pool.reader())
                 .await?
@@ -819,7 +817,7 @@ impl iroh_bitswap::Store for EventStore<Sha256a> {
     }
 
     async fn has(&self, cid: &Cid) -> Result<bool> {
-        Ok(sqlx::query("SELECT count(1) FROM block WHERE cid = ?;")
+        Ok(sqlx::query("SELECT count(1) FROM block WHERE cid = $1;")
             .bind(cid.to_bytes())
             .fetch_one(self.pool.reader())
             .await?

@@ -3,9 +3,9 @@
 #![warn(missing_docs)]
 
 mod metrics;
-mod sqlite;
+mod sql;
 #[cfg(test)]
 mod tests;
 
 pub use metrics::{Metrics, StoreMetricsMiddleware};
-pub use sqlite::{DbTx, EventStore, InterestStore, SqlitePool};
+pub use sql::{DbTx, EventStore, InterestStore, SqlitePool};

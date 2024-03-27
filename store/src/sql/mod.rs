@@ -51,7 +51,7 @@ impl SqlitePool {
             .await?;
 
         if migrate {
-            sqlx::migrate!("../migrations").run(&writer).await?;
+            sqlx::migrate!("../migrations/sqlite").run(&writer).await?;
         }
 
         Ok(Self { writer, reader })

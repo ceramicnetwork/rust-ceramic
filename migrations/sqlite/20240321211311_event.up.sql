@@ -1,6 +1,6 @@
 -- Add up migration script here
 
-CREATE TABLE IF NOT EXISTS event (
+CREATE TABLE IF NOT EXISTS "event" (
     id BLOB NOT NULL, -- network_id sort_value controller StreamID height event_cid
     cid BLOB UNIQUE, -- NOT NULL? the cid of the event as bytes no 0x00 prefix
     ahash_0 INTEGER NOT NULL, -- the ahash is decomposed as [u32; 8]
@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS event (
     ahash_5 INTEGER NOT NULL,
     ahash_6 INTEGER NOT NULL,
     ahash_7 INTEGER NOT NULL,
-    value_retrieved BOOL NOT NULL DEFAULT FALSE, -- bool with 0=false, 1=true. indicates if we have the value
+    value_retrieved BOOL NOT NULL DEFAULT FALSE,
     PRIMARY KEY(id)
 );
 

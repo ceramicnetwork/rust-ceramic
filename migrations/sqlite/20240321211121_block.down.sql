@@ -1,2 +1,2 @@
 -- Add down migration script here
-DROP TABLE IF EXISTS event_blocks;
+DROP TABLE IF EXISTS "block";

@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "\n        SELECT\n            count(id) as cnt\n        FROM\n            event\n        WHERE\n            id > ? AND id < ?\n        ;",
+  "query": "\n        SELECT\n            count(id) as cnt\n        FROM\n            event\n        WHERE\n            id > $1 AND id < $2\n        ;",
   "describe": {
     "columns": [
       {
@@ -16,5 +16,5 @@
       false
     ]
   },
-  "hash": "d514dcd2da59761ff022db2e22940bc06fc13b327afa76482dfaa3dcf75e391a"
+  "hash": "554c608c75cc178f9b23af57e3db5afdd5a6845c18d17dcb41e845521375039d"
 }
