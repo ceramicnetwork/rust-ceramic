@@ -1,0 +1,44 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n                event_block.event_id, event_block.block_cid, event_block.root, event_block.idx, block.bytes\n            FROM (\n                SELECT\n                    e.id\n                FROM event e\n                WHERE\n                    EXISTS (SELECT 1 from event_block where event_id = e.id)\n                    AND e.id > $1 AND e.id < $2\n                ORDER BY\n                    e.id ASC\n                LIMIT\n                    $3\n                OFFSET\n                    $4\n            ) key\n            JOIN\n                event_block ON key.id = event_block.event_id\n            JOIN block on block.cid = event_block.block_cid\n                ORDER BY event_block.event_id, event_block.idx\n            ;",
+  "describe": {
+    "columns": [
+      {
+        "name": "event_id",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "block_cid",
+        "ordinal": 1,
+        "type_info": "Blob"
+      },
+      {
+        "name": "root",
+        "ordinal": 2,
+        "type_info": "Bool"
+      },
+      {
+        "name": "idx",
+        "ordinal": 3,
+        "type_info": "Int64"
+      },
+      {
+        "name": "bytes",
+        "ordinal": 4,
+        "type_info": "Blob"
+      }
+    ],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "2c24bf0d878d8fce48ce830fcfc0b8ec73b697218c63c1e7755a875bb7c7f431"
+}

@@ -1,10 +1,10 @@
 use anyhow::Result;
-use ceramic_p2p::SQLiteBlockStore;
-use ceramic_store::SqlitePool;
+use ceramic_store::{EventStore, SqlitePool};
 use chrono::{SecondsFormat, Utc};
 use cid::{multibase, multihash, Cid};
 use clap::{Args, Subcommand};
 use glob::{glob, Paths};
+use recon::Sha256a;
 use std::{fs, path::PathBuf};
 
 #[derive(Subcommand, Debug)]
@@ -47,8 +47,10 @@ async fn slurp(opts: SlurpOpts) -> Result<()> {
         output_ceramic_path.display()
     );
 
-    let pool = SqlitePool::connect(output_ceramic_path).await.unwrap();
-    let store = SQLiteBlockStore::new(pool).await.unwrap();
+    let pool = SqlitePool::connect(output_ceramic_path, true)
+        .await
+        .unwrap();
+    let store = EventStore::new(pool).await.unwrap();
 
     if let Some(input_ceramic_db) = opts.input_ceramic_db {
         migrate_from_database(input_ceramic_db, store.clone()).await;
@@ -59,7 +61,7 @@ async fn slurp(opts: SlurpOpts) -> Result<()> {
     Ok(())
 }
 
-async fn migrate_from_filesystem(input_ipfs_path: PathBuf, store: SQLiteBlockStore) {
+async fn migrate_from_filesystem(input_ipfs_path: PathBuf, store: EventStore<Sha256a>) {
     // the block store is split in to 1024 directories and then the blocks stored as files.
     // the dir structure is the penultimate two characters as dir then the b32 sha256 multihash of the block
     // The leading "B" for the b32 sha256 multihash is left off
@@ -78,6 +80,12 @@ async fn migrate_from_filesystem(input_ipfs_path: PathBuf, store: SQLiteBlockSto
 
     let mut count = 0;
     let mut err_count = 0;
+
+    let mut tx = store
+        .begin_tx()
+        .await
+        .map_err(|e| eprint!("Failed to begin transaction: {}", e))
+        .unwrap();
 
     for path in paths {
         let path = path.unwrap().as_path().to_owned();
@@ -119,7 +127,7 @@ async fn migrate_from_filesystem(input_ipfs_path: PathBuf, store: SQLiteBlockSto
             );
         }
 
-        let result = store.put(cid, blob.into(), vec![]).await;
+        let result = store.put_block_tx(&cid, &blob.into(), &mut tx).await;
         if result.is_err() {
             println!(
                 "{} err: {} {:?}",
@@ -141,7 +149,7 @@ async fn migrate_from_filesystem(input_ipfs_path: PathBuf, store: SQLiteBlockSto
     );
 }
 
-async fn migrate_from_database(input_ceramic_db: PathBuf, store: SQLiteBlockStore) {
+async fn migrate_from_database(input_ceramic_db: PathBuf, store: EventStore<Sha256a>) {
     let input_ceramic_db_filename = input_ceramic_db.to_str().expect("expect utf8");
     println!(
         "{} Importing blocks from {}.",
