@@ -16,6 +16,7 @@ use libp2p::{
     relay,
     swarm::behaviour::toggle::Toggle,
     swarm::NetworkBehaviour,
+    StreamProtocol,
 };
 use libp2p_identity::Keypair;
 use recon::{libp2p::Recon, Sha256a};
@@ -57,6 +58,9 @@ where
     dcutr: Toggle<dcutr::Behaviour>,
     recon: Toggle<recon::libp2p::Behaviour<I, M>>,
 }
+
+// Use distinct protocol name so only ceramic nodes participate in the DHT
+pub(crate) const KAD_PROTOCOL: StreamProtocol = StreamProtocol::new("/ceramic/kad/1.0.0");
 
 impl<I, M, S> NodeBehaviour<I, M, S>
 where
@@ -110,6 +114,7 @@ where
 
             let mut kad_config = kad::Config::default();
             kad_config
+                .set_protocol_names(vec![KAD_PROTOCOL])
                 .set_replication_factor(config.kademlia_replication_factor)
                 .set_parallelism(config.kademlia_parallelism)
                 .set_query_timeout(config.kademlia_query_timeout)
