@@ -1260,24 +1260,31 @@ dependencies = [
  "cid 0.10.1",
  "clap 4.4.18",
  "dirs",
+ "enum-as-inner",
  "expect-test",
  "futures",
  "git-version",
  "glob",
+ "hex",
  "home",
  "hyper",
  "iroh-bitswap",
  "iroh-rpc-client",
  "iroh-rpc-types",
  "libp2p",
+ "minicbor",
  "multiaddr",
  "multibase 0.9.1",
  "multihash 0.18.1",
  "names",
+ "ordered-float",
  "prometheus-client",
  "recon",
+ "reqwest",
+ "serde_json",
  "signal-hook",
  "signal-hook-tokio",
+ "sqlx",
  "swagger",
  "tokio",
  "tokio-metrics",
@@ -1338,7 +1345,9 @@ dependencies = [
  "ceramic-api",
  "ceramic-core",
  "ceramic-metrics",
+ "chrono",
  "cid 0.10.1",
+ "dirs",
  "expect-test",
  "futures",
  "hex",
@@ -1391,9 +1400,9 @@ dependencies = [
 
 [[package]]
 name = "chrono"
-version = "0.4.33"
+version = "0.4.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f13690e35a5e4ace198e7beea2895d29f3a9cc55015fcebe6336bd2010af9eb"
+checksum = "5bc015644b92d5890fab7489e49d21f879d5c990186827d42ec511919404f38b"
 dependencies = [
  "android-tzdata",
  "iana-time-zone",
@@ -5780,6 +5789,15 @@ name = "option-ext"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
+
+[[package]]
+name = "ordered-float"
+version = "4.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a76df7075c7d4d01fdcb46c912dd17fba5b60c78ea480b475f2b6ab6f666584e"
+dependencies = [
+ "num-traits",
+]
 
 [[package]]
 name = "os_str_bytes"

@@ -1,6 +1,8 @@
 //! Ceramic implements a single binary ceramic node.
 #![warn(missing_docs)]
 
+mod cbor_value;
+mod ethereum_rpc;
 mod events;
 mod http;
 mod metrics;
@@ -26,6 +28,7 @@ use tokio::{io::AsyncReadExt, sync::oneshot};
 use tracing::{debug, info, warn};
 
 use crate::network::Ipfs;
+pub use cbor_value::CborValue;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -319,7 +322,7 @@ impl Daemon {
         };
         info.apply_to_metrics_config(&mut metrics_config);
 
-        // Currently only an info metric is recoreded so we do not need to keep the handle to the
+        // Currently only an info metric is recorded so we do not need to keep the handle to the
         // Metrics struct. That will change once we add more metrics.
         let _metrics = ceramic_metrics::MetricsHandle::register(|registry| {
             crate::metrics::Metrics::register(info.clone(), registry)
@@ -644,7 +647,7 @@ async fn current_exe_hash() -> Result<Multihash> {
         // Debug builds can be 1GB+, so do we not want to spend the time to hash them.
         // Return a fake hash.
         let mut hash = multihash::Identity256::default();
-        // Spells debugg when base64 url encoded with some leading padding.
+        // Spells debug when base64 url encoded with some leading padding.
         hash.update(&[00, 117, 230, 238, 130]);
         Ok(Code::Identity.wrap(hash.finalize())?)
     } else {
