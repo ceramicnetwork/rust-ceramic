@@ -47,12 +47,12 @@ jobs:
           DEPLOY_TAG=$RELEASE_TAG
         fi
         # Tag with latest if this is a release (not pre-release)
-        if [[ "${{ github.event.action }}" == "published" && "${{ github.event.release.prerelease }}" == "true" ]]; then
-          TAG_LATEST=false
-        elif [[ "${{ github.event.action }}" == "released" ]]; then
+        if [[ "${{ github.event_name }}" == "push" ]]; then
           TAG_LATEST=true
+        elif
+          TAG_LATEST=false
         fi
-        make SHA="${{ github.SHA }}" SHA_TAG="$SHA_TAG" RELEASE_TAG="$RELEASE_TAG" publish-docker
+        make SHA="${{ github.SHA }}" SHA_TAG="$SHA_TAG" RELEASE_TAG="$RELEASE_TAG" TAG_LATEST="$TAG_LATEST" publish-docker
         echo "Deploy tag:"
         echo ${DEPLOY_TAG}
         echo "deploy_tag=${DEPLOY_TAG}" >> $GITHUB_OUTPUT
