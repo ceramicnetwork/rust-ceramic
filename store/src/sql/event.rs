@@ -95,25 +95,25 @@ where
 
         let all_blocks = sqlx::query!(
             "SELECT
-                event_block.id, event_block.cid, event_block.root, event_block.idx, block.bytes
+                event_block.event_id, event_block.block_cid, event_block.root, event_block.idx, block.bytes
             FROM (
                 SELECT
-                    id
-                FROM event
+                    e.id
+                FROM event e
                 WHERE
-                    id > $1 AND id < $2
-                    AND value_retrieved = true
+                    EXISTS (SELECT 1 from event_block where event_id = e.id)
+                    AND e.id > $1 AND e.id < $2
                 ORDER BY
-                    id ASC
+                    e.id ASC
                 LIMIT
                     $3
                 OFFSET
                     $4
             ) key
             JOIN
-                event_block ON key.id = event_block.id
-            JOIN block on block.cid = event_block.cid
-                ORDER BY event_block.id, event_block.idx
+                event_block ON key.id = event_block.event_id
+            JOIN block on block.cid = event_block.block_cid
+                ORDER BY event_block.event_id, event_block.idx
             ;",
             lfp,
             rfp,
@@ -127,8 +127,8 @@ where
         let all_blocks: Vec<(EventId, Vec<BlockRow>)> = process_results(
             all_blocks.into_iter().map(
                 |row| -> Result<(EventId, cid::CidGeneric<64>, bool, Vec<u8>), anyhow::Error> {
-                    let event_id = EventId::try_from(row.id)?;
-                    let cid = Cid::read_bytes(&row.cid[..])?;
+                    let event_id = EventId::try_from(row.event_id)?;
+                    let cid = Cid::read_bytes(&row.block_cid[..])?;
                     Ok((event_id, cid, row.root, row.bytes))
                 },
             ),
@@ -160,13 +160,12 @@ where
     async fn value_for_key_int(&self, key: &EventId) -> Result<Option<Vec<u8>>> {
         let query = sqlx::query_as::<_, BlockRow>(
             "
-            SELECT
-                eb.cid, eb.root, b.bytes
-            FROM event_block eb join block b on eb.cid = b.cid
+            SELECT eb.block_cid as cid, eb.root, b.bytes
+            FROM event_block eb 
+            JOIN block b on b.cid = eb.block_cid
             WHERE
-                eb.id = $1
-            ORDER BY eb.idx
-            ;",
+                eb.event_id = $1
+            ORDER BY eb.idx;",
         );
 
         let blocks = query
@@ -183,16 +182,9 @@ where
         conn: &mut DbTx<'_>,
     ) -> Result<(bool, bool)> {
         // We make sure the key exists as we require it as an FK to add the event_block record.
-        // It'd be nice to UPSERT here so we could set the value_retrieved value for an existing record,
-        // but we can't easily determine if the key was new in that case in sqlite (could in postgres).
-        // Instead we just run the update statement after if needed to make sure it's all set.
-        let new_key = self
-            .insert_key_int(item.key, item.value.is_some(), conn)
-            .await?;
+        let new_key = self.insert_key_int(item.key, conn).await?;
 
         if let Some(val) = item.value {
-            self.update_value_retrieved_int(item.key, conn).await?;
-
             // Put each block from the car file. Should we check if value already existed and skip this?
             // It will no-op but will still try to insert the blocks again
             let mut reader = CarReader::new(val).await?;
@@ -212,15 +204,6 @@ where
             }
         }
         Ok((new_key, item.value.is_some()))
-    }
-
-    /// set value_retrieved to true
-    async fn update_value_retrieved_int(&self, key: &EventId, conn: &mut DbTx<'_>) -> Result<()> {
-        let id = key.as_bytes();
-        let _update = sqlx::query!("UPDATE event SET value_retrieved = true WHERE id = $1", id)
-            .execute(&mut **conn)
-            .await?;
-        Ok(())
     }
 
     /// Add a block, returns true if the block is new
@@ -286,7 +269,7 @@ where
         let cid = cid.to_bytes();
         let id = key.as_bytes();
         sqlx::query!(
-            "INSERT INTO event_block (id, idx, root, cid) VALUES ($1, $2, $3, $4) on conflict do nothing;",
+            "INSERT INTO event_block (event_id, idx, root, block_cid) VALUES ($1, $2, $3, $4) on conflict do nothing;",
             id,
             idx,
             root,
@@ -297,12 +280,7 @@ where
         Ok(())
     }
 
-    async fn insert_key_int(
-        &self,
-        key: &EventId,
-        has_value: bool,
-        conn: &mut DbTx<'_>,
-    ) -> Result<bool> {
+    async fn insert_key_int(&self, key: &EventId, conn: &mut DbTx<'_>) -> Result<bool> {
         let id = key.as_bytes();
         let cid = key.cid().map(|cid| cid.to_bytes());
         let hash = Sha256a::digest(key);
@@ -311,13 +289,11 @@ where
             "INSERT INTO event (
                     id, cid,
                     ahash_0, ahash_1, ahash_2, ahash_3,
-                    ahash_4, ahash_5, ahash_6, ahash_7,
-                    value_retrieved
+                    ahash_4, ahash_5, ahash_6, ahash_7
                 ) VALUES (
                     $1, $2,
                     $3, $4, $5, $6,
-                    $7, $8, $9, $10,
-                    $11
+                    $7, $8, $9, $10
                 );",
             id,
             cid,
@@ -329,7 +305,6 @@ where
             hash.as_u32s()[5],
             hash.as_u32s()[6],
             hash.as_u32s()[7],
-            has_value
         )
         .execute(&mut **conn)
         .await;
@@ -392,10 +367,10 @@ where
         let rows = sqlx::query_as!(
             Highwater,
             r#"WITH entries AS (
-                    SELECT id, MAX(rowid) as max_rowid
+                    SELECT event_id as id, MAX(rowid) as max_rowid
                 FROM event_block
                     WHERE rowid >= $1 -- we return rowid+1 so we must match it next search
-                GROUP BY id
+                GROUP BY event_id
                 ORDER BY rowid
                 LIMIT $2
             )
@@ -437,7 +412,7 @@ where
             )
         } else {
             (
-                sqlx::query("SELECT DISTINCT cid FROM event_block ORDER BY cid LIMIT $1;")
+                sqlx::query("SELECT DISTINCT block FROM event_block ORDER BY block_cid LIMIT $1;")
                     .bind(limit),
                 sqlx::query("SELECT count(DISTINCT cid) FROM blocks;"),
             )
@@ -462,7 +437,7 @@ where
         // TODO: should this include idx (all event block info) or just be cid/bytes?
         sqlx::query_as(
             "SELECT cid, idx, root, bytes
-        FROM event_block
+        FROM block
         GROUP BY cid
         ORDER BY (key, cid, idx);",
         )
@@ -773,12 +748,12 @@ where
         let end = range.end.as_bytes();
         let row = sqlx::query!(
             "
-            SELECT id
-            FROM event
+            SELECT e.id
+            FROM event e
             WHERE
-                id > $1
-                AND id < $2
-                AND value_retrieved = false
+                NOT EXISTS (SELECT 1 from event_block where event_id = e.id) 
+                AND e.id > $1
+                AND e.id < $2
             ;",
             start,
             end

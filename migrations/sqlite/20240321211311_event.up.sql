@@ -11,8 +11,5 @@ CREATE TABLE IF NOT EXISTS "event" (
     ahash_5 INTEGER NOT NULL,
     ahash_6 INTEGER NOT NULL,
     ahash_7 INTEGER NOT NULL,
-    value_retrieved BOOL NOT NULL DEFAULT FALSE,
     PRIMARY KEY(id)
 );
-
-CREATE INDEX IF NOT EXISTS idx_event_key_value_retrieved ON event (id, value_retrieved);

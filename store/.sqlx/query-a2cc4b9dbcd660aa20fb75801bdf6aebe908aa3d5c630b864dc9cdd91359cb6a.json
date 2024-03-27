@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO event_block (event_id, idx, root, block_cid) VALUES ($1, $2, $3, $4) on conflict do nothing;",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "a2cc4b9dbcd660aa20fb75801bdf6aebe908aa3d5c630b864dc9cdd91359cb6a"
+}
