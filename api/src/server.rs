@@ -216,8 +216,8 @@ where
 
     pub async fn get_events_sort_key_sort_value(
         &self,
-        sort_key: String,
-        sort_value: String,
+        sep_key: String,
+        sep_value: String,
         controller: Option<String>,
         stream_id: Option<String>,
         offset: Option<i32>,
@@ -226,9 +226,10 @@ where
         let limit: usize =
             limit.map_or(10000, |l| if l.is_negative() { 10000 } else { l }) as usize;
         let offset = offset.map_or(0, |o| if o.is_negative() { 0 } else { o }) as usize;
-        // Should we validate that sort_value and stream_id are base36 encoded or just rely on input directly?
+        let sep_value = decode_multibase_data(&sep_value)?;
+        // Should we validate that sep_value and stream_id are base36 encoded or just rely on input directly?
         let (start, stop) =
-            self.build_start_stop_range(&sort_key, &sort_value, controller, stream_id)?;
+            self.build_start_stop_range(&sep_key, &sep_value, controller, stream_id)?;
 
         let events = self
             .model
@@ -251,7 +252,7 @@ where
 
     pub async fn post_events(&self, event: Event) -> Result<EventsPostResponse, ErrorResponse> {
         let event_id = decode_event_id(&event.id)?;
-        let event_data = decode_event_data(&event.data)?;
+        let event_data = decode_multibase_data(&event.data)?;
         self.model
             .insert(event_id, Some(event_data))
             .await
@@ -296,17 +297,17 @@ where
 
     fn build_start_stop_range(
         &self,
-        sort_key: &str,
-        sort_value: &str,
+        sep_key: &str,
+        sep_value: &[u8],
         controller: Option<String>,
         stream_id: Option<String>,
     ) -> Result<(EventId, EventId), ErrorResponse> {
         let start_builder = EventId::builder()
             .with_network(&self.network)
-            .with_sort_value(sort_key, sort_value);
+            .with_sep(sep_key, sep_value);
         let stop_builder = EventId::builder()
             .with_network(&self.network)
-            .with_sort_value(sort_key, sort_value);
+            .with_sep(sep_key, sep_value);
 
         let (start_builder, stop_builder) = match (controller, stream_id) {
             (Some(controller), Some(stream_id)) => {
@@ -336,8 +337,8 @@ where
             ),
         };
 
-        let start = start_builder.with_min_event_height().build_fencepost();
-        let stop = stop_builder.with_max_event_height().build_fencepost();
+        let start = start_builder.with_min_event().build_fencepost();
+        let stop = stop_builder.with_max_event().build_fencepost();
         Ok((start, stop))
     }
 
@@ -345,16 +346,17 @@ where
         &self,
         interest: ValidatedInterest,
     ) -> Result<(EventId, EventId), ErrorResponse> {
+        let sep_value = decode_multibase_data(&interest.sep_value)?;
         // Construct start and stop event id based on provided data.
         let (start, stop) = self.build_start_stop_range(
             &interest.sep,
-            &interest.sep_value,
+            &sep_value,
             interest.controller,
             interest.stream_id,
         )?;
         // Update interest ranges to include this new subscription.
         let interest = Interest::builder()
-            .with_sort_key(&interest.sep)
+            .with_sep_key(&interest.sep)
             .with_peer_id(&self.peer_id)
             .with_range((start.as_slice(), stop.as_slice()))
             .with_not_after(0)
@@ -375,7 +377,7 @@ pub(crate) fn decode_event_id(value: &str) -> Result<EventId, ErrorResponse> {
         .try_into()
         .map_err(|err| ErrorResponse::new(format!("invalid event id: {err}")))
 }
-pub(crate) fn decode_event_data(value: &str) -> Result<Vec<u8>, ErrorResponse> {
+pub(crate) fn decode_multibase_data(value: &str) -> Result<Vec<u8>, ErrorResponse> {
     Ok(multibase::decode(value)
         .map_err(|err| ErrorResponse::new(format!("multibase error: {err}")))?
         .1)
@@ -435,8 +437,8 @@ where
     #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn events_sort_key_sort_value_get(
         &self,
-        sort_key: String,
-        sort_value: String,
+        sep_key: String,
+        sep_value: String,
         controller: Option<String>,
         stream_id: Option<String>,
         offset: Option<i32>,
@@ -445,7 +447,7 @@ where
     ) -> Result<EventsSortKeySortValueGetResponse, ApiError> {
         match self
             .get_events_sort_key_sort_value(
-                sort_key, sort_value, controller, stream_id, offset, limit,
+                sep_key, sep_value, controller, stream_id, offset, limit,
             )
             .await
         {
@@ -488,15 +490,15 @@ where
     #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn interests_sort_key_sort_value_post(
         &self,
-        sort_key: String,
-        sort_value: String,
+        sep_key: String,
+        seplue: String,
         controller: Option<String>,
         stream_id: Option<String>,
         _context: &C,
     ) -> Result<InterestsSortKeySortValuePostResponse, ApiError> {
         let interest = models::Interest {
-            sep: sort_key,
-            sep_value: sort_value,
+            sep: sep_key,
+            sep_value: seplue,
             controller,
             stream_id,
         };
