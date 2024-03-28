@@ -15,7 +15,6 @@ use iroh_car::{CarHeader, CarWriter};
 use libipld::{ipld, prelude::Encode, Ipld};
 use libipld_cbor::DagCborCodec;
 use multihash::{Code, MultihashDigest};
-use rand::Rng;
 use recon::Sha256a;
 
 pub(crate) async fn new_store() -> ModelStore<Sha256a> {
@@ -42,16 +41,15 @@ const SORT_KEY: &str = "model";
 pub(crate) fn event_id_builder() -> Builder<WithInit> {
     EventId::builder()
         .with_network(&Network::DevUnstable)
-        .with_sort_value(SORT_KEY, MODEL_ID)
+        .with_sep(SORT_KEY, &multibase::decode(MODEL_ID).unwrap().1)
         .with_controller(CONTROLLER)
         .with_init(&Cid::from_str(INIT_ID).unwrap())
 }
 
 // Generate an event for the same network,model,controller,stream
 // The event and height are random when when its None.
-pub(crate) fn random_event_id(height: Option<u64>, event: Option<&str>) -> EventId {
+pub(crate) fn random_event_id(event: Option<&str>) -> EventId {
     event_id_builder()
-        .with_event_height(height.unwrap_or_else(|| rand::thread_rng().gen()))
         .with_event(
             &event
                 .map(|cid| Cid::from_str(cid).unwrap())
@@ -61,11 +59,11 @@ pub(crate) fn random_event_id(height: Option<u64>, event: Option<&str>) -> Event
 }
 // The EventId that is the minumum of all possible random event ids
 pub(crate) fn random_event_id_min() -> EventId {
-    event_id_builder().with_min_event_height().build_fencepost()
+    event_id_builder().with_min_event().build_fencepost()
 }
 // The EventId that is the maximum of all possible random event ids
 pub(crate) fn random_event_id_max() -> EventId {
-    event_id_builder().with_max_event_height().build_fencepost()
+    event_id_builder().with_max_event().build_fencepost()
 }
 
 pub(crate) fn random_cid() -> Cid {

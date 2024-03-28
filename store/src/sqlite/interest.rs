@@ -480,7 +480,7 @@ mod interest_tests {
     // Return an builder for an event with the same network,model,controller,stream.
     pub(crate) fn interest_builder() -> Builder<WithPeerId> {
         Interest::builder()
-            .with_sort_key(SORT_KEY)
+            .with_sep_key(SORT_KEY)
             .with_peer_id(&PeerId::from_str(PEER_ID).unwrap())
     }
 
@@ -659,7 +659,7 @@ mod interest_tests {
             (
                 Interest {
                     bytes: "480f70d652b6b825e4582200206ce9f954100188eb6e7939dbf45ac845d3399dba29da4e0b6ef1fdd8636a326b014040182a",
-                    sort_key_hash: "0f70d652b6b825e4",
+                    sep_key_hash: "0f70d652b6b825e4",
                     peer_id: PeerId(
                         "1AdgHpWeBKTU3F2tUkAQqL2Y2Geh4QgHJwcWMPuiY1qiRQ",
                     ),
@@ -679,7 +679,7 @@ mod interest_tests {
                 },
                 Interest {
                     bytes: "480f70d652b6b825e4582200206ce9f954100188eb6e7939dbf45ac845d3399dba29da4e0b6ef1fdd8636a326b014040182a",
-                    sort_key_hash: "0f70d652b6b825e4",
+                    sep_key_hash: "0f70d652b6b825e4",
                     peer_id: PeerId(
                         "1AdgHpWeBKTU3F2tUkAQqL2Y2Geh4QgHJwcWMPuiY1qiRQ",
                     ),
@@ -728,7 +728,7 @@ mod interest_tests {
             (
                 Interest {
                     bytes: "480f70d652b6b825e4582200206ce9f954100188eb6e7939dbf45ac845d3399dba29da4e0b6ef1fdd8636a326b014040182a",
-                    sort_key_hash: "0f70d652b6b825e4",
+                    sep_key_hash: "0f70d652b6b825e4",
                     peer_id: PeerId(
                         "1AdgHpWeBKTU3F2tUkAQqL2Y2Geh4QgHJwcWMPuiY1qiRQ",
                     ),
@@ -748,7 +748,7 @@ mod interest_tests {
                 },
                 Interest {
                     bytes: "480f70d652b6b825e4582200206ce9f954100188eb6e7939dbf45ac845d3399dba29da4e0b6ef1fdd8636a326b014040182b",
-                    sort_key_hash: "0f70d652b6b825e4",
+                    sep_key_hash: "0f70d652b6b825e4",
                     peer_id: PeerId(
                         "1AdgHpWeBKTU3F2tUkAQqL2Y2Geh4QgHJwcWMPuiY1qiRQ",
                     ),

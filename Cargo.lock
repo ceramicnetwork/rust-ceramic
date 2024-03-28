@@ -1356,6 +1356,7 @@ dependencies = [
  "itertools 0.12.1",
  "libipld 0.16.0",
  "libipld-cbor 0.16.0",
+ "multibase 0.9.1",
  "multihash 0.18.1",
  "prometheus-client",
  "rand 0.8.5",
