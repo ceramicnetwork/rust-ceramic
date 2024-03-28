@@ -1,7 +1,7 @@
 -- Add up migration script here
 
 CREATE TABLE IF NOT EXISTS interest (
-    id BLOB NOT NULL, -- network_id sort_value controller StreamID height event_cid
+    id BLOB NOT NULL, -- network_id sort_value controller StreamID event_cid
     ahash_0 INTEGER NOT NULL, -- the ahash is decomposed as [u32; 8]
     ahash_1 INTEGER NOT NULL,
     ahash_2 INTEGER NOT NULL,

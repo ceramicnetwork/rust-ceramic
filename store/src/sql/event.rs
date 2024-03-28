@@ -1,15 +1,14 @@
 use std::{collections::BTreeSet, marker::PhantomData};
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use bytes::Bytes;
 use ceramic_core::{EventId, RangeOpen};
 use cid::Cid;
-use futures::stream::BoxStream;
 use iroh_bitswap::Block;
 use iroh_car::{CarHeader, CarReader, CarWriter};
 use itertools::{process_results, Itertools};
-use multihash::{Code, Multihash, MultihashDigest};
+use multihash::{Code, MultihashDigest};
 use recon::{AssociativeHash, HashCount, InsertResult, Key, ReconItem, Sha256a};
 use sqlx::{sqlite::SqliteRow, FromRow, Row};
 use tracing::instrument;
@@ -95,25 +94,25 @@ where
 
         let all_blocks = sqlx::query!(
             "SELECT
-                event_block.event_id, event_block.block_cid, event_block.root, event_block.idx, block.bytes
+                key.order_key, event_block.block_cid, event_block.root, event_block.idx, block.bytes
             FROM (
                 SELECT
-                    e.id
+                    e.cid as event_cid, e.order_key
                 FROM event e
                 WHERE
-                    EXISTS (SELECT 1 from event_block where event_id = e.id)
-                    AND e.id > $1 AND e.id < $2
+                    EXISTS (SELECT 1 from event_block where event_cid = e.cid)
+                    AND e.order_key > $1 AND e.order_key < $2
                 ORDER BY
-                    e.id ASC
+                    e.order_key ASC
                 LIMIT
                     $3
                 OFFSET
                     $4
             ) key
             JOIN
-                event_block ON key.id = event_block.event_id
+                event_block ON key.event_cid = event_block.event_cid
             JOIN block on block.cid = event_block.block_cid
-                ORDER BY event_block.event_id, event_block.idx
+                ORDER BY key.order_key, event_block.idx
             ;",
             lfp,
             rfp,
@@ -127,9 +126,9 @@ where
         let all_blocks: Vec<(EventId, Vec<BlockRow>)> = process_results(
             all_blocks.into_iter().map(
                 |row| -> Result<(EventId, cid::CidGeneric<64>, bool, Vec<u8>), anyhow::Error> {
-                    let event_id = EventId::try_from(row.event_id)?;
+                    let order_key = EventId::try_from(row.order_key)?;
                     let cid = Cid::read_bytes(&row.block_cid[..])?;
-                    Ok((event_id, cid, row.root, row.bytes))
+                    Ok((order_key, cid, row.root, row.bytes))
                 },
             ),
             |blocks| {
@@ -163,8 +162,8 @@ where
             SELECT eb.block_cid as cid, eb.root, b.bytes
             FROM event_block eb 
             JOIN block b on b.cid = eb.block_cid
-            WHERE
-                eb.event_id = $1
+            JOIN event e on e.cid = eb.event_cid
+            WHERE e.order_key = $1
             ORDER BY eb.idx;",
         );
 
@@ -267,9 +266,9 @@ where
         let _new = self.put_block_tx(&cid, blob, conn).await?;
 
         let cid = cid.to_bytes();
-        let id = key.as_bytes();
+        let id = key.cid().context("Event CID is required")?.to_bytes();
         sqlx::query!(
-            "INSERT INTO event_block (event_id, idx, root, block_cid) VALUES ($1, $2, $3, $4) on conflict do nothing;",
+            "INSERT INTO event_block (event_cid, idx, root, block_cid) VALUES ($1, $2, $3, $4) on conflict do nothing;",
             id,
             idx,
             root,
@@ -282,12 +281,15 @@ where
 
     async fn insert_key_int(&self, key: &EventId, conn: &mut DbTx<'_>) -> Result<bool> {
         let id = key.as_bytes();
-        let cid = key.cid().map(|cid| cid.to_bytes());
+        let cid = key
+            .cid()
+            .map(|cid| cid.to_bytes())
+            .context("Event CID is required")?;
         let hash = Sha256a::digest(key);
 
         let resp = sqlx::query!(
             "INSERT INTO event (
-                    id, cid,
+                    order_key, cid,
                     ahash_0, ahash_1, ahash_2, ahash_3,
                     ahash_4, ahash_5, ahash_6, ahash_7
                 ) VALUES (
@@ -367,15 +369,15 @@ where
         let rows = sqlx::query_as!(
             Highwater,
             r#"WITH entries AS (
-                    SELECT event_id as id, MAX(rowid) as max_rowid
+                    SELECT event_cid, MAX(rowid) as max_rowid
                 FROM event_block
                     WHERE rowid >= $1 -- we return rowid+1 so we must match it next search
-                GROUP BY event_id
+                GROUP BY event_cid
                 ORDER BY rowid
                 LIMIT $2
             )
             SELECT 
-                id, 
+                (SELECT order_key from event where cid = entries.event_cid) as id, 
                 (SELECT MAX(max_rowid) + 1 FROM entries) as "new_highwater_mark: _"
             from entries;"#,
             row_id,
@@ -395,53 +397,6 @@ where
             .collect::<Result<Vec<EventId>, EventIdError>>()?;
 
         Ok((row_id, rows))
-    }
-
-    /// Return a range of block hashes starting at hash exclusively.
-    pub async fn block_range(
-        &self,
-        hash: Option<Multihash>,
-        limit: i64,
-    ) -> Result<(Vec<Multihash>, i64)> {
-        let (hashes_query, remaining_query) = if let Some(hash) = hash {
-            (
-                sqlx::query("SELECT cid FROM block WHERE cid > $1 ORDER BY cid LIMIT $2;")
-                    .bind(hash.to_bytes())
-                    .bind(limit),
-                sqlx::query("SELECT count(cid) FROM block WHERE cid > $1").bind(hash.to_bytes()),
-            )
-        } else {
-            (
-                sqlx::query("SELECT DISTINCT block FROM event_block ORDER BY block_cid LIMIT $1;")
-                    .bind(limit),
-                sqlx::query("SELECT count(DISTINCT cid) FROM blocks;"),
-            )
-        };
-        let hashes = hashes_query
-            .fetch_all(self.pool.reader())
-            .await?
-            .into_iter()
-            .map(|row| Multihash::from_bytes(row.get::<'_, &[u8], _>(0)))
-            .collect::<Result<Vec<Multihash>, multihash::Error>>()?;
-        let remaining = remaining_query
-                .fetch_one(self.pool.reader())
-                .await?
-                .get::<'_, i64, _>(0)
-                // Do not count the hashes we just got in the remaining count.
-                - (hashes.len() as i64);
-        Ok((hashes, remaining))
-    }
-
-    /// Return rows in the blocks table as a stream to iterate.
-    pub fn scan_blocks(&self) -> BoxStream<Result<BlockRow, sqlx::Error>> {
-        // TODO: should this include idx (all event block info) or just be cid/bytes?
-        sqlx::query_as(
-            "SELECT cid, idx, root, bytes
-        FROM block
-        GROUP BY cid
-        ORDER BY (key, cid, idx);",
-        )
-        .fetch(self.pool.reader())
     }
 
     /// merge_from_sqlite takes the filepath to a sqlite file.
@@ -528,7 +483,7 @@ where
                TOTAL(ahash_4) & 0xFFFFFFFF, TOTAL(ahash_5) & 0xFFFFFFFF,
                TOTAL(ahash_6) & 0xFFFFFFFF, TOTAL(ahash_7) & 0xFFFFFFFF,
                COUNT(1)
-             FROM event WHERE id > $1 AND id < $2;",
+             FROM event WHERE order_key > $1 AND order_key < $2;",
         );
         let row = query
             .bind(left_fencepost.as_bytes())
@@ -563,13 +518,13 @@ where
         let query = sqlx::query(
             "
         SELECT
-            id
+            order_key
         FROM
             event
         WHERE
-            id > $1 AND id < $2
+        order_key > $1 AND order_key < $2
         ORDER BY
-            id ASC
+            order_key ASC
         LIMIT
             $3
         OFFSET
@@ -616,11 +571,11 @@ where
         let row = sqlx::query!(
             "
         SELECT
-            count(id) as cnt
+            count(order_key) as cnt
         FROM
             event
         WHERE
-            id > $1 AND id < $2
+            order_key > $1 AND order_key < $2
         ;",
             lfp,
             rpf
@@ -641,13 +596,13 @@ where
         let rpf = right_fencepost.as_bytes();
         let row = sqlx::query!(
             "SELECT
-                id
+                order_key as id
             FROM
                 event
             WHERE
-                id > $1 AND id < $2
+                order_key > $1 AND order_key < $2
             ORDER BY
-                id ASC
+                order_key ASC
             LIMIT
             1",
             lfp,
@@ -670,13 +625,13 @@ where
         let row = sqlx::query!(
             "
         SELECT
-            id
+            order_key as id
         FROM
             event
         WHERE
-            id > $1 AND id < $2
+            order_key > $1 AND order_key < $2
         ORDER BY
-            id DESC
+            order_key DESC
         LIMIT
             1
         ;",
@@ -701,20 +656,20 @@ where
             "SELECT first.id as first, last.id as last
                 FROM
                     (
-                        SELECT id
+                        SELECT order_key as id
                         FROM event
                         WHERE
-                            id > $1 AND id < $2
-                        ORDER BY id ASC
+                            order_key > $1 AND order_key < $2
+                        ORDER BY order_key ASC
                         LIMIT 1
                     ) as first
                 JOIN
                     (
-                        SELECT id
+                        SELECT order_key as id
                         FROM event
                         WHERE
-                            id > $1 AND id < $2
-                        ORDER BY id DESC
+                            order_key > $1 AND order_key < $2
+                        ORDER BY order_key DESC
                         LIMIT 1
                     ) as last;",
             lfp,
@@ -748,12 +703,12 @@ where
         let end = range.end.as_bytes();
         let row = sqlx::query!(
             "
-            SELECT e.id
+            SELECT e.order_key as id
             FROM event e
             WHERE
-                NOT EXISTS (SELECT 1 from event_block where event_id = e.id) 
-                AND e.id > $1
-                AND e.id < $2
+                NOT EXISTS (SELECT 1 from event_block where order_key = e.order_key) 
+                AND e.order_key > $1
+                AND e.order_key < $2
             ;",
             start,
             end

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO event (\n                    order_key, cid,\n                    ahash_0, ahash_1, ahash_2, ahash_3,\n                    ahash_4, ahash_5, ahash_6, ahash_7\n                ) VALUES (\n                    $1, $2,\n                    $3, $4, $5, $6,\n                    $7, $8, $9, $10\n                );",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 10
+    },
+    "nullable": []
+  },
+  "hash": "ae4172410a1e3e70911ea8c6ae5e7b751a4ae3f8faf81964b17f76d66206edbc"
+}
