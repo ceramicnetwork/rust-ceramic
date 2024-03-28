@@ -27,28 +27,28 @@ docker run --rm -i \
   -v ~/.aws:/root/.aws \
   -v "$PWD":/aws \
   amazon/aws-cli dynamodb put-item --table-name "ceramic-$network-ops" --item \
-  "{                                                            \
-    \"id\":     {\"S\": \"$id\"},                               \
-    \"job\":    {\"S\": \"$job_id\"},                           \
-    \"ts\":     {\"N\": \"$now\"},                              \
-    \"ttl\":    {\"N\": \"$ttl\"},                              \
-    \"stage\":  {\"S\": \"queued\"},                            \
-    \"type\":   {\"S\": \"workflow\"},                          \
-    \"params\": {                                               \
-      \"M\": {                                                  \
+  "{                                                                         \
+    \"id\":     {\"S\": \"$id\"},                                            \
+    \"job\":    {\"S\": \"$job_id\"},                                        \
+    \"ts\":     {\"N\": \"$now\"},                                           \
+    \"ttl\":    {\"N\": \"$ttl\"},                                           \
+    \"stage\":  {\"S\": \"queued\"},                                         \
+    \"type\":   {\"S\": \"workflow\"},                                       \
+    \"params\": {                                                            \
+      \"M\": {                                                               \
         \"name\":     {\"S\": \"Deploy k8s $network CERAMIC ONE\"},          \
-        \"org\":      {\"S\": \"3box\"},                        \
-        \"repo\":     {\"S\": \"ceramic-infra\"},               \
-        \"ref\":      {\"S\": \"$branch\"},                     \
-        \"workflow\": {\"S\": \"update_image.yml\"},            \
-        \"labels\":   {\"L\": [{\"S\": \"deploy\"}]},           \
-        \"inputs\":   {                                         \
-          \"M\": {                                              \
-            \"ceramic_one_image\": {\"S\": \"$image\"},         \
-            \"ceramic_image\":     {\"S\": \"$ceramic_image\"}, \
-            \"environment\": {\"S\": \"$environment\"}          \
-          }                                                     \
-        }                                                       \
-      }                                                         \
-    }                                                           \
+        \"org\":      {\"S\": \"3box\"},                                     \
+        \"repo\":     {\"S\": \"ceramic-infra\"},                            \
+        \"ref\":      {\"S\": \"$branch\"},                                  \
+        \"workflow\": {\"S\": \"update_image.yml\"},                         \
+        \"labels\":   {\"L\": [{\"S\": \"deploy\"}]},                        \
+        \"inputs\":   {                                                      \
+          \"M\": {                                                           \
+            \"ceramic_one_image\": {\"S\": \"$image\"},                      \
+            \"ceramic_image\":     {\"S\": \"$ceramic_image\"},              \
+            \"environment\":       {\"S\": \"$environment\"}                 \
+          }                                                                  \
+        }                                                                    \
+      }                                                                      \
+    }                                                                        \
   }"
