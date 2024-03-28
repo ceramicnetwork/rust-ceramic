@@ -1061,19 +1061,27 @@ mod test {
     #[test(tokio::test)]
     async fn first_and_last() {
         let mut store = new_store().await;
+        let a: Cid = "baeabeiaxz4bp5shtl222y6nbnszvcasj33ogrd2pfjc6torgc7dik3hkxy"
+            .parse()
+            .unwrap();
+        let b: Cid = "baeabeibxz4bp5shtl222y6nbnszvcasj33ogrd2pfjc6torgc7dik3hkxy"
+            .parse()
+            .unwrap();
+        let c: Cid = "baeabeicxz4bp5shtl222y6nbnszvcasj33ogrd2pfjc6torgc7dik3hkxy"
+            .parse()
+            .unwrap();
+        let d: Cid = "baeabeidxz4bp5shtl222y6nbnszvcasj33ogrd2pfjc6torgc7dik3hkxy"
+            .parse()
+            .unwrap();
         recon::Store::insert(
             &mut store,
-            ReconItem::new_key(&random_event_id(Some(
-                "baeabeie2bcird7765t7646jcoatd72tfn2tscdaap7g6kvvy7k43s34aau",
-            ))),
+            ReconItem::new_key(&event_id_builder().with_event(&b).build()),
         )
         .await
         .unwrap();
         recon::Store::insert(
             &mut store,
-            ReconItem::new_key(&random_event_id(Some(
-                "baeabeianftvrst5bja422dod6uf42pmwkwix6rprguanwsxylfut56e3ue",
-            ))),
+            ReconItem::new_key(&event_id_builder().with_event(&c).build()),
         )
         .await
         .unwrap();
@@ -1081,9 +1089,8 @@ mod test {
         // Only one key in range
         let ret = recon::Store::first_and_last(
             &mut store,
-            // TODO create ordered event CIDs
-            &event_id_builder().with_min_event().build_fencepost(),
-            &event_id_builder().with_max_event().build_fencepost(),
+            &event_id_builder().with_event(&a).build_fencepost(),
+            &event_id_builder().with_event(&c).build_fencepost(),
         )
         .await
         .unwrap();
@@ -1091,7 +1098,7 @@ mod test {
             Some(
                 (
                     EventId {
-                        bytes: "ce010502e320708396e92d964f16d8429ae87f86ead3ca3c010012200d2ceb194fa14839ad0dc3f50bcd3d9655917f45f13500db4af859693ef89ba1",
+                        bytes: "ce010502e320708396e92d964f16d8429ae87f86ead3ca3c0100122037cf02fec8f35eb5ac79a16cb3510249dedc688f4f2a45e9ba2617c6856ceabe",
                         network_id: Some(
                             2,
                         ),
@@ -1105,11 +1112,11 @@ mod test {
                             "ead3ca3c",
                         ),
                         cid: Some(
-                            "baeabeianftvrst5bja422dod6uf42pmwkwix6rprguanwsxylfut56e3ue",
+                            "baeabeibxz4bp5shtl222y6nbnszvcasj33ogrd2pfjc6torgc7dik3hkxy",
                         ),
                     },
                     EventId {
-                        bytes: "ce010502e320708396e92d964f16d8429ae87f86ead3ca3c010012209a089111fffeecffee792270263fea656ea7210c007fcde556b8fab9b96f8005",
+                        bytes: "ce010502e320708396e92d964f16d8429ae87f86ead3ca3c0100122037cf02fec8f35eb5ac79a16cb3510249dedc688f4f2a45e9ba2617c6856ceabe",
                         network_id: Some(
                             2,
                         ),
@@ -1123,7 +1130,7 @@ mod test {
                             "ead3ca3c",
                         ),
                         cid: Some(
-                            "baeabeie2bcird7765t7646jcoatd72tfn2tscdaap7g6kvvy7k43s34aau",
+                            "baeabeibxz4bp5shtl222y6nbnszvcasj33ogrd2pfjc6torgc7dik3hkxy",
                         ),
                     },
                 ),
@@ -1134,61 +1141,21 @@ mod test {
         // No keys in range
         let ret = recon::Store::first_and_last(
             &mut store,
-            // TODO ordered CIDs
-            &event_id_builder().with_min_event().build_fencepost(),
-            &event_id_builder().with_max_event().build_fencepost(),
+            &event_id_builder().with_event(&a).build_fencepost(),
+            &event_id_builder().with_event(&a).build_fencepost(),
         )
         .await
         .unwrap();
         expect![[r#"
-            Some(
-                (
-                    EventId {
-                        bytes: "ce010502e320708396e92d964f16d8429ae87f86ead3ca3c010012200d2ceb194fa14839ad0dc3f50bcd3d9655917f45f13500db4af859693ef89ba1",
-                        network_id: Some(
-                            2,
-                        ),
-                        separator: Some(
-                            "e320708396e92d96",
-                        ),
-                        controller: Some(
-                            "4f16d8429ae87f86",
-                        ),
-                        stream_id: Some(
-                            "ead3ca3c",
-                        ),
-                        cid: Some(
-                            "baeabeianftvrst5bja422dod6uf42pmwkwix6rprguanwsxylfut56e3ue",
-                        ),
-                    },
-                    EventId {
-                        bytes: "ce010502e320708396e92d964f16d8429ae87f86ead3ca3c010012209a089111fffeecffee792270263fea656ea7210c007fcde556b8fab9b96f8005",
-                        network_id: Some(
-                            2,
-                        ),
-                        separator: Some(
-                            "e320708396e92d96",
-                        ),
-                        controller: Some(
-                            "4f16d8429ae87f86",
-                        ),
-                        stream_id: Some(
-                            "ead3ca3c",
-                        ),
-                        cid: Some(
-                            "baeabeie2bcird7765t7646jcoatd72tfn2tscdaap7g6kvvy7k43s34aau",
-                        ),
-                    },
-                ),
-            )
+            None
         "#]]
         .assert_debug_eq(&ret);
 
         // Two keys in range
         let ret = recon::Store::first_and_last(
             &mut store,
-            &random_event_id_min(),
-            &random_event_id_max(),
+            &event_id_builder().with_event(&a).build_fencepost(),
+            &event_id_builder().with_event(&d).build_fencepost(),
         )
         .await
         .unwrap();
@@ -1196,7 +1163,7 @@ mod test {
             Some(
                 (
                     EventId {
-                        bytes: "ce010502e320708396e92d964f16d8429ae87f86ead3ca3c010012200d2ceb194fa14839ad0dc3f50bcd3d9655917f45f13500db4af859693ef89ba1",
+                        bytes: "ce010502e320708396e92d964f16d8429ae87f86ead3ca3c0100122037cf02fec8f35eb5ac79a16cb3510249dedc688f4f2a45e9ba2617c6856ceabe",
                         network_id: Some(
                             2,
                         ),
@@ -1210,11 +1177,11 @@ mod test {
                             "ead3ca3c",
                         ),
                         cid: Some(
-                            "baeabeianftvrst5bja422dod6uf42pmwkwix6rprguanwsxylfut56e3ue",
+                            "baeabeibxz4bp5shtl222y6nbnszvcasj33ogrd2pfjc6torgc7dik3hkxy",
                         ),
                     },
                     EventId {
-                        bytes: "ce010502e320708396e92d964f16d8429ae87f86ead3ca3c010012209a089111fffeecffee792270263fea656ea7210c007fcde556b8fab9b96f8005",
+                        bytes: "ce010502e320708396e92d964f16d8429ae87f86ead3ca3c0100122057cf02fec8f35eb5ac79a16cb3510249dedc688f4f2a45e9ba2617c6856ceabe",
                         network_id: Some(
                             2,
                         ),
@@ -1228,7 +1195,7 @@ mod test {
                             "ead3ca3c",
                         ),
                         cid: Some(
-                            "baeabeie2bcird7765t7646jcoatd72tfn2tscdaap7g6kvvy7k43s34aau",
+                            "baeabeicxz4bp5shtl222y6nbnszvcasj33ogrd2pfjc6torgc7dik3hkxy",
                         ),
                     },
                 ),
