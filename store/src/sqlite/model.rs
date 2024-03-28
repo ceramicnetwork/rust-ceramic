@@ -1,9 +1,9 @@
-use std::{collections::BTreeSet, marker::PhantomData};
+use std::{collections::BTreeSet, marker::PhantomData, ops::Range};
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use bytes::Bytes;
-use ceramic_core::{EventId, RangeOpen};
+use ceramic_core::EventId;
 use cid::Cid;
 use iroh_bitswap::Block;
 use iroh_car::{CarHeader, CarReader, CarWriter};
@@ -107,8 +107,7 @@ where
 
     async fn range_with_values_int(
         &self,
-        left_fencepost: &EventId,
-        right_fencepost: &EventId,
+        range: Range<&EventId>,
         offset: usize,
         limit: usize,
     ) -> Result<Box<dyn Iterator<Item = (EventId, Vec<u8>)> + Send + 'static>> {
@@ -121,7 +120,7 @@ where
                 key
             FROM model_key
             WHERE
-                key > ? AND key < ?
+                key >= ? AND key < ?
                 AND value_retrieved = true
             ORDER BY
                 key ASC
@@ -138,8 +137,8 @@ where
         ;",
         );
         let all_blocks = query
-            .bind(left_fencepost.as_bytes())
-            .bind(right_fencepost.as_bytes())
+            .bind(range.start.as_bytes())
+            .bind(range.end.as_bytes())
             .bind(limit as i64)
             .bind(offset as i64)
             .fetch_all(self.pool.reader())
@@ -481,12 +480,8 @@ where
 
     /// return the hash and count for a range
     #[instrument(skip(self))]
-    async fn hash_range(
-        &mut self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Result<HashCount<Self::Hash>> {
-        if left_fencepost >= right_fencepost {
+    async fn hash_range(&mut self, range: Range<&Self::Key>) -> Result<HashCount<Self::Hash>> {
+        if range.start >= range.end {
             return Ok(HashCount::new(H::identity(), 0));
         }
 
@@ -497,11 +492,11 @@ where
                TOTAL(ahash_4) & 0xFFFFFFFF, TOTAL(ahash_5) & 0xFFFFFFFF,
                TOTAL(ahash_6) & 0xFFFFFFFF, TOTAL(ahash_7) & 0xFFFFFFFF,
                COUNT(1)
-             FROM model_key WHERE key > ? AND key < ?;",
+             FROM model_key WHERE key >= ? AND key < ?;",
         );
         let row = query
-            .bind(left_fencepost.as_bytes())
-            .bind(right_fencepost.as_bytes())
+            .bind(range.start.as_bytes())
+            .bind(range.end.as_bytes())
             .fetch_one(self.pool.reader())
             .await?;
         let bytes: [u32; 8] = [
@@ -524,8 +519,7 @@ where
     #[instrument(skip(self))]
     async fn range(
         &mut self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
+        range: Range<&Self::Key>,
         offset: usize,
         limit: usize,
     ) -> Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
@@ -536,7 +530,7 @@ where
         FROM
             model_key
         WHERE
-            key > ? AND key < ?
+            key >= ? AND key < ?
         ORDER BY
             key ASC
         LIMIT
@@ -546,8 +540,8 @@ where
         ",
         );
         let rows = query
-            .bind(left_fencepost.as_bytes())
-            .bind(right_fencepost.as_bytes())
+            .bind(range.start.as_bytes())
+            .bind(range.end.as_bytes())
             .bind(limit as i64)
             .bind(offset as i64)
             .fetch_all(self.pool.reader())
@@ -564,22 +558,16 @@ where
     #[instrument(skip(self))]
     async fn range_with_values(
         &mut self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
+        range: Range<&Self::Key>,
         offset: usize,
         limit: usize,
     ) -> Result<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>> {
-        self.range_with_values_int(left_fencepost, right_fencepost, offset, limit)
-            .await
+        self.range_with_values_int(range, offset, limit).await
     }
 
     /// Return the number of keys within the range.
     #[instrument(skip(self))]
-    async fn count(
-        &mut self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Result<usize> {
+    async fn count(&mut self, range: Range<&Self::Key>) -> Result<usize> {
         let query = sqlx::query(
             "
         SELECT
@@ -587,12 +575,12 @@ where
         FROM
             model_key
         WHERE
-            key > ? AND key < ?
+            key >= ? AND key < ?
         ;",
         );
         let row = query
-            .bind(left_fencepost.as_bytes())
-            .bind(right_fencepost.as_bytes())
+            .bind(range.start.as_bytes())
+            .bind(range.end.as_bytes())
             .fetch_one(self.pool.reader())
             .await?;
         Ok(row.get::<'_, i64, _>(0) as usize)
@@ -600,11 +588,7 @@ where
 
     /// Return the first key within the range.
     #[instrument(skip(self))]
-    async fn first(
-        &mut self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Result<Option<Self::Key>> {
+    async fn first(&mut self, range: Range<&Self::Key>) -> Result<Option<Self::Key>> {
         let query = sqlx::query(
             "
     SELECT
@@ -612,7 +596,7 @@ where
     FROM
         model_key
     WHERE
-        key > ? AND key < ?
+        key >= ? AND key < ?
     ORDER BY
         key ASC
     LIMIT
@@ -620,8 +604,8 @@ where
     ; ",
         );
         let rows = query
-            .bind(left_fencepost.as_bytes())
-            .bind(right_fencepost.as_bytes())
+            .bind(range.start.as_bytes())
+            .bind(range.end.as_bytes())
             .fetch_all(self.pool.reader())
             .await?;
         Ok(rows
@@ -634,11 +618,7 @@ where
     }
 
     #[instrument(skip(self))]
-    async fn last(
-        &mut self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Result<Option<Self::Key>> {
+    async fn last(&mut self, range: Range<&Self::Key>) -> Result<Option<Self::Key>> {
         let query = sqlx::query(
             "
         SELECT
@@ -646,7 +626,7 @@ where
         FROM
             model_key
         WHERE
-            key > ? AND key < ?
+            key >= ? AND key < ?
         ORDER BY
             key DESC
         LIMIT
@@ -654,8 +634,8 @@ where
         ;",
         );
         let rows = query
-            .bind(left_fencepost.as_bytes())
-            .bind(right_fencepost.as_bytes())
+            .bind(range.start.as_bytes())
+            .bind(range.end.as_bytes())
             .fetch_all(self.pool.reader())
             .await?;
         Ok(rows
@@ -670,8 +650,7 @@ where
     #[instrument(skip(self))]
     async fn first_and_last(
         &mut self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
+        range: Range<&Self::Key>,
     ) -> Result<Option<(Self::Key, Self::Key)>> {
         let query = sqlx::query(
             "
@@ -681,7 +660,7 @@ where
                 SELECT key
                 FROM model_key
                 WHERE
-                    key > ? AND key < ?
+                    key >= ? AND key < ?
                 ORDER BY key ASC
                 LIMIT 1
             ) as first
@@ -690,17 +669,17 @@ where
                 SELECT key
                 FROM model_key
                 WHERE
-                    key > ? AND key < ?
+                    key >= ? AND key < ?
                 ORDER BY key DESC
                 LIMIT 1
             ) as last
         ;",
         );
         let rows = query
-            .bind(left_fencepost.as_bytes())
-            .bind(right_fencepost.as_bytes())
-            .bind(left_fencepost.as_bytes())
-            .bind(right_fencepost.as_bytes())
+            .bind(range.start.as_bytes())
+            .bind(range.end.as_bytes())
+            .bind(range.start.as_bytes())
+            .bind(range.end.as_bytes())
             .fetch_all(self.pool.reader())
             .await?;
         if let Some(row) = rows.first() {
@@ -720,7 +699,7 @@ where
     #[instrument(skip(self))]
     async fn keys_with_missing_values(
         &mut self,
-        range: RangeOpen<Self::Key>,
+        range: Range<&Self::Key>,
     ) -> Result<Vec<Self::Key>> {
         if range.start >= range.end {
             return Ok(vec![]);
@@ -730,7 +709,7 @@ where
             SELECT key
             FROM model_key
             WHERE
-                key > ?
+                key >= ?
                 AND key < ?
                 AND value_retrieved = false
             ;",
@@ -807,7 +786,7 @@ impl ceramic_api::AccessModelStore for ModelStore<Sha256a> {
         limit: usize,
     ) -> Result<Vec<(Self::Key, Vec<u8>)>> {
         let res = self
-            .range_with_values_int(&start, &end, offset, limit)
+            .range_with_values_int(&start..&end, offset, limit)
             .await?;
         Ok(res.collect())
     }
@@ -856,7 +835,7 @@ mod test {
         .await
         .unwrap();
         let hash =
-            recon::Store::hash_range(&mut store, &random_event_id_min(), &random_event_id_max())
+            recon::Store::hash_range(&mut store, &random_event_id_min()..&random_event_id_max())
                 .await
                 .unwrap();
         expect!["65C7A25327CC05C19AB5812103EEB8D1156595832B453C7BAC6A186F4811FA0A#2"]
@@ -886,8 +865,7 @@ mod test {
         .unwrap();
         let ids = recon::Store::range(
             &mut store,
-            &random_event_id_min(),
-            &random_event_id_max(),
+            &random_event_id_min()..&random_event_id_max(),
             0,
             usize::MAX,
         )
@@ -977,8 +955,7 @@ mod test {
         .unwrap();
         let values: Vec<(EventId, Vec<u8>)> = recon::Store::range_with_values(
             &mut store,
-            &random_event_id_min(),
-            &random_event_id_max(),
+            &random_event_id_min()..&random_event_id_max(),
             0,
             usize::MAX,
         )
@@ -1096,8 +1073,8 @@ mod test {
         // Only one key in range
         let ret = recon::Store::first_and_last(
             &mut store,
-            &event_id_builder().with_event_height(9).build_fencepost(),
-            &event_id_builder().with_event_height(11).build_fencepost(),
+            &event_id_builder().with_event_height(9).build_fencepost()
+                ..&event_id_builder().with_event_height(11).build_fencepost(),
         )
         .await
         .unwrap();
@@ -1154,8 +1131,8 @@ mod test {
         // No keys in range
         let ret = recon::Store::first_and_last(
             &mut store,
-            &event_id_builder().with_event_height(12).build_fencepost(),
-            &event_id_builder().with_max_event_height().build_fencepost(),
+            &event_id_builder().with_event_height(12).build_fencepost()
+                ..&event_id_builder().with_max_event_height().build_fencepost(),
         )
         .await
         .unwrap();
@@ -1167,8 +1144,7 @@ mod test {
         // Two keys in range
         let ret = recon::Store::first_and_last(
             &mut store,
-            &random_event_id_min(),
-            &random_event_id_max(),
+            &random_event_id_min()..&random_event_id_max(),
         )
         .await
         .unwrap();
@@ -1252,7 +1228,7 @@ mod test {
             .unwrap();
         let missing_keys = recon::Store::keys_with_missing_values(
             &mut store,
-            (EventId::min_value(), EventId::max_value()).into(),
+            &EventId::min_value()..&EventId::max_value(),
         )
         .await
         .unwrap();
@@ -1289,7 +1265,7 @@ mod test {
             .unwrap();
         let missing_keys = recon::Store::keys_with_missing_values(
             &mut store,
-            (EventId::min_value(), EventId::max_value()).into(),
+            &EventId::min_value()..&EventId::max_value(),
         )
         .await
         .unwrap();

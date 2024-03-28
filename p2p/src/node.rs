@@ -1168,7 +1168,7 @@ mod tests {
     use futures::TryStreamExt;
     use rand::prelude::*;
     use rand_chacha::ChaCha8Rng;
-    use recon::{Range, Sha256a, SyncState};
+    use recon::{RangeHash, Sha256a, SyncState};
     use ssh_key::private::Ed25519Keypair;
     use test_log::test;
 
@@ -1292,13 +1292,13 @@ mod tests {
         async fn initial_range(
             &self,
             _interest: RangeOpen<Self::Key>,
-        ) -> Result<Range<Self::Key, Self::Hash>> {
+        ) -> Result<RangeHash<Self::Key, Self::Hash>> {
             unreachable!()
         }
 
         async fn process_range(
             &self,
-            _range: Range<Self::Key, Self::Hash>,
+            _range: RangeHash<Self::Key, Self::Hash>,
         ) -> Result<(SyncState<Self::Key, Self::Hash>, Vec<Self::Key>)> {
             unreachable!()
         }

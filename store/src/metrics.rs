@@ -1,8 +1,7 @@
-use std::time::Duration;
+use std::{ops::Range, time::Duration};
 
 use anyhow::Result;
 use async_trait::async_trait;
-use ceramic_core::RangeOpen;
 use ceramic_metrics::{register, Recorder};
 use futures::Future;
 use prometheus_client::{
@@ -291,46 +290,38 @@ where
         Ok(res)
     }
 
-    async fn hash_range(
-        &mut self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Result<HashCount<Self::Hash>> {
+    async fn hash_range(&mut self, range: Range<&Self::Key>) -> Result<HashCount<Self::Hash>> {
         StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "hash_range",
-            self.store.hash_range(left_fencepost, right_fencepost),
+            self.store.hash_range(range),
         )
         .await
     }
 
     async fn range(
         &mut self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
+        range: Range<&Self::Key>,
         offset: usize,
         limit: usize,
     ) -> Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
         StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "range",
-            self.store
-                .range(left_fencepost, right_fencepost, offset, limit),
+            self.store.range(range, offset, limit),
         )
         .await
     }
     async fn range_with_values(
         &mut self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
+        range: Range<&Self::Key>,
         offset: usize,
         limit: usize,
     ) -> Result<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>> {
         StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "range_with_values",
-            self.store
-                .range_with_values(left_fencepost, right_fencepost, offset, limit),
+            self.store.range_with_values(range, offset, limit),
         )
         .await
     }
@@ -340,64 +331,27 @@ where
             .await
     }
 
-    async fn middle(
-        &mut self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Result<Option<Self::Key>> {
-        StoreMetricsMiddleware::<S>::record(
-            &self.metrics,
-            "middle",
-            self.store.middle(left_fencepost, right_fencepost),
-        )
-        .await
+    async fn middle(&mut self, range: Range<&Self::Key>) -> Result<Option<Self::Key>> {
+        StoreMetricsMiddleware::<S>::record(&self.metrics, "middle", self.store.middle(range)).await
     }
-    async fn count(
-        &mut self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Result<usize> {
-        StoreMetricsMiddleware::<S>::record(
-            &self.metrics,
-            "count",
-            self.store.count(left_fencepost, right_fencepost),
-        )
-        .await
+    async fn count(&mut self, range: Range<&Self::Key>) -> Result<usize> {
+        StoreMetricsMiddleware::<S>::record(&self.metrics, "count", self.store.count(range)).await
     }
-    async fn first(
-        &mut self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Result<Option<Self::Key>> {
-        StoreMetricsMiddleware::<S>::record(
-            &self.metrics,
-            "first",
-            self.store.first(left_fencepost, right_fencepost),
-        )
-        .await
+    async fn first(&mut self, range: Range<&Self::Key>) -> Result<Option<Self::Key>> {
+        StoreMetricsMiddleware::<S>::record(&self.metrics, "first", self.store.first(range)).await
     }
-    async fn last(
-        &mut self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Result<Option<Self::Key>> {
-        StoreMetricsMiddleware::<S>::record(
-            &self.metrics,
-            "last",
-            self.store.last(left_fencepost, right_fencepost),
-        )
-        .await
+    async fn last(&mut self, range: Range<&Self::Key>) -> Result<Option<Self::Key>> {
+        StoreMetricsMiddleware::<S>::record(&self.metrics, "last", self.store.last(range)).await
     }
 
     async fn first_and_last(
         &mut self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
+        range: Range<&Self::Key>,
     ) -> Result<Option<(Self::Key, Self::Key)>> {
         StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "first_and_last",
-            self.store.first_and_last(left_fencepost, right_fencepost),
+            self.store.first_and_last(range),
         )
         .await
     }
@@ -420,7 +374,7 @@ where
     }
     async fn keys_with_missing_values(
         &mut self,
-        range: RangeOpen<Self::Key>,
+        range: Range<&Self::Key>,
     ) -> Result<Vec<Self::Key>> {
         StoreMetricsMiddleware::<S>::record(
             &self.metrics,
