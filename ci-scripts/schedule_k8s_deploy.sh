@@ -36,7 +36,7 @@ docker run --rm -i \
     \"type\":   {\"S\": \"workflow\"},                          \
     \"params\": {                                               \
       \"M\": {                                                  \
-        \"name\":     {\"S\": \"Deploy CERAMIC ONE\"},          \
+        \"name\":     {\"S\": \"Deploy k8s $network CERAMIC ONE\"},          \
         \"org\":      {\"S\": \"3box\"},                        \
         \"repo\":     {\"S\": \"ceramic-infra\"},               \
         \"ref\":      {\"S\": \"$branch\"},                     \
