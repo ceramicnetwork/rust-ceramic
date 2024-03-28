@@ -10,7 +10,7 @@ use recon::{AssociativeHash, Key, ReconItem, Sha256a};
 
 use expect_test::expect;
 
-const SORT_KEY: &str = "model";
+const SEP_KEY: &str = "model";
 const PEER_ID: &str = "1AdgHpWeBKTU3F2tUkAQqL2Y2Geh4QgHJwcWMPuiY1qiRQ";
 
 macro_rules! test_with_sqlite {
@@ -45,7 +45,7 @@ macro_rules! test_with_dbs {
 // Return an builder for an event with the same network,model,controller,stream.
 pub(crate) fn interest_builder() -> Builder<WithPeerId> {
     Interest::builder()
-        .with_sort_key(SORT_KEY)
+        .with_sep_key(SEP_KEY)
         .with_peer_id(&PeerId::from_str(PEER_ID).unwrap())
 }
 
@@ -263,49 +263,49 @@ where
         .unwrap();
 
     expect![[r#"
-            (
-                Interest {
-                    bytes: "480f70d652b6b825e4582200206ce9f954100188eb6e7939dbf45ac845d3399dba29da4e0b6ef1fdd8636a326b014040182a",
-                    sort_key_hash: "0f70d652b6b825e4",
-                    peer_id: PeerId(
-                        "1AdgHpWeBKTU3F2tUkAQqL2Y2Geh4QgHJwcWMPuiY1qiRQ",
+        (
+            Interest {
+                bytes: "480f70d652b6b825e4582200206ce9f954100188eb6e7939dbf45ac845d3399dba29da4e0b6ef1fdd8636a326b014040182a",
+                sep_key_hash: "0f70d652b6b825e4",
+                peer_id: PeerId(
+                    "1AdgHpWeBKTU3F2tUkAQqL2Y2Geh4QgHJwcWMPuiY1qiRQ",
+                ),
+                range: RangeOpen {
+                    start: Ok(
+                        EventId {
+                            bytes: "MIN",
+                        },
                     ),
-                    range: RangeOpen {
-                        start: Ok(
-                            EventId {
-                                bytes: "MIN",
-                            },
-                        ),
-                        end: Ok(
-                            EventId {
-                                bytes: "MIN",
-                            },
-                        ),
-                    },
-                    not_after: 42,
-                },
-                Interest {
-                    bytes: "480f70d652b6b825e4582200206ce9f954100188eb6e7939dbf45ac845d3399dba29da4e0b6ef1fdd8636a326b014040182a",
-                    sort_key_hash: "0f70d652b6b825e4",
-                    peer_id: PeerId(
-                        "1AdgHpWeBKTU3F2tUkAQqL2Y2Geh4QgHJwcWMPuiY1qiRQ",
+                    end: Ok(
+                        EventId {
+                            bytes: "MIN",
+                        },
                     ),
-                    range: RangeOpen {
-                        start: Ok(
-                            EventId {
-                                bytes: "MIN",
-                            },
-                        ),
-                        end: Ok(
-                            EventId {
-                                bytes: "MIN",
-                            },
-                        ),
-                    },
-                    not_after: 42,
                 },
-            )
-        "#]]
+                not_after: 42,
+            },
+            Interest {
+                bytes: "480f70d652b6b825e4582200206ce9f954100188eb6e7939dbf45ac845d3399dba29da4e0b6ef1fdd8636a326b014040182a",
+                sep_key_hash: "0f70d652b6b825e4",
+                peer_id: PeerId(
+                    "1AdgHpWeBKTU3F2tUkAQqL2Y2Geh4QgHJwcWMPuiY1qiRQ",
+                ),
+                range: RangeOpen {
+                    start: Ok(
+                        EventId {
+                            bytes: "MIN",
+                        },
+                    ),
+                    end: Ok(
+                        EventId {
+                            bytes: "MIN",
+                        },
+                    ),
+                },
+                not_after: 42,
+            },
+        )
+    "#]]
         .assert_debug_eq(&ret);
 
     // No keys in range
@@ -332,49 +332,49 @@ where
         .unwrap();
     // both keys exist
     expect![[r#"
-            (
-                Interest {
-                    bytes: "480f70d652b6b825e4582200206ce9f954100188eb6e7939dbf45ac845d3399dba29da4e0b6ef1fdd8636a326b014040182a",
-                    sort_key_hash: "0f70d652b6b825e4",
-                    peer_id: PeerId(
-                        "1AdgHpWeBKTU3F2tUkAQqL2Y2Geh4QgHJwcWMPuiY1qiRQ",
+        (
+            Interest {
+                bytes: "480f70d652b6b825e4582200206ce9f954100188eb6e7939dbf45ac845d3399dba29da4e0b6ef1fdd8636a326b014040182a",
+                sep_key_hash: "0f70d652b6b825e4",
+                peer_id: PeerId(
+                    "1AdgHpWeBKTU3F2tUkAQqL2Y2Geh4QgHJwcWMPuiY1qiRQ",
+                ),
+                range: RangeOpen {
+                    start: Ok(
+                        EventId {
+                            bytes: "MIN",
+                        },
                     ),
-                    range: RangeOpen {
-                        start: Ok(
-                            EventId {
-                                bytes: "MIN",
-                            },
-                        ),
-                        end: Ok(
-                            EventId {
-                                bytes: "MIN",
-                            },
-                        ),
-                    },
-                    not_after: 42,
-                },
-                Interest {
-                    bytes: "480f70d652b6b825e4582200206ce9f954100188eb6e7939dbf45ac845d3399dba29da4e0b6ef1fdd8636a326b014040182b",
-                    sort_key_hash: "0f70d652b6b825e4",
-                    peer_id: PeerId(
-                        "1AdgHpWeBKTU3F2tUkAQqL2Y2Geh4QgHJwcWMPuiY1qiRQ",
+                    end: Ok(
+                        EventId {
+                            bytes: "MIN",
+                        },
                     ),
-                    range: RangeOpen {
-                        start: Ok(
-                            EventId {
-                                bytes: "MIN",
-                            },
-                        ),
-                        end: Ok(
-                            EventId {
-                                bytes: "MIN",
-                            },
-                        ),
-                    },
-                    not_after: 43,
                 },
-            )
-        "#]]
+                not_after: 42,
+            },
+            Interest {
+                bytes: "480f70d652b6b825e4582200206ce9f954100188eb6e7939dbf45ac845d3399dba29da4e0b6ef1fdd8636a326b014040182b",
+                sep_key_hash: "0f70d652b6b825e4",
+                peer_id: PeerId(
+                    "1AdgHpWeBKTU3F2tUkAQqL2Y2Geh4QgHJwcWMPuiY1qiRQ",
+                ),
+                range: RangeOpen {
+                    start: Ok(
+                        EventId {
+                            bytes: "MIN",
+                        },
+                    ),
+                    end: Ok(
+                        EventId {
+                            bytes: "MIN",
+                        },
+                    ),
+                },
+                not_after: 43,
+            },
+        )
+    "#]]
         .assert_debug_eq(&ret);
 }
 

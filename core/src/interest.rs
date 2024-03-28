@@ -17,7 +17,7 @@ const MAX_BYTES: [u8; 1] = [0xFF];
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Serialize, Deserialize)]
 /// Interest declares an interest in a keyspace for a given peer.
 /// cbor seq:
-///     sort_key, the stream set identifier e.g. "model"
+///     sep_key, the stream set identifier e.g. "model"
 ///     peer_id,  the libp2p address of the interested node
 ///     indicator, an indicator of whether we have a min(0), range(1), or max(2)
 ///     start_key, Inclusive start of the range
@@ -32,8 +32,8 @@ impl Interest {
     }
 
     /// Report the sort key
-    pub fn sort_key_hash(&self) -> Option<&[u8]> {
-        Some(self.as_parts()?.sort_key_hash)
+    pub fn sep_key_hash(&self) -> Option<&[u8]> {
+        Some(self.as_parts()?.sep_key_hash)
     }
 
     /// Report the PeerId value
@@ -65,7 +65,7 @@ impl Interest {
     // However a None from this method indicates an invalid interest.
     fn as_parts(&self) -> Option<InterestParts<'_>> {
         let mut decoder = Decoder::new(&self.0);
-        let sort_key_hash = decoder.bytes().ok()?;
+        let sep_key_hash = decoder.bytes().ok()?;
         let peer_id = decoder.bytes().ok()?;
         let indicator = decoder.u8().ok()?;
         let (range, not_after) = if indicator != 1 {
@@ -77,7 +77,7 @@ impl Interest {
             )
         };
         Some(InterestParts {
-            sort_key_hash,
+            sep_key_hash,
             peer_id,
             range,
             not_after,
@@ -86,7 +86,7 @@ impl Interest {
 }
 
 struct InterestParts<'a> {
-    sort_key_hash: &'a [u8],
+    sep_key_hash: &'a [u8],
     peer_id: &'a [u8],
     range: Option<(&'a [u8], &'a [u8])>,
     not_after: Option<u64>,
@@ -103,8 +103,8 @@ impl std::fmt::Debug for Interest {
                 f.debug_struct("Interest")
                     .field("bytes", &hex::encode(&self.0))
                     .field(
-                        "sort_key_hash",
-                        &hex::encode(self.sort_key_hash().ok_or(std::fmt::Error)?),
+                        "sep_key_hash",
+                        &hex::encode(self.sep_key_hash().ok_or(std::fmt::Error)?),
                     )
                     .field("peer_id", &self.peer_id().ok_or(std::fmt::Error)?)
                     .field(
@@ -188,10 +188,10 @@ impl Builder<Init> {
         Interest(MAX_BYTES.into())
     }
     /// Builds an interest starting with a specific sort key.
-    pub fn with_sort_key(self, sort_key: &str) -> Builder<WithSortKey> {
+    pub fn with_sep_key(self, sep_key: &str) -> Builder<WithSortKey> {
         // A typical interest contains:
         //
-        // - sort_key : 8 bytes
+        // - sep_key: 8 bytes
         // - peer_id: ~66 bytes
         // - start_key: ~72 bytes
         // - end_key: ~72 bytes
@@ -203,12 +203,12 @@ impl Builder<Init> {
         const INITIAL_VEC_CAPACITY: usize = 256;
 
         let mut hasher = Sha2_256::default();
-        hasher.update(sort_key.as_bytes());
+        hasher.update(sep_key.as_bytes());
         // sha256 is 32 bytes safe to unwrap to [u8; 32]
         let hash: [u8; 32] = hasher.finalize().try_into().unwrap();
         let mut encoder = Encoder::new(Vec::with_capacity(INITIAL_VEC_CAPACITY));
         encoder
-            // Encode last 8 bytes of the sort_key hash
+            // Encode last 8 bytes of the sep_key hash
             .bytes(&hash[hash.len() - 8..])
             .expect("sep_key should cbor encode");
         Builder {
@@ -343,7 +343,7 @@ mod tests {
     fn roundtrip() {
         let peer_id = PeerId::from_str("1AZtAkWrrQrsXMQuBEcBget2vGAPbdQ2Wn4bESe9QEVypJ").unwrap();
         let interest = Interest::builder()
-            .with_sort_key("model")
+            .with_sep_key("model")
             .with_peer_id(&peer_id)
             .with_range((&[0, 1, 2][..], &[0, 1, 9][..]))
             .with_not_after(0)
@@ -358,7 +358,7 @@ mod tests {
     fn accessors() {
         let peer_id = PeerId::from_str("1AZtAkWrrQrsXMQuBEcBget2vGAPbdQ2Wn4bESe9QEVypJ").unwrap();
         let interest = Interest::builder()
-            .with_sort_key("model")
+            .with_sep_key("model")
             .with_peer_id(&peer_id)
             .with_range((&[0x00, 0x01, 0x02][..], &[0x00, 0x01, 0x09][..]))
             .with_not_after(123456789)
@@ -367,7 +367,7 @@ mod tests {
         expect![[r#"
             "0F70D652B6B825E4"
         "#]]
-        .assert_debug_eq(&hex::encode_upper(interest.sort_key_hash().unwrap()));
+        .assert_debug_eq(&hex::encode_upper(interest.sep_key_hash().unwrap()));
         expect![[r#"
             "1AZtAkWrrQrsXMQuBEcBget2vGAPbdQ2Wn4bESe9QEVypJ"
         "#]]

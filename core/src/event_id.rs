@@ -51,29 +51,26 @@ impl EventId {
     /// let event = EventId::new(
     ///     &Network::Mainnet,
     ///     "model",
-    ///     "kh4q0ozorrgaq2mezktnrmdwleo1d",
+    ///     &multibase::decode("kh4q0ozorrgaq2mezktnrmdwleo1d").unwrap().1,
     ///     "did:key:z6MkgSV3tAuw7gUWqKCUY7ae6uWNxqYgdwPhUJbJhF9EFXm9",
     ///     &Cid::from_str("bagcqceraplay4erv6l32qrki522uhiz7rf46xccwniw7ypmvs3cvu2b3oulq").unwrap(),
-    ///     1,
     ///     &Cid::from_str("bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy").unwrap(),
     /// );
     ///
     /// ```
     pub fn new(
         network: &Network,
-        sort_key: &str,
-        sort_value: &str,
+        sep_key: &str,
+        sep_value: &[u8],
         controller: &str,
         init: &Cid,
-        event_height: u64,
         event_cid: &Cid,
     ) -> EventId {
         EventId::builder()
             .with_network(network)
-            .with_sort_value(sort_key, sort_value)
+            .with_sep(sep_key, sep_value)
             .with_controller(controller)
             .with_init(init)
-            .with_event_height(event_height)
             .with_event(event_cid)
             .build()
     }
@@ -102,10 +99,6 @@ impl EventId {
     /// Report the stream_id bytes of the EventId
     pub fn stream_id(&self) -> Option<&[u8]> {
         self.as_parts().map(|parts| parts.stream_id)
-    }
-    /// Report the event height of the EventId
-    pub fn event_height(&self) -> Option<u64> {
-        self.as_parts()?.height
     }
 
     /// Report the event CID of the EventId
@@ -138,67 +131,15 @@ impl EventId {
         let controller = &remainder[CONTROLLER_RANGE];
         let stream_id = &remainder[STREAM_ID_RANGE];
 
-        let (height, cid) = cbor_uint_decode(&remainder[STREAM_ID_RANGE.end..]);
+        let cid = &remainder[STREAM_ID_RANGE.end..];
 
         Some(EventIdParts {
             network_id,
             separator,
             controller,
             stream_id,
-            height,
             cid,
         })
-    }
-}
-// Decode a cbor unsigned integer and return the remaining bytes from the buffer
-fn cbor_uint_decode(data: &[u8]) -> (Option<u64>, &[u8]) {
-    // From the spec: https://datatracker.ietf.org/doc/html/rfc7049#section-2.1
-    //
-    // Major type 0:  an unsigned integer.  The 5-bit additional information
-    //  is either the integer itself (for additional information values 0
-    //  through 23) or the length of additional data.  Additional
-    //  information 24 means the value is represented in an additional
-    //  uint8_t, 25 means a uint16_t, 26 means a uint32_t, and 27 means a
-    //  uint64_t.  For example, the integer 10 is denoted as the one byte
-    //  0b000_01010 (major type 0, additional information 10).  The
-    //  integer 500 would be 0b000_11001 (major type 0, additional
-    //  information 25) followed by the two bytes 0x01f4, which is 500 in
-    //  decimal.
-
-    match data[0] {
-        // 0 - 23
-        x if x <= 23 => (Some(x as u64), &data[1..]),
-        // u8
-        24 => (
-            data[1..2]
-                .try_into()
-                .ok()
-                .map(|h| u8::from_be_bytes(h) as u64),
-            &data[2..],
-        ),
-        // u16
-        25 => (
-            data[1..3]
-                .try_into()
-                .ok()
-                .map(|h| u16::from_be_bytes(h) as u64),
-            &data[3..],
-        ),
-        // u32
-        26 => (
-            data[1..5]
-                .try_into()
-                .ok()
-                .map(|h| u32::from_be_bytes(h) as u64),
-            &data[5..],
-        ),
-        // u64
-        27 => (
-            data[1..9].try_into().ok().map(u64::from_be_bytes),
-            &data[9..],
-        ),
-        // not a cbor unsigned int
-        _ => (None, data),
     }
 }
 
@@ -207,7 +148,6 @@ struct EventIdParts<'a> {
     separator: &'a [u8],
     controller: &'a [u8],
     stream_id: &'a [u8],
-    height: Option<u64>,
     cid: &'a [u8],
 }
 
@@ -225,7 +165,6 @@ impl std::fmt::Debug for EventId {
                     .field("separator", &self.separator().map(hex::encode))
                     .field("controller", &self.controller().map(hex::encode))
                     .field("stream_id", &self.stream_id().map(hex::encode))
-                    .field("event_height", &self.event_height())
                     .field("cid", &self.cid().map(|cid| cid.to_string()))
                     .finish()
             }
@@ -320,10 +259,10 @@ impl BuilderState for WithNetwork {}
 
 /// Builder with sort value set.
 #[derive(Debug)]
-pub struct WithSortValue {
+pub struct WithSep {
     bytes: Vec<u8>,
 }
-impl BuilderState for WithSortValue {}
+impl BuilderState for WithSep {}
 
 /// Builder with controller set.
 #[derive(Debug)]
@@ -338,13 +277,6 @@ pub struct WithInit {
     bytes: Vec<u8>,
 }
 impl BuilderState for WithInit {}
-
-/// Builder with event height set.
-#[derive(Debug)]
-pub struct WithEventHeight {
-    bytes: Vec<u8>,
-}
-impl BuilderState for WithEventHeight {}
 
 /// Builder with event CID set.
 #[derive(Debug)]
@@ -389,20 +321,20 @@ impl Builder<Init> {
 }
 impl Builder<WithNetwork> {
     /// Specify the sort key and value of the event
-    pub fn with_sort_value(mut self, sort_key: &str, sort_value: &str) -> Builder<WithSortValue> {
-        // TODO sort_value should be bytes not str
-        self.state.bytes.extend(last8_bytes(&sha256_digest(&format!(
-            "{}|{}",
-            sort_key, sort_value,
-        ))));
+    pub fn with_sep(mut self, sep_key: &str, sep_value: &[u8]) -> Builder<WithSep> {
+        let mut hasher = Sha2_256::default();
+        hasher.update(sep_key.as_bytes());
+        hasher.update(sep_value);
+
+        self.state.bytes.extend(last8_bytes(hasher.finalize()));
         Builder {
-            state: WithSortValue {
+            state: WithSep {
                 bytes: self.state.bytes,
             },
         }
     }
 }
-impl Builder<WithSortValue> {
+impl Builder<WithSep> {
     /// Specify that the minimum controller value should be used for the event
     pub fn with_min_controller(mut self) -> Builder<WithController> {
         self.state.bytes.extend(ZEROS_8);
@@ -465,45 +397,22 @@ impl Builder<WithController> {
     }
 }
 impl Builder<WithInit> {
-    /// Specify that the minimum event height should be used for the event
-    pub fn with_min_event_height(mut self) -> Builder<WithEventHeight> {
-        // 0x00 is the cbor encoding of 0.
-        self.state.bytes.push(0x00);
+    /// Specify that the minimum event CID should be used for the event
+    pub fn with_min_event(self) -> Builder<WithEvent> {
         Builder {
-            state: WithEventHeight {
+            state: WithEvent {
                 bytes: self.state.bytes,
             },
         }
     }
-    /// Specify that the maximum event height should be used for the event
-    pub fn with_max_event_height(mut self) -> Builder<WithEventHeight> {
-        // 0xFF is the break stop code in CBOR, and will sort higher than any cbor encoded unsigned
-        // integer.
-        self.state.bytes.push(0xFF);
+    /// Specify that the maximum event CID should be used for the event
+    pub fn with_max_event(mut self) -> Builder<WithEvent> {
+        self.state.bytes.extend(&[0xFF]);
         Builder {
-            state: WithEventHeight {
+            state: WithEvent {
                 bytes: self.state.bytes,
             },
         }
-    }
-    /// Specify event height for the event
-    pub fn with_event_height(mut self, event_height: u64) -> Builder<WithEventHeight> {
-        let event_height_cbor = minicbor::to_vec(event_height).unwrap();
-        // event_height cbor unsigned int
-        self.state.bytes.extend(event_height_cbor);
-        Builder {
-            state: WithEventHeight {
-                bytes: self.state.bytes,
-            },
-        }
-    }
-}
-impl Builder<WithEventHeight> {
-    /// Builds the final EventId as a fencepost.
-    /// A fencepost is a value that sorts before and after specific events but is itself not a
-    /// complete EventId.
-    pub fn build_fencepost(self) -> EventId {
-        EventId(self.state.bytes)
     }
     /// Specify the event cid
     pub fn with_event(mut self, event: &Cid) -> Builder<WithEvent> {
@@ -516,6 +425,12 @@ impl Builder<WithEventHeight> {
     }
 }
 impl Builder<WithEvent> {
+    /// Builds the final EventId as a fencepost.
+    /// A fencepost is a value that sorts before and after specific events but is itself not a
+    /// complete EventId.
+    pub fn build_fencepost(self) -> EventId {
+        EventId(self.state.bytes)
+    }
     /// Builds the final EventId
     pub fn build(self) -> EventId {
         EventId(self.state.bytes)
@@ -532,128 +447,113 @@ mod tests {
 
     #[test]
     fn blessing() {
-        let sort_key = "model".to_string();
+        let sep_key = "model".to_string();
         let separator = "kh4q0ozorrgaq2mezktnrmdwleo1d".to_string(); // cspell:disable-line
         let controller = "did:key:z6MkgSV3tAuw7gUWqKCUY7ae6uWNxqYgdwPhUJbJhF9EFXm9".to_string();
         let init =
             Cid::from_str("bagcqceraplay4erv6l32qrki522uhiz7rf46xccwniw7ypmvs3cvu2b3oulq").unwrap(); // cspell:disable-line
-        let event_height = 255; // so we get 2 bytes b'\x18\xff'
         let event_cid =
             Cid::from_str("bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy").unwrap(); // cspell:disable-line
 
         let eid = EventId::new(
             &Network::Mainnet,
-            &sort_key,
-            &separator,
+            &sep_key,
+            &multibase::decode(&separator).unwrap().1,
             &controller,
             &init,
-            event_height,
             &event_cid,
         );
-        expect![[
-            "fce0105007e710e217fa0e25945cc7c072ff729ea683b751718ff01711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"
-        ]]
+        expect!["fce010500ba25076d730241e745cc7c072ff729ea683b751701711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"]
         .assert_eq(&multibase::encode(Base::Base16Lower, eid.0));
 
         let eid = EventId::new(
             &Network::TestnetClay,
-            &sort_key,
-            &separator,
+            &sep_key,
+            &multibase::decode(&separator).unwrap().1,
             &controller,
             &init,
-            event_height,
             &event_cid,
         );
-        expect!["fce0105017e710e217fa0e25945cc7c072ff729ea683b751718ff01711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"]
+        expect!["fce010501ba25076d730241e745cc7c072ff729ea683b751701711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"]
         .assert_eq(&multibase::encode(Base::Base16Lower, eid.0));
 
         let eid = EventId::new(
             &Network::DevUnstable,
-            &sort_key,
-            &separator,
+            &sep_key,
+            &multibase::decode(&separator).unwrap().1,
             &controller,
             &init,
-            event_height,
             &event_cid,
         );
-        expect!["fce0105027e710e217fa0e25945cc7c072ff729ea683b751718ff01711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"]
+        expect!["fce010502ba25076d730241e745cc7c072ff729ea683b751701711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"]
         .assert_eq(&multibase::encode(Base::Base16Lower, eid.0));
 
         let eid = EventId::new(
             &Network::InMemory,
-            &sort_key,
-            &separator,
+            &sep_key,
+            &multibase::decode(&separator).unwrap().1,
             &controller,
             &init,
-            event_height,
             &event_cid,
         );
-        expect!["fce0105ff017e710e217fa0e25945cc7c072ff729ea683b751718ff01711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"].assert_eq(&multibase::encode(Base::Base16Lower, eid.0));
+        expect!["fce0105ff01ba25076d730241e745cc7c072ff729ea683b751701711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"].assert_eq(&multibase::encode(Base::Base16Lower, eid.0));
 
         let eid = EventId::new(
             &Network::Local(0xce4a441c),
-            &sort_key,
-            &separator,
+            &sep_key,
+            &multibase::decode(&separator).unwrap().1,
             &controller,
             &init,
-            event_height,
             &event_cid,
         );
-        expect!["fce01059c88a9f21c7e710e217fa0e25945cc7c072ff729ea683b751718ff01711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"].assert_eq(&multibase::encode(Base::Base16Lower, eid.0));
+        expect!["fce01059c88a9f21cba25076d730241e745cc7c072ff729ea683b751701711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"].assert_eq(&multibase::encode(Base::Base16Lower, eid.0));
     }
 
     #[test]
     fn test_serialize() {
-        let sort_key = "model".to_string();
+        let sep_key = "model".to_string();
         let separator = "kh4q0ozorrgaq2mezktnrmdwleo1d".to_string(); // cspell:disable-line
         let controller = "did:key:z6MkgSV3tAuw7gUWqKCUY7ae6uWNxqYgdwPhUJbJhF9EFXm9".to_string();
         let init =
             Cid::from_str("bagcqceraplay4erv6l32qrki522uhiz7rf46xccwniw7ypmvs3cvu2b3oulq").unwrap(); // cspell:disable-line
-        let event_height = 255; // so we get 2 bytes b'\x18\xff'
         let event_cid =
             Cid::from_str("bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy").unwrap(); // cspell:disable-line
 
         let received = EventId::new(
             &Network::Mainnet,
-            &sort_key,
-            &separator,
+            &sep_key,
+            &multibase::decode(&separator).unwrap().1,
             &controller,
             &init,
-            event_height,
             &event_cid,
         );
 
         let received_cbor = hex::encode(serde_ipld_dagcbor::ser::to_vec(&received).unwrap());
         println!("serde_json {}", serde_json::to_string(&received).unwrap()); // Message as json
-        expect![[
-            "583ece0105007e710e217fa0e25945cc7c072ff729ea683b751718ff01711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"
-        ]].assert_eq(&received_cbor);
+        expect!["583cce010500ba25076d730241e745cc7c072ff729ea683b751701711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86"].assert_eq(&received_cbor);
     }
 
     #[test]
     fn test_deserialize() {
-        let bytes = hex::decode("583ece0105007e710e217fa0e25945cc7c072ff729ea683b751718ff01711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86").unwrap();
+        let bytes = hex::decode("583cce010500ba25076d730241e745cc7c072ff729ea683b751701711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86").unwrap();
         let x = serde_ipld_dagcbor::de::from_slice(bytes.as_slice());
         let received: EventId = x.unwrap();
         let cid = received.cid();
         println!("{:?}, {:?}", &received, &cid);
         expect![[r#"
             EventId {
-                bytes: "ce0105007e710e217fa0e25945cc7c072ff729ea683b751718ff01711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86",
+                bytes: "ce010500ba25076d730241e745cc7c072ff729ea683b751701711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86",
                 network_id: Some(
                     0,
                 ),
                 separator: Some(
-                    "7e710e217fa0e259",
+                    "ba25076d730241e7",
                 ),
                 controller: Some(
                     "45cc7c072ff729ea",
                 ),
                 stream_id: Some(
                     "683b7517",
-                ),
-                event_height: Some(
-                    255,
                 ),
                 cid: Some(
                     "bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy",
@@ -667,29 +567,27 @@ mod tests {
     }
     #[test]
     fn cid() {
-        let sort_key = "model".to_string();
+        let sepy = "model".to_string();
         let separator = "kh4q0ozorrgaq2mezktnrmdwleo1d".to_string(); // cspell:disable-line
         let controller = "did:key:z6MkgSV3tAuw7gUWqKCUY7ae6uWNxqYgdwPhUJbJhF9EFXm9".to_string();
         let init =
             Cid::from_str("bagcqceraplay4erv6l32qrki522uhiz7rf46xccwniw7ypmvs3cvu2b3oulq").unwrap(); // cspell:disable-line
-        let event_height = 255; // so we get 2 bytes b'\x18\xff'
         let event_cid =
             Cid::from_str("bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy").unwrap(); // cspell:disable-line
 
         let event_id = EventId::new(
             &Network::Mainnet,
-            &sort_key,
-            &separator,
+            &sepy,
+            &multibase::decode(&separator).unwrap().1,
             &controller,
             &init,
-            event_height,
             &event_cid,
         );
         assert_eq!(Some(event_cid), event_id.cid());
     }
     #[test]
     fn no_cid() {
-        let sort_key = "model".to_string();
+        let sep_key = "model".to_string();
         let separator = "kh4q0ozorrgaq2mezktnrmdwleo1d".to_string(); // cspell:disable-line
         let controller = "did:key:z6MkgSV3tAuw7gUWqKCUY7ae6uWNxqYgdwPhUJbJhF9EFXm9".to_string();
         let init =
@@ -698,51 +596,49 @@ mod tests {
         // Max event height
         let event_id = EventId::builder()
             .with_network(&Network::Mainnet)
-            .with_sort_value(&sort_key, &separator)
+            .with_sep(&sep_key, &multibase::decode(&separator).unwrap().1)
             .with_controller(&controller)
             .with_init(&init)
-            .with_max_event_height()
+            .with_max_event()
             .build_fencepost();
         assert_eq!(None, event_id.cid());
 
         // Min event height
         let event_id = EventId::builder()
             .with_network(&Network::Mainnet)
-            .with_sort_value(&sort_key, &separator)
+            .with_sep(&sep_key, &multibase::decode(&separator).unwrap().1)
             .with_controller(&controller)
             .with_init(&init)
-            .with_min_event_height()
+            .with_min_event()
             .build_fencepost();
         assert_eq!(None, event_id.cid());
     }
     #[test]
     fn debug() {
-        let sort_key = "model".to_string();
+        let sep_key = "model".to_string();
         let separator = "kh4q0ozorrgaq2mezktnrmdwleo1d".to_string(); // cspell:disable-line
         let controller = "did:key:z6MkgSV3tAuw7gUWqKCUY7ae6uWNxqYgdwPhUJbJhF9EFXm9".to_string();
         let init =
             Cid::from_str("bagcqceraplay4erv6l32qrki522uhiz7rf46xccwniw7ypmvs3cvu2b3oulq").unwrap(); // cspell:disable-line
-        let event_height = 255; // so we get 2 bytes b'\x18\xff'
         let event_cid =
             Cid::from_str("bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy").unwrap(); // cspell:disable-line
 
         let event_id = EventId::new(
             &Network::TestnetClay,
-            &sort_key,
-            &separator,
+            &sep_key,
+            &multibase::decode(&separator).unwrap().1,
             &controller,
             &init,
-            event_height,
             &event_cid,
         );
         expect![[r#"
             EventId {
-                bytes: "ce0105017e710e217fa0e25945cc7c072ff729ea683b751718ff01711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86",
+                bytes: "ce010501ba25076d730241e745cc7c072ff729ea683b751701711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86",
                 network_id: Some(
                     1,
                 ),
                 separator: Some(
-                    "7e710e217fa0e259",
+                    "ba25076d730241e7",
                 ),
                 controller: Some(
                     "45cc7c072ff729ea",
@@ -750,47 +646,11 @@ mod tests {
                 stream_id: Some(
                     "683b7517",
                 ),
-                event_height: Some(
-                    255,
-                ),
                 cid: Some(
                     "bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy",
                 ),
             }
         "#]]
         .assert_debug_eq(&event_id);
-    }
-    #[test]
-    fn event_height() {
-        let sort_key = "model".to_string();
-        let separator = "kh4q0ozorrgaq2mezktnrmdwleo1d".to_string(); // cspell:disable-line
-        let controller = "did:key:z6MkgSV3tAuw7gUWqKCUY7ae6uWNxqYgdwPhUJbJhF9EFXm9".to_string();
-        let init =
-            Cid::from_str("bagcqceraplay4erv6l32qrki522uhiz7rf46xccwniw7ypmvs3cvu2b3oulq").unwrap(); // cspell:disable-line
-        let event_cid =
-            Cid::from_str("bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy").unwrap(); // cspell:disable-line
-
-        for event_height in [
-            1,
-            18,
-            255,
-            256,
-            65535,
-            65536,
-            4294967295,
-            4294967296,
-            18446744073709551615,
-        ] {
-            let event_id = EventId::new(
-                &Network::TestnetClay,
-                &sort_key,
-                &separator,
-                &controller,
-                &init,
-                event_height,
-                &event_cid,
-            );
-            assert_eq!(Some(event_height), event_id.event_height());
-        }
     }
 }
