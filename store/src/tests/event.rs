@@ -55,26 +55,24 @@ where
 {
     recon::Store::insert(
         &store,
-        &ReconItem::new_key(&random_event_id(
-            Some(1),
-            Some("baeabeiazgwnti363jifhxaeaegbluw4ogcd2t5hsjaglo46wuwcgajqa5u"),
-        )),
+        &ReconItem::new_key(&random_event_id(Some(
+            "baeabeiazgwnti363jifhxaeaegbluw4ogcd2t5hsjaglo46wuwcgajqa5u",
+        ))),
     )
     .await
     .unwrap();
     recon::Store::insert(
         &store,
-        &ReconItem::new_key(&random_event_id(
-            Some(2),
-            Some("baeabeihyl35xdlfju3zrkvy2exmnl6wics3rc5ppz7hwg7l7g4brbtnpny"),
-        )),
+        &ReconItem::new_key(&random_event_id(Some(
+            "baeabeihyl35xdlfju3zrkvy2exmnl6wics3rc5ppz7hwg7l7g4brbtnpny",
+        ))),
     )
     .await
     .unwrap();
     let hash = recon::Store::hash_range(&store, &random_event_id_min(), &random_event_id_max())
         .await
         .unwrap();
-    expect!["65C7A25327CC05C19AB5812103EEB8D1156595832B453C7BAC6A186F4811FA0A#2"]
+    expect!["082F8D30F129E0E26C3136F7FE503E4D30EBDDB1EEFFF1EDEF853F2C96A0898E#2"]
         .assert_eq(&format!("{hash}"));
 }
 
@@ -94,19 +92,17 @@ where
 {
     recon::Store::insert(
         &store,
-        &ReconItem::new_key(&random_event_id(
-            Some(1),
-            Some("baeabeichhhmbhsic4maraneqf5gkhekgzcawhtpj3fh6opjtglznapz524"),
-        )),
+        &ReconItem::new_key(&random_event_id(Some(
+            "baeabeichhhmbhsic4maraneqf5gkhekgzcawhtpj3fh6opjtglznapz524",
+        ))),
     )
     .await
     .unwrap();
     recon::Store::insert(
         &store,
-        &ReconItem::new_key(&random_event_id(
-            Some(2),
-            Some("baeabeibmek7v4ljsu575ohgjhovdxhcw6p6oivgb55hzkeap5po7ghzqty"),
-        )),
+        &ReconItem::new_key(&random_event_id(Some(
+            "baeabeibmek7v4ljsu575ohgjhovdxhcw6p6oivgb55hzkeap5po7ghzqty",
+        ))),
     )
     .await
     .unwrap();
@@ -120,51 +116,45 @@ where
     .await
     .unwrap();
     expect![[r#"
-            [
-                EventId {
-                    bytes: "ce010502b51217a029eb540d4f16d8429ae87f86ead3ca3c01010012204739d813c902e3011034902f4ca39146c88163cde9d94fe73d3332f2d03f3dd7",
-                    network_id: Some(
-                        2,
-                    ),
-                    separator: Some(
-                        "b51217a029eb540d",
-                    ),
-                    controller: Some(
-                        "4f16d8429ae87f86",
-                    ),
-                    stream_id: Some(
-                        "ead3ca3c",
-                    ),
-                    event_height: Some(
-                        1,
-                    ),
-                    cid: Some(
-                        "baeabeichhhmbhsic4maraneqf5gkhekgzcawhtpj3fh6opjtglznapz524",
-                    ),
-                },
-                EventId {
-                    bytes: "ce010502b51217a029eb540d4f16d8429ae87f86ead3ca3c02010012202c22bf5e2d32a77fd71cc93baa3b9c56f3fce454c1ef4f95100febddf31f309e",
-                    network_id: Some(
-                        2,
-                    ),
-                    separator: Some(
-                        "b51217a029eb540d",
-                    ),
-                    controller: Some(
-                        "4f16d8429ae87f86",
-                    ),
-                    stream_id: Some(
-                        "ead3ca3c",
-                    ),
-                    event_height: Some(
-                        2,
-                    ),
-                    cid: Some(
-                        "baeabeibmek7v4ljsu575ohgjhovdxhcw6p6oivgb55hzkeap5po7ghzqty",
-                    ),
-                },
-            ]
-        "#]]
+        [
+            EventId {
+                bytes: "ce010502e320708396e92d964f16d8429ae87f86ead3ca3c010012202c22bf5e2d32a77fd71cc93baa3b9c56f3fce454c1ef4f95100febddf31f309e",
+                network_id: Some(
+                    2,
+                ),
+                separator: Some(
+                    "e320708396e92d96",
+                ),
+                controller: Some(
+                    "4f16d8429ae87f86",
+                ),
+                stream_id: Some(
+                    "ead3ca3c",
+                ),
+                cid: Some(
+                    "baeabeibmek7v4ljsu575ohgjhovdxhcw6p6oivgb55hzkeap5po7ghzqty",
+                ),
+            },
+            EventId {
+                bytes: "ce010502e320708396e92d964f16d8429ae87f86ead3ca3c010012204739d813c902e3011034902f4ca39146c88163cde9d94fe73d3332f2d03f3dd7",
+                network_id: Some(
+                    2,
+                ),
+                separator: Some(
+                    "e320708396e92d96",
+                ),
+                controller: Some(
+                    "4f16d8429ae87f86",
+                ),
+                stream_id: Some(
+                    "ead3ca3c",
+                ),
+                cid: Some(
+                    "baeabeichhhmbhsic4maraneqf5gkhekgzcawhtpj3fh6opjtglznapz524",
+                ),
+            },
+        ]
+    "#]]
         .assert_debug_eq(&ids.collect::<Vec<EventId>>());
 }
 
@@ -183,14 +173,12 @@ where
     S: recon::Store<Key = EventId, Hash = Sha256a>,
 {
     // Write three keys, two with values and one without
-    let one_id = random_event_id(
-        Some(1),
-        Some("baeabeichhhmbhsic4maraneqf5gkhekgzcawhtpj3fh6opjtglznapz524"),
-    );
-    let two_id = random_event_id(
-        Some(2),
-        Some("baeabeibmek7v4ljsu575ohgjhovdxhcw6p6oivgb55hzkeap5po7ghzqty"),
-    );
+    let one_id = random_event_id(Some(
+        "baeabeibmek7v4ljsu575ohgjhovdxhcw6p6oivgb55hzkeap5po7ghzqty",
+    ));
+    let two_id = random_event_id(Some(
+        "baeabeichhhmbhsic4maraneqf5gkhekgzcawhtpj3fh6opjtglznapz524",
+    ));
     let (_one_blocks, one_car) = build_car_file(2).await;
     let (_two_blocks, two_car) = build_car_file(3).await;
     recon::Store::insert(&store, &ReconItem::new(&one_id, Some(&one_car)))
@@ -203,10 +191,9 @@ where
     recon::Store::insert(
         &store,
         &ReconItem::new(
-            &random_event_id(
-                Some(2),
-                Some("baeabeicyxeqioadjgy6v6cpy62a3gngylax54sds7rols2b67yetzaw5r4"),
-            ),
+            &random_event_id(Some(
+                "baeabeicyxeqioadjgy6v6cpy62a3gngylax54sds7rols2b67yetzaw5r4",
+            )),
             None,
         ),
     )
@@ -239,7 +226,7 @@ async fn double_insert<S>(store: S)
 where
     S: recon::Store<Key = EventId, Hash = Sha256a>,
 {
-    let id = random_event_id(Some(10), None);
+    let id = random_event_id(None);
 
     // first insert reports its a new key
     expect![
@@ -275,7 +262,7 @@ async fn double_insert_with_value<S>(store: S)
 where
     S: recon::Store<Key = EventId, Hash = Sha256a>,
 {
-    let id = random_event_id(Some(10), None);
+    let id = random_event_id(None);
     let (_, car) = build_car_file(2).await;
 
     let item = &ReconItem::new_with_value(&id, &car);
@@ -313,7 +300,7 @@ async fn update_missing_value<S>(store: S)
 where
     S: recon::Store<Key = EventId, Hash = Sha256a>,
 {
-    let id = random_event_id(Some(10), None);
+    let id = random_event_id(None);
     let (_, car) = build_car_file(2).await;
 
     let item_without_value = &ReconItem::new_key(&id);
@@ -352,21 +339,29 @@ async fn first_and_last<S>(store: S)
 where
     S: recon::Store<Key = EventId, Hash = Sha256a> + Send + Sync,
 {
+    let a: Cid = "baeabeiaxz4bp5shtl222y6nbnszvcasj33ogrd2pfjc6torgc7dik3hkxy"
+        .parse()
+        .unwrap();
+    let b: Cid = "baeabeibxz4bp5shtl222y6nbnszvcasj33ogrd2pfjc6torgc7dik3hkxy"
+        .parse()
+        .unwrap();
+    let c: Cid = "baeabeicxz4bp5shtl222y6nbnszvcasj33ogrd2pfjc6torgc7dik3hkxy"
+        .parse()
+        .unwrap();
+    let d: Cid = "baeabeidxz4bp5shtl222y6nbnszvcasj33ogrd2pfjc6torgc7dik3hkxy"
+        .parse()
+        .unwrap();
+
+    // Store b and c
     recon::Store::insert(
         &store,
-        &ReconItem::new_key(&random_event_id(
-            Some(10),
-            Some("baeabeie2bcird7765t7646jcoatd72tfn2tscdaap7g6kvvy7k43s34aau"),
-        )),
+        &ReconItem::new_key(&event_id_builder().with_event(&b).build()),
     )
     .await
     .unwrap();
     recon::Store::insert(
         &store,
-        &ReconItem::new_key(&random_event_id(
-            Some(11),
-            Some("baeabeianftvrst5bja422dod6uf42pmwkwix6rprguanwsxylfut56e3ue"),
-        )),
+        &ReconItem::new_key(&event_id_builder().with_event(&c).build()),
     )
     .await
     .unwrap();
@@ -374,66 +369,60 @@ where
     // Only one key in range
     let ret = recon::Store::first_and_last(
         &store,
-        &event_id_builder().with_event_height(9).build_fencepost(),
-        &event_id_builder().with_event_height(11).build_fencepost(),
+        &event_id_builder().with_event(&a).build_fencepost(),
+        &event_id_builder().with_event(&c).build_fencepost(),
     )
     .await
     .unwrap();
     expect![[r#"
-            Some(
-                (
-                    EventId {
-                        bytes: "ce010502b51217a029eb540d4f16d8429ae87f86ead3ca3c0a010012209a089111fffeecffee792270263fea656ea7210c007fcde556b8fab9b96f8005",
-                        network_id: Some(
-                            2,
-                        ),
-                        separator: Some(
-                            "b51217a029eb540d",
-                        ),
-                        controller: Some(
-                            "4f16d8429ae87f86",
-                        ),
-                        stream_id: Some(
-                            "ead3ca3c",
-                        ),
-                        event_height: Some(
-                            10,
-                        ),
-                        cid: Some(
-                            "baeabeie2bcird7765t7646jcoatd72tfn2tscdaap7g6kvvy7k43s34aau",
-                        ),
-                    },
-                    EventId {
-                        bytes: "ce010502b51217a029eb540d4f16d8429ae87f86ead3ca3c0a010012209a089111fffeecffee792270263fea656ea7210c007fcde556b8fab9b96f8005",
-                        network_id: Some(
-                            2,
-                        ),
-                        separator: Some(
-                            "b51217a029eb540d",
-                        ),
-                        controller: Some(
-                            "4f16d8429ae87f86",
-                        ),
-                        stream_id: Some(
-                            "ead3ca3c",
-                        ),
-                        event_height: Some(
-                            10,
-                        ),
-                        cid: Some(
-                            "baeabeie2bcird7765t7646jcoatd72tfn2tscdaap7g6kvvy7k43s34aau",
-                        ),
-                    },
-                ),
-            )
-        "#]]
+        Some(
+            (
+                EventId {
+                    bytes: "ce010502e320708396e92d964f16d8429ae87f86ead3ca3c0100122037cf02fec8f35eb5ac79a16cb3510249dedc688f4f2a45e9ba2617c6856ceabe",
+                    network_id: Some(
+                        2,
+                    ),
+                    separator: Some(
+                        "e320708396e92d96",
+                    ),
+                    controller: Some(
+                        "4f16d8429ae87f86",
+                    ),
+                    stream_id: Some(
+                        "ead3ca3c",
+                    ),
+                    cid: Some(
+                        "baeabeibxz4bp5shtl222y6nbnszvcasj33ogrd2pfjc6torgc7dik3hkxy",
+                    ),
+                },
+                EventId {
+                    bytes: "ce010502e320708396e92d964f16d8429ae87f86ead3ca3c0100122037cf02fec8f35eb5ac79a16cb3510249dedc688f4f2a45e9ba2617c6856ceabe",
+                    network_id: Some(
+                        2,
+                    ),
+                    separator: Some(
+                        "e320708396e92d96",
+                    ),
+                    controller: Some(
+                        "4f16d8429ae87f86",
+                    ),
+                    stream_id: Some(
+                        "ead3ca3c",
+                    ),
+                    cid: Some(
+                        "baeabeibxz4bp5shtl222y6nbnszvcasj33ogrd2pfjc6torgc7dik3hkxy",
+                    ),
+                },
+            ),
+        )
+    "#]]
         .assert_debug_eq(&ret);
 
     // No keys in range
     let ret = recon::Store::first_and_last(
         &store,
-        &event_id_builder().with_event_height(12).build_fencepost(),
-        &event_id_builder().with_max_event_height().build_fencepost(),
+        &event_id_builder().with_event(&a).build_fencepost(),
+        &event_id_builder().with_event(&a).build_fencepost(),
     )
     .await
     .unwrap();
@@ -443,57 +432,55 @@ where
     .assert_debug_eq(&ret);
 
     // Two keys in range
-    let ret = recon::Store::first_and_last(&store, &random_event_id_min(), &random_event_id_max())
-        .await
-        .unwrap();
+    let ret = recon::Store::first_and_last(
+        &store,
+        &event_id_builder().with_event(&a).build_fencepost(),
+        &event_id_builder().with_event(&d).build_fencepost(),
+    )
+    .await
+    .unwrap();
     expect![[r#"
-            Some(
-                (
-                    EventId {
-                        bytes: "ce010502b51217a029eb540d4f16d8429ae87f86ead3ca3c0a010012209a089111fffeecffee792270263fea656ea7210c007fcde556b8fab9b96f8005",
-                        network_id: Some(
-                            2,
-                        ),
-                        separator: Some(
-                            "b51217a029eb540d",
-                        ),
-                        controller: Some(
-                            "4f16d8429ae87f86",
-                        ),
-                        stream_id: Some(
-                            "ead3ca3c",
-                        ),
-                        event_height: Some(
-                            10,
-                        ),
-                        cid: Some(
-                            "baeabeie2bcird7765t7646jcoatd72tfn2tscdaap7g6kvvy7k43s34aau",
-                        ),
-                    },
-                    EventId {
-                        bytes: "ce010502b51217a029eb540d4f16d8429ae87f86ead3ca3c0b010012200d2ceb194fa14839ad0dc3f50bcd3d9655917f45f13500db4af859693ef89ba1",
-                        network_id: Some(
-                            2,
-                        ),
-                        separator: Some(
-                            "b51217a029eb540d",
-                        ),
-                        controller: Some(
-                            "4f16d8429ae87f86",
-                        ),
-                        stream_id: Some(
-                            "ead3ca3c",
-                        ),
-                        event_height: Some(
-                            11,
-                        ),
-                        cid: Some(
-                            "baeabeianftvrst5bja422dod6uf42pmwkwix6rprguanwsxylfut56e3ue",
-                        ),
-                    },
-                ),
-            )
-        "#]]
+        Some(
+            (
+                EventId {
+                    bytes: "ce010502e320708396e92d964f16d8429ae87f86ead3ca3c0100122037cf02fec8f35eb5ac79a16cb3510249dedc688f4f2a45e9ba2617c6856ceabe",
+                    network_id: Some(
+                        2,
+                    ),
+                    separator: Some(
+                        "e320708396e92d96",
+                    ),
+                    controller: Some(
+                        "4f16d8429ae87f86",
+                    ),
+                    stream_id: Some(
+                        "ead3ca3c",
+                    ),
+                    cid: Some(
+                        "baeabeibxz4bp5shtl222y6nbnszvcasj33ogrd2pfjc6torgc7dik3hkxy",
+                    ),
+                },
+                EventId {
+                    bytes: "ce010502e320708396e92d964f16d8429ae87f86ead3ca3c0100122057cf02fec8f35eb5ac79a16cb3510249dedc688f4f2a45e9ba2617c6856ceabe",
+                    network_id: Some(
+                        2,
+                    ),
+                    separator: Some(
+                        "e320708396e92d96",
+                    ),
+                    controller: Some(
+                        "4f16d8429ae87f86",
+                    ),
+                    stream_id: Some(
+                        "ead3ca3c",
+                    ),
+                    cid: Some(
+                        "baeabeicxz4bp5shtl222y6nbnszvcasj33ogrd2pfjc6torgc7dik3hkxy",
+                    ),
+                },
+            ),
+        )
+    "#]]
         .assert_debug_eq(&ret);
 }
 
@@ -510,7 +497,7 @@ async fn store_value_for_key<S>(store: S)
 where
     S: recon::Store<Key = EventId, Hash = Sha256a>,
 {
-    let key = random_event_id(None, None);
+    let key = random_event_id(None);
     let (_, store_value) = build_car_file(3).await;
     recon::Store::insert(
         &store,
@@ -539,10 +526,9 @@ async fn keys_with_missing_value<S>(store: S)
 where
     S: recon::Store<Key = EventId, Hash = Sha256a>,
 {
-    let key = random_event_id(
-        Some(4),
-        Some("baeabeigc5edwvc47ul6belpxk3lgddipri5hw6f347s6ur4pdzwceprqbu"),
-    );
+    let key = random_event_id(Some(
+        "baeabeigc5edwvc47ul6belpxk3lgddipri5hw6f347s6ur4pdzwceprqbu",
+    ));
     recon::Store::insert(&store, &ReconItem::new(&key, None))
         .await
         .unwrap();
@@ -553,30 +539,27 @@ where
     .await
     .unwrap();
     expect![[r#"
-            [
-                EventId {
-                    bytes: "ce010502b51217a029eb540d4f16d8429ae87f86ead3ca3c0401001220c2e9076a8b9fa2fc122df756d6618d0f8a3a7b78bbe7e5ea478f1e6c223e300d",
-                    network_id: Some(
-                        2,
-                    ),
-                    separator: Some(
-                        "b51217a029eb540d",
-                    ),
-                    controller: Some(
-                        "4f16d8429ae87f86",
-                    ),
-                    stream_id: Some(
-                        "ead3ca3c",
-                    ),
-                    event_height: Some(
-                        4,
-                    ),
-                    cid: Some(
-                        "baeabeigc5edwvc47ul6belpxk3lgddipri5hw6f347s6ur4pdzwceprqbu",
-                    ),
-                },
-            ]
-        "#]]
+        [
+            EventId {
+                bytes: "ce010502e320708396e92d964f16d8429ae87f86ead3ca3c01001220c2e9076a8b9fa2fc122df756d6618d0f8a3a7b78bbe7e5ea478f1e6c223e300d",
+                network_id: Some(
+                    2,
+                ),
+                separator: Some(
+                    "e320708396e92d96",
+                ),
+                controller: Some(
+                    "4f16d8429ae87f86",
+                ),
+                stream_id: Some(
+                    "ead3ca3c",
+                ),
+                cid: Some(
+                    "baeabeigc5edwvc47ul6belpxk3lgddipri5hw6f347s6ur4pdzwceprqbu",
+                ),
+            },
+        ]
+    "#]]
         .assert_debug_eq(&missing_keys);
 
     let (_, value) = build_car_file(2).await;
@@ -608,7 +591,7 @@ async fn read_value_as_block<S>(store: S)
 where
     S: recon::Store<Key = EventId, Hash = Sha256a> + iroh_bitswap::Store,
 {
-    let key = random_event_id(None, None);
+    let key = random_event_id(None);
     let (blocks, store_value) = build_car_file(3).await;
     recon::Store::insert(
         &store,
@@ -633,9 +616,9 @@ where
 // each one takes n+1 blocks as it needs to store the root and all blocks so we expect 3+5+10+3=21 blocks
 // but we use a delivered integer per event, so we expect it to increment by 1 for each event
 async fn prep_highwater_tests(store: &dyn AccessModelStore) -> (Cid, Cid, Cid) {
-    let key_a = random_event_id(None, None);
-    let key_b = random_event_id(None, None);
-    let key_c = random_event_id(None, None);
+    let key_a = random_event_id(None);
+    let key_b = random_event_id(None);
+    let key_c = random_event_id(None);
     for (x, key) in [3, 5, 10].into_iter().zip([&key_a, &key_b, &key_c]) {
         let (_blocks, store_value) = build_car_file(x).await;
         assert_eq!(_blocks.len(), x);
@@ -741,7 +724,7 @@ async fn get_event_by_event_id<S>(store: S)
 where
     S: AccessModelStore,
 {
-    let key = random_event_id(None, None);
+    let key = random_event_id(None);
     let num_blocks = 3;
     let (_blocks, store_value) = build_car_file(num_blocks).await;
     assert_eq!(_blocks.len(), num_blocks);
@@ -768,7 +751,7 @@ async fn get_event_by_cid<S>(store: S)
 where
     S: AccessModelStore,
 {
-    let key = random_event_id(None, None);
+    let key = random_event_id(None);
     let num_blocks = 3;
     let (_blocks, store_value) = build_car_file(num_blocks).await;
     assert_eq!(_blocks.len(), num_blocks);

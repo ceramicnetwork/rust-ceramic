@@ -13,28 +13,26 @@ use ipld_core::{codec::Codec, ipld, ipld::Ipld};
 use iroh_bitswap::Block;
 use iroh_car::{CarHeader, CarWriter};
 use multihash_codetable::{Code, MultihashDigest};
-use rand::Rng;
 use serde_ipld_dagcbor::codec::DagCborCodec;
 
 const MODEL_ID: &str = "k2t6wz4yhfp1r5pwi52gw89nzjbu53qk7m32o5iguw42c6knsaj0feuf927agb";
 const CONTROLLER: &str = "did:key:z6Mkqtw7Pj5Lv9xc4PgUYAnwfaVoMC6FRneGWVr5ekTEfKVL";
 const INIT_ID: &str = "baeabeiajn5ypv2gllvkk4muvzujvcnoen2orknxix7qtil2daqn6vu6khq";
-const SORT_KEY: &str = "model";
+const SEP_KEY: &str = "model";
 
 // Return an builder for an event with the same network,model,controller,stream.
 pub(crate) fn event_id_builder() -> Builder<WithInit> {
     EventId::builder()
         .with_network(&Network::DevUnstable)
-        .with_sort_value(SORT_KEY, MODEL_ID)
+        .with_sep(SEP_KEY, &multibase::decode(MODEL_ID).unwrap().1)
         .with_controller(CONTROLLER)
         .with_init(&Cid::from_str(INIT_ID).unwrap())
 }
 
 // Generate an event for the same network,model,controller,stream
 // The event and height are random when when its None.
-pub(crate) fn random_event_id(height: Option<u64>, event: Option<&str>) -> EventId {
+pub(crate) fn random_event_id(event: Option<&str>) -> EventId {
     event_id_builder()
-        .with_event_height(height.unwrap_or_else(|| rand::thread_rng().gen()))
         .with_event(
             &event
                 .map(|cid| Cid::from_str(cid).unwrap())
@@ -44,11 +42,11 @@ pub(crate) fn random_event_id(height: Option<u64>, event: Option<&str>) -> Event
 }
 // The EventId that is the minumum of all possible random event ids
 pub(crate) fn random_event_id_min() -> EventId {
-    event_id_builder().with_min_event_height().build_fencepost()
+    event_id_builder().with_min_event().build_fencepost()
 }
 // The EventId that is the maximum of all possible random event ids
 pub(crate) fn random_event_id_max() -> EventId {
-    event_id_builder().with_max_event_height().build_fencepost()
+    event_id_builder().with_max_event().build_fencepost()
 }
 
 pub(crate) fn random_cid() -> Cid {
