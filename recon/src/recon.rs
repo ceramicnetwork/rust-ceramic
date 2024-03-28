@@ -799,12 +799,12 @@ where
     pub fn new(peer_id: PeerId, recon: Client<Interest, H>) -> Self {
         let sort_key = "model";
         let start = Interest::builder()
-            .with_sort_key(sort_key)
+            .with_sep_key(sort_key)
             .with_peer_id(&peer_id)
             .with_min_range()
             .build_fencepost();
         let end = Interest::builder()
-            .with_sort_key(sort_key)
+            .with_sep_key(sort_key)
             .with_peer_id(&peer_id)
             .with_max_range()
             .build_fencepost();
