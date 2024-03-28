@@ -46,7 +46,7 @@ jobs:
           # Use the release tag to deploy, if one is available.
           DEPLOY_TAG=$RELEASE_TAG
         fi
-        # Tag with latest if this is a release (not pre-release)
+        # Tag with latest if this is a push to master
         if [[ "${{ github.event_name }}" == "push" ]]; then
           TAG_LATEST=true
         elif
