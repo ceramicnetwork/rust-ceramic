@@ -10,9 +10,13 @@ publish = false
 
 [dependencies]
 anyhow.workspace = true
+async-stream = "0.3.5"
+async-walkdir = "1.0.0"
+base64-url = "2.0.2"
 ceramic-api-server.workspace = true
 ceramic-api.workspace = true
 ceramic-core.workspace = true
+ceramic-event.workspace = true
 ceramic-kubo-rpc = { path = "../kubo-rpc", features = ["http"] }
 ceramic-kubo-rpc-server.workspace = true
 ceramic-metrics.workspace = true
@@ -21,16 +25,20 @@ ceramic-store.workspace = true
 chrono = "0.4.31"
 cid.workspace = true
 clap.workspace = true
+dag-jose.workspace = true
 dirs = "5.0.1"
+enum-as-inner = "0.6.0"
 futures.workspace = true
 git-version = "0.3"
 glob = "0.3.1"
 hex.workspace = true
 home = "0.5"
 hyper.workspace = true
+iroh-bitswap.workspace = true
+iroh-car.workspace = true
 iroh-rpc-client.workspace = true
 iroh-rpc-types.workspace = true
-iroh-bitswap.workspace = true
+libipld.workspace = true
 libp2p.workspace = true
 minicbor.workspace = true
 multiaddr.workspace = true
@@ -41,16 +49,16 @@ ordered-float = "4.1.1"
 prometheus-client.workspace = true
 recon.workspace = true
 reqwest.workspace = true
+serde_ipld_dagcbor.workspace = true
 serde_json.workspace = true
 signal-hook = "0.3.17"
 signal-hook-tokio = { version = "0.3.1", features = ["futures-v0_3"] }
+sqlx.workspace = true
 swagger.workspace = true
 tokio-metrics = { version = "0.3.1", features = ["rt"] }
 tokio-prometheus-client = "0.1"
 tokio.workspace = true
 tracing.workspace = true
-sqlx.workspace = true
-enum-as-inner = "0.6.0"
 
 
 [features]

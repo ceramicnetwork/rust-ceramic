@@ -568,7 +568,7 @@ mod tests {
     }
     #[test]
     fn cid() {
-        let sepy = "model".to_string();
+        let sep = "model".to_string();
         let separator = "kh4q0ozorrgaq2mezktnrmdwleo1d".to_string(); // cspell:disable-line
         let controller = "did:key:z6MkgSV3tAuw7gUWqKCUY7ae6uWNxqYgdwPhUJbJhF9EFXm9".to_string();
         let init =
@@ -578,7 +578,7 @@ mod tests {
 
         let event_id = EventId::new(
             &Network::Mainnet,
-            &sepy,
+            &sep,
             &multibase::decode(&separator).unwrap().1,
             &controller,
             &init,

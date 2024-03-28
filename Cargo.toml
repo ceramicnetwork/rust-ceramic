@@ -50,6 +50,7 @@ bytesize = "1.1"
 ceramic-api = { path = "./api" }
 ceramic-api-server = { path = "./api-server" }
 ceramic-core = { path = "./core" }
+ceramic-event = { path = "./event" }
 ceramic-kubo-rpc-server = { path = "./kubo-rpc-server" }
 ceramic-metadata = { path = "./metadata" }
 ceramic-metrics = { path = "./metrics" }

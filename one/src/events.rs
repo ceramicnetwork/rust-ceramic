@@ -1,17 +1,29 @@
-use crate::ethereum_rpc::{EthRpc, HttpEthRpc, RootTime};
-use crate::CborValue;
+use std::collections::BTreeMap;
+use std::io::Cursor;
+use std::{path::PathBuf, str::FromStr};
+
 use anyhow::{anyhow, Context, Result};
-use ceramic_core::{ssi, Base64UrlString, DidDocument, Jwk};
+use async_stream::try_stream;
+use ceramic_core::{ssi, Base64UrlString, DidDocument, EventId, Jwk, Network};
+use ceramic_event::unvalidated;
+use ceramic_metrics::config::Config as MetricsConfig;
 use ceramic_p2p::SQLiteBlockStore;
-use ceramic_store::SqlitePool;
+use ceramic_store::{ModelStore, SqlitePool};
 use chrono::{SecondsFormat, TimeZone, Utc};
 use cid::{multibase, multihash, Cid};
 use clap::{Args, Subcommand};
-use glob::{glob, Paths};
+use dag_jose::{DagJoseCodec, JsonWebSignature};
+use futures::{Stream, StreamExt};
+use iroh_car::{CarHeader, CarWriter};
+use libipld::{cbor::DagCborCodec, prelude::Decode, Ipld};
+use multibase::Base;
 use multihash::Multihash;
+use recon::{ReconItem, Sha256a, Store};
 use sqlx::Row;
-use std::{fs, path::PathBuf, str::FromStr};
-use tracing::debug;
+use tracing::{debug, info, instrument};
+
+use crate::ethereum_rpc::{EthRpc, HttpEthRpc, RootTime};
+use crate::{paths, CborValue, Info};
 
 #[derive(Subcommand, Debug)]
 pub enum EventsCommand {
@@ -33,6 +45,14 @@ pub struct SlurpOpts {
     /// The path to the output_ceramic_db [eg: ~/.ceramic-one/db.sqlite3]
     #[clap(long, short, value_parser)]
     output_ceramic_path: Option<PathBuf>,
+
+    /// Unique key used to find other Ceramic peers via the DHT
+    #[arg(long, default_value = "testnet-clay", env = "CERAMIC_ONE_NETWORK")]
+    network: crate::Network,
+
+    /// Unique id when the network type is 'local'.
+    #[arg(long, env = "CERAMIC_ONE_LOCAL_NETWORK_ID")]
+    local_network_id: Option<u32>,
 }
 
 #[derive(Args, Debug)]
@@ -51,6 +71,19 @@ pub struct ValidateOpts {
 }
 
 pub async fn events(cmd: EventsCommand) -> Result<()> {
+    // TODO Cleanup
+    let info = Info::new().await?;
+
+    let mut metrics_config = MetricsConfig {
+        export: false,
+        tracing: false,
+        log_format: ceramic_metrics::config::LogFormat::MultiLine,
+        ..Default::default()
+    };
+    info.apply_to_metrics_config(&mut metrics_config);
+    ceramic_metrics::MetricsHandle::new(metrics_config.clone())
+        .await
+        .expect("failed to initialize metrics");
     match cmd {
         EventsCommand::Slurp(opts) => slurp(opts).await,
         EventsCommand::Validate(opts) => validate(opts).await,
@@ -58,28 +91,199 @@ pub async fn events(cmd: EventsCommand) -> Result<()> {
 }
 
 async fn slurp(opts: SlurpOpts) -> Result<()> {
-    let home: PathBuf = dirs::home_dir().unwrap_or("/data/".into());
-    let default_output_ceramic_path: PathBuf = home.join(".ceramic-one/db.sqlite3");
+    let network = opts.network.to_network(&opts.local_network_id)?;
 
-    let output_ceramic_path = opts
-        .output_ceramic_path
-        .unwrap_or(default_output_ceramic_path);
-    println!(
-        "{} Opening output ceramic SQLite DB at: {}",
-        Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
-        output_ceramic_path.display()
-    );
+    let dir = paths::store_dir(&opts.output_ceramic_path);
+    let db_path = paths::ceramic_store_db_path(&dir);
+    info!("Opening output ceramic SQLite DB at: {}", db_path.display());
 
-    let pool = SqlitePool::connect(output_ceramic_path).await.unwrap();
-    let block_store = SQLiteBlockStore::new(pool).await.unwrap();
+    let sql_pool = ceramic_store::SqlitePool::connect(&db_path).await?;
+    let model_store = ceramic_store::ModelStore::<Sha256a>::new(sql_pool.clone()).await?;
 
-    if let Some(input_ceramic_db) = opts.input_ceramic_db {
-        migrate_from_database(input_ceramic_db, block_store.clone()).await;
+    let mut blocks_stream = if let Some(_input_ceramic_db) = opts.input_ceramic_db {
+        todo!()
+    } else if let Some(input_ipfs_path) = opts.input_ipfs_path {
+        blocks_from_filesystem(input_ipfs_path).await.boxed()
+    } else {
+        panic!("one of")
+    };
+
+    let mut migrator = Migrator::new(network);
+    while let Some(block) = blocks_stream.next().await {
+        let block = block?;
+        migrator.blocks.insert(block.cid(), block);
     }
-    if let Some(input_ipfs_path) = opts.input_ipfs_path {
-        migrate_from_filesystem(input_ipfs_path, block_store.clone()).await;
+    migrator.migrate(model_store).await
+}
+
+trait Block {
+    fn cid(&self) -> Cid;
+    async fn data(&self) -> Result<Vec<u8>>;
+}
+
+struct FSBlock {
+    cid: Cid,
+    path: PathBuf,
+}
+
+impl Block for FSBlock {
+    fn cid(&self) -> Cid {
+        self.cid
     }
-    Ok(())
+
+    async fn data(&self) -> Result<Vec<u8>> {
+        Ok(tokio::fs::read(&self.path).await?)
+    }
+}
+
+struct Migrator {
+    network: Network,
+    blocks: BTreeMap<Cid, FSBlock>,
+    batch: Vec<(EventId, Vec<u8>)>,
+}
+
+impl Migrator {
+    fn new(network: Network) -> Self {
+        Self {
+            network,
+            blocks: Default::default(),
+            batch: Default::default(),
+        }
+    }
+    #[instrument(skip(self, model_store), ret)]
+    async fn migrate(mut self, model_store: ModelStore<Sha256a>) -> Result<()> {
+        let cids: Vec<Cid> = self.blocks.keys().cloned().collect();
+        for cid in cids {
+            self.analyze_block(cid).await?;
+            if self.batch.len() > 1000 {
+                self.write_batch(model_store.clone()).await?
+            }
+        }
+        // TODO handle unsigned_init_events
+        self.write_batch(model_store).await
+    }
+    async fn analyze_block(&mut self, cid: Cid) -> Result<()> {
+        if let Some(block) = self.blocks.get(&cid) {
+            let data = block.data().await?;
+            let event: Result<unvalidated::Event, _> = serde_ipld_dagcbor::from_slice(&data);
+            let ipld: Ipld = Ipld::decode(DagCborCodec, &mut Cursor::new(data.clone()))?;
+            debug!(%cid, ?event, ?ipld, "analyze_block");
+            match event {
+                Ok(unvalidated::Event::Signed(event)) => {
+                    if let Some(link) = event.link() {
+                        if let Some(block) = self.blocks.get(&link) {
+                            let payload_data = block.data().await?;
+                            let payload: unvalidated::Payload =
+                                serde_ipld_dagcbor::from_slice(&payload_data)?;
+                            let mut event_builder = match payload {
+                                unvalidated::Payload::Init(payload) => EventBuilder::new(
+                                    cid,
+                                    data.clone(),
+                                    payload.header().model().as_slice().to_vec(),
+                                    payload.header().controllers()[0].clone(),
+                                    cid,
+                                ),
+                                unvalidated::Payload::Data(payload) => {
+                                    let header = payload.header().expect("TODO");
+                                    EventBuilder::new(
+                                        cid,
+                                        data.clone(),
+                                        header.model().as_slice().to_vec(),
+                                        header.controllers().expect("TODO")[0].clone(),
+                                        *payload.id(),
+                                    )
+                                }
+                            };
+                            event_builder.add_block(link, payload_data.clone());
+                            self.analyze_signed_event(event_builder, event).await?;
+                        }
+                    }
+                }
+                Ok(unvalidated::Event::Time(_event)) => {}
+                // Ignore blocks that are not Ceramic events
+                Err(_) => {}
+            }
+        }
+
+        Ok(())
+    }
+    async fn write_batch(&mut self, mut model_store: ModelStore<Sha256a>) -> Result<()> {
+        model_store
+            .insert_many(
+                self.batch
+                    .iter()
+                    .map(|(id, data)| ReconItem::new(id, Some(data))),
+            )
+            .await?;
+        self.batch.truncate(0);
+        Ok(())
+    }
+
+    async fn analyze_signed_event(
+        &mut self,
+        mut builder: EventBuilder,
+        event: unvalidated::JWS,
+    ) -> Result<()> {
+        if let Some(cap) = event.cap() {
+            debug!(%cap, "found cap chain");
+            // TODO follow full CACAO chain
+            if let Some(block) = self.blocks.get(&cap) {
+                let data = block.data().await?;
+                let ipld: Ipld = Ipld::decode(DagCborCodec, &mut Cursor::new(data.clone()))?;
+                debug!(%cap, ?ipld, "cap block");
+                builder.add_block(cap, data);
+            }
+        }
+        self.batch.push(builder.build(self.network.clone()).await?);
+        Ok(())
+    }
+}
+
+struct EventBuilder {
+    root: Cid,
+    blocks: Vec<(Cid, Vec<u8>)>,
+
+    // TODO update EventId builder
+    sep: Vec<u8>,
+    controller: String,
+    init: Cid,
+}
+
+impl EventBuilder {
+    fn new(root: Cid, data: Vec<u8>, sep: Vec<u8>, controller: String, init: Cid) -> Self {
+        Self {
+            root,
+            blocks: vec![(root, data)],
+            sep,
+            controller,
+            init,
+        }
+    }
+
+    fn add_block(&mut self, cid: Cid, data: Vec<u8>) {
+        self.blocks.push((cid, data))
+    }
+
+    async fn build(self, network: Network) -> Result<(EventId, Vec<u8>)> {
+        let event_id = EventId::builder()
+            .with_network(&network)
+            .with_sep("model", &self.sep)
+            .with_controller(&self.controller)
+            .with_init(&self.init)
+            .with_event(&self.root)
+            .build();
+        let mut car = Vec::new();
+        let mut writer = CarWriter::new(CarHeader::V1(vec![self.root].into()), &mut car);
+        for (cid, block) in self.blocks {
+            writer.write(cid, block).await?;
+        }
+        debug!(
+            %event_id,
+            car = multibase::encode(Base::Base64Url, &car),
+            "build"
+        );
+        Ok((event_id, car))
+    }
 }
 
 async fn validate(opts: ValidateOpts) -> Result<()> {
@@ -286,102 +490,59 @@ async fn prev_in_root(
     Ok(prev == current_cid)
 }
 
-async fn migrate_from_filesystem(input_ipfs_path: PathBuf, store: SQLiteBlockStore) {
+async fn blocks_from_filesystem(input_ipfs_path: PathBuf) -> impl Stream<Item = Result<FSBlock>> {
     // the block store is split in to 1024 directories and then the blocks stored as files.
     // the dir structure is the penultimate two characters as dir then the b32 sha256 multihash of the block
     // The leading "B" for the b32 sha256 multihash is left off
     // ~/.ipfs/blocks/QV/CIQOHMGEIKMPYHAUTL57JSEZN64SIJ5OIHSGJG4TJSSJLGI3PBJLQVI.data // cspell:disable-line
-    let p = input_ipfs_path
-        .join("**/*")
-        .to_str()
-        .expect("expect utf8")
-        .to_owned();
-    println!(
-        "{} Opening IPFS Repo at: {}",
-        Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
-        &p
-    );
-    let paths: Paths = glob(&p).unwrap();
 
-    let mut count = 0;
-    let mut err_count = 0;
+    info!("Opening IPFS Repo at: {}", input_ipfs_path.display());
 
-    for path in paths {
-        let path = path.unwrap().as_path().to_owned();
-        if !path.is_file() {
-            continue;
+    let mut dirs = Vec::new();
+    dirs.push(input_ipfs_path);
+
+    try_stream! {
+        while !dirs.is_empty() {
+            let mut entries = tokio::fs::read_dir(dirs.pop().unwrap()).await?;
+            while let Some(entry) = entries.next_entry().await? {
+                if entry.metadata().await?.is_dir() {
+                    dirs.push(entry.path())
+                } else {
+                    if let Some(block) = block_from_path(entry.path()).await?{
+                        yield block
+                    }
+                }
+            }
         }
-
-        let Ok((_base, hash_bytes)) =
-            multibase::decode("B".to_string() + path.file_stem().unwrap().to_str().unwrap())
-        else {
-            println!(
-                "{} {:?} is not a base32upper multihash.",
-                Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
-                path.display()
-            );
-            err_count += 1;
-            continue;
-        };
-        let Ok(hash) = Multihash::from_bytes(&hash_bytes) else {
-            println!(
-                "{} {:?} is not a base32upper multihash.",
-                Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
-                path.display()
-            );
-            err_count += 1;
-            continue;
-        };
-        let cid = Cid::new_v1(0x71, hash);
-        let blob = fs::read(&path).unwrap();
-
-        if count % 10000 == 0 {
-            println!(
-                "{} {} {} ok:{}, err:{}",
-                Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
-                path.display(),
-                cid,
-                count,
-                err_count
-            );
-        }
-
-        let result = store.put(cid, blob.into(), vec![]).await;
-        if result.is_err() {
-            println!(
-                "{} err: {} {:?}",
-                Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
-                path.display(),
-                result
-            );
-            err_count += 1;
-            continue;
-        }
-        count += 1;
     }
-
-    println!(
-        "{} count={}, err_count={}",
-        Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
-        count,
-        err_count
-    );
 }
 
-async fn migrate_from_database(input_ceramic_db: PathBuf, store: SQLiteBlockStore) {
-    let input_ceramic_db_filename = input_ceramic_db.to_str().expect("expect utf8");
-    println!(
-        "{} Importing blocks from {}.",
-        Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
-        input_ceramic_db_filename
-    );
-    let result = store.merge_from_sqlite(input_ceramic_db_filename).await;
-    println!(
-        "{} Done importing blocks from {}.",
-        Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
-        input_ceramic_db_filename
-    );
-    result.unwrap()
+async fn block_from_path(block_path: PathBuf) -> Result<Option<FSBlock>> {
+    if !block_path.is_file() {
+        return Ok(None);
+    }
+
+    let Ok((_base, hash_bytes)) =
+        multibase::decode("B".to_string() + block_path.file_stem().unwrap().to_str().unwrap())
+    else {
+        debug!("{:?} is not a base32upper multihash.", block_path.display());
+        return Ok(None);
+    };
+    let Ok(hash) = Multihash::from_bytes(&hash_bytes) else {
+        debug!("{:?} is not a base32upper multihash.", block_path.display());
+        return Ok(None);
+    };
+    let mut blob = Cursor::new(tokio::fs::read(&block_path).await?);
+    let result = JsonWebSignature::decode(DagJoseCodec, &mut blob);
+    let cid = if result.is_ok() {
+        Cid::new_v1(0x85, hash)
+    } else {
+        Cid::new_v1(0x71, hash)
+    };
+    Ok(Some(FSBlock {
+        cid,
+        path: block_path,
+    }))
 }
 
 /// We use the SQLiteRootStore as a local cache of the EthereumRootStore

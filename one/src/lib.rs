@@ -7,6 +7,7 @@ mod events;
 mod http;
 mod metrics;
 mod network;
+mod paths;
 
 use std::{env, num::NonZeroUsize, path::PathBuf, time::Duration};
 
@@ -352,16 +353,7 @@ impl Daemon {
             );
         });
 
-        // 1 path from options
-        // 2 path $HOME/.ceramic-one
-        // 3 pwd/.ceramic-one
-        let dir = match opts.store_dir.clone() {
-            Some(dir) => dir,
-            None => match home::home_dir() {
-                Some(home_dir) => home_dir.join(".ceramic-one"),
-                None => PathBuf::from(".ceramic-one"),
-            },
-        };
+        let dir = paths::store_dir(&opts.store_dir);
         debug!("using directory: {}", dir.display());
 
         let p2p_config = Libp2pConfig {
@@ -423,7 +415,7 @@ impl Daemon {
         let peer_id = keypair.public().to_peer_id();
 
         // Connect to sqlite
-        let sql_db_path: PathBuf = dir.join("db.sqlite3");
+        let sql_db_path = paths::ceramic_store_db_path(&dir);
         let sql_pool = ceramic_store::SqlitePool::connect(&sql_db_path).await?;
 
         // Create recon metrics

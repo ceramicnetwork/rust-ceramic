@@ -322,6 +322,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-fs"
+version = "2.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc19683171f287921f2405677dd2ed2549c3b3bda697a563ebc3a121ace2aba1"
+dependencies = [
+ "async-lock 3.3.0",
+ "blocking",
+ "futures-lite 2.2.0",
+]
+
+[[package]]
 name = "async-global-executor"
 version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -505,6 +516,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.48",
+]
+
+[[package]]
+name = "async-walkdir"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "73f6338023cbfc0555eccb8e83d3d4dcf1183b51ca9140a03b1dbb8a559193db"
+dependencies = [
+ "async-fs 2.1.1",
+ "futures-lite 2.2.0",
 ]
 
 [[package]]
@@ -1137,7 +1158,10 @@ name = "ceramic-event"
 version = "0.14.0"
 dependencies = [
  "anyhow",
+ "base64-url",
  "ceramic-core",
+ "cid 0.10.1",
+ "dag-jose",
  "expect-test",
  "libipld 0.16.0",
  "multihash 0.18.1",
@@ -1248,9 +1272,13 @@ name = "ceramic-one"
 version = "0.14.0"
 dependencies = [
  "anyhow",
+ "async-stream",
+ "async-walkdir",
+ "base64-url",
  "ceramic-api",
  "ceramic-api-server",
  "ceramic-core",
+ "ceramic-event",
  "ceramic-kubo-rpc",
  "ceramic-kubo-rpc-server",
  "ceramic-metrics",
@@ -1259,6 +1287,7 @@ dependencies = [
  "chrono",
  "cid 0.10.1",
  "clap 4.4.18",
+ "dag-jose",
  "dirs",
  "enum-as-inner",
  "expect-test",
@@ -1269,8 +1298,10 @@ dependencies = [
  "home",
  "hyper",
  "iroh-bitswap",
+ "iroh-car",
  "iroh-rpc-client",
  "iroh-rpc-types",
+ "libipld 0.16.0",
  "libp2p",
  "minicbor",
  "multiaddr",
@@ -1281,6 +1312,7 @@ dependencies = [
  "prometheus-client",
  "recon",
  "reqwest",
+ "serde_ipld_dagcbor",
  "serde_json",
  "signal-hook",
  "signal-hook-tokio",
@@ -7252,9 +7284,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.113"
+version = "1.0.115"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "69801b70b1c3dac963ecb03a364ba0ceda9cf60c71cfe475e99864759c8b8a79"
+checksum = "12dc5c46daa8e9fdf4f5e71b6cf9a53f2487da0e86e55808e2d35539666497dd"
 dependencies = [
  "itoa",
  "ryu",
@@ -7549,7 +7581,7 @@ checksum = "13f2b548cd8447f8de0fdf1c592929f70f4fc7039a05e47404b0d096ec6987a1"
 dependencies = [
  "async-channel 1.9.0",
  "async-executor",
- "async-fs",
+ "async-fs 1.6.0",
  "async-io 1.13.0",
  "async-lock 2.8.0",
  "async-net",
