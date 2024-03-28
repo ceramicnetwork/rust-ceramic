@@ -52,6 +52,7 @@ Use the provided `Makefile` for basic actions to ensure your changes are ready f
     $ make check-clippy
     $ make check-fmt
     $ make test
+    $ make check-queries # if you're doing anything related to the database
 
 Using the makefile is not necessary during your development cycle, feel free to use the relevant cargo commands directly, in which case you'll likely need openssl's dev files, the protocol buffer compiler and a c dev environment; on a clean slate Ubuntu:
 
