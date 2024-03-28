@@ -1,6 +1,6 @@
 // Tests for server.rs api implementations
 
-use crate::server::decode_event_data;
+use crate::server::decode_multibase_data;
 use crate::server::BuildResponse;
 use crate::server::Server;
 use crate::{AccessInterestStore, AccessModelStore};
@@ -98,25 +98,26 @@ impl AccessModelStore for MockReconModelTest {
     }
 }
 #[tokio::test]
-#[traced_test]
 async fn create_event() {
     let peer_id = PeerId::random();
     let network = Network::InMemory;
     let event_id = EventId::new(
         &network,
         "model",
-        "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9", // cspell:disable-line
-        "did:key:zGs1Det7LHNeu7DXT4nvoYrPfj3n6g7d6bj2K4AMXEvg1",          // cspell:disable-line
+        &decode_multibase_data("k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9")
+            .unwrap(), // cspell:disable-line
+        "did:key:zGs1Det7LHNeu7DXT4nvoYrPfj3n6g7d6bj2K4AMXEvg1", // cspell:disable-line
         &Cid::from_str("baejbeihyr3kf77etqdccjfoc33dmko2ijyugn6qk6yucfkioasjssz3bbu").unwrap(), // cspell:disable-line
-        0,
         &Cid::from_str("baejbeicqtpe5si4qvbffs2s7vtbk5ccbsfg6owmpidfj3zeluqz4hlnz6m").unwrap(), // cspell:disable-line
     );
     let event_id_str = multibase::encode(Base::Base16Lower, event_id.to_bytes());
     let event_data = "f".to_string();
     let mock_interest = MockReconInterestTest::new();
     let mut mock_model = MockReconModelTest::new();
-    let event_data_arg = Some(decode_event_data(event_data.as_str()).unwrap());
-    let args = vec![(event_id.clone(), event_data_arg)];
+    let args = vec![(
+        event_id.clone(),
+        Some(decode_multibase_data(event_data.as_str()).unwrap()),
+    )];
     mock_model
         .expect_insert_many()
         .with(predicate::eq(args))
@@ -145,17 +146,17 @@ async fn register_interest_sort_value() {
     // Construct start and end event ids
     let start = EventId::builder()
         .with_network(&network)
-        .with_sort_value("model", model)
+        .with_sep("model", &decode_multibase_data(model).unwrap())
         .with_min_controller()
         .with_min_init()
-        .with_min_event_height()
+        .with_min_event()
         .build_fencepost();
     let end = EventId::builder()
         .with_network(&network)
-        .with_sort_value("model", model)
+        .with_sep("model", &decode_multibase_data(model).unwrap())
         .with_max_controller()
         .with_max_init()
-        .with_max_event_height()
+        .with_max_event()
         .build_fencepost();
 
     // Setup mock expectations
@@ -165,7 +166,7 @@ async fn register_interest_sort_value() {
         .with(
             predicate::eq(
                 Interest::builder()
-                    .with_sort_key("model")
+                    .with_sep_key("model")
                     .with_peer_id(&peer_id)
                     .with_range((start.as_slice(), end.as_slice()))
                     .with_not_after(0)
@@ -220,17 +221,17 @@ async fn register_interest_sort_value_controller() {
     let controller = "did:key:zGs1Det7LHNeu7DXT4nvoYrPfj3n6g7d6bj2K4AMXEvg1";
     let start = EventId::builder()
         .with_network(&network)
-        .with_sort_value("model", model_base36)
+        .with_sep("model", &decode_multibase_data(model_base36).unwrap())
         .with_controller(controller)
         .with_min_init()
-        .with_min_event_height()
+        .with_min_event()
         .build_fencepost();
     let end = EventId::builder()
         .with_network(&network)
-        .with_sort_value("model", model_base36)
+        .with_sep("model", &decode_multibase_data(model_base36).unwrap())
         .with_controller(controller)
         .with_max_init()
-        .with_max_event_height()
+        .with_max_event()
         .build_fencepost();
     let mut mock_interest = MockReconInterestTest::new();
     mock_interest
@@ -238,7 +239,7 @@ async fn register_interest_sort_value_controller() {
         .with(
             predicate::eq(
                 Interest::builder()
-                    .with_sort_key("model")
+                    .with_sep_key("model")
                     .with_peer_id(&peer_id)
                     .with_range((start.as_slice(), end.as_slice()))
                     .with_not_after(0)
@@ -275,17 +276,17 @@ async fn register_interest_value_controller_stream() {
             .unwrap();
     let start = EventId::builder()
         .with_network(&network)
-        .with_sort_value("model", model)
+        .with_sep("model", &decode_multibase_data(model).unwrap())
         .with_controller(controller)
         .with_init(&stream.cid)
-        .with_min_event_height()
+        .with_min_event()
         .build_fencepost();
     let end = EventId::builder()
         .with_network(&network)
-        .with_sort_value("model", model)
+        .with_sep("model", &decode_multibase_data(model).unwrap())
         .with_controller(controller)
         .with_init(&stream.cid)
-        .with_max_event_height()
+        .with_max_event()
         .build_fencepost();
     let mut mock_interest = MockReconInterestTest::new();
     mock_interest
@@ -293,7 +294,7 @@ async fn register_interest_value_controller_stream() {
         .with(
             predicate::eq(
                 Interest::builder()
-                    .with_sort_key("model")
+                    .with_sep_key("model")
                     .with_peer_id(&peer_id)
                     .with_range((start.as_slice(), end.as_slice()))
                     .with_not_after(0)
@@ -329,17 +330,17 @@ async fn get_events_for_interest_range() {
             .unwrap();
     let start = EventId::builder()
         .with_network(&network)
-        .with_sort_value("model", model)
+        .with_sep("model", &decode_multibase_data(model).unwrap())
         .with_controller(controller)
         .with_init(&stream.cid)
-        .with_min_event_height()
+        .with_min_event()
         .build_fencepost();
     let end = EventId::builder()
         .with_network(&network)
-        .with_sort_value("model", model)
+        .with_sep("model", &decode_multibase_data(model).unwrap())
         .with_controller(controller)
         .with_init(&stream.cid)
-        .with_max_event_height()
+        .with_max_event()
         .build_fencepost();
     /*
     l: Success(EventsGet { events: [Event { id: "fce0105ff012616e0f0c1e987ef0f772afbe2c7f05c50102bc800", data: "" }, Event { id: "fce0105ff012616e0f0c1e987ef0f772afbe2c7f05c50102bc8ff", data: "" }], resume_offset: 2, is_complete: false })
@@ -388,10 +389,10 @@ async fn test_events_event_id_get_success() {
     let event_id = EventId::new(
         &network,
         "model",
-        "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9", // cspell:disable-line
-        "did:key:zGs1Det7LHNeu7DXT4nvoYrPfj3n6g7d6bj2K4AMXEvg1",          // cspell:disable-line
+        &decode_multibase_data("k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9")
+            .unwrap(), // cspell:disable-line
+        "did:key:zGs1Det7LHNeu7DXT4nvoYrPfj3n6g7d6bj2K4AMXEvg1", // cspell:disable-line
         &Cid::from_str("baejbeihyr3kf77etqdccjfoc33dmko2ijyugn6qk6yucfkioasjssz3bbu").unwrap(), // cspell:disable-line
-        0,
         &Cid::from_str("baejbeicqtpe5si4qvbffs2s7vtbk5ccbsfg6owmpidfj3zeluqz4hlnz6m").unwrap(), // cspell:disable-line
     );
     let event_id_str = multibase::encode(Base::Base16Lower, event_id.to_bytes());
