@@ -46,7 +46,13 @@ jobs:
           # Use the release tag to deploy, if one is available.
           DEPLOY_TAG=$RELEASE_TAG
         fi
-        make SHA="${{ github.SHA }}" SHA_TAG="$SHA_TAG" RELEASE_TAG="$RELEASE_TAG" publish-docker
+        # Tag with latest if this is a push to master
+        if [[ "${{ github.event_name }}" == "push" ]]; then
+          TAG_LATEST=true
+        elif
+          TAG_LATEST=false
+        fi
+        make SHA="${{ github.SHA }}" SHA_TAG="$SHA_TAG" RELEASE_TAG="$RELEASE_TAG" TAG_LATEST="$TAG_LATEST" publish-docker
         echo "Deploy tag:"
         echo ${DEPLOY_TAG}
         echo "deploy_tag=${DEPLOY_TAG}" >> $GITHUB_OUTPUT
@@ -73,7 +79,7 @@ jobs:
             # "prerelease" flag.
             #
             # Strangely enough, the "edited" and "released" events are triggered when promoting the pre-release to a
-            # release through the GitHub console (╯°□°)╯︵ ┻━┻ 
+            # release through the GitHub console (╯°□°)╯︵ ┻━┻
             if [[ "${{ github.event.action }}" == "published" && "${{ github.event.release.prerelease }}" == "true" ]]; then
               DEPLOY_ENV="tnet"
             elif [[ "${{ github.event.action }}" == "released" ]]; then

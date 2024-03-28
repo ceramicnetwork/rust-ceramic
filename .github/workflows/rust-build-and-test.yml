@@ -97,7 +97,7 @@ jobs:
         else
           BUILD_TAG=$(echo ${{ github.sha }} | head -c 12)
         fi
-        make SHA_TAG="$BUILD_TAG" publish-docker
+        make SHA_TAG="$BUILD_TAG" TAG_LATEST="false" publish-docker
         echo "Build tag:"
         echo ${BUILD_TAG}
         echo "build_tag=${BUILD_TAG}" >> $GITHUB_OUTPUT
