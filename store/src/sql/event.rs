@@ -12,7 +12,7 @@ use cid::Cid;
 use iroh_bitswap::Block;
 use iroh_car::{CarHeader, CarReader, CarWriter};
 use itertools::{process_results, Itertools};
-use multihash::{Code, MultihashDigest};
+use multihash::{Code, Multihash, MultihashDigest};
 use recon::{AssociativeHash, HashCount, InsertResult, Key, ReconItem, Sha256a};
 use sqlx::{sqlite::SqliteRow, FromRow, Row};
 use tracing::instrument;
@@ -45,10 +45,18 @@ pub struct BlockRow {
 // the decode/type stuff for CID/EventId to get that to work as expected
 impl FromRow<'_, SqliteRow> for BlockRow {
     fn from_row(row: &SqliteRow) -> sqlx::Result<Self> {
-        let cid: &[u8] = row.try_get("cid")?;
+        let codec: i64 = row.try_get("codec")?;
+        let multihash: &[u8] = row.try_get("multihash")?;
         let root: bool = row.try_get("root")?;
         let bytes = row.try_get("bytes")?;
-        let cid = Cid::read_bytes(cid).map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+        let hash =
+            Multihash::from_bytes(multihash).map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+        let cid = Cid::new_v1(
+            codec
+                .try_into()
+                .map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
+            hash,
+        );
         Ok(Self { cid, root, bytes })
     }
 }
@@ -141,7 +149,7 @@ where
 
         let all_blocks = sqlx::query!(
             "SELECT
-                key.order_key, event_block.block_cid, event_block.root, event_block.idx, block.bytes
+                key.order_key, event_block.codec, event_block.root, event_block.idx, block.multihash, block.bytes
             FROM (
                 SELECT
                     e.cid as event_cid, e.order_key
@@ -158,7 +166,7 @@ where
             ) key
             JOIN
                 event_block ON key.event_cid = event_block.event_cid
-            JOIN block on block.cid = event_block.block_cid
+            JOIN block on block.multihash = event_block.block_multihash
                 ORDER BY key.order_key, event_block.idx
             ;",
             lfp,
@@ -174,7 +182,12 @@ where
             all_blocks.into_iter().map(
                 |row| -> Result<(EventId, cid::CidGeneric<64>, bool, Vec<u8>), anyhow::Error> {
                     let order_key = EventId::try_from(row.order_key)?;
-                    let cid = Cid::read_bytes(&row.block_cid[..])?;
+                    let hash = Multihash::from_bytes(&row.multihash[..])?;
+                    let code = row
+                        .codec
+                        .try_into()
+                        .context(format!("Invalid codec: {}", row.codec))?;
+                    let cid = Cid::new_v1(code, hash);
                     Ok((order_key, cid, row.root, row.bytes))
                 },
             ),
@@ -206,9 +219,10 @@ where
     async fn value_for_key_int(&self, key: &EventId) -> Result<Option<Vec<u8>>> {
         let query = sqlx::query_as::<_, BlockRow>(
             "
-            SELECT eb.block_cid as cid, eb.root, b.bytes
+            SELECT 
+                eb.codec, eb.root, b.multihash, b.bytes
             FROM event_block eb 
-            JOIN block b on b.cid = eb.block_cid
+            JOIN block b on b.multihash = eb.block_multihash
             JOIN event e on e.cid = eb.event_cid
             WHERE e.order_key = $1
             ORDER BY eb.idx;",
@@ -254,20 +268,29 @@ where
     }
 
     /// Add a block, returns true if the block is new
-    pub async fn put_block(&self, cid: &Cid, blob: &Bytes) -> Result<bool> {
+    pub async fn put_block(&self, hash: &Multihash, blob: &Bytes) -> Result<bool> {
         let mut tx = self.pool.tx().await?;
-        let res = self.put_block_tx(cid, blob, &mut tx).await?;
+        let res = self.put_block_tx(hash, blob, &mut tx).await?;
         tx.commit().await?;
         Ok(res)
     }
 
     /// Add a block, returns true if the block is new
-    pub async fn put_block_tx(&self, cid: &Cid, blob: &Bytes, conn: &mut DbTx<'_>) -> Result<bool> {
-        let cid = cid.to_bytes();
+    pub async fn put_block_tx(
+        &self,
+        hash: &Multihash,
+        blob: &Bytes,
+        conn: &mut DbTx<'_>,
+    ) -> Result<bool> {
+        let hash = hash.to_bytes();
         let blob = blob.to_vec();
-        let resp = sqlx::query!("INSERT INTO block (cid, bytes) VALUES ($1, $2);", cid, blob,)
-            .execute(&mut **conn)
-            .await;
+        let resp = sqlx::query!(
+            "INSERT INTO block (multihash, bytes) VALUES ($1, $2);",
+            hash,
+            blob,
+        )
+        .execute(&mut **conn)
+        .await;
 
         match resp {
             std::result::Result::Ok(_rows) => Ok(true),
@@ -296,10 +319,10 @@ where
             0x12 => Code::Sha2_256.digest(blob),
             0x1b => Code::Keccak256.digest(blob),
             0x11 => return Err(anyhow!("Sha1 not supported")),
-            _ => {
+            code => {
                 return Err(anyhow!(
                     "multihash type {:#x} not Sha2_256, Keccak256",
-                    cid.hash().code(),
+                    code,
                 ))
             }
         };
@@ -311,16 +334,21 @@ where
             ));
         }
 
-        let _new = self.put_block_tx(&cid, blob, conn).await?;
+        let _new = self.put_block_tx(&hash, blob, conn).await?;
 
-        let cid = cid.to_bytes();
+        let code: i64 = cid.codec().try_into().context(format!(
+            "Invalid codec could not fit into an i64: {}",
+            cid.codec()
+        ))?;
         let id = key.cid().context("Event CID is required")?.to_bytes();
+        let multihash = hash.to_bytes();
         sqlx::query!(
-            "INSERT INTO event_block (event_cid, idx, root, block_cid) VALUES ($1, $2, $3, $4) on conflict do nothing;",
+            "INSERT INTO event_block (event_cid, idx, root, block_multihash, codec) VALUES ($1, $2, $3, $4, $5) on conflict do nothing;",
             id,
             idx,
             root,
-            cid
+            multihash,
+            code,
         )
         .execute(&mut **conn)
         .await?;
@@ -463,7 +491,7 @@ where
         sqlx::query(
             "
                     ATTACH DATABASE $1 AS other;
-                    INSERT OR IGNORE INTO blocks SELECT cid, bytes FROM other.blocks;
+                    INSERT OR IGNORE INTO blocks SELECT multihash, bytes FROM other.blocks;
                 ",
         )
         .bind(input_ceramic_db_filename)
@@ -783,8 +811,8 @@ where
 impl iroh_bitswap::Store for EventStore<Sha256a> {
     async fn get_size(&self, cid: &Cid) -> Result<usize> {
         Ok(
-            sqlx::query("SELECT length(bytes) FROM block WHERE cid = $1;")
-                .bind(cid.to_bytes())
+            sqlx::query("SELECT length(bytes) FROM block WHERE multihash = $1;")
+                .bind(cid.hash().to_bytes())
                 .fetch_one(self.pool.reader())
                 .await?
                 .get::<'_, i64, _>(0) as usize,
@@ -793,8 +821,8 @@ impl iroh_bitswap::Store for EventStore<Sha256a> {
 
     async fn get(&self, cid: &Cid) -> Result<Block> {
         Ok(Block::new(
-            sqlx::query("SELECT bytes FROM block WHERE cid = $1;")
-                .bind(cid.to_bytes())
+            sqlx::query("SELECT bytes FROM block WHERE multihash = $1;")
+                .bind(cid.hash().to_bytes())
                 .fetch_one(self.pool.reader())
                 .await?
                 .get::<'_, Vec<u8>, _>(0)
@@ -804,12 +832,14 @@ impl iroh_bitswap::Store for EventStore<Sha256a> {
     }
 
     async fn has(&self, cid: &Cid) -> Result<bool> {
-        Ok(sqlx::query("SELECT count(1) FROM block WHERE cid = $1;")
-            .bind(cid.to_bytes())
-            .fetch_one(self.pool.reader())
-            .await?
-            .get::<'_, i64, _>(0)
-            > 0)
+        Ok(
+            sqlx::query("SELECT count(1) FROM block WHERE multihash = $1;")
+                .bind(cid.hash().to_bytes())
+                .fetch_one(self.pool.reader())
+                .await?
+                .get::<'_, i64, _>(0)
+                > 0,
+        )
     }
 }
 
@@ -1439,10 +1469,9 @@ mod test {
         let cid: CidGeneric<64> =
             Cid::from_str("bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom").unwrap(); // cspell:disable-line
 
-        let pool = SqlitePool::connect("sqlite::memory:", true).await.unwrap();
-        let store = EventStore::<Sha256a>::new(pool).await.unwrap();
+        let store = new_store().await;
 
-        let result = store.put_block(&cid, &blob).await.unwrap();
+        let result = store.put_block(cid.hash(), &blob).await.unwrap();
         // assert the block is new
         assert!(result);
 
@@ -1464,15 +1493,14 @@ mod test {
         let cid: CidGeneric<64> =
             Cid::from_str("bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom").unwrap(); // cspell:disable-line
 
-        let pool = SqlitePool::connect("sqlite::memory:", true).await.unwrap();
-        let store = EventStore::<Sha256a>::new(pool).await.unwrap();
+        let store = new_store().await;
 
-        let result = store.put_block(&cid, &blob).await;
+        let result = store.put_block(cid.hash(), &blob).await;
         // Assert that the block is new
         assert!(result.unwrap());
 
         // Try to put the block again
-        let result = store.put_block(&cid, &blob).await;
+        let result = store.put_block(cid.hash(), &blob).await;
         // Assert that the block already existed
         assert!(!result.unwrap());
 
@@ -1490,8 +1518,7 @@ mod test {
 
     #[tokio::test]
     async fn test_get_nonexistent_block() {
-        let pool = SqlitePool::connect("sqlite::memory:", true).await.unwrap();
-        let store = EventStore::<Sha256a>::new(pool).await.unwrap();
+        let store = new_store().await;
 
         let cid =
             Cid::from_str("bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom").unwrap(); // cspell:disable-line

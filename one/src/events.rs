@@ -347,7 +347,7 @@ async fn migrate_from_filesystem(input_ipfs_path: PathBuf, store: EventStore<Sha
             );
         }
 
-        let result = store.put_block_tx(&cid, &blob.into(), &mut tx).await;
+        let result = store.put_block_tx(cid.hash(), &blob.into(), &mut tx).await;
         if result.is_err() {
             println!(
                 "{} err: {} {:?}",
