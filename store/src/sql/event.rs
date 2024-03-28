@@ -1,4 +1,8 @@
-use std::{collections::BTreeSet, marker::PhantomData};
+use std::{
+    collections::BTreeSet,
+    marker::PhantomData,
+    sync::{atomic::AtomicI64, Arc},
+};
 
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
@@ -15,6 +19,8 @@ use tracing::instrument;
 
 use crate::{DbTx, SqlitePool};
 
+static GLOBAL_COUNTER: AtomicI64 = AtomicI64::new(0);
+
 /// Unified implementation of [`recon::Store`] and [`iroh_bitswap::Store`] that can expose the
 /// individual blocks from the CAR files directly.
 #[derive(Clone, Debug)]
@@ -23,6 +29,7 @@ where
     H: AssociativeHash,
 {
     pool: SqlitePool,
+    test_counter: Option<Arc<AtomicI64>>,
     hash: PhantomData<H>,
 }
 
@@ -56,9 +63,49 @@ where
     pub async fn new(pool: SqlitePool) -> Result<Self> {
         let store = EventStore {
             pool,
+            test_counter: None,
             hash: PhantomData,
         };
+        store.init_delivered().await?;
         Ok(store)
+    }
+
+    /// Creates an instance that doesn't share the global event counter with other instances (only for tests to avoid running serially)
+    #[allow(dead_code)]
+    pub(crate) async fn new_local(pool: SqlitePool) -> Result<Self> {
+        let store = EventStore {
+            pool,
+            test_counter: Some(Arc::new(AtomicI64::new(0))),
+            hash: PhantomData,
+        };
+        store.init_delivered().await?;
+        Ok(store)
+    }
+
+    async fn init_delivered(&self) -> Result<()> {
+        let max_delivered =
+            sqlx::query!("SELECT COALESCE(MAX(delivered), 0) as delivered FROM event;")
+                .fetch_one(self.pool.reader())
+                .await?
+                .delivered as i64;
+        let max = max_delivered
+            .checked_add(1)
+            .context("More than i64::MAX delivered events!")?;
+        if let Some(ref t) = self.test_counter {
+            t.fetch_max(max, std::sync::atomic::Ordering::SeqCst);
+        } else {
+            GLOBAL_COUNTER.fetch_max(max, std::sync::atomic::Ordering::SeqCst);
+        }
+        Ok(())
+    }
+
+    // could change this to rely on time similar to a snowflake ID
+    fn get_delivered(&self) -> i64 {
+        if let Some(ref t) = self.test_counter {
+            t.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        } else {
+            GLOBAL_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        }
     }
 
     /// Begin a database transaction.
@@ -201,6 +248,7 @@ where
                 .await?;
                 idx += 1;
             }
+            self.mark_ready_to_deliver(item.key, conn).await?;
         }
         Ok((new_key, item.value.is_some()))
     }
@@ -279,6 +327,19 @@ where
         Ok(())
     }
 
+    async fn mark_ready_to_deliver(&self, key: &EventId, conn: &mut DbTx<'_>) -> Result<()> {
+        let id = key.as_bytes();
+        let delivered = self.get_delivered();
+        sqlx::query!(
+            "UPDATE event SET delivered = $1 WHERE order_key = $2;",
+            delivered,
+            id
+        )
+        .execute(&mut **conn)
+        .await?;
+        Ok(())
+    }
+
     async fn insert_key_int(&self, key: &EventId, conn: &mut DbTx<'_>) -> Result<bool> {
         let id = key.as_bytes();
         let cid = key
@@ -351,14 +412,10 @@ where
         Ok(Some(car))
     }
 
-    /// Returns all the keys found after the given row_id.
-    /// Uses the rowid of the value (block) table and makes sure to flatten keys
-    /// when there are multiple blocks for a single key. This relies on the fact that
-    /// we insert the blocks in order inside a transaction and that we don't delete, which
-    /// means that the all the entries for a key will be contiguous.
-    pub async fn new_keys_since_value_rowid(
+    /// Returns all the keys found after the given delivered value.
+    pub async fn new_keys_since_value(
         &self,
-        row_id: i64,
+        delivered: i64,
         limit: i64,
     ) -> Result<(i64, Vec<EventId>)> {
         struct Highwater {
@@ -369,18 +426,18 @@ where
         let rows = sqlx::query_as!(
             Highwater,
             r#"WITH entries AS (
-                    SELECT event_cid, MAX(rowid) as max_rowid
-                FROM event_block
-                    WHERE rowid >= $1 -- we return rowid+1 so we must match it next search
-                GROUP BY event_cid
-                ORDER BY rowid
+                    SELECT order_key, COALESCE(MAX(delivered), 0) as max_delivered
+                FROM event
+                    WHERE delivered >= $1 -- we return delivered+1 so we must match it next search
+                GROUP BY order_key
+                ORDER BY delivered
                 LIMIT $2
             )
             SELECT 
-                (SELECT order_key from event where cid = entries.event_cid) as id, 
-                (SELECT MAX(max_rowid) + 1 FROM entries) as "new_highwater_mark: _"
+                entries.order_key as id, 
+                (SELECT MAX(max_delivered) + 1 FROM entries) as "new_highwater_mark: _"
             from entries;"#,
-            row_id,
+            delivered,
             limit
         )
         .fetch_all(self.pool.reader())
@@ -390,7 +447,7 @@ where
         let row_id: i64 = rows
             .first()
             .and_then(|r| r.new_highwater_mark)
-            .unwrap_or(row_id);
+            .unwrap_or(delivered);
         let rows = rows
             .into_iter()
             .map(|row| EventId::try_from(row.id))
@@ -793,7 +850,7 @@ impl ceramic_api::AccessModelStore for EventStore<Sha256a> {
         highwater: i64,
         limit: i64,
     ) -> anyhow::Result<(i64, Vec<Self::Key>)> {
-        self.new_keys_since_value_rowid(highwater, limit).await
+        self.new_keys_since_value(highwater, limit).await
     }
 }
 
@@ -1303,7 +1360,8 @@ mod test {
     }
 
     // stores 3 keys with 3,5,10 block long CAR files
-    // each one takes n+1 blocks as it needs to store the root and all blocks so we expect 3+5+10+3=21
+    // each one takes n+1 blocks as it needs to store the root and all blocks so we expect 3+5+10+3=21 blocks
+    // but we use a delivered integer per event, so we expect it to increment by 1 for each event
     async fn prep_highwater_tests(store: &mut EventStore<Sha256a>) -> (EventId, EventId, EventId) {
         let key_a = random_event_id(None, None);
         let key_b = random_event_id(None, None);
@@ -1323,46 +1381,56 @@ mod test {
     }
 
     #[test(tokio::test)]
-    async fn keys_since_highwater_mark_all() {
-        let mut store: EventStore<Sha256a> = new_store().await;
-        let (key_a, key_b, key_c) = prep_highwater_tests(&mut store).await;
+    async fn keys_since_highwater_mark_all_global_counter() {
+        let mut store1 = new_store().await;
+        let (key_a, key_b, key_c) = prep_highwater_tests(&mut store1).await;
 
-        let (hw, res) = store.new_keys_since_value_rowid(0, 10).await.unwrap();
+        let (hw, res) = store1.new_keys_since_value(0, 10).await.unwrap();
         assert_eq!(3, res.len());
-        assert_eq!(22, hw); // see comment in prep_highwater_tests
-        assert_eq!([key_a, key_b, key_c], res.as_slice());
+        assert!(hw >= 4); // THIS IS THE GLOBAL COUNTER. we have 3 rows in the db we have a counter of 4 or more
+        let exp = [key_a.clone(), key_b.clone(), key_c.clone()];
+        assert_eq!(exp, res.as_slice());
+        drop(store1);
+        let mut store2 = new_store().await;
+
+        let (key1_a, key1_b, key1_c) = prep_highwater_tests(&mut store2).await;
+        let (hw, res) = store2.new_keys_since_value(0, 10).await.unwrap();
+        assert_eq!(3, res.len());
+        assert!(hw > 6); // THIS IS GLOBAL COUNTER. 3 rows in db, counter 7 or more depending on how many other tests are running
+
+        assert_eq!([key1_a, key1_b, key1_c], res.as_slice());
     }
 
     #[test(tokio::test)]
     async fn keys_since_highwater_mark_limit_1() {
-        let mut store: EventStore<Sha256a> = new_store().await;
+        let mut store: EventStore<Sha256a> = new_local_store().await;
         let (key_a, _key_b, _key_c) = prep_highwater_tests(&mut store).await;
 
-        let (hw, res) = store.new_keys_since_value_rowid(0, 1).await.unwrap();
+        let (hw, res) = store.new_keys_since_value(0, 1).await.unwrap();
         assert_eq!(1, res.len());
-        assert_eq!(5, hw); // see comment in prep_highwater_tests
+        assert_eq!(2, hw);
         assert_eq!([key_a], res.as_slice());
     }
 
     #[test(tokio::test)]
     async fn keys_since_highwater_mark_middle_start() {
-        let mut store: EventStore<Sha256a> = new_store().await;
+        let mut store: EventStore<Sha256a> = new_local_store().await;
         let (key_a, key_b, key_c) = prep_highwater_tests(&mut store).await;
 
         // starting at rowid 1 which is in the middle of key A should still return key A
-        let (hw, res) = store.new_keys_since_value_rowid(1, 2).await.unwrap();
+        let (hw, res) = store.new_keys_since_value(1, 2).await.unwrap();
         assert_eq!(2, res.len());
-        assert_eq!(11, hw); // see comment in prep_highwater_tests
+        assert_eq!(3, hw);
         assert_eq!([key_a, key_b], res.as_slice());
 
-        let (hw, res) = store.new_keys_since_value_rowid(hw, 1).await.unwrap();
+        let (hw, res) = store.new_keys_since_value(hw, 1).await.unwrap();
         assert_eq!(1, res.len());
-        assert_eq!(22, hw);
+        assert_eq!(4, hw);
         assert_eq!([key_c], res.as_slice());
 
-        let (hw, res) = store.new_keys_since_value_rowid(hw, 1).await.unwrap();
+        let (hw, res) = store.new_keys_since_value(hw, 1).await.unwrap();
         assert_eq!(0, res.len());
-        assert_eq!(22, hw); // previously returned 0
+        assert_eq!(4, hw); // previously returned 0
     }
 
     #[tokio::test]

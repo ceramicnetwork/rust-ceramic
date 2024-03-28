@@ -19,8 +19,14 @@ use rand::Rng;
 use recon::Sha256a;
 
 pub(crate) async fn new_store() -> EventStore<Sha256a> {
-    let conn = SqlitePool::connect("sqlite::memory:", true).await.unwrap();
+    let conn = SqlitePool::connect(":memory:", true).await.unwrap();
     EventStore::new(conn).await.unwrap()
+}
+
+// for the highwater tests that care about event ordering
+pub(crate) async fn new_local_store() -> EventStore<Sha256a> {
+    let conn = SqlitePool::connect(":memory:", true).await.unwrap();
+    EventStore::new_local(conn).await.unwrap()
 }
 
 #[tokio::test]
