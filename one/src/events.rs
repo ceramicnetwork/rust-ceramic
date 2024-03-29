@@ -2,14 +2,14 @@ use crate::ethereum_rpc::{EthRpc, HttpEthRpc, RootTime};
 use crate::CborValue;
 use anyhow::{anyhow, Context, Result};
 use ceramic_core::{ssi, Base64UrlString, DidDocument, Jwk};
-use ceramic_p2p::SQLiteBlockStore;
-use ceramic_store::SqlitePool;
+use ceramic_store::{EventStore, RootStore, SqlitePool};
 use chrono::{SecondsFormat, TimeZone, Utc};
 use cid::{multibase, multihash, Cid};
 use clap::{Args, Subcommand};
 use glob::{glob, Paths};
+use iroh_bitswap::Store;
 use multihash::Multihash;
-use sqlx::Row;
+use recon::Sha256a;
 use std::{fs, path::PathBuf, str::FromStr};
 use tracing::debug;
 
@@ -70,8 +70,10 @@ async fn slurp(opts: SlurpOpts) -> Result<()> {
         output_ceramic_path.display()
     );
 
-    let pool = SqlitePool::connect(output_ceramic_path).await.unwrap();
-    let block_store = SQLiteBlockStore::new(pool).await.unwrap();
+    let pool = SqlitePool::connect(output_ceramic_path, true)
+        .await
+        .unwrap();
+    let block_store = EventStore::new(pool).await.unwrap();
 
     if let Some(input_ceramic_db) = opts.input_ceramic_db {
         migrate_from_database(input_ceramic_db, block_store.clone()).await;
@@ -84,8 +86,8 @@ async fn slurp(opts: SlurpOpts) -> Result<()> {
 
 async fn validate(opts: ValidateOpts) -> Result<()> {
     let pool = SqlitePool::from_store_dir(opts.store_dir).await.unwrap();
-    let block_store = SQLiteBlockStore::new(pool.clone()).await.unwrap();
-    let root_store = SQLiteRootStore::new(pool).await.unwrap();
+    let block_store = EventStore::new(pool.clone()).await.unwrap();
+    let root_store = RootStore::new(pool).await.unwrap();
 
     // Validate that the CID is either DAG-CBOR or DAG-JOSE
     if (opts.cid.codec() != 0x71) && (opts.cid.codec() != 0x85) {
@@ -113,42 +115,45 @@ async fn validate(opts: ValidateOpts) -> Result<()> {
     //
     // When validating events from Recon, the block store will be a CARFileBlockStore that wraps the CAR file received
     // over Recon.
-    if let Some(block) = block_store.get(opts.cid).await? {
-        let event = CborValue::parse(&block)?;
-        if event.get_key("proof").is_some() {
-            let timestamp = validate_time_event(
-                &opts.cid,
-                &block_store,
-                &root_store,
-                &HttpEthRpc::new(opts.ethereum_rpc_url),
-            )
-            .await;
-            match timestamp {
-                Ok(timestamp) => {
-                    let rfc3339 = Utc
-                        .timestamp_opt(timestamp, 0)
-                        .unwrap()
-                        .to_rfc3339_opts(SecondsFormat::Secs, true);
-                    println!(
-                        "TimeEvent({}) validated at Timestamp({}) = {}",
-                        opts.cid, timestamp, rfc3339
-                    )
-                }
-                Err(e) => println!("{} failed with error: {:?}", opts.cid, e),
+    let block = block_store.get(&opts.cid).await?;
+    let event = CborValue::parse(&block.data)?;
+    if event.get_key("proof").is_some() {
+        let timestamp = validate_time_event(
+            &opts.cid,
+            &block_store,
+            &root_store,
+            &HttpEthRpc::new(opts.ethereum_rpc_url),
+        )
+        .await;
+        match timestamp {
+            Ok(timestamp) => {
+                let rfc3339 = Utc
+                    .timestamp_opt(timestamp, 0)
+                    .unwrap()
+                    .to_rfc3339_opts(SecondsFormat::Secs, true);
+                println!(
+                    "TimeEvent({}) validated at Timestamp({}) = {}",
+                    opts.cid, timestamp, rfc3339
+                )
             }
-        } else {
-            if event.get_key("data").is_some() {
-                println!("UnsignedDataEvent({}) is not signed", opts.cid);
-            }
-            validate_data_event_payload(&opts.cid, &block_store, None).await?;
+            Err(e) => println!("{} failed with error: {:?}", opts.cid, e),
         }
+    } else {
+        if event.get_key("data").is_some() {
+            println!("UnsignedDataEvent({}) is not signed", opts.cid);
+        }
+        validate_data_event_payload(&opts.cid, &block_store, None).await?;
     }
+
     Ok(())
 }
 
-async fn validate_data_event_envelope(cid: &Cid, block_store: &SQLiteBlockStore) -> Result<String> {
-    let block = block_store.get(cid.to_owned()).await?.unwrap();
-    let envelope = CborValue::parse(&block)?;
+async fn validate_data_event_envelope(
+    cid: &Cid,
+    block_store: &EventStore<Sha256a>,
+) -> Result<String> {
+    let block = block_store.get(cid).await?;
+    let envelope = CborValue::parse(&block.data)?;
     let signatures_0 = envelope
         .get_key("signatures")
         .context("Not an envelope")?
@@ -190,7 +195,7 @@ async fn validate_data_event_envelope(cid: &Cid, block_store: &SQLiteBlockStore)
 // TODO: Validate CACAO
 async fn validate_data_event_payload(
     _payload_cid: &Cid,
-    _block_store: &SQLiteBlockStore,
+    _block_store: &EventStore<Sha256a>,
     _controller: Option<String>,
 ) -> Result<()> {
     Ok(())
@@ -200,67 +205,61 @@ async fn validate_data_event_payload(
 // - TimeEvent/prev == TimeEvent/proof/root/${TimeEvent/path}
 // - TimeEvent/proof/root is in the Root Store
 //
-// - If root not in local root store try to read it from txHash.
+// - If root not in local root store try to read it from tx_hash.
 // - Validated time is the time from the Root Store
 async fn validate_time_event(
     cid: &Cid,
-    block_store: &SQLiteBlockStore,
-    root_store: &SQLiteRootStore,
+    block_store: &EventStore<Sha256a>,
+    root_store: &RootStore,
     eth_rpc: &impl EthRpc,
 ) -> Result<i64> {
-    if let Some(block) = block_store.get(cid.to_owned()).await? {
-        let time_event = CborValue::parse(&block)?;
-        // Destructure the proof to get the tag and the value
-        let proof_cid: Cid = time_event.path(&["proof"]).try_into()?;
-        let prev: Cid = time_event.path(&["prev"]).try_into()?;
-        if let Some(proof_block) = block_store.get(proof_cid).await? {
-            let proof_cbor = CborValue::parse(&proof_block)?;
-            let proof_root: Cid = proof_cbor.path(&["root"]).try_into()?;
-            let path: String = time_event.path(&["path"]).try_into()?;
-            let tx_hash_cid: Cid = proof_cbor.path(&["txHash"]).try_into()?;
+    let block = block_store.get(cid).await?;
+    let time_event = CborValue::parse(&block.data)?;
+    // Destructure the proof to get the tag and the value
+    let proof_cid: Cid = time_event.path(&["proof"]).try_into()?;
+    let prev: Cid = time_event.path(&["prev"]).try_into()?;
+    let proof_block = block_store.get(&proof_cid).await?;
+    let proof_cbor = CborValue::parse(&proof_block.data)?;
+    let proof_root: Cid = proof_cbor.path(&["root"]).try_into()?;
+    let path: String = time_event.path(&["path"]).try_into()?;
+    let tx_hash_cid: Cid = proof_cbor.path(&["txHash"]).try_into()?;
 
-            // If prev not in root then TimeEvent is not valid.
-            if !prev_in_root(prev, proof_root, path, block_store).await? {
-                return Err(anyhow!("prev {} not in root {}", prev, proof_root));
-            }
+    // If prev not in root then TimeEvent is not valid.
+    if !prev_in_root(prev, proof_root, path, block_store).await? {
+        return Err(anyhow!("prev {} not in root {}", prev, proof_root));
+    }
 
-            // if root in root_store return timestamp.
-            // note: at some point we will need a negative cache to exponentially backoff eth_getTransactionByHash
-            if let Ok(Some(timestamp)) = root_store.get(tx_hash_cid.hash().digest()).await {
-                return Ok(timestamp);
-            }
+    // if root in root_store return timestamp.
+    // note: at some point we will need a negative cache to exponentially backoff eth_getTransactionByHash
+    if let Ok(Some(timestamp)) = root_store.get(tx_hash_cid.hash().digest()).await {
+        return Ok(timestamp);
+    }
 
-            // else eth_transaction_by_hash
+    // else eth_transaction_by_hash
 
-            let RootTime {
-                root: transaction_root,
+    let RootTime {
+        root: transaction_root,
+        block_hash,
+        timestamp,
+    } = eth_rpc.root_time_by_transaction_cid(tx_hash_cid).await?;
+    debug!("root: {}, timestamp: {}", transaction_root, timestamp);
+
+    if transaction_root == proof_root {
+        root_store
+            .put(
+                tx_hash_cid.hash().digest(),
+                transaction_root.hash().digest(),
                 block_hash,
                 timestamp,
-            } = eth_rpc.root_time_by_transaction_cid(tx_hash_cid).await?;
-            debug!("root: {}, timestamp: {}", transaction_root, timestamp);
-
-            if transaction_root == proof_root {
-                root_store
-                    .put(
-                        tx_hash_cid.hash().digest(),
-                        transaction_root.hash().digest(),
-                        block_hash,
-                        timestamp,
-                    )
-                    .await?;
-                Ok(timestamp)
-            } else {
-                Err(anyhow!(
-                    "root from transaction {} != root from proof {}",
-                    transaction_root,
-                    proof_root
-                ))
-            }
-        } else {
-            Err(anyhow!("proof {} not found", cid))
-        }
+            )
+            .await?;
+        Ok(timestamp)
     } else {
-        Err(anyhow!("CID {} not found", cid))
+        Err(anyhow!(
+            "root from transaction {} != root from proof {}",
+            transaction_root,
+            proof_root
+        ))
     }
 }
 
@@ -268,17 +267,12 @@ async fn prev_in_root(
     prev: Cid,
     root: Cid,
     path: String,
-    block_store: &SQLiteBlockStore,
+    block_store: &EventStore<Sha256a>,
 ) -> Result<bool> {
     let mut current_cid = root;
     for segment in path.split('/') {
-        let Some(block) = block_store.get(current_cid).await? else {
-            return Err(anyhow!(
-                "CID {} not found in prev_in_root test",
-                current_cid
-            ));
-        };
-        let current = CborValue::parse(&block)?;
+        let block = block_store.get(&current_cid).await?;
+        let current = CborValue::parse(&block.data)?;
         current_cid = current.as_array().unwrap()[usize::from_str(segment)?]
             .clone()
             .try_into()?;
@@ -286,7 +280,7 @@ async fn prev_in_root(
     Ok(prev == current_cid)
 }
 
-async fn migrate_from_filesystem(input_ipfs_path: PathBuf, store: SQLiteBlockStore) {
+async fn migrate_from_filesystem(input_ipfs_path: PathBuf, store: EventStore<Sha256a>) {
     // the block store is split in to 1024 directories and then the blocks stored as files.
     // the dir structure is the penultimate two characters as dir then the b32 sha256 multihash of the block
     // The leading "B" for the b32 sha256 multihash is left off
@@ -305,6 +299,12 @@ async fn migrate_from_filesystem(input_ipfs_path: PathBuf, store: SQLiteBlockSto
 
     let mut count = 0;
     let mut err_count = 0;
+
+    let mut tx = store
+        .begin_tx()
+        .await
+        .map_err(|e| eprint!("Failed to begin transaction: {}", e))
+        .unwrap();
 
     for path in paths {
         let path = path.unwrap().as_path().to_owned();
@@ -346,7 +346,7 @@ async fn migrate_from_filesystem(input_ipfs_path: PathBuf, store: SQLiteBlockSto
             );
         }
 
-        let result = store.put(cid, blob.into(), vec![]).await;
+        let result = store.put_block_tx(cid.hash(), &blob.into(), &mut tx).await;
         if result.is_err() {
             println!(
                 "{} err: {} {:?}",
@@ -368,7 +368,7 @@ async fn migrate_from_filesystem(input_ipfs_path: PathBuf, store: SQLiteBlockSto
     );
 }
 
-async fn migrate_from_database(input_ceramic_db: PathBuf, store: SQLiteBlockStore) {
+async fn migrate_from_database(input_ceramic_db: PathBuf, store: EventStore<Sha256a>) {
     let input_ceramic_db_filename = input_ceramic_db.to_str().expect("expect utf8");
     println!(
         "{} Importing blocks from {}.",
@@ -382,70 +382,6 @@ async fn migrate_from_database(input_ceramic_db: PathBuf, store: SQLiteBlockStor
         input_ceramic_db_filename
     );
     result.unwrap()
-}
-
-/// We use the SQLiteRootStore as a local cache of the EthereumRootStore
-///
-/// The EthereumRootStore is the authoritative root store but it is also immutable  
-/// once the blocks are final.
-/// We only pull each txHash once and store the root, blockHash and timestamp.
-/// After that Time Events validation can be done locally.
-#[derive(Debug, Clone)]
-pub struct SQLiteRootStore {
-    pool: SqlitePool,
-}
-
-impl SQLiteRootStore {
-    // ```sql
-    // CREATE TABLE recon (root BLOB, timestamp INTEGER)
-    // ```
-    pub async fn new(pool: SqlitePool) -> Result<Self> {
-        let store = Self { pool };
-        store.create_table_if_not_exists().await?;
-        Ok(store)
-    }
-
-    /// create_table_if_not_exists make the roots table.
-    /// We can call this at startup it will be ignored if the table exists.
-    async fn create_table_if_not_exists(&self) -> Result<()> {
-        // this will need to be moved to migration logic if we ever change the schema
-        sqlx::query("CREATE TABLE IF NOT EXISTS roots (txHash BLOB, root BLOB, blockHash TEXT, timestamp INTEGER, PRIMARY KEY(txHash)) STRICT;",
-        )
-        .execute(self.pool.writer())
-        .await?;
-        Ok(())
-    }
-
-    /// Store tx_hash, root, and timestamp in roots.
-    pub async fn put(
-        &self,
-        tx_hash: &[u8],
-        root: &[u8],
-        block_hash: String, // 0xhex_hash
-        timestamp: i64,
-    ) -> Result<()> {
-        match sqlx::query(
-            "INSERT OR IGNORE INTO roots (txHash, root, blockHash, timestamp) VALUES (?, ?, ?, ?)",
-        )
-        .bind(tx_hash)
-        .bind(root)
-        .bind(block_hash)
-        .bind(timestamp)
-        .execute(self.pool.writer())
-        .await
-        {
-            Ok(_) => Ok(()),
-            Err(err) => Err(err.into()),
-        }
-    }
-
-    pub async fn get(&self, tx_hash: &[u8]) -> Result<Option<i64>> {
-        Ok(sqlx::query("SELECT timestamp FROM roots WHERE txHash = ?;")
-            .bind(tx_hash)
-            .fetch_optional(self.pool.reader())
-            .await?
-            .map(|row| row.get::<'_, i64, _>(0)))
-    }
 }
 
 #[cfg(test)]
@@ -479,11 +415,11 @@ mod tests {
     async fn test_validate_time_event() {
         // todo: add a negative test.
         // Create an in-memory SQLite pool
-        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let pool = SqlitePool::connect(":memory:", true).await.unwrap();
 
         // Create a new SQLiteBlockStore and SQLiteRootStore
-        let block_store = SQLiteBlockStore::new(pool.clone()).await.unwrap();
-        let root_store = SQLiteRootStore::new(pool.clone()).await.unwrap();
+        let block_store = EventStore::new(pool.clone()).await.unwrap();
+        let root_store = RootStore::new(pool).await.unwrap();
 
         // Add all the blocks for the Data Event & Time Event to the block store
         let blocks = vec![
@@ -579,14 +515,18 @@ mod tests {
              37675557714b4355593761653675574e7871596764775068554a624a6846
              394546586d39",
         ];
+        let mut tx = block_store.begin_tx().await.unwrap();
         for block in blocks {
             // Strip whitespace and decode the block from hex
             let block = hex::decode(block.replace(['\n', ' '], "")).unwrap();
             // Create the CID and store the block.
             let hash = Code::Sha2_256.digest(block.as_slice());
-            let cid = Cid::new_v1(0x71, hash);
-            block_store.put(cid, block.into(), vec![]).await.unwrap();
+            block_store
+                .put_block_tx(&hash, &block.into(), &mut tx)
+                .await
+                .unwrap();
         }
+        block_store.commit_tx(tx).await.unwrap();
 
         assert_eq!(
             validate_time_event(

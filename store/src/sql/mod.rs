@@ -1,8 +1,10 @@
+mod event;
 mod interest;
-mod model;
+mod root;
 
+pub use event::EventStore;
 pub use interest::InterestStore;
-pub use model::ModelStore;
+pub use root::RootStore;
 
 use chrono::{SecondsFormat, Utc};
 use std::{
@@ -29,7 +31,7 @@ pub struct SqlitePool {
 impl SqlitePool {
     /// Connect to the sqlite database at the given path. Creates the database if it does not exist.
     /// Uses WAL journal mode.
-    pub async fn connect(path: impl AsRef<Path>) -> anyhow::Result<Self> {
+    pub async fn connect(path: impl AsRef<Path>, migrate: bool) -> anyhow::Result<Self> {
         let db_path = format!("sqlite:{}", path.as_ref().display());
         // As we benchmark, we will likely adjust settings and make things configurable.
         // A few ideas: number of RO connections, synchronize = NORMAL, mmap_size, temp_store = memory
@@ -37,7 +39,8 @@ impl SqlitePool {
             .journal_mode(SqliteJournalMode::Wal)
             .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
             .create_if_missing(true)
-            .optimize_on_close(true, None);
+            .optimize_on_close(true, None)
+            .foreign_keys(true);
 
         let ro_opts = conn_opts.clone().read_only(true);
 
@@ -52,6 +55,10 @@ impl SqlitePool {
             .max_connections(8)
             .connect_with(ro_opts)
             .await?;
+
+        if migrate {
+            sqlx::migrate!("../migrations/sqlite").run(&writer).await?;
+        }
 
         Ok(Self { writer, reader })
     }
@@ -84,6 +91,6 @@ impl SqlitePool {
             Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
             store_dir.display()
         );
-        Self::connect(store_dir.join("db.sqlite3")).await
+        Self::connect(store_dir.join("db.sqlite3"), true).await
     }
 }

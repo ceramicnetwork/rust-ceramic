@@ -54,6 +54,14 @@ gen-kubo-rpc-server:
 check-kubo-rpc-server:
 	./ci-scripts/check_generated_server.sh kubo-rpc-server ./ci-scripts/gen_kubo_rpc_server.sh
 
+.PHONY: check-queries
+check-queries:
+	./ci-scripts/check_queries.sh "sqlite"
+
+.PHONY: check-queries-ci
+check-queries-ci:
+	CI_RUN=1 ./ci-scripts/check_queries.sh "sqlite"
+
 .PHONY: release
 release:
 	$(CARGO) build -p ceramic-one --locked --release

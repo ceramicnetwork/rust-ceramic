@@ -15,6 +15,7 @@
         "autonat",
         "behaviour",
         "bitswap",
+        "blockstore",
         "btreestore",
         "cbor",
         "chacha",

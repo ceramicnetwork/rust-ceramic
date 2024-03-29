@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT e.order_key as id\n            FROM event e\n            WHERE\n                NOT EXISTS (SELECT 1 from event_block where order_key = e.order_key) \n                AND e.order_key > $1\n                AND e.order_key < $2\n            ;",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Blob"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "01e417b2874b88c5f3569d17dc2dd4714ceadd84c60b0284968e94b07b10ef27"
+}

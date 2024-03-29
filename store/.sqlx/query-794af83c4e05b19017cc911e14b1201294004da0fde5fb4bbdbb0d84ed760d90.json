@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT COALESCE(MAX(delivered), 0) as delivered FROM event;",
+  "describe": {
+    "columns": [
+      {
+        "name": "delivered",
+        "ordinal": 0,
+        "type_info": "Int"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "794af83c4e05b19017cc911e14b1201294004da0fde5fb4bbdbb0d84ed760d90"
+}

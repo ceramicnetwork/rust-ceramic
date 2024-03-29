@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        SELECT\n            order_key as id\n        FROM\n            event\n        WHERE\n            order_key > $1 AND order_key < $2\n        ORDER BY\n            order_key DESC\n        LIMIT\n            1\n        ;",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Blob"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "525426f3e8a67c50704fad2a8d3748601f546754c67c7ba745120c9e71e6747d"
+}

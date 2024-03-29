@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO block (multihash, bytes) VALUES ($1, $2);",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "d8031fd73bae3df19f489d24d0ecf465c2dafe2a87c1602d4ecb991bfe69dffb"
+}

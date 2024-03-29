@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR IGNORE INTO \"root\" (tx_hash, root, block_hash, timestamp) VALUES (?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "820026dbaa6603912f13078a0d5dc94d935b690ed239d2d76c01abfbd01efea0"
+}
