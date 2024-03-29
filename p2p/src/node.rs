@@ -1382,7 +1382,7 @@ mod tests {
             let peer_id = PeerId::from(libp2p_keypair.public());
 
             // Using an in memory DB for the tests for realistic benchmark disk DB is needed.
-            let sql_pool = SqlitePool::connect("sqlite::memory:", true).await?;
+            let sql_pool = SqlitePool::connect_in_memory().await.unwrap();
 
             let metrics = Metrics::register(&mut prometheus_client::registry::Registry::default());
             let mut p2p = Node::new(

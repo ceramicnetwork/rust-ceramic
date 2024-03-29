@@ -120,6 +120,17 @@ struct EventFormat {
     json: tracing_subscriber::fmt::format::Format<Json, SystemTime>,
 }
 
+impl EventFormat {
+    fn new(kind: config::LogFormat) -> Self {
+        Self {
+            kind,
+            single: fmt::format().compact(),
+            multi: fmt::format().pretty(),
+            json: fmt::format().json(),
+        }
+    }
+}
+
 impl<S, N> FormatEvent<S, N> for EventFormat
 where
     S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>,
@@ -146,6 +157,16 @@ pub struct FieldsFormat {
     json_fields: JsonFields,
 }
 
+impl FieldsFormat {
+    pub fn new(kind: config::LogFormat) -> Self {
+        Self {
+            kind,
+            default_fields: DefaultFields::new(),
+            json_fields: JsonFields::new(),
+        }
+    }
+}
+
 impl<'writer> FormatFields<'writer> for FieldsFormat {
     fn format_fields<R: tracing_subscriber::prelude::__tracing_subscriber_field_RecordFields>(
         &self,
@@ -160,6 +181,34 @@ impl<'writer> FormatFields<'writer> for FieldsFormat {
     }
 }
 
+/// For use in CLI tools that are writing to stdout without metrics
+pub fn init_local_tracing() -> Result<(), Box<dyn std::error::Error>> {
+    let filter_builder = EnvFilter::builder().with_default_directive(LevelFilter::INFO.into());
+
+    let log_filter = filter_builder.from_env()?;
+
+    // Configure both the fields and event formats.
+    let fields_format = FieldsFormat::new(config::LogFormat::MultiLine);
+    let event_format = EventFormat::new(config::LogFormat::MultiLine);
+
+    let log_subscriber = fmt::layer()
+        // The JSON format ignore the ansi setting and always format without colors.
+        .with_ansi(true)
+        .event_format(event_format)
+        .fmt_fields(fields_format)
+        .with_filter(log_filter);
+
+    #[cfg(feature = "tokio-console")]
+    let registry =
+        tracing_subscriber::registry().with(cfg.tokio_console.then(console_subscriber::spawn));
+    #[cfg(not(feature = "tokio-console"))]
+    let registry = tracing_subscriber::registry();
+
+    registry.with(log_subscriber).try_init()?;
+
+    Ok(())
+}
+
 /// Initialize the tracing subsystem.
 fn init_tracer(cfg: Config) -> Result<(), Box<dyn std::error::Error>> {
     // Default to INFO if no env is specified
@@ -169,17 +218,8 @@ fn init_tracer(cfg: Config) -> Result<(), Box<dyn std::error::Error>> {
     let otlp_filter = filter_builder.from_env()?;
 
     // Configure both the fields and event formats.
-    let fields_format = FieldsFormat {
-        kind: cfg.log_format.clone(),
-        default_fields: DefaultFields::new(),
-        json_fields: JsonFields::new(),
-    };
-    let event_format = EventFormat {
-        kind: cfg.log_format,
-        single: fmt::format().compact(),
-        multi: fmt::format().pretty(),
-        json: fmt::format().json(),
-    };
+    let fields_format = FieldsFormat::new(cfg.log_format.clone());
+    let event_format = EventFormat::new(cfg.log_format);
 
     let log_subscriber = fmt::layer()
         // The JSON format ignore the ansi setting and always format without colors.

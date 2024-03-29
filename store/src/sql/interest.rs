@@ -506,7 +506,7 @@ mod interest_tests {
     }
 
     async fn new_store() -> InterestStore<Sha256a> {
-        let conn = SqlitePool::connect("sqlite::memory:", true).await.unwrap();
+        let conn = SqlitePool::connect_in_memory().await.unwrap();
         InterestStore::<Sha256a>::new(conn).await.unwrap()
     }
 

@@ -1,8 +1,9 @@
 use crate::ethereum_rpc::{EthRpc, HttpEthRpc, RootTime};
 use crate::CborValue;
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use ceramic_core::{ssi, Base64UrlString, DidDocument, Jwk};
-use ceramic_store::{EventStore, RootStore, SqlitePool};
+use ceramic_metrics::init_local_tracing;
+use ceramic_store::{EventStore, Migrations, RootStore, SqlitePool};
 use chrono::{SecondsFormat, TimeZone, Utc};
 use cid::{multibase, multihash, Cid};
 use clap::{Args, Subcommand};
@@ -11,7 +12,7 @@ use iroh_bitswap::Store;
 use multihash::Multihash;
 use recon::Sha256a;
 use std::{fs, path::PathBuf, str::FromStr};
-use tracing::debug;
+use tracing::{debug, info, warn};
 
 #[derive(Subcommand, Debug)]
 pub enum EventsCommand {
@@ -51,6 +52,9 @@ pub struct ValidateOpts {
 }
 
 pub async fn events(cmd: EventsCommand) -> Result<()> {
+    if let Err(e) = init_local_tracing() {
+        eprintln!("Failed to initialize tracing: {}", e);
+    }
     match cmd {
         EventsCommand::Slurp(opts) => slurp(opts).await,
         EventsCommand::Validate(opts) => validate(opts).await,
@@ -64,34 +68,40 @@ async fn slurp(opts: SlurpOpts) -> Result<()> {
     let output_ceramic_path = opts
         .output_ceramic_path
         .unwrap_or(default_output_ceramic_path);
-    println!(
+    info!(
         "{} Opening output ceramic SQLite DB at: {}",
         Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
         output_ceramic_path.display()
     );
 
-    let pool = SqlitePool::connect(output_ceramic_path, true)
+    let pool = SqlitePool::connect(output_ceramic_path, Migrations::Apply)
         .await
-        .unwrap();
+        .with_context(|| "Failed to connect to database")?;
     let block_store = EventStore::new(pool).await.unwrap();
 
     if let Some(input_ceramic_db) = opts.input_ceramic_db {
-        migrate_from_database(input_ceramic_db, block_store.clone()).await;
+        migrate_from_database(input_ceramic_db, block_store.clone()).await?;
     }
     if let Some(input_ipfs_path) = opts.input_ipfs_path {
-        migrate_from_filesystem(input_ipfs_path, block_store.clone()).await;
+        migrate_from_filesystem(input_ipfs_path, block_store.clone()).await?;
     }
     Ok(())
 }
 
 async fn validate(opts: ValidateOpts) -> Result<()> {
-    let pool = SqlitePool::from_store_dir(opts.store_dir).await.unwrap();
-    let block_store = EventStore::new(pool.clone()).await.unwrap();
-    let root_store = RootStore::new(pool).await.unwrap();
+    let pool = SqlitePool::from_store_dir(opts.store_dir, Migrations::Apply)
+        .await
+        .with_context(|| "Failed to connect to database")?;
+    let block_store = EventStore::new(pool.clone())
+        .await
+        .with_context(|| "Failed to create block store")?;
+    let root_store = RootStore::new(pool)
+        .await
+        .with_context(|| "Failed to create root store")?;
 
     // Validate that the CID is either DAG-CBOR or DAG-JOSE
     if (opts.cid.codec() != 0x71) && (opts.cid.codec() != 0x85) {
-        return Err(anyhow!("CID {} is not a valid Ceramic event", opts.cid));
+        bail!("CID {} is not a valid Ceramic event", opts.cid);
     }
 
     // If the CID is a DAG-JOSE, the event is either a signed Data Event or a signed Init Event, both of which can be
@@ -100,12 +110,12 @@ async fn validate(opts: ValidateOpts) -> Result<()> {
         let controller = validate_data_event_envelope(&opts.cid, &block_store).await;
         match controller {
             Ok(controller) => {
-                println!(
+                info!(
                     "DataEvent({}) validated as authored by Controller({})",
                     opts.cid, controller
                 )
             }
-            Err(e) => println!("{} failed with error: {:?}", opts.cid, e),
+            Err(e) => warn!("{} failed with error: {:?}", opts.cid, e),
         }
         return Ok(());
     }
@@ -131,16 +141,16 @@ async fn validate(opts: ValidateOpts) -> Result<()> {
                     .timestamp_opt(timestamp, 0)
                     .unwrap()
                     .to_rfc3339_opts(SecondsFormat::Secs, true);
-                println!(
+                info!(
                     "TimeEvent({}) validated at Timestamp({}) = {}",
                     opts.cid, timestamp, rfc3339
                 )
             }
-            Err(e) => println!("{} failed with error: {:?}", opts.cid, e),
+            Err(e) => warn!("{} failed with error: {:?}", opts.cid, e),
         }
     } else {
         if event.get_key("data").is_some() {
-            println!("UnsignedDataEvent({}) is not signed", opts.cid);
+            warn!("UnsignedDataEvent({}) is not signed", opts.cid);
         }
         validate_data_event_payload(&opts.cid, &block_store, None).await?;
     }
@@ -280,7 +290,10 @@ async fn prev_in_root(
     Ok(prev == current_cid)
 }
 
-async fn migrate_from_filesystem(input_ipfs_path: PathBuf, store: EventStore<Sha256a>) {
+async fn migrate_from_filesystem(
+    input_ipfs_path: PathBuf,
+    store: EventStore<Sha256a>,
+) -> Result<()> {
     // the block store is split in to 1024 directories and then the blocks stored as files.
     // the dir structure is the penultimate two characters as dir then the b32 sha256 multihash of the block
     // The leading "B" for the b32 sha256 multihash is left off
@@ -290,7 +303,7 @@ async fn migrate_from_filesystem(input_ipfs_path: PathBuf, store: EventStore<Sha
         .to_str()
         .expect("expect utf8")
         .to_owned();
-    println!(
+    info!(
         "{} Opening IPFS Repo at: {}",
         Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
         &p
@@ -303,8 +316,7 @@ async fn migrate_from_filesystem(input_ipfs_path: PathBuf, store: EventStore<Sha
     let mut tx = store
         .begin_tx()
         .await
-        .map_err(|e| eprint!("Failed to begin transaction: {}", e))
-        .unwrap();
+        .with_context(|| "Failed to begin database transaction")?;
 
     for path in paths {
         let path = path.unwrap().as_path().to_owned();
@@ -315,7 +327,7 @@ async fn migrate_from_filesystem(input_ipfs_path: PathBuf, store: EventStore<Sha
         let Ok((_base, hash_bytes)) =
             multibase::decode("B".to_string() + path.file_stem().unwrap().to_str().unwrap())
         else {
-            println!(
+            info!(
                 "{} {:?} is not a base32upper multihash.",
                 Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
                 path.display()
@@ -324,7 +336,7 @@ async fn migrate_from_filesystem(input_ipfs_path: PathBuf, store: EventStore<Sha
             continue;
         };
         let Ok(hash) = Multihash::from_bytes(&hash_bytes) else {
-            println!(
+            info!(
                 "{} {:?} is not a base32upper multihash.",
                 Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
                 path.display()
@@ -336,7 +348,7 @@ async fn migrate_from_filesystem(input_ipfs_path: PathBuf, store: EventStore<Sha
         let blob = fs::read(&path).unwrap();
 
         if count % 10000 == 0 {
-            println!(
+            info!(
                 "{} {} {} ok:{}, err:{}",
                 Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
                 path.display(),
@@ -348,7 +360,7 @@ async fn migrate_from_filesystem(input_ipfs_path: PathBuf, store: EventStore<Sha
 
         let result = store.put_block_tx(cid.hash(), &blob.into(), &mut tx).await;
         if result.is_err() {
-            println!(
+            info!(
                 "{} err: {} {:?}",
                 Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
                 path.display(),
@@ -360,28 +372,32 @@ async fn migrate_from_filesystem(input_ipfs_path: PathBuf, store: EventStore<Sha
         count += 1;
     }
 
-    println!(
+    info!(
         "{} count={}, err_count={}",
         Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
         count,
         err_count
     );
+    Ok(())
 }
 
-async fn migrate_from_database(input_ceramic_db: PathBuf, store: EventStore<Sha256a>) {
+async fn migrate_from_database(
+    input_ceramic_db: PathBuf,
+    store: EventStore<Sha256a>,
+) -> Result<()> {
     let input_ceramic_db_filename = input_ceramic_db.to_str().expect("expect utf8");
-    println!(
+    info!(
         "{} Importing blocks from {}.",
         Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
         input_ceramic_db_filename
     );
     let result = store.merge_from_sqlite(input_ceramic_db_filename).await;
-    println!(
+    info!(
         "{} Done importing blocks from {}.",
         Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
         input_ceramic_db_filename
     );
-    result.unwrap()
+    result
 }
 
 #[cfg(test)]
@@ -415,7 +431,7 @@ mod tests {
     async fn test_validate_time_event() {
         // todo: add a negative test.
         // Create an in-memory SQLite pool
-        let pool = SqlitePool::connect(":memory:", true).await.unwrap();
+        let pool = SqlitePool::connect_in_memory().await.unwrap();
 
         // Create a new SQLiteBlockStore and SQLiteRootStore
         let block_store = EventStore::new(pool.clone()).await.unwrap();
