@@ -182,6 +182,7 @@ impl<'writer> FormatFields<'writer> for FieldsFormat {
 }
 
 /// For use in CLI tools that are writing to stdout without metrics
+/// Will start a tokio console subscriber if the feature is enabled
 pub fn init_local_tracing() -> Result<(), Box<dyn std::error::Error>> {
     let filter_builder = EnvFilter::builder().with_default_directive(LevelFilter::INFO.into());
 
@@ -199,8 +200,7 @@ pub fn init_local_tracing() -> Result<(), Box<dyn std::error::Error>> {
         .with_filter(log_filter);
 
     #[cfg(feature = "tokio-console")]
-    let registry =
-        tracing_subscriber::registry().with(cfg.tokio_console.then(console_subscriber::spawn));
+    let registry = tracing_subscriber::registry().with(console_subscriber::spawn());
     #[cfg(not(feature = "tokio-console"))]
     let registry = tracing_subscriber::registry();
 
