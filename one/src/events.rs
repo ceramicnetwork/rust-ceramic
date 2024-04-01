@@ -76,7 +76,7 @@ async fn slurp(opts: SlurpOpts) -> Result<()> {
 
     let pool = SqlitePool::connect(output_ceramic_path, Migrations::Apply)
         .await
-        .with_context(|| "Failed to connect to database")?;
+        .context("Failed to connect to database")?;
     let block_store = EventStore::new(pool).await.unwrap();
 
     if let Some(input_ceramic_db) = opts.input_ceramic_db {
@@ -91,7 +91,7 @@ async fn slurp(opts: SlurpOpts) -> Result<()> {
 async fn validate(opts: ValidateOpts) -> Result<()> {
     let pool = SqlitePool::from_store_dir(opts.store_dir, Migrations::Apply)
         .await
-        .with_context(|| "Failed to connect to database")?;
+        .context("Failed to connect to database")?;
     let block_store = EventStore::new(pool.clone())
         .await
         .with_context(|| "Failed to create block store")?;

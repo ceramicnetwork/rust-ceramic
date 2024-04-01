@@ -177,7 +177,7 @@ where
         .fetch_all(self.pool.reader())
         .await?;
 
-        // // Consume all block into groups of blocks by their key.
+        // Consume all block into groups of blocks by their key.
         let all_blocks: Vec<(EventId, Vec<BlockRow>)> = process_results(
             all_blocks.into_iter().map(
                 |row| -> Result<(EventId, cid::CidGeneric<64>, bool, Vec<u8>), anyhow::Error> {

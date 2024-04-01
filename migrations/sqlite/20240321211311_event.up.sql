@@ -2,7 +2,7 @@
 
 CREATE TABLE IF NOT EXISTS "event" (
     order_key BLOB NOT NULL UNIQUE, -- network_id sep_key sep_value controller stream_id event_cid
-    ahash_0 INTEGER NOT NULL, -- the ahash is decomposed as [u32; 3]
+    ahash_0 INTEGER NOT NULL, -- the ahash is decomposed as [u32; 8]
     ahash_1 INTEGER NOT NULL,
     ahash_2 INTEGER NOT NULL,
     ahash_3 INTEGER NOT NULL,
