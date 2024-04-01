@@ -15,3 +15,5 @@ CREATE TABLE IF NOT EXISTS "event" (
     delivered INTEGER UNIQUE, -- monotonic increasing counter indicating this can be delivered to clients
     PRIMARY KEY(cid)
 );
+
+SELECT order_key, ahash_0, ahash_1, ahash_2, ahash_3, ahash_4, ahash_5, ahash_6, ahash_7, cid, discovered, delivered FROM "event" WHERE false;

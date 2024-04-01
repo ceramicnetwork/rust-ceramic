@@ -12,3 +12,5 @@ CREATE TABLE IF NOT EXISTS interest (
     ahash_7 INTEGER NOT NULL,
     PRIMARY KEY(id)
 );
+
+SELECT id, ahash_0, ahash_1, ahash_2, ahash_3, ahash_4, ahash_5, ahash_6, ahash_7 FROM interest WHERE false;

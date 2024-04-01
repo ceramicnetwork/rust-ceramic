@@ -11,3 +11,5 @@ CREATE TABLE IF NOT EXISTS event_block (
 );
 
 CREATE INDEX IF NOT EXISTS idx_event_block_multihash ON event_block (block_multihash);
+
+SELECT event_cid, block_multihash, codec, idx, "root" FROM event_block WHERE false;

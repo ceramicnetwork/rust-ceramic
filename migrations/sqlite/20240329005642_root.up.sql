@@ -6,3 +6,5 @@ CREATE TABLE IF NOT EXISTS "root" (
     "timestamp" INTEGER NOT NULL, 
     PRIMARY KEY(tx_hash)
 );
+
+SELECT tx_hash, "root", block_hash, "timestamp" FROM "root" WHERE false;

@@ -5,3 +5,5 @@ CREATE TABLE IF NOT EXISTS "block" (
     bytes BLOB NOT NULL,
     PRIMARY KEY(multihash)
 );
+
+SELECT multihash, bytes FROM "block" where false;
