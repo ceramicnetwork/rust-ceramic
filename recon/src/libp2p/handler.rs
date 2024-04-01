@@ -123,6 +123,7 @@ pub enum FromBehaviour {
 pub enum FromHandler {
     Started { stream_set: StreamSet },
     Succeeded { stream_set: StreamSet },
+    TransientError(anyhow::Error),
     Stopped,
     Failed(anyhow::Error),
 }
@@ -189,7 +190,7 @@ where
                 let protocol = SubstreamProtocol::new(MultiReadyUpgrade::new(vec![stream_set]), ());
                 return Poll::Ready(ConnectionHandlerEvent::OutboundSubstreamRequest { protocol });
             }
-            State::Outbound(stream) | State::Inbound(stream) => {
+            State::Outbound(stream) => {
                 if let Poll::Ready(result) = stream.poll_unpin(cx) {
                     self.transition_state(State::Idle);
                     match result {
@@ -200,8 +201,26 @@ where
                         }
                         Err(e) => {
                             return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
-                                FromHandler::Failed(e),
+                                FromHandler::TransientError(e),
                             ))
+                        }
+                    }
+                }
+            }
+            State::Inbound(stream) => {
+                if let Poll::Ready(result) = stream.poll_unpin(cx) {
+                    self.transition_state(State::Idle);
+                    match result {
+                        Ok(stream_set) => {
+                            return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
+                                FromHandler::Succeeded { stream_set },
+                            ));
+                        }
+                        Err(e) => {
+                            // we don't want to mark them down when we fail...
+                            return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
+                                FromHandler::Failed(e),
+                            ));
                         }
                     }
                 }

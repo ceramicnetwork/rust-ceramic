@@ -198,6 +198,10 @@ where
                         status: info.status,
                     })));
             }),
+            //We had an internal error during synchronization, for now we will just log the error
+            FromHandler::TransientError(error) => self.peers.entry(peer_id).and_modify(|info| {
+                warn!(%peer_id, %error, status=?info.status, "transient internal failure to synchronization with peer");
+            }),
 
             // The peer has failed to synchronized with us, mark the time and record that the peer connection
             // is now failed.
