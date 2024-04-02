@@ -214,7 +214,7 @@ where
                 message = stream.try_next() => {
                     if let Some(message) = message? {
                         self.metrics.record(&MessageRecv(&message));
-                        self.handle_incoming(message).await.context("handle incoming")?;
+                        self.handle_incoming(message).await.context("handle incoming message")?;
                     }
                 }
                 // Send want value requests
@@ -479,7 +479,7 @@ where
     }
 
     async fn handle_incoming(&mut self, message: Self::In) -> Result<RemoteStatus> {
-        trace!(?message, "handle_incoming");
+        trace!(?message, "handle_incoming initiator");
         match message {
             ResponderMessage::InterestResponse(interests) => {
                 let mut ranges = Vec::with_capacity(interests.len());
@@ -651,7 +651,7 @@ where
     }
 
     async fn handle_incoming(&mut self, message: Self::In) -> Result<RemoteStatus> {
-        trace!(?message, "handle_incoming");
+        trace!(?message, "handle_incoming responder");
         match message {
             InitiatorMessage::InterestRequest(interests) => {
                 let ranges = self.common.recon.process_interests(interests).await?;

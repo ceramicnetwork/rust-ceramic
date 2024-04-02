@@ -143,7 +143,7 @@ serde_qs = "0.10.1"
 serde_with = "2.1"
 sha2 = { version = "0.10", default-features = false }
 smallvec = "1.10"
-sqlx = { version = "0.7", features = ["sqlite", "runtime-tokio"] }
+sqlx = { version = "0.7", features = ["sqlite", "postgres", "runtime-tokio"] }
 ssh-key = { version = "0.5.1", default-features = false }
 ssi = { version = "0.7", features = ["ed25519"] }
 swagger = { version = "6.1", features = [

@@ -8,4 +8,4 @@ mod sql;
 mod tests;
 
 pub use metrics::{Metrics, StoreMetricsMiddleware};
-pub use sql::{DbTx, EventStore, InterestStore, Migrations, RootStore, SqlitePool};
+pub use sql::{DbTx, EventStore, InterestStore, Migrations, PostgresPool, RootStore, SqlitePool};

@@ -74,9 +74,13 @@ async fn slurp(opts: SlurpOpts) -> Result<()> {
         output_ceramic_path.display()
     );
 
-    let pool = SqlitePool::connect(output_ceramic_path, Migrations::Apply)
+    let _pool = SqlitePool::connect(output_ceramic_path, Migrations::Apply)
         .await
         .context("Failed to connect to database")?;
+
+    let pool =
+        ceramic_store::PostgresPool::connect(&crate::pg_url(), ceramic_store::Migrations::Apply)
+            .await?;
     let block_store = EventStore::new(pool).await.unwrap();
 
     if let Some(input_ceramic_db) = opts.input_ceramic_db {
@@ -89,9 +93,14 @@ async fn slurp(opts: SlurpOpts) -> Result<()> {
 }
 
 async fn validate(opts: ValidateOpts) -> Result<()> {
-    let pool = SqlitePool::from_store_dir(opts.store_dir, Migrations::Apply)
+    let _pool = SqlitePool::from_store_dir(opts.store_dir, Migrations::Apply)
         .await
         .context("Failed to connect to database")?;
+
+    let pool =
+        ceramic_store::PostgresPool::connect(&crate::pg_url(), ceramic_store::Migrations::Apply)
+            .await?;
+
     let block_store = EventStore::new(pool.clone())
         .await
         .with_context(|| "Failed to create block store")?;
@@ -404,6 +413,7 @@ async fn migrate_from_database(
 mod tests {
     use super::*;
     use crate::ethereum_rpc::EthRpc;
+    use ceramic_store::PostgresPool;
     use multihash::{Code, MultihashDigest};
 
     struct HardCodedEthRpc {}
@@ -428,10 +438,11 @@ mod tests {
     }
 
     #[tokio::test]
+    #[tracing_test::traced_test]
     async fn test_validate_time_event() {
         // todo: add a negative test.
         // Create an in-memory SQLite pool
-        let pool = SqlitePool::connect_in_memory().await.unwrap();
+        let pool = PostgresPool::connect_in_memory().await.unwrap();
 
         // Create a new SQLiteBlockStore and SQLiteRootStore
         let block_store = EventStore::new(pool.clone()).await.unwrap();
@@ -531,18 +542,15 @@ mod tests {
              37675557714b4355593761653675574e7871596764775068554a624a6846
              394546586d39",
         ];
-        let mut tx = block_store.begin_tx().await.unwrap();
+        // let mut tx = block_store.begin_tx().await.unwrap();
         for block in blocks {
             // Strip whitespace and decode the block from hex
             let block = hex::decode(block.replace(['\n', ' '], "")).unwrap();
             // Create the CID and store the block.
             let hash = Code::Sha2_256.digest(block.as_slice());
-            block_store
-                .put_block_tx(&hash, &block.into(), &mut tx)
-                .await
-                .unwrap();
+            block_store.put_block(&hash, &block.into()).await.unwrap();
         }
-        block_store.commit_tx(tx).await.unwrap();
+        // block_store.commit_tx(tx).await.unwrap();
 
         assert_eq!(
             validate_time_event(

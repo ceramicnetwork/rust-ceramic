@@ -4,7 +4,7 @@ pub mod tests;
 
 use std::{fmt::Display, marker::PhantomData};
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
 use ceramic_core::{EventId, Interest, PeerId, RangeOpen};
 use serde::{Deserialize, Serialize};
@@ -66,7 +66,7 @@ where
         // Potentially we could use a variant of https://en.wikipedia.org/wiki/Bounding_volume_hierarchy
         // to quickly find intersections.
         let mut intersections = Vec::with_capacity(remote_interests.len() * 2);
-        for local_range in self.interests().await? {
+        for local_range in self.interests().await.context("interest local_range")? {
             for remote_range in remote_interests {
                 if let Some(intersection) = local_range.intersect(remote_range) {
                     intersections.push(intersection)
@@ -80,7 +80,8 @@ where
         let hash = self
             .store
             .hash_range(&interest.start, &interest.end)
-            .await?;
+            .await
+            .context("initial_range hash_range")?;
         Ok(Range {
             first: interest.start,
             hash,
@@ -106,7 +107,8 @@ where
         if !should_add.is_empty() {
             let new = self
                 .insert_many(should_add.iter().map(|key| ReconItem::new_key(key)))
-                .await?;
+                .await
+                .context("insert_many")?;
             debug_assert_eq!(
                 new.len(),
                 should_add.len(),
@@ -119,7 +121,11 @@ where
             }
         }
 
-        let calculated_hash = self.store.hash_range(&range.first, &range.last).await?;
+        let calculated_hash = self
+            .store
+            .hash_range(&range.first, &range.last)
+            .await
+            .context("hash_range")?;
 
         if calculated_hash == range.hash {
             Ok((SyncState::Synchronized { range }, new_keys))
@@ -157,7 +163,10 @@ where
             );
             Ok((
                 SyncState::Unsynchronized {
-                    ranges: self.compute_splits(range, calculated_hash.count).await?,
+                    ranges: self
+                        .compute_splits(range, calculated_hash.count)
+                        .await
+                        .context("compute_splits")?,
                 },
                 new_keys,
             ))

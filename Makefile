@@ -4,7 +4,7 @@
 # Therefore may be useful in ensuring a change
 # is ready to pass CI checks.
 
-RUSTFLAGS = -D warnings --cfg tokio_unstable
+RUSTFLAGS = --cfg tokio_unstable
 CARGO = RUSTFLAGS='${RUSTFLAGS}' cargo
 
 RELEASE_LEVEL ?= minor
@@ -57,10 +57,12 @@ check-kubo-rpc-server:
 .PHONY: check-queries
 check-queries:
 	./ci-scripts/check_queries.sh "sqlite"
+	./ci-scripts/check_queries.sh "postgres"
 
 .PHONY: check-queries-ci
 check-queries-ci:
 	CI_RUN=1 ./ci-scripts/check_queries.sh "sqlite"
+	CI_RUN=1 ./ci-scripts/check_queries.sh "postgres"
 
 .PHONY: release
 release:

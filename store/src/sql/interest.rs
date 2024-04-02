@@ -1,11 +1,11 @@
 #![warn(missing_docs, missing_debug_implementations, clippy::all)]
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use ceramic_core::{Interest, RangeOpen};
 use recon::{AssociativeHash, HashCount, InsertResult, Key, ReconItem};
 use serde::{Deserialize, Serialize};
-use sqlx::Row;
+use sqlx::{postgres::PgRow, Executor, Row};
 use std::marker::PhantomData;
 use tracing::instrument;
 
@@ -18,7 +18,8 @@ where
     H: AssociativeHash,
 {
     hash: PhantomData<H>,
-    pool: SqlitePool,
+    // pool: SqlitePool,
+    pool: super::postgres::PostgresPool,
 }
 
 impl<H> InterestStore<H>
@@ -26,12 +27,76 @@ where
     H: AssociativeHash,
 {
     /// Make a new InterestSqliteStore from a connection pool.
-    pub async fn new(pool: SqlitePool) -> Result<Self> {
+    pub async fn new(pool: super::postgres::PostgresPool) -> Result<Self> {
         let store = InterestStore {
             pool,
             hash: PhantomData,
         };
         Ok(store)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct InterestRow {
+    count: i64,
+    ahash_0: u32,
+    ahash_1: u32,
+    ahash_2: u32,
+    ahash_3: u32,
+    ahash_4: u32,
+    ahash_5: u32,
+    ahash_6: u32,
+    ahash_7: u32,
+}
+
+impl InterestRow {
+    pub fn count(&self) -> u64 {
+        self.count as u64
+    }
+    pub fn hash(&self) -> [u32; 8] {
+        [
+            self.ahash_0,
+            self.ahash_1,
+            self.ahash_2,
+            self.ahash_3,
+            self.ahash_4,
+            self.ahash_5,
+            self.ahash_6,
+            self.ahash_7,
+        ]
+    }
+}
+
+fn into_u32s(val: Option<i64>, col: &str) -> Result<u32, sqlx::Error> {
+    let ahash_0 = val
+        .map(u32::try_from)
+        .transpose()
+        .map_err(|e| sqlx::Error::Decode(Box::new(e)))?
+        .ok_or_else(|| sqlx::Error::ColumnNotFound(format!("{} was not found", col)))?;
+    Ok(ahash_0)
+}
+
+impl sqlx::FromRow<'_, PgRow> for InterestRow {
+    fn from_row(row: &PgRow) -> Result<Self, sqlx::Error> {
+        let ahash_0 = into_u32s(row.try_get("ahash_0")?, "ahash_0")?;
+        let ahash_1 = into_u32s(row.try_get("ahash_1")?, "ahash_1")?;
+        let ahash_2 = into_u32s(row.try_get("ahash_2")?, "ahash_2")?;
+        let ahash_3 = into_u32s(row.try_get("ahash_3")?, "ahash_3")?;
+        let ahash_4 = into_u32s(row.try_get("ahash_4")?, "ahash_4")?;
+        let ahash_5 = into_u32s(row.try_get("ahash_5")?, "ahash_5")?;
+        let ahash_6 = into_u32s(row.try_get("ahash_6")?, "ahash_6")?;
+        let ahash_7 = into_u32s(row.try_get("ahash_7")?, "ahash_7")?;
+        Ok(Self {
+            count: row.try_get("count")?,
+            ahash_0,
+            ahash_1,
+            ahash_2,
+            ahash_3,
+            ahash_4,
+            ahash_5,
+            ahash_6,
+            ahash_7,
+        })
     }
 }
 
@@ -55,6 +120,9 @@ where
     }
 
     async fn insert_key_int(&self, key: &Interest, conn: &mut DbTx<'_>) -> Result<bool> {
+        conn.execute("SAVEPOINT insert_interest;")
+            .await
+            .context("interest savepoint error")?;
         let key_insert = sqlx::query(
             "INSERT INTO interest (
                     order_key,
@@ -70,20 +138,23 @@ where
         let hash = H::digest(key);
         let resp = key_insert
             .bind(key.as_bytes())
-            .bind(hash.as_u32s()[0])
-            .bind(hash.as_u32s()[1])
-            .bind(hash.as_u32s()[2])
-            .bind(hash.as_u32s()[3])
-            .bind(hash.as_u32s()[4])
-            .bind(hash.as_u32s()[5])
-            .bind(hash.as_u32s()[6])
-            .bind(hash.as_u32s()[7])
+            .bind(hash.as_u32s()[0] as i64)
+            .bind(hash.as_u32s()[1] as i64)
+            .bind(hash.as_u32s()[2] as i64)
+            .bind(hash.as_u32s()[3] as i64)
+            .bind(hash.as_u32s()[4] as i64)
+            .bind(hash.as_u32s()[5] as i64)
+            .bind(hash.as_u32s()[6] as i64)
+            .bind(hash.as_u32s()[7] as i64)
             .execute(&mut **conn)
             .await;
         match resp {
             std::result::Result::Ok(_rows) => Ok(true),
             Err(sqlx::Error::Database(err)) => {
                 if err.is_unique_violation() {
+                    conn.execute("ROLLBACK TO SAVEPOINT insert_interest;")
+                        .await
+                        .context("rollback error")?;
                     Ok(false)
                 } else {
                     Err(sqlx::Error::Database(err).into())
@@ -100,9 +171,10 @@ where
         offset: usize,
         limit: usize,
     ) -> Result<Box<dyn Iterator<Item = Interest> + Send + 'static>> {
+        let offset: i64 = offset.try_into().context("offset too large")?;
+        let limit = limit.try_into().unwrap_or(i64::MAX);
         let query = sqlx::query(
-            "
-        SELECT
+            "SELECT
             order_key
         FROM
             interest
@@ -112,15 +184,14 @@ where
             order_key ASC
         LIMIT
             $3
-        OFFSET
-            $4;
-        ",
+        OFFSET 
+            $4",
         );
         let rows = query
             .bind(left_fencepost.as_bytes())
             .bind(right_fencepost.as_bytes())
-            .bind(limit as i64)
-            .bind(offset as i64)
+            .bind(limit)
+            .bind(offset)
             .fetch_all(self.pool.reader())
             .await?;
         let rows = rows
@@ -220,35 +291,21 @@ where
             return Ok(HashCount::new(H::identity(), 0));
         }
 
-        let query = sqlx::query(
+        let res: InterestRow = sqlx::query_as(
             "SELECT
-               TOTAL(ahash_0) & 0xFFFFFFFF, TOTAL(ahash_1) & 0xFFFFFFFF,
-               TOTAL(ahash_2) & 0xFFFFFFFF, TOTAL(ahash_3) & 0xFFFFFFFF,
-               TOTAL(ahash_4) & 0xFFFFFFFF, TOTAL(ahash_5) & 0xFFFFFFFF,
-               TOTAL(ahash_6) & 0xFFFFFFFF, TOTAL(ahash_7) & 0xFFFFFFFF,
-               COUNT(1)
+                COALESCE(SUM(ahash_0), 0)::bigint & 4294967295 as ahash_0, COALESCE(SUM(ahash_1), 0)::bigint & 4294967295 as ahash_1,
+                COALESCE(SUM(ahash_2), 0)::bigint & 4294967295 as ahash_2, COALESCE(SUM(ahash_3), 0)::bigint & 4294967295 as ahash_3,
+                COALESCE(SUM(ahash_4), 0)::bigint & 4294967295 as ahash_4, COALESCE(SUM(ahash_5), 0)::bigint & 4294967295 as ahash_5,
+                COALESCE(SUM(ahash_6), 0)::bigint & 4294967295 as ahash_6, COALESCE(SUM(ahash_7), 0)::bigint & 4294967295 as ahash_7,
+                COUNT(1) as count
              FROM interest WHERE order_key > $1 AND order_key < $2;",
-        );
-        let row = query
-            .bind(left_fencepost.as_bytes())
-            .bind(right_fencepost.as_bytes())
-            .fetch_one(self.pool.reader())
-            .await?;
-        let bytes: [u32; 8] = [
-            row.get(0),
-            row.get(1),
-            row.get(2),
-            row.get(3),
-            row.get(4),
-            row.get(5),
-            row.get(6),
-            row.get(7),
-        ];
-        let count: i64 = row.get(8); // sql int type is signed
-        let count: u64 = count
-            .try_into()
-            .expect("COUNT(1) should never return a negative number");
-        Ok(HashCount::new(H::from(bytes), count))
+        )
+        .bind(left_fencepost.as_bytes())
+        .bind(right_fencepost.as_bytes())
+        .fetch_one(self.pool.reader())
+        .await.context("interest range")?;
+        let bytes = res.hash();
+        Ok(HashCount::new(H::from(bytes), res.count()))
     }
 
     #[instrument(skip(self))]
@@ -378,29 +435,25 @@ where
         right_fencepost: &Self::Key,
     ) -> Result<Option<(Self::Key, Self::Key)>> {
         let query = sqlx::query(
-            "
-        SELECT first.order_key, last.order_key
-        FROM
-            (
+            ";with first as (
                 SELECT order_key
                 FROM interest
                 WHERE
                     order_key > $1 AND order_key < $2
                 ORDER BY order_key ASC
                 LIMIT 1
-            ) as first
-        JOIN
-            (
+            ), last as (
                 SELECT order_key
                 FROM interest
                 WHERE
-                    order_key > $1 AND order_key < $2
+                    order_key > $3 AND order_key < $4
                 ORDER BY order_key DESC
                 LIMIT 1
-            ) as last
-        ;",
+            ) select first.order_key, last.order_key from first, last;",
         );
         let rows = query
+            .bind(left_fencepost.as_bytes())
+            .bind(right_fencepost.as_bytes())
             .bind(left_fencepost.as_bytes())
             .bind(right_fencepost.as_bytes())
             .fetch_all(self.pool.reader())
@@ -432,7 +485,9 @@ where
 
 #[cfg(test)]
 mod interest_tests {
-    use std::{collections::BTreeSet, str::FromStr};
+    use std::{collections::BTreeSet, str::FromStr, sync::OnceLock};
+
+    use crate::PostgresPool;
 
     use super::*;
 
@@ -442,13 +497,26 @@ mod interest_tests {
         PeerId,
     };
     use rand::{thread_rng, Rng};
-    use recon::{AssociativeHash, Key, ReconItem, Sha256a, Store};
+    use recon::{AssociativeHash, FullInterests, InterestProvider, Key, ReconItem, Sha256a, Store};
 
     use expect_test::expect;
     use test_log::test;
+    use tokio::sync::{Mutex, MutexGuard};
 
     const SORT_KEY: &str = "model";
     const PEER_ID: &str = "1AdgHpWeBKTU3F2tUkAQqL2Y2Geh4QgHJwcWMPuiY1qiRQ";
+
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    async fn prep_test(store: &InterestStore<Sha256a>) -> MutexGuard<'static, ()> {
+        let lock = LOCK.get_or_init(|| Mutex::new(())).lock().await;
+        store
+            .pool
+            .run_statement("truncate table interest;")
+            .await
+            .unwrap();
+        lock
+    }
 
     // Return an builder for an event with the same network,model,controller,stream.
     pub(crate) fn interest_builder() -> Builder<WithPeerId> {
@@ -479,7 +547,7 @@ mod interest_tests {
     }
 
     async fn new_store() -> InterestStore<Sha256a> {
-        let conn = SqlitePool::connect_in_memory().await.unwrap();
+        let conn = PostgresPool::connect_in_memory().await.unwrap();
         InterestStore::<Sha256a>::new(conn).await.unwrap()
     }
 
@@ -487,6 +555,8 @@ mod interest_tests {
     // This is the same as the recon::Store range test, but with the interest store (hits all its methods)
     async fn access_interest_model() {
         let store = new_store().await;
+        let _lock = prep_test(&store).await;
+
         let interest_0 = random_interest(None, None);
         let interest_1 = random_interest(None, None);
         AccessInterestStore::insert(&store, interest_0.clone())
@@ -513,12 +583,14 @@ mod interest_tests {
     #[test(tokio::test)]
     async fn test_hash_range_query() {
         let mut store = new_store().await;
+        let _lock = prep_test(&store).await;
         recon::Store::insert(
             &mut store,
             ReconItem::new_key(&random_interest(Some((&[0], &[1])), Some(42))),
         )
         .await
         .unwrap();
+
         recon::Store::insert(
             &mut store,
             ReconItem::new_key(&random_interest(Some((&[0], &[1])), Some(24))),
@@ -534,10 +606,34 @@ mod interest_tests {
     }
 
     #[test(tokio::test)]
+    async fn test_hash_range_query_defaults() {
+        let mut store = new_store().await;
+        let _lock = prep_test(&store).await;
+        store.pool.run_statement(r#"INSERT INTO public.interest
+        (order_key, ahash_0, ahash_1, ahash_2, ahash_3, ahash_4, ahash_5, ahash_6, ahash_7)
+        VALUES(decode('480F70D652B6B825E45826002408011220FCD119D77CA668F157CED3FB79498A82B41CA4D7DC05F90B6B227196F3EC856401581DCE010580808080107E710E217FA0E25900000000000000000000000000581DCE010580808080107E710E217FA0E259FFFFFFFFFFFFFFFFFFFFFFFFFF00','hex'), 3708858614, 3187057933, 90630269, 2944836858, 2664423810, 3186949905, 2792292527, 515406059);"#).await.unwrap();
+
+        store.pool.run_statement("INSERT INTO public.interest
+        (order_key, ahash_0, ahash_1, ahash_2, ahash_3, ahash_4, ahash_5, ahash_6, ahash_7)
+        VALUES(decode('480F70D652B6B825E45826002408011220FCD119D77CA668F157CED3FB79498A82B41CA4D7DC05F90B6B227196F3EC856401581DCE01058080808010A252AB059F8F49FD00000000000000000000000000581DCE01058080808010A252AB059F8F49FDFFFFFFFFFFFFFFFFFFFFFFFFFF00','hex'), 2841278, 2946150166, 1420163820, 754142617, 2283458068, 1856053704, 3039129056, 3387910774);").await.unwrap();
+        let interests = FullInterests::<Interest>::default()
+            .interests()
+            .await
+            .unwrap();
+
+        for int in interests {
+            let hash_cnt = store.hash_range(&int.start, &int.end).await.unwrap();
+            assert_eq!(0, hash_cnt.count())
+        }
+    }
+
+    #[test(tokio::test)]
     async fn test_range_query() {
         let mut store = new_store().await;
         let interest_0 = random_interest(None, None);
         let interest_1 = random_interest(None, None);
+        let _lock = prep_test(&store).await;
+
         recon::Store::insert(&mut store, ReconItem::new_key(&interest_0))
             .await
             .unwrap();
@@ -560,8 +656,10 @@ mod interest_tests {
     #[test(tokio::test)]
     async fn test_range_with_values_query() {
         let mut store = new_store().await;
+        let _lock = prep_test(&store).await;
         let interest_0 = random_interest(None, None);
         let interest_1 = random_interest(None, None);
+
         store.insert(interest_0.clone()).await.unwrap();
         store.insert(interest_1.clone()).await.unwrap();
         let ids = store
@@ -583,6 +681,7 @@ mod interest_tests {
     #[test(tokio::test)]
     async fn test_double_insert() {
         let mut store = new_store().await;
+        let _lock = prep_test(&store).await;
 
         let interest = random_interest(None, None);
         // do take the first one
@@ -609,6 +708,8 @@ mod interest_tests {
     #[test(tokio::test)]
     async fn test_first_and_last() {
         let mut store = new_store().await;
+        let _lock = prep_test(&store).await;
+
         let interest_0 = random_interest(Some((&[], &[])), Some(42));
         let interest_1 = random_interest(Some((&[], &[])), Some(43));
         recon::Store::insert(&mut store, ReconItem::new_key(&interest_0))
@@ -748,6 +849,7 @@ mod interest_tests {
     #[should_panic(expected = "Interests do not support values! Invalid request.")]
     async fn test_store_value_for_key_error() {
         let mut store = new_store().await;
+        let _lock = prep_test(&store).await;
         let key = random_interest(None, None);
         let store_value = random_interest(None, None);
         recon::Store::insert(
@@ -761,6 +863,7 @@ mod interest_tests {
     #[test(tokio::test)]
     async fn test_keys_with_missing_value() {
         let mut store = new_store().await;
+        let _lock = prep_test(&store).await;
         let key = random_interest(None, None);
         recon::Store::insert(&mut store, ReconItem::new(&key, None))
             .await
@@ -790,6 +893,7 @@ mod interest_tests {
     #[test(tokio::test)]
     async fn test_value_for_key() {
         let mut store = new_store().await;
+        let _lock = prep_test(&store).await;
         let key = random_interest(None, None);
         recon::Store::insert(&mut store, ReconItem::new(&key, None))
             .await

@@ -1164,7 +1164,7 @@ mod tests {
 
     use async_trait::async_trait;
     use ceramic_core::RangeOpen;
-    use ceramic_store::SqlitePool;
+    use ceramic_store::{PostgresPool, SqlitePool};
     use futures::TryStreamExt;
     use rand::prelude::*;
     use rand_chacha::ChaCha8Rng;
@@ -1382,7 +1382,7 @@ mod tests {
             let peer_id = PeerId::from(libp2p_keypair.public());
 
             // Using an in memory DB for the tests for realistic benchmark disk DB is needed.
-            let sql_pool = SqlitePool::connect_in_memory().await.unwrap();
+            let sql_pool = PostgresPool::connect_in_memory().await.unwrap();
 
             let metrics = Metrics::register(&mut prometheus_client::registry::Registry::default());
             let mut p2p = Node::new(
