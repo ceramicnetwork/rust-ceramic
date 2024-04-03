@@ -49,7 +49,7 @@ jobs:
         # Tag with latest if this is a push to master
         if [[ "${{ github.event_name }}" == "push" ]]; then
           TAG_LATEST=true
-        elif
+        else
           TAG_LATEST=false
         fi
         make SHA="${{ github.SHA }}" SHA_TAG="$SHA_TAG" RELEASE_TAG="$RELEASE_TAG" TAG_LATEST="$TAG_LATEST" publish-docker
