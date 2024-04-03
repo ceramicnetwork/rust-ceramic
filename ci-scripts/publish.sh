@@ -24,5 +24,8 @@ fi
 if [[ "$TAG_LATEST" == "true" ]]; then
   docker tag 3box/ceramic-one:latest public.ecr.aws/r5b3e0r5/3box/ceramic-one:latest
 fi
+if [[ -n "$CUSTOM_TAG" ]]; then
+  docker tag 3box/ceramic-one:latest public.ecr.aws/r5b3e0r5/3box/ceramic-one:"$CUSTOM_TAG"
+fi
 
 docker push -a public.ecr.aws/r5b3e0r5/3box/ceramic-one
