@@ -18,6 +18,7 @@ members = [
     "beetle/iroh-rpc-client",
     "beetle/iroh-rpc-types",
     "beetle/iroh-util",
+    "anchor",
 ]
 
 [workspace.dependencies]
@@ -32,6 +33,9 @@ members = [
 #   e.g. anyhow's backtrace feature.
 
 ahash = "0.8"
+alloy = { git = "https://github.com/alloy-rs/alloy.git", branch = "main" }
+alloy-contract = { git = "https://github.com/alloy-rs/alloy.git", branch = "main" }
+alloy-sol-types = "0.6.4"
 anyhow = { version = "1", features = ["backtrace"] }
 async-broadcast = "0.4.1"
 async-channel = "1.7.1"
@@ -69,6 +73,7 @@ dag-jose = "0.2"
 deadqueue = "0.2.3"
 derivative = "2.2"
 derive_more = "0.99.17"
+did-method-key = "0.2.2"
 dirs-next = "2"
 expect-test = "1.4.1"
 fastmurmur3 = "0.1.2"
@@ -133,7 +138,7 @@ rayon = "1.5.3"
 recon = { path = "./recon/" }
 regex = "1.7.1"
 relative-path = "1.7.2"
-reqwest = { version = "0.11.10", default-features = false }
+reqwest = { version = "0.12.2", default-features = false }
 rkyv = "0.7.37"
 rlimit = "0.9.0"
 ruzstd = "0.3"
@@ -199,6 +204,7 @@ urlencoding = "2.1"
 uuid = { version = "1.8.0", features = ["v4"] }
 void = "1.0"
 wasm-timer = "0.2.5"
+wiremock = "0.6.0"
 which = "4.3.0"
 xtaskops = "0.3"
 zeroize = "1.4"
@@ -222,4 +228,7 @@ strip = "none"
 
 [patch.crates-io]
 # to get fix for https://github.com/tokio-rs/console/pull/501. can be removed on 0.2.1 release
-console-subscriber = { git = "https://github.com/tokio-rs/console.git", branch = "main" }
+console-subscriber = { git = "https://github.com/tokio-rs/console.git", branch = "main"}
+alloy-sol-macro = { git = "https://github.com/alloy-rs/core", rev = "1bac7678797fcd1bee2f2580825724b4165b12c1" }
+alloy-primitives = { git = "https://github.com/alloy-rs/core", rev = "1bac7678797fcd1bee2f2580825724b4165b12c1" }
+alloy-sol-types = { git = "https://github.com/alloy-rs/core", rev = "1bac7678797fcd1bee2f2580825724b4165b12c1" }
