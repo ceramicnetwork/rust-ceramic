@@ -446,36 +446,25 @@ where
         delivered: i64,
         limit: i64,
     ) -> Result<(i64, Vec<EventId>)> {
+        #[derive(sqlx::FromRow)]
         struct Highwater {
             id: Vec<u8>,
-            new_highwater_mark: Option<i64>,
+            new_highwater_mark: i64,
         }
         // unable to get query! to coerce and keep getting `unsupported type NULL of column #2 ("new_highwater_mark")`
-        let rows = sqlx::query_as!(
-            Highwater,
-            r#"WITH entries AS (
-                    SELECT order_key, COALESCE(MAX(delivered), 0) as max_delivered
-                FROM event
-                    WHERE delivered >= $1 -- we return delivered+1 so we must match it next search
-                GROUP BY order_key
-                ORDER BY delivered
-                LIMIT $2
-            )
-            SELECT 
-                entries.order_key as id, 
-                (SELECT MAX(max_delivered) + 1 FROM entries) as "new_highwater_mark: _"
-            from entries;"#,
-            delivered,
-            limit
+        let rows: Vec<Highwater> = sqlx::query_as(
+            r#"SELECT order_key as "id", COALESCE(delivered, 0) as "new_highwater_mark"
+            FROM event
+                WHERE delivered >= $1 -- we return delivered+1 so we must match it next search
+            ORDER BY delivered
+            LIMIT $2"#,
         )
+        .bind(delivered)
+        .bind(limit)
         .fetch_all(self.pool.reader())
         .await?;
 
-        // every row has the same new_highwater_mark value
-        let row_id: i64 = rows
-            .first()
-            .and_then(|r| r.new_highwater_mark)
-            .unwrap_or(delivered);
+        let row_id: i64 = rows.last().map_or(delivered, |r| r.new_highwater_mark + 1);
         let rows = rows
             .into_iter()
             .map(|row| EventId::try_from(row.id))
