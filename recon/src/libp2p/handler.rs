@@ -190,7 +190,7 @@ where
                 let protocol = SubstreamProtocol::new(MultiReadyUpgrade::new(vec![stream_set]), ());
                 return Poll::Ready(ConnectionHandlerEvent::OutboundSubstreamRequest { protocol });
             }
-            State::Outbound(stream) => {
+            State::Outbound(stream) | State::Inbound(stream) => {
                 if let Poll::Ready(result) = stream.poll_unpin(cx) {
                     self.transition_state(State::Idle);
                     match result {
@@ -200,26 +200,10 @@ where
                             ));
                         }
                         Err(e) => {
+                            // TODO: differentiate between transient and permanent errors
+                            // for now, we don't want to try to keep talking so we treat all errors as transient
                             return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
                                 FromHandler::TransientError(e),
-                            ))
-                        }
-                    }
-                }
-            }
-            State::Inbound(stream) => {
-                if let Poll::Ready(result) = stream.poll_unpin(cx) {
-                    self.transition_state(State::Idle);
-                    match result {
-                        Ok(stream_set) => {
-                            return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
-                                FromHandler::Succeeded { stream_set },
-                            ));
-                        }
-                        Err(e) => {
-                            // we don't want to mark them down when we fail...
-                            return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
-                                FromHandler::Failed(e),
                             ));
                         }
                     }
