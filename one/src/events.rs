@@ -3,7 +3,7 @@ use crate::CborValue;
 use anyhow::{anyhow, bail, Context, Result};
 use ceramic_core::{ssi, Base64UrlString, DidDocument, Jwk};
 use ceramic_metrics::init_local_tracing;
-use ceramic_store::{EventStore, Migrations, RootStore, SqlitePool};
+use ceramic_store::{EventStoreSqlite, Migrations, RootStore, SqlitePool};
 use chrono::{SecondsFormat, TimeZone, Utc};
 use cid::{multibase, multihash, Cid};
 use clap::{Args, Subcommand};
@@ -77,7 +77,7 @@ async fn slurp(opts: SlurpOpts) -> Result<()> {
     let pool = SqlitePool::connect(output_ceramic_path, Migrations::Apply)
         .await
         .context("Failed to connect to database")?;
-    let block_store = EventStore::new(pool).await.unwrap();
+    let block_store = EventStoreSqlite::new(pool).await.unwrap();
 
     if let Some(input_ceramic_db) = opts.input_ceramic_db {
         migrate_from_database(input_ceramic_db, block_store.clone()).await?;
@@ -92,7 +92,7 @@ async fn validate(opts: ValidateOpts) -> Result<()> {
     let pool = SqlitePool::from_store_dir(opts.store_dir, Migrations::Apply)
         .await
         .context("Failed to connect to database")?;
-    let block_store = EventStore::new(pool.clone())
+    let block_store = EventStoreSqlite::new(pool.clone())
         .await
         .with_context(|| "Failed to create block store")?;
     let root_store = RootStore::new(pool)
@@ -160,7 +160,7 @@ async fn validate(opts: ValidateOpts) -> Result<()> {
 
 async fn validate_data_event_envelope(
     cid: &Cid,
-    block_store: &EventStore<Sha256a>,
+    block_store: &EventStoreSqlite<Sha256a>,
 ) -> Result<String> {
     let block = block_store.get(cid).await?;
     let envelope = CborValue::parse(&block.data)?;
@@ -205,7 +205,7 @@ async fn validate_data_event_envelope(
 // TODO: Validate CACAO
 async fn validate_data_event_payload(
     _payload_cid: &Cid,
-    _block_store: &EventStore<Sha256a>,
+    _block_store: &EventStoreSqlite<Sha256a>,
     _controller: Option<String>,
 ) -> Result<()> {
     Ok(())
@@ -219,7 +219,7 @@ async fn validate_data_event_payload(
 // - Validated time is the time from the Root Store
 async fn validate_time_event(
     cid: &Cid,
-    block_store: &EventStore<Sha256a>,
+    block_store: &EventStoreSqlite<Sha256a>,
     root_store: &RootStore,
     eth_rpc: &impl EthRpc,
 ) -> Result<i64> {
@@ -277,7 +277,7 @@ async fn prev_in_root(
     prev: Cid,
     root: Cid,
     path: String,
-    block_store: &EventStore<Sha256a>,
+    block_store: &EventStoreSqlite<Sha256a>,
 ) -> Result<bool> {
     let mut current_cid = root;
     for segment in path.split('/') {
@@ -292,7 +292,7 @@ async fn prev_in_root(
 
 async fn migrate_from_filesystem(
     input_ipfs_path: PathBuf,
-    store: EventStore<Sha256a>,
+    store: EventStoreSqlite<Sha256a>,
 ) -> Result<()> {
     // the block store is split in to 1024 directories and then the blocks stored as files.
     // the dir structure is the penultimate two characters as dir then the b32 sha256 multihash of the block
@@ -383,7 +383,7 @@ async fn migrate_from_filesystem(
 
 async fn migrate_from_database(
     input_ceramic_db: PathBuf,
-    store: EventStore<Sha256a>,
+    store: EventStoreSqlite<Sha256a>,
 ) -> Result<()> {
     let input_ceramic_db_filename = input_ceramic_db.to_str().expect("expect utf8");
     info!(
@@ -404,6 +404,7 @@ async fn migrate_from_database(
 mod tests {
     use super::*;
     use crate::ethereum_rpc::EthRpc;
+    use ceramic_store::SqlitePool;
     use multihash::{Code, MultihashDigest};
 
     struct HardCodedEthRpc {}
@@ -428,13 +429,14 @@ mod tests {
     }
 
     #[tokio::test]
+    #[tracing_test::traced_test]
     async fn test_validate_time_event() {
         // todo: add a negative test.
         // Create an in-memory SQLite pool
         let pool = SqlitePool::connect_in_memory().await.unwrap();
 
         // Create a new SQLiteBlockStore and SQLiteRootStore
-        let block_store = EventStore::new(pool.clone()).await.unwrap();
+        let block_store = EventStoreSqlite::new(pool.clone()).await.unwrap();
         let root_store = RootStore::new(pool).await.unwrap();
 
         // Add all the blocks for the Data Event & Time Event to the block store

@@ -38,8 +38,16 @@ cargo install sqlx-cli
 # case statement to check if the database is sqlite or postgres
 case $DATABASE in
   postgres*)
-    echo "Using postgres is not yet supported"
-    exit 1
+    echo "Using postgres"
+    docker rm ceramic-pg --force 2> /dev/null
+    docker run --name ceramic-pg -e POSTGRES_DB=ceramic -e POSTGRES_PASSWORD=c3ram1c -p 5432:5432 -d postgres:16 
+    absolute_db_path="postgresql://postgres:c3ram1c@localhost:5432/ceramic"
+    absolute_migrations="$(pwd)/migrations/postgres"
+    prepare_database $absolute_db_path $absolute_migrations
+    if [ "$CI_RUN" ]; then
+        docker stop ceramic-pg
+        docker rm ceramic-pg
+    fi
     ;;
   *)
     echo "Using sqlite"

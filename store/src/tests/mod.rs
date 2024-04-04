@@ -1,4 +1,7 @@
-use self::EventStore;
+mod event;
+mod interest;
+
+use self::EventStoreSqlite;
 
 use super::*;
 
@@ -18,15 +21,15 @@ use multihash::{Code, MultihashDigest};
 use rand::Rng;
 use recon::Sha256a;
 
-pub(crate) async fn new_store() -> EventStore<Sha256a> {
+pub(crate) async fn new_store() -> EventStoreSqlite<Sha256a> {
     let conn = SqlitePool::connect_in_memory().await.unwrap();
-    EventStore::new(conn).await.unwrap()
+    EventStoreSqlite::new(conn).await.unwrap()
 }
 
 // for the highwater tests that care about event ordering
-pub(crate) async fn new_local_store() -> EventStore<Sha256a> {
+pub(crate) async fn new_local_store() -> EventStoreSqlite<Sha256a> {
     let conn = SqlitePool::connect_in_memory().await.unwrap();
-    EventStore::new_local(conn).await.unwrap()
+    EventStoreSqlite::new_local(conn).await.unwrap()
 }
 
 #[tokio::test]

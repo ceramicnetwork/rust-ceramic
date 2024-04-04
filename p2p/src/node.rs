@@ -1390,7 +1390,7 @@ mod tests {
                 rpc_server_addr,
                 keypair.into(),
                 None::<(DummyRecon<Interest>, DummyRecon<EventId>)>,
-                ceramic_store::EventStore::new(sql_pool).await?,
+                ceramic_store::EventStoreSqlite::new(sql_pool).await?,
                 metrics,
             )
             .await?;

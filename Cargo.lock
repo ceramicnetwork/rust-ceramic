@@ -1279,6 +1279,7 @@ dependencies = [
  "tokio-metrics",
  "tokio-prometheus-client",
  "tracing",
+ "tracing-test",
 ]
 
 [[package]]
@@ -7721,6 +7722,7 @@ dependencies = [
  "sha2 0.10.8",
  "sqlx-core",
  "sqlx-mysql",
+ "sqlx-postgres",
  "sqlx-sqlite",
  "syn 1.0.109",
  "tempfile",

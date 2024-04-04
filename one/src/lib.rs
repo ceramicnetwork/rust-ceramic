@@ -281,11 +281,33 @@ pub async fn run() -> Result<()> {
     }
 }
 
-type InterestStore = ceramic_store::InterestStore<Sha256a>;
+fn pg_url() -> String {
+    let conn = std::env::var("DATABASE_URL")
+        .ok()
+        .or_else(|| {
+            let db = std::env::var("POSTGRES_DB").ok();
+            let host = std::env::var("POSTGRES_HOST").ok();
+            let user = std::env::var("POSTGRES_USER").ok();
+            let password = std::env::var("POSTGRES_PASSWORD").ok();
+            match (db, host, user, password) {
+                (Some(db), Some(host), Some(user), Some(password)) => {
+                    Some(format!("postgres://{}:{}@{}/{}", user, password, host, db))
+                }
+                _ => None,
+            }
+        })
+        .unwrap_or_else(|| "postgres://postgres:c3ram1c@localhost:5432/ceramic".to_string());
+
+    // TODO: don't log the password
+    info!("Connecting to postgres: {}", conn);
+    conn
+}
+
+type InterestStore = ceramic_store::InterestStoreSqlite<Sha256a>;
 type InterestInterest = FullInterests<Interest>;
 type ReconInterest = Server<Interest, Sha256a, MetricsStore<InterestStore>, InterestInterest>;
 
-type ModelStore = ceramic_store::EventStore<Sha256a>;
+type ModelStore = ceramic_store::EventStoreSqlite<Sha256a>;
 type ModelInterest = ReconInterestProvider<Sha256a>;
 type MetricsStore<T> = ceramic_store::StoreMetricsMiddleware<T>;
 type ReconModel = Server<EventId, Sha256a, MetricsStore<ModelStore>, ModelInterest>;
@@ -427,6 +449,10 @@ impl Daemon {
         let sql_pool =
             ceramic_store::SqlitePool::connect(&sql_db_path, ceramic_store::Migrations::Apply)
                 .await?;
+
+        // let sql_pool =
+        //     ceramic_store::PostgresPool::connect(&pg_url(), ceramic_store::Migrations::Apply)
+        //         .await?;
 
         // Create recon metrics
         let recon_metrics = ceramic_metrics::MetricsHandle::register(recon::Metrics::register);

@@ -1,4 +1,5 @@
 use anyhow::Result;
+use sqlx::Row;
 
 use crate::SqlitePool;
 
@@ -11,6 +12,7 @@ use crate::SqlitePool;
 #[derive(Debug, Clone)]
 pub struct RootStore {
     pool: SqlitePool,
+    // pool: super::postgres::PostgresPool,
 }
 
 impl RootStore {
@@ -28,13 +30,14 @@ impl RootStore {
         block_hash: String, // 0xhex_hash
         timestamp: i64,
     ) -> Result<()> {
-        match sqlx::query!(
-            r#"INSERT OR IGNORE INTO ceramic_one_root (tx_hash, root, block_hash, timestamp) VALUES (?, ?, ?, ?)"#,
-            tx_hash,
-            root,
-            block_hash,
-            timestamp,
+        match sqlx::query(
+            r#"INSERT INTO ceramic_one_root (tx_hash, root, block_hash, timestamp)
+                VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING"#,
         )
+        .bind(tx_hash)
+        .bind(root)
+        .bind(block_hash)
+        .bind(timestamp)
         .execute(self.pool.writer())
         .await
         {
@@ -45,12 +48,15 @@ impl RootStore {
 
     /// Get the transaction timestamp from the roots table.
     pub async fn get(&self, tx_hash: &[u8]) -> Result<Option<i64>> {
-        Ok(sqlx::query!(
-            r#"SELECT timestamp FROM ceramic_one_root WHERE tx_hash = ?;"#,
-            tx_hash
+        Ok(
+            sqlx::query(r#"SELECT timestamp FROM ceramic_one_root WHERE tx_hash = $1;"#)
+                .bind(tx_hash)
+                .fetch_optional(self.pool.reader())
+                .await?
+                .map(|row| {
+                    let time: i64 = row.get(0);
+                    time
+                }),
         )
-        .fetch_optional(self.pool.reader())
-        .await?
-        .map(|row| row.timestamp))
     }
 }

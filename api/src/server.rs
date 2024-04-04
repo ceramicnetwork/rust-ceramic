@@ -115,7 +115,7 @@ impl TryFrom<models::Interest> for ValidatedInterest {
 }
 
 #[async_trait]
-pub trait AccessInterestStore: Clone + Send + Sync {
+pub trait AccessInterestStore: Send + Sync {
     type Key: Key;
     type Hash: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>;
 
@@ -131,7 +131,7 @@ pub trait AccessInterestStore: Clone + Send + Sync {
 }
 
 #[async_trait]
-pub trait AccessModelStore: Clone + Send + Sync {
+pub trait AccessModelStore: Send + Sync {
     type Key: Key;
     type Hash: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>;
 

@@ -1,6 +1,6 @@
 #![warn(missing_docs, missing_debug_implementations, clippy::all)]
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use ceramic_core::{Interest, RangeOpen};
 use recon::{AssociativeHash, HashCount, InsertResult, Key, ReconItem};
@@ -9,25 +9,28 @@ use sqlx::Row;
 use std::marker::PhantomData;
 use tracing::instrument;
 
-use crate::{DbTx, SqlitePool};
+use crate::{
+    sql::{ReconHash, ReconQuery, ReconType, SqlBackend},
+    DbTxSqlite, SqlitePool,
+};
 
 #[derive(Debug, Clone)]
 /// InterestStore is a [`recon::Store`] implementation for Interests.
-pub struct InterestStore<H>
+pub struct InterestStoreSqlite<H>
 where
     H: AssociativeHash,
 {
     hash: PhantomData<H>,
-    pool: SqlitePool,
+    pub(crate) pool: SqlitePool,
 }
 
-impl<H> InterestStore<H>
+impl<H> InterestStoreSqlite<H>
 where
     H: AssociativeHash,
 {
     /// Make a new InterestSqliteStore from a connection pool.
     pub async fn new(pool: SqlitePool) -> Result<Self> {
-        let store = InterestStore {
+        let store = InterestStoreSqlite {
             pool,
             hash: PhantomData,
         };
@@ -37,7 +40,7 @@ where
 
 type InterestError = <Interest as TryFrom<Vec<u8>>>::Error;
 
-impl<H> InterestStore<H>
+impl<H> InterestStoreSqlite<H>
 where
     H: AssociativeHash + std::convert::From<[u32; 8]>,
 {
@@ -49,23 +52,13 @@ where
     }
 
     /// returns (new_key, new_val) tuple
-    async fn insert_item_int(&self, item: &Interest, conn: &mut DbTx<'_>) -> Result<bool> {
+    async fn insert_item_int(&self, item: &Interest, conn: &mut DbTxSqlite<'_>) -> Result<bool> {
         let new_key = self.insert_key_int(item, conn).await?;
         Ok(new_key)
     }
 
-    async fn insert_key_int(&self, key: &Interest, conn: &mut DbTx<'_>) -> Result<bool> {
-        let key_insert = sqlx::query(
-            "INSERT INTO ceramic_one_interest (
-                    order_key,
-                    ahash_0, ahash_1, ahash_2, ahash_3,
-                    ahash_4, ahash_5, ahash_6, ahash_7
-                ) VALUES (
-                    $1, 
-                    $2, $3, $4, $5,
-                    $6, $7, $8, $9
-                );",
-        );
+    async fn insert_key_int(&self, key: &Interest, conn: &mut DbTxSqlite<'_>) -> Result<bool> {
+        let key_insert = sqlx::query(ReconQuery::insert_interest());
 
         let hash = H::digest(key);
         let resp = key_insert
@@ -100,22 +93,7 @@ where
         offset: usize,
         limit: usize,
     ) -> Result<Box<dyn Iterator<Item = Interest> + Send + 'static>> {
-        let query = sqlx::query(
-            "
-        SELECT
-            order_key
-        FROM
-            ceramic_one_interest
-        WHERE
-            order_key > $1 AND order_key < $2
-        ORDER BY
-            order_key ASC
-        LIMIT
-            $3
-        OFFSET
-            $4;
-        ",
-        );
+        let query = sqlx::query(ReconQuery::range(ReconType::Interest));
         let rows = query
             .bind(left_fencepost.as_bytes())
             .bind(right_fencepost.as_bytes())
@@ -141,7 +119,7 @@ where
 /// Anything that implements `ceramic_api::AccessInterestStore` should also implement `recon::Store`.
 /// This guarantees that regardless of entry point (api or recon), the data is stored and retrieved in the same way.
 #[async_trait::async_trait]
-impl<H> ceramic_api::AccessInterestStore for InterestStore<H>
+impl<H> ceramic_api::AccessInterestStore for InterestStoreSqlite<H>
 where
     H: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>,
 {
@@ -163,7 +141,7 @@ where
 }
 
 #[async_trait]
-impl<H> recon::Store for InterestStore<H>
+impl<H> recon::Store for InterestStoreSqlite<H>
 where
     H: AssociativeHash,
 {
@@ -220,35 +198,17 @@ where
             return Ok(HashCount::new(H::identity(), 0));
         }
 
-        let query = sqlx::query(
-            "SELECT
-               TOTAL(ahash_0) & 0xFFFFFFFF, TOTAL(ahash_1) & 0xFFFFFFFF,
-               TOTAL(ahash_2) & 0xFFFFFFFF, TOTAL(ahash_3) & 0xFFFFFFFF,
-               TOTAL(ahash_4) & 0xFFFFFFFF, TOTAL(ahash_5) & 0xFFFFFFFF,
-               TOTAL(ahash_6) & 0xFFFFFFFF, TOTAL(ahash_7) & 0xFFFFFFFF,
-               COUNT(1)
-             FROM ceramic_one_interest WHERE order_key > $1 AND order_key < $2;",
-        );
-        let row = query
-            .bind(left_fencepost.as_bytes())
-            .bind(right_fencepost.as_bytes())
-            .fetch_one(self.pool.reader())
-            .await?;
-        let bytes: [u32; 8] = [
-            row.get(0),
-            row.get(1),
-            row.get(2),
-            row.get(3),
-            row.get(4),
-            row.get(5),
-            row.get(6),
-            row.get(7),
-        ];
-        let count: i64 = row.get(8); // sql int type is signed
-        let count: u64 = count
-            .try_into()
-            .expect("COUNT(1) should never return a negative number");
-        Ok(HashCount::new(H::from(bytes), count))
+        let res: ReconHash = sqlx::query_as(ReconQuery::hash_range(
+            ReconType::Interest,
+            SqlBackend::Sqlite,
+        ))
+        .bind(left_fencepost.as_bytes())
+        .bind(right_fencepost.as_bytes())
+        .fetch_one(self.pool.reader())
+        .await
+        .context("interest range")?;
+        let bytes = res.hash();
+        Ok(HashCount::new(H::from(bytes), res.count()))
     }
 
     #[instrument(skip(self))]
@@ -284,21 +244,12 @@ where
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
     ) -> Result<usize> {
-        let query = sqlx::query(
-            "
-        SELECT
-            count(order_key)
-        FROM
-            ceramic_one_interest
-        WHERE
-            order_key > $1 AND order_key < $2
-        ;",
-        );
-        let row = query
+        let row = sqlx::query(ReconQuery::count(ReconType::Interest, SqlBackend::Sqlite))
             .bind(left_fencepost.as_bytes())
             .bind(right_fencepost.as_bytes())
             .fetch_one(self.pool.reader())
             .await?;
+
         Ok(row.get::<'_, i64, _>(0) as usize)
     }
 
@@ -309,20 +260,8 @@ where
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
     ) -> Result<Option<Self::Key>> {
-        let query = sqlx::query(
-            "
-    SELECT
-        order_key
-    FROM
-        ceramic_one_interest
-    WHERE
-        order_key > $1 AND order_key < $2
-    ORDER BY
-        order_key ASC
-    LIMIT
-        1
-    ; ",
-        );
+        let query = sqlx::query(ReconQuery::first_key(ReconType::Interest));
+
         let rows = query
             .bind(left_fencepost.as_bytes())
             .bind(right_fencepost.as_bytes())
@@ -343,20 +282,7 @@ where
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
     ) -> Result<Option<Self::Key>> {
-        let query = sqlx::query(
-            "
-        SELECT
-            order_key
-        FROM
-            ceramic_one_interest
-        WHERE
-            order_key > $1 AND order_key < $2
-        ORDER BY
-            order_key DESC
-        LIMIT
-            1
-        ;",
-        );
+        let query = sqlx::query(ReconQuery::last_key(ReconType::Interest));
         let rows = query
             .bind(left_fencepost.as_bytes())
             .bind(right_fencepost.as_bytes())
@@ -377,29 +303,10 @@ where
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
     ) -> Result<Option<(Self::Key, Self::Key)>> {
-        let query = sqlx::query(
-            "
-        SELECT first.order_key, last.order_key
-        FROM
-            (
-                SELECT order_key
-                FROM ceramic_one_interest
-                WHERE
-                    order_key > $1 AND order_key < $2
-                ORDER BY order_key ASC
-                LIMIT 1
-            ) as first
-        JOIN
-            (
-                SELECT order_key
-                FROM ceramic_one_interest
-                WHERE
-                    order_key > $1 AND order_key < $2
-                ORDER BY order_key DESC
-                LIMIT 1
-            ) as last
-        ;",
-        );
+        let query = sqlx::query(ReconQuery::first_and_last(
+            ReconType::Interest,
+            SqlBackend::Sqlite,
+        ));
         let rows = query
             .bind(left_fencepost.as_bytes())
             .bind(right_fencepost.as_bytes())
@@ -478,9 +385,9 @@ mod interest_tests {
         interest_builder().with_max_range().build_fencepost()
     }
 
-    async fn new_store() -> InterestStore<Sha256a> {
+    async fn new_store() -> InterestStoreSqlite<Sha256a> {
         let conn = SqlitePool::connect_in_memory().await.unwrap();
-        InterestStore::<Sha256a>::new(conn).await.unwrap()
+        InterestStoreSqlite::<Sha256a>::new(conn).await.unwrap()
     }
 
     #[test(tokio::test)]

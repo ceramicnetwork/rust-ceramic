@@ -57,10 +57,12 @@ check-kubo-rpc-server:
 .PHONY: check-queries
 check-queries:
 	./ci-scripts/check_queries.sh "sqlite"
+	./ci-scripts/check_queries.sh "postgres"
 
 .PHONY: check-queries-ci
 check-queries-ci:
 	CI_RUN=1 ./ci-scripts/check_queries.sh "sqlite"
+	CI_RUN=1 ./ci-scripts/check_queries.sh "postgres"
 
 .PHONY: release
 release:

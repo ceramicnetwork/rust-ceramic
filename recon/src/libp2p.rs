@@ -306,6 +306,7 @@ where
         _role_override: libp2p::core::Endpoint,
     ) -> std::result::Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
         debug!(%peer, ?connection_id, "handle_established_outbound_connection");
+
         Ok(Handler::new(
             peer,
             connection_id,
