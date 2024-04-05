@@ -30,7 +30,7 @@ pub struct SqlitePool {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-/// Now to handle ounstanding database migrations.
+/// Now to handle outstanding database migrations.
 /// Intend to add a `Check` variant to verify the database is up to date and return an error if it is not.
 pub enum Migrations {
     /// Apply migrations after opening connection
