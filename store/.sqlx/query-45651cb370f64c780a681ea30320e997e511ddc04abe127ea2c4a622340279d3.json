@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT timestamp FROM ceramic_one_root WHERE tx_hash = ?;",
+  "describe": {
+    "columns": [
+      {
+        "name": "timestamp",
+        "ordinal": 0,
+        "type_info": "Int64"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "45651cb370f64c780a681ea30320e997e511ddc04abe127ea2c4a622340279d3"
+}

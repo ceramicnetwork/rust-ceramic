@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE ceramic_one_event SET delivered = $1 WHERE order_key = $2;",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "3912f3717f89904f1f5b658f5f9dde1d486bfcf605251f513f4f2913ff4561f2"
+}

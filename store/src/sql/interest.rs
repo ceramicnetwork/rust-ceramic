@@ -26,13 +26,11 @@ where
     H: AssociativeHash,
 {
     /// Make a new InterestSqliteStore from a connection pool.
-    /// This will create the interest_key table if it does not already exist.
     pub async fn new(pool: SqlitePool) -> Result<Self> {
         let store = InterestStore {
             pool,
             hash: PhantomData,
         };
-        store.create_table_if_not_exists().await?;
         Ok(store)
     }
 }
@@ -43,29 +41,6 @@ impl<H> InterestStore<H>
 where
     H: AssociativeHash + std::convert::From<[u32; 8]>,
 {
-    /// Initialize the interest_key table.
-    async fn create_table_if_not_exists(&self) -> Result<()> {
-        const CREATE_INTEREST_KEY_TABLE: &str = "CREATE TABLE IF NOT EXISTS interest_key (
-            key BLOB, -- network_id sort_value controller StreamID height event_cid
-            ahash_0 INTEGER, -- the ahash is decomposed as [u32; 8]
-            ahash_1 INTEGER,
-            ahash_2 INTEGER,
-            ahash_3 INTEGER,
-            ahash_4 INTEGER,
-            ahash_5 INTEGER,
-            ahash_6 INTEGER,
-            ahash_7 INTEGER,
-            PRIMARY KEY(key)
-        )";
-
-        let mut tx = self.pool.tx().await?;
-        sqlx::query(CREATE_INTEREST_KEY_TABLE)
-            .execute(&mut *tx)
-            .await?;
-        tx.commit().await?;
-        Ok(())
-    }
-
     async fn insert_item(&self, key: &Interest) -> Result<bool> {
         let mut tx = self.pool.writer().begin().await?;
         let new_key = self.insert_item_int(key, &mut tx).await?;
@@ -81,14 +56,14 @@ where
 
     async fn insert_key_int(&self, key: &Interest, conn: &mut DbTx<'_>) -> Result<bool> {
         let key_insert = sqlx::query(
-            "INSERT INTO interest_key (
-                    key,
+            "INSERT INTO ceramic_one_interest (
+                    order_key,
                     ahash_0, ahash_1, ahash_2, ahash_3,
                     ahash_4, ahash_5, ahash_6, ahash_7
                 ) VALUES (
-                    ?, 
-                    ?, ?, ?, ?,
-                    ?, ?, ?, ?
+                    $1, 
+                    $2, $3, $4, $5,
+                    $6, $7, $8, $9
                 );",
         );
 
@@ -128,17 +103,17 @@ where
         let query = sqlx::query(
             "
         SELECT
-            key
+            order_key
         FROM
-            interest_key
+            ceramic_one_interest
         WHERE
-            key > ? AND key < ?
+            order_key > $1 AND order_key < $2
         ORDER BY
-            key ASC
+            order_key ASC
         LIMIT
-            ?
+            $3
         OFFSET
-            ?;
+            $4;
         ",
         );
         let rows = query
@@ -252,7 +227,7 @@ where
                TOTAL(ahash_4) & 0xFFFFFFFF, TOTAL(ahash_5) & 0xFFFFFFFF,
                TOTAL(ahash_6) & 0xFFFFFFFF, TOTAL(ahash_7) & 0xFFFFFFFF,
                COUNT(1)
-             FROM interest_key WHERE key > ? AND key < ?;",
+             FROM ceramic_one_interest WHERE order_key > $1 AND order_key < $2;",
         );
         let row = query
             .bind(left_fencepost.as_bytes())
@@ -312,11 +287,11 @@ where
         let query = sqlx::query(
             "
         SELECT
-            count(key)
+            count(order_key)
         FROM
-            interest_key
+            ceramic_one_interest
         WHERE
-            key > ? AND key < ?
+            order_key > $1 AND order_key < $2
         ;",
         );
         let row = query
@@ -337,13 +312,13 @@ where
         let query = sqlx::query(
             "
     SELECT
-        key
+        order_key
     FROM
-        interest_key
+        ceramic_one_interest
     WHERE
-        key > ? AND key < ?
+        order_key > $1 AND order_key < $2
     ORDER BY
-        key ASC
+        order_key ASC
     LIMIT
         1
     ; ",
@@ -371,13 +346,13 @@ where
         let query = sqlx::query(
             "
         SELECT
-            key
+            order_key
         FROM
-            interest_key
+            ceramic_one_interest
         WHERE
-            key > ? AND key < ?
+            order_key > $1 AND order_key < $2
         ORDER BY
-            key DESC
+            order_key DESC
         LIMIT
             1
         ;",
@@ -404,30 +379,28 @@ where
     ) -> Result<Option<(Self::Key, Self::Key)>> {
         let query = sqlx::query(
             "
-        SELECT first.key, last.key
+        SELECT first.order_key, last.order_key
         FROM
             (
-                SELECT key
-                FROM interest_key
+                SELECT order_key
+                FROM ceramic_one_interest
                 WHERE
-                            key > ? AND key < ?
-                ORDER BY key ASC
+                    order_key > $1 AND order_key < $2
+                ORDER BY order_key ASC
                 LIMIT 1
             ) as first
         JOIN
             (
-                SELECT key
-                FROM interest_key
+                SELECT order_key
+                FROM ceramic_one_interest
                 WHERE
-                            key > ? AND key < ?
-                ORDER BY key DESC
+                    order_key > $1 AND order_key < $2
+                ORDER BY order_key DESC
                 LIMIT 1
             ) as last
         ;",
         );
         let rows = query
-            .bind(left_fencepost.as_bytes())
-            .bind(right_fencepost.as_bytes())
             .bind(left_fencepost.as_bytes())
             .bind(right_fencepost.as_bytes())
             .fetch_all(self.pool.reader())
@@ -506,7 +479,7 @@ mod interest_tests {
     }
 
     async fn new_store() -> InterestStore<Sha256a> {
-        let conn = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let conn = SqlitePool::connect_in_memory().await.unwrap();
         InterestStore::<Sha256a>::new(conn).await.unwrap()
     }
 

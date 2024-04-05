@@ -1,14 +1,17 @@
+mod event;
 mod interest;
-mod model;
+mod root;
 
+pub use event::EventStore;
 pub use interest::InterestStore;
-pub use model::ModelStore;
+pub use root::RootStore;
 
 use chrono::{SecondsFormat, Utc};
 use std::{
     path::{Path, PathBuf},
     str::FromStr,
 };
+use tracing::info;
 
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
@@ -26,18 +29,29 @@ pub struct SqlitePool {
     reader: sqlx::SqlitePool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Now to handle outstanding database migrations.
+/// Intend to add a `Check` variant to verify the database is up to date and return an error if it is not.
+pub enum Migrations {
+    /// Apply migrations after opening connection
+    Apply,
+    /// Do nothing
+    Skip,
+}
+
 impl SqlitePool {
     /// Connect to the sqlite database at the given path. Creates the database if it does not exist.
     /// Uses WAL journal mode.
-    pub async fn connect(path: impl AsRef<Path>) -> anyhow::Result<Self> {
-        let db_path = format!("sqlite:{}", path.as_ref().display());
+    pub async fn connect(file_path: impl AsRef<Path>, migrate: Migrations) -> anyhow::Result<Self> {
+        let db = file_path.as_ref().display().to_string();
         // As we benchmark, we will likely adjust settings and make things configurable.
         // A few ideas: number of RO connections, synchronize = NORMAL, mmap_size, temp_store = memory
-        let conn_opts = SqliteConnectOptions::from_str(&db_path)?
+        let conn_opts = SqliteConnectOptions::from_str(&db)?
             .journal_mode(SqliteJournalMode::Wal)
             .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
             .create_if_missing(true)
-            .optimize_on_close(true, None);
+            .optimize_on_close(true, None)
+            .foreign_keys(true);
 
         let ro_opts = conn_opts.clone().read_only(true);
 
@@ -53,7 +67,17 @@ impl SqlitePool {
             .connect_with(ro_opts)
             .await?;
 
+        if migrate == Migrations::Apply {
+            sqlx::migrate!("../migrations/sqlite").run(&writer).await?;
+        }
+
         Ok(Self { writer, reader })
+    }
+
+    /// Creates an in-memory database. Useful for testing. Automatically applies migrations since all memory databases start empty
+    /// and are not shared between connections.
+    pub async fn connect_in_memory() -> anyhow::Result<Self> {
+        SqlitePool::connect(":memory:", Migrations::Apply).await
     }
 
     /// Get a reference to the writer database pool. The writer pool has only one connection.
@@ -76,14 +100,17 @@ impl SqlitePool {
     /// Connect to a SQLite file that is stored in store_dir/db.sqlite3
     /// if store_dir is None connect to $HOME/.ceramic-one/db.sqlite3
     /// if $HOME is undefined connect to /data/.ceramic-one/db.sqlite3
-    pub async fn from_store_dir(store_dir: Option<PathBuf>) -> Result<Self, anyhow::Error> {
+    pub async fn from_store_dir(
+        store_dir: Option<PathBuf>,
+        migrate: Migrations,
+    ) -> Result<Self, anyhow::Error> {
         let home: PathBuf = dirs::home_dir().unwrap_or("/data/".into());
         let store_dir = store_dir.unwrap_or(home.join(".ceramic-one/"));
-        println!(
+        info!(
             "{} Opening ceramic SQLite DB at: {}",
             Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
             store_dir.display()
         );
-        Self::connect(store_dir.join("db.sqlite3")).await
+        Self::connect(store_dir.join("db.sqlite3"), migrate).await
     }
 }

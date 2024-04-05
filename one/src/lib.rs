@@ -285,7 +285,7 @@ type InterestStore = ceramic_store::InterestStore<Sha256a>;
 type InterestInterest = FullInterests<Interest>;
 type ReconInterest = Server<Interest, Sha256a, MetricsStore<InterestStore>, InterestInterest>;
 
-type ModelStore = ceramic_store::ModelStore<Sha256a>;
+type ModelStore = ceramic_store::EventStore<Sha256a>;
 type ModelInterest = ReconInterestProvider<Sha256a>;
 type MetricsStore<T> = ceramic_store::StoreMetricsMiddleware<T>;
 type ReconModel = Server<EventId, Sha256a, MetricsStore<ModelStore>, ModelInterest>;
@@ -424,7 +424,9 @@ impl Daemon {
 
         // Connect to sqlite
         let sql_db_path: PathBuf = dir.join("db.sqlite3");
-        let sql_pool = ceramic_store::SqlitePool::connect(&sql_db_path).await?;
+        let sql_pool =
+            ceramic_store::SqlitePool::connect(&sql_db_path, ceramic_store::Migrations::Apply)
+                .await?;
 
         // Create recon metrics
         let recon_metrics = ceramic_metrics::MetricsHandle::register(recon::Metrics::register);
