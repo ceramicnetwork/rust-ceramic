@@ -120,7 +120,7 @@ impl ReconHash {
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct EventValueRaw {
     pub order_key: Vec<u8>,
-    pub codec: i32,
+    pub codec: i64,
     pub root: bool,
     pub idx: i32,
     pub multihash: Vec<u8>,

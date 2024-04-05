@@ -67,7 +67,7 @@ where
 
     async fn init_delivered(&self) -> Result<()> {
         let max_delivered =
-            sqlx::query(r#"SELECT COALESCE(MAX(delivered), 0)::bigint FROM event;"#)
+            sqlx::query(r#"SELECT COALESCE(MAX(delivered), 0)::bigint FROM ceramic_one_event;"#)
                 .fetch_one(self.pool.reader())
                 .await?;
         let max_delivered: i64 = max_delivered.get(0);
@@ -189,7 +189,7 @@ where
         conn.execute("SAVEPOINT insert_block_savepoint;")
             .await
             .context("savepoint error")?;
-        let resp = sqlx::query("INSERT INTO block (multihash, bytes) VALUES ($1, $2);")
+        let resp = sqlx::query("INSERT INTO ceramic_one_block (multihash, bytes) VALUES ($1, $2);")
             .bind(hash)
             .bind(blob)
             .execute(&mut **conn)
@@ -254,7 +254,7 @@ where
         let multihash = hash.to_bytes();
         sqlx::query(
             "INSERT INTO 
-                event_block (event_cid, idx, root, block_multihash, codec) 
+                ceramic_one_event_block (event_cid, idx, root, block_multihash, codec) 
                 VALUES ($1, $2, $3, $4, $5) on conflict do nothing;",
         )
         .bind(id)
@@ -270,7 +270,7 @@ where
     async fn mark_ready_to_deliver(&self, key: &EventId, conn: &mut DbTxPg<'_>) -> Result<()> {
         let id = key.as_bytes();
         let delivered = self.get_delivered();
-        sqlx::query("UPDATE event SET delivered = $1 WHERE order_key = $2;")
+        sqlx::query("UPDATE ceramic_one_event SET delivered = $1 WHERE order_key = $2;")
             .bind(delivered)
             .bind(id)
             .execute(&mut **conn)
@@ -561,8 +561,12 @@ impl iroh_bitswap::Store for EventStorePostgres<Sha256a> {
             .bind(cid.hash().to_bytes())
             .fetch_one(self.pool.reader())
             .await?
-            .get::<'_, i32, _>(0);
-        Ok(len > 0)
+            .get::<'_, bool, _>(0);
+        Ok(len)
+    }
+
+    async fn put(&self, block: &Block) -> Result<bool> {
+        Ok(self.put_block(block.cid().hash(), block.data()).await?)
     }
 }
 

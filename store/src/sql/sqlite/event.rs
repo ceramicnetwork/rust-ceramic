@@ -564,6 +564,10 @@ impl iroh_bitswap::Store for EventStoreSqlite<Sha256a> {
             .await?;
         Ok(len.res > 0)
     }
+
+    async fn put(&self, block: &Block) -> Result<bool> {
+        Ok(self.put_block(block.cid().hash(), block.data()).await?)
+    }
 }
 
 /// We intentionally expose the store to the API, separately from the recon::Store trait.

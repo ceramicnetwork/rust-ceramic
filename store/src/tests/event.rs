@@ -2,37 +2,89 @@ use std::{str::FromStr, sync::OnceLock};
 
 use anyhow::Error;
 use bytes::Bytes;
+use ceramic_api::AccessModelStore;
 use cid::{Cid, CidGeneric};
 use expect_test::expect;
 use iroh_bitswap::Store;
 use recon::{Key, ReconItem, Sha256a};
-use test_log::test;
-use tokio::sync::{Mutex, MutexGuard};
+use tokio::sync::Mutex;
 
 use super::*;
 
 static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
-async fn get_lock() -> MutexGuard<'static, ()> {
-    LOCK.get_or_init(|| Mutex::new(())).lock().await
+// could de-dup across event/interest tests... but we need to pass in the lock in that case or refactor so we have it in scope
+// also would need to pass in `$store: ident` and inject EventStoreSqlite/EventStorePostgres/InterestStoreSqlite/InterestStorePostgres
+macro_rules! test_with_pg {
+    ($test_name: ident,  $test_fn: expr $(, $sql_stmts:expr)?) => {
+
+        paste::paste! {
+            #[tokio::test]
+            async fn [<$test_name _pg>]() {
+                init_tracing();
+
+                if std::env::var("PG_TESTS").ok().is_none() {
+                    tracing::warn!("Skipping postgres test '{}'. Set PG_TESTS=1 to run", stringify!($test_name));
+                }
+
+                let conn = $crate::sql::PostgresPool::connect_in_memory().await.unwrap();
+                let store = $crate::EventStorePostgres::<recon::Sha256a>::new(conn).await.unwrap();
+                let _lock = LOCK.get_or_init(|| tokio::sync::Mutex::new(())).lock().await;
+                $(
+                    for stmt in $sql_stmts {
+                        store.pool.run_statement(stmt).await.unwrap();
+                    }
+                )?
+                $test_fn(store).await;
+            }
+        }
+    };
 }
 
-async fn prep_test(store: &EventStoreSqlite<Sha256a>) -> MutexGuard<'static, ()> {
-    let lock = get_lock().await;
-    for stmt in [
+macro_rules! test_with_sqlite {
+    ($test_name: ident, $test_fn: expr $(, $sql_stmts:expr)?) => {
+        paste::paste! {
+            #[tokio::test]
+            async fn [<$test_name _sqlite>]() {
+                init_tracing();
+
+                let conn = $crate::sql::SqlitePool::connect_in_memory().await.unwrap();
+                let store = $crate::EventStoreSqlite::<recon::Sha256a>::new(conn).await.unwrap();
+                $(
+                    for stmt in $sql_stmts {
+                        store.pool.run_statement(stmt).await.unwrap();
+                    }
+                )?
+                $test_fn(store).await;
+            }
+        }
+    };
+}
+
+/// test_name (will get two tests name_sqlite and name_pg)
+/// test_fn (the test function that will be run for both databases)
+/// sql_stmts (optional, array of sql statements to run before the test)
+macro_rules! test_with_dbs {
+    ($test_name: ident, $test_fn: expr $(, $sql_stmts:expr)?) => {
+        test_with_sqlite!($test_name, $test_fn $(, $sql_stmts)?);
+        test_with_pg!($test_name, $test_fn $(, $sql_stmts)?);
+    }
+}
+
+test_with_dbs!(
+    hash_range_query,
+    hash_range_query,
+    [
         "delete from ceramic_one_event_block",
         "delete from ceramic_one_event",
         "delete from ceramic_one_block",
-    ] {
-        store.pool.run_statement(stmt).await.unwrap();
-    }
-    lock
-}
+    ]
+);
 
-#[test(tokio::test)]
-async fn hash_range_query() {
-    let mut store = new_store().await;
-    let _l = prep_test(&store).await;
+async fn hash_range_query<S>(mut store: S)
+where
+    S: recon::Store<Key = EventId, Hash = Sha256a>,
+{
     recon::Store::insert(
         &mut store,
         ReconItem::new_key(&random_event_id(
@@ -58,10 +110,20 @@ async fn hash_range_query() {
         .assert_eq(&format!("{hash}"));
 }
 
-#[test(tokio::test)]
-async fn range_query() {
-    let mut store = new_store().await;
-    let _l = prep_test(&store).await;
+test_with_dbs!(
+    range_query,
+    range_query,
+    [
+        "delete from ceramic_one_event_block",
+        "delete from ceramic_one_event",
+        "delete from ceramic_one_block",
+    ]
+);
+
+async fn range_query<S>(mut store: S)
+where
+    S: recon::Store<Key = EventId, Hash = Sha256a>,
+{
     recon::Store::insert(
         &mut store,
         ReconItem::new_key(&random_event_id(
@@ -138,10 +200,20 @@ async fn range_query() {
         .assert_debug_eq(&ids.collect::<Vec<EventId>>());
 }
 
-#[test(tokio::test)]
-async fn range_query_with_values() {
-    let mut store = new_store().await;
-    let _l = prep_test(&store).await;
+test_with_dbs!(
+    range_query_with_values,
+    range_query_with_values,
+    [
+        "delete from ceramic_one_event_block",
+        "delete from ceramic_one_event",
+        "delete from ceramic_one_block",
+    ]
+);
+
+async fn range_query_with_values<S>(mut store: S)
+where
+    S: recon::Store<Key = EventId, Hash = Sha256a>,
+{
     // Write three keys, two with values and one without
     let one_id = random_event_id(
         Some(1),
@@ -186,10 +258,19 @@ async fn range_query_with_values() {
     assert_eq!(vec![(one_id, one_car), (two_id, two_car)], values);
 }
 
-#[test(tokio::test)]
-async fn double_insert() {
-    let mut store = new_store().await;
-    let _l = prep_test(&store).await;
+test_with_dbs!(
+    double_insert,
+    double_insert,
+    [
+        "delete from ceramic_one_event_block",
+        "delete from ceramic_one_event",
+        "delete from ceramic_one_block",
+    ]
+);
+async fn double_insert<S>(mut store: S)
+where
+    S: recon::Store<Key = EventId, Hash = Sha256a>,
+{
     let id = random_event_id(Some(10), None);
 
     // first insert reports its a new key
@@ -213,10 +294,19 @@ async fn double_insert() {
     .assert_debug_eq(&recon::Store::insert(&mut store, ReconItem::new_key(&id)).await);
 }
 
-#[test(tokio::test)]
-async fn double_insert_with_value() {
-    let mut store = new_store().await;
-    let _l = prep_test(&store).await;
+test_with_dbs!(
+    double_insert_with_value,
+    double_insert_with_value,
+    [
+        "delete from ceramic_one_event_block",
+        "delete from ceramic_one_event",
+        "delete from ceramic_one_block",
+    ]
+);
+async fn double_insert_with_value<S>(mut store: S)
+where
+    S: recon::Store<Key = EventId, Hash = Sha256a>,
+{
     let id = random_event_id(Some(10), None);
     let (_, car) = build_car_file(2).await;
 
@@ -242,10 +332,19 @@ async fn double_insert_with_value() {
     .assert_debug_eq(&recon::Store::insert(&mut store, item).await);
 }
 
-#[test(tokio::test)]
-async fn update_missing_value() {
-    let mut store = new_store().await;
-    let _l = prep_test(&store).await;
+test_with_dbs!(
+    update_missing_value,
+    update_missing_value,
+    [
+        "delete from ceramic_one_event_block",
+        "delete from ceramic_one_event",
+        "delete from ceramic_one_block",
+    ]
+);
+async fn update_missing_value<S>(mut store: S)
+where
+    S: recon::Store<Key = EventId, Hash = Sha256a>,
+{
     let id = random_event_id(Some(10), None);
     let (_, car) = build_car_file(2).await;
 
@@ -271,20 +370,20 @@ async fn update_missing_value() {
     .assert_debug_eq(&recon::Store::insert(&mut store, item_with_value).await);
 }
 
-#[test(tokio::test)]
-async fn first_and_last() {
-    let mut store = new_store().await;
-    let _l = prep_test(&store).await;
-    store
-        .pool
-        .run_statement("delete from ceramic_one_event;")
-        .await
-        .unwrap();
-    store
-        .pool
-        .run_statement("delete from ceramic_one_interest;")
-        .await
-        .unwrap();
+test_with_dbs!(
+    first_and_last,
+    first_and_last,
+    [
+        "delete from ceramic_one_event_block",
+        "delete from ceramic_one_event",
+        "delete from ceramic_one_block",
+        "delete from ceramic_one_interest",
+    ]
+);
+async fn first_and_last<S>(mut store: S)
+where
+    S: recon::Store<Key = EventId, Hash = Sha256a> + Send + Sync,
+{
     recon::Store::insert(
         &mut store,
         ReconItem::new_key(&random_event_id(
@@ -431,10 +530,19 @@ async fn first_and_last() {
         .assert_debug_eq(&ret);
 }
 
-#[test(tokio::test)]
-async fn store_value_for_key() {
-    let mut store = new_store().await;
-    let _l = prep_test(&store).await;
+test_with_dbs!(
+    store_value_for_key,
+    store_value_for_key,
+    [
+        "delete from ceramic_one_event_block",
+        "delete from ceramic_one_event",
+        "delete from ceramic_one_block",
+    ]
+);
+async fn store_value_for_key<S>(mut store: S)
+where
+    S: recon::Store<Key = EventId, Hash = Sha256a>,
+{
     let key = random_event_id(None, None);
     let (_, store_value) = build_car_file(3).await;
     recon::Store::insert(
@@ -449,10 +557,11 @@ async fn store_value_for_key() {
         .unwrap();
     assert_eq!(hex::encode(store_value), hex::encode(value));
 }
-#[test(tokio::test)]
-async fn keys_with_missing_value() {
-    let mut store = new_store().await;
-    let _l = prep_test(&store).await;
+
+async fn keys_with_missing_value<S>(mut store: S)
+where
+    S: recon::Store<Key = EventId, Hash = Sha256a>,
+{
     let key = random_event_id(
         Some(4),
         Some("baeabeigc5edwvc47ul6belpxk3lgddipri5hw6f347s6ur4pdzwceprqbu"),
@@ -509,10 +618,19 @@ async fn keys_with_missing_value() {
     .assert_debug_eq(&missing_keys);
 }
 
-#[test(tokio::test)]
-async fn read_value_as_block() {
-    let mut store = new_store().await;
-    let _l = prep_test(&store).await;
+test_with_dbs!(
+    read_value_as_block,
+    read_value_as_block,
+    [
+        "delete from ceramic_one_event_block",
+        "delete from ceramic_one_event",
+        "delete from ceramic_one_block",
+    ]
+);
+async fn read_value_as_block<S>(mut store: S)
+where
+    S: recon::Store<Key = EventId, Hash = Sha256a> + iroh_bitswap::Store,
+{
     let key = random_event_id(None, None);
     let (blocks, store_value) = build_car_file(3).await;
     recon::Store::insert(
@@ -538,7 +656,7 @@ async fn read_value_as_block() {
 // each one takes n+1 blocks as it needs to store the root and all blocks so we expect 3+5+10+3=21 blocks
 // but we use a delivered integer per event, so we expect it to increment by 1 for each event
 async fn prep_highwater_tests(
-    store: &mut EventStoreSqlite<Sha256a>,
+    store: &mut dyn AccessModelStore<Key = EventId, Hash = Sha256a>,
 ) -> (EventId, EventId, EventId) {
     let key_a = random_event_id(None, None);
     let key_b = random_event_id(None, None);
@@ -546,84 +664,108 @@ async fn prep_highwater_tests(
     for (x, key) in [3, 5, 10].into_iter().zip([&key_a, &key_b, &key_c]) {
         let (_blocks, store_value) = build_car_file(x).await;
         assert_eq!(_blocks.len(), x);
-        recon::Store::insert(
-            store,
-            ReconItem::new_with_value(key, store_value.as_slice()),
-        )
-        .await
-        .unwrap();
+        store
+            .insert(key.to_owned(), Some(store_value))
+            .await
+            .unwrap();
     }
 
     (key_a, key_b, key_c)
 }
 
-#[test(tokio::test)]
-async fn keys_since_highwater_mark_all_global_counter() {
-    let mut store1 = new_store().await;
-    let _l = prep_test(&store1).await;
-    let (key_a, key_b, key_c) = prep_highwater_tests(&mut store1).await;
+test_with_dbs!(
+    keys_since_highwater_mark_all_global_counter,
+    keys_since_highwater_mark_all_global_counter,
+    [
+        "delete from ceramic_one_event_block",
+        "delete from ceramic_one_event",
+        "delete from ceramic_one_block",
+    ]
+);
+async fn keys_since_highwater_mark_all_global_counter<S>(mut store: S)
+where
+    S: AccessModelStore<Key = EventId, Hash = Sha256a>,
+{
+    let (key_a, key_b, key_c) = prep_highwater_tests(&mut store).await;
 
-    let (hw, res) = store1.new_keys_since_value(0, 10).await.unwrap();
+    let (hw, res) = store.keys_since_highwater_mark(0, 10).await.unwrap();
     assert_eq!(3, res.len());
     assert!(hw >= 4); // THIS IS THE GLOBAL COUNTER. we have 3 rows in the db we have a counter of 4 or more
     let exp = [key_a.clone(), key_b.clone(), key_c.clone()];
     assert_eq!(exp, res.as_slice());
-
-    // TODO: handle memory vs pg
-
-    // drop(store1);
-    // let mut store2 = new_store().await;
-
-    // let (key1_a, key1_b, key1_c) = prep_highwater_tests(&mut store2).await;
-    // let (hw, res) = store2.new_keys_since_value(0, 10).await.unwrap();
-    // assert_eq!(3, res.len());
-    // assert!(hw > 6); // THIS IS GLOBAL COUNTER. 3 rows in db, counter 7 or more depending on how many other tests are running
-
-    // assert_eq!([key1_a, key1_b, key1_c], res.as_slice());
 }
 
-#[test(tokio::test)]
-async fn keys_since_highwater_mark_limit_1() {
-    let mut store: EventStoreSqlite<Sha256a> = new_local_store().await;
+test_with_dbs!(
+    keys_since_highwater_mark_limit_1,
+    keys_since_highwater_mark_limit_1,
+    [
+        "delete from ceramic_one_event_block",
+        "delete from ceramic_one_event",
+        "delete from ceramic_one_block",
+    ]
+);
+async fn keys_since_highwater_mark_limit_1<S>(mut store: S)
+where
+    S: AccessModelStore<Key = EventId, Hash = Sha256a>,
+{
     let (key_a, _key_b, _key_c) = prep_highwater_tests(&mut store).await;
-
-    let (hw, res) = store.new_keys_since_value(0, 1).await.unwrap();
+    let (hw_og, res) = store.keys_since_highwater_mark(0, 1).await.unwrap();
     assert_eq!(1, res.len());
-    assert_eq!(2, hw);
+    assert!(hw_og >= 2); // other tests might be incrementing the count. but we should have at least 2 and it shouldn't change between calls
+    let (hw, res) = store.keys_since_highwater_mark(0, 1).await.unwrap();
+    assert_eq!(hw_og, hw);
     assert_eq!([key_a], res.as_slice());
 }
 
-#[test(tokio::test)]
-async fn keys_since_highwater_mark_middle_start() {
-    let mut store: EventStoreSqlite<Sha256a> = new_local_store().await;
+test_with_dbs!(
+    keys_since_highwater_mark_middle_start,
+    keys_since_highwater_mark_middle_start,
+    [
+        "delete from ceramic_one_event_block",
+        "delete from ceramic_one_event",
+        "delete from ceramic_one_block",
+    ]
+);
+async fn keys_since_highwater_mark_middle_start<S>(mut store: S)
+where
+    S: AccessModelStore<Key = EventId, Hash = Sha256a>,
+{
     let (key_a, key_b, key_c) = prep_highwater_tests(&mut store).await;
 
     // starting at rowid 1 which is in the middle of key A should still return key A
-    let (hw, res) = store.new_keys_since_value(1, 2).await.unwrap();
+    let (hw, res) = store.keys_since_highwater_mark(1, 2).await.unwrap();
     assert_eq!(2, res.len());
-    assert_eq!(3, hw);
+    assert!(hw >= 3);
     assert_eq!([key_a, key_b], res.as_slice());
 
-    let (hw, res) = store.new_keys_since_value(hw, 1).await.unwrap();
+    let (hw, res) = store.keys_since_highwater_mark(hw, 1).await.unwrap();
     assert_eq!(1, res.len());
-    assert_eq!(4, hw);
+    assert!(hw >= 4);
     assert_eq!([key_c], res.as_slice());
 
-    let (hw, res) = store.new_keys_since_value(hw, 1).await.unwrap();
+    let (hw, res) = store.keys_since_highwater_mark(hw, 1).await.unwrap();
     assert_eq!(0, res.len());
-    assert_eq!(4, hw); // previously returned 0
+    assert!(hw >= 4); // previously returned 0
 }
 
-#[tokio::test]
-async fn test_store_block() {
-    let blob: Bytes = hex::decode("0a050001020304").unwrap().into();
+test_with_dbs!(
+    test_store_block,
+    test_store_block,
+    [
+        "delete from ceramic_one_event_block",
+        "delete from ceramic_one_event",
+        "delete from ceramic_one_block"
+    ]
+);
+async fn test_store_block<S>(store: S)
+where
+    S: iroh_bitswap::Store,
+{
+    let data: Bytes = hex::decode("0a050001020304").unwrap().into();
     let cid: CidGeneric<64> =
         Cid::from_str("bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom").unwrap(); // cspell:disable-line
 
-    let store = new_store().await;
-    let _l = prep_test(&store).await;
-
-    let result = store.put_block(cid.hash(), &blob).await.unwrap();
+    let result = store.put(&Block { cid, data }).await.unwrap();
     // assert the block is new
     assert!(result);
 
@@ -639,21 +781,30 @@ async fn test_store_block() {
     expect![["0A050001020304"]].assert_eq(&hex::encode_upper(block.data()));
 }
 
-#[tokio::test]
-async fn test_double_store_block() {
-    let blob: Bytes = hex::decode("0a050001020304").unwrap().into();
+test_with_dbs!(
+    test_double_store_block,
+    test_double_store_block,
+    [
+        "delete from ceramic_one_event_block",
+        "delete from ceramic_one_event",
+        "delete from ceramic_one_block"
+    ]
+);
+async fn test_double_store_block<S>(store: S)
+where
+    S: iroh_bitswap::Store,
+{
+    let data: Bytes = hex::decode("0a050001020304").unwrap().into();
     let cid: CidGeneric<64> =
         Cid::from_str("bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom").unwrap(); // cspell:disable-line
 
-    let store = new_store().await;
-    let _l = prep_test(&store).await;
-
-    let result = store.put_block(cid.hash(), &blob).await;
+    let blob = Block { cid, data };
+    let result = store.put(&blob).await;
     // Assert that the block is new
     assert!(result.unwrap());
 
     // Try to put the block again
-    let result = store.put_block(cid.hash(), &blob).await;
+    let result = store.put(&blob).await;
     // Assert that the block already existed
     assert!(!result.unwrap());
 
@@ -669,13 +820,22 @@ async fn test_double_store_block() {
     expect![["0A050001020304"]].assert_eq(&hex::encode_upper(block.data()));
 }
 
-#[tokio::test]
-async fn test_get_nonexistent_block() {
-    let store = new_store().await;
-    let _l = prep_test(&store).await;
-
+test_with_dbs!(
+    test_get_nonexistent_block,
+    test_get_nonexistent_block,
+    [
+        "delete from ceramic_one_event_block",
+        "delete from ceramic_one_event",
+        "delete from ceramic_one_block"
+    ]
+);
+async fn test_get_nonexistent_block<S>(store: S)
+where
+    S: iroh_bitswap::Store,
+{
     let cid = Cid::from_str("bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom").unwrap(); // cspell:disable-line
-
+    let exists = iroh_bitswap::Store::has(&store, &cid).await.unwrap();
+    assert!(!exists);
     let err = store.get(&cid).await.unwrap_err().to_string();
     assert!(
         err.contains("no rows returned by a query that expected to return at least one row"),

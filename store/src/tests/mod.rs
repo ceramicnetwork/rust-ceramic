@@ -1,10 +1,6 @@
 mod event;
 mod interest;
 
-use self::EventStoreSqlite;
-
-use super::*;
-
 use std::str::FromStr;
 
 use ceramic_core::{
@@ -19,27 +15,29 @@ use libipld::{ipld, prelude::Encode, Ipld};
 use libipld_cbor::DagCborCodec;
 use multihash::{Code, MultihashDigest};
 use rand::Rng;
-use recon::Sha256a;
+use tracing::level_filters::LevelFilter;
+use tracing_subscriber::EnvFilter;
 
-pub(crate) async fn new_store() -> EventStoreSqlite<Sha256a> {
-    let conn = SqlitePool::connect_in_memory().await.unwrap();
-    EventStoreSqlite::new(conn).await.unwrap()
-}
+pub(crate) fn init_tracing() {
+    let filter_builder = EnvFilter::builder().with_default_directive(LevelFilter::WARN.into());
 
-// for the highwater tests that care about event ordering
-pub(crate) async fn new_local_store() -> EventStoreSqlite<Sha256a> {
-    let conn = SqlitePool::connect_in_memory().await.unwrap();
-    EventStoreSqlite::new_local(conn).await.unwrap()
-}
+    let log_filter = filter_builder.from_env().unwrap();
 
-#[tokio::test]
-async fn get_nonexistent_block() {
-    let store = new_store().await;
+    let log_subscriber = tracing_subscriber::Layer::with_filter(
+        tracing_subscriber::fmt::layer()
+            // The JSON format ignore the ansi setting and always format without colors.
+            .with_ansi(true),
+        log_filter,
+    );
 
-    let cid = Cid::from_str("bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom").unwrap(); // cspell:disable-line
+    #[cfg(feature = "tokio-console")]
+    let registry = tracing_subscriber::registry().with(console_subscriber::spawn());
+    #[cfg(not(feature = "tokio-console"))]
+    let registry = tracing_subscriber::registry();
 
-    let exists = iroh_bitswap::Store::has(&store, &cid).await.unwrap();
-    assert!(!exists);
+    let _ = tracing_subscriber::util::SubscriberInitExt::try_init(
+        tracing_subscriber::layer::SubscriberExt::with(registry, log_subscriber),
+    );
 }
 
 const MODEL_ID: &str = "k2t6wz4yhfp1r5pwi52gw89nzjbu53qk7m32o5iguw42c6knsaj0feuf927agb";

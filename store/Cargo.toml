@@ -39,3 +39,4 @@ tokio.workspace = true
 tracing-subscriber.workspace = true
 libipld.workspace = true
 libipld-cbor.workspace = true
+paste = "1.0"

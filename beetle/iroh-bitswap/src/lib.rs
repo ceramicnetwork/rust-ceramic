@@ -121,6 +121,7 @@ pub trait Store: Debug + Clone + Send + Sync + 'static {
     async fn get_size(&self, cid: &Cid) -> Result<usize>;
     async fn get(&self, cid: &Cid) -> Result<Block>;
     async fn has(&self, cid: &Cid) -> Result<bool>;
+    async fn put(&self, block: &Block) -> Result<bool>;
 }
 
 impl<S: Store> Bitswap<S> {
@@ -640,6 +641,10 @@ mod tests {
         async fn has(&self, _: &Cid) -> Result<bool> {
             todo!()
         }
+
+        async fn put(&self, _: &Block) -> Result<bool> {
+            todo!()
+        }
     }
 
     #[test]
@@ -693,6 +698,15 @@ mod tests {
 
         async fn has(&self, cid: &Cid) -> Result<bool> {
             Ok(self.store.read().await.contains_key(cid))
+        }
+
+        async fn put(&self, block: &Block) -> Result<bool> {
+            Ok(self
+                .store
+                .write()
+                .await
+                .insert(block.cid.clone(), block.clone())
+                .is_none())
         }
     }
 

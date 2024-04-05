@@ -11,7 +11,7 @@ impl BlockQuery {
     }
     /// Requires 1 parameter. Depends on backend. Make sure you are using int4, int8 correctly
     pub fn has() -> &'static str {
-        "SELECT count(1) as res FROM ceramic_one_block WHERE multihash = $1;"
+        "SELECT count(1) > 0 as res FROM ceramic_one_block WHERE multihash = $1;"
     }
 }
 
@@ -336,7 +336,7 @@ impl ReconQuery {
             }
 
             (ReconType::Event, SqlBackend::Sqlite) => {
-                r#"SELECT first.order_key, last.order_key
+                r#"SELECT first.order_key as "first_key", last.order_key as "last_key"
                     FROM
                         (
                             SELECT order_key
@@ -357,7 +357,7 @@ impl ReconQuery {
                         ) as last;"#
             }
             (ReconType::Interest, SqlBackend::Sqlite) => {
-                r#"SELECT first.order_key, last.order_key
+                r#"SELECT first.order_key as "first_key", last.order_key as "last_key"
                 FROM
                     (
                         SELECT order_key

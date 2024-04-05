@@ -9,6 +9,6 @@ mod tests;
 
 pub use metrics::{Metrics, StoreMetricsMiddleware};
 pub use sql::{
-    DbTxPg, DbTxSqlite, EventStorePostgres, EventStoreSqlite, InterestStoreSqlite, Migrations,
-    PostgresPool, RootStore, SqlitePool,
+    DbTxPg, DbTxSqlite, EventStorePostgres, EventStoreSqlite, InterestStorePostgres,
+    InterestStoreSqlite, Migrations, PostgresPool, RootStore, SqlitePool,
 };

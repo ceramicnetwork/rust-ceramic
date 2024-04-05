@@ -1,10 +1,5 @@
-use std::{collections::BTreeSet, str::FromStr, sync::OnceLock};
-
-use crate::PostgresPool;
-
-use self::sql::InterestStorePostgres;
-
-use super::*;
+use std::sync::OnceLock;
+use std::{collections::BTreeSet, str::FromStr};
 
 use ceramic_api::AccessInterestStore;
 use ceramic_core::{
@@ -12,25 +7,73 @@ use ceramic_core::{
     Interest, PeerId,
 };
 use rand::{thread_rng, Rng};
-use recon::{AssociativeHash, FullInterests, InterestProvider, Key, ReconItem, Sha256a, Store};
+use recon::{AssociativeHash, FullInterests, InterestProvider, Key, ReconItem, Sha256a};
 
 use expect_test::expect;
-use test_log::test;
-use tokio::sync::{Mutex, MutexGuard};
+use tokio::sync::Mutex;
 
 const SORT_KEY: &str = "model";
 const PEER_ID: &str = "1AdgHpWeBKTU3F2tUkAQqL2Y2Geh4QgHJwcWMPuiY1qiRQ";
 
+use super::init_tracing;
+
+// Tokio mutex as we hold it over await points for the tests
 static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
-async fn prep_test(store: &InterestStorePostgres<Sha256a>) -> MutexGuard<'static, ()> {
-    let lock = LOCK.get_or_init(|| Mutex::new(())).lock().await;
-    store
-        .pool
-        .run_statement("delete from ceramic_one_interest;")
-        .await
-        .unwrap();
-    lock
+macro_rules! test_with_pg {
+    ($test_name: ident,  $test_fn: expr $(, $sql_stmts:expr)?) => {
+
+        paste::paste! {
+            #[tokio::test]
+            async fn [<$test_name _pg>]() {
+                init_tracing();
+
+                if std::env::var("PG_TESTS").ok().is_none() {
+                    tracing::warn!("Skipping postgres test '{}'. Set PG_TESTS=1 to run", stringify!($test_name));
+                }
+
+                let conn = $crate::sql::PostgresPool::connect_in_memory().await.unwrap();
+                let store = $crate::InterestStorePostgres::<recon::Sha256a>::new(conn).await.unwrap();
+                let _lock = LOCK.get_or_init(|| tokio::sync::Mutex::new(())).lock().await;
+                $(
+                    for stmt in $sql_stmts {
+                        store.pool.run_statement(stmt).await.unwrap();
+                    }
+                )?
+                $test_fn(store).await;
+            }
+        }
+    };
+}
+
+macro_rules! test_with_sqlite {
+    ($test_name: ident, $test_fn: expr $(, $sql_stmts:expr)?) => {
+        paste::paste! {
+            #[tokio::test]
+            async fn [<$test_name _sqlite>]() {
+                init_tracing();
+
+                let conn = $crate::sql::SqlitePool::connect_in_memory().await.unwrap();
+                let store = $crate::InterestStoreSqlite::<recon::Sha256a>::new(conn).await.unwrap();
+                $(
+                    for stmt in $sql_stmts {
+                        store.pool.run_statement(stmt).await.unwrap();
+                    }
+                )?
+                $test_fn(store).await;
+            }
+        }
+    };
+}
+
+/// test_name (will get two tests name_sqlite and name_pg)
+/// test_fn (the test function that will be run for both databases)
+/// sql_stmts (optional, array of sql statements to run before the test)
+macro_rules! test_with_dbs {
+    ($test_name: ident, $test_fn: expr $(, $sql_stmts:expr)?) => {
+        test_with_sqlite!($test_name, $test_fn $(, $sql_stmts)?);
+        test_with_pg!($test_name, $test_fn $(, $sql_stmts)?);
+    }
 }
 
 // Return an builder for an event with the same network,model,controller,stream.
@@ -61,17 +104,14 @@ pub(crate) fn random_interest_max() -> Interest {
     interest_builder().with_max_range().build_fencepost()
 }
 
-async fn new_store() -> InterestStorePostgres<Sha256a> {
-    let conn = PostgresPool::connect_in_memory().await.unwrap();
-    InterestStorePostgres::<Sha256a>::new(conn).await.unwrap()
-}
+test_with_dbs!(
+    access_interest_model,
+    access_interest_model,
+    ["delete from ceramic_one_interest"]
+);
 
-#[test(tokio::test)]
 // This is the same as the recon::Store range test, but with the interest store (hits all its methods)
-async fn access_interest_model() {
-    let store = new_store().await;
-    let _lock = prep_test(&store).await;
-
+async fn access_interest_model(store: impl AccessInterestStore<Key = Interest, Hash = Sha256a>) {
     let interest_0 = random_interest(None, None);
     let interest_1 = random_interest(None, None);
     AccessInterestStore::insert(&store, interest_0.clone())
@@ -95,10 +135,16 @@ async fn access_interest_model() {
     );
 }
 
-#[test(tokio::test)]
-async fn test_hash_range_query() {
-    let mut store = new_store().await;
-    let _lock = prep_test(&store).await;
+test_with_dbs!(
+    test_hash_range_query,
+    test_hash_range_query,
+    ["delete from ceramic_one_interest"]
+);
+
+async fn test_hash_range_query<S>(mut store: S)
+where
+    S: recon::Store<Key = Interest, Hash = Sha256a>,
+{
     recon::Store::insert(
         &mut store,
         ReconItem::new_key(&random_interest(Some((&[0], &[1])), Some(42))),
@@ -120,17 +166,20 @@ async fn test_hash_range_query() {
         .assert_eq(&hash_cnt.hash().to_hex());
 }
 
-#[test(tokio::test)]
-async fn test_hash_range_query_defaults() {
-    let mut store = new_store().await;
-    let _lock = prep_test(&store).await;
-    store.pool.run_statement(r#"INSERT INTO public.ceramic_one_interest
-        (order_key, ahash_0, ahash_1, ahash_2, ahash_3, ahash_4, ahash_5, ahash_6, ahash_7)
-        VALUES(decode('480F70D652B6B825E45826002408011220FCD119D77CA668F157CED3FB79498A82B41CA4D7DC05F90B6B227196F3EC856401581DCE010580808080107E710E217FA0E25900000000000000000000000000581DCE010580808080107E710E217FA0E259FFFFFFFFFFFFFFFFFFFFFFFFFF00','hex'), 3708858614, 3187057933, 90630269, 2944836858, 2664423810, 3186949905, 2792292527, 515406059);"#).await.unwrap();
+test_with_pg!(
+    test_hash_range_query_defaults,
+    test_hash_range_query_defaults,
+    ["delete from ceramic_one_interest",
+    "INSERT INTO ceramic_one_interest (order_key, ahash_0, ahash_1, ahash_2, ahash_3, ahash_4, ahash_5, ahash_6, ahash_7)
+    VALUES(decode('480F70D652B6B825E45826002408011220FCD119D77CA668F157CED3FB79498A82B41CA4D7DC05F90B6B227196F3EC856401581DCE010580808080107E710E217FA0E25900000000000000000000000000581DCE010580808080107E710E217FA0E259FFFFFFFFFFFFFFFFFFFFFFFFFF00','hex'), 3708858614, 3187057933, 90630269, 2944836858, 2664423810, 3186949905, 2792292527, 515406059);",
+    "INSERT INTO ceramic_one_interest (order_key, ahash_0, ahash_1, ahash_2, ahash_3, ahash_4, ahash_5, ahash_6, ahash_7)
+    VALUES(decode('480F70D652B6B825E45826002408011220FCD119D77CA668F157CED3FB79498A82B41CA4D7DC05F90B6B227196F3EC856401581DCE01058080808010A252AB059F8F49FD00000000000000000000000000581DCE01058080808010A252AB059F8F49FDFFFFFFFFFFFFFFFFFFFFFFFFFF00','hex'), 2841278, 2946150166, 1420163820, 754142617, 2283458068, 1856053704, 3039129056, 3387910774);"]
+);
 
-    store.pool.run_statement("INSERT INTO public.ceramic_one_interest
-        (order_key, ahash_0, ahash_1, ahash_2, ahash_3, ahash_4, ahash_5, ahash_6, ahash_7)
-        VALUES(decode('480F70D652B6B825E45826002408011220FCD119D77CA668F157CED3FB79498A82B41CA4D7DC05F90B6B227196F3EC856401581DCE01058080808010A252AB059F8F49FD00000000000000000000000000581DCE01058080808010A252AB059F8F49FDFFFFFFFFFFFFFFFFFFFFFFFFFF00','hex'), 2841278, 2946150166, 1420163820, 754142617, 2283458068, 1856053704, 3039129056, 3387910774);").await.unwrap();
+async fn test_hash_range_query_defaults<S>(mut store: S)
+where
+    S: recon::Store<Key = Interest, Hash = Sha256a>,
+{
     let interests = FullInterests::<Interest>::default()
         .interests()
         .await
@@ -142,12 +191,18 @@ async fn test_hash_range_query_defaults() {
     }
 }
 
-#[test(tokio::test)]
-async fn test_range_query() {
-    let mut store = new_store().await;
+test_with_dbs!(
+    test_range_query,
+    test_range_query,
+    ["delete from ceramic_one_interest"]
+);
+
+async fn test_range_query<S>(mut store: S)
+where
+    S: recon::Store<Key = Interest, Hash = Sha256a>,
+{
     let interest_0 = random_interest(None, None);
     let interest_1 = random_interest(None, None);
-    let _lock = prep_test(&store).await;
 
     recon::Store::insert(&mut store, ReconItem::new_key(&interest_0))
         .await
@@ -168,15 +223,21 @@ async fn test_range_query() {
     assert_eq!(BTreeSet::from_iter([interest_0, interest_1]), interests);
 }
 
-#[test(tokio::test)]
-async fn test_range_with_values_query() {
-    let mut store = new_store().await;
-    let _lock = prep_test(&store).await;
+test_with_dbs!(
+    test_range_with_values_query,
+    test_range_with_values_query,
+    ["delete from ceramic_one_interest"]
+);
+
+async fn test_range_with_values_query<S>(mut store: S)
+where
+    S: recon::Store<Key = Interest, Hash = Sha256a>,
+{
     let interest_0 = random_interest(None, None);
     let interest_1 = random_interest(None, None);
 
-    store.insert(interest_0.clone()).await.unwrap();
-    store.insert(interest_1.clone()).await.unwrap();
+    store.insert(ReconItem::new_key(&interest_0)).await.unwrap();
+    store.insert(ReconItem::new_key(&interest_1)).await.unwrap();
     let ids = store
         .range_with_values(
             &random_interest_min(),
@@ -193,11 +254,16 @@ async fn test_range_with_values_query() {
     assert_eq!(BTreeSet::from_iter([interest_0, interest_1]), interests);
 }
 
-#[test(tokio::test)]
-async fn test_double_insert() {
-    let mut store = new_store().await;
-    let _lock = prep_test(&store).await;
+test_with_dbs!(
+    test_double_insert,
+    test_double_insert,
+    ["delete from ceramic_one_interest"]
+);
 
+async fn test_double_insert<S>(mut store: S)
+where
+    S: recon::Store<Key = Interest, Hash = Sha256a>,
+{
     let interest = random_interest(None, None);
     // do take the first one
     expect![
@@ -220,11 +286,16 @@ async fn test_double_insert() {
     .assert_debug_eq(&recon::Store::insert(&mut store, ReconItem::new_key(&interest)).await);
 }
 
-#[test(tokio::test)]
-async fn test_first_and_last() {
-    let mut store = new_store().await;
-    let _lock = prep_test(&store).await;
+test_with_dbs!(
+    test_first_and_last,
+    test_first_and_last,
+    ["delete from ceramic_one_interest"]
+);
 
+async fn test_first_and_last<S>(mut store: S)
+where
+    S: recon::Store<Key = Interest, Hash = Sha256a> + Send + Sync,
+{
     let interest_0 = random_interest(Some((&[], &[])), Some(42));
     let interest_1 = random_interest(Some((&[], &[])), Some(43));
     recon::Store::insert(&mut store, ReconItem::new_key(&interest_0))
@@ -360,25 +431,35 @@ async fn test_first_and_last() {
         .assert_debug_eq(&ret);
 }
 
-#[test(tokio::test)]
-#[should_panic(expected = "Interests do not support values! Invalid request.")]
-async fn test_store_value_for_key_error() {
-    let mut store = new_store().await;
-    let _lock = prep_test(&store).await;
+test_with_dbs!(
+    test_store_value_for_key_error,
+    test_store_value_for_key_error,
+    ["delete from ceramic_one_interest"]
+);
+
+async fn test_store_value_for_key_error<S>(mut store: S)
+where
+    S: recon::Store<Key = Interest, Hash = Sha256a>,
+{
     let key = random_interest(None, None);
     let store_value = random_interest(None, None);
-    recon::Store::insert(
+    let err = recon::Store::insert(
         &mut store,
         ReconItem::new_with_value(&key, store_value.as_slice()),
     )
-    .await
-    .unwrap();
+    .await;
+    let err = err.unwrap_err();
+    assert!(err
+        .to_string()
+        .contains("Interests do not support values! Invalid request."));
 }
 
-#[test(tokio::test)]
-async fn test_keys_with_missing_value() {
-    let mut store = new_store().await;
-    let _lock = prep_test(&store).await;
+test_with_dbs!(test_keys_with_missing_value, test_keys_with_missing_value);
+
+async fn test_keys_with_missing_value<S>(mut store: S)
+where
+    S: recon::Store<Key = Interest, Hash = Sha256a>,
+{
     let key = random_interest(None, None);
     recon::Store::insert(&mut store, ReconItem::new(&key, None))
         .await
@@ -405,10 +486,16 @@ async fn test_keys_with_missing_value() {
     .assert_debug_eq(&missing_keys);
 }
 
-#[test(tokio::test)]
-async fn test_value_for_key() {
-    let mut store = new_store().await;
-    let _lock = prep_test(&store).await;
+test_with_dbs!(
+    test_value_for_key,
+    test_value_for_key,
+    ["delete from ceramic_one_interest"]
+);
+
+async fn test_value_for_key<S>(mut store: S)
+where
+    S: recon::Store<Key = Interest, Hash = Sha256a>,
+{
     let key = random_interest(None, None);
     recon::Store::insert(&mut store, ReconItem::new(&key, None))
         .await
