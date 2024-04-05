@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT COALESCE(MAX(delivered), 0) as delivered FROM event;",
+  "query": "SELECT COALESCE(MAX(delivered), 0) as delivered FROM ceramic_one_event;",
   "describe": {
     "columns": [
       {
@@ -16,5 +16,5 @@
       false
     ]
   },
-  "hash": "794af83c4e05b19017cc911e14b1201294004da0fde5fb4bbdbb0d84ed760d90"
+  "hash": "1c3b89021ee5b0ce5f81f23176df6f5ffaf544cf6ab93a300a3fc1ec1713aae9"
 }

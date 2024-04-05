@@ -1,2 +1,2 @@
 -- Add down migration script here
-DROP TABLE IF EXISTS "block";
+DROP TABLE IF EXISTS "ceramic_one_block";

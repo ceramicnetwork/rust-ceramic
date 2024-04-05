@@ -92,7 +92,7 @@ where
 
     async fn init_delivered(&self) -> Result<()> {
         let max_delivered =
-            sqlx::query!("SELECT COALESCE(MAX(delivered), 0) as delivered FROM event;")
+            sqlx::query!("SELECT COALESCE(MAX(delivered), 0) as delivered FROM ceramic_one_event;")
                 .fetch_one(self.pool.reader())
                 .await?
                 .delivered as i64;
@@ -149,13 +149,13 @@ where
 
         let all_blocks = sqlx::query!(
             "SELECT
-                key.order_key, event_block.codec, event_block.root, event_block.idx, block.multihash, block.bytes
+                key.order_key, eb.codec, eb.root, eb.idx, b.multihash, b.bytes
             FROM (
                 SELECT
                     e.cid as event_cid, e.order_key
-                FROM event e
+                FROM ceramic_one_event e
                 WHERE
-                    EXISTS (SELECT 1 from event_block where event_cid = e.cid)
+                    EXISTS (SELECT 1 from ceramic_one_event_block where event_cid = e.cid)
                     AND e.order_key > $1 AND e.order_key < $2
                 ORDER BY
                     e.order_key ASC
@@ -165,9 +165,9 @@ where
                     $4
             ) key
             JOIN
-                event_block ON key.event_cid = event_block.event_cid
-            JOIN block on block.multihash = event_block.block_multihash
-                ORDER BY key.order_key, event_block.idx
+                ceramic_one_event_block eb ON key.event_cid = eb.event_cid
+            JOIN ceramic_one_block b on b.multihash = eb.block_multihash
+                ORDER BY key.order_key, eb.idx
             ;",
             lfp,
             rfp,
@@ -221,9 +221,9 @@ where
             "
             SELECT 
                 eb.codec, eb.root, b.multihash, b.bytes
-            FROM event_block eb 
-            JOIN block b on b.multihash = eb.block_multihash
-            JOIN event e on e.cid = eb.event_cid
+            FROM ceramic_one_event_block eb 
+            JOIN ceramic_one_block b on b.multihash = eb.block_multihash
+            JOIN ceramic_one_event e on e.cid = eb.event_cid
             WHERE e.order_key = $1
             ORDER BY eb.idx;",
         );
@@ -285,7 +285,7 @@ where
         let hash = hash.to_bytes();
         let blob = blob.to_vec();
         let resp = sqlx::query!(
-            "INSERT INTO block (multihash, bytes) VALUES ($1, $2);",
+            "INSERT INTO ceramic_one_block (multihash, bytes) VALUES ($1, $2);",
             hash,
             blob,
         )
@@ -343,7 +343,7 @@ where
         let id = key.cid().context("Event CID is required")?.to_bytes();
         let multihash = hash.to_bytes();
         sqlx::query!(
-            "INSERT INTO event_block (event_cid, idx, root, block_multihash, codec) VALUES ($1, $2, $3, $4, $5) on conflict do nothing;",
+            "INSERT INTO ceramic_one_event_block (event_cid, idx, root, block_multihash, codec) VALUES ($1, $2, $3, $4, $5) on conflict do nothing;",
             id,
             idx,
             root,
@@ -359,7 +359,7 @@ where
         let id = key.as_bytes();
         let delivered = self.get_delivered();
         sqlx::query!(
-            "UPDATE event SET delivered = $1 WHERE order_key = $2;",
+            "UPDATE ceramic_one_event SET delivered = $1 WHERE order_key = $2;",
             delivered,
             id
         )
@@ -377,7 +377,7 @@ where
         let hash = Sha256a::digest(key);
 
         let resp = sqlx::query!(
-            "INSERT INTO event (
+            "INSERT INTO ceramic_one_event (
                     order_key, cid,
                     ahash_0, ahash_1, ahash_2, ahash_3,
                     ahash_4, ahash_5, ahash_6, ahash_7
@@ -454,7 +454,7 @@ where
         // unable to get query! to coerce and keep getting `unsupported type NULL of column #2 ("new_highwater_mark")`
         let rows: Vec<Highwater> = sqlx::query_as(
             r#"SELECT order_key as "id", COALESCE(delivered, 0) as "new_highwater_mark"
-            FROM event
+            FROM ceramic_one_event
                 WHERE delivered >= $1 -- we return delivered+1 so we must match it next search
             ORDER BY delivered
             LIMIT $2"#,
@@ -480,7 +480,7 @@ where
         sqlx::query(
             "
                     ATTACH DATABASE $1 AS other;
-                    INSERT OR IGNORE INTO blocks SELECT multihash, bytes FROM other.blocks;
+                    INSERT OR IGNORE INTO ceramic_one_block SELECT multihash, bytes FROM other.ceramic_one_block;
                 ",
         )
         .bind(input_ceramic_db_filename)
@@ -557,7 +557,7 @@ where
                TOTAL(ahash_4) & 0xFFFFFFFF, TOTAL(ahash_5) & 0xFFFFFFFF,
                TOTAL(ahash_6) & 0xFFFFFFFF, TOTAL(ahash_7) & 0xFFFFFFFF,
                COUNT(1)
-             FROM event WHERE order_key > $1 AND order_key < $2;",
+             FROM ceramic_one_event WHERE order_key > $1 AND order_key < $2;",
         );
         let row = query
             .bind(left_fencepost.as_bytes())
@@ -594,9 +594,9 @@ where
         SELECT
             order_key
         FROM
-            event
+            ceramic_one_event
         WHERE
-        order_key > $1 AND order_key < $2
+            order_key > $1 AND order_key < $2
         ORDER BY
             order_key ASC
         LIMIT
@@ -647,7 +647,7 @@ where
         SELECT
             count(order_key) as cnt
         FROM
-            event
+            ceramic_one_event
         WHERE
             order_key > $1 AND order_key < $2
         ;",
@@ -672,7 +672,7 @@ where
             "SELECT
                 order_key as id
             FROM
-                event
+                ceramic_one_event
             WHERE
                 order_key > $1 AND order_key < $2
             ORDER BY
@@ -701,7 +701,7 @@ where
         SELECT
             order_key as id
         FROM
-            event
+            ceramic_one_event
         WHERE
             order_key > $1 AND order_key < $2
         ORDER BY
@@ -731,7 +731,7 @@ where
                 FROM
                     (
                         SELECT order_key as id
-                        FROM event
+                        FROM ceramic_one_event
                         WHERE
                             order_key > $1 AND order_key < $2
                         ORDER BY order_key ASC
@@ -740,7 +740,7 @@ where
                 JOIN
                     (
                         SELECT order_key as id
-                        FROM event
+                        FROM ceramic_one_event
                         WHERE
                             order_key > $1 AND order_key < $2
                         ORDER BY order_key DESC
@@ -778,9 +778,9 @@ where
         let row = sqlx::query!(
             "
             SELECT e.order_key as id
-            FROM event e
+            FROM ceramic_one_event e
             WHERE
-                NOT EXISTS (SELECT 1 from event_block where order_key = e.order_key) 
+                NOT EXISTS (SELECT 1 from ceramic_one_event_block where order_key = e.order_key) 
                 AND e.order_key > $1
                 AND e.order_key < $2
             ;",
@@ -800,7 +800,7 @@ where
 impl iroh_bitswap::Store for EventStore<Sha256a> {
     async fn get_size(&self, cid: &Cid) -> Result<usize> {
         Ok(
-            sqlx::query("SELECT length(bytes) FROM block WHERE multihash = $1;")
+            sqlx::query("SELECT length(bytes) FROM ceramic_one_block WHERE multihash = $1;")
                 .bind(cid.hash().to_bytes())
                 .fetch_one(self.pool.reader())
                 .await?
@@ -810,7 +810,7 @@ impl iroh_bitswap::Store for EventStore<Sha256a> {
 
     async fn get(&self, cid: &Cid) -> Result<Block> {
         Ok(Block::new(
-            sqlx::query("SELECT bytes FROM block WHERE multihash = $1;")
+            sqlx::query("SELECT bytes FROM ceramic_one_block WHERE multihash = $1;")
                 .bind(cid.hash().to_bytes())
                 .fetch_one(self.pool.reader())
                 .await?
@@ -822,7 +822,7 @@ impl iroh_bitswap::Store for EventStore<Sha256a> {
 
     async fn has(&self, cid: &Cid) -> Result<bool> {
         Ok(
-            sqlx::query("SELECT count(1) FROM block WHERE multihash = $1;")
+            sqlx::query("SELECT count(1) FROM ceramic_one_block WHERE multihash = $1;")
                 .bind(cid.hash().to_bytes())
                 .fetch_one(self.pool.reader())
                 .await?

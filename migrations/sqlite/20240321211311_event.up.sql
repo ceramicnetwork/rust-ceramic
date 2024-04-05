@@ -1,6 +1,6 @@
 -- Add up migration script here
 
-CREATE TABLE IF NOT EXISTS "event" (
+CREATE TABLE IF NOT EXISTS ceramic_one_event (
     order_key BLOB NOT NULL UNIQUE, -- network_id sep_key sep_value controller stream_id event_cid
     ahash_0 INTEGER NOT NULL, -- the ahash is decomposed as [u32; 8]
     ahash_1 INTEGER NOT NULL,
@@ -16,4 +16,4 @@ CREATE TABLE IF NOT EXISTS "event" (
     PRIMARY KEY(cid)
 );
 
-SELECT order_key, ahash_0, ahash_1, ahash_2, ahash_3, ahash_4, ahash_5, ahash_6, ahash_7, cid, discovered, delivered FROM "event" WHERE false;
+SELECT order_key, ahash_0, ahash_1, ahash_2, ahash_3, ahash_4, ahash_5, ahash_6, ahash_7, cid, discovered, delivered FROM "ceramic_one_event" WHERE false;

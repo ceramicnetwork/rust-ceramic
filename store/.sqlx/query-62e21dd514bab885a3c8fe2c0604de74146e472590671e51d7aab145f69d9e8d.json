@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO ceramic_one_block (multihash, bytes) VALUES ($1, $2);",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "62e21dd514bab885a3c8fe2c0604de74146e472590671e51d7aab145f69d9e8d"
+}

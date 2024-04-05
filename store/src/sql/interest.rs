@@ -56,7 +56,7 @@ where
 
     async fn insert_key_int(&self, key: &Interest, conn: &mut DbTx<'_>) -> Result<bool> {
         let key_insert = sqlx::query(
-            "INSERT INTO interest (
+            "INSERT INTO ceramic_one_interest (
                     order_key,
                     ahash_0, ahash_1, ahash_2, ahash_3,
                     ahash_4, ahash_5, ahash_6, ahash_7
@@ -105,7 +105,7 @@ where
         SELECT
             order_key
         FROM
-            interest
+            ceramic_one_interest
         WHERE
             order_key > $1 AND order_key < $2
         ORDER BY
@@ -227,7 +227,7 @@ where
                TOTAL(ahash_4) & 0xFFFFFFFF, TOTAL(ahash_5) & 0xFFFFFFFF,
                TOTAL(ahash_6) & 0xFFFFFFFF, TOTAL(ahash_7) & 0xFFFFFFFF,
                COUNT(1)
-             FROM interest WHERE order_key > $1 AND order_key < $2;",
+             FROM ceramic_one_interest WHERE order_key > $1 AND order_key < $2;",
         );
         let row = query
             .bind(left_fencepost.as_bytes())
@@ -289,7 +289,7 @@ where
         SELECT
             count(order_key)
         FROM
-            interest
+            ceramic_one_interest
         WHERE
             order_key > $1 AND order_key < $2
         ;",
@@ -314,7 +314,7 @@ where
     SELECT
         order_key
     FROM
-        interest
+        ceramic_one_interest
     WHERE
         order_key > $1 AND order_key < $2
     ORDER BY
@@ -348,7 +348,7 @@ where
         SELECT
             order_key
         FROM
-            interest
+            ceramic_one_interest
         WHERE
             order_key > $1 AND order_key < $2
         ORDER BY
@@ -383,7 +383,7 @@ where
         FROM
             (
                 SELECT order_key
-                FROM interest
+                FROM ceramic_one_interest
                 WHERE
                     order_key > $1 AND order_key < $2
                 ORDER BY order_key ASC
@@ -392,7 +392,7 @@ where
         JOIN
             (
                 SELECT order_key
-                FROM interest
+                FROM ceramic_one_interest
                 WHERE
                     order_key > $1 AND order_key < $2
                 ORDER BY order_key DESC

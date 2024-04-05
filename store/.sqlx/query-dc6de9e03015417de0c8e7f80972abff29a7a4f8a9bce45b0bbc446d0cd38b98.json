@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT e.order_key as id\n            FROM ceramic_one_event e\n            WHERE\n                NOT EXISTS (SELECT 1 from ceramic_one_event_block where order_key = e.order_key) \n                AND e.order_key > $1\n                AND e.order_key < $2\n            ;",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Blob"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "dc6de9e03015417de0c8e7f80972abff29a7a4f8a9bce45b0bbc446d0cd38b98"
+}

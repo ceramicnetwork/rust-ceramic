@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n                key.order_key, eb.codec, eb.root, eb.idx, b.multihash, b.bytes\n            FROM (\n                SELECT\n                    e.cid as event_cid, e.order_key\n                FROM ceramic_one_event e\n                WHERE\n                    EXISTS (SELECT 1 from ceramic_one_event_block where event_cid = e.cid)\n                    AND e.order_key > $1 AND e.order_key < $2\n                ORDER BY\n                    e.order_key ASC\n                LIMIT\n                    $3\n                OFFSET\n                    $4\n            ) key\n            JOIN\n                ceramic_one_event_block eb ON key.event_cid = eb.event_cid\n            JOIN ceramic_one_block b on b.multihash = eb.block_multihash\n                ORDER BY key.order_key, eb.idx\n            ;",
+  "describe": {
+    "columns": [
+      {
+        "name": "order_key",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "codec",
+        "ordinal": 1,
+        "type_info": "Int64"
+      },
+      {
+        "name": "root",
+        "ordinal": 2,
+        "type_info": "Bool"
+      },
+      {
+        "name": "idx",
+        "ordinal": 3,
+        "type_info": "Int64"
+      },
+      {
+        "name": "multihash",
+        "ordinal": 4,
+        "type_info": "Blob"
+      },
+      {
+        "name": "bytes",
+        "ordinal": 5,
+        "type_info": "Blob"
+      }
+    ],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "26e6e291323e0877cdb99387130f371acfd5d9e1769cbfd8ce02fa34b23db426"
+}

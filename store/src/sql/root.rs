@@ -29,7 +29,7 @@ impl RootStore {
         timestamp: i64,
     ) -> Result<()> {
         match sqlx::query!(
-            r#"INSERT OR IGNORE INTO "root" (tx_hash, root, block_hash, timestamp) VALUES (?, ?, ?, ?)"#,
+            r#"INSERT OR IGNORE INTO ceramic_one_root (tx_hash, root, block_hash, timestamp) VALUES (?, ?, ?, ?)"#,
             tx_hash,
             root,
             block_hash,
@@ -46,7 +46,7 @@ impl RootStore {
     /// Get the transaction timestamp from the roots table.
     pub async fn get(&self, tx_hash: &[u8]) -> Result<Option<i64>> {
         Ok(sqlx::query!(
-            r#"SELECT timestamp FROM "root" WHERE tx_hash = ?;"#,
+            r#"SELECT timestamp FROM ceramic_one_root WHERE tx_hash = ?;"#,
             tx_hash
         )
         .fetch_optional(self.pool.reader())
