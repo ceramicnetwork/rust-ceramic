@@ -10,7 +10,7 @@
 //!
 //! Encoding and framing of messages is outside the scope of this crate.
 //! However the message types do implement serde::Serialize and serde::Deserialize.
-use std::pin::Pin;
+use std::{fmt::Debug, pin::Pin};
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -24,6 +24,7 @@ use tokio::{
     time::Instant,
 };
 use tracing::{trace, Level};
+use uuid::Uuid;
 
 use crate::{
     metrics::{
@@ -59,8 +60,8 @@ const PENDING_RANGES_LIMIT: usize = 20;
 pub async fn initiate_synchronize<S, R, E>(recon: R, stream: S) -> Result<()>
 where
     R: Recon,
-    S: Stream<Item = Result<ResponderMessage<R::Key, R::Hash>, E>>
-        + Sink<InitiatorMessage<R::Key, R::Hash>, Error = E>
+    S: Stream<Item = Result<ReconMessage<ResponderMessage<R::Key, R::Hash>>, E>>
+        + Sink<ReconMessage<InitiatorMessage<R::Key, R::Hash>>, Error = E>
         + Send,
     E: std::error::Error + Send + Sync + 'static,
 {
@@ -81,8 +82,8 @@ where
 pub async fn respond_synchronize<S, R, E>(recon: R, stream: S) -> Result<()>
 where
     R: Recon,
-    S: Stream<Item = std::result::Result<InitiatorMessage<R::Key, R::Hash>, E>>
-        + Sink<ResponderMessage<R::Key, R::Hash>, Error = E>
+    S: Stream<Item = std::result::Result<ReconMessage<InitiatorMessage<R::Key, R::Hash>>, E>>
+        + Sink<ReconMessage<ResponderMessage<R::Key, R::Hash>>, Error = E>
         + Send,
     E: std::error::Error + Send + Sync + 'static,
 {
@@ -99,10 +100,36 @@ where
     Ok(())
 }
 
+/// Recon message envelope
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReconMessage<T> {
+    /// Sync ID for the conversation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sync_id: Option<String>,
+    /// Recon message
+    pub body: T,
+}
+
+impl<T> ReconMessage<T> {
+    fn new(sync_id: Option<String>, body: T) -> ReconMessage<T>
+    where
+        MessageLabels: for<'a> From<&'a ReconMessage<T>>,
+    {
+        let message = ReconMessage {
+            sync_id: sync_id.clone(),
+            body,
+        };
+        let sync_id = sync_id.as_ref().map_or("none", String::as_str);
+        let message_type = MessageLabels::from(&message).message_type;
+        trace!(%sync_id, %message_type, "create_message");
+        message
+    }
+}
+
 /// Message that the initiator produces
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum InitiatorMessage<K: Key, H: AssociativeHash> {
-    /// Declares interestes to the responder.
+    /// Declares interests to the responder.
     InterestRequest(Vec<RangeOpen<K>>),
     /// Request to synchronize a range.
     RangeRequest(Range<K, H>),
@@ -318,7 +345,8 @@ trait Role {
     async fn handle_sync_range(&mut self, range: RangeOpen<Self::Key>) -> Result<()>;
 }
 
-type InitiatorValueResponseFn<K, H> = fn(ValueResponse<K>) -> InitiatorMessage<K, H>;
+type InitiatorValueResponseFn<K, H> =
+    fn(Option<String>, ValueResponse<K>) -> ReconMessage<InitiatorMessage<K, H>>;
 
 // Initiator implements the Role that starts the synchronize conversation.
 struct Initiator<R, S>
@@ -338,8 +366,8 @@ where
 impl<R, S, E> Initiator<R, S>
 where
     R: Recon,
-    S: Stream<Item = Result<ResponderMessage<R::Key, R::Hash>, E>>
-        + Sink<InitiatorMessage<R::Key, R::Hash>, Error = E>,
+    S: Stream<Item = Result<ReconMessage<ResponderMessage<R::Key, R::Hash>>, E>>
+        + Sink<ReconMessage<InitiatorMessage<R::Key, R::Hash>>, Error = E>,
     E: std::error::Error + Send + Sync + 'static,
 {
     fn new(
@@ -357,9 +385,12 @@ where
             common: Common {
                 stream,
                 recon,
-                value_resp_fn: InitiatorMessage::ValueResponse,
+                value_resp_fn: |sync_id, value_resp| {
+                    ReconMessage::new(sync_id, InitiatorMessage::ValueResponse(value_resp))
+                },
                 tx_want_values,
                 tx_sync_ranges,
+                sync_id: Some(Uuid::new_v4().to_string()),
                 metrics: metrics.clone(),
             },
             ranges_stack,
@@ -398,7 +429,10 @@ where
                 .send_all(
                     ranges
                         .into_iter()
-                        .map(InitiatorMessage::RangeRequest)
+                        .map(|range| {
+                            self.common
+                                .create_message(InitiatorMessage::RangeRequest(range))
+                        })
                         .collect(),
                 )
                 .await?;
@@ -411,7 +445,10 @@ where
                     self.pending_ranges += 1;
                     self.common
                         .stream
-                        .feed(InitiatorMessage::RangeRequest(range))
+                        .feed(
+                            self.common
+                                .create_message(InitiatorMessage::RangeRequest(range)),
+                        )
                         .await?;
                 } else if self.ranges_stack.len() < self.ranges_stack.capacity() {
                     self.ranges_stack.push(range);
@@ -432,12 +469,12 @@ where
 impl<R, S, E> Role for Initiator<R, S>
 where
     R: Recon,
-    S: Stream<Item = std::result::Result<ResponderMessage<R::Key, R::Hash>, E>>
-        + Sink<InitiatorMessage<R::Key, R::Hash>, Error = E>
+    S: Stream<Item = std::result::Result<ReconMessage<ResponderMessage<R::Key, R::Hash>>, E>>
+        + Sink<ReconMessage<InitiatorMessage<R::Key, R::Hash>>, Error = E>
         + Send,
     E: std::error::Error + Send + Sync + 'static,
 {
-    type In = ResponderMessage<R::Key, R::Hash>;
+    type In = ReconMessage<ResponderMessage<R::Key, R::Hash>>;
     type Key = R::Key;
     type Stream = S;
 
@@ -450,9 +487,12 @@ where
         let interests = self.common.recon.interests().await.context("interests")?;
         self.common
             .stream
-            .send(InitiatorMessage::InterestRequest(interests))
+            .send(
+                self.common
+                    .create_message(InitiatorMessage::InterestRequest(interests)),
+            )
             .await
-            .context("sending interests ")
+            .context("sending interests")
     }
     async fn each(&mut self) -> Result<()> {
         if self.pending_ranges < PENDING_RANGES_LIMIT {
@@ -461,7 +501,10 @@ where
                 self.pending_ranges += 1;
                 self.common
                     .stream
-                    .send(InitiatorMessage::RangeRequest(range))
+                    .send(
+                        self.common
+                            .create_message(InitiatorMessage::RangeRequest(range)),
+                    )
                     .await?;
             };
         }
@@ -469,7 +512,10 @@ where
     }
 
     async fn finish(&mut self) -> Result<()> {
-        self.common.stream.send(InitiatorMessage::Finished).await
+        self.common
+            .stream
+            .send(self.common.create_message(InitiatorMessage::Finished))
+            .await
     }
     async fn close(&mut self) -> Result<()> {
         self.common.stream.close().await
@@ -480,7 +526,7 @@ where
 
     async fn handle_incoming(&mut self, message: Self::In) -> Result<RemoteStatus> {
         trace!(?message, "handle_incoming");
-        match message {
+        match message.body {
             ResponderMessage::InterestResponse(interests) => {
                 let mut ranges = Vec::with_capacity(interests.len());
                 for interest in interests {
@@ -535,18 +581,25 @@ where
 
     async fn feed_want_value(&mut self, key: Self::Key) -> Result<()> {
         self.common
-            .feed_want_value(InitiatorMessage::ValueRequest(key))
+            .feed_want_value(
+                self.common
+                    .create_message(InitiatorMessage::ValueRequest(key)),
+            )
             .await
     }
     async fn send_listen_only(&mut self) -> Result<()> {
-        self.common.stream.send(InitiatorMessage::ListenOnly).await
+        self.common
+            .stream
+            .send(self.common.create_message(InitiatorMessage::ListenOnly))
+            .await
     }
     async fn handle_sync_range(&mut self, range: RangeOpen<Self::Key>) -> Result<()> {
         self.common.handle_sync_range(range).await
     }
 }
 
-type ResponderValueResponseFn<K, H> = fn(ValueResponse<K>) -> ResponderMessage<K, H>;
+type ResponderValueResponseFn<K, H> =
+    fn(Option<String>, ValueResponse<K>) -> ReconMessage<ResponderMessage<K, H>>;
 
 // Responder implements the [`Role`] where it responds to incoming requests.
 struct Responder<R, S>
@@ -559,8 +612,8 @@ where
 impl<R, S, E> Responder<R, S>
 where
     R: Recon,
-    S: Stream<Item = std::result::Result<InitiatorMessage<R::Key, R::Hash>, E>>
-        + Sink<ResponderMessage<R::Key, R::Hash>, Error = E>,
+    S: Stream<Item = std::result::Result<ReconMessage<InitiatorMessage<R::Key, R::Hash>>, E>>
+        + Sink<ReconMessage<ResponderMessage<R::Key, R::Hash>>, Error = E>,
     E: std::error::Error + Send + Sync + 'static,
 {
     fn new(
@@ -576,9 +629,14 @@ where
             common: Common {
                 stream,
                 recon,
-                value_resp_fn: ResponderMessage::ValueResponse,
+                value_resp_fn: |sync_id, value_resp| {
+                    ReconMessage::new(sync_id, ResponderMessage::ValueResponse(value_resp))
+                },
                 tx_want_values,
                 tx_sync_ranges,
+                // Responder does not generate a sync ID. This will be set after the Responder receives the sync ID from
+                // the Initiator in the InterestRequest message.
+                sync_id: None,
                 metrics,
             },
         }
@@ -594,7 +652,10 @@ where
                 // We are sync echo back the same range so that the remote learns we are in sync.
                 self.common
                     .stream
-                    .send(ResponderMessage::RangeResponse(vec![range]))
+                    .send(
+                        self.common
+                            .create_message(ResponderMessage::RangeResponse(vec![range])),
+                    )
                     .await?;
             }
             SyncState::RemoteMissing { range } => {
@@ -603,13 +664,19 @@ where
                 // sync.
                 self.common
                     .stream
-                    .send(ResponderMessage::RangeResponse(vec![range]))
+                    .send(
+                        self.common
+                            .create_message(ResponderMessage::RangeResponse(vec![range])),
+                    )
                     .await?;
             }
             SyncState::Unsynchronized { ranges: splits } => {
                 self.common
                     .stream
-                    .send(ResponderMessage::RangeResponse(splits))
+                    .send(
+                        self.common
+                            .create_message(ResponderMessage::RangeResponse(splits)),
+                    )
                     .await?;
             }
         }
@@ -621,12 +688,12 @@ where
 impl<R, S, E> Role for Responder<R, S>
 where
     R: Recon,
-    S: Stream<Item = std::result::Result<InitiatorMessage<R::Key, R::Hash>, E>>
-        + Sink<ResponderMessage<R::Key, R::Hash>, Error = E>
+    S: Stream<Item = std::result::Result<ReconMessage<InitiatorMessage<R::Key, R::Hash>>, E>>
+        + Sink<ReconMessage<ResponderMessage<R::Key, R::Hash>>, Error = E>
         + Send,
     E: std::error::Error + Send + Sync + 'static,
 {
-    type In = InitiatorMessage<R::Key, R::Hash>;
+    type In = ReconMessage<InitiatorMessage<R::Key, R::Hash>>;
     type Key = R::Key;
     type Stream = S;
 
@@ -652,12 +719,17 @@ where
 
     async fn handle_incoming(&mut self, message: Self::In) -> Result<RemoteStatus> {
         trace!(?message, "handle_incoming");
-        match message {
+        match message.body {
             InitiatorMessage::InterestRequest(interests) => {
+                // Store the sync ID from the InterestRequest
+                self.common.sync_id = message.sync_id;
                 let ranges = self.common.recon.process_interests(interests).await?;
                 self.common
                     .stream
-                    .send(ResponderMessage::InterestResponse(ranges))
+                    .send(
+                        self.common
+                            .create_message(ResponderMessage::InterestResponse(ranges)),
+                    )
                     .await?;
                 Ok(RemoteStatus::Active)
             }
@@ -679,18 +751,24 @@ where
     }
     async fn feed_want_value(&mut self, key: Self::Key) -> Result<()> {
         self.common
-            .feed_want_value(ResponderMessage::ValueRequest(key))
+            .feed_want_value(
+                self.common
+                    .create_message(ResponderMessage::ValueRequest(key)),
+            )
             .await
     }
     async fn send_listen_only(&mut self) -> Result<()> {
-        self.common.stream.send(ResponderMessage::ListenOnly).await
+        self.common
+            .stream
+            .send(self.common.create_message(ResponderMessage::ListenOnly))
+            .await
     }
     async fn handle_sync_range(&mut self, range: RangeOpen<Self::Key>) -> Result<()> {
         self.common.handle_sync_range(range).await
     }
 }
 
-// Common implments common behaviors to both [`Initiator`] and [`Responder`].
+// Common implements common behaviors to both [`Initiator`] and [`Responder`].
 struct Common<R: Recon, S, V> {
     stream: SinkFlusher<S>,
     recon: R,
@@ -700,6 +778,8 @@ struct Common<R: Recon, S, V> {
     tx_want_values: Sender<R::Key>,
     tx_sync_ranges: Sender<RangeOpen<R::Key>>,
 
+    sync_id: Option<String>,
+
     metrics: Metrics,
 }
 
@@ -708,7 +788,7 @@ where
     R: Recon,
     S: Stream<Item = std::result::Result<In, E>> + Sink<Out, Error = E>,
     E: std::error::Error + Send + Sync + 'static,
-    V: Fn(ValueResponse<R::Key>) -> Out,
+    V: Fn(Option<String>, ValueResponse<R::Key>) -> Out,
     MessageLabels: for<'a> From<&'a Out>,
 {
     fn process_new_keys(&mut self, new_keys: &[R::Key]) {
@@ -730,7 +810,10 @@ where
             .context("value for key")?;
         if let Some(value) = value {
             self.stream
-                .feed((self.value_resp_fn)(ValueResponse { key, value }))
+                .feed((self.value_resp_fn)(
+                    self.sync_id.clone(),
+                    ValueResponse { key, value },
+                ))
                 .await
                 .context("feeding value response")?;
         }
@@ -757,7 +840,10 @@ where
         for key in keys {
             if let Some(value) = self.recon.value_for_key(key.clone()).await? {
                 self.stream
-                    .feed((self.value_resp_fn)(ValueResponse { key, value }))
+                    .feed((self.value_resp_fn)(
+                        self.sync_id.clone(),
+                        ValueResponse { key, value },
+                    ))
                     .await?;
             }
         }
@@ -782,6 +868,13 @@ where
         } else {
             self.metrics.record(&RangeEnqueued);
         }
+    }
+
+    fn create_message<T>(&self, body: T) -> ReconMessage<T>
+    where
+        MessageLabels: for<'a> From<&'a ReconMessage<T>>,
+    {
+        ReconMessage::new(self.sync_id.clone(), body)
     }
 }
 
