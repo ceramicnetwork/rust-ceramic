@@ -558,6 +558,16 @@ where
     assert_eq!(hex::encode(store_value), hex::encode(value));
 }
 
+test_with_dbs!(
+    keys_with_missing_value,
+    keys_with_missing_value,
+    [
+        "delete from ceramic_one_event_block",
+        "delete from ceramic_one_event",
+        "delete from ceramic_one_block",
+    ]
+);
+
 async fn keys_with_missing_value<S>(mut store: S)
 where
     S: recon::Store<Key = EventId, Hash = Sha256a>,

@@ -68,13 +68,14 @@ async fn slurp(opts: SlurpOpts) -> Result<()> {
     let output_ceramic_path = opts
         .output_ceramic_path
         .unwrap_or(default_output_ceramic_path);
+    let output_ceramic_path = output_ceramic_path.display().to_string();
     info!(
         "{} Opening output ceramic SQLite DB at: {}",
         Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
-        output_ceramic_path.display()
+        output_ceramic_path
     );
 
-    let pool = SqlitePool::connect(output_ceramic_path, Migrations::Apply)
+    let pool = SqlitePool::connect(&output_ceramic_path, Migrations::Apply)
         .await
         .context("Failed to connect to database")?;
     let block_store = EventStoreSqlite::new(pool).await.unwrap();

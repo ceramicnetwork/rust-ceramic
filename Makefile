@@ -54,15 +54,15 @@ gen-kubo-rpc-server:
 check-kubo-rpc-server:
 	./ci-scripts/check_generated_server.sh kubo-rpc-server ./ci-scripts/gen_kubo_rpc_server.sh
 
-.PHONY: check-queries
-check-queries:
-	./ci-scripts/check_queries.sh "sqlite"
-	./ci-scripts/check_queries.sh "postgres"
+.PHONY: check-migrations
+check-migrations:
+	./ci-scripts/check_migrations.sh "sqlite"
+	./ci-scripts/check_migrations.sh "postgres"
 
-.PHONY: check-queries-ci
-check-queries-ci:
-	CI_RUN=1 ./ci-scripts/check_queries.sh "sqlite"
-	CI_RUN=1 ./ci-scripts/check_queries.sh "postgres"
+.PHONY: check-migrations-ci
+check-migrations-ci:
+	CI_RUN=1 ./ci-scripts/check_migrations.sh "sqlite"
+	CI_RUN=1 ./ci-scripts/check_migrations.sh "postgres"
 
 .PHONY: release
 release:

@@ -42,11 +42,11 @@ impl PostgresPool {
         Ok(Self { pool })
     }
 
-    /// TODO: Useful for testing. Automatically applies migrations since all memory databases start empty
-    /// and are not shared between connections.
+    /// Useful for testing. Automatically applies migrations. Requires a localhost (e.g. docker) postgres database that is hardcoded
+    /// to match the makefile currently.
     pub async fn connect_in_memory() -> anyhow::Result<Self> {
         Self::connect(
-            "postgres://postgres:c3ram1c@localhost:5432/ceramic",
+            "postgres://postgres:c3ram1c@localhost:5432/ceramic_one_tests",
             Migrations::Apply,
         )
         .await
