@@ -8,6 +8,7 @@ docs/ErrorResponse.md
 docs/Event.md
 docs/EventFeed.md
 docs/EventsGet.md
+docs/HeapDump.md
 docs/Interest.md
 docs/Version.md
 docs/default_api.md

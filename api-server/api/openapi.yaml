@@ -22,6 +22,22 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
           description: Internal server error
       summary: Test the liveness of the Ceramic node
+  /debug/heap:
+    get:
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HeapDump'
+          description: success
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Internal server error
+      summary: Get the heap statistics of the Ceramic node
   /version:
     post:
       responses:
@@ -469,6 +485,20 @@ components:
       required:
       - message
       title: Error response
+      type: object
+    HeapDump:
+      description: JEMalloc Stats
+      example:
+        allocated: 0.8008281904610115
+        resident: 6.027456183070403
+      properties:
+        allocated:
+          description: Bytes allocated
+          type: number
+        resident:
+          description: Bytes resident
+          type: number
+      title: Memory Heap Dump
       type: object
     Interest:
       description: Describes a recon interest range to store and synchronize

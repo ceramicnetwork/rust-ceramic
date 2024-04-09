@@ -27,6 +27,22 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /debug/heap:
+    get:
+      summary: Get the heap statistics of the Ceramic node
+      responses:
+        "200":
+          description: success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HeapDump"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                  $ref: "#/components/schemas/ErrorResponse"
   /version:
     post:
       summary: Get the version of the Ceramic node
@@ -413,6 +429,17 @@ components:
         message:
           type: string
           description: Error message
+    HeapDump:
+      title: Memory Heap Dump
+      description: JEMalloc Stats
+      type: object
+      properties:
+        allocated:
+          type: number
+          description: Bytes allocated
+        resident:
+          type: number
+          description: Bytes resident
     Interest:
       title: A recon interest
       description: Describes a recon interest range to store and synchronize

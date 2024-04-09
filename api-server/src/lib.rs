@@ -24,6 +24,15 @@ pub const API_VERSION: &str = "0.14.0";
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[must_use]
+pub enum DebugHeapGetResponse {
+    /// success
+    Success(models::HeapDump),
+    /// Internal server error
+    InternalServerError(models::ErrorResponse),
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[must_use]
 pub enum EventsEventIdGetResponse {
     /// success
     Success(models::Event),
@@ -128,6 +137,9 @@ pub trait Api<C: Send + Sync> {
         Poll::Ready(Ok(()))
     }
 
+    /// Get the heap statistics of the Ceramic node
+    async fn debug_heap_get(&self, context: &C) -> Result<DebugHeapGetResponse, ApiError>;
+
     /// Get event data
     async fn events_event_id_get(
         &self,
@@ -208,6 +220,9 @@ pub trait ApiNoContext<C: Send + Sync> {
     ) -> Poll<Result<(), Box<dyn Error + Send + Sync + 'static>>>;
 
     fn context(&self) -> &C;
+
+    /// Get the heap statistics of the Ceramic node
+    async fn debug_heap_get(&self) -> Result<DebugHeapGetResponse, ApiError>;
 
     /// Get event data
     async fn events_event_id_get(
@@ -292,6 +307,12 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
 
     fn context(&self) -> &C {
         ContextWrapper::context(self)
+    }
+
+    /// Get the heap statistics of the Ceramic node
+    async fn debug_heap_get(&self) -> Result<DebugHeapGetResponse, ApiError> {
+        let context = self.context().clone();
+        self.api().debug_heap_get(&context).await
     }
 
     /// Get event data

@@ -4,6 +4,7 @@ All URIs are relative to */ceramic*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
+****](default_api.md#) | **GET** /debug/heap | Get the heap statistics of the Ceramic node
 ****](default_api.md#) | **GET** /events/{event_id} | Get event data
 ****](default_api.md#) | **POST** /events | Creates a new event
 ****](default_api.md#) | **GET** /events/{sort_key}/{sort_value} | Get events matching the interest stored on the node
@@ -14,6 +15,28 @@ Method | HTTP request | Description
 ****](default_api.md#) | **GET** /liveness | Test the liveness of the Ceramic node
 ****](default_api.md#) | **POST** /version | Get the version of the Ceramic node
 
+
+# ****
+> models::HeapDump ()
+Get the heap statistics of the Ceramic node
+
+### Required Parameters
+This endpoint does not need any parameter.
+
+### Return type
+
+[**models::HeapDump**](HeapDump.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
 # ****
 > models::Event (event_id)

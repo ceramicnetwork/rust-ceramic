@@ -2,8 +2,8 @@
 
 #[allow(unused_imports)]
 use ceramic_api_server::{
-    models, Api, ApiNoContext, Client, ContextWrapperExt, EventsEventIdGetResponse,
-    EventsPostResponse, EventsSortKeySortValueGetResponse,
+    models, Api, ApiNoContext, Client, ContextWrapperExt, DebugHeapGetResponse,
+    EventsEventIdGetResponse, EventsPostResponse, EventsSortKeySortValueGetResponse,
     ExperimentalEventsSepSepValueGetResponse, FeedEventsGetResponse, InterestsPostResponse,
     InterestsSortKeySortValuePostResponse, LivenessGetResponse, VersionPostResponse,
 };
@@ -35,6 +35,7 @@ fn main() {
             Arg::with_name("operation")
                 .help("Sets the operation to run")
                 .possible_values(&[
+                    "DebugHeapGet",
                     "EventsEventIdGet",
                     "EventsSortKeySortValueGet",
                     "ExperimentalEventsSepSepValueGet",
@@ -97,6 +98,14 @@ fn main() {
     let mut rt = tokio::runtime::Runtime::new().unwrap();
 
     match matches.value_of("operation") {
+        Some("DebugHeapGet") => {
+            let result = rt.block_on(client.debug_heap_get());
+            info!(
+                "{:?} (X-Span-ID: {:?})",
+                result,
+                (client.context() as &dyn Has<XSpanIdString>).get().clone()
+            );
+        }
         Some("EventsEventIdGet") => {
             let result = rt.block_on(client.events_event_id_get("event_id_example".to_string()));
             info!(

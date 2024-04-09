@@ -1,9 +1,5 @@
 use async_trait::async_trait;
-use ceramic_api_server::{
-    models, Api, EventsEventIdGetResponse, EventsPostResponse, EventsSortKeySortValueGetResponse,
-    ExperimentalEventsSepSepValueGetResponse, FeedEventsGetResponse, InterestsPostResponse,
-    InterestsSortKeySortValuePostResponse, LivenessGetResponse, VersionPostResponse,
-};
+use ceramic_api_server::{models, Api, EventsEventIdGetResponse, EventsPostResponse, EventsSortKeySortValueGetResponse, ExperimentalEventsSepSepValueGetResponse, FeedEventsGetResponse, InterestsPostResponse, InterestsSortKeySortValuePostResponse, LivenessGetResponse, VersionPostResponse, DebugHeapGetResponse};
 use ceramic_metrics::Recorder;
 use futures::Future;
 use swagger::ApiError;
@@ -49,6 +45,12 @@ where
         context: &C,
     ) -> Result<EventsPostResponse, ApiError> {
         self.record("/events", self.api.events_post(event, context))
+            .await
+    }
+
+    /// Records heap statistics
+    async fn debug_heap_get(&self, context: &C) -> Result<DebugHeapGetResponse, ApiError> {
+        self.record("/debug/heap", self.api.debug_heap_get(context))
             .await
     }
 
