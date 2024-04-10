@@ -555,7 +555,8 @@ mod tests {
             MAX_ACTIVE_WORK_PER_PEER,
         );
 
-        let tasks = [Task {
+        let tasks = [
+            Task {
                 topic: 1,
                 priority: 10,
                 work: 10,
@@ -566,7 +567,8 @@ mod tests {
                 priority: 20,
                 work: 10,
                 data: "b",
-            }];
+            },
+        ];
 
         // push task "a"
         tracker.push_tasks(vec![tasks[0].clone()]); // Topic 1
@@ -633,7 +635,8 @@ mod tests {
             MAX_ACTIVE_WORK_PER_PEER,
         );
 
-        let tasks = [Task {
+        let tasks = [
+            Task {
                 topic: 1,
                 priority: 10,
                 work: 10,
@@ -644,7 +647,8 @@ mod tests {
                 priority: 20,
                 work: 10,
                 data: "b",
-            }];
+            },
+        ];
 
         // push task "a"
         tracker.push_tasks(vec![tasks[0].clone()]); // Topic 1
@@ -667,7 +671,8 @@ mod tests {
             MAX_ACTIVE_WORK_PER_PEER,
         );
 
-        let tasks = [Task {
+        let tasks = [
+            Task {
                 topic: 1,
                 priority: 10,
                 work: 10,
@@ -684,7 +689,8 @@ mod tests {
                 priority: 5,
                 work: 5,
                 data: "c",
-            }];
+            },
+        ];
 
         tracker.push_tasks(vec![tasks[0].clone()]);
         // same topic, should replace "a" and update work from 10 to 20
@@ -711,7 +717,8 @@ mod tests {
             MAX_ACTIVE_WORK_PER_PEER,
         );
 
-        let tasks = [Task {
+        let tasks = [
+            Task {
                 topic: 1,
                 priority: 10,
                 work: 10,
@@ -722,7 +729,8 @@ mod tests {
                 priority: 20,
                 work: 10,
                 data: "b",
-            }];
+            },
+        ];
 
         tracker.push_tasks(vec![tasks[0].clone()]);
         // make "a" active
@@ -756,7 +764,8 @@ mod tests {
             MAX_ACTIVE_WORK_PER_PEER,
         );
 
-        let tasks = [Task {
+        let tasks = [
+            Task {
                 topic: 1,
                 priority: 10,
                 work: 10,
@@ -767,7 +776,8 @@ mod tests {
                 priority: 20,
                 work: 10,
                 data: "b",
-            }];
+            },
+        ];
 
         tracker.push_tasks(vec![tasks[0].clone()]);
         let popped = tracker.pop_tasks(10);
@@ -788,7 +798,8 @@ mod tests {
             MAX_ACTIVE_WORK_PER_PEER,
         );
 
-        let tasks = [Task {
+        let tasks = [
+            Task {
                 topic: 1,
                 priority: 10,
                 work: 10,
@@ -805,7 +816,8 @@ mod tests {
                 priority: 10,
                 work: 10,
                 data: "c",
-            }];
+            },
+        ];
 
         tracker.push_tasks(vec![tasks[0].clone()]);
         let popped = tracker.pop_tasks(10);
@@ -831,7 +843,8 @@ mod tests {
             MAX_ACTIVE_WORK_PER_PEER,
         );
 
-        let tasks = [Task {
+        let tasks = [
+            Task {
                 topic: 1,
                 priority: 10,
                 work: 10,
@@ -848,7 +861,8 @@ mod tests {
                 priority: 15,
                 work: 10,
                 data: "c",
-            }];
+            },
+        ];
 
         tracker.push_tasks(vec![tasks[0].clone()]);
         let popped = tracker.pop_tasks(10);
@@ -874,7 +888,8 @@ mod tests {
             MAX_ACTIVE_WORK_PER_PEER,
         );
 
-        let tasks = [Task {
+        let tasks = [
+            Task {
                 topic: 1,
                 priority: 10,
                 work: 1,
@@ -891,7 +906,8 @@ mod tests {
                 priority: 10,
                 work: 1,
                 data: (),
-            }];
+            },
+        ];
 
         tracker.push_tasks(vec![tasks[0].clone()]);
         std::thread::sleep(Duration::from_millis(10));
