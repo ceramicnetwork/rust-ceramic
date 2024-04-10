@@ -70,7 +70,7 @@ impl std::fmt::Display for AlphaNumBytes {
             f,
             "{}",
             String::from_utf8(self.0.as_slice().to_vec())
-                .unwrap_or_else(|_| format!("0x{}", hex::encode_upper(&self.0.as_slice())))
+                .unwrap_or_else(|_| format!("0x{}", hex::encode_upper(self.0.as_slice())))
         )
     }
 }

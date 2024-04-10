@@ -559,7 +559,7 @@ mod interest_tests {
 
     #[test(tokio::test)]
     async fn test_range_with_values_query() {
-        let mut store = new_store().await;
+        let store = new_store().await;
         let interest_0 = random_interest(None, None);
         let interest_1 = random_interest(None, None);
         AccessInterestStore::insert(&store, interest_0.clone())

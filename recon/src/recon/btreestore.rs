@@ -265,7 +265,7 @@ where
         Ok(inner
             .keys
             .range(range)
-            .filter_map(|(key, _hash)| (!inner.values.contains_key(key)).then(|| key.clone()))
+            .filter(|&(key, _hash)| (!inner.values.contains_key(key))).map(|(key, _hash)| key.clone())
             .collect())
     }
 }

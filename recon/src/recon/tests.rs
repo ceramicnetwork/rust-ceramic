@@ -219,7 +219,7 @@ pub struct SetupState<K: Key> {
 
 async fn from_setup_state(setup: SetupState<AlphaNumBytes>) -> ReconMemoryBytes {
     Recon {
-        interests: setup.interests.into(),
+        interests: setup.interests,
         store: BTreeStore::from_set(
             setup
                 .state
@@ -407,9 +407,9 @@ where
     fn pretty(self, allocator: &'a D) -> DocBuilder<'a, D, A> {
         // Use Alpha and Omega as the min and max values respectively
         if self.0 == &K::min_value() {
-            allocator.text(format!("𝚨"))
+            allocator.text("𝚨".to_string())
         } else if self.0 == &K::max_value() {
-            allocator.text(format!("𝛀 "))
+            allocator.text("𝛀 ".to_string())
         } else {
             allocator.text(format!("{:?}", self.0))
         }
@@ -635,7 +635,7 @@ async fn word_lists() {
 fn parse_sequence(sequence: &str) -> SequenceSetup<AlphaNumBytes> {
     // We only parse the setup which is the first two lines.
     let setup = sequence
-        .split("\n")
+        .split('\n')
         .filter(|line| !line.trim().is_empty())
         .take(2)
         .collect::<Vec<&str>>()
