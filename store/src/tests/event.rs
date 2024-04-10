@@ -25,8 +25,8 @@ macro_rules! test_with_pg {
 
                 if std::env::var("PG_TESTS").ok().is_none() {
                     tracing::warn!("Skipping postgres test '{}'. Set PG_TESTS=1 to run", stringify!($test_name));
+                    return;
                 }
-
                 let conn = $crate::sql::PostgresPool::connect_in_memory().await.unwrap();
                 let store = $crate::EventStorePostgres::<recon::Sha256a>::new(conn).await.unwrap();
                 let _lock = LOCK.get_or_init(|| tokio::sync::Mutex::new(())).lock().await;
