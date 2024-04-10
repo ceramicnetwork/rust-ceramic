@@ -250,14 +250,14 @@ where
 #[async_trait]
 impl<S, K, H> recon::Store for StoreMetricsMiddleware<S>
 where
-    S: recon::Store<Key = K, Hash = H> + Send,
+    S: recon::Store<Key = K, Hash = H> + Send + Sync,
     K: recon::Key,
-    H: recon::AssociativeHash,
+    H: AssociativeHash,
 {
     type Key = K;
     type Hash = H;
 
-    async fn insert(&mut self, item: ReconItem<'_, Self::Key>) -> Result<bool> {
+    async fn insert(&self, item: ReconItem<'_, Self::Key>) -> Result<bool> {
         let new_val = item.value.is_some();
         let new =
             StoreMetricsMiddleware::<S>::record(&self.metrics, "insert", self.store.insert(item))
@@ -266,7 +266,7 @@ where
         Ok(new)
     }
 
-    async fn insert_many<'a, I>(&mut self, items: I) -> Result<InsertResult>
+    async fn insert_many<'a, I>(&self, items: I) -> Result<InsertResult>
     where
         I: ExactSizeIterator<Item = ReconItem<'a, K>> + Send + Sync,
     {
@@ -292,7 +292,7 @@ where
     }
 
     async fn hash_range(
-        &mut self,
+        &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
     ) -> Result<HashCount<Self::Hash>> {
@@ -305,7 +305,7 @@ where
     }
 
     async fn range(
-        &mut self,
+        &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
         offset: usize,
@@ -320,7 +320,7 @@ where
         .await
     }
     async fn range_with_values(
-        &mut self,
+        &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
         offset: usize,
@@ -335,13 +335,13 @@ where
         .await
     }
 
-    async fn full_range(&mut self) -> Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
+    async fn full_range(&self) -> Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
         StoreMetricsMiddleware::<S>::record(&self.metrics, "full_range", self.store.full_range())
             .await
     }
 
     async fn middle(
-        &mut self,
+        &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
     ) -> Result<Option<Self::Key>> {
@@ -353,7 +353,7 @@ where
         .await
     }
     async fn count(
-        &mut self,
+        &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
     ) -> Result<usize> {
@@ -365,7 +365,7 @@ where
         .await
     }
     async fn first(
-        &mut self,
+        &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
     ) -> Result<Option<Self::Key>> {
@@ -377,7 +377,7 @@ where
         .await
     }
     async fn last(
-        &mut self,
+        &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
     ) -> Result<Option<Self::Key>> {
@@ -390,7 +390,7 @@ where
     }
 
     async fn first_and_last(
-        &mut self,
+        &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
     ) -> Result<Option<(Self::Key, Self::Key)>> {
@@ -402,15 +402,15 @@ where
         .await
     }
 
-    async fn len(&mut self) -> Result<usize> {
+    async fn len(&self) -> Result<usize> {
         StoreMetricsMiddleware::<S>::record(&self.metrics, "len", self.store.len()).await
     }
 
-    async fn is_empty(&mut self) -> Result<bool> {
+    async fn is_empty(&self) -> Result<bool> {
         StoreMetricsMiddleware::<S>::record(&self.metrics, "is_empty", self.store.is_empty()).await
     }
 
-    async fn value_for_key(&mut self, key: &Self::Key) -> Result<Option<Vec<u8>>> {
+    async fn value_for_key(&self, key: &Self::Key) -> Result<Option<Vec<u8>>> {
         StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "value_for_key",
@@ -419,7 +419,7 @@ where
         .await
     }
     async fn keys_with_missing_values(
-        &mut self,
+        &self,
         range: RangeOpen<Self::Key>,
     ) -> Result<Vec<Self::Key>> {
         StoreMetricsMiddleware::<S>::record(

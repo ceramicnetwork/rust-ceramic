@@ -508,14 +508,14 @@ where
     type Hash = H;
 
     /// Returns true if the key was new. The value is always updated if included
-    async fn insert(&mut self, item: ReconItem<'_, Self::Key>) -> Result<bool> {
+    async fn insert(&self, item: ReconItem<'_, Self::Key>) -> Result<bool> {
         let (new, _new_val) = self.insert_item(&item).await?;
         Ok(new)
     }
 
     /// Insert new keys into the key space.
     /// Returns true if a key did not previously exist.
-    async fn insert_many<'a, I>(&mut self, items: I) -> Result<InsertResult>
+    async fn insert_many<'a, I>(&self, items: I) -> Result<InsertResult>
     where
         I: ExactSizeIterator<Item = ReconItem<'a, EventId>> + Send + Sync,
     {
@@ -542,7 +542,7 @@ where
     /// return the hash and count for a range
     #[instrument(skip(self))]
     async fn hash_range(
-        &mut self,
+        &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
     ) -> Result<HashCount<Self::Hash>> {
@@ -583,7 +583,7 @@ where
 
     #[instrument(skip(self))]
     async fn range(
-        &mut self,
+        &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
         offset: usize,
@@ -623,7 +623,7 @@ where
     }
     #[instrument(skip(self))]
     async fn range_with_values(
-        &mut self,
+        &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
         offset: usize,
@@ -636,7 +636,7 @@ where
     /// Return the number of keys within the range.
     #[instrument(skip(self))]
     async fn count(
-        &mut self,
+        &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
     ) -> Result<usize> {
@@ -662,7 +662,7 @@ where
     /// Return the first key within the range.
     #[instrument(skip(self))]
     async fn first(
-        &mut self,
+        &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
     ) -> Result<Option<Self::Key>> {
@@ -690,7 +690,7 @@ where
 
     #[instrument(skip(self))]
     async fn last(
-        &mut self,
+        &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
     ) -> Result<Option<Self::Key>> {
@@ -720,7 +720,7 @@ where
 
     #[instrument(skip(self))]
     async fn first_and_last(
-        &mut self,
+        &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
     ) -> Result<Option<(Self::Key, Self::Key)>> {
@@ -761,13 +761,13 @@ where
     }
 
     #[instrument(skip(self))]
-    async fn value_for_key(&mut self, key: &Self::Key) -> Result<Option<Vec<u8>>> {
+    async fn value_for_key(&self, key: &Self::Key) -> Result<Option<Vec<u8>>> {
         self.value_for_key_int(key).await
     }
 
     #[instrument(skip(self))]
     async fn keys_with_missing_values(
-        &mut self,
+        &self,
         range: RangeOpen<Self::Key>,
     ) -> Result<Vec<Self::Key>> {
         if range.start >= range.end {

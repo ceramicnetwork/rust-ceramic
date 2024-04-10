@@ -217,19 +217,17 @@ pub struct SetupState<K: Key> {
     state: BTreeMap<K, Option<K>>,
 }
 
-impl From<SetupState<AlphaNumBytes>> for ReconMemoryBytes {
-    fn from(value: SetupState<AlphaNumBytes>) -> Self {
-        Recon {
-            interests: value.interests.into(),
-            store: BTreeStore::from_set(
-                value
-                    .state
-                    .into_iter()
-                    .map(|(k, v)| (k, v.map(|v| v.into_inner())))
-                    .collect(),
-            ),
-            metrics: Metrics::register(&mut Registry::default()),
-        }
+async fn from_setup_state(setup: SetupState<AlphaNumBytes>) -> ReconMemoryBytes {
+    Recon {
+        interests: setup.interests.into(),
+        store: BTreeStore::from_set(
+            setup
+                .state
+                .into_iter()
+                .map(|(k, v)| (k, v.map(|v| v.into_inner())))
+                .collect(),
+        ).await,
+        metrics: Metrics::register(&mut Registry::default()),
     }
 }
 
@@ -535,7 +533,7 @@ where
 #[test(tokio::test)]
 async fn word_lists() {
     async fn recon_from_string(s: &str) -> Client<AlphaNumBytes, Sha256a> {
-        let mut r = ReconBytes::new(
+        let r = ReconBytes::new(
             BTreeStore::default(),
             FullInterests::default(),
             Metrics::register(&mut Registry::default()),
@@ -1184,8 +1182,8 @@ async fn recon_do(recon: &str) -> Sequence<AlphaNumBytes, MemoryAHash> {
 
     let setup = parse_sequence(recon);
 
-    let cat = start_recon(setup.cat.clone().into());
-    let dog = start_recon(setup.dog.clone().into());
+    let cat = start_recon(from_setup_state(setup.cat.clone()).await);
+    let dog = start_recon(from_setup_state(setup.dog.clone()).await);
 
     let steps = Arc::new(std::sync::Mutex::new(Vec::<
         SequenceStep<AlphaNumBytes, MemoryAHash>,

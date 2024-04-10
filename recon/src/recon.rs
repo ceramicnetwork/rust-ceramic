@@ -41,7 +41,7 @@ impl<K, H, S, I> Recon<K, H, S, I>
 where
     K: Key,
     H: AssociativeHash,
-    S: Store<Key = K, Hash = H> + Send,
+    S: Store<Key = K, Hash = H> + Send + Sync,
     I: InterestProvider<Key = K>,
 {
     /// Construct a new Recon instance.
@@ -55,7 +55,7 @@ where
 
     /// Compute the intersection of the remote interests with the local interests.
     pub async fn process_interests(
-        &mut self,
+        &self,
         remote_interests: &[RangeOpen<K>],
     ) -> Result<Vec<RangeOpen<K>>> {
         // Find the intersection of interests.
@@ -76,7 +76,7 @@ where
         Ok(intersections)
     }
     /// Compute the hash of the keys within the range.
-    pub async fn initial_range(&mut self, interest: RangeOpen<K>) -> Result<Range<K, H>> {
+    pub async fn initial_range(&self, interest: RangeOpen<K>) -> Result<Range<K, H>> {
         let hash = self
             .store
             .hash_range(&interest.start, &interest.end)
@@ -91,7 +91,7 @@ where
     ///
     /// Reports any new keys and what the range indicates about how the local and remote node are
     /// synchronized.
-    pub async fn process_range(&mut self, range: Range<K, H>) -> Result<(SyncState<K, H>, Vec<K>)> {
+    pub async fn process_range(&self, range: Range<K, H>) -> Result<(SyncState<K, H>, Vec<K>)> {
         let mut should_add = Vec::with_capacity(2);
         let mut new_keys = Vec::with_capacity(2);
 
@@ -164,7 +164,7 @@ where
         }
     }
 
-    async fn compute_splits(&mut self, range: Range<K, H>, count: u64) -> Result<Vec<Range<K, H>>> {
+    async fn compute_splits(&self, range: Range<K, H>, count: u64) -> Result<Vec<Range<K, H>>> {
         // If the number of keys in a range is <= SPLIT_THRESHOLD then directly send all the keys.
         const SPLIT_THRESHOLD: u64 = 4;
 
@@ -233,24 +233,24 @@ where
     }
 
     /// Retrieve a value associated with a recon key
-    pub async fn value_for_key(&mut self, key: K) -> Result<Option<Vec<u8>>> {
+    pub async fn value_for_key(&self, key: K) -> Result<Option<Vec<u8>>> {
         self.store.value_for_key(&key).await
     }
 
     /// Insert key into the key space. Includes an optional value.
     /// Returns a boolean (true) indicating if the key was new.
-    pub async fn insert(&mut self, item: ReconItem<'_, K>) -> Result<bool> {
+    pub async fn insert(&self, item: ReconItem<'_, K>) -> Result<bool> {
         self.store.insert(item).await
     }
     /// Report all keys in the range that are missing a value
-    pub async fn keys_with_missing_values(&mut self, range: RangeOpen<K>) -> Result<Vec<K>> {
+    pub async fn keys_with_missing_values(&self, range: RangeOpen<K>) -> Result<Vec<K>> {
         self.store.keys_with_missing_values(range).await
     }
 
     /// Insert many keys into the key space. Includes an optional value for each key.
     /// Returns an array with a boolean for each key indicating if the key was new.
     /// The order is the same as the order of the keys. True means new, false means not new.
-    pub async fn insert_many<'a, IT>(&mut self, items: IT) -> Result<Vec<bool>>
+    pub async fn insert_many<'a, IT>(&self, items: IT) -> Result<Vec<bool>>
     where
         IT: ExactSizeIterator<Item = ReconItem<'a, K>> + Send + Sync,
     {
@@ -260,12 +260,12 @@ where
     }
 
     /// Reports total number of keys
-    pub async fn len(&mut self) -> Result<usize> {
+    pub async fn len(&self) -> Result<usize> {
         self.store.len().await
     }
 
     /// Reports if the set is empty
-    pub async fn is_empty(&mut self) -> Result<bool> {
+    pub async fn is_empty(&self) -> Result<bool> {
         self.store.is_empty().await
     }
 
@@ -274,7 +274,7 @@ where
     ///
     /// Offset and limit values are applied within the range of keys.
     pub async fn range(
-        &mut self,
+        &self,
         left_fencepost: &K,
         right_fencepost: &K,
         offset: usize,
@@ -302,7 +302,7 @@ where
     }
 
     /// Return all keys.
-    pub async fn full_range(&mut self) -> Result<Box<dyn Iterator<Item = K> + Send + 'static>> {
+    pub async fn full_range(&self) -> Result<Box<dyn Iterator<Item = K> + Send + 'static>> {
         self.store.full_range().await
     }
 
@@ -440,12 +440,12 @@ pub trait Store: std::fmt::Debug {
 
     /// Insert a new key into the key space. Returns true if the key did not exist.
     /// The value will be updated if included
-    async fn insert(&mut self, item: ReconItem<'_, Self::Key>) -> Result<bool>;
+    async fn insert(&self, item: ReconItem<'_, Self::Key>) -> Result<bool>;
 
     /// Insert new keys into the key space.
     /// Returns true for each key if it did not previously exist, in the
     /// same order as the input iterator.
-    async fn insert_many<'a, I>(&mut self, items: I) -> Result<InsertResult>
+    async fn insert_many<'a, I>(&self, items: I) -> Result<InsertResult>
     where
         I: ExactSizeIterator<Item = ReconItem<'a, Self::Key>> + Send + Sync;
 
@@ -453,7 +453,7 @@ pub trait Store: std::fmt::Debug {
     /// Both range bounds are exclusive.
     /// Returns Result<(Hash, count), Err>
     async fn hash_range(
-        &mut self,
+        &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
     ) -> Result<HashCount<Self::Hash>>;
@@ -463,7 +463,7 @@ pub trait Store: std::fmt::Debug {
     ///
     /// Offset and limit values are applied within the range of keys.
     async fn range(
-        &mut self,
+        &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
         offset: usize,
@@ -475,7 +475,7 @@ pub trait Store: std::fmt::Debug {
     ///
     /// Offset and limit values are applied within the range of keys.
     async fn range_with_values(
-        &mut self,
+        &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
         offset: usize,
@@ -483,7 +483,7 @@ pub trait Store: std::fmt::Debug {
     ) -> Result<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>>;
 
     /// Return all keys.
-    async fn full_range(&mut self) -> Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
+    async fn full_range(&self) -> Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
         self.range(
             &Self::Key::min_value(),
             &Self::Key::max_value(),
@@ -498,7 +498,7 @@ pub trait Store: std::fmt::Debug {
     ///
     /// The default implementation will count all elements and then find the middle.
     async fn middle(
-        &mut self,
+        &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
     ) -> Result<Option<Self::Key>> {
@@ -514,7 +514,7 @@ pub trait Store: std::fmt::Debug {
     }
     /// Return the number of keys within the range.
     async fn count(
-        &mut self,
+        &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
     ) -> Result<usize> {
@@ -525,7 +525,7 @@ pub trait Store: std::fmt::Debug {
     }
     /// Return the first key within the range.
     async fn first(
-        &mut self,
+        &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
     ) -> Result<Option<Self::Key>> {
@@ -536,7 +536,7 @@ pub trait Store: std::fmt::Debug {
     }
     /// Return the last key within the range.
     async fn last(
-        &mut self,
+        &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
     ) -> Result<Option<Self::Key>> {
@@ -549,7 +549,7 @@ pub trait Store: std::fmt::Debug {
     /// Return the first and last keys within the range.
     /// If the range contains only a single key it will be returned as both first and last.
     async fn first_and_last(
-        &mut self,
+        &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
     ) -> Result<Option<(Self::Key, Self::Key)>> {
@@ -569,12 +569,12 @@ pub trait Store: std::fmt::Debug {
     }
 
     /// Reports total number of keys
-    async fn len(&mut self) -> Result<usize> {
+    async fn len(&self) -> Result<usize> {
         self.count(&Self::Key::min_value(), &Self::Key::max_value())
             .await
     }
     /// Reports of there are no keys stored.
-    async fn is_empty(&mut self) -> Result<bool> {
+    async fn is_empty(&self) -> Result<bool> {
         Ok(self.len().await? == 0)
     }
 
@@ -582,13 +582,11 @@ pub trait Store: std::fmt::Debug {
     /// Ok(Some(value)) if stored,
     /// Ok(None) if not stored, and
     /// Err(e) if retrieving failed.
-    async fn value_for_key(&mut self, key: &Self::Key) -> Result<Option<Vec<u8>>>;
+    async fn value_for_key(&self, key: &Self::Key) -> Result<Option<Vec<u8>>>;
 
     /// Report all keys in the range that are missing a value.
-    async fn keys_with_missing_values(
-        &mut self,
-        range: RangeOpen<Self::Key>,
-    ) -> Result<Vec<Self::Key>>;
+    async fn keys_with_missing_values(&self, range: RangeOpen<Self::Key>)
+        -> Result<Vec<Self::Key>>;
 }
 
 /// Represents a key that can be reconciled via Recon.
