@@ -1,6 +1,5 @@
 use std::{
     collections::BTreeSet,
-    marker::PhantomData,
     sync::{atomic::AtomicI64, Arc},
 };
 
@@ -24,13 +23,9 @@ static GLOBAL_COUNTER: AtomicI64 = AtomicI64::new(0);
 /// Unified implementation of [`recon::Store`] and [`iroh_bitswap::Store`] that can expose the
 /// individual blocks from the CAR files directly.
 #[derive(Clone, Debug)]
-pub struct EventStore<H>
-where
-    H: AssociativeHash,
-{
+pub struct SqliteEventStore {
     pool: SqlitePool,
     test_counter: Option<Arc<AtomicI64>>,
-    hash: PhantomData<H>,
 }
 
 #[derive(Debug)]
@@ -63,16 +58,12 @@ impl FromRow<'_, SqliteRow> for BlockRow {
 
 type EventIdError = <EventId as TryFrom<Vec<u8>>>::Error;
 
-impl<H> EventStore<H>
-where
-    H: AssociativeHash + std::convert::From<[u32; 8]>,
-{
+impl SqliteEventStore {
     /// Create an instance of the store initializing any neccessary tables.
     pub async fn new(pool: SqlitePool) -> Result<Self> {
-        let store = EventStore {
+        let store = SqliteEventStore {
             pool,
             test_counter: None,
-            hash: PhantomData,
         };
         store.init_delivered().await?;
         Ok(store)
@@ -81,10 +72,9 @@ where
     /// Creates an instance that doesn't share the global event counter with other instances (only for tests to avoid running serially)
     #[allow(dead_code)]
     pub(crate) async fn new_local(pool: SqlitePool) -> Result<Self> {
-        let store = EventStore {
+        let store = SqliteEventStore {
             pool,
             test_counter: Some(Arc::new(AtomicI64::new(0))),
-            hash: PhantomData,
         };
         store.init_delivered().await?;
         Ok(store)
@@ -500,25 +490,19 @@ where
 }
 
 #[async_trait]
-impl<H> recon::Store for EventStore<H>
-where
-    H: AssociativeHash,
-{
+impl recon::Store for SqliteEventStore {
     type Key = EventId;
-    type Hash = H;
+    type Hash = Sha256a;
 
     /// Returns true if the key was new. The value is always updated if included
-    async fn insert(&self, item: ReconItem<'_, Self::Key>) -> Result<bool> {
+    async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> Result<bool> {
         let (new, _new_val) = self.insert_item(&item).await?;
         Ok(new)
     }
 
     /// Insert new keys into the key space.
     /// Returns true if a key did not previously exist.
-    async fn insert_many<'a, I>(&self, items: I) -> Result<InsertResult>
-    where
-        I: ExactSizeIterator<Item = ReconItem<'a, EventId>> + Send + Sync,
-    {
+    async fn insert_many(&self, items: &Vec<ReconItem<'_, EventId>>) -> Result<InsertResult> {
         match items.len() {
             0 => Ok(InsertResult::new(vec![], 0)),
             _ => {
@@ -526,7 +510,7 @@ where
                 let mut new_val_cnt = 0;
                 let mut tx = self.pool.writer().begin().await?;
 
-                for (idx, item) in items.enumerate() {
+                for (idx, item) in items.iter().enumerate() {
                     let (new_key, new_val) = self.insert_item_int(&item, &mut tx).await?;
                     results[idx] = new_key;
                     if new_val {
@@ -547,7 +531,7 @@ where
         right_fencepost: &Self::Key,
     ) -> Result<HashCount<Self::Hash>> {
         if left_fencepost >= right_fencepost {
-            return Ok(HashCount::new(H::identity(), 0));
+            return Ok(HashCount::new(Sha256a::identity(), 0));
         }
 
         let query = sqlx::query(
@@ -578,7 +562,7 @@ where
         let count: u64 = count
             .try_into()
             .expect("COUNT(1) should never return a negative number");
-        Ok(HashCount::new(H::from(bytes), count))
+        Ok(HashCount::new(Sha256a::from(bytes), count))
     }
 
     #[instrument(skip(self))]
@@ -797,7 +781,7 @@ where
 }
 
 #[async_trait]
-impl iroh_bitswap::Store for EventStore<Sha256a> {
+impl iroh_bitswap::Store for SqliteEventStore {
     async fn get_size(&self, cid: &Cid) -> Result<usize> {
         Ok(
             sqlx::query("SELECT length(bytes) FROM ceramic_one_block WHERE multihash = $1;")
@@ -839,28 +823,25 @@ impl iroh_bitswap::Store for EventStore<Sha256a> {
 /// Anything that implements `ceramic_api::AccessModelStore` should also implement `recon::Store`.
 /// This guarantees that regardless of entry point (api or recon), the data is stored and retrieved in the same way.
 #[async_trait::async_trait]
-impl ceramic_api::AccessModelStore for EventStore<Sha256a> {
-    type Key = EventId;
-    type Hash = Sha256a;
-
-    async fn insert(&self, key: Self::Key, value: Option<Vec<u8>>) -> Result<(bool, bool)> {
+impl ceramic_api::AccessModelStore for SqliteEventStore {
+    async fn insert(&self, key: EventId, value: Option<Vec<u8>>) -> Result<(bool, bool)> {
         self.insert_item(&ReconItem::new(&key, value.as_deref()))
             .await
     }
 
     async fn range_with_values(
         &self,
-        start: Self::Key,
-        end: Self::Key,
+        start: &EventId,
+        end: &EventId,
         offset: usize,
         limit: usize,
-    ) -> Result<Vec<(Self::Key, Vec<u8>)>> {
+    ) -> Result<Vec<(EventId, Vec<u8>)>> {
         let res = self
             .range_with_values_int(&start, &end, offset, limit)
             .await?;
         Ok(res.collect())
     }
-    async fn value_for_key(&self, key: Self::Key) -> Result<Option<Vec<u8>>> {
+    async fn value_for_key(&self, key: &EventId) -> Result<Option<Vec<u8>>> {
         self.value_for_key_int(&key).await
     }
 
@@ -868,7 +849,7 @@ impl ceramic_api::AccessModelStore for EventStore<Sha256a> {
         &self,
         highwater: i64,
         limit: i64,
-    ) -> anyhow::Result<(i64, Vec<Self::Key>)> {
+    ) -> anyhow::Result<(i64, Vec<EventId>)> {
         self.new_keys_since_value(highwater, limit).await
     }
 }

@@ -146,7 +146,7 @@ where
         rpc_addr: P2pAddr,
         keypair: Keypair,
         recons: Option<(I, M)>,
-        block_store: S,
+        block_store: Arc<S>,
         metrics: Metrics,
     ) -> Result<Self> {
         let (network_sender_in, network_receiver_in) = channel(1024); // TODO: configurable

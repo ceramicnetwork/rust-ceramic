@@ -207,7 +207,7 @@ pub struct Server<K, H, S, I>
 where
     K: Key,
     H: AssociativeHash,
-    S: Store<Key = K, Hash = H> + Send,
+    S: Store<Key = K, Hash = H> + Send + Sync,
     I: InterestProvider<Key = K>,
 {
     requests_sender: Sender<Request<K, H>>,
@@ -255,7 +255,7 @@ where
                     Request::Insert { key, value, ret } => {
                         let val = self
                             .recon
-                            .insert(ReconItem::new(&key, value.as_deref()))
+                            .insert(&ReconItem::new(&key, value.as_deref()))
                             .await;
                         send(ret, val);
                     }

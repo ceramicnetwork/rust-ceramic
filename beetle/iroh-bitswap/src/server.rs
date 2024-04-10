@@ -56,13 +56,22 @@ pub struct Stat {
     pub data_sent: u64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Server<S: Store> {
     // sent_histogram -> iroh-metrics
     // send_time_histogram -> iroh-metric
     /// Decision engine for which who to send which blocks to.
     engine: Arc<DecisionEngine<S>>,
     inner: Arc<Inner>,
+}
+
+impl<S: Store> Clone for Server<S> {
+    fn clone(&self) -> Self {
+        Server {
+            engine: self.engine.clone(),
+            inner: self.inner.clone(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -81,7 +90,7 @@ struct Inner {
 }
 
 impl<S: Store> Server<S> {
-    pub async fn new(network: Network, store: S, config: Config) -> Self {
+    pub async fn new(network: Network, store: Arc<S>, config: Config) -> Self {
         let engine = DecisionEngine::new(store, *network.self_id(), config.decision_config).await;
         let provide_keys = mpsc::channel(PROVIDE_KEYS_BUFFER_SIZE);
         let new_blocks = mpsc::channel(config.has_block_buffer_size);

@@ -11,7 +11,7 @@ mod network;
 use std::{env, num::NonZeroUsize, path::PathBuf, time::Duration};
 
 use anyhow::{anyhow, Result};
-use ceramic_core::{EventId, Interest, PeerId};
+use ceramic_core::Interest;
 use ceramic_kubo_rpc::Multiaddr;
 
 use ceramic_metrics::{config::Config as MetricsConfig, MetricsHandle};
@@ -23,12 +23,14 @@ use multihash::{Code, Hasher, Multihash, MultihashDigest};
 use recon::{FullInterests, Recon, ReconInterestProvider, Server, Sha256a};
 use signal_hook::consts::signal::*;
 use signal_hook_tokio::Signals;
+use std::sync::Arc;
 use swagger::{auth::MakeAllowAllAuthenticator, EmptyContext};
 use tokio::{io::AsyncReadExt, sync::oneshot};
 use tracing::{debug, info, warn};
 
 use crate::network::Ipfs;
 pub use cbor_value::CborValue;
+use ceramic_store::{SqliteEventStore, SqliteInterestStore};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -273,37 +275,19 @@ impl Network {
 pub async fn run() -> Result<()> {
     let args = Cli::parse();
     match args.command {
-        Command::Daemon(opts) => {
-            let daemon = Daemon::build(opts).await?;
-            daemon.run().await
-        }
+        Command::Daemon(opts) => Daemon::run(opts).await,
         Command::Events(opts) => events::events(opts).await,
     }
 }
 
-type InterestStore = ceramic_store::InterestStore<Sha256a>;
 type InterestInterest = FullInterests<Interest>;
-type ReconInterest = Server<Interest, Sha256a, MetricsStore<InterestStore>, InterestInterest>;
 
-type ModelStore = ceramic_store::EventStore<Sha256a>;
 type ModelInterest = ReconInterestProvider<Sha256a>;
-type MetricsStore<T> = ceramic_store::StoreMetricsMiddleware<T>;
-type ReconModel = Server<EventId, Sha256a, MetricsStore<ModelStore>, ModelInterest>;
 
-struct Daemon {
-    opts: DaemonOpts,
-    peer_id: PeerId,
-    network: ceramic_core::Network,
-    ipfs: Ipfs<ModelStore>,
-    metrics_handle: MetricsHandle,
-    recon_interest: ReconInterest,
-    recon_model: ReconModel,
-    model_store: MetricsStore<ModelStore>,
-    interest_store: MetricsStore<InterestStore>,
-}
+struct Daemon;
 
 impl Daemon {
-    async fn build(opts: DaemonOpts) -> Result<Self> {
+    async fn run(opts: DaemonOpts) -> Result<()> {
         let network = opts.network.to_network(&opts.local_network_id)?;
 
         let info = Info::new().await?;
@@ -429,11 +413,10 @@ impl Daemon {
                 .await?;
 
         // Create recon metrics
-        let recon_metrics = ceramic_metrics::MetricsHandle::register(recon::Metrics::register);
-        let store_metrics =
-            ceramic_metrics::MetricsHandle::register(ceramic_store::Metrics::register);
+        let recon_metrics = MetricsHandle::register(recon::Metrics::register);
+        let store_metrics = MetricsHandle::register(ceramic_store::Metrics::register);
 
-        let interest_db_store = InterestStore::new(sql_pool.clone()).await?;
+        let interest_db_store = Arc::new(SqliteInterestStore::new(sql_pool.clone()).await?);
         // Create recon store for interests.
         let interest_store = ceramic_store::StoreMetricsMiddleware::new(
             interest_db_store.clone(),
@@ -441,7 +424,7 @@ impl Daemon {
         );
 
         // Create second recon store for models.
-        let model_block_store = ModelStore::new(sql_pool.clone()).await?;
+        let model_block_store = Arc::new(SqliteEventStore::new(sql_pool.clone()).await?);
 
         let model_store = ceramic_store::StoreMetricsMiddleware::new(
             model_block_store.clone(),
@@ -466,8 +449,8 @@ impl Daemon {
         let recons = Some((recon_interest.client(), recon_model.client()));
         let ipfs_metrics =
             ceramic_metrics::MetricsHandle::register(ceramic_kubo_rpc::IpfsMetrics::register);
-        let p2p_metrics = ceramic_metrics::MetricsHandle::register(ceramic_p2p::Metrics::register);
-        let ipfs = Ipfs::<ModelStore>::builder()
+        let p2p_metrics = MetricsHandle::register(ceramic_p2p::Metrics::register);
+        let ipfs = Ipfs::<SqliteEventStore>::builder()
             .with_p2p(
                 p2p_config,
                 keypair,
@@ -479,38 +462,23 @@ impl Daemon {
             .build(model_block_store, ipfs_metrics)
             .await?;
 
-        Ok(Daemon {
-            opts,
-            peer_id,
-            network,
-            ipfs,
-            metrics_handle,
-            recon_interest,
-            recon_model,
-            interest_store,
-            model_store,
-        })
-    }
-    // Start the daemon, future does not return until the daemon is finished.
-    async fn run(self) -> Result<()> {
         // Start metrics server
         debug!(
-            bind_address = self.opts.metrics_bind_address,
+            bind_address = opts.metrics_bind_address,
             "starting prometheus metrics server"
         );
         let (tx_metrics_server_shutdown, metrics_server_handle) =
-            metrics::start(&self.opts.metrics_bind_address.parse()?);
+            metrics::start(&opts.metrics_bind_address.parse()?);
 
         // Build HTTP server
-        let network = self.network.clone();
+        let network = network.clone();
         let ceramic_server = ceramic_api::Server::new(
-            self.peer_id,
+            peer_id,
             network,
-            self.interest_store.clone(),
-            self.model_store.clone(),
+            interest_store.clone(),
+            model_store.clone(),
         );
-        let ceramic_metrics =
-            ceramic_metrics::MetricsHandle::register(ceramic_api::Metrics::register);
+        let ceramic_metrics = MetricsHandle::register(ceramic_api::Metrics::register);
         // Wrap server in metrics middleware
         let ceramic_server = ceramic_api::MetricsMiddleware::new(ceramic_server, ceramic_metrics);
         let ceramic_service = ceramic_api_server::server::MakeService::new(ceramic_server);
@@ -518,7 +486,7 @@ impl Daemon {
         let ceramic_service =
             ceramic_api_server::context::MakeAddContext::<_, EmptyContext>::new(ceramic_service);
 
-        let kubo_rpc_server = ceramic_kubo_rpc::http::Server::new(self.ipfs.api());
+        let kubo_rpc_server = ceramic_kubo_rpc::http::Server::new(ipfs.api());
         let kubo_rpc_metrics =
             ceramic_metrics::MetricsHandle::register(ceramic_kubo_rpc::http::Metrics::register);
         // Wrap server in metrics middleware
@@ -537,8 +505,8 @@ impl Daemon {
             ("/api/v0/".to_string(), kubo_rpc_service),
         );
 
-        let recon_interest_handle = tokio::spawn(self.recon_interest.run());
-        let recon_model_handle = tokio::spawn(self.recon_model.run());
+        let recon_interest_handle = tokio::spawn(recon_interest.run());
+        let recon_model_handle = tokio::spawn(recon_model.run());
 
         // Start HTTP server with a graceful shutdown
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
@@ -550,7 +518,7 @@ impl Daemon {
 
         // The server task blocks until we are ready to start shutdown
         debug!("starting api server");
-        hyper::server::Server::bind(&self.opts.bind_address.parse()?)
+        hyper::server::Server::bind(&opts.bind_address.parse()?)
             .serve(service)
             .with_graceful_shutdown(async {
                 rx.await.ok();
@@ -559,7 +527,7 @@ impl Daemon {
         debug!("api server finished, starting shutdown...");
 
         // Stop IPFS.
-        if let Err(err) = self.ipfs.stop().await {
+        if let Err(err) = ipfs.stop().await {
             warn!(%err,"ipfs task error");
         }
         debug!("ipfs stopped");
@@ -581,7 +549,7 @@ impl Daemon {
         if let Err(err) = metrics_server_handle.await? {
             warn!(%err, "metrics server task error")
         }
-        self.metrics_handle.shutdown();
+        metrics_handle.shutdown();
         debug!("metrics server stopped");
 
         // Wait for signal handler to finish

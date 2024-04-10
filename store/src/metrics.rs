@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use ceramic_core::RangeOpen;
+use ceramic_core::{EventId, Interest, RangeOpen};
 use ceramic_metrics::{register, Recorder};
 use futures::Future;
 use prometheus_client::{
@@ -15,7 +15,6 @@ use prometheus_client::{
     registry::Registry,
 };
 use recon::{AssociativeHash, HashCount, InsertResult, ReconItem};
-use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -115,12 +114,15 @@ impl Recorder<StorageQuery> for Metrics {
 
 /// Implement the Store and record metrics
 #[derive(Debug, Clone)]
-pub struct StoreMetricsMiddleware<S> {
+pub struct StoreMetricsMiddleware<S>
+where
+    S: Send + Sync,
+{
     store: S,
     metrics: Metrics,
 }
 
-impl<S> StoreMetricsMiddleware<S> {
+impl<S: Send + Sync> StoreMetricsMiddleware<S> {
     /// Construct a new StoreMetricsMiddleware.
     /// The metrics should have already be registered.
     pub fn new(store: S, metrics: Metrics) -> Self {
@@ -153,16 +155,11 @@ impl<S> StoreMetricsMiddleware<S> {
 }
 
 #[async_trait]
-impl<S, K, H> ceramic_api::AccessInterestStore for StoreMetricsMiddleware<S>
+impl<S> ceramic_api::AccessInterestStore for StoreMetricsMiddleware<S>
 where
-    S: ceramic_api::AccessInterestStore<Key = K, Hash = H>,
-    K: recon::Key,
-    H: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>,
+    S: ceramic_api::AccessInterestStore,
 {
-    type Key = K;
-    type Hash = H;
-
-    async fn insert(&self, key: Self::Key) -> Result<bool> {
+    async fn insert(&self, key: Interest) -> Result<bool> {
         let new = StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "interest_insert",
@@ -174,11 +171,11 @@ where
     }
     async fn range(
         &self,
-        start: Self::Key,
-        end: Self::Key,
+        start: &Interest,
+        end: &Interest,
         offset: usize,
         limit: usize,
-    ) -> Result<Vec<Self::Key>> {
+    ) -> Result<Vec<Interest>> {
         StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "interest_range",
@@ -189,16 +186,11 @@ where
 }
 
 #[async_trait]
-impl<S, K, H> ceramic_api::AccessModelStore for StoreMetricsMiddleware<S>
+impl<S> ceramic_api::AccessModelStore for StoreMetricsMiddleware<S>
 where
-    S: ceramic_api::AccessModelStore<Key = K, Hash = H>,
-    K: recon::Key,
-    H: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>,
+    S: ceramic_api::AccessModelStore,
 {
-    type Key = K;
-    type Hash = H;
-
-    async fn insert(&self, key: Self::Key, value: Option<Vec<u8>>) -> Result<(bool, bool)> {
+    async fn insert(&self, key: EventId, value: Option<Vec<u8>>) -> Result<(bool, bool)> {
         let (new_key, new_val) = StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "model_insert",
@@ -211,11 +203,11 @@ where
     }
     async fn range_with_values(
         &self,
-        start: Self::Key,
-        end: Self::Key,
+        start: &EventId,
+        end: &EventId,
         offset: usize,
         limit: usize,
-    ) -> Result<Vec<(Self::Key, Vec<u8>)>> {
+    ) -> Result<Vec<(EventId, Vec<u8>)>> {
         StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "model_range_with_values",
@@ -224,7 +216,7 @@ where
         .await
     }
 
-    async fn value_for_key(&self, key: Self::Key) -> Result<Option<Vec<u8>>> {
+    async fn value_for_key(&self, key: &EventId) -> Result<Option<Vec<u8>>> {
         StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "model_value_for_key",
@@ -237,7 +229,7 @@ where
         &self,
         highwater: i64,
         limit: i64,
-    ) -> anyhow::Result<(i64, Vec<Self::Key>)> {
+    ) -> anyhow::Result<(i64, Vec<EventId>)> {
         StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "model_keys_since_highwater_mark",
@@ -257,7 +249,7 @@ where
     type Key = K;
     type Hash = H;
 
-    async fn insert(&self, item: ReconItem<'_, Self::Key>) -> Result<bool> {
+    async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> Result<bool> {
         let new_val = item.value.is_some();
         let new =
             StoreMetricsMiddleware::<S>::record(&self.metrics, "insert", self.store.insert(item))
@@ -266,10 +258,7 @@ where
         Ok(new)
     }
 
-    async fn insert_many<'a, I>(&self, items: I) -> Result<InsertResult>
-    where
-        I: ExactSizeIterator<Item = ReconItem<'a, K>> + Send + Sync,
-    {
+    async fn insert_many(&self, items: &Vec<ReconItem<'_, K>>) -> Result<InsertResult> {
         let res = StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "insert_many",

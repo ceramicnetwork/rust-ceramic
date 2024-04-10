@@ -3,6 +3,7 @@ use ceramic_core::{EventId, Interest};
 use libp2p::{noise, relay, swarm::Executor, tcp, tls, yamux, Swarm, SwarmBuilder};
 use libp2p_identity::Keypair;
 use recon::{libp2p::Recon, Sha256a};
+use std::sync::Arc;
 
 use crate::{behaviour::NodeBehaviour, Libp2pConfig, Metrics};
 
@@ -10,7 +11,7 @@ pub(crate) async fn build_swarm<I, M, S>(
     config: &Libp2pConfig,
     keypair: Keypair,
     recons: Option<(I, M)>,
-    block_store: S,
+    block_store: Arc<S>,
     metrics: Metrics,
 ) -> Result<Swarm<NodeBehaviour<I, M, S>>>
 where
@@ -74,7 +75,7 @@ fn new_behavior<I, M, S>(
     keypair: &Keypair,
     relay_client: Option<relay::client::Behaviour>,
     recons: Option<(I, M)>,
-    block_store: S,
+    block_store: Arc<S>,
     metrics: Metrics,
 ) -> Result<NodeBehaviour<I, M, S>>
 where

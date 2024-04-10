@@ -160,16 +160,16 @@ pub trait IpfsDep: Clone {
 /// Implementation of IPFS APIs
 pub struct IpfsService<S> {
     p2p: P2pClient,
-    store: S,
+    store: Arc<S>,
     resolver: Resolver<S>,
 }
 
 impl<S> IpfsService<S>
 where
-    S: iroh_bitswap::Store + Clone,
+    S: iroh_bitswap::Store,
 {
     /// Create new IpfsService
-    pub fn new(p2p: P2pClient, store: S) -> Self {
+    pub fn new(p2p: P2pClient, store: Arc<S>) -> Self {
         let resolver = Resolver::new(store.clone());
         Self {
             p2p,
@@ -264,7 +264,7 @@ where
 // * dag-json
 // * dag-jose
 struct Resolver<S> {
-    store: S,
+    store: Arc<S>,
 }
 
 // Represents an IPFS DAG node
@@ -281,7 +281,7 @@ impl<S> Resolver<S>
 where
     S: iroh_bitswap::Store,
 {
-    fn new(store: S) -> Self {
+    fn new(store: Arc<S>) -> Self {
         Resolver { store }
     }
     #[instrument(skip(self))]

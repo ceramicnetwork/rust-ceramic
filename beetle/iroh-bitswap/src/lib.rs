@@ -117,17 +117,32 @@ impl Default for Config {
 }
 
 #[async_trait]
-pub trait Store: Debug + Clone + Send + Sync + 'static {
+pub trait Store: Send + Sync + 'static {
     async fn get_size(&self, cid: &Cid) -> Result<usize>;
     async fn get(&self, cid: &Cid) -> Result<Block>;
     async fn has(&self, cid: &Cid) -> Result<bool>;
 }
 
+#[async_trait::async_trait]
+impl<S: Store> Store for Arc<S> {
+    async fn get_size(&self, cid: &Cid) -> Result<usize> {
+        self.as_ref().get_size(cid).await
+    }
+
+    async fn get(&self, cid: &Cid) -> Result<Block> {
+        self.as_ref().get(cid).await
+    }
+
+    async fn has(&self, cid: &Cid) -> Result<bool> {
+        self.as_ref().has(cid).await
+    }
+}
+
 impl<S: Store> Bitswap<S> {
-    pub async fn new(self_id: PeerId, store: S, config: Config) -> Self {
+    pub async fn new(self_id: PeerId, store: Arc<S>, config: Config) -> Self {
         let network = Network::new(self_id);
         let (server, cb) = if let Some(config) = config.server {
-            let server = Server::new(network.clone(), store.clone(), config).await;
+            let server = Server::new(network.clone(), Arc::clone(&store), config).await;
             let cb = server.received_blocks_cb();
             (Some(server), Some(cb))
         } else {
@@ -141,7 +156,7 @@ impl<S: Store> Bitswap<S> {
 
         let mut workers = Vec::new();
         workers.push(tokio::task::spawn({
-            let server = server.clone();
+            let server = server.as_ref().map(|s| s.clone());
             let client = client.clone();
 
             async move {
@@ -161,7 +176,7 @@ impl<S: Store> Bitswap<S> {
         }));
 
         workers.push(tokio::task::spawn({
-            let server = server.clone();
+            let server = server.as_ref().map(|s| s.clone());
             let client = client.clone();
 
             async move {

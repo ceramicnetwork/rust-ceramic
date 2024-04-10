@@ -3,44 +3,29 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use ceramic_core::{Interest, RangeOpen};
-use recon::{AssociativeHash, HashCount, InsertResult, Key, ReconItem};
-use serde::{Deserialize, Serialize};
+use recon::{AssociativeHash, HashCount, InsertResult, Key, ReconItem, Sha256a};
 use sqlx::Row;
-use std::marker::PhantomData;
 use tracing::instrument;
 
 use crate::{DbTx, SqlitePool};
 
 #[derive(Debug, Clone)]
 /// InterestStore is a [`recon::Store`] implementation for Interests.
-pub struct InterestStore<H>
-where
-    H: AssociativeHash,
-{
-    hash: PhantomData<H>,
+pub struct SqliteInterestStore {
     pool: SqlitePool,
 }
 
-impl<H> InterestStore<H>
-where
-    H: AssociativeHash,
-{
+impl SqliteInterestStore {
     /// Make a new InterestSqliteStore from a connection pool.
     pub async fn new(pool: SqlitePool) -> Result<Self> {
-        let store = InterestStore {
-            pool,
-            hash: PhantomData,
-        };
+        let store = SqliteInterestStore { pool };
         Ok(store)
     }
 }
 
 type InterestError = <Interest as TryFrom<Vec<u8>>>::Error;
 
-impl<H> InterestStore<H>
-where
-    H: AssociativeHash + std::convert::From<[u32; 8]>,
-{
+impl SqliteInterestStore {
     async fn insert_item(&self, key: &Interest) -> Result<bool> {
         let mut tx = self.pool.writer().begin().await?;
         let new_key = self.insert_item_int(key, &mut tx).await?;
@@ -67,7 +52,7 @@ where
                 );",
         );
 
-        let hash = H::digest(key);
+        let hash = Sha256a::digest(key);
         let resp = key_insert
             .bind(key.as_bytes())
             .bind(hash.as_u32s()[0])
@@ -141,39 +126,30 @@ where
 /// Anything that implements `ceramic_api::AccessInterestStore` should also implement `recon::Store`.
 /// This guarantees that regardless of entry point (api or recon), the data is stored and retrieved in the same way.
 #[async_trait::async_trait]
-impl<H> ceramic_api::AccessInterestStore for InterestStore<H>
-where
-    H: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>,
-{
-    type Key = Interest;
-    type Hash = H;
-
-    async fn insert(&self, key: Self::Key) -> Result<bool> {
+impl ceramic_api::AccessInterestStore for SqliteInterestStore {
+    async fn insert(&self, key: Interest) -> Result<bool> {
         self.insert_item(&key).await
     }
     async fn range(
         &self,
-        start: Self::Key,
-        end: Self::Key,
+        start: &Interest,
+        end: &Interest,
         offset: usize,
         limit: usize,
-    ) -> Result<Vec<Self::Key>> {
+    ) -> Result<Vec<Interest>> {
         Ok(self.range_int(&start, &end, offset, limit).await?.collect())
     }
 }
 
 #[async_trait]
-impl<H> recon::Store for InterestStore<H>
-where
-    H: AssociativeHash,
-{
+impl recon::Store for SqliteInterestStore {
     type Key = Interest;
-    type Hash = H;
+    type Hash = Sha256a;
 
     /// Returns true if the key was new. The value is always updated if included
-    async fn insert(&self, item: ReconItem<'_, Self::Key>) -> Result<bool> {
+    async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> Result<bool> {
         // interests don't have values, if someone gives us something we throw an error but allow None/vec![]
-        if let Some(val) = item.value {
+        if let Some(val) = item.value.as_ref() {
             if !val.is_empty() {
                 return Err(anyhow::anyhow!(
                     "Interests do not support values! Invalid request."
@@ -185,10 +161,7 @@ where
 
     /// Insert new keys into the key space.
     /// Returns true if a key did not previously exist.
-    async fn insert_many<'a, I>(&self, items: I) -> Result<InsertResult>
-    where
-        I: ExactSizeIterator<Item = ReconItem<'a, Interest>> + Send + Sync,
-    {
+    async fn insert_many(&self, items: &Vec<ReconItem<'_, Interest>>) -> Result<InsertResult> {
         match items.len() {
             0 => Ok(InsertResult::new(vec![], 0)),
             _ => {
@@ -196,7 +169,7 @@ where
                 let mut new_val_cnt = 0;
                 let mut tx = self.pool.writer().begin().await?;
 
-                for (idx, item) in items.enumerate() {
+                for (idx, item) in items.iter().enumerate() {
                     let new_key = self.insert_item_int(item.key, &mut tx).await?;
                     results[idx] = new_key;
                     if item.value.is_some() {
@@ -217,7 +190,7 @@ where
         right_fencepost: &Self::Key,
     ) -> Result<HashCount<Self::Hash>> {
         if left_fencepost >= right_fencepost {
-            return Ok(HashCount::new(H::identity(), 0));
+            return Ok(HashCount::new(Sha256a::identity(), 0));
         }
 
         let query = sqlx::query(
@@ -248,7 +221,7 @@ where
         let count: u64 = count
             .try_into()
             .expect("COUNT(1) should never return a negative number");
-        Ok(HashCount::new(H::from(bytes), count))
+        Ok(HashCount::new(Sha256a::from(bytes), count))
     }
 
     #[instrument(skip(self))]
@@ -478,9 +451,9 @@ mod interest_tests {
         interest_builder().with_max_range().build_fencepost()
     }
 
-    async fn new_store() -> InterestStore<Sha256a> {
+    async fn new_store() -> SqliteInterestStore {
         let conn = SqlitePool::connect_in_memory().await.unwrap();
-        InterestStore::<Sha256a>::new(conn).await.unwrap()
+        SqliteInterestStore::new(conn).await.unwrap()
     }
 
     #[test(tokio::test)]
@@ -497,8 +470,8 @@ mod interest_tests {
             .unwrap();
         let interests = AccessInterestStore::range(
             &store,
-            random_interest_min(),
-            random_interest_max(),
+            &random_interest_min(),
+            &random_interest_max(),
             0,
             usize::MAX,
         )
