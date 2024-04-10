@@ -81,12 +81,12 @@ test_with_dbs!(
     ]
 );
 
-async fn hash_range_query<S>(mut store: S)
+async fn hash_range_query<S>(store: S)
 where
     S: recon::Store<Key = EventId, Hash = Sha256a>,
 {
     recon::Store::insert(
-        &mut store,
+        &store,
         ReconItem::new_key(&random_event_id(
             Some(1),
             Some("baeabeiazgwnti363jifhxaeaegbluw4ogcd2t5hsjaglo46wuwcgajqa5u"),
@@ -95,7 +95,7 @@ where
     .await
     .unwrap();
     recon::Store::insert(
-        &mut store,
+        &store,
         ReconItem::new_key(&random_event_id(
             Some(2),
             Some("baeabeihyl35xdlfju3zrkvy2exmnl6wics3rc5ppz7hwg7l7g4brbtnpny"),
@@ -103,7 +103,7 @@ where
     )
     .await
     .unwrap();
-    let hash = recon::Store::hash_range(&mut store, &random_event_id_min(), &random_event_id_max())
+    let hash = recon::Store::hash_range(&store, &random_event_id_min(), &random_event_id_max())
         .await
         .unwrap();
     expect!["65C7A25327CC05C19AB5812103EEB8D1156595832B453C7BAC6A186F4811FA0A#2"]
@@ -120,12 +120,12 @@ test_with_dbs!(
     ]
 );
 
-async fn range_query<S>(mut store: S)
+async fn range_query<S>(store: S)
 where
     S: recon::Store<Key = EventId, Hash = Sha256a>,
 {
     recon::Store::insert(
-        &mut store,
+        &store,
         ReconItem::new_key(&random_event_id(
             Some(1),
             Some("baeabeichhhmbhsic4maraneqf5gkhekgzcawhtpj3fh6opjtglznapz524"),
@@ -134,7 +134,7 @@ where
     .await
     .unwrap();
     recon::Store::insert(
-        &mut store,
+        &store,
         ReconItem::new_key(&random_event_id(
             Some(2),
             Some("baeabeibmek7v4ljsu575ohgjhovdxhcw6p6oivgb55hzkeap5po7ghzqty"),
@@ -143,7 +143,7 @@ where
     .await
     .unwrap();
     let ids = recon::Store::range(
-        &mut store,
+        &store,
         &random_event_id_min(),
         &random_event_id_max(),
         0,
@@ -210,7 +210,7 @@ test_with_dbs!(
     ]
 );
 
-async fn range_query_with_values<S>(mut store: S)
+async fn range_query_with_values<S>(store: S)
 where
     S: recon::Store<Key = EventId, Hash = Sha256a>,
 {
@@ -225,15 +225,15 @@ where
     );
     let (_one_blocks, one_car) = build_car_file(2).await;
     let (_two_blocks, two_car) = build_car_file(3).await;
-    recon::Store::insert(&mut store, ReconItem::new(&one_id, Some(&one_car)))
+    recon::Store::insert(&store, ReconItem::new(&one_id, Some(&one_car)))
         .await
         .unwrap();
-    recon::Store::insert(&mut store, ReconItem::new(&two_id, Some(&two_car)))
+    recon::Store::insert(&store, ReconItem::new(&two_id, Some(&two_car)))
         .await
         .unwrap();
     // Insert new event without a value to ensure we skip it in the query
     recon::Store::insert(
-        &mut store,
+        &store,
         ReconItem::new(
             &random_event_id(
                 Some(2),
@@ -245,7 +245,7 @@ where
     .await
     .unwrap();
     let values: Vec<(EventId, Vec<u8>)> = recon::Store::range_with_values(
-        &mut store,
+        &store,
         &random_event_id_min(),
         &random_event_id_max(),
         0,
@@ -267,7 +267,7 @@ test_with_dbs!(
         "delete from ceramic_one_block",
     ]
 );
-async fn double_insert<S>(mut store: S)
+async fn double_insert<S>(store: S)
 where
     S: recon::Store<Key = EventId, Hash = Sha256a>,
 {
@@ -281,7 +281,7 @@ where
             )
             "#
     ]
-    .assert_debug_eq(&recon::Store::insert(&mut store, ReconItem::new_key(&id)).await);
+    .assert_debug_eq(&recon::Store::insert(&store, ReconItem::new_key(&id)).await);
 
     // second insert of same key reports it already existed
     expect![
@@ -291,7 +291,7 @@ where
             )
             "#
     ]
-    .assert_debug_eq(&recon::Store::insert(&mut store, ReconItem::new_key(&id)).await);
+    .assert_debug_eq(&recon::Store::insert(&store, ReconItem::new_key(&id)).await);
 }
 
 test_with_dbs!(
@@ -303,7 +303,7 @@ test_with_dbs!(
         "delete from ceramic_one_block",
     ]
 );
-async fn double_insert_with_value<S>(mut store: S)
+async fn double_insert_with_value<S>(store: S)
 where
     S: recon::Store<Key = EventId, Hash = Sha256a>,
 {
@@ -320,7 +320,7 @@ where
             )
             "#
     ]
-    .assert_debug_eq(&recon::Store::insert(&mut store, item.clone()).await);
+    .assert_debug_eq(&recon::Store::insert(&store, item.clone()).await);
 
     // the second insert of same key with value reports it already exists.
     // Do not override values
@@ -329,7 +329,7 @@ where
                 false,
             )
         "#]]
-    .assert_debug_eq(&recon::Store::insert(&mut store, item).await);
+    .assert_debug_eq(&recon::Store::insert(&store, item).await);
 }
 
 test_with_dbs!(
@@ -341,7 +341,7 @@ test_with_dbs!(
         "delete from ceramic_one_block",
     ]
 );
-async fn update_missing_value<S>(mut store: S)
+async fn update_missing_value<S>(store: S)
 where
     S: recon::Store<Key = EventId, Hash = Sha256a>,
 {
@@ -359,7 +359,7 @@ where
             )
             "#
     ]
-    .assert_debug_eq(&recon::Store::insert(&mut store, item_without_value).await);
+    .assert_debug_eq(&recon::Store::insert(&store, item_without_value).await);
 
     // accept the second insert of same key with the value
     expect![[r#"
@@ -367,7 +367,7 @@ where
                 false,
             )
         "#]]
-    .assert_debug_eq(&recon::Store::insert(&mut store, item_with_value).await);
+    .assert_debug_eq(&recon::Store::insert(&store, item_with_value).await);
 }
 
 test_with_dbs!(
@@ -380,12 +380,12 @@ test_with_dbs!(
         "delete from ceramic_one_interest",
     ]
 );
-async fn first_and_last<S>(mut store: S)
+async fn first_and_last<S>(store: S)
 where
     S: recon::Store<Key = EventId, Hash = Sha256a> + Send + Sync,
 {
     recon::Store::insert(
-        &mut store,
+        &store,
         ReconItem::new_key(&random_event_id(
             Some(10),
             Some("baeabeie2bcird7765t7646jcoatd72tfn2tscdaap7g6kvvy7k43s34aau"),
@@ -394,7 +394,7 @@ where
     .await
     .unwrap();
     recon::Store::insert(
-        &mut store,
+        &store,
         ReconItem::new_key(&random_event_id(
             Some(11),
             Some("baeabeianftvrst5bja422dod6uf42pmwkwix6rprguanwsxylfut56e3ue"),
@@ -405,7 +405,7 @@ where
 
     // Only one key in range
     let ret = recon::Store::first_and_last(
-        &mut store,
+        &store,
         &event_id_builder().with_event_height(9).build_fencepost(),
         &event_id_builder().with_event_height(11).build_fencepost(),
     )
@@ -463,7 +463,7 @@ where
 
     // No keys in range
     let ret = recon::Store::first_and_last(
-        &mut store,
+        &store,
         &event_id_builder().with_event_height(12).build_fencepost(),
         &event_id_builder().with_max_event_height().build_fencepost(),
     )
@@ -475,10 +475,9 @@ where
     .assert_debug_eq(&ret);
 
     // Two keys in range
-    let ret =
-        recon::Store::first_and_last(&mut store, &random_event_id_min(), &random_event_id_max())
-            .await
-            .unwrap();
+    let ret = recon::Store::first_and_last(&store, &random_event_id_min(), &random_event_id_max())
+        .await
+        .unwrap();
     expect![[r#"
             Some(
                 (
@@ -539,19 +538,19 @@ test_with_dbs!(
         "delete from ceramic_one_block",
     ]
 );
-async fn store_value_for_key<S>(mut store: S)
+async fn store_value_for_key<S>(store: S)
 where
     S: recon::Store<Key = EventId, Hash = Sha256a>,
 {
     let key = random_event_id(None, None);
     let (_, store_value) = build_car_file(3).await;
     recon::Store::insert(
-        &mut store,
+        &store,
         ReconItem::new_with_value(&key, store_value.as_slice()),
     )
     .await
     .unwrap();
-    let value = recon::Store::value_for_key(&mut store, &key)
+    let value = recon::Store::value_for_key(&store, &key)
         .await
         .unwrap()
         .unwrap();
@@ -568,7 +567,7 @@ test_with_dbs!(
     ]
 );
 
-async fn keys_with_missing_value<S>(mut store: S)
+async fn keys_with_missing_value<S>(store: S)
 where
     S: recon::Store<Key = EventId, Hash = Sha256a>,
 {
@@ -576,11 +575,11 @@ where
         Some(4),
         Some("baeabeigc5edwvc47ul6belpxk3lgddipri5hw6f347s6ur4pdzwceprqbu"),
     );
-    recon::Store::insert(&mut store, ReconItem::new(&key, None))
+    recon::Store::insert(&store, ReconItem::new(&key, None))
         .await
         .unwrap();
     let missing_keys = recon::Store::keys_with_missing_values(
-        &mut store,
+        &store,
         (EventId::min_value(), EventId::max_value()).into(),
     )
     .await
@@ -613,11 +612,11 @@ where
         .assert_debug_eq(&missing_keys);
 
     let (_, value) = build_car_file(2).await;
-    recon::Store::insert(&mut store, ReconItem::new(&key, Some(&value)))
+    recon::Store::insert(&store, ReconItem::new(&key, Some(&value)))
         .await
         .unwrap();
     let missing_keys = recon::Store::keys_with_missing_values(
-        &mut store,
+        &store,
         (EventId::min_value(), EventId::max_value()).into(),
     )
     .await
@@ -637,19 +636,19 @@ test_with_dbs!(
         "delete from ceramic_one_block",
     ]
 );
-async fn read_value_as_block<S>(mut store: S)
+async fn read_value_as_block<S>(store: S)
 where
     S: recon::Store<Key = EventId, Hash = Sha256a> + iroh_bitswap::Store,
 {
     let key = random_event_id(None, None);
     let (blocks, store_value) = build_car_file(3).await;
     recon::Store::insert(
-        &mut store,
+        &store,
         ReconItem::new_with_value(&key, store_value.as_slice()),
     )
     .await
     .unwrap();
-    let value = recon::Store::value_for_key(&mut store, &key)
+    let value = recon::Store::value_for_key(&store, &key)
         .await
         .unwrap()
         .unwrap();
@@ -666,7 +665,7 @@ where
 // each one takes n+1 blocks as it needs to store the root and all blocks so we expect 3+5+10+3=21 blocks
 // but we use a delivered integer per event, so we expect it to increment by 1 for each event
 async fn prep_highwater_tests(
-    store: &mut dyn AccessModelStore<Key = EventId, Hash = Sha256a>,
+    store: &dyn AccessModelStore<Key = EventId, Hash = Sha256a>,
 ) -> (EventId, EventId, EventId) {
     let key_a = random_event_id(None, None);
     let key_b = random_event_id(None, None);
@@ -692,11 +691,11 @@ test_with_dbs!(
         "delete from ceramic_one_block",
     ]
 );
-async fn keys_since_highwater_mark_all_global_counter<S>(mut store: S)
+async fn keys_since_highwater_mark_all_global_counter<S>(store: S)
 where
     S: AccessModelStore<Key = EventId, Hash = Sha256a>,
 {
-    let (key_a, key_b, key_c) = prep_highwater_tests(&mut store).await;
+    let (key_a, key_b, key_c) = prep_highwater_tests(&store).await;
 
     let (hw, res) = store.keys_since_highwater_mark(0, 10).await.unwrap();
     assert_eq!(3, res.len());
@@ -714,11 +713,11 @@ test_with_dbs!(
         "delete from ceramic_one_block",
     ]
 );
-async fn keys_since_highwater_mark_limit_1<S>(mut store: S)
+async fn keys_since_highwater_mark_limit_1<S>(store: S)
 where
     S: AccessModelStore<Key = EventId, Hash = Sha256a>,
 {
-    let (key_a, _key_b, _key_c) = prep_highwater_tests(&mut store).await;
+    let (key_a, _key_b, _key_c) = prep_highwater_tests(&store).await;
     let (hw_og, res) = store.keys_since_highwater_mark(0, 1).await.unwrap();
     assert_eq!(1, res.len());
     assert!(hw_og >= 2); // other tests might be incrementing the count. but we should have at least 2 and it shouldn't change between calls
@@ -736,11 +735,11 @@ test_with_dbs!(
         "delete from ceramic_one_block",
     ]
 );
-async fn keys_since_highwater_mark_middle_start<S>(mut store: S)
+async fn keys_since_highwater_mark_middle_start<S>(store: S)
 where
     S: AccessModelStore<Key = EventId, Hash = Sha256a>,
 {
-    let (key_a, key_b, key_c) = prep_highwater_tests(&mut store).await;
+    let (key_a, key_b, key_c) = prep_highwater_tests(&store).await;
 
     // starting at rowid 1 which is in the middle of key A should still return key A
     let (hw, res) = store.keys_since_highwater_mark(1, 2).await.unwrap();

@@ -141,19 +141,19 @@ test_with_dbs!(
     ["delete from ceramic_one_interest"]
 );
 
-async fn test_hash_range_query<S>(mut store: S)
+async fn test_hash_range_query<S>(store: S)
 where
     S: recon::Store<Key = Interest, Hash = Sha256a>,
 {
     recon::Store::insert(
-        &mut store,
+        &store,
         ReconItem::new_key(&random_interest(Some((&[0], &[1])), Some(42))),
     )
     .await
     .unwrap();
 
     recon::Store::insert(
-        &mut store,
+        &store,
         ReconItem::new_key(&random_interest(Some((&[0], &[1])), Some(24))),
     )
     .await
@@ -176,7 +176,7 @@ test_with_pg!(
     VALUES(decode('480F70D652B6B825E45826002408011220FCD119D77CA668F157CED3FB79498A82B41CA4D7DC05F90B6B227196F3EC856401581DCE01058080808010A252AB059F8F49FD00000000000000000000000000581DCE01058080808010A252AB059F8F49FDFFFFFFFFFFFFFFFFFFFFFFFFFF00','hex'), 2841278, 2946150166, 1420163820, 754142617, 2283458068, 1856053704, 3039129056, 3387910774);"]
 );
 
-async fn test_hash_range_query_defaults<S>(mut store: S)
+async fn test_hash_range_query_defaults<S>(store: S)
 where
     S: recon::Store<Key = Interest, Hash = Sha256a>,
 {
@@ -197,21 +197,21 @@ test_with_dbs!(
     ["delete from ceramic_one_interest"]
 );
 
-async fn test_range_query<S>(mut store: S)
+async fn test_range_query<S>(store: S)
 where
     S: recon::Store<Key = Interest, Hash = Sha256a>,
 {
     let interest_0 = random_interest(None, None);
     let interest_1 = random_interest(None, None);
 
-    recon::Store::insert(&mut store, ReconItem::new_key(&interest_0))
+    recon::Store::insert(&store, ReconItem::new_key(&interest_0))
         .await
         .unwrap();
-    recon::Store::insert(&mut store, ReconItem::new_key(&interest_1))
+    recon::Store::insert(&store, ReconItem::new_key(&interest_1))
         .await
         .unwrap();
     let ids = recon::Store::range(
-        &mut store,
+        &store,
         &random_interest_min(),
         &random_interest_max(),
         0,
@@ -229,7 +229,7 @@ test_with_dbs!(
     ["delete from ceramic_one_interest"]
 );
 
-async fn test_range_with_values_query<S>(mut store: S)
+async fn test_range_with_values_query<S>(store: S)
 where
     S: recon::Store<Key = Interest, Hash = Sha256a>,
 {
@@ -260,7 +260,7 @@ test_with_dbs!(
     ["delete from ceramic_one_interest"]
 );
 
-async fn test_double_insert<S>(mut store: S)
+async fn test_double_insert<S>(store: S)
 where
     S: recon::Store<Key = Interest, Hash = Sha256a>,
 {
@@ -273,7 +273,7 @@ where
         )
         "#
     ]
-    .assert_debug_eq(&recon::Store::insert(&mut store, ReconItem::new_key(&interest)).await);
+    .assert_debug_eq(&recon::Store::insert(&store, ReconItem::new_key(&interest)).await);
 
     // reject the second insert of same key
     expect![
@@ -283,7 +283,7 @@ where
         )
         "#
     ]
-    .assert_debug_eq(&recon::Store::insert(&mut store, ReconItem::new_key(&interest)).await);
+    .assert_debug_eq(&recon::Store::insert(&store, ReconItem::new_key(&interest)).await);
 }
 
 test_with_dbs!(
@@ -292,16 +292,16 @@ test_with_dbs!(
     ["delete from ceramic_one_interest"]
 );
 
-async fn test_first_and_last<S>(mut store: S)
+async fn test_first_and_last<S>(store: S)
 where
     S: recon::Store<Key = Interest, Hash = Sha256a> + Send + Sync,
 {
     let interest_0 = random_interest(Some((&[], &[])), Some(42));
     let interest_1 = random_interest(Some((&[], &[])), Some(43));
-    recon::Store::insert(&mut store, ReconItem::new_key(&interest_0))
+    recon::Store::insert(&store, ReconItem::new_key(&interest_0))
         .await
         .unwrap();
-    recon::Store::insert(&mut store, ReconItem::new_key(&interest_1))
+    recon::Store::insert(&store, ReconItem::new_key(&interest_1))
         .await
         .unwrap();
 
@@ -437,14 +437,14 @@ test_with_dbs!(
     ["delete from ceramic_one_interest"]
 );
 
-async fn test_store_value_for_key_error<S>(mut store: S)
+async fn test_store_value_for_key_error<S>(store: S)
 where
     S: recon::Store<Key = Interest, Hash = Sha256a>,
 {
     let key = random_interest(None, None);
     let store_value = random_interest(None, None);
     let err = recon::Store::insert(
-        &mut store,
+        &store,
         ReconItem::new_with_value(&key, store_value.as_slice()),
     )
     .await;
@@ -456,12 +456,12 @@ where
 
 test_with_dbs!(test_keys_with_missing_value, test_keys_with_missing_value);
 
-async fn test_keys_with_missing_value<S>(mut store: S)
+async fn test_keys_with_missing_value<S>(store: S)
 where
     S: recon::Store<Key = Interest, Hash = Sha256a>,
 {
     let key = random_interest(None, None);
-    recon::Store::insert(&mut store, ReconItem::new(&key, None))
+    recon::Store::insert(&store, ReconItem::new(&key, None))
         .await
         .unwrap();
     let missing_keys = store
@@ -473,7 +473,7 @@ where
         "#]]
     .assert_debug_eq(&missing_keys);
 
-    recon::Store::insert(&mut store, ReconItem::new(&key, Some(&[])))
+    recon::Store::insert(&store, ReconItem::new(&key, Some(&[])))
         .await
         .unwrap();
     let missing_keys = store
@@ -492,12 +492,12 @@ test_with_dbs!(
     ["delete from ceramic_one_interest"]
 );
 
-async fn test_value_for_key<S>(mut store: S)
+async fn test_value_for_key<S>(store: S)
 where
     S: recon::Store<Key = Interest, Hash = Sha256a>,
 {
     let key = random_interest(None, None);
-    recon::Store::insert(&mut store, ReconItem::new(&key, None))
+    recon::Store::insert(&store, ReconItem::new(&key, None))
         .await
         .unwrap();
     let value = store.value_for_key(&key).await.unwrap();
