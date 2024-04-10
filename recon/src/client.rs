@@ -219,7 +219,7 @@ impl<K, H, S, I> Server<K, H, S, I>
 where
     K: Key,
     H: AssociativeHash,
-    S: Store<Key = K, Hash = H> + Send + 'static,
+    S: Store<Key = K, Hash = H> + Send + Sync + 'static,
     I: InterestProvider<Key = K> + 'static,
 {
     /// Construct a [`Server`] from a [`Recon`] instance.

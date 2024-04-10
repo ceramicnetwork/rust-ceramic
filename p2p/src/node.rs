@@ -1437,7 +1437,7 @@ mod tests {
     async fn get_addr_loop(client: P2pClient) -> Result<Multiaddr> {
         loop {
             let l = client.listeners().await?;
-            if let Some(a) = l.get(0) {
+            if let Some(a) = l.first() {
                 return Ok(a.clone());
             }
         }
@@ -1729,7 +1729,7 @@ mod tests {
         .context("timed out before finding providers for the given cid")??;
 
         assert!(providers.len() == 1);
-        assert!(providers.get(0).unwrap().contains(&test_runner_c.peer_id));
+        assert!(providers.first().unwrap().contains(&test_runner_c.peer_id));
 
         // c stop providing
         test_runner_c.client.stop_providing(&cid).await?;

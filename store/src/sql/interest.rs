@@ -171,7 +171,7 @@ where
     type Hash = H;
 
     /// Returns true if the key was new. The value is always updated if included
-    async fn insert(&mut self, item: ReconItem<'_, Self::Key>) -> Result<bool> {
+    async fn insert(&self, item: ReconItem<'_, Self::Key>) -> Result<bool> {
         // interests don't have values, if someone gives us something we throw an error but allow None/vec![]
         if let Some(val) = item.value {
             if !val.is_empty() {
@@ -185,7 +185,7 @@ where
 
     /// Insert new keys into the key space.
     /// Returns true if a key did not previously exist.
-    async fn insert_many<'a, I>(&mut self, items: I) -> Result<InsertResult>
+    async fn insert_many<'a, I>(&self, items: I) -> Result<InsertResult>
     where
         I: ExactSizeIterator<Item = ReconItem<'a, Interest>> + Send + Sync,
     {
@@ -212,7 +212,7 @@ where
     /// return the hash and count for a range
     #[instrument(skip(self))]
     async fn hash_range(
-        &mut self,
+        &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
     ) -> Result<HashCount<Self::Hash>> {
@@ -253,7 +253,7 @@ where
 
     #[instrument(skip(self))]
     async fn range(
-        &mut self,
+        &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
         offset: usize,
@@ -266,7 +266,7 @@ where
     #[instrument(skip(self))]
     /// Interests don't have values, so the value will always be an empty vec. Use `range` instead.
     async fn range_with_values(
-        &mut self,
+        &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
         offset: usize,
@@ -280,7 +280,7 @@ where
     /// Return the number of keys within the range.
     #[instrument(skip(self))]
     async fn count(
-        &mut self,
+        &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
     ) -> Result<usize> {
@@ -305,7 +305,7 @@ where
     /// Return the first key within the range.
     #[instrument(skip(self))]
     async fn first(
-        &mut self,
+        &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
     ) -> Result<Option<Self::Key>> {
@@ -339,7 +339,7 @@ where
 
     #[instrument(skip(self))]
     async fn last(
-        &mut self,
+        &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
     ) -> Result<Option<Self::Key>> {
@@ -373,7 +373,7 @@ where
 
     #[instrument(skip(self))]
     async fn first_and_last(
-        &mut self,
+        &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
     ) -> Result<Option<(Self::Key, Self::Key)>> {
@@ -417,13 +417,13 @@ where
     }
 
     #[instrument(skip(self))]
-    async fn value_for_key(&mut self, _key: &Self::Key) -> Result<Option<Vec<u8>>> {
+    async fn value_for_key(&self, _key: &Self::Key) -> Result<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
     #[instrument(skip(self))]
     async fn keys_with_missing_values(
-        &mut self,
+        &self,
         _range: RangeOpen<Self::Key>,
     ) -> Result<Vec<Self::Key>> {
         Ok(vec![])
@@ -559,11 +559,15 @@ mod interest_tests {
 
     #[test(tokio::test)]
     async fn test_range_with_values_query() {
-        let mut store = new_store().await;
+        let store = new_store().await;
         let interest_0 = random_interest(None, None);
         let interest_1 = random_interest(None, None);
-        store.insert(interest_0.clone()).await.unwrap();
-        store.insert(interest_1.clone()).await.unwrap();
+        AccessInterestStore::insert(&store, interest_0.clone())
+            .await
+            .unwrap();
+        AccessInterestStore::insert(&store, interest_1.clone())
+            .await
+            .unwrap();
         let ids = store
             .range_with_values(
                 &random_interest_min(),

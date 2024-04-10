@@ -11,22 +11,8 @@ use crate::Key;
 pub struct AlphaNumBytes(Vec<u8>);
 
 impl AlphaNumBytes {
-    /// Returns the inner slice held by this `Bytes`.
-    pub fn as_slice(&self) -> &[u8] {
-        &self.0
-    }
     pub fn into_inner(self) -> Vec<u8> {
         self.0
-    }
-
-    pub fn to_upper(self) -> Self {
-        Self(
-            String::from_utf8(self.0)
-                .unwrap()
-                .to_uppercase()
-                .as_bytes()
-                .to_vec(),
-        )
     }
 }
 
@@ -70,7 +56,7 @@ impl std::fmt::Display for AlphaNumBytes {
             f,
             "{}",
             String::from_utf8(self.0.as_slice().to_vec())
-                .unwrap_or_else(|_| format!("0x{}", hex::encode_upper(&self.0.as_slice())))
+                .unwrap_or_else(|_| format!("0x{}", hex::encode_upper(self.0.as_slice())))
         )
     }
 }
