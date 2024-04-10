@@ -562,8 +562,12 @@ mod interest_tests {
         let mut store = new_store().await;
         let interest_0 = random_interest(None, None);
         let interest_1 = random_interest(None, None);
-        AccessInterestStore::insert(&store, interest_0.clone()).await.unwrap();
-        AccessInterestStore::insert(&store, interest_1.clone()).await.unwrap();
+        AccessInterestStore::insert(&store, interest_0.clone())
+            .await
+            .unwrap();
+        AccessInterestStore::insert(&store, interest_1.clone())
+            .await
+            .unwrap();
         let ids = store
             .range_with_values(
                 &random_interest_min(),

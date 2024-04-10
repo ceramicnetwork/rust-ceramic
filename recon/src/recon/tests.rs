@@ -226,7 +226,8 @@ async fn from_setup_state(setup: SetupState<AlphaNumBytes>) -> ReconMemoryBytes 
                 .into_iter()
                 .map(|(k, v)| (k, v.map(|v| v.into_inner())))
                 .collect(),
-        ).await,
+        )
+        .await,
         metrics: Metrics::register(&mut Registry::default()),
     }
 }
