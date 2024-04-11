@@ -57,10 +57,9 @@ pub struct Stat {
 
 #[derive(Derivative)]
 #[derivative(Debug)]
-#[derive(Clone)]
 pub struct Client<S: Store> {
     network: Network,
-    store: S,
+    store: Arc<S>,
     session_manager: SessionManager,
     provider_search_delay: Duration,
     rebroadcast_delay: Duration,
@@ -70,13 +69,28 @@ pub struct Client<S: Store> {
     notify: async_broadcast::Sender<Block>,
 }
 
+impl<S: Store> Clone for Client<S> {
+    fn clone(&self) -> Self {
+        Client {
+            network: self.network.clone(),
+            store: self.store.clone(),
+            session_manager: self.session_manager.clone(),
+            provider_search_delay: self.provider_search_delay,
+            rebroadcast_delay: self.rebroadcast_delay,
+            simulate_dont_haves_on_timeout: self.simulate_dont_haves_on_timeout,
+            blocks_received_cb: self.blocks_received_cb.clone(),
+            notify: self.notify.clone(),
+        }
+    }
+}
+
 pub type BlocksReceivedCb =
     dyn Fn(PeerId, Vec<Block>) -> BoxFuture<'static, ()> + 'static + Send + Sync;
 
 impl<S: Store> Client<S> {
     pub async fn new(
         network: Network,
-        store: S,
+        store: Arc<S>,
         blocks_received_cb: Option<Box<BlocksReceivedCb>>,
         config: Config,
     ) -> Self {

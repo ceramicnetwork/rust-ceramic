@@ -1344,7 +1344,6 @@ dependencies = [
  "prometheus-client",
  "rand 0.8.5",
  "recon",
- "serde",
  "sqlx",
  "test-log",
  "tokio",

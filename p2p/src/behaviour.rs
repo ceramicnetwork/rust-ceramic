@@ -19,6 +19,7 @@ use libp2p::{
 };
 use libp2p_identity::Keypair;
 use recon::{libp2p::Recon, Sha256a};
+use std::sync::Arc;
 use tracing::{info, warn};
 
 use self::ceramic_peer_manager::CeramicPeerManager;
@@ -69,7 +70,7 @@ where
         config: &Libp2pConfig,
         relay_client: Option<relay::client::Behaviour>,
         recons: Option<(I, M)>,
-        block_store: S,
+        block_store: Arc<S>,
         metrics: Metrics,
     ) -> Result<Self> {
         let pub_key = local_key.public();

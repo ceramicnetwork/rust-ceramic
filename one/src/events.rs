@@ -3,14 +3,13 @@ use crate::CborValue;
 use anyhow::{anyhow, bail, Context, Result};
 use ceramic_core::{ssi, Base64UrlString, DidDocument, Jwk};
 use ceramic_metrics::init_local_tracing;
-use ceramic_store::{EventStore, Migrations, RootStore, SqlitePool};
+use ceramic_store::{Migrations, RootStore, SqliteEventStore, SqlitePool};
 use chrono::{SecondsFormat, TimeZone, Utc};
 use cid::{multibase, multihash, Cid};
 use clap::{Args, Subcommand};
 use glob::{glob, Paths};
 use iroh_bitswap::Store;
 use multihash::Multihash;
-use recon::Sha256a;
 use std::{fs, path::PathBuf, str::FromStr};
 use tracing::{debug, info, warn};
 
@@ -77,13 +76,13 @@ async fn slurp(opts: SlurpOpts) -> Result<()> {
     let pool = SqlitePool::connect(output_ceramic_path, Migrations::Apply)
         .await
         .context("Failed to connect to database")?;
-    let block_store = EventStore::new(pool).await.unwrap();
+    let block_store = SqliteEventStore::new(pool).await.unwrap();
 
     if let Some(input_ceramic_db) = opts.input_ceramic_db {
-        migrate_from_database(input_ceramic_db, block_store.clone()).await?;
+        migrate_from_database(input_ceramic_db, Clone::clone(&block_store)).await?;
     }
     if let Some(input_ipfs_path) = opts.input_ipfs_path {
-        migrate_from_filesystem(input_ipfs_path, block_store.clone()).await?;
+        migrate_from_filesystem(input_ipfs_path, Clone::clone(&block_store)).await?;
     }
     Ok(())
 }
@@ -92,7 +91,7 @@ async fn validate(opts: ValidateOpts) -> Result<()> {
     let pool = SqlitePool::from_store_dir(opts.store_dir, Migrations::Apply)
         .await
         .context("Failed to connect to database")?;
-    let block_store = EventStore::new(pool.clone())
+    let block_store = SqliteEventStore::new(pool.clone())
         .await
         .with_context(|| "Failed to create block store")?;
     let root_store = RootStore::new(pool)
@@ -158,10 +157,7 @@ async fn validate(opts: ValidateOpts) -> Result<()> {
     Ok(())
 }
 
-async fn validate_data_event_envelope(
-    cid: &Cid,
-    block_store: &EventStore<Sha256a>,
-) -> Result<String> {
+async fn validate_data_event_envelope(cid: &Cid, block_store: &SqliteEventStore) -> Result<String> {
     let block = block_store.get(cid).await?;
     let envelope = CborValue::parse(&block.data)?;
     let signatures_0 = envelope
@@ -205,7 +201,7 @@ async fn validate_data_event_envelope(
 // TODO: Validate CACAO
 async fn validate_data_event_payload(
     _payload_cid: &Cid,
-    _block_store: &EventStore<Sha256a>,
+    _block_store: &SqliteEventStore,
     _controller: Option<String>,
 ) -> Result<()> {
     Ok(())
@@ -219,7 +215,7 @@ async fn validate_data_event_payload(
 // - Validated time is the time from the Root Store
 async fn validate_time_event(
     cid: &Cid,
-    block_store: &EventStore<Sha256a>,
+    block_store: &SqliteEventStore,
     root_store: &RootStore,
     eth_rpc: &impl EthRpc,
 ) -> Result<i64> {
@@ -277,7 +273,7 @@ async fn prev_in_root(
     prev: Cid,
     root: Cid,
     path: String,
-    block_store: &EventStore<Sha256a>,
+    block_store: &SqliteEventStore,
 ) -> Result<bool> {
     let mut current_cid = root;
     for segment in path.split('/') {
@@ -290,10 +286,7 @@ async fn prev_in_root(
     Ok(prev == current_cid)
 }
 
-async fn migrate_from_filesystem(
-    input_ipfs_path: PathBuf,
-    store: EventStore<Sha256a>,
-) -> Result<()> {
+async fn migrate_from_filesystem(input_ipfs_path: PathBuf, store: SqliteEventStore) -> Result<()> {
     // the block store is split in to 1024 directories and then the blocks stored as files.
     // the dir structure is the penultimate two characters as dir then the b32 sha256 multihash of the block
     // The leading "B" for the b32 sha256 multihash is left off
@@ -381,10 +374,7 @@ async fn migrate_from_filesystem(
     Ok(())
 }
 
-async fn migrate_from_database(
-    input_ceramic_db: PathBuf,
-    store: EventStore<Sha256a>,
-) -> Result<()> {
+async fn migrate_from_database(input_ceramic_db: PathBuf, store: SqliteEventStore) -> Result<()> {
     let input_ceramic_db_filename = input_ceramic_db.to_str().expect("expect utf8");
     info!(
         "{} Importing blocks from {}.",
@@ -434,7 +424,7 @@ mod tests {
         let pool = SqlitePool::connect_in_memory().await.unwrap();
 
         // Create a new SQLiteBlockStore and SQLiteRootStore
-        let block_store = EventStore::new(pool.clone()).await.unwrap();
+        let block_store = SqliteEventStore::new(pool.clone()).await.unwrap();
         let root_store = RootStore::new(pool).await.unwrap();
 
         // Add all the blocks for the Data Event & Time Event to the block store

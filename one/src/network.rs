@@ -38,7 +38,7 @@ impl Builder<Init> {
         libp2p_config: Libp2pConfig,
         keypair: Keypair,
         recons: Option<(I, M)>,
-        block_store: S,
+        block_store: Arc<S>,
         metrics: ceramic_p2p::Metrics,
     ) -> anyhow::Result<Builder<WithP2p>>
     where
@@ -72,7 +72,7 @@ impl Builder<Init> {
 
 /// Finish the build
 impl Builder<WithP2p> {
-    pub async fn build<S>(self, block_store: S, ipfs_metrics: IpfsMetrics) -> Result<Ipfs<S>>
+    pub async fn build<S>(self, block_store: Arc<S>, ipfs_metrics: IpfsMetrics) -> Result<Ipfs<S>>
     where
         S: iroh_bitswap::Store,
     {

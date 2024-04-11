@@ -1,6 +1,5 @@
 use std::{
     collections::BTreeSet,
-    marker::PhantomData,
     sync::{atomic::AtomicI64, Arc},
 };
 
@@ -24,13 +23,9 @@ static GLOBAL_COUNTER: AtomicI64 = AtomicI64::new(0);
 /// Unified implementation of [`recon::Store`] and [`iroh_bitswap::Store`] that can expose the
 /// individual blocks from the CAR files directly.
 #[derive(Clone, Debug)]
-pub struct EventStore<H>
-where
-    H: AssociativeHash,
-{
+pub struct SqliteEventStore {
     pool: SqlitePool,
     test_counter: Option<Arc<AtomicI64>>,
-    hash: PhantomData<H>,
 }
 
 #[derive(Debug)]
@@ -63,16 +58,12 @@ impl FromRow<'_, SqliteRow> for BlockRow {
 
 type EventIdError = <EventId as TryFrom<Vec<u8>>>::Error;
 
-impl<H> EventStore<H>
-where
-    H: AssociativeHash + std::convert::From<[u32; 8]>,
-{
+impl SqliteEventStore {
     /// Create an instance of the store initializing any neccessary tables.
     pub async fn new(pool: SqlitePool) -> Result<Self> {
-        let store = EventStore {
+        let store = SqliteEventStore {
             pool,
             test_counter: None,
-            hash: PhantomData,
         };
         store.init_delivered().await?;
         Ok(store)
@@ -81,10 +72,9 @@ where
     /// Creates an instance that doesn't share the global event counter with other instances (only for tests to avoid running serially)
     #[allow(dead_code)]
     pub(crate) async fn new_local(pool: SqlitePool) -> Result<Self> {
-        let store = EventStore {
+        let store = SqliteEventStore {
             pool,
             test_counter: Some(Arc::new(AtomicI64::new(0))),
-            hash: PhantomData,
         };
         store.init_delivered().await?;
         Ok(store)
@@ -500,25 +490,19 @@ where
 }
 
 #[async_trait]
-impl<H> recon::Store for EventStore<H>
-where
-    H: AssociativeHash,
-{
+impl recon::Store for SqliteEventStore {
     type Key = EventId;
-    type Hash = H;
+    type Hash = Sha256a;
 
     /// Returns true if the key was new. The value is always updated if included
-    async fn insert(&self, item: ReconItem<'_, Self::Key>) -> Result<bool> {
-        let (new, _new_val) = self.insert_item(&item).await?;
+    async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> Result<bool> {
+        let (new, _new_val) = self.insert_item(item).await?;
         Ok(new)
     }
 
     /// Insert new keys into the key space.
     /// Returns true if a key did not previously exist.
-    async fn insert_many<'a, I>(&self, items: I) -> Result<InsertResult>
-    where
-        I: ExactSizeIterator<Item = ReconItem<'a, EventId>> + Send + Sync,
-    {
+    async fn insert_many(&self, items: &[ReconItem<'_, EventId>]) -> Result<InsertResult> {
         match items.len() {
             0 => Ok(InsertResult::new(vec![], 0)),
             _ => {
@@ -526,8 +510,8 @@ where
                 let mut new_val_cnt = 0;
                 let mut tx = self.pool.writer().begin().await?;
 
-                for (idx, item) in items.enumerate() {
-                    let (new_key, new_val) = self.insert_item_int(&item, &mut tx).await?;
+                for (idx, item) in items.iter().enumerate() {
+                    let (new_key, new_val) = self.insert_item_int(item, &mut tx).await?;
                     results[idx] = new_key;
                     if new_val {
                         new_val_cnt += 1;
@@ -547,7 +531,7 @@ where
         right_fencepost: &Self::Key,
     ) -> Result<HashCount<Self::Hash>> {
         if left_fencepost >= right_fencepost {
-            return Ok(HashCount::new(H::identity(), 0));
+            return Ok(HashCount::new(Sha256a::identity(), 0));
         }
 
         let query = sqlx::query(
@@ -578,7 +562,7 @@ where
         let count: u64 = count
             .try_into()
             .expect("COUNT(1) should never return a negative number");
-        Ok(HashCount::new(H::from(bytes), count))
+        Ok(HashCount::new(Sha256a::from(bytes), count))
     }
 
     #[instrument(skip(self))]
@@ -797,7 +781,7 @@ where
 }
 
 #[async_trait]
-impl iroh_bitswap::Store for EventStore<Sha256a> {
+impl iroh_bitswap::Store for SqliteEventStore {
     async fn get_size(&self, cid: &Cid) -> Result<usize> {
         Ok(
             sqlx::query("SELECT length(bytes) FROM ceramic_one_block WHERE multihash = $1;")
@@ -839,36 +823,33 @@ impl iroh_bitswap::Store for EventStore<Sha256a> {
 /// Anything that implements `ceramic_api::AccessModelStore` should also implement `recon::Store`.
 /// This guarantees that regardless of entry point (api or recon), the data is stored and retrieved in the same way.
 #[async_trait::async_trait]
-impl ceramic_api::AccessModelStore for EventStore<Sha256a> {
-    type Key = EventId;
-    type Hash = Sha256a;
-
-    async fn insert(&self, key: Self::Key, value: Option<Vec<u8>>) -> Result<(bool, bool)> {
+impl ceramic_api::AccessModelStore for SqliteEventStore {
+    async fn insert(&self, key: EventId, value: Option<Vec<u8>>) -> Result<(bool, bool)> {
         self.insert_item(&ReconItem::new(&key, value.as_deref()))
             .await
     }
 
     async fn range_with_values(
         &self,
-        start: Self::Key,
-        end: Self::Key,
+        start: &EventId,
+        end: &EventId,
         offset: usize,
         limit: usize,
-    ) -> Result<Vec<(Self::Key, Vec<u8>)>> {
+    ) -> Result<Vec<(EventId, Vec<u8>)>> {
         let res = self
-            .range_with_values_int(&start, &end, offset, limit)
+            .range_with_values_int(start, end, offset, limit)
             .await?;
         Ok(res.collect())
     }
-    async fn value_for_key(&self, key: Self::Key) -> Result<Option<Vec<u8>>> {
-        self.value_for_key_int(&key).await
+    async fn value_for_key(&self, key: &EventId) -> Result<Option<Vec<u8>>> {
+        self.value_for_key_int(key).await
     }
 
     async fn keys_since_highwater_mark(
         &self,
         highwater: i64,
         limit: i64,
-    ) -> anyhow::Result<(i64, Vec<Self::Key>)> {
+    ) -> anyhow::Result<(i64, Vec<EventId>)> {
         self.new_keys_since_value(highwater, limit).await
     }
 }
@@ -891,10 +872,10 @@ mod test {
 
     #[test(tokio::test)]
     async fn hash_range_query() {
-        let mut store = new_store().await;
+        let store = new_store().await;
         recon::Store::insert(
-            &mut store,
-            ReconItem::new_key(&random_event_id(
+            &store,
+            &ReconItem::new_key(&random_event_id(
                 Some(1),
                 Some("baeabeiazgwnti363jifhxaeaegbluw4ogcd2t5hsjaglo46wuwcgajqa5u"),
             )),
@@ -902,28 +883,27 @@ mod test {
         .await
         .unwrap();
         recon::Store::insert(
-            &mut store,
-            ReconItem::new_key(&random_event_id(
+            &store,
+            &ReconItem::new_key(&random_event_id(
                 Some(2),
                 Some("baeabeihyl35xdlfju3zrkvy2exmnl6wics3rc5ppz7hwg7l7g4brbtnpny"),
             )),
         )
         .await
         .unwrap();
-        let hash =
-            recon::Store::hash_range(&mut store, &random_event_id_min(), &random_event_id_max())
-                .await
-                .unwrap();
+        let hash = recon::Store::hash_range(&store, &random_event_id_min(), &random_event_id_max())
+            .await
+            .unwrap();
         expect!["65C7A25327CC05C19AB5812103EEB8D1156595832B453C7BAC6A186F4811FA0A#2"]
             .assert_eq(&format!("{hash}"));
     }
 
     #[test(tokio::test)]
     async fn range_query() {
-        let mut store = new_store().await;
+        let store = new_store().await;
         recon::Store::insert(
-            &mut store,
-            ReconItem::new_key(&random_event_id(
+            &store,
+            &ReconItem::new_key(&random_event_id(
                 Some(1),
                 Some("baeabeichhhmbhsic4maraneqf5gkhekgzcawhtpj3fh6opjtglznapz524"),
             )),
@@ -931,8 +911,8 @@ mod test {
         .await
         .unwrap();
         recon::Store::insert(
-            &mut store,
-            ReconItem::new_key(&random_event_id(
+            &store,
+            &ReconItem::new_key(&random_event_id(
                 Some(2),
                 Some("baeabeibmek7v4ljsu575ohgjhovdxhcw6p6oivgb55hzkeap5po7ghzqty"),
             )),
@@ -940,7 +920,7 @@ mod test {
         .await
         .unwrap();
         let ids = recon::Store::range(
-            &mut store,
+            &store,
             &random_event_id_min(),
             &random_event_id_max(),
             0,
@@ -999,7 +979,7 @@ mod test {
 
     #[test(tokio::test)]
     async fn range_query_with_values() {
-        let mut store = new_store().await;
+        let store = new_store().await;
         // Write three keys, two with values and one without
         let one_id = random_event_id(
             Some(1),
@@ -1011,16 +991,16 @@ mod test {
         );
         let (_one_blocks, one_car) = build_car_file(2).await;
         let (_two_blocks, two_car) = build_car_file(3).await;
-        recon::Store::insert(&mut store, ReconItem::new(&one_id, Some(&one_car)))
+        recon::Store::insert(&store, &ReconItem::new(&one_id, Some(&one_car)))
             .await
             .unwrap();
-        recon::Store::insert(&mut store, ReconItem::new(&two_id, Some(&two_car)))
+        recon::Store::insert(&store, &ReconItem::new(&two_id, Some(&two_car)))
             .await
             .unwrap();
         // Insert new event without a value to ensure we skip it in the query
         recon::Store::insert(
-            &mut store,
-            ReconItem::new(
+            &store,
+            &ReconItem::new(
                 &random_event_id(
                     Some(2),
                     Some("baeabeicyxeqioadjgy6v6cpy62a3gngylax54sds7rols2b67yetzaw5r4"),
@@ -1031,7 +1011,7 @@ mod test {
         .await
         .unwrap();
         let values: Vec<(EventId, Vec<u8>)> = recon::Store::range_with_values(
-            &mut store,
+            &store,
             &random_event_id_min(),
             &random_event_id_max(),
             0,
@@ -1046,7 +1026,7 @@ mod test {
 
     #[test(tokio::test)]
     async fn double_insert() {
-        let mut store = new_store().await;
+        let store = new_store().await;
         let id = random_event_id(Some(10), None);
 
         // first insert reports its a new key
@@ -1057,7 +1037,7 @@ mod test {
             )
             "#
         ]
-        .assert_debug_eq(&recon::Store::insert(&mut store, ReconItem::new_key(&id)).await);
+        .assert_debug_eq(&recon::Store::insert(&store, &ReconItem::new_key(&id)).await);
 
         // second insert of same key reports it already existed
         expect![
@@ -1067,12 +1047,12 @@ mod test {
             )
             "#
         ]
-        .assert_debug_eq(&recon::Store::insert(&mut store, ReconItem::new_key(&id)).await);
+        .assert_debug_eq(&recon::Store::insert(&store, &ReconItem::new_key(&id)).await);
     }
 
     #[test(tokio::test)]
     async fn double_insert_with_value() {
-        let mut store = new_store().await;
+        let store = new_store().await;
         let id = random_event_id(Some(10), None);
         let (_, car) = build_car_file(2).await;
 
@@ -1086,7 +1066,7 @@ mod test {
             )
             "#
         ]
-        .assert_debug_eq(&recon::Store::insert(&mut store, item.clone()).await);
+        .assert_debug_eq(&recon::Store::insert(&store, &item).await);
 
         // the second insert of same key with value reports it already exists.
         // Do not override values
@@ -1095,12 +1075,12 @@ mod test {
                 false,
             )
         "#]]
-        .assert_debug_eq(&recon::Store::insert(&mut store, item).await);
+        .assert_debug_eq(&recon::Store::insert(&store, &item).await);
     }
 
     #[test(tokio::test)]
     async fn update_missing_value() {
-        let mut store = new_store().await;
+        let store = new_store().await;
         let id = random_event_id(Some(10), None);
         let (_, car) = build_car_file(2).await;
 
@@ -1115,7 +1095,7 @@ mod test {
             )
             "#
         ]
-        .assert_debug_eq(&recon::Store::insert(&mut store, item_without_value).await);
+        .assert_debug_eq(&recon::Store::insert(&store, &item_without_value).await);
 
         // accept the second insert of same key with the value
         expect![[r#"
@@ -1123,15 +1103,15 @@ mod test {
                 false,
             )
         "#]]
-        .assert_debug_eq(&recon::Store::insert(&mut store, item_with_value).await);
+        .assert_debug_eq(&recon::Store::insert(&store, &item_with_value).await);
     }
 
     #[test(tokio::test)]
     async fn first_and_last() {
-        let mut store = new_store().await;
+        let store = new_store().await;
         recon::Store::insert(
-            &mut store,
-            ReconItem::new_key(&random_event_id(
+            &store,
+            &ReconItem::new_key(&random_event_id(
                 Some(10),
                 Some("baeabeie2bcird7765t7646jcoatd72tfn2tscdaap7g6kvvy7k43s34aau"),
             )),
@@ -1139,8 +1119,8 @@ mod test {
         .await
         .unwrap();
         recon::Store::insert(
-            &mut store,
-            ReconItem::new_key(&random_event_id(
+            &store,
+            &ReconItem::new_key(&random_event_id(
                 Some(11),
                 Some("baeabeianftvrst5bja422dod6uf42pmwkwix6rprguanwsxylfut56e3ue"),
             )),
@@ -1150,7 +1130,7 @@ mod test {
 
         // Only one key in range
         let ret = recon::Store::first_and_last(
-            &mut store,
+            &store,
             &event_id_builder().with_event_height(9).build_fencepost(),
             &event_id_builder().with_event_height(11).build_fencepost(),
         )
@@ -1208,7 +1188,7 @@ mod test {
 
         // No keys in range
         let ret = recon::Store::first_and_last(
-            &mut store,
+            &store,
             &event_id_builder().with_event_height(12).build_fencepost(),
             &event_id_builder().with_max_event_height().build_fencepost(),
         )
@@ -1220,13 +1200,10 @@ mod test {
         .assert_debug_eq(&ret);
 
         // Two keys in range
-        let ret = recon::Store::first_and_last(
-            &mut store,
-            &random_event_id_min(),
-            &random_event_id_max(),
-        )
-        .await
-        .unwrap();
+        let ret =
+            recon::Store::first_and_last(&store, &random_event_id_min(), &random_event_id_max())
+                .await
+                .unwrap();
         expect![[r#"
             Some(
                 (
@@ -1280,16 +1257,16 @@ mod test {
 
     #[test(tokio::test)]
     async fn store_value_for_key() {
-        let mut store = new_store().await;
+        let store = new_store().await;
         let key = random_event_id(None, None);
         let (_, store_value) = build_car_file(3).await;
         recon::Store::insert(
-            &mut store,
-            ReconItem::new_with_value(&key, store_value.as_slice()),
+            &store,
+            &ReconItem::new_with_value(&key, store_value.as_slice()),
         )
         .await
         .unwrap();
-        let value = recon::Store::value_for_key(&mut store, &key)
+        let value = recon::Store::value_for_key(&store, &key)
             .await
             .unwrap()
             .unwrap();
@@ -1297,16 +1274,16 @@ mod test {
     }
     #[test(tokio::test)]
     async fn keys_with_missing_value() {
-        let mut store = new_store().await;
+        let store = new_store().await;
         let key = random_event_id(
             Some(4),
             Some("baeabeigc5edwvc47ul6belpxk3lgddipri5hw6f347s6ur4pdzwceprqbu"),
         );
-        recon::Store::insert(&mut store, ReconItem::new(&key, None))
+        recon::Store::insert(&store, &ReconItem::new(&key, None))
             .await
             .unwrap();
         let missing_keys = recon::Store::keys_with_missing_values(
-            &mut store,
+            &store,
             (EventId::min_value(), EventId::max_value()).into(),
         )
         .await
@@ -1339,11 +1316,11 @@ mod test {
         .assert_debug_eq(&missing_keys);
 
         let (_, value) = build_car_file(2).await;
-        recon::Store::insert(&mut store, ReconItem::new(&key, Some(&value)))
+        recon::Store::insert(&store, &ReconItem::new(&key, Some(&value)))
             .await
             .unwrap();
         let missing_keys = recon::Store::keys_with_missing_values(
-            &mut store,
+            &store,
             (EventId::min_value(), EventId::max_value()).into(),
         )
         .await
@@ -1356,16 +1333,16 @@ mod test {
 
     #[test(tokio::test)]
     async fn read_value_as_block() {
-        let mut store = new_store().await;
+        let store = new_store().await;
         let key = random_event_id(None, None);
         let (blocks, store_value) = build_car_file(3).await;
         recon::Store::insert(
-            &mut store,
-            ReconItem::new_with_value(&key, store_value.as_slice()),
+            &store,
+            &ReconItem::new_with_value(&key, store_value.as_slice()),
         )
         .await
         .unwrap();
-        let value = recon::Store::value_for_key(&mut store, &key)
+        let value = recon::Store::value_for_key(&store, &key)
             .await
             .unwrap()
             .unwrap();
@@ -1381,7 +1358,7 @@ mod test {
     // stores 3 keys with 3,5,10 block long CAR files
     // each one takes n+1 blocks as it needs to store the root and all blocks so we expect 3+5+10+3=21 blocks
     // but we use a delivered integer per event, so we expect it to increment by 1 for each event
-    async fn prep_highwater_tests(store: &mut EventStore<Sha256a>) -> (EventId, EventId, EventId) {
+    async fn prep_highwater_tests(store: &SqliteEventStore) -> (EventId, EventId, EventId) {
         let key_a = random_event_id(None, None);
         let key_b = random_event_id(None, None);
         let key_c = random_event_id(None, None);
@@ -1390,7 +1367,7 @@ mod test {
             assert_eq!(_blocks.len(), x);
             recon::Store::insert(
                 store,
-                ReconItem::new_with_value(key, store_value.as_slice()),
+                &ReconItem::new_with_value(key, store_value.as_slice()),
             )
             .await
             .unwrap();
@@ -1401,8 +1378,8 @@ mod test {
 
     #[test(tokio::test)]
     async fn keys_since_highwater_mark_all_global_counter() {
-        let mut store1 = new_store().await;
-        let (key_a, key_b, key_c) = prep_highwater_tests(&mut store1).await;
+        let store1 = new_store().await;
+        let (key_a, key_b, key_c) = prep_highwater_tests(&store1).await;
 
         let (hw, res) = store1.new_keys_since_value(0, 10).await.unwrap();
         assert_eq!(3, res.len());
@@ -1410,9 +1387,9 @@ mod test {
         let exp = [key_a.clone(), key_b.clone(), key_c.clone()];
         assert_eq!(exp, res.as_slice());
         drop(store1);
-        let mut store2 = new_store().await;
+        let store2 = new_store().await;
 
-        let (key1_a, key1_b, key1_c) = prep_highwater_tests(&mut store2).await;
+        let (key1_a, key1_b, key1_c) = prep_highwater_tests(&store2).await;
         let (hw, res) = store2.new_keys_since_value(0, 10).await.unwrap();
         assert_eq!(3, res.len());
         assert!(hw > 6); // THIS IS GLOBAL COUNTER. 3 rows in db, counter 7 or more depending on how many other tests are running
@@ -1422,8 +1399,8 @@ mod test {
 
     #[test(tokio::test)]
     async fn keys_since_highwater_mark_limit_1() {
-        let mut store: EventStore<Sha256a> = new_local_store().await;
-        let (key_a, _key_b, _key_c) = prep_highwater_tests(&mut store).await;
+        let store = new_local_store().await;
+        let (key_a, _key_b, _key_c) = prep_highwater_tests(&store).await;
 
         let (hw, res) = store.new_keys_since_value(0, 1).await.unwrap();
         assert_eq!(1, res.len());
@@ -1433,8 +1410,8 @@ mod test {
 
     #[test(tokio::test)]
     async fn keys_since_highwater_mark_middle_start() {
-        let mut store: EventStore<Sha256a> = new_local_store().await;
-        let (key_a, key_b, key_c) = prep_highwater_tests(&mut store).await;
+        let store = new_local_store().await;
+        let (key_a, key_b, key_c) = prep_highwater_tests(&store).await;
 
         // starting at rowid 1 which is in the middle of key A should still return key A
         let (hw, res) = store.new_keys_since_value(1, 2).await.unwrap();

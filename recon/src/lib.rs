@@ -5,8 +5,9 @@ pub use crate::{
     client::{Client, Server},
     metrics::Metrics,
     recon::{
-        btreestore::BTreeStore, AssociativeHash, FullInterests, HashCount, InsertResult,
-        InterestProvider, Key, Range, Recon, ReconInterestProvider, ReconItem, Store, SyncState,
+        btreestore::BTreeStore, AssociativeHash, EventIdStore, FullInterests, HashCount,
+        InsertResult, InterestProvider, InterestStore, Key, Range, Recon, ReconInterestProvider,
+        ReconItem, Store, SyncState,
     },
     sha256a::Sha256a,
 };

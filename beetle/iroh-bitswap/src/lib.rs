@@ -117,17 +117,32 @@ impl Default for Config {
 }
 
 #[async_trait]
-pub trait Store: Debug + Clone + Send + Sync + 'static {
+pub trait Store: Send + Sync + 'static {
     async fn get_size(&self, cid: &Cid) -> Result<usize>;
     async fn get(&self, cid: &Cid) -> Result<Block>;
     async fn has(&self, cid: &Cid) -> Result<bool>;
 }
 
+#[async_trait::async_trait]
+impl<S: Store> Store for Arc<S> {
+    async fn get_size(&self, cid: &Cid) -> Result<usize> {
+        self.as_ref().get_size(cid).await
+    }
+
+    async fn get(&self, cid: &Cid) -> Result<Block> {
+        self.as_ref().get(cid).await
+    }
+
+    async fn has(&self, cid: &Cid) -> Result<bool> {
+        self.as_ref().has(cid).await
+    }
+}
+
 impl<S: Store> Bitswap<S> {
-    pub async fn new(self_id: PeerId, store: S, config: Config) -> Self {
+    pub async fn new(self_id: PeerId, store: Arc<S>, config: Config) -> Self {
         let network = Network::new(self_id);
         let (server, cb) = if let Some(config) = config.server {
-            let server = Server::new(network.clone(), store.clone(), config).await;
+            let server = Server::new(network.clone(), Arc::clone(&store), config).await;
             let cb = server.received_blocks_cb();
             (Some(server), Some(cb))
         } else {
@@ -739,7 +754,7 @@ mod tests {
     async fn get_block<const N: usize>() {
         info!("get_block");
         let (peer1_id, trans) = mk_transport();
-        let store1 = TestStore::default();
+        let store1 = Arc::new(TestStore::default());
         let bs1 = Bitswap::new(peer1_id, store1.clone(), Config::default()).await;
 
         let config = swarm::Config::with_tokio_executor()
@@ -774,7 +789,7 @@ mod tests {
 
         info!("peer2: startup");
         let (peer2_id, trans) = mk_transport();
-        let store2 = TestStore::default();
+        let store2 = Arc::new(TestStore::default());
         let bs2 = Bitswap::new(peer2_id, store2.clone(), Config::default()).await;
 
         let config = swarm::Config::with_tokio_executor()

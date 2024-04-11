@@ -2,8 +2,8 @@ mod event;
 mod interest;
 mod root;
 
-pub use event::EventStore;
-pub use interest::InterestStore;
+pub use event::SqliteEventStore;
+pub use interest::SqliteInterestStore;
 pub use root::RootStore;
 
 use chrono::{SecondsFormat, Utc};
