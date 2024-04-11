@@ -1,4 +1,4 @@
-use self::EventStore;
+use self::SqliteEventStore;
 
 use super::*;
 
@@ -16,17 +16,16 @@ use libipld::{ipld, prelude::Encode, Ipld};
 use libipld_cbor::DagCborCodec;
 use multihash::{Code, MultihashDigest};
 use rand::Rng;
-use recon::Sha256a;
 
-pub(crate) async fn new_store() -> EventStore<Sha256a> {
+pub(crate) async fn new_store() -> SqliteEventStore {
     let conn = SqlitePool::connect_in_memory().await.unwrap();
-    EventStore::new(conn).await.unwrap()
+    SqliteEventStore::new(conn).await.unwrap()
 }
 
 // for the highwater tests that care about event ordering
-pub(crate) async fn new_local_store() -> EventStore<Sha256a> {
+pub(crate) async fn new_local_store() -> SqliteEventStore {
     let conn = SqlitePool::connect_in_memory().await.unwrap();
-    EventStore::new_local(conn).await.unwrap()
+    SqliteEventStore::new_local(conn).await.unwrap()
 }
 
 #[tokio::test]

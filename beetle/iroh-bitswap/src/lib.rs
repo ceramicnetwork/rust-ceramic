@@ -754,7 +754,7 @@ mod tests {
     async fn get_block<const N: usize>() {
         info!("get_block");
         let (peer1_id, trans) = mk_transport();
-        let store1 = TestStore::default();
+        let store1 = Arc::new(TestStore::default());
         let bs1 = Bitswap::new(peer1_id, store1.clone(), Config::default()).await;
 
         let config = swarm::Config::with_tokio_executor()
@@ -789,7 +789,7 @@ mod tests {
 
         info!("peer2: startup");
         let (peer2_id, trans) = mk_transport();
-        let store2 = TestStore::default();
+        let store2 = Arc::new(TestStore::default());
         let bs2 = Bitswap::new(peer2_id, store2.clone(), Config::default()).await;
 
         let config = swarm::Config::with_tokio_executor()

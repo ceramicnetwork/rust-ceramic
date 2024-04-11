@@ -415,7 +415,7 @@ mod interest_tests {
         PeerId,
     };
     use rand::{thread_rng, Rng};
-    use recon::{AssociativeHash, Key, ReconItem, Sha256a, Store};
+    use recon::{AssociativeHash, Key, ReconItem, Store};
 
     use expect_test::expect;
     use test_log::test;
@@ -485,16 +485,16 @@ mod interest_tests {
 
     #[test(tokio::test)]
     async fn test_hash_range_query() {
-        let mut store = new_store().await;
+        let store = new_store().await;
         recon::Store::insert(
-            &mut store,
-            ReconItem::new_key(&random_interest(Some((&[0], &[1])), Some(42))),
+            &store,
+            &ReconItem::new_key(&random_interest(Some((&[0], &[1])), Some(42))),
         )
         .await
         .unwrap();
         recon::Store::insert(
-            &mut store,
-            ReconItem::new_key(&random_interest(Some((&[0], &[1])), Some(24))),
+            &store,
+            &ReconItem::new_key(&random_interest(Some((&[0], &[1])), Some(24))),
         )
         .await
         .unwrap();
@@ -508,17 +508,17 @@ mod interest_tests {
 
     #[test(tokio::test)]
     async fn test_range_query() {
-        let mut store = new_store().await;
+        let store = new_store().await;
         let interest_0 = random_interest(None, None);
         let interest_1 = random_interest(None, None);
-        recon::Store::insert(&mut store, ReconItem::new_key(&interest_0))
+        recon::Store::insert(&store, &ReconItem::new_key(&interest_0))
             .await
             .unwrap();
-        recon::Store::insert(&mut store, ReconItem::new_key(&interest_1))
+        recon::Store::insert(&store, &ReconItem::new_key(&interest_1))
             .await
             .unwrap();
         let ids = recon::Store::range(
-            &mut store,
+            &store,
             &random_interest_min(),
             &random_interest_max(),
             0,
@@ -559,7 +559,7 @@ mod interest_tests {
 
     #[test(tokio::test)]
     async fn test_double_insert() {
-        let mut store = new_store().await;
+        let store = new_store().await;
 
         let interest = random_interest(None, None);
         // do take the first one
@@ -570,7 +570,7 @@ mod interest_tests {
         )
         "#
         ]
-        .assert_debug_eq(&recon::Store::insert(&mut store, ReconItem::new_key(&interest)).await);
+        .assert_debug_eq(&recon::Store::insert(&store, &ReconItem::new_key(&interest)).await);
 
         // reject the second insert of same key
         expect![
@@ -580,18 +580,18 @@ mod interest_tests {
         )
         "#
         ]
-        .assert_debug_eq(&recon::Store::insert(&mut store, ReconItem::new_key(&interest)).await);
+        .assert_debug_eq(&recon::Store::insert(&store, &ReconItem::new_key(&interest)).await);
     }
 
     #[test(tokio::test)]
     async fn test_first_and_last() {
-        let mut store = new_store().await;
+        let store = new_store().await;
         let interest_0 = random_interest(Some((&[], &[])), Some(42));
         let interest_1 = random_interest(Some((&[], &[])), Some(43));
-        recon::Store::insert(&mut store, ReconItem::new_key(&interest_0))
+        recon::Store::insert(&store, &ReconItem::new_key(&interest_0))
             .await
             .unwrap();
-        recon::Store::insert(&mut store, ReconItem::new_key(&interest_1))
+        recon::Store::insert(&store, &ReconItem::new_key(&interest_1))
             .await
             .unwrap();
 
@@ -724,12 +724,12 @@ mod interest_tests {
     #[test(tokio::test)]
     #[should_panic(expected = "Interests do not support values! Invalid request.")]
     async fn test_store_value_for_key_error() {
-        let mut store = new_store().await;
+        let store = new_store().await;
         let key = random_interest(None, None);
         let store_value = random_interest(None, None);
         recon::Store::insert(
-            &mut store,
-            ReconItem::new_with_value(&key, store_value.as_slice()),
+            &store,
+            &ReconItem::new_with_value(&key, store_value.as_slice()),
         )
         .await
         .unwrap();
@@ -737,9 +737,9 @@ mod interest_tests {
 
     #[test(tokio::test)]
     async fn test_keys_with_missing_value() {
-        let mut store = new_store().await;
+        let store = new_store().await;
         let key = random_interest(None, None);
-        recon::Store::insert(&mut store, ReconItem::new(&key, None))
+        recon::Store::insert(&store, &ReconItem::new(&key, None))
             .await
             .unwrap();
         let missing_keys = store
@@ -751,7 +751,7 @@ mod interest_tests {
         "#]]
         .assert_debug_eq(&missing_keys);
 
-        recon::Store::insert(&mut store, ReconItem::new(&key, Some(&[])))
+        recon::Store::insert(&store, &ReconItem::new(&key, Some(&[])))
             .await
             .unwrap();
         let missing_keys = store
@@ -766,9 +766,9 @@ mod interest_tests {
 
     #[test(tokio::test)]
     async fn test_value_for_key() {
-        let mut store = new_store().await;
+        let store = new_store().await;
         let key = random_interest(None, None);
-        recon::Store::insert(&mut store, ReconItem::new(&key, None))
+        recon::Store::insert(&store, &ReconItem::new(&key, None))
             .await
             .unwrap();
         let value = store.value_for_key(&key).await.unwrap();

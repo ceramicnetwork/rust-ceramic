@@ -541,7 +541,7 @@ async fn word_lists() {
         );
         for key in s.split([' ', '\n']).map(|s| s.to_string()) {
             if !s.is_empty() {
-                r.insert(ReconItem::new(
+                r.insert(&ReconItem::new(
                     &key.as_bytes().into(),
                     key.to_uppercase().as_bytes().into(),
                 ))

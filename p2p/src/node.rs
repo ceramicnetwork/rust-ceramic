@@ -1164,7 +1164,7 @@ mod tests {
 
     use async_trait::async_trait;
     use ceramic_core::RangeOpen;
-    use ceramic_store::SqlitePool;
+    use ceramic_store::{SqliteEventStore, SqlitePool};
     use futures::TryStreamExt;
     use rand::prelude::*;
     use rand_chacha::ChaCha8Rng;
@@ -1390,7 +1390,7 @@ mod tests {
                 rpc_server_addr,
                 keypair.into(),
                 None::<(DummyRecon<Interest>, DummyRecon<EventId>)>,
-                ceramic_store::EventStore::new(sql_pool).await?,
+                Arc::new(SqliteEventStore::new(sql_pool).await?),
                 metrics,
             )
             .await?;
