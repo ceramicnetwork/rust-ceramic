@@ -137,7 +137,7 @@ impl ceramic_api::AccessInterestStore for SqliteInterestStore {
         offset: usize,
         limit: usize,
     ) -> Result<Vec<Interest>> {
-        Ok(self.range_int(&start, &end, offset, limit).await?.collect())
+        Ok(self.range_int(start, end, offset, limit).await?.collect())
     }
 }
 

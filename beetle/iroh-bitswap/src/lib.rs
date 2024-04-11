@@ -156,7 +156,7 @@ impl<S: Store> Bitswap<S> {
 
         let mut workers = Vec::new();
         workers.push(tokio::task::spawn({
-            let server = server.as_ref().map(|s| s.clone());
+            let server = server.clone();
             let client = client.clone();
 
             async move {
@@ -176,7 +176,7 @@ impl<S: Store> Bitswap<S> {
         }));
 
         workers.push(tokio::task::spawn({
-            let server = server.as_ref().map(|s| s.clone());
+            let server = server.clone();
             let client = client.clone();
 
             async move {
