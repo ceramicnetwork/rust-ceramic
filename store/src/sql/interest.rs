@@ -161,7 +161,7 @@ impl recon::Store for SqliteInterestStore {
 
     /// Insert new keys into the key space.
     /// Returns true if a key did not previously exist.
-    async fn insert_many(&self, items: &Vec<ReconItem<'_, Interest>>) -> Result<InsertResult> {
+    async fn insert_many(&self, items: &[ReconItem<'_, Interest>]) -> Result<InsertResult> {
         match items.len() {
             0 => Ok(InsertResult::new(vec![], 0)),
             _ => {

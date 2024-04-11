@@ -258,7 +258,7 @@ where
         Ok(new)
     }
 
-    async fn insert_many(&self, items: &Vec<ReconItem<'_, K>>) -> Result<InsertResult> {
+    async fn insert_many(&self, items: &[ReconItem<'_, K>]) -> Result<InsertResult> {
         let res = StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "insert_many",

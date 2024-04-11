@@ -248,7 +248,7 @@ where
     /// Insert many keys into the key space. Includes an optional value for each key.
     /// Returns an array with a boolean for each key indicating if the key was new.
     /// The order is the same as the order of the keys. True means new, false means not new.
-    pub async fn insert_many(&self, items: &Vec<ReconItem<'_, K>>) -> Result<Vec<bool>> {
+    pub async fn insert_many(&self, items: &[ReconItem<'_, K>]) -> Result<Vec<bool>> {
         let result = self.store.insert_many(items).await?;
 
         Ok(result.keys)
@@ -440,7 +440,7 @@ pub trait Store {
     /// Insert new keys into the key space.
     /// Returns true for each key if it did not previously exist, in the
     /// same order as the input iterator.
-    async fn insert_many(&self, items: &Vec<ReconItem<'_, Self::Key>>) -> Result<InsertResult>;
+    async fn insert_many(&self, items: &[ReconItem<'_, Self::Key>]) -> Result<InsertResult>;
 
     /// Return the hash of all keys in the range between left_fencepost and right_fencepost.
     /// Both range bounds are exclusive.
@@ -596,7 +596,7 @@ where
         self.as_ref().insert(item).await
     }
 
-    async fn insert_many(&self, items: &Vec<ReconItem<'_, Self::Key>>) -> Result<InsertResult> {
+    async fn insert_many(&self, items: &[ReconItem<'_, Self::Key>]) -> Result<InsertResult> {
         self.as_ref().insert_many(items).await
     }
 
