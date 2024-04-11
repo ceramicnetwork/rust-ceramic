@@ -85,12 +85,17 @@ where
 {
     let keypair = keypair.clone();
     let config = config.clone();
-    tokio::runtime::Handle::current().block_on(NodeBehaviour::new(
-        &keypair,
-        &config,
-        relay_client,
-        recons,
-        block_store,
-        metrics,
-    ))
+    let handle = tokio::runtime::Handle::current();
+    std::thread::spawn(move || {
+        handle.block_on(NodeBehaviour::new(
+            &keypair,
+            &config,
+            relay_client,
+            recons,
+            block_store,
+            metrics,
+        ))
+    })
+    .join()
+    .unwrap()
 }
