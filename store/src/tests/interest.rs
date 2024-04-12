@@ -34,7 +34,7 @@ macro_rules! test_with_pg {
                 }
 
                 let conn = $crate::sql::PostgresPool::connect_in_memory().await.unwrap();
-                let store = $crate::InterestStorePostgres::<recon::Sha256a>::new(conn).await.unwrap();
+                let store = $crate::InterestStorePostgres::new(conn).await.unwrap();
                 let _lock = LOCK.get_or_init(|| tokio::sync::Mutex::new(())).lock().await;
                 $(
                     for stmt in $sql_stmts {
@@ -55,7 +55,7 @@ macro_rules! test_with_sqlite {
                 init_tracing();
 
                 let conn = $crate::sql::SqlitePool::connect_in_memory().await.unwrap();
-                let store = $crate::InterestStoreSqlite::<recon::Sha256a>::new(conn).await.unwrap();
+                let store = $crate::InterestStoreSqlite::new(conn).await.unwrap();
                 $(
                     for stmt in $sql_stmts {
                         store.pool.run_statement(stmt).await.unwrap();
@@ -112,7 +112,7 @@ test_with_dbs!(
 );
 
 // This is the same as the recon::Store range test, but with the interest store (hits all its methods)
-async fn access_interest_model(store: impl AccessInterestStore<Key = Interest, Hash = Sha256a>) {
+async fn access_interest_model(store: impl AccessInterestStore) {
     let interest_0 = random_interest(None, None);
     let interest_1 = random_interest(None, None);
     AccessInterestStore::insert(&store, interest_0.clone())
@@ -123,8 +123,8 @@ async fn access_interest_model(store: impl AccessInterestStore<Key = Interest, H
         .unwrap();
     let interests = AccessInterestStore::range(
         &store,
-        random_interest_min(),
-        random_interest_max(),
+        &random_interest_min(),
+        &random_interest_max(),
         0,
         usize::MAX,
     )
@@ -148,14 +148,14 @@ where
 {
     recon::Store::insert(
         &store,
-        ReconItem::new_key(&random_interest(Some((&[0], &[1])), Some(42))),
+        &ReconItem::new_key(&random_interest(Some((&[0], &[1])), Some(42))),
     )
     .await
     .unwrap();
 
     recon::Store::insert(
         &store,
-        ReconItem::new_key(&random_interest(Some((&[0], &[1])), Some(24))),
+        &ReconItem::new_key(&random_interest(Some((&[0], &[1])), Some(24))),
     )
     .await
     .unwrap();
@@ -205,10 +205,10 @@ where
     let interest_0 = random_interest(None, None);
     let interest_1 = random_interest(None, None);
 
-    recon::Store::insert(&store, ReconItem::new_key(&interest_0))
+    recon::Store::insert(&store, &ReconItem::new_key(&interest_0))
         .await
         .unwrap();
-    recon::Store::insert(&store, ReconItem::new_key(&interest_1))
+    recon::Store::insert(&store, &ReconItem::new_key(&interest_1))
         .await
         .unwrap();
     let ids = recon::Store::range(
@@ -237,8 +237,14 @@ where
     let interest_0 = random_interest(None, None);
     let interest_1 = random_interest(None, None);
 
-    store.insert(ReconItem::new_key(&interest_0)).await.unwrap();
-    store.insert(ReconItem::new_key(&interest_1)).await.unwrap();
+    store
+        .insert(&ReconItem::new_key(&interest_0))
+        .await
+        .unwrap();
+    store
+        .insert(&ReconItem::new_key(&interest_1))
+        .await
+        .unwrap();
     let ids = store
         .range_with_values(
             &random_interest_min(),
@@ -274,7 +280,7 @@ where
         )
         "#
     ]
-    .assert_debug_eq(&recon::Store::insert(&store, ReconItem::new_key(&interest)).await);
+    .assert_debug_eq(&recon::Store::insert(&store, &ReconItem::new_key(&interest)).await);
 
     // reject the second insert of same key
     expect![
@@ -284,7 +290,7 @@ where
         )
         "#
     ]
-    .assert_debug_eq(&recon::Store::insert(&store, ReconItem::new_key(&interest)).await);
+    .assert_debug_eq(&recon::Store::insert(&store, &ReconItem::new_key(&interest)).await);
 }
 
 test_with_dbs!(
@@ -299,10 +305,10 @@ where
 {
     let interest_0 = random_interest(Some((&[], &[])), Some(42));
     let interest_1 = random_interest(Some((&[], &[])), Some(43));
-    recon::Store::insert(&store, ReconItem::new_key(&interest_0))
+    recon::Store::insert(&store, &ReconItem::new_key(&interest_0))
         .await
         .unwrap();
-    recon::Store::insert(&store, ReconItem::new_key(&interest_1))
+    recon::Store::insert(&store, &ReconItem::new_key(&interest_1))
         .await
         .unwrap();
 
@@ -446,7 +452,7 @@ where
     let store_value = random_interest(None, None);
     let err = recon::Store::insert(
         &store,
-        ReconItem::new_with_value(&key, store_value.as_slice()),
+        &ReconItem::new_with_value(&key, store_value.as_slice()),
     )
     .await;
     let err = err.unwrap_err();
@@ -462,7 +468,7 @@ where
     S: recon::Store<Key = Interest, Hash = Sha256a>,
 {
     let key = random_interest(None, None);
-    recon::Store::insert(&store, ReconItem::new(&key, None))
+    recon::Store::insert(&store, &ReconItem::new(&key, None))
         .await
         .unwrap();
     let missing_keys = store
@@ -474,7 +480,7 @@ where
         "#]]
     .assert_debug_eq(&missing_keys);
 
-    recon::Store::insert(&store, ReconItem::new(&key, Some(&[])))
+    recon::Store::insert(&store, &ReconItem::new(&key, Some(&[])))
         .await
         .unwrap();
     let missing_keys = store
@@ -498,7 +504,7 @@ where
     S: recon::Store<Key = Interest, Hash = Sha256a>,
 {
     let key = random_interest(None, None);
-    recon::Store::insert(&store, ReconItem::new(&key, None))
+    recon::Store::insert(&store, &ReconItem::new(&key, None))
         .await
         .unwrap();
     let value = store.value_for_key(&key).await.unwrap();

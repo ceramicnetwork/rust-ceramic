@@ -116,36 +116,47 @@ impl TryFrom<models::Interest> for ValidatedInterest {
 
 #[async_trait]
 pub trait AccessInterestStore: Send + Sync {
-    type Key: Key;
-    type Hash: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>;
-
     /// Returns true if the key was newly inserted, false if it already existed.
-    async fn insert(&self, key: Self::Key) -> Result<bool>;
+    async fn insert(&self, key: Interest) -> Result<bool>;
     async fn range(
         &self,
-        start: Self::Key,
-        end: Self::Key,
+        start: &Interest,
+        end: &Interest,
         offset: usize,
         limit: usize,
-    ) -> Result<Vec<Self::Key>>;
+    ) -> Result<Vec<Interest>>;
+}
+
+#[async_trait]
+impl<S: AccessInterestStore> AccessInterestStore for Arc<S> {
+    async fn insert(&self, key: Interest) -> Result<bool> {
+        self.as_ref().insert(key).await
+    }
+
+    async fn range(
+        &self,
+        start: &Interest,
+        end: &Interest,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Vec<Interest>> {
+        self.as_ref().range(start, end, offset, limit).await
+    }
 }
 
 #[async_trait]
 pub trait AccessModelStore: Send + Sync {
-    type Key: Key;
-    type Hash: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>;
-
     /// Returns (new_key, new_value) where true if was newly inserted, false if it already existed.
-    async fn insert(&self, key: Self::Key, value: Option<Vec<u8>>) -> Result<(bool, bool)>;
+    async fn insert(&self, key: EventId, value: Option<Vec<u8>>) -> Result<(bool, bool)>;
     async fn range_with_values(
         &self,
-        start: Self::Key,
-        end: Self::Key,
+        start: &EventId,
+        end: &EventId,
         offset: usize,
         limit: usize,
-    ) -> Result<Vec<(Self::Key, Vec<u8>)>>;
+    ) -> Result<Vec<(EventId, Vec<u8>)>>;
 
-    async fn value_for_key(&self, key: Self::Key) -> Result<Option<Vec<u8>>>;
+    async fn value_for_key(&self, key: &EventId) -> Result<Option<Vec<u8>>>;
 
     // it's likely `highwater` will be a string or struct when we have alternative storage for now we
     // keep it simple to allow easier error propagation. This isn't currently public outside of this repo.
@@ -153,7 +164,40 @@ pub trait AccessModelStore: Send + Sync {
         &self,
         highwater: i64,
         limit: i64,
-    ) -> anyhow::Result<(i64, Vec<Self::Key>)>;
+    ) -> Result<(i64, Vec<EventId>)>;
+}
+
+#[async_trait::async_trait]
+impl<S: AccessModelStore> AccessModelStore for Arc<S> {
+    async fn insert(&self, key: EventId, value: Option<Vec<u8>>) -> Result<(bool, bool)> {
+        self.as_ref().insert(key, value).await
+    }
+
+    async fn range_with_values(
+        &self,
+        start: &EventId,
+        end: &EventId,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Vec<(EventId, Vec<u8>)>> {
+        self.as_ref()
+            .range_with_values(start, end, offset, limit)
+            .await
+    }
+
+    async fn value_for_key(&self, key: &EventId) -> Result<Option<Vec<u8>>> {
+        self.as_ref().value_for_key(key).await
+    }
+
+    async fn keys_since_highwater_mark(
+        &self,
+        highwater: i64,
+        limit: i64,
+    ) -> Result<(i64, Vec<EventId>)> {
+        self.as_ref()
+            .keys_since_highwater_mark(highwater, limit)
+            .await
+    }
 }
 
 #[derive(Clone)]
@@ -167,8 +211,8 @@ pub struct Server<C, I, M> {
 
 impl<C, I, M> Server<C, I, M>
 where
-    I: AccessInterestStore<Key = Interest>,
-    M: AccessModelStore<Key = EventId>,
+    I: AccessInterestStore,
+    M: AccessModelStore,
 {
     pub fn new(peer_id: PeerId, network: Network, interest: I, model: M) -> Self {
         Server {
@@ -232,7 +276,7 @@ where
 
         let events = self
             .model
-            .range_with_values(start, stop, offset, limit)
+            .range_with_values(&start, &stop, offset, limit)
             .await
             .map_err(|err| ErrorResponse::new(format!("failed to get keys: {err}")))?
             .into_iter()
@@ -281,7 +325,7 @@ where
         event_id: String,
     ) -> Result<EventsEventIdGetResponse, ErrorResponse> {
         let decoded_event_id = decode_event_id(&event_id)?;
-        match self.model.value_for_key(decoded_event_id.clone()).await {
+        match self.model.value_for_key(&decoded_event_id).await {
             Ok(Some(data)) => {
                 let event = BuildResponse::event(decoded_event_id, data);
                 Ok(EventsEventIdGetResponse::Success(event))
@@ -385,8 +429,8 @@ pub(crate) fn decode_event_data(value: &str) -> Result<Vec<u8>, ErrorResponse> {
 impl<C, I, M> Api<C> for Server<C, I, M>
 where
     C: Send + Sync,
-    I: AccessInterestStore<Key = Interest> + Sync,
-    M: AccessModelStore<Key = EventId> + Sync,
+    I: AccessInterestStore + Sync,
+    M: AccessModelStore + Sync,
 {
     #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn liveness_get(

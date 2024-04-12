@@ -1,6 +1,5 @@
 use std::{
     collections::BTreeSet,
-    marker::PhantomData,
     sync::{atomic::AtomicI64, Arc},
 };
 
@@ -28,26 +27,18 @@ use crate::{
 /// Unified implementation of [`recon::Store`] and [`iroh_bitswap::Store`] that can expose the
 /// individual blocks from the CAR files directly.
 #[derive(Clone, Debug)]
-pub struct EventStorePostgres<H>
-where
-    H: AssociativeHash,
-{
+pub struct EventStorePostgres {
     // pool: SqlitePool,
     pub(crate) pool: PostgresPool,
     test_counter: Option<Arc<AtomicI64>>,
-    hash: PhantomData<H>,
 }
 
-impl<H> EventStorePostgres<H>
-where
-    H: AssociativeHash + std::convert::From<[u32; 8]>,
-{
+impl EventStorePostgres {
     /// Create an instance of the store initializing any neccessary tables.
     pub async fn new(pool: PostgresPool) -> Result<Self> {
         let store = EventStorePostgres {
             pool,
             test_counter: None,
-            hash: PhantomData,
         };
         store.init_delivered().await?;
         Ok(store)
@@ -59,7 +50,6 @@ where
         let store = EventStorePostgres {
             pool,
             test_counter: None, // Some(Arc::new(AtomicI64::new(0))),
-            hash: PhantomData,
         };
         store.init_delivered().await?;
         Ok(store)
@@ -336,25 +326,19 @@ where
 }
 
 #[async_trait]
-impl<H> recon::Store for EventStorePostgres<H>
-where
-    H: AssociativeHash,
-{
+impl recon::Store for EventStorePostgres {
     type Key = EventId;
-    type Hash = H;
+    type Hash = Sha256a;
 
     /// Returns true if the key was new. The value is always updated if included
-    async fn insert(&self, item: ReconItem<'_, Self::Key>) -> Result<bool> {
+    async fn insert(&self, item: &ReconItem<'_, EventId>) -> Result<bool> {
         let (new, _new_val) = self.insert_item(&item).await?;
         Ok(new)
     }
 
     /// Insert new keys into the key space.
     /// Returns true if a key did not previously exist.
-    async fn insert_many<'a, I>(&self, items: I) -> Result<InsertResult>
-    where
-        I: ExactSizeIterator<Item = ReconItem<'a, EventId>> + Send + Sync,
-    {
+    async fn insert_many(&self, items: &[ReconItem<'_, EventId>]) -> Result<InsertResult> {
         match items.len() {
             0 => Ok(InsertResult::new(vec![], 0)),
             _ => {
@@ -362,7 +346,7 @@ where
                 let mut new_val_cnt = 0;
                 let mut tx = self.pool.writer().begin().await?;
 
-                for (idx, item) in items.enumerate() {
+                for (idx, item) in items.iter().enumerate() {
                     let (new_key, new_val) = self.insert_item_int(&item, &mut tx).await?;
                     results[idx] = new_key;
                     if new_val {
@@ -379,8 +363,8 @@ where
     #[instrument(skip(self))]
     async fn hash_range(
         &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
+        left_fencepost: &EventId,
+        right_fencepost: &EventId,
     ) -> Result<HashCount<Self::Hash>> {
         let res: ReconHash = sqlx::query_as(ReconQuery::hash_range(
             ReconType::Event,
@@ -392,17 +376,17 @@ where
         .await
         .context("hash_range query")?;
 
-        Ok(HashCount::new(H::from(res.hash()), res.count()))
+        Ok(HashCount::new(Self::Hash::from(res.hash()), res.count()))
     }
 
     #[instrument(skip(self))]
     async fn range(
         &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
+        left_fencepost: &EventId,
+        right_fencepost: &EventId,
         offset: usize,
         limit: usize,
-    ) -> Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
+    ) -> Result<Box<dyn Iterator<Item = EventId> + Send + 'static>> {
         let offset: i64 = offset
             .try_into()
             .context("Offset too large to fit into i64")?;
@@ -417,28 +401,24 @@ where
         let rows = rows
             .into_iter()
             .map(EventId::try_from)
-            .collect::<Result<Vec<Self::Key>, EventIdError>>()?;
+            .collect::<Result<Vec<EventId>, EventIdError>>()?;
         Ok(Box::new(rows.into_iter()))
     }
     #[instrument(skip(self))]
     async fn range_with_values(
         &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
+        left_fencepost: &EventId,
+        right_fencepost: &EventId,
         offset: usize,
         limit: usize,
-    ) -> Result<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>> {
+    ) -> Result<Box<dyn Iterator<Item = (EventId, Vec<u8>)> + Send + 'static>> {
         self.range_with_values_int(left_fencepost, right_fencepost, offset, limit)
             .await
     }
 
     /// Return the number of keys within the range.
     #[instrument(skip(self))]
-    async fn count(
-        &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Result<usize> {
+    async fn count(&self, left_fencepost: &EventId, right_fencepost: &EventId) -> Result<usize> {
         let row: CountRow =
             sqlx::query_as(ReconQuery::count(ReconType::Event, SqlBackend::Postgres))
                 .bind(left_fencepost.as_bytes())
@@ -452,9 +432,9 @@ where
     #[instrument(skip(self))]
     async fn first(
         &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Result<Option<Self::Key>> {
+        left_fencepost: &EventId,
+        right_fencepost: &EventId,
+    ) -> Result<Option<EventId>> {
         let row = sqlx::query(ReconQuery::first_key(ReconType::Event))
             .bind(left_fencepost.as_bytes())
             .bind(right_fencepost.as_bytes())
@@ -472,9 +452,9 @@ where
     #[instrument(skip(self))]
     async fn last(
         &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Result<Option<Self::Key>> {
+        left_fencepost: &EventId,
+        right_fencepost: &EventId,
+    ) -> Result<Option<EventId>> {
         let row: Option<OrderKey> = sqlx::query_as(ReconQuery::last_key(ReconType::Event))
             .bind(left_fencepost.as_bytes())
             .bind(right_fencepost.as_bytes())
@@ -487,9 +467,9 @@ where
     #[instrument(skip(self))]
     async fn first_and_last(
         &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Result<Option<(Self::Key, Self::Key)>> {
+        left_fencepost: &EventId,
+        right_fencepost: &EventId,
+    ) -> Result<Option<(EventId, EventId)>> {
         let row: Option<FirstAndLast> = sqlx::query_as(ReconQuery::first_and_last(
             ReconType::Event,
             SqlBackend::Postgres,
@@ -511,15 +491,12 @@ where
     }
 
     #[instrument(skip(self))]
-    async fn value_for_key(&self, key: &Self::Key) -> Result<Option<Vec<u8>>> {
+    async fn value_for_key(&self, key: &EventId) -> Result<Option<Vec<u8>>> {
         self.value_for_key_int(key).await
     }
 
     #[instrument(skip(self))]
-    async fn keys_with_missing_values(
-        &self,
-        range: RangeOpen<Self::Key>,
-    ) -> Result<Vec<Self::Key>> {
+    async fn keys_with_missing_values(&self, range: RangeOpen<EventId>) -> Result<Vec<EventId>> {
         if range.start >= range.end {
             return Ok(vec![]);
         };
@@ -534,12 +511,12 @@ where
         Ok(row
             .into_iter()
             .map(EventId::try_from)
-            .collect::<Result<Vec<Self::Key>, EventIdError>>()?)
+            .collect::<Result<Vec<EventId>, EventIdError>>()?)
     }
 }
 
 #[async_trait]
-impl iroh_bitswap::Store for EventStorePostgres<Sha256a> {
+impl iroh_bitswap::Store for EventStorePostgres {
     async fn get_size(&self, cid: &Cid) -> Result<usize> {
         Ok(sqlx::query(BlockQuery::length())
             .bind(cid.hash().to_bytes())
@@ -577,28 +554,25 @@ impl iroh_bitswap::Store for EventStorePostgres<Sha256a> {
 /// Anything that implements `ceramic_api::AccessModelStore` should also implement `recon::Store`.
 /// This guarantees that regardless of entry point (api or recon), the data is stored and retrieved in the same way.
 #[async_trait::async_trait]
-impl ceramic_api::AccessModelStore for EventStorePostgres<Sha256a> {
-    type Key = EventId;
-    type Hash = Sha256a;
-
-    async fn insert(&self, key: Self::Key, value: Option<Vec<u8>>) -> Result<(bool, bool)> {
+impl ceramic_api::AccessModelStore for EventStorePostgres {
+    async fn insert(&self, key: EventId, value: Option<Vec<u8>>) -> Result<(bool, bool)> {
         self.insert_item(&ReconItem::new(&key, value.as_deref()))
             .await
     }
 
     async fn range_with_values(
         &self,
-        start: Self::Key,
-        end: Self::Key,
+        start: &EventId,
+        end: &EventId,
         offset: usize,
         limit: usize,
-    ) -> Result<Vec<(Self::Key, Vec<u8>)>> {
+    ) -> Result<Vec<(EventId, Vec<u8>)>> {
         let res = self
             .range_with_values_int(&start, &end, offset, limit)
             .await?;
         Ok(res.collect())
     }
-    async fn value_for_key(&self, key: Self::Key) -> Result<Option<Vec<u8>>> {
+    async fn value_for_key(&self, key: &EventId) -> Result<Option<Vec<u8>>> {
         self.value_for_key_int(&key).await
     }
 
@@ -606,7 +580,7 @@ impl ceramic_api::AccessModelStore for EventStorePostgres<Sha256a> {
         &self,
         highwater: i64,
         limit: i64,
-    ) -> anyhow::Result<(i64, Vec<Self::Key>)> {
+    ) -> anyhow::Result<(i64, Vec<EventId>)> {
         self.new_keys_since_value(highwater, limit).await
     }
 }

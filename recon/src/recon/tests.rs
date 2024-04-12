@@ -38,6 +38,7 @@ use expect_test::{expect, Expect};
 use lalrpop_util::ParseError;
 use pretty::{Arena, DocAllocator, DocBuilder, Pretty};
 
+use crate::protocol::ReconMessage;
 use crate::{
     protocol::{self, InitiatorMessage, ResponderMessage, ValueResponse},
     recon::{FullInterests, HashCount, InterestProvider, Range, ReconItem},
@@ -541,7 +542,7 @@ async fn word_lists() {
         );
         for key in s.split([' ', '\n']).map(|s| s.to_string()) {
             if !s.is_empty() {
-                r.insert(ReconItem::new(
+                r.insert(&ReconItem::new(
                     &key.as_bytes().into(),
                     key.to_uppercase().as_bytes().into(),
                 ))
@@ -576,8 +577,8 @@ async fn word_lists() {
         local: Client<AlphaNumBytes, Sha256a>,
         remote: Client<AlphaNumBytes, Sha256a>,
     ) {
-        type InitiatorEnv = InitiatorMessage<AlphaNumBytes, Sha256a>;
-        type ResponderEnv = ResponderMessage<AlphaNumBytes, Sha256a>;
+        type InitiatorEnv = ReconMessage<InitiatorMessage<AlphaNumBytes, Sha256a>>;
+        type ResponderEnv = ReconMessage<ResponderMessage<AlphaNumBytes, Sha256a>>;
 
         let (local_channel, remote_channel): (
             DuplexChannel<InitiatorEnv, ResponderEnv>,
@@ -1190,8 +1191,8 @@ async fn recon_do(recon: &str) -> Sequence<AlphaNumBytes, MemoryAHash> {
         SequenceStep<AlphaNumBytes, MemoryAHash>,
     >::new()));
 
-    type InitiatorEnv = InitiatorMessage<AlphaNumBytes, MemoryAHash>;
-    type ResponderEnv = ResponderMessage<AlphaNumBytes, MemoryAHash>;
+    type InitiatorEnv = ReconMessage<InitiatorMessage<AlphaNumBytes, MemoryAHash>>;
+    type ResponderEnv = ReconMessage<ResponderMessage<AlphaNumBytes, MemoryAHash>>;
 
     let (cat_channel, dog_channel): (
         DuplexChannel<InitiatorEnv, ResponderEnv>,
@@ -1208,7 +1209,7 @@ async fn recon_do(recon: &str) -> Sequence<AlphaNumBytes, MemoryAHash> {
             async move {
                 let state = snapshot_state(dog).await.unwrap();
                 steps.lock().unwrap().push(SequenceStep {
-                    message: Message::DogToCat(message.as_ref().unwrap().clone()),
+                    message: Message::DogToCat(message.as_ref().unwrap().body.clone()),
                     state,
                 });
                 message
@@ -1224,7 +1225,7 @@ async fn recon_do(recon: &str) -> Sequence<AlphaNumBytes, MemoryAHash> {
             async move {
                 let state = snapshot_state(cat).await.unwrap();
                 steps.lock().unwrap().push(SequenceStep {
-                    message: Message::CatToDog(message.as_ref().unwrap().clone()),
+                    message: Message::CatToDog(message.as_ref().unwrap().body.clone()),
                     state,
                 });
                 message

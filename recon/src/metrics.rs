@@ -12,7 +12,7 @@ use prometheus_client::{
 };
 
 use crate::{
-    protocol::{InitiatorMessage, ResponderMessage},
+    protocol::{InitiatorMessage, ReconMessage, ResponderMessage},
     AssociativeHash, Key,
 };
 
@@ -36,12 +36,12 @@ pub struct Metrics {
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
 pub(crate) struct MessageLabels {
-    message_type: &'static str,
+    pub(crate) message_type: &'static str,
 }
 
-impl<K: Key, H: AssociativeHash> From<&InitiatorMessage<K, H>> for MessageLabels {
-    fn from(value: &InitiatorMessage<K, H>) -> Self {
-        match value {
+impl<K: Key, H: AssociativeHash> From<&ReconMessage<InitiatorMessage<K, H>>> for MessageLabels {
+    fn from(value: &ReconMessage<InitiatorMessage<K, H>>) -> Self {
+        match value.body {
             InitiatorMessage::ValueRequest(_) => Self {
                 message_type: "ValueRequest",
             },
@@ -64,9 +64,9 @@ impl<K: Key, H: AssociativeHash> From<&InitiatorMessage<K, H>> for MessageLabels
     }
 }
 
-impl<K: Key, H: AssociativeHash> From<&ResponderMessage<K, H>> for MessageLabels {
-    fn from(value: &ResponderMessage<K, H>) -> Self {
-        match value {
+impl<K: Key, H: AssociativeHash> From<&ReconMessage<ResponderMessage<K, H>>> for MessageLabels {
+    fn from(value: &ReconMessage<ResponderMessage<K, H>>) -> Self {
+        match value.body {
             ResponderMessage::ValueRequest(_) => Self {
                 message_type: "ValueRequest",
             },

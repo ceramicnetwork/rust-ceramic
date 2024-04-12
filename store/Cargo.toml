@@ -26,7 +26,6 @@ itertools = "0.12.0"
 multihash.workspace = true
 prometheus-client.workspace = true
 recon.workspace = true
-serde.workspace = true
 sqlx.workspace = true
 tokio.workspace = true
 tracing.workspace = true

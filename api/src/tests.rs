@@ -16,7 +16,7 @@ use ceramic_core::{Cid, Interest};
 use ceramic_core::{EventId, Network, PeerId, StreamId};
 use mockall::{mock, predicate};
 use multibase::Base;
-use recon::{Key, Sha256a};
+use recon::Key;
 use std::str::FromStr;
 use tracing_test::traced_test;
 
@@ -26,8 +26,8 @@ mock! {
         fn insert(&self, key: Interest, value: Option<Vec<u8>>) -> Result<bool>;
         fn range_with_values(
             &self,
-            start: Interest,
-            end: Interest,
+            start: &Interest,
+            end: &Interest,
             offset: usize,
             limit: usize,
         ) -> Result<Vec<(Interest, Vec<u8>)>>;
@@ -38,18 +38,16 @@ mock! {
 }
 #[async_trait]
 impl AccessInterestStore for MockReconInterestTest {
-    type Key = Interest;
-    type Hash = Sha256a;
-    async fn insert(&self, key: Self::Key) -> Result<bool> {
+    async fn insert(&self, key: Interest) -> Result<bool> {
         self.insert(key, None)
     }
     async fn range(
         &self,
-        start: Self::Key,
-        end: Self::Key,
+        start: &Interest,
+        end: &Interest,
         offset: usize,
         limit: usize,
-    ) -> Result<Vec<Self::Key>> {
+    ) -> Result<Vec<Interest>> {
         let res = self.range_with_values(start, end, offset, limit)?;
         Ok(res.into_iter().map(|(k, _)| k).collect())
     }
@@ -59,12 +57,12 @@ mock! {
         fn insert(&self, key: EventId, value: Option<Vec<u8>>) -> Result<(bool, bool)>;
         fn range_with_values(
             &self,
-            start: EventId,
-            end: EventId,
+            start: &EventId,
+            end: &EventId,
             offset: usize,
             limit: usize,
         ) -> Result<Vec<(EventId,Vec<u8>)>>;
-        fn value_for_key(&self, key: EventId) -> Result<Option<Vec<u8>>>;
+        fn value_for_key(&self, key: &EventId) -> Result<Option<Vec<u8>>>;
     }
     impl Clone for ReconModelTest {
         fn clone(&self) -> Self;
@@ -72,28 +70,26 @@ mock! {
 }
 #[async_trait]
 impl AccessModelStore for MockReconModelTest {
-    type Key = EventId;
-    type Hash = Sha256a;
-    async fn insert(&self, key: Self::Key, value: Option<Vec<u8>>) -> Result<(bool, bool)> {
+    async fn insert(&self, key: EventId, value: Option<Vec<u8>>) -> Result<(bool, bool)> {
         self.insert(key, value)
     }
     async fn range_with_values(
         &self,
-        start: Self::Key,
-        end: Self::Key,
+        start: &EventId,
+        end: &EventId,
         offset: usize,
         limit: usize,
-    ) -> Result<Vec<(Self::Key, Vec<u8>)>> {
+    ) -> Result<Vec<(EventId, Vec<u8>)>> {
         self.range_with_values(start, end, offset, limit)
     }
-    async fn value_for_key(&self, key: Self::Key) -> Result<Option<Vec<u8>>> {
+    async fn value_for_key(&self, key: &EventId) -> Result<Option<Vec<u8>>> {
         self.value_for_key(key)
     }
     async fn keys_since_highwater_mark(
         &self,
         _highwater: i64,
         _limit: i64,
-    ) -> anyhow::Result<(i64, Vec<Self::Key>)> {
+    ) -> anyhow::Result<(i64, Vec<EventId>)> {
         Ok((0, vec![]))
     }
 }
@@ -358,7 +354,7 @@ async fn get_events_for_interest_range() {
             predicate::eq(1),
         )
         .times(1)
-        .returning(|s, _, _, _| Ok(vec![(s, vec![])]));
+        .returning(|s, _, _, _| Ok(vec![(s.clone(), vec![])]));
     let server = Server::new(peer_id, network, mock_interest, mock_model);
     let resp = server
         .events_sort_key_sort_value_get(

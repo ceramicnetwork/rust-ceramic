@@ -28,7 +28,7 @@ pub struct Recon<K, H, S, I>
 where
     K: Key,
     H: AssociativeHash,
-    S: Store<Key = K, Hash = H> + Send,
+    S: Store<Key = K, Hash = H> + Send + Sync,
     I: InterestProvider<Key = K>,
 {
     interests: I,
@@ -97,18 +97,15 @@ where
         let mut new_keys = Vec::with_capacity(2);
 
         if !range.first.is_fencepost() {
-            should_add.push(range.first.clone());
+            should_add.push(ReconItem::new_key(&range.first));
         }
 
         if !range.last.is_fencepost() {
-            should_add.push(range.last.clone());
+            should_add.push(ReconItem::new_key(&range.last));
         }
 
         if !should_add.is_empty() {
-            let new = self
-                .insert_many(should_add.iter().map(|key| ReconItem::new_key(key)))
-                .await
-                .context("insert_many")?;
+            let new = self.insert_many(&should_add).await?;
             debug_assert_eq!(
                 new.len(),
                 should_add.len(),
@@ -116,7 +113,7 @@ where
             );
             for (idx, key) in should_add.into_iter().enumerate() {
                 if new[idx] {
-                    new_keys.push(key);
+                    new_keys.push(key.key.clone());
                 }
             }
         }
@@ -250,7 +247,7 @@ where
 
     /// Insert key into the key space. Includes an optional value.
     /// Returns a boolean (true) indicating if the key was new.
-    pub async fn insert(&self, item: ReconItem<'_, K>) -> Result<bool> {
+    pub async fn insert(&self, item: &ReconItem<'_, K>) -> Result<bool> {
         self.store.insert(item).await
     }
     /// Report all keys in the range that are missing a value
@@ -261,10 +258,7 @@ where
     /// Insert many keys into the key space. Includes an optional value for each key.
     /// Returns an array with a boolean for each key indicating if the key was new.
     /// The order is the same as the order of the keys. True means new, false means not new.
-    pub async fn insert_many<'a, IT>(&self, items: IT) -> Result<Vec<bool>>
-    where
-        IT: ExactSizeIterator<Item = ReconItem<'a, K>> + Send + Sync,
-    {
+    pub async fn insert_many(&self, items: &[ReconItem<'_, K>]) -> Result<Vec<bool>> {
         let result = self.store.insert_many(items).await?;
 
         Ok(result.keys)
@@ -301,7 +295,7 @@ where
     ///
     /// Offset and limit values are applied within the range of keys.
     pub async fn range_with_values(
-        &mut self,
+        &self,
         left_fencepost: &K,
         right_fencepost: &K,
         offset: usize,
@@ -363,9 +357,9 @@ where
     }
 }
 
-impl<H> std::fmt::Display for HashCount<H>
+impl<H> Display for HashCount<H>
 where
-    H: std::fmt::Display,
+    H: Display,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}#{}", self.hash, self.count)
@@ -443,7 +437,7 @@ impl InsertResult {
 
 /// Store defines the API needed to store the Recon set.
 #[async_trait]
-pub trait Store: std::fmt::Debug {
+pub trait Store {
     /// Type of the Key being stored.
     type Key: Key;
     /// Type of the AssociativeHash to compute over keys.
@@ -451,14 +445,12 @@ pub trait Store: std::fmt::Debug {
 
     /// Insert a new key into the key space. Returns true if the key did not exist.
     /// The value will be updated if included
-    async fn insert(&self, item: ReconItem<'_, Self::Key>) -> Result<bool>;
+    async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> Result<bool>;
 
     /// Insert new keys into the key space.
     /// Returns true for each key if it did not previously exist, in the
     /// same order as the input iterator.
-    async fn insert_many<'a, I>(&self, items: I) -> Result<InsertResult>
-    where
-        I: ExactSizeIterator<Item = ReconItem<'a, Self::Key>> + Send + Sync;
+    async fn insert_many(&self, items: &[ReconItem<'_, Self::Key>]) -> Result<InsertResult>;
 
     /// Return the hash of all keys in the range between left_fencepost and right_fencepost.
     /// Both range bounds are exclusive.
@@ -599,6 +591,78 @@ pub trait Store: std::fmt::Debug {
     async fn keys_with_missing_values(&self, range: RangeOpen<Self::Key>)
         -> Result<Vec<Self::Key>>;
 }
+
+#[async_trait::async_trait]
+impl<K, H, S> Store for std::sync::Arc<S>
+where
+    K: Key,
+    H: AssociativeHash,
+    S: Store<Key = K, Hash = H> + Send + Sync,
+{
+    type Key = K;
+    type Hash = H;
+
+    async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> Result<bool> {
+        self.as_ref().insert(item).await
+    }
+
+    async fn insert_many(&self, items: &[ReconItem<'_, Self::Key>]) -> Result<InsertResult> {
+        self.as_ref().insert_many(items).await
+    }
+
+    async fn hash_range(
+        &self,
+        left_fencepost: &Self::Key,
+        right_fencepost: &Self::Key,
+    ) -> Result<HashCount<Self::Hash>> {
+        self.as_ref()
+            .hash_range(left_fencepost, right_fencepost)
+            .await
+    }
+
+    async fn range(
+        &self,
+        left_fencepost: &Self::Key,
+        right_fencepost: &Self::Key,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
+        self.as_ref()
+            .range(left_fencepost, right_fencepost, offset, limit)
+            .await
+    }
+
+    async fn range_with_values(
+        &self,
+        left_fencepost: &Self::Key,
+        right_fencepost: &Self::Key,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>> {
+        self.as_ref()
+            .range_with_values(left_fencepost, right_fencepost, offset, limit)
+            .await
+    }
+
+    async fn value_for_key(&self, key: &Self::Key) -> Result<Option<Vec<u8>>> {
+        self.as_ref().value_for_key(key).await
+    }
+
+    async fn keys_with_missing_values(
+        &self,
+        range: RangeOpen<Self::Key>,
+    ) -> Result<Vec<Self::Key>> {
+        self.as_ref().keys_with_missing_values(range).await
+    }
+}
+
+/// Store for Interests
+#[async_trait::async_trait]
+pub trait InterestStore: Store<Key = Interest, Hash = Sha256a> {}
+
+/// Store for EventId
+#[async_trait::async_trait]
+pub trait EventIdStore: Store<Key = EventId, Hash = Sha256a> {}
 
 /// Represents a key that can be reconciled via Recon.
 pub trait Key:

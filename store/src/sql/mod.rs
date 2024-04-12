@@ -4,7 +4,6 @@ mod root;
 mod sqlite;
 
 pub use entities::*;
-
 pub use postgres::{DbTxPg, EventStorePostgres, InterestStorePostgres, PostgresPool};
 pub use root::{RootStorePostgres, RootStoreSqlite};
 pub use sqlite::{DbTxSqlite, EventStoreSqlite, InterestStoreSqlite, SqlitePool};

@@ -122,7 +122,7 @@ pub struct Engine<S: Store> {
 }
 
 impl<S: Store> Engine<S> {
-    pub async fn new(store: S, _self_id: PeerId, config: Config) -> Self {
+    pub async fn new(store: Arc<S>, _self_id: PeerId, config: Config) -> Self {
         // TODO: insert options for peertaskqueue
 
         // TODO: limit?

@@ -1,6 +1,7 @@
 use ahash::AHashMap;
 use anyhow::Result;
 use cid::Cid;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use crate::{block::Block, Store};
@@ -8,14 +9,14 @@ use crate::{block::Block, Store};
 /// Maintains a pool of workers that make requests to the blockstore.
 #[derive(Debug)]
 pub struct BlockstoreManager<S: Store> {
-    store: S,
+    store: Arc<S>,
     // pending_gauge -> iroh-metrics
     // active_gauge -> iroh-metrics
 }
 
 impl<S: Store> BlockstoreManager<S> {
     /// Creates a new manager.
-    pub async fn new(store: S, _worker_count: usize) -> Self {
+    pub async fn new(store: Arc<S>, _worker_count: usize) -> Self {
         BlockstoreManager { store }
     }
 
@@ -30,7 +31,7 @@ impl<S: Store> BlockstoreManager<S> {
         }
         let (s, mut r) = mpsc::channel(1);
 
-        let store = self.store.clone();
+        let store = Arc::clone(&self.store);
         let keys = keys.to_vec();
         tokio::task::spawn(async move {
             for cid in keys {
@@ -58,7 +59,7 @@ impl<S: Store> BlockstoreManager<S> {
         }
         let (s, mut r) = mpsc::channel(1);
 
-        let store = self.store.clone();
+        let store = Arc::clone(&self.store);
         let keys = keys.to_vec();
         tokio::task::spawn(async move {
             for cid in keys {

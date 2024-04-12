@@ -152,7 +152,7 @@ where
     type Key = K;
     type Hash = H;
 
-    async fn insert(&self, item: ReconItem<'_, Self::Key>) -> Result<bool> {
+    async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> Result<bool> {
         let mut inner = self.inner.lock().await;
         let new = inner
             .keys
@@ -165,13 +165,10 @@ where
         Ok(new)
     }
 
-    async fn insert_many<'a, I>(&self, items: I) -> Result<InsertResult>
-    where
-        I: ExactSizeIterator<Item = ReconItem<'a, K>> + Send + Sync,
-    {
+    async fn insert_many(&self, items: &[ReconItem<'_, K>]) -> Result<InsertResult> {
         let mut new = vec![false; items.len()];
         let mut new_val_cnt = 0;
-        for (idx, item) in items.enumerate() {
+        for (idx, item) in items.iter().enumerate() {
             if item.value.is_some() {
                 new_val_cnt += 1;
             }

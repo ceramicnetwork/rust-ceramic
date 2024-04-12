@@ -3,10 +3,8 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use ceramic_core::{Interest, RangeOpen};
-use recon::{AssociativeHash, HashCount, InsertResult, Key, ReconItem};
-use serde::{Deserialize, Serialize};
+use recon::{AssociativeHash, HashCount, InsertResult, Key, ReconItem, Sha256a};
 use sqlx::{Executor, Row};
-use std::marker::PhantomData;
 use tracing::instrument;
 
 use crate::{
@@ -16,34 +14,21 @@ use crate::{
 
 #[derive(Debug, Clone)]
 /// InterestStore is a [`recon::Store`] implementation for Interests.
-pub struct InterestStorePostgres<H>
-where
-    H: AssociativeHash,
-{
-    hash: PhantomData<H>,
+pub struct InterestStorePostgres {
     pub(crate) pool: PostgresPool,
 }
 
-impl<H> InterestStorePostgres<H>
-where
-    H: AssociativeHash,
-{
+impl InterestStorePostgres {
     /// Make a new InterestSqliteStore from a connection pool.
     pub async fn new(pool: PostgresPool) -> Result<Self> {
-        let store = Self {
-            pool,
-            hash: PhantomData,
-        };
+        let store = Self { pool };
         Ok(store)
     }
 }
 
 type InterestError = <Interest as TryFrom<Vec<u8>>>::Error;
 
-impl<H> InterestStorePostgres<H>
-where
-    H: AssociativeHash + std::convert::From<[u32; 8]>,
-{
+impl InterestStorePostgres {
     async fn insert_item(&self, key: &Interest) -> Result<bool> {
         let mut tx = self.pool.writer().begin().await?;
         let new_key = self.insert_item_int(key, &mut tx).await?;
@@ -63,7 +48,7 @@ where
             .context("interest savepoint error")?;
         let key_insert = sqlx::query(ReconQuery::insert_interest());
 
-        let hash = H::digest(key);
+        let hash = Sha256a::digest(key);
         let resp = key_insert
             .bind(key.as_bytes())
             .bind(hash.as_u32s()[0] as i64)
@@ -127,37 +112,28 @@ where
 /// Anything that implements `ceramic_api::AccessInterestStore` should also implement `recon::Store`.
 /// This guarantees that regardless of entry point (api or recon), the data is stored and retrieved in the same way.
 #[async_trait::async_trait]
-impl<H> ceramic_api::AccessInterestStore for InterestStorePostgres<H>
-where
-    H: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>,
-{
-    type Key = Interest;
-    type Hash = H;
-
-    async fn insert(&self, key: Self::Key) -> Result<bool> {
+impl ceramic_api::AccessInterestStore for InterestStorePostgres {
+    async fn insert(&self, key: Interest) -> Result<bool> {
         self.insert_item(&key).await
     }
     async fn range(
         &self,
-        start: Self::Key,
-        end: Self::Key,
+        start: &Interest,
+        end: &Interest,
         offset: usize,
         limit: usize,
-    ) -> Result<Vec<Self::Key>> {
+    ) -> Result<Vec<Interest>> {
         Ok(self.range_int(&start, &end, offset, limit).await?.collect())
     }
 }
 
 #[async_trait]
-impl<H> recon::Store for InterestStorePostgres<H>
-where
-    H: AssociativeHash,
-{
+impl recon::Store for InterestStorePostgres {
     type Key = Interest;
-    type Hash = H;
+    type Hash = Sha256a;
 
     /// Returns true if the key was new. The value is always updated if included
-    async fn insert(&self, item: ReconItem<'_, Self::Key>) -> Result<bool> {
+    async fn insert(&self, item: &ReconItem<'_, Interest>) -> Result<bool> {
         // interests don't have values, if someone gives us something we throw an error but allow None/vec![]
         if let Some(val) = item.value {
             if !val.is_empty() {
@@ -171,10 +147,7 @@ where
 
     /// Insert new keys into the key space.
     /// Returns true if a key did not previously exist.
-    async fn insert_many<'a, I>(&self, items: I) -> Result<InsertResult>
-    where
-        I: ExactSizeIterator<Item = ReconItem<'a, Interest>> + Send + Sync,
-    {
+    async fn insert_many(&self, items: &[ReconItem<'_, Interest>]) -> Result<InsertResult> {
         match items.len() {
             0 => Ok(InsertResult::new(vec![], 0)),
             _ => {
@@ -182,7 +155,7 @@ where
                 let mut new_val_cnt = 0;
                 let mut tx = self.pool.writer().begin().await?;
 
-                for (idx, item) in items.enumerate() {
+                for (idx, item) in items.iter().enumerate() {
                     let new_key = self.insert_item_int(item.key, &mut tx).await?;
                     results[idx] = new_key;
                     if item.value.is_some() {
@@ -194,16 +167,15 @@ where
             }
         }
     }
-
     /// return the hash and count for a range
     #[instrument(skip(self))]
     async fn hash_range(
         &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
+        left_fencepost: &Interest,
+        right_fencepost: &Interest,
     ) -> Result<HashCount<Self::Hash>> {
         if left_fencepost >= right_fencepost {
-            return Ok(HashCount::new(H::identity(), 0));
+            return Ok(HashCount::new(Self::Hash::identity(), 0));
         }
 
         let res: ReconHash = sqlx::query_as(ReconQuery::hash_range(
@@ -216,17 +188,17 @@ where
         .await
         .context("interest hash_range")?;
         let bytes = res.hash();
-        Ok(HashCount::new(H::from(bytes), res.count()))
+        Ok(HashCount::new(Self::Hash::from(bytes), res.count()))
     }
 
     #[instrument(skip(self))]
     async fn range(
         &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
+        left_fencepost: &Interest,
+        right_fencepost: &Interest,
         offset: usize,
         limit: usize,
-    ) -> Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
+    ) -> Result<Box<dyn Iterator<Item = Interest> + Send + 'static>> {
         self.range_int(left_fencepost, right_fencepost, offset, limit)
             .await
     }
@@ -235,11 +207,11 @@ where
     /// Interests don't have values, so the value will always be an empty vec. Use `range` instead.
     async fn range_with_values(
         &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
+        left_fencepost: &Interest,
+        right_fencepost: &Interest,
         offset: usize,
         limit: usize,
-    ) -> Result<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>> {
+    ) -> Result<Box<dyn Iterator<Item = (Interest, Vec<u8>)> + Send + 'static>> {
         let rows = self
             .range(left_fencepost, right_fencepost, offset, limit)
             .await?;
@@ -247,11 +219,7 @@ where
     }
     /// Return the number of keys within the range.
     #[instrument(skip(self))]
-    async fn count(
-        &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Result<usize> {
+    async fn count(&self, left_fencepost: &Interest, right_fencepost: &Interest) -> Result<usize> {
         let query = sqlx::query(ReconQuery::count(ReconType::Interest, SqlBackend::Postgres));
         let row = query
             .bind(left_fencepost.as_bytes())
@@ -265,9 +233,9 @@ where
     #[instrument(skip(self))]
     async fn first(
         &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Result<Option<Self::Key>> {
+        left_fencepost: &Interest,
+        right_fencepost: &Interest,
+    ) -> Result<Option<Interest>> {
         let query = sqlx::query(ReconQuery::first_key(ReconType::Interest));
         let rows = query
             .bind(left_fencepost.as_bytes())
@@ -286,9 +254,9 @@ where
     #[instrument(skip(self))]
     async fn last(
         &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Result<Option<Self::Key>> {
+        left_fencepost: &Interest,
+        right_fencepost: &Interest,
+    ) -> Result<Option<Interest>> {
         let query = sqlx::query(ReconQuery::last_key(ReconType::Interest));
         let rows = query
             .bind(left_fencepost.as_bytes())
@@ -307,9 +275,9 @@ where
     #[instrument(skip(self))]
     async fn first_and_last(
         &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Result<Option<(Self::Key, Self::Key)>> {
+        left_fencepost: &Interest,
+        right_fencepost: &Interest,
+    ) -> Result<Option<(Interest, Interest)>> {
         let query = sqlx::query(ReconQuery::first_and_last(
             ReconType::Interest,
             SqlBackend::Postgres,
@@ -333,15 +301,12 @@ where
     }
 
     #[instrument(skip(self))]
-    async fn value_for_key(&self, _key: &Self::Key) -> Result<Option<Vec<u8>>> {
+    async fn value_for_key(&self, _key: &Interest) -> Result<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
     #[instrument(skip(self))]
-    async fn keys_with_missing_values(
-        &self,
-        _range: RangeOpen<Self::Key>,
-    ) -> Result<Vec<Self::Key>> {
+    async fn keys_with_missing_values(&self, _range: RangeOpen<Interest>) -> Result<Vec<Interest>> {
         Ok(vec![])
     }
 }

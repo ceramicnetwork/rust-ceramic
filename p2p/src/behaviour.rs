@@ -19,6 +19,7 @@ use libp2p::{
 };
 use libp2p_identity::Keypair;
 use recon::{libp2p::Recon, Sha256a};
+use std::sync::Arc;
 use tracing::{info, warn};
 
 use self::ceramic_peer_manager::CeramicPeerManager;
@@ -37,7 +38,7 @@ pub const AGENT_VERSION: &str = concat!("ceramic-one/", env!("CARGO_PKG_VERSION"
 #[behaviour(to_swarm = "Event")]
 pub(crate) struct NodeBehaviour<I, M, S>
 where
-    S: iroh_bitswap::Store,
+    S: iroh_bitswap::Store + Send + Sync,
 {
     // Place limits first in the behaviour tree.
     // Behaviours are called in order and the limits behaviour can deny connections etc.
@@ -60,16 +61,16 @@ where
 
 impl<I, M, S> NodeBehaviour<I, M, S>
 where
-    I: Recon<Key = Interest, Hash = Sha256a>,
-    M: Recon<Key = EventId, Hash = Sha256a>,
-    S: iroh_bitswap::Store,
+    I: Recon<Key = Interest, Hash = Sha256a> + Send + Sync,
+    M: Recon<Key = EventId, Hash = Sha256a> + Send + Sync,
+    S: iroh_bitswap::Store + Send + Sync,
 {
     pub async fn new(
         local_key: &Keypair,
         config: &Libp2pConfig,
         relay_client: Option<relay::client::Behaviour>,
         recons: Option<(I, M)>,
-        block_store: S,
+        block_store: Arc<S>,
         metrics: Metrics,
     ) -> Result<Self> {
         let pub_key = local_key.public();
@@ -205,8 +206,9 @@ where
     pub fn notify_new_blocks(&self, blocks: Vec<Block>) {
         if let Some(bs) = self.bitswap.as_ref() {
             let client = bs.client().clone();
-            tokio::task::spawn(async move {
-                if let Err(err) = client.notify_new_blocks(&blocks).await {
+            let handle = tokio::runtime::Handle::current();
+            tokio::task::block_in_place(move || {
+                if let Err(err) = handle.block_on(client.notify_new_blocks(&blocks)) {
                     warn!("failed to notify bitswap about blocks: {:?}", err);
                 }
             });
