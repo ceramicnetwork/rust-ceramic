@@ -724,7 +724,7 @@ mod tests {
                 .store
                 .write()
                 .await
-                .insert(block.cid.clone(), block.clone())
+                .insert(block.cid, block.clone())
                 .is_none())
         }
     }

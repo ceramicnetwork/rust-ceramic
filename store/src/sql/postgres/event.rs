@@ -332,7 +332,7 @@ impl recon::Store for EventStorePostgres {
 
     /// Returns true if the key was new. The value is always updated if included
     async fn insert(&self, item: &ReconItem<'_, EventId>) -> Result<bool> {
-        let (new, _new_val) = self.insert_item(&item).await?;
+        let (new, _new_val) = self.insert_item(item).await?;
         Ok(new)
     }
 
@@ -347,7 +347,7 @@ impl recon::Store for EventStorePostgres {
                 let mut tx = self.pool.writer().begin().await?;
 
                 for (idx, item) in items.iter().enumerate() {
-                    let (new_key, new_val) = self.insert_item_int(&item, &mut tx).await?;
+                    let (new_key, new_val) = self.insert_item_int(item, &mut tx).await?;
                     results[idx] = new_key;
                     if new_val {
                         new_val_cnt += 1;
@@ -568,12 +568,12 @@ impl ceramic_api::AccessModelStore for EventStorePostgres {
         limit: usize,
     ) -> Result<Vec<(EventId, Vec<u8>)>> {
         let res = self
-            .range_with_values_int(&start, &end, offset, limit)
+            .range_with_values_int(start, end, offset, limit)
             .await?;
         Ok(res.collect())
     }
     async fn value_for_key(&self, key: &EventId) -> Result<Option<Vec<u8>>> {
-        self.value_for_key_int(&key).await
+        self.value_for_key_int(key).await
     }
 
     async fn keys_since_highwater_mark(

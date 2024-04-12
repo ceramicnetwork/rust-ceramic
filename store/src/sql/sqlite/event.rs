@@ -568,12 +568,12 @@ impl ceramic_api::AccessModelStore for EventStoreSqlite {
         limit: usize,
     ) -> Result<Vec<(EventId, Vec<u8>)>> {
         let res = self
-            .range_with_values_int(&start, &end, offset, limit)
+            .range_with_values_int(start, end, offset, limit)
             .await?;
         Ok(res.collect())
     }
     async fn value_for_key(&self, key: &EventId) -> Result<Option<Vec<u8>>> {
-        self.value_for_key_int(&key).await
+        self.value_for_key_int(key).await
     }
 
     async fn keys_since_highwater_mark(
