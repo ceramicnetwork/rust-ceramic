@@ -201,7 +201,8 @@ where
                         }
                         Err(e) => {
                             // TODO: differentiate between transient and permanent errors
-                            // for now, we don't want to try to keep talking so we treat all errors as transient
+                            // for now, we want to keep talking so we treat all errors as transient
+                            // but in the future, we will want to shut down the connection if the error is permanent
                             return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
                                 FromHandler::TransientError(e),
                             ));
