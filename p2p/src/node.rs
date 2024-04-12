@@ -137,9 +137,9 @@ where
 type NodeSwarmEvent<I, M, S> = SwarmEvent<<NodeBehaviour<I, M, S> as NetworkBehaviour>::ToSwarm>;
 impl<I, M, S> Node<I, M, S>
 where
-    I: Recon<Key = Interest, Hash = Sha256a>,
-    M: Recon<Key = EventId, Hash = Sha256a>,
-    S: iroh_bitswap::Store,
+    I: Recon<Key = Interest, Hash = Sha256a> + Send + Sync,
+    M: Recon<Key = EventId, Hash = Sha256a> + Send + Sync,
+    S: iroh_bitswap::Store + Send + Sync,
 {
     pub async fn new(
         config: Config,
@@ -273,7 +273,7 @@ where
             tokio::select! {
                 swarm_event = self.swarm.next() => {
                     let swarm_event = swarm_event.expect("the swarm will never die");
-                    match self.handle_swarm_event(swarm_event) {
+                    match self.handle_swarm_event(swarm_event).await {
                         Ok(Some(SwarmEventResult::KademliaBoostrapSuccess)) => {
                             kad_state = KadBootstrapState::Bootstrapped;
                         }
@@ -294,7 +294,7 @@ where
                 rpc_message = self.net_receiver_in.recv() => {
                     match rpc_message {
                         Some(rpc_message) => {
-                            match self.handle_rpc_message(rpc_message) {
+                            match self.handle_rpc_message(rpc_message).await {
                                 Ok(true) => {
                                     // shutdown
                                     return Ok(());
@@ -450,14 +450,14 @@ where
 
     // TODO fix skip_all
     #[tracing::instrument(skip_all)]
-    fn handle_swarm_event(
+    async fn handle_swarm_event(
         &mut self,
         event: NodeSwarmEvent<I, M, S>,
     ) -> Result<Option<SwarmEventResult>> {
         libp2p_metrics().record(&event);
         match event {
             // outbound events
-            SwarmEvent::Behaviour(event) => self.handle_node_event(event),
+            SwarmEvent::Behaviour(event) => self.handle_node_event(event).await,
             SwarmEvent::ConnectionEstablished {
                 peer_id,
                 num_established,
@@ -529,7 +529,7 @@ where
     }
 
     #[tracing::instrument(skip_all)]
-    fn handle_node_event(&mut self, event: Event) -> Result<Option<SwarmEventResult>> {
+    async fn handle_node_event(&mut self, event: Event) -> Result<Option<SwarmEventResult>> {
         match event {
             Event::Bitswap(e) => {
                 match e {
@@ -557,7 +557,8 @@ where
                             key: ProviderRequestKey::Dht(key.hash().to_bytes().into()),
                             response_channel: response,
                             limit,
-                        })?;
+                        })
+                        .await?;
                         Ok(None)
                     }
                     BitswapEvent::Ping { peer, response } => {
@@ -865,7 +866,7 @@ where
     }
 
     #[tracing::instrument(skip(self))]
-    fn handle_rpc_message(&mut self, message: RpcMessage) -> Result<bool> {
+    async fn handle_rpc_message(&mut self, message: RpcMessage) -> Result<bool> {
         // Inbound messages
         match message {
             RpcMessage::ExternalAddrs(response_channel) => {

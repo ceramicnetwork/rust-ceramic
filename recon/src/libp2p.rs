@@ -22,7 +22,7 @@ use libp2p::{
 };
 use libp2p_identity::PeerId;
 use std::{
-    collections::{BTreeMap, VecDeque},
+    collections::{btree_map::Entry, BTreeMap},
     task::Poll,
     time::{Duration, Instant},
 };
@@ -69,7 +69,8 @@ pub struct Behaviour<I, M> {
     model: M,
     config: Config,
     peers: BTreeMap<PeerId, PeerInfo>,
-    swarm_events_queue: VecDeque<ToSwarm<Event, FromBehaviour>>,
+    swarm_events_sender: tokio::sync::mpsc::Sender<ToSwarm<Event, FromBehaviour>>,
+    swarm_events_receiver: tokio::sync::mpsc::Receiver<ToSwarm<Event, FromBehaviour>>,
 }
 
 /// Information about a remote peer and its sync status.
@@ -116,13 +117,23 @@ impl<I, M> Behaviour<I, M> {
         I: Recon<Key = Interest, Hash = Sha256a>,
         M: Recon<Key = EventId, Hash = Sha256a>,
     {
+        let (tx, rx) = tokio::sync::mpsc::channel(1000);
         Self {
             interest,
             model,
             config,
             peers: BTreeMap::new(),
-            swarm_events_queue: VecDeque::new(),
+            swarm_events_sender: tx,
+            swarm_events_receiver: rx,
         }
+    }
+
+    fn send_event(&self, event: ToSwarm<Event, FromBehaviour>) {
+        let tx = self.swarm_events_sender.clone();
+        let _ = tokio::task::block_in_place(move || {
+            let handle = tokio::runtime::Handle::current();
+            handle.block_on(async move { tx.send(event).await })
+        });
     }
 }
 
@@ -167,64 +178,86 @@ where
         _connection_id: libp2p::swarm::ConnectionId,
         event: libp2p::swarm::THandlerOutEvent<Self>,
     ) {
-        match event {
+        let ev = match event {
             // The peer has started to synchronize with us.
-            FromHandler::Started { stream_set } => self.peers.entry(peer_id).and_modify(|info| {
-                info.status = PeerStatus::Started { stream_set };
-                self.swarm_events_queue
-                    .push_front(ToSwarm::GenerateEvent(Event::PeerEvent(PeerEvent {
+            FromHandler::Started { stream_set } => {
+                if let Entry::Occupied(mut entry) = self.peers.entry(peer_id) {
+                    let info = entry.get_mut();
+                    info.status = PeerStatus::Started { stream_set };
+                    Some(ToSwarm::GenerateEvent(Event::PeerEvent(PeerEvent {
                         remote_peer_id: peer_id,
                         status: info.status,
                     })))
-            }),
+                } else {
+                    None
+                }
+            }
             // The peer has stopped synchronization and will never be able to resume.
-            FromHandler::Stopped => self.peers.entry(peer_id).and_modify(|info| {
-                info.status = PeerStatus::Stopped;
-                self.swarm_events_queue
-                    .push_front(ToSwarm::GenerateEvent(Event::PeerEvent(PeerEvent {
+            FromHandler::Stopped => {
+                if let Entry::Occupied(mut entry) = self.peers.entry(peer_id) {
+                    let info = entry.get_mut();
+                    info.status = PeerStatus::Stopped;
+                    Some(ToSwarm::GenerateEvent(Event::PeerEvent(PeerEvent {
                         remote_peer_id: peer_id,
                         status: info.status,
                     })))
-            }),
+                } else {
+                    None
+                }
+            }
 
             // The peer has synchronized with us, mark the time and record that the peer connection
             // is now idle.
-            FromHandler::Succeeded { stream_set } => self.peers.entry(peer_id).and_modify(|info| {
-                info.last_sync = Some(Instant::now());
-                info.status = PeerStatus::Synchronized { stream_set };
-                self.swarm_events_queue
-                    .push_front(ToSwarm::GenerateEvent(Event::PeerEvent(PeerEvent {
-                        remote_peer_id: peer_id,
-                        status: info.status,
-                    })));
-            }),
-            //We had an internal error during synchronization, for now we will just log the error
-            FromHandler::TransientError(error) => self.peers.entry(peer_id).and_modify(|info| {
-                warn!(%peer_id, %error, status=?info.status, "transient internal failure to synchronization with peer");
-            }),
-
-            // The peer has failed to synchronized with us, mark the time and record that the peer connection
-            // is now failed.
-            FromHandler::Failed(error) => self.peers.entry(peer_id).and_modify(|info| {
-                warn!(%peer_id, %error, "synchronization failed with peer");
-                info.last_sync = Some(Instant::now());
-                info.status = PeerStatus::Failed;
-                self.swarm_events_queue
-                    .push_front(ToSwarm::GenerateEvent(Event::PeerEvent(PeerEvent {
+            FromHandler::Succeeded { stream_set } => {
+                if let Entry::Occupied(mut entry) = self.peers.entry(peer_id) {
+                    let info = entry.get_mut();
+                    info.last_sync = Some(Instant::now());
+                    info.status = PeerStatus::Synchronized { stream_set };
+                    Some(ToSwarm::GenerateEvent(Event::PeerEvent(PeerEvent {
                         remote_peer_id: peer_id,
                         status: info.status,
                     })))
-            }),
+                } else {
+                    None
+                }
+            }
+
+            //We had an internal error during synchronization, for now we will just log the error
+            FromHandler::TransientError(error) => {
+                self.peers.entry(peer_id).and_modify(|info| {
+                warn!(%peer_id, %error, status=?info.status, "transient internal failure to synchronization with peer");
+            });
+                None
+            }
+
+            // The peer has failed to synchronized with us, mark the time and record that the peer connection
+            // is now failed.
+            FromHandler::Failed(error) => {
+                if let Entry::Occupied(mut entry) = self.peers.entry(peer_id) {
+                    let info = entry.get_mut();
+                    warn!(%peer_id, %error, "synchronization failed with peer");
+                    info.last_sync = Some(Instant::now());
+                    info.status = PeerStatus::Failed;
+                    Some(ToSwarm::GenerateEvent(Event::PeerEvent(PeerEvent {
+                        remote_peer_id: peer_id,
+                        status: info.status,
+                    })))
+                } else {
+                    None
+                }
+            }
         };
+
+        if let Some(ev) = ev {
+            self.send_event(ev);
+        }
     }
 
     fn poll(
         &mut self,
-        _cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<libp2p::swarm::ToSwarm<Self::ToSwarm, libp2p::swarm::THandlerInEvent<Self>>>
-    {
-        // Handle queue of swarm events.
-        if let Some(event) = self.swarm_events_queue.pop_back() {
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<ToSwarm<Self::ToSwarm, libp2p::swarm::THandlerInEvent<Self>>> {
+        if let Poll::Ready(Some(event)) = self.swarm_events_receiver.poll_recv(cx) {
             debug!(?event, "swarm event");
             return Poll::Ready(event);
         }
@@ -282,6 +315,7 @@ where
                 }
             }
         }
+
         Poll::Pending
     }
 

@@ -1,6 +1,6 @@
 use anyhow::Result;
 use ceramic_core::{EventId, Interest};
-use libp2p::{noise, relay, swarm::Executor, tcp, tls, yamux, Swarm, SwarmBuilder};
+use libp2p::{noise, relay, tcp, tls, yamux, Swarm, SwarmBuilder};
 use libp2p_identity::Keypair;
 use recon::{libp2p::Recon, Sha256a};
 use std::sync::Arc;
@@ -83,7 +83,6 @@ where
     M: Recon<Key = EventId, Hash = Sha256a> + Send,
     S: iroh_bitswap::Store,
 {
-    // TODO(WS1-1363): Remove bitswap async initialization
     let keypair = keypair.clone();
     let config = config.clone();
     let handle = tokio::runtime::Handle::current();
@@ -99,11 +98,4 @@ where
     })
     .join()
     .unwrap()
-}
-
-struct Tokio;
-impl Executor for Tokio {
-    fn exec(&self, fut: std::pin::Pin<Box<dyn futures::Future<Output = ()> + Send>>) {
-        tokio::task::spawn(fut);
-    }
 }
