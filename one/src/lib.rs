@@ -11,7 +11,8 @@ mod network;
 use std::{env, num::NonZeroUsize, path::PathBuf, time::Duration};
 
 use anyhow::{anyhow, Result};
-use ceramic_core::Interest;
+use ceramic_api::{AccessInterestStore, AccessModelStore};
+use ceramic_core::{EventId, Interest};
 use ceramic_kubo_rpc::Multiaddr;
 
 use ceramic_metrics::{config::Config as MetricsConfig, MetricsHandle};
@@ -30,7 +31,9 @@ use tracing::{debug, info, warn};
 
 use crate::network::Ipfs;
 pub use cbor_value::CborValue;
-use ceramic_store::{EventStoreSqlite, InterestStoreSqlite};
+use ceramic_store::{
+    EventStorePostgres, EventStoreSqlite, InterestStorePostgres, InterestStoreSqlite,
+};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -199,6 +202,14 @@ struct DaemonOpts {
         env = "CERAMIC_ONE_KADEMLIA_PROVIDER_RECORD_TTL_SECS"
     )]
     kademlia_provider_record_ttl_secs: u64,
+    /// The database to connect to e.g.
+    ///
+    /// `sqlite:///path/to/file.sqlite3` or `sqlite://:memory:` or `sqlite://~/.ceramic-one/db.sqlite3`
+    /// `postgres://user:password@host:port/dbname`
+    ///
+    /// The default is to use `db.sqlite3` in the store directory.
+    #[arg(long, env = "CERAMIC_ONE_DATABASE_URL")]
+    database_url: Option<String>,
 }
 
 #[derive(ValueEnum, Debug, Clone, Default)]
@@ -281,13 +292,132 @@ pub async fn run() -> Result<()> {
 }
 
 type InterestInterest = FullInterests<Interest>;
-
 type ModelInterest = ReconInterestProvider<Sha256a>;
+
+impl DaemonOpts {
+    fn default_directory(&self) -> PathBuf {
+        // 1 path from options
+        // 2 path $HOME/.ceramic-one
+        // 3 pwd/.ceramic-one
+        match self.store_dir.clone() {
+            Some(dir) => dir,
+            None => match home::home_dir() {
+                Some(home_dir) => home_dir.join(".ceramic-one"),
+                None => PathBuf::from(".ceramic-one"),
+            },
+        }
+    }
+    async fn get_database(&self) -> Result<Databases> {
+        // this is called before tracing is initialized so we use stdout/stderr
+        match self.database_url.as_ref() {
+            Some(url) if url.starts_with("sqlite://") => Self::build_sqlite_dbs(url).await,
+            Some(url) if url.starts_with("postgres://") => {
+                let sql_pool =
+                    ceramic_store::PostgresPool::connect(url, ceramic_store::Migrations::Apply)
+                        .await?;
+                let interest_store = Arc::new(InterestStorePostgres::new(sql_pool.clone()).await?);
+                let event_store = Arc::new(EventStorePostgres::new(sql_pool.clone()).await?);
+
+                println!("Connected to postgres database");
+                Ok(Databases::Postgres(PgBackend {
+                    event_store,
+                    interest_store,
+                }))
+            }
+            Some(unknown) => {
+                let message = format!("Database URL is not supported: {}", unknown);
+                eprintln!("{}", message);
+                anyhow::bail!(message)
+            }
+            None => {
+                let sql_db_path = self
+                    .default_directory()
+                    .join("db.sqlite3")
+                    .display()
+                    .to_string();
+                Self::build_sqlite_dbs(&sql_db_path).await
+            }
+        }
+    }
+
+    async fn build_sqlite_dbs(path: &str) -> Result<Databases> {
+        let sql_pool =
+            ceramic_store::SqlitePool::connect(path, ceramic_store::Migrations::Apply).await?;
+        let interest_store = Arc::new(InterestStoreSqlite::new(sql_pool.clone()).await?);
+        let event_store = Arc::new(EventStoreSqlite::new(sql_pool.clone()).await?);
+        println!("Connected to sqlite database: {}", path);
+
+        Ok(Databases::Sqlite(SqliteBackend {
+            event_store,
+            interest_store,
+        }))
+    }
+}
+
+enum Databases {
+    Postgres(PgBackend),
+    Sqlite(SqliteBackend),
+}
+struct SqliteBackend {
+    interest_store: Arc<InterestStoreSqlite>,
+    event_store: Arc<EventStoreSqlite>,
+}
+
+struct PgBackend {
+    interest_store: Arc<InterestStorePostgres>,
+    event_store: Arc<EventStorePostgres>,
+}
 
 struct Daemon;
 
 impl Daemon {
     async fn run(opts: DaemonOpts) -> Result<()> {
+        let db = opts.get_database().await?;
+
+        // we should be able to consolidate the Store traits now that they all rely on &self, but for now we use
+        // static dispatch and require compile-time type information, so we pass all the types we need in, even
+        // though they are currently all implemented by a single struct and we're just cloning Arcs.
+        match db {
+            Databases::Postgres(db) => {
+                Daemon::run_int(
+                    opts,
+                    db.interest_store.clone(),
+                    db.interest_store,
+                    db.event_store.clone(),
+                    db.event_store.clone(),
+                    db.event_store,
+                )
+                .await
+            }
+            Databases::Sqlite(db) => {
+                Daemon::run_int(
+                    opts,
+                    db.interest_store.clone(),
+                    db.interest_store,
+                    db.event_store.clone(),
+                    db.event_store.clone(),
+                    db.event_store,
+                )
+                .await
+            }
+        }
+    }
+
+    async fn run_int<I1, I2, E1, E2, E3>(
+        opts: DaemonOpts,
+        interest_api_store: Arc<I1>,
+        interest_recon_store: Arc<I2>,
+        model_api_store: Arc<E1>,
+        model_recon_store: Arc<E2>,
+        bitswap_block_store: Arc<E3>,
+    ) -> Result<()>
+    where
+        I1: AccessInterestStore + Send + Sync + 'static,
+        I2: recon::Store<Key = Interest, Hash = Sha256a> + Send + Sync + 'static,
+        E1: AccessModelStore + Send + Sync + 'static,
+        E2: recon::Store<Key = EventId, Hash = Sha256a> + Send + Sync + 'static,
+        E3: iroh_bitswap::Store + Send + Sync + 'static,
+    {
         let network = opts.network.to_network(&opts.local_network_id)?;
 
         let info = Info::new().await?;
@@ -326,6 +456,9 @@ impl Daemon {
         );
         debug!(?opts, "using daemon options");
 
+        let dir = opts.default_directory();
+        debug!("using directory: {}", dir.display());
+
         // Setup tokio-metrics
         ceramic_metrics::MetricsHandle::register(|registry| {
             let handle = tokio::runtime::Handle::current();
@@ -335,18 +468,6 @@ impl Daemon {
                 registry.sub_registry_with_prefix("tokio"),
             );
         });
-
-        // 1 path from options
-        // 2 path $HOME/.ceramic-one
-        // 3 pwd/.ceramic-one
-        let dir = match opts.store_dir.clone() {
-            Some(dir) => dir,
-            None => match home::home_dir() {
-                Some(home_dir) => home_dir.join(".ceramic-one"),
-                None => PathBuf::from(".ceramic-one"),
-            },
-        };
-        debug!("using directory: {}", dir.display());
 
         let p2p_config = Libp2pConfig {
             mdns: opts.mdns,
@@ -402,36 +523,23 @@ impl Daemon {
         debug!(?p2p_config, "using p2p config");
 
         // Load p2p identity
-        let mut kc = Keychain::<DiskStorage>::new(dir.clone()).await?;
+        let mut kc = Keychain::<DiskStorage>::new(dir).await?;
         let keypair = load_identity(&mut kc).await?;
         let peer_id = keypair.public().to_peer_id();
-
-        // Connect to sqlite
-        let sql_db_path = dir.join("db.sqlite3").display().to_string();
-        let sql_pool =
-            ceramic_store::SqlitePool::connect(&sql_db_path, ceramic_store::Migrations::Apply)
-                .await?;
-
-        // let sql_pool =
-        //     ceramic_store::PostgresPool::connect(&pg_url(), ceramic_store::Migrations::Apply)
-        //         .await?;
 
         // Create recon metrics
         let recon_metrics = MetricsHandle::register(recon::Metrics::register);
         let store_metrics = MetricsHandle::register(ceramic_store::Metrics::register);
 
-        let interest_db_store = Arc::new(InterestStoreSqlite::new(sql_pool.clone()).await?);
         // Create recon store for interests.
         let interest_store = ceramic_store::StoreMetricsMiddleware::new(
-            interest_db_store.clone(),
+            interest_recon_store.clone(),
             store_metrics.clone(),
         );
 
         // Create second recon store for models.
-        let model_block_store = Arc::new(EventStoreSqlite::new(sql_pool.clone()).await?);
-
         let model_store = ceramic_store::StoreMetricsMiddleware::new(
-            model_block_store.clone(),
+            model_recon_store.clone(),
             store_metrics.clone(),
         );
 
@@ -454,16 +562,16 @@ impl Daemon {
         let ipfs_metrics =
             ceramic_metrics::MetricsHandle::register(ceramic_kubo_rpc::IpfsMetrics::register);
         let p2p_metrics = MetricsHandle::register(ceramic_p2p::Metrics::register);
-        let ipfs = Ipfs::<EventStoreSqlite>::builder()
+        let ipfs = Ipfs::<E3>::builder()
             .with_p2p(
                 p2p_config,
                 keypair,
                 recons,
-                model_block_store.clone(),
+                bitswap_block_store.clone(),
                 p2p_metrics,
             )
             .await?
-            .build(model_block_store, ipfs_metrics)
+            .build(bitswap_block_store, ipfs_metrics)
             .await?;
 
         // Start metrics server
@@ -479,8 +587,8 @@ impl Daemon {
         let ceramic_server = ceramic_api::Server::new(
             peer_id,
             network,
-            interest_store.clone(),
-            model_store.clone(),
+            interest_api_store.clone(),
+            model_api_store.clone(),
         );
         let ceramic_metrics = MetricsHandle::register(ceramic_api::Metrics::register);
         // Wrap server in metrics middleware
@@ -564,6 +672,7 @@ impl Daemon {
         Ok(())
     }
 }
+
 async fn handle_signals(mut signals: Signals, shutdown: oneshot::Sender<()>) {
     let mut shutdown = Some(shutdown);
     while let Some(signal) = signals.next().await {
