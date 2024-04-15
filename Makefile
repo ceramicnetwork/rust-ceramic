@@ -56,13 +56,11 @@ check-kubo-rpc-server:
 
 .PHONY: check-migrations
 check-migrations:
-	./ci-scripts/check_migrations.sh "sqlite"
-	./ci-scripts/check_migrations.sh "postgres"
+	SETUP_DB=1 ./ci-scripts/check_migrations.sh "sqlite" "postgres"
 
 .PHONY: check-migrations-ci
 check-migrations-ci:
-	CI_RUN=1 ./ci-scripts/check_migrations.sh "sqlite"
-	CI_RUN=1 ./ci-scripts/check_migrations.sh "postgres"
+	SETUP_DB=1 CI_RUN=1 MIGRATION_CLEANUP=1 RUN_DB_TESTS=1 ./ci-scripts/check_migrations.sh "sqlite" "postgres"
 
 .PHONY: release
 release:
