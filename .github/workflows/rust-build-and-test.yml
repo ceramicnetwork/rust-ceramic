@@ -62,9 +62,7 @@ jobs:
         cache-targets: false
     - uses: mozilla-actions/sccache-action@v0.0.3
     - name: Run tests
-      run: | 
-        make prep-databases-ci
-        TEST_DATABASE_URL="postgresql://postgres:c3ram1c@postgresci:5432/ceramic_one_tests" PG_TESTS=1 make test
+      run: TEST_DATABASE_URL="postgresql://postgres:c3ram1c@postgresci:5432/ceramic_one_tests" PG_TESTS=1 make test
     services:
       postgresci:
         image: postgres:16
