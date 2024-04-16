@@ -58,13 +58,10 @@ check-kubo-rpc-server:
 check-migrations:
 	MIGRATE_DB=1 ./ci-scripts/check_migrations.sh "sqlite" "postgres"
 
+# Applies migrations to a sqlite and postgres docker container without prompting and removes them afterward
 .PHONY: check-migrations-ci
 check-migrations-ci:
-	MIGRATE_DB=1 CI_RUN=1 MIGRATION_CLEANUP=1 RUN_DB_TESTS=1 ./ci-scripts/check_migrations.sh "sqlite" "postgres"
-
-.PHONY: prep-databases-ci
-prep-databases-ci:
-	MIGRATE_DB=1 SKIP_PG_START=1 TEST_DATABASE_URL="postgresql://postgres:c3ram1c@postgresci:5432/ceramic_one_tests" CI_RUN=1 ./ci-scripts/check_migrations.sh "sqlite" "postgres"
+	MIGRATE_DB=1 CI_RUN=1 MIGRATION_CLEANUP=1 ./ci-scripts/check_migrations.sh "sqlite" "postgres"
 
 .PHONY: release
 release:

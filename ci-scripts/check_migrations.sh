@@ -83,7 +83,7 @@ if [ -n "$MIGRATE_DB" ]; then
 
     if (($USE_PG)); then
         echo "Using postgres"
-        if [ -z "$SKIP_PG_START" ]; then
+        if [ -z "$TEST_DATABASE_URL" ]; then
             docker rm ceramic-pg --force 2>/dev/null
             docker run --name ceramic-pg -e POSTGRES_DB=ceramic_one_tests -e POSTGRES_PASSWORD=c3ram1c -p 5432:5432 -d postgres:16
             sleep 2
