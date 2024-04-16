@@ -460,7 +460,7 @@ impl Daemon {
         debug!("using directory: {}", dir.display());
 
         // Setup tokio-metrics
-        ceramic_metrics::MetricsHandle::register(|registry| {
+        MetricsHandle::register(|registry| {
             let handle = tokio::runtime::Handle::current();
             let runtime_monitor = tokio_metrics::RuntimeMonitor::new(&handle);
             tokio_prometheus_client::register(
@@ -537,28 +537,34 @@ impl Daemon {
             store_metrics.clone(),
         );
 
+        let interest_api_store =
+            ceramic_store::StoreMetricsMiddleware::new(interest_api_store, store_metrics.clone());
+
         // Create second recon store for models.
         let model_store = ceramic_store::StoreMetricsMiddleware::new(
             model_recon_store.clone(),
             store_metrics.clone(),
         );
 
+        let model_api_store =
+            ceramic_store::StoreMetricsMiddleware::new(model_api_store, store_metrics);
+
         // Construct a recon implementation for interests.
-        let mut recon_interest = Server::new(Recon::new(
+        let mut recon_interest_svr = Server::new(Recon::new(
             interest_store.clone(),
             InterestInterest::default(),
             recon_metrics.clone(),
         ));
 
         // Construct a recon implementation for models.
-        let mut recon_model = Server::new(Recon::new(
+        let mut recon_model_svr = Server::new(Recon::new(
             model_store.clone(),
             // Use recon interests as the InterestProvider for recon_model
-            ModelInterest::new(peer_id, recon_interest.client()),
-            recon_metrics.clone(),
+            ModelInterest::new(peer_id, recon_interest_svr.client()),
+            recon_metrics,
         ));
 
-        let recons = Some((recon_interest.client(), recon_model.client()));
+        let recons = Some((recon_interest_svr.client(), recon_model_svr.client()));
         let ipfs_metrics =
             ceramic_metrics::MetricsHandle::register(ceramic_kubo_rpc::IpfsMetrics::register);
         let p2p_metrics = MetricsHandle::register(ceramic_p2p::Metrics::register);
@@ -584,12 +590,8 @@ impl Daemon {
 
         // Build HTTP server
         let network = network.clone();
-        let ceramic_server = ceramic_api::Server::new(
-            peer_id,
-            network,
-            interest_api_store.clone(),
-            model_api_store.clone(),
-        );
+        let ceramic_server =
+            ceramic_api::Server::new(peer_id, network, interest_api_store, model_api_store);
         let ceramic_metrics = MetricsHandle::register(ceramic_api::Metrics::register);
         // Wrap server in metrics middleware
         let ceramic_server = ceramic_api::MetricsMiddleware::new(ceramic_server, ceramic_metrics);
@@ -617,8 +619,8 @@ impl Daemon {
             ("/api/v0/".to_string(), kubo_rpc_service),
         );
 
-        let recon_interest_handle = tokio::spawn(recon_interest.run());
-        let recon_model_handle = tokio::spawn(recon_model.run());
+        let recon_interest_handle = tokio::spawn(recon_interest_svr.run());
+        let recon_model_handle = tokio::spawn(recon_model_svr.run());
 
         // Start HTTP server with a graceful shutdown
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();

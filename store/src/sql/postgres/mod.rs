@@ -31,7 +31,7 @@ impl PostgresPool {
         let pool = PgPoolOptions::new()
             .min_connections(1)
             .max_connections(16)
-            .acquire_timeout(std::time::Duration::from_secs(1))
+            .acquire_timeout(std::time::Duration::from_secs(5))
             .connect_with(conn_opts)
             .await?;
 
