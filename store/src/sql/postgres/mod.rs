@@ -43,13 +43,12 @@ impl PostgresPool {
     }
 
     /// Useful for testing. Automatically applies migrations. Requires a localhost (e.g. docker) postgres database that is hardcoded
-    /// to match the makefile currently.
-    pub async fn connect_in_memory() -> anyhow::Result<Self> {
-        Self::connect(
-            "postgres://postgres:c3ram1c@localhost:5432/ceramic_one_tests",
-            Migrations::Apply,
-        )
-        .await
+    /// to match the makefile, or uses the environment variable `TEST_DATABASE_URL` if set.
+    #[allow(dead_code)]
+    pub(crate) async fn connect_in_memory() -> anyhow::Result<Self> {
+        let addr = std::env::var("TEST_DATABASE_URL")
+            .unwrap_or("postgres://postgres:c3ram1c@localhost:5432/ceramic_one_tests".to_string());
+        Self::connect(&addr, Migrations::Apply).await
     }
 
     /// Get a reference to the writer database pool. The writer pool has only one connection.
