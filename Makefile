@@ -56,11 +56,15 @@ check-kubo-rpc-server:
 
 .PHONY: check-migrations
 check-migrations:
-	SETUP_DB=1 ./ci-scripts/check_migrations.sh "sqlite" "postgres"
+	MIGRATE_DB=1 ./ci-scripts/check_migrations.sh "sqlite" "postgres"
 
 .PHONY: check-migrations-ci
 check-migrations-ci:
-	SETUP_DB=1 CI_RUN=1 MIGRATION_CLEANUP=1 RUN_DB_TESTS=1 ./ci-scripts/check_migrations.sh "sqlite" "postgres"
+	MIGRATE_DB=1 CI_RUN=1 MIGRATION_CLEANUP=1 RUN_DB_TESTS=1 ./ci-scripts/check_migrations.sh "sqlite" "postgres"
+
+.PHONY: prep-databases-ci
+prep-databases-ci:
+	MIGRATE_DB=1 SKIP_PG_START=1 TEST_DATABASE_URL="postgresql://postgres:c3ram1c@postgresci:5432/ceramic_one_tests" CI_RUN=1 ./ci-scripts/check_migrations.sh "sqlite" "postgres"
 
 .PHONY: release
 release:

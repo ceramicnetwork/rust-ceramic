@@ -53,6 +53,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - uses: Swatinem/rust-cache@v2
+    - uses: docker/setup-buildx-action@v2
       with:
         # The prefix cache key, this can be changed to start a new cache manually.
         # default: "v0-rust"
@@ -61,7 +62,17 @@ jobs:
         cache-targets: false
     - uses: mozilla-actions/sccache-action@v0.0.3
     - name: Run tests
-      run: make test
+      run: | 
+        make prep-databases-ci
+        TEST_DATABASE_URL="postgresql://postgres:c3ram1c@postgresci:5432/ceramic_one_tests" PG_TESTS=1 make test
+    services:
+      postgresci:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: c3ram1c
+          POSTGRES_DB: ceramic_one_tests
+        ports:
+          - 5432:5432
   build:
     runs-on: ubuntu-latest
     outputs:

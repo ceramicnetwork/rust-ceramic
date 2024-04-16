@@ -7,21 +7,25 @@ set -e
 # Will cleanup the db (e.g. stop docker and delete file) if MIGRATION_CLEANUP is set
 
 function prepare_database() {
-    echo "Applying migrations at $2 to database $1"
+    echo "Resetting database at $1"
     if [ -z "$CI_RUN" ]; then
         cargo sqlx database reset --database-url "$1"
     else
         cargo sqlx database reset --database-url "$1" -y
     fi
+    echo "Applying migrations at $2"
     cargo sqlx database setup --database-url "$1" --source "$2"
-    CUR_DIR=$(pwd)
-    cd "$SCRIPT_DIR/../store"
-    if [ -z "$CI_RUN" ]; then
-        cargo sqlx prepare --database-url "$1"
-    else
-        cargo sqlx prepare --database-url "$1" --check
+    # we no longer support query! since we have multiple sql backends
+    # but we leave it behind a variable in case we want to run it someday
+    if [ -n "$QUERY_MACROS" ]; then
+        cd "$PROJECT_DIR/store"
+        if [ -z "$CI_RUN" ]; then
+            cargo sqlx prepare --database-url "$1"
+        else 
+            cargo sqlx prepare --database-url "$1" --check
+        cd $PROJECT_DIR
+        fi
     fi
-    cd $CUR_DIR
 }
 
 USE_PG=0
@@ -41,12 +45,17 @@ check_db_type() {
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
 cd "$SCRIPT_DIR/.."
+PROJECT_DIR=$(pwd)
 
-absolute_sqlite_path="$(pwd)/ceramic_cicddb.sqlite"
-absolute_sqlite_migrations="$(pwd)/migrations/sqlite"
+absolute_sqlite_path="$PROJECT_DIR/ceramic_cicddb.sqlite"
+absolute_sqlite_migrations="$PROJECT_DIR/migrations/sqlite"
 
-absolute_pg_path="postgresql://postgres:c3ram1c@localhost:5432/ceramic_one_tests"
-absolute_pg_migrations="$(pwd)/migrations/postgres"
+if [ -n "$TEST_DATABASE_URL" ]; then
+    absolute_pg_path=$TEST_DATABASE_URL
+else
+    absolute_pg_path="postgresql://postgres:c3ram1c@localhost:5432/ceramic_one_tests"
+fi
+absolute_pg_migrations="$PROJECT_DIR/migrations/postgres"
 
 if [ -z "$1" ]; then
     echo "Parameter required. Should be 'sqlite' or 'postgres'"
@@ -66,7 +75,7 @@ else
     exit 1
 fi
 
-if [ -n $SETUP_DB ]; then
+if [ -n "$MIGRATE_DB" ]; then
     if (($USE_SQLITE)); then
         echo "Using sqlite"
         prepare_database "sqlite://$absolute_sqlite_path" "$absolute_sqlite_migrations"
@@ -74,9 +83,11 @@ if [ -n $SETUP_DB ]; then
 
     if (($USE_PG)); then
         echo "Using postgres"
-        docker rm ceramic-pg --force 2>/dev/null
-        docker run --name ceramic-pg -e POSTGRES_DB=ceramic_one_tests -e POSTGRES_PASSWORD=c3ram1c -p 5432:5432 -d postgres:16
-        sleep 2
+        if [ -z "$SKIP_PG_START" ]; then
+            docker rm ceramic-pg --force 2>/dev/null
+            docker run --name ceramic-pg -e POSTGRES_DB=ceramic_one_tests -e POSTGRES_PASSWORD=c3ram1c -p 5432:5432 -d postgres:16
+            sleep 2
+        fi
         prepare_database "$absolute_pg_path" "$absolute_pg_migrations"
     fi
 fi
@@ -89,12 +100,21 @@ fi
 if [ -n "$MIGRATION_CLEANUP" ]; then
     if (($USE_SQLITE)); then
         echo "Cleaning up sqlite"
-        rm $absolute_sqlite_path
+        if -w "$absolute_sqlite_path"; then
+            rm $absolute_sqlite_path
+        else 
+            echo "Cannot delete $absolute_sqlite_path (non-existent or not writable)"
+        fi
     fi
 
     if (($USE_PG)); then
-        echo "Cleaning up postgres"
-        docker stop ceramic-pg
-        docker rm ceramic-pg
+        running=$(docker ps -f "name=ceramic-pg" -q)
+        if [ -n "$running" ]; then
+            echo "Cleaning up postgres"
+            docker stop ceramic-pg
+            docker rm ceramic-pg
+        else 
+            echo "No running postgres container found"
+        fi
     fi
 fi
