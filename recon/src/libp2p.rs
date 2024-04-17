@@ -14,6 +14,8 @@ mod handler;
 mod protocol;
 mod stream_set;
 mod upgrade;
+#[cfg(test)]
+mod tests;
 
 use ceramic_core::{EventId, Interest};
 use libp2p::{
