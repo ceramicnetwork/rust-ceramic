@@ -25,13 +25,15 @@ hex.workspace = true
 iroh-rpc-client.workspace = true
 iroh-bitswap.workspace = true
 itertools = "0.11.0"
-libipld.workspace = true
+ipld-core.workspace = true
 libp2p-identity.workspace = true
 libp2p.workspace = true
 multiaddr.workspace = true
 prometheus-client.workspace = true
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
+serde_ipld_dagcbor.workspace = true
+serde_ipld_dagjson.workspace = true
 swagger.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
@@ -43,3 +45,4 @@ expect-test.workspace = true
 tracing-test.workspace = true
 mockall.workspace = true
 async-stream.workspace = true
+ipld-dagpb.workspace = true

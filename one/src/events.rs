@@ -413,7 +413,7 @@ mod tests {
     use super::*;
     use crate::ethereum_rpc::EthRpc;
     use ceramic_store::SqlitePool;
-    use multihash::{Code, MultihashDigest};
+    use multihash_codetable::{Code, MultihashDigest};
 
     struct HardCodedEthRpc {}
     impl EthRpc for HardCodedEthRpc {

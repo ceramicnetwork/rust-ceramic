@@ -9,12 +9,12 @@ use ceramic_core::{
 };
 
 use cid::Cid;
+use ipld_core::{codec::Codec, ipld, ipld::Ipld};
 use iroh_bitswap::Block;
 use iroh_car::{CarHeader, CarWriter};
-use libipld::{ipld, prelude::Encode, Ipld};
-use libipld_cbor::DagCborCodec;
-use multihash::{Code, MultihashDigest};
+use multihash_codetable::{Code, MultihashDigest};
 use rand::Rng;
+use serde_ipld_dagcbor::codec::DagCborCodec;
 
 const MODEL_ID: &str = "k2t6wz4yhfp1r5pwi52gw89nzjbu53qk7m32o5iguw42c6knsaj0feuf927agb";
 const CONTROLLER: &str = "did:key:z6Mkqtw7Pj5Lv9xc4PgUYAnwfaVoMC6FRneGWVr5ekTEfKVL";
@@ -63,11 +63,10 @@ pub(crate) async fn build_car_file(count: usize) -> (Vec<Block>, Vec<u8>) {
     let root = ipld!( {
         "links": blocks.iter().map(|block| Ipld::Link(block.cid)).collect::<Vec<Ipld>>(),
     });
-    let mut root_bytes = Vec::new();
-    root.encode(DagCborCodec, &mut root_bytes).unwrap();
+    let root_bytes = serde_ipld_dagcbor::to_vec(&root).unwrap();
     let root_cid = Cid::new_v1(
-        DagCborCodec.into(),
-        MultihashDigest::digest(&Code::Sha2_256, &root_bytes),
+        <DagCborCodec as Codec<Ipld>>::CODE,
+        Code::Sha2_256.digest(&root_bytes),
     );
     let mut car = Vec::new();
     let roots: Vec<Cid> = vec![root_cid];
@@ -83,7 +82,7 @@ pub(crate) async fn build_car_file(count: usize) -> (Vec<Block>, Vec<u8>) {
 pub(crate) fn random_block() -> Block {
     let mut data = [0u8; 1024];
     rand::Rng::fill(&mut ::rand::thread_rng(), &mut data);
-    let hash = ::multihash::MultihashDigest::digest(&::multihash::Code::Sha2_256, &data);
+    let hash = Code::Sha2_256.digest(&data);
     Block {
         cid: Cid::new_v1(0x00, hash),
         data: data.to_vec().into(),

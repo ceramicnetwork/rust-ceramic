@@ -64,8 +64,9 @@ mod tests {
 
     use cid::Cid;
     use futures::TryStreamExt;
-    use libipld_cbor::DagCborCodec;
-    use multihash::MultihashDigest;
+    use ipld_core::{codec::Codec, ipld::Ipld};
+    use multihash_codetable::{Code, MultihashDigest};
+    use serde_ipld_dagcbor::codec::DagCborCodec;
 
     use crate::{header::CarHeaderV1, writer::CarWriter};
 
@@ -73,11 +74,11 @@ mod tests {
 
     #[tokio::test]
     async fn car_write_read() {
-        let digest_test = multihash::Code::Blake2b256.digest(b"test");
-        let cid_test = Cid::new_v1(DagCborCodec.into(), digest_test);
+        let digest_test = Code::Sha2_256.digest(b"test");
+        let cid_test = Cid::new_v1(<DagCborCodec as Codec<Ipld>>::CODE, digest_test);
 
-        let digest_foo = multihash::Code::Blake2b256.digest(b"foo");
-        let cid_foo = Cid::new_v1(DagCborCodec.into(), digest_foo);
+        let digest_foo = Code::Sha2_256.digest(b"foo");
+        let cid_foo = Cid::new_v1(<DagCborCodec as Codec<Ipld>>::CODE, digest_foo);
 
         let header = CarHeader::V1(CarHeaderV1::from(vec![cid_foo]));
 

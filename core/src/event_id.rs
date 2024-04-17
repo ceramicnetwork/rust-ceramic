@@ -15,10 +15,9 @@
 //!   hash bytes, 32 bytes
 #![warn(missing_docs, missing_debug_implementations, clippy::all)]
 
-use cid::{
-    multihash::{Hasher, Sha2_256},
-    Cid,
-};
+use cid::Cid;
+use multihash_codetable::Sha2_256;
+use multihash_derive::Hasher;
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::{Eq, Ord},

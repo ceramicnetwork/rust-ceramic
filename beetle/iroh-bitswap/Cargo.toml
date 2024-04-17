@@ -28,7 +28,8 @@ futures.workspace = true
 iroh-util.workspace = true
 keyed_priority_queue.workspace = true
 libp2p = { workspace = true, features = ["ping"] }
-multihash.workspace = true
+multihash-codetable.workspace = true
+multihash-derive.workspace = true
 num_enum.workspace = true
 prost.workspace = true
 rand.workspace = true

@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use bytes::Bytes;
 use cid::Cid;
-use multihash::{Code, MultihashDigest};
+use multihash_codetable::{Code, MultihashDigest};
 
 /// A wrapper around bytes with their `Cid`.
 #[derive(Clone, Eq, PartialEq, PartialOrd, Ord)]

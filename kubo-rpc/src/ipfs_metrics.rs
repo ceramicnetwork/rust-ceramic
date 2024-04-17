@@ -6,7 +6,7 @@ use ceramic_metadata::Version;
 use ceramic_metrics::Recorder;
 use cid::Cid;
 use futures_util::Future;
-use libipld::Ipld;
+use ipld_core::ipld::Ipld;
 use libp2p_identity::PeerId;
 use multiaddr::Multiaddr;
 use prometheus_client::{

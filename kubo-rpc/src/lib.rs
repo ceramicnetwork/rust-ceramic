@@ -8,7 +8,6 @@
 use std::{
     collections::HashMap,
     fmt::{self, Display, Formatter},
-    io::Cursor,
     path::PathBuf,
 };
 use std::{str::FromStr, sync::Arc};
@@ -16,15 +15,17 @@ use std::{str::FromStr, sync::Arc};
 use anyhow::{anyhow, Context};
 use async_trait::async_trait;
 use dag_jose::DagJoseCodec;
+use ipld_core::{codec::Codec, ipld::IpldIndex};
 use iroh_rpc_client::P2pClient;
-use libipld::{cbor::DagCborCodec, json::DagJsonCodec, prelude::Decode};
+use serde_ipld_dagcbor::codec::DagCborCodec;
+use serde_ipld_dagjson::codec::DagJsonCodec;
 use tracing::instrument;
 
 // Pub use any types we export as part of an trait or struct
 pub use bytes::Bytes;
 pub use ceramic_metadata::Version;
 pub use cid::Cid;
-pub use libipld::Ipld;
+pub use ipld_core::ipld::Ipld;
 pub use libp2p::Multiaddr;
 pub use libp2p_identity::PeerId;
 
@@ -294,19 +295,27 @@ where
         let parts = path.tail();
         for part in parts.iter().filter(|s| !s.is_empty()) {
             // Parse part as an integer and if that fails parse as a string into an index.
-            let index: libipld::ipld::IpldIndex = if let Ok(i) = part.parse::<usize>() {
+            let index: IpldIndex = if let Ok(i) = part.parse::<usize>() {
                 i.into()
             } else {
                 part.clone().into()
             };
             current.path = current.path.join(part);
-            current.data = current.data.take(index).map_err(|_| {
-                Error::Invalid(anyhow!(
+            current.data = current
+                .data
+                .take(index)
+                .map_err(|_| {
+                    Error::Invalid(anyhow!(
+                        "IPLD resolve error: Couldn't find part {} in path '{}'",
+                        part,
+                        parts.join("/")
+                    ))
+                })?
+                .ok_or(Error::Invalid(anyhow!(
                     "IPLD resolve error: Couldn't find part {} in path '{}'",
                     part,
                     parts.join("/")
-                ))
-            })?;
+                )))?;
 
             // Check if we have found a link and follow it
             if let Ipld::Link(c) = current.data {
@@ -332,20 +341,16 @@ where
     #[instrument(skip(self))]
     async fn load_cid(&self, cid: Cid) -> Result<Node, Error> {
         let bytes = self.load_cid_bytes(cid).await?;
-        let data = match cid.codec() {
-            //TODO(nathanielc): create constants for these
-            // dag-cbor
-            0x71 => {
-                Ipld::decode(DagCborCodec, &mut Cursor::new(&bytes)).map_err(Error::Internal)?
-            }
-            // dag-json
-            0x0129 => {
-                Ipld::decode(DagJsonCodec, &mut Cursor::new(&bytes)).map_err(Error::Internal)?
-            }
-            // dag-jose
-            0x85 => {
-                Ipld::decode(DagJoseCodec, &mut Cursor::new(&bytes)).map_err(Error::Internal)?
-            }
+        let data: Ipld = match cid.codec() {
+            <DagCborCodec as Codec<Ipld>>::CODE => DagCborCodec::decode_from_slice(&bytes)
+                .map_err(anyhow::Error::from)
+                .map_err(Error::Internal)?,
+            <DagJsonCodec as Codec<Ipld>>::CODE => DagJsonCodec::decode_from_slice(&bytes)
+                .map_err(anyhow::Error::from)
+                .map_err(Error::Internal)?,
+            <DagJoseCodec as Codec<Ipld>>::CODE => DagJoseCodec::decode_from_slice(&bytes)
+                .map_err(anyhow::Error::from)
+                .map_err(Error::Internal)?,
             _ => return Err(Error::Invalid(anyhow!("unsupported codec {}", cid.codec()))),
         };
         let path = PathBuf::new();
