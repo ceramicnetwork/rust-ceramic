@@ -257,9 +257,9 @@ async fn initiator_model_error() {
     alice_model_store.set_error(true);
     let (mut swarm1, mut swarm2) = setup_test!(
         alice_model_store.clone(),
-        BTreeStore::default(),
-        BTreeStore::default(),
-        BTreeStore::default(),
+        BTreeStoreErrors::default(),
+        BTreeStoreErrors::default(),
+        BTreeStoreErrors::default(),
     );
 
     let fut = async move {
@@ -277,11 +277,50 @@ async fn initiator_model_error() {
         let ([failed_peer], []): ([crate::libp2p::Event; 1], [crate::libp2p::Event; 0]) =
             libp2p_swarm_test::drive(&mut swarm1, &mut swarm2).await;
 
-        info!("{:?}", failed_peer); // hit an error and never get another event
+        info!("{:?}", failed_peer);
         assert_eq!(
             failed_peer,
             crate::libp2p::Event::PeerEvent(PeerEvent {
                 remote_peer_id: swarm2.local_peer_id().to_owned(),
+                status: PeerStatus::Failed
+            })
+        );
+    };
+
+    fut.await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn responder_model_error() {
+    let bob_model_store = BTreeStoreErrors::default();
+    bob_model_store.set_error(true);
+    let (mut swarm1, mut swarm2) = setup_test!(
+        BTreeStoreErrors::default(),
+        BTreeStoreErrors::default(),
+        bob_model_store.clone(),
+        BTreeStoreErrors::default(),
+    );
+
+    let fut = async move {
+        swarm1.listen().with_memory_addr_external().await;
+        swarm2.connect(&mut swarm1).await;
+
+        let ([p1_e1, p1_e2, p1_e3], [p2_e1, p2_e2, p2_e3]): (
+            [crate::libp2p::Event; 3],
+            [crate::libp2p::Event; 3],
+        ) = libp2p_swarm_test::drive(&mut swarm1, &mut swarm2).await;
+
+        for ev in &[p1_e1, p1_e2, p1_e3, p2_e1, p2_e2, p2_e3] {
+            info!("{:?}", ev);
+        }
+        let ([], [failed_peer]): ([crate::libp2p::Event; 0], [crate::libp2p::Event; 1]) =
+            libp2p_swarm_test::drive(&mut swarm1, &mut swarm2).await;
+
+        info!("{:?}", failed_peer);
+        assert_eq!(
+            failed_peer,
+            crate::libp2p::Event::PeerEvent(PeerEvent {
+                remote_peer_id: swarm1.local_peer_id().to_owned(),
                 status: PeerStatus::Failed
             })
         );

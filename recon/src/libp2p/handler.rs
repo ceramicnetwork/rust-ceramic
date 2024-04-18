@@ -123,7 +123,6 @@ pub enum FromBehaviour {
 pub enum FromHandler {
     Started { stream_set: StreamSet },
     Succeeded { stream_set: StreamSet },
-    TransientError(anyhow::Error),
     Stopped,
     Failed(anyhow::Error),
 }
@@ -200,11 +199,8 @@ where
                             ));
                         }
                         Err(e) => {
-                            // TODO: differentiate between transient and permanent errors
-                            // for now, we want to keep talking so we treat all errors as transient
-                            // but in the future, we will want to shut down the connection if the error is permanent
                             return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
-                                FromHandler::TransientError(e),
+                                FromHandler::Failed(e),
                             ));
                         }
                     }

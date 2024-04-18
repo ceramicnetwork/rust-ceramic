@@ -226,7 +226,7 @@ where
 
             // The peer has failed to synchronized with us, mark the time and record that the peer connection
             // is now failed.
-            FromHandler::TransientError(error) | FromHandler::Failed(error) => {
+            FromHandler::Failed(error) => {
                 if let Entry::Occupied(mut entry) = self.peers.entry(peer_id) {
                     let info = entry.get_mut();
                     warn!(%peer_id, %error, "synchronization failed with peer");
