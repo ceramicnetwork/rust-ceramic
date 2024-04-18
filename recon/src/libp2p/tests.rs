@@ -1,3 +1,5 @@
+use std::sync::{atomic::AtomicBool, Arc};
+
 use anyhow::{bail, Result};
 use async_trait::async_trait;
 use ceramic_core::RangeOpen;
@@ -29,20 +31,30 @@ where
 
 /// An implementation of a Store that stores keys in an in-memory BTree
 #[derive(Clone, Debug)]
-pub struct BadBTreeStore<K, H> {
-    _inner: BTreeStore<K, H>,
+pub struct BTreeStoreErrors<K, H> {
+    should_error: Arc<AtomicBool>,
+    inner: BTreeStore<K, H>,
 }
 
-impl<K, H> Default for BadBTreeStore<K, H> {
+impl<K, H> BTreeStoreErrors<K, H> {
+    fn set_error(&self, should_error: bool) {
+        self.should_error
+            .store(should_error, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+impl<K, H> Default for BTreeStoreErrors<K, H> {
+    /// By default, no errors are thrown. Use set_error to change this.
     fn default() -> Self {
         Self {
-            _inner: BTreeStore::default(),
+            should_error: Arc::new(AtomicBool::new(false)),
+            inner: BTreeStore::default(),
         }
     }
 }
 
 #[async_trait]
-impl<K, H> crate::recon::Store for BadBTreeStore<K, H>
+impl<K, H> crate::recon::Store for BTreeStoreErrors<K, H>
 where
     K: Key,
     H: AssociativeHash,
@@ -50,66 +62,108 @@ where
     type Key = K;
     type Hash = H;
 
-    async fn insert(&self, _item: &ReconItem<'_, Self::Key>) -> Result<bool> {
-        bail!("Sorry, bad tree returns errors: insert")
+    async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> Result<bool> {
+        if self.should_error.load(std::sync::atomic::Ordering::SeqCst) {
+            bail!("Sorry, bad tree returns errors: insert")
+        } else {
+            self.inner.insert(item).await
+        }
     }
 
-    async fn insert_many(&self, _items: &[ReconItem<'_, K>]) -> Result<InsertResult> {
-        bail!("Sorry, bad tree returns errors: insert_many")
+    async fn insert_many(&self, items: &[ReconItem<'_, K>]) -> Result<InsertResult> {
+        if self.should_error.load(std::sync::atomic::Ordering::SeqCst) {
+            bail!("Sorry, bad tree returns errors: insert_many")
+        } else {
+            self.inner.insert_many(items).await
+        }
     }
 
     async fn hash_range(
         &self,
-        _left_fencepost: &Self::Key,
-        _right_fencepost: &Self::Key,
+        left_fencepost: &Self::Key,
+        right_fencepost: &Self::Key,
     ) -> anyhow::Result<HashCount<Self::Hash>> {
-        bail!("Sorry, bad tree returns errors: hash_range")
+        if self.should_error.load(std::sync::atomic::Ordering::SeqCst) {
+            bail!("Sorry, bad tree returns errors: hash_range")
+        } else {
+            self.inner.hash_range(left_fencepost, right_fencepost).await
+        }
     }
 
     async fn range(
         &self,
-        _left_fencepost: &Self::Key,
-        _right_fencepost: &Self::Key,
-        _offset: usize,
-        _limit: usize,
+        left_fencepost: &Self::Key,
+        right_fencepost: &Self::Key,
+        offset: usize,
+        limit: usize,
     ) -> Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
-        bail!("Sorry, bad tree returns errors: range")
+        if self.should_error.load(std::sync::atomic::Ordering::SeqCst) {
+            bail!("Sorry, bad tree returns errors: range")
+        } else {
+            self.inner
+                .range(left_fencepost, right_fencepost, offset, limit)
+                .await
+        }
     }
     async fn range_with_values(
         &self,
-        _left_fencepost: &Self::Key,
-        _right_fencepost: &Self::Key,
-        _offset: usize,
-        _limit: usize,
+        left_fencepost: &Self::Key,
+        right_fencepost: &Self::Key,
+        offset: usize,
+        limit: usize,
     ) -> Result<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>> {
-        bail!("Sorry, bad tree returns errors: range_with_values")
+        if self.should_error.load(std::sync::atomic::Ordering::SeqCst) {
+            bail!("Sorry, bad tree returns errors: range_with_values")
+        } else {
+            self.inner
+                .range_with_values(left_fencepost, right_fencepost, offset, limit)
+                .await
+        }
     }
 
     async fn last(
         &self,
-        _left_fencepost: &Self::Key,
-        _right_fencepost: &Self::Key,
+        left_fencepost: &Self::Key,
+        right_fencepost: &Self::Key,
     ) -> Result<Option<Self::Key>> {
-        bail!("Sorry, bad tree returns errors: last")
+        if self.should_error.load(std::sync::atomic::Ordering::SeqCst) {
+            bail!("Sorry, bad tree returns errors: last")
+        } else {
+            self.inner.last(left_fencepost, right_fencepost).await
+        }
     }
 
     async fn first_and_last(
         &self,
-        _left_fencepost: &Self::Key,
-        _right_fencepost: &Self::Key,
+        left_fencepost: &Self::Key,
+        right_fencepost: &Self::Key,
     ) -> Result<Option<(Self::Key, Self::Key)>> {
-        bail!("Sorry, bad tree returns errors: first_and_last")
+        if self.should_error.load(std::sync::atomic::Ordering::SeqCst) {
+            bail!("Sorry, bad tree returns errors: first_and_last")
+        } else {
+            self.inner
+                .first_and_last(left_fencepost, right_fencepost)
+                .await
+        }
     }
 
     /// value_for_key returns an Error is retrieving failed and None if the key is not stored.
-    async fn value_for_key(&self, _key: &Self::Key) -> Result<Option<Vec<u8>>> {
-        bail!("Sorry, bad tree returns errors: value_for_key")
+    async fn value_for_key(&self, key: &Self::Key) -> Result<Option<Vec<u8>>> {
+        if self.should_error.load(std::sync::atomic::Ordering::SeqCst) {
+            bail!("Sorry, bad tree returns errors: value_for_key")
+        } else {
+            self.inner.value_for_key(key).await
+        }
     }
     async fn keys_with_missing_values(
         &self,
-        _range: RangeOpen<Self::Key>,
+        range: RangeOpen<Self::Key>,
     ) -> Result<Vec<Self::Key>> {
-        bail!("Sorry, bad tree returns errors: keys_with_missing_values")
+        if self.should_error.load(std::sync::atomic::Ordering::SeqCst) {
+            bail!("Sorry, bad tree returns errors: keys_with_missing_values")
+        } else {
+            self.inner.keys_with_missing_values(range).await
+        }
     }
 }
 
@@ -172,10 +226,10 @@ macro_rules! setup_test {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn in_sync_no_overlap() {
     let (mut swarm1, mut swarm2) = setup_test!(
-        BTreeStore::default(),
-        BTreeStore::default(),
-        BTreeStore::default(),
-        BTreeStore::default(),
+        BTreeStoreErrors::default(),
+        BTreeStoreErrors::default(),
+        BTreeStoreErrors::default(),
+        BTreeStoreErrors::default(),
     );
 
     let fut = async move {
@@ -199,8 +253,10 @@ async fn in_sync_no_overlap() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn initiator_model_error() {
+    let alice_model_store = BTreeStoreErrors::default();
+    alice_model_store.set_error(true);
     let (mut swarm1, mut swarm2) = setup_test!(
-        BadBTreeStore::default(),
+        alice_model_store.clone(),
         BTreeStore::default(),
         BTreeStore::default(),
         BTreeStore::default(),
