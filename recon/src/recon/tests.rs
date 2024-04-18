@@ -14,7 +14,6 @@ lalrpop_util::lalrpop_mod!(
     pub parser, "/recon/parser.rs"
 ); // synthesized by LALRPOP
 
-use anyhow::Result;
 use async_trait::async_trait;
 use ceramic_core::RangeOpen;
 use futures::{ready, Future, Sink, Stream};
@@ -38,12 +37,11 @@ use expect_test::{expect, expect_file, Expect};
 use lalrpop_util::ParseError;
 use pretty::{Arena, DocAllocator, DocBuilder, Pretty};
 
+use crate::test_utils::{AlphaNumBytes, BTreeStore};
 use crate::{
     protocol::{self, InitiatorMessage, ReconMessage, ResponderMessage, ValueResponse},
     recon::{FullInterests, HashCount, InterestProvider, Range, ReconItem},
-    tests::AlphaNumBytes,
-    AssociativeHash, BTreeStore, Client, Key, Metrics, Recon, Result as ReconResult, Server,
-    Sha256a, Store,
+    AssociativeHash, Client, Key, Metrics, Recon, Result as ReconResult, Server, Sha256a, Store,
 };
 
 #[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -1207,7 +1205,7 @@ where
 async fn recon_do(recon: &str) -> Sequence<AlphaNumBytes, MemoryAHash> {
     async fn snapshot_state(
         client: Client<AlphaNumBytes, MemoryAHash>,
-    ) -> Result<BTreeMap<AlphaNumBytes, Option<AlphaNumBytes>>> {
+    ) -> ReconResult<BTreeMap<AlphaNumBytes, Option<AlphaNumBytes>>> {
         let mut state = BTreeMap::new();
         let keys: Vec<AlphaNumBytes> = client.full_range().await?.collect();
         for key in keys {

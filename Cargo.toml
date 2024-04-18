@@ -60,6 +60,7 @@ ceramic-store = { path = "./store" }
 cid = { version = "0.11", features = ["serde-codec"] }
 clap = { version = "4", features = ["derive", "env"] }
 clap_mangen = "0.2.2"
+concurrent-queue = "2.4.0"
 console = { version = "0.15", default-features = false }
 console-subscriber = "0.2"
 criterion2 = "0.7.0"
@@ -70,6 +71,7 @@ deadqueue = "0.2.3"
 derivative = "2.2"
 derive_more = "0.99.17"
 dirs-next = "2"
+event-listener = "4.0.3"
 expect-test = "1.4.1"
 fastmurmur3 = "0.1.2"
 fnv = "1.0.7"
@@ -101,12 +103,14 @@ keyed_priority_queue = "0.4.1"
 lazy_static = "1.4"
 libp2p = { version = "0.53", default-features = false }
 libp2p-identity = { version = "0.2", features = ["peerid", "ed25519"] }
+libp2p-swarm-test = { version = "0.3.0" }
+loom = { version = "0.7.1", features = ["futures"] }
 lru = "0.10"
 mime = "0.3"
 mime_classifier = "0.0.1"
 mime_guess = "2.0.4"
 minicbor = { version = "0.19.1", features = ["std", "derive", "half"] }
-mockall = "0.11.4"
+mockall = "0.12.1"
 multiaddr = "0.18"
 multibase = "0.9"
 multihash = { version = "0.19" }
@@ -130,7 +134,7 @@ quic-rpc = { version = "0.3.2", default-features = false }
 rand = "0.8.5"
 rand_chacha = "0.3.1"
 rayon = "1.5.3"
-recon = { path = "./recon/" }
+recon = { path = "./recon" }
 regex = "1.7.1"
 relative-path = "1.7.2"
 reqwest = { version = "0.11.10", default-features = false }

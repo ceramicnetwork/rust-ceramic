@@ -1,16 +1,33 @@
+mod btreestore;
+mod mock_or_real;
+mod mocks;
+mod test_behaviour;
+mod test_swarm;
+
+pub use btreestore::BTreeStore;
+pub use mocks::{
+    MockInterestProviderForEventId, MockInterestProviderForInterest, MockReconForEventId,
+    MockReconForInterest, MockStoreForEventId, MockStoreForInterest,
+};
+pub use test_behaviour::{InjectedEvent, TestBehaviour};
+pub use test_swarm::{MockingType, TestSwarm};
+
+use crate::libp2p::{Event, PeerEvent, PeerStatus};
+use crate::Key;
+use anyhow::Result;
+use libp2p::swarm::ToSwarm;
 use serde::de::Error;
 use serde::{
     de::{self, Visitor},
     Deserialize, Serialize,
 };
 
-use crate::Key;
-
 /// Sequence of byte values including only ASCII alpha numeric values.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct AlphaNumBytes(Vec<u8>);
 
 impl AlphaNumBytes {
+    /// convert to bytes
     pub fn into_inner(self) -> Vec<u8> {
         self.0
     }
@@ -132,4 +149,15 @@ impl Key for AlphaNumBytes {
         // We assume that the only valid fenceposts are the min and max values
         self == &Self::min_value() || self == &Self::max_value()
     }
+}
+
+/// Peer ID for testing
+pub const PEER_ID: &str = "12D3KooWJqb7KjjcWSC92xcSHhdGUrnJ5FJiTHHdZEW7QaLWG5X3";
+
+/// Generate a peer event
+pub fn peer_event() -> crate::libp2p::ToSwarmEvent {
+    ToSwarm::GenerateEvent(Event::PeerEvent(PeerEvent {
+        remote_peer_id: PEER_ID.parse().unwrap(),
+        status: PeerStatus::Waiting,
+    }))
 }

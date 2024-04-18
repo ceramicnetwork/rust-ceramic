@@ -18,6 +18,7 @@ mod tests;
 mod upgrade;
 
 use ceramic_core::{EventId, Interest};
+pub(crate) use handler::Handler;
 use libp2p::{
     core::ConnectedPoint,
     swarm::{ConnectionId, NetworkBehaviour, NotifyHandler, ToSwarm},
@@ -28,16 +29,21 @@ use std::{
     task::Poll,
     time::{Duration, Instant},
 };
+use std::collections::VecDeque;
+use std::task::Waker;
 use tracing::{debug, trace, warn};
 
 pub use crate::protocol::Recon;
 use crate::{
     libp2p::{
-        handler::{FromBehaviour, FromHandler, Handler},
+        handler::{FromBehaviour, FromHandler},
         stream_set::StreamSet,
     },
     Sha256a,
 };
+
+/// Events sent to swarm
+pub type ToSwarmEvent = ToSwarm<Event, FromBehaviour>;
 
 /// Name of the Recon protocol for synchronizing interests
 pub const PROTOCOL_NAME_INTEREST: &str = "/ceramic/recon/0.1.0/interest";
@@ -71,8 +77,8 @@ pub struct Behaviour<I, M> {
     model: M,
     config: Config,
     peers: BTreeMap<PeerId, PeerInfo>,
-    swarm_events_sender: tokio::sync::mpsc::Sender<ToSwarm<Event, FromBehaviour>>,
-    swarm_events_receiver: tokio::sync::mpsc::Receiver<ToSwarm<Event, FromBehaviour>>,
+    pending_events_waker: Option<Waker>,
+    pending_events: VecDeque<ToSwarmEvent>,
 }
 
 /// Information about a remote peer and its sync status.
@@ -119,23 +125,21 @@ impl<I, M> Behaviour<I, M> {
         I: Recon<Key = Interest, Hash = Sha256a>,
         M: Recon<Key = EventId, Hash = Sha256a>,
     {
-        let (tx, rx) = tokio::sync::mpsc::channel(1000);
         Self {
             interest,
             model,
             config,
             peers: BTreeMap::new(),
-            swarm_events_sender: tx,
-            swarm_events_receiver: rx,
+            pending_events_waker: None,
+            pending_events: VecDeque::default(),
         }
     }
 
-    fn send_event(&self, event: ToSwarm<Event, FromBehaviour>) {
-        let tx = self.swarm_events_sender.clone();
-        let _ = tokio::task::block_in_place(move || {
-            let handle = tokio::runtime::Handle::current();
-            handle.block_on(async move { tx.send(event).await })
-        });
+    fn send_event(&mut self, event: ToSwarmEvent) {
+        if let Some(waker) = &self.pending_events_waker {
+            waker.wake_by_ref();
+        }
+        self.pending_events.push_back(event);
     }
 }
 
@@ -251,9 +255,15 @@ where
         &mut self,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<ToSwarm<Self::ToSwarm, libp2p::swarm::THandlerInEvent<Self>>> {
-        if let Poll::Ready(Some(event)) = self.swarm_events_receiver.poll_recv(cx) {
-            debug!(?event, "swarm event");
-            return Poll::Ready(event);
+        match self.pending_events.pop_front() {
+            Some(event) => {
+                self.pending_events_waker = None;
+                debug!(?event, "sending event to swarm");
+                return Poll::Ready(event);
+            }
+            None => {
+                self.pending_events_waker = Some(cx.waker().clone());
+            }
         }
         // Check each peer and start synchronization as needed.
         for (peer_id, info) in &mut self.peers {

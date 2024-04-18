@@ -1070,7 +1070,8 @@ where
 mod tests {
     use expect_test::expect;
 
-    use crate::{tests::AlphaNumBytes, Sha256a};
+    use crate::test_utils::AlphaNumBytes;
+    use crate::Sha256a;
 
     use super::*;
 

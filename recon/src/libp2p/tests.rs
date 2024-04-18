@@ -1,238 +1,38 @@
-use crate::{
-    libp2p::{stream_set::StreamSet, PeerEvent, PeerStatus},
-    AssociativeHash, BTreeStore, Error, FullInterests, HashCount, InsertResult, InterestProvider,
-    Key, Metrics, Recon, ReconItem, Result as ReconResult, Server, Store,
-};
-
-use async_trait::async_trait;
-use ceramic_core::RangeOpen;
-use ceramic_metrics::init_local_tracing;
-use libp2p::{metrics::Registry, PeerId, Swarm};
-use libp2p_swarm_test::SwarmExt;
+use libp2p::PeerId;
 use tracing::info;
 
-fn start_recon<K, H, S, I>(recon: Recon<K, H, S, I>) -> crate::Client<K, H>
-where
-    K: Key,
-    H: AssociativeHash,
-    S: Store<Key = K, Hash = H> + Send + Sync + 'static,
-    I: InterestProvider<Key = K> + Send + Sync + 'static,
-{
-    let mut server = Server::new(recon);
-    let client = server.client();
-    tokio::spawn(server.run());
-    client
-}
+use crate::{
+    test_utils::{MockReconForEventId, MockReconForInterest, MockingType, PEER_ID},
+    Error,
+};
+use futures::future::poll_immediate;
+use libp2p::core::{ConnectedPoint, Endpoint};
+use libp2p::swarm::ConnectionId;
+use libp2p::swarm::{behaviour::ConnectionEstablished, NetworkBehaviour};
+use libp2p::Multiaddr;
+use libp2p_swarm_test::SwarmExt;
+use std::future::poll_fn;
+use std::pin::pin;
 
-/// An implementation of a Store that stores keys in an in-memory BTree and throws errors if desired.
-#[derive(Debug)]
-pub struct BTreeStoreErrors<K, H> {
-    error: Option<Error>,
-    inner: BTreeStore<K, H>,
-}
-
-impl<K, H> BTreeStoreErrors<K, H> {
-    fn set_error(&mut self, error: Error) {
-        self.error = Some(error);
-    }
-
-    fn as_error(&self) -> Result<(), Error> {
-        if let Some(err) = &self.error {
-            match err {
-                Error::Application { error } => Err(Error::Application {
-                    error: anyhow::anyhow!(error.to_string()),
-                }),
-                Error::Fatal { error } => Err(Error::Fatal {
-                    error: anyhow::anyhow!(error.to_string()),
-                }),
-                Error::Transient { error } => Err(Error::Transient {
-                    error: anyhow::anyhow!(error.to_string()),
-                }),
-            }
-        } else {
-            Ok(())
-        }
-    }
-}
-
-impl<K, H> Default for BTreeStoreErrors<K, H> {
-    /// By default no errors are thrown. Use set_error to change this.
-    fn default() -> Self {
-        Self {
-            error: None,
-            inner: BTreeStore::default(),
-        }
-    }
-}
-
-#[async_trait]
-impl<K, H> crate::recon::Store for BTreeStoreErrors<K, H>
-where
-    K: Key,
-    H: AssociativeHash,
-{
-    type Key = K;
-    type Hash = H;
-
-    async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> ReconResult<bool> {
-        self.as_error()?;
-
-        self.inner.insert(item).await
-    }
-
-    async fn insert_many(&self, items: &[ReconItem<'_, K>]) -> ReconResult<InsertResult> {
-        self.as_error()?;
-
-        self.inner.insert_many(items).await
-    }
-
-    async fn hash_range(
-        &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> ReconResult<HashCount<Self::Hash>> {
-        self.as_error()?;
-
-        self.inner.hash_range(left_fencepost, right_fencepost).await
-    }
-
-    async fn range(
-        &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-        offset: usize,
-        limit: usize,
-    ) -> ReconResult<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
-        self.as_error()?;
-
-        self.inner
-            .range(left_fencepost, right_fencepost, offset, limit)
-            .await
-    }
-    async fn range_with_values(
-        &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-        offset: usize,
-        limit: usize,
-    ) -> ReconResult<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>> {
-        self.as_error()?;
-
-        self.inner
-            .range_with_values(left_fencepost, right_fencepost, offset, limit)
-            .await
-    }
-
-    async fn last(
-        &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> ReconResult<Option<Self::Key>> {
-        self.as_error()?;
-
-        self.inner.last(left_fencepost, right_fencepost).await
-    }
-
-    async fn first_and_last(
-        &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> ReconResult<Option<(Self::Key, Self::Key)>> {
-        self.as_error()?;
-
-        self.inner
-            .first_and_last(left_fencepost, right_fencepost)
-            .await
-    }
-
-    async fn value_for_key(&self, key: &Self::Key) -> ReconResult<Option<Vec<u8>>> {
-        self.as_error()?;
-
-        self.inner.value_for_key(key).await
-    }
-    async fn keys_with_missing_values(
-        &self,
-        range: RangeOpen<Self::Key>,
-    ) -> ReconResult<Vec<Self::Key>> {
-        self.as_error()?;
-
-        self.inner.keys_with_missing_values(range).await
-    }
-}
-
-// use a hackro to avoid setting all the generic types we'd need if using functions
-macro_rules! setup_test {
-    ($alice_store: expr, $alice_interests: expr, $bob_store: expr, $bob_interest: expr,) => {{
-        let _ = init_local_tracing();
-
-        let alice = Recon::new(
-            $alice_store,
-            FullInterests::default(),
-            Metrics::register(&mut Registry::default()),
-        );
-        let alice_client = start_recon(alice);
-
-        let alice_interests = Recon::new(
-            $alice_interests,
-            FullInterests::default(),
-            Metrics::register(&mut Registry::default()),
-        );
-
-        let alice_interests_client = start_recon(alice_interests);
-
-        let bob_interest = Recon::new(
-            $bob_interest,
-            FullInterests::default(),
-            Metrics::register(&mut Registry::default()),
-        );
-        let bob_interest_client = start_recon(bob_interest);
-
-        let bob = Recon::new(
-            $bob_store,
-            FullInterests::default(),
-            Metrics::register(&mut Registry::default()),
-        );
-        let bob_client = start_recon(bob);
-
-        let swarm1 = Swarm::new_ephemeral(|_| {
-            crate::libp2p::Behaviour::new(
-                alice_interests_client,
-                alice_client,
-                crate::libp2p::Config::default(),
-            )
-        });
-        let swarm2 = Swarm::new_ephemeral(|_| {
-            crate::libp2p::Behaviour::new(
-                bob_interest_client,
-                bob_client,
-                crate::libp2p::Config::default(),
-            )
-        });
-
-        (swarm1, swarm2)
-    }};
-}
+use crate::libp2p::{stream_set::StreamSet, PeerEvent, PeerStatus};
+use crate::libp2p::{Behaviour, Config};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn in_sync_no_overlap() {
-    let (mut swarm1, mut swarm2) = setup_test!(
-        BTreeStoreErrors::default(),
-        BTreeStoreErrors::default(),
-        BTreeStoreErrors::default(),
-        BTreeStoreErrors::default(),
-    );
+    let mut a = MockingType::None.into_swarm();
+    let mut b = MockingType::None.into_swarm();
 
     let fut = async move {
-        let p1 = swarm1.local_peer_id().to_owned();
-        let p2 = swarm2.local_peer_id().to_owned();
+        let p1 = a.swarm.local_peer_id().to_owned();
+        let p2 = b.swarm.local_peer_id().to_owned();
 
-        swarm1.listen().with_memory_addr_external().await;
-        swarm2.connect(&mut swarm1).await;
+        a.swarm.listen().with_memory_addr_external().await;
+        b.swarm.connect(&mut a.swarm).await;
 
         let ([p1_e1, p1_e2, p1_e3, p1_e4], [p2_e1, p2_e2, p2_e3, p2_e4]): (
             [crate::libp2p::Event; 4],
             [crate::libp2p::Event; 4],
-        ) = libp2p_swarm_test::drive(&mut swarm1, &mut swarm2).await;
+        ) = libp2p_swarm_test::drive(&mut a.swarm, &mut b.swarm).await;
 
         assert_in_sync(p2, [p1_e1, p1_e2, p1_e3, p1_e4]);
         assert_in_sync(p1, [p2_e1, p2_e2, p2_e3, p2_e4]);
@@ -243,25 +43,27 @@ async fn in_sync_no_overlap() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn initiator_model_error() {
-    let mut alice_model_store = BTreeStoreErrors::default();
-    alice_model_store.set_error(Error::new_transient(anyhow::anyhow!(
-        "transient error should be handled"
-    )));
-    let (mut swarm1, mut swarm2) = setup_test!(
-        alice_model_store,
-        BTreeStoreErrors::default(),
-        BTreeStoreErrors::default(),
-        BTreeStoreErrors::default(),
-    );
+    let mut a = MockingType::Event.into_swarm();
+    let mut b = MockingType::None.into_swarm();
+
+    // fail the model sync
+    let _ = {
+        a.event_store
+            .as_mock()
+            .lock()
+            .await
+            .expect_hash_range()
+            .returning(|_, _| Err(Error::new_app(anyhow::anyhow!("error"))))
+    };
 
     let fut = async move {
-        swarm1.listen().with_memory_addr_external().await;
-        swarm2.connect(&mut swarm1).await;
+        a.swarm.listen().with_memory_addr_external().await;
+        b.swarm.connect(&mut a.swarm).await;
 
         let ([p1_e1, p1_e2, p1_e3, failed_peer], [p2_e1, p2_e2, p2_e3]): (
             [crate::libp2p::Event; 4],
             [crate::libp2p::Event; 3],
-        ) = libp2p_swarm_test::drive(&mut swarm1, &mut swarm2).await;
+        ) = libp2p_swarm_test::drive(&mut a.swarm, &mut b.swarm).await;
 
         for ev in &[p1_e1, p1_e2, p1_e3, p2_e1, p2_e2, p2_e3] {
             info!("{:?}", ev);
@@ -271,7 +73,7 @@ async fn initiator_model_error() {
         assert_eq!(
             failed_peer,
             crate::libp2p::Event::PeerEvent(PeerEvent {
-                remote_peer_id: swarm2.local_peer_id().to_owned(),
+                remote_peer_id: b.swarm.local_peer_id().to_owned(),
                 status: PeerStatus::Failed
             })
         );
@@ -282,37 +84,39 @@ async fn initiator_model_error() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn responder_model_error() {
-    let mut bob_model_store = BTreeStoreErrors::default();
-    bob_model_store.set_error(Error::new_transient(anyhow::anyhow!(
-        "transient error should be handled"
-    )));
-    let (mut swarm1, mut swarm2) = setup_test!(
-        BTreeStoreErrors::default(),
-        BTreeStoreErrors::default(),
-        bob_model_store,
-        BTreeStoreErrors::default(),
-    );
+    let mut a = MockingType::None.into_swarm();
+    let mut b = MockingType::Event.into_swarm();
+
+    // fail the model sync
+    let _ = {
+        b.event_store
+            .as_mock()
+            .lock()
+            .await
+            .expect_hash_range()
+            .returning(|_, _| Err(Error::new_app(anyhow::anyhow!("error"))))
+    };
 
     let fut = async move {
-        swarm1.listen().with_memory_addr_external().await;
-        swarm2.connect(&mut swarm1).await;
+        a.swarm.listen().with_memory_addr_external().await;
+        b.swarm.connect(&mut a.swarm).await;
 
         let ([p1_e1, p1_e2, p1_e3], [p2_e1, p2_e2, p2_e3]): (
             [crate::libp2p::Event; 3],
             [crate::libp2p::Event; 3],
-        ) = libp2p_swarm_test::drive(&mut swarm1, &mut swarm2).await;
+        ) = libp2p_swarm_test::drive(&mut a.swarm, &mut b.swarm).await;
 
         for ev in &[p1_e1, p1_e2, p1_e3, p2_e1, p2_e2, p2_e3] {
             info!("{:?}", ev);
         }
         let ([], [failed_peer]): ([crate::libp2p::Event; 0], [crate::libp2p::Event; 1]) =
-            libp2p_swarm_test::drive(&mut swarm1, &mut swarm2).await;
+            libp2p_swarm_test::drive(&mut a.swarm, &mut b.swarm).await;
 
         info!("{:?}", failed_peer);
         assert_eq!(
             failed_peer,
             crate::libp2p::Event::PeerEvent(PeerEvent {
-                remote_peer_id: swarm1.local_peer_id().to_owned(),
+                remote_peer_id: a.swarm.local_peer_id().to_owned(),
                 status: PeerStatus::Failed
             })
         );
@@ -364,4 +168,108 @@ fn assert_in_sync(id: PeerId, events: [crate::libp2p::Event; 4]) {
             }
         }
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn poll_not_ready_on_connection_established() {
+    let mut behavior = Behaviour::new(
+        MockReconForInterest::default(),
+        MockReconForEventId::default(),
+        Config::default(),
+    );
+    {
+        let mut pin = pin!(&mut behavior);
+        assert!(poll_immediate(poll_fn(|cx| pin.poll(cx))).await.is_none());
+    }
+    let address = Multiaddr::empty();
+    let role_override = Endpoint::Dialer;
+    behavior.on_swarm_event(libp2p::swarm::FromSwarm::ConnectionEstablished(
+        ConnectionEstablished {
+            peer_id: PEER_ID.parse().unwrap(),
+            connection_id: ConnectionId::new_unchecked(0),
+            endpoint: &ConnectedPoint::Dialer {
+                address,
+                role_override,
+            },
+            failed_addresses: &[],
+            other_established: 0,
+        },
+    ));
+    let mut pin = pin!(&mut behavior);
+    assert!(poll_immediate(poll_fn(|cx| pin.poll(cx))).await.is_none());
+}
+
+// #[cfg(loomtest)]
+mod loomtest {
+    use super::*;
+    use crate::libp2p::{ConnectionInfo, Event, PeerInfo};
+    use libp2p::swarm::ToSwarm;
+
+    #[test]
+    fn behaviour_poll() {
+        loom::model(|| {
+            let mut behavior = Behaviour::new(
+                MockReconForInterest::new(),
+                MockReconForEventId::new(),
+                Config::default(),
+            );
+            let res = loom::future::block_on(poll_immediate(poll_fn(|cx| {
+                behavior.poll(cx)
+            })));
+            assert!(res.is_none())
+        });
+    }
+
+    #[test]
+    fn behaviour_poll_with_peer() {
+        loom::model(|| {
+            let mut behavior = Behaviour::new(
+                MockReconForInterest::default(),
+                MockReconForEventId::default(),
+                Config::default(),
+            );
+            behavior.peers.insert(
+                PEER_ID.parse().unwrap(),
+                PeerInfo {
+                    status: PeerStatus::Waiting,
+                    connections: vec![ConnectionInfo {
+                        id: ConnectionId::new_unchecked(0),
+                        dialer: true,
+                    }],
+                    last_sync: None,
+                },
+            );
+            let res = loom::future::block_on(poll_immediate(poll_fn(|cx| {
+                behavior.poll(cx)
+            })));
+            assert!(res.is_none());
+        });
+    }
+
+    #[test]
+    fn behaviour_send() {
+        loom::model(|| {
+            let mut behavior = Behaviour::new(
+                MockReconForInterest::default(),
+                MockReconForEventId::default(),
+                Config::default(),
+            );
+            let mut behavior = std::pin::Pin::new(&mut behavior);
+            let res = loom::future::block_on(poll_immediate(poll_fn(|cx| {
+                behavior.poll(cx)
+            })));
+            assert!(res.is_none());
+
+            behavior.send_event(ToSwarm::GenerateEvent(Event::PeerEvent(PeerEvent {
+                remote_peer_id: PEER_ID.parse().unwrap(),
+                status: PeerStatus::Waiting,
+            })));
+
+            let res = loom::future::block_on(poll_immediate(poll_fn(|cx| {
+                behavior.poll(cx)
+            })));
+
+            assert!(res.is_some());
+        });
+    }
 }

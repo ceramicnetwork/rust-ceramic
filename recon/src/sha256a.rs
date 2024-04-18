@@ -199,7 +199,7 @@ impl Debug for Sha256a {
 mod tests {
     use super::*;
     use crate::recon::AssociativeHash;
-    use crate::tests::AlphaNumBytes;
+    use crate::test_utils::AlphaNumBytes;
 
     use expect_test::expect;
 

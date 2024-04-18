@@ -188,7 +188,7 @@ impl NetworkBehaviour for CeramicPeerManager {
     fn poll(
         &mut self,
         cx: &mut Context<'_>,
-    ) -> Poll<libp2p::swarm::ToSwarm<Self::ToSwarm, libp2p::swarm::THandlerInEvent<Self>>> {
+    ) -> Poll<ToSwarm<Self::ToSwarm, libp2p::swarm::THandlerInEvent<Self>>> {
         for (peer_id, peer) in self.ceramic_peers.iter_mut() {
             if let Some(mut dial_future) = peer.dial_future.take() {
                 match dial_future.as_mut().poll_unpin(cx) {
@@ -288,5 +288,64 @@ impl CeramicPeer {
         if let Some(duration) = duration {
             self.dial_future = Some(Box::pin(time::sleep(duration)));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use libp2p::core::{ConnectedPoint, Endpoint};
+    use prometheus_client::registry::Registry;
+    use recon::test_utils::*;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn swarm_should_drive_poll() {
+        let metrics = Metrics::register(&mut Registry::default());
+        let beh = CeramicPeerManager::new(&[], metrics).unwrap();
+        let swarm = TestSwarm::from_behaviour(TestBehaviour {
+            inner: beh,
+            convert: Box::new(|_, _ev| None),
+            api: Box::new(|_, _| ()),
+        });
+
+        let driver = swarm.drive();
+
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        let stats = driver.stop().await;
+
+        assert!(stats.polled >= 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn swarm_should_not_poll_if_event_injected() {
+        let metrics = Metrics::register(&mut Registry::default());
+        let beh = CeramicPeerManager::new(&[], metrics).unwrap();
+        let swarm = TestSwarm::from_behaviour(TestBehaviour {
+            inner: beh,
+            convert: Box::new(|_, _ev| None),
+            api: Box::new(|_, _| ()),
+        });
+
+        let driver = swarm.drive();
+
+        let conn_id = ConnectionId::new_unchecked(0);
+        driver
+            .inject(InjectedEvent::InboundConnection(
+                PeerId::random(),
+                conn_id.clone(),
+                ConnectedPoint::Dialer {
+                    address: "/ip4/1.2.3.4/tcp/443".parse().unwrap(),
+                    role_override: Endpoint::Dialer,
+                },
+            ))
+            .await;
+
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        let stats = driver.stop().await;
+
+        assert!(stats.polled >= 1);
+        assert_eq!(*stats.handler_polled.get(&conn_id).unwrap(), 0);
     }
 }
