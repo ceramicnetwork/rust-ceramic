@@ -2,13 +2,14 @@ use self::SqliteEventStore;
 
 use super::*;
 
-use std::str::FromStr;
+use std::{str::FromStr, time::Instant};
 
 use ceramic_core::{
     event_id::{Builder, WithInit},
     EventId, Network,
 };
 
+use ceramic_metrics::init_local_tracing;
 use cid::Cid;
 use iroh_bitswap::Block;
 use iroh_car::{CarHeader, CarWriter};
@@ -16,6 +17,8 @@ use libipld::{ipld, prelude::Encode, Ipld};
 use libipld_cbor::DagCborCodec;
 use multihash::{Code, MultihashDigest};
 use rand::Rng;
+use sqlx::Acquire;
+use tracing::info;
 
 pub(crate) async fn new_store() -> SqliteEventStore {
     let conn = SqlitePool::connect_in_memory().await.unwrap();
@@ -110,4 +113,100 @@ pub(crate) fn random_block() -> Block {
         cid: Cid::new_v1(0x00, hash),
         data: data.to_vec().into(),
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn channel_test() {
+    let _ = init_local_tracing();
+    let sql = SqlitePool::connect_in_memory().await.unwrap();
+
+    let store = SqliteEventStore::new(sql).await.unwrap();
+
+    {
+        let mut conn = store.store.pool.writer().acquire().await.unwrap();
+        let mut tx = conn.begin().await.unwrap();
+        sqlx::query("CREATE TABLE test (id integer primary key, value INTEGER)")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+    }
+
+    let (data_tx, mut data_rx) = tokio::sync::mpsc::channel(1024);
+    let mut futures = tokio::task::JoinSet::new();
+    for _ in 0..4 {
+        let tx = data_tx.clone();
+        futures.spawn(async move {
+            for i in 0..100_000 {
+                tx.send(i).await.unwrap();
+            }
+        });
+    }
+
+    drop(data_tx);
+    let (res_tx, res_rx) = tokio::sync::oneshot::channel();
+    futures.spawn(async move {
+        let mut conn = store.pool.writer().acquire().await.unwrap();
+        let start = Instant::now();
+        while let Some(val) = data_rx.recv().await {
+            let mut tx = conn.begin().await.unwrap();
+            sqlx::query("INSERT INTO test (value) VALUES (?)")
+                .bind(val)
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+            let _ = tx.commit().await;
+        }
+        let elapsed = start.elapsed();
+        res_tx.send(elapsed).unwrap();
+    });
+
+    let start = Instant::now();
+    while let Some(_f) = futures.join_next().await {
+        // can we wait all?
+    }
+    let elapsed2 = start.elapsed();
+    let elapsed = res_rx.await.unwrap();
+    info!("Elapsed: {:?}", elapsed);
+    info!("Elapsed: {:?}", elapsed2);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn locker_test() {
+    let _ = init_local_tracing();
+    let sql = SqlitePool::connect_in_memory().await.unwrap();
+    let store = SqliteEventStore::new(sql).await.unwrap();
+
+    {
+        let mut conn = store.pool.writer().acquire().await.unwrap();
+        let mut tx = conn.begin().await.unwrap();
+        sqlx::query("CREATE TABLE test (id integer primary key, value INTEGER)")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+    }
+
+    let mut futures = tokio::task::JoinSet::new();
+    for _ in 0..4 {
+        let writer = store.pool.writer().to_owned();
+        futures.spawn(async move {
+            for i in 0..100_000 {
+                let mut tx = writer.begin().await.unwrap();
+                sqlx::query("INSERT INTO test (value) VALUES (?)")
+                    .bind(i)
+                    .execute(&mut *tx)
+                    .await
+                    .unwrap();
+                let _ = tx.commit().await;
+            }
+        });
+    }
+    let start = Instant::now();
+    while let Some(_f) = futures.join_next().await {
+        // can we wait all?
+    }
+    let elapsed = start.elapsed();
+
+    info!("Elapsed: {:?}", elapsed);
 }

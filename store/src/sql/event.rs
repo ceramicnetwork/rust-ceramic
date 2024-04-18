@@ -24,7 +24,7 @@ static GLOBAL_COUNTER: AtomicI64 = AtomicI64::new(0);
 /// individual blocks from the CAR files directly.
 #[derive(Clone, Debug)]
 pub struct SqliteEventStore {
-    pool: SqlitePool,
+    pub(crate) pool: SqlitePool,
     test_counter: Option<Arc<AtomicI64>>,
 }
 

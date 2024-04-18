@@ -58,6 +58,7 @@ impl SqlitePool {
         let writer = SqlitePoolOptions::new()
             .min_connections(1)
             .max_connections(1)
+            .test_before_acquire(false)
             .acquire_timeout(std::time::Duration::from_secs(1))
             .connect_with(conn_opts)
             .await?;
