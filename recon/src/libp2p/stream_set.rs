@@ -3,7 +3,7 @@ use anyhow::anyhow;
 use crate::libp2p::{PROTOCOL_NAME_INTEREST, PROTOCOL_NAME_MODEL};
 
 /// Represents a stream set key
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum StreamSet {
     /// Stream set of interest ranges
     Interest,
