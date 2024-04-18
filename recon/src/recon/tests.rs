@@ -219,9 +219,8 @@ pub struct SetupState<K: Key> {
 }
 
 async fn from_setup_state(setup: SetupState<AlphaNumBytes>) -> ReconMemoryBytes {
-    Recon {
-        interests: setup.interests,
-        store: BTreeStore::from_set(
+    Recon::new(
+        BTreeStore::from_set(
             setup
                 .state
                 .into_iter()
@@ -229,8 +228,9 @@ async fn from_setup_state(setup: SetupState<AlphaNumBytes>) -> ReconMemoryBytes 
                 .collect(),
         )
         .await,
-        metrics: Metrics::register(&mut Registry::default()),
-    }
+        setup.interests,
+        Metrics::register(&mut Registry::default()),
+    )
 }
 
 impl<'a, D, A, K> Pretty<'a, D, A> for &'a SetupState<K>

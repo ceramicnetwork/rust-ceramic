@@ -13,6 +13,8 @@
 mod handler;
 mod protocol;
 mod stream_set;
+#[cfg(test)]
+mod tests;
 mod upgrade;
 
 use ceramic_core::{EventId, Interest};
@@ -88,7 +90,7 @@ struct ConnectionInfo {
 }
 
 /// Status of any synchronization operation with a remote peer.
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum PeerStatus {
     /// Waiting on remote peer
     Waiting,
@@ -222,14 +224,6 @@ where
                 }
             }
 
-            //We had an internal error during synchronization, for now we will just log the error
-            FromHandler::TransientError(error) => {
-                self.peers.entry(peer_id).and_modify(|info| {
-                warn!(%peer_id, %error, status=?info.status, "transient internal failure to synchronization with peer");
-            });
-                None
-            }
-
             // The peer has failed to synchronized with us, mark the time and record that the peer connection
             // is now failed.
             FromHandler::Failed(error) => {
@@ -359,13 +353,13 @@ where
 }
 
 /// Events that the Behavior can emit to the rest of the application.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Event {
     /// Event indicating we have synchronized with the specific peer.
     PeerEvent(PeerEvent),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 
 /// Event about a remote peer
 pub struct PeerEvent {
