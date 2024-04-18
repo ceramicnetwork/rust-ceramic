@@ -13,9 +13,9 @@
 mod handler;
 mod protocol;
 mod stream_set;
-mod upgrade;
 #[cfg(test)]
 mod tests;
+mod upgrade;
 
 use ceramic_core::{EventId, Interest};
 use libp2p::{
@@ -90,7 +90,7 @@ struct ConnectionInfo {
 }
 
 /// Status of any synchronization operation with a remote peer.
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum PeerStatus {
     /// Waiting on remote peer
     Waiting,
@@ -360,13 +360,13 @@ where
 }
 
 /// Events that the Behavior can emit to the rest of the application.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Event {
     /// Event indicating we have synchronized with the specific peer.
     PeerEvent(PeerEvent),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 
 /// Event about a remote peer
 pub struct PeerEvent {
