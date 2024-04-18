@@ -29,7 +29,8 @@ where
         self.sender
             .send(Request::Insert { key, value, ret })
             .await?;
-        rx.await?
+        rx.await??;
+        Ok(false)
     }
 
     /// Sends a len request to the server and awaits the response.
@@ -151,7 +152,7 @@ enum Request<K, H> {
     Insert {
         key: K,
         value: Option<Vec<u8>>,
-        ret: oneshot::Sender<Result<bool>>,
+        ret: oneshot::Sender<Result<()>>,
     },
     Len {
         ret: oneshot::Sender<Result<usize>>,
@@ -201,6 +202,44 @@ enum Request<K, H> {
 type RangeWithValuesResult<K> = Result<Box<dyn Iterator<Item = (K, Vec<u8>)> + Send>>;
 type ProcessRangeResult<K, H> = Result<(SyncState<K, H>, Vec<K>)>;
 
+#[derive(Debug)]
+struct InsertQueue<K> {
+    values: Vec<(K, Option<Vec<u8>>)>,
+    last_flush: std::time::Instant,
+}
+
+impl<K> InsertQueue<K>
+where
+    K: Key,
+{
+    pub fn new() -> Self {
+        Self {
+            values: Vec::new(),
+            last_flush: std::time::Instant::now(),
+        }
+    }
+
+    pub fn should_flush(&self) -> bool {
+        !self.values.is_empty()
+            && (self.values.len() > 100 || self.last_flush.elapsed().as_millis() > 100)
+    }
+
+    pub fn add(&mut self, key: K, value: Option<Vec<u8>>) {
+        self.values.push((key, value));
+    }
+
+    /// if the queue is over 100 items or it's been 100ms since last flush, flush the queue
+    pub fn flush(&mut self) -> Option<Vec<(K, Option<Vec<u8>>)>> {
+        if self.should_flush() {
+            self.last_flush = std::time::Instant::now();
+            let values = std::mem::take(&mut self.values);
+            Some(values)
+        } else {
+            None
+        }
+    }
+}
+
 /// Server that processed received Recon messages in a single task.
 #[derive(Debug)]
 pub struct Server<K, H, S, I>
@@ -210,9 +249,11 @@ where
     S: Store<Key = K, Hash = H> + Send + Sync,
     I: InterestProvider<Key = K>,
 {
-    requests_sender: Sender<Request<K, H>>,
+    // Only optional so we can drop it without moving part of self and not being able to use &self/&mut self
+    requests_sender: Option<Sender<Request<K, H>>>,
     requests: Receiver<Request<K, H>>,
     recon: Recon<K, H, S, I>,
+    cache: InsertQueue<K>,
 }
 
 impl<K, H, S, I> Server<K, H, S, I>
@@ -226,9 +267,10 @@ where
     pub fn new(recon: Recon<K, H, S, I>) -> Self {
         let (tx, rx) = channel(1024);
         Self {
-            requests_sender: tx,
+            requests_sender: Some(tx),
             requests: rx,
             recon,
+            cache: InsertQueue::new(),
         }
     }
     /// Construct a [`Client`] to this server.
@@ -236,15 +278,28 @@ where
     /// Clients can be safely cloned to create more clients as needed.
     pub fn client(&mut self) -> Client<K, H> {
         Client {
-            sender: self.requests_sender.clone(),
+            sender: self.requests_sender.clone().unwrap(),
             metrics: self.recon.metrics.clone(),
         }
+    }
+
+    async fn flush_cache(&mut self) -> Result<()> {
+        if self.cache.should_flush() {
+            if let Some(items) = self.cache.flush() {
+                let items = items
+                    .iter()
+                    .map(|(key, value)| ReconItem::new(key, value.as_deref()))
+                    .collect::<Vec<_>>();
+                self.recon.insert_many(&items[..]).await?;
+            }
+        }
+        Ok(())
     }
 
     /// Run the server loop, does not exit until all clients have been dropped.
     pub async fn run(mut self) {
         // Drop the requests_sender first so we only wait for other clients.
-        drop(self.requests_sender);
+        self.requests_sender = None;
         // Using a single loop ensures Recon methods are never called concurrently.
         // This keeps their implementation simple and as they are modifying local state this is
         // likely the most efficient means to process Recon messages.
@@ -253,11 +308,13 @@ where
             if let Some(request) = request {
                 match request {
                     Request::Insert { key, value, ret } => {
-                        let val = self
-                            .recon
-                            .insert(&ReconItem::new(&key, value.as_deref()))
-                            .await;
-                        send(ret, val);
+                        // let val = self
+                        //     .recon
+                        //     .insert(&ReconItem::new(&key, value.as_deref()))
+                        //     .await;
+                        self.cache.add(key, value);
+                        self.flush_cache().await.unwrap();
+                        send(ret, Ok(()));
                     }
                     Request::Len { ret } => {
                         send(ret, self.recon.len().await);
@@ -269,6 +326,8 @@ where
                         limit,
                         ret,
                     } => {
+                        self.flush_cache().await.unwrap();
+
                         let keys = self
                             .recon
                             .range(&left_fencepost, &right_fencepost, offset, limit)
@@ -282,6 +341,7 @@ where
                         limit,
                         ret,
                     } => {
+                        self.flush_cache().await.unwrap();
                         let keys = self
                             .recon
                             .range_with_values(&left_fencepost, &right_fencepost, offset, limit)
@@ -289,14 +349,17 @@ where
                         send(ret, keys);
                     }
                     Request::FullRange { ret } => {
+                        self.flush_cache().await.unwrap();
                         let keys = self.recon.full_range().await;
                         send(ret, keys);
                     }
                     Request::ValueForKey { key, ret } => {
+                        self.flush_cache().await.unwrap();
                         let value = self.recon.value_for_key(key).await;
                         send(ret, value);
                     }
                     Request::KeysWithMissingValues { range, ret } => {
+                        self.flush_cache().await.unwrap();
                         let ok = self.recon.keys_with_missing_values(range).await;
                         send(ret, ok);
                     }
@@ -313,6 +376,7 @@ where
                         send(ret, value);
                     }
                     Request::ProcessRange { range, ret } => {
+                        self.flush_cache().await.unwrap();
                         let value = self.recon.process_range(range).await;
                         send(ret, value);
                     }
