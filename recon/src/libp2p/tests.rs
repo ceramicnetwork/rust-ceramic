@@ -9,12 +9,10 @@ use libp2p_swarm_test::SwarmExt;
 use tracing::info;
 
 use crate::{
-    libp2p::{stream_set::StreamSet, PeerStatus},
+    libp2p::{stream_set::StreamSet, PeerEvent, PeerStatus},
     AssociativeHash, BTreeStore, FullInterests, HashCount, InsertResult, InterestProvider, Key,
     Metrics, Recon, ReconItem, Server, Store,
 };
-
-use super::PeerEvent;
 
 fn start_recon<K, H, S, I>(recon: Recon<K, H, S, I>) -> crate::Client<K, H>
 where
@@ -29,7 +27,7 @@ where
     client
 }
 
-/// An implementation of a Store that stores keys in an in-memory BTree
+/// An implementation of a Store that stores keys in an in-memory BTree and throws errors if desired.
 #[derive(Clone, Debug)]
 pub struct BTreeStoreErrors<K, H> {
     should_error: Arc<AtomicBool>,
@@ -44,7 +42,7 @@ impl<K, H> BTreeStoreErrors<K, H> {
 }
 
 impl<K, H> Default for BTreeStoreErrors<K, H> {
-    /// By default, no errors are thrown. Use set_error to change this.
+    /// By default no errors are thrown. Use set_error to change this.
     fn default() -> Self {
         Self {
             should_error: Arc::new(AtomicBool::new(false)),
@@ -147,7 +145,6 @@ where
         }
     }
 
-    /// value_for_key returns an Error is retrieving failed and None if the key is not stored.
     async fn value_for_key(&self, key: &Self::Key) -> Result<Option<Vec<u8>>> {
         if self.should_error.load(std::sync::atomic::Ordering::SeqCst) {
             bail!("Sorry, bad tree returns errors: value_for_key")
@@ -171,9 +168,6 @@ where
 macro_rules! setup_test {
     ($alice_store: expr, $alice_interests: expr, $bob_store: expr, $bob_interest: expr,) => {{
         let _ = init_local_tracing();
-        // use the libp2p test swarm to drive the test
-        // trivial recon sync with a single peer that crashes
-        // create a mock store impl that crashes based on input
 
         let alice = Recon::new(
             $alice_store,
