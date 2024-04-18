@@ -198,7 +198,6 @@ async fn in_sync_no_overlap() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[should_panic]
 async fn initiator_model_error() {
     let (mut swarm1, mut swarm2) = setup_test!(
         BadBTreeStore::default(),
@@ -219,10 +218,17 @@ async fn initiator_model_error() {
         for ev in &[p1_e1, p1_e2, p1_e3, p2_e1, p2_e2, p2_e3] {
             info!("{:?}", ev);
         }
-        let ([never_gonna_happen], []): ([crate::libp2p::Event; 1], [crate::libp2p::Event; 0]) =
+        let ([failed_peer], []): ([crate::libp2p::Event; 1], [crate::libp2p::Event; 0]) =
             libp2p_swarm_test::drive(&mut swarm1, &mut swarm2).await;
 
-        info!("{:?}", never_gonna_happen); // hit an error and never get another event
+        info!("{:?}", failed_peer); // hit an error and never get another event
+        assert_eq!(
+            failed_peer,
+            crate::libp2p::Event::PeerEvent(PeerEvent {
+                remote_peer_id: swarm2.local_peer_id().to_owned(),
+                status: PeerStatus::Failed
+            })
+        );
     };
 
     fut.await;
