@@ -63,7 +63,7 @@ jobs:
           TAG_LATEST=false
         fi
         make BUILD_MODE=release SHA="${SHA}" SHA_TAG="${SHA_TAG}" RELEASE_TAG="${RELEASE_TAG}" TAG_LATEST="${TAG_LATEST}" publish-docker
-        make BUILD_MODE=debug SHA="${SHA_DEBUG}" SHA_TAG="${SHA_TAG_DEBUG}" RELEASE_TAG="${RELEASE_TAG_DEBUG}" CUSTOM_TAG=${CUSTOM_TAG_DEBUG}" publish-docker
+        make BUILD_MODE=debug SHA="${SHA_DEBUG}" SHA_TAG="${SHA_TAG_DEBUG}" RELEASE_TAG="${RELEASE_TAG_DEBUG}" CUSTOM_TAG="${CUSTOM_TAG_DEBUG}" publish-docker
         echo "Deploy tag:"
         echo "${DEPLOY_TAG}"
         echo "deploy_tag=${DEPLOY_TAG}" >> $GITHUB_OUTPUT
