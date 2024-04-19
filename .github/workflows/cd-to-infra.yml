@@ -38,25 +38,35 @@ jobs:
       name: Build and Publish
       id: build
       run: |
+        set -x
+        DEBUG_SUFFIX="-debug"
+        SHA="${{ github.SHA }}"
+        SHA_DEBUG="${SHA}${DEBUG_SUFFIX}"
         SHA_TAG=$(echo ${{ github.SHA }} | head -c 12)
-        DEPLOY_TAG=$SHA_TAG
+        SHA_TAG_DEBUG="${SHA_TAG}${DEBUG_SUFFIX}"
+        # Deploy the debug version
+        # TODO: Parameterize this choice
+        DEPLOY_TAG=$SHA_TAG_DEBUG
         COMMIT_MESSAGE=$(git log -1 --pretty=%B)
         if [[ $(echo "$COMMIT_MESSAGE" | grep 'chore: version v') ]]; then
           RELEASE_TAG=$(cargo metadata --format-version=1 --no-deps | jq '.packages[0].version' | tr -d '"')
-          # Use the release tag to deploy, if one is available.
-          DEPLOY_TAG=$RELEASE_TAG
+          RELEASE_TAG_DEBUG="${RELEASE_TAG}${DEBUG_SUFFIX}"
+          # Deploy the release debug version
+          DEPLOY_TAG="${RELEASE_TAG_DEBUG}"
         fi
         # Tag with latest if this is a push to master
+        CUSTOM_TAG_DEBUG=""
         if [[ "${{ github.event_name }}" == "push" ]]; then
           TAG_LATEST=true
+          CUSTOM_TAG_DEBUG="latest${DEBUG_SUFFIX}"
         else
           TAG_LATEST=false
         fi
-        make BUILD_MODE=release SHA="${{ github.SHA }}" SHA_TAG="$SHA_TAG" RELEASE_TAG="$RELEASE_TAG" TAG_LATEST="$TAG_LATEST" publish-docker
-        make BUILD_MODE=debug SHA="${{ github.SHA }}-debug" SHA_TAG="$SHA_TAG-debug" RELEASE_TAG="$RELEASE_TAG-debug" TAG_LATEST="$TAG_LATEST-debug" publish-docker
+        make BUILD_MODE=release SHA="${SHA}" SHA_TAG="${SHA_TAG}" RELEASE_TAG="${RELEASE_TAG}" TAG_LATEST="${TAG_LATEST}" publish-docker
+        make BUILD_MODE=debug SHA="${SHA_DEBUG}" SHA_TAG="${SHA_TAG_DEBUG}" RELEASE_TAG="${RELEASE_TAG_DEBUG}" CUSTOM_TAG=${CUSTOM_TAG_DEBUG}" publish-docker
         echo "Deploy tag:"
-        echo "${DEPLOY_TAG}-debug"
-        echo "deploy_tag=${DEPLOY_TAG}-debug" >> $GITHUB_OUTPUT
+        echo "${DEPLOY_TAG}"
+        echo "deploy_tag=${DEPLOY_TAG}" >> $GITHUB_OUTPUT
 
   deploy:
     runs-on: ubuntu-latest
