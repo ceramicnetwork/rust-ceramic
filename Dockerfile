@@ -15,7 +15,7 @@ COPY . .
 RUN --mount=type=cache,target=/home/builder/.cargo \
 	--mount=type=cache,target=/home/builder/rust-ceramic/target \
     make $BUILD_MODE && \
-    cp ./target/release/ceramic-one ./
+    cp ./target/$BUILD_MODE/ceramic-one ./
 
 FROM debian:bookworm-slim
 
