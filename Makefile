@@ -66,14 +66,14 @@ check-queries-ci:
 release:
 	$(CARGO) build -p ceramic-one --locked --release
 
+.PHONY: debug
+debug:
+	$(CARGO) build -p ceramic-one --locked --features tokio-console
+
 # Prepare a release PR.
 .PHONY: release-pr
 release-pr:
 	./ci-scripts/release_pr.sh ${RELEASE_LEVEL}
-
-.PHONY: debug
-debug:
-	$(CARGO) build -p ceramic-one --locked
 
 .PHONY: test
 test:

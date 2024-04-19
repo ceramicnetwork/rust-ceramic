@@ -10,7 +10,9 @@
 #
 # to login to docker. That password will be valid for 12h.
 
-docker buildx build --load -t 3box/ceramic-one .
+BUILD_MODE=${BUILD_MODE-release}
+
+docker buildx build --load --build-arg="BUILD_MODE=$BUILD_MODE" -t 3box/ceramic-one .
 
 if [[ -n "$SHA" ]]; then
   docker tag 3box/ceramic-one:latest public.ecr.aws/r5b3e0r5/3box/ceramic-one:"$SHA"

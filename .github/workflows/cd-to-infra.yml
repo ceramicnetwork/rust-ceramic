@@ -52,10 +52,11 @@ jobs:
         else
           TAG_LATEST=false
         fi
-        make SHA="${{ github.SHA }}" SHA_TAG="$SHA_TAG" RELEASE_TAG="$RELEASE_TAG" TAG_LATEST="$TAG_LATEST" publish-docker
+        make BUILD_MODE=release SHA="${{ github.SHA }}" SHA_TAG="$SHA_TAG" RELEASE_TAG="$RELEASE_TAG" TAG_LATEST="$TAG_LATEST" publish-docker
+        make BUILD_MODE=debug SHA="${{ github.SHA }}-debug" SHA_TAG="$SHA_TAG-debug" RELEASE_TAG="$RELEASE_TAG-debug" TAG_LATEST="$TAG_LATEST-debug" publish-docker
         echo "Deploy tag:"
-        echo ${DEPLOY_TAG}
-        echo "deploy_tag=${DEPLOY_TAG}" >> $GITHUB_OUTPUT
+        echo "${DEPLOY_TAG}-debug"
+        echo "deploy_tag=${DEPLOY_TAG}-debug" >> $GITHUB_OUTPUT
 
   deploy:
     runs-on: ubuntu-latest
