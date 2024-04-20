@@ -3,7 +3,7 @@ use std::{
     sync::{atomic::AtomicI64, Arc},
 };
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Context};
 use async_trait::async_trait;
 use bytes::Bytes;
 use ceramic_core::{EventId, RangeOpen};
@@ -17,11 +17,11 @@ use tracing::instrument;
 
 use crate::{
     sql::{
-        rebuild_car, BlockBytes, BlockQuery, BlockRow, CountRow, DeliveredEvent, EventIdError,
-        EventQuery, EventValueRaw, FirstAndLast, OrderKey, ReconHash, ReconQuery, ReconType,
-        SqlBackend, GLOBAL_COUNTER,
+        rebuild_car, BlockBytes, BlockQuery, BlockRow, CountRow, DeliveredEvent, EventQuery,
+        EventValueRaw, FirstAndLast, OrderKey, ReconHash, ReconQuery, ReconType, SqlBackend,
+        GLOBAL_COUNTER,
     },
-    DbTxPg, PostgresPool,
+    DbTxPg, PostgresPool, StoreError, StoreResult,
 };
 
 /// Unified implementation of [`recon::Store`] and [`iroh_bitswap::Store`] that can expose the
@@ -35,7 +35,7 @@ pub struct EventStorePostgres {
 
 impl EventStorePostgres {
     /// Create an instance of the store initializing any neccessary tables.
-    pub async fn new(pool: PostgresPool) -> Result<Self> {
+    pub async fn new(pool: PostgresPool) -> StoreResult<Self> {
         let store = EventStorePostgres {
             pool,
             test_counter: None,
@@ -46,7 +46,7 @@ impl EventStorePostgres {
 
     /// Creates an instance that doesn't share the global event counter with other instances (only for tests to avoid running serially)
     #[allow(dead_code)]
-    pub(crate) async fn new_local(pool: PostgresPool) -> Result<Self> {
+    pub(crate) async fn new_local(pool: PostgresPool) -> StoreResult<Self> {
         let store = EventStorePostgres {
             pool,
             test_counter: None, // Some(Arc::new(AtomicI64::new(0))),
@@ -55,7 +55,7 @@ impl EventStorePostgres {
         Ok(store)
     }
 
-    async fn init_delivered(&self) -> Result<()> {
+    async fn init_delivered(&self) -> StoreResult<()> {
         let max_delivered =
             sqlx::query(r#"SELECT COALESCE(MAX(delivered), 0)::bigint FROM ceramic_one_event;"#)
                 .fetch_one(self.pool.reader())
@@ -63,7 +63,7 @@ impl EventStorePostgres {
         let max_delivered: i64 = max_delivered.get(0);
         let max = max_delivered
             .checked_add(1)
-            .context("More than i64::MAX delivered events!")?;
+            .ok_or_else(|| StoreError::new_app(anyhow!("More than i64::MAX delivered events!")))?;
         if let Some(ref t) = self.test_counter {
             t.fetch_max(max, std::sync::atomic::Ordering::SeqCst);
         } else {
@@ -82,16 +82,16 @@ impl EventStorePostgres {
     }
 
     /// Begin a database transaction.
-    pub async fn begin_tx(&self) -> Result<DbTxPg<'_>> {
+    pub async fn begin_tx(&self) -> StoreResult<DbTxPg<'_>> {
         self.pool.tx().await
     }
 
     /// Commit the database transaction.
-    pub async fn commit_tx(&self, tx: DbTxPg<'_>) -> Result<()> {
+    pub async fn commit_tx(&self, tx: DbTxPg<'_>) -> StoreResult<()> {
         Ok(tx.commit().await?)
     }
 
-    async fn insert_item(&self, item: &ReconItem<'_, EventId>) -> Result<(bool, bool)> {
+    async fn insert_item(&self, item: &ReconItem<'_, EventId>) -> StoreResult<(bool, bool)> {
         let mut tx = self.pool.writer().begin().await?;
         let (new_key, new_val) = self.insert_item_int(item, &mut tx).await?;
         tx.commit().await?;
@@ -104,7 +104,7 @@ impl EventStorePostgres {
         right_fencepost: &EventId,
         offset: usize,
         limit: usize,
-    ) -> Result<Box<dyn Iterator<Item = (EventId, Vec<u8>)> + Send + 'static>> {
+    ) -> StoreResult<Box<dyn Iterator<Item = (EventId, Vec<u8>)> + Send + 'static>> {
         let offset = offset.try_into().unwrap_or(i64::MAX);
         let limit: i64 = limit.try_into().unwrap_or(i64::MAX);
         let all_blocks: Vec<EventValueRaw> = sqlx::query_as(EventQuery::value_blocks_many())
@@ -119,7 +119,7 @@ impl EventStorePostgres {
         Ok(Box::new(values.into_iter()))
     }
 
-    async fn value_for_key_int(&self, key: &EventId) -> Result<Option<Vec<u8>>> {
+    async fn value_for_key_int(&self, key: &EventId) -> StoreResult<Option<Vec<u8>>> {
         let blocks: Vec<BlockRow> = sqlx::query_as(EventQuery::value_blocks_one())
             .bind(key.as_bytes())
             .fetch_all(self.pool.reader())
@@ -132,17 +132,23 @@ impl EventStorePostgres {
         &self,
         item: &ReconItem<'_, EventId>,
         conn: &mut DbTxPg<'_>,
-    ) -> Result<(bool, bool)> {
+    ) -> StoreResult<(bool, bool)> {
         // We make sure the key exists as we require it as an FK to add the event_block record.
         let new_key = self.insert_key_int(item.key, conn).await?;
 
         if let Some(val) = item.value {
             // Put each block from the car file. Should we check if value already existed and skip this?
             // It will no-op but will still try to insert the blocks again
-            let mut reader = CarReader::new(val).await?;
+            let mut reader = CarReader::new(val)
+                .await
+                .map_err(StoreError::new_app)?;
             let roots: BTreeSet<Cid> = reader.header().roots().iter().cloned().collect();
             let mut idx = 0;
-            while let Some((cid, data)) = reader.next_block().await? {
+            while let Some((cid, data)) = reader
+                .next_block()
+                .await
+                .map_err(StoreError::new_app)?
+            {
                 self.insert_event_block_int(
                     item.key,
                     idx,
@@ -160,7 +166,7 @@ impl EventStorePostgres {
     }
 
     /// Add a block, returns true if the block is new
-    pub async fn put_block(&self, hash: &Multihash, blob: &Bytes) -> Result<bool> {
+    pub async fn put_block(&self, hash: &Multihash, blob: &Bytes) -> StoreResult<bool> {
         let mut tx = self.pool.tx().await?;
         let res = self.put_block_tx(hash, blob, &mut tx).await?;
         tx.commit().await?;
@@ -173,12 +179,10 @@ impl EventStorePostgres {
         hash: &Multihash,
         blob: &Bytes,
         conn: &mut DbTxPg<'_>,
-    ) -> Result<bool> {
+    ) -> StoreResult<bool> {
         let hash = hash.to_bytes();
         let blob = blob.to_vec();
-        conn.execute("SAVEPOINT insert_block_savepoint;")
-            .await
-            .context("savepoint error")?;
+        conn.execute("SAVEPOINT insert_block_savepoint;").await?;
         let resp = sqlx::query("INSERT INTO ceramic_one_block (multihash, bytes) VALUES ($1, $2);")
             .bind(hash)
             .bind(blob)
@@ -190,8 +194,7 @@ impl EventStorePostgres {
             Err(sqlx::Error::Database(err)) => {
                 if err.is_unique_violation() {
                     conn.execute("ROLLBACK TO SAVEPOINT insert_block_savepoint;")
-                        .await
-                        .context("rollback error")?;
+                        .await?;
 
                     Ok(false)
                 } else {
@@ -211,36 +214,39 @@ impl EventStorePostgres {
         cid: Cid,
         blob: &Bytes,
         conn: &mut DbTxPg<'_>,
-    ) -> Result<()> {
+    ) -> StoreResult<()> {
         let hash = match cid.hash().code() {
             0x12 => Code::Sha2_256.digest(blob),
             0x1b => Code::Keccak256.digest(blob),
-            0x11 => return Err(anyhow!("Sha1 not supported")),
+            0x11 => return Err(StoreError::new_app(anyhow!("Sha1 not supported"))),
             code => {
-                return Err(anyhow!(
+                return Err(StoreError::new_app(anyhow!(
                     "multihash type {:#x} not Sha2_256, Keccak256",
                     code,
-                ))
+                )))
             }
         };
         if cid.hash().to_bytes() != hash.to_bytes() {
-            return Err(anyhow!(
+            return Err(StoreError::new_app(anyhow!(
                 "cid did not match blob {} != {}",
                 hex::encode(cid.hash().to_bytes()),
                 hex::encode(hash.to_bytes())
-            ));
+            )));
         }
 
-        let _new = self
-            .put_block_tx(&hash, blob, conn)
-            .await
-            .context("put block tx")?;
+        let _new = self.put_block_tx(&hash, blob, conn).await?;
 
-        let code: i64 = cid.codec().try_into().context(format!(
-            "Invalid codec could not fit into an i64: {}",
-            cid.codec()
-        ))?;
-        let id = key.cid().context("Event CID is required")?.to_bytes();
+        let code: i64 = cid.codec().try_into().map_err(|e| {
+            StoreError::new_app(anyhow!(
+                "Invalid codec could not fit into an i64: {}. {}",
+                cid.codec(),
+                e
+            ))
+        })?;
+        let id = key
+            .cid()
+            .ok_or_else(|| StoreError::new_app(anyhow!("Event CID is required")))?
+            .to_bytes();
         let multihash = hash.to_bytes();
         sqlx::query(
             "INSERT INTO 
@@ -257,7 +263,7 @@ impl EventStorePostgres {
         Ok(())
     }
 
-    async fn mark_ready_to_deliver(&self, key: &EventId, conn: &mut DbTxPg<'_>) -> Result<()> {
+    async fn mark_ready_to_deliver(&self, key: &EventId, conn: &mut DbTxPg<'_>) -> StoreResult<()> {
         let id = key.as_bytes();
         let delivered = self.get_delivered();
         sqlx::query("UPDATE ceramic_one_event SET delivered = $1 WHERE order_key = $2;")
@@ -268,17 +274,15 @@ impl EventStorePostgres {
         Ok(())
     }
 
-    async fn insert_key_int(&self, key: &EventId, conn: &mut DbTxPg<'_>) -> Result<bool> {
+    async fn insert_key_int(&self, key: &EventId, conn: &mut DbTxPg<'_>) -> StoreResult<bool> {
         let id = key.as_bytes();
         let cid = key
             .cid()
             .map(|cid| cid.to_bytes())
-            .context("Event CID is required")?;
+            .ok_or_else(|| StoreError::new_app(anyhow!("Event CID is required")))?;
         let hash = Sha256a::digest(key);
 
-        conn.execute("SAVEPOINT insert_key_savepoint;")
-            .await
-            .context("savepoint error")?;
+        conn.execute("SAVEPOINT insert_key_savepoint;").await?;
         let resp = sqlx::query(ReconQuery::insert_event())
             .bind(id)
             .bind(cid)
@@ -298,8 +302,7 @@ impl EventStorePostgres {
             Err(sqlx::Error::Database(err)) => {
                 if err.is_unique_violation() {
                     conn.execute("ROLLBACK TO SAVEPOINT insert_key_savepoint;")
-                        .await
-                        .context("rollback error")?;
+                        .await?;
                     Ok(false)
                 } else {
                     Err(sqlx::Error::Database(err).into())
@@ -314,7 +317,7 @@ impl EventStorePostgres {
         &self,
         delivered: i64,
         limit: i64,
-    ) -> Result<(i64, Vec<EventId>)> {
+    ) -> StoreResult<(i64, Vec<EventId>)> {
         let rows: Vec<DeliveredEvent> = sqlx::query_as(EventQuery::new_delivered_events())
             .bind(delivered)
             .bind(limit)
@@ -331,14 +334,14 @@ impl recon::Store for EventStorePostgres {
     type Hash = Sha256a;
 
     /// Returns true if the key was new. The value is always updated if included
-    async fn insert(&self, item: &ReconItem<'_, EventId>) -> Result<bool> {
+    async fn insert(&self, item: &ReconItem<'_, EventId>) -> anyhow::Result<bool> {
         let (new, _new_val) = self.insert_item(item).await?;
         Ok(new)
     }
 
     /// Insert new keys into the key space.
     /// Returns true if a key did not previously exist.
-    async fn insert_many(&self, items: &[ReconItem<'_, EventId>]) -> Result<InsertResult> {
+    async fn insert_many(&self, items: &[ReconItem<'_, EventId>]) -> anyhow::Result<InsertResult> {
         match items.len() {
             0 => Ok(InsertResult::new(vec![], 0)),
             _ => {
@@ -365,7 +368,7 @@ impl recon::Store for EventStorePostgres {
         &self,
         left_fencepost: &EventId,
         right_fencepost: &EventId,
-    ) -> Result<HashCount<Self::Hash>> {
+    ) -> anyhow::Result<HashCount<Self::Hash>> {
         let res: ReconHash = sqlx::query_as(ReconQuery::hash_range(
             ReconType::Event,
             SqlBackend::Postgres,
@@ -386,7 +389,7 @@ impl recon::Store for EventStorePostgres {
         right_fencepost: &EventId,
         offset: usize,
         limit: usize,
-    ) -> Result<Box<dyn Iterator<Item = EventId> + Send + 'static>> {
+    ) -> anyhow::Result<Box<dyn Iterator<Item = EventId> + Send + 'static>> {
         let offset: i64 = offset
             .try_into()
             .context("Offset too large to fit into i64")?;
@@ -400,8 +403,8 @@ impl recon::Store for EventStorePostgres {
             .await?;
         let rows = rows
             .into_iter()
-            .map(EventId::try_from)
-            .collect::<Result<Vec<EventId>, EventIdError>>()?;
+            .map(|k| EventId::try_from(k).map_err(|e| StoreError::new_app(anyhow!(e))))
+            .collect::<StoreResult<Vec<EventId>>>()?;
         Ok(Box::new(rows.into_iter()))
     }
     #[instrument(skip(self))]
@@ -411,14 +414,19 @@ impl recon::Store for EventStorePostgres {
         right_fencepost: &EventId,
         offset: usize,
         limit: usize,
-    ) -> Result<Box<dyn Iterator<Item = (EventId, Vec<u8>)> + Send + 'static>> {
-        self.range_with_values_int(left_fencepost, right_fencepost, offset, limit)
-            .await
+    ) -> anyhow::Result<Box<dyn Iterator<Item = (EventId, Vec<u8>)> + Send + 'static>> {
+        Ok(self
+            .range_with_values_int(left_fencepost, right_fencepost, offset, limit)
+            .await?)
     }
 
     /// Return the number of keys within the range.
     #[instrument(skip(self))]
-    async fn count(&self, left_fencepost: &EventId, right_fencepost: &EventId) -> Result<usize> {
+    async fn count(
+        &self,
+        left_fencepost: &EventId,
+        right_fencepost: &EventId,
+    ) -> anyhow::Result<usize> {
         let row: CountRow =
             sqlx::query_as(ReconQuery::count(ReconType::Event, SqlBackend::Postgres))
                 .bind(left_fencepost.as_bytes())
@@ -434,7 +442,7 @@ impl recon::Store for EventStorePostgres {
         &self,
         left_fencepost: &EventId,
         right_fencepost: &EventId,
-    ) -> Result<Option<EventId>> {
+    ) -> anyhow::Result<Option<EventId>> {
         let row = sqlx::query(ReconQuery::first_key(ReconType::Event))
             .bind(left_fencepost.as_bytes())
             .bind(right_fencepost.as_bytes())
@@ -454,7 +462,7 @@ impl recon::Store for EventStorePostgres {
         &self,
         left_fencepost: &EventId,
         right_fencepost: &EventId,
-    ) -> Result<Option<EventId>> {
+    ) -> anyhow::Result<Option<EventId>> {
         let row: Option<OrderKey> = sqlx::query_as(ReconQuery::last_key(ReconType::Event))
             .bind(left_fencepost.as_bytes())
             .bind(right_fencepost.as_bytes())
@@ -469,7 +477,7 @@ impl recon::Store for EventStorePostgres {
         &self,
         left_fencepost: &EventId,
         right_fencepost: &EventId,
-    ) -> Result<Option<(EventId, EventId)>> {
+    ) -> anyhow::Result<Option<(EventId, EventId)>> {
         let row: Option<FirstAndLast> = sqlx::query_as(ReconQuery::first_and_last(
             ReconType::Event,
             SqlBackend::Postgres,
@@ -491,12 +499,15 @@ impl recon::Store for EventStorePostgres {
     }
 
     #[instrument(skip(self))]
-    async fn value_for_key(&self, key: &EventId) -> Result<Option<Vec<u8>>> {
-        self.value_for_key_int(key).await
+    async fn value_for_key(&self, key: &EventId) -> anyhow::Result<Option<Vec<u8>>> {
+        Ok(self.value_for_key_int(key).await?)
     }
 
     #[instrument(skip(self))]
-    async fn keys_with_missing_values(&self, range: RangeOpen<EventId>) -> Result<Vec<EventId>> {
+    async fn keys_with_missing_values(
+        &self,
+        range: RangeOpen<EventId>,
+    ) -> anyhow::Result<Vec<EventId>> {
         if range.start >= range.end {
             return Ok(vec![]);
         };
@@ -510,14 +521,14 @@ impl recon::Store for EventStorePostgres {
                 .await?;
         Ok(row
             .into_iter()
-            .map(EventId::try_from)
-            .collect::<Result<Vec<EventId>, EventIdError>>()?)
+            .map(|k| EventId::try_from(k).map_err(|e| StoreError::new_app(anyhow!(e))))
+            .collect::<StoreResult<Vec<EventId>>>()?)
     }
 }
 
 #[async_trait]
 impl iroh_bitswap::Store for EventStorePostgres {
-    async fn get_size(&self, cid: &Cid) -> Result<usize> {
+    async fn get_size(&self, cid: &Cid) -> anyhow::Result<usize> {
         Ok(sqlx::query(BlockQuery::length())
             .bind(cid.hash().to_bytes())
             .fetch_one(self.pool.reader())
@@ -525,7 +536,7 @@ impl iroh_bitswap::Store for EventStorePostgres {
             .get::<'_, i32, _>(0) as usize)
     }
 
-    async fn get(&self, cid: &Cid) -> Result<Block> {
+    async fn get(&self, cid: &Cid) -> anyhow::Result<Block> {
         let block: BlockBytes = sqlx::query_as(BlockQuery::get())
             .bind(cid.hash().to_bytes())
             .fetch_one(self.pool.reader())
@@ -533,7 +544,7 @@ impl iroh_bitswap::Store for EventStorePostgres {
         Ok(Block::new(block.bytes.into(), cid.to_owned()))
     }
 
-    async fn has(&self, cid: &Cid) -> Result<bool> {
+    async fn has(&self, cid: &Cid) -> anyhow::Result<bool> {
         let len = sqlx::query(BlockQuery::has())
             .bind(cid.hash().to_bytes())
             .fetch_one(self.pool.reader())
@@ -542,7 +553,7 @@ impl iroh_bitswap::Store for EventStorePostgres {
         Ok(len)
     }
 
-    async fn put(&self, block: &Block) -> Result<bool> {
+    async fn put(&self, block: &Block) -> anyhow::Result<bool> {
         Ok(self.put_block(block.cid().hash(), block.data()).await?)
     }
 }
@@ -555,9 +566,10 @@ impl iroh_bitswap::Store for EventStorePostgres {
 /// This guarantees that regardless of entry point (api or recon), the data is stored and retrieved in the same way.
 #[async_trait::async_trait]
 impl ceramic_api::AccessModelStore for EventStorePostgres {
-    async fn insert(&self, key: EventId, value: Option<Vec<u8>>) -> Result<(bool, bool)> {
-        self.insert_item(&ReconItem::new(&key, value.as_deref()))
-            .await
+    async fn insert(&self, key: EventId, value: Option<Vec<u8>>) -> anyhow::Result<(bool, bool)> {
+        Ok(self
+            .insert_item(&ReconItem::new(&key, value.as_deref()))
+            .await?)
     }
 
     async fn range_with_values(
@@ -566,14 +578,14 @@ impl ceramic_api::AccessModelStore for EventStorePostgres {
         end: &EventId,
         offset: usize,
         limit: usize,
-    ) -> Result<Vec<(EventId, Vec<u8>)>> {
+    ) -> anyhow::Result<Vec<(EventId, Vec<u8>)>> {
         let res = self
             .range_with_values_int(start, end, offset, limit)
             .await?;
         Ok(res.collect())
     }
-    async fn value_for_key(&self, key: &EventId) -> Result<Option<Vec<u8>>> {
-        self.value_for_key_int(key).await
+    async fn value_for_key(&self, key: &EventId) -> anyhow::Result<Option<Vec<u8>>> {
+        Ok(self.value_for_key_int(key).await?)
     }
 
     async fn keys_since_highwater_mark(
@@ -581,6 +593,6 @@ impl ceramic_api::AccessModelStore for EventStorePostgres {
         highwater: i64,
         limit: i64,
     ) -> anyhow::Result<(i64, Vec<EventId>)> {
-        self.new_keys_since_value(highwater, limit).await
+        Ok(self.new_keys_since_value(highwater, limit).await?)
     }
 }

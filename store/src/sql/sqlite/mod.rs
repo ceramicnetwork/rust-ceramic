@@ -6,7 +6,6 @@ pub use interest::InterestStoreSqlite;
 
 use std::{path::PathBuf, str::FromStr};
 
-use anyhow::Result;
 use chrono::{SecondsFormat, Utc};
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
@@ -14,7 +13,7 @@ use sqlx::{
 };
 use tracing::info;
 
-use crate::Migrations;
+use crate::{Migrations, StoreResult};
 
 /// A trivial wrapper around a sqlx Sqlite database transaction
 pub type DbTxSqlite<'a> = Transaction<'a, Sqlite>;
@@ -30,7 +29,7 @@ pub struct SqlitePool {
 impl SqlitePool {
     /// Connect to the sqlite database at the given path. Creates the database if it does not exist.
     /// Uses WAL journal mode.
-    pub async fn connect(path: &str, migrate: Migrations) -> anyhow::Result<Self> {
+    pub async fn connect(path: &str, migrate: Migrations) -> StoreResult<Self> {
         // As we benchmark, we will likely adjust settings and make things configurable.
         // A few ideas: number of RO connections, synchronize = NORMAL, mmap_size, temp_store = memory
         let conn_opts = SqliteConnectOptions::from_str(path)?
@@ -55,7 +54,10 @@ impl SqlitePool {
             .await?;
 
         if migrate == Migrations::Apply {
-            sqlx::migrate!("../migrations/sqlite").run(&writer).await?;
+            sqlx::migrate!("../migrations/sqlite")
+                .run(&writer)
+                .await
+                .map_err(sqlx::Error::from)?;
         }
 
         Ok(Self { writer, reader })
@@ -63,7 +65,7 @@ impl SqlitePool {
 
     /// Creates an in-memory database. Useful for testing. Automatically applies migrations since all memory databases start empty
     /// and are not shared between connections.
-    pub async fn connect_in_memory() -> anyhow::Result<Self> {
+    pub async fn connect_in_memory() -> StoreResult<Self> {
         SqlitePool::connect(":memory:", Migrations::Apply).await
     }
 
@@ -75,7 +77,7 @@ impl SqlitePool {
 
     /// Get a writer tranaction. The writer pool has only one connection so this is an exclusive lock.
     /// Use this method to perform simultaneous writes to the database, calling `commit` when you are done.
-    pub async fn tx(&self) -> anyhow::Result<DbTxSqlite> {
+    pub async fn tx(&self) -> StoreResult<DbTxSqlite> {
         Ok(self.writer.begin().await?)
     }
 
@@ -85,7 +87,7 @@ impl SqlitePool {
     }
 
     /// Run an arbitrary SQL statement on the writer pool.
-    pub async fn run_statement(&self, statement: &str) -> Result<(), sqlx::Error> {
+    pub async fn run_statement(&self, statement: &str) -> StoreResult<()> {
         let _res = sqlx::query(statement).execute(self.writer()).await?;
         Ok(())
     }
@@ -96,7 +98,7 @@ impl SqlitePool {
     pub async fn from_store_dir(
         store_dir: Option<PathBuf>,
         migrate: Migrations,
-    ) -> Result<Self, anyhow::Error> {
+    ) -> StoreResult<Self> {
         let home: PathBuf = dirs::home_dir().unwrap_or("/data/".into());
         let store_dir = store_dir.unwrap_or(home.join(".ceramic-one/"));
         info!(
