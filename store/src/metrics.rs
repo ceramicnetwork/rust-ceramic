@@ -1,6 +1,5 @@
 use std::time::Duration;
 
-use anyhow::Result;
 use async_trait::async_trait;
 use ceramic_core::{EventId, Interest, RangeOpen};
 use ceramic_metrics::{register, Recorder};
@@ -14,7 +13,7 @@ use prometheus_client::{
     },
     registry::Registry,
 };
-use recon::{AssociativeHash, HashCount, InsertResult, ReconItem};
+use recon::{AssociativeHash, HashCount, InsertResult, ReconItem, ReconResult};
 use tokio::time::Instant;
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -159,7 +158,7 @@ impl<S> ceramic_api::AccessInterestStore for StoreMetricsMiddleware<S>
 where
     S: ceramic_api::AccessInterestStore,
 {
-    async fn insert(&self, key: Interest) -> Result<bool> {
+    async fn insert(&self, key: Interest) -> anyhow::Result<bool> {
         let new = StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "interest_insert",
@@ -175,7 +174,7 @@ where
         end: &Interest,
         offset: usize,
         limit: usize,
-    ) -> Result<Vec<Interest>> {
+    ) -> anyhow::Result<Vec<Interest>> {
         StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "interest_range",
@@ -190,7 +189,7 @@ impl<S> ceramic_api::AccessModelStore for StoreMetricsMiddleware<S>
 where
     S: ceramic_api::AccessModelStore,
 {
-    async fn insert(&self, key: EventId, value: Option<Vec<u8>>) -> Result<(bool, bool)> {
+    async fn insert(&self, key: EventId, value: Option<Vec<u8>>) -> anyhow::Result<(bool, bool)> {
         let (new_key, new_val) = StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "model_insert",
@@ -207,22 +206,22 @@ where
         end: &EventId,
         offset: usize,
         limit: usize,
-    ) -> Result<Vec<(EventId, Vec<u8>)>> {
-        StoreMetricsMiddleware::<S>::record(
+    ) -> anyhow::Result<Vec<(EventId, Vec<u8>)>> {
+        Ok(StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "model_range_with_values",
             self.store.range_with_values(start, end, offset, limit),
         )
-        .await
+        .await?)
     }
 
-    async fn value_for_key(&self, key: &EventId) -> Result<Option<Vec<u8>>> {
-        StoreMetricsMiddleware::<S>::record(
+    async fn value_for_key(&self, key: &EventId) -> anyhow::Result<Option<Vec<u8>>> {
+        Ok(StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "model_value_for_key",
             self.store.value_for_key(key),
         )
-        .await
+        .await?)
     }
 
     async fn keys_since_highwater_mark(
@@ -249,7 +248,7 @@ where
     type Key = K;
     type Hash = H;
 
-    async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> Result<bool> {
+    async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> ReconResult<bool> {
         let new_val = item.value.is_some();
         let new =
             StoreMetricsMiddleware::<S>::record(&self.metrics, "insert", self.store.insert(item))
@@ -258,7 +257,7 @@ where
         Ok(new)
     }
 
-    async fn insert_many(&self, items: &[ReconItem<'_, K>]) -> Result<InsertResult> {
+    async fn insert_many(&self, items: &[ReconItem<'_, K>]) -> ReconResult<InsertResult> {
         let res = StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "insert_many",
@@ -284,7 +283,7 @@ where
         &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
-    ) -> Result<HashCount<Self::Hash>> {
+    ) -> ReconResult<HashCount<Self::Hash>> {
         StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "hash_range",
@@ -299,7 +298,7 @@ where
         right_fencepost: &Self::Key,
         offset: usize,
         limit: usize,
-    ) -> Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
+    ) -> ReconResult<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
         StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "range",
@@ -314,7 +313,7 @@ where
         right_fencepost: &Self::Key,
         offset: usize,
         limit: usize,
-    ) -> Result<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>> {
+    ) -> ReconResult<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>> {
         StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "range_with_values",
@@ -324,7 +323,9 @@ where
         .await
     }
 
-    async fn full_range(&self) -> Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
+    async fn full_range(
+        &self,
+    ) -> ReconResult<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
         StoreMetricsMiddleware::<S>::record(&self.metrics, "full_range", self.store.full_range())
             .await
     }
@@ -333,7 +334,7 @@ where
         &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
-    ) -> Result<Option<Self::Key>> {
+    ) -> ReconResult<Option<Self::Key>> {
         StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "middle",
@@ -345,7 +346,7 @@ where
         &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
-    ) -> Result<usize> {
+    ) -> ReconResult<usize> {
         StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "count",
@@ -357,7 +358,7 @@ where
         &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
-    ) -> Result<Option<Self::Key>> {
+    ) -> ReconResult<Option<Self::Key>> {
         StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "first",
@@ -369,7 +370,7 @@ where
         &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
-    ) -> Result<Option<Self::Key>> {
+    ) -> ReconResult<Option<Self::Key>> {
         StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "last",
@@ -382,7 +383,7 @@ where
         &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
-    ) -> Result<Option<(Self::Key, Self::Key)>> {
+    ) -> ReconResult<Option<(Self::Key, Self::Key)>> {
         StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "first_and_last",
@@ -391,15 +392,15 @@ where
         .await
     }
 
-    async fn len(&self) -> Result<usize> {
+    async fn len(&self) -> ReconResult<usize> {
         StoreMetricsMiddleware::<S>::record(&self.metrics, "len", self.store.len()).await
     }
 
-    async fn is_empty(&self) -> Result<bool> {
+    async fn is_empty(&self) -> ReconResult<bool> {
         StoreMetricsMiddleware::<S>::record(&self.metrics, "is_empty", self.store.is_empty()).await
     }
 
-    async fn value_for_key(&self, key: &Self::Key) -> Result<Option<Vec<u8>>> {
+    async fn value_for_key(&self, key: &Self::Key) -> ReconResult<Option<Vec<u8>>> {
         StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "value_for_key",
@@ -410,7 +411,7 @@ where
     async fn keys_with_missing_values(
         &self,
         range: RangeOpen<Self::Key>,
-    ) -> Result<Vec<Self::Key>> {
+    ) -> ReconResult<Vec<Self::Key>> {
         StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "keys_with_missing_values",

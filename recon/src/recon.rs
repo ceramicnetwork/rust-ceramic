@@ -4,13 +4,13 @@ pub mod tests;
 
 use std::{fmt::Display, marker::PhantomData};
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::anyhow;
 use async_trait::async_trait;
 use ceramic_core::{EventId, Interest, PeerId, RangeOpen};
 use serde::{Deserialize, Serialize};
 use tracing::trace;
 
-use crate::{Client, Metrics, Sha256a};
+use crate::{error::ReconError, Client, Metrics, ReconResult, Sha256a};
 
 /// Recon is a protocol for set reconciliation via a message passing paradigm.
 /// An initial message can be created and then messages are exchanged between two Recon instances
@@ -57,7 +57,7 @@ where
     pub async fn process_interests(
         &self,
         remote_interests: &[RangeOpen<K>],
-    ) -> Result<Vec<RangeOpen<K>>> {
+    ) -> ReconResult<Vec<RangeOpen<K>>> {
         // Find the intersection of interests.
         // Then reply with a message per intersection.
         //
@@ -66,7 +66,11 @@ where
         // Potentially we could use a variant of https://en.wikipedia.org/wiki/Bounding_volume_hierarchy
         // to quickly find intersections.
         let mut intersections = Vec::with_capacity(remote_interests.len() * 2);
-        for local_range in self.interests().await.context("interest local_range")? {
+        for local_range in self
+            .interests()
+            .await
+            .map_err(|e| e.context("interest local_range"))?
+        {
             for remote_range in remote_interests {
                 if let Some(intersection) = local_range.intersect(remote_range) {
                     intersections.push(intersection)
@@ -76,12 +80,12 @@ where
         Ok(intersections)
     }
     /// Compute the hash of the keys within the range.
-    pub async fn initial_range(&self, interest: RangeOpen<K>) -> Result<Range<K, H>> {
+    pub async fn initial_range(&self, interest: RangeOpen<K>) -> ReconResult<Range<K, H>> {
         let hash = self
             .store
             .hash_range(&interest.start, &interest.end)
             .await
-            .context("initial_range hash_range")?;
+            .map_err(|e| e.context("initial_range hash_range"))?;
         Ok(Range {
             first: interest.start,
             hash,
@@ -92,7 +96,10 @@ where
     ///
     /// Reports any new keys and what the range indicates about how the local and remote node are
     /// synchronized.
-    pub async fn process_range(&self, range: Range<K, H>) -> Result<(SyncState<K, H>, Vec<K>)> {
+    pub async fn process_range(
+        &self,
+        range: Range<K, H>,
+    ) -> ReconResult<(SyncState<K, H>, Vec<K>)> {
         let mut should_add = Vec::with_capacity(2);
         let mut new_keys = Vec::with_capacity(2);
 
@@ -124,7 +131,7 @@ where
             self.store
                 .hash_range(&range.first, &range.last)
                 .await
-                .context("hash_range")?
+                .map_err(|e| e.context("hash_range"))?
         };
         if calculated_hash == range.hash {
             Ok((SyncState::Synchronized { range }, new_keys))
@@ -165,14 +172,18 @@ where
                     ranges: self
                         .compute_splits(range, calculated_hash.count)
                         .await
-                        .context("compute_splits")?,
+                        .map_err(|e| e.context("compute_splits"))?,
                 },
                 new_keys,
             ))
         }
     }
 
-    async fn compute_splits(&self, range: Range<K, H>, count: u64) -> Result<Vec<Range<K, H>>> {
+    async fn compute_splits(
+        &self,
+        range: Range<K, H>,
+        count: u64,
+    ) -> ReconResult<Vec<Range<K, H>>> {
         // If the number of keys in a range is <= SPLIT_THRESHOLD then directly send all the keys.
         const SPLIT_THRESHOLD: u64 = 4;
 
@@ -235,42 +246,42 @@ where
                     },
                 ])
             } else {
-                bail!("unable to find a split key")
+                Err(ReconError::new_app(anyhow!("unable to find a split key")))
             }
         }
     }
 
     /// Retrieve a value associated with a recon key
-    pub async fn value_for_key(&self, key: K) -> Result<Option<Vec<u8>>> {
+    pub async fn value_for_key(&self, key: K) -> ReconResult<Option<Vec<u8>>> {
         self.store.value_for_key(&key).await
     }
 
     /// Insert key into the key space. Includes an optional value.
     /// Returns a boolean (true) indicating if the key was new.
-    pub async fn insert(&self, item: &ReconItem<'_, K>) -> Result<bool> {
+    pub async fn insert(&self, item: &ReconItem<'_, K>) -> ReconResult<bool> {
         self.store.insert(item).await
     }
     /// Report all keys in the range that are missing a value
-    pub async fn keys_with_missing_values(&self, range: RangeOpen<K>) -> Result<Vec<K>> {
+    pub async fn keys_with_missing_values(&self, range: RangeOpen<K>) -> ReconResult<Vec<K>> {
         self.store.keys_with_missing_values(range).await
     }
 
     /// Insert many keys into the key space. Includes an optional value for each key.
     /// Returns an array with a boolean for each key indicating if the key was new.
     /// The order is the same as the order of the keys. True means new, false means not new.
-    pub async fn insert_many(&self, items: &[ReconItem<'_, K>]) -> Result<Vec<bool>> {
+    pub async fn insert_many(&self, items: &[ReconItem<'_, K>]) -> ReconResult<Vec<bool>> {
         let result = self.store.insert_many(items).await?;
 
         Ok(result.keys)
     }
 
     /// Reports total number of keys
-    pub async fn len(&self) -> Result<usize> {
+    pub async fn len(&self) -> ReconResult<usize> {
         self.store.len().await
     }
 
     /// Reports if the set is empty
-    pub async fn is_empty(&self) -> Result<bool> {
+    pub async fn is_empty(&self) -> ReconResult<bool> {
         self.store.is_empty().await
     }
 
@@ -284,7 +295,7 @@ where
         right_fencepost: &K,
         offset: usize,
         limit: usize,
-    ) -> Result<Box<dyn Iterator<Item = K> + Send + 'static>> {
+    ) -> ReconResult<Box<dyn Iterator<Item = K> + Send + 'static>> {
         self.store
             .range(left_fencepost, right_fencepost, offset, limit)
             .await
@@ -300,19 +311,19 @@ where
         right_fencepost: &K,
         offset: usize,
         limit: usize,
-    ) -> Result<Box<dyn Iterator<Item = (K, Vec<u8>)> + Send + 'static>> {
+    ) -> ReconResult<Box<dyn Iterator<Item = (K, Vec<u8>)> + Send + 'static>> {
         self.store
             .range_with_values(left_fencepost, right_fencepost, offset, limit)
             .await
     }
 
     /// Return all keys.
-    pub async fn full_range(&self) -> Result<Box<dyn Iterator<Item = K> + Send + 'static>> {
+    pub async fn full_range(&self) -> ReconResult<Box<dyn Iterator<Item = K> + Send + 'static>> {
         self.store.full_range().await
     }
 
     /// Return the interests
-    pub async fn interests(&self) -> Result<Vec<RangeOpen<K>>> {
+    pub async fn interests(&self) -> ReconResult<Vec<RangeOpen<K>>> {
         self.interests.interests().await
     }
 }
@@ -445,12 +456,12 @@ pub trait Store {
 
     /// Insert a new key into the key space. Returns true if the key did not exist.
     /// The value will be updated if included
-    async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> Result<bool>;
+    async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> ReconResult<bool>;
 
     /// Insert new keys into the key space.
     /// Returns true for each key if it did not previously exist, in the
     /// same order as the input iterator.
-    async fn insert_many(&self, items: &[ReconItem<'_, Self::Key>]) -> Result<InsertResult>;
+    async fn insert_many(&self, items: &[ReconItem<'_, Self::Key>]) -> ReconResult<InsertResult>;
 
     /// Return the hash of all keys in the range between left_fencepost and right_fencepost.
     /// Both range bounds are exclusive.
@@ -459,7 +470,7 @@ pub trait Store {
         &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
-    ) -> Result<HashCount<Self::Hash>>;
+    ) -> ReconResult<HashCount<Self::Hash>>;
 
     /// Return all keys in the range between left_fencepost and right_fencepost.
     /// Both range bounds are exclusive.
@@ -471,7 +482,7 @@ pub trait Store {
         right_fencepost: &Self::Key,
         offset: usize,
         limit: usize,
-    ) -> Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>>;
+    ) -> ReconResult<Box<dyn Iterator<Item = Self::Key> + Send + 'static>>;
 
     /// Return all keys and values in the range between left_fencepost and right_fencepost.
     /// Both range bounds are exclusive.
@@ -483,10 +494,12 @@ pub trait Store {
         right_fencepost: &Self::Key,
         offset: usize,
         limit: usize,
-    ) -> Result<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>>;
+    ) -> ReconResult<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>>;
 
     /// Return all keys.
-    async fn full_range(&self) -> Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
+    async fn full_range(
+        &self,
+    ) -> ReconResult<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
         self.range(
             &Self::Key::min_value(),
             &Self::Key::max_value(),
@@ -504,7 +517,7 @@ pub trait Store {
         &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
-    ) -> Result<Option<Self::Key>> {
+    ) -> ReconResult<Option<Self::Key>> {
         let count = self.count(left_fencepost, right_fencepost).await?;
         if count == 0 {
             Ok(None)
@@ -520,7 +533,7 @@ pub trait Store {
         &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
-    ) -> Result<usize> {
+    ) -> ReconResult<usize> {
         Ok(self
             .range(left_fencepost, right_fencepost, 0, usize::MAX)
             .await?
@@ -531,7 +544,7 @@ pub trait Store {
         &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
-    ) -> Result<Option<Self::Key>> {
+    ) -> ReconResult<Option<Self::Key>> {
         Ok(self
             .range(left_fencepost, right_fencepost, 0, 1)
             .await?
@@ -542,7 +555,7 @@ pub trait Store {
         &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
-    ) -> Result<Option<Self::Key>> {
+    ) -> ReconResult<Option<Self::Key>> {
         Ok(self
             .range(left_fencepost, right_fencepost, 0, usize::MAX)
             .await?
@@ -555,7 +568,7 @@ pub trait Store {
         &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
-    ) -> Result<Option<(Self::Key, Self::Key)>> {
+    ) -> ReconResult<Option<(Self::Key, Self::Key)>> {
         let mut range = self
             .range(left_fencepost, right_fencepost, 0, usize::MAX)
             .await?;
@@ -572,12 +585,12 @@ pub trait Store {
     }
 
     /// Reports total number of keys
-    async fn len(&self) -> Result<usize> {
+    async fn len(&self) -> ReconResult<usize> {
         self.count(&Self::Key::min_value(), &Self::Key::max_value())
             .await
     }
     /// Reports of there are no keys stored.
-    async fn is_empty(&self) -> Result<bool> {
+    async fn is_empty(&self) -> ReconResult<bool> {
         Ok(self.len().await? == 0)
     }
 
@@ -585,11 +598,13 @@ pub trait Store {
     /// Ok(Some(value)) if stored,
     /// Ok(None) if not stored, and
     /// Err(e) if retrieving failed.
-    async fn value_for_key(&self, key: &Self::Key) -> Result<Option<Vec<u8>>>;
+    async fn value_for_key(&self, key: &Self::Key) -> ReconResult<Option<Vec<u8>>>;
 
     /// Report all keys in the range that are missing a value.
-    async fn keys_with_missing_values(&self, range: RangeOpen<Self::Key>)
-        -> Result<Vec<Self::Key>>;
+    async fn keys_with_missing_values(
+        &self,
+        range: RangeOpen<Self::Key>,
+    ) -> ReconResult<Vec<Self::Key>>;
 }
 
 #[async_trait::async_trait]
@@ -602,11 +617,11 @@ where
     type Key = K;
     type Hash = H;
 
-    async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> Result<bool> {
+    async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> ReconResult<bool> {
         self.as_ref().insert(item).await
     }
 
-    async fn insert_many(&self, items: &[ReconItem<'_, Self::Key>]) -> Result<InsertResult> {
+    async fn insert_many(&self, items: &[ReconItem<'_, Self::Key>]) -> ReconResult<InsertResult> {
         self.as_ref().insert_many(items).await
     }
 
@@ -614,7 +629,7 @@ where
         &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
-    ) -> Result<HashCount<Self::Hash>> {
+    ) -> ReconResult<HashCount<Self::Hash>> {
         self.as_ref()
             .hash_range(left_fencepost, right_fencepost)
             .await
@@ -626,7 +641,7 @@ where
         right_fencepost: &Self::Key,
         offset: usize,
         limit: usize,
-    ) -> Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
+    ) -> ReconResult<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
         self.as_ref()
             .range(left_fencepost, right_fencepost, offset, limit)
             .await
@@ -638,20 +653,20 @@ where
         right_fencepost: &Self::Key,
         offset: usize,
         limit: usize,
-    ) -> Result<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>> {
+    ) -> ReconResult<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>> {
         self.as_ref()
             .range_with_values(left_fencepost, right_fencepost, offset, limit)
             .await
     }
 
-    async fn value_for_key(&self, key: &Self::Key) -> Result<Option<Vec<u8>>> {
+    async fn value_for_key(&self, key: &Self::Key) -> ReconResult<Option<Vec<u8>>> {
         self.as_ref().value_for_key(key).await
     }
 
     async fn keys_with_missing_values(
         &self,
         range: RangeOpen<Self::Key>,
-    ) -> Result<Vec<Self::Key>> {
+    ) -> ReconResult<Vec<Self::Key>> {
         self.as_ref().keys_with_missing_values(range).await
     }
 }
@@ -768,7 +783,7 @@ pub trait InterestProvider {
     /// The type of Key over which we are interested.
     type Key: Key;
     /// Report a set of interests.
-    async fn interests(&self) -> Result<Vec<RangeOpen<Self::Key>>>;
+    async fn interests(&self) -> ReconResult<Vec<RangeOpen<Self::Key>>>;
 }
 
 /// InterestProvider that is interested in everything.
@@ -785,7 +800,7 @@ impl<K> Default for FullInterests<K> {
 impl<K: Key> InterestProvider for FullInterests<K> {
     type Key = K;
 
-    async fn interests(&self) -> Result<Vec<RangeOpen<K>>> {
+    async fn interests(&self) -> ReconResult<Vec<RangeOpen<K>>> {
         Ok(vec![(K::min_value(), K::max_value()).into()])
     }
 }
@@ -831,19 +846,25 @@ where
 {
     type Key = EventId;
 
-    async fn interests(&self) -> Result<Vec<RangeOpen<EventId>>> {
+    async fn interests(&self) -> ReconResult<Vec<RangeOpen<EventId>>> {
         self.recon
             .range(self.start.clone(), self.end.clone(), 0, usize::MAX)
             .await?
             .map(|interest| {
                 if let Some(RangeOpen { start, end }) = interest.range() {
-                    let range = (EventId::try_from(start)?, EventId::try_from(end)?).into();
+                    let start =
+                        EventId::try_from(start).map_err(|e| ReconError::new_app(anyhow!(e)))?;
+                    let end =
+                        EventId::try_from(end).map_err(|e| ReconError::new_app(anyhow!(e)))?;
+                    let range = (start, end).into();
                     Ok(range)
                 } else {
-                    Err(anyhow!("stored interest does not contain a range"))
+                    Err(ReconError::new_app(anyhow!(
+                        "stored interest does not contain a range"
+                    )))
                 }
             })
-            .collect::<Result<Vec<RangeOpen<EventId>>>>()
+            .collect::<ReconResult<Vec<RangeOpen<EventId>>>>()
     }
 }
 

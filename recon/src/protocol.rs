@@ -32,7 +32,7 @@ use crate::{
         RangeEnqueueFailed, RangeEnqueued, WantDequeued, WantEnqueueFailed, WantEnqueued,
     },
     recon::{Range, SyncState},
-    AssociativeHash, Client, Key,
+    AssociativeHash, Client, Key, ReconResult,
 };
 
 // Number of want value requests to buffer.
@@ -971,7 +971,7 @@ pub trait Recon: Clone + Send + Sync + 'static {
     type Hash: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>;
 
     /// Insert a new key into the key space.
-    async fn insert(&self, key: Self::Key, value: Option<Vec<u8>>) -> Result<()>;
+    async fn insert(&self, key: Self::Key, value: Option<Vec<u8>>) -> ReconResult<()>;
 
     /// Get all keys in the specified range
     async fn range(
@@ -980,43 +980,45 @@ pub trait Recon: Clone + Send + Sync + 'static {
         right_fencepost: Self::Key,
         offset: usize,
         limit: usize,
-    ) -> Result<Vec<Self::Key>>;
+    ) -> ReconResult<Vec<Self::Key>>;
 
     /// Reports total number of keys
-    async fn len(&self) -> Result<usize>;
+    async fn len(&self) -> ReconResult<usize>;
 
     /// Reports if the set is empty.
-    async fn is_empty(&self) -> Result<bool> {
+    async fn is_empty(&self) -> ReconResult<bool> {
         Ok(self.len().await? == 0)
     }
 
     /// Retrieve a value associated with a recon key
-    async fn value_for_key(&self, key: Self::Key) -> Result<Option<Vec<u8>>>;
+    async fn value_for_key(&self, key: Self::Key) -> ReconResult<Option<Vec<u8>>>;
 
     /// Report all keys in the range that are missing a value
-    async fn keys_with_missing_values(&self, range: RangeOpen<Self::Key>)
-        -> Result<Vec<Self::Key>>;
+    async fn keys_with_missing_values(
+        &self,
+        range: RangeOpen<Self::Key>,
+    ) -> ReconResult<Vec<Self::Key>>;
 
     /// Reports the interests of this recon instance
-    async fn interests(&self) -> Result<Vec<RangeOpen<Self::Key>>>;
+    async fn interests(&self) -> ReconResult<Vec<RangeOpen<Self::Key>>>;
 
     /// Computes the intersection of input interests with the local interests
     async fn process_interests(
         &self,
         interests: Vec<RangeOpen<Self::Key>>,
-    ) -> Result<Vec<RangeOpen<Self::Key>>>;
+    ) -> ReconResult<Vec<RangeOpen<Self::Key>>>;
 
     /// Compute an initial hash for the range
     async fn initial_range(
         &self,
         interest: RangeOpen<Self::Key>,
-    ) -> Result<Range<Self::Key, Self::Hash>>;
+    ) -> ReconResult<Range<Self::Key, Self::Hash>>;
 
     /// Computes a response to a remote range
     async fn process_range(
         &self,
         range: Range<Self::Key, Self::Hash>,
-    ) -> Result<(SyncState<Self::Key, Self::Hash>, Vec<Self::Key>)>;
+    ) -> ReconResult<(SyncState<Self::Key, Self::Hash>, Vec<Self::Key>)>;
 
     /// Create a handle to the metrics
     fn metrics(&self) -> Metrics;
@@ -1031,7 +1033,7 @@ where
     type Key = K;
     type Hash = H;
 
-    async fn insert(&self, key: Self::Key, value: Option<Vec<u8>>) -> Result<()> {
+    async fn insert(&self, key: Self::Key, value: Option<Vec<u8>>) -> ReconResult<()> {
         let _ = Client::insert(self, key, value).await?;
         Ok(())
     }
@@ -1042,7 +1044,7 @@ where
         right_fencepost: Self::Key,
         offset: usize,
         limit: usize,
-    ) -> Result<Vec<Self::Key>> {
+    ) -> ReconResult<Vec<Self::Key>> {
         Ok(
             Client::range(self, left_fencepost, right_fencepost, offset, limit)
                 .await?
@@ -1050,40 +1052,40 @@ where
         )
     }
 
-    async fn len(&self) -> Result<usize> {
+    async fn len(&self) -> ReconResult<usize> {
         Client::len(self).await
     }
 
-    async fn value_for_key(&self, key: Self::Key) -> Result<Option<Vec<u8>>> {
+    async fn value_for_key(&self, key: Self::Key) -> ReconResult<Option<Vec<u8>>> {
         Client::value_for_key(self, key).await
     }
     async fn keys_with_missing_values(
         &self,
         range: RangeOpen<Self::Key>,
-    ) -> Result<Vec<Self::Key>> {
+    ) -> ReconResult<Vec<Self::Key>> {
         Client::keys_with_missing_values(self, range).await
     }
-    async fn interests(&self) -> Result<Vec<RangeOpen<Self::Key>>> {
+    async fn interests(&self) -> ReconResult<Vec<RangeOpen<Self::Key>>> {
         Client::interests(self).await
     }
     async fn process_interests(
         &self,
         interests: Vec<RangeOpen<Self::Key>>,
-    ) -> Result<Vec<RangeOpen<Self::Key>>> {
+    ) -> ReconResult<Vec<RangeOpen<Self::Key>>> {
         Client::process_interests(self, interests).await
     }
 
     async fn initial_range(
         &self,
         interest: RangeOpen<Self::Key>,
-    ) -> Result<Range<Self::Key, Self::Hash>> {
+    ) -> ReconResult<Range<Self::Key, Self::Hash>> {
         Client::initial_range(self, interest).await
     }
 
     async fn process_range(
         &self,
         range: Range<Self::Key, Self::Hash>,
-    ) -> Result<(SyncState<Self::Key, Self::Hash>, Vec<Self::Key>)> {
+    ) -> ReconResult<(SyncState<Self::Key, Self::Hash>, Vec<Self::Key>)> {
         Client::process_range(self, range).await
     }
     fn metrics(&self) -> Metrics {

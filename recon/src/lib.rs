@@ -3,6 +3,7 @@
 
 pub use crate::{
     client::{Client, Server},
+    error::ReconError,
     metrics::Metrics,
     recon::{
         btreestore::BTreeStore, AssociativeHash, EventIdStore, FullInterests, HashCount,
@@ -19,5 +20,9 @@ pub mod protocol;
 mod recon;
 mod sha256a;
 
+mod error;
 #[cfg(test)]
 mod tests;
+
+/// A result type that wraps a recon Error
+pub type ReconResult<T> = Result<T, ReconError>;

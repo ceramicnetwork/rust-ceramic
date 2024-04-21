@@ -1,9 +1,11 @@
 #![warn(missing_docs, missing_debug_implementations, clippy::all)]
 
-use anyhow::{anyhow, Context};
+use anyhow::anyhow;
 use async_trait::async_trait;
 use ceramic_core::{Interest, RangeOpen};
-use recon::{AssociativeHash, HashCount, InsertResult, Key, ReconItem, Sha256a};
+use recon::{
+    AssociativeHash, HashCount, InsertResult, Key, ReconError, ReconItem, ReconResult, Sha256a,
+};
 use sqlx::Row;
 use tracing::instrument;
 
@@ -130,11 +132,13 @@ impl recon::Store for InterestStoreSqlite {
     type Hash = Sha256a;
 
     /// Returns true if the key was new. The value is always updated if included
-    async fn insert(&self, item: &ReconItem<'_, Interest>) -> anyhow::Result<bool> {
+    async fn insert(&self, item: &ReconItem<'_, Interest>) -> ReconResult<bool> {
         // interests don't have values, if someone gives us something we throw an error but allow None/vec![]
         if let Some(val) = item.value {
             if !val.is_empty() {
-                return Err(anyhow!("Interests do not support values! Invalid request."));
+                return Err(ReconError::new_app(anyhow!(
+                    "Interests do not support values! Invalid request."
+                )));
             }
         }
         Ok(self.insert_item(item.key).await?)
@@ -142,13 +146,13 @@ impl recon::Store for InterestStoreSqlite {
 
     /// Insert new keys into the key space.
     /// Returns true if a key did not previously exist.
-    async fn insert_many(&self, items: &[ReconItem<'_, Interest>]) -> anyhow::Result<InsertResult> {
+    async fn insert_many(&self, items: &[ReconItem<'_, Interest>]) -> ReconResult<InsertResult> {
         match items.len() {
             0 => Ok(InsertResult::new(vec![], 0)),
             _ => {
                 let mut results = vec![false; items.len()];
                 let mut new_val_cnt = 0;
-                let mut tx = self.pool.writer().begin().await?;
+                let mut tx = self.pool.writer().begin().await.map_err(StoreError::from)?;
 
                 for (idx, item) in items.iter().enumerate() {
                     let new_key = self.insert_item_int(item.key, &mut tx).await?;
@@ -157,7 +161,7 @@ impl recon::Store for InterestStoreSqlite {
                         new_val_cnt += 1;
                     }
                 }
-                tx.commit().await?;
+                tx.commit().await.map_err(StoreError::from)?;
                 Ok(InsertResult::new(results, new_val_cnt))
             }
         }
@@ -169,7 +173,7 @@ impl recon::Store for InterestStoreSqlite {
         &self,
         left_fencepost: &Interest,
         right_fencepost: &Interest,
-    ) -> anyhow::Result<HashCount<Self::Hash>> {
+    ) -> ReconResult<HashCount<Self::Hash>> {
         if left_fencepost >= right_fencepost {
             return Ok(HashCount::new(Self::Hash::identity(), 0));
         }
@@ -182,7 +186,7 @@ impl recon::Store for InterestStoreSqlite {
         .bind(right_fencepost.as_bytes())
         .fetch_one(self.pool.reader())
         .await
-        .context("interest range")?;
+        .map_err(StoreError::from)?;
         let bytes = res.hash();
         Ok(HashCount::new(Self::Hash::from(bytes), res.count()))
     }
@@ -194,7 +198,7 @@ impl recon::Store for InterestStoreSqlite {
         right_fencepost: &Interest,
         offset: usize,
         limit: usize,
-    ) -> anyhow::Result<Box<dyn Iterator<Item = Interest> + Send + 'static>> {
+    ) -> ReconResult<Box<dyn Iterator<Item = Interest> + Send + 'static>> {
         Ok(self
             .range_int(left_fencepost, right_fencepost, offset, limit)
             .await?)
@@ -208,7 +212,7 @@ impl recon::Store for InterestStoreSqlite {
         right_fencepost: &Interest,
         offset: usize,
         limit: usize,
-    ) -> anyhow::Result<Box<dyn Iterator<Item = (Interest, Vec<u8>)> + Send + 'static>> {
+    ) -> ReconResult<Box<dyn Iterator<Item = (Interest, Vec<u8>)> + Send + 'static>> {
         let rows = self
             .range(left_fencepost, right_fencepost, offset, limit)
             .await?;
@@ -220,12 +224,13 @@ impl recon::Store for InterestStoreSqlite {
         &self,
         left_fencepost: &Interest,
         right_fencepost: &Interest,
-    ) -> anyhow::Result<usize> {
+    ) -> ReconResult<usize> {
         let row = sqlx::query(ReconQuery::count(ReconType::Interest, SqlBackend::Sqlite))
             .bind(left_fencepost.as_bytes())
             .bind(right_fencepost.as_bytes())
             .fetch_one(self.pool.reader())
-            .await?;
+            .await
+            .map_err(StoreError::from)?;
 
         Ok(row.get::<'_, i64, _>(0) as usize)
     }
@@ -236,19 +241,20 @@ impl recon::Store for InterestStoreSqlite {
         &self,
         left_fencepost: &Interest,
         right_fencepost: &Interest,
-    ) -> anyhow::Result<Option<Interest>> {
+    ) -> ReconResult<Option<Interest>> {
         let query = sqlx::query(ReconQuery::first_key(ReconType::Interest));
 
         let rows = query
             .bind(left_fencepost.as_bytes())
             .bind(right_fencepost.as_bytes())
             .fetch_all(self.pool.reader())
-            .await?;
+            .await
+            .map_err(StoreError::from)?;
         Ok(rows
             .first()
             .map(|row| {
                 let bytes: Vec<u8> = row.get(0);
-                Interest::try_from(bytes)
+                Interest::try_from(bytes).map_err(|e| ReconError::new_app(anyhow!(e)))
             })
             .transpose()?)
     }
@@ -258,18 +264,19 @@ impl recon::Store for InterestStoreSqlite {
         &self,
         left_fencepost: &Interest,
         right_fencepost: &Interest,
-    ) -> anyhow::Result<Option<Interest>> {
+    ) -> ReconResult<Option<Interest>> {
         let query = sqlx::query(ReconQuery::last_key(ReconType::Interest));
         let rows = query
             .bind(left_fencepost.as_bytes())
             .bind(right_fencepost.as_bytes())
             .fetch_all(self.pool.reader())
-            .await?;
+            .await
+            .map_err(StoreError::from)?;
         Ok(rows
             .first()
             .map(|row| {
                 let bytes: Vec<u8> = row.get(0);
-                Interest::try_from(bytes)
+                Interest::try_from(bytes).map_err(|e| ReconError::new_app(anyhow!(e)))
             })
             .transpose()?)
     }
@@ -279,7 +286,7 @@ impl recon::Store for InterestStoreSqlite {
         &self,
         left_fencepost: &Interest,
         right_fencepost: &Interest,
-    ) -> anyhow::Result<Option<(Interest, Interest)>> {
+    ) -> ReconResult<Option<(Interest, Interest)>> {
         let query = sqlx::query(ReconQuery::first_and_last(
             ReconType::Interest,
             SqlBackend::Sqlite,
@@ -288,12 +295,13 @@ impl recon::Store for InterestStoreSqlite {
             .bind(left_fencepost.as_bytes())
             .bind(right_fencepost.as_bytes())
             .fetch_all(self.pool.reader())
-            .await?;
+            .await
+            .map_err(|e| ReconError::new_app(anyhow!(e)))?;
         if let Some(row) = rows.first() {
             let f_bytes: Vec<u8> = row.get(0);
             let l_bytes: Vec<u8> = row.get(1);
-            let first = Interest::try_from(f_bytes)?;
-            let last = Interest::try_from(l_bytes)?;
+            let first = Interest::try_from(f_bytes).map_err(|e| ReconError::new_app(anyhow!(e)))?;
+            let last = Interest::try_from(l_bytes).map_err(|e| ReconError::new_app(anyhow!(e)))?;
             Ok(Some((first, last)))
         } else {
             Ok(None)
@@ -301,7 +309,7 @@ impl recon::Store for InterestStoreSqlite {
     }
 
     #[instrument(skip(self))]
-    async fn value_for_key(&self, _key: &Interest) -> anyhow::Result<Option<Vec<u8>>> {
+    async fn value_for_key(&self, _key: &Interest) -> ReconResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
@@ -309,7 +317,7 @@ impl recon::Store for InterestStoreSqlite {
     async fn keys_with_missing_values(
         &self,
         _range: RangeOpen<Interest>,
-    ) -> anyhow::Result<Vec<Interest>> {
+    ) -> ReconResult<Vec<Interest>> {
         Ok(vec![])
     }
 }

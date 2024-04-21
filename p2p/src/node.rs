@@ -1169,7 +1169,7 @@ mod tests {
     use futures::TryStreamExt;
     use rand::prelude::*;
     use rand_chacha::ChaCha8Rng;
-    use recon::{Range, Sha256a, SyncState};
+    use recon::{Range, ReconResult, Sha256a, SyncState};
     use ssh_key::private::Ed25519Keypair;
     use test_log::test;
 
@@ -1252,7 +1252,7 @@ mod tests {
         type Key = K;
         type Hash = Sha256a;
 
-        async fn insert(&self, _key: Self::Key, _value: Option<Vec<u8>>) -> Result<()> {
+        async fn insert(&self, _key: Self::Key, _value: Option<Vec<u8>>) -> ReconResult<()> {
             unreachable!()
         }
 
@@ -1262,45 +1262,45 @@ mod tests {
             _right_fencepost: Self::Key,
             _offset: usize,
             _limit: usize,
-        ) -> Result<Vec<Self::Key>> {
+        ) -> ReconResult<Vec<Self::Key>> {
             unreachable!()
         }
 
-        async fn len(&self) -> Result<usize> {
+        async fn len(&self) -> ReconResult<usize> {
             unreachable!()
         }
 
-        async fn value_for_key(&self, _key: Self::Key) -> Result<Option<Vec<u8>>> {
+        async fn value_for_key(&self, _key: Self::Key) -> ReconResult<Option<Vec<u8>>> {
             Ok(None)
         }
         async fn keys_with_missing_values(
             &self,
             _range: RangeOpen<Self::Key>,
-        ) -> Result<Vec<Self::Key>> {
+        ) -> ReconResult<Vec<Self::Key>> {
             unreachable!()
         }
-        async fn interests(&self) -> Result<Vec<RangeOpen<Self::Key>>> {
+        async fn interests(&self) -> ReconResult<Vec<RangeOpen<Self::Key>>> {
             unreachable!()
         }
 
         async fn process_interests(
             &self,
             _interests: Vec<RangeOpen<Self::Key>>,
-        ) -> Result<Vec<RangeOpen<Self::Key>>> {
+        ) -> ReconResult<Vec<RangeOpen<Self::Key>>> {
             unreachable!()
         }
 
         async fn initial_range(
             &self,
             _interest: RangeOpen<Self::Key>,
-        ) -> Result<Range<Self::Key, Self::Hash>> {
+        ) -> ReconResult<Range<Self::Key, Self::Hash>> {
             unreachable!()
         }
 
         async fn process_range(
             &self,
             _range: Range<Self::Key, Self::Hash>,
-        ) -> Result<(SyncState<Self::Key, Self::Hash>, Vec<Self::Key>)> {
+        ) -> ReconResult<(SyncState<Self::Key, Self::Hash>, Vec<Self::Key>)> {
             unreachable!()
         }
 

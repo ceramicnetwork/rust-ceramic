@@ -1,4 +1,3 @@
-use anyhow::Result;
 use ceramic_core::RangeOpen;
 use tokio::sync::{
     mpsc::{channel, Receiver, Sender},
@@ -8,7 +7,7 @@ use tracing::warn;
 
 use crate::{
     recon::{Range, ReconItem, SyncState},
-    AssociativeHash, InterestProvider, Key, Metrics, Recon, Store,
+    AssociativeHash, InterestProvider, Key, Metrics, Recon, ReconError, ReconResult, Store,
 };
 
 /// Client to a [`Recon`] [`Server`].
@@ -24,7 +23,7 @@ where
     H: AssociativeHash,
 {
     /// Sends an insert request to the server and awaits the response.
-    pub async fn insert(&self, key: K, value: Option<Vec<u8>>) -> Result<bool> {
+    pub async fn insert(&self, key: K, value: Option<Vec<u8>>) -> ReconResult<bool> {
         let (ret, rx) = oneshot::channel();
         self.sender
             .send(Request::Insert { key, value, ret })
@@ -33,14 +32,14 @@ where
     }
 
     /// Sends a len request to the server and awaits the response.
-    pub async fn len(&self) -> Result<usize> {
+    pub async fn len(&self) -> ReconResult<usize> {
         let (ret, rx) = oneshot::channel();
         self.sender.send(Request::Len { ret }).await?;
         rx.await?
     }
 
     /// Sends an is_empty request to the server and awaits the response.
-    pub async fn is_empty(&self) -> Result<bool> {
+    pub async fn is_empty(&self) -> ReconResult<bool> {
         Ok(self.len().await? == 0)
     }
 
@@ -51,7 +50,7 @@ where
         right_fencepost: K,
         offset: usize,
         limit: usize,
-    ) -> Result<Box<dyn Iterator<Item = K> + Send + '_>> {
+    ) -> ReconResult<Box<dyn Iterator<Item = K> + Send + '_>> {
         let (ret, rx) = oneshot::channel();
         self.sender
             .send(Request::Range {
@@ -71,7 +70,7 @@ where
         right_fencepost: K,
         offset: usize,
         limit: usize,
-    ) -> Result<Box<dyn Iterator<Item = (K, Vec<u8>)> + Send + '_>> {
+    ) -> ReconResult<Box<dyn Iterator<Item = (K, Vec<u8>)> + Send + '_>> {
         let (ret, rx) = oneshot::channel();
         self.sender
             .send(Request::RangeWithValues {
@@ -86,21 +85,21 @@ where
     }
 
     /// Sends a full_range request to the server and awaits the response.
-    pub async fn full_range(&self) -> Result<Box<dyn Iterator<Item = K> + Send + '_>> {
+    pub async fn full_range(&self) -> ReconResult<Box<dyn Iterator<Item = K> + Send + '_>> {
         let (ret, rx) = oneshot::channel();
         self.sender.send(Request::FullRange { ret }).await?;
         rx.await?
     }
 
     /// Sends a full_range request to the server and awaits the response.
-    pub async fn value_for_key(&self, key: K) -> Result<Option<Vec<u8>>> {
+    pub async fn value_for_key(&self, key: K) -> ReconResult<Option<Vec<u8>>> {
         let (ret, rx) = oneshot::channel();
         self.sender.send(Request::ValueForKey { key, ret }).await?;
         rx.await?
     }
 
     /// Report all keys in the range that are missing a value
-    pub async fn keys_with_missing_values(&self, range: RangeOpen<K>) -> Result<Vec<K>> {
+    pub async fn keys_with_missing_values(&self, range: RangeOpen<K>) -> ReconResult<Vec<K>> {
         let (ret, rx) = oneshot::channel();
         self.sender
             .send(Request::KeysWithMissingValues { range, ret })
@@ -108,7 +107,7 @@ where
         rx.await?
     }
     /// Report the local nodes interests.
-    pub async fn interests(&self) -> Result<Vec<RangeOpen<K>>> {
+    pub async fn interests(&self) -> ReconResult<Vec<RangeOpen<K>>> {
         let (ret, rx) = oneshot::channel();
         self.sender.send(Request::Interests { ret }).await?;
         rx.await?
@@ -117,7 +116,7 @@ where
     pub async fn process_interests(
         &self,
         interests: Vec<RangeOpen<K>>,
-    ) -> Result<Vec<RangeOpen<K>>> {
+    ) -> ReconResult<Vec<RangeOpen<K>>> {
         let (ret, rx) = oneshot::channel();
         self.sender
             .send(Request::ProcessInterests { interests, ret })
@@ -126,7 +125,7 @@ where
     }
 
     /// Compute the hash of a range.
-    pub async fn initial_range(&self, interest: RangeOpen<K>) -> Result<Range<K, H>> {
+    pub async fn initial_range(&self, interest: RangeOpen<K>) -> ReconResult<Range<K, H>> {
         let (ret, rx) = oneshot::channel();
         self.sender
             .send(Request::InitialRange { interest, ret })
@@ -134,7 +133,10 @@ where
         rx.await?
     }
     /// Compute the synchornization state from a remote range.
-    pub async fn process_range(&self, range: Range<K, H>) -> Result<(SyncState<K, H>, Vec<K>)> {
+    pub async fn process_range(
+        &self,
+        range: Range<K, H>,
+    ) -> ReconResult<(SyncState<K, H>, Vec<K>)> {
         let (ret, rx) = oneshot::channel();
         self.sender
             .send(Request::ProcessRange { range, ret })
@@ -151,17 +153,17 @@ enum Request<K, H> {
     Insert {
         key: K,
         value: Option<Vec<u8>>,
-        ret: oneshot::Sender<Result<bool>>,
+        ret: oneshot::Sender<ReconResult<bool>>,
     },
     Len {
-        ret: oneshot::Sender<Result<usize>>,
+        ret: oneshot::Sender<ReconResult<usize>>,
     },
     Range {
         left_fencepost: K,
         right_fencepost: K,
         offset: usize,
         limit: usize,
-        ret: oneshot::Sender<Result<Box<dyn Iterator<Item = K> + Send>>>,
+        ret: oneshot::Sender<ReconResult<Box<dyn Iterator<Item = K> + Send>>>,
     },
     RangeWithValues {
         left_fencepost: K,
@@ -171,26 +173,26 @@ enum Request<K, H> {
         ret: oneshot::Sender<RangeWithValuesResult<K>>,
     },
     FullRange {
-        ret: oneshot::Sender<Result<Box<dyn Iterator<Item = K> + Send>>>,
+        ret: oneshot::Sender<ReconResult<Box<dyn Iterator<Item = K> + Send>>>,
     },
     ValueForKey {
         key: K,
-        ret: oneshot::Sender<Result<Option<Vec<u8>>>>,
+        ret: oneshot::Sender<ReconResult<Option<Vec<u8>>>>,
     },
     KeysWithMissingValues {
         range: RangeOpen<K>,
-        ret: oneshot::Sender<Result<Vec<K>>>,
+        ret: oneshot::Sender<ReconResult<Vec<K>>>,
     },
     Interests {
-        ret: oneshot::Sender<Result<Vec<RangeOpen<K>>>>,
+        ret: oneshot::Sender<ReconResult<Vec<RangeOpen<K>>>>,
     },
     InitialRange {
         interest: RangeOpen<K>,
-        ret: oneshot::Sender<Result<Range<K, H>>>,
+        ret: oneshot::Sender<ReconResult<Range<K, H>>>,
     },
     ProcessInterests {
         interests: Vec<RangeOpen<K>>,
-        ret: oneshot::Sender<Result<Vec<RangeOpen<K>>>>,
+        ret: oneshot::Sender<ReconResult<Vec<RangeOpen<K>>>>,
     },
     ProcessRange {
         range: Range<K, H>,
@@ -198,8 +200,8 @@ enum Request<K, H> {
     },
 }
 
-type RangeWithValuesResult<K> = Result<Box<dyn Iterator<Item = (K, Vec<u8>)> + Send>>;
-type ProcessRangeResult<K, H> = Result<(SyncState<K, H>, Vec<K>)>;
+type RangeWithValuesResult<K> = ReconResult<Box<dyn Iterator<Item = (K, Vec<u8>)> + Send>>;
+type ProcessRangeResult<K, H> = ReconResult<(SyncState<K, H>, Vec<K>)>;
 
 /// Server that processed received Recon messages in a single task.
 #[derive(Debug)]
@@ -256,11 +258,12 @@ where
                         let val = self
                             .recon
                             .insert(&ReconItem::new(&key, value.as_deref()))
-                            .await;
+                            .await
+                            .map_err(ReconError::from);
                         send(ret, val);
                     }
                     Request::Len { ret } => {
-                        send(ret, self.recon.len().await);
+                        send(ret, self.recon.len().await.map_err(ReconError::from));
                     }
                     Request::Range {
                         left_fencepost,
@@ -272,7 +275,8 @@ where
                         let keys = self
                             .recon
                             .range(&left_fencepost, &right_fencepost, offset, limit)
-                            .await;
+                            .await
+                            .map_err(ReconError::from);
                         send(ret, keys);
                     }
                     Request::RangeWithValues {
@@ -285,35 +289,56 @@ where
                         let keys = self
                             .recon
                             .range_with_values(&left_fencepost, &right_fencepost, offset, limit)
-                            .await;
+                            .await
+                            .map_err(ReconError::from);
                         send(ret, keys);
                     }
                     Request::FullRange { ret } => {
-                        let keys = self.recon.full_range().await;
+                        let keys = self.recon.full_range().await.map_err(ReconError::from);
                         send(ret, keys);
                     }
                     Request::ValueForKey { key, ret } => {
-                        let value = self.recon.value_for_key(key).await;
+                        let value = self
+                            .recon
+                            .value_for_key(key)
+                            .await
+                            .map_err(ReconError::from);
                         send(ret, value);
                     }
                     Request::KeysWithMissingValues { range, ret } => {
-                        let ok = self.recon.keys_with_missing_values(range).await;
+                        let ok = self
+                            .recon
+                            .keys_with_missing_values(range)
+                            .await
+                            .map_err(ReconError::from);
                         send(ret, ok);
                     }
                     Request::Interests { ret } => {
-                        let value = self.recon.interests().await;
+                        let value = self.recon.interests().await.map_err(ReconError::from);
                         send(ret, value);
                     }
                     Request::InitialRange { interest, ret } => {
-                        let value = self.recon.initial_range(interest).await;
+                        let value = self
+                            .recon
+                            .initial_range(interest)
+                            .await
+                            .map_err(ReconError::from);
                         send(ret, value);
                     }
                     Request::ProcessInterests { interests, ret } => {
-                        let value = self.recon.process_interests(&interests).await;
+                        let value = self
+                            .recon
+                            .process_interests(&interests)
+                            .await
+                            .map_err(ReconError::from);
                         send(ret, value);
                     }
                     Request::ProcessRange { range, ret } => {
-                        let value = self.recon.process_range(range).await;
+                        let value = self
+                            .recon
+                            .process_range(range)
+                            .await
+                            .map_err(ReconError::from);
                         send(ret, value);
                     }
                 };

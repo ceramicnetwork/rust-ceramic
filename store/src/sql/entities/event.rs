@@ -36,10 +36,7 @@ pub async fn rebuild_car(blocks: Vec<BlockRow>) -> StoreResult<Option<Vec<u8>>> 
             .await
             .map_err(StoreError::new_transient)?;
     }
-    writer
-        .finish()
-        .await
-        .map_err(StoreError::new_transient)?;
+    writer.finish().await.map_err(StoreError::new_transient)?;
     Ok(Some(car))
 }
 
@@ -138,8 +135,7 @@ pub struct EventValueRaw {
 impl EventValueRaw {
     pub fn into_block_row(self) -> StoreResult<(EventId, BlockRow)> {
         let id = EventId::try_from(self.order_key).map_err(StoreError::new_app)?;
-        let hash =
-            Multihash::from_bytes(&self.multihash[..]).map_err(StoreError::new_app)?;
+        let hash = Multihash::from_bytes(&self.multihash[..]).map_err(StoreError::new_app)?;
         let code = self.codec.try_into().map_err(|e: TryFromIntError| {
             let er = anyhow::anyhow!(e).context(format!("Invalid codec: {}", self.codec));
             StoreError::new_app(er)

@@ -108,3 +108,13 @@ impl From<sqlx::Error> for StoreError {
         }
     }
 }
+
+impl From<StoreError> for recon::ReconError {
+    fn from(value: StoreError) -> Self {
+        match value {
+            StoreError::Application { error } => recon::ReconError::Application { error },
+            StoreError::Fatal { error } => recon::ReconError::Fatal { error },
+            StoreError::Transient { error } => recon::ReconError::Transient { error },
+        }
+    }
+}
