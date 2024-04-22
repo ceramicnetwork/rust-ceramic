@@ -34,12 +34,13 @@ impl RootStoreSqlite {
         block_hash: String, // 0xhex_hash
         timestamp: i64,
     ) -> Result<()> {
+        let mut conn = self.pool.writer().lock().await;
         let _ = sqlx::query(PUT_QUERY)
             .bind(tx_hash)
             .bind(root)
             .bind(block_hash)
             .bind(timestamp)
-            .execute(self.pool.writer())
+            .execute(&mut *conn)
             .await?;
         Ok(())
     }

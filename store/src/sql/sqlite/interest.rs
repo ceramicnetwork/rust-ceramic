@@ -7,7 +7,7 @@ use recon::{
     AssociativeHash, Error as ReconError, HashCount, InsertResult, Key, ReconItem,
     Result as ReconResult, Sha256a,
 };
-use sqlx::Row;
+use sqlx::{Connection, Row};
 use tracing::instrument;
 
 use crate::{
@@ -33,7 +33,9 @@ type InterestError = <Interest as TryFrom<Vec<u8>>>::Error;
 
 impl InterestStoreSqlite {
     async fn insert_item(&self, key: &Interest) -> Result<bool> {
-        let mut tx = self.pool.writer().begin().await?;
+        let mut conn = self.pool.writer().lock().await;
+
+        let mut tx = conn.begin().await?;
         let new_key = self.insert_item_int(key, &mut tx).await?;
         tx.commit().await?;
         Ok(new_key)
@@ -149,7 +151,8 @@ impl recon::Store for InterestStoreSqlite {
             _ => {
                 let mut results = vec![false; items.len()];
                 let mut new_val_cnt = 0;
-                let mut tx = self.pool.writer().begin().await.map_err(Error::from)?;
+                let mut conn = self.pool.writer().lock().await;
+                let mut tx = conn.begin().await.map_err(Error::from)?;
 
                 for (idx, item) in items.iter().enumerate() {
                     let new_key = self.insert_item_int(item.key, &mut tx).await?;

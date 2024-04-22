@@ -4,12 +4,12 @@ mod interest;
 pub use event::EventStoreSqlite;
 pub use interest::InterestStoreSqlite;
 
-use std::{path::PathBuf, str::FromStr};
+use std::{path::PathBuf, str::FromStr, sync::Arc};
 
 use chrono::{SecondsFormat, Utc};
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
-    Sqlite, Transaction,
+    Connection, Sqlite, Transaction,
 };
 use tracing::info;
 
@@ -22,7 +22,8 @@ pub type DbTxSqlite<'a> = Transaction<'a, Sqlite>;
 /// The sqlite pool is split into a writer and a reader pool.
 /// Wrapper around the sqlx::SqlitePool
 pub struct SqlitePool {
-    writer: sqlx::SqlitePool,
+    // writer: sqlx::SqlitePool,
+    writer: Arc<tokio::sync::Mutex<sqlx::SqliteConnection>>,
     reader: sqlx::SqlitePool,
 }
 
@@ -40,13 +41,14 @@ impl SqlitePool {
             .foreign_keys(true);
 
         let ro_opts = conn_opts.clone().read_only(true);
+        let mut writer = sqlx::SqliteConnection::connect_with(&conn_opts).await?;
 
-        let writer = SqlitePoolOptions::new()
-            .min_connections(1)
-            .max_connections(1)
-            .acquire_timeout(std::time::Duration::from_secs(5))
-            .connect_with(conn_opts)
-            .await?;
+        // let writer = SqlitePoolOptions::new()
+        //     .min_connections(1)
+        //     .max_connections(1)
+        //     .acquire_timeout(std::time::Duration::from_secs(5))
+        //     .connect_with(conn_opts)
+        //     .await?;
         let reader = SqlitePoolOptions::new()
             .min_connections(1)
             .max_connections(8)
@@ -55,12 +57,15 @@ impl SqlitePool {
 
         if migrate == Migrations::Apply {
             sqlx::migrate!("../migrations/sqlite")
-                .run(&writer)
+                .run(&mut writer)
                 .await
                 .map_err(sqlx::Error::from)?;
         }
 
-        Ok(Self { writer, reader })
+        Ok(Self {
+            writer: Arc::new(tokio::sync::Mutex::new(writer)),
+            reader,
+        })
     }
 
     /// Creates an in-memory database. Useful for testing. Automatically applies migrations since all memory databases start empty
@@ -71,14 +76,8 @@ impl SqlitePool {
 
     /// Get a reference to the writer database pool. The writer pool has only one connection.
     /// If you are going to do multiple writes in a row, instead use `tx` and `commit`.
-    pub fn writer(&self) -> &sqlx::SqlitePool {
+    pub fn writer(&self) -> &Arc<tokio::sync::Mutex<sqlx::SqliteConnection>> {
         &self.writer
-    }
-
-    /// Get a writer tranaction. The writer pool has only one connection so this is an exclusive lock.
-    /// Use this method to perform simultaneous writes to the database, calling `commit` when you are done.
-    pub async fn tx(&self) -> Result<DbTxSqlite> {
-        Ok(self.writer.begin().await?)
     }
 
     /// Get a reference to the reader database pool. The reader pool has many connections.
@@ -88,7 +87,8 @@ impl SqlitePool {
 
     /// Run an arbitrary SQL statement on the writer pool.
     pub async fn run_statement(&self, statement: &str) -> Result<()> {
-        let _res = sqlx::query(statement).execute(self.writer()).await?;
+        let mut tx = self.writer().lock().await;
+        let _res = sqlx::query(statement).execute(&mut *tx).await?;
         Ok(())
     }
 

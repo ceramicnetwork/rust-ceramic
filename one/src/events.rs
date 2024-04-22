@@ -5,12 +5,10 @@ use ceramic_core::{ssi, Base64UrlString, DidDocument, Jwk};
 use ceramic_metrics::init_local_tracing;
 use ceramic_store::{EventStoreSqlite, Migrations, RootStoreSqlite, SqlitePool};
 use chrono::{SecondsFormat, TimeZone, Utc};
-use cid::{multibase, multihash, Cid};
+use cid::Cid;
 use clap::{Args, Subcommand};
-use glob::{glob, Paths};
 use iroh_bitswap::Store;
-use multihash::Multihash;
-use std::{fs, path::PathBuf, str::FromStr};
+use std::{path::PathBuf, str::FromStr};
 use tracing::{debug, info, warn};
 
 #[derive(Subcommand, Debug)]
@@ -287,7 +285,7 @@ async fn prev_in_root(
     Ok(prev == current_cid)
 }
 
-async fn migrate_from_filesystem(input_ipfs_path: PathBuf, store: EventStoreSqlite) -> Result<()> {
+async fn migrate_from_filesystem(input_ipfs_path: PathBuf, _store: EventStoreSqlite) -> Result<()> {
     // the block store is split in to 1024 directories and then the blocks stored as files.
     // the dir structure is the penultimate two characters as dir then the b32 sha256 multihash of the block
     // The leading "B" for the b32 sha256 multihash is left off
@@ -302,69 +300,67 @@ async fn migrate_from_filesystem(input_ipfs_path: PathBuf, store: EventStoreSqli
         Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
         &p
     );
-    let paths: Paths = glob(&p).unwrap();
 
-    let mut count = 0;
-    let mut err_count = 0;
+    let count = 0;
+    let err_count = 0;
 
-    let mut tx = store
-        .begin_tx()
-        .await
-        .with_context(|| "Failed to begin database transaction")?;
+    // let mut conn = store.pool.writer().lock().await;
+    // use sqlx::Connection;
+    // let mut tx = conn.begin().await.context("failed to begin database tx")?;
 
-    for path in paths {
-        let path = path.unwrap().as_path().to_owned();
-        if !path.is_file() {
-            continue;
-        }
+    // for path in paths {
+    //     let path = path.unwrap().as_path().to_owned();
+    //     if !path.is_file() {
+    //         continue;
+    //     }
 
-        let Ok((_base, hash_bytes)) =
-            multibase::decode("B".to_string() + path.file_stem().unwrap().to_str().unwrap())
-        else {
-            info!(
-                "{} {:?} is not a base32upper multihash.",
-                Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
-                path.display()
-            );
-            err_count += 1;
-            continue;
-        };
-        let Ok(hash) = Multihash::from_bytes(&hash_bytes) else {
-            info!(
-                "{} {:?} is not a base32upper multihash.",
-                Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
-                path.display()
-            );
-            err_count += 1;
-            continue;
-        };
-        let cid = Cid::new_v1(0x71, hash);
-        let blob = fs::read(&path).unwrap();
+    //     let Ok((_base, hash_bytes)) =
+    //         multibase::decode("B".to_string() + path.file_stem().unwrap().to_str().unwrap())
+    //     else {
+    //         info!(
+    //             "{} {:?} is not a base32upper multihash.",
+    //             Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
+    //             path.display()
+    //         );
+    //         err_count += 1;
+    //         continue;
+    //     };
+    //     let Ok(hash) = Multihash::from_bytes(&hash_bytes) else {
+    //         info!(
+    //             "{} {:?} is not a base32upper multihash.",
+    //             Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
+    //             path.display()
+    //         );
+    //         err_count += 1;
+    //         continue;
+    //     };
+    //     let cid = Cid::new_v1(0x71, hash);
+    //     let blob = fs::read(&path).unwrap();
 
-        if count % 10000 == 0 {
-            info!(
-                "{} {} {} ok:{}, err:{}",
-                Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
-                path.display(),
-                cid,
-                count,
-                err_count
-            );
-        }
+    //     if count % 10000 == 0 {
+    //         info!(
+    //             "{} {} {} ok:{}, err:{}",
+    //             Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
+    //             path.display(),
+    //             cid,
+    //             count,
+    //             err_count
+    //         );
+    //     }
 
-        let result = store.put_block_tx(cid.hash(), &blob.into(), &mut tx).await;
-        if result.is_err() {
-            info!(
-                "{} err: {} {:?}",
-                Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
-                path.display(),
-                result
-            );
-            err_count += 1;
-            continue;
-        }
-        count += 1;
-    }
+    //     let result = store.put_block_tx(cid.hash(), &blob.into(), &mut tx).await;
+    //     if result.is_err() {
+    //         info!(
+    //             "{} err: {} {:?}",
+    //             Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
+    //             path.display(),
+    //             result
+    //         );
+    //         err_count += 1;
+    //         continue;
+    //     }
+    //     count += 1;
+    // }
 
     info!(
         "{} count={}, err_count={}",

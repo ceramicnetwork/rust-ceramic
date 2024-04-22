@@ -17,7 +17,7 @@ use recon::{
     AssociativeHash, Error as ReconError, HashCount, InsertResult, Key, ReconItem,
     Result as ReconResult, Sha256a,
 };
-
+use sqlx::Connection;
 use tracing::instrument;
 
 use crate::{
@@ -84,18 +84,9 @@ impl EventStoreSqlite {
         }
     }
 
-    /// Begin a database transaction.
-    pub async fn begin_tx(&self) -> Result<DbTxSqlite<'_>> {
-        self.pool.tx().await
-    }
-
-    /// Commit the database transaction.
-    pub async fn commit_tx(&self, tx: DbTxSqlite<'_>) -> Result<()> {
-        Ok(tx.commit().await?)
-    }
-
     async fn insert_item(&self, item: &ReconItem<'_, EventId>) -> Result<(bool, bool)> {
-        let mut tx = self.pool.writer().begin().await?;
+        let mut conn = self.pool.writer().lock().await;
+        let mut tx = conn.begin().await?;
         let (new_key, new_val) = self.insert_item_int(item, &mut tx).await?;
         tx.commit().await?;
         Ok((new_key, new_val))
@@ -193,7 +184,9 @@ impl EventStoreSqlite {
 
     /// Add a block, returns true if the block is new
     pub async fn put_block(&self, hash: &Multihash, blob: &Bytes) -> Result<bool> {
-        let mut tx = self.pool.tx().await?;
+        let mut conn = self.pool.writer().lock().await;
+        let mut tx = conn.begin().await?;
+
         let res = self.put_block_tx(hash, blob, &mut tx).await?;
         tx.commit().await?;
         Ok(res)
@@ -345,6 +338,7 @@ impl EventStoreSqlite {
     /// If the file dose not exist the ATTACH DATABASE command will create it.
     /// This function assumes that the database contains a table named blocks with cid, bytes columns.
     pub async fn merge_from_sqlite(&self, input_ceramic_db_filename: &str) -> Result<()> {
+        let mut conn = self.pool.writer().lock().await;
         sqlx::query(
             "
                     ATTACH DATABASE $1 AS other;
@@ -352,16 +346,18 @@ impl EventStoreSqlite {
                 ",
         )
         .bind(input_ceramic_db_filename)
-        .execute(self.pool.writer())
+        .execute(&mut *conn)
         .await?;
         Ok(())
     }
 
     /// Backup the database to a filepath output_ceramic_db_filename.
     pub async fn backup_to_sqlite(&self, output_ceramic_db_filename: &str) -> Result<()> {
+        let mut conn = self.pool.writer().lock().await;
+
         sqlx::query(".backup $1")
             .bind(output_ceramic_db_filename)
-            .execute(self.pool.writer())
+            .execute(&mut *conn)
             .await?;
         Ok(())
     }
@@ -372,7 +368,8 @@ impl EventStoreSqlite {
             _ => {
                 let mut results = vec![false; items.len()];
                 let mut new_val_cnt = 0;
-                let mut tx = self.pool.writer().begin().await.map_err(Error::from)?;
+                let mut conn = self.pool.writer().lock().await;
+                let mut tx = conn.begin().await.map_err(Error::from)?;
 
                 for (idx, item) in items.iter().enumerate() {
                     let (new_key, new_val) = self.insert_item_int(item, &mut tx).await?;
