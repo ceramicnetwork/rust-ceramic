@@ -2,7 +2,7 @@ use anyhow::anyhow;
 
 #[derive(Debug, thiserror::Error)]
 /// The Errors that can be raised by store operations
-pub enum ReconError {
+pub enum Error {
     #[error("Application error encountered: {error}")]
     /// An application specific error that may be resolved with different inputs or other changes
     Application {
@@ -31,7 +31,7 @@ pub enum ReconError {
     },
 }
 
-impl ReconError {
+impl Error {
     /// Create a transient error
     pub fn new_transient(error: impl Into<anyhow::Error>) -> Self {
         Self::Transient {
@@ -58,23 +58,23 @@ impl ReconError {
         C: std::fmt::Display + Send + Sync + 'static,
     {
         match self {
-            ReconError::Application { error } => Self::Application {
+            Error::Application { error } => Self::Application {
                 error: error.context(context),
             },
-            ReconError::Fatal { error } => Self::Fatal {
+            Error::Fatal { error } => Self::Fatal {
                 error: error.context(context),
             },
-            ReconError::Transient { error } => Self::Transient {
+            Error::Transient { error } => Self::Transient {
                 error: error.context(context),
             },
-            ReconError::WorkerDied { error } => Self::WorkerDied {
+            Error::WorkerDied { error } => Self::WorkerDied {
                 error: error.context(context),
             },
         }
     }
 }
 
-impl<T> From<tokio::sync::mpsc::error::SendError<T>> for ReconError {
+impl<T> From<tokio::sync::mpsc::error::SendError<T>> for Error {
     fn from(value: tokio::sync::mpsc::error::SendError<T>) -> Self {
         Self::WorkerDied {
             error: anyhow!(value.to_string()),
@@ -82,7 +82,7 @@ impl<T> From<tokio::sync::mpsc::error::SendError<T>> for ReconError {
     }
 }
 
-impl From<tokio::sync::oneshot::error::RecvError> for ReconError {
+impl From<tokio::sync::oneshot::error::RecvError> for Error {
     fn from(value: tokio::sync::oneshot::error::RecvError) -> Self {
         Self::WorkerDied {
             error: anyhow!(value.to_string()),

@@ -13,7 +13,7 @@ use prometheus_client::{
     },
     registry::Registry,
 };
-use recon::{AssociativeHash, HashCount, InsertResult, ReconItem, ReconResult};
+use recon::{AssociativeHash, HashCount, InsertResult, ReconItem, Result as ReconResult};
 use tokio::time::Instant;
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]

@@ -3,7 +3,9 @@
 use anyhow::anyhow;
 use async_trait::async_trait;
 use ceramic_core::{Interest, RangeOpen};
-use recon::{AssociativeHash, HashCount, InsertResult, Key, ReconItem, ReconResult, Sha256a};
+use recon::{
+    AssociativeHash, HashCount, InsertResult, Key, ReconItem, Result as ReconResult, Sha256a,
+};
 use sqlx::{Executor, Row};
 use tracing::instrument;
 
@@ -137,7 +139,7 @@ impl recon::Store for InterestStorePostgres {
         // interests don't have values, if someone gives us something we throw an error but allow None/vec![]
         if let Some(val) = item.value {
             if !val.is_empty() {
-                return Err(recon::ReconError::new_app(anyhow!(
+                return Err(recon::Error::new_app(anyhow!(
                     "Interests do not support values! Invalid request."
                 )));
             }

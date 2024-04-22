@@ -1169,7 +1169,7 @@ mod tests {
     use futures::TryStreamExt;
     use rand::prelude::*;
     use rand_chacha::ChaCha8Rng;
-    use recon::{Range, ReconResult, Sha256a, SyncState};
+    use recon::{Range, Result as ReconResult, Sha256a, SyncState};
     use ssh_key::private::Ed25519Keypair;
     use test_log::test;
 

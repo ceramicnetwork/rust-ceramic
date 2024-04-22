@@ -5,7 +5,7 @@ use tokio::sync::Mutex;
 
 use crate::{
     recon::{AssociativeHash, Key, MaybeHashedKey, ReconItem, Store},
-    ReconResult,
+    Result,
 };
 
 use super::{HashCount, InsertResult};
@@ -60,7 +60,7 @@ where
         &self,
         left_fencepost: &K,
         right_fencepost: &K,
-    ) -> ReconResult<HashCount<H>> {
+    ) -> Result<HashCount<H>> {
         if left_fencepost >= right_fencepost {
             return Ok(HashCount {
                 hash: H::identity(),
@@ -95,7 +95,7 @@ where
         right_fencepost: &K,
         offset: usize,
         limit: usize,
-    ) -> ReconResult<Box<dyn Iterator<Item = K> + Send + 'static>> {
+    ) -> Result<Box<dyn Iterator<Item = K> + Send + 'static>> {
         let range = (
             Bound::Excluded(left_fencepost),
             Bound::Excluded(right_fencepost),
@@ -123,7 +123,7 @@ where
         right_fencepost: &K,
         offset: usize,
         limit: usize,
-    ) -> ReconResult<Box<dyn Iterator<Item = (K, Vec<u8>)> + Send + 'static>> {
+    ) -> Result<Box<dyn Iterator<Item = (K, Vec<u8>)> + Send + 'static>> {
         let range = (
             Bound::Excluded(left_fencepost),
             Bound::Excluded(right_fencepost),
@@ -154,7 +154,7 @@ where
     type Key = K;
     type Hash = H;
 
-    async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> ReconResult<bool> {
+    async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> Result<bool> {
         let mut inner = self.inner.lock().await;
         let new = inner
             .keys
@@ -167,7 +167,7 @@ where
         Ok(new)
     }
 
-    async fn insert_many(&self, items: &[ReconItem<'_, K>]) -> ReconResult<InsertResult> {
+    async fn insert_many(&self, items: &[ReconItem<'_, K>]) -> Result<InsertResult> {
         let mut new = vec![false; items.len()];
         let mut new_val_cnt = 0;
         for (idx, item) in items.iter().enumerate() {
@@ -183,7 +183,7 @@ where
         &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
-    ) -> ReconResult<HashCount<Self::Hash>> {
+    ) -> Result<HashCount<Self::Hash>> {
         // Self does not need async to implement hash_range, so it exposes a pub non async hash_range function
         // and we delegate to its implementation here.
         BTreeStore::hash_range(self, left_fencepost, right_fencepost).await
@@ -195,7 +195,7 @@ where
         right_fencepost: &Self::Key,
         offset: usize,
         limit: usize,
-    ) -> ReconResult<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
+    ) -> Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
         // Self does not need async to implement range, so it exposes a pub non async range function
         // and we delegate to its implementation here.
         BTreeStore::range(self, left_fencepost, right_fencepost, offset, limit).await
@@ -206,7 +206,7 @@ where
         right_fencepost: &Self::Key,
         offset: usize,
         limit: usize,
-    ) -> ReconResult<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>> {
+    ) -> Result<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>> {
         BTreeStore::range_with_values(self, left_fencepost, right_fencepost, offset, limit).await
     }
 
@@ -214,7 +214,7 @@ where
         &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
-    ) -> ReconResult<Option<Self::Key>> {
+    ) -> Result<Option<Self::Key>> {
         let range = (
             Bound::Excluded(left_fencepost),
             Bound::Excluded(right_fencepost),
@@ -233,7 +233,7 @@ where
         &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
-    ) -> ReconResult<Option<(Self::Key, Self::Key)>> {
+    ) -> Result<Option<(Self::Key, Self::Key)>> {
         let range = (
             Bound::Excluded(left_fencepost),
             Bound::Excluded(right_fencepost),
@@ -253,13 +253,13 @@ where
     }
 
     /// value_for_key returns an Error is retrieving failed and None if the key is not stored.
-    async fn value_for_key(&self, key: &Self::Key) -> ReconResult<Option<Vec<u8>>> {
+    async fn value_for_key(&self, key: &Self::Key) -> Result<Option<Vec<u8>>> {
         Ok(self.inner.lock().await.values.get(key).cloned())
     }
     async fn keys_with_missing_values(
         &self,
         range: RangeOpen<Self::Key>,
-    ) -> ReconResult<Vec<Self::Key>> {
+    ) -> Result<Vec<Self::Key>> {
         let inner = self.inner.lock().await;
         Ok(inner
             .keys

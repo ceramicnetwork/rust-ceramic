@@ -109,12 +109,12 @@ impl From<sqlx::Error> for Error {
     }
 }
 
-impl From<Error> for recon::ReconError {
+impl From<Error> for recon::Error {
     fn from(value: Error) -> Self {
         match value {
-            Error::Application { error } => recon::ReconError::Application { error },
-            Error::Fatal { error } => recon::ReconError::Fatal { error },
-            Error::Transient { error } => recon::ReconError::Transient { error },
+            Error::Application { error } => recon::Error::Application { error },
+            Error::Fatal { error } => recon::Error::Fatal { error },
+            Error::Transient { error } => recon::Error::Transient { error },
         }
     }
 }

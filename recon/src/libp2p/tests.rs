@@ -1,7 +1,7 @@
 use crate::{
     libp2p::{stream_set::StreamSet, PeerEvent, PeerStatus},
-    AssociativeHash, BTreeStore, FullInterests, HashCount, InsertResult, InterestProvider, Key,
-    Metrics, Recon, ReconError, ReconItem, ReconResult, Server, Store,
+    AssociativeHash, BTreeStore, Error, FullInterests, HashCount, InsertResult, InterestProvider,
+    Key, Metrics, Recon, ReconItem, Result as ReconResult, Server, Store,
 };
 
 use async_trait::async_trait;
@@ -27,28 +27,28 @@ where
 /// An implementation of a Store that stores keys in an in-memory BTree and throws errors if desired.
 #[derive(Debug)]
 pub struct BTreeStoreErrors<K, H> {
-    error: Option<ReconError>,
+    error: Option<Error>,
     inner: BTreeStore<K, H>,
 }
 
 impl<K, H> BTreeStoreErrors<K, H> {
-    fn set_error(&mut self, error: ReconError) {
+    fn set_error(&mut self, error: Error) {
         self.error = Some(error);
     }
 
-    fn return_error(&self) -> Result<(), ReconError> {
+    fn return_error(&self) -> Result<(), Error> {
         if let Some(err) = &self.error {
             match err {
-                ReconError::Application { error } => Err(ReconError::Application {
+                Error::Application { error } => Err(Error::Application {
                     error: anyhow::anyhow!(error.to_string()),
                 }),
-                ReconError::Fatal { error } => Err(ReconError::Fatal {
+                Error::Fatal { error } => Err(Error::Fatal {
                     error: anyhow::anyhow!(error.to_string()),
                 }),
-                ReconError::Transient { error } => Err(ReconError::Transient {
+                Error::Transient { error } => Err(Error::Transient {
                     error: anyhow::anyhow!(error.to_string()),
                 }),
-                ReconError::WorkerDied { error } => Err(ReconError::WorkerDied {
+                Error::WorkerDied { error } => Err(Error::WorkerDied {
                     error: anyhow::anyhow!(error.to_string()),
                 }),
             }
@@ -247,7 +247,7 @@ async fn in_sync_no_overlap() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn initiator_model_error() {
     let mut alice_model_store = BTreeStoreErrors::default();
-    alice_model_store.set_error(ReconError::new_transient(anyhow::anyhow!(
+    alice_model_store.set_error(Error::new_transient(anyhow::anyhow!(
         "transient error should be handled"
     )));
     let (mut swarm1, mut swarm2) = setup_test!(
@@ -288,7 +288,7 @@ async fn initiator_model_error() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn responder_model_error() {
     let mut bob_model_store = BTreeStoreErrors::default();
-    bob_model_store.set_error(ReconError::new_transient(anyhow::anyhow!(
+    bob_model_store.set_error(Error::new_transient(anyhow::anyhow!(
         "transient error should be handled"
     )));
     let (mut swarm1, mut swarm2) = setup_test!(

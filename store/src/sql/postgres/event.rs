@@ -12,7 +12,8 @@ use iroh_bitswap::Block;
 use iroh_car::CarReader;
 use multihash::{Code, Multihash, MultihashDigest};
 use recon::{
-    AssociativeHash, HashCount, InsertResult, Key, ReconError, ReconItem, ReconResult, Sha256a,
+    AssociativeHash, Error as ReconError, HashCount, InsertResult, Key, ReconItem,
+    Result as ReconResult, Sha256a,
 };
 use sqlx::{Executor, Row};
 use tracing::instrument;

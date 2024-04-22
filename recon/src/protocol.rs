@@ -32,7 +32,7 @@ use crate::{
         RangeEnqueueFailed, RangeEnqueued, WantDequeued, WantEnqueueFailed, WantEnqueued,
     },
     recon::{Range, SyncState},
-    AssociativeHash, Client, Key, ReconResult,
+    AssociativeHash, Client, Key, Result as ReconResult,
 };
 
 // Number of want value requests to buffer.

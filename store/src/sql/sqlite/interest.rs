@@ -4,7 +4,8 @@ use anyhow::anyhow;
 use async_trait::async_trait;
 use ceramic_core::{Interest, RangeOpen};
 use recon::{
-    AssociativeHash, HashCount, InsertResult, Key, ReconError, ReconItem, ReconResult, Sha256a,
+    AssociativeHash, Error as ReconError, HashCount, InsertResult, Key, ReconItem,
+    Result as ReconResult, Sha256a,
 };
 use sqlx::Row;
 use tracing::instrument;

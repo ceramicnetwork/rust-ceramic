@@ -3,7 +3,7 @@
 
 pub use crate::{
     client::{Client, Server},
-    error::ReconError,
+    error::Error,
     metrics::Metrics,
     recon::{
         btreestore::BTreeStore, AssociativeHash, EventIdStore, FullInterests, HashCount,
@@ -25,4 +25,4 @@ mod error;
 mod tests;
 
 /// A result type that wraps a recon Error
-pub type ReconResult<T> = Result<T, ReconError>;
+pub type Result<T> = std::result::Result<T, Error>;
