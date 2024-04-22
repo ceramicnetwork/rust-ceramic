@@ -585,10 +585,11 @@ impl iroh_bitswap::Store for EventStorePostgres {
 /// This guarantees that regardless of entry point (api or recon), the data is stored and retrieved in the same way.
 #[async_trait::async_trait]
 impl ceramic_api::AccessModelStore for EventStorePostgres {
-    async fn insert(&self, key: EventId, value: Option<Vec<u8>>) -> anyhow::Result<(bool, bool)> {
-        Ok(self
-            .insert_item(&ReconItem::new(&key, value.as_deref()))
-            .await?)
+    async fn insert_many(
+        &self,
+        _items: &[(EventId, Option<Vec<u8>>)],
+    ) -> anyhow::Result<(Vec<bool>, usize)> {
+        todo!();
     }
 
     async fn range_with_values(

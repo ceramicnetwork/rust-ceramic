@@ -365,22 +365,8 @@ impl EventStoreSqlite {
             .await?;
         Ok(())
     }
-}
 
-#[async_trait]
-impl recon::Store for EventStoreSqlite {
-    type Key = EventId;
-    type Hash = Sha256a;
-
-    /// Returns true if the key was new. The value is always updated if included
-    async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> ReconResult<bool> {
-        let (new, _new_val) = self.insert_item(item).await?;
-        Ok(new)
-    }
-
-    /// Insert new keys into the key space.
-    /// Returns true if a key did not previously exist.
-    async fn insert_many(&self, items: &[ReconItem<'_, EventId>]) -> ReconResult<InsertResult> {
+    async fn insert_many_int(&self, items: &[ReconItem<'_, EventId>]) -> ReconResult<InsertResult> {
         match items.len() {
             0 => Ok(InsertResult::new(vec![], 0)),
             _ => {
@@ -399,6 +385,24 @@ impl recon::Store for EventStoreSqlite {
                 Ok(InsertResult::new(results, new_val_cnt))
             }
         }
+    }
+}
+
+#[async_trait]
+impl recon::Store for EventStoreSqlite {
+    type Key = EventId;
+    type Hash = Sha256a;
+
+    /// Returns true if the key was new. The value is always updated if included
+    async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> ReconResult<bool> {
+        let (new, _new_val) = self.insert_item(item).await?;
+        Ok(new)
+    }
+
+    /// Insert new keys into the key space.
+    /// Returns true if a key did not previously exist.
+    async fn insert_many(&self, items: &[ReconItem<'_, EventId>]) -> ReconResult<InsertResult> {
+        self.insert_many_int(items).await
     }
 
     /// return the hash and count for a range
@@ -591,10 +595,17 @@ impl iroh_bitswap::Store for EventStoreSqlite {
 /// This guarantees that regardless of entry point (api or recon), the data is stored and retrieved in the same way.
 #[async_trait::async_trait]
 impl ceramic_api::AccessModelStore for EventStoreSqlite {
-    async fn insert(&self, key: EventId, value: Option<Vec<u8>>) -> anyhow::Result<(bool, bool)> {
-        Ok(self
-            .insert_item(&ReconItem::new(&key, value.as_deref()))
-            .await?)
+    async fn insert_many(
+        &self,
+        items: &[(EventId, Option<Vec<u8>>)],
+    ) -> anyhow::Result<(Vec<bool>, usize)> {
+        let i = items
+            .iter()
+            .map(|(k, v)| ReconItem::new(k, v.as_deref()))
+            .collect::<Vec<_>>();
+
+        let r = self.insert_many_int(&i[..]).await?;
+        Ok((r.keys, r.value_count))
     }
 
     async fn range_with_values(

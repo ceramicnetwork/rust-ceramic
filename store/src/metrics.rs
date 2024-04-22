@@ -189,16 +189,29 @@ impl<S> ceramic_api::AccessModelStore for StoreMetricsMiddleware<S>
 where
     S: ceramic_api::AccessModelStore,
 {
-    async fn insert(&self, key: EventId, value: Option<Vec<u8>>) -> anyhow::Result<(bool, bool)> {
-        let (new_key, new_val) = StoreMetricsMiddleware::<S>::record(
+    async fn insert_many(
+        &self,
+        items: &[(EventId, Option<Vec<u8>>)],
+    ) -> anyhow::Result<(Vec<bool>, usize)> {
+        let (res, value_count) = StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "api_model_insert",
-            self.store.insert(key, value),
+            self.store.insert_many(items),
         )
         .await?;
 
-        self.record_key_insert(new_key, new_val);
-        Ok((new_key, new_val))
+        let key_cnt = res.iter().filter(|k| **k).count();
+
+        self.metrics.record(&InsertEvent {
+            type_: InsertEventType::Key,
+            cnt: key_cnt as u64,
+        });
+        self.metrics.record(&InsertEvent {
+            type_: InsertEventType::Value,
+            cnt: value_count as u64,
+        });
+
+        Ok((res, value_count))
     }
     async fn range_with_values(
         &self,

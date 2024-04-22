@@ -54,7 +54,7 @@ impl AccessInterestStore for MockReconInterestTest {
 }
 mock! {
     pub ReconModelTest {
-        fn insert(&self, key: EventId, value: Option<Vec<u8>>) -> Result<(bool, bool)>;
+        fn insert_many(&self, items: &[(EventId, Option<Vec<u8>>)]) -> Result<(bool, bool)>;
         fn range_with_values(
             &self,
             start: &EventId,
@@ -70,8 +70,8 @@ mock! {
 }
 #[async_trait]
 impl AccessModelStore for MockReconModelTest {
-    async fn insert(&self, key: EventId, value: Option<Vec<u8>>) -> Result<(bool, bool)> {
-        self.insert(key, value)
+    async fn insert_many(&self, items: &[(EventId, Option<Vec<u8>>)]) -> Result<(bool, bool)> {
+        self.insert_many(items)
     }
     async fn range_with_values(
         &self,

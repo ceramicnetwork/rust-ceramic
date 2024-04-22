@@ -2,6 +2,7 @@
 
 #![allow(unused_imports)]
 
+use std::collections::HashMap;
 use std::{future::Future, ops::Range};
 use std::{marker::PhantomData, ops::RangeBounds};
 use std::{net::SocketAddr, ops::Bound};
@@ -147,7 +148,7 @@ impl<S: AccessInterestStore> AccessInterestStore for Arc<S> {
 #[async_trait]
 pub trait AccessModelStore: Send + Sync {
     /// Returns (new_key, new_value) where true if was newly inserted, false if it already existed.
-    async fn insert(&self, key: EventId, value: Option<Vec<u8>>) -> Result<(bool, bool)>;
+    async fn insert_many(&self, items: &[(EventId, Option<Vec<u8>>)]) -> Result<(Vec<bool>, usize)>;
     async fn range_with_values(
         &self,
         start: &EventId,
@@ -169,8 +170,8 @@ pub trait AccessModelStore: Send + Sync {
 
 #[async_trait::async_trait]
 impl<S: AccessModelStore> AccessModelStore for Arc<S> {
-    async fn insert(&self, key: EventId, value: Option<Vec<u8>>) -> Result<(bool, bool)> {
-        self.as_ref().insert(key, value).await
+    async fn insert_many(&self, items: &[(EventId, Option<Vec<u8>>)]) -> Result<(Vec<bool>, usize)> {
+        self.as_ref().insert_many(items).await
     }
 
     async fn range_with_values(
@@ -200,12 +201,48 @@ impl<S: AccessModelStore> AccessModelStore for Arc<S> {
     }
 }
 
+#[derive(Debug)]
+struct InsertQueue {
+    values: HashMap<EventId, Option<Vec<u8>>>,
+    last_flush: std::time::Instant,
+}
+
+impl InsertQueue {
+    pub fn new() -> Self {
+        Self {
+            values: HashMap::new(),
+            last_flush: std::time::Instant::now(),
+        }
+    }
+
+    pub fn should_flush(&self, force: bool) -> bool {
+        !self.values.is_empty()
+            && (force || self.values.len() > 100 || self.last_flush.elapsed().as_millis() > 100)
+    }
+
+    pub fn add(&mut self, key: EventId, value: Option<Vec<u8>>) {
+        self.values.insert(key, value);
+    }
+
+    /// if the queue is over 100 items or it's been 100ms since last flush, flush the queue
+    pub fn flush(&mut self, force: bool) -> Option<HashMap<EventId, Option<Vec<u8>>>> {
+        if self.should_flush(force) {
+            self.last_flush = std::time::Instant::now();
+            let values = std::mem::take(&mut self.values);
+            Some(values)
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct Server<C, I, M> {
     peer_id: PeerId,
     network: Network,
     interest: I,
     model: M,
+    queue: Arc<Mutex<InsertQueue>>,
     marker: PhantomData<C>,
 }
 
@@ -220,6 +257,7 @@ where
             network,
             interest,
             model,
+            queue: Arc::new(Mutex::new(InsertQueue::new())),
             marker: PhantomData,
         }
     }
@@ -296,11 +334,27 @@ where
     pub async fn post_events(&self, event: Event) -> Result<EventsPostResponse, ErrorResponse> {
         let event_id = decode_event_id(&event.id)?;
         let event_data = decode_event_data(&event.data)?;
-        self.model
-            .insert(event_id, Some(event_data))
-            .await
-            .map_err(|err| ErrorResponse::new(format!("failed to insert key: {err}")))?;
+        let items = {
+            let mut q = self
+                .queue
+                .lock()
+                .map_err(|err| ErrorResponse::new(format!("failed to lock queue: {err}")))?;
+            q.add(event_id, Some(event_data));
 
+            if let Some(items) = q.flush(false) {
+                let items = items.into_iter().collect::<Vec<_>>();
+                Some(items)
+            } else {
+                None
+            }
+        };
+
+        if let Some(items) = items {
+            self.model
+                .insert_many(&items[..])
+                .await
+                .map_err(|err| ErrorResponse::new(format!("failed to insert keys: {err}")))?;
+        }
         Ok(EventsPostResponse::Success)
     }
 

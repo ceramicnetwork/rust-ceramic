@@ -32,7 +32,7 @@ use crate::network::Network;
 const MIN_BYTES: [u8; 0] = [];
 const MAX_BYTES: [u8; 1] = [0xFF];
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Serialize, Deserialize)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Hash, Serialize, Deserialize)]
 /// EventId is the event data as a recon key
 pub struct EventId(#[serde(with = "serde_bytes")] Vec<u8>);
 
