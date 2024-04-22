@@ -8,9 +8,9 @@ use multihash::Multihash;
 use sqlx::{postgres::PgRow, sqlite::SqliteRow, Row as _};
 
 use super::BlockRow;
-use crate::{StoreError, StoreResult};
+use crate::{Error, Result};
 
-pub async fn rebuild_car(blocks: Vec<BlockRow>) -> StoreResult<Option<Vec<u8>>> {
+pub async fn rebuild_car(blocks: Vec<BlockRow>) -> Result<Option<Vec<u8>>> {
     if blocks.is_empty() {
         return Ok(None);
     }
@@ -34,9 +34,9 @@ pub async fn rebuild_car(blocks: Vec<BlockRow>) -> StoreResult<Option<Vec<u8>>> 
         writer
             .write(cid, bytes)
             .await
-            .map_err(StoreError::new_transient)?;
+            .map_err(Error::new_transient)?;
     }
-    writer.finish().await.map_err(StoreError::new_transient)?;
+    writer.finish().await.map_err(Error::new_transient)?;
     Ok(Some(car))
 }
 
@@ -53,7 +53,7 @@ pub struct ReconHash {
     pub ahash_7: u32,
 }
 
-fn into_u32s(val: Option<i64>, col: &str) -> Result<u32, sqlx::Error> {
+fn into_u32s(val: Option<i64>, col: &str) -> std::result::Result<u32, sqlx::Error> {
     let ahash_0 = val
         .map(u32::try_from)
         .transpose()
@@ -65,7 +65,7 @@ fn into_u32s(val: Option<i64>, col: &str) -> Result<u32, sqlx::Error> {
 }
 
 impl sqlx::FromRow<'_, PgRow> for ReconHash {
-    fn from_row(row: &PgRow) -> Result<Self, sqlx::Error> {
+    fn from_row(row: &PgRow) -> std::result::Result<Self, sqlx::Error> {
         let ahash_0 = into_u32s(row.try_get("ahash_0")?, "ahash_0")?;
         let ahash_1 = into_u32s(row.try_get("ahash_1")?, "ahash_1")?;
         let ahash_2 = into_u32s(row.try_get("ahash_2")?, "ahash_2")?;
@@ -133,12 +133,12 @@ pub struct EventValueRaw {
 }
 
 impl EventValueRaw {
-    pub fn into_block_row(self) -> StoreResult<(EventId, BlockRow)> {
-        let id = EventId::try_from(self.order_key).map_err(StoreError::new_app)?;
-        let hash = Multihash::from_bytes(&self.multihash[..]).map_err(StoreError::new_app)?;
+    pub fn into_block_row(self) -> Result<(EventId, BlockRow)> {
+        let id = EventId::try_from(self.order_key).map_err(Error::new_app)?;
+        let hash = Multihash::from_bytes(&self.multihash[..]).map_err(Error::new_app)?;
         let code = self.codec.try_into().map_err(|e: TryFromIntError| {
             let er = anyhow::anyhow!(e).context(format!("Invalid codec: {}", self.codec));
-            StoreError::new_app(er)
+            Error::new_app(er)
         })?;
 
         let cid = Cid::new_v1(code, hash);
@@ -153,12 +153,12 @@ impl EventValueRaw {
         ))
     }
 
-    pub async fn into_carfiles(all_blocks: Vec<Self>) -> StoreResult<Vec<(EventId, Vec<u8>)>> {
+    pub async fn into_carfiles(all_blocks: Vec<Self>) -> Result<Vec<(EventId, Vec<u8>)>> {
         // Consume all block into groups of blocks by their key.
         let all_blocks: Vec<(EventId, Vec<BlockRow>)> = process_results(
             all_blocks
                 .into_iter()
-                .map(|row| -> StoreResult<(EventId, BlockRow)> {
+                .map(|row| -> Result<(EventId, BlockRow)> {
                     let (order_key, block) = row.into_block_row()?;
 
                     Ok((order_key, block))
@@ -216,12 +216,12 @@ pub struct DeliveredEvent {
 
 impl DeliveredEvent {
     /// assumes rows are sorted by `delivered` ascending
-    pub fn parse_query_results(current: i64, rows: Vec<Self>) -> StoreResult<(i64, Vec<EventId>)> {
+    pub fn parse_query_results(current: i64, rows: Vec<Self>) -> Result<(i64, Vec<EventId>)> {
         let max: i64 = rows.last().map_or(current, |r| r.new_highwater_mark + 1);
         let rows = rows
             .into_iter()
-            .map(|row| EventId::try_from(row.order_key).map_err(StoreError::new_app))
-            .collect::<StoreResult<Vec<EventId>>>()?;
+            .map(|row| EventId::try_from(row.order_key).map_err(Error::new_app))
+            .collect::<Result<Vec<EventId>>>()?;
 
         Ok((max, rows))
     }

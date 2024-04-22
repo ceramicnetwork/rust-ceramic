@@ -11,7 +11,7 @@ use tracing::instrument;
 
 use crate::{
     sql::{ReconHash, ReconQuery, ReconType, SqlBackend},
-    DbTxSqlite, SqlitePool, StoreError, StoreResult,
+    DbTxSqlite, Error, Result, SqlitePool,
 };
 
 #[derive(Debug, Clone)]
@@ -22,7 +22,7 @@ pub struct InterestStoreSqlite {
 
 impl InterestStoreSqlite {
     /// Make a new InterestSqliteStore from a connection pool.
-    pub async fn new(pool: SqlitePool) -> StoreResult<Self> {
+    pub async fn new(pool: SqlitePool) -> Result<Self> {
         let store = InterestStoreSqlite { pool };
         Ok(store)
     }
@@ -31,7 +31,7 @@ impl InterestStoreSqlite {
 type InterestError = <Interest as TryFrom<Vec<u8>>>::Error;
 
 impl InterestStoreSqlite {
-    async fn insert_item(&self, key: &Interest) -> StoreResult<bool> {
+    async fn insert_item(&self, key: &Interest) -> Result<bool> {
         let mut tx = self.pool.writer().begin().await?;
         let new_key = self.insert_item_int(key, &mut tx).await?;
         tx.commit().await?;
@@ -39,16 +39,12 @@ impl InterestStoreSqlite {
     }
 
     /// returns (new_key, new_val) tuple
-    async fn insert_item_int(
-        &self,
-        item: &Interest,
-        conn: &mut DbTxSqlite<'_>,
-    ) -> StoreResult<bool> {
+    async fn insert_item_int(&self, item: &Interest, conn: &mut DbTxSqlite<'_>) -> Result<bool> {
         let new_key = self.insert_key_int(item, conn).await?;
         Ok(new_key)
     }
 
-    async fn insert_key_int(&self, key: &Interest, conn: &mut DbTxSqlite<'_>) -> StoreResult<bool> {
+    async fn insert_key_int(&self, key: &Interest, conn: &mut DbTxSqlite<'_>) -> Result<bool> {
         let key_insert = sqlx::query(ReconQuery::insert_interest());
 
         let hash = Sha256a::digest(key);
@@ -70,7 +66,7 @@ impl InterestStoreSqlite {
                 if err.is_unique_violation() {
                     Ok(false)
                 } else {
-                    Err(StoreError::from(sqlx::Error::Database(err)))
+                    Err(Error::from(sqlx::Error::Database(err)))
                 }
             }
             Err(err) => Err(err.into()),
@@ -83,7 +79,7 @@ impl InterestStoreSqlite {
         right_fencepost: &Interest,
         offset: usize,
         limit: usize,
-    ) -> StoreResult<Box<dyn Iterator<Item = Interest> + Send + 'static>> {
+    ) -> Result<Box<dyn Iterator<Item = Interest> + Send + 'static>> {
         let query = sqlx::query(ReconQuery::range(ReconType::Interest));
         let rows = query
             .bind(left_fencepost.as_bytes())
@@ -99,7 +95,7 @@ impl InterestStoreSqlite {
                 Interest::try_from(bytes)
             })
             .collect::<std::result::Result<Vec<Interest>, InterestError>>()
-            .map_err(|e| StoreError::new_app(anyhow!(e)))?;
+            .map_err(|e| Error::new_app(anyhow!(e)))?;
         Ok(Box::new(rows.into_iter()))
     }
 }
@@ -152,7 +148,7 @@ impl recon::Store for InterestStoreSqlite {
             _ => {
                 let mut results = vec![false; items.len()];
                 let mut new_val_cnt = 0;
-                let mut tx = self.pool.writer().begin().await.map_err(StoreError::from)?;
+                let mut tx = self.pool.writer().begin().await.map_err(Error::from)?;
 
                 for (idx, item) in items.iter().enumerate() {
                     let new_key = self.insert_item_int(item.key, &mut tx).await?;
@@ -161,7 +157,7 @@ impl recon::Store for InterestStoreSqlite {
                         new_val_cnt += 1;
                     }
                 }
-                tx.commit().await.map_err(StoreError::from)?;
+                tx.commit().await.map_err(Error::from)?;
                 Ok(InsertResult::new(results, new_val_cnt))
             }
         }
@@ -186,7 +182,7 @@ impl recon::Store for InterestStoreSqlite {
         .bind(right_fencepost.as_bytes())
         .fetch_one(self.pool.reader())
         .await
-        .map_err(StoreError::from)?;
+        .map_err(Error::from)?;
         let bytes = res.hash();
         Ok(HashCount::new(Self::Hash::from(bytes), res.count()))
     }
@@ -230,7 +226,7 @@ impl recon::Store for InterestStoreSqlite {
             .bind(right_fencepost.as_bytes())
             .fetch_one(self.pool.reader())
             .await
-            .map_err(StoreError::from)?;
+            .map_err(Error::from)?;
 
         Ok(row.get::<'_, i64, _>(0) as usize)
     }
@@ -249,7 +245,7 @@ impl recon::Store for InterestStoreSqlite {
             .bind(right_fencepost.as_bytes())
             .fetch_all(self.pool.reader())
             .await
-            .map_err(StoreError::from)?;
+            .map_err(Error::from)?;
         Ok(rows
             .first()
             .map(|row| {
@@ -271,7 +267,7 @@ impl recon::Store for InterestStoreSqlite {
             .bind(right_fencepost.as_bytes())
             .fetch_all(self.pool.reader())
             .await
-            .map_err(StoreError::from)?;
+            .map_err(Error::from)?;
         Ok(rows
             .first()
             .map(|row| {

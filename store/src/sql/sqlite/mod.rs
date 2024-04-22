@@ -13,7 +13,7 @@ use sqlx::{
 };
 use tracing::info;
 
-use crate::{Migrations, StoreResult};
+use crate::{Migrations, Result};
 
 /// A trivial wrapper around a sqlx Sqlite database transaction
 pub type DbTxSqlite<'a> = Transaction<'a, Sqlite>;
@@ -29,7 +29,7 @@ pub struct SqlitePool {
 impl SqlitePool {
     /// Connect to the sqlite database at the given path. Creates the database if it does not exist.
     /// Uses WAL journal mode.
-    pub async fn connect(path: &str, migrate: Migrations) -> StoreResult<Self> {
+    pub async fn connect(path: &str, migrate: Migrations) -> Result<Self> {
         // As we benchmark, we will likely adjust settings and make things configurable.
         // A few ideas: number of RO connections, synchronize = NORMAL, mmap_size, temp_store = memory
         let conn_opts = SqliteConnectOptions::from_str(path)?
@@ -65,7 +65,7 @@ impl SqlitePool {
 
     /// Creates an in-memory database. Useful for testing. Automatically applies migrations since all memory databases start empty
     /// and are not shared between connections.
-    pub async fn connect_in_memory() -> StoreResult<Self> {
+    pub async fn connect_in_memory() -> Result<Self> {
         SqlitePool::connect(":memory:", Migrations::Apply).await
     }
 
@@ -77,7 +77,7 @@ impl SqlitePool {
 
     /// Get a writer tranaction. The writer pool has only one connection so this is an exclusive lock.
     /// Use this method to perform simultaneous writes to the database, calling `commit` when you are done.
-    pub async fn tx(&self) -> StoreResult<DbTxSqlite> {
+    pub async fn tx(&self) -> Result<DbTxSqlite> {
         Ok(self.writer.begin().await?)
     }
 
@@ -87,7 +87,7 @@ impl SqlitePool {
     }
 
     /// Run an arbitrary SQL statement on the writer pool.
-    pub async fn run_statement(&self, statement: &str) -> StoreResult<()> {
+    pub async fn run_statement(&self, statement: &str) -> Result<()> {
         let _res = sqlx::query(statement).execute(self.writer()).await?;
         Ok(())
     }
@@ -95,10 +95,7 @@ impl SqlitePool {
     /// Connect to a SQLite file that is stored in store_dir/db.sqlite3
     /// if store_dir is None connect to $HOME/.ceramic-one/db.sqlite3
     /// if $HOME is undefined connect to /data/.ceramic-one/db.sqlite3
-    pub async fn from_store_dir(
-        store_dir: Option<PathBuf>,
-        migrate: Migrations,
-    ) -> StoreResult<Self> {
+    pub async fn from_store_dir(store_dir: Option<PathBuf>, migrate: Migrations) -> Result<Self> {
         let home: PathBuf = dirs::home_dir().unwrap_or("/data/".into());
         let store_dir = store_dir.unwrap_or(home.join(".ceramic-one/"));
         info!(

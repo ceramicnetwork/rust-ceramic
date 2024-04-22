@@ -23,7 +23,7 @@ use crate::{
         EventValueRaw, FirstAndLast, OrderKey, ReconHash, ReconQuery, ReconType, SqlBackend,
         GLOBAL_COUNTER,
     },
-    DbTxPg, PostgresPool, StoreError, StoreResult,
+    DbTxPg, Error, PostgresPool, Result,
 };
 
 /// Unified implementation of [`recon::Store`] and [`iroh_bitswap::Store`] that can expose the
@@ -37,7 +37,7 @@ pub struct EventStorePostgres {
 
 impl EventStorePostgres {
     /// Create an instance of the store initializing any neccessary tables.
-    pub async fn new(pool: PostgresPool) -> StoreResult<Self> {
+    pub async fn new(pool: PostgresPool) -> Result<Self> {
         let store = EventStorePostgres {
             pool,
             test_counter: None,
@@ -48,7 +48,7 @@ impl EventStorePostgres {
 
     /// Creates an instance that doesn't share the global event counter with other instances (only for tests to avoid running serially)
     #[allow(dead_code)]
-    pub(crate) async fn new_local(pool: PostgresPool) -> StoreResult<Self> {
+    pub(crate) async fn new_local(pool: PostgresPool) -> Result<Self> {
         let store = EventStorePostgres {
             pool,
             test_counter: None, // Some(Arc::new(AtomicI64::new(0))),
@@ -57,7 +57,7 @@ impl EventStorePostgres {
         Ok(store)
     }
 
-    async fn init_delivered(&self) -> StoreResult<()> {
+    async fn init_delivered(&self) -> Result<()> {
         let max_delivered =
             sqlx::query(r#"SELECT COALESCE(MAX(delivered), 0)::bigint FROM ceramic_one_event;"#)
                 .fetch_one(self.pool.reader())
@@ -65,7 +65,7 @@ impl EventStorePostgres {
         let max_delivered: i64 = max_delivered.get(0);
         let max = max_delivered
             .checked_add(1)
-            .ok_or_else(|| StoreError::new_app(anyhow!("More than i64::MAX delivered events!")))?;
+            .ok_or_else(|| Error::new_app(anyhow!("More than i64::MAX delivered events!")))?;
         if let Some(ref t) = self.test_counter {
             t.fetch_max(max, std::sync::atomic::Ordering::SeqCst);
         } else {
@@ -84,16 +84,16 @@ impl EventStorePostgres {
     }
 
     /// Begin a database transaction.
-    pub async fn begin_tx(&self) -> StoreResult<DbTxPg<'_>> {
+    pub async fn begin_tx(&self) -> Result<DbTxPg<'_>> {
         self.pool.tx().await
     }
 
     /// Commit the database transaction.
-    pub async fn commit_tx(&self, tx: DbTxPg<'_>) -> StoreResult<()> {
+    pub async fn commit_tx(&self, tx: DbTxPg<'_>) -> Result<()> {
         Ok(tx.commit().await?)
     }
 
-    async fn insert_item(&self, item: &ReconItem<'_, EventId>) -> StoreResult<(bool, bool)> {
+    async fn insert_item(&self, item: &ReconItem<'_, EventId>) -> Result<(bool, bool)> {
         let mut tx = self.pool.writer().begin().await?;
         let (new_key, new_val) = self.insert_item_int(item, &mut tx).await?;
         tx.commit().await?;
@@ -106,7 +106,7 @@ impl EventStorePostgres {
         right_fencepost: &EventId,
         offset: usize,
         limit: usize,
-    ) -> StoreResult<Box<dyn Iterator<Item = (EventId, Vec<u8>)> + Send + 'static>> {
+    ) -> Result<Box<dyn Iterator<Item = (EventId, Vec<u8>)> + Send + 'static>> {
         let offset = offset.try_into().unwrap_or(i64::MAX);
         let limit: i64 = limit.try_into().unwrap_or(i64::MAX);
         let all_blocks: Vec<EventValueRaw> = sqlx::query_as(EventQuery::value_blocks_many())
@@ -121,7 +121,7 @@ impl EventStorePostgres {
         Ok(Box::new(values.into_iter()))
     }
 
-    async fn value_for_key_int(&self, key: &EventId) -> StoreResult<Option<Vec<u8>>> {
+    async fn value_for_key_int(&self, key: &EventId) -> Result<Option<Vec<u8>>> {
         let blocks: Vec<BlockRow> = sqlx::query_as(EventQuery::value_blocks_one())
             .bind(key.as_bytes())
             .fetch_all(self.pool.reader())
@@ -134,17 +134,17 @@ impl EventStorePostgres {
         &self,
         item: &ReconItem<'_, EventId>,
         conn: &mut DbTxPg<'_>,
-    ) -> StoreResult<(bool, bool)> {
+    ) -> Result<(bool, bool)> {
         // We make sure the key exists as we require it as an FK to add the event_block record.
         let new_key = self.insert_key_int(item.key, conn).await?;
 
         if let Some(val) = item.value {
             // Put each block from the car file. Should we check if value already existed and skip this?
             // It will no-op but will still try to insert the blocks again
-            let mut reader = CarReader::new(val).await.map_err(StoreError::new_app)?;
+            let mut reader = CarReader::new(val).await.map_err(Error::new_app)?;
             let roots: BTreeSet<Cid> = reader.header().roots().iter().cloned().collect();
             let mut idx = 0;
-            while let Some((cid, data)) = reader.next_block().await.map_err(StoreError::new_app)? {
+            while let Some((cid, data)) = reader.next_block().await.map_err(Error::new_app)? {
                 self.insert_event_block_int(
                     item.key,
                     idx,
@@ -162,7 +162,7 @@ impl EventStorePostgres {
     }
 
     /// Add a block, returns true if the block is new
-    pub async fn put_block(&self, hash: &Multihash, blob: &Bytes) -> StoreResult<bool> {
+    pub async fn put_block(&self, hash: &Multihash, blob: &Bytes) -> Result<bool> {
         let mut tx = self.pool.tx().await?;
         let res = self.put_block_tx(hash, blob, &mut tx).await?;
         tx.commit().await?;
@@ -175,7 +175,7 @@ impl EventStorePostgres {
         hash: &Multihash,
         blob: &Bytes,
         conn: &mut DbTxPg<'_>,
-    ) -> StoreResult<bool> {
+    ) -> Result<bool> {
         let hash = hash.to_bytes();
         let blob = blob.to_vec();
         conn.execute("SAVEPOINT insert_block_savepoint;").await?;
@@ -210,20 +210,20 @@ impl EventStorePostgres {
         cid: Cid,
         blob: &Bytes,
         conn: &mut DbTxPg<'_>,
-    ) -> StoreResult<()> {
+    ) -> Result<()> {
         let hash = match cid.hash().code() {
             0x12 => Code::Sha2_256.digest(blob),
             0x1b => Code::Keccak256.digest(blob),
-            0x11 => return Err(StoreError::new_app(anyhow!("Sha1 not supported"))),
+            0x11 => return Err(Error::new_app(anyhow!("Sha1 not supported"))),
             code => {
-                return Err(StoreError::new_app(anyhow!(
+                return Err(Error::new_app(anyhow!(
                     "multihash type {:#x} not Sha2_256, Keccak256",
                     code,
                 )))
             }
         };
         if cid.hash().to_bytes() != hash.to_bytes() {
-            return Err(StoreError::new_app(anyhow!(
+            return Err(Error::new_app(anyhow!(
                 "cid did not match blob {} != {}",
                 hex::encode(cid.hash().to_bytes()),
                 hex::encode(hash.to_bytes())
@@ -233,7 +233,7 @@ impl EventStorePostgres {
         let _new = self.put_block_tx(&hash, blob, conn).await?;
 
         let code: i64 = cid.codec().try_into().map_err(|e| {
-            StoreError::new_app(anyhow!(
+            Error::new_app(anyhow!(
                 "Invalid codec could not fit into an i64: {}. {}",
                 cid.codec(),
                 e
@@ -241,7 +241,7 @@ impl EventStorePostgres {
         })?;
         let id = key
             .cid()
-            .ok_or_else(|| StoreError::new_app(anyhow!("Event CID is required")))?
+            .ok_or_else(|| Error::new_app(anyhow!("Event CID is required")))?
             .to_bytes();
         let multihash = hash.to_bytes();
         sqlx::query(
@@ -259,7 +259,7 @@ impl EventStorePostgres {
         Ok(())
     }
 
-    async fn mark_ready_to_deliver(&self, key: &EventId, conn: &mut DbTxPg<'_>) -> StoreResult<()> {
+    async fn mark_ready_to_deliver(&self, key: &EventId, conn: &mut DbTxPg<'_>) -> Result<()> {
         let id = key.as_bytes();
         let delivered = self.get_delivered();
         sqlx::query("UPDATE ceramic_one_event SET delivered = $1 WHERE order_key = $2;")
@@ -270,12 +270,12 @@ impl EventStorePostgres {
         Ok(())
     }
 
-    async fn insert_key_int(&self, key: &EventId, conn: &mut DbTxPg<'_>) -> StoreResult<bool> {
+    async fn insert_key_int(&self, key: &EventId, conn: &mut DbTxPg<'_>) -> Result<bool> {
         let id = key.as_bytes();
         let cid = key
             .cid()
             .map(|cid| cid.to_bytes())
-            .ok_or_else(|| StoreError::new_app(anyhow!("Event CID is required")))?;
+            .ok_or_else(|| Error::new_app(anyhow!("Event CID is required")))?;
         let hash = Sha256a::digest(key);
 
         conn.execute("SAVEPOINT insert_key_savepoint;").await?;
@@ -313,7 +313,7 @@ impl EventStorePostgres {
         &self,
         delivered: i64,
         limit: i64,
-    ) -> StoreResult<(i64, Vec<EventId>)> {
+    ) -> Result<(i64, Vec<EventId>)> {
         let rows: Vec<DeliveredEvent> = sqlx::query_as(EventQuery::new_delivered_events())
             .bind(delivered)
             .bind(limit)
@@ -343,7 +343,7 @@ impl recon::Store for EventStorePostgres {
             _ => {
                 let mut results = vec![false; items.len()];
                 let mut new_val_cnt = 0;
-                let mut tx = self.pool.writer().begin().await.map_err(StoreError::from)?;
+                let mut tx = self.pool.writer().begin().await.map_err(Error::from)?;
 
                 for (idx, item) in items.iter().enumerate() {
                     let (new_key, new_val) = self.insert_item_int(item, &mut tx).await?;
@@ -352,7 +352,7 @@ impl recon::Store for EventStorePostgres {
                         new_val_cnt += 1;
                     }
                 }
-                tx.commit().await.map_err(StoreError::from)?;
+                tx.commit().await.map_err(Error::from)?;
                 Ok(InsertResult::new(results, new_val_cnt))
             }
         }
@@ -373,7 +373,7 @@ impl recon::Store for EventStorePostgres {
         .bind(right_fencepost.as_bytes())
         .fetch_one(self.pool.reader())
         .await
-        .map_err(StoreError::from)?;
+        .map_err(Error::from)?;
 
         Ok(HashCount::new(Self::Hash::from(res.hash()), res.count()))
     }
@@ -387,7 +387,7 @@ impl recon::Store for EventStorePostgres {
         limit: usize,
     ) -> ReconResult<Box<dyn Iterator<Item = EventId> + Send + 'static>> {
         let offset: i64 = offset.try_into().map_err(|_e: std::num::TryFromIntError| {
-            StoreError::new_app(anyhow!("Offset too large to fit into i64"))
+            Error::new_app(anyhow!("Offset too large to fit into i64"))
         })?;
 
         let limit = limit.try_into().unwrap_or(100000); // 100k is still a huge limit
@@ -398,12 +398,12 @@ impl recon::Store for EventStorePostgres {
             .bind(offset)
             .fetch_all(self.pool.reader())
             .await
-            .map_err(StoreError::from)?;
+            .map_err(Error::from)?;
 
         let rows = rows
             .into_iter()
-            .map(|k| EventId::try_from(k).map_err(|e| StoreError::new_app(anyhow!(e))))
-            .collect::<StoreResult<Vec<EventId>>>()?;
+            .map(|k| EventId::try_from(k).map_err(|e| Error::new_app(anyhow!(e))))
+            .collect::<Result<Vec<EventId>>>()?;
         Ok(Box::new(rows.into_iter()))
     }
     #[instrument(skip(self))]
@@ -432,7 +432,7 @@ impl recon::Store for EventStorePostgres {
                 .bind(right_fencepost.as_bytes())
                 .fetch_one(self.pool.reader())
                 .await
-                .map_err(StoreError::from)?;
+                .map_err(Error::from)?;
         Ok(row.res as usize)
     }
 
@@ -448,7 +448,7 @@ impl recon::Store for EventStorePostgres {
             .bind(right_fencepost.as_bytes())
             .fetch_optional(self.pool.reader())
             .await
-            .map_err(StoreError::from)?;
+            .map_err(Error::from)?;
 
         let res = row
             .map(|row| {
@@ -470,7 +470,7 @@ impl recon::Store for EventStorePostgres {
             .bind(right_fencepost.as_bytes())
             .fetch_optional(self.pool.reader())
             .await
-            .map_err(StoreError::from)?;
+            .map_err(Error::from)?;
 
         let res = row
             .map(|k| EventId::try_from(k).map_err(|e| ReconError::new_app(anyhow!(e))))
@@ -494,7 +494,7 @@ impl recon::Store for EventStorePostgres {
         .bind(right_fencepost.as_bytes())
         .fetch_optional(self.pool.reader())
         .await
-        .map_err(StoreError::from)?;
+        .map_err(Error::from)?;
 
         if let Some(row) = row {
             let first =
@@ -528,12 +528,12 @@ impl recon::Store for EventStorePostgres {
                 .bind(end)
                 .fetch_all(self.pool.reader())
                 .await
-                .map_err(StoreError::from)?;
+                .map_err(Error::from)?;
 
         Ok(row
             .into_iter()
-            .map(|k| EventId::try_from(k).map_err(|e| StoreError::new_app(anyhow!(e))))
-            .collect::<StoreResult<Vec<EventId>>>()?)
+            .map(|k| EventId::try_from(k).map_err(|e| Error::new_app(anyhow!(e))))
+            .collect::<Result<Vec<EventId>>>()?)
     }
 }
 
@@ -544,7 +544,7 @@ impl iroh_bitswap::Store for EventStorePostgres {
             .bind(cid.hash().to_bytes())
             .fetch_one(self.pool.reader())
             .await
-            .map_err(StoreError::from)?
+            .map_err(Error::from)?
             .get::<'_, i32, _>(0) as usize)
     }
 
@@ -553,7 +553,7 @@ impl iroh_bitswap::Store for EventStorePostgres {
             .bind(cid.hash().to_bytes())
             .fetch_one(self.pool.reader())
             .await
-            .map_err(StoreError::from)?;
+            .map_err(Error::from)?;
 
         Ok(Block::new(block.bytes.into(), cid.to_owned()))
     }
@@ -563,7 +563,7 @@ impl iroh_bitswap::Store for EventStorePostgres {
             .bind(cid.hash().to_bytes())
             .fetch_one(self.pool.reader())
             .await
-            .map_err(StoreError::from)?
+            .map_err(Error::from)?
             .get::<'_, bool, _>(0);
         Ok(len)
     }
@@ -572,7 +572,7 @@ impl iroh_bitswap::Store for EventStorePostgres {
         Ok(self
             .put_block(block.cid().hash(), block.data())
             .await
-            .map_err(StoreError::from)?)
+            .map_err(Error::from)?)
     }
 }
 

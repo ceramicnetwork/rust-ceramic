@@ -2,7 +2,7 @@ use anyhow::anyhow;
 
 #[derive(Debug, thiserror::Error)]
 /// The Errors that can be raised by store operations
-pub enum StoreError {
+pub enum Error {
     #[error("Application error encountered: {error}")]
     /// An application specific error that may be resolved with different inputs or other changes
     Application {
@@ -24,7 +24,7 @@ pub enum StoreError {
     },
 }
 
-impl StoreError {
+impl Error {
     /// Create a transient error
     pub fn new_transient(error: impl Into<anyhow::Error>) -> Self {
         Self::Transient {
@@ -51,20 +51,20 @@ impl StoreError {
         C: std::fmt::Display + Send + Sync + 'static,
     {
         match self {
-            StoreError::Application { error } => Self::Application {
+            Error::Application { error } => Self::Application {
                 error: error.context(context),
             },
-            StoreError::Fatal { error } => Self::Fatal {
+            Error::Fatal { error } => Self::Fatal {
                 error: error.context(context),
             },
-            StoreError::Transient { error } => Self::Transient {
+            Error::Transient { error } => Self::Transient {
                 error: error.context(context),
             },
         }
     }
 }
 
-impl From<sqlx::Error> for StoreError {
+impl From<sqlx::Error> for Error {
     fn from(e: sqlx::Error) -> Self {
         match e {
             // Transient errors can be retried after some time
@@ -109,12 +109,12 @@ impl From<sqlx::Error> for StoreError {
     }
 }
 
-impl From<StoreError> for recon::ReconError {
-    fn from(value: StoreError) -> Self {
+impl From<Error> for recon::ReconError {
+    fn from(value: Error) -> Self {
         match value {
-            StoreError::Application { error } => recon::ReconError::Application { error },
-            StoreError::Fatal { error } => recon::ReconError::Fatal { error },
-            StoreError::Transient { error } => recon::ReconError::Transient { error },
+            Error::Application { error } => recon::ReconError::Application { error },
+            Error::Fatal { error } => recon::ReconError::Fatal { error },
+            Error::Transient { error } => recon::ReconError::Transient { error },
         }
     }
 }

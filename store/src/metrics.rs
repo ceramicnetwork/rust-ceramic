@@ -161,7 +161,7 @@ where
     async fn insert(&self, key: Interest) -> anyhow::Result<bool> {
         let new = StoreMetricsMiddleware::<S>::record(
             &self.metrics,
-            "interest_insert",
+            "api_interest_insert",
             self.store.insert(key),
         )
         .await?;
@@ -177,7 +177,7 @@ where
     ) -> anyhow::Result<Vec<Interest>> {
         StoreMetricsMiddleware::<S>::record(
             &self.metrics,
-            "interest_range",
+            "api_interest_range",
             self.store.range(start, end, offset, limit),
         )
         .await
@@ -192,7 +192,7 @@ where
     async fn insert(&self, key: EventId, value: Option<Vec<u8>>) -> anyhow::Result<(bool, bool)> {
         let (new_key, new_val) = StoreMetricsMiddleware::<S>::record(
             &self.metrics,
-            "model_insert",
+            "api_model_insert",
             self.store.insert(key, value),
         )
         .await?;
@@ -209,7 +209,7 @@ where
     ) -> anyhow::Result<Vec<(EventId, Vec<u8>)>> {
         Ok(StoreMetricsMiddleware::<S>::record(
             &self.metrics,
-            "model_range_with_values",
+            "api_model_range_with_values",
             self.store.range_with_values(start, end, offset, limit),
         )
         .await?)
@@ -218,7 +218,7 @@ where
     async fn value_for_key(&self, key: &EventId) -> anyhow::Result<Option<Vec<u8>>> {
         Ok(StoreMetricsMiddleware::<S>::record(
             &self.metrics,
-            "model_value_for_key",
+            "api_model_value_for_key",
             self.store.value_for_key(key),
         )
         .await?)
@@ -231,7 +231,7 @@ where
     ) -> anyhow::Result<(i64, Vec<EventId>)> {
         StoreMetricsMiddleware::<S>::record(
             &self.metrics,
-            "model_keys_since_highwater_mark",
+            "api_model_keys_since_highwater_mark",
             self.store.keys_since_highwater_mark(highwater, limit),
         )
         .await

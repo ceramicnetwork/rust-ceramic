@@ -8,11 +8,11 @@ mod sql;
 #[cfg(test)]
 mod tests;
 
-pub use error::StoreError;
+pub use error::Error;
 pub use metrics::{Metrics, StoreMetricsMiddleware};
 pub use sql::{
     DbTxPg, DbTxSqlite, EventStorePostgres, EventStoreSqlite, InterestStorePostgres,
     InterestStoreSqlite, Migrations, PostgresPool, RootStorePostgres, RootStoreSqlite, SqlitePool,
 };
 
-pub(crate) type StoreResult<T> = std::result::Result<T, StoreError>;
+pub(crate) type Result<T> = std::result::Result<T, Error>;
