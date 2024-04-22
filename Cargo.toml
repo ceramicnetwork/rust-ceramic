@@ -201,3 +201,8 @@ authors = [
 ]
 license = "Apache-2.0/MIT"
 repository = "https://github.com/3box/rust-ceramic"
+
+[profile.release-debug]
+inherits = "release"
+debug = true
+strip = "none"

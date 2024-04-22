@@ -66,6 +66,10 @@ check-queries-ci:
 release:
 	$(CARGO) build -p ceramic-one --locked --release
 
+.PHONY: release-debug
+release-debug:
+	$(CARGO) build -p ceramic-one --locked --profile release-debug --features tokio-console
+
 .PHONY: debug
 debug:
 	$(CARGO) build -p ceramic-one --locked --features tokio-console
