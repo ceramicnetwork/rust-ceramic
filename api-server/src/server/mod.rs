@@ -22,9 +22,10 @@ pub use crate::context;
 type ServiceFuture = BoxFuture<'static, Result<Response<Body>, crate::ServiceError>>;
 
 use crate::{
-    Api, EventsEventIdGetResponse, EventsPostResponse, EventsSortKeySortValueGetResponse,
-    ExperimentalEventsSepSepValueGetResponse, FeedEventsGetResponse, InterestsPostResponse,
-    InterestsSortKeySortValuePostResponse, LivenessGetResponse, VersionPostResponse,
+    Api, DebugHeapGetResponse, EventsEventIdGetResponse, EventsPostResponse,
+    EventsSortKeySortValueGetResponse, ExperimentalEventsSepSepValueGetResponse,
+    FeedEventsGetResponse, InterestsPostResponse, InterestsSortKeySortValuePostResponse,
+    LivenessGetResponse, VersionPostResponse,
 };
 
 mod paths {
@@ -32,6 +33,7 @@ mod paths {
 
     lazy_static! {
         pub static ref GLOBAL_REGEX_SET: regex::RegexSet = regex::RegexSet::new(vec![
+            r"^/ceramic/debug/heap$",
             r"^/ceramic/events$",
             r"^/ceramic/events/(?P<event_id>[^/?#]*)$",
             r"^/ceramic/events/(?P<sort_key>[^/?#]*)/(?P<sort_value>[^/?#]*)$",
@@ -44,22 +46,23 @@ mod paths {
         ])
         .expect("Unable to create global regex set");
     }
-    pub(crate) static ID_EVENTS: usize = 0;
-    pub(crate) static ID_EVENTS_EVENT_ID: usize = 1;
+    pub(crate) static ID_DEBUG_HEAP: usize = 0;
+    pub(crate) static ID_EVENTS: usize = 1;
+    pub(crate) static ID_EVENTS_EVENT_ID: usize = 2;
     lazy_static! {
         pub static ref REGEX_EVENTS_EVENT_ID: regex::Regex =
             #[allow(clippy::invalid_regex)]
             regex::Regex::new(r"^/ceramic/events/(?P<event_id>[^/?#]*)$")
                 .expect("Unable to create regex for EVENTS_EVENT_ID");
     }
-    pub(crate) static ID_EVENTS_SORT_KEY_SORT_VALUE: usize = 2;
+    pub(crate) static ID_EVENTS_SORT_KEY_SORT_VALUE: usize = 3;
     lazy_static! {
         pub static ref REGEX_EVENTS_SORT_KEY_SORT_VALUE: regex::Regex =
             #[allow(clippy::invalid_regex)]
             regex::Regex::new(r"^/ceramic/events/(?P<sort_key>[^/?#]*)/(?P<sort_value>[^/?#]*)$")
                 .expect("Unable to create regex for EVENTS_SORT_KEY_SORT_VALUE");
     }
-    pub(crate) static ID_EXPERIMENTAL_EVENTS_SEP_SEPVALUE: usize = 3;
+    pub(crate) static ID_EXPERIMENTAL_EVENTS_SEP_SEPVALUE: usize = 4;
     lazy_static! {
         pub static ref REGEX_EXPERIMENTAL_EVENTS_SEP_SEPVALUE: regex::Regex =
             #[allow(clippy::invalid_regex)]
@@ -68,9 +71,9 @@ mod paths {
             )
             .expect("Unable to create regex for EXPERIMENTAL_EVENTS_SEP_SEPVALUE");
     }
-    pub(crate) static ID_FEED_EVENTS: usize = 4;
-    pub(crate) static ID_INTERESTS: usize = 5;
-    pub(crate) static ID_INTERESTS_SORT_KEY_SORT_VALUE: usize = 6;
+    pub(crate) static ID_FEED_EVENTS: usize = 5;
+    pub(crate) static ID_INTERESTS: usize = 6;
+    pub(crate) static ID_INTERESTS_SORT_KEY_SORT_VALUE: usize = 7;
     lazy_static! {
         pub static ref REGEX_INTERESTS_SORT_KEY_SORT_VALUE: regex::Regex =
             #[allow(clippy::invalid_regex)]
@@ -79,8 +82,8 @@ mod paths {
             )
             .expect("Unable to create regex for INTERESTS_SORT_KEY_SORT_VALUE");
     }
-    pub(crate) static ID_LIVENESS: usize = 7;
-    pub(crate) static ID_VERSION: usize = 8;
+    pub(crate) static ID_LIVENESS: usize = 8;
+    pub(crate) static ID_VERSION: usize = 9;
 }
 
 pub struct MakeService<T, C>
@@ -193,6 +196,68 @@ where
             let path = paths::GLOBAL_REGEX_SET.matches(uri.path());
 
             match method {
+                // DebugHeapGet - GET /debug/heap
+                hyper::Method::GET if path.matched(paths::ID_DEBUG_HEAP) => {
+                    let result = api_impl.debug_heap_get(&context).await;
+                    let mut response = Response::new(Body::empty());
+                    response.headers_mut().insert(
+                        HeaderName::from_static("x-span-id"),
+                        HeaderValue::from_str(
+                            (&context as &dyn Has<XSpanIdString>)
+                                .get()
+                                .0
+                                .clone()
+                                .as_str(),
+                        )
+                        .expect("Unable to create X-Span-ID header value"),
+                    );
+
+                    match result {
+                        Ok(rsp) => match rsp {
+                            DebugHeapGetResponse::Success(body) => {
+                                *response.status_mut() = StatusCode::from_u16(200)
+                                    .expect("Unable to turn 200 into a StatusCode");
+                                response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/octet-stream")
+                                                            .expect("Unable to create Content-Type header for DEBUG_HEAP_GET_SUCCESS"));
+                                let body_content = body.0;
+                                *response.body_mut() = Body::from(body_content);
+                            }
+                            DebugHeapGetResponse::BadRequest(body) => {
+                                *response.status_mut() = StatusCode::from_u16(400)
+                                    .expect("Unable to turn 400 into a StatusCode");
+                                response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for DEBUG_HEAP_GET_BAD_REQUEST"));
+                                let body_content = serde_json::to_string(&body)
+                                    .expect("impossible to fail to serialize");
+                                *response.body_mut() = Body::from(body_content);
+                            }
+                            DebugHeapGetResponse::InternalServerError(body) => {
+                                *response.status_mut() = StatusCode::from_u16(500)
+                                    .expect("Unable to turn 500 into a StatusCode");
+                                response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for DEBUG_HEAP_GET_INTERNAL_SERVER_ERROR"));
+                                let body_content = serde_json::to_string(&body)
+                                    .expect("impossible to fail to serialize");
+                                *response.body_mut() = Body::from(body_content);
+                            }
+                        },
+                        Err(_) => {
+                            // Application code returned an error. This should not happen, as the implementation should
+                            // return a valid response.
+                            *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                            *response.body_mut() = Body::from("An internal error occurred");
+                        }
+                    }
+
+                    Ok(response)
+                }
+
                 // EventsEventIdGet - GET /events/{event_id}
                 hyper::Method::GET if path.matched(paths::ID_EVENTS_EVENT_ID) => {
                     // Path parameters
@@ -1194,6 +1259,7 @@ where
                     Ok(response)
                 }
 
+                _ if path.matched(paths::ID_DEBUG_HEAP) => method_not_allowed(),
                 _ if path.matched(paths::ID_EVENTS) => method_not_allowed(),
                 _ if path.matched(paths::ID_EVENTS_EVENT_ID) => method_not_allowed(),
                 _ if path.matched(paths::ID_EVENTS_SORT_KEY_SORT_VALUE) => method_not_allowed(),
@@ -1221,6 +1287,8 @@ impl<T> RequestParser<T> for ApiRequestParser {
     fn parse_operation_id(request: &Request<T>) -> Option<&'static str> {
         let path = paths::GLOBAL_REGEX_SET.matches(request.uri().path());
         match *request.method() {
+            // DebugHeapGet - GET /debug/heap
+            hyper::Method::GET if path.matched(paths::ID_DEBUG_HEAP) => Some("DebugHeapGet"),
             // EventsEventIdGet - GET /events/{event_id}
             hyper::Method::GET if path.matched(paths::ID_EVENTS_EVENT_ID) => {
                 Some("EventsEventIdGet")

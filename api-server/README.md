@@ -15,7 +15,7 @@ To see how to make this your own, look here:
 [README]((https://openapi-generator.tech))
 
 - API version: 0.14.0
-- Build date: 2024-03-26T12:19:16.201436-06:00[America/Denver]
+- Build date: 2024-04-24T13:37:37.597565436-06:00[America/Denver]
 
 
 
@@ -62,6 +62,7 @@ cargo run --example server
 To run a client, follow one of the following simple steps:
 
 ```
+cargo run --example client DebugHeapGet
 cargo run --example client EventsEventIdGet
 cargo run --example client EventsSortKeySortValueGet
 cargo run --example client ExperimentalEventsSepSepValueGet
@@ -102,6 +103,7 @@ All URIs are relative to */ceramic*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
+[****](docs/default_api.md#) | **GET** /debug/heap | Get the heap statistics of the Ceramic node
 [****](docs/default_api.md#) | **GET** /events/{event_id} | Get event data
 [****](docs/default_api.md#) | **POST** /events | Creates a new event
 [****](docs/default_api.md#) | **GET** /events/{sort_key}/{sort_value} | Get events matching the interest stored on the node

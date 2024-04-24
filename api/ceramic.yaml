@@ -27,6 +27,29 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /debug/heap:
+    get:
+      summary: Get the heap statistics of the Ceramic node
+      responses:
+        "200":
+          description: success
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BadRequestResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                  $ref: "#/components/schemas/ErrorResponse"
   /version:
     post:
       summary: Get the version of the Ceramic node

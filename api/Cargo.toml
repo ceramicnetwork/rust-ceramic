@@ -24,6 +24,10 @@ swagger.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 prometheus-client.workspace = true
+jemalloc_pprof = "0.1.0"
+
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+tikv-jemalloc-ctl.workspace = true
 
 [dev-dependencies]
 expect-test.workspace = true

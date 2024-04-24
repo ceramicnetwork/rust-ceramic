@@ -101,9 +101,10 @@ impl<C> Server<C> {
 
 use ceramic_api_server::server::MakeService;
 use ceramic_api_server::{
-    Api, EventsEventIdGetResponse, EventsPostResponse, EventsSortKeySortValueGetResponse,
-    ExperimentalEventsSepSepValueGetResponse, FeedEventsGetResponse, InterestsPostResponse,
-    InterestsSortKeySortValuePostResponse, LivenessGetResponse, VersionPostResponse,
+    Api, DebugHeapGetResponse, EventsEventIdGetResponse, EventsPostResponse,
+    EventsSortKeySortValueGetResponse, ExperimentalEventsSepSepValueGetResponse,
+    FeedEventsGetResponse, InterestsPostResponse, InterestsSortKeySortValuePostResponse,
+    LivenessGetResponse, VersionPostResponse,
 };
 use std::error::Error;
 use swagger::ApiError;
@@ -113,6 +114,15 @@ impl<C> Api<C> for Server<C>
 where
     C: Has<XSpanIdString> + Send + Sync,
 {
+    /// Get the heap statistics of the Ceramic node
+    async fn debug_heap_get(&self, context: &C) -> Result<DebugHeapGetResponse, ApiError> {
+        info!(
+            "debug_heap_get() - X-Span-ID: {:?}",
+            context.get().0.clone()
+        );
+        Err(ApiError("Generic failure".into()))
+    }
+
     /// Get event data
     async fn events_event_id_get(
         &self,

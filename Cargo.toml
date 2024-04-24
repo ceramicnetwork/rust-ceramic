@@ -159,6 +159,11 @@ tempfile = "3.3"
 test-log = { version = "0.2", default-features = false, features = ["trace"] }
 testdir = "0.7.0"
 thiserror = "1"
+tikv-jemallocator = { version = "0.5", features = [
+    "profiling",
+    "unprefixed_malloc_on_supported_platforms",
+] }
+tikv-jemalloc-ctl = "0.5"
 time = "0.3.9"
 tokio = { version = "1", default-features = false, features = [
     "rt",
@@ -190,6 +195,7 @@ wasm-timer = "0.2.5"
 which = "4.3.0"
 xtaskops = "0.3"
 zeroize = "1.4"
+
 
 [workspace.package]
 version = "0.14.0"

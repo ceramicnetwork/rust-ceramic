@@ -16,7 +16,7 @@ use std::{
 
 use anyhow::{bail, Result};
 use async_trait::async_trait;
-use ceramic_api_server::models::ErrorResponse;
+use ceramic_api_server::models::{BadRequestResponse, ErrorResponse};
 use futures::{future, Stream, StreamExt, TryFutureExt, TryStreamExt};
 use hyper::service::Service;
 use hyper::{server::conn::Http, Request};
@@ -29,8 +29,8 @@ use tracing::{debug, info, instrument, Level};
 use ceramic_api_server::server::MakeService;
 use ceramic_api_server::{
     models::{self, Event},
-    EventsEventIdGetResponse, EventsPostResponse, InterestsSortKeySortValuePostResponse,
-    LivenessGetResponse, VersionPostResponse,
+    DebugHeapGetResponse, EventsEventIdGetResponse, EventsPostResponse,
+    InterestsSortKeySortValuePostResponse, LivenessGetResponse, VersionPostResponse,
 };
 use ceramic_api_server::{
     Api, EventsSortKeySortValueGetResponse, ExperimentalEventsSepSepValueGetResponse,
@@ -39,6 +39,8 @@ use ceramic_api_server::{
 use ceramic_core::{interest, EventId, Interest, Network, PeerId, StreamId};
 use std::error::Error;
 use swagger::ApiError;
+#[cfg(not(target_env = "msvc"))]
+use tikv_jemalloc_ctl::{epoch, stats};
 
 use crate::ResumeToken;
 
@@ -438,6 +440,26 @@ where
         _context: &C,
     ) -> std::result::Result<LivenessGetResponse, ApiError> {
         Ok(LivenessGetResponse::Success)
+    }
+
+    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
+    async fn debug_heap_get(
+        &self,
+        _context: &C,
+    ) -> std::result::Result<DebugHeapGetResponse, ApiError> {
+        epoch::advance().unwrap();
+
+        let mut prof_ctl = jemalloc_pprof::PROF_CTL.as_ref().unwrap().lock().await;
+        if !prof_ctl.activated() {
+            return Ok(DebugHeapGetResponse::BadRequest(BadRequestResponse {
+                message: "heap profiling not enabled".to_string(),
+            }));
+        }
+        prof_ctl
+            .dump_pprof()
+            .map_err(|e| ErrorResponse::new(format!("failed to dump profile: {e}")))
+            .map(|pprof| DebugHeapGetResponse::Success(ByteArray(pprof)))
+            .or_else(|err| Ok(DebugHeapGetResponse::InternalServerError(err)))
     }
 
     #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
