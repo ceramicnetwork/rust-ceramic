@@ -1,5 +1,10 @@
 use async_trait::async_trait;
-use ceramic_api_server::{models, Api, EventsEventIdGetResponse, EventsPostResponse, EventsSortKeySortValueGetResponse, ExperimentalEventsSepSepValueGetResponse, FeedEventsGetResponse, InterestsPostResponse, InterestsSortKeySortValuePostResponse, LivenessGetResponse, VersionPostResponse, DebugHeapGetResponse};
+use ceramic_api_server::{
+    models, Api, DebugHeapGetResponse, EventsEventIdGetResponse, EventsPostResponse,
+    EventsSortKeySortValueGetResponse, ExperimentalEventsSepSepValueGetResponse,
+    FeedEventsGetResponse, InterestsPostResponse, InterestsSortKeySortValuePostResponse,
+    LivenessGetResponse, VersionPostResponse,
+};
 use ceramic_metrics::Recorder;
 use futures::Future;
 use swagger::ApiError;

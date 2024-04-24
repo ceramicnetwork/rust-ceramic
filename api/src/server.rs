@@ -27,7 +27,11 @@ use tokio::net::TcpListener;
 use tracing::{debug, info, instrument, Level};
 
 use ceramic_api_server::server::MakeService;
-use ceramic_api_server::{models::{self, Event}, EventsEventIdGetResponse, EventsPostResponse, InterestsSortKeySortValuePostResponse, LivenessGetResponse, VersionPostResponse, DebugHeapGetResponse};
+use ceramic_api_server::{
+    models::{self, Event},
+    DebugHeapGetResponse, EventsEventIdGetResponse, EventsPostResponse,
+    InterestsSortKeySortValuePostResponse, LivenessGetResponse, VersionPostResponse,
+};
 use ceramic_api_server::{
     Api, EventsSortKeySortValueGetResponse, ExperimentalEventsSepSepValueGetResponse,
     FeedEventsGetResponse, InterestsPostResponse,
@@ -36,7 +40,7 @@ use ceramic_core::{interest, EventId, Interest, Network, PeerId, StreamId};
 use std::error::Error;
 use swagger::ApiError;
 #[cfg(not(target_env = "msvc"))]
-use tikv_jemalloc_ctl::{stats, epoch};
+use tikv_jemalloc_ctl::{epoch, stats};
 
 use crate::ResumeToken;
 
@@ -439,7 +443,10 @@ where
     }
 
     #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
-    async fn debug_heap_get(&self, _context: &C) -> std::result::Result<DebugHeapGetResponse, ApiError> {
+    async fn debug_heap_get(
+        &self,
+        _context: &C,
+    ) -> std::result::Result<DebugHeapGetResponse, ApiError> {
         epoch::advance().unwrap();
 
         let allocated = stats::allocated::read().unwrap();
