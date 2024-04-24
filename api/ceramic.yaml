@@ -34,9 +34,16 @@ paths:
         "200":
           description: success
           content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: bad request
+          content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HeapDump"
+                $ref: "#/components/schemas/BadRequestResponse"
         "500":
           description: Internal server error
           content:
@@ -429,17 +436,6 @@ components:
         message:
           type: string
           description: Error message
-    HeapDump:
-      title: Memory Heap Dump
-      description: JEMalloc Stats
-      type: object
-      properties:
-        allocated:
-          type: number
-          description: Bytes allocated
-        resident:
-          type: number
-          description: Bytes resident
     Interest:
       title: A recon interest
       description: Describes a recon interest range to store and synchronize

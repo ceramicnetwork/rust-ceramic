@@ -17,7 +17,7 @@ Method | HTTP request | Description
 
 
 # ****
-> models::HeapDump ()
+> swagger::ByteArray ()
 Get the heap statistics of the Ceramic node
 
 ### Required Parameters
@@ -25,7 +25,7 @@ This endpoint does not need any parameter.
 
 ### Return type
 
-[**models::HeapDump**](HeapDump.md)
+[**swagger::ByteArray**](file.md)
 
 ### Authorization
 
@@ -34,7 +34,7 @@ No authorization required
 ### HTTP request headers
 
  - **Content-Type**: Not defined
- - **Accept**: application/json
+ - **Accept**: application/json, application/octet-stream
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 

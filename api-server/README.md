@@ -15,7 +15,7 @@ To see how to make this your own, look here:
 [README]((https://openapi-generator.tech))
 
 - API version: 0.14.0
-- Build date: 2024-04-08T17:33:50.280596-04:00[America/Toronto]
+- Build date: 2024-04-24T13:37:37.597565436-06:00[America/Denver]
 
 
 
@@ -122,7 +122,6 @@ Method | HTTP request | Description
  - [Event](docs/Event.md)
  - [EventFeed](docs/EventFeed.md)
  - [EventsGet](docs/EventsGet.md)
- - [HeapDump](docs/HeapDump.md)
  - [Interest](docs/Interest.md)
  - [Version](docs/Version.md)
 

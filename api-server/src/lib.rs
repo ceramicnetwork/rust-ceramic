@@ -26,7 +26,9 @@ pub const API_VERSION: &str = "0.14.0";
 #[must_use]
 pub enum DebugHeapGetResponse {
     /// success
-    Success(models::HeapDump),
+    Success(swagger::ByteArray),
+    /// bad request
+    BadRequest(models::BadRequestResponse),
     /// Internal server error
     InternalServerError(models::ErrorResponse),
 }

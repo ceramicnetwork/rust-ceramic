@@ -219,8 +219,18 @@ where
                                     .expect("Unable to turn 200 into a StatusCode");
                                 response.headers_mut().insert(
                                                         CONTENT_TYPE,
-                                                        HeaderValue::from_str("application/json")
+                                                        HeaderValue::from_str("application/octet-stream")
                                                             .expect("Unable to create Content-Type header for DEBUG_HEAP_GET_SUCCESS"));
+                                let body_content = body.0;
+                                *response.body_mut() = Body::from(body_content);
+                            }
+                            DebugHeapGetResponse::BadRequest(body) => {
+                                *response.status_mut() = StatusCode::from_u16(400)
+                                    .expect("Unable to turn 400 into a StatusCode");
+                                response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for DEBUG_HEAP_GET_BAD_REQUEST"));
                                 let body_content = serde_json::to_string(&body)
                                     .expect("impossible to fail to serialize");
                                 *response.body_mut() = Body::from(body_content);
