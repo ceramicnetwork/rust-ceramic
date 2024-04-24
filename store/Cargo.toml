@@ -36,6 +36,7 @@ expect-test.workspace = true
 libipld.workspace = true
 libipld-cbor.workspace = true
 rand.workspace = true
+paste = "1.0"
 test-log.workspace = true
 tmpdir.workspace = true
 tokio.workspace = true

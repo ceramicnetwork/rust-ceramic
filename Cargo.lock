@@ -1357,6 +1357,7 @@ dependencies = [
  "libipld 0.16.0",
  "libipld-cbor 0.16.0",
  "multihash 0.18.1",
+ "paste",
  "prometheus-client",
  "rand 0.8.5",
  "recon",

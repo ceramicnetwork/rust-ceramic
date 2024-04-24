@@ -1,6 +1,5 @@
-use self::SqliteEventStore;
-
-use super::*;
+mod event;
+mod interest;
 
 use std::str::FromStr;
 
@@ -16,27 +15,6 @@ use libipld::{ipld, prelude::Encode, Ipld};
 use libipld_cbor::DagCborCodec;
 use multihash::{Code, MultihashDigest};
 use rand::Rng;
-
-pub(crate) async fn new_store() -> SqliteEventStore {
-    let conn = SqlitePool::connect_in_memory().await.unwrap();
-    SqliteEventStore::new(conn).await.unwrap()
-}
-
-// for the highwater tests that care about event ordering
-pub(crate) async fn new_local_store() -> SqliteEventStore {
-    let conn = SqlitePool::connect_in_memory().await.unwrap();
-    SqliteEventStore::new_local(conn).await.unwrap()
-}
-
-#[tokio::test]
-async fn get_nonexistent_block() {
-    let store = new_store().await;
-
-    let cid = Cid::from_str("bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom").unwrap(); // cspell:disable-line
-
-    let exists = iroh_bitswap::Store::has(&store, &cid).await.unwrap();
-    assert!(!exists);
-}
 
 const MODEL_ID: &str = "k2t6wz4yhfp1r5pwi52gw89nzjbu53qk7m32o5iguw42c6knsaj0feuf927agb";
 const CONTROLLER: &str = "did:key:z6Mkqtw7Pj5Lv9xc4PgUYAnwfaVoMC6FRneGWVr5ekTEfKVL";

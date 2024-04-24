@@ -121,6 +121,7 @@ pub trait Store: Send + Sync + 'static {
     async fn get_size(&self, cid: &Cid) -> Result<usize>;
     async fn get(&self, cid: &Cid) -> Result<Block>;
     async fn has(&self, cid: &Cid) -> Result<bool>;
+    async fn put(&self, block: &Block) -> Result<bool>;
 }
 
 #[async_trait::async_trait]
@@ -135,6 +136,10 @@ impl<S: Store> Store for Arc<S> {
 
     async fn has(&self, cid: &Cid) -> Result<bool> {
         self.as_ref().has(cid).await
+    }
+
+    async fn put(&self, block: &Block) -> Result<bool> {
+        self.as_ref().put(block).await
     }
 }
 
@@ -655,6 +660,10 @@ mod tests {
         async fn has(&self, _: &Cid) -> Result<bool> {
             todo!()
         }
+
+        async fn put(&self, _: &Block) -> Result<bool> {
+            todo!()
+        }
     }
 
     #[test]
@@ -708,6 +717,15 @@ mod tests {
 
         async fn has(&self, cid: &Cid) -> Result<bool> {
             Ok(self.store.read().await.contains_key(cid))
+        }
+
+        async fn put(&self, block: &Block) -> Result<bool> {
+            Ok(self
+                .store
+                .write()
+                .await
+                .insert(block.cid, block.clone())
+                .is_none())
         }
     }
 
