@@ -1171,7 +1171,6 @@ mod tests {
     use rand_chacha::ChaCha8Rng;
     use recon::{Range, Sha256a, SyncState};
     use ssh_key::private::Ed25519Keypair;
-    use test_log::test;
 
     use libp2p::{identity::Keypair as Libp2pKeypair, kad::RecordKey};
 
@@ -1511,7 +1510,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_local_peer_id() -> Result<()> {
         let test_runner = TestRunnerBuilder::new().no_bootstrap().build().await?;
         let got_peer_id = test_runner.client.local_peer_id().await?;
@@ -1616,7 +1615,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_cancel_listen_for_identify() -> Result<()> {
         let mut test_runner_a = TestRunnerBuilder::new().no_bootstrap().build().await?;
         let peer_id: PeerId = "12D3KooWFma2D63TG9ToSiRsjFkoNm2tTihScTBAEdXxinYk5rwE"
@@ -1639,7 +1638,7 @@ mod tests {
         Ok(())
     }
 
-    #[test(tokio::test)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[cfg_attr(target_os = "macos", ignore = "on MacOS")]
     async fn test_dht() -> Result<()> {
         // set up three nodes
