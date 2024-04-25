@@ -260,16 +260,14 @@ async fn initiator_model_error() {
         swarm1.listen().with_memory_addr_external().await;
         swarm2.connect(&mut swarm1).await;
 
-        let ([p1_e1, p1_e2, p1_e3], [p2_e1, p2_e2, p2_e3]): (
-            [crate::libp2p::Event; 3],
+        let ([p1_e1, p1_e2, p1_e3, failed_peer], [p2_e1, p2_e2, p2_e3]): (
+            [crate::libp2p::Event; 4],
             [crate::libp2p::Event; 3],
         ) = libp2p_swarm_test::drive(&mut swarm1, &mut swarm2).await;
 
         for ev in &[p1_e1, p1_e2, p1_e3, p2_e1, p2_e2, p2_e3] {
             info!("{:?}", ev);
         }
-        let ([failed_peer], []): ([crate::libp2p::Event; 1], [crate::libp2p::Event; 0]) =
-            libp2p_swarm_test::drive(&mut swarm1, &mut swarm2).await;
 
         info!("{:?}", failed_peer);
         assert_eq!(
