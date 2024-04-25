@@ -467,7 +467,7 @@ where
         }
         #[cfg(not(target_os = "linux"))]
         Ok(DebugHeapGetResponse::BadRequest(
-            "unsupported platform".to_string(),
+            models::BadRequestResponse::new("unsupported platform".to_string()),
         ))
     }
 
