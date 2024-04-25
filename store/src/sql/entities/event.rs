@@ -1,4 +1,5 @@
-use anyhow::{Context, Result};
+use std::num::TryFromIntError;
+
 use ceramic_core::EventId;
 use cid::Cid;
 use iroh_car::{CarHeader, CarWriter};
@@ -7,10 +8,9 @@ use multihash::Multihash;
 use sqlx::{sqlite::SqliteRow, Row as _};
 
 use super::BlockRow;
+use crate::{Error, Result};
 
-pub type EventIdError = <EventId as TryFrom<Vec<u8>>>::Error;
-
-pub async fn rebuild_car(blocks: Vec<BlockRow>) -> anyhow::Result<Option<Vec<u8>>> {
+pub async fn rebuild_car(blocks: Vec<BlockRow>) -> Result<Option<Vec<u8>>> {
     if blocks.is_empty() {
         return Ok(None);
     }
@@ -31,9 +31,12 @@ pub async fn rebuild_car(blocks: Vec<BlockRow>) -> anyhow::Result<Option<Vec<u8>
         root: _,
     } in blocks
     {
-        writer.write(cid, bytes).await?;
+        writer
+            .write(cid, bytes)
+            .await
+            .map_err(Error::new_transient)?;
     }
-    writer.finish().await?;
+    writer.finish().await.map_err(Error::new_transient)?;
     Ok(Some(car))
 }
 
@@ -51,7 +54,7 @@ pub struct ReconHash {
 }
 
 impl sqlx::FromRow<'_, SqliteRow> for ReconHash {
-    fn from_row(row: &SqliteRow) -> Result<Self, sqlx::Error> {
+    fn from_row(row: &SqliteRow) -> std::result::Result<Self, sqlx::Error> {
         Ok(Self {
             count: row.try_get("count")?,
             ahash_0: row.try_get("ahash_0")?,
@@ -96,12 +99,13 @@ pub struct EventValueRaw {
 
 impl EventValueRaw {
     pub fn into_block_row(self) -> Result<(EventId, BlockRow)> {
-        let id = EventId::try_from(self.order_key)?;
-        let hash = Multihash::from_bytes(&self.multihash[..])?;
-        let code = self
-            .codec
-            .try_into()
-            .context(format!("Invalid codec: {}", self.codec))?;
+        let id = EventId::try_from(self.order_key).map_err(Error::new_app)?;
+        let hash = Multihash::from_bytes(&self.multihash[..]).map_err(Error::new_app)?;
+        let code = self.codec.try_into().map_err(|e: TryFromIntError| {
+            let er = anyhow::anyhow!(e).context(format!("Invalid codec: {}", self.codec));
+            Error::new_app(er)
+        })?;
+
         let cid = Cid::new_v1(code, hash);
 
         Ok((
@@ -119,7 +123,7 @@ impl EventValueRaw {
         let all_blocks: Vec<(EventId, Vec<BlockRow>)> = process_results(
             all_blocks
                 .into_iter()
-                .map(|row| -> Result<(EventId, BlockRow), anyhow::Error> {
+                .map(|row| -> Result<(EventId, BlockRow)> {
                     let (order_key, block) = row.into_block_row()?;
 
                     Ok((order_key, block))
@@ -181,8 +185,8 @@ impl DeliveredEvent {
         let max: i64 = rows.last().map_or(current, |r| r.new_highwater_mark + 1);
         let rows = rows
             .into_iter()
-            .map(|row| EventId::try_from(row.order_key))
-            .collect::<Result<Vec<EventId>, EventIdError>>()?;
+            .map(|row| EventId::try_from(row.order_key).map_err(Error::new_app))
+            .collect::<Result<Vec<EventId>>>()?;
 
         Ok((max, rows))
     }

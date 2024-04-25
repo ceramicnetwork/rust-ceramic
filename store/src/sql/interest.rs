@@ -1,6 +1,6 @@
 #![warn(missing_docs, missing_debug_implementations, clippy::all)]
 
-use anyhow::{Context, Result};
+use anyhow::anyhow;
 use async_trait::async_trait;
 use ceramic_core::{Interest, RangeOpen};
 use recon::{AssociativeHash, HashCount, InsertResult, Key, ReconItem, Sha256a};
@@ -9,7 +9,7 @@ use tracing::instrument;
 
 use crate::{
     sql::{ReconHash, ReconQuery, ReconType, SqlBackend},
-    DbTxSqlite, SqlitePool,
+    DbTxSqlite, Error, Result, SqlitePool,
 };
 
 #[derive(Debug, Clone)]
@@ -64,7 +64,7 @@ impl SqliteInterestStore {
                 if err.is_unique_violation() {
                     Ok(false)
                 } else {
-                    Err(sqlx::Error::Database(err).into())
+                    Err(Error::from(sqlx::Error::Database(err)))
                 }
             }
             Err(err) => Err(err.into()),
@@ -92,7 +92,8 @@ impl SqliteInterestStore {
                 let bytes: Vec<u8> = row.get(0);
                 Interest::try_from(bytes)
             })
-            .collect::<Result<Vec<Interest>, InterestError>>()?;
+            .collect::<std::result::Result<Vec<Interest>, InterestError>>()
+            .map_err(|e| Error::new_app(anyhow!(e)))?;
         Ok(Box::new(rows.into_iter()))
     }
 }
@@ -105,8 +106,8 @@ impl SqliteInterestStore {
 /// This guarantees that regardless of entry point (api or recon), the data is stored and retrieved in the same way.
 #[async_trait::async_trait]
 impl ceramic_api::AccessInterestStore for SqliteInterestStore {
-    async fn insert(&self, key: Interest) -> Result<bool> {
-        self.insert_item(&key).await
+    async fn insert(&self, key: Interest) -> anyhow::Result<bool> {
+        Ok(self.insert_item(&key).await?)
     }
     async fn range(
         &self,
@@ -114,7 +115,7 @@ impl ceramic_api::AccessInterestStore for SqliteInterestStore {
         end: &Interest,
         offset: usize,
         limit: usize,
-    ) -> Result<Vec<Interest>> {
+    ) -> anyhow::Result<Vec<Interest>> {
         Ok(self.range_int(start, end, offset, limit).await?.collect())
     }
 }
@@ -125,27 +126,25 @@ impl recon::Store for SqliteInterestStore {
     type Hash = Sha256a;
 
     /// Returns true if the key was new. The value is always updated if included
-    async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> Result<bool> {
+    async fn insert(&self, item: &ReconItem<'_, Interest>) -> anyhow::Result<bool> {
         // interests don't have values, if someone gives us something we throw an error but allow None/vec![]
         if let Some(val) = item.value {
             if !val.is_empty() {
-                return Err(anyhow::anyhow!(
-                    "Interests do not support values! Invalid request."
-                ));
+                return Err(anyhow!("Interests do not support values! Invalid request."));
             }
         }
-        self.insert_item(item.key).await
+        Ok(self.insert_item(item.key).await?)
     }
 
     /// Insert new keys into the key space.
     /// Returns true if a key did not previously exist.
-    async fn insert_many(&self, items: &[ReconItem<'_, Self::Key>]) -> Result<InsertResult> {
+    async fn insert_many(&self, items: &[ReconItem<'_, Interest>]) -> anyhow::Result<InsertResult> {
         match items.len() {
             0 => Ok(InsertResult::new(vec![], 0)),
             _ => {
                 let mut results = vec![false; items.len()];
                 let mut new_val_cnt = 0;
-                let mut tx = self.pool.writer().begin().await?;
+                let mut tx = self.pool.writer().begin().await.map_err(Error::from)?;
 
                 for (idx, item) in items.iter().enumerate() {
                     let new_key = self.insert_item_int(item.key, &mut tx).await?;
@@ -154,7 +153,7 @@ impl recon::Store for SqliteInterestStore {
                         new_val_cnt += 1;
                     }
                 }
-                tx.commit().await?;
+                tx.commit().await.map_err(Error::from)?;
                 Ok(InsertResult::new(results, new_val_cnt))
             }
         }
@@ -164,9 +163,9 @@ impl recon::Store for SqliteInterestStore {
     #[instrument(skip(self))]
     async fn hash_range(
         &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Result<HashCount<Self::Hash>> {
+        left_fencepost: &Interest,
+        right_fencepost: &Interest,
+    ) -> anyhow::Result<HashCount<Self::Hash>> {
         if left_fencepost >= right_fencepost {
             return Ok(HashCount::new(Self::Hash::identity(), 0));
         }
@@ -179,7 +178,7 @@ impl recon::Store for SqliteInterestStore {
         .bind(right_fencepost.as_bytes())
         .fetch_one(self.pool.reader())
         .await
-        .context("interest range")?;
+        .map_err(Error::from)?;
         let bytes = res.hash();
         Ok(HashCount::new(Self::Hash::from(bytes), res.count()))
     }
@@ -191,9 +190,10 @@ impl recon::Store for SqliteInterestStore {
         right_fencepost: &Self::Key,
         offset: usize,
         limit: usize,
-    ) -> Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
-        self.range_int(left_fencepost, right_fencepost, offset, limit)
-            .await
+    ) -> anyhow::Result<Box<dyn Iterator<Item = Interest> + Send + 'static>> {
+        Ok(self
+            .range_int(left_fencepost, right_fencepost, offset, limit)
+            .await?)
     }
 
     #[instrument(skip(self))]
@@ -204,7 +204,7 @@ impl recon::Store for SqliteInterestStore {
         right_fencepost: &Self::Key,
         offset: usize,
         limit: usize,
-    ) -> Result<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>> {
+    ) -> anyhow::Result<Box<dyn Iterator<Item = (Interest, Vec<u8>)> + Send + 'static>> {
         let rows = self
             .range(left_fencepost, right_fencepost, offset, limit)
             .await?;
@@ -214,14 +214,15 @@ impl recon::Store for SqliteInterestStore {
     #[instrument(skip(self))]
     async fn count(
         &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Result<usize> {
+        left_fencepost: &Interest,
+        right_fencepost: &Interest,
+    ) -> anyhow::Result<usize> {
         let row = sqlx::query(ReconQuery::count(ReconType::Interest, SqlBackend::Sqlite))
             .bind(left_fencepost.as_bytes())
             .bind(right_fencepost.as_bytes())
             .fetch_one(self.pool.reader())
-            .await?;
+            .await
+            .map_err(Error::from)?;
 
         Ok(row.get::<'_, i64, _>(0) as usize)
     }
@@ -230,16 +231,17 @@ impl recon::Store for SqliteInterestStore {
     #[instrument(skip(self))]
     async fn first(
         &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Result<Option<Self::Key>> {
+        left_fencepost: &Interest,
+        right_fencepost: &Interest,
+    ) -> anyhow::Result<Option<Interest>> {
         let query = sqlx::query(ReconQuery::first_key(ReconType::Interest));
 
         let rows = query
             .bind(left_fencepost.as_bytes())
             .bind(right_fencepost.as_bytes())
             .fetch_all(self.pool.reader())
-            .await?;
+            .await
+            .map_err(Error::from)?;
         Ok(rows
             .first()
             .map(|row| {
@@ -252,15 +254,16 @@ impl recon::Store for SqliteInterestStore {
     #[instrument(skip(self))]
     async fn last(
         &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Result<Option<Self::Key>> {
+        left_fencepost: &Interest,
+        right_fencepost: &Interest,
+    ) -> anyhow::Result<Option<Interest>> {
         let query = sqlx::query(ReconQuery::last_key(ReconType::Interest));
         let rows = query
             .bind(left_fencepost.as_bytes())
             .bind(right_fencepost.as_bytes())
             .fetch_all(self.pool.reader())
-            .await?;
+            .await
+            .map_err(Error::from)?;
         Ok(rows
             .first()
             .map(|row| {
@@ -273,9 +276,9 @@ impl recon::Store for SqliteInterestStore {
     #[instrument(skip(self))]
     async fn first_and_last(
         &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Result<Option<(Self::Key, Self::Key)>> {
+        left_fencepost: &Interest,
+        right_fencepost: &Interest,
+    ) -> anyhow::Result<Option<(Interest, Interest)>> {
         let query = sqlx::query(ReconQuery::first_and_last(
             ReconType::Interest,
             SqlBackend::Sqlite,
@@ -297,15 +300,15 @@ impl recon::Store for SqliteInterestStore {
     }
 
     #[instrument(skip(self))]
-    async fn value_for_key(&self, _key: &Self::Key) -> Result<Option<Vec<u8>>> {
+    async fn value_for_key(&self, _key: &Interest) -> anyhow::Result<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
     #[instrument(skip(self))]
     async fn keys_with_missing_values(
         &self,
-        _range: RangeOpen<Self::Key>,
-    ) -> Result<Vec<Self::Key>> {
+        _range: RangeOpen<Interest>,
+    ) -> anyhow::Result<Vec<Interest>> {
         Ok(vec![])
     }
 }
