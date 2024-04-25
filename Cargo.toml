@@ -60,7 +60,7 @@ cid = { version = "0.10", features = ["serde-codec"] }
 clap = { version = "4", features = ["derive", "env"] }
 clap_mangen = "0.2.2"
 console = { version = "0.15", default-features = false }
-console-subscriber = "0.1.7"
+console-subscriber = "0.2"
 criterion2 = "0.7.0"
 crossterm = "0.25"
 ctrlc = "3.2.2"
