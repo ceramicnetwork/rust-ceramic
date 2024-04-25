@@ -6696,6 +6696,7 @@ dependencies = [
  "serde_cbor",
  "serde_json",
  "test-log",
+ "thiserror",
  "tokio",
  "tokio-stream",
  "tokio-util",

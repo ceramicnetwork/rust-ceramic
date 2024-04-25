@@ -1,6 +1,6 @@
 use std::{collections::BTreeSet, num::TryFromIntError};
 
-use anyhow::{anyhow, Context};
+use anyhow::anyhow;
 use async_trait::async_trait;
 use bytes::Bytes;
 use ceramic_core::{event_id::InvalidEventId, EventId, RangeOpen};
@@ -9,7 +9,10 @@ use cid::Cid;
 use iroh_bitswap::Block;
 use iroh_car::CarReader;
 use multihash::{Code, Multihash, MultihashDigest};
-use recon::{AssociativeHash, HashCount, InsertResult, Key, ReconItem, Sha256a};
+use recon::{
+    AssociativeHash, Error as ReconError, HashCount, InsertResult, Key, ReconItem,
+    Result as ReconResult, Sha256a,
+};
 
 use tracing::instrument;
 
@@ -343,14 +346,14 @@ impl recon::Store for SqliteEventStore {
     type Hash = Sha256a;
 
     /// Returns true if the key was new. The value is always updated if included
-    async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> anyhow::Result<bool> {
+    async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> ReconResult<bool> {
         let (new, _new_val) = self.insert_item(item).await?;
         Ok(new)
     }
 
     /// Insert new keys into the key space.
     /// Returns true if a key did not previously exist.
-    async fn insert_many(&self, items: &[ReconItem<'_, EventId>]) -> anyhow::Result<InsertResult> {
+    async fn insert_many(&self, items: &[ReconItem<'_, EventId>]) -> ReconResult<InsertResult> {
         match items.len() {
             0 => Ok(InsertResult::new(vec![], 0)),
             _ => {
@@ -377,7 +380,7 @@ impl recon::Store for SqliteEventStore {
         &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
-    ) -> anyhow::Result<HashCount<Self::Hash>> {
+    ) -> ReconResult<HashCount<Self::Hash>> {
         let row: ReconHash =
             sqlx::query_as(ReconQuery::hash_range(ReconType::Event, SqlBackend::Sqlite))
                 .bind(left_fencepost.as_bytes())
@@ -391,14 +394,14 @@ impl recon::Store for SqliteEventStore {
     #[instrument(skip(self))]
     async fn range(
         &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
+        left_fencepost: &EventId,
+        right_fencepost: &EventId,
         offset: usize,
         limit: usize,
-    ) -> anyhow::Result<Box<dyn Iterator<Item = EventId> + Send + 'static>> {
-        let offset: i64 = offset
-            .try_into()
-            .context("Offset too large to fit into i64")?;
+    ) -> ReconResult<Box<dyn Iterator<Item = EventId> + Send + 'static>> {
+        let offset: i64 = offset.try_into().map_err(|_e: TryFromIntError| {
+            ReconError::new_app(anyhow!("Offset too large to fit into i64"))
+        })?;
         let limit = limit.try_into().unwrap_or(100000); // 100k is still a huge limit
         let rows: Vec<OrderKey> = sqlx::query_as(ReconQuery::range(ReconType::Event))
             .bind(left_fencepost.as_bytes())
@@ -417,11 +420,11 @@ impl recon::Store for SqliteEventStore {
     #[instrument(skip(self))]
     async fn range_with_values(
         &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
+        left_fencepost: &EventId,
+        right_fencepost: &EventId,
         offset: usize,
         limit: usize,
-    ) -> anyhow::Result<Box<dyn Iterator<Item = (EventId, Vec<u8>)> + Send + 'static>> {
+    ) -> ReconResult<Box<dyn Iterator<Item = (EventId, Vec<u8>)> + Send + 'static>> {
         Ok(self
             .range_with_values_int(left_fencepost, right_fencepost, offset, limit)
             .await?)
@@ -433,7 +436,7 @@ impl recon::Store for SqliteEventStore {
         &self,
         left_fencepost: &EventId,
         right_fencepost: &EventId,
-    ) -> anyhow::Result<usize> {
+    ) -> ReconResult<usize> {
         let row: CountRow = sqlx::query_as(ReconQuery::count(ReconType::Event, SqlBackend::Sqlite))
             .bind(left_fencepost.as_bytes())
             .bind(right_fencepost.as_bytes())
@@ -449,7 +452,7 @@ impl recon::Store for SqliteEventStore {
         &self,
         left_fencepost: &EventId,
         right_fencepost: &EventId,
-    ) -> anyhow::Result<Option<EventId>> {
+    ) -> ReconResult<Option<EventId>> {
         let row: Option<OrderKey> = sqlx::query_as(ReconQuery::first_key(ReconType::Event))
             .bind(left_fencepost.as_bytes())
             .bind(right_fencepost.as_bytes())
@@ -457,7 +460,7 @@ impl recon::Store for SqliteEventStore {
             .await
             .map_err(Error::from)?;
         let res = row
-            .map(|r| EventId::try_from(r).map_err(Error::new_app))
+            .map(|r| EventId::try_from(r).map_err(ReconError::new_app))
             .transpose()?;
         Ok(res)
     }
@@ -467,7 +470,7 @@ impl recon::Store for SqliteEventStore {
         &self,
         left_fencepost: &EventId,
         right_fencepost: &EventId,
-    ) -> anyhow::Result<Option<EventId>> {
+    ) -> ReconResult<Option<EventId>> {
         let row: Option<OrderKey> = sqlx::query_as(ReconQuery::last_key(ReconType::Event))
             .bind(left_fencepost.as_bytes())
             .bind(right_fencepost.as_bytes())
@@ -475,7 +478,7 @@ impl recon::Store for SqliteEventStore {
             .await
             .map_err(Error::from)?;
         let res = row
-            .map(|r| EventId::try_from(r).map_err(Error::new_app))
+            .map(|r| EventId::try_from(r).map_err(ReconError::new_app))
             .transpose()?;
         Ok(res)
     }
@@ -485,7 +488,7 @@ impl recon::Store for SqliteEventStore {
         &self,
         left_fencepost: &EventId,
         right_fencepost: &EventId,
-    ) -> anyhow::Result<Option<(EventId, EventId)>> {
+    ) -> ReconResult<Option<(EventId, EventId)>> {
         let row: Option<FirstAndLast> = sqlx::query_as(ReconQuery::first_and_last(
             ReconType::Event,
             SqlBackend::Sqlite,
@@ -499,8 +502,9 @@ impl recon::Store for SqliteEventStore {
         .map_err(Error::from)?;
 
         if let Some(row) = row {
-            let first = EventId::try_from(row.first_key)?;
-            let last = EventId::try_from(row.last_key)?;
+            let first = EventId::try_from(row.first_key).map_err(ReconError::new_app)?;
+
+            let last = EventId::try_from(row.last_key).map_err(ReconError::new_app)?;
             Ok(Some((first, last)))
         } else {
             Ok(None)
@@ -508,7 +512,7 @@ impl recon::Store for SqliteEventStore {
     }
 
     #[instrument(skip(self))]
-    async fn value_for_key(&self, key: &EventId) -> anyhow::Result<Option<Vec<u8>>> {
+    async fn value_for_key(&self, key: &EventId) -> ReconResult<Option<Vec<u8>>> {
         Ok(self.value_for_key_int(key).await?)
     }
 
@@ -516,7 +520,7 @@ impl recon::Store for SqliteEventStore {
     async fn keys_with_missing_values(
         &self,
         range: RangeOpen<EventId>,
-    ) -> anyhow::Result<Vec<EventId>> {
+    ) -> ReconResult<Vec<EventId>> {
         Ok(self.keys_with_missing_values_int(range).await?)
     }
 }

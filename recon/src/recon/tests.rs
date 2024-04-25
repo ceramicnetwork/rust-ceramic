@@ -38,12 +38,12 @@ use expect_test::{expect, Expect};
 use lalrpop_util::ParseError;
 use pretty::{Arena, DocAllocator, DocBuilder, Pretty};
 
-use crate::protocol::ReconMessage;
 use crate::{
-    protocol::{self, InitiatorMessage, ResponderMessage, ValueResponse},
+    protocol::{self, InitiatorMessage, ReconMessage, ResponderMessage, ValueResponse},
     recon::{FullInterests, HashCount, InterestProvider, Range, ReconItem},
     tests::AlphaNumBytes,
-    AssociativeHash, BTreeStore, Client, Key, Metrics, Recon, Server, Sha256a, Store,
+    AssociativeHash, BTreeStore, Client, Key, Metrics, Recon, Result as ReconResult, Server,
+    Sha256a, Store,
 };
 
 #[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -146,7 +146,7 @@ impl<K: Key> FixedInterests<K> {
 impl<K: Key> InterestProvider for FixedInterests<K> {
     type Key = K;
 
-    async fn interests(&self) -> anyhow::Result<Vec<RangeOpen<Self::Key>>> {
+    async fn interests(&self) -> ReconResult<Vec<RangeOpen<Self::Key>>> {
         Ok(self.0.clone())
     }
 }
