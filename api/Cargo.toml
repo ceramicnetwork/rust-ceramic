@@ -24,6 +24,8 @@ swagger.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 prometheus-client.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
 jemalloc_pprof = "0.1.0"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
