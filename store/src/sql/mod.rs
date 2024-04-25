@@ -1,11 +1,15 @@
 mod entities;
 
+mod event;
+mod interest;
 mod root;
 mod sqlite;
 
 pub(crate) use entities::*;
+pub use event::SqliteEventStore;
+pub use interest::SqliteInterestStore;
 pub use root::RootStoreSqlite;
-pub use sqlite::{DbTxSqlite, SqliteEventStore, SqliteInterestStore, SqlitePool};
+pub use sqlite::{DbTxSqlite, SqlitePool};
 
 use std::sync::atomic::AtomicI64;
 
