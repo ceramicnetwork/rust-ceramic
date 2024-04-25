@@ -36,7 +36,7 @@ impl<K, H> BTreeStoreErrors<K, H> {
         self.error = Some(error);
     }
 
-    fn return_error(&self) -> Result<(), Error> {
+    fn as_error(&self) -> Result<(), Error> {
         if let Some(err) = &self.error {
             match err {
                 Error::Application { error } => Err(Error::Application {
@@ -75,13 +75,13 @@ where
     type Hash = H;
 
     async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> ReconResult<bool> {
-        self.return_error()?;
+        self.as_error()?;
 
         self.inner.insert(item).await
     }
 
     async fn insert_many(&self, items: &[ReconItem<'_, K>]) -> ReconResult<InsertResult> {
-        self.return_error()?;
+        self.as_error()?;
 
         self.inner.insert_many(items).await
     }
@@ -91,7 +91,7 @@ where
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
     ) -> ReconResult<HashCount<Self::Hash>> {
-        self.return_error()?;
+        self.as_error()?;
 
         self.inner.hash_range(left_fencepost, right_fencepost).await
     }
@@ -103,7 +103,7 @@ where
         offset: usize,
         limit: usize,
     ) -> ReconResult<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
-        self.return_error()?;
+        self.as_error()?;
 
         self.inner
             .range(left_fencepost, right_fencepost, offset, limit)
@@ -116,7 +116,7 @@ where
         offset: usize,
         limit: usize,
     ) -> ReconResult<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>> {
-        self.return_error()?;
+        self.as_error()?;
 
         self.inner
             .range_with_values(left_fencepost, right_fencepost, offset, limit)
@@ -128,7 +128,7 @@ where
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
     ) -> ReconResult<Option<Self::Key>> {
-        self.return_error()?;
+        self.as_error()?;
 
         self.inner.last(left_fencepost, right_fencepost).await
     }
@@ -138,7 +138,7 @@ where
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
     ) -> ReconResult<Option<(Self::Key, Self::Key)>> {
-        self.return_error()?;
+        self.as_error()?;
 
         self.inner
             .first_and_last(left_fencepost, right_fencepost)
@@ -146,7 +146,7 @@ where
     }
 
     async fn value_for_key(&self, key: &Self::Key) -> ReconResult<Option<Vec<u8>>> {
-        self.return_error()?;
+        self.as_error()?;
 
         self.inner.value_for_key(key).await
     }
@@ -154,7 +154,7 @@ where
         &self,
         range: RangeOpen<Self::Key>,
     ) -> ReconResult<Vec<Self::Key>> {
-        self.return_error()?;
+        self.as_error()?;
 
         self.inner.keys_with_missing_values(range).await
     }
