@@ -42,7 +42,7 @@ unsigned-varint = { workspace = true, features = ["asynchronous_codec"] }
 libp2p-identity.workspace = true
 
 [dev-dependencies]
-criterion.workspace = true
+criterion2.workspace = true
 libp2p = { workspace = true, features = ["yamux", "noise", "tcp", "tokio"] }
 tokio = { workspace = true, features = ["macros", "net", "rt"] }
 tokio-util = { workspace = true, features = ["compat"] }

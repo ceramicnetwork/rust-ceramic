@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
+use criterion2::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
 use iroh_bitswap::{
     create_block_v1 as create_test_block,
     message::{BitswapMessage, Priority, WantType},

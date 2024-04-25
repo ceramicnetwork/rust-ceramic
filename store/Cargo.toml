@@ -31,10 +31,17 @@ tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+criterion2 = { workspace = true, features = ["async", "async_tokio"] }
 expect-test.workspace = true
-rand.workspace = true
-test-log.workspace = true
-tokio.workspace = true
-tracing-subscriber.workspace = true
 libipld.workspace = true
 libipld-cbor.workspace = true
+rand.workspace = true
+test-log.workspace = true
+tmpdir.workspace = true
+tokio.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+
+[[bench]]
+name = "sqlite_store"
+harness = false

@@ -23,7 +23,7 @@
 //! cargo criterion -p iroh-p2p
 //! ```
 
-use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
+use criterion2::{criterion_group, criterion_main, BatchSize, Criterion};
 use libp2p::PeerId;
 
 /// The size of the cache to make.
