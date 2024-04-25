@@ -1,4 +1,4 @@
-FROM rust-builder:latest as builder
+FROM public.ecr.aws/r5b3e0r5/3box/rust-builder:latest as builder
 
 RUN mkdir -p /home/builder/rust-ceramic
 WORKDIR /home/builder/rust-ceramic
