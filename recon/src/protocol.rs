@@ -10,7 +10,7 @@
 //!
 //! Encoding and framing of messages is outside the scope of this crate.
 //! However the message types do implement serde::Serialize and serde::Deserialize.
-use std::{fmt::Debug, pin::Pin};
+use std::{fmt::Debug, pin::Pin, time::Duration};
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -891,6 +891,8 @@ enum RemoteStatus {
 struct SinkFlusher<S> {
     inner: Pin<Box<S>>,
     feed_count: usize,
+    last_flush: Instant,
+    flush_interval: std::time::Duration,
     metrics: Metrics,
 }
 
@@ -903,6 +905,8 @@ impl<S> SinkFlusher<S> {
         Self {
             inner: stream,
             feed_count: 0,
+            flush_interval: Duration::from_millis(100),
+            last_flush: Instant::now(),
             metrics,
         }
     }
@@ -940,8 +944,9 @@ impl<S> SinkFlusher<S> {
         self.feed_count += 1;
         self.metrics.record(&MessageSent(&message));
         self.inner.feed(message).await?;
-        if self.feed_count > SINK_BUFFER_COUNT {
+        if self.feed_count > SINK_BUFFER_COUNT || self.last_flush.elapsed() > self.flush_interval {
             self.feed_count = 0;
+            self.last_flush = Instant::now();
             self.flush().await?;
         }
         Ok(())
