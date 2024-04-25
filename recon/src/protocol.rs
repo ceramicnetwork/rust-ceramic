@@ -29,7 +29,8 @@ use uuid::Uuid;
 use crate::{
     metrics::{
         MessageLabels, MessageRecv, MessageSent, Metrics, ProtocolLoop, ProtocolRun, RangeDequeued,
-        RangeEnqueueFailed, RangeEnqueued, WantDequeued, WantEnqueueFailed, WantEnqueued,
+        RangeEnqueueFailed, RangeEnqueued, SinkFlushed, WantDequeued, WantEnqueueFailed,
+        WantEnqueued,
     },
     recon::{Range, SyncState},
     AssociativeHash, Client, Key,
@@ -913,6 +914,7 @@ impl<S> SinkFlusher<S> {
         MessageLabels: for<'a> From<&'a T>,
     {
         self.metrics.record(&MessageSent(&message));
+        self.metrics.record(&SinkFlushed {}); // send calls flush
         self.inner.send(message).await?;
         self.feed_count = 0;
         Ok(())
@@ -951,6 +953,7 @@ impl<S> SinkFlusher<S> {
         S: Sink<T, Error = E>,
         E: std::error::Error + Send + Sync + 'static,
     {
+        self.metrics.record(&SinkFlushed {});
         self.inner.flush().await.context("flushing")
     }
     async fn close<T, E>(&mut self) -> Result<()>
@@ -958,6 +961,8 @@ impl<S> SinkFlusher<S> {
         S: Sink<T, Error = E>,
         E: std::error::Error + Send + Sync + 'static,
     {
+        // sink `poll_close` will flush 
+        self.metrics.record(&SinkFlushed {});
         self.inner.close().await.context("closing")
     }
 }

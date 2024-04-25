@@ -22,6 +22,8 @@ pub struct Metrics {
     protocol_message_received_count: Family<MessageLabels, Counter>,
     protocol_message_sent_count: Family<MessageLabels, Counter>,
 
+    protocol_message_flush_count: Counter,
+
     protocol_want_enqueue_failed_count: Counter,
     protocol_want_enqueued_count: Counter,
     protocol_want_dequeued_count: Counter,
@@ -160,9 +162,17 @@ impl Metrics {
             sub_registry
         );
 
+        register!(
+            protocol_message_flush_count,
+            "Number times we've called flush on the protocol message sink, forcing messages to be sent",
+            Counter::default(),
+            sub_registry
+        );
+
         Self {
             protocol_message_received_count,
             protocol_message_sent_count,
+            protocol_message_flush_count,
             protocol_want_enqueue_failed_count,
             protocol_want_enqueued_count,
             protocol_want_dequeued_count,
@@ -177,6 +187,14 @@ impl Metrics {
 
 pub(crate) struct MessageRecv<'a, T>(pub &'a T);
 pub(crate) struct MessageSent<'a, T>(pub &'a T);
+
+pub(crate) struct SinkFlushed {}
+
+impl Recorder<SinkFlushed> for Metrics {
+    fn record(&self, _event: &SinkFlushed) {
+        self.protocol_message_flush_count.inc();
+    }
+}
 
 impl<'a, T> Recorder<MessageRecv<'a, T>> for Metrics
 where
