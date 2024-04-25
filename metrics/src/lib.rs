@@ -16,10 +16,10 @@ use crate::core::CORE;
 use crate::{config::Config, core::MetricsRecorder};
 use opentelemetry::{
     global,
-    sdk::{propagation::TraceContextPropagator, trace, Resource},
     trace::{TraceContextExt, TraceId},
 };
 use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_sdk::{propagation::TraceContextPropagator, trace, Resource};
 use prometheus_client::registry::Registry;
 use std::env::consts::{ARCH, OS};
 use std::time::Duration;
@@ -247,7 +247,7 @@ fn init_tracer(cfg: Config) -> Result<(), Box<dyn std::error::Error>> {
                 opentelemetry::KeyValue::new("service.ARCH", ARCH),
                 opentelemetry::KeyValue::new("service.environment", cfg.service_env),
             ])))
-            .install_batch(opentelemetry::runtime::Tokio)?;
+            .install_batch(opentelemetry_sdk::runtime::Tokio)?;
 
         Some(
             tracing_opentelemetry::layer()
