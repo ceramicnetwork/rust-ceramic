@@ -447,19 +447,28 @@ where
         &self,
         _context: &C,
     ) -> std::result::Result<DebugHeapGetResponse, ApiError> {
+        #[cfg(not(target_env = "msvc"))]
         epoch::advance().unwrap();
 
-        let mut prof_ctl = jemalloc_pprof::PROF_CTL.as_ref().unwrap().lock().await;
-        if !prof_ctl.activated() {
-            return Ok(DebugHeapGetResponse::BadRequest(BadRequestResponse {
-                message: "heap profiling not enabled".to_string(),
-            }));
+        // might be on BSD and others
+        #[cfg(target_os = "linux")]
+        {
+            let mut prof_ctl = jemalloc_pprof::PROF_CTL.as_ref().unwrap().lock().await;
+            if !prof_ctl.activated() {
+                return Ok(DebugHeapGetResponse::BadRequest(BadRequestResponse {
+                    message: "heap profiling not enabled".to_string(),
+                }));
+            }
+            prof_ctl
+                .dump_pprof()
+                .map_err(|e| ErrorResponse::new(format!("failed to dump profile: {e}")))
+                .map(|pprof| DebugHeapGetResponse::Success(ByteArray(pprof)))
+                .or_else(|err| Ok(DebugHeapGetResponse::InternalServerError(err)))
         }
-        prof_ctl
-            .dump_pprof()
-            .map_err(|e| ErrorResponse::new(format!("failed to dump profile: {e}")))
-            .map(|pprof| DebugHeapGetResponse::Success(ByteArray(pprof)))
-            .or_else(|err| Ok(DebugHeapGetResponse::InternalServerError(err)))
+        #[cfg(not(target_os = "linux"))]
+        Ok(DebugHeapGetResponse::BadRequest(
+            models::BadRequestResponse::new("unsupported platform".to_string()),
+        ))
     }
 
     #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
