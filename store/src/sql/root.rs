@@ -10,7 +10,7 @@ use crate::SqlitePool;
 /// We only pull each tx_hash once and store the root, block_hash and timestamp.
 /// After that Time Events validation can be done locally.
 #[derive(Debug, Clone)]
-pub struct RootStoreSqlite {
+pub struct SqliteRootStore {
     pool: SqlitePool,
 }
 
@@ -19,7 +19,7 @@ VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING"#;
 
 const GET_QUERY: &str = r#"SELECT timestamp FROM ceramic_one_root WHERE tx_hash = $1;"#;
 
-impl RootStoreSqlite {
+impl SqliteRootStore {
     /// Create a new RootStore
     pub async fn new(pool: SqlitePool) -> Result<Self> {
         let store = Self { pool };

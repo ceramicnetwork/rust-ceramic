@@ -3,7 +3,7 @@ use crate::CborValue;
 use anyhow::{anyhow, bail, Context, Result};
 use ceramic_core::{ssi, Base64UrlString, DidDocument, Jwk};
 use ceramic_metrics::init_local_tracing;
-use ceramic_store::{Migrations, RootStoreSqlite, SqliteEventStore, SqlitePool};
+use ceramic_store::{Migrations, SqliteEventStore, SqlitePool, SqliteRootStore};
 use chrono::{SecondsFormat, TimeZone, Utc};
 use cid::{multibase, multihash, Cid};
 use clap::{Args, Subcommand};
@@ -112,7 +112,7 @@ async fn validate(opts: ValidateOpts) -> Result<()> {
     let block_store = SqliteEventStore::new(pool.clone())
         .await
         .with_context(|| "Failed to create block store")?;
-    let root_store = RootStoreSqlite::new(pool)
+    let root_store = SqliteRootStore::new(pool)
         .await
         .with_context(|| "Failed to create root store")?;
 
@@ -234,7 +234,7 @@ async fn validate_data_event_payload(
 async fn validate_time_event(
     cid: &Cid,
     block_store: &SqliteEventStore,
-    root_store: &RootStoreSqlite,
+    root_store: &SqliteRootStore,
     eth_rpc: &impl EthRpc,
 ) -> Result<i64> {
     let block = block_store.get(cid).await?;
@@ -444,7 +444,7 @@ mod tests {
 
         // Create a new SQLiteBlockStore and SQLiteRootStore
         let block_store = SqliteEventStore::new(pool.clone()).await.unwrap();
-        let root_store = RootStoreSqlite::new(pool).await.unwrap();
+        let root_store = SqliteRootStore::new(pool).await.unwrap();
 
         // Add all the blocks for the Data Event & Time Event to the block store
         let blocks = vec![

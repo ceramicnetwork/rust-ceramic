@@ -8,7 +8,7 @@ mod sqlite;
 pub(crate) use entities::*;
 pub use event::SqliteEventStore;
 pub use interest::SqliteInterestStore;
-pub use root::RootStoreSqlite;
+pub use root::SqliteRootStore;
 pub use sqlite::{DbTxSqlite, SqlitePool};
 
 use std::sync::atomic::AtomicI64;
