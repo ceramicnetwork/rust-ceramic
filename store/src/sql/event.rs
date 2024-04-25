@@ -170,7 +170,7 @@ impl SqliteEventStore {
         blob: &Bytes,
         conn: &mut DbTxSqlite<'_>,
     ) -> Result<bool> {
-        let resp = sqlx::query("INSERT INTO ceramic_one_block (multihash, bytes) VALUES ($1, $2);")
+        let resp = sqlx::query(BlockQuery::put())
             .bind(hash.to_bytes())
             .bind(blob.to_vec())
             .execute(&mut **conn)

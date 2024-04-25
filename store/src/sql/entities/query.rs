@@ -9,9 +9,14 @@ impl BlockQuery {
     pub fn get() -> &'static str {
         "SELECT bytes FROM ceramic_one_block WHERE multihash = $1;"
     }
-    /// Requires 1 parameter. Depends on backend. Make sure you are using int4, int8 correctly
+    /// Requires 1 parameter. Return type depends on backend. Make sure you are using int4, int8 correctly
     pub fn has() -> &'static str {
         "SELECT count(1) > 0 as res FROM ceramic_one_block WHERE multihash = $1;"
+    }
+
+    /// Requries binding 2 parameters.
+    pub fn put() -> &'static str {
+        "INSERT INTO ceramic_one_block (multihash, bytes) VALUES ($1, $2);"
     }
 }
 
@@ -90,7 +95,6 @@ pub enum ReconType {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SqlBackend {
-    _Postgres,
     Sqlite,
 }
 
@@ -124,26 +128,6 @@ impl ReconQuery {
     /// Requires binding 2 parameters. Returned as `ReconHash` struct
     pub fn hash_range(key_type: ReconType, db: SqlBackend) -> &'static str {
         match (key_type, db) {
-            (ReconType::Event, SqlBackend::_Postgres) => {
-                r#"SELECT
-                    COALESCE(SUM(ahash_0), 0)::bigint & 4294967295 as ahash_0, COALESCE(SUM(ahash_1), 0)::bigint & 4294967295 as ahash_1,
-                    COALESCE(SUM(ahash_2), 0)::bigint & 4294967295 as ahash_2, COALESCE(SUM(ahash_3), 0)::bigint & 4294967295 as ahash_3,
-                    COALESCE(SUM(ahash_4), 0)::bigint & 4294967295 as ahash_4, COALESCE(SUM(ahash_5), 0)::bigint & 4294967295 as ahash_5,
-                    COALESCE(SUM(ahash_6), 0)::bigint & 4294967295 as ahash_6, COALESCE(SUM(ahash_7), 0)::bigint & 4294967295 as ahash_7,
-                    COUNT(1) as count
-                FROM ceramic_one_event 
-                WHERE order_key > $1 AND order_key < $2;"#
-            }
-            (ReconType::Interest, SqlBackend::_Postgres) => {
-                r#"SELECT
-                    COALESCE(SUM(ahash_0), 0)::bigint & 4294967295 as ahash_0, COALESCE(SUM(ahash_1), 0)::bigint & 4294967295 as ahash_1,
-                    COALESCE(SUM(ahash_2), 0)::bigint & 4294967295 as ahash_2, COALESCE(SUM(ahash_3), 0)::bigint & 4294967295 as ahash_3,
-                    COALESCE(SUM(ahash_4), 0)::bigint & 4294967295 as ahash_4, COALESCE(SUM(ahash_5), 0)::bigint & 4294967295 as ahash_5,
-                    COALESCE(SUM(ahash_6), 0)::bigint & 4294967295 as ahash_6, COALESCE(SUM(ahash_7), 0)::bigint & 4294967295 as ahash_7,
-                    COUNT(1) as count
-                FROM ceramic_one_interest 
-                WHERE order_key > $1 AND order_key < $2;"#
-            }
             (ReconType::Event, SqlBackend::Sqlite) => {
                 r#"SELECT
                     TOTAL(ahash_0) & 0xFFFFFFFF as ahash_0, TOTAL(ahash_1) & 0xFFFFFFFF as ahash_1,
@@ -202,22 +186,6 @@ impl ReconQuery {
 
     pub fn count(key_type: ReconType, db: SqlBackend) -> &'static str {
         match (key_type, db) {
-            (ReconType::Event, SqlBackend::_Postgres) => {
-                r#"SELECT
-                    count(order_key)::bigint as res
-                FROM
-                    ceramic_one_event
-                WHERE
-                    order_key > $1 AND order_key < $2"#
-            }
-            (ReconType::Interest, SqlBackend::_Postgres) => {
-                r#"SELECT
-                    count(order_key)::bigint as res
-                FROM
-                    ceramic_one_interest
-                WHERE
-                    order_key > $1 AND order_key < $2"#
-            }
             (ReconType::Event, SqlBackend::Sqlite) => {
                 r#"SELECT
                     count(order_key) as res
@@ -300,41 +268,6 @@ impl ReconQuery {
     /// Requires 4 parameters. Can be converted to FirstAndLast struct
     pub fn first_and_last(key_type: ReconType, db: SqlBackend) -> &'static str {
         match (key_type, db) {
-            (ReconType::Event, SqlBackend::_Postgres) => {
-                r#"with first as (
-                    SELECT order_key
-                    FROM ceramic_one_event
-                    WHERE
-                        order_key > $1 AND order_key < $2
-                    ORDER BY order_key ASC
-                    LIMIT 1
-                ), last as (
-                    SELECT order_key
-                    FROM ceramic_one_event
-                    WHERE
-                        order_key > $3 AND order_key < $4
-                    ORDER BY order_key DESC
-                    LIMIT 1
-                ) select first.order_key as "first_key", last.order_key as "last_key" from first, last;"#
-            }
-            (ReconType::Interest, SqlBackend::_Postgres) => {
-                r#"with first as (
-                    SELECT order_key
-                    FROM ceramic_one_interest
-                    WHERE
-                        order_key > $1 AND order_key < $2
-                    ORDER BY order_key ASC
-                    LIMIT 1
-                ), last as (
-                    SELECT order_key
-                    FROM ceramic_one_interest
-                    WHERE
-                        order_key > $3 AND order_key < $4
-                    ORDER BY order_key DESC
-                    LIMIT 1
-                ) select first.order_key as "first_key", last.order_key as "last_key" from first, last;"#
-            }
-
             (ReconType::Event, SqlBackend::Sqlite) => {
                 r#"SELECT first.order_key as "first_key", last.order_key as "last_key"
                     FROM
