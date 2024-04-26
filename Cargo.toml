@@ -60,7 +60,7 @@ cid = { version = "0.10", features = ["serde-codec"] }
 clap = { version = "4", features = ["derive", "env"] }
 clap_mangen = "0.2.2"
 console = { version = "0.15", default-features = false }
-console-subscriber = "0.1.7"
+console-subscriber = "0.2"
 criterion2 = "0.7.0"
 crossterm = "0.25"
 ctrlc = "3.2.2"
@@ -113,8 +113,9 @@ names = { version = "0.14.0", default-features = false }
 nix = "0.26"
 num_enum = "0.5.7"
 once_cell = "1.17.1"
-opentelemetry = "0.18"
-opentelemetry-otlp = "0.11"
+opentelemetry = "0.22"
+opentelemetry-otlp = "0.15"
+opentelemetry_sdk = "0.22"
 par-stream = { version = "0.10.2", default-features = false }
 paste = "1.0.9"
 phf = "0.11"
@@ -180,7 +181,7 @@ tower = "0.4"
 tower-http = "0.3"
 tower-layer = "0.3"
 tracing = "0.1"
-tracing-opentelemetry = "0.18"
+tracing-opentelemetry = "0.23"
 tracing-subscriber = { version = "0.3", features = [
     "ansi",
     "env-filter",
@@ -214,3 +215,7 @@ repository = "https://github.com/3box/rust-ceramic"
 inherits = "release"
 debug = true
 strip = "none"
+
+[patch.crates-io]
+# to get fix for https://github.com/tokio-rs/console/pull/501. can be removed on 0.2.1 release
+console-subscriber = { git = "https://github.com/tokio-rs/console.git", branch = "main"}
