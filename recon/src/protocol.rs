@@ -39,8 +39,6 @@ use crate::{
 const WANT_VALUES_BUFFER: usize = 10000;
 // Number of sync ranges to buffer.
 const SYNC_RANGES_BUFFER: usize = 1000;
-// Number of message to buffer on the sink before flushing.
-const SINK_BUFFER_COUNT: usize = 100;
 // Limit to the number of pending range requests.
 // Range requets grow logistically, meaning they grow
 // exponentially while splitting and then decay
@@ -438,14 +436,12 @@ where
                 .await?;
         } else {
             // Send as many as fit under the limit and buffer the rest
-            let mut fed = false;
             for range in ranges {
                 if self.pending_ranges < PENDING_RANGES_LIMIT {
-                    fed = true;
                     self.pending_ranges += 1;
                     self.common
                         .stream
-                        .feed(
+                        .send(
                             self.common
                                 .create_message(InitiatorMessage::RangeRequest(range)),
                         )
@@ -454,11 +450,9 @@ where
                     self.ranges_stack.push(range);
                     self.metrics.record(&RangeEnqueued);
                 } else {
+                    // blocked due to channel back pressure
                     self.metrics.record(&RangeEnqueueFailed);
                 }
-            }
-            if fed {
-                self.common.stream.flush().await?;
             }
         };
         Ok(())
@@ -810,7 +804,7 @@ where
             .context("value for key")?;
         if let Some(value) = value {
             self.stream
-                .feed((self.value_resp_fn)(
+                .send((self.value_resp_fn)(
                     self.sync_id.clone(),
                     ValueResponse { key, value },
                 ))
@@ -840,19 +834,18 @@ where
         for key in keys {
             if let Some(value) = self.recon.value_for_key(key.clone()).await? {
                 self.stream
-                    .feed((self.value_resp_fn)(
+                    .send((self.value_resp_fn)(
                         self.sync_id.clone(),
                         ValueResponse { key, value },
                     ))
                     .await?;
             }
         }
-        self.stream.flush().await?;
         Ok(())
     }
     async fn feed_want_value(&mut self, message: Out) -> Result<()> {
         self.stream
-            .feed(message)
+            .send(message)
             .await
             .context("feeding value request")?;
         Ok(())
@@ -931,33 +924,12 @@ impl<S> SinkFlusher<S> {
         self.feed_count = 0;
         Ok(())
     }
-    async fn feed<T, E>(&mut self, message: T) -> Result<()>
-    where
-        S: Sink<T, Error = E>,
-        E: std::error::Error + Send + Sync + 'static,
-        MessageLabels: for<'a> From<&'a T>,
-    {
-        self.feed_count += 1;
-        self.metrics.record(&MessageSent(&message));
-        self.inner.feed(message).await?;
-        if self.feed_count > SINK_BUFFER_COUNT {
-            self.feed_count = 0;
-            self.flush().await?;
-        }
-        Ok(())
-    }
-    async fn flush<T, E>(&mut self) -> Result<()>
-    where
-        S: Sink<T, Error = E>,
-        E: std::error::Error + Send + Sync + 'static,
-    {
-        self.inner.flush().await.context("flushing")
-    }
     async fn close<T, E>(&mut self) -> Result<()>
     where
         S: Sink<T, Error = E>,
         E: std::error::Error + Send + Sync + 'static,
     {
+        // sink `poll_close()` will flush
         self.inner.close().await.context("closing")
     }
 }
