@@ -4,13 +4,13 @@ pub mod tests;
 
 use std::{fmt::Display, marker::PhantomData};
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::anyhow;
 use async_trait::async_trait;
 use ceramic_core::{EventId, Interest, PeerId, RangeOpen};
 use serde::{Deserialize, Serialize};
 use tracing::trace;
 
-use crate::{Client, Metrics, Sha256a};
+use crate::{Client, Error, Metrics, Result, Sha256a};
 
 /// Recon is a protocol for set reconciliation via a message passing paradigm.
 /// An initial message can be created and then messages are exchanged between two Recon instances
@@ -225,7 +225,7 @@ where
                     },
                 ])
             } else {
-                bail!("unable to find a split key")
+                Err(Error::new_app(anyhow!("unable to find a split key")))
             }
         }
     }
@@ -827,10 +827,14 @@ where
             .await?
             .map(|interest| {
                 if let Some(RangeOpen { start, end }) = interest.range() {
-                    let range = (EventId::try_from(start)?, EventId::try_from(end)?).into();
+                    let start = EventId::try_from(start).map_err(|e| Error::new_app(anyhow!(e)))?;
+                    let end = EventId::try_from(end).map_err(|e| Error::new_app(anyhow!(e)))?;
+                    let range = (start, end).into();
                     Ok(range)
                 } else {
-                    Err(anyhow!("stored interest does not contain a range"))
+                    Err(Error::new_app(anyhow!(
+                        "stored interest does not contain a range"
+                    )))
                 }
             })
             .collect::<Result<Vec<RangeOpen<EventId>>>>()

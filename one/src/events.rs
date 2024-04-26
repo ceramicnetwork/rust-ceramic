@@ -405,7 +405,7 @@ async fn migrate_from_database(input_ceramic_db: PathBuf, store: SqliteEventStor
         Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
         input_ceramic_db_filename
     );
-    result
+    Ok(result?)
 }
 
 #[cfg(test)]

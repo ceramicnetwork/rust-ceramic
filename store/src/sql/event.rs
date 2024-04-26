@@ -1,25 +1,28 @@
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, num::TryFromIntError};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::anyhow;
 use async_trait::async_trait;
 use bytes::Bytes;
-use ceramic_core::{EventId, RangeOpen};
+use ceramic_core::{event_id::InvalidEventId, EventId, RangeOpen};
 
 use cid::Cid;
 use iroh_bitswap::Block;
 use iroh_car::CarReader;
 use multihash::{Code, Multihash, MultihashDigest};
-use recon::{AssociativeHash, HashCount, InsertResult, Key, ReconItem, Sha256a};
+use recon::{
+    AssociativeHash, Error as ReconError, HashCount, InsertResult, Key, ReconItem,
+    Result as ReconResult, Sha256a,
+};
 
 use tracing::instrument;
 
 use crate::{
     sql::{
         rebuild_car, BlockBytes, BlockQuery, BlockRow, CountRow, DeliveredEvent, EventBlockQuery,
-        EventIdError, EventQuery, EventValueRaw, FirstAndLast, OrderKey, ReconHash, ReconQuery,
-        ReconType, SqlBackend, GLOBAL_COUNTER,
+        EventQuery, EventValueRaw, FirstAndLast, OrderKey, ReconHash, ReconQuery, ReconType,
+        SqlBackend, GLOBAL_COUNTER,
     },
-    DbTxSqlite, SqlitePool,
+    DbTxSqlite, Error, Result, SqlitePool,
 };
 
 /// Unified implementation of [`recon::Store`] and [`iroh_bitswap::Store`] that can expose the
@@ -44,8 +47,7 @@ impl SqliteEventStore {
         let max = max_delivered
             .res
             .checked_add(1)
-            .context("More than i64::MAX delivered events!")?;
-
+            .ok_or_else(|| Error::new_fatal(anyhow!("More than i64::MAX delivered events!")))?;
         GLOBAL_COUNTER.fetch_max(max, std::sync::atomic::Ordering::SeqCst);
 
         Ok(())
@@ -109,10 +111,12 @@ impl SqliteEventStore {
             .fetch_all(self.pool.reader())
             .await?;
 
-        Ok(row
+        let res = row
             .into_iter()
-            .map(|row| EventId::try_from(row.order_key))
-            .collect::<Result<Vec<EventId>, EventIdError>>()?)
+            .map(|row| EventId::try_from(row.order_key).map_err(|e| Error::new_app(anyhow!(e))))
+            .collect::<Result<Vec<EventId>>>()?;
+
+        Ok(res)
     }
 
     async fn value_for_key_int(&self, key: &EventId) -> Result<Option<Vec<u8>>> {
@@ -135,10 +139,16 @@ impl SqliteEventStore {
         if let Some(val) = item.value {
             // Put each block from the car file. Should we check if value already existed and skip this?
             // It will no-op but will still try to insert the blocks again
-            let mut reader = CarReader::new(val).await?;
+            let mut reader = CarReader::new(val)
+                .await
+                .map_err(|e| Error::new_app(anyhow!(e)))?;
             let roots: BTreeSet<Cid> = reader.header().roots().iter().cloned().collect();
             let mut idx = 0;
-            while let Some((cid, data)) = reader.next_block().await? {
+            while let Some((cid, data)) = reader
+                .next_block()
+                .await
+                .map_err(|e| Error::new_app(anyhow!(e)))?
+            {
                 self.insert_event_block_int(
                     item.key,
                     idx,
@@ -202,29 +212,34 @@ impl SqliteEventStore {
         let hash = match cid.hash().code() {
             0x12 => Code::Sha2_256.digest(blob),
             0x1b => Code::Keccak256.digest(blob),
-            0x11 => return Err(anyhow!("Sha1 not supported")),
+            0x11 => return Err(Error::new_app(anyhow!("Sha1 not supported"))),
             code => {
-                return Err(anyhow!(
+                return Err(Error::new_app(anyhow!(
                     "multihash type {:#x} not Sha2_256, Keccak256",
                     code,
-                ))
+                )))
             }
         };
         if cid.hash().to_bytes() != hash.to_bytes() {
-            return Err(anyhow!(
+            return Err(Error::new_app(anyhow!(
                 "cid did not match blob {} != {}",
                 hex::encode(cid.hash().to_bytes()),
                 hex::encode(hash.to_bytes())
-            ));
+            )));
         }
 
         let _new = self.put_block_tx(&hash, blob, conn).await?;
 
-        let code: i64 = cid.codec().try_into().context(format!(
-            "Invalid codec could not fit into an i64: {}",
-            cid.codec()
-        ))?;
-        let id = key.cid().context("Event CID is required")?.to_bytes();
+        let code: i64 = cid.codec().try_into().map_err(|e: TryFromIntError| {
+            Error::new_app(anyhow!(e).context(format!(
+                "Invalid codec could not fit into an i64: {}",
+                cid.codec()
+            )))
+        })?;
+        let id = key
+            .cid()
+            .ok_or_else(|| Error::new_app(anyhow!("Event CID is required")))?
+            .to_bytes();
         let multihash = hash.to_bytes();
         sqlx::query(EventBlockQuery::upsert())
             .bind(id)
@@ -254,7 +269,7 @@ impl SqliteEventStore {
         let cid = key
             .cid()
             .map(|cid| cid.to_bytes())
-            .context("Event CID is required")?;
+            .ok_or_else(|| Error::new_app(anyhow!("Event CID is required")))?;
         let hash = Sha256a::digest(key);
 
         let resp = sqlx::query(ReconQuery::insert_event())
@@ -331,20 +346,20 @@ impl recon::Store for SqliteEventStore {
     type Hash = Sha256a;
 
     /// Returns true if the key was new. The value is always updated if included
-    async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> Result<bool> {
+    async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> ReconResult<bool> {
         let (new, _new_val) = self.insert_item(item).await?;
         Ok(new)
     }
 
     /// Insert new keys into the key space.
     /// Returns true if a key did not previously exist.
-    async fn insert_many(&self, items: &[ReconItem<'_, Self::Key>]) -> Result<InsertResult> {
+    async fn insert_many(&self, items: &[ReconItem<'_, EventId>]) -> ReconResult<InsertResult> {
         match items.len() {
             0 => Ok(InsertResult::new(vec![], 0)),
             _ => {
                 let mut results = vec![false; items.len()];
                 let mut new_val_cnt = 0;
-                let mut tx = self.pool.writer().begin().await?;
+                let mut tx = self.pool.writer().begin().await.map_err(Error::from)?;
 
                 for (idx, item) in items.iter().enumerate() {
                     let (new_key, new_val) = self.insert_item_int(item, &mut tx).await?;
@@ -353,7 +368,7 @@ impl recon::Store for SqliteEventStore {
                         new_val_cnt += 1;
                     }
                 }
-                tx.commit().await?;
+                tx.commit().await.map_err(Error::from)?;
                 Ok(InsertResult::new(results, new_val_cnt))
             }
         }
@@ -365,27 +380,28 @@ impl recon::Store for SqliteEventStore {
         &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
-    ) -> Result<HashCount<Self::Hash>> {
+    ) -> ReconResult<HashCount<Self::Hash>> {
         let row: ReconHash =
             sqlx::query_as(ReconQuery::hash_range(ReconType::Event, SqlBackend::Sqlite))
                 .bind(left_fencepost.as_bytes())
                 .bind(right_fencepost.as_bytes())
                 .fetch_one(self.pool.reader())
-                .await?;
+                .await
+                .map_err(Error::from)?;
         Ok(HashCount::new(Self::Hash::from(row.hash()), row.count()))
     }
 
     #[instrument(skip(self))]
     async fn range(
         &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
+        left_fencepost: &EventId,
+        right_fencepost: &EventId,
         offset: usize,
         limit: usize,
-    ) -> Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
-        let offset: i64 = offset
-            .try_into()
-            .context("Offset too large to fit into i64")?;
+    ) -> ReconResult<Box<dyn Iterator<Item = EventId> + Send + 'static>> {
+        let offset: i64 = offset.try_into().map_err(|_e: TryFromIntError| {
+            ReconError::new_app(anyhow!("Offset too large to fit into i64"))
+        })?;
         let limit = limit.try_into().unwrap_or(100000); // 100k is still a huge limit
         let rows: Vec<OrderKey> = sqlx::query_as(ReconQuery::range(ReconType::Event))
             .bind(left_fencepost.as_bytes())
@@ -393,37 +409,40 @@ impl recon::Store for SqliteEventStore {
             .bind(limit)
             .bind(offset)
             .fetch_all(self.pool.reader())
-            .await?;
+            .await
+            .map_err(Error::from)?;
         let rows = rows
             .into_iter()
-            .map(EventId::try_from)
-            .collect::<Result<Vec<Self::Key>, EventIdError>>()?;
+            .map(|k| EventId::try_from(k).map_err(|e: InvalidEventId| Error::new_app(anyhow!(e))))
+            .collect::<Result<Vec<EventId>>>()?;
         Ok(Box::new(rows.into_iter()))
     }
     #[instrument(skip(self))]
     async fn range_with_values(
         &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
+        left_fencepost: &EventId,
+        right_fencepost: &EventId,
         offset: usize,
         limit: usize,
-    ) -> Result<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>> {
-        self.range_with_values_int(left_fencepost, right_fencepost, offset, limit)
-            .await
+    ) -> ReconResult<Box<dyn Iterator<Item = (EventId, Vec<u8>)> + Send + 'static>> {
+        Ok(self
+            .range_with_values_int(left_fencepost, right_fencepost, offset, limit)
+            .await?)
     }
 
     /// Return the number of keys within the range.
     #[instrument(skip(self))]
     async fn count(
         &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Result<usize> {
+        left_fencepost: &EventId,
+        right_fencepost: &EventId,
+    ) -> ReconResult<usize> {
         let row: CountRow = sqlx::query_as(ReconQuery::count(ReconType::Event, SqlBackend::Sqlite))
             .bind(left_fencepost.as_bytes())
             .bind(right_fencepost.as_bytes())
             .fetch_one(self.pool.reader())
-            .await?;
+            .await
+            .map_err(Error::from)?;
         Ok(row.res as usize)
     }
 
@@ -431,39 +450,45 @@ impl recon::Store for SqliteEventStore {
     #[instrument(skip(self))]
     async fn first(
         &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Result<Option<Self::Key>> {
+        left_fencepost: &EventId,
+        right_fencepost: &EventId,
+    ) -> ReconResult<Option<EventId>> {
         let row: Option<OrderKey> = sqlx::query_as(ReconQuery::first_key(ReconType::Event))
             .bind(left_fencepost.as_bytes())
             .bind(right_fencepost.as_bytes())
             .fetch_optional(self.pool.reader())
-            .await?;
-        let res = row.map(EventId::try_from).transpose()?;
+            .await
+            .map_err(Error::from)?;
+        let res = row
+            .map(|r| EventId::try_from(r).map_err(ReconError::new_app))
+            .transpose()?;
         Ok(res)
     }
 
     #[instrument(skip(self))]
     async fn last(
         &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Result<Option<Self::Key>> {
+        left_fencepost: &EventId,
+        right_fencepost: &EventId,
+    ) -> ReconResult<Option<EventId>> {
         let row: Option<OrderKey> = sqlx::query_as(ReconQuery::last_key(ReconType::Event))
             .bind(left_fencepost.as_bytes())
             .bind(right_fencepost.as_bytes())
             .fetch_optional(self.pool.reader())
-            .await?;
-        let res = row.map(EventId::try_from).transpose()?;
+            .await
+            .map_err(Error::from)?;
+        let res = row
+            .map(|r| EventId::try_from(r).map_err(ReconError::new_app))
+            .transpose()?;
         Ok(res)
     }
 
     #[instrument(skip(self))]
     async fn first_and_last(
         &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Result<Option<(Self::Key, Self::Key)>> {
+        left_fencepost: &EventId,
+        right_fencepost: &EventId,
+    ) -> ReconResult<Option<(EventId, EventId)>> {
         let row: Option<FirstAndLast> = sqlx::query_as(ReconQuery::first_and_last(
             ReconType::Event,
             SqlBackend::Sqlite,
@@ -473,11 +498,13 @@ impl recon::Store for SqliteEventStore {
         .bind(left_fencepost.as_bytes())
         .bind(right_fencepost.as_bytes())
         .fetch_optional(self.pool.reader())
-        .await?;
+        .await
+        .map_err(Error::from)?;
 
         if let Some(row) = row {
-            let first = EventId::try_from(row.first_key)?;
-            let last = EventId::try_from(row.last_key)?;
+            let first = EventId::try_from(row.first_key).map_err(ReconError::new_app)?;
+
+            let last = EventId::try_from(row.last_key).map_err(ReconError::new_app)?;
             Ok(Some((first, last)))
         } else {
             Ok(None)
@@ -485,22 +512,22 @@ impl recon::Store for SqliteEventStore {
     }
 
     #[instrument(skip(self))]
-    async fn value_for_key(&self, key: &Self::Key) -> Result<Option<Vec<u8>>> {
-        self.value_for_key_int(key).await
+    async fn value_for_key(&self, key: &EventId) -> ReconResult<Option<Vec<u8>>> {
+        Ok(self.value_for_key_int(key).await?)
     }
 
     #[instrument(skip(self))]
     async fn keys_with_missing_values(
         &self,
-        range: RangeOpen<Self::Key>,
-    ) -> Result<Vec<Self::Key>> {
-        self.keys_with_missing_values_int(range).await
+        range: RangeOpen<EventId>,
+    ) -> ReconResult<Vec<EventId>> {
+        Ok(self.keys_with_missing_values_int(range).await?)
     }
 }
 
 #[async_trait]
 impl iroh_bitswap::Store for SqliteEventStore {
-    async fn get_size(&self, cid: &Cid) -> Result<usize> {
+    async fn get_size(&self, cid: &Cid) -> anyhow::Result<usize> {
         let len: CountRow = sqlx::query_as(BlockQuery::length())
             .bind(cid.hash().to_bytes())
             .fetch_one(self.pool.reader())
@@ -508,7 +535,7 @@ impl iroh_bitswap::Store for SqliteEventStore {
         Ok(len.res as usize)
     }
 
-    async fn get(&self, cid: &Cid) -> Result<Block> {
+    async fn get(&self, cid: &Cid) -> anyhow::Result<Block> {
         let block: BlockBytes = sqlx::query_as(BlockQuery::get())
             .bind(cid.hash().to_bytes())
             .fetch_one(self.pool.reader())
@@ -516,7 +543,7 @@ impl iroh_bitswap::Store for SqliteEventStore {
         Ok(Block::new(block.bytes.into(), cid.to_owned()))
     }
 
-    async fn has(&self, cid: &Cid) -> Result<bool> {
+    async fn has(&self, cid: &Cid) -> anyhow::Result<bool> {
         let len: CountRow = sqlx::query_as(BlockQuery::has())
             .bind(cid.hash().to_bytes())
             .fetch_one(self.pool.reader())
@@ -524,7 +551,7 @@ impl iroh_bitswap::Store for SqliteEventStore {
         Ok(len.res > 0)
     }
 
-    async fn put(&self, block: &Block) -> Result<bool> {
+    async fn put(&self, block: &Block) -> anyhow::Result<bool> {
         Ok(self.put_block(block.cid().hash(), block.data()).await?)
     }
 }
@@ -537,9 +564,10 @@ impl iroh_bitswap::Store for SqliteEventStore {
 /// This guarantees that regardless of entry point (api or recon), the data is stored and retrieved in the same way.
 #[async_trait::async_trait]
 impl ceramic_api::AccessModelStore for SqliteEventStore {
-    async fn insert(&self, key: EventId, value: Option<Vec<u8>>) -> Result<(bool, bool)> {
-        self.insert_item(&ReconItem::new(&key, value.as_deref()))
-            .await
+    async fn insert(&self, key: EventId, value: Option<Vec<u8>>) -> anyhow::Result<(bool, bool)> {
+        Ok(self
+            .insert_item(&ReconItem::new(&key, value.as_deref()))
+            .await?)
     }
 
     async fn range_with_values(
@@ -548,14 +576,14 @@ impl ceramic_api::AccessModelStore for SqliteEventStore {
         end: &EventId,
         offset: usize,
         limit: usize,
-    ) -> Result<Vec<(EventId, Vec<u8>)>> {
+    ) -> anyhow::Result<Vec<(EventId, Vec<u8>)>> {
         let res = self
             .range_with_values_int(start, end, offset, limit)
             .await?;
         Ok(res.collect())
     }
-    async fn value_for_key(&self, key: &EventId) -> Result<Option<Vec<u8>>> {
-        self.value_for_key_int(key).await
+    async fn value_for_key(&self, key: &EventId) -> anyhow::Result<Option<Vec<u8>>> {
+        Ok(self.value_for_key_int(key).await?)
     }
 
     async fn keys_since_highwater_mark(
@@ -563,6 +591,6 @@ impl ceramic_api::AccessModelStore for SqliteEventStore {
         highwater: i64,
         limit: i64,
     ) -> anyhow::Result<(i64, Vec<EventId>)> {
-        self.new_keys_since_value(highwater, limit).await
+        Ok(self.new_keys_since_value(highwater, limit).await?)
     }
 }

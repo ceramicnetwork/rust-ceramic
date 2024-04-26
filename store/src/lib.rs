@@ -2,12 +2,16 @@
 //! This unified implementation allows for exposing Recon values as IPFS blocks
 #![warn(missing_docs)]
 
+mod error;
 mod metrics;
 mod sql;
 #[cfg(test)]
 mod tests;
 
+pub use error::Error;
 pub use metrics::{Metrics, StoreMetricsMiddleware};
 pub use sql::{
     DbTxSqlite, Migrations, SqliteEventStore, SqliteInterestStore, SqlitePool, SqliteRootStore,
 };
+
+pub(crate) type Result<T> = std::result::Result<T, Error>;

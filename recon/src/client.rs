@@ -1,4 +1,3 @@
-use anyhow::Result;
 use ceramic_core::RangeOpen;
 use tokio::sync::{
     mpsc::{channel, Receiver, Sender},
@@ -8,7 +7,7 @@ use tracing::warn;
 
 use crate::{
     recon::{Range, ReconItem, SyncState},
-    AssociativeHash, InterestProvider, Key, Metrics, Recon, Store,
+    AssociativeHash, Error, InterestProvider, Key, Metrics, Recon, Result, Store,
 };
 
 /// Client to a [`Recon`] [`Server`].
@@ -256,11 +255,12 @@ where
                         let val = self
                             .recon
                             .insert(&ReconItem::new(&key, value.as_deref()))
-                            .await;
+                            .await
+                            .map_err(Error::from);
                         send(ret, val);
                     }
                     Request::Len { ret } => {
-                        send(ret, self.recon.len().await);
+                        send(ret, self.recon.len().await.map_err(Error::from));
                     }
                     Request::Range {
                         left_fencepost,
@@ -272,7 +272,8 @@ where
                         let keys = self
                             .recon
                             .range(&left_fencepost, &right_fencepost, offset, limit)
-                            .await;
+                            .await
+                            .map_err(Error::from);
                         send(ret, keys);
                     }
                     Request::RangeWithValues {
@@ -285,35 +286,48 @@ where
                         let keys = self
                             .recon
                             .range_with_values(&left_fencepost, &right_fencepost, offset, limit)
-                            .await;
+                            .await
+                            .map_err(Error::from);
                         send(ret, keys);
                     }
                     Request::FullRange { ret } => {
-                        let keys = self.recon.full_range().await;
+                        let keys = self.recon.full_range().await.map_err(Error::from);
                         send(ret, keys);
                     }
                     Request::ValueForKey { key, ret } => {
-                        let value = self.recon.value_for_key(key).await;
+                        let value = self.recon.value_for_key(key).await.map_err(Error::from);
                         send(ret, value);
                     }
                     Request::KeysWithMissingValues { range, ret } => {
-                        let ok = self.recon.keys_with_missing_values(range).await;
+                        let ok = self
+                            .recon
+                            .keys_with_missing_values(range)
+                            .await
+                            .map_err(Error::from);
                         send(ret, ok);
                     }
                     Request::Interests { ret } => {
-                        let value = self.recon.interests().await;
+                        let value = self.recon.interests().await.map_err(Error::from);
                         send(ret, value);
                     }
                     Request::InitialRange { interest, ret } => {
-                        let value = self.recon.initial_range(interest).await;
+                        let value = self
+                            .recon
+                            .initial_range(interest)
+                            .await
+                            .map_err(Error::from);
                         send(ret, value);
                     }
                     Request::ProcessInterests { interests, ret } => {
-                        let value = self.recon.process_interests(&interests).await;
+                        let value = self
+                            .recon
+                            .process_interests(&interests)
+                            .await
+                            .map_err(Error::from);
                         send(ret, value);
                     }
                     Request::ProcessRange { range, ret } => {
-                        let value = self.recon.process_range(range).await;
+                        let value = self.recon.process_range(range).await.map_err(Error::from);
                         send(ret, value);
                     }
                 };

@@ -3,6 +3,7 @@
 
 pub use crate::{
     client::{Client, Server},
+    error::Error,
     metrics::Metrics,
     recon::{
         btreestore::BTreeStore, AssociativeHash, EventIdStore, FullInterests, HashCount,
@@ -13,6 +14,7 @@ pub use crate::{
 };
 
 mod client;
+mod error;
 pub mod libp2p;
 mod metrics;
 pub mod protocol;
@@ -21,3 +23,6 @@ mod sha256a;
 
 #[cfg(test)]
 mod tests;
+
+/// A result type that wraps a recon Error
+pub type Result<T> = std::result::Result<T, Error>;

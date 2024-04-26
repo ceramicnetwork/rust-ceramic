@@ -1,12 +1,12 @@
-use anyhow::Result;
 use async_trait::async_trait;
 use ceramic_core::RangeOpen;
 use std::{collections::BTreeMap, ops::Bound, sync::Arc};
 use tokio::sync::Mutex;
 
-use crate::recon::{AssociativeHash, Key, MaybeHashedKey, ReconItem, Store};
-
-use super::{HashCount, InsertResult};
+use crate::{
+    recon::{AssociativeHash, Key, MaybeHashedKey, ReconItem, Store},
+    HashCount, InsertResult, Result,
+};
 
 #[derive(Clone, Debug)]
 struct BTreeStoreInner<K, H> {
@@ -58,7 +58,7 @@ where
         &self,
         left_fencepost: &K,
         right_fencepost: &K,
-    ) -> anyhow::Result<HashCount<H>> {
+    ) -> Result<HashCount<H>> {
         if left_fencepost >= right_fencepost {
             return Ok(HashCount {
                 hash: H::identity(),
@@ -181,7 +181,7 @@ where
         &self,
         left_fencepost: &Self::Key,
         right_fencepost: &Self::Key,
-    ) -> anyhow::Result<HashCount<Self::Hash>> {
+    ) -> Result<HashCount<Self::Hash>> {
         // Self does not need async to implement hash_range, so it exposes a pub non async hash_range function
         // and we delegate to its implementation here.
         BTreeStore::hash_range(self, left_fencepost, right_fencepost).await

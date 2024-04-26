@@ -23,6 +23,7 @@ iroh-car.workspace = true
 itertools = "0.12.0"
 multihash.workspace = true
 prometheus-client.workspace = true
+thiserror.workspace = true
 recon.workspace = true
 sqlx.workspace = true
 tokio.workspace = true
