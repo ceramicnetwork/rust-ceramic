@@ -369,7 +369,7 @@ async fn migrate_from_filesystem(input_ipfs_path: PathBuf, store: SqliteEventSto
             );
         }
 
-        let result = store.put_block_tx(cid.hash(), &blob.into(), &mut tx).await;
+        let result = store.put_block_tx(cid.hash(), &blob, &mut tx).await;
         if result.is_err() {
             info!(
                 "{} err: {} {:?}",
@@ -547,7 +547,7 @@ mod tests {
             // Create the CID and store the block.
             let hash = Code::Sha2_256.digest(block.as_slice());
             block_store
-                .put_block_tx(&hash, &block.into(), &mut tx)
+                .put_block_tx(&hash, &block, &mut tx)
                 .await
                 .unwrap();
         }

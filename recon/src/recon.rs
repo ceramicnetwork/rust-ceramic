@@ -377,6 +377,19 @@ where
     pub value: Option<&'a [u8]>,
 }
 
+#[derive(Clone, Debug)]
+pub struct EventBlocks<'a, K> {
+    pub key: K,
+    pub data: &'a Vec<Vec<u8>>,
+}
+pub enum _ReconItemTodo<'a, K>
+where
+    K: Key,
+{
+    Raw(ReconItem<'a, K>),
+    Blocks(EventBlocks<'a, K>),
+}
+
 impl<'a, K> ReconItem<'a, K>
 where
     K: Key,

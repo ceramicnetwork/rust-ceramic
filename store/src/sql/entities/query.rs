@@ -23,7 +23,7 @@ impl BlockQuery {
 pub struct EventQuery;
 
 impl EventQuery {
-    /// Requires binding 1 parameter. Finds the `EventValueRaw` values needed to rebuild the event
+    /// Requires binding 1 parameter. Finds the `EventBlockRaw` values needed to rebuild the event
     pub fn value_blocks_one() -> &'static str {
         r#"SELECT 
                 e.order_key, eb.codec, eb.root, b.multihash, b.bytes
@@ -34,7 +34,7 @@ impl EventQuery {
             ORDER BY eb.idx;"#
     }
 
-    /// Requires binding 4 parameters. Finds the `EventValueRaw` values needed to rebuild the event
+    /// Requires binding 4 parameters. Finds the `EventBlockRaw` values needed to rebuild the event
     pub fn value_blocks_many() -> &'static str {
         r#"SELECT
                 key.order_key, eb.codec, eb.root, eb.idx, b.multihash, b.bytes
