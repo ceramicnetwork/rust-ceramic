@@ -8,7 +8,7 @@ mod http;
 mod metrics;
 mod network;
 
-use std::{env, num::NonZeroUsize, path::PathBuf, time::Duration};
+use std::{env, path::PathBuf, time::Duration};
 
 use anyhow::{anyhow, Result};
 use ceramic_core::Interest;
@@ -113,15 +113,6 @@ struct DaemonOpts {
     #[arg(long, env = "CERAMIC_ONE_LOCAL_NETWORK_ID")]
     local_network_id: Option<u32>,
 
-    /// When set mdns will be used to discover peers.
-    #[arg(long, default_value_t = false, env = "CERAMIC_ONE_MDNS")]
-    mdns: bool,
-
-    /// When set autonat will not be used to discover external address or allow other peers
-    /// to directly dial the local peer.
-    #[arg(long, default_value_t = false, env = "CERAMIC_ONE_DISABLE_AUTONAT")]
-    disable_autonat: bool,
-
     /// Specify the format of log events.
     #[arg(long, default_value = "multi-line", env = "CERAMIC_ONE_LOG_FORMAT")]
     log_format: LogFormat,
@@ -154,51 +145,6 @@ struct DaemonOpts {
         env = "CERAMIC_ONE_IDLE_CONNS_TIMEOUT_MS"
     )]
     idle_conns_timeout_ms: u64,
-
-    /// Sets to how many closest peers a record is replicated.
-    #[arg(long, default_value_t = NonZeroUsize::new(20).expect("> 0"), env = "CERAMIC_ONE_KADEMLIA_REPLICATION")]
-    kademlia_replication: NonZeroUsize,
-
-    /// Sets the allowed level of parallelism for iterative queries.
-    #[arg(long, default_value_t = NonZeroUsize::new(16).expect("> 0"), env = "CERAMIC_ONE_KADEMLIA_PARALLELISM")]
-    kademlia_parallelism: NonZeroUsize,
-
-    /// Sets the timeout in seconds for a single query.
-    ///
-    /// **Note**: A single query usually comprises at least as many requests
-    /// as the replication factor, i.e. this is not a request timeout.
-    #[arg(
-        long,
-        default_value_t = 60,
-        env = "CERAMIC_ONE_KADEMLIA_QUERY_TIMEOUT_SECS"
-    )]
-    kademlia_query_timeout_secs: u64,
-
-    /// Sets the interval in seconds at which provider records for keys provided
-    /// by the local node are re-published.
-    ///
-    /// `0` means that stored provider records are never automatically
-    /// re-published.
-    ///
-    /// Must be significantly less than the provider record TTL.
-    #[arg(
-        long,
-        default_value_t = 12 * 60 * 60,
-        env = "CERAMIC_ONE_KADEMLIA_PROVIDER_PUBLICATION_INTERVAL_SECS"
-    )]
-    kademlia_provider_publication_interval_secs: u64,
-
-    /// Sets the TTL in seconds for provider records.
-    ///
-    /// `0` means that stored provider records never expire.
-    ///
-    /// Must be significantly larger than the provider publication interval.
-    #[arg(
-        long,
-        default_value_t = 24 * 60 * 60,
-        env = "CERAMIC_ONE_KADEMLIA_PROVIDER_RECORD_TTL_SECS"
-    )]
-    kademlia_provider_record_ttl_secs: u64,
 }
 
 #[derive(ValueEnum, Debug, Clone, Default)]
@@ -349,13 +295,13 @@ impl Daemon {
         debug!("using directory: {}", dir.display());
 
         let p2p_config = Libp2pConfig {
-            mdns: opts.mdns,
-            bitswap_server: true,
-            bitswap_client: true,
-            kademlia: true,
-            autonat: !opts.disable_autonat,
-            relay_server: true,
-            relay_client: true,
+            mdns: false,
+            bitswap_server: false,
+            bitswap_client: false,
+            kademlia: false,
+            autonat: false,
+            relay_server: false,
+            relay_client: false,
             max_conns_out: opts.max_conns_out,
             max_conns_in: opts.max_conns_in,
             max_conns_pending_out: opts.max_conns_pending_out,
@@ -379,24 +325,6 @@ impl Daemon {
                 .iter()
                 .map(|addr| addr.parse())
                 .collect::<Result<Vec<Multiaddr>, multiaddr::Error>>()?,
-            kademlia_replication_factor: opts.kademlia_replication,
-            kademlia_parallelism: opts.kademlia_parallelism,
-            kademlia_query_timeout: Duration::from_secs(opts.kademlia_query_timeout_secs),
-            kademlia_provider_publication_interval: if opts
-                .kademlia_provider_publication_interval_secs
-                == 0
-            {
-                None
-            } else {
-                Some(Duration::from_secs(
-                    opts.kademlia_provider_publication_interval_secs,
-                ))
-            },
-            kademlia_provider_record_ttl: if opts.kademlia_provider_record_ttl_secs == 0 {
-                None
-            } else {
-                Some(Duration::from_secs(opts.kademlia_provider_record_ttl_secs))
-            },
             ..Default::default()
         };
         debug!(?p2p_config, "using p2p config");
