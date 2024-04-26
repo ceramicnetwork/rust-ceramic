@@ -15,9 +15,9 @@ use tracing::instrument;
 
 use crate::{
     sql::{
-        rebuild_car, BlockBytes, BlockQuery, BlockRow, CountRow, DeliveredEvent, EventIdError,
-        EventQuery, EventValueRaw, FirstAndLast, OrderKey, ReconHash, ReconQuery, ReconType,
-        SqlBackend, GLOBAL_COUNTER,
+        rebuild_car, BlockBytes, BlockQuery, BlockRow, CountRow, DeliveredEvent, EventBlockQuery,
+        EventIdError, EventQuery, EventValueRaw, FirstAndLast, OrderKey, ReconHash, ReconQuery,
+        ReconType, SqlBackend, GLOBAL_COUNTER,
     },
     DbTxSqlite, SqlitePool,
 };
@@ -226,22 +226,21 @@ impl SqliteEventStore {
         ))?;
         let id = key.cid().context("Event CID is required")?.to_bytes();
         let multihash = hash.to_bytes();
-        sqlx::query(
-            "INSERT INTO ceramic_one_event_block (event_cid, idx, root, block_multihash, codec) VALUES ($1, $2, $3, $4, $5) on conflict do nothing;")
+        sqlx::query(EventBlockQuery::upsert())
             .bind(id)
             .bind(idx)
             .bind(root)
             .bind(multihash)
             .bind(code)
-        .execute(&mut **conn)
-        .await?;
+            .execute(&mut **conn)
+            .await?;
         Ok(())
     }
 
     async fn mark_ready_to_deliver(&self, key: &EventId, conn: &mut DbTxSqlite<'_>) -> Result<()> {
         let id = key.as_bytes();
         let delivered = self.get_delivered();
-        sqlx::query("UPDATE ceramic_one_event SET delivered = $1 WHERE order_key = $2;")
+        sqlx::query(EventQuery::mark_ready_to_deliver())
             .bind(delivered)
             .bind(id)
             .execute(&mut **conn)

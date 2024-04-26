@@ -68,12 +68,19 @@ impl EventQuery {
             LIMIT $2"#
     }
 
+    /// Returns the max delivered value in the event table
     pub fn max_delivered() -> &'static str {
         r#"SELECT 
             COALESCE(MAX(delivered), 0) as res 
         FROM ceramic_one_event;"#
     }
 
+    /// Updates the delivered column in the event table so it can be set to the client
+    pub fn mark_ready_to_deliver() -> &'static str {
+        "UPDATE ceramic_one_event SET delivered = $1 WHERE order_key = $2;"
+    }
+
+    /// Finds event keys that are missing values
     pub fn missing_values() -> &'static str {
         r#"SELECT order_key 
         FROM ceramic_one_event e
@@ -81,6 +88,15 @@ impl EventQuery {
             NOT EXISTS (SELECT 1 FROM ceramic_one_event_block where order_key = e.order_key) 
             AND order_key > $1
             AND order_key < $2;"#
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct EventBlockQuery {}
+
+impl EventBlockQuery {
+    pub fn upsert() -> &'static str {
+        "INSERT INTO ceramic_one_event_block (event_cid, idx, root, block_multihash, codec) VALUES ($1, $2, $3, $4, $5) on conflict do nothing;"
     }
 }
 

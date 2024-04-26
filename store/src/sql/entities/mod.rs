@@ -6,7 +6,7 @@ pub use block::{BlockBytes, BlockRow};
 pub use event::{
     rebuild_car, CountRow, DeliveredEvent, EventIdError, EventValueRaw, OrderKey, ReconHash,
 };
-pub use query::{BlockQuery, EventQuery, ReconQuery, ReconType, SqlBackend};
+pub use query::{BlockQuery, EventBlockQuery, EventQuery, ReconQuery, ReconType, SqlBackend};
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct FirstAndLast {
