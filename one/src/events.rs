@@ -3,7 +3,7 @@ use crate::CborValue;
 use anyhow::{anyhow, bail, Context, Result};
 use ceramic_core::{ssi, Base64UrlString, DidDocument, Jwk};
 use ceramic_metrics::init_local_tracing;
-use ceramic_store::{Migrations, RootStore, SqliteEventStore, SqlitePool};
+use ceramic_store::{Migrations, SqliteEventStore, SqlitePool, SqliteRootStore};
 use chrono::{SecondsFormat, TimeZone, Utc};
 use cid::{multibase, multihash, Cid};
 use clap::{Args, Subcommand};
@@ -67,13 +67,14 @@ async fn slurp(opts: SlurpOpts) -> Result<()> {
     let output_ceramic_path = opts
         .output_ceramic_path
         .unwrap_or(default_output_ceramic_path);
+    let output_ceramic_path = output_ceramic_path.display().to_string();
     info!(
         "{} Opening output ceramic SQLite DB at: {}",
         Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
-        output_ceramic_path.display()
+        output_ceramic_path
     );
 
-    let pool = SqlitePool::connect(output_ceramic_path, Migrations::Apply)
+    let pool = SqlitePool::connect(&output_ceramic_path, Migrations::Apply)
         .await
         .context("Failed to connect to database")?;
     let block_store = SqliteEventStore::new(pool).await.unwrap();
@@ -87,14 +88,31 @@ async fn slurp(opts: SlurpOpts) -> Result<()> {
     Ok(())
 }
 
+fn get_store_dir(opts: &ValidateOpts) -> Result<String> {
+    let home: PathBuf = dirs::home_dir().unwrap_or("/data/".into());
+    let store_dir = opts
+        .store_dir
+        .as_ref()
+        .cloned()
+        .unwrap_or(home.join(".ceramic-one/"));
+    info!(
+        "{} Opening ceramic SQLite DB at: {}",
+        Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
+        store_dir.display()
+    );
+    let path = store_dir.join("db.sqlite3").display().to_string();
+    Ok(path)
+}
+
 async fn validate(opts: ValidateOpts) -> Result<()> {
-    let pool = SqlitePool::from_store_dir(opts.store_dir, Migrations::Apply)
+    let path = get_store_dir(&opts)?;
+    let pool = SqlitePool::connect(&path, Migrations::Apply)
         .await
         .context("Failed to connect to database")?;
     let block_store = SqliteEventStore::new(pool.clone())
         .await
         .with_context(|| "Failed to create block store")?;
-    let root_store = RootStore::new(pool)
+    let root_store = SqliteRootStore::new(pool)
         .await
         .with_context(|| "Failed to create root store")?;
 
@@ -216,7 +234,7 @@ async fn validate_data_event_payload(
 async fn validate_time_event(
     cid: &Cid,
     block_store: &SqliteEventStore,
-    root_store: &RootStore,
+    root_store: &SqliteRootStore,
     eth_rpc: &impl EthRpc,
 ) -> Result<i64> {
     let block = block_store.get(cid).await?;
@@ -394,6 +412,7 @@ async fn migrate_from_database(input_ceramic_db: PathBuf, store: SqliteEventStor
 mod tests {
     use super::*;
     use crate::ethereum_rpc::EthRpc;
+    use ceramic_store::SqlitePool;
     use multihash::{Code, MultihashDigest};
 
     struct HardCodedEthRpc {}
@@ -425,7 +444,7 @@ mod tests {
 
         // Create a new SQLiteBlockStore and SQLiteRootStore
         let block_store = SqliteEventStore::new(pool.clone()).await.unwrap();
-        let root_store = RootStore::new(pool).await.unwrap();
+        let root_store = SqliteRootStore::new(pool).await.unwrap();
 
         // Add all the blocks for the Data Event & Time Event to the block store
         let blocks = vec![

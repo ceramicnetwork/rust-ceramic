@@ -1,4 +1,5 @@
 use anyhow::Result;
+use sqlx::Row;
 
 use crate::SqlitePool;
 
@@ -9,11 +10,16 @@ use crate::SqlitePool;
 /// We only pull each tx_hash once and store the root, block_hash and timestamp.
 /// After that Time Events validation can be done locally.
 #[derive(Debug, Clone)]
-pub struct RootStore {
+pub struct SqliteRootStore {
     pool: SqlitePool,
 }
 
-impl RootStore {
+const PUT_QUERY: &str = r#"INSERT INTO ceramic_one_root (tx_hash, root, block_hash, timestamp)
+VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING"#;
+
+const GET_QUERY: &str = r#"SELECT timestamp FROM ceramic_one_root WHERE tx_hash = $1;"#;
+
+impl SqliteRootStore {
     /// Create a new RootStore
     pub async fn new(pool: SqlitePool) -> Result<Self> {
         let store = Self { pool };
@@ -28,29 +34,25 @@ impl RootStore {
         block_hash: String, // 0xhex_hash
         timestamp: i64,
     ) -> Result<()> {
-        match sqlx::query!(
-            r#"INSERT OR IGNORE INTO ceramic_one_root (tx_hash, root, block_hash, timestamp) VALUES (?, ?, ?, ?)"#,
-            tx_hash,
-            root,
-            block_hash,
-            timestamp,
-        )
-        .execute(self.pool.writer())
-        .await
-        {
-            Ok(_) => Ok(()),
-            Err(err) => Err(err.into()),
-        }
+        let _ = sqlx::query(PUT_QUERY)
+            .bind(tx_hash)
+            .bind(root)
+            .bind(block_hash)
+            .bind(timestamp)
+            .execute(self.pool.writer())
+            .await?;
+        Ok(())
     }
 
     /// Get the transaction timestamp from the roots table.
     pub async fn get(&self, tx_hash: &[u8]) -> Result<Option<i64>> {
-        Ok(sqlx::query!(
-            r#"SELECT timestamp FROM ceramic_one_root WHERE tx_hash = ?;"#,
-            tx_hash
-        )
-        .fetch_optional(self.pool.reader())
-        .await?
-        .map(|row| row.timestamp))
+        Ok(sqlx::query(GET_QUERY)
+            .bind(tx_hash)
+            .fetch_optional(self.pool.reader())
+            .await?
+            .map(|row| {
+                let time: i64 = row.get(0);
+                time
+            }))
     }
 }
