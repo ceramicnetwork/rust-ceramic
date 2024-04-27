@@ -640,7 +640,7 @@ async fn prep_highwater_tests(store: &dyn AccessModelStore) -> (EventId, EventId
         let (_blocks, store_value) = build_car_file(x).await;
         assert_eq!(_blocks.len(), x);
         store
-            .insert(key.to_owned(), Some(store_value))
+            .insert_many(&[(key.to_owned(), Some(store_value))])
             .await
             .unwrap();
     }
