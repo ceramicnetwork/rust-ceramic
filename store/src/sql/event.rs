@@ -525,11 +525,16 @@ impl iroh_bitswap::Store for SqliteEventStore {
 /// This guarantees that regardless of entry point (api or recon), the data is stored and retrieved in the same way.
 #[async_trait::async_trait]
 impl ceramic_api::AccessModelStore for SqliteEventStore {
-    async fn insert(&self, key: EventId, value: Option<Vec<u8>>) -> anyhow::Result<(bool, bool)> {
-        let res = self
-            .insert_item_int(ReconItem::new(&key, value.as_deref()))
-            .await?;
-        Ok(res)
+    async fn insert_many(
+        &self,
+        items: &[(EventId, Option<Vec<u8>>)],
+    ) -> anyhow::Result<(Vec<bool>, usize)> {
+        let items = items
+            .iter()
+            .map(|(key, value)| ReconItem::new(key, value.as_deref()))
+            .collect::<Vec<ReconItem<'_, EventId>>>();
+        let res = self.insert_items_int(&items).await?;
+        Ok((res.keys, res.value_count))
     }
 
     async fn range_with_values(
