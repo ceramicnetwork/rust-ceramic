@@ -59,7 +59,7 @@ impl SqliteEventStore {
 
     /// Begin a database transaction.
     pub async fn begin_tx(&self) -> Result<DbTxSqlite<'_>> {
-        self.pool.tx().await
+        Ok(self.pool.writer().begin().await?)
     }
 
     /// Commit the database transaction.
@@ -171,7 +171,7 @@ impl SqliteEventStore {
 
     /// Add a block, returns true if the block is new
     pub async fn put_block(&self, hash: &Multihash, blob: &Bytes) -> Result<bool> {
-        let mut tx = self.pool.tx().await?;
+        let mut tx = self.pool.writer().begin().await?;
         let res = self.put_block_tx(hash, blob, &mut tx).await?;
         tx.commit().await?;
         Ok(res)
