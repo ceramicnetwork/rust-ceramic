@@ -68,12 +68,6 @@ impl SqlitePool {
         &self.writer
     }
 
-    /// Get a writer tranaction. The writer pool has only one connection so this is an exclusive lock.
-    /// Use this method to perform simultaneous writes to the database, calling `commit` when you are done.
-    pub async fn tx(&self) -> Result<DbTxSqlite> {
-        Ok(self.writer.begin().await?)
-    }
-
     /// Get a reference to the reader database pool. The reader pool has many connections.
     pub fn reader(&self) -> &sqlx::SqlitePool {
         &self.reader
