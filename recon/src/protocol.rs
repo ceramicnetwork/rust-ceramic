@@ -436,16 +436,14 @@ where
                 .await?;
         } else {
             // Send as many as fit under the limit and buffer the rest
+            let mut to_send = Vec::with_capacity(PENDING_RANGES_LIMIT);
             for range in ranges {
                 if self.pending_ranges < PENDING_RANGES_LIMIT {
                     self.pending_ranges += 1;
-                    self.common
-                        .stream
-                        .send(
-                            self.common
-                                .create_message(InitiatorMessage::RangeRequest(range)),
-                        )
-                        .await?;
+                    to_send.push(
+                        self.common
+                            .create_message(InitiatorMessage::RangeRequest(range)),
+                    );
                 } else if self.ranges_stack.len() < self.ranges_stack.capacity() {
                     self.ranges_stack.push(range);
                     self.metrics.record(&RangeEnqueued);
@@ -453,6 +451,9 @@ where
                     // blocked due to channel back pressure
                     self.metrics.record(&RangeEnqueueFailed);
                 }
+            }
+            if !to_send.is_empty() {
+                self.common.stream.send_all(to_send).await?;
             }
         };
         Ok(())
