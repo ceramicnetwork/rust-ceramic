@@ -2,6 +2,41 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.15.0] - 2024-04-29
+
+### 🚀 Features
+
+- Validate time events (#289)
+- Add workflow for custom images
+- Migrations with new table format to de-dup blocks and support out of order delivery (#292)
+- Don't mark peers failed when we error during sync (#300)
+- Jemalloc (#319)
+- Store bench (#303)
+- Disable mdns,bitswap,kad,relay,dcutr protocols (#323)
+
+### 🐛 Bug Fixes
+
+- Use TAG_LATEST (#294)
+- Set the js-ceramic image when scheduling k8 deploy (#298)
+- Gh workflow syntax
+- Cd-to-infra workflow quote fix (#314)
+- Tokio vs std thread is okay (#318)
+- Rust-jemalloc-pprof is only supported on linux (#321)
+
+### ⚙️ Miscellaneous Tasks
+
+- Remove mut from store traits (#305)
+- Adjust types to allow dynamic usage (#306)
+- Don't hang the executor (#307)
+- Recon libp2p e2e tests (#310)
+- Add debug image builds (#311)
+- Update debug tags when not releasing (#313)
+- Fix docker build for debug mode (#315)
+- Add a release build with debug symbols and tokio console (#316)
+- Update open telemetry and tokio-console dependencies (#322)
+- Refactor to to lay groundwork for postgres support (#320)
+- Add variants for error handling (#317)
+
 ## [0.14.0] - 2024-03-26
 
 ### 🚀 Features
@@ -17,6 +52,10 @@ All notable changes to this project will be documented in this file.
 ### 📚 Documentation
 
 - Added explicit deps to build steps (#291)
+
+### ⚙️ Miscellaneous Tasks
+
+- Version v0.14.0 (#297)
 
 ## [0.13.0] - 2024-03-19
 
