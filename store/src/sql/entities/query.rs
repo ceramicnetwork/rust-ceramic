@@ -23,8 +23,10 @@ impl BlockQuery {
 pub struct EventQuery;
 
 impl EventQuery {
-    /// Requires binding 1 parameter. Finds the `EventBlockRaw` values needed to rebuild the event
-    pub fn value_blocks_one() -> &'static str {
+    /// Requires binding 1 parameter. Finds the `EventValueRaw` values needed to rebuild the event
+    /// Looks up the event by the EventID (ie order_key).
+    /// TODO(stbrody): No need to return order_key?
+    pub fn value_blocks_by_order_key_one() -> &'static str {
         r#"SELECT 
                 e.order_key, eb.codec, eb.root, b.multihash, b.bytes
         FROM ceramic_one_event_block eb 
@@ -34,8 +36,21 @@ impl EventQuery {
             ORDER BY eb.idx;"#
     }
 
-    /// Requires binding 4 parameters. Finds the `EventBlockRaw` values needed to rebuild the event
-    pub fn value_blocks_many() -> &'static str {
+    /// Requires binding 1 parameter. Finds the `EventValueRaw` values needed to rebuild the event
+    /// Looks up the event by the root CID of the event.
+    /// TODO(stbrody): No need to return order_key?
+    pub fn value_blocks_by_cid_one() -> &'static str {
+        r#"SELECT
+                e.order_key, eb.codec, eb.root, b.multihash, b.bytes
+        FROM ceramic_one_event_block eb
+            JOIN ceramic_one_block b on b.multihash = eb.block_multihash
+            JOIN ceramic_one_event e on e.cid = eb.event_cid
+        WHERE e.cid = $1
+            ORDER BY eb.idx;"#
+    }
+
+    /// Requires binding 4 parameters. Finds the `EventValueRaw` values needed to rebuild the event
+    pub fn value_blocks_by_order_key_many() -> &'static str {
         r#"SELECT
                 key.order_key, eb.codec, eb.root, eb.idx, b.multihash, b.bytes
             FROM (

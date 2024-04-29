@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use async_trait::async_trait;
-use ceramic_core::{EventId, Interest, RangeOpen};
+use ceramic_core::{Cid, EventId, Interest, RangeOpen};
 use ceramic_metrics::{register, Recorder};
 use futures::Future;
 use prometheus_client::{
@@ -227,11 +227,20 @@ where
         .await
     }
 
-    async fn value_for_key(&self, key: &EventId) -> anyhow::Result<Option<Vec<u8>>> {
+    async fn value_for_order_key(&self, key: &EventId) -> anyhow::Result<Option<Vec<u8>>> {
         StoreMetricsMiddleware::<S>::record(
             &self.metrics,
-            "api_value_for_key",
-            self.store.value_for_key(key),
+            "api_value_for_order_key",
+            self.store.value_for_order_key(key),
+        )
+        .await
+    }
+
+    async fn value_for_cid(&self, key: &Cid) -> anyhow::Result<Option<Vec<u8>>> {
+        StoreMetricsMiddleware::<S>::record(
+            &self.metrics,
+            "api_value_for_cid",
+            self.store.value_for_cid(key),
         )
         .await
     }
