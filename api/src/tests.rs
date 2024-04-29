@@ -16,7 +16,6 @@ use ceramic_core::{Cid, Interest};
 use ceramic_core::{EventId, Network, PeerId, StreamId};
 use mockall::{mock, predicate};
 use multibase::Base;
-use recon::Key;
 use std::str::FromStr;
 use std::sync::Arc;
 use tracing_test::traced_test;
@@ -63,7 +62,8 @@ mock! {
             offset: usize,
             limit: usize,
         ) -> Result<Vec<(EventId,Vec<u8>)>>;
-        fn value_for_key(&self, key: &EventId) -> Result<Option<Vec<u8>>>;
+        fn value_for_order_key(&self, key: &EventId) -> Result<Option<Vec<u8>>>;
+        fn value_for_cid(&self, key: &Cid) -> Result<Option<Vec<u8>>>;
     }
     impl Clone for ReconModelTest {
         fn clone(&self) -> Self;
@@ -86,8 +86,11 @@ impl AccessModelStore for MockReconModelTest {
     ) -> Result<Vec<(EventId, Vec<u8>)>> {
         self.range_with_values(start, end, offset, limit)
     }
-    async fn value_for_key(&self, key: &EventId) -> Result<Option<Vec<u8>>> {
-        self.value_for_key(key)
+    async fn value_for_order_key(&self, key: &EventId) -> Result<Option<Vec<u8>>> {
+        self.value_for_order_key(key)
+    }
+    async fn value_for_cid(&self, key: &Cid) -> Result<Option<Vec<u8>>> {
+        self.value_for_cid(key)
     }
     async fn keys_since_highwater_mark(
         &self,
@@ -346,7 +349,7 @@ async fn get_events_for_interest_range() {
     r: Success(EventsGet { events: [Event { id: "fce0105ff012616e0f0c1e987ef0f772afbe2c7f05c50102bc800", data: "" }], resume_offset: 1, is_complete: false })
             */
     let mock_interest = MockReconInterestTest::new();
-    let expected = BuildResponse::event(start.clone(), vec![]);
+    let expected = BuildResponse::event_with_eventid(start.clone(), vec![]);
     let mut mock_model = MockReconModelTest::new();
     mock_model
         .expect_range_with_values()
@@ -380,27 +383,31 @@ async fn get_events_for_interest_range() {
         })
     );
 }
+
 #[tokio::test]
 #[traced_test]
-async fn test_events_event_id_get_success() {
+async fn test_events_event_id_get_by_event_id_success() {
     let peer_id = PeerId::random();
     let network = Network::InMemory;
+    let event_cid =
+        Cid::from_str("baejbeicqtpe5si4qvbffs2s7vtbk5ccbsfg6owmpidfj3zeluqz4hlnz6m").unwrap(); // cspell:disable-line
+
     let event_id = EventId::new(
         &network,
         "model",
         "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9", // cspell:disable-line
         "did:key:zGs1Det7LHNeu7DXT4nvoYrPfj3n6g7d6bj2K4AMXEvg1",          // cspell:disable-line
-        &Cid::from_str("baejbeihyr3kf77etqdccjfoc33dmko2ijyugn6qk6yucfkioasjssz3bbu").unwrap(), // cspell:disable-line
+        &Cid::from_str("baejbeihyr3kf77etqdccjfoc33dmko2ijyugn6qk6yucfkioasjssz3bbu").unwrap(), // cspell:disable-line,
         0,
-        &Cid::from_str("baejbeicqtpe5si4qvbffs2s7vtbk5ccbsfg6owmpidfj3zeluqz4hlnz6m").unwrap(), // cspell:disable-line
+        &event_cid,
     );
     let event_id_str = multibase::encode(Base::Base16Lower, event_id.to_bytes());
     let event_data = b"event data".to_vec();
     let event_data_base64 = multibase::encode(multibase::Base::Base64, &event_data);
     let mut mock_model = MockReconModelTest::new();
     mock_model
-        .expect_value_for_key()
-        .with(predicate::eq(event_id.clone()))
+        .expect_value_for_order_key()
+        .with(predicate::eq(event_id))
         .times(1)
         .returning(move |_| Ok(Some(event_data.clone())));
     let mock_interest = MockReconInterestTest::new();
@@ -411,7 +418,37 @@ async fn test_events_event_id_get_success() {
     };
     assert_eq!(
         event.id,
-        multibase::encode(multibase::Base::Base16Lower, event_id.as_bytes())
+        multibase::encode(multibase::Base::Base32Lower, event_cid.to_bytes())
+    );
+    assert_eq!(event.data, event_data_base64);
+}
+
+#[tokio::test]
+#[traced_test]
+async fn test_events_event_id_get_by_cid_success() {
+    let peer_id = PeerId::random();
+    let network = Network::InMemory;
+    let event_cid =
+        Cid::from_str("baejbeihyr3kf77etqdccjfoc33dmko2ijyugn6qk6yucfkioasjssz3bbu").unwrap(); // cspell:disable-line
+    let event_data = b"event data".to_vec();
+    let event_data_base64 = multibase::encode(multibase::Base::Base64, &event_data);
+    let mut mock_model = MockReconModelTest::new();
+    mock_model
+        .expect_value_for_cid()
+        .with(predicate::eq(event_cid))
+        .times(1)
+        .returning(move |_| Ok(Some(event_data.clone())));
+    let mock_interest = MockReconInterestTest::new();
+    let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_model));
+    let result = server
+        .events_event_id_get(event_cid.to_string(), &Context)
+        .await;
+    let EventsEventIdGetResponse::Success(event) = result.unwrap() else {
+        panic!("Expected EventsEventIdGetResponse::Success but got another variant");
+    };
+    assert_eq!(
+        event.id,
+        multibase::encode(multibase::Base::Base32Lower, event_cid.to_bytes())
     );
     assert_eq!(event.data, event_data_base64);
 }

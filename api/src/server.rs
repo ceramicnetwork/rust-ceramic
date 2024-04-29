@@ -38,7 +38,7 @@ use ceramic_api_server::{
 use ceramic_api_server::{
     Api, ExperimentalEventsSepSepValueGetResponse, FeedEventsGetResponse, InterestsPostResponse,
 };
-use ceramic_core::{interest, EventId, Interest, Network, PeerId, StreamId};
+use ceramic_core::{interest, Cid, EventId, Interest, Network, PeerId, StreamId};
 use std::error::Error;
 use swagger::ApiError;
 #[cfg(not(target_env = "msvc"))]
@@ -63,8 +63,19 @@ const INSERT_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_se
 // Helper to build responses consistent as we can't implement for the api_server::models directly
 pub struct BuildResponse {}
 impl BuildResponse {
-    pub fn event(id: EventId, data: Vec<u8>) -> models::Event {
+    // TODO(stbrody): remove this function. We should only ever return events to the API with their
+    // CID, we should never expose the EventID.
+    pub fn event_with_eventid(id: EventId, data: Vec<u8>) -> models::Event {
         let id = multibase::encode(multibase::Base::Base16Lower, id.as_bytes());
+        let data = if data.is_empty() {
+            String::default()
+        } else {
+            multibase::encode(multibase::Base::Base64, data)
+        };
+        models::Event::new(id, data)
+    }
+    pub fn event(id: Cid, data: Vec<u8>) -> models::Event {
+        let id = id.to_string();
         let data = if data.is_empty() {
             String::default()
         } else {
@@ -175,7 +186,15 @@ pub trait AccessModelStore: Send + Sync {
         limit: usize,
     ) -> Result<Vec<(EventId, Vec<u8>)>>;
 
-    async fn value_for_key(&self, key: &EventId) -> Result<Option<Vec<u8>>>;
+    /**
+     * Returns the event value bytes as a CAR file, identified by the order key (EventID).
+     */
+    async fn value_for_order_key(&self, key: &EventId) -> Result<Option<Vec<u8>>>;
+
+    /**
+     * Returns the event value bytes as a CAR file, identified by the root CID of the event.
+     */
+    async fn value_for_cid(&self, key: &Cid) -> Result<Option<Vec<u8>>>;
 
     // it's likely `highwater` will be a string or struct when we have alternative storage for now we
     // keep it simple to allow easier error propagation. This isn't currently public outside of this repo.
@@ -207,8 +226,12 @@ impl<S: AccessModelStore> AccessModelStore for Arc<S> {
             .await
     }
 
-    async fn value_for_key(&self, key: &EventId) -> Result<Option<Vec<u8>>> {
-        self.as_ref().value_for_key(key).await
+    async fn value_for_order_key(&self, key: &EventId) -> Result<Option<Vec<u8>>> {
+        self.as_ref().value_for_order_key(key).await
+    }
+
+    async fn value_for_cid(&self, key: &Cid) -> Result<Option<Vec<u8>>> {
+        self.as_ref().value_for_cid(key).await
     }
 
     async fn keys_since_highwater_mark(
@@ -350,7 +373,7 @@ where
             .map_err(|e| ErrorResponse::new(format!("failed to get keys: {e}")))?;
         let events = event_ids
             .into_iter()
-            .map(|id| BuildResponse::event(id, vec![]))
+            .map(|id| BuildResponse::event_with_eventid(id, vec![]))
             .collect();
 
         Ok(FeedEventsGetResponse::Success(models::EventFeed {
@@ -381,7 +404,7 @@ where
             .await
             .map_err(|err| ErrorResponse::new(format!("failed to get keys: {err}")))?
             .into_iter()
-            .map(|(id, data)| BuildResponse::event(id, data))
+            .map(|(id, data)| BuildResponse::event_with_eventid(id, data))
             .collect::<Vec<_>>();
 
         let event_cnt = events.len();
@@ -445,17 +468,32 @@ where
         Ok(InterestsPostResponse::Success)
     }
 
+    /// Gets the event data by id.  First interprets the event id as the root CID of the event,
+    /// but falls back to interpreting it as an EventID. Using EventID is only meant for internal
+    /// testing and debugging, all real callers should use the root Cid.
+    /// TODO: Remove the ability to get with an EventID and only support getting events by their
+    /// root CID.
     pub async fn get_events_event_id(
         &self,
         event_id: String,
     ) -> Result<EventsEventIdGetResponse, ErrorResponse> {
-        let decoded_event_id = match decode_event_id(&event_id) {
-            Ok(v) => v,
-            Err(e) => return Ok(EventsEventIdGetResponse::BadRequest(e)),
+        let (cid, data) = match decode_cid(&event_id) {
+            Ok(decoded_cid) => (decoded_cid, self.model.value_for_cid(&decoded_cid).await),
+            Err(err) => {
+                // If the string isn't a valid CID, try interpreting it as an EventId.
+                if let Ok(decoded_event_id) = decode_event_id(&event_id) {
+                    (
+                        decoded_event_id.cid().unwrap(),
+                        self.model.value_for_order_key(&decoded_event_id).await,
+                    )
+                } else {
+                    return Ok(EventsEventIdGetResponse::BadRequest(err));
+                }
+            }
         };
-        match self.model.value_for_key(&decoded_event_id).await {
+        match data {
             Ok(Some(data)) => {
-                let event = BuildResponse::event(decoded_event_id, data);
+                let event = BuildResponse::event(cid, data);
                 Ok(EventsEventIdGetResponse::Success(event))
             }
             Ok(None) => Ok(EventsEventIdGetResponse::EventNotFound(format!(
@@ -548,6 +586,13 @@ pub(crate) fn decode_event_id(value: &str) -> Result<EventId, BadRequestResponse
         .1
         .try_into()
         .map_err(|err| BadRequestResponse::new(format!("Invalid event id: {err}")))
+}
+pub(crate) fn decode_cid(value: &str) -> Result<Cid, BadRequestResponse> {
+    multibase::decode(value)
+        .map_err(|err| BadRequestResponse::new(format!("multibase error: {err}")))?
+        .1
+        .try_into()
+        .map_err(|err| BadRequestResponse::new(format!("Invalid Cid: {err}")))
 }
 pub(crate) fn decode_event_data(value: &str) -> Result<Vec<u8>, BadRequestResponse> {
     Ok(multibase::decode(value)

@@ -4,9 +4,9 @@ info:
     This is the Ceramic API for working with streams and events
   version: 0.16.0
   title: Ceramic API
-    #license:
-    #  name: Apache 2.0
-    #  url: http://www.apache.org/licenses/LICENSE-2.0.html
+  #license:
+  #  name: Apache 2.0
+  #  url: http://www.apache.org/licenses/LICENSE-2.0.html
   license:
     name: MIT
     url: https://mit-license.org/
@@ -49,7 +49,7 @@ paths:
           content:
             application/json:
               schema:
-                  $ref: "#/components/schemas/ErrorResponse"
+                $ref: "#/components/schemas/ErrorResponse"
   /version:
     post:
       summary: Get the version of the Ceramic node
