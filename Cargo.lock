@@ -1054,7 +1054,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-api"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1080,7 +1080,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-api-server"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1108,7 +1108,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-core"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1138,7 +1138,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-event"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "anyhow",
  "ceramic-core",
@@ -1158,7 +1158,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-kubo-rpc"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1193,7 +1193,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-kubo-rpc-server"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1220,7 +1220,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-metadata"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "built",
  "project-root",
@@ -1229,7 +1229,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-metrics"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "console-subscriber",
  "lazy_static",
@@ -1250,7 +1250,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-one"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "anyhow",
  "ceramic-api",
@@ -1299,7 +1299,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-p2p"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "ahash 0.8.11",
  "anyhow",
@@ -1337,7 +1337,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-store"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3410,7 +3410,7 @@ dependencies = [
  "iana-time-zone-haiku",
  "js-sys",
  "wasm-bindgen",
- "windows-core 0.52.0",
+ "windows-core",
 ]
 
 [[package]]
@@ -3635,7 +3635,7 @@ dependencies = [
 
 [[package]]
 name = "iroh-bitswap"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "ahash 0.8.11",
  "anyhow",
@@ -3674,7 +3674,7 @@ dependencies = [
 
 [[package]]
 name = "iroh-car"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "cid 0.10.1",
  "futures",
@@ -3688,7 +3688,7 @@ dependencies = [
 
 [[package]]
 name = "iroh-rpc-client"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -3706,7 +3706,7 @@ dependencies = [
 
 [[package]]
 name = "iroh-rpc-types"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "anyhow",
  "bytes 1.6.0",
@@ -3721,7 +3721,7 @@ dependencies = [
 
 [[package]]
 name = "iroh-util"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "cid 0.10.1",
  "nix 0.26.4",
@@ -6670,7 +6670,7 @@ dependencies = [
 
 [[package]]
 name = "recon"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -9465,7 +9465,7 @@ version = "0.51.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ca229916c5ee38c2f2bc1e9d8f04df975b4bd93f9955dc69fabb5d91270045c9"
 dependencies = [
- "windows-core 0.51.1",
+ "windows-core",
  "windows-targets 0.48.5",
 ]
 
@@ -9476,15 +9476,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1f8cf84f35d2db49a46868f947758c7a1138116f7fac3bc844f43ade1292e64"
 dependencies = [
  "windows-targets 0.48.5",
-]
-
-[[package]]
-name = "windows-core"
-version = "0.52.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "33ab640c8d7e35bf8ba19b884ba838ceb4fba93a4e8c65a9059d08afcfc683d9"
-dependencies = [
- "windows-targets 0.52.5",
 ]
 
 [[package]]
