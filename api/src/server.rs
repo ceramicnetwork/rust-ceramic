@@ -53,6 +53,12 @@ const EVENT_INSERT_QUEUE_SIZE: usize = 3;
 /// This is quite low, but in my benchmarking adding a longer interval just slowed ingest down, without changing contention noticeably.
 const FLUSH_INTERVAL_MS: u64 = 10;
 
+/// How long are we willing to wait to enqueue an insert to the database service loop before we tell the call it was full.
+const INSERT_ENQUEUE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
+/// How long are we willing to wait for the database service to respond to an insert request before we tell the caller it was too slow.
+/// Aborting and returning an error doesn't mean that the write won't be processed, only that the caller will get an error indicating it timed out.
+const INSERT_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
 // Helper to build responses consistent as we can't implement for the api_server::models directly
 pub struct BuildResponse {}
 impl BuildResponse {
@@ -391,7 +397,7 @@ where
         let event_data = decode_event_data(&event.data)?;
         let (tx, rx) = tokio::sync::oneshot::channel();
         tokio::time::timeout(
-            std::time::Duration::from_secs(3),
+            INSERT_ENQUEUE_TIMEOUT,
             self.insert_task.tx.send(EventInsert {
                 id: event_id,
                 data: event_data,
@@ -404,7 +410,7 @@ where
         .await?
         .map_err(|_| ErrorResponse::new("Database service not available".to_owned()))?;
 
-        let _new = tokio::time::timeout(std::time::Duration::from_secs(10), rx)
+        let _new = tokio::time::timeout(INSERT_REQUEST_TIMEOUT, rx)
             .await
             .map_err(|_| {
                 ErrorResponse::new("Timeout waiting for database service response".to_owned())
