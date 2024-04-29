@@ -76,13 +76,14 @@ impl SqliteEventStore {
     ) -> Result<Box<dyn Iterator<Item = (EventId, Vec<u8>)> + Send + 'static>> {
         let offset = offset.try_into().unwrap_or(i64::MAX);
         let limit: i64 = limit.try_into().unwrap_or(i64::MAX);
-        let all_blocks: Vec<EventBlockRaw> = sqlx::query_as(EventQuery::value_blocks_many())
-            .bind(left_fencepost.as_bytes())
-            .bind(right_fencepost.as_bytes())
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(self.pool.reader())
-            .await?;
+        let all_blocks: Vec<EventBlockRaw> =
+            sqlx::query_as(EventQuery::value_blocks_by_order_key_many())
+                .bind(left_fencepost.as_bytes())
+                .bind(right_fencepost.as_bytes())
+                .bind(limit)
+                .bind(offset)
+                .fetch_all(self.pool.reader())
+                .await?;
 
         let values = EventBlockRaw::into_carfiles(all_blocks).await?;
         Ok(Box::new(values.into_iter()))
@@ -111,9 +112,17 @@ impl SqliteEventStore {
         Ok(res)
     }
 
-    async fn value_for_key_int(&self, key: &EventId) -> Result<Option<Vec<u8>>> {
-        let blocks: Vec<BlockRow> = sqlx::query_as(EventQuery::value_blocks_one())
+    async fn value_for_order_key_int(&self, key: &EventId) -> Result<Option<Vec<u8>>> {
+        let blocks: Vec<BlockRow> = sqlx::query_as(EventQuery::value_blocks_by_order_key_one())
             .bind(key.as_bytes())
+            .fetch_all(self.pool.reader())
+            .await?;
+        rebuild_car(blocks).await
+    }
+
+    async fn value_for_cid_int(&self, key: &Cid) -> Result<Option<Vec<u8>>> {
+        let blocks: Vec<BlockRow> = sqlx::query_as(EventQuery::value_blocks_by_cid_one())
+            .bind(key.to_bytes())
             .fetch_all(self.pool.reader())
             .await?;
         rebuild_car(blocks).await
@@ -474,7 +483,7 @@ impl recon::Store for SqliteEventStore {
 
     #[instrument(skip(self))]
     async fn value_for_key(&self, key: &EventId) -> ReconResult<Option<Vec<u8>>> {
-        Ok(self.value_for_key_int(key).await?)
+        Ok(self.value_for_order_key_int(key).await?)
     }
 
     #[instrument(skip(self))]
@@ -549,8 +558,12 @@ impl ceramic_api::AccessModelStore for SqliteEventStore {
             .await?;
         Ok(res.collect())
     }
-    async fn value_for_key(&self, key: &EventId) -> anyhow::Result<Option<Vec<u8>>> {
-        Ok(self.value_for_key_int(key).await?)
+    async fn value_for_order_key(&self, key: &EventId) -> anyhow::Result<Option<Vec<u8>>> {
+        Ok(self.value_for_order_key_int(key).await?)
+    }
+
+    async fn value_for_cid(&self, key: &Cid) -> anyhow::Result<Option<Vec<u8>>> {
+        Ok(self.value_for_cid_int(key).await?)
     }
 
     async fn keys_since_highwater_mark(

@@ -732,6 +732,65 @@ test_with_dbs!(
         "delete from ceramic_one_block"
     ]
 );
+
+async fn get_event_by_event_id<S>(store: S)
+where
+    S: AccessModelStore,
+{
+    let key = random_event_id(None, None);
+    let num_blocks = 3;
+    let (_blocks, store_value) = build_car_file(num_blocks).await;
+    assert_eq!(_blocks.len(), num_blocks);
+    store
+        .insert_many(&[(key.to_owned(), Some(store_value.clone()))])
+        .await
+        .unwrap();
+
+    let res = store.value_for_order_key(&key).await.unwrap().unwrap();
+    assert_eq!(res, store_value);
+}
+
+test_with_dbs!(
+    get_event_by_event_id,
+    get_event_by_event_id,
+    [
+        "delete from ceramic_one_event_block",
+        "delete from ceramic_one_event",
+        "delete from ceramic_one_block",
+    ]
+);
+
+async fn get_event_by_cid<S>(store: S)
+where
+    S: AccessModelStore,
+{
+    let key = random_event_id(None, None);
+    let num_blocks = 3;
+    let (_blocks, store_value) = build_car_file(num_blocks).await;
+    assert_eq!(_blocks.len(), num_blocks);
+    store
+        .insert_many(&[(key.to_owned(), Some(store_value.clone()))])
+        .await
+        .unwrap();
+
+    let res = store
+        .value_for_cid(&key.cid().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(res, store_value);
+}
+
+test_with_dbs!(
+    get_event_by_cid,
+    get_event_by_cid,
+    [
+        "delete from ceramic_one_event_block",
+        "delete from ceramic_one_event",
+        "delete from ceramic_one_block",
+    ]
+);
+
 async fn test_store_block<S>(store: S)
 where
     S: iroh_bitswap::Store,
