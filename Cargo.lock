@@ -1075,7 +1075,6 @@ dependencies = [
  "tikv-jemalloc-ctl",
  "tokio",
  "tracing",
- "tracing-test",
 ]
 
 [[package]]
