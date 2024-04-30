@@ -1,8 +1,9 @@
-use crate::args::UnsignedEvent;
 use anyhow::Result;
 use ceramic_core::{Cid, DagCborEncoded, Jws, Signer};
 use multihash_codetable::{Code, MultihashDigest};
 use serde::Serialize;
+
+use crate::unvalidated;
 
 // https://github.com/multiformats/multicodec/blob/master/table.csv
 const DAG_CBOR_CODEC: u64 = 0x71;
@@ -20,7 +21,7 @@ pub struct Event {
 impl Event {
     /// Create a new event from an unsigned event, signer, and jwk
     pub async fn new<T: Serialize>(
-        unsigned: UnsignedEvent<T>,
+        unsigned: unvalidated::Payload<T>,
         signer: &impl Signer,
     ) -> Result<Self> {
         // encode our event with dag cbor, hashing that to create cid
@@ -92,12 +93,13 @@ mod tests {
         let model =
             StreamId::from_str("kjzl6kcym7w8y6of44g27v981fuutovbrnlw2ifbf8n26j2t4g5mmm6zc43nx1u")
                 .unwrap();
-        let args = EventArgs::new_with_parent(&signer, &model);
+        let args = EventArgs::new_with_model(&signer, &model);
         let evt = args.init().unwrap();
         let data: Ipld = DagCborCodec::decode_from_slice(evt.encoded.as_ref()).unwrap();
         let encoded = DagJsonCodec::encode_to_vec(&data).unwrap();
         expect![[r#"
             {
+              "data": null,
               "header": {
                 "controllers": [
                   "did:key:z6Mkk3rtfoKDMMG4zyarNGwCQs44GSQ49pcYKQspHJPXSnVw"
@@ -107,7 +109,8 @@ mod tests {
                     "bytes": "zgEDAYUBEiBICac5WcThoeb40H49X/XNgN0enh/EJNtBhIMsTp36Eg"
                   }
                 },
-                "sep": "model"
+                "sep": "model",
+                "unique": null
               }
             }"#]]
         .assert_eq(&to_pretty_json(&encoded));
@@ -126,7 +129,7 @@ mod tests {
             "green": 3,
             "blue": 4,
         });
-        let args = EventArgs::new_with_parent(&signer, &mid);
+        let args = EventArgs::new_with_model(&signer, &mid);
         let evt = args.init_with_data(&data).await.unwrap();
 
         let protected = evt.jws.signatures[0].protected.as_ref().unwrap();
