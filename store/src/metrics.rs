@@ -3,6 +3,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use ceramic_core::{EventId, Interest, RangeOpen};
 use ceramic_metrics::{register, Recorder};
+use cid::Cid;
 use futures::Future;
 use prometheus_client::{
     encoding::EncodeLabelSet,
@@ -245,6 +246,14 @@ where
             &self.metrics,
             "api_keys_since_highwater_mark",
             self.store.keys_since_highwater_mark(highwater, limit),
+        )
+        .await
+    }
+    async fn get_block(&self, cid: &Cid) -> anyhow::Result<Option<Vec<u8>>> {
+        StoreMetricsMiddleware::<S>::record(
+            &self.metrics,
+            "model_get_block",
+            self.store.get_block(cid),
         )
         .await
     }

@@ -796,7 +796,9 @@ where
     assert!(!exists);
     let err = store.get(&cid).await.unwrap_err().to_string();
     assert!(
-        err.contains("no rows returned by a query that expected to return at least one row"),
+        err.contains(
+            "block bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom does not exist"
+        ),
         "{}",
         err
     );

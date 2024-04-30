@@ -1,17 +1,22 @@
-use crate::deterministic_init_event::DeterministicInitEvent;
-use crate::event::Event;
-use crate::{DidDocument, StreamId};
+use std::str::FromStr;
 
 use anyhow::Result;
-use ceramic_core::{Bytes, Cid, Signer};
+use ceramic_core::{Cid, Signer};
 use once_cell::sync::Lazy;
 use rand::Fill;
 use serde::Serialize;
-use std::str::FromStr;
+
+use crate::{
+    bytes::Bytes,
+    deterministic_init_event::DeterministicInitEvent,
+    event::Event,
+    unvalidated::{self, DataPayload, InitHeader, InitPayload},
+    DidDocument, StreamId,
+};
 
 const SEP: &str = "model";
 
-/// All models have this parent StreamId, while all documents have the parent stream id of the model
+/// All models have this model StreamId, while all documents have the model stream id of the model
 /// they use
 pub static PARENT_STREAM_ID: Lazy<StreamId> =
     Lazy::new(|| StreamId::from_str("kh4q0ozorrgaq2mezktnrmdwleo1d").unwrap());
@@ -20,7 +25,7 @@ pub static PARENT_STREAM_ID: Lazy<StreamId> =
 pub struct EventArgs<'a, S: Signer> {
     signer: &'a S,
     controllers: Vec<&'a DidDocument>,
-    parent: &'a StreamId,
+    model: &'a StreamId,
     sep: &'static str,
 }
 
@@ -30,50 +35,68 @@ impl<'a, S: Signer> EventArgs<'a, S> {
         Self {
             signer,
             controllers: vec![signer.id()],
-            parent: &PARENT_STREAM_ID,
+            model: &PARENT_STREAM_ID,
             sep: SEP,
         }
     }
 
-    /// Create a new event args object from a DID document and a parent stream id
-    pub fn new_with_parent(signer: &'a S, parent: &'a StreamId) -> Self {
+    /// Create a new event args object from a DID document and a model stream id
+    pub fn new_with_model(signer: &'a S, model: &'a StreamId) -> Self {
         Self {
             signer,
             controllers: vec![signer.id()],
-            parent,
+            model,
             sep: SEP,
         }
     }
 
-    /// Parent stream id
-    pub fn parent(&self) -> &StreamId {
-        self.parent
+    /// Model stream id
+    pub fn model(&self) -> &StreamId {
+        self.model
     }
 
     /// Create an init event from these arguments
     pub fn init(&self) -> Result<DeterministicInitEvent> {
-        let evt = UnsignedEvent::<()>::init(self)?;
+        let evt = create_unsigned_event(self, CreateArgs::<()>::Init)?;
         let evt = DeterministicInitEvent::new(&evt)?;
         Ok(evt)
     }
 
     /// Create an init event from these arguments with a unique header
     pub fn init_with_unique(&self) -> Result<DeterministicInitEvent> {
-        let evt = UnsignedEvent::<()>::init_with_unique(self)?;
+        let evt = create_unsigned_event(
+            self,
+            CreateArgs::<()>::InitWithUnique {
+                unique: create_unique()?,
+            },
+        )?;
         let evt = DeterministicInitEvent::new(&evt)?;
         Ok(evt)
     }
 
     /// Create an init event from these arguments with data
     pub async fn init_with_data<T: Serialize>(&self, data: &T) -> Result<Event> {
-        let evt = UnsignedEvent::init_with_data(self, data)?;
+        let evt = create_unsigned_event(
+            self,
+            CreateArgs::InitWithData {
+                data,
+                unique: create_unique()?,
+            },
+        )?;
         let evt = Event::new(evt, self.signer).await?;
         Ok(evt)
     }
 
     /// Create an update event from these arguments
     pub async fn update<T: Serialize>(&self, current: &Cid, prev: &Cid, data: &T) -> Result<Event> {
-        let evt = UnsignedEvent::update(self, *current, *prev, data)?;
+        let evt = create_unsigned_event(
+            self,
+            CreateArgs::Update {
+                current: *current,
+                prev: *prev,
+                data,
+            },
+        )?;
         let evt = Event::new(evt, self.signer).await?;
         Ok(evt)
     }
@@ -84,141 +107,65 @@ impl<'a, S: Signer> EventArgs<'a, S> {
     }
 }
 
-#[derive(Serialize)]
-struct UnsignedEventHeader {
-    controllers: Vec<String>,
-    #[serde(rename = "model")]
-    parent: Bytes,
-    sep: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    unique: Option<Vec<u32>>,
-}
-
-/// An unsigned event, which can be used to create a events
-#[derive(Serialize)]
-pub struct UnsignedEvent<T: Serialize> {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    data: Option<T>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    header: Option<UnsignedEventHeader>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    prev: Option<Cid>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    id: Option<Cid>,
-}
-
-fn create_unique() -> Result<Vec<u32>> {
+fn create_unique() -> Result<Bytes> {
     let mut rng = rand::thread_rng();
-    let mut unique = [0u32; 12];
+    let mut unique = [0u8; 12];
     unique.try_fill(&mut rng)?;
-    Ok(unique.to_vec())
+    Ok(unique.to_vec().into())
 }
 
-impl<T: Serialize> UnsignedEvent<T> {
-    /// Initialize a new unsigned event from event arguments
-    pub fn init<S: Signer>(args: &EventArgs<S>) -> Result<Self> {
-        create_unsigned_event(args, CreateArgs::Init)
-    }
-
-    /// Initialize a new unsigned event from event arguments with unique field
-    pub fn init_with_unique<S: Signer>(args: &EventArgs<S>) -> Result<Self> {
-        create_unsigned_event(
-            args,
-            CreateArgs::InitWithUnique {
-                unique: create_unique()?,
-            },
-        )
-    }
-
-    /// Initialize a new unsigned event from event arguments with data
-    pub fn init_with_data<S: Signer>(args: &EventArgs<S>, data: T) -> Result<Self> {
-        create_unsigned_event(
-            args,
-            CreateArgs::InitWithData {
-                data,
-                unique: create_unique()?,
-            },
-        )
-    }
-
-    /// Create an update unsigned event from event arguments
-    pub fn update<S: Signer>(
-        args: &EventArgs<S>,
-        current: Cid,
-        prev: Cid,
-        data: T,
-    ) -> Result<Self> {
-        create_unsigned_event(
-            args,
-            CreateArgs::Update {
-                current,
-                prev,
-                data,
-            },
-        )
-    }
-}
-
-enum CreateArgs<T: Serialize> {
+enum CreateArgs<T> {
     Init,
-    InitWithUnique { unique: Vec<u32> },
-    InitWithData { data: T, unique: Vec<u32> },
+    InitWithUnique { unique: Bytes },
+    InitWithData { data: T, unique: Bytes },
     Update { current: Cid, prev: Cid, data: T },
 }
 
 fn create_unsigned_event<S: Signer, T: Serialize>(
     event_args: &EventArgs<S>,
     create_args: CreateArgs<T>,
-) -> Result<UnsignedEvent<T>> {
+) -> Result<unvalidated::Payload<T>> {
     let controllers: Vec<_> = event_args
         .controllers
         .iter()
         .map(|d| d.id.to_string())
         .collect();
-    let (header, data, prev, id) = match create_args {
-        CreateArgs::Init => (
-            Some(UnsignedEventHeader {
+    match create_args {
+        CreateArgs::Init => Ok(unvalidated::Payload::Init(unvalidated::InitPayload::new(
+            InitHeader::new(
                 controllers,
-                parent: event_args.parent.try_into()?,
-                sep: event_args.sep,
-                unique: None,
-            }),
+                event_args.sep.to_string(),
+                event_args.model.to_vec()?.into(),
+                None,
+            ),
             None,
-            None,
-            None,
-        ),
-        CreateArgs::InitWithUnique { unique } => (
-            Some(UnsignedEventHeader {
+        ))),
+        CreateArgs::InitWithUnique { unique } => Ok(unvalidated::Payload::Init(InitPayload::new(
+            InitHeader::new(
                 controllers,
-                parent: event_args.parent.try_into()?,
-                sep: event_args.sep,
-                unique: Some(unique),
-            }),
+                event_args.sep.to_string(),
+                event_args.model.to_vec()?.into(),
+                Some(unique),
+            ),
             None,
-            None,
-            None,
-        ),
-        CreateArgs::InitWithData { data, unique } => (
-            Some(UnsignedEventHeader {
-                controllers,
-                parent: event_args.parent.try_into()?,
-                sep: event_args.sep,
-                unique: Some(unique),
-            }),
-            Some(data),
-            None,
-            None,
-        ),
+        ))),
+        CreateArgs::InitWithData { data, unique } => {
+            Ok(unvalidated::Payload::Init(InitPayload::new(
+                InitHeader::new(
+                    controllers,
+                    event_args.sep.to_string(),
+                    event_args.model.to_vec()?.into(),
+                    Some(unique),
+                ),
+                Some(data),
+            )))
+        }
         CreateArgs::Update {
             current,
             prev,
             data,
-        } => (None, Some(data), Some(prev), Some(current)),
-    };
-    Ok(UnsignedEvent {
-        data,
-        header,
-        prev,
-        id,
-    })
+        } => Ok(unvalidated::Payload::Data(DataPayload::new(
+            current, prev, None, data,
+        ))),
+    }
 }
