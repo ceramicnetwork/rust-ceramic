@@ -128,19 +128,6 @@ impl recon::Store for SqliteInterestStore {
     type Key = Interest;
     type Hash = Sha256a;
 
-    /// Returns true if the key was new. The value is always updated if included
-    async fn insert(&self, item: &ReconItem<'_, Interest>) -> ReconResult<bool> {
-        // interests don't have values, if someone gives us something we throw an error but allow None/vec![]
-        if let Some(val) = item.value {
-            if !val.is_empty() {
-                return Err(ReconError::new_app(anyhow!(
-                    "Interests do not support values! Invalid request."
-                )));
-            }
-        }
-        Ok(self.insert_item(item.key).await?)
-    }
-
     /// Insert new keys into the key space.
     /// Returns true if a key did not previously exist.
     async fn insert_many(&self, items: &[ReconItem<'_, Interest>]) -> ReconResult<InsertResult> {

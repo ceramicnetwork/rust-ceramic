@@ -237,8 +237,9 @@ where
 
     /// Insert key into the key space. Includes an optional value.
     /// Returns a boolean (true) indicating if the key was new.
-    pub async fn insert(&self, item: &ReconItem<'_, K>) -> Result<bool> {
-        self.store.insert(item).await
+    pub async fn insert(&self, item: ReconItem<'_, K>) -> Result<bool> {
+        let res = self.insert_many(&[item]).await?;
+        Ok(*res.first().unwrap_or(&false))
     }
     /// Report all keys in the range that are missing a value
     pub async fn keys_with_missing_values(&self, range: RangeOpen<K>) -> Result<Vec<K>> {
@@ -433,10 +434,6 @@ pub trait Store {
     /// Type of the AssociativeHash to compute over keys.
     type Hash: AssociativeHash;
 
-    /// Insert a new key into the key space. Returns true if the key did not exist.
-    /// The value will be updated if included
-    async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> Result<bool>;
-
     /// Insert new keys into the key space.
     /// Returns true for each key if it did not previously exist, in the
     /// same order as the input iterator.
@@ -591,10 +588,6 @@ where
 {
     type Key = K;
     type Hash = H;
-
-    async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> Result<bool> {
-        self.as_ref().insert(item).await
-    }
 
     async fn insert_many(&self, items: &[ReconItem<'_, Self::Key>]) -> Result<InsertResult> {
         self.as_ref().insert_many(items).await

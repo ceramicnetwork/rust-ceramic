@@ -141,18 +141,8 @@ where
             .collect();
         Ok(Box::new(keys.into_iter()))
     }
-}
 
-#[async_trait]
-impl<K, H> Store for BTreeStore<K, H>
-where
-    K: Key,
-    H: AssociativeHash,
-{
-    type Key = K;
-    type Hash = H;
-
-    async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> Result<bool> {
+    async fn insert(&self, item: &ReconItem<'_, K>) -> Result<bool> {
         let mut inner = self.inner.lock().await;
         let new = inner
             .keys
@@ -164,6 +154,16 @@ where
         }
         Ok(new)
     }
+}
+
+#[async_trait]
+impl<K, H> Store for BTreeStore<K, H>
+where
+    K: Key,
+    H: AssociativeHash,
+{
+    type Key = K;
+    type Hash = H;
 
     async fn insert_many(&self, items: &[ReconItem<'_, K>]) -> Result<InsertResult> {
         let mut new = vec![false; items.len()];

@@ -317,12 +317,6 @@ impl recon::Store for SqliteEventStore {
     type Key = EventId;
     type Hash = Sha256a;
 
-    /// Returns true if the key was new. The value is always updated if included
-    async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> ReconResult<bool> {
-        let (res, _new_val) = self.insert_item_int(item.to_owned()).await?;
-        Ok(res)
-    }
-
     /// Insert new keys into the key space.
     /// Returns true if a key did not previously exist.
     async fn insert_many(&self, items: &[ReconItem<'_, EventId>]) -> ReconResult<InsertResult> {
