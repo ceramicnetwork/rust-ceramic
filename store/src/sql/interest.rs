@@ -32,9 +32,34 @@ impl SqliteInterestStore {
 type InterestError = <Interest as TryFrom<Vec<u8>>>::Error;
 
 impl SqliteInterestStore {
+    async fn insert_(&self, key: Interest) -> ReconResult<bool> {
+        let items = &[(&key, None)];
+        let res = self.insert_many_(items).await?;
+        Ok(res.keys.first().copied().unwrap_or(false))
+    }
+
     async fn insert_many_(
         &self,
         items: &[(&Interest, Option<&[u8]>)],
+    ) -> ReconResult<InsertResult> {
+        match items.len() {
+            0 => Ok(InsertResult::new(vec![], 0)),
+            _ => {
+                let mut results = vec![false; items.len()];
+                let mut new_val_cnt = 0;
+                let mut tx = self.pool.writer().begin().await.map_err(Error::from)?;
+
+                for (idx, (interest, data)) in items.iter().enumerate() {
+                    let new_key = self.insert_key_int(interest, &mut tx).await?;
+                    results[idx] = new_key;
+                    if data.is_some() {
+                        new_val_cnt += 1;
+                    }
+                }
+                tx.commit().await.map_err(Error::from)?;
+                Ok(InsertResult::new(results, new_val_cnt))
+            }
+        }
     }
 
     async fn insert_key_int(&self, key: &Interest, conn: &mut DbTxSqlite<'_>) -> Result<bool> {
@@ -102,7 +127,7 @@ impl SqliteInterestStore {
 #[async_trait::async_trait]
 impl ceramic_api::AccessInterestStore for SqliteInterestStore {
     async fn insert(&self, key: Interest) -> anyhow::Result<bool> {
-        Ok(self.insert_item(&key).await?)
+        Ok(self.insert_(key).await?)
     }
     async fn range(
         &self,
@@ -122,25 +147,12 @@ impl recon::Store for SqliteInterestStore {
 
     /// Insert new keys into the key space.
     /// Returns true if a key did not previously exist.
-    async fn insert_many(&self, items: &[ReconItem<'_, Interest>]) -> ReconResult<InsertResult> {
-        match items.len() {
-            0 => Ok(InsertResult::new(vec![], 0)),
-            _ => {
-                let mut results = vec![false; items.len()];
-                let mut new_val_cnt = 0;
-                let mut tx = self.pool.writer().begin().await.map_err(Error::from)?;
-
-                for (idx, item) in items.iter().enumerate() {
-                    let new_key = self.insert_item_int(item.key, &mut tx).await?;
-                    results[idx] = new_key;
-                    if item.value.is_some() {
-                        new_val_cnt += 1;
-                    }
-                }
-                tx.commit().await.map_err(Error::from)?;
-                Ok(InsertResult::new(results, new_val_cnt))
-            }
-        }
+    async fn insert_many<'a>(
+        &self,
+        items: &[ReconItem<'a, Interest>],
+    ) -> ReconResult<InsertResult> {
+        let items = items.iter().map(|i| (i.key, i.value)).collect::<Vec<_>>();
+        self.insert_many_(&items[..]).await
     }
 
     /// return the hash and count for a range

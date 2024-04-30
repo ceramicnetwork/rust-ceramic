@@ -119,13 +119,6 @@ impl SqliteEventStore {
         rebuild_car(blocks).await
     }
 
-    async fn insert_item_int(&self, item: ReconItem<'_, EventId>) -> Result<(bool, bool)> {
-        let new_val = item.value.is_some();
-        let res = self.insert_items_int(&[item]).await?;
-        let new_key = res.keys.first().cloned().unwrap_or(false);
-        Ok((new_key, new_val))
-    }
-
     /// Insert many items into the store (internal to the store)
     async fn insert_items_int(&self, items: &[ReconItem<'_, EventId>]) -> Result<InsertResult> {
         if items.is_empty() {
