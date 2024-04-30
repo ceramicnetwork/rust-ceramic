@@ -319,7 +319,7 @@ impl recon::Store for SqliteEventStore {
 
     /// Insert new keys into the key space.
     /// Returns true if a key did not previously exist.
-    async fn insert_many(&self, items: &[ReconItem<'_, EventId>]) -> ReconResult<InsertResult> {
+    async fn insert_many<'a>(&self, items: &[ReconItem<'a, EventId>]) -> ReconResult<InsertResult> {
         match items.len() {
             0 => Ok(InsertResult::new(vec![], 0)),
             _ => {

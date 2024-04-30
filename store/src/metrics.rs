@@ -260,7 +260,7 @@ where
     type Key = K;
     type Hash = H;
 
-    async fn insert_many(&self, items: &[ReconItem<'_, K>]) -> ReconResult<InsertResult> {
+    async fn insert_many<'a>(&self, items: &[ReconItem<'a, K>]) -> ReconResult<InsertResult> {
         let res = StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "insert_many",

@@ -32,17 +32,9 @@ impl SqliteInterestStore {
 type InterestError = <Interest as TryFrom<Vec<u8>>>::Error;
 
 impl SqliteInterestStore {
-    async fn insert_item(&self, key: &Interest) -> Result<bool> {
-        let mut tx = self.pool.writer().begin().await?;
-        let new_key = self.insert_item_int(key, &mut tx).await?;
-        tx.commit().await?;
-        Ok(new_key)
-    }
-
-    /// returns (new_key, new_val) tuple
-    async fn insert_item_int(&self, item: &Interest, conn: &mut DbTxSqlite<'_>) -> Result<bool> {
-        let new_key = self.insert_key_int(item, conn).await?;
-        Ok(new_key)
+    async fn insert_many_(
+        &self,
+        items: &[(&Interest, Option<&[u8]>)],
     }
 
     async fn insert_key_int(&self, key: &Interest, conn: &mut DbTxSqlite<'_>) -> Result<bool> {

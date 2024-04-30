@@ -165,7 +165,7 @@ where
     type Key = K;
     type Hash = H;
 
-    async fn insert_many(&self, items: &[ReconItem<'_, K>]) -> Result<InsertResult> {
+    async fn insert_many<'a>(&self, items: &[ReconItem<'a, K>]) -> Result<InsertResult> {
         let mut new = vec![false; items.len()];
         let mut new_val_cnt = 0;
         for (idx, item) in items.iter().enumerate() {
