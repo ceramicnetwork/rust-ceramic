@@ -14,12 +14,12 @@ use ceramic_api_server::{
 };
 use ceramic_core::{Cid, Interest};
 use ceramic_core::{EventId, Network, PeerId, StreamId};
-use ceramic_metrics::init_local_tracing;
 use mockall::{mock, predicate};
 use multibase::Base;
 use recon::Key;
 use std::str::FromStr;
 use std::sync::Arc;
+use tracing_test::traced_test;
 
 struct Context;
 mock! {
@@ -98,8 +98,8 @@ impl AccessModelStore for MockReconModelTest {
     }
 }
 #[tokio::test]
+#[traced_test]
 async fn create_event() {
-    let _ = init_local_tracing();
     let peer_id = PeerId::random();
     let network = Network::InMemory;
     let event_id = EventId::new(
@@ -136,8 +136,8 @@ async fn create_event() {
     assert!(matches!(resp, EventsPostResponse::Success));
 }
 #[tokio::test]
+#[traced_test]
 async fn register_interest_sort_value() {
-    let _ = init_local_tracing();
     let peer_id = PeerId::random();
     let network = Network::InMemory;
     let model = "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9"; // cspell:disable-line
@@ -188,8 +188,8 @@ async fn register_interest_sort_value() {
 }
 
 #[tokio::test]
+#[traced_test]
 async fn register_interest_sort_value_bad_request() {
-    let _ = init_local_tracing();
     let peer_id = PeerId::random();
     let network = Network::InMemory;
 
@@ -210,8 +210,8 @@ async fn register_interest_sort_value_bad_request() {
 }
 
 #[tokio::test]
+#[traced_test]
 async fn register_interest_sort_value_controller() {
-    let _ = init_local_tracing();
     let peer_id = PeerId::random();
     let network = Network::InMemory;
     let model = "z3KWHw5Efh2qLou2FEdz3wB8ZvLgURJP94HeijLVurxtF1Ntv6fkg2G"; // base58 encoded should work cspell:disable-line
@@ -264,8 +264,8 @@ async fn register_interest_sort_value_controller() {
 }
 
 #[tokio::test]
+#[traced_test]
 async fn register_interest_value_controller_stream() {
-    let _ = init_local_tracing();
     let peer_id = PeerId::random();
     let network = Network::InMemory;
     let model = "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9"; // cspell:disable-line
@@ -318,8 +318,8 @@ async fn register_interest_value_controller_stream() {
     assert_eq!(resp, InterestsSortKeySortValuePostResponse::Success);
 }
 #[tokio::test]
+#[traced_test]
 async fn get_events_for_interest_range() {
-    let _ = init_local_tracing();
     let peer_id = PeerId::random();
     let network = Network::InMemory;
     let model = "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9"; // cspell:disable-line
@@ -381,8 +381,8 @@ async fn get_events_for_interest_range() {
     );
 }
 #[tokio::test]
+#[traced_test]
 async fn test_events_event_id_get_success() {
-    let _ = init_local_tracing();
     let peer_id = PeerId::random();
     let network = Network::InMemory;
     let event_id = EventId::new(

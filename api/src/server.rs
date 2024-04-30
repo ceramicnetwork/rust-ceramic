@@ -281,15 +281,16 @@ where
             // i.e. validate before sending here and this is just an insert, we may want to process more at once.
             loop {
                 tokio::select! {
-                    _ = async {}, if events.len() >= EVENT_INSERT_QUEUE_SIZE => {
-                        Self::process_events(&mut events, &event_store).await;
-                    }
                     _ = interval.tick(), if !events.is_empty() => {
                         Self::process_events(&mut events, &event_store).await;
                     }
                     Some(req) = event_rx.recv() => {
                         events.push(req);
                     }
+                }
+                // make sure the events queue doesn't get too deep when we're under heavy load
+                if events.len() >= EVENT_INSERT_QUEUE_SIZE {
+                    Self::process_events(&mut events, &event_store).await;
                 }
             }
         })

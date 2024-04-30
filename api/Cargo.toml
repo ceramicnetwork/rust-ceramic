@@ -33,4 +33,5 @@ tikv-jemalloc-ctl.workspace = true
 
 [dev-dependencies]
 expect-test.workspace = true
+tracing-test.workspace = true
 mockall.workspace = true
