@@ -11,7 +11,8 @@ publish = false
 
 [dependencies]
 anyhow.workspace = true
-ceramic-core = { path = "../core" }
+ceramic-core.workspace = true
+cid.workspace = true
 ipld-core.workspace = true
 multihash-codetable.workspace = true
 once_cell.workspace = true
