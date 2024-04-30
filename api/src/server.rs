@@ -4,6 +4,8 @@
 #![allow(clippy::blocks_in_conditions)]
 #![allow(unused_imports)]
 
+mod event;
+
 use std::time::Duration;
 use std::{future::Future, ops::Range};
 use std::{marker::PhantomData, ops::RangeBounds};
@@ -17,19 +19,9 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 use async_trait::async_trait;
 use ceramic_api_server::models::{BadRequestResponse, ErrorResponse};
-use futures::{future, Stream, StreamExt, TryFutureExt, TryStreamExt};
-use hyper::service::Service;
-use hyper::{server::conn::Http, Request};
-use recon::{AssociativeHash, InterestProvider, Key, Store};
-use serde::{Deserialize, Serialize};
-use swagger::{ByteArray, EmptyContext, XSpanIdString};
-use tokio::net::TcpListener;
-use tracing::{debug, info, instrument, Level};
-
-use ceramic_api_server::server::MakeService;
 use ceramic_api_server::{
     models::{self, Event},
     DebugHeapGetResponse, EventsEventIdGetResponse, EventsPostResponse,
@@ -38,11 +30,13 @@ use ceramic_api_server::{
 use ceramic_api_server::{
     Api, ExperimentalEventsSepSepValueGetResponse, FeedEventsGetResponse, InterestsPostResponse,
 };
-use ceramic_core::{interest, Cid, EventId, Interest, Network, PeerId, StreamId};
-use std::error::Error;
-use swagger::ApiError;
+use ceramic_core::{Cid, EventId, Interest, Network, PeerId, StreamId};
+use futures::TryFutureExt;
+use recon::Key;
+use swagger::{ApiError, ByteArray};
 #[cfg(not(target_env = "msvc"))]
-use tikv_jemalloc_ctl::{epoch, stats};
+use tikv_jemalloc_ctl::epoch;
+use tracing::{instrument, Level};
 
 use crate::ResumeToken;
 
@@ -192,6 +186,8 @@ pub trait AccessModelStore: Send + Sync {
         highwater: i64,
         limit: i64,
     ) -> Result<(i64, Vec<Cid>)>;
+
+    async fn get_block(&self, cid: &Cid) -> Result<Option<Vec<u8>>>;
 }
 
 #[async_trait::async_trait]
@@ -231,6 +227,9 @@ impl<S: AccessModelStore> AccessModelStore for Arc<S> {
         self.as_ref()
             .events_since_highwater_mark(highwater, limit)
             .await
+    }
+    async fn get_block(&self, cid: &Cid) -> Result<Option<Vec<u8>>> {
+        self.as_ref().get_block(cid).await
     }
 }
 

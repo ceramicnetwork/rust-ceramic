@@ -257,6 +257,14 @@ where
         )
         .await
     }
+    async fn get_block(&self, cid: &Cid) -> anyhow::Result<Option<Vec<u8>>> {
+        StoreMetricsMiddleware::<S>::record(
+            &self.metrics,
+            "model_get_block",
+            self.store.get_block(cid),
+        )
+        .await
+    }
 }
 
 #[async_trait]
