@@ -70,8 +70,9 @@ impl Jws {
 mod tests {
     use super::*;
     use crate::{DagCborEncoded, DidDocument, Jwk, JwkSigner};
-    use cid::multihash::{Code, MultihashDigest};
     use cid::Cid;
+    use multihash_codetable::Code;
+    use multihash_codetable::MultihashDigest;
     use ssi::did::DIDMethod;
     use ssi::did::Source;
     use ssi::jwk::Params;

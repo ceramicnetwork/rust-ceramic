@@ -1,5 +1,5 @@
 use ::serde::{de, Deserialize, Deserializer, Serialize, Serializer};
-use multihash::{Hasher, Sha2_256};
+use multihash_codetable::{Code, MultihashDigest};
 use serde::de::Visitor;
 use std::fmt::{self, Debug};
 use std::{convert::From, fmt::Formatter};
@@ -134,11 +134,13 @@ impl<'de> Deserialize<'de> for Sha256a {
 
 impl AssociativeHash for Sha256a {
     fn digest<K: Key>(key: &K) -> Self {
-        let mut hasher = Sha2_256::default();
-        hasher.update(key.as_bytes());
         // sha256 is 32 bytes safe to unwrap to [u8; 32]
-        let bytes: &[u8; 32] = hasher.finalize().try_into().unwrap();
-        bytes.into()
+        let bytes: [u8; 32] = Code::Sha2_256
+            .digest(key.as_bytes())
+            .digest()
+            .try_into()
+            .unwrap();
+        (&bytes).into()
     }
 
     fn as_bytes(&self) -> [u8; 32] {

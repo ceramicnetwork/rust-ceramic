@@ -8,7 +8,7 @@ use ceramic_core::{event_id::InvalidEventId, EventId, RangeOpen};
 use cid::Cid;
 use iroh_bitswap::Block;
 use iroh_car::CarReader;
-use multihash::{Code, Multihash, MultihashDigest};
+use multihash_codetable::{Code, Multihash, MultihashDigest};
 use recon::{
     AssociativeHash, Error as ReconError, HashCount, InsertResult, Key, ReconItem,
     Result as ReconResult, Sha256a,

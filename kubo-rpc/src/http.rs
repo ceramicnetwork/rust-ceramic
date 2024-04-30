@@ -21,10 +21,11 @@ use ceramic_kubo_rpc_server::{
 };
 use cid::Cid;
 use go_parse_duration::parse_duration;
-use libipld::{cbor::DagCborCodec, json::DagJsonCodec};
 use libp2p::{Multiaddr, PeerId};
 use multiaddr::Protocol;
 use serde::Serialize;
+use serde_ipld_dagcbor::codec::DagCborCodec;
+use serde_ipld_dagjson::codec::DagJsonCodec;
 use swagger::{ApiError, ByteArray};
 use tracing::{instrument, Level};
 
@@ -163,12 +164,12 @@ where
         let ipfs_path = try_or_bad_request!(IpfsPath::from_str(&arg), DagGetPostResponse);
         match output_codec.unwrap_or(Codecs::DagJson) {
             Codecs::DagJson => Ok(DagGetPostResponse::Success(ByteArray(
-                dag::get(self.ipfs.clone(), &ipfs_path, DagJsonCodec)
+                dag::get::<_, DagJsonCodec>(self.ipfs.clone(), &ipfs_path)
                     .await
                     .map_err(to_api_error)?,
             ))),
             Codecs::DagCbor => Ok(DagGetPostResponse::Success(ByteArray(
-                dag::get(self.ipfs.clone(), &ipfs_path, DagCborCodec)
+                dag::get::<_, DagCborCodec>(self.ipfs.clone(), &ipfs_path)
                     .await
                     .map_err(to_api_error)?,
             ))),
@@ -364,14 +365,15 @@ struct ErrorJson<'a> {
 #[cfg(test)]
 mod tests {
 
-    use std::{collections::HashMap, io::Cursor};
+    use std::collections::HashMap;
 
     use super::*;
     use crate::{tests::MockIpfsDepTest, PeerInfo};
 
     use bytes::Bytes;
     use ceramic_metadata::Version;
-    use libipld::{pb::DagPbCodec, prelude::Decode, Ipld};
+    use ipld_core::codec::Codec;
+    use ipld_dagpb::DagPbCodec;
     use mockall::predicate;
     use tracing_test::traced_test;
 
@@ -642,9 +644,8 @@ mod tests {
     async fn dag_get_json() {
         // Test data from:
         // https://ipld.io/specs/codecs/dag-pb/fixtures/cross-codec/#dagpb_data_some
-        let data = Ipld::decode(
-            DagPbCodec,
-            &mut Cursor::new(hex::decode("0a050001020304").expect("should be valid hex data")),
+        let data = DagPbCodec::decode_from_slice(
+            &hex::decode("0a050001020304").expect("should be valid hex data"),
         )
         .expect("should be valid dag-pb data");
 
@@ -685,9 +686,8 @@ mod tests {
     async fn dag_get_cbor() {
         // Test data from:
         // https://ipld.io/specs/codecs/dag-pb/fixtures/cross-codec/#dagpb_data_some
-        let data = Ipld::decode(
-            DagPbCodec,
-            &mut Cursor::new(hex::decode("0a050001020304").expect("should be valid hex data")),
+        let data = DagPbCodec::decode_from_slice(
+            &hex::decode("0a050001020304").expect("should be valid hex data"),
         )
         .expect("should be valid dag-pb data");
 
@@ -1004,9 +1004,8 @@ mod tests {
     async fn pin_add() {
         // Test data from:
         // https://ipld.io/specs/codecs/dag-pb/fixtures/cross-codec/#dagpb_data_some
-        let data = Ipld::decode(
-            DagPbCodec,
-            &mut Cursor::new(hex::decode("0a050001020304").expect("should be valid hex data")),
+        let data = DagPbCodec::decode_from_slice(
+            &hex::decode("0a050001020304").expect("should be valid hex data"),
         )
         .expect("should be valid dag-pb data");
 

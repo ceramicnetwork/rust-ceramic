@@ -1,7 +1,5 @@
-use cid::{
-    multihash::{Code, MultihashDigest},
-    Cid,
-};
+use cid::Cid;
+use multihash_codetable::{Code, MultihashDigest};
 
 /// Verifies that the provided bytes hash to the given multihash.
 pub fn verify_hash(cid: &Cid, bytes: &[u8]) -> Option<bool> {

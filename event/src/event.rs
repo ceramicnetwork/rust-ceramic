@@ -1,7 +1,7 @@
 use crate::args::UnsignedEvent;
 use anyhow::Result;
 use ceramic_core::{Cid, DagCborEncoded, Jws, Signer};
-use multihash::{Code, MultihashDigest};
+use multihash_codetable::{Code, MultihashDigest};
 use serde::Serialize;
 
 // https://github.com/multiformats/multicodec/blob/master/table.csv
@@ -43,7 +43,9 @@ mod tests {
 
     use ceramic_core::JwkSigner;
     use expect_test::expect;
-    use libipld::{cbor::DagCborCodec, json::DagJsonCodec, prelude::Codec, Ipld};
+    use ipld_core::{codec::Codec, ipld::Ipld};
+    use serde_ipld_dagcbor::codec::DagCborCodec;
+    use serde_ipld_dagjson::codec::DagJsonCodec;
     use std::str::FromStr;
     use test_log::test;
 
@@ -92,8 +94,8 @@ mod tests {
                 .unwrap();
         let args = EventArgs::new_with_parent(&signer, &model);
         let evt = args.init().unwrap();
-        let data: Ipld = DagCborCodec.decode(evt.encoded.as_ref()).unwrap();
-        let encoded = DagJsonCodec.encode(&data).unwrap();
+        let data: Ipld = DagCborCodec::decode_from_slice(evt.encoded.as_ref()).unwrap();
+        let encoded = DagJsonCodec::encode_to_vec(&data).unwrap();
         expect![[r#"
             {
               "header": {
@@ -132,8 +134,8 @@ mod tests {
         let protected: serde_json::Value = serde_json::from_slice(protected.as_ref()).unwrap();
         assert!(protected.as_object().unwrap().contains_key("kid"));
 
-        let post_data: Ipld = DagCborCodec.decode(evt.linked_block.as_ref()).unwrap();
-        let encoded = DagJsonCodec.encode(&post_data).unwrap();
+        let post_data: Ipld = serde_ipld_dagcbor::from_slice(evt.linked_block.as_ref()).unwrap();
+        let encoded = serde_ipld_dagjson::to_vec(&post_data).unwrap();
         let post_data: serde_json::Value = serde_json::from_slice(&encoded).unwrap();
         let post_data = post_data.as_object().unwrap().get("data").unwrap();
         assert_eq!(post_data, &data);

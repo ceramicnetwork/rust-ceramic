@@ -1,8 +1,9 @@
 //! Interest is a structure that declares a range of data in which a node is interested.
 use anyhow::Result;
-use cid::multihash::{Hasher, Sha2_256};
 use minicbor::{Decoder, Encoder};
 use multibase::Base;
+use multihash_codetable::Sha2_256;
+use multihash_derive::Hasher;
 use serde::{Deserialize, Serialize};
 use std::{fmt::Display, str::FromStr};
 
@@ -200,6 +201,7 @@ impl Builder<Init> {
         //
         // TODO: Emperically measure performance of this size.
         const INITIAL_VEC_CAPACITY: usize = 256;
+
         let mut hasher = Sha2_256::default();
         hasher.update(sort_key.as_bytes());
         // sha256 is 32 bytes safe to unwrap to [u8; 32]
@@ -208,7 +210,7 @@ impl Builder<Init> {
         encoder
             // Encode last 8 bytes of the sort_key hash
             .bytes(&hash[hash.len() - 8..])
-            .expect("sort_key should cbor encode");
+            .expect("sep_key should cbor encode");
         Builder {
             state: WithSortKey { encoder },
         }

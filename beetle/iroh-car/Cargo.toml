@@ -12,13 +12,14 @@ publish = false
 cid.workspace = true
 futures.workspace = true
 integer-encoding = { workspace = true, features = ["tokio_async"] }
-libipld.workspace = true
-libipld-cbor.workspace = true
+serde_ipld_dagcbor.workspace = true
+serde.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["io-util"] }
 
 [dev-dependencies]
 multihash.workspace = true
+multihash-codetable.workspace = true
 tokio = { workspace = true, features = [
     "macros",
     "sync",
@@ -26,5 +27,6 @@ tokio = { workspace = true, features = [
     "fs",
     "io-util",
 ] }
+ipld-core.workspace = true
 
 [features]

@@ -153,10 +153,10 @@ impl BitswapCodec {
 }
 
 impl Encoder for BitswapCodec {
-    type Item = BitswapMessage;
+    type Item<'a> = BitswapMessage;
     type Error = BitswapHandlerError;
 
-    fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
+    fn encode(&mut self, item: Self::Item<'_>, dst: &mut BytesMut) -> Result<(), Self::Error> {
         tracing::trace!("sending message protocol: {:?}\n{:?}", self.protocol, item);
 
         let message = match self.protocol {

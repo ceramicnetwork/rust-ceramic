@@ -22,6 +22,7 @@ iroh-bitswap.workspace = true
 iroh-car.workspace = true
 itertools = "0.12.0"
 multihash.workspace = true
+multihash-codetable.workspace = true
 prometheus-client.workspace = true
 thiserror.workspace = true
 recon.workspace = true
@@ -32,10 +33,11 @@ tracing.workspace = true
 [dev-dependencies]
 criterion2 = { workspace = true, features = ["async", "async_tokio"] }
 expect-test.workspace = true
-libipld.workspace = true
-libipld-cbor.workspace = true
-rand.workspace = true
+ipld-core.workspace = true
+multibase.workspace = true
 paste = "1.0"
+rand.workspace = true
+serde_ipld_dagcbor.workspace = true
 test-log.workspace = true
 tmpdir.workspace = true
 tokio.workspace = true

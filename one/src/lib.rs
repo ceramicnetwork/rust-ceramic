@@ -20,7 +20,9 @@ use ceramic_p2p::{load_identity, DiskStorage, Keychain, Libp2pConfig};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use futures::StreamExt;
 use multibase::Base;
-use multihash::{Code, Hasher, Multihash, MultihashDigest};
+use multihash::Multihash;
+use multihash_codetable::Code;
+use multihash_derive::Hasher;
 use recon::{FullInterests, Recon, ReconInterestProvider, Server, Sha256a};
 use signal_hook::consts::signal::*;
 use signal_hook_tokio::Signals;
@@ -626,17 +628,20 @@ impl Info {
     }
 }
 
-async fn current_exe_hash() -> Result<Multihash> {
+async fn current_exe_hash() -> Result<Multihash<32>> {
     if cfg!(debug_assertions) {
         // Debug builds can be 1GB+, so do we not want to spend the time to hash them.
         // Return a fake hash.
-        let mut hash = multihash::Identity256::default();
-        // Spells debug when base64 url encoded with some leading padding.
-        hash.update(&[00, 117, 230, 238, 130]);
-        Ok(Code::Identity.wrap(hash.finalize())?)
+        Ok(Multihash::<32>::wrap(
+            // Identity hash code
+            0,
+            // Spells debug when base64 url encoded with some leading padding.
+            &[00, 117, 230, 238, 130],
+        )
+        .expect("hardcoded digest should fit in 32 bytes"))
     } else {
         let exe_path = env::current_exe()?;
-        let mut hasher = multihash::Sha2_256::default();
+        let mut hasher = multihash_codetable::Sha2_256::default();
         let mut f = tokio::fs::File::open(exe_path).await?;
         let mut buffer = vec![0; 4096];
 
@@ -648,6 +653,6 @@ async fn current_exe_hash() -> Result<Multihash> {
             hasher.update(&buffer[..bytes_read]);
         }
         let hash = hasher.finalize();
-        Ok(Code::Sha2_256.wrap(hash)?)
+        Ok(Multihash::<32>::wrap(Code::Sha2_256.into(), hash)?)
     }
 }
