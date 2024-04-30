@@ -1,14 +1,13 @@
 use ceramic_core::{EventId, Network};
-use ceramic_store::{ModelStore, SqlitePool};
+use ceramic_store::{SqliteEventStore, SqlitePool};
 use cid::Cid;
 use criterion2::{criterion_group, criterion_main, BatchSize, Criterion};
 use multihash::{Code, MultihashDigest};
 use rand::RngCore;
-use recon::{ReconItem, Sha256a, Store};
-use std::path::PathBuf;
+use recon::{ReconItem, Store};
 
 struct ModelSetup {
-    store: ModelStore<Sha256a>,
+    store: SqliteEventStore,
     events: Vec<(EventId, Vec<u8>)>,
 }
 
@@ -20,7 +19,7 @@ enum ModelType {
 fn generate_event_id(data: &[u8]) -> EventId {
     let cid = Cid::new_v1(
         0x55, //RAW
-        Code::Sha2_256.digest(&data),
+        Code::Sha2_256.digest(data),
     );
     EventId::new(
         &Network::Mainnet,
@@ -35,7 +34,7 @@ fn generate_event_id(data: &[u8]) -> EventId {
 
 const INSERTION_COUNT: usize = 10_000;
 
-async fn model_setup(dir: PathBuf, tpe: ModelType, cnt: usize) -> ModelSetup {
+async fn model_setup(tpe: ModelType, cnt: usize) -> ModelSetup {
     let mut events = Vec::with_capacity(cnt);
     for _ in 0..cnt {
         let mut data = match tpe {
@@ -49,7 +48,7 @@ async fn model_setup(dir: PathBuf, tpe: ModelType, cnt: usize) -> ModelSetup {
         rand::thread_rng().fill_bytes(&mut data);
         let event_id = generate_event_id(&data);
         let cid = event_id.cid().unwrap();
-        let header = iroh_car::CarHeader::V1(iroh_car::CarHeaderV1::from(vec![cid.clone()]));
+        let header = iroh_car::CarHeader::V1(iroh_car::CarHeaderV1::from(vec![cid]));
         let writer = tokio::io::BufWriter::new(Vec::with_capacity(1024 * 1024));
         let mut writer = iroh_car::CarWriter::new(header, writer);
         writer.write(cid, data.as_slice()).await.unwrap();
@@ -57,20 +56,17 @@ async fn model_setup(dir: PathBuf, tpe: ModelType, cnt: usize) -> ModelSetup {
         events.push((event_id, data));
     }
 
-    let path = dir.join(format!("{}.db", uuid::Uuid::new_v4()));
-    let pool = SqlitePool::connect(format!("sqlite://{}", path.display()))
-        .await
-        .unwrap();
-    let store = ModelStore::new(pool).await.unwrap();
+    let pool = SqlitePool::connect_in_memory().await.unwrap();
+    let store = SqliteEventStore::new(pool).await.unwrap();
     ModelSetup { store, events }
 }
 
 async fn model_routine(input: ModelSetup) {
     let futs = input.events.into_iter().map(|(event_id, data)| {
-        let mut store = input.store.clone();
+        let store = input.store.clone();
         async move {
             let event = ReconItem::new(&event_id, Some(data.as_slice()));
-            store.insert(event).await
+            store.insert(&event).await
         }
     });
     futures::future::join_all(futs).await;
@@ -80,15 +76,14 @@ fn small_model_inserts(c: &mut Criterion) {
     let exec = tokio::runtime::Runtime::new().unwrap();
     let dir = exec.block_on(async move { tmpdir::TmpDir::new("ceramic_store").await.unwrap() });
     let mut group = c.benchmark_group("small model inserts");
-    let path = dir.to_path_buf();
     group.bench_function("sqlite store", move |b| {
         b.to_async(&exec).iter_batched_async_setup(
             // setup
-            || async { model_setup(path.clone(), ModelType::Small, INSERTION_COUNT).await },
+            || async { model_setup(ModelType::Small, INSERTION_COUNT).await },
             // routine
             |input| async { model_routine(input).await },
             // batch size
-            BatchSize::PerIteration,
+            BatchSize::SmallInput,
         )
     });
     group.finish();
@@ -106,11 +101,11 @@ fn large_model_inserts(c: &mut Criterion) {
     group.bench_function("sqlite store", |b| {
         b.to_async(&exec).iter_batched_async_setup(
             // setup
-            || async { model_setup(dir.to_path_buf(), ModelType::Large, INSERTION_COUNT).await },
+            || async { model_setup(ModelType::Large, INSERTION_COUNT).await },
             // routine
             |input| async { model_routine(input).await },
             // batch size
-            BatchSize::PerIteration,
+            BatchSize::SmallInput,
         )
     });
     group.finish();

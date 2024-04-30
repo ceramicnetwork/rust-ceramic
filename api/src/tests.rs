@@ -18,6 +18,7 @@ use mockall::{mock, predicate};
 use multibase::Base;
 use recon::Key;
 use std::str::FromStr;
+use std::sync::Arc;
 use tracing_test::traced_test;
 
 struct Context;
@@ -54,7 +55,7 @@ impl AccessInterestStore for MockReconInterestTest {
 }
 mock! {
     pub ReconModelTest {
-        fn insert(&self, key: EventId, value: Option<Vec<u8>>) -> Result<(bool, bool)>;
+        fn insert_many(&self, items: &[(EventId, Option<Vec<u8>>)]) -> Result<(Vec<bool>, usize)>;
         fn range_with_values(
             &self,
             start: &EventId,
@@ -70,8 +71,11 @@ mock! {
 }
 #[async_trait]
 impl AccessModelStore for MockReconModelTest {
-    async fn insert(&self, key: EventId, value: Option<Vec<u8>>) -> Result<(bool, bool)> {
-        self.insert(key, value)
+    async fn insert_many(
+        &self,
+        items: &[(EventId, Option<Vec<u8>>)],
+    ) -> Result<(Vec<bool>, usize)> {
+        self.insert_many(items)
     }
     async fn range_with_values(
         &self,
@@ -111,15 +115,14 @@ async fn create_event() {
     let event_data = "f".to_string();
     let mock_interest = MockReconInterestTest::new();
     let mut mock_model = MockReconModelTest::new();
+    let event_data_arg = Some(decode_event_data(event_data.as_str()).unwrap());
+    let args = vec![(event_id.clone(), event_data_arg)];
     mock_model
-        .expect_insert()
-        .with(
-            predicate::eq(event_id),
-            predicate::eq(Some(decode_event_data(event_data.as_str()).unwrap())),
-        )
+        .expect_insert_many()
+        .with(predicate::eq(args))
         .times(1)
-        .returning(|_, _| Ok((true, true)));
-    let server = Server::new(peer_id, network, mock_interest, mock_model);
+        .returning(|_| Ok((vec![true], 1)));
+    let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_model));
     let resp = server
         .events_post(
             models::Event {
@@ -173,7 +176,7 @@ async fn register_interest_sort_value() {
         .times(1)
         .returning(|_, _| Ok(true));
     let mock_model = MockReconModelTest::new();
-    let server = Server::new(peer_id, network, mock_interest, mock_model);
+    let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_model));
     let interest = models::Interest {
         sep: "model".to_string(),
         sep_value: model.to_owned(),
@@ -195,7 +198,7 @@ async fn register_interest_sort_value_bad_request() {
     // Setup mock expectations
     let mock_interest = MockReconInterestTest::new();
     let mock_model = MockReconModelTest::new();
-    let server = Server::new(peer_id, network, mock_interest, mock_model);
+    let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_model));
     let interest = models::Interest {
         sep: "model".to_string(),
         sep_value: model.to_owned(),
@@ -246,7 +249,7 @@ async fn register_interest_sort_value_controller() {
         .times(1)
         .returning(|_, _| Ok(true));
     let mock_model = MockReconModelTest::new();
-    let server = Server::new(peer_id, network, mock_interest, mock_model);
+    let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_model));
     let resp = server
         .interests_sort_key_sort_value_post(
             "model".to_string(),
@@ -301,7 +304,7 @@ async fn register_interest_value_controller_stream() {
         .times(1)
         .returning(|_, _| Ok(true));
     let mock_model = MockReconModelTest::new();
-    let server = Server::new(peer_id, network, mock_interest, mock_model);
+    let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_model));
     let resp = server
         .interests_sort_key_sort_value_post(
             "model".to_string(),
@@ -355,7 +358,7 @@ async fn get_events_for_interest_range() {
         )
         .times(1)
         .returning(|s, _, _, _| Ok(vec![(s.clone(), vec![])]));
-    let server = Server::new(peer_id, network, mock_interest, mock_model);
+    let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_model));
     let resp = server
         .events_sort_key_sort_value_get(
             "model".to_string(),
@@ -401,7 +404,7 @@ async fn test_events_event_id_get_success() {
         .times(1)
         .returning(move |_| Ok(Some(event_data.clone())));
     let mock_interest = MockReconInterestTest::new();
-    let server = Server::new(peer_id, network, mock_interest, mock_model);
+    let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_model));
     let result = server.events_event_id_get(event_id_str, &Context).await;
     let EventsEventIdGetResponse::Success(event) = result.unwrap() else {
         panic!("Expected EventsEventIdGetResponse::Success but got another variant");

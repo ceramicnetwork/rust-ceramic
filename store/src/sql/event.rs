@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, num::TryFromIntError};
+use std::num::TryFromIntError;
 
 use anyhow::anyhow;
 use async_trait::async_trait;
@@ -7,8 +7,7 @@ use ceramic_core::{event_id::InvalidEventId, EventId, RangeOpen};
 
 use cid::Cid;
 use iroh_bitswap::Block;
-use iroh_car::CarReader;
-use multihash_codetable::{Code, Multihash, MultihashDigest};
+use multihash_codetable::Multihash;
 use recon::{
     AssociativeHash, Error as ReconError, HashCount, InsertResult, Key, ReconItem,
     Result as ReconResult, Sha256a,
@@ -19,8 +18,8 @@ use tracing::instrument;
 use crate::{
     sql::{
         rebuild_car, BlockBytes, BlockQuery, BlockRow, CountRow, DeliveredEvent, EventBlockQuery,
-        EventQuery, EventValueRaw, FirstAndLast, OrderKey, ReconHash, ReconQuery, ReconType,
-        SqlBackend, GLOBAL_COUNTER,
+        EventBlockRaw, EventQuery, EventRaw, FirstAndLast, OrderKey, ReconHash, ReconQuery,
+        ReconType, SqlBackend, GLOBAL_COUNTER,
     },
     DbTxSqlite, Error, Result, SqlitePool,
 };
@@ -60,19 +59,12 @@ impl SqliteEventStore {
 
     /// Begin a database transaction.
     pub async fn begin_tx(&self) -> Result<DbTxSqlite<'_>> {
-        self.pool.tx().await
+        Ok(self.pool.writer().begin().await?)
     }
 
     /// Commit the database transaction.
     pub async fn commit_tx(&self, tx: DbTxSqlite<'_>) -> Result<()> {
         Ok(tx.commit().await?)
-    }
-
-    async fn insert_item(&self, item: &ReconItem<'_, EventId>) -> Result<(bool, bool)> {
-        let mut tx = self.pool.writer().begin().await?;
-        let (new_key, new_val) = self.insert_item_int(item, &mut tx).await?;
-        tx.commit().await?;
-        Ok((new_key, new_val))
     }
 
     async fn range_with_values_int(
@@ -84,7 +76,7 @@ impl SqliteEventStore {
     ) -> Result<Box<dyn Iterator<Item = (EventId, Vec<u8>)> + Send + 'static>> {
         let offset = offset.try_into().unwrap_or(i64::MAX);
         let limit: i64 = limit.try_into().unwrap_or(i64::MAX);
-        let all_blocks: Vec<EventValueRaw> = sqlx::query_as(EventQuery::value_blocks_many())
+        let all_blocks: Vec<EventBlockRaw> = sqlx::query_as(EventQuery::value_blocks_many())
             .bind(left_fencepost.as_bytes())
             .bind(right_fencepost.as_bytes())
             .bind(limit)
@@ -92,7 +84,7 @@ impl SqliteEventStore {
             .fetch_all(self.pool.reader())
             .await?;
 
-        let values = EventValueRaw::into_carfiles(all_blocks).await?;
+        let values = EventBlockRaw::into_carfiles(all_blocks).await?;
         Ok(Box::new(values.into_iter()))
     }
 
@@ -127,47 +119,59 @@ impl SqliteEventStore {
         rebuild_car(blocks).await
     }
 
-    /// returns (new_key, new_val) tuple
-    async fn insert_item_int(
-        &self,
-        item: &ReconItem<'_, EventId>,
-        conn: &mut DbTxSqlite<'_>,
-    ) -> Result<(bool, bool)> {
-        // We make sure the key exists as we require it as an FK to add the event_block record.
-        let new_key = self.insert_key_int(item.key, conn).await?;
+    async fn insert_item_int(&self, item: ReconItem<'_, EventId>) -> Result<(bool, bool)> {
+        let new_val = item.value.is_some();
+        let res = self.insert_items_int(&[item]).await?;
+        let new_key = res.keys.first().cloned().unwrap_or(false);
+        Ok((new_key, new_val))
+    }
 
-        if let Some(val) = item.value {
-            // Put each block from the car file. Should we check if value already existed and skip this?
-            // It will no-op but will still try to insert the blocks again
-            let mut reader = CarReader::new(val)
-                .await
-                .map_err(|e| Error::new_app(anyhow!(e)))?;
-            let roots: BTreeSet<Cid> = reader.header().roots().iter().cloned().collect();
-            let mut idx = 0;
-            while let Some((cid, data)) = reader
-                .next_block()
-                .await
-                .map_err(|e| Error::new_app(anyhow!(e)))?
-            {
-                self.insert_event_block_int(
-                    item.key,
-                    idx,
-                    roots.contains(&cid),
-                    cid,
-                    &data.into(),
-                    conn,
-                )
-                .await?;
-                idx += 1;
-            }
-            self.mark_ready_to_deliver(item.key, conn).await?;
+    /// Insert many items into the store (internal to the store)
+    async fn insert_items_int(&self, items: &[ReconItem<'_, EventId>]) -> Result<InsertResult> {
+        if items.is_empty() {
+            return Ok(InsertResult::new(vec![], 0));
         }
-        Ok((new_key, item.value.is_some()))
+        let mut to_add = vec![];
+        for item in items {
+            if let Some(val) = item.value {
+                match EventRaw::try_build(item.key.to_owned(), val).await {
+                    Ok(parsed) => to_add.push(parsed),
+                    Err(error) => {
+                        tracing::warn!(%error, order_key=%item.key, "Error parsing event into carfile");
+                        continue;
+                    }
+                }
+            } else {
+                to_add.push(EventRaw::new(item.key.clone(), vec![]));
+            }
+        }
+        if to_add.is_empty() {
+            return Ok(InsertResult::new(vec![], 0));
+        }
+        let mut new_keys = vec![false; to_add.len()];
+        let mut new_val_cnt = 0;
+        let mut tx = self.pool.writer().begin().await.map_err(Error::from)?;
+
+        for (idx, item) in to_add.into_iter().enumerate() {
+            let new_key = self.insert_key_int(&item.order_key, &mut tx).await?;
+            for block in item.blocks.iter() {
+                self.insert_event_block_int(block, &mut tx).await?;
+                self.mark_ready_to_deliver(&item.order_key, &mut tx).await?;
+            }
+            new_keys[idx] = new_key;
+            if !item.blocks.is_empty() {
+                new_val_cnt += 1;
+            }
+        }
+        tx.commit().await.map_err(Error::from)?;
+        let res = InsertResult::new(new_keys, new_val_cnt);
+
+        Ok(res)
     }
 
     /// Add a block, returns true if the block is new
     pub async fn put_block(&self, hash: &Multihash, blob: &Bytes) -> Result<bool> {
-        let mut tx = self.pool.tx().await?;
+        let mut tx = self.pool.writer().begin().await?;
         let res = self.put_block_tx(hash, blob, &mut tx).await?;
         tx.commit().await?;
         Ok(res)
@@ -177,12 +181,12 @@ impl SqliteEventStore {
     pub async fn put_block_tx(
         &self,
         hash: &Multihash,
-        blob: &Bytes,
+        blob: &[u8],
         conn: &mut DbTxSqlite<'_>,
     ) -> Result<bool> {
         let resp = sqlx::query(BlockQuery::put())
             .bind(hash.to_bytes())
-            .bind(blob.to_vec())
+            .bind(blob)
             .execute(&mut **conn)
             .await;
 
@@ -202,51 +206,19 @@ impl SqliteEventStore {
     // store a block in the db.
     async fn insert_event_block_int(
         &self,
-        key: &EventId,
-        idx: i32,
-        root: bool,
-        cid: Cid,
-        blob: &Bytes,
+        ev_block: &EventBlockRaw,
         conn: &mut DbTxSqlite<'_>,
     ) -> Result<()> {
-        let hash = match cid.hash().code() {
-            0x12 => Code::Sha2_256.digest(blob),
-            0x1b => Code::Keccak256.digest(blob),
-            0x11 => return Err(Error::new_app(anyhow!("Sha1 not supported"))),
-            code => {
-                return Err(Error::new_app(anyhow!(
-                    "multihash type {:#x} not Sha2_256, Keccak256",
-                    code,
-                )))
-            }
-        };
-        if cid.hash().to_bytes() != hash.to_bytes() {
-            return Err(Error::new_app(anyhow!(
-                "cid did not match blob {} != {}",
-                hex::encode(cid.hash().to_bytes()),
-                hex::encode(hash.to_bytes())
-            )));
-        }
+        let _new = self
+            .put_block_tx(ev_block.multihash.inner(), &ev_block.bytes, conn)
+            .await?;
 
-        let _new = self.put_block_tx(&hash, blob, conn).await?;
-
-        let code: i64 = cid.codec().try_into().map_err(|e: TryFromIntError| {
-            Error::new_app(anyhow!(e).context(format!(
-                "Invalid codec could not fit into an i64: {}",
-                cid.codec()
-            )))
-        })?;
-        let id = key
-            .cid()
-            .ok_or_else(|| Error::new_app(anyhow!("Event CID is required")))?
-            .to_bytes();
-        let multihash = hash.to_bytes();
         sqlx::query(EventBlockQuery::upsert())
-            .bind(id)
-            .bind(idx)
-            .bind(root)
-            .bind(multihash)
-            .bind(code)
+            .bind(&ev_block.order_key)
+            .bind(ev_block.idx)
+            .bind(ev_block.root)
+            .bind(ev_block.multihash.to_bytes())
+            .bind(ev_block.codec)
             .execute(&mut **conn)
             .await?;
         Ok(())
@@ -347,8 +319,8 @@ impl recon::Store for SqliteEventStore {
 
     /// Returns true if the key was new. The value is always updated if included
     async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> ReconResult<bool> {
-        let (new, _new_val) = self.insert_item(item).await?;
-        Ok(new)
+        let (res, _new_val) = self.insert_item_int(item.to_owned()).await?;
+        Ok(res)
     }
 
     /// Insert new keys into the key space.
@@ -357,19 +329,8 @@ impl recon::Store for SqliteEventStore {
         match items.len() {
             0 => Ok(InsertResult::new(vec![], 0)),
             _ => {
-                let mut results = vec![false; items.len()];
-                let mut new_val_cnt = 0;
-                let mut tx = self.pool.writer().begin().await.map_err(Error::from)?;
-
-                for (idx, item) in items.iter().enumerate() {
-                    let (new_key, new_val) = self.insert_item_int(item, &mut tx).await?;
-                    results[idx] = new_key;
-                    if new_val {
-                        new_val_cnt += 1;
-                    }
-                }
-                tx.commit().await.map_err(Error::from)?;
-                Ok(InsertResult::new(results, new_val_cnt))
+                let res = self.insert_items_int(items).await?;
+                Ok(res)
             }
         }
     }
@@ -564,10 +525,16 @@ impl iroh_bitswap::Store for SqliteEventStore {
 /// This guarantees that regardless of entry point (api or recon), the data is stored and retrieved in the same way.
 #[async_trait::async_trait]
 impl ceramic_api::AccessModelStore for SqliteEventStore {
-    async fn insert(&self, key: EventId, value: Option<Vec<u8>>) -> anyhow::Result<(bool, bool)> {
-        Ok(self
-            .insert_item(&ReconItem::new(&key, value.as_deref()))
-            .await?)
+    async fn insert_many(
+        &self,
+        items: &[(EventId, Option<Vec<u8>>)],
+    ) -> anyhow::Result<(Vec<bool>, usize)> {
+        let items = items
+            .iter()
+            .map(|(key, value)| ReconItem::new(key, value.as_deref()))
+            .collect::<Vec<ReconItem<'_, EventId>>>();
+        let res = self.insert_items_int(&items).await?;
+        Ok((res.keys, res.value_count))
     }
 
     async fn range_with_values(

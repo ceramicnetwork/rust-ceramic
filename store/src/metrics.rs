@@ -161,7 +161,7 @@ where
     async fn insert(&self, key: Interest) -> anyhow::Result<bool> {
         let new = StoreMetricsMiddleware::<S>::record(
             &self.metrics,
-            "interest_insert",
+            "api_interest_insert",
             self.store.insert(key),
         )
         .await?;
@@ -177,7 +177,7 @@ where
     ) -> anyhow::Result<Vec<Interest>> {
         StoreMetricsMiddleware::<S>::record(
             &self.metrics,
-            "interest_range",
+            "api_interest_range",
             self.store.range(start, end, offset, limit),
         )
         .await
@@ -189,16 +189,28 @@ impl<S> ceramic_api::AccessModelStore for StoreMetricsMiddleware<S>
 where
     S: ceramic_api::AccessModelStore,
 {
-    async fn insert(&self, key: EventId, value: Option<Vec<u8>>) -> anyhow::Result<(bool, bool)> {
-        let (new_key, new_val) = StoreMetricsMiddleware::<S>::record(
+    async fn insert_many(
+        &self,
+        items: &[(EventId, Option<Vec<u8>>)],
+    ) -> anyhow::Result<(Vec<bool>, usize)> {
+        let (new_keys, new_val) = StoreMetricsMiddleware::<S>::record(
             &self.metrics,
-            "model_insert",
-            self.store.insert(key, value),
+            "api_insert_many",
+            self.store.insert_many(items),
         )
         .await?;
 
-        self.record_key_insert(new_key, new_val);
-        Ok((new_key, new_val))
+        let key_cnt = new_keys.iter().filter(|k| **k).count();
+
+        self.metrics.record(&InsertEvent {
+            type_: InsertEventType::Key,
+            cnt: key_cnt as u64,
+        });
+        self.metrics.record(&InsertEvent {
+            type_: InsertEventType::Value,
+            cnt: new_val as u64,
+        });
+        Ok((new_keys, new_val))
     }
     async fn range_with_values(
         &self,
@@ -209,7 +221,7 @@ where
     ) -> anyhow::Result<Vec<(EventId, Vec<u8>)>> {
         StoreMetricsMiddleware::<S>::record(
             &self.metrics,
-            "model_range_with_values",
+            "api_range_with_values",
             self.store.range_with_values(start, end, offset, limit),
         )
         .await
@@ -218,7 +230,7 @@ where
     async fn value_for_key(&self, key: &EventId) -> anyhow::Result<Option<Vec<u8>>> {
         StoreMetricsMiddleware::<S>::record(
             &self.metrics,
-            "model_value_for_key",
+            "api_value_for_key",
             self.store.value_for_key(key),
         )
         .await
@@ -231,7 +243,7 @@ where
     ) -> anyhow::Result<(i64, Vec<EventId>)> {
         StoreMetricsMiddleware::<S>::record(
             &self.metrics,
-            "model_keys_since_highwater_mark",
+            "api_keys_since_highwater_mark",
             self.store.keys_since_highwater_mark(highwater, limit),
         )
         .await

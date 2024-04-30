@@ -491,8 +491,12 @@ impl Daemon {
 
         // Build HTTP server
         let network = network.clone();
-        let ceramic_server =
-            ceramic_api::Server::new(peer_id, network, interest_api_store, model_api_store);
+        let ceramic_server = ceramic_api::Server::new(
+            peer_id,
+            network,
+            interest_api_store,
+            Arc::new(model_api_store),
+        );
         let ceramic_metrics = MetricsHandle::register(ceramic_api::Metrics::register);
         // Wrap server in metrics middleware
         let ceramic_server = ceramic_api::MetricsMiddleware::new(ceramic_server, ceramic_metrics);

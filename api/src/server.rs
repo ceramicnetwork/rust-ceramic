@@ -2,6 +2,7 @@
 
 #![allow(unused_imports)]
 
+use std::time::Duration;
 use std::{future::Future, ops::Range};
 use std::{marker::PhantomData, ops::RangeBounds};
 use std::{net::SocketAddr, ops::Bound};
@@ -43,6 +44,20 @@ use swagger::ApiError;
 use tikv_jemalloc_ctl::{epoch, stats};
 
 use crate::ResumeToken;
+
+/// When the incoming events queue has at least this many items, we'll store them.
+/// This imples when we're getting writes faster than the flush interval.
+const EVENT_INSERT_QUEUE_SIZE: usize = 3;
+/// How often we should flush the queue of events to the store. This applies when we have fewer than `EVENT_INSERT_QUEUE_SIZE` events,
+/// in order to avoid stalling a single write from being processed for too long, while still reducing contention when we have a lot of writes.
+/// This is quite low, but in my benchmarking adding a longer interval just slowed ingest down, without changing contention noticeably.
+const FLUSH_INTERVAL_MS: u64 = 10;
+
+/// How long are we willing to wait to enqueue an insert to the database service loop before we tell the call it was full.
+const INSERT_ENQUEUE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
+/// How long are we willing to wait for the database service to respond to an insert request before we tell the caller it was too slow.
+/// Aborting and returning an error doesn't mean that the write won't be processed, only that the caller will get an error indicating it timed out.
+const INSERT_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 // Helper to build responses consistent as we can't implement for the api_server::models directly
 pub struct BuildResponse {}
@@ -149,7 +164,8 @@ impl<S: AccessInterestStore> AccessInterestStore for Arc<S> {
 #[async_trait]
 pub trait AccessModelStore: Send + Sync {
     /// Returns (new_key, new_value) where true if was newly inserted, false if it already existed.
-    async fn insert(&self, key: EventId, value: Option<Vec<u8>>) -> Result<(bool, bool)>;
+    async fn insert_many(&self, items: &[(EventId, Option<Vec<u8>>)])
+        -> Result<(Vec<bool>, usize)>;
     async fn range_with_values(
         &self,
         start: &EventId,
@@ -171,8 +187,11 @@ pub trait AccessModelStore: Send + Sync {
 
 #[async_trait::async_trait]
 impl<S: AccessModelStore> AccessModelStore for Arc<S> {
-    async fn insert(&self, key: EventId, value: Option<Vec<u8>>) -> Result<(bool, bool)> {
-        self.as_ref().insert(key, value).await
+    async fn insert_many(
+        &self,
+        items: &[(EventId, Option<Vec<u8>>)],
+    ) -> Result<(Vec<bool>, usize)> {
+        self.as_ref().insert_many(items).await
     }
 
     async fn range_with_values(
@@ -202,28 +221,107 @@ impl<S: AccessModelStore> AccessModelStore for Arc<S> {
     }
 }
 
+struct EventInsert {
+    id: EventId,
+    data: Vec<u8>,
+    tx: tokio::sync::oneshot::Sender<Result<bool>>,
+}
+
+struct InsertTask {
+    _handle: tokio::task::JoinHandle<()>,
+    tx: tokio::sync::mpsc::Sender<EventInsert>,
+}
+
 #[derive(Clone)]
 pub struct Server<C, I, M> {
     peer_id: PeerId,
     network: Network,
     interest: I,
-    model: M,
+    model: Arc<M>,
+    // If we need to restart this ever, we'll need a mutex. For now we want to avoid locking the channel
+    // so we just keep track to gracefully shutdown, but if the task dies, the server is in a fatal error state.
+    insert_task: Arc<InsertTask>,
     marker: PhantomData<C>,
 }
 
 impl<C, I, M> Server<C, I, M>
 where
     I: AccessInterestStore,
-    M: AccessModelStore,
+    M: AccessModelStore + 'static,
 {
-    pub fn new(peer_id: PeerId, network: Network, interest: I, model: M) -> Self {
+    pub fn new(peer_id: PeerId, network: Network, interest: I, model: Arc<M>) -> Self {
+        let (tx, event_rx) = tokio::sync::mpsc::channel::<EventInsert>(1024);
+        let event_store = model.clone();
+
+        let handle = Self::start_insert_task(event_store, event_rx);
+        let insert_task = Arc::new(InsertTask {
+            _handle: handle,
+            tx,
+        });
         Server {
             peer_id,
             network,
             interest,
             model,
+            insert_task,
             marker: PhantomData,
         }
+    }
+
+    fn start_insert_task(
+        event_store: Arc<M>,
+        mut event_rx: tokio::sync::mpsc::Receiver<EventInsert>,
+    ) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_millis(FLUSH_INTERVAL_MS));
+            let mut events = vec![];
+            // could bias towards processing the queue of events over accepting more, but we'll
+            // rely on the channel depth for backpressure. the goal is to keep the queue close to empty
+            // without processing one at a time. when we stop parsing the carfile in the store
+            // i.e. validate before sending here and this is just an insert, we may want to process more at once.
+            loop {
+                tokio::select! {
+                    _ = interval.tick(), if !events.is_empty() => {
+                        Self::process_events(&mut events, &event_store).await;
+                    }
+                    Some(req) = event_rx.recv() => {
+                        events.push(req);
+                    }
+                }
+                // make sure the events queue doesn't get too deep when we're under heavy load
+                if events.len() >= EVENT_INSERT_QUEUE_SIZE {
+                    Self::process_events(&mut events, &event_store).await;
+                }
+            }
+        })
+    }
+
+    async fn process_events(events: &mut Vec<EventInsert>, event_store: &Arc<M>) {
+        let mut oneshots = Vec::with_capacity(events.len());
+        let mut items = Vec::with_capacity(events.len());
+        events.drain(..).for_each(|req: EventInsert| {
+            oneshots.push(req.tx);
+            items.push((req.id, Some(req.data)));
+        });
+        tracing::trace!("calling insert many with {} items.", items.len());
+        match event_store.insert_many(&items).await {
+            Ok((results, _)) => {
+                tracing::debug!("insert many returned {} results.", results.len());
+                for (tx, result) in oneshots.into_iter().zip(results.into_iter()) {
+                    if let Err(e) = tx.send(Ok(result)) {
+                        tracing::warn!("failed to send success response to api listener: {:?}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("failed to insert events: {e}");
+                for tx in oneshots.into_iter() {
+                    if let Err(e) = tx.send(Err(anyhow::anyhow!("Failed to insert event: {e}"))) {
+                        tracing::warn!("failed to send failed response to api listener: {:?}", e);
+                    }
+                }
+            }
+        };
     }
 
     pub async fn get_event_feed(
@@ -298,10 +396,28 @@ where
     pub async fn post_events(&self, event: Event) -> Result<EventsPostResponse, ErrorResponse> {
         let event_id = decode_event_id(&event.id)?;
         let event_data = decode_event_data(&event.data)?;
-        self.model
-            .insert(event_id, Some(event_data))
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        tokio::time::timeout(
+            INSERT_ENQUEUE_TIMEOUT,
+            self.insert_task.tx.send(EventInsert {
+                id: event_id,
+                data: event_data,
+                tx,
+            }),
+        )
+        .map_err(|_| {
+            ErrorResponse::new("Database service queue is too full to accept requests".to_owned())
+        })
+        .await?
+        .map_err(|_| ErrorResponse::new("Database service not available".to_owned()))?;
+
+        let _new = tokio::time::timeout(INSERT_REQUEST_TIMEOUT, rx)
             .await
-            .map_err(|err| ErrorResponse::new(format!("failed to insert key: {err}")))?;
+            .map_err(|_| {
+                ErrorResponse::new("Timeout waiting for database service response".to_owned())
+            })?
+            .map_err(|_| ErrorResponse::new("No response. Database service crashed".to_owned()))?
+            .map_err(|e| ErrorResponse::new(format!("Failed to insert event: {e}")))?;
 
         Ok(EventsPostResponse::Success)
     }
@@ -432,7 +548,7 @@ impl<C, I, M> Api<C> for Server<C, I, M>
 where
     C: Send + Sync,
     I: AccessInterestStore + Sync,
-    M: AccessModelStore + Sync,
+    M: AccessModelStore + Sync + 'static,
 {
     #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn liveness_get(
