@@ -38,6 +38,8 @@ pub enum DebugHeapGetResponse {
 pub enum EventsEventIdGetResponse {
     /// success
     Success(models::Event),
+    /// bad request
+    BadRequest(models::BadRequestResponse),
     /// Event not found
     EventNotFound(String),
     /// Internal server error

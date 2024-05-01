@@ -99,6 +99,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/Event'
           description: success
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: bad request
         "404":
           content:
             text/plain:
