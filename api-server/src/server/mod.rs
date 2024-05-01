@@ -310,6 +310,17 @@ where
                                     .expect("impossible to fail to serialize");
                                 *response.body_mut() = Body::from(body_content);
                             }
+                            EventsEventIdGetResponse::BadRequest(body) => {
+                                *response.status_mut() = StatusCode::from_u16(400)
+                                    .expect("Unable to turn 400 into a StatusCode");
+                                response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for EVENTS_EVENT_ID_GET_BAD_REQUEST"));
+                                let body_content = serde_json::to_string(&body)
+                                    .expect("impossible to fail to serialize");
+                                *response.body_mut() = Body::from(body_content);
+                            }
                             EventsEventIdGetResponse::EventNotFound(body) => {
                                 *response.status_mut() = StatusCode::from_u16(404)
                                     .expect("Unable to turn 404 into a StatusCode");

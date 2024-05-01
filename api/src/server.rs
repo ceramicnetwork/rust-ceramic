@@ -394,8 +394,14 @@ where
     }
 
     pub async fn post_events(&self, event: Event) -> Result<EventsPostResponse, ErrorResponse> {
-        let event_id = decode_event_id(&event.id)?;
-        let event_data = decode_event_data(&event.data)?;
+        let event_id = match decode_event_id(&event.id) {
+            Ok(v) => v,
+            Err(e) => return Ok(EventsPostResponse::BadRequest(e)),
+        };
+        let event_data = match decode_event_data(&event.data) {
+            Ok(v) => v,
+            Err(e) => return Ok(EventsPostResponse::BadRequest(e)),
+        };
         let (tx, rx) = tokio::sync::oneshot::channel();
         tokio::time::timeout(
             INSERT_ENQUEUE_TIMEOUT,
@@ -442,7 +448,10 @@ where
         &self,
         event_id: String,
     ) -> Result<EventsEventIdGetResponse, ErrorResponse> {
-        let decoded_event_id = decode_event_id(&event_id)?;
+        let decoded_event_id = match decode_event_id(&event_id) {
+            Ok(v) => v,
+            Err(e) => return Ok(EventsEventIdGetResponse::BadRequest(e)),
+        };
         match self.model.value_for_key(&decoded_event_id).await {
             Ok(Some(data)) => {
                 let event = BuildResponse::event(decoded_event_id, data);
@@ -530,16 +539,20 @@ where
     }
 }
 
-pub(crate) fn decode_event_id(value: &str) -> Result<EventId, ErrorResponse> {
+pub(crate) fn decode_event_id(value: &str) -> Result<EventId, BadRequestResponse> {
     multibase::decode(value)
-        .map_err(|err| ErrorResponse::new(format!("multibase error: {err}")))?
+        .map_err(|err| {
+            BadRequestResponse::new(format!("Invalid Event ID: multibase error: {err}"))
+        })?
         .1
         .try_into()
-        .map_err(|err| ErrorResponse::new(format!("invalid event id: {err}")))
+        .map_err(|err| BadRequestResponse::new(format!("Invalid event id: {err}")))
 }
-pub(crate) fn decode_event_data(value: &str) -> Result<Vec<u8>, ErrorResponse> {
+pub(crate) fn decode_event_data(value: &str) -> Result<Vec<u8>, BadRequestResponse> {
     Ok(multibase::decode(value)
-        .map_err(|err| ErrorResponse::new(format!("multibase error: {err}")))?
+        .map_err(|err| {
+            BadRequestResponse::new(format!("Invalid event data: multibase error: {err}"))
+        })?
         .1)
 }
 
