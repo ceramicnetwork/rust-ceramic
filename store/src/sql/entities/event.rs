@@ -1,9 +1,10 @@
+use std::collections::BTreeSet;
+
 use anyhow::anyhow;
-use ceramic_core::EventId;
 use cid::Cid;
 use iroh_car::{CarHeader, CarReader, CarWriter};
 
-use std::collections::BTreeSet;
+use ceramic_core::EventId;
 
 pub use crate::sql::entities::EventBlockRaw;
 
@@ -73,16 +74,6 @@ impl EventInsertable {
         }
         Ok(Self { order_key, body })
     }
-
-    /// Get the CID of the event
-    pub fn cid(&self) -> Cid {
-        self.body.cid
-    }
-
-    /// Whether this event is deliverable currently
-    pub fn deliverable(&self) -> bool {
-        self.body.deliverable()
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -117,27 +108,6 @@ impl EventInsertableBody {
             blocks,
             source,
         }
-    }
-
-    /// Get the CID of the event
-    pub fn cid(&self) -> Cid {
-        self.cid
-    }
-
-    /// Whether this event is deliverable currently
-    pub fn blocks(&self) -> &Vec<EventBlockRaw> {
-        &self.blocks
-    }
-
-    /// Whether this event is deliverable currently
-    pub fn deliverable(&self) -> bool {
-        self.deliverable
-    }
-
-    /// Mark the event as deliverable.
-    /// This will be used when inserting the event to make sure the field is updated accordingly.
-    pub fn set_deliverable(&mut self, deliverable: bool) {
-        self.deliverable = deliverable;
     }
 
     /// Find a block from the carfile for a given CID if it's included

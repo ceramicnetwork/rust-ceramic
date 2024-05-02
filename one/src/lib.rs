@@ -8,7 +8,7 @@ mod metrics;
 mod migrations;
 mod network;
 
-use std::{env, path::PathBuf, time::Duration};
+use std::{env, path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -21,11 +21,12 @@ use multihash_derive::Hasher;
 use recon::{FullInterests, Recon, ReconInterestProvider, Server, Sha256a};
 use signal_hook::consts::signal::*;
 use signal_hook_tokio::Signals;
-use std::sync::Arc;
 use swagger::{auth::MakeAllowAllAuthenticator, EmptyContext};
 use tokio::{io::AsyncReadExt, sync::oneshot};
 use tracing::{debug, error, info, warn};
 
+use ceramic_anchor_service::{AnchorClient, AnchorService};
+use ceramic_anchor_tx::RemoteCas;
 use ceramic_api::{EventStore, InterestStore};
 use ceramic_core::{EventId, Interest};
 use ceramic_kubo_rpc::Multiaddr;
@@ -410,6 +411,7 @@ impl Daemon {
                     db.interest_store,
                     db.event_store.clone(),
                     db.event_store.clone(),
+                    db.event_store.clone(),
                     db.event_store,
                     metrics_handle,
                 )
@@ -418,13 +420,14 @@ impl Daemon {
         }
     }
 
-    async fn run_internal<I1, I2, E1, E2, E3>(
+    async fn run_internal<I1, I2, E1, E2, E3, AC>(
         opts: DaemonOpts,
         interest_api_store: Arc<I1>,
         interest_recon_store: Arc<I2>,
         model_api_store: Arc<E1>,
         model_recon_store: Arc<E2>,
         bitswap_block_store: Arc<E3>,
+        anchor_client: Arc<AC>,
         metrics_handle: MetricsHandle,
     ) -> Result<()>
     where
@@ -433,12 +436,12 @@ impl Daemon {
         E1: EventStore + Send + Sync + 'static,
         E2: recon::Store<Key = EventId, Hash = Sha256a> + Send + Sync + 'static,
         E3: iroh_bitswap::Store + Send + Sync + 'static,
+        AC: AnchorClient + Send + Sync + 'static,
     {
         let network = opts.network.to_network(&opts.local_network_id)?;
 
         let store_dir = opts.db_opts.store_dir;
         debug!(dir = %store_dir.display(), "using store directory");
-        debug!(dir = %opts.p2p_key_dir.display(), "using p2p key directory");
 
         // Setup tokio-metrics
         MetricsHandle::register(|registry| {
@@ -617,6 +620,19 @@ impl Daemon {
 
         let recon_interest_handle = tokio::spawn(recon_interest_svr.run());
         let recon_model_handle = tokio::spawn(recon_model_svr.run());
+
+        // Start anchoring
+        // TODO: Take CAS API URL and anchor batch linger from config
+        let p2p_keypair = ceramic_core::read_ed25519_key_from_dir(opts.p2p_key_dir.clone()).await?;
+        tokio::spawn(async move {
+            let remote_cas = RemoteCas::new(p2p_keypair, "https://cas-qa.3boxlabs.com".to_string());
+            let mut anchor_service = AnchorService::new(
+                anchor_client,
+                Arc::new(remote_cas),
+                Duration::from_secs(10), // 1 hour
+            );
+            anchor_service.run().await;
+        });
 
         // Start HTTP server with a graceful shutdown
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();

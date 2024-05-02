@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use std::collections::HashSet;
 
 use async_trait::async_trait;
@@ -7,8 +8,12 @@ use ipld_core::ipld::Ipld;
 use recon::ReconItem;
 use tracing::{trace, warn};
 
+use ceramic_anchor_service::AnchorClient;
 use ceramic_core::{EventId, Network};
-use ceramic_event::unvalidated::{self, EventMetadata};
+use ceramic_event::{
+    anchor::{AnchorRequest, TimeEventBatch},
+    unvalidated::{self, EventMetadata},
+};
 use ceramic_store::{CeramicOneEvent, EventInsertable, EventInsertableBody, SqlitePool};
 
 use super::{
@@ -162,7 +167,6 @@ impl CeramicEventService {
             DeliverableRequirement::Immediate | DeliverableRequirement::Lazy => &self.node_did,
             DeliverableRequirement::Asap(node_did) => &Some(node_did.to_owned()),
         };
-
         let mut to_insert = Vec::new();
         let mut invalid = Vec::new();
         for event in items {
@@ -267,6 +271,29 @@ pub enum InvalidItem {
     RequiresHistory {
         key: EventId,
     },
+}
+
+#[async_trait]
+impl AnchorClient for CeramicEventService {
+    async fn get_anchor_requests(&self) -> anyhow::Result<Vec<AnchorRequest>> {
+        // We must have a node DID to use here. Return an error if we don't.
+        let node_did = self
+            .node_did
+            .clone()
+            .ok_or_else(|| Error::new_app(anyhow!("node DID required to get anchor requests")))?;
+
+        // Fetch event CIDs from the events table that have a source == our node DID and are still unanchored
+        Ok(
+            CeramicOneEvent::unanchored_events_by_source(&self.pool, node_did, 10000)
+                .await
+                .map_err(|e| Error::new_app(anyhow!("could not fetch unanchored events: {}", e)))?,
+        )
+    }
+
+    async fn put_time_events(&self, batch: TimeEventBatch) -> anyhow::Result<()> {
+        warn!("time events: {:?}", batch);
+        Ok(())
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Default)]

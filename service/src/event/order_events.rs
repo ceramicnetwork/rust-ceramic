@@ -169,7 +169,7 @@ mod test {
         let mut after_1 = Vec::with_capacity(stream_1.len());
         let mut after_2 = Vec::with_capacity(stream_2.len());
         for (event, _) in events {
-            assert!(event.deliverable());
+            assert!(event.body.deliverable);
             if stream_1.iter().any(|e| e.key == event.order_key) {
                 after_1.push(event.order_key.clone());
             } else {

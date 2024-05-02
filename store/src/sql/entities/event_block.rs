@@ -45,7 +45,7 @@ impl ReconEventBlockRaw {
                 }),
             |blocks| {
                 blocks
-                    .group_by(|(key, _)| key.clone())
+                    .chunk_by(|(key, _)| key.clone())
                     .into_iter()
                     .map(|(key, group)| {
                         (

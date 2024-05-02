@@ -151,6 +151,20 @@ impl EventQuery {
     pub fn mark_ready_to_deliver() -> &'static str {
         "UPDATE ceramic_one_event SET delivered = $1 WHERE cid = $2 and delivered is NULL;"
     }
+
+    /// Fetch event CIDs hat have a specified source and are still unanchored
+    /// Requires 1 parameter:
+    ///    $1 = source (bytes)
+    pub fn unanchored_by_source() -> &'static str {
+        r#"SELECT
+                init_cid, cid
+            FROM ceramic_one_event
+            WHERE
+                source = $1
+                AND anchored IS NULL
+                ORDER BY discovered
+                LIMIT $2;"#
+    }
 }
 
 #[derive(Debug, Clone)]

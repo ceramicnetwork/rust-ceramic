@@ -6,7 +6,7 @@ use std::{
 
 use anyhow::anyhow;
 use ceramic_core::{event_id::InvalidEventId, Cid, EventId};
-use ceramic_event::unvalidated;
+use ceramic_event::{anchor::AnchorRequest, unvalidated};
 use ipld_core::ipld::Ipld;
 use recon::{AssociativeHash, HashCount, Key, Result as ReconResult, Sha256a};
 
@@ -418,5 +418,50 @@ impl CeramicOneEvent {
             .fetch_optional(pool.reader())
             .await?;
         Ok(exist.map_or((false, false), |row| (row.exists, row.delivered)))
+    }
+
+    /// Fetch event CIDs from the events table that have a specified source and are still unanchored
+    pub async fn unanchored_events_by_source(
+        pool: &SqlitePool,
+        source: String,
+        limit: i64,
+    ) -> Result<Vec<AnchorRequest>> {
+        let limit = limit.try_into().unwrap_or(100000);
+
+        struct UnanchoredEventRow {
+            init_cid: Cid,
+            cid: Cid,
+        }
+
+        use sqlx::Row as _;
+
+        impl sqlx::FromRow<'_, sqlx::sqlite::SqliteRow> for UnanchoredEventRow {
+            fn from_row(row: &sqlx::sqlite::SqliteRow) -> std::result::Result<Self, sqlx::Error> {
+                let init_cid: Vec<u8> = row.try_get("init_cid")?;
+                let init_cid = Cid::try_from(init_cid.as_slice())
+                    .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+                let cid: Vec<u8> = row.try_get("cid")?;
+                let cid =
+                    Cid::try_from(cid.as_slice()).map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+                Ok(Self { init_cid, cid })
+            }
+        }
+
+        let rows: Vec<UnanchoredEventRow> = sqlx::query_as(EventQuery::unanchored_by_source())
+            .bind(source)
+            .bind(limit)
+            .fetch_all(pool.reader())
+            .await
+            .map_err(Error::from)?;
+        let rows = rows
+            .into_iter()
+            .map(|k| {
+                Ok(AnchorRequest {
+                    id: k.init_cid,
+                    prev: k.cid,
+                })
+            })
+            .collect::<Result<Vec<AnchorRequest>>>()?;
+        Ok(rows)
     }
 }

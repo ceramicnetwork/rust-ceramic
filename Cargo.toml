@@ -3,10 +3,13 @@ resolver = "2"
 members = [
     "api",
     "api-server",
+    "anchor-service",
+    "anchor-tx",
     "core",
     "event",
     "kubo-rpc",
     "kubo-rpc-server",
+    "macro-ipld-derive",
     "metadata",
     "metrics",
     "one",
@@ -48,6 +51,8 @@ bs58 = "0.4"
 bytecheck = "0.6.7"
 bytes = "1.1"
 bytesize = "1.1"
+ceramic-anchor-service = { path = "./anchor-service" }
+ceramic-anchor-tx = { path = "./anchor-tx" }
 ceramic-api = { path = "./api" }
 ceramic-api-server = { path = "./api-server" }
 ceramic-core = { path = "./core" }
@@ -90,6 +95,7 @@ http-serde = "1.1"
 humansize = "2"
 hyper = { version = "0.14", features = ["full"] }
 ignore = "0.4.18"
+indexmap = "2.3.0"
 indicatif = "0.17.1"
 integer-encoding = "3.0"
 ipld-core = "0.4"
@@ -100,11 +106,13 @@ iroh-p2p = { version = "0.2.0", path = "./beetle/iroh-p2p" }
 iroh-rpc-client = { path = "./beetle/iroh-rpc-client" }
 iroh-rpc-types = { path = "./beetle/iroh-rpc-types" }
 iroh-util = { path = "./beetle/iroh-util" }
+itertools = "0.13.0"
 keyed_priority_queue = "0.4.1"
 lazy_static = "1.4"
 libp2p = { version = "0.53", default-features = false }
 libp2p-identity = { version = "0.2", features = ["peerid", "ed25519"] }
 lru = "0.10"
+macro_ipld_derive = { path = "./macro-ipld-derive" }
 mime = "0.3"
 mime_classifier = "0.0.1"
 mime_guess = "2.0.4"
@@ -137,7 +145,7 @@ recon = { path = "./recon/" }
 regex = "1.7.1"
 relative-path = "1.7.2"
 reqwest = { version = "0.11.10", default-features = false }
-ring = "0.17"
+ring = "0.17.8"
 rkyv = "0.7.37"
 rlimit = "0.9.0"
 ruzstd = "0.3"

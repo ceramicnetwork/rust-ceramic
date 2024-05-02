@@ -4,6 +4,8 @@ use cid::Cid;
 use iroh_car::{CarHeader, CarWriter};
 use serde::{Deserialize, Serialize};
 
+use macro_ipld_derive::SerdeIpld;
+
 use crate::{bytes::Bytes, unvalidated::cid_from_dag_cbor};
 
 /// Materialized unsigned Init Event.
@@ -87,7 +89,7 @@ impl<D: serde::Serialize> Payload<D> {
 const DEFAULT_SEP: &str = "model";
 
 /// Headers for an init event
-#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize, SerdeIpld)]
 #[serde(rename_all = "camelCase")]
 pub struct Header {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

@@ -9,6 +9,8 @@ use std::{collections::HashMap, fmt::Debug};
 use tokio::io::AsyncRead;
 use tracing::debug;
 
+use macro_ipld_derive::SerdeIpld;
+
 use super::{cid_from_dag_cbor, init, signed, Payload};
 
 /// Materialized Ceramic Event where internal structure is accessible.
@@ -298,18 +300,22 @@ impl TimeEvent {
 /// Raw Time Event as it is encoded in the protocol.
 #[derive(Serialize, Deserialize)]
 pub struct RawTimeEvent {
-    id: Cid,
-    prev: Cid,
-    proof: Cid,
-    path: String,
+    /// The CID of the init event of the stream
+    pub id: Cid,
+    /// The CID of the Data event that is being anchored in the chain
+    pub prev: Cid,
+    /// The CID of the proof block that tells us how to query the chain
+    pub proof: Cid,
+    /// path from the root in the proof block to the prev in the merkle tree
+    pub path: String,
 }
 
 impl Debug for RawTimeEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RawTimeEvent")
-            .field("id", &self.id.to_string())
-            .field("prev", &self.prev.to_string())
-            .field("proof", &self.proof.to_string())
+            .field("id", &format!("{:?}", &self.id))
+            .field("prev", &format!("{:?}", &self.prev))
+            .field("proof", &format!("{:?}", &self.proof))
             .field("path", &self.path)
             .finish()
     }
@@ -347,21 +353,25 @@ impl RawTimeEvent {
     }
 }
 /// Proof data
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, SerdeIpld)]
 #[serde(rename_all = "camelCase")]
 pub struct Proof {
-    chain_id: String,
-    root: Cid,
-    tx_hash: Cid,
-    tx_type: String,
+    /// eip-155 CHAIN_ID see https://chainid.network https://github.com/ethereum/EIPs/blob/master/EIPS/eip-155.md
+    pub chain_id: String,
+    /// the root node of the merkle tree
+    pub root: Cid,
+    /// the transaction hash for looking up the transaction in the chain
+    pub tx_hash: Cid,
+    /// the type of the transaction so we know how to extract the root from the transaction
+    pub tx_type: String,
 }
 
 impl Debug for Proof {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Proof")
             .field("chain_id", &self.chain_id)
-            .field("root", &self.root.to_string())
-            .field("tx_hash", &self.tx_hash.to_string())
+            .field("root", &format!("{:?}", &self.root))
+            .field("tx_hash", &format!("{:?}", &self.tx_hash))
             .field("tx_type", &self.tx_type)
             .finish()
     }
