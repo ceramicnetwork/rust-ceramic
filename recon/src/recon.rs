@@ -125,7 +125,7 @@ where
         }
 
         let calculated_hash = self.store.hash_range(&range.first..&range.last).await?;
-
+        tracing::info!(?calculated_hash, ?range, ?new_keys, "process_range");
         if calculated_hash == range.hash {
             Ok((SyncState::Synchronized { range }, new_keys))
         } else if calculated_hash.hash.is_zero() {
@@ -142,7 +142,7 @@ where
         } else if range.hash.hash.is_zero()
             || (!range.first.is_fencepost() && range.hash.count == 1)
         {
-            // Remote does not have any data (except for the first key) in the range.
+            // Remote does not have any data (except for possibly the first key) in the range.
             Ok((
                 SyncState::RemoteMissing {
                     range: RangeHash {
@@ -181,7 +181,7 @@ where
         const SPLIT_THRESHOLD: u64 = 4;
 
         if count <= SPLIT_THRESHOLD {
-            trace!(count, "small split sending all keys");
+            trace!(count, ?range, "small split sending all keys");
             // We have only a few keys in the range. Let's short circuit the roundtrips and
             // send the keys directly.
             let keys: Vec<K> = self
@@ -191,30 +191,40 @@ where
                 .collect();
 
             let mut ranges = Vec::with_capacity(keys.len() + 1);
-            let mut prev = None;
+            let mut prev: Option<K> = None;
             for key in keys {
                 if let Some(prev) = prev {
                     // Push range for each intermediate key.
+                    let hash = if !prev.is_fencepost() {
+                        HashCount::new(H::digest(&prev), 1)
+                    } else {
+                        HashCount::default()
+                    };
                     ranges.push(RangeHash {
                         first: prev,
-                        hash: HashCount::default(),
+                        hash,
                         last: key.clone(),
                     });
-                } else {
-                    // Push first key in range.
+                } else if range.first.is_fencepost() {
+                    // respond with initial fencepost to first key range is empty
                     ranges.push(RangeHash {
                         first: range.first.clone(),
                         hash: HashCount::default(),
                         last: key.clone(),
-                    });
+                    })
                 }
                 prev = Some(key);
             }
             if let Some(prev) = prev {
                 // Push last key in range.
+                let hash = if !prev.is_fencepost() {
+                    HashCount::new(H::digest(&prev), 1)
+                } else {
+                    HashCount::default()
+                };
                 ranges.push(RangeHash {
                     first: prev,
-                    hash: HashCount::default(),
+                    hash,
                     last: range.last,
                 });
             }
@@ -279,7 +289,7 @@ where
     }
 
     /// Return all keys in the range between left_fencepost and right_fencepost.
-    /// Both range bounds are exclusive.
+    /// The upper range bound is exclusive.
     ///
     /// Offset and limit values are applied within the range of keys.
     pub async fn range(
@@ -295,7 +305,7 @@ where
     }
 
     /// Return all keys and values in the range between left_fencepost and right_fencepost.
-    /// Both range bounds are exclusive.
+    /// The upper range bound is exclusive.
     ///
     /// Offset and limit values are applied within the range of keys.
     pub async fn range_with_values(
@@ -384,15 +394,6 @@ where
     }
 }
 
-impl<H> From<H> for HashCount<H> {
-    fn from(value: H) -> Self {
-        Self {
-            hash: value,
-            count: 0,
-        }
-    }
-}
-
 /// A key value pair to store
 #[derive(Clone, Debug)]
 pub struct ReconItem<'a, K>
@@ -471,12 +472,12 @@ pub trait Store {
     async fn insert_many(&self, items: &[ReconItem<'_, Self::Key>]) -> Result<InsertResult>;
 
     /// Return the hash of all keys in the range between left_fencepost and right_fencepost.
-    /// Both range bounds are exclusive.
+    /// The upper range bound is exclusive.
     /// Returns Result<(Hash, count), Err>
     async fn hash_range(&self, range: Range<&Self::Key>) -> Result<HashCount<Self::Hash>>;
 
     /// Return all keys in the range between left_fencepost and right_fencepost.
-    /// Both range bounds are exclusive.
+    /// The upper range bound is exclusive.
     ///
     /// Offset and limit values are applied within the range of keys.
     async fn range(
@@ -487,7 +488,7 @@ pub trait Store {
     ) -> Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>>;
 
     /// Return all keys and values in the range between left_fencepost and right_fencepost.
-    /// Both range bounds are exclusive.
+    /// The upper range bound is exclusive.
     ///
     /// Offset and limit values are applied within the range of keys.
     async fn range_with_values(
@@ -856,6 +857,17 @@ pub struct RangeHash<K, H> {
     /// Last key in the range,
     /// This key may be a fencepost, meaning its not an actual key but simply a boundary.
     pub last: K,
+}
+
+impl<K, H> RangeHash<K, H>
+where
+    K: Key,
+    H: AssociativeHash,
+{
+    /// If we have no keys in the range except the first.
+    pub fn includes_first_key(&self) -> bool {
+        self.hash.count == 1 && !self.first.is_fencepost()
+    }
 }
 
 impl<K, H> From<RangeHash<K, H>> for RangeOpen<K> {

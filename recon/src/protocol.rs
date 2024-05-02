@@ -108,7 +108,10 @@ pub struct ReconMessage<T> {
     pub body: T,
 }
 
-impl<T> ReconMessage<T> {
+impl<T> ReconMessage<T>
+where
+    T: std::fmt::Debug,
+{
     fn new(sync_id: Option<String>, body: T) -> ReconMessage<T>
     where
         MessageLabels: for<'a> From<&'a ReconMessage<T>>,
@@ -119,7 +122,7 @@ impl<T> ReconMessage<T> {
         };
         let sync_id = sync_id.as_ref().map_or("none", String::as_str);
         let message_type = MessageLabels::from(&message).message_type;
-        trace!(%sync_id, %message_type, "create_message");
+        trace!(%sync_id, %message_type, body=?message.body, "create_message");
         message
     }
 }
@@ -831,10 +834,11 @@ where
         // 2. We spend a lot of time writing out to the stream but not reading from the stream.
         //    This can be a potential deadlock if both side enter this method for a large amount of
         //    keys at the same time.
+
+        let offset = if range.first.is_fencepost() { 0 } else { 1 };
         let keys = self
             .recon
-            // TODO this now includes the first key in the response, HACK offset=1, better fix?
-            .range(range.first.clone(), range.last.clone(), 1, usize::MAX)
+            .range(range.first.clone(), range.last.clone(), offset, usize::MAX)
             .await?;
         for key in keys {
             if let Some(value) = self.recon.value_for_key(key.clone()).await? {
@@ -871,7 +875,7 @@ where
         }
     }
 
-    fn create_message<T>(&self, body: T) -> ReconMessage<T>
+    fn create_message<T: std::fmt::Debug>(&self, body: T) -> ReconMessage<T>
     where
         MessageLabels: for<'a> From<&'a ReconMessage<T>>,
     {
@@ -1077,7 +1081,7 @@ where
 mod tests {
     use expect_test::expect;
 
-    use crate::{tests::AlphaNumBytes, Sha256a};
+    use crate::{tests::AlphaNumBytes, HashCount, Sha256a};
 
     use super::*;
 
@@ -1085,7 +1089,7 @@ mod tests {
     fn message_serializes() {
         let msg = InitiatorMessage::RangeRequest(RangeHash {
             first: AlphaNumBytes::min_value(),
-            hash: Sha256a::digest(&AlphaNumBytes::from("hello world")).into(),
+            hash: HashCount::new(Sha256a::digest(&AlphaNumBytes::from("hello world")), 1),
             last: AlphaNumBytes::max_value(),
         });
 
@@ -1097,7 +1101,7 @@ mod tests {
     fn message_serializes_with_small_zero_hash() {
         let msg = InitiatorMessage::RangeRequest(RangeHash {
             first: AlphaNumBytes::min_value(),
-            hash: Sha256a::identity().into(),
+            hash: HashCount::new(Sha256a::identity(), 0),
             last: AlphaNumBytes::max_value(),
         });
 
