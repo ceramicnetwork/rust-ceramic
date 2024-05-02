@@ -280,12 +280,12 @@ impl SqliteEventStore {
         }
     }
 
-    /// Returns all the keys found after the given delivered value.
-    pub async fn new_keys_since_value(
+    /// Returns the root CIDs of all the events found after the given delivered value.
+    pub async fn new_events_since_value(
         &self,
         delivered: i64,
         limit: i64,
-    ) -> Result<(i64, Vec<EventId>)> {
+    ) -> Result<(i64, Vec<Cid>)> {
         let rows: Vec<DeliveredEvent> = sqlx::query_as(EventQuery::new_delivered_events())
             .bind(delivered)
             .bind(limit)
@@ -566,11 +566,11 @@ impl ceramic_api::AccessModelStore for SqliteEventStore {
         Ok(self.value_for_cid_int(key).await?)
     }
 
-    async fn keys_since_highwater_mark(
+    async fn events_since_highwater_mark(
         &self,
         highwater: i64,
         limit: i64,
-    ) -> anyhow::Result<(i64, Vec<EventId>)> {
-        Ok(self.new_keys_since_value(highwater, limit).await?)
+    ) -> anyhow::Result<(i64, Vec<Cid>)> {
+        Ok(self.new_events_since_value(highwater, limit).await?)
     }
 }

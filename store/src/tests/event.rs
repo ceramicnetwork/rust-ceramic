@@ -632,7 +632,7 @@ where
 // stores 3 keys with 3,5,10 block long CAR files
 // each one takes n+1 blocks as it needs to store the root and all blocks so we expect 3+5+10+3=21 blocks
 // but we use a delivered integer per event, so we expect it to increment by 1 for each event
-async fn prep_highwater_tests(store: &dyn AccessModelStore) -> (EventId, EventId, EventId) {
+async fn prep_highwater_tests(store: &dyn AccessModelStore) -> (Cid, Cid, Cid) {
     let key_a = random_event_id(None, None);
     let key_b = random_event_id(None, None);
     let key_c = random_event_id(None, None);
@@ -645,25 +645,29 @@ async fn prep_highwater_tests(store: &dyn AccessModelStore) -> (EventId, EventId
             .unwrap();
     }
 
-    (key_a, key_b, key_c)
+    (
+        key_a.cid().unwrap(),
+        key_b.cid().unwrap(),
+        key_c.cid().unwrap(),
+    )
 }
 
 test_with_dbs!(
-    keys_since_highwater_mark_all_global_counter,
-    keys_since_highwater_mark_all_global_counter,
+    events_since_highwater_mark_all_global_counter,
+    events_since_highwater_mark_all_global_counter,
     [
         "delete from ceramic_one_event_block",
         "delete from ceramic_one_event",
         "delete from ceramic_one_block",
     ]
 );
-async fn keys_since_highwater_mark_all_global_counter<S>(store: S)
+async fn events_since_highwater_mark_all_global_counter<S>(store: S)
 where
     S: AccessModelStore,
 {
     let (key_a, key_b, key_c) = prep_highwater_tests(&store).await;
 
-    let (hw, res) = store.keys_since_highwater_mark(0, 10).await.unwrap();
+    let (hw, res) = store.events_since_highwater_mark(0, 10).await.unwrap();
     assert_eq!(3, res.len());
     assert!(hw >= 4); // THIS IS THE GLOBAL COUNTER. we have 3 rows in the db we have a counter of 4 or more
     let exp = [key_a.clone(), key_b.clone(), key_c.clone()];
@@ -671,54 +675,54 @@ where
 }
 
 test_with_dbs!(
-    keys_since_highwater_mark_limit_1,
-    keys_since_highwater_mark_limit_1,
+    events_since_highwater_mark_limit_1,
+    events_since_highwater_mark_limit_1,
     [
         "delete from ceramic_one_event_block",
         "delete from ceramic_one_event",
         "delete from ceramic_one_block",
     ]
 );
-async fn keys_since_highwater_mark_limit_1<S>(store: S)
+async fn events_since_highwater_mark_limit_1<S>(store: S)
 where
     S: AccessModelStore,
 {
     let (key_a, _key_b, _key_c) = prep_highwater_tests(&store).await;
-    let (hw_og, res) = store.keys_since_highwater_mark(0, 1).await.unwrap();
+    let (hw_og, res) = store.events_since_highwater_mark(0, 1).await.unwrap();
     assert_eq!(1, res.len());
     assert!(hw_og >= 2); // other tests might be incrementing the count. but we should have at least 2 and it shouldn't change between calls
-    let (hw, res) = store.keys_since_highwater_mark(0, 1).await.unwrap();
+    let (hw, res) = store.events_since_highwater_mark(0, 1).await.unwrap();
     assert_eq!(hw_og, hw);
     assert_eq!([key_a], res.as_slice());
 }
 
 test_with_dbs!(
-    keys_since_highwater_mark_middle_start,
-    keys_since_highwater_mark_middle_start,
+    events_since_highwater_mark_middle_start,
+    events_since_highwater_mark_middle_start,
     [
         "delete from ceramic_one_event_block",
         "delete from ceramic_one_event",
         "delete from ceramic_one_block",
     ]
 );
-async fn keys_since_highwater_mark_middle_start<S>(store: S)
+async fn events_since_highwater_mark_middle_start<S>(store: S)
 where
     S: AccessModelStore,
 {
     let (key_a, key_b, key_c) = prep_highwater_tests(&store).await;
 
     // starting at rowid 1 which is in the middle of key A should still return key A
-    let (hw, res) = store.keys_since_highwater_mark(1, 2).await.unwrap();
+    let (hw, res) = store.events_since_highwater_mark(1, 2).await.unwrap();
     assert_eq!(2, res.len());
     assert!(hw >= 3);
     assert_eq!([key_a, key_b], res.as_slice());
 
-    let (hw, res) = store.keys_since_highwater_mark(hw, 1).await.unwrap();
+    let (hw, res) = store.events_since_highwater_mark(hw, 1).await.unwrap();
     assert_eq!(1, res.len());
     assert!(hw >= 4);
     assert_eq!([key_c], res.as_slice());
 
-    let (hw, res) = store.keys_since_highwater_mark(hw, 1).await.unwrap();
+    let (hw, res) = store.events_since_highwater_mark(hw, 1).await.unwrap();
     assert_eq!(0, res.len());
     assert!(hw >= 4); // previously returned 0
 }

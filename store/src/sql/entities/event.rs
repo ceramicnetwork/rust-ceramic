@@ -285,18 +285,18 @@ impl TryFrom<OrderKey> for EventId {
 
 #[derive(sqlx::FromRow)]
 pub struct DeliveredEvent {
-    pub order_key: Vec<u8>,
+    pub cid: Vec<u8>,
     pub new_highwater_mark: i64,
 }
 
 impl DeliveredEvent {
     /// assumes rows are sorted by `delivered` ascending
-    pub fn parse_query_results(current: i64, rows: Vec<Self>) -> Result<(i64, Vec<EventId>)> {
+    pub fn parse_query_results(current: i64, rows: Vec<Self>) -> Result<(i64, Vec<Cid>)> {
         let max: i64 = rows.last().map_or(current, |r| r.new_highwater_mark + 1);
         let rows = rows
             .into_iter()
-            .map(|row| EventId::try_from(row.order_key).map_err(Error::new_app))
-            .collect::<Result<Vec<EventId>>>()?;
+            .map(|row| Cid::try_from(row.cid).map_err(Error::new_app))
+            .collect::<Result<Vec<Cid>>>()?;
 
         Ok((max, rows))
     }
