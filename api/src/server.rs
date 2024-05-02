@@ -198,11 +198,11 @@ pub trait AccessModelStore: Send + Sync {
 
     // it's likely `highwater` will be a string or struct when we have alternative storage for now we
     // keep it simple to allow easier error propagation. This isn't currently public outside of this repo.
-    async fn keys_since_highwater_mark(
+    async fn events_since_highwater_mark(
         &self,
         highwater: i64,
         limit: i64,
-    ) -> Result<(i64, Vec<EventId>)>;
+    ) -> Result<(i64, Vec<Cid>)>;
 }
 
 #[async_trait::async_trait]
@@ -234,13 +234,13 @@ impl<S: AccessModelStore> AccessModelStore for Arc<S> {
         self.as_ref().value_for_cid(key).await
     }
 
-    async fn keys_since_highwater_mark(
+    async fn events_since_highwater_mark(
         &self,
         highwater: i64,
         limit: i64,
-    ) -> Result<(i64, Vec<EventId>)> {
+    ) -> Result<(i64, Vec<Cid>)> {
         self.as_ref()
-            .keys_since_highwater_mark(highwater, limit)
+            .events_since_highwater_mark(highwater, limit)
             .await
     }
 }
@@ -368,12 +368,12 @@ where
         };
         let (new_hw, event_ids) = self
             .model
-            .keys_since_highwater_mark(hw, limit as i64)
+            .events_since_highwater_mark(hw, limit as i64)
             .await
             .map_err(|e| ErrorResponse::new(format!("failed to get keys: {e}")))?;
         let events = event_ids
             .into_iter()
-            .map(|id| BuildResponse::event_with_eventid(id, vec![]))
+            .map(|id| BuildResponse::event(id, vec![]))
             .collect();
 
         Ok(FeedEventsGetResponse::Success(models::EventFeed {
