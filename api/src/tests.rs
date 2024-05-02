@@ -92,11 +92,11 @@ impl AccessModelStore for MockReconModelTest {
     async fn value_for_cid(&self, key: &Cid) -> Result<Option<Vec<u8>>> {
         self.value_for_cid(key)
     }
-    async fn keys_since_highwater_mark(
+    async fn events_since_highwater_mark(
         &self,
         _highwater: i64,
         _limit: i64,
-    ) -> anyhow::Result<(i64, Vec<EventId>)> {
+    ) -> anyhow::Result<(i64, Vec<Cid>)> {
         Ok((0, vec![]))
     }
 }

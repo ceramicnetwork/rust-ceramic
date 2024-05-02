@@ -73,7 +73,7 @@ impl EventQuery {
     /// Requires binding 2 parameters. Fetches the new rows as `DeliveredEvent` objects
     pub fn new_delivered_events() -> &'static str {
         r#"SELECT 
-                order_key, COALESCE(delivered, 0) as "new_highwater_mark"
+                cid, COALESCE(delivered, 0) as "new_highwater_mark"
             FROM ceramic_one_event
             WHERE delivered >= $1 -- we return delivered+1 so we must match it next search
             ORDER BY delivered

@@ -245,15 +245,15 @@ where
         .await
     }
 
-    async fn keys_since_highwater_mark(
+    async fn events_since_highwater_mark(
         &self,
         highwater: i64,
         limit: i64,
-    ) -> anyhow::Result<(i64, Vec<EventId>)> {
+    ) -> anyhow::Result<(i64, Vec<Cid>)> {
         StoreMetricsMiddleware::<S>::record(
             &self.metrics,
-            "api_keys_since_highwater_mark",
-            self.store.keys_since_highwater_mark(highwater, limit),
+            "api_events_since_highwater_mark",
+            self.store.events_since_highwater_mark(highwater, limit),
         )
         .await
     }
