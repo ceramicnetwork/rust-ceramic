@@ -202,23 +202,6 @@ impl From<String> for Base64UrlString {
     }
 }
 
-// Version 0.10 of the cid crate has an encoded_len method.
-// However we are on version 0.9 because of iroh dependencies.
-//
-// To make upgrading easier this trait implements the behavior
-// however inefficiently.
-//
-// Once we upgrade to 0.10 of cid we can simply delete this code.
-trait EncodedLen {
-    fn encoded_len(&self) -> usize;
-}
-
-impl EncodedLen for Cid {
-    fn encoded_len(&self) -> usize {
-        self.to_bytes().len()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

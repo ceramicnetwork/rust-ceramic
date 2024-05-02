@@ -4,6 +4,7 @@ mod event;
 mod interest;
 mod root;
 mod sqlite;
+mod anchor_request;
 
 pub(crate) use entities::*;
 pub use event::SqliteEventStore;

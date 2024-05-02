@@ -183,6 +183,8 @@ pub trait AccessModelStore: Send + Sync {
         highwater: i64,
         limit: i64,
     ) -> Result<(i64, Vec<EventId>)>;
+
+    async fn scan_anchor_requests(&self, limit: i64) -> Result<Vec<Vec<u8>>>;
 }
 
 #[async_trait::async_trait]
@@ -219,6 +221,10 @@ impl<S: AccessModelStore> AccessModelStore for Arc<S> {
             .keys_since_highwater_mark(highwater, limit)
             .await
     }
+
+    async fn scan_anchor_requests(&self, limit: i64) -> Result<Vec<Vec<u8>>> {
+        self.as_ref().scan_anchor_requests(limit).await
+    }
 }
 
 struct EventInsert {
@@ -232,31 +238,44 @@ struct InsertTask {
     tx: tokio::sync::mpsc::Sender<EventInsert>,
 }
 
+struct AnchorTask {
+    _handle: tokio::task::JoinHandle<()>,
+}
+
 #[derive(Clone)]
-pub struct Server<C, I, M> {
+pub struct Server<C> {
     peer_id: PeerId,
     network: Network,
-    interest: I,
-    model: Arc<M>,
+    interest: ApiInterestStore,
+    model: ApiModelStore,
     // If we need to restart this ever, we'll need a mutex. For now we want to avoid locking the channel
     // so we just keep track to gracefully shutdown, but if the task dies, the server is in a fatal error state.
     insert_task: Arc<InsertTask>,
+    anchor_task: Arc<AnchorTask>,
     marker: PhantomData<C>,
 }
 
-impl<C, I, M> Server<C, I, M>
-where
-    I: AccessInterestStore,
-    M: AccessModelStore + 'static,
-{
-    pub fn new(peer_id: PeerId, network: Network, interest: I, model: Arc<M>) -> Self {
+type ApiModelStore = Arc<dyn AccessModelStore + Send + Sync + 'static>;
+type ApiInterestStore = Arc<dyn AccessInterestStore + Send + Sync + 'static>;
+
+impl<C> Server<C> {
+    pub fn new(
+        peer_id: PeerId,
+        network: Network,
+        interest: ApiInterestStore,
+        model: ApiModelStore,
+    ) -> Self {
         let (tx, event_rx) = tokio::sync::mpsc::channel::<EventInsert>(1024);
         let event_store = model.clone();
 
-        let handle = Self::start_insert_task(event_store, event_rx);
+        let insert_task_handle = Self::start_insert_task(event_store.clone(), event_rx);
+        let anchor_task_handle = Self::start_anchor_task(event_store);
         let insert_task = Arc::new(InsertTask {
-            _handle: handle,
+            _handle: insert_task_handle,
             tx,
+        });
+        let anchor_task = Arc::new(AnchorTask {
+            _handle: anchor_task_handle,
         });
         Server {
             peer_id,
@@ -264,12 +283,13 @@ where
             interest,
             model,
             insert_task,
+            anchor_task,
             marker: PhantomData,
         }
     }
 
     fn start_insert_task(
-        event_store: Arc<M>,
+        event_store: ApiModelStore,
         mut event_rx: tokio::sync::mpsc::Receiver<EventInsert>,
     ) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
@@ -296,7 +316,7 @@ where
         })
     }
 
-    async fn process_events(events: &mut Vec<EventInsert>, event_store: &Arc<M>) {
+    async fn process_events(events: &mut Vec<EventInsert>, event_store: &ApiModelStore) {
         let mut oneshots = Vec::with_capacity(events.len());
         let mut items = Vec::with_capacity(events.len());
         events.drain(..).for_each(|req: EventInsert| {
@@ -322,6 +342,24 @@ where
                 }
             }
         };
+    }
+
+    fn start_anchor_task(event_store: ApiModelStore) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(20 * 60));
+            loop {
+                let _ = interval.tick().await;
+
+                // Logic for building tree with unanchored CIDs
+                let unanchored_cids = match event_store.scan_anchor_requests(1000).await {
+                    Ok(cids) => cids,
+                    Err(e) => {
+                        tracing::error!("failed to scan anchor requests: {e}");
+                        continue;
+                    }
+                };
+            }
+        })
     }
 
     pub async fn get_event_feed(
@@ -557,11 +595,9 @@ pub(crate) fn decode_event_data(value: &str) -> Result<Vec<u8>, BadRequestRespon
 }
 
 #[async_trait]
-impl<C, I, M> Api<C> for Server<C, I, M>
+impl<C> Api<C> for Server<C>
 where
     C: Send + Sync,
-    I: AccessInterestStore + Sync,
-    M: AccessModelStore + Sync + 'static,
 {
     #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn liveness_get(

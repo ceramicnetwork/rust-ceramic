@@ -119,15 +119,23 @@ impl SqliteEventStore {
         rebuild_car(blocks).await
     }
 
-    async fn insert_item_int(&self, item: ReconItem<'_, EventId>) -> Result<(bool, bool)> {
+    async fn insert_item_int(
+        &self,
+        item: ReconItem<'_, EventId>,
+        request_anchor: bool,
+    ) -> Result<(bool, bool)> {
         let new_val = item.value.is_some();
-        let res = self.insert_items_int(&[item]).await?;
+        let res = self.insert_items_int(&[item], request_anchor).await?;
         let new_key = res.keys.first().cloned().unwrap_or(false);
         Ok((new_key, new_val))
     }
 
     /// Insert many items into the store (internal to the store)
-    async fn insert_items_int(&self, items: &[ReconItem<'_, EventId>]) -> Result<InsertResult> {
+    async fn insert_items_int(
+        &self,
+        items: &[ReconItem<'_, EventId>],
+        request_anchor: bool,
+    ) -> Result<InsertResult> {
         if items.is_empty() {
             return Ok(InsertResult::new(vec![], 0));
         }
@@ -156,7 +164,17 @@ impl SqliteEventStore {
             let new_key = self.insert_key_int(&item.order_key, &mut tx).await?;
             for block in item.blocks.iter() {
                 self.insert_event_block_int(block, &mut tx).await?;
-                self.mark_ready_to_deliver(&item.order_key, &mut tx).await?;
+            }
+            self.mark_ready_to_deliver(&item.order_key, &mut tx).await?;
+            if request_anchor {
+                self.put_anchor_request(
+                    &item
+                        .order_key
+                        .cid()
+                        .ok_or_else(|| Error::new_app(anyhow!("CID required")))?,
+                    &mut tx,
+                )
+                .await?;
             }
             new_keys[idx] = new_key;
             if !item.blocks.is_empty() {
@@ -319,7 +337,8 @@ impl recon::Store for SqliteEventStore {
 
     /// Returns true if the key was new. The value is always updated if included
     async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> ReconResult<bool> {
-        let (res, _new_val) = self.insert_item_int(item.to_owned()).await?;
+        // We never want to anchor events received via Recon
+        let (res, _new_val) = self.insert_item_int(item.to_owned(), false).await?;
         Ok(res)
     }
 
@@ -329,7 +348,8 @@ impl recon::Store for SqliteEventStore {
         match items.len() {
             0 => Ok(InsertResult::new(vec![], 0)),
             _ => {
-                let res = self.insert_items_int(items).await?;
+                // We never want to anchor events received via Recon
+                let res = self.insert_items_int(items, false).await?;
                 Ok(res)
             }
         }
@@ -533,7 +553,8 @@ impl ceramic_api::AccessModelStore for SqliteEventStore {
             .iter()
             .map(|(key, value)| ReconItem::new(key, value.as_deref()))
             .collect::<Vec<ReconItem<'_, EventId>>>();
-        let res = self.insert_items_int(&items).await?;
+        // We always want to anchor events received via the API
+        let res = self.insert_items_int(&items, true).await?;
         Ok((res.keys, res.value_count))
     }
 

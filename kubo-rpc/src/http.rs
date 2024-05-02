@@ -23,7 +23,6 @@ use cid::Cid;
 use go_parse_duration::parse_duration;
 use libp2p::{Multiaddr, PeerId};
 use multiaddr::Protocol;
-use serde::Serialize;
 use serde_ipld_dagcbor::codec::DagCborCodec;
 use serde_ipld_dagjson::codec::DagJsonCodec;
 use swagger::{ApiError, ByteArray};
@@ -350,16 +349,6 @@ where
             version: v.version,
         }))
     }
-}
-
-#[derive(Serialize)]
-struct ErrorJson<'a> {
-    #[serde(rename = "Message")]
-    pub message: String,
-    #[serde(rename = "Code")]
-    pub code: i32,
-    #[serde(rename = "Type")]
-    pub typ: &'a str,
 }
 
 #[cfg(test)]

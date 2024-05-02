@@ -494,7 +494,7 @@ impl Daemon {
         let ceramic_server = ceramic_api::Server::new(
             peer_id,
             network,
-            interest_api_store,
+            Arc::new(interest_api_store),
             Arc::new(model_api_store),
         );
         let ceramic_metrics = MetricsHandle::register(ceramic_api::Metrics::register);
