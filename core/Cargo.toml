@@ -9,12 +9,13 @@ publish = false
 
 [dependencies]
 anyhow.workspace = true
-base64 = "0.21.2"
+base64.workspace = true
 cid.workspace = true
 did-method-key = "0.2.1"
 did-pkh = "0.2.1"
 hex.workspace = true
 int-enum = "0.5.0"
+ipld-core.workspace = true
 libp2p-identity.workspace = true
 minicbor.workspace = true
 multibase.workspace = true
@@ -22,6 +23,7 @@ multihash-codetable.workspace = true
 multihash-derive.workspace = true
 once_cell.workspace = true
 regex.workspace = true
+ring.workspace = true
 serde.workspace = true
 serde_bytes.workspace = true
 serde_ipld_dagcbor.workspace = true

@@ -49,6 +49,7 @@
         "libp2p",
         "listen_addrs",
         "mdns",
+        "Merkle",
         "meshsub",
         "minicbor",
         "mockall",

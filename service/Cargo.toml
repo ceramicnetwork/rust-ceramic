@@ -10,6 +10,7 @@ repository.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
 bytes.workspace = true
+ceramic-anchor-service.workspace = true
 ceramic-api.workspace = true
 ceramic-core.workspace = true
 ceramic-event.workspace = true
