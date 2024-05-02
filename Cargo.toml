@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "api",
     "api-server",
+    "cas",
     "core",
     "event",
     "kubo-rpc",

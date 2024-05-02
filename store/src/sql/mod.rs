@@ -3,8 +3,11 @@ pub mod entities;
 mod query;
 mod root;
 mod sqlite;
+mod anchor_request;
+
 #[cfg(test)]
 mod test;
+
 
 pub use access::{
     CeramicOneBlock, CeramicOneEvent, CeramicOneEventBlock, CeramicOneInterest, InsertResult,

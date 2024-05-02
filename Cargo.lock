@@ -998,6 +998,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "cas"
+version = "0.29.0"
+dependencies = [
+ "anyhow",
+ "ceramic-store",
+ "cid 0.11.1",
+ "hex",
+ "ipld-core",
+ "multihash-codetable",
+ "rand 0.8.5",
+ "serde_ipld_dagcbor",
+ "tokio",
+]
+
+[[package]]
 name = "cast"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1033,6 +1048,8 @@ dependencies = [
  "ceramic-core",
  "ceramic-event",
  "ceramic-metadata",
+ "ceramic-metrics",
+ "cid 0.11.1",
  "expect-test",
  "futures",
  "hex",
