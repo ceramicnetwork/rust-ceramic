@@ -1,8 +1,7 @@
 name: Rust Build and Test
 
 on:
-  pull_request:
-    branches: [ "main" ]
+  pull_request: {}
   merge_group:
     branches: [ "main" ]
   workflow_dispatch:
