@@ -385,6 +385,7 @@ mod tests {
 
     // Helper type for asserting responses with binary data.
     #[derive(Debug)]
+    #[allow(dead_code)]
     enum DebugResponse {
         Success(UnquotedString),
         BadRequest(models::Error),
