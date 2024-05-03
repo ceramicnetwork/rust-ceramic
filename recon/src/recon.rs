@@ -111,6 +111,8 @@ where
         }
 
         if !should_add.is_empty() {
+            // immediately request values if we don't have them
+            //
             let new = self.insert_many(&should_add).await?;
             debug_assert_eq!(
                 new.len(),
@@ -163,6 +165,7 @@ where
                 ?calculated_hash,
                 "splitting",
             );
+
             Ok((
                 SyncState::Unsynchronized {
                     ranges: self.compute_splits(range, calculated_hash.count).await?,

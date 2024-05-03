@@ -402,15 +402,19 @@ where
 
     async fn process_range(&mut self, remote_range: RangeHash<R::Key, R::Hash>) -> Result<()> {
         let (sync_state, new_keys) = self.common.recon.process_range(remote_range).await?;
-        self.common.process_new_keys(&new_keys);
+        // TODO: when do we need to do this?
+        tracing::warn!(?sync_state, ?new_keys, "process_range initiator");
         match sync_state {
             SyncState::Synchronized { range } => {
                 self.common.enqueue_sync_range(range.into());
             }
             SyncState::RemoteMissing { range } => {
+                self.common.process_new_keys(&new_keys);
                 self.common.process_remote_missing_range(&range).await?;
+                self.common.enqueue_sync_range(range.into());
             }
             SyncState::Unsynchronized { ranges } => {
+                self.common.process_new_keys(&new_keys);
                 self.send_ranges(ranges.into_iter()).await?;
             }
         }
@@ -641,8 +645,9 @@ where
     }
 
     async fn process_range(&mut self, range: RangeHash<R::Key, R::Hash>) -> Result<()> {
+        tracing::error!(?range, "process_range responder");
         let (sync_state, new_keys) = self.common.recon.process_range(range).await?;
-        self.common.process_new_keys(&new_keys);
+        tracing::error!(?new_keys, ?sync_state, "process_range responder");
         match sync_state {
             SyncState::Synchronized { range } => {
                 self.common.enqueue_sync_range(range.clone().into());
@@ -657,6 +662,7 @@ where
                     .await?;
             }
             SyncState::RemoteMissing { range } => {
+                self.common.process_new_keys(&new_keys);
                 self.common.process_remote_missing_range(&range).await?;
                 // Send the range hash after we have sent all keys so the remote learns we are in
                 // sync.
@@ -664,11 +670,13 @@ where
                     .stream
                     .send(
                         self.common
-                            .create_message(ResponderMessage::RangeResponse(vec![range])),
+                            .create_message(ResponderMessage::RangeResponse(vec![range.clone()])),
                     )
                     .await?;
+                self.common.enqueue_sync_range(range.into());
             }
             SyncState::Unsynchronized { ranges: splits } => {
+                self.common.process_new_keys(&new_keys);
                 self.common
                     .stream
                     .send(
@@ -790,6 +798,7 @@ where
     MessageLabels: for<'a> From<&'a Out>,
 {
     fn process_new_keys(&mut self, new_keys: &[R::Key]) {
+        tracing::info!(?new_keys, "processing new keys");
         for key in new_keys {
             if self.tx_want_values.try_send(key.clone()).is_err() {
                 self.metrics.record(&WantEnqueueFailed);
@@ -864,7 +873,11 @@ where
             .recon
             .keys_with_missing_values(&range.start..&range.end)
             .await?;
+
+        // how do we avoid requesting the same key again here now that the sync range is 1 key?
+        tracing::error!(?range, ?keys, "handle_sync_range about to process new keys");
         self.process_new_keys(&keys);
+
         Ok(())
     }
     fn enqueue_sync_range(&mut self, range: Range<R::Key>) {
@@ -1094,7 +1107,7 @@ mod tests {
         });
 
         let cbor_hex = hex::encode(serde_cbor::to_vec(&msg).unwrap());
-        expect!["a16c52616e676552657175657374a3656669727374406468617368a264686173685820b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde965636f756e7400646c61737441ff"].assert_eq(&cbor_hex);
+        expect!["a16c52616e676552657175657374a3656669727374406468617368a264686173685820b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde965636f756e7401646c61737441ff"].assert_eq(&cbor_hex);
     }
 
     #[test]
