@@ -1186,7 +1186,6 @@ dependencies = [
  "mockall",
  "multiaddr",
  "prometheus-client",
- "serde",
  "serde_ipld_dagcbor",
  "serde_ipld_dagjson",
  "serde_json",
