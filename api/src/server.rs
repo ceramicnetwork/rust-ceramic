@@ -34,8 +34,7 @@ use ceramic_api_server::{
     InterestsSortKeySortValuePostResponse, LivenessGetResponse, VersionPostResponse,
 };
 use ceramic_api_server::{
-    Api, EventsSortKeySortValueGetResponse, ExperimentalEventsSepSepValueGetResponse,
-    FeedEventsGetResponse, InterestsPostResponse,
+    Api, ExperimentalEventsSepSepValueGetResponse, FeedEventsGetResponse, InterestsPostResponse,
 };
 use ceramic_core::{interest, EventId, Interest, Network, PeerId, StreamId};
 use std::error::Error;
@@ -634,38 +633,6 @@ where
         self.get_events_sort_key_sort_value(sep, sep_value, controller, stream_id, offset, limit)
             .await
             .or_else(|err| Ok(ExperimentalEventsSepSepValueGetResponse::InternalServerError(err)))
-    }
-
-    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
-    async fn events_sort_key_sort_value_get(
-        &self,
-        sort_key: String,
-        sort_value: String,
-        controller: Option<String>,
-        stream_id: Option<String>,
-        offset: Option<i32>,
-        limit: Option<i32>,
-        _context: &C,
-    ) -> Result<EventsSortKeySortValueGetResponse, ApiError> {
-        match self
-            .get_events_sort_key_sort_value(
-                sort_key, sort_value, controller, stream_id, offset, limit,
-            )
-            .await
-        {
-            Ok(v) => match v {
-                ExperimentalEventsSepSepValueGetResponse::Success(s) => {
-                    Ok(EventsSortKeySortValueGetResponse::Success(s))
-                }
-                ExperimentalEventsSepSepValueGetResponse::BadRequest(r) => {
-                    Ok(EventsSortKeySortValueGetResponse::BadRequest(r))
-                }
-                ExperimentalEventsSepSepValueGetResponse::InternalServerError(err) => {
-                    Ok(EventsSortKeySortValueGetResponse::InternalServerError(err))
-                }
-            },
-            Err(err) => Ok(EventsSortKeySortValueGetResponse::InternalServerError(err)),
-        }
     }
 
     #[instrument(skip(self, _context, event), fields(event.id = event.id, event.data.len = event.data.len()), ret(level = Level::DEBUG), err(level = Level::ERROR))]

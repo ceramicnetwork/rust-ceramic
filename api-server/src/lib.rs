@@ -59,17 +59,6 @@ pub enum EventsPostResponse {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[must_use]
-pub enum EventsSortKeySortValueGetResponse {
-    /// success
-    Success(models::EventsGet),
-    /// bad request
-    BadRequest(models::BadRequestResponse),
-    /// Internal server error
-    InternalServerError(models::ErrorResponse),
-}
-
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[must_use]
 pub enum ExperimentalEventsSepSepValueGetResponse {
     /// success
     Success(models::EventsGet),
@@ -159,18 +148,6 @@ pub trait Api<C: Send + Sync> {
     ) -> Result<EventsPostResponse, ApiError>;
 
     /// Get events matching the interest stored on the node
-    async fn events_sort_key_sort_value_get(
-        &self,
-        sort_key: String,
-        sort_value: String,
-        controller: Option<String>,
-        stream_id: Option<String>,
-        offset: Option<i32>,
-        limit: Option<i32>,
-        context: &C,
-    ) -> Result<EventsSortKeySortValueGetResponse, ApiError>;
-
-    /// Get events matching the interest stored on the node
     async fn experimental_events_sep_sep_value_get(
         &self,
         sep: String,
@@ -236,17 +213,6 @@ pub trait ApiNoContext<C: Send + Sync> {
 
     /// Creates a new event
     async fn events_post(&self, event: models::Event) -> Result<EventsPostResponse, ApiError>;
-
-    /// Get events matching the interest stored on the node
-    async fn events_sort_key_sort_value_get(
-        &self,
-        sort_key: String,
-        sort_value: String,
-        controller: Option<String>,
-        stream_id: Option<String>,
-        offset: Option<i32>,
-        limit: Option<i32>,
-    ) -> Result<EventsSortKeySortValueGetResponse, ApiError>;
 
     /// Get events matching the interest stored on the node
     async fn experimental_events_sep_sep_value_get(
@@ -332,24 +298,6 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
     async fn events_post(&self, event: models::Event) -> Result<EventsPostResponse, ApiError> {
         let context = self.context().clone();
         self.api().events_post(event, &context).await
-    }
-
-    /// Get events matching the interest stored on the node
-    async fn events_sort_key_sort_value_get(
-        &self,
-        sort_key: String,
-        sort_value: String,
-        controller: Option<String>,
-        stream_id: Option<String>,
-        offset: Option<i32>,
-        limit: Option<i32>,
-    ) -> Result<EventsSortKeySortValueGetResponse, ApiError> {
-        let context = self.context().clone();
-        self.api()
-            .events_sort_key_sort_value_get(
-                sort_key, sort_value, controller, stream_id, offset, limit, &context,
-            )
-            .await
     }
 
     /// Get events matching the interest stored on the node

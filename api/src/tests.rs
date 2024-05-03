@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use ceramic_api_server::Api;
 use ceramic_api_server::{
     models::{self},
-    EventsEventIdGetResponse, EventsPostResponse, EventsSortKeySortValueGetResponse,
+    EventsEventIdGetResponse, EventsPostResponse, ExperimentalEventsSepSepValueGetResponse,
     InterestsPostResponse, InterestsSortKeySortValuePostResponse,
 };
 use ceramic_core::{Cid, Interest};
@@ -360,7 +360,7 @@ async fn get_events_for_interest_range() {
         .returning(|s, _, _, _| Ok(vec![(s.clone(), vec![])]));
     let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_model));
     let resp = server
-        .events_sort_key_sort_value_get(
+        .experimental_events_sep_sep_value_get(
             "model".to_string(),
             model.to_owned(),
             Some(controller.to_owned()),
@@ -373,7 +373,7 @@ async fn get_events_for_interest_range() {
         .unwrap();
     assert_eq!(
         resp,
-        EventsSortKeySortValueGetResponse::Success(models::EventsGet {
+        ExperimentalEventsSepSepValueGetResponse::Success(models::EventsGet {
             resume_offset: 1,
             events: vec![expected],
             is_complete: false,

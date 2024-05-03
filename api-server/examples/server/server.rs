@@ -102,9 +102,8 @@ impl<C> Server<C> {
 use ceramic_api_server::server::MakeService;
 use ceramic_api_server::{
     Api, DebugHeapGetResponse, EventsEventIdGetResponse, EventsPostResponse,
-    EventsSortKeySortValueGetResponse, ExperimentalEventsSepSepValueGetResponse,
-    FeedEventsGetResponse, InterestsPostResponse, InterestsSortKeySortValuePostResponse,
-    LivenessGetResponse, VersionPostResponse,
+    ExperimentalEventsSepSepValueGetResponse, FeedEventsGetResponse, InterestsPostResponse,
+    InterestsSortKeySortValuePostResponse, LivenessGetResponse, VersionPostResponse,
 };
 use std::error::Error;
 use swagger::ApiError;
@@ -148,21 +147,6 @@ where
             event,
             context.get().0.clone()
         );
-        Err(ApiError("Generic failure".into()))
-    }
-
-    /// Get events matching the interest stored on the node
-    async fn events_sort_key_sort_value_get(
-        &self,
-        sort_key: String,
-        sort_value: String,
-        controller: Option<String>,
-        stream_id: Option<String>,
-        offset: Option<i32>,
-        limit: Option<i32>,
-        context: &C,
-    ) -> Result<EventsSortKeySortValueGetResponse, ApiError> {
-        info!("events_sort_key_sort_value_get(\"{}\", \"{}\", {:?}, {:?}, {:?}, {:?}) - X-Span-ID: {:?}", sort_key, sort_value, controller, stream_id, offset, limit, context.get().0.clone());
         Err(ApiError("Generic failure".into()))
     }
 

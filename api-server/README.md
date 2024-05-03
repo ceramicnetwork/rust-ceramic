@@ -15,7 +15,7 @@ To see how to make this your own, look here:
 [README]((https://openapi-generator.tech))
 
 - API version: 0.15.0
-- Build date: 2024-05-01T13:10:53.544095-06:00[America/Denver]
+- Build date: 2024-05-03T08:38:36.675855-06:00[America/Denver]
 
 
 
@@ -64,7 +64,6 @@ To run a client, follow one of the following simple steps:
 ```
 cargo run --example client DebugHeapGet
 cargo run --example client EventsEventIdGet
-cargo run --example client EventsSortKeySortValueGet
 cargo run --example client ExperimentalEventsSepSepValueGet
 cargo run --example client FeedEventsGet
 cargo run --example client InterestsSortKeySortValuePost
@@ -106,7 +105,6 @@ Method | HTTP request | Description
 [****](docs/default_api.md#) | **GET** /debug/heap | Get the heap statistics of the Ceramic node
 [****](docs/default_api.md#) | **GET** /events/{event_id} | Get event data
 [****](docs/default_api.md#) | **POST** /events | Creates a new event
-[****](docs/default_api.md#) | **GET** /events/{sort_key}/{sort_value} | Get events matching the interest stored on the node
 [****](docs/default_api.md#) | **GET** /experimental/events/{sep}/{sepValue} | Get events matching the interest stored on the node
 [****](docs/default_api.md#) | **GET** /feed/events | Get all new event keys since resume token
 [****](docs/default_api.md#) | **POST** /interests | Register interest for a sort key
