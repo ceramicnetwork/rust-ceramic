@@ -625,10 +625,10 @@ impl Info {
         })
     }
     fn apply_to_metrics_config(&self, cfg: &mut MetricsConfig) {
-        cfg.service_name = self.service_name.clone();
-        cfg.version = self.version.clone();
-        cfg.build = self.build.clone();
-        cfg.instance_id = self.instance_id.clone();
+        cfg.service_name.clone_from(&self.service_name);
+        cfg.version.clone_from(&self.version);
+        cfg.build.clone_from(&self.build);
+        cfg.instance_id.clone_from(&self.instance_id);
     }
 }
 

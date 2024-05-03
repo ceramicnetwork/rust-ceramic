@@ -1,5 +1,8 @@
 //! Provides an http implementation of the Kubo RPC methods.
 
+// See https://github.com/tokio-rs/tracing/pull/2880
+#![allow(clippy::blocks_in_conditions)]
+
 mod metrics;
 
 pub use metrics::{api::MetricsMiddleware, Metrics};
@@ -23,7 +26,6 @@ use cid::Cid;
 use go_parse_duration::parse_duration;
 use libp2p::{Multiaddr, PeerId};
 use multiaddr::Protocol;
-use serde::Serialize;
 use serde_ipld_dagcbor::codec::DagCborCodec;
 use serde_ipld_dagjson::codec::DagJsonCodec;
 use swagger::{ApiError, ByteArray};
@@ -350,16 +352,6 @@ where
             version: v.version,
         }))
     }
-}
-
-#[derive(Serialize)]
-struct ErrorJson<'a> {
-    #[serde(rename = "Message")]
-    pub message: String,
-    #[serde(rename = "Code")]
-    pub code: i32,
-    #[serde(rename = "Type")]
-    pub typ: &'a str,
 }
 
 #[cfg(test)]

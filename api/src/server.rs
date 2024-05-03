@@ -1,5 +1,7 @@
 //! Main library entry point for ceramic_api_server implementation.
 
+// See https://github.com/tokio-rs/tracing/pull/2880
+#![allow(clippy::blocks_in_conditions)]
 #![allow(unused_imports)]
 
 use std::time::Duration;
