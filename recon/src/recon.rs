@@ -95,66 +95,30 @@ where
     ///
     /// Reports any new keys and what the range indicates about how the local and remote node are
     /// synchronized.
-    pub async fn process_range(
-        &mut self,
-        range: RangeHash<K, H>,
-    ) -> Result<(SyncState<K, H>, Vec<K>)> {
-        let mut should_add = Vec::with_capacity(2);
-        let mut new_keys = Vec::with_capacity(2);
-
-        if !range.first.is_fencepost() {
-            should_add.push(ReconItem::new_key(&range.first));
-        }
-
-        if !range.last.is_fencepost() {
-            should_add.push(ReconItem::new_key(&range.last));
-        }
-
-        if !should_add.is_empty() {
-            // immediately request values if we don't have them
-            //
-            let new = self.insert_many(&should_add).await?;
-            debug_assert_eq!(
-                new.len(),
-                should_add.len(),
-                "new and should_add must be same length"
-            );
-            for (idx, key) in should_add.into_iter().enumerate() {
-                if new[idx] {
-                    new_keys.push(key.key.clone());
-                }
-            }
-        }
-
+    pub async fn process_range(&mut self, range: RangeHash<K, H>) -> Result<SyncState<K, H>> {
         let calculated_hash = self.store.hash_range(&range.first..&range.last).await?;
-        tracing::info!(?calculated_hash, ?range, ?new_keys, "process_range");
+        tracing::info!(?calculated_hash, ?range, "process_range");
         if calculated_hash == range.hash {
-            Ok((SyncState::Synchronized { range }, new_keys))
+            Ok(SyncState::Synchronized { range })
         } else if calculated_hash.hash.is_zero() {
-            Ok((
-                SyncState::Unsynchronized {
-                    ranges: vec![RangeHash {
-                        first: range.first,
-                        hash: HashCount::default(),
-                        last: range.last,
-                    }],
-                },
-                new_keys,
-            ))
+            Ok(SyncState::Unsynchronized {
+                ranges: vec![RangeHash {
+                    first: range.first,
+                    hash: HashCount::default(),
+                    last: range.last,
+                }],
+            })
         } else if range.hash.hash.is_zero()
             || (!range.first.is_fencepost() && range.hash.count == 1)
         {
             // Remote does not have any data (except for possibly the first key) in the range.
-            Ok((
-                SyncState::RemoteMissing {
-                    range: RangeHash {
-                        first: range.first,
-                        hash: calculated_hash,
-                        last: range.last,
-                    },
+            Ok(SyncState::RemoteMissing {
+                range: RangeHash {
+                    first: range.first,
+                    hash: calculated_hash,
+                    last: range.last,
                 },
-                new_keys,
-            ))
+            })
         } else {
             // We disagree on the hash for range.
             // Split the range.
@@ -166,12 +130,9 @@ where
                 "splitting",
             );
 
-            Ok((
-                SyncState::Unsynchronized {
-                    ranges: self.compute_splits(range, calculated_hash.count).await?,
-                },
-                new_keys,
-            ))
+            Ok(SyncState::Unsynchronized {
+                ranges: self.compute_splits(range, calculated_hash.count).await?,
+            })
         }
     }
 
@@ -181,6 +142,7 @@ where
         count: u64,
     ) -> Result<Vec<RangeHash<K, H>>> {
         // If the number of keys in a range is <= SPLIT_THRESHOLD then directly send all the keys.
+        // TODO: Remove threshold and just use a large N-ary split for all cases
         const SPLIT_THRESHOLD: u64 = 4;
 
         if count <= SPLIT_THRESHOLD {

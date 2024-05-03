@@ -39,7 +39,7 @@ use lalrpop_util::ParseError;
 use pretty::{Arena, DocAllocator, DocBuilder, Pretty};
 
 use crate::{
-    protocol::{self, InitiatorMessage, ReconMessage, ResponderMessage, ValueResponse},
+    protocol::{self, InitiatorMessage, ReconMessage, ResponderMessage, Value},
     recon::{FullInterests, HashCount, InterestProvider, RangeHash, ReconItem},
     tests::AlphaNumBytes,
     AssociativeHash, BTreeStore, Client, Key, Metrics, Recon, Result as ReconResult, Server,
@@ -325,12 +325,7 @@ where
                             .text("range_req")
                             .append(PrettyRange(rr).pretty(allocator).parens()),
                     ),
-                    InitiatorMessage::ValueRequest(key) => dir.append(
-                        allocator
-                            .text("value_req")
-                            .append(PrettyKey(key).pretty(allocator).parens()),
-                    ),
-                    InitiatorMessage::ValueResponse(vr) => dir.append(
+                    InitiatorMessage::Value(vr) => dir.append(
                         allocator
                             .text("value_resp")
                             .append(PrettyValueResponse(vr).pretty(allocator).parens()),
@@ -356,12 +351,7 @@ where
                                 .parens(),
                         ),
                     ),
-                    ResponderMessage::ValueRequest(key) => dir.append(
-                        allocator
-                            .text("value_req")
-                            .append(PrettyKey(key).pretty(allocator).parens()),
-                    ),
-                    ResponderMessage::ValueResponse(vr) => dir.append(
+                    ResponderMessage::Value(vr) => dir.append(
                         allocator
                             .text("value_resp")
                             .append(PrettyValueResponse(vr).pretty(allocator).parens()),
@@ -473,7 +463,7 @@ where
     }
 }
 
-struct PrettyValueResponse<'a, K>(pub &'a ValueResponse<K>);
+struct PrettyValueResponse<'a, K>(pub &'a Value<K>);
 
 impl<'a, D, A, K> Pretty<'a, D, A> for PrettyValueResponse<'a, K>
 where
@@ -560,8 +550,11 @@ async fn word_lists() {
         recon_from_string(include_str!("./testdata/wordle_words5_big.txt")).await,
         recon_from_string(include_str!("./testdata/wordle_words5.txt")).await,
     ];
+
     let expected_ahash =
-        expect!["9D8511EC34DA2556EF05CC44FBBBBE8E80D334304EED642D31193CACE15A7345#21132"r peer in &mut peers {
+        expect![["9D8511EC34DA2556EF05CC44FBBBBE8E80D334304EED642D31193CACE15A7345#21132"]];
+
+    for peer in &mut peers {
         debug!(count = peer.len().await.unwrap(), "initial peer state");
     }
 

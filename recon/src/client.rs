@@ -138,7 +138,7 @@ where
         rx.await?
     }
     /// Compute the synchornization state from a remote range.
-    pub async fn process_range(&self, range: RangeHash<K, H>) -> Result<(SyncState<K, H>, Vec<K>)> {
+    pub async fn process_range(&self, range: RangeHash<K, H>) -> Result<SyncState<K, H>> {
         let (ret, rx) = oneshot::channel();
         self.sender
             .send(Request::ProcessRange { range, ret })
@@ -203,7 +203,7 @@ enum Request<K, H> {
 }
 
 type RangeWithValuesResult<K> = Result<Box<dyn Iterator<Item = (K, Vec<u8>)> + Send>>;
-type ProcessRangeResult<K, H> = Result<(SyncState<K, H>, Vec<K>)>;
+type ProcessRangeResult<K, H> = Result<SyncState<K, H>>;
 
 /// Server that processed received Recon messages in a single task.
 #[derive(Debug)]

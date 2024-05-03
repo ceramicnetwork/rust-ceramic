@@ -22,10 +22,6 @@ pub struct Metrics {
     protocol_message_received_count: Family<MessageLabels, Counter>,
     protocol_message_sent_count: Family<MessageLabels, Counter>,
 
-    protocol_want_enqueue_failed_count: Counter,
-    protocol_want_enqueued_count: Counter,
-    protocol_want_dequeued_count: Counter,
-
     protocol_range_enqueue_failed_count: Counter,
     protocol_range_enqueued_count: Counter,
     protocol_range_dequeued_count: Counter,
@@ -42,11 +38,8 @@ pub(crate) struct MessageLabels {
 impl<K: Key, H: AssociativeHash> From<&ReconMessage<InitiatorMessage<K, H>>> for MessageLabels {
     fn from(value: &ReconMessage<InitiatorMessage<K, H>>) -> Self {
         match value.body {
-            InitiatorMessage::ValueRequest(_) => Self {
-                message_type: "ValueRequest",
-            },
-            InitiatorMessage::ValueResponse(_) => Self {
-                message_type: "ValueResponse",
+            InitiatorMessage::Value(_) => Self {
+                message_type: "Value",
             },
             InitiatorMessage::ListenOnly => Self {
                 message_type: "ListenOnly",
@@ -67,11 +60,8 @@ impl<K: Key, H: AssociativeHash> From<&ReconMessage<InitiatorMessage<K, H>>> for
 impl<K: Key, H: AssociativeHash> From<&ReconMessage<ResponderMessage<K, H>>> for MessageLabels {
     fn from(value: &ReconMessage<ResponderMessage<K, H>>) -> Self {
         match value.body {
-            ResponderMessage::ValueRequest(_) => Self {
-                message_type: "ValueRequest",
-            },
-            ResponderMessage::ValueResponse(_) => Self {
-                message_type: "ValueResponse",
+            ResponderMessage::Value(_) => Self {
+                message_type: "Value",
             },
             ResponderMessage::ListenOnly => Self {
                 message_type: "ListenOnly",
@@ -102,27 +92,6 @@ impl Metrics {
             protocol_message_sent_count,
             "Number times a message is sent",
             Family::<MessageLabels, Counter>::default(),
-            sub_registry
-        );
-
-        register!(
-            protocol_want_enqueue_failed_count,
-            "Number times key is dropped when enqueing into the want_values queue",
-            Counter::default(),
-            sub_registry
-        );
-
-        register!(
-            protocol_want_enqueued_count,
-            "Number times key is enqued into the want_values queue",
-            Counter::default(),
-            sub_registry
-        );
-
-        register!(
-            protocol_want_dequeued_count,
-            "Number times key is dequed from the want_values queue",
-            Counter::default(),
             sub_registry
         );
 
@@ -163,9 +132,6 @@ impl Metrics {
         Self {
             protocol_message_received_count,
             protocol_message_sent_count,
-            protocol_want_enqueue_failed_count,
-            protocol_want_enqueued_count,
-            protocol_want_dequeued_count,
             protocol_range_enqueue_failed_count,
             protocol_range_enqueued_count,
             protocol_range_dequeued_count,
@@ -198,27 +164,6 @@ where
         self.protocol_message_sent_count
             .get_or_create(&labels)
             .inc();
-    }
-}
-
-pub(crate) struct WantEnqueueFailed;
-impl Recorder<WantEnqueueFailed> for Metrics {
-    fn record(&self, _event: &WantEnqueueFailed) {
-        self.protocol_want_enqueue_failed_count.inc();
-    }
-}
-
-pub(crate) struct WantEnqueued;
-impl Recorder<WantEnqueued> for Metrics {
-    fn record(&self, _event: &WantEnqueued) {
-        self.protocol_want_enqueued_count.inc();
-    }
-}
-
-pub(crate) struct WantDequeued;
-impl Recorder<WantDequeued> for Metrics {
-    fn record(&self, _event: &WantDequeued) {
-        self.protocol_want_dequeued_count.inc();
     }
 }
 
