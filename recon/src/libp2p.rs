@@ -24,13 +24,13 @@ use libp2p::{
     swarm::{ConnectionId, NetworkBehaviour, NotifyHandler, ToSwarm},
 };
 use libp2p_identity::PeerId;
+use std::collections::VecDeque;
+use std::task::Waker;
 use std::{
     collections::{btree_map::Entry, BTreeMap},
     task::Poll,
     time::{Duration, Instant},
 };
-use std::collections::VecDeque;
-use std::task::Waker;
 use tracing::{debug, trace, warn};
 
 pub use crate::protocol::Recon;

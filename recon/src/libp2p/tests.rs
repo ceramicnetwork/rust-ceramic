@@ -213,9 +213,7 @@ mod loomtest {
                 MockReconForEventId::new(),
                 Config::default(),
             );
-            let res = loom::future::block_on(poll_immediate(poll_fn(|cx| {
-                behavior.poll(cx)
-            })));
+            let res = loom::future::block_on(poll_immediate(poll_fn(|cx| behavior.poll(cx))));
             assert!(res.is_none())
         });
     }
@@ -239,9 +237,7 @@ mod loomtest {
                     last_sync: None,
                 },
             );
-            let res = loom::future::block_on(poll_immediate(poll_fn(|cx| {
-                behavior.poll(cx)
-            })));
+            let res = loom::future::block_on(poll_immediate(poll_fn(|cx| behavior.poll(cx))));
             assert!(res.is_none());
         });
     }
@@ -255,9 +251,7 @@ mod loomtest {
                 Config::default(),
             );
             let mut behavior = std::pin::Pin::new(&mut behavior);
-            let res = loom::future::block_on(poll_immediate(poll_fn(|cx| {
-                behavior.poll(cx)
-            })));
+            let res = loom::future::block_on(poll_immediate(poll_fn(|cx| behavior.poll(cx))));
             assert!(res.is_none());
 
             behavior.send_event(ToSwarm::GenerateEvent(Event::PeerEvent(PeerEvent {
@@ -265,9 +259,7 @@ mod loomtest {
                 status: PeerStatus::Waiting,
             })));
 
-            let res = loom::future::block_on(poll_immediate(poll_fn(|cx| {
-                behavior.poll(cx)
-            })));
+            let res = loom::future::block_on(poll_immediate(poll_fn(|cx| behavior.poll(cx))));
 
             assert!(res.is_some());
         });
