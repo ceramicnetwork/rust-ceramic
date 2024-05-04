@@ -1,0 +1,18 @@
+[package]
+name = "cas"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+ceramic-store.workspace = true
+cid.workspace = true
+hex.workspace = true
+ipld-core.workspace = true
+multihash-codetable.workspace = true
+rand.workspace = true
+serde_ipld_dagcbor.workspace = true
+tokio.workspace = true

@@ -581,4 +581,8 @@ impl ceramic_api::AccessModelStore for SqliteEventStore {
     ) -> anyhow::Result<(i64, Vec<EventId>)> {
         Ok(self.new_keys_since_value(highwater, limit).await?)
     }
+
+    async fn scan_anchor_requests(&self, limit: i64) -> anyhow::Result<Vec<Cid>> {
+        Ok(self.scan_anchor_requests(limit as usize).await?)
+    }
 }

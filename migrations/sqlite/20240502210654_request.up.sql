@@ -1,7 +1,7 @@
 -- Add up migration script here
-CREATE TABLE IF NOTE EXISTS ceramic_one_anchor_request (
-    cid BLOB NOT NULL,                    -- CID of the event for which an anchor has been requested
-    detached_time_event_cid BLOB NOT NULL -- CID of the Detached Time Event
+CREATE TABLE IF NOT EXISTS ceramic_one_anchor_request (
+    cid BLOB NOT NULL,            -- CID of the event for which an anchor has been requested
+    detached_time_event_cid BLOB, -- CID of the Detached Time Event
     PRIMARY KEY(cid)
 );
 

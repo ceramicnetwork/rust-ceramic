@@ -11,7 +11,7 @@ use sqlx::{
 use crate::{DbTxSqlite, Error, Result, SqliteEventStore};
 
 const PUT_QUERY: &str =
-    r#"INSERT INTO ceramic_one_anchor_request cid VALUES $1 ON CONFLICT DO NOTHING"#;
+    r#"INSERT INTO ceramic_one_anchor_request (cid) VALUES ($1) ON CONFLICT DO NOTHING"#;
 
 const GET_QUERY: &str =
     r#"SELECT (cid, detached_time_event_cid) FROM ceramic_one_anchor_request WHERE cid = $1;"#;
@@ -63,13 +63,14 @@ struct TimeEventRow {
     detached_time_event_cid: Option<CidBlob>,
 }
 
+#[derive(Debug, FromRow)]
+struct CidRow {
+    cid: CidBlob,
+}
+
 impl SqliteEventStore {
     /// Store CID
-    pub(crate) async fn put_anchor_request(
-        &self,
-        cid: &Cid,
-        conn: &mut DbTxSqlite<'_>,
-    ) -> Result<()> {
+    pub async fn put_anchor_request(&self, cid: &Cid, conn: &mut DbTxSqlite<'_>) -> Result<()> {
         let _ = sqlx::query(PUT_QUERY)
             .bind(cid.to_bytes())
             .execute(&mut **conn)
@@ -88,20 +89,17 @@ impl SqliteEventStore {
     }
 
     /// Scan the anchor request table for all unanchored CIDs
-    pub(crate) async fn scan_anchor_requests(&self, limit: usize) -> Result<Vec<Cid>> {
-        let time_event_rows: Vec<TimeEventRow> = sqlx::query_as(SCAN_QUERY)
+    pub async fn scan_anchor_requests(&self, limit: usize) -> Result<Vec<Cid>> {
+        let rows: Vec<CidRow> = sqlx::query_as(SCAN_QUERY)
             .bind(limit as i64)
             .fetch_all(self.pool.reader())
             .await
             .map_err(Error::from)?;
-        Ok(time_event_rows
-            .into_iter()
-            .map(|time_event_row| time_event_row.cid.0)
-            .collect::<Vec<Cid>>())
+        Ok(rows.into_iter().map(|row| row.cid.0).collect::<Vec<Cid>>())
     }
 
     /// Update the Detached Time Event CID for an anchored CID
-    pub(crate) async fn update_anchor_request(
+    pub async fn update_anchor_request(
         &self,
         cid: &Cid,
         detached_time_event_cid: &Cid,

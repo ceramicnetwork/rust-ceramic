@@ -18,6 +18,7 @@ use std::{
 use anyhow::{bail, Result};
 use async_trait::async_trait;
 use ceramic_api_server::models::{BadRequestResponse, ErrorResponse};
+use cid::Cid;
 use futures::{future, Stream, StreamExt, TryFutureExt, TryStreamExt};
 use hyper::service::Service;
 use hyper::{server::conn::Http, Request};
@@ -184,7 +185,7 @@ pub trait AccessModelStore: Send + Sync {
         limit: i64,
     ) -> Result<(i64, Vec<EventId>)>;
 
-    async fn scan_anchor_requests(&self, limit: i64) -> Result<Vec<Vec<u8>>>;
+    async fn scan_anchor_requests(&self, limit: i64) -> Result<Vec<Cid>>;
 }
 
 #[async_trait::async_trait]
@@ -222,7 +223,7 @@ impl<S: AccessModelStore> AccessModelStore for Arc<S> {
             .await
     }
 
-    async fn scan_anchor_requests(&self, limit: i64) -> Result<Vec<Vec<u8>>> {
+    async fn scan_anchor_requests(&self, limit: i64) -> Result<Vec<Cid>> {
         self.as_ref().scan_anchor_requests(limit).await
     }
 }
