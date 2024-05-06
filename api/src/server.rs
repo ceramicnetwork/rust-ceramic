@@ -63,17 +63,6 @@ const INSERT_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_se
 // Helper to build responses consistent as we can't implement for the api_server::models directly
 pub struct BuildResponse {}
 impl BuildResponse {
-    // TODO(stbrody): remove this function. We should only ever return events to the API with their
-    // CID, we should never expose the EventID.
-    pub fn event_with_eventid(id: EventId, data: Vec<u8>) -> models::Event {
-        let id = multibase::encode(multibase::Base::Base16Lower, id.as_bytes());
-        let data = if data.is_empty() {
-            String::default()
-        } else {
-            multibase::encode(multibase::Base::Base64, data)
-        };
-        models::Event::new(id, data)
-    }
     pub fn event(id: Cid, data: Vec<u8>) -> models::Event {
         let id = id.to_string();
         let data = if data.is_empty() {
@@ -184,7 +173,7 @@ pub trait AccessModelStore: Send + Sync {
         end: &EventId,
         offset: usize,
         limit: usize,
-    ) -> Result<Vec<(EventId, Vec<u8>)>>;
+    ) -> Result<Vec<(Cid, Vec<u8>)>>;
 
     /**
      * Returns the event value bytes as a CAR file, identified by the order key (EventID).
@@ -220,7 +209,7 @@ impl<S: AccessModelStore> AccessModelStore for Arc<S> {
         end: &EventId,
         offset: usize,
         limit: usize,
-    ) -> Result<Vec<(EventId, Vec<u8>)>> {
+    ) -> Result<Vec<(Cid, Vec<u8>)>> {
         self.as_ref()
             .range_with_values(start, end, offset, limit)
             .await
@@ -404,7 +393,7 @@ where
             .await
             .map_err(|err| ErrorResponse::new(format!("failed to get keys: {err}")))?
             .into_iter()
-            .map(|(id, data)| BuildResponse::event_with_eventid(id, data))
+            .map(|(id, data)| BuildResponse::event(id, data))
             .collect::<Vec<_>>();
 
         let event_cnt = events.len();
