@@ -22,6 +22,7 @@ use std::sync::Arc;
 use tracing_test::traced_test;
 
 struct Context;
+
 mock! {
     pub ReconInterestTest {
         fn insert(&self, key: Interest, value: Option<Vec<u8>>) -> Result<bool>;
@@ -95,6 +96,10 @@ impl AccessModelStore for MockReconModelTest {
         _limit: i64,
     ) -> anyhow::Result<(i64, Vec<EventId>)> {
         Ok((0, vec![]))
+    }
+
+    async fn get_block(&self, _cid: &Cid) -> Result<Option<Vec<u8>>> {
+        Ok(None)
     }
 }
 #[tokio::test]

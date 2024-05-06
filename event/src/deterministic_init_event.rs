@@ -1,8 +1,9 @@
-use crate::args::UnsignedEvent;
 use anyhow::Result;
 use ceramic_core::DagCborEncoded;
 use serde::Serialize;
 use std::fmt::Formatter;
+
+use crate::unvalidated;
 
 /// A deterministic init event, where it will always hash the same way
 #[derive(Serialize)]
@@ -14,7 +15,7 @@ pub struct DeterministicInitEvent {
 
 impl DeterministicInitEvent {
     /// Create a deterministic init event from an unsigned event
-    pub fn new(evt: &UnsignedEvent<()>) -> Result<Self> {
+    pub fn new(evt: &unvalidated::Payload<()>) -> Result<Self> {
         let data = DagCborEncoded::new(&evt)?;
         Ok(Self { encoded: data })
     }

@@ -310,6 +310,14 @@ impl SqliteEventStore {
             .await?;
         Ok(())
     }
+
+    async fn get_block(&self, cid: &Cid) -> Result<Option<Vec<u8>>> {
+        let block: Option<BlockBytes> = sqlx::query_as(BlockQuery::get())
+            .bind(cid.hash().to_bytes())
+            .fetch_optional(self.pool.reader())
+            .await?;
+        Ok(block.map(|b| b.bytes))
+    }
 }
 
 #[async_trait]
@@ -497,11 +505,13 @@ impl iroh_bitswap::Store for SqliteEventStore {
     }
 
     async fn get(&self, cid: &Cid) -> anyhow::Result<Block> {
-        let block: BlockBytes = sqlx::query_as(BlockQuery::get())
-            .bind(cid.hash().to_bytes())
-            .fetch_one(self.pool.reader())
-            .await?;
-        Ok(Block::new(block.bytes.into(), cid.to_owned()))
+        let block = self.get_block(cid).await?;
+        Ok(Block::new(
+            block
+                .ok_or_else(|| anyhow!("block {cid} does not exist"))?
+                .into(),
+            cid.to_owned(),
+        ))
     }
 
     async fn has(&self, cid: &Cid) -> anyhow::Result<bool> {
@@ -559,5 +569,8 @@ impl ceramic_api::AccessModelStore for SqliteEventStore {
         limit: i64,
     ) -> anyhow::Result<(i64, Vec<EventId>)> {
         Ok(self.new_keys_since_value(highwater, limit).await?)
+    }
+    async fn get_block(&self, cid: &Cid) -> anyhow::Result<Option<Vec<u8>>> {
+        Ok(self.get_block(cid).await?)
     }
 }
