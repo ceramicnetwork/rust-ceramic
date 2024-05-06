@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.16.0] - 2024-05-06
+
+### 🚀 Features
+
+- Remove deprecated http API for getting events for a single interest (#332)
+
+### 🐛 Bug Fixes
+
+- Changes to improve sync and ingest performance (#324)
+- Fix clippy (#334)
+
+### 🚜 Refactor
+
+- Update deps cid, multihash, and ipld (#309)
+
+### ⚙️ Miscellaneous Tasks
+
+- Add bad request response to get events API (#329)
+- Run build/test/check CI on all PRs (#333)
+
 ## [0.15.0] - 2024-04-29
 
 ### 🚀 Features
@@ -36,6 +56,7 @@ All notable changes to this project will be documented in this file.
 - Update open telemetry and tokio-console dependencies (#322)
 - Refactor to to lay groundwork for postgres support (#320)
 - Add variants for error handling (#317)
+- Version v0.15.0 (#325)
 
 ## [0.14.0] - 2024-03-26
 
