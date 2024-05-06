@@ -138,6 +138,7 @@ where
         }
     }
 
+    #[instrument(skip(self), fields(range, count), ret(level = Level::DEBUG))]
     async fn compute_splits(
         &mut self,
         range: RangeHash<K, H>,
@@ -172,7 +173,7 @@ where
                         hash,
                         last: key.clone(),
                     });
-                } else if range.first.is_fencepost() {
+                } else if range.first != key {
                     // respond with initial fencepost to first key range is empty
                     ranges.push(RangeHash {
                         first: range.first.clone(),

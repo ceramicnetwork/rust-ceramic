@@ -34,7 +34,7 @@ use codespan_reporting::{
     files::SimpleFiles,
     term::{self, termcolor::Buffer},
 };
-use expect_test::{expect, Expect};
+use expect_test::{expect, expect_file, Expect};
 use lalrpop_util::ParseError;
 use pretty::{Arena, DocAllocator, DocBuilder, Pretty};
 
@@ -530,7 +530,7 @@ async fn word_lists() {
             FullInterests::default(),
             Metrics::register(&mut Registry::default()),
         );
-        for key in s.split([' ', '\n']).map(|s| s.to_string()) {
+        for key in s.split_whitespace().map(|s| s.to_string()) {
             if !s.is_empty() {
                 r.insert(&ReconItem::new(
                     &key.as_bytes().into(),
@@ -552,7 +552,8 @@ async fn word_lists() {
     ];
 
     let expected_ahash =
-        expect![["9D8511EC34DA2556EF05CC44FBBBBE8E80D334304EED642D31193CACE15A7345#21132"]];
+        expect![r##"495BF24CE0DB5C33CE846ADCD6D9A87592E05324585D85059C3DC2113B500F79#21139"##];
+    let word_list = expect_file!["testdata/expected/all.txt"];
 
     for peer in &mut peers {
         debug!(count = peer.len().await.unwrap(), "initial peer state");
@@ -620,7 +621,16 @@ async fn word_lists() {
             .initial_range((AlphaNumBytes::min_value(), AlphaNumBytes::max_value()).into())
             .await
             .unwrap();
-        expected_ahash.assert_eq(&full_range.hash.to_string())
+        expected_ahash.assert_eq(&full_range.hash.to_string());
+
+        let words: Vec<String> = peer
+            .full_range()
+            .await
+            .unwrap()
+            .map(|word| word.to_string())
+            .collect();
+        let words = words.join("\n");
+        word_list.assert_eq(&words);
     }
 }
 

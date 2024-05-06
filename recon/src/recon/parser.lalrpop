@@ -45,12 +45,13 @@ StateInner: BTreeMap<AlphaNumBytes, Option<AlphaNumBytes>> = {
 };
 
 KeyValue: (AlphaNumBytes, Option<AlphaNumBytes>) = {
+    <key:Word> => (key.clone(), Some(key.clone())),
     <key:Word> ":" <value:Word> => (key.clone(), Some(value)),
     <key:Word> ":" "∅" => (key.clone(), None),
 }
 
 Word : AlphaNumBytes = {
-    r"[a-zA-Z0-9]*"=> AlphaNumBytes::from(<>.to_string()),
+    r"[a-zA-Z0-9-]*"=> AlphaNumBytes::from(<>.to_string()),
     r"𝚨"=> AlphaNumBytes::min_value(),
     r"𝛀"=> AlphaNumBytes::max_value(),
 };

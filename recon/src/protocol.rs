@@ -19,7 +19,7 @@ use ceramic_metrics::Recorder;
 use futures::{Sink, SinkExt, Stream, TryStreamExt};
 use serde::{Deserialize, Serialize};
 use tokio::{select, time::Instant};
-use tracing::{trace, Level};
+use tracing::{error, trace, Level};
 use uuid::Uuid;
 
 use crate::{
