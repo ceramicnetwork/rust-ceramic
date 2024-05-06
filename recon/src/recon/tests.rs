@@ -1267,24 +1267,30 @@ async fn abcde() {
             cat: [b: B, c: C, d: D, e: E]
         <- interest_resp((𝚨, 𝛀 ))
             dog: [a: A, e: E]
+        <- listen_only
+            dog: [a: A, e: E]
         -> range_req({𝚨 h(b, c, d, e)#4 𝛀 })
             cat: [b: B, c: C, d: D, e: E]
         <- range_resp({𝚨 0 a}, {a h(a)#1 e}, {e h(e)#1 𝛀 })
             dog: [a: A, e: E]
         -> value_resp(b: B)
-            cat: [a: ∅, b: B, c: C, d: D, e: E]
+            cat: [b: B, c: C, d: D, e: E]
         -> value_resp(c: C)
-            cat: [a: ∅, b: B, c: C, d: D, e: E]
+            cat: [b: B, c: C, d: D, e: E]
         -> value_resp(d: D)
-            cat: [a: ∅, b: B, c: C, d: D, e: E]
-        -> value_req(a)
-            cat: [a: ∅, b: B, c: C, d: D, e: E]
-        -> listen_only
-            cat: [a: ∅, b: B, c: C, d: D, e: E]
+            cat: [b: B, c: C, d: D, e: E]
+        -> range_req({a h(b, c, d)#3 e})
+            cat: [b: B, c: C, d: D, e: E]
+        <- range_resp({a h(a)#1 b}, {b h(b)#1 c}, {c h(c)#1 d}, {d h(d)#1 e})
+            dog: [a: A, b: B, c: C, d: D, e: E]
+        -> range_req({a 0 b})
+            cat: [b: B, c: C, d: D, e: E]
         <- value_resp(a: A)
             dog: [a: A, b: B, c: C, d: D, e: E]
-        <- listen_only
+        <- range_resp({a h(a)#1 b})
             dog: [a: A, b: B, c: C, d: D, e: E]
+        -> listen_only
+            cat: [a: A, b: B, c: C, d: D, e: E]
         -> finished
             cat: [a: A, b: B, c: C, d: D, e: E]
         cat: [a: A, b: B, c: C, d: D, e: E]
@@ -1302,18 +1308,24 @@ async fn two_in_a_row() {
             cat: [a: A, b: B, c: C, d: D, e: E]
         <- interest_resp((𝚨, 𝛀 ))
             dog: [a: A, d: D, e: E]
+        <- listen_only
+            dog: [a: A, d: D, e: E]
         -> range_req({𝚨 h(a, b, c, d, e)#5 𝛀 })
             cat: [a: A, b: B, c: C, d: D, e: E]
         <- range_resp({𝚨 0 a}, {a h(a)#1 d}, {d h(d)#1 e}, {e h(e)#1 𝛀 })
             dog: [a: A, d: D, e: E]
+        -> value_resp(a: A)
+            cat: [a: A, b: B, c: C, d: D, e: E]
         -> value_resp(b: B)
             cat: [a: A, b: B, c: C, d: D, e: E]
         -> value_resp(c: C)
             cat: [a: A, b: B, c: C, d: D, e: E]
+        -> range_req({a h(a, b, c)#3 d})
+            cat: [a: A, b: B, c: C, d: D, e: E]
+        <- range_resp({a h(a, b, c)#3 d})
+            dog: [a: A, b: B, c: C, d: D, e: E]
         -> listen_only
             cat: [a: A, b: B, c: C, d: D, e: E]
-        <- listen_only
-            dog: [a: A, b: B, c: C, d: D, e: E]
         -> finished
             cat: [a: A, b: B, c: C, d: D, e: E]
         cat: [a: A, b: B, c: C, d: D, e: E]
@@ -1331,36 +1343,42 @@ async fn disjoint() {
             cat: [a: A, b: B, c: C]
         <- interest_resp((𝚨, 𝛀 ))
             dog: [e: E, f: F, g: G]
+        <- listen_only
+            dog: [e: E, f: F, g: G]
         -> range_req({𝚨 h(a, b, c)#3 𝛀 })
             cat: [a: A, b: B, c: C]
         <- range_resp({𝚨 0 e}, {e h(e)#1 f}, {f h(f)#1 g}, {g h(g)#1 𝛀 })
             dog: [e: E, f: F, g: G]
         -> value_resp(a: A)
-            cat: [a: A, b: B, c: C, e: ∅]
+            cat: [a: A, b: B, c: C]
         -> value_resp(b: B)
-            cat: [a: A, b: B, c: C, e: ∅, f: ∅, g: ∅]
+            cat: [a: A, b: B, c: C]
         -> value_resp(c: C)
-            cat: [a: A, b: B, c: C, e: ∅, f: ∅, g: ∅]
-        -> value_req(e)
-            cat: [a: A, b: B, c: C, e: ∅, f: ∅, g: ∅]
-        -> value_req(e)
-            cat: [a: A, b: B, c: C, e: ∅, f: ∅, g: ∅]
+            cat: [a: A, b: B, c: C]
+        -> range_req({𝚨 h(a, b, c)#3 e})
+            cat: [a: A, b: B, c: C]
+        -> range_req({e 0 f})
+            cat: [a: A, b: B, c: C]
+        <- range_resp({𝚨 h(a, b, c)#3 e})
+            dog: [a: A, b: B, c: C, e: E, f: F, g: G]
+        -> range_req({f 0 g})
+            cat: [a: A, b: B, c: C]
         <- value_resp(e: E)
             dog: [a: A, b: B, c: C, e: E, f: F, g: G]
-        -> value_req(f)
-            cat: [a: A, b: B, c: C, e: E, f: ∅, g: ∅]
-        <- value_resp(e: E)
+        -> range_req({g 0 𝛀 })
+            cat: [a: A, b: B, c: C]
+        <- range_resp({e h(e)#1 f})
             dog: [a: A, b: B, c: C, e: E, f: F, g: G]
-        -> value_req(g)
-            cat: [a: A, b: B, c: C, e: E, f: ∅, g: ∅]
         <- value_resp(f: F)
             dog: [a: A, b: B, c: C, e: E, f: F, g: G]
-        -> listen_only
-            cat: [a: A, b: B, c: C, e: E, f: F, g: ∅]
+        <- range_resp({f h(f)#1 g})
+            dog: [a: A, b: B, c: C, e: E, f: F, g: G]
         <- value_resp(g: G)
             dog: [a: A, b: B, c: C, e: E, f: F, g: G]
-        <- listen_only
+        <- range_resp({g h(g)#1 𝛀 })
             dog: [a: A, b: B, c: C, e: E, f: F, g: G]
+        -> listen_only
+            cat: [a: A, b: B, c: C, e: E, f: F, g: G]
         -> finished
             cat: [a: A, b: B, c: C, e: E, f: F, g: G]
         cat: [a: A, b: B, c: C, e: E, f: F, g: G]
@@ -1379,16 +1397,20 @@ async fn one_cat() {
             cat: [a: A]
         <- interest_resp((𝚨, 𝛀 ))
             dog: []
+        <- listen_only
+            dog: []
         -> range_req({𝚨 h(a)#1 𝛀 })
             cat: [a: A]
         <- range_resp({𝚨 0 𝛀 })
             dog: []
         -> value_resp(a: A)
             cat: [a: A]
+        -> range_req({𝚨 h(a)#1 𝛀 })
+            cat: [a: A]
+        <- range_resp({𝚨 h(a)#1 𝛀 })
+            dog: [a: A]
         -> listen_only
             cat: [a: A]
-        <- listen_only
-            dog: [a: A]
         -> finished
             cat: [a: A]
         cat: [a: A]
@@ -1408,14 +1430,14 @@ async fn one_dog() {
             dog: [a: A]
         -> range_req({𝚨 0 𝛀 })
             cat: []
+        <- listen_only
+            dog: [a: A]
         <- value_resp(a: A)
             dog: [a: A]
         <- range_resp({𝚨 h(a)#1 𝛀 })
             dog: [a: A]
         -> listen_only
             cat: [a: A]
-        <- listen_only
-            dog: [a: A]
         -> finished
             cat: [a: A]
         cat: [a: A]
@@ -1433,14 +1455,14 @@ async fn none() {
             cat: []
         <- interest_resp((𝚨, 𝛀 ))
             dog: []
+        <- listen_only
+            dog: []
         -> range_req({𝚨 0 𝛀 })
             cat: []
         <- range_resp({𝚨 0 𝛀 })
             dog: []
         -> listen_only
             cat: []
-        <- listen_only
-            dog: []
         -> finished
             cat: []
         cat: []
@@ -1458,14 +1480,14 @@ async fn two_in_sync() {
             cat: [a: A, z: Z]
         <- interest_resp((𝚨, 𝛀 ))
             dog: [a: A, z: Z]
+        <- listen_only
+            dog: [a: A, z: Z]
         -> range_req({𝚨 h(a, z)#2 𝛀 })
             cat: [a: A, z: Z]
         <- range_resp({𝚨 h(a, z)#2 𝛀 })
             dog: [a: A, z: Z]
         -> listen_only
             cat: [a: A, z: Z]
-        <- listen_only
-            dog: [a: A, z: Z]
         -> finished
             cat: [a: A, z: Z]
         cat: [a: A, z: Z]
@@ -1559,6 +1581,8 @@ async fn paper() {
             dog: [bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, hog: HOG]
         -> range_req({𝚨 h(ape, eel, fox, gnu)#4 𝛀 })
             cat: [ape: APE, eel: EEL, fox: FOX, gnu: GNU]
+        <- listen_only
+            dog: [bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, hog: HOG]
         <- range_resp({𝚨 h(bee, cot, doe)#3 eel}, {eel h(eel, fox, hog)#3 𝛀 })
             dog: [bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, hog: HOG]
         -> range_req({𝚨 0 ape})
@@ -1566,40 +1590,60 @@ async fn paper() {
         -> range_req({ape h(ape)#1 eel})
             cat: [ape: APE, eel: EEL, fox: FOX, gnu: GNU]
         <- range_resp({𝚨 0 ape})
-            dog: [ape: ∅, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, hog: HOG]
+            dog: [bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, hog: HOG]
         -> range_req({eel h(eel)#1 fox})
             cat: [ape: APE, eel: EEL, fox: FOX, gnu: GNU]
         <- value_resp(bee: BEE)
-            dog: [ape: ∅, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, hog: HOG]
+            dog: [bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, hog: HOG]
         -> range_req({fox h(fox)#1 gnu})
-            cat: [ape: APE, eel: EEL, fox: FOX, gnu: GNU]
+            cat: [ape: APE, bee: BEE, eel: EEL, fox: FOX, gnu: GNU]
         <- value_resp(cot: COT)
-            dog: [ape: ∅, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, hog: HOG]
+            dog: [bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, hog: HOG]
         -> range_req({gnu h(gnu)#1 𝛀 })
             cat: [ape: APE, bee: BEE, eel: EEL, fox: FOX, gnu: GNU]
         <- value_resp(doe: DOE)
-            dog: [ape: ∅, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: ∅, hog: HOG]
-        <- range_resp({ape h(ape, bee, cot, doe)#4 eel})
-            dog: [ape: ∅, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: ∅, hog: HOG]
-        <- value_req(ape)
-            dog: [ape: ∅, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: ∅, hog: HOG]
-        -> value_resp(ape: APE)
-            cat: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU]
+            dog: [bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, hog: HOG]
+        <- range_resp({ape h(bee, cot, doe)#3 eel})
+            dog: [bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, hog: HOG]
         <- range_resp({eel h(eel)#1 fox})
-            dog: [ape: ∅, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: ∅, hog: HOG]
+            dog: [bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, hog: HOG]
+        -> range_req({ape h(ape)#1 bee})
+            cat: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU]
         <- range_resp({fox h(fox)#1 gnu})
-            dog: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: ∅, hog: HOG]
+            dog: [bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, hog: HOG]
+        -> range_req({bee h(bee)#1 cot})
+            cat: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU]
         <- value_resp(hog: HOG)
-            dog: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: ∅, hog: HOG]
-        <- range_resp({gnu h(gnu, hog)#2 𝛀 })
-            dog: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: ∅, hog: HOG]
-        <- value_req(gnu)
-            dog: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: ∅, hog: HOG]
-        -> listen_only
+            dog: [bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, hog: HOG]
+        -> range_req({cot h(cot)#1 doe})
+            cat: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU]
+        <- range_resp({gnu h(hog)#1 𝛀 })
+            dog: [bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, hog: HOG]
+        -> range_req({doe h(doe)#1 eel})
             cat: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU, hog: HOG]
-        <- listen_only
-            dog: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: ∅, hog: HOG]
+        <- range_resp({ape 0 bee})
+            dog: [bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, hog: HOG]
         -> value_resp(gnu: GNU)
+            cat: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU, hog: HOG]
+        <- range_resp({bee h(bee)#1 cot})
+            dog: [bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, hog: HOG]
+        -> value_resp(hog: HOG)
+            cat: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU, hog: HOG]
+        <- range_resp({cot h(cot)#1 doe})
+            dog: [bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU, hog: HOG]
+        -> range_req({gnu h(gnu, hog)#2 𝛀 })
+            cat: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU, hog: HOG]
+        <- range_resp({doe h(doe)#1 eel})
+            dog: [bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU, hog: HOG]
+        -> value_resp(ape: APE)
+            cat: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU, hog: HOG]
+        <- range_resp({gnu h(gnu, hog)#2 𝛀 })
+            dog: [bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU, hog: HOG]
+        -> range_req({ape h(ape)#1 bee})
+            cat: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU, hog: HOG]
+        <- range_resp({ape h(ape)#1 bee})
+            dog: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU, hog: HOG]
+        -> listen_only
             cat: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU, hog: HOG]
         -> finished
             cat: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU, hog: HOG]
@@ -2012,6 +2056,8 @@ async fn dog_linear_download() {
             cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
         <- interest_resp((𝚨, 𝛀 ))
             dog: []
+        <- listen_only
+            dog: []
         -> range_req({𝚨 h(a, b, c, d, e, f, g)#7 𝛀 })
             cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
         <- range_resp({𝚨 0 𝛀 })
@@ -2030,10 +2076,12 @@ async fn dog_linear_download() {
             cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
         -> value_resp(g: G)
             cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+        -> range_req({𝚨 h(a, b, c, d, e, f, g)#7 𝛀 })
+            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+        <- range_resp({𝚨 h(a, b, c, d, e, f, g)#7 𝛀 })
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
         -> listen_only
             cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
-        <- listen_only
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
         -> finished
             cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
         cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
@@ -2052,6 +2100,8 @@ async fn cat_linear_download() {
             dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
         -> range_req({𝚨 0 𝛀 })
             cat: []
+        <- listen_only
+            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
         <- value_resp(a: A)
             dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
         <- value_resp(b: B)
@@ -2070,8 +2120,6 @@ async fn cat_linear_download() {
             dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
         -> listen_only
             cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
-        <- listen_only
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
         -> finished
             cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
         cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]

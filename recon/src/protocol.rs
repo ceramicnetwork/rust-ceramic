@@ -191,16 +191,16 @@ where
             trace!(self.listen_only_sent, self.remote_done, "iter");
 
             self.metrics.record(&ProtocolLoop);
+
+            // Poll network
             let stream = self.role.stream();
-            select! {
-                biased;
-                message = stream.try_next() => {
-                    if let Some(message) = message? {
-                        self.metrics.record(&MessageRecv(&message));
-                        self.handle_incoming(message).await.context("handle incoming")?;
-                    }
-                }
+            if let Some(message) = stream.try_next().await? {
+                self.metrics.record(&MessageRecv(&message));
+                self.handle_incoming(message)
+                    .await
+                    .context("handle incoming")?;
             }
+
             self.role.each().await?;
 
             if self.role.is_done() {
@@ -323,6 +323,7 @@ where
             SyncState::Synchronized { .. } => {}
             SyncState::RemoteMissing { range } => {
                 self.common.process_remote_missing_range(&range).await?;
+                self.send_ranges([range].into_iter()).await?;
             }
             SyncState::Unsynchronized { ranges } => {
                 self.send_ranges(ranges.into_iter()).await?;
@@ -530,9 +531,7 @@ where
     }
 
     async fn process_range(&mut self, range: RangeHash<R::Key, R::Hash>) -> Result<()> {
-        tracing::error!(?range, "process_range responder");
         let sync_state = self.common.recon.process_range(range).await?;
-        tracing::error!(?sync_state, "process_range responder");
         match sync_state {
             SyncState::Synchronized { range } => {
                 // We are sync echo back the same range so that the remote learns we are in sync.
@@ -677,7 +676,8 @@ where
         //    This can be a potential deadlock if both side enter this method for a large amount of
         //    keys at the same time.
 
-        let offset = if range.first.is_fencepost() { 0 } else { 1 };
+        //let offset = if range.first.is_fencepost() { 0 } else { 1 };
+        let offset = 0;
         let keys = self
             .recon
             .range(range.first.clone(), range.last.clone(), offset, usize::MAX)

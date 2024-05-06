@@ -12,7 +12,7 @@ use anyhow::anyhow;
 use async_trait::async_trait;
 use ceramic_core::{EventId, Interest, PeerId, RangeOpen};
 use serde::{Deserialize, Serialize};
-use tracing::trace;
+use tracing::{debug, error, instrument, trace, Level};
 
 use crate::{Client, Error, Metrics, Result, Sha256a};
 
@@ -95,7 +95,9 @@ where
     ///
     /// Reports any new keys and what the range indicates about how the local and remote node are
     /// synchronized.
+    #[instrument(skip(self), fields(range), ret(level = Level::DEBUG))]
     pub async fn process_range(&mut self, range: RangeHash<K, H>) -> Result<SyncState<K, H>> {
+        debug!(?range, "process_range");
         let calculated_hash = self.store.hash_range(&range.first..&range.last).await?;
         tracing::info!(?calculated_hash, ?range, "process_range");
         if calculated_hash == range.hash {
