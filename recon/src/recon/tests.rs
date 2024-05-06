@@ -562,6 +562,16 @@ async fn word_lists() {
     ];
     let expected_hash =
         expect![["495BF24CE0DB5C33CE846ADCD6D9A87592E05324585D85059C3DC2113B500F79#21139"]];
+
+    // This file can be independently validated using this bash one liner (from the repo root):
+    //
+    //    diff -Zu ./recon/src/recon/testdata/expected/all.txt <(cat ./recon/src/recon/testdata/*.txt | grep -v '^$' | LC_ALL=C sort -u)
+    //
+    //  And the count can be validated with:
+    //
+    //    cat ./recon/src/recon/testdata/*.txt | grep -v '^$' | LC_ALL=C sort -u | wc -l
+    //
+    //
     let expected_word_list = expect_file!["./testdata/expected/all.txt"];
 
     for peer in &mut peers {
