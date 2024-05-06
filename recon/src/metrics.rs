@@ -41,9 +41,6 @@ impl<K: Key, H: AssociativeHash> From<&ReconMessage<InitiatorMessage<K, H>>> for
             InitiatorMessage::Value(_) => Self {
                 message_type: "Value",
             },
-            InitiatorMessage::ListenOnly => Self {
-                message_type: "ListenOnly",
-            },
             InitiatorMessage::Finished => Self {
                 message_type: "Finished",
             },
@@ -62,9 +59,6 @@ impl<K: Key, H: AssociativeHash> From<&ReconMessage<ResponderMessage<K, H>>> for
         match value.body {
             ResponderMessage::Value(_) => Self {
                 message_type: "Value",
-            },
-            ResponderMessage::ListenOnly => Self {
-                message_type: "ListenOnly",
             },
             ResponderMessage::InterestResponse(_) => Self {
                 message_type: "InterestResponse",

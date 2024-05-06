@@ -114,9 +114,6 @@ pub enum InitiatorMessage<K: Key, H: AssociativeHash> {
     RangeRequest(RangeHash<K, H>),
     /// Send a value to the responder.
     Value(Value<K>),
-    /// Inform the responder we are done sending requests.
-    /// The initiator will continue to respond to any incoming requests.
-    ListenOnly,
     /// Inform the responder we have processed all their requests.
     /// This is always the last message sent.
     Finished,
@@ -131,9 +128,6 @@ pub enum ResponderMessage<K: Key, H: AssociativeHash> {
     RangeResponse(Vec<RangeHash<K, H>>),
     /// Send a value to the initiator
     Value(Value<K>),
-    /// Inform the initiator we are done sending requests.
-    /// The responder will continue to respond to any incoming requests.
-    ListenOnly,
 }
 
 /// Container for a key and its value
@@ -203,17 +197,8 @@ where
 
             self.role.each().await?;
 
-            if self.role.is_done() {
-                if !self.listen_only_sent {
-                    self.listen_only_sent = true;
-                    self.role
-                        .send_listen_only()
-                        .await
-                        .context("sending listen only")?;
-                }
-                if self.remote_done {
-                    break;
-                }
+            if self.role.is_done() && self.remote_done {
+                break;
             }
         }
 
@@ -230,7 +215,6 @@ where
     async fn handle_incoming(&mut self, message: R::In) -> Result<()> {
         match self.role.handle_incoming(message).await? {
             RemoteStatus::Active => {}
-            RemoteStatus::ListenOnly => {}
             RemoteStatus::Finished => {
                 self.remote_done = true;
             }
@@ -266,9 +250,6 @@ trait Role {
 
     // Handle an incoming message from the remote.
     async fn handle_incoming(&mut self, message: Self::In) -> Result<RemoteStatus>;
-
-    // Send a mesage to the remote indicating we are only listening.
-    async fn send_listen_only(&mut self) -> Result<()>;
 }
 
 type InitiatorValue<K, H> = fn(Option<String>, Value<K>) -> ReconMessage<InitiatorMessage<K, H>>;
@@ -454,7 +435,7 @@ where
                 self.send_ranges(ranges.into_iter()).await?;
                 // Handle the case of no interests in common
                 if self.is_done() {
-                    Ok(RemoteStatus::ListenOnly)
+                    Ok(RemoteStatus::Finished)
                 } else {
                     Ok(RemoteStatus::Active)
                 }
@@ -467,7 +448,7 @@ where
                         .context("processing range")?;
                 }
                 if self.is_done() {
-                    Ok(RemoteStatus::ListenOnly)
+                    Ok(RemoteStatus::Finished)
                 } else {
                     Ok(RemoteStatus::Active)
                 }
@@ -479,17 +460,7 @@ where
                     .context("processing value response")?;
                 Ok(RemoteStatus::Active)
             }
-            // If the remote (a responder) has sent a listen only then it is finished because it
-            // will never initiate a request.
-            ResponderMessage::ListenOnly => Ok(RemoteStatus::Finished),
         }
-    }
-
-    async fn send_listen_only(&mut self) -> Result<()> {
-        self.common
-            .stream
-            .send(self.common.create_message(InitiatorMessage::ListenOnly))
-            .await
     }
 }
 
@@ -626,15 +597,8 @@ where
                 self.common.process_value_response(key, value).await?;
                 Ok(RemoteStatus::Active)
             }
-            InitiatorMessage::ListenOnly => Ok(RemoteStatus::ListenOnly),
             InitiatorMessage::Finished => Ok(RemoteStatus::Finished),
         }
-    }
-    async fn send_listen_only(&mut self) -> Result<()> {
-        self.common
-            .stream
-            .send(self.common.create_message(ResponderMessage::ListenOnly))
-            .await
     }
 }
 
@@ -706,8 +670,6 @@ where
 enum RemoteStatus {
     // The remote is still actively sending requests.
     Active,
-    // The remote will no longer send any new requests but will respond.
-    ListenOnly,
     // The remote will no longer send any messages.
     Finished,
 }
