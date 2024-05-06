@@ -1,3 +1,4 @@
+#![allow(clippy::blocks_in_conditions)]
 use futures::{future, future::BoxFuture, future::FutureExt, stream, stream::TryStreamExt, Stream};
 use hyper::header::{HeaderName, HeaderValue, CONTENT_TYPE};
 use hyper::{Body, HeaderMap, Request, Response, StatusCode};

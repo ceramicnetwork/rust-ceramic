@@ -1,3 +1,4 @@
+#![allow(clippy::to_string_trait_impl)]
 #![allow(unused_qualifications)]
 
 use validator::Validate;

@@ -222,4 +222,4 @@ strip = "none"
 
 [patch.crates-io]
 # to get fix for https://github.com/tokio-rs/console/pull/501. can be removed on 0.2.1 release
-console-subscriber = { git = "https://github.com/tokio-rs/console.git", branch = "main"}
+console-subscriber = { git = "https://github.com/tokio-rs/console.git", branch = "main" }

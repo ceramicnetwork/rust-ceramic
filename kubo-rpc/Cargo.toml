@@ -9,7 +9,7 @@ repository.workspace = true
 publish = false
 
 [features]
-http = ["dep:ceramic-kubo-rpc-server", "dep:serde", "dep:serde_json"]
+http = ["dep:ceramic-kubo-rpc-server", "dep:serde_json"]
 
 [dependencies]
 anyhow.workspace = true
@@ -30,7 +30,6 @@ libp2p-identity.workspace = true
 libp2p.workspace = true
 multiaddr.workspace = true
 prometheus-client.workspace = true
-serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 serde_ipld_dagcbor.workspace = true
 serde_ipld_dagjson.workspace = true

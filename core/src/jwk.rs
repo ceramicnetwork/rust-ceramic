@@ -62,7 +62,7 @@ impl Jwk {
             _ => anyhow::bail!("Unsupported JWK Params"),
         };
         let mut jwk = JWK::from(params);
-        jwk.key_id = self.key_id.clone();
+        jwk.key_id.clone_from(&self.key_id);
         Ok(Self(jwk))
     }
 }

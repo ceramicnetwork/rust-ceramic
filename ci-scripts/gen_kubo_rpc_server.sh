@@ -20,7 +20,9 @@ cd $DIR/..
 # Add missing clippy allow directive to example code
 # This can be removed once the openapi-generator-cli generates code that passes clippy.
 echo "#![allow(suspicious_double_ref_op)]" | cat - ./kubo-rpc-server/examples/server/server.rs > ./kubo-rpc-server/examples/server/server.rs.tmp
+echo "#![allow(clippy::to_string_trait_impl)]" | cat - - ./kubo-rpc-server/src/models.rs > ./kubo-rpc-server/src/models.rs.tmp
 mv ./kubo-rpc-server/examples/server/server.rs.tmp ./kubo-rpc-server/examples/server/server.rs
+mv ./kubo-rpc-server/src/models.rs.tmp ./kubo-rpc-server/src/models.rs
 
 # Remove conversion feature from generated code because it doesn't build and we do not use it.
 augtool -s -L \

@@ -417,7 +417,7 @@ where
     // Send ranges to the remote while buffering any ranges over the [`PENDING_RANGES_LIMIT`].
     async fn send_ranges(
         &mut self,
-        ranges: impl Iterator<Item = Range<R::Key, R::Hash>> + ExactSizeIterator,
+        ranges: impl ExactSizeIterator<Item = Range<R::Key, R::Hash>>,
     ) -> Result<()> {
         // Do all ranges fit under the limit, if so send them all
         if self.pending_ranges < PENDING_RANGES_LIMIT {
