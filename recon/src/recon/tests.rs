@@ -34,7 +34,7 @@ use codespan_reporting::{
     files::SimpleFiles,
     term::{self, termcolor::Buffer},
 };
-use expect_test::{expect, Expect};
+use expect_test::{expect, expect_file, Expect};
 use lalrpop_util::ParseError;
 use pretty::{Arena, DocAllocator, DocBuilder, Pretty};
 
@@ -540,7 +540,7 @@ async fn word_lists() {
             FullInterests::default(),
             Metrics::register(&mut Registry::default()),
         );
-        for key in s.split([' ', '\n']).map(|s| s.to_string()) {
+        for key in s.split_whitespace().map(|s| s.to_string()) {
             if !s.is_empty() {
                 r.insert(&ReconItem::new(
                     &key.as_bytes().into(),
@@ -560,8 +560,9 @@ async fn word_lists() {
         recon_from_string(include_str!("./testdata/wordle_words5_big.txt")).await,
         recon_from_string(include_str!("./testdata/wordle_words5.txt")).await,
     ];
-    let expected_ahash =
+    let expected_hash =
         expect![["495BF24CE0DB5C33CE846ADCD6D9A87592E05324585D85059C3DC2113B500F79#21139"]];
+    let expected_word_list = expect_file!["./testdata/expected/all.txt"];
 
     for peer in &mut peers {
         debug!(count = peer.len().await.unwrap(), "initial peer state");
@@ -624,13 +625,37 @@ async fn word_lists() {
     all_peers.push(local);
     all_peers.append(&mut peers);
 
+    // First ensure all peers have the same actual result.
+    let mut actual = None;
     for peer in all_peers.iter_mut() {
         let full_range = peer
             .initial_range((AlphaNumBytes::min_value(), AlphaNumBytes::max_value()).into())
             .await
             .unwrap();
-        expected_ahash.assert_eq(&full_range.hash.to_string())
+        let curr_hash = full_range.hash.to_string();
+        let curr_word_list = peer
+            .full_range()
+            .await
+            .unwrap()
+            .map(|w| w.to_string())
+            .collect::<Vec<String>>()
+            .join("\n");
+        if let Some((prev_hash, prev_word_list)) = actual {
+            assert_eq!(prev_hash, curr_hash, "all peers should have the same hash");
+            assert_eq!(
+                prev_word_list, curr_word_list,
+                "all peers should have the same word list"
+            );
+        }
+        actual = Some((curr_hash, curr_word_list));
     }
+    // Compare actual result from all peers to the expected value
+    // We do this because updating an expected value in a loop is error prone as the first
+    // iteration updates the file and the second iteration may update the file in an invalid way
+    // since the expectation may have moved after the first iteration.
+    let (actual_hash, actual_word_list) = actual.unwrap();
+    expected_hash.assert_eq(&actual_hash);
+    expected_word_list.assert_eq(&actual_word_list);
 }
 
 fn parse_sequence(sequence: &str) -> SequenceSetup<AlphaNumBytes> {
