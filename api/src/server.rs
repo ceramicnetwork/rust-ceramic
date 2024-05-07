@@ -165,8 +165,7 @@ impl<S: AccessInterestStore> AccessInterestStore for Arc<S> {
 #[async_trait]
 pub trait AccessModelStore: Send + Sync {
     /// Returns (new_key, new_value) where true if was newly inserted, false if it already existed.
-    async fn insert_many(&self, items: &[(EventId, Option<Vec<u8>>)])
-        -> Result<(Vec<bool>, usize)>;
+    async fn insert_many(&self, items: &[(EventId, Vec<u8>)]) -> Result<Vec<bool>>;
     async fn range_with_values(
         &self,
         start: &EventId,
@@ -188,10 +187,7 @@ pub trait AccessModelStore: Send + Sync {
 
 #[async_trait::async_trait]
 impl<S: AccessModelStore> AccessModelStore for Arc<S> {
-    async fn insert_many(
-        &self,
-        items: &[(EventId, Option<Vec<u8>>)],
-    ) -> Result<(Vec<bool>, usize)> {
+    async fn insert_many(&self, items: &[(EventId, Vec<u8>)]) -> Result<Vec<bool>> {
         self.as_ref().insert_many(items).await
     }
 
@@ -302,11 +298,11 @@ where
         let mut items = Vec::with_capacity(events.len());
         events.drain(..).for_each(|req: EventInsert| {
             oneshots.push(req.tx);
-            items.push((req.id, Some(req.data)));
+            items.push((req.id, req.data));
         });
         tracing::trace!("calling insert many with {} items.", items.len());
         match event_store.insert_many(&items).await {
-            Ok((results, _)) => {
+            Ok(results) => {
                 tracing::debug!("insert many returned {} results.", results.len());
                 for (tx, result) in oneshots.into_iter().zip(results.into_iter()) {
                     if let Err(e) = tx.send(Ok(result)) {

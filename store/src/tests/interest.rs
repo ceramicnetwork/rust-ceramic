@@ -113,14 +113,14 @@ where
 {
     recon::Store::insert(
         &store,
-        &ReconItem::new_key(&random_interest(Some((&[0], &[1])), Some(42))),
+        &ReconItem::new(&random_interest(Some((&[0], &[1])), Some(42)), &vec![]),
     )
     .await
     .unwrap();
 
     recon::Store::insert(
         &store,
-        &ReconItem::new_key(&random_interest(Some((&[0], &[1])), Some(24))),
+        &ReconItem::new(&random_interest(Some((&[0], &[1])), Some(24)), &vec![]),
     )
     .await
     .unwrap();
@@ -145,10 +145,10 @@ where
     let interest_0 = random_interest(None, None);
     let interest_1 = random_interest(None, None);
 
-    recon::Store::insert(&store, &ReconItem::new_key(&interest_0))
+    recon::Store::insert(&store, &ReconItem::new(&interest_0, &vec![]))
         .await
         .unwrap();
-    recon::Store::insert(&store, &ReconItem::new_key(&interest_1))
+    recon::Store::insert(&store, &ReconItem::new(&interest_1, &vec![]))
         .await
         .unwrap();
     let ids = recon::Store::range(
@@ -177,11 +177,11 @@ where
     let interest_1 = random_interest(None, None);
 
     store
-        .insert(&ReconItem::new_key(&interest_0))
+        .insert(&ReconItem::new(&interest_0, &vec![]))
         .await
         .unwrap();
     store
-        .insert(&ReconItem::new_key(&interest_1))
+        .insert(&ReconItem::new(&interest_1, &vec![]))
         .await
         .unwrap();
     let ids = store
@@ -218,7 +218,7 @@ where
         )
         "#
     ]
-    .assert_debug_eq(&recon::Store::insert(&store, &ReconItem::new_key(&interest)).await);
+    .assert_debug_eq(&recon::Store::insert(&store, &ReconItem::new(&interest, &vec![])).await);
 
     // reject the second insert of same key
     expect![
@@ -228,7 +228,7 @@ where
         )
         "#
     ]
-    .assert_debug_eq(&recon::Store::insert(&store, &ReconItem::new_key(&interest)).await);
+    .assert_debug_eq(&recon::Store::insert(&store, &ReconItem::new(&interest, &vec![])).await);
 }
 
 test_with_dbs!(
@@ -243,10 +243,10 @@ where
 {
     let interest_0 = random_interest(Some((&[], &[])), Some(42));
     let interest_1 = random_interest(Some((&[], &[])), Some(43));
-    recon::Store::insert(&store, &ReconItem::new_key(&interest_0))
+    recon::Store::insert(&store, &ReconItem::new(&interest_0, &vec![]))
         .await
         .unwrap();
-    recon::Store::insert(&store, &ReconItem::new_key(&interest_1))
+    recon::Store::insert(&store, &ReconItem::new(&interest_1, &vec![]))
         .await
         .unwrap();
 
@@ -388,11 +388,7 @@ where
 {
     let key = random_interest(None, None);
     let store_value = random_interest(None, None);
-    let err = recon::Store::insert(
-        &store,
-        &ReconItem::new_with_value(&key, store_value.as_slice()),
-    )
-    .await;
+    let err = recon::Store::insert(&store, &ReconItem::new(&key, store_value.as_slice())).await;
     let err = err.unwrap_err();
     assert!(err
         .to_string()
@@ -410,7 +406,7 @@ where
     S: recon::Store<Key = Interest, Hash = Sha256a>,
 {
     let key = random_interest(None, None);
-    recon::Store::insert(&store, &ReconItem::new(&key, None))
+    recon::Store::insert(&store, &ReconItem::new(&key, &vec![]))
         .await
         .unwrap();
     let value = store.value_for_key(&key).await.unwrap();

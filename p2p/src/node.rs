@@ -1251,7 +1251,7 @@ mod tests {
         type Key = K;
         type Hash = Sha256a;
 
-        async fn insert(&self, _key: Self::Key, _value: Option<Vec<u8>>) -> ReconResult<()> {
+        async fn insert(&self, _key: Self::Key, _value: Vec<u8>) -> ReconResult<()> {
             unreachable!()
         }
 

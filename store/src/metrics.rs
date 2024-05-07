@@ -23,14 +23,7 @@ pub struct StorageQuery {
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub enum InsertEventType {
-    Value,
-    Key,
-}
-
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct InsertEvent {
-    pub type_: InsertEventType,
     pub cnt: u64,
 }
 
@@ -48,8 +41,7 @@ impl From<&StorageQuery> for QueryLabels {
 #[derive(Clone, Debug)]
 /// Storage system metrics
 pub struct Metrics {
-    key_insert_count: Counter,
-    value_insert_count: Counter,
+    key_value_insert_count: Counter,
 
     store_query_durations: Family<QueryLabels, Histogram>,
 }
@@ -61,13 +53,7 @@ impl Metrics {
 
         register!(
             key_insert_count,
-            "Number times a new key is inserted into the datastore",
-            Counter::default(),
-            sub_registry
-        );
-        register!(
-            value_insert_count,
-            "Number times a new value is inserted into the datastore",
+            "Number times a new key/value pair is inserted into the datastore",
             Counter::default(),
             sub_registry
         );
@@ -82,8 +68,7 @@ impl Metrics {
         );
 
         Self {
-            key_insert_count,
-            value_insert_count,
+            key_value_insert_count: key_insert_count,
             store_query_durations,
         }
     }
@@ -91,14 +76,7 @@ impl Metrics {
 
 impl Recorder<InsertEvent> for Metrics {
     fn record(&self, event: &InsertEvent) {
-        match event.type_ {
-            InsertEventType::Value => {
-                self.value_insert_count.inc_by(event.cnt);
-            }
-            InsertEventType::Key => {
-                self.key_insert_count.inc_by(event.cnt);
-            }
-        }
+        self.key_value_insert_count.inc_by(event.cnt);
     }
 }
 
@@ -137,18 +115,9 @@ impl<S: Send + Sync> StoreMetricsMiddleware<S> {
         ret
     }
 
-    fn record_key_insert(&self, new_key: bool, new_val: bool) {
+    fn record_key_insert(&self, new_key: bool) {
         if new_key {
-            self.metrics.record(&InsertEvent {
-                type_: InsertEventType::Key,
-                cnt: 1,
-            });
-        }
-        if new_val {
-            self.metrics.record(&InsertEvent {
-                type_: InsertEventType::Value,
-                cnt: 1,
-            });
+            self.metrics.record(&InsertEvent { cnt: 1 });
         }
     }
 }
@@ -165,7 +134,7 @@ where
             self.store.insert(key),
         )
         .await?;
-        self.record_key_insert(new, false);
+        self.record_key_insert(new);
         Ok(new)
     }
     async fn range(
@@ -189,11 +158,8 @@ impl<S> ceramic_api::AccessModelStore for StoreMetricsMiddleware<S>
 where
     S: ceramic_api::AccessModelStore,
 {
-    async fn insert_many(
-        &self,
-        items: &[(EventId, Option<Vec<u8>>)],
-    ) -> anyhow::Result<(Vec<bool>, usize)> {
-        let (new_keys, new_val) = StoreMetricsMiddleware::<S>::record(
+    async fn insert_many(&self, items: &[(EventId, Vec<u8>)]) -> anyhow::Result<Vec<bool>> {
+        let new_keys = StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "api_insert_many",
             self.store.insert_many(items),
@@ -203,14 +169,9 @@ where
         let key_cnt = new_keys.iter().filter(|k| **k).count();
 
         self.metrics.record(&InsertEvent {
-            type_: InsertEventType::Key,
             cnt: key_cnt as u64,
         });
-        self.metrics.record(&InsertEvent {
-            type_: InsertEventType::Value,
-            cnt: new_val as u64,
-        });
-        Ok((new_keys, new_val))
+        Ok(new_keys)
     }
     async fn range_with_values(
         &self,
@@ -261,11 +222,10 @@ where
     type Hash = H;
 
     async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> ReconResult<bool> {
-        let new_val = item.value.is_some();
         let new =
             StoreMetricsMiddleware::<S>::record(&self.metrics, "insert", self.store.insert(item))
                 .await?;
-        self.record_key_insert(new, new_val);
+        self.record_key_insert(new);
         Ok(new)
     }
 
@@ -280,12 +240,7 @@ where
         let key_cnt = res.keys.iter().filter(|k| **k).count();
 
         self.metrics.record(&InsertEvent {
-            type_: InsertEventType::Key,
             cnt: key_cnt as u64,
-        });
-        self.metrics.record(&InsertEvent {
-            type_: InsertEventType::Value,
-            cnt: res.value_count as u64,
         });
 
         Ok(res)

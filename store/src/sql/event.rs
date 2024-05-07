@@ -13,7 +13,7 @@ use recon::{
     Result as ReconResult, Sha256a,
 };
 
-use tracing::instrument;
+use tracing::{debug, instrument};
 
 use crate::{
     sql::{
@@ -95,52 +95,47 @@ impl SqliteEventStore {
         rebuild_car(blocks).await
     }
 
-    async fn insert_item_int(&self, item: ReconItem<'_, EventId>) -> Result<(bool, bool)> {
-        let new_val = item.value.is_some();
+    async fn insert_item_int(&self, item: ReconItem<'_, EventId>) -> Result<bool> {
         let res = self.insert_items_int(&[item]).await?;
+        debug!(?res, "insert_item_int");
         let new_key = res.keys.first().cloned().unwrap_or(false);
-        Ok((new_key, new_val))
+        Ok(new_key)
     }
 
     /// Insert many items into the store (internal to the store)
     async fn insert_items_int(&self, items: &[ReconItem<'_, EventId>]) -> Result<InsertResult> {
         if items.is_empty() {
-            return Ok(InsertResult::new(vec![], 0));
+            return Ok(InsertResult::new(vec![]));
         }
         let mut to_add = vec![];
         for item in items {
-            if let Some(val) = item.value {
-                match EventRaw::try_build(item.key.to_owned(), val).await {
-                    Ok(parsed) => to_add.push(parsed),
-                    Err(error) => {
-                        tracing::warn!(%error, order_key=%item.key, "Error parsing event into carfile");
-                        continue;
-                    }
+            match EventRaw::try_build(item.key.to_owned(), item.value).await {
+                Ok(parsed) => to_add.push(parsed),
+                Err(error) => {
+                    tracing::warn!(%error, order_key=%item.key, "Error parsing event into carfile");
+                    continue;
                 }
-            } else {
-                to_add.push(EventRaw::new(item.key.clone(), vec![]));
             }
         }
         if to_add.is_empty() {
-            return Ok(InsertResult::new(vec![], 0));
+            return Ok(InsertResult::new(vec![]));
         }
         let mut new_keys = vec![false; to_add.len()];
-        let mut new_val_cnt = 0;
         let mut tx = self.pool.writer().begin().await.map_err(Error::from)?;
 
         for (idx, item) in to_add.into_iter().enumerate() {
             let new_key = self.insert_key_int(&item.order_key, &mut tx).await?;
-            for block in item.blocks.iter() {
-                self.insert_event_block_int(block, &mut tx).await?;
-                self.mark_ready_to_deliver(&item.order_key, &mut tx).await?;
+            if new_key {
+                // Only add the blocks if this is a new key, otherwise ignore the value.
+                for block in item.blocks.iter() {
+                    self.insert_event_block_int(block, &mut tx).await?;
+                    self.mark_ready_to_deliver(&item.order_key, &mut tx).await?;
+                }
             }
             new_keys[idx] = new_key;
-            if !item.blocks.is_empty() {
-                new_val_cnt += 1;
-            }
         }
         tx.commit().await.map_err(Error::from)?;
-        let res = InsertResult::new(new_keys, new_val_cnt);
+        let res = InsertResult::new(new_keys);
 
         Ok(res)
     }
@@ -295,15 +290,14 @@ impl recon::Store for SqliteEventStore {
 
     /// Returns true if the key was new. The value is always updated if included
     async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> ReconResult<bool> {
-        let (res, _new_val) = self.insert_item_int(item.to_owned()).await?;
-        Ok(res)
+        Ok(self.insert_item_int(item.to_owned()).await?)
     }
 
     /// Insert new keys into the key space.
     /// Returns true if a key did not previously exist.
     async fn insert_many(&self, items: &[ReconItem<'_, EventId>]) -> ReconResult<InsertResult> {
         match items.len() {
-            0 => Ok(InsertResult::new(vec![], 0)),
+            0 => Ok(InsertResult::new(vec![])),
             _ => {
                 let res = self.insert_items_int(items).await?;
                 Ok(res)
@@ -472,16 +466,13 @@ impl iroh_bitswap::Store for SqliteEventStore {
 /// This guarantees that regardless of entry point (api or recon), the data is stored and retrieved in the same way.
 #[async_trait::async_trait]
 impl ceramic_api::AccessModelStore for SqliteEventStore {
-    async fn insert_many(
-        &self,
-        items: &[(EventId, Option<Vec<u8>>)],
-    ) -> anyhow::Result<(Vec<bool>, usize)> {
+    async fn insert_many(&self, items: &[(EventId, Vec<u8>)]) -> anyhow::Result<Vec<bool>> {
         let items = items
             .iter()
-            .map(|(key, value)| ReconItem::new(key, value.as_deref()))
+            .map(|(key, value)| ReconItem::new(key, value))
             .collect::<Vec<ReconItem<'_, EventId>>>();
         let res = self.insert_items_int(&items).await?;
-        Ok((res.keys, res.value_count))
+        Ok(res.keys)
     }
 
     async fn range_with_values(

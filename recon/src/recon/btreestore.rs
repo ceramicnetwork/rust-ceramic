@@ -141,22 +141,16 @@ where
             .insert(item.key.clone(), H::digest(item.key))
             .is_none();
 
-        if let Some(val) = item.value {
-            inner.values.insert(item.key.clone(), val.to_vec());
-        }
+        inner.values.insert(item.key.clone(), item.value.to_vec());
         Ok(new)
     }
 
     async fn insert_many(&self, items: &[ReconItem<'_, K>]) -> Result<InsertResult> {
         let mut new = vec![false; items.len()];
-        let mut new_val_cnt = 0;
         for (idx, item) in items.iter().enumerate() {
-            if item.value.is_some() {
-                new_val_cnt += 1;
-            }
             new[idx] = self.insert(item).await?;
         }
-        Ok(InsertResult::new(new, new_val_cnt))
+        Ok(InsertResult::new(new))
     }
 
     async fn hash_range(&self, range: Range<&Self::Key>) -> Result<HashCount<Self::Hash>> {

@@ -53,21 +53,29 @@ async fn hash_range_query<S>(store: S)
 where
     S: recon::Store<Key = EventId, Hash = Sha256a>,
 {
+    let (_, car1) = build_car_file(2).await;
     recon::Store::insert(
         &store,
-        &ReconItem::new_key(&random_event_id(
-            Some(1),
-            Some("baeabeiazgwnti363jifhxaeaegbluw4ogcd2t5hsjaglo46wuwcgajqa5u"),
-        )),
+        &ReconItem::new(
+            &random_event_id(
+                Some(1),
+                Some("baeabeiazgwnti363jifhxaeaegbluw4ogcd2t5hsjaglo46wuwcgajqa5u"),
+            ),
+            &car1,
+        ),
     )
     .await
     .unwrap();
+    let (_, car2) = build_car_file(2).await;
     recon::Store::insert(
         &store,
-        &ReconItem::new_key(&random_event_id(
-            Some(2),
-            Some("baeabeihyl35xdlfju3zrkvy2exmnl6wics3rc5ppz7hwg7l7g4brbtnpny"),
-        )),
+        &ReconItem::new(
+            &random_event_id(
+                Some(2),
+                Some("baeabeihyl35xdlfju3zrkvy2exmnl6wics3rc5ppz7hwg7l7g4brbtnpny"),
+            ),
+            &car2,
+        ),
     )
     .await
     .unwrap();
@@ -92,21 +100,29 @@ async fn range_query<S>(store: S)
 where
     S: recon::Store<Key = EventId, Hash = Sha256a>,
 {
+    let (_, car1) = build_car_file(2).await;
     recon::Store::insert(
         &store,
-        &ReconItem::new_key(&random_event_id(
-            Some(1),
-            Some("baeabeichhhmbhsic4maraneqf5gkhekgzcawhtpj3fh6opjtglznapz524"),
-        )),
+        &ReconItem::new(
+            &random_event_id(
+                Some(1),
+                Some("baeabeichhhmbhsic4maraneqf5gkhekgzcawhtpj3fh6opjtglznapz524"),
+            ),
+            &car1,
+        ),
     )
     .await
     .unwrap();
+    let (_, car2) = build_car_file(2).await;
     recon::Store::insert(
         &store,
-        &ReconItem::new_key(&random_event_id(
-            Some(2),
-            Some("baeabeibmek7v4ljsu575ohgjhovdxhcw6p6oivgb55hzkeap5po7ghzqty"),
-        )),
+        &ReconItem::new(
+            &random_event_id(
+                Some(2),
+                Some("baeabeibmek7v4ljsu575ohgjhovdxhcw6p6oivgb55hzkeap5po7ghzqty"),
+            ),
+            &car2,
+        ),
     )
     .await
     .unwrap();
@@ -192,10 +208,10 @@ where
     );
     let (_one_blocks, one_car) = build_car_file(2).await;
     let (_two_blocks, two_car) = build_car_file(3).await;
-    recon::Store::insert(&store, &ReconItem::new(&one_id, Some(&one_car)))
+    recon::Store::insert(&store, &ReconItem::new(&one_id, &one_car))
         .await
         .unwrap();
-    recon::Store::insert(&store, &ReconItem::new(&two_id, Some(&two_car)))
+    recon::Store::insert(&store, &ReconItem::new(&two_id, &two_car))
         .await
         .unwrap();
     // Insert new event without a value to ensure we skip it in the query
@@ -206,7 +222,7 @@ where
                 Some(2),
                 Some("baeabeicyxeqioadjgy6v6cpy62a3gngylax54sds7rols2b67yetzaw5r4"),
             ),
-            None,
+            &vec![],
         ),
     )
     .await
@@ -238,6 +254,7 @@ where
     S: recon::Store<Key = EventId, Hash = Sha256a>,
 {
     let id = random_event_id(Some(10), None);
+    let (_, car) = build_car_file(2).await;
 
     // first insert reports its a new key
     expect![
@@ -247,7 +264,7 @@ where
             )
             "#
     ]
-    .assert_debug_eq(&recon::Store::insert(&store, &ReconItem::new_key(&id)).await);
+    .assert_debug_eq(&recon::Store::insert(&store, &ReconItem::new(&id, &car)).await);
 
     // second insert of same key reports it already existed
     expect![
@@ -257,26 +274,25 @@ where
             )
             "#
     ]
-    .assert_debug_eq(&recon::Store::insert(&store, &ReconItem::new_key(&id)).await);
+    .assert_debug_eq(&recon::Store::insert(&store, &ReconItem::new(&id, &car)).await);
 }
 
 test_with_dbs!(
-    double_insert_with_value,
-    double_insert_with_value,
+    try_update_value,
+    try_update_value,
     [
         "delete from ceramic_one_event_block",
         "delete from ceramic_one_event",
         "delete from ceramic_one_block",
     ]
 );
-async fn double_insert_with_value<S>(store: S)
+async fn try_update_value<S>(store: S)
 where
     S: recon::Store<Key = EventId, Hash = Sha256a>,
 {
     let id = random_event_id(Some(10), None);
-    let (_, car) = build_car_file(2).await;
-
-    let item = &ReconItem::new_with_value(&id, &car);
+    let (_, car1) = build_car_file(2).await;
+    let (_, car2) = build_car_file(2).await;
 
     // do take the first one
     expect![
@@ -286,46 +302,7 @@ where
             )
             "#
     ]
-    .assert_debug_eq(&recon::Store::insert(&store, &item).await);
-
-    // the second insert of same key with value reports it already exists.
-    // Do not override values
-    expect![[r#"
-            Ok(
-                false,
-            )
-        "#]]
-    .assert_debug_eq(&recon::Store::insert(&store, item).await);
-}
-
-test_with_dbs!(
-    update_missing_value,
-    update_missing_value,
-    [
-        "delete from ceramic_one_event_block",
-        "delete from ceramic_one_event",
-        "delete from ceramic_one_block",
-    ]
-);
-async fn update_missing_value<S>(store: S)
-where
-    S: recon::Store<Key = EventId, Hash = Sha256a>,
-{
-    let id = random_event_id(Some(10), None);
-    let (_, car) = build_car_file(2).await;
-
-    let item_without_value = &ReconItem::new_key(&id);
-    let item_with_value = &ReconItem::new_with_value(&id, &car);
-
-    // do take the first one
-    expect![
-        r#"
-            Ok(
-                true,
-            )
-            "#
-    ]
-    .assert_debug_eq(&recon::Store::insert(&store, item_without_value).await);
+    .assert_debug_eq(&recon::Store::insert(&store, &ReconItem::new(&id, &car1)).await);
 
     // accept the second insert of same key with the value
     expect![[r#"
@@ -333,7 +310,17 @@ where
                 false,
             )
         "#]]
-    .assert_debug_eq(&recon::Store::insert(&store, item_with_value).await);
+    .assert_debug_eq(&recon::Store::insert(&store, &ReconItem::new(&id, &car2)).await);
+
+    assert_eq!(
+        hex::encode(&car1),
+        hex::encode(
+            &recon::Store::value_for_key(&store, &id)
+                .await
+                .unwrap()
+                .unwrap()
+        ),
+    );
 }
 
 test_with_dbs!(
@@ -350,21 +337,30 @@ async fn first_and_last<S>(store: S)
 where
     S: recon::Store<Key = EventId, Hash = Sha256a> + Send + Sync,
 {
+    let (_, car1) = build_car_file(2).await;
     recon::Store::insert(
         &store,
-        &ReconItem::new_key(&random_event_id(
-            Some(10),
-            Some("baeabeie2bcird7765t7646jcoatd72tfn2tscdaap7g6kvvy7k43s34aau"),
-        )),
+        &ReconItem::new(
+            &random_event_id(
+                Some(10),
+                Some("baeabeie2bcird7765t7646jcoatd72tfn2tscdaap7g6kvvy7k43s34aau"),
+            ),
+            &car1,
+        ),
     )
     .await
     .unwrap();
+
+    let (_, car2) = build_car_file(2).await;
     recon::Store::insert(
         &store,
-        &ReconItem::new_key(&random_event_id(
-            Some(11),
-            Some("baeabeianftvrst5bja422dod6uf42pmwkwix6rprguanwsxylfut56e3ue"),
-        )),
+        &ReconItem::new(
+            &random_event_id(
+                Some(11),
+                Some("baeabeianftvrst5bja422dod6uf42pmwkwix6rprguanwsxylfut56e3ue"),
+            ),
+            &car2,
+        ),
     )
     .await
     .unwrap();
@@ -510,12 +506,9 @@ where
 {
     let key = random_event_id(None, None);
     let (_, store_value) = build_car_file(3).await;
-    recon::Store::insert(
-        &store,
-        &ReconItem::new_with_value(&key, store_value.as_slice()),
-    )
-    .await
-    .unwrap();
+    recon::Store::insert(&store, &ReconItem::new(&key, store_value.as_slice()))
+        .await
+        .unwrap();
     let value = recon::Store::value_for_key(&store, &key)
         .await
         .unwrap()
@@ -538,12 +531,9 @@ where
 {
     let key = random_event_id(None, None);
     let (blocks, store_value) = build_car_file(3).await;
-    recon::Store::insert(
-        &store,
-        &ReconItem::new_with_value(&key, store_value.as_slice()),
-    )
-    .await
-    .unwrap();
+    recon::Store::insert(&store, &ReconItem::new(&key, store_value.as_slice()))
+        .await
+        .unwrap();
     let value = recon::Store::value_for_key(&store, &key)
         .await
         .unwrap()
@@ -568,7 +558,7 @@ async fn prep_highwater_tests(store: &dyn AccessModelStore) -> (EventId, EventId
         let (_blocks, store_value) = build_car_file(x).await;
         assert_eq!(_blocks.len(), x);
         store
-            .insert_many(&[(key.to_owned(), Some(store_value))])
+            .insert_many(&[(key.to_owned(), store_value)])
             .await
             .unwrap();
     }
