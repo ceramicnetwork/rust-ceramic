@@ -11,13 +11,15 @@ use crate::bytes::Bytes;
 /// Ceramic Event
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum Event {
+pub enum Event<D> {
     /// Time event in a stream
     // NOTE: TimeEvent has several CIDs so its a relatively large struct (~312 bytes according to
     // the compiler). Therefore we box it here to keep the Event enum small.
     Time(Box<TimeEvent>),
     /// Signed event in a stream
     Signed(JWS),
+    /// Unsigned event in a stream
+    Unsigned(InitPayload<D>),
 }
 
 /// Signed event
