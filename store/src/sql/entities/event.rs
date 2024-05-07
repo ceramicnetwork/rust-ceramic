@@ -255,7 +255,7 @@ impl EventBlockRaw {
         let mut values: Vec<(EventId, Vec<u8>)> = Vec::new();
         for (key, blocks) in all_blocks {
             if let Some(value) = rebuild_car(blocks).await? {
-                values.push((key.clone(), value));
+                values.push((key, value));
             }
         }
 
