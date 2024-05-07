@@ -218,7 +218,7 @@ where
         end: &EventId,
         offset: usize,
         limit: usize,
-    ) -> anyhow::Result<Vec<(EventId, Vec<u8>)>> {
+    ) -> anyhow::Result<Vec<(Cid, Vec<u8>)>> {
         StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "api_range_with_values",
