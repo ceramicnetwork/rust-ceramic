@@ -246,11 +246,7 @@ where
         Ok(res)
     }
 
-<<<<<<< HEAD
     async fn hash_range(&self, range: Range<&Self::Key>) -> ReconResult<HashCount<Self::Hash>> {
-=======
-    async fn hash_range(&self, range: Range<&Self::Key>) -> Result<HashCount<Self::Hash>> {
->>>>>>> 8d66f0c (wip: proptests passing)
         StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "hash_range",
@@ -293,7 +289,6 @@ where
             .await
     }
 
-<<<<<<< HEAD
     async fn middle(&self, range: Range<&Self::Key>) -> ReconResult<Option<Self::Key>> {
         StoreMetricsMiddleware::<S>::record(&self.metrics, "middle", self.store.middle(range)).await
     }
@@ -304,29 +299,13 @@ where
         StoreMetricsMiddleware::<S>::record(&self.metrics, "first", self.store.first(range)).await
     }
     async fn last(&self, range: Range<&Self::Key>) -> ReconResult<Option<Self::Key>> {
-=======
-    async fn middle(&self, range: Range<&Self::Key>) -> Result<Option<Self::Key>> {
-        StoreMetricsMiddleware::<S>::record(&self.metrics, "middle", self.store.middle(range)).await
-    }
-    async fn count(&self, range: Range<&Self::Key>) -> Result<usize> {
-        StoreMetricsMiddleware::<S>::record(&self.metrics, "count", self.store.count(range)).await
-    }
-    async fn first(&self, range: Range<&Self::Key>) -> Result<Option<Self::Key>> {
-        StoreMetricsMiddleware::<S>::record(&self.metrics, "first", self.store.first(range)).await
-    }
-    async fn last(&self, range: Range<&Self::Key>) -> Result<Option<Self::Key>> {
->>>>>>> 8d66f0c (wip: proptests passing)
         StoreMetricsMiddleware::<S>::record(&self.metrics, "last", self.store.last(range)).await
     }
 
     async fn first_and_last(
         &self,
         range: Range<&Self::Key>,
-<<<<<<< HEAD
     ) -> ReconResult<Option<(Self::Key, Self::Key)>> {
-=======
-    ) -> Result<Option<(Self::Key, Self::Key)>> {
->>>>>>> 8d66f0c (wip: proptests passing)
         StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "first_and_last",
@@ -351,15 +330,4 @@ where
         )
         .await
     }
-<<<<<<< HEAD
-=======
-    async fn keys_with_missing_values(&self, range: Range<&Self::Key>) -> Result<Vec<Self::Key>> {
-        StoreMetricsMiddleware::<S>::record(
-            &self.metrics,
-            "keys_with_missing_values",
-            self.store.keys_with_missing_values(range),
-        )
-        .await
-    }
->>>>>>> 8d66f0c (wip: proptests passing)
 }
