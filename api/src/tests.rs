@@ -213,7 +213,7 @@ async fn create_event() {
         .expect_insert_many()
         .with(predicate::eq(args))
         .times(1)
-        .returning(|_| Ok((vec![true], 1)));
+        .returning(|_| Ok(vec![true]));
     let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_model));
     let resp = server
         .events_post(

@@ -620,7 +620,7 @@ where
 {
     async fn process_value_response(&mut self, key: R::Key, value: Vec<u8>) -> Result<()> {
         self.recon
-            .insert(key, Some(value))
+            .insert(key, value)
             .await
             .context("process value response")?;
         Ok(())
@@ -733,7 +733,7 @@ pub trait Recon: Clone + Send + Sync + 'static {
     type Hash: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>;
 
     /// Insert a new key into the key space.
-    async fn insert(&self, key: Self::Key, value: Option<Vec<u8>>) -> ReconResult<()>;
+    async fn insert(&self, key: Self::Key, value: Vec<u8>) -> ReconResult<()>;
 
     /// Get all keys in the specified range
     async fn range(
@@ -795,7 +795,7 @@ where
     type Key = K;
     type Hash = H;
 
-    async fn insert(&self, key: Self::Key, value: Option<Vec<u8>>) -> ReconResult<()> {
+    async fn insert(&self, key: Self::Key, value: Vec<u8>) -> ReconResult<()> {
         let _ = Client::insert(self, key, value).await?;
         Ok(())
     }
