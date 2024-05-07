@@ -61,7 +61,7 @@ mock! {
             end: &EventId,
             offset: usize,
             limit: usize,
-        ) -> Result<Vec<(EventId,Vec<u8>)>>;
+        ) -> Result<Vec<(Cid,Vec<u8>)>>;
         fn value_for_order_key(&self, key: &EventId) -> Result<Option<Vec<u8>>>;
         fn value_for_cid(&self, key: &Cid) -> Result<Option<Vec<u8>>>;
     }
@@ -83,7 +83,7 @@ impl AccessModelStore for MockReconModelTest {
         end: &EventId,
         offset: usize,
         limit: usize,
-    ) -> Result<Vec<(EventId, Vec<u8>)>> {
+    ) -> Result<Vec<(Cid, Vec<u8>)>> {
         self.range_with_values(start, end, offset, limit)
     }
     async fn value_for_order_key(&self, key: &EventId) -> Result<Option<Vec<u8>>> {
@@ -330,11 +330,12 @@ async fn get_events_for_interest_range() {
     let stream =
         StreamId::from_str("k2t6wz4ylx0qs435j9oi1s6469uekyk6qkxfcb21ikm5ag2g1cook14ole90aw") // cspell:disable-line
             .unwrap();
+    let cid = stream.cid;
     let start = EventId::builder()
         .with_network(&network)
         .with_sort_value("model", model)
         .with_controller(controller)
-        .with_init(&stream.cid)
+        .with_init(&cid)
         .with_min_event_height()
         .build_fencepost();
     let end = EventId::builder()
@@ -349,7 +350,7 @@ async fn get_events_for_interest_range() {
     r: Success(EventsGet { events: [Event { id: "fce0105ff012616e0f0c1e987ef0f772afbe2c7f05c50102bc800", data: "" }], resume_offset: 1, is_complete: false })
             */
     let mock_interest = MockReconInterestTest::new();
-    let expected = BuildResponse::event_with_eventid(start.clone(), vec![]);
+    let expected = BuildResponse::event(cid.clone(), vec![]);
     let mut mock_model = MockReconModelTest::new();
     mock_model
         .expect_range_with_values()
@@ -360,7 +361,7 @@ async fn get_events_for_interest_range() {
             predicate::eq(1),
         )
         .times(1)
-        .returning(|s, _, _, _| Ok(vec![(s.clone(), vec![])]));
+        .returning(move |_, _, _, _| Ok(vec![(cid, vec![])]));
     let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_model));
     let resp = server
         .experimental_events_sep_sep_value_get(
