@@ -131,13 +131,11 @@ impl recon::Store for SqliteInterestStore {
 
     /// Returns true if the key was new. The value is always updated if included
     async fn insert(&self, item: &ReconItem<'_, Interest>) -> ReconResult<bool> {
-        // interests don't have values, if someone gives us something we throw an error but allow None/vec![]
-        if let Some(val) = item.value {
-            if !val.is_empty() {
-                return Err(ReconError::new_app(anyhow!(
-                    "Interests do not support values! Invalid request."
-                )));
-            }
+        // interests don't have values, if someone gives us something we throw an error but allow vec![]
+        if !item.value.is_empty() {
+            return Err(ReconError::new_app(anyhow!(
+                "Interests do not support values! Invalid request."
+            )));
         }
         Ok(self.insert_item(item.key).await?)
     }
@@ -146,21 +144,17 @@ impl recon::Store for SqliteInterestStore {
     /// Returns true if a key did not previously exist.
     async fn insert_many(&self, items: &[ReconItem<'_, Interest>]) -> ReconResult<InsertResult> {
         match items.len() {
-            0 => Ok(InsertResult::new(vec![], 0)),
+            0 => Ok(InsertResult::new(vec![])),
             _ => {
                 let mut results = vec![false; items.len()];
-                let mut new_val_cnt = 0;
                 let mut tx = self.pool.writer().begin().await.map_err(Error::from)?;
 
                 for (idx, item) in items.iter().enumerate() {
                     let new_key = self.insert_item_int(item.key, &mut tx).await?;
                     results[idx] = new_key;
-                    if item.value.is_some() {
-                        new_val_cnt += 1;
-                    }
                 }
                 tx.commit().await.map_err(Error::from)?;
-                Ok(InsertResult::new(results, new_val_cnt))
+                Ok(InsertResult::new(results))
             }
         }
     }
