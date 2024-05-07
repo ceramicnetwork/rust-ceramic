@@ -553,11 +553,17 @@ impl ceramic_api::AccessModelStore for SqliteEventStore {
         offset: usize,
         limit: usize,
     ) -> anyhow::Result<Vec<(Cid, Vec<u8>)>> {
-        let res = self
-            .range_with_values_int(start, end, offset, limit)
+        self.range_with_values_int(start, end, offset, limit)
             .await?
-            .map(|(event_id, value)| (event_id.cid().unwrap(), value));
-        Ok(res.collect())
+            .map(|(event_id, value)| {
+                Ok((
+                    event_id
+                        .cid()
+                        .ok_or_else(|| anyhow!("EventId does not have an event CID"))?,
+                    value,
+                ))
+            })
+            .collect()
     }
     async fn value_for_order_key(&self, key: &EventId) -> anyhow::Result<Option<Vec<u8>>> {
         Ok(self.value_for_order_key_int(key).await?)
