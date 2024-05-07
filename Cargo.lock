@@ -1066,6 +1066,7 @@ dependencies = [
  "cid 0.11.1",
  "expect-test",
  "futures",
+ "hex",
  "ipld-core",
  "iroh-car",
  "jemalloc_pprof",
