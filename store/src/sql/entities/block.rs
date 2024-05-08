@@ -1,5 +1,5 @@
 use cid::Cid;
-use multihash::Multihash;
+use multihash_codetable::Multihash;
 use sqlx::{sqlite::SqliteRow, FromRow, Row};
 
 #[derive(Debug)]

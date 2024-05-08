@@ -9,7 +9,10 @@ use recon::{AssociativeHash, HashCount, InsertResult, Key, Sha256a};
 use sqlx::Row;
 
 use crate::{
-    sql::{ReconHash, ReconQuery, ReconType, SqlBackend},
+    sql::{
+        entities::ReconHash,
+        query::{ReconQuery, ReconType, SqlBackend},
+    },
     DbTxSqlite, Error, Result, SqlitePool,
 };
 

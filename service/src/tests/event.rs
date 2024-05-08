@@ -405,7 +405,7 @@ where
     let (hw, res) = store.events_since_highwater_mark(0, 10).await.unwrap();
     assert_eq!(3, res.len());
     assert!(hw >= 4); // THIS IS THE GLOBAL COUNTER. we have 3 rows in the db we have a counter of 4 or more
-    let exp = [key_a.clone(), key_b.clone(), key_c.clone()];
+    let exp = [key_a, key_b, key_c];
     assert_eq!(exp, res.as_slice());
 }
 

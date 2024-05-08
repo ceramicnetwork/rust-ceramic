@@ -1,7 +1,8 @@
 use std::ops::Range;
 
+use anyhow::anyhow;
 use ceramic_core::EventId;
-
+use ceramic_store::{CeramicOneBlock, CeramicOneEvent};
 use cid::Cid;
 use iroh_bitswap::Block;
 use recon::{HashCount, InsertResult, ReconItem, Result as ReconResult, Sha256a};
@@ -14,7 +15,10 @@ impl recon::Store for CeramicEventService {
     type Hash = Sha256a;
 
     async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> ReconResult<bool> {
-        self.store.insert(item).await
+        let res =
+            CeramicOneEvent::insert_raw_carfiles(&self.pool, &[(item.key.clone(), item.value)])
+                .await?;
+        Ok(res.keys.first().copied().unwrap_or(false))
 
         // if no value, we store it? do nothing?
         // parse the value into a ceramic event
@@ -26,14 +30,20 @@ impl recon::Store for CeramicEventService {
     /// Returns true for each key if it did not previously exist, in the
     /// same order as the input iterator.
     async fn insert_many(&self, items: &[ReconItem<'_, Self::Key>]) -> ReconResult<InsertResult> {
-        self.store.insert_many(items).await
+        let items = items
+            .iter()
+            .map(|item| (item.key.clone(), item.value))
+            .collect::<Vec<_>>();
+        let res = CeramicOneEvent::insert_raw_carfiles(&self.pool, &items[..]).await?;
+        Ok(res)
     }
 
     /// Return the hash of all keys in the range between left_fencepost and right_fencepost.
     /// Both range bounds are exclusive.
     /// Returns ReconResult<(Hash, count), Err>
     async fn hash_range(&self, range: Range<&Self::Key>) -> ReconResult<HashCount<Self::Hash>> {
-        self.store.hash_range(range).await
+        let res = CeramicOneEvent::hash_range(&self.pool, range).await?;
+        Ok(res)
     }
 
     /// Return all keys in the range between left_fencepost and right_fencepost.
@@ -46,7 +56,11 @@ impl recon::Store for CeramicEventService {
         offset: usize,
         limit: usize,
     ) -> ReconResult<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
-        self.store.range(range, offset, limit).await
+        Ok(Box::new(
+            CeramicOneEvent::range(&self.pool, range, offset, limit)
+                .await?
+                .into_iter(),
+        ))
     }
 
     /// Return all keys and values in the range between left_fencepost and right_fencepost.
@@ -59,11 +73,15 @@ impl recon::Store for CeramicEventService {
         offset: usize,
         limit: usize,
     ) -> ReconResult<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>> {
-        self.store.range_with_values(range, offset, limit).await
+        Ok(Box::new(
+            CeramicOneEvent::range_with_values(&self.pool, range, offset, limit)
+                .await?
+                .into_iter(),
+        ))
     }
     /// Return the number of keys within the range.
     async fn count(&self, range: Range<&Self::Key>) -> ReconResult<usize> {
-        self.store.count(range).await
+        Ok(CeramicOneEvent::count(&self.pool, range).await?)
     }
 
     /// value_for_key returns
@@ -71,46 +89,63 @@ impl recon::Store for CeramicEventService {
     /// Ok(None) if not stored, and
     /// Err(e) if retrieving failed.
     async fn value_for_key(&self, key: &Self::Key) -> ReconResult<Option<Vec<u8>>> {
-        self.store.value_for_key(key).await
+        Ok(CeramicOneEvent::value_by_order_key(&self.pool, key).await?)
     }
 }
 
 #[async_trait::async_trait]
 impl iroh_bitswap::Store for CeramicEventService {
     async fn get_size(&self, cid: &Cid) -> anyhow::Result<usize> {
-        self.store.get_size(cid).await
+        Ok(CeramicOneBlock::get_size(&self.pool, cid).await?)
     }
     async fn get(&self, cid: &Cid) -> anyhow::Result<Block> {
-        self.store.get(cid).await
+        let maybe = CeramicOneBlock::get(&self.pool, cid).await?;
+        maybe.ok_or_else(|| anyhow!("block {} does not exist", cid))
     }
     async fn has(&self, cid: &Cid) -> anyhow::Result<bool> {
-        self.store.has(cid).await
+        Ok(CeramicOneBlock::has(&self.pool, cid).await?)
     }
     async fn put(&self, block: &Block) -> anyhow::Result<bool> {
-        self.store.put(block).await
+        Ok(CeramicOneBlock::put(&self.pool, block).await?)
     }
 }
 
 #[async_trait::async_trait]
 impl ceramic_api::AccessModelStore for CeramicEventService {
     async fn insert_many(&self, items: &[(EventId, Vec<u8>)]) -> anyhow::Result<Vec<bool>> {
-        self.store.insert_many(items).await
+        let items = items
+            .iter()
+            .map(|(key, val)| (key.clone(), val.as_slice()))
+            .collect::<Vec<_>>();
+        let res = CeramicOneEvent::insert_raw_carfiles(&self.pool, &items[..]).await?;
+        Ok(res.keys)
     }
 
     async fn range_with_values(
         &self,
-        range: Range<EventId>,
+        range: Range<&EventId>,
         offset: usize,
         limit: usize,
     ) -> anyhow::Result<Vec<(Cid, Vec<u8>)>> {
-        self.store.range_with_values(range, offset, limit).await
+        CeramicOneEvent::range_with_values(&self.pool, range, offset, limit)
+            .await?
+            .into_iter()
+            .map(|(event_id, value)| {
+                Ok((
+                    event_id
+                        .cid()
+                        .ok_or_else(|| anyhow!("EventId does not have an event CID"))?,
+                    value,
+                ))
+            })
+            .collect()
     }
     async fn value_for_order_key(&self, key: &EventId) -> anyhow::Result<Option<Vec<u8>>> {
-        self.store.value_for_order_key(key).await
+        Ok(CeramicOneEvent::value_by_order_key(&self.pool, key).await?)
     }
 
     async fn value_for_cid(&self, key: &Cid) -> anyhow::Result<Option<Vec<u8>>> {
-        self.store.value_for_cid(key).await
+        Ok(CeramicOneEvent::value_by_cid(&self.pool, key).await?)
     }
 
     async fn events_since_highwater_mark(
@@ -118,12 +153,11 @@ impl ceramic_api::AccessModelStore for CeramicEventService {
         highwater: i64,
         limit: i64,
     ) -> anyhow::Result<(i64, Vec<Cid>)> {
-        self.store
-            .events_since_highwater_mark(highwater, limit)
-            .await
+        Ok(CeramicOneEvent::new_events_since_value(&self.pool, highwater, limit).await?)
     }
 
     async fn get_block(&self, cid: &Cid) -> anyhow::Result<Option<Vec<u8>>> {
-        self.store.get_block(cid).await
+        let block = CeramicOneBlock::get(&self.pool, cid).await?;
+        Ok(block.map(|b| b.data.to_vec()))
     }
 }
