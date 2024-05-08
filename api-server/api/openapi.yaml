@@ -353,7 +353,7 @@ components:
         id: id
       properties:
         id:
-          description: Multibase encoding of event id bytes.
+          description: Multibase encoding of event root CID bytes.
           type: string
         data:
           description: Multibase encoding of event data.
