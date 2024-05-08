@@ -1,6 +1,6 @@
 //! Types of raw unvalidated Ceramic Events
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, marker::PhantomData};
 
 use cid::Cid;
 use ipld_core::ipld::Ipld;
@@ -184,9 +184,9 @@ pub struct Signature {
 /// Time event
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TimeEvent {
-    id: Cid,
-    prev: Cid,
-    proof: Cid,
+    id: TypedCid<Event>,
+    prev: TypedCid<Event>,
+    proof: TypedCid<Proof>,
     path: String,
 }
 
@@ -217,7 +217,7 @@ impl TimeEvent {
 #[serde(rename_all = "camelCase")]
 pub struct Proof {
     chain_id: String,
-    root: Cid,
+    root: TypedCid<ProofEdge>,
     tx_hash: Cid,
     tx_type: String,
 }
@@ -229,7 +229,7 @@ impl Proof {
     }
 
     /// Get root
-    pub fn root(&self) -> Cid {
+    pub fn root(&self) -> TypedCid<ProofEdge> {
         self.root
     }
 
@@ -251,4 +251,19 @@ pub type ProofEdge = Vec<Cid>;
 struct Protected {
     // There are more field in this struct be we only care about cap so far.
     cap: Option<Cid>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+struct TypedCid<T>(pub Cid, PhantomData<T>);
+
+impl<T> TypedCid<T>
+where
+    T: for<'a> Deserialize<'a>,
+{
+    fn from_slice(
+        &self,
+        data: &[u8],
+    ) -> Result<T, serde_ipld_dagcbor::DecodeError<std::convert::Infallible>> {
+        serde_ipld_dagcbor::from_slice(data)
+    }
 }

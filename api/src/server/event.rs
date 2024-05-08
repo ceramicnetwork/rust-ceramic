@@ -41,13 +41,14 @@ where
             get_init_event_payload(&event.id(), &car_blocks, store).await?,
         ),
         unvalidated::Event::Signed(event) => {
-            let link = event
+            let link: TypedCid<unvalidated::Payload<Ipld>> = event
                 .link()
                 .ok_or_else(|| anyhow!("event should have a link"))?;
 
             let payload_bytes = get_block(&link, &car_blocks, store).await?;
-            let payload: unvalidated::Payload<Ipld> =
-                serde_ipld_dagcbor::from_slice(&payload_bytes).context("decoding payload")?;
+            let payload = link
+                .from_slice(&payload_bytes)
+                .context("decoding payload")?;
             let init_id = match payload {
                 unvalidated::Payload::Init(_) => event_cid,
                 unvalidated::Payload::Data(payload) => payload.id(),
