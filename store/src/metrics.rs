@@ -1,7 +1,7 @@
 use std::{ops::Range, time::Duration};
 
 use async_trait::async_trait;
-use ceramic_core::{Cid, EventId, Interest, RangeOpen};
+use ceramic_core::{Cid, EventId, Interest};
 use ceramic_metrics::{register, Recorder};
 use futures::Future;
 use prometheus_client::{
@@ -175,15 +175,14 @@ where
     }
     async fn range_with_values(
         &self,
-        start: &EventId,
-        end: &EventId,
+        range: Range<EventId>,
         offset: usize,
         limit: usize,
     ) -> anyhow::Result<Vec<(Cid, Vec<u8>)>> {
         StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "api_range_with_values",
-            self.store.range_with_values(start, end, offset, limit),
+            self.store.range_with_values(range, offset, limit),
         )
         .await
     }

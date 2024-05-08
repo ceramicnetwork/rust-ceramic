@@ -1,5 +1,7 @@
 // Tests for server.rs api implementations
 
+use std::{ops::Range, str::FromStr, sync::Arc};
+
 use crate::server::decode_multibase_data;
 use crate::server::BuildResponse;
 use crate::server::Server;
@@ -16,8 +18,6 @@ use ceramic_core::{Cid, Interest};
 use ceramic_core::{EventId, Network, PeerId, StreamId};
 use mockall::{mock, predicate};
 use multibase::Base;
-use std::str::FromStr;
-use std::sync::Arc;
 use tracing_test::traced_test;
 
 struct Context;
@@ -138,11 +138,10 @@ mock! {
     pub AccessModelStoreTest {}
     #[async_trait]
     impl AccessModelStore for AccessModelStoreTest {
-        async fn insert_many(&self, items: &[(EventId, Option<Vec<u8>>)]) -> Result<(Vec<bool>, usize)>;
+        async fn insert_many(&self, items: &[(EventId, Vec<u8>)]) -> Result<Vec<bool>>;
         async fn range_with_values(
             &self,
-            start: &EventId,
-            end: &EventId,
+            range: Range<EventId>,
             offset: usize,
             limit: usize,
         ) -> Result<Vec<(Cid, Vec<u8>)>>;
@@ -206,7 +205,7 @@ async fn create_event() {
     mock_get_init_event(&mut mock_model);
     let args = vec![(
         expected_event_id,
-        Some(decode_multibase_data(&event_data).unwrap()),
+        decode_multibase_data(&event_data).unwrap(),
     )];
 
     mock_model
@@ -443,13 +442,12 @@ async fn get_events_for_interest_range() {
     mock_model
         .expect_range_with_values()
         .with(
-            predicate::eq(start),
-            predicate::eq(end),
+            predicate::eq(start..end),
             predicate::eq(0),
             predicate::eq(1),
         )
         .times(1)
-        .returning(move |_, _, _, _| Ok(vec![(cid, vec![])]));
+        .returning(move |_, _, _| Ok(vec![(cid, vec![])]));
     let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_model));
     let resp = server
         .experimental_events_sep_sep_value_get(

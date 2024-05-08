@@ -13,7 +13,7 @@ use recon::{
     Result as ReconResult, Sha256a,
 };
 
-use tracing::{debug, instrument};
+use tracing::instrument;
 
 use crate::{
     sql::{
@@ -88,9 +88,9 @@ impl SqliteEventStore {
         Ok(Box::new(values.into_iter()))
     }
 
-    async fn value_for_key_int(&self, key: &EventId) -> Result<Option<Vec<u8>>> {
-        let blocks: Vec<BlockRow> = sqlx::query_as(EventQuery::value_blocks_one())
-            .bind(key.as_bytes())
+    async fn value_for_order_key_int(&self, key: &EventId) -> Result<Option<Vec<u8>>> {
+        let blocks: Vec<BlockRow> = sqlx::query_as(EventQuery::value_blocks_by_order_key_one())
+            .bind(key.to_bytes())
             .fetch_all(self.pool.reader())
             .await?;
         rebuild_car(blocks).await
@@ -104,10 +104,8 @@ impl SqliteEventStore {
         rebuild_car(blocks).await
     }
 
-    async fn insert_item_int(&self, item: ReconItem<'_, EventId>) -> Result<(bool, bool)> {
-        let new_val = item.value.is_some();
+    async fn insert_item_int(&self, item: ReconItem<'_, EventId>) -> Result<bool> {
         let res = self.insert_items_int(&[item]).await?;
-        debug!(?res, "insert_item_int");
         let new_key = res.keys.first().cloned().unwrap_or(false);
         Ok(new_key)
     }
@@ -441,12 +439,11 @@ impl ceramic_api::AccessModelStore for SqliteEventStore {
 
     async fn range_with_values(
         &self,
-        start: &EventId,
-        end: &EventId,
+        range: Range<EventId>,
         offset: usize,
         limit: usize,
     ) -> anyhow::Result<Vec<(Cid, Vec<u8>)>> {
-        self.range_with_values_int(start, end, offset, limit)
+        self.range_with_values_int(&range.start..&range.end, offset, limit)
             .await?
             .map(|(event_id, value)| {
                 Ok((

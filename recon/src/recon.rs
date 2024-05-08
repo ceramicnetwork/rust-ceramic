@@ -112,13 +112,67 @@ where
             || (!range.first.is_fencepost() && range.hash.count == 1)
         {
             // Remote does not have any data (except for possibly the first key) in the range.
-            Ok(SyncState::RemoteMissing {
-                range: RangeHash {
-                    first: range.first,
-                    hash: calculated_hash,
-                    last: range.last,
-                },
-            })
+
+            // Its also possible that locally we do not have the first key in the range.
+            // As an optmization return two ranges if the first bound in the range is not a
+            // fencepost and is not a key we have. The ranges are:
+            //
+            //      1. A range containing only the first key, will be zero since we do not have the
+            //         key.
+            //      2. A range containing the rest of the keys
+            //
+            // The first range will trigger the remote to send the key and its value. The second
+            // range will ensure we are synchronized.
+            if range.first.is_fencepost() || calculated_hash.count == 0 {
+                Ok(SyncState::RemoteMissing {
+                    ranges: vec![RangeHash {
+                        first: range.first,
+                        hash: calculated_hash,
+                        last: range.last,
+                    }],
+                })
+            } else {
+                // Get the first key in the range, should always exist since we checked the count
+                // in the range already.
+                let split_key = self
+                    .store
+                    .range(&range.first..&range.last, 0, 1)
+                    .await?
+                    .next()
+                    .ok_or_else(|| {
+                        Error::new_fatal(anyhow!(
+                            "unreachable, at least one key should exist in range given the conditional guard above"
+                        ))
+                    })?;
+                if split_key == range.first {
+                    // We already have the bounding key no need to split
+                    Ok(SyncState::RemoteMissing {
+                        ranges: vec![RangeHash {
+                            first: range.first,
+                            hash: calculated_hash,
+                            last: range.last,
+                        }],
+                    })
+                } else {
+                    // We do not have the bounding key...
+                    Ok(SyncState::RemoteMissing {
+                        ranges: vec![
+                            // Send range indicating we are missing the bounding key
+                            RangeHash {
+                                first: range.first,
+                                hash: HashCount::default(),
+                                last: split_key.clone(),
+                            },
+                            // Send range of everything else past the bounding key
+                            RangeHash {
+                                first: split_key.clone(),
+                                hash: self.store.hash_range(&split_key..&range.last).await?,
+                                last: range.last,
+                            },
+                        ],
+                    })
+                }
+            }
         } else {
             // We disagree on the hash for range.
             // Split the range.
@@ -420,7 +474,7 @@ pub trait Store {
     /// Returns Result<(Hash, count), Err>
     async fn hash_range(&self, range: Range<&Self::Key>) -> Result<HashCount<Self::Hash>>;
 
-    /// Return all keys in the range between left_fencepost and right_fencepost.
+    /// Return all keys in the range.
     /// The upper range bound is exclusive.
     ///
     /// Offset and limit values are applied within the range of keys.
@@ -795,6 +849,19 @@ pub struct Split<K, H> {
 }
 
 /// Enumerates the possible synchronization states between local and remote peers.
+///
+/// Recon the algorithm is a recursive algorithm between two peers.
+/// The SyncState represents the base cases and intermediate states of the recursive process.
+///
+/// In short the Recon algorithm descends the key space tree until we discover that the range is
+/// synchronized, this is the base case.
+///
+/// Along the way if we discover any ranges where the remote is missing keys we send over those keys.
+///
+/// In the limit we descend the tree until only a single key is in each range, send the missing key
+/// and then determine that range is synchronized.
+///
+/// Otherwise the range is unsynchronized, we split the key space and recurse.
 #[derive(Debug)]
 pub enum SyncState<K, H> {
     /// The local is synchronized with the remote.
@@ -804,8 +871,10 @@ pub enum SyncState<K, H> {
     },
     /// The remote range is missing all data in the range.
     RemoteMissing {
-        /// The range and hash of the local data the remote is missing.
-        range: RangeHash<K, H>,
+        /// The ranges of the local data.
+        /// Often, as an optmization, this is split into two ranges one including only the first
+        /// key in the range and then another for the remaining keys.
+        ranges: Vec<RangeHash<K, H>>,
     },
     /// The local is out of sync with the remote.
     Unsynchronized {
