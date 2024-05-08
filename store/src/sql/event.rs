@@ -135,10 +135,12 @@ impl SqliteEventStore {
             let new_key = self.insert_key_int(&item.order_key, &mut tx).await?;
             if new_key {
                 // Only add the blocks if this is a new key, otherwise ignore the value.
+                // Will adjust with IOD changes but we may want to update the value if it's
+                // missing in case we failed somehow on a previous attempt.
                 for block in item.blocks.iter() {
                     self.insert_event_block_int(block, &mut tx).await?;
-                    self.mark_ready_to_deliver(&item.order_key, &mut tx).await?;
                 }
+                self.mark_ready_to_deliver(&item.order_key, &mut tx).await?;
             }
             new_keys[idx] = new_key;
         }
