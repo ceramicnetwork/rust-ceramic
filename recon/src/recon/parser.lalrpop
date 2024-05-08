@@ -29,25 +29,23 @@ Interest: RangeOpen<AlphaNumBytes> = {
     "(" <start:Word> "," <end:Word> ")" => (start, end).into()
 };
 
-State: BTreeMap<AlphaNumBytes, Option<AlphaNumBytes>> = {
+State: BTreeSet<AlphaNumBytes> = {
     "[" <StateInner> "]" => <>
 };
 
-StateInner: BTreeMap<AlphaNumBytes, Option<AlphaNumBytes>> = {
-    <first:KeyValue?> <rest:("," <KeyValue>)*> => {
-        let mut state = BTreeMap::<AlphaNumBytes, Option<AlphaNumBytes>>::new();
+StateInner: BTreeSet<AlphaNumBytes> = {
+    <first:Key?> <rest:("," <Key>)*> => {
+        let mut state = BTreeSet::<AlphaNumBytes>::new();
         state.extend(rest.into_iter());
         if let Some(first) = first {
-            state.insert(first.0, first.1);
+            state.insert(first);
         }
         state
     }
 };
 
-KeyValue: (AlphaNumBytes, Option<AlphaNumBytes>) = {
-    <key:Word> => (key.clone(), Some(key.clone())),
-    <key:Word> ":" <value:Word> => (key.clone(), Some(value)),
-    <key:Word> ":" "∅" => (key.clone(), None),
+Key: AlphaNumBytes = {
+    <key:Word> => key,
 }
 
 Word : AlphaNumBytes = {

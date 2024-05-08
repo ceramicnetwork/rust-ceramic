@@ -14,6 +14,9 @@ lalrpop_util::lalrpop_mod!(
     pub parser, "/recon/parser.rs"
 ); // synthesized by LALRPOP
 
+use std::fmt::Display;
+use std::{collections::BTreeSet, sync::Arc};
+
 use anyhow::Result;
 use async_trait::async_trait;
 use ceramic_core::RangeOpen;
@@ -21,8 +24,6 @@ use futures::{ready, Future, Sink, Stream};
 use pin_project::pin_project;
 use prometheus_client::registry::Registry;
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, fmt::Display};
-use std::{collections::BTreeSet, sync::Arc};
 use test_log::test;
 use tokio::sync::mpsc::channel;
 use tokio_stream::wrappers::ReceiverStream;
@@ -215,7 +216,7 @@ where
 #[derive(Clone, Debug)]
 pub struct SetupState<K: Key> {
     interests: FixedInterests<K>,
-    state: BTreeMap<K, Option<K>>,
+    state: BTreeSet<K>,
 }
 
 async fn from_setup_state(setup: SetupState<AlphaNumBytes>) -> ReconMemoryBytes {
@@ -224,7 +225,8 @@ async fn from_setup_state(setup: SetupState<AlphaNumBytes>) -> ReconMemoryBytes 
             setup
                 .state
                 .into_iter()
-                .map(|(k, v)| (k, v.map(|v| v.into_inner())))
+                // Use key as value for tests
+                .map(|k| (k.clone(), k.into_inner()))
                 .collect(),
         )
         .await,
@@ -264,7 +266,7 @@ where
     H: AssociativeHash,
 {
     message: Message<K, H>,
-    state: BTreeMap<K, Option<K>>,
+    state: BTreeSet<K>,
 }
 
 impl<'a, D, A, K, H> Pretty<'a, D, A> for &'a SequenceStep<K, H>
@@ -327,7 +329,7 @@ where
                     ),
                     InitiatorMessage::Value(vr) => dir.append(
                         allocator
-                            .text("value_resp")
+                            .text("value")
                             .append(PrettyValueResponse(vr).pretty(allocator).parens()),
                     ),
                     InitiatorMessage::Finished => dir.append(allocator.text("finished")),
@@ -352,7 +354,7 @@ where
                     ),
                     ResponderMessage::Value(vr) => dir.append(
                         allocator
-                            .text("value_resp")
+                            .text("value")
                             .append(PrettyValueResponse(vr).pretty(allocator).parens()),
                     ),
                 }
@@ -363,8 +365,8 @@ where
 
 #[derive(Clone, Debug)]
 pub struct SequenceFinal<K: Key> {
-    cat: BTreeMap<K, Option<K>>,
-    dog: BTreeMap<K, Option<K>>,
+    cat: BTreeSet<K>,
+    dog: BTreeSet<K>,
 }
 
 impl<'a, D, A, K> Pretty<'a, D, A> for &'a SequenceFinal<K>
@@ -478,29 +480,19 @@ where
     }
 }
 
-struct PrettySet<'a, K, V>(pub &'a BTreeMap<K, Option<V>>);
+struct PrettySet<'a, K>(pub &'a BTreeSet<K>);
 
-impl<'a, D, A, K, V> Pretty<'a, D, A> for PrettySet<'a, K, V>
+impl<'a, D, A, K> Pretty<'a, D, A> for PrettySet<'a, K>
 where
     A: 'a + Clone,
     D: DocAllocator<'a, A>,
     D::Doc: Clone,
     K: std::fmt::Display,
-    V: std::fmt::Display,
 {
     fn pretty(self, allocator: &'a D) -> DocBuilder<'a, D, A> {
         allocator
             .intersperse(
-                self.0.iter().map(|(k, v)| {
-                    allocator
-                        .text(k.to_string())
-                        .append(allocator.text(": "))
-                        .append(if let Some(v) = v {
-                            allocator.text(v.to_string())
-                        } else {
-                            allocator.text("∅")
-                        })
-                }),
+                self.0.iter().map(|k| allocator.text(k.to_string())),
                 allocator.text(", "),
             )
             .brackets()
@@ -717,8 +709,8 @@ fn test_parse_sequence(sequence: &str, expect: Expect) {
 fn parse_sequence_small() {
     test_parse_sequence(
         r#"
-        cat: [a:A,b:B,c:C]
-        dog: [e:E,f:F,g:G]
+        cat: [a,b,c]
+        dog: [e,f,g]
         "#,
         expect![[r#"
             SequenceSetup {
@@ -738,24 +730,12 @@ fn parse_sequence_small() {
                     state: {
                         Bytes(
                             "a",
-                        ): Some(
-                            Bytes(
-                                "A",
-                            ),
                         ),
                         Bytes(
                             "b",
-                        ): Some(
-                            Bytes(
-                                "B",
-                            ),
                         ),
                         Bytes(
                             "c",
-                        ): Some(
-                            Bytes(
-                                "C",
-                            ),
                         ),
                     },
                 },
@@ -775,24 +755,12 @@ fn parse_sequence_small() {
                     state: {
                         Bytes(
                             "e",
-                        ): Some(
-                            Bytes(
-                                "E",
-                            ),
                         ),
                         Bytes(
                             "f",
-                        ): Some(
-                            Bytes(
-                                "F",
-                            ),
                         ),
                         Bytes(
                             "g",
-                        ): Some(
-                            Bytes(
-                                "G",
-                            ),
                         ),
                     },
                 },
@@ -805,7 +773,7 @@ fn parse_sequence_small() {
 fn parse_sequence_empty_set() {
     test_parse_sequence(
         r#"
-cat: [a: X]
+cat: [a]
 dog: []
         "#,
         expect![[r#"
@@ -826,10 +794,6 @@ dog: []
                     state: {
                         Bytes(
                             "a",
-                        ): Some(
-                            Bytes(
-                                "X",
-                            ),
                         ),
                     },
                 },
@@ -856,8 +820,8 @@ dog: []
 fn parse_sequence_interests_alpha_omega() {
     test_parse_sequence(
         r#"
-        cat: <(𝚨,c)> [a:A,b:B,c:C]
-        dog: <(b,f),(g,𝛀)> [e:E,f:F,g:G]
+        cat: <(𝚨,c)> [a,b,c]
+        dog: <(b,f),(g,𝛀)> [e,f,g]
         "#,
         expect![[r#"
             SequenceSetup {
@@ -877,24 +841,12 @@ fn parse_sequence_interests_alpha_omega() {
                     state: {
                         Bytes(
                             "a",
-                        ): Some(
-                            Bytes(
-                                "A",
-                            ),
                         ),
                         Bytes(
                             "b",
-                        ): Some(
-                            Bytes(
-                                "B",
-                            ),
                         ),
                         Bytes(
                             "c",
-                        ): Some(
-                            Bytes(
-                                "C",
-                            ),
                         ),
                     },
                 },
@@ -922,76 +874,13 @@ fn parse_sequence_interests_alpha_omega() {
                     state: {
                         Bytes(
                             "e",
-                        ): Some(
-                            Bytes(
-                                "E",
-                            ),
                         ),
                         Bytes(
                             "f",
-                        ): Some(
-                            Bytes(
-                                "F",
-                            ),
                         ),
                         Bytes(
                             "g",
-                        ): Some(
-                            Bytes(
-                                "G",
-                            ),
                         ),
-                    },
-                },
-            }
-        "#]],
-    )
-}
-#[test]
-fn parse_sequence_missing_value() {
-    test_parse_sequence(
-        r#"
-cat: [a: ∅]
-dog: [b: ∅]
-        "#,
-        expect![[r#"
-            SequenceSetup {
-                cat: SetupState {
-                    interests: FixedInterests(
-                        [
-                            RangeOpen {
-                                start: Bytes(
-                                    "",
-                                ),
-                                end: Bytes(
-                                    "0xFF",
-                                ),
-                            },
-                        ],
-                    ),
-                    state: {
-                        Bytes(
-                            "a",
-                        ): None,
-                    },
-                },
-                dog: SetupState {
-                    interests: FixedInterests(
-                        [
-                            RangeOpen {
-                                start: Bytes(
-                                    "",
-                                ),
-                                end: Bytes(
-                                    "0xFF",
-                                ),
-                            },
-                        ],
-                    ),
-                    state: {
-                        Bytes(
-                            "b",
-                        ): None,
                     },
                 },
             }
@@ -1196,12 +1085,11 @@ where
 async fn recon_do(recon: &str) -> Sequence<AlphaNumBytes, MemoryAHash> {
     async fn snapshot_state(
         client: Client<AlphaNumBytes, MemoryAHash>,
-    ) -> Result<BTreeMap<AlphaNumBytes, Option<AlphaNumBytes>>> {
-        let mut state = BTreeMap::new();
+    ) -> Result<BTreeSet<AlphaNumBytes>> {
+        let mut state = BTreeSet::new();
         let keys: Vec<AlphaNumBytes> = client.full_range().await?.collect();
         for key in keys {
-            let value = client.value_for_key(key.clone()).await?;
-            state.insert(key, value.map(AlphaNumBytes::from));
+            state.insert(key);
         }
         Ok(state)
     }
@@ -1294,36 +1182,36 @@ async fn recon_test(recon: Expect) {
 #[test(tokio::test)]
 async fn abcde() {
     recon_test(expect![[r#"
-        cat: [b: B, c: C, d: D, e: E]
-        dog: [a: A, e: E]
+        cat: [b, c, d, e]
+        dog: [a, e]
         -> interest_req((𝚨, 𝛀 ))
-            cat: [b: B, c: C, d: D, e: E]
+            cat: [b, c, d, e]
         <- interest_resp((𝚨, 𝛀 ))
-            dog: [a: A, e: E]
+            dog: [a, e]
         -> range_req({𝚨 h(b, c, d, e)#4 𝛀 })
-            cat: [b: B, c: C, d: D, e: E]
+            cat: [b, c, d, e]
         <- range_resp({𝚨 0 a}, {a h(a)#1 e}, {e h(e)#1 𝛀 })
-            dog: [a: A, e: E]
-        -> value_resp(b: B)
-            cat: [b: B, c: C, d: D, e: E]
-        -> value_resp(c: C)
-            cat: [b: B, c: C, d: D, e: E]
-        -> value_resp(d: D)
-            cat: [b: B, c: C, d: D, e: E]
+            dog: [a, e]
+        -> value(b: b)
+            cat: [b, c, d, e]
+        -> value(c: c)
+            cat: [b, c, d, e]
+        -> value(d: d)
+            cat: [b, c, d, e]
         -> range_req({a h(b, c, d)#3 e})
-            cat: [b: B, c: C, d: D, e: E]
+            cat: [b, c, d, e]
         <- range_resp({a h(a)#1 b}, {b h(b)#1 c}, {c h(c)#1 d}, {d h(d)#1 e})
-            dog: [a: A, b: B, c: C, d: D, e: E]
+            dog: [a, b, c, d, e]
         -> range_req({a 0 b})
-            cat: [b: B, c: C, d: D, e: E]
-        <- value_resp(a: A)
-            dog: [a: A, b: B, c: C, d: D, e: E]
+            cat: [b, c, d, e]
+        <- value(a: a)
+            dog: [a, b, c, d, e]
         <- range_resp({a h(a)#1 b})
-            dog: [a: A, b: B, c: C, d: D, e: E]
+            dog: [a, b, c, d, e]
         -> finished
-            cat: [a: A, b: B, c: C, d: D, e: E]
-        cat: [a: A, b: B, c: C, d: D, e: E]
-        dog: [a: A, b: B, c: C, d: D, e: E]
+            cat: [a, b, c, d, e]
+        cat: [a, b, c, d, e]
+        dog: [a, b, c, d, e]
     "#]])
     .await
 }
@@ -1331,30 +1219,30 @@ async fn abcde() {
 #[test(tokio::test)]
 async fn two_in_a_row() {
     recon_test(expect![[r#"
-        cat: [a: A, b: B, c: C, d: D, e: E]
-        dog: [a: A, d: D, e: E]
+        cat: [a, b, c, d, e]
+        dog: [a, d, e]
         -> interest_req((𝚨, 𝛀 ))
-            cat: [a: A, b: B, c: C, d: D, e: E]
+            cat: [a, b, c, d, e]
         <- interest_resp((𝚨, 𝛀 ))
-            dog: [a: A, d: D, e: E]
+            dog: [a, d, e]
         -> range_req({𝚨 h(a, b, c, d, e)#5 𝛀 })
-            cat: [a: A, b: B, c: C, d: D, e: E]
+            cat: [a, b, c, d, e]
         <- range_resp({𝚨 0 a}, {a h(a)#1 d}, {d h(d)#1 e}, {e h(e)#1 𝛀 })
-            dog: [a: A, d: D, e: E]
-        -> value_resp(a: A)
-            cat: [a: A, b: B, c: C, d: D, e: E]
-        -> value_resp(b: B)
-            cat: [a: A, b: B, c: C, d: D, e: E]
-        -> value_resp(c: C)
-            cat: [a: A, b: B, c: C, d: D, e: E]
+            dog: [a, d, e]
+        -> value(a: a)
+            cat: [a, b, c, d, e]
+        -> value(b: b)
+            cat: [a, b, c, d, e]
+        -> value(c: c)
+            cat: [a, b, c, d, e]
         -> range_req({a h(a, b, c)#3 d})
-            cat: [a: A, b: B, c: C, d: D, e: E]
+            cat: [a, b, c, d, e]
         <- range_resp({a h(a, b, c)#3 d})
-            dog: [a: A, b: B, c: C, d: D, e: E]
+            dog: [a, b, c, d, e]
         -> finished
-            cat: [a: A, b: B, c: C, d: D, e: E]
-        cat: [a: A, b: B, c: C, d: D, e: E]
-        dog: [a: A, b: B, c: C, d: D, e: E]
+            cat: [a, b, c, d, e]
+        cat: [a, b, c, d, e]
+        dog: [a, b, c, d, e]
     "#]])
     .await
 }
@@ -1362,48 +1250,48 @@ async fn two_in_a_row() {
 #[test(tokio::test)]
 async fn disjoint() {
     recon_test(expect![[r#"
-        cat: [a: A, b: B, c: C]
-        dog: [e: E, f: F, g: G]
+        cat: [a, b, c]
+        dog: [e, f, g]
         -> interest_req((𝚨, 𝛀 ))
-            cat: [a: A, b: B, c: C]
+            cat: [a, b, c]
         <- interest_resp((𝚨, 𝛀 ))
-            dog: [e: E, f: F, g: G]
+            dog: [e, f, g]
         -> range_req({𝚨 h(a, b, c)#3 𝛀 })
-            cat: [a: A, b: B, c: C]
+            cat: [a, b, c]
         <- range_resp({𝚨 0 e}, {e h(e)#1 f}, {f h(f)#1 g}, {g h(g)#1 𝛀 })
-            dog: [e: E, f: F, g: G]
-        -> value_resp(a: A)
-            cat: [a: A, b: B, c: C]
-        -> value_resp(b: B)
-            cat: [a: A, b: B, c: C]
-        -> value_resp(c: C)
-            cat: [a: A, b: B, c: C]
+            dog: [e, f, g]
+        -> value(a: a)
+            cat: [a, b, c]
+        -> value(b: b)
+            cat: [a, b, c]
+        -> value(c: c)
+            cat: [a, b, c]
         -> range_req({𝚨 h(a, b, c)#3 e})
-            cat: [a: A, b: B, c: C]
+            cat: [a, b, c]
         -> range_req({e 0 f})
-            cat: [a: A, b: B, c: C]
+            cat: [a, b, c]
         <- range_resp({𝚨 h(a, b, c)#3 e})
-            dog: [a: A, b: B, c: C, e: E, f: F, g: G]
+            dog: [a, b, c, e, f, g]
         -> range_req({f 0 g})
-            cat: [a: A, b: B, c: C]
-        <- value_resp(e: E)
-            dog: [a: A, b: B, c: C, e: E, f: F, g: G]
-        -> range_req({g 0 𝛀 })
-            cat: [a: A, b: B, c: C]
+            cat: [a, b, c]
+        <- value(e: e)
+            dog: [a, b, c, e, f, g]
         <- range_resp({e h(e)#1 f})
-            dog: [a: A, b: B, c: C, e: E, f: F, g: G]
-        <- value_resp(f: F)
-            dog: [a: A, b: B, c: C, e: E, f: F, g: G]
+            dog: [a, b, c, e, f, g]
+        -> range_req({g 0 𝛀 })
+            cat: [a, b, c, e]
+        <- value(f: f)
+            dog: [a, b, c, e, f, g]
         <- range_resp({f h(f)#1 g})
-            dog: [a: A, b: B, c: C, e: E, f: F, g: G]
-        <- value_resp(g: G)
-            dog: [a: A, b: B, c: C, e: E, f: F, g: G]
+            dog: [a, b, c, e, f, g]
+        <- value(g: g)
+            dog: [a, b, c, e, f, g]
         <- range_resp({g h(g)#1 𝛀 })
-            dog: [a: A, b: B, c: C, e: E, f: F, g: G]
+            dog: [a, b, c, e, f, g]
         -> finished
-            cat: [a: A, b: B, c: C, e: E, f: F, g: G]
-        cat: [a: A, b: B, c: C, e: E, f: F, g: G]
-        dog: [a: A, b: B, c: C, e: E, f: F, g: G]
+            cat: [a, b, c, e, f, g]
+        cat: [a, b, c, e, f, g]
+        dog: [a, b, c, e, f, g]
     "#]])
     .await
 }
@@ -1412,26 +1300,26 @@ async fn disjoint() {
 async fn one_cat() {
     // if there is only one key it is its own message
     recon_test(expect![[r#"
-        cat: [a: A]
+        cat: [a]
         dog: []
         -> interest_req((𝚨, 𝛀 ))
-            cat: [a: A]
+            cat: [a]
         <- interest_resp((𝚨, 𝛀 ))
             dog: []
         -> range_req({𝚨 h(a)#1 𝛀 })
-            cat: [a: A]
+            cat: [a]
         <- range_resp({𝚨 0 𝛀 })
             dog: []
-        -> value_resp(a: A)
-            cat: [a: A]
+        -> value(a: a)
+            cat: [a]
         -> range_req({𝚨 h(a)#1 𝛀 })
-            cat: [a: A]
+            cat: [a]
         <- range_resp({𝚨 h(a)#1 𝛀 })
-            dog: [a: A]
+            dog: [a]
         -> finished
-            cat: [a: A]
-        cat: [a: A]
-        dog: [a: A]
+            cat: [a]
+        cat: [a]
+        dog: [a]
     "#]])
     .await
 }
@@ -1440,21 +1328,21 @@ async fn one_cat() {
 async fn one_dog() {
     recon_test(expect![[r#"
         cat: []
-        dog: [a: A]
+        dog: [a]
         -> interest_req((𝚨, 𝛀 ))
             cat: []
         <- interest_resp((𝚨, 𝛀 ))
-            dog: [a: A]
+            dog: [a]
         -> range_req({𝚨 0 𝛀 })
             cat: []
-        <- value_resp(a: A)
-            dog: [a: A]
+        <- value(a: a)
+            dog: [a]
         <- range_resp({𝚨 h(a)#1 𝛀 })
-            dog: [a: A]
+            dog: [a]
         -> finished
-            cat: [a: A]
-        cat: [a: A]
-        dog: [a: A]
+            cat: [a]
+        cat: [a]
+        dog: [a]
     "#]])
     .await
 }
@@ -1483,20 +1371,20 @@ async fn none() {
 #[test(tokio::test)]
 async fn two_in_sync() {
     recon_test(expect![[r#"
-        cat: [a: A, z: Z]
-        dog: [a: A, z: Z]
+        cat: [a, z]
+        dog: [a, z]
         -> interest_req((𝚨, 𝛀 ))
-            cat: [a: A, z: Z]
+            cat: [a, z]
         <- interest_resp((𝚨, 𝛀 ))
-            dog: [a: A, z: Z]
+            dog: [a, z]
         -> range_req({𝚨 h(a, z)#2 𝛀 })
-            cat: [a: A, z: Z]
+            cat: [a, z]
         <- range_resp({𝚨 h(a, z)#2 𝛀 })
-            dog: [a: A, z: Z]
+            dog: [a, z]
         -> finished
-            cat: [a: A, z: Z]
-        cat: [a: A, z: Z]
-        dog: [a: A, z: Z]
+            cat: [a, z]
+        cat: [a, z]
+        dog: [a, z]
     "#]])
     .await
 }
@@ -1504,78 +1392,78 @@ async fn two_in_sync() {
 #[test(tokio::test)]
 async fn paper() {
     recon_test(expect![[r#"
-        cat: [ape: APE, eel: EEL, fox: FOX, gnu: GNU]
-        dog: [bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, hog: HOG]
+        cat: [ape, eel, fox, gnu]
+        dog: [bee, cot, doe, eel, fox, hog]
         -> interest_req((𝚨, 𝛀 ))
-            cat: [ape: APE, eel: EEL, fox: FOX, gnu: GNU]
+            cat: [ape, eel, fox, gnu]
         <- interest_resp((𝚨, 𝛀 ))
-            dog: [bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, hog: HOG]
+            dog: [bee, cot, doe, eel, fox, hog]
         -> range_req({𝚨 h(ape, eel, fox, gnu)#4 𝛀 })
-            cat: [ape: APE, eel: EEL, fox: FOX, gnu: GNU]
+            cat: [ape, eel, fox, gnu]
         <- range_resp({𝚨 h(bee, cot, doe)#3 eel}, {eel h(eel, fox, hog)#3 𝛀 })
-            dog: [bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, hog: HOG]
+            dog: [bee, cot, doe, eel, fox, hog]
         -> range_req({𝚨 0 ape})
-            cat: [ape: APE, eel: EEL, fox: FOX, gnu: GNU]
+            cat: [ape, eel, fox, gnu]
         -> range_req({ape h(ape)#1 eel})
-            cat: [ape: APE, eel: EEL, fox: FOX, gnu: GNU]
+            cat: [ape, eel, fox, gnu]
         <- range_resp({𝚨 0 ape})
-            dog: [bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, hog: HOG]
+            dog: [bee, cot, doe, eel, fox, hog]
+        <- value(bee: bee)
+            dog: [bee, cot, doe, eel, fox, hog]
         -> range_req({eel h(eel)#1 fox})
-            cat: [ape: APE, eel: EEL, fox: FOX, gnu: GNU]
-        <- value_resp(bee: BEE)
-            dog: [bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, hog: HOG]
+            cat: [ape, bee, eel, fox, gnu]
+        <- value(cot: cot)
+            dog: [bee, cot, doe, eel, fox, hog]
         -> range_req({fox h(fox)#1 gnu})
-            cat: [ape: APE, bee: BEE, eel: EEL, fox: FOX, gnu: GNU]
-        <- value_resp(cot: COT)
-            dog: [bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, hog: HOG]
+            cat: [ape, bee, cot, eel, fox, gnu]
+        <- value(doe: doe)
+            dog: [bee, cot, doe, eel, fox, hog]
         -> range_req({gnu h(gnu)#1 𝛀 })
-            cat: [ape: APE, bee: BEE, eel: EEL, fox: FOX, gnu: GNU]
-        <- value_resp(doe: DOE)
-            dog: [bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, hog: HOG]
+            cat: [ape, bee, cot, doe, eel, fox, gnu]
         <- range_resp({ape h(bee, cot, doe)#3 eel})
-            dog: [bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, hog: HOG]
+            dog: [bee, cot, doe, eel, fox, hog]
         <- range_resp({eel h(eel)#1 fox})
-            dog: [bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, hog: HOG]
+            dog: [bee, cot, doe, eel, fox, hog]
         -> range_req({ape h(ape)#1 bee})
-            cat: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU]
+            cat: [ape, bee, cot, doe, eel, fox, gnu]
         <- range_resp({fox h(fox)#1 gnu})
-            dog: [bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, hog: HOG]
+            dog: [bee, cot, doe, eel, fox, hog]
         -> range_req({bee h(bee)#1 cot})
-            cat: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU]
-        <- value_resp(hog: HOG)
-            dog: [bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, hog: HOG]
+            cat: [ape, bee, cot, doe, eel, fox, gnu]
+        <- value(hog: hog)
+            dog: [bee, cot, doe, eel, fox, hog]
         -> range_req({cot h(cot)#1 doe})
-            cat: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU]
+            cat: [ape, bee, cot, doe, eel, fox, gnu, hog]
         <- range_resp({gnu h(hog)#1 𝛀 })
-            dog: [bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, hog: HOG]
+            dog: [bee, cot, doe, eel, fox, hog]
         -> range_req({doe h(doe)#1 eel})
-            cat: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU, hog: HOG]
+            cat: [ape, bee, cot, doe, eel, fox, gnu, hog]
+        -> value(gnu: gnu)
+            cat: [ape, bee, cot, doe, eel, fox, gnu, hog]
         <- range_resp({ape 0 bee})
-            dog: [bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, hog: HOG]
-        -> value_resp(gnu: GNU)
-            cat: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU, hog: HOG]
-        <- range_resp({bee h(bee)#1 cot})
-            dog: [bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, hog: HOG]
-        -> value_resp(hog: HOG)
-            cat: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU, hog: HOG]
-        <- range_resp({cot h(cot)#1 doe})
-            dog: [bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU, hog: HOG]
+            dog: [bee, cot, doe, eel, fox, hog]
+        -> value(hog: hog)
+            cat: [ape, bee, cot, doe, eel, fox, gnu, hog]
         -> range_req({gnu h(gnu, hog)#2 𝛀 })
-            cat: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU, hog: HOG]
-        <- range_resp({doe h(doe)#1 eel})
-            dog: [bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU, hog: HOG]
-        -> value_resp(ape: APE)
-            cat: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU, hog: HOG]
-        <- range_resp({gnu h(gnu, hog)#2 𝛀 })
-            dog: [bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU, hog: HOG]
+            cat: [ape, bee, cot, doe, eel, fox, gnu, hog]
+        <- range_resp({bee h(bee)#1 cot})
+            dog: [bee, cot, doe, eel, fox, gnu, hog]
+        -> value(ape: ape)
+            cat: [ape, bee, cot, doe, eel, fox, gnu, hog]
+        <- range_resp({cot h(cot)#1 doe})
+            dog: [bee, cot, doe, eel, fox, gnu, hog]
         -> range_req({ape h(ape)#1 bee})
-            cat: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU, hog: HOG]
+            cat: [ape, bee, cot, doe, eel, fox, gnu, hog]
+        <- range_resp({doe h(doe)#1 eel})
+            dog: [ape, bee, cot, doe, eel, fox, gnu, hog]
+        <- range_resp({gnu h(gnu, hog)#2 𝛀 })
+            dog: [ape, bee, cot, doe, eel, fox, gnu, hog]
         <- range_resp({ape h(ape)#1 bee})
-            dog: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU, hog: HOG]
+            dog: [ape, bee, cot, doe, eel, fox, gnu, hog]
         -> finished
-            cat: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU, hog: HOG]
-        cat: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU, hog: HOG]
-        dog: [ape: APE, bee: BEE, cot: COT, doe: DOE, eel: EEL, fox: FOX, gnu: GNU, hog: HOG]
+            cat: [ape, bee, cot, doe, eel, fox, gnu, hog]
+        cat: [ape, bee, cot, doe, eel, fox, gnu, hog]
+        dog: [ape, bee, cot, doe, eel, fox, gnu, hog]
     "#]])
     .await;
 }
@@ -1583,430 +1471,431 @@ async fn paper() {
 #[test(tokio::test)]
 async fn small_diff() {
     recon_test(expect![[r#"
-        cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
-        dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
+        dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, o, p, q, r, s, t, u, w, x, y, z]
         -> interest_req((𝚨, 𝛀 ))
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
         <- interest_resp((𝚨, 𝛀 ))
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, o, p, q, r, s, t, u, w, x, y, z]
         -> range_req({𝚨 h(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z)#26 𝛀 })
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
         <- range_resp({𝚨 h(a, b, c, d, e, f, g, h, i, j, k, l)#12 m}, {m h(m, o, p, q, r, s, t, u, w, x, y, z)#12 𝛀 })
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, o, p, q, r, s, t, u, w, x, y, z]
         -> range_req({m h(m, n, o, p, q, r, s)#7 t})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
-        <- range_resp({m h(m, o, p)#3 q}, {q h(q, r, s)#3 t})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
         -> range_req({t h(t, u, v, w, x, y, z)#7 𝛀 })
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
-        <- range_resp({t h(t, u, w)#3 x}, {x h(x, y, z)#3 𝛀 })
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
+        <- range_resp({m h(m, o, p)#3 q}, {q h(q, r, s)#3 t})
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, o, p, q, r, s, t, u, w, x, y, z]
         -> range_req({m h(m)#1 n})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
+        <- range_resp({t h(t, u, w)#3 x}, {x h(x, y, z)#3 𝛀 })
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, o, p, q, r, s, t, u, w, x, y, z]
+        -> range_req({n h(n)#1 o})
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
         <- range_resp({m h(m)#1 n})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
-        -> range_req({n h(n)#1 o})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
-        <- range_resp({n 0 o})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, o, p, q, r, s, t, u, w, x, y, z]
         -> range_req({o h(o)#1 p})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
-        <- range_resp({o h(o)#1 p})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
+        <- range_resp({n 0 o})
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, o, p, q, r, s, t, u, w, x, y, z]
         -> range_req({p h(p)#1 q})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
-        <- range_resp({p h(p)#1 q})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
         -> range_req({t h(t)#1 u})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
-        <- range_resp({t h(t)#1 u})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
+        <- range_resp({o h(o)#1 p})
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, o, p, q, r, s, t, u, w, x, y, z]
         -> range_req({u h(u)#1 v})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
-        <- range_resp({u h(u)#1 v})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
+        <- range_resp({p h(p)#1 q})
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, o, p, q, r, s, t, u, w, x, y, z]
         -> range_req({v h(v)#1 w})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
-        <- range_resp({v 0 w})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
+        <- range_resp({t h(t)#1 u})
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, o, p, q, r, s, t, u, w, x, y, z]
         -> range_req({w h(w)#1 x})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
-        <- range_resp({w h(w)#1 x})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
-        -> value_resp(n: N)
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
+        <- range_resp({u h(u)#1 v})
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, o, p, q, r, s, t, u, w, x, y, z]
+        -> value(n: n)
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
+        <- range_resp({v 0 w})
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, w, x, y, z]
         -> range_req({n h(n)#1 o})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
-        -> value_resp(v: V)
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
+        <- range_resp({w h(w)#1 x})
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, w, x, y, z]
+        -> value(v: v)
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
         <- range_resp({n h(n)#1 o})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
         -> range_req({v h(v)#1 w})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
         <- range_resp({v h(v)#1 w})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
         -> finished
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
-        cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
-        dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
+        cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
+        dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
     "#]]).await;
 }
 
 #[test(tokio::test)]
 async fn small_diff_off_by_one() {
     recon_test(expect![[r#"
-        cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
-        dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
+        dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, p, q, r, s, t, u, w, x, y, z]
         -> interest_req((𝚨, 𝛀 ))
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
         <- interest_resp((𝚨, 𝛀 ))
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, p, q, r, s, t, u, w, x, y, z]
         -> range_req({𝚨 h(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z)#26 𝛀 })
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
         <- range_resp({𝚨 h(a, b, c, d, e, f, g, h, i, j, k, l)#12 m}, {m h(m, n, p, q, r, s, t, u, w, x, y, z)#12 𝛀 })
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, p, q, r, s, t, u, w, x, y, z]
         -> range_req({m h(m, n, o, p, q, r, s)#7 t})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
-        <- range_resp({m h(m, n, p)#3 q}, {q h(q, r, s)#3 t})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
         -> range_req({t h(t, u, v, w, x, y, z)#7 𝛀 })
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
-        <- range_resp({t h(t, u, w)#3 x}, {x h(x, y, z)#3 𝛀 })
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
+        <- range_resp({m h(m, n, p)#3 q}, {q h(q, r, s)#3 t})
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, p, q, r, s, t, u, w, x, y, z]
         -> range_req({m h(m)#1 n})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
-        <- range_resp({m h(m)#1 n})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
+        <- range_resp({t h(t, u, w)#3 x}, {x h(x, y, z)#3 𝛀 })
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, p, q, r, s, t, u, w, x, y, z]
         -> range_req({n h(n)#1 o})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
+        <- range_resp({m h(m)#1 n})
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, p, q, r, s, t, u, w, x, y, z]
+        -> range_req({o h(o)#1 p})
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
         <- range_resp({n h(n)#1 o})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
-        -> range_req({o h(o)#1 p})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
-        <- range_resp({o 0 p})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, p, q, r, s, t, u, w, x, y, z]
         -> range_req({p h(p)#1 q})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
-        <- range_resp({p h(p)#1 q})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
+        <- range_resp({o 0 p})
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, p, q, r, s, t, u, w, x, y, z]
         -> range_req({t h(t)#1 u})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
-        <- range_resp({t h(t)#1 u})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
         -> range_req({u h(u)#1 v})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
-        <- range_resp({u h(u)#1 v})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
+        <- range_resp({p h(p)#1 q})
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, p, q, r, s, t, u, w, x, y, z]
         -> range_req({v h(v)#1 w})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
-        <- range_resp({v 0 w})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
+        <- range_resp({t h(t)#1 u})
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, p, q, r, s, t, u, w, x, y, z]
         -> range_req({w h(w)#1 x})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
-        <- range_resp({w h(w)#1 x})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
-        -> value_resp(o: O)
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
+        <- range_resp({u h(u)#1 v})
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, p, q, r, s, t, u, w, x, y, z]
+        -> value(o: o)
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
+        <- range_resp({v 0 w})
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, w, x, y, z]
         -> range_req({o h(o)#1 p})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
-        -> value_resp(v: V)
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
+        <- range_resp({w h(w)#1 x})
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, w, x, y, z]
+        -> value(v: v)
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
         <- range_resp({o h(o)#1 p})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
         -> range_req({v h(v)#1 w})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
         <- range_resp({v h(v)#1 w})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
         -> finished
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
-        cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
-        dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
+        cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
+        dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
     "#]]).await;
 }
 
 #[test(tokio::test)]
 async fn alternating() {
     recon_test(expect![[r#"
-        cat: [a: A, b: B, c: C, e: E, g: G, i: I, k: K, m: M, o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
-        dog: [a: A, c: C, d: D, f: F, h: H, j: J, l: L, n: N, p: P, q: Q, s: S, u: U, w: W, y: Y, z: Z]
+        cat: [a, b, c, e, g, i, k, m, o, p, r, t, v, x, z]
+        dog: [a, c, d, f, h, j, l, n, p, q, s, u, w, y, z]
         -> interest_req((𝚨, 𝛀 ))
-            cat: [a: A, b: B, c: C, e: E, g: G, i: I, k: K, m: M, o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
+            cat: [a, b, c, e, g, i, k, m, o, p, r, t, v, x, z]
         <- interest_resp((𝚨, 𝛀 ))
-            dog: [a: A, c: C, d: D, f: F, h: H, j: J, l: L, n: N, p: P, q: Q, s: S, u: U, w: W, y: Y, z: Z]
+            dog: [a, c, d, f, h, j, l, n, p, q, s, u, w, y, z]
         -> range_req({𝚨 h(a, b, c, e, g, i, k, m, o, p, r, t, v, x, z)#15 𝛀 })
-            cat: [a: A, b: B, c: C, e: E, g: G, i: I, k: K, m: M, o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
+            cat: [a, b, c, e, g, i, k, m, o, p, r, t, v, x, z]
         <- range_resp({𝚨 h(a, c, d, f, h, j, l)#7 n}, {n h(n, p, q, s, u, w, y, z)#8 𝛀 })
-            dog: [a: A, c: C, d: D, f: F, h: H, j: J, l: L, n: N, p: P, q: Q, s: S, u: U, w: W, y: Y, z: Z]
+            dog: [a, c, d, f, h, j, l, n, p, q, s, u, w, y, z]
         -> range_req({𝚨 h(a, b, c, e)#4 g})
-            cat: [a: A, b: B, c: C, e: E, g: G, i: I, k: K, m: M, o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
+            cat: [a, b, c, e, g, i, k, m, o, p, r, t, v, x, z]
         -> range_req({g h(g, i, k, m)#4 n})
-            cat: [a: A, b: B, c: C, e: E, g: G, i: I, k: K, m: M, o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
+            cat: [a, b, c, e, g, i, k, m, o, p, r, t, v, x, z]
         <- range_resp({𝚨 0 a}, {a h(a)#1 c}, {c h(c)#1 d}, {d h(d)#1 f}, {f h(f)#1 g})
-            dog: [a: A, c: C, d: D, f: F, h: H, j: J, l: L, n: N, p: P, q: Q, s: S, u: U, w: W, y: Y, z: Z]
+            dog: [a, c, d, f, h, j, l, n, p, q, s, u, w, y, z]
         -> range_req({n h(o, p, r)#3 t})
-            cat: [a: A, b: B, c: C, e: E, g: G, i: I, k: K, m: M, o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
-        <- range_resp({g 0 h}, {h h(h)#1 j}, {j h(j)#1 l}, {l h(l)#1 n})
-            dog: [a: A, c: C, d: D, f: F, h: H, j: J, l: L, n: N, p: P, q: Q, s: S, u: U, w: W, y: Y, z: Z]
+            cat: [a, b, c, e, g, i, k, m, o, p, r, t, v, x, z]
         -> range_req({t h(t, v, x, z)#4 𝛀 })
-            cat: [a: A, b: B, c: C, e: E, g: G, i: I, k: K, m: M, o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
-        -> value_resp(a: A)
-            cat: [a: A, b: B, c: C, e: E, g: G, i: I, k: K, m: M, o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
-        <- range_resp({n h(n)#1 p}, {p h(p)#1 q}, {q h(q)#1 s}, {s h(s)#1 t})
-            dog: [a: A, c: C, d: D, f: F, h: H, j: J, l: L, n: N, p: P, q: Q, s: S, u: U, w: W, y: Y, z: Z]
-        -> value_resp(b: B)
-            cat: [a: A, b: B, c: C, e: E, g: G, i: I, k: K, m: M, o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
-        <- range_resp({t 0 u}, {u h(u)#1 w}, {w h(w)#1 y}, {y h(y)#1 z}, {z h(z)#1 𝛀 })
-            dog: [a: A, c: C, d: D, f: F, h: H, j: J, l: L, n: N, p: P, q: Q, s: S, u: U, w: W, y: Y, z: Z]
+            cat: [a, b, c, e, g, i, k, m, o, p, r, t, v, x, z]
+        -> value(a: a)
+            cat: [a, b, c, e, g, i, k, m, o, p, r, t, v, x, z]
+        -> value(b: b)
+            cat: [a, b, c, e, g, i, k, m, o, p, r, t, v, x, z]
         -> range_req({a h(a, b)#2 c})
-            cat: [a: A, b: B, c: C, e: E, g: G, i: I, k: K, m: M, o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
-        -> value_resp(e: E)
-            cat: [a: A, b: B, c: C, e: E, g: G, i: I, k: K, m: M, o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
-        <- range_resp({a h(a, b)#2 c})
-            dog: [a: A, b: B, c: C, d: D, f: F, h: H, j: J, l: L, n: N, p: P, q: Q, s: S, u: U, w: W, y: Y, z: Z]
+            cat: [a, b, c, e, g, i, k, m, o, p, r, t, v, x, z]
+        -> value(e: e)
+            cat: [a, b, c, e, g, i, k, m, o, p, r, t, v, x, z]
+        <- range_resp({g 0 h}, {h h(h)#1 j}, {j h(j)#1 l}, {l h(l)#1 n})
+            dog: [a, b, c, d, f, h, j, l, n, p, q, s, u, w, y, z]
         -> range_req({d h(e)#1 f})
-            cat: [a: A, b: B, c: C, e: E, g: G, i: I, k: K, m: M, o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
+            cat: [a, b, c, e, g, i, k, m, o, p, r, t, v, x, z]
         -> range_req({f 0 g})
-            cat: [a: A, b: B, c: C, e: E, g: G, i: I, k: K, m: M, o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
-        <- value_resp(d: D)
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, h: H, j: J, l: L, n: N, p: P, q: Q, s: S, u: U, w: W, y: Y, z: Z]
-        <- value_resp(e: E)
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, h: H, j: J, l: L, n: N, p: P, q: Q, s: S, u: U, w: W, y: Y, z: Z]
-        -> value_resp(g: G)
-            cat: [a: A, b: B, c: C, d: D, e: E, g: G, i: I, k: K, m: M, o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
+            cat: [a, b, c, e, g, i, k, m, o, p, r, t, v, x, z]
+        -> value(g: g)
+            cat: [a, b, c, e, g, i, k, m, o, p, r, t, v, x, z]
+        <- range_resp({n h(n)#1 p}, {p h(p)#1 q}, {q h(q)#1 s}, {s h(s)#1 t})
+            dog: [a, b, c, d, e, f, g, h, j, l, n, p, q, s, u, w, y, z]
         -> range_req({g h(g)#1 h})
-            cat: [a: A, b: B, c: C, d: D, e: E, g: G, i: I, k: K, m: M, o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
-        <- range_resp({d h(d, e)#2 f})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, j: J, l: L, n: N, p: P, q: Q, s: S, u: U, w: W, y: Y, z: Z]
-        -> value_resp(i: I)
-            cat: [a: A, b: B, c: C, d: D, e: E, g: G, i: I, k: K, m: M, o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
-        <- value_resp(f: F)
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, j: J, l: L, n: N, p: P, q: Q, s: S, u: U, w: W, y: Y, z: Z]
+            cat: [a, b, c, e, g, i, k, m, o, p, r, t, v, x, z]
+        -> value(i: i)
+            cat: [a, b, c, e, g, i, k, m, o, p, r, t, v, x, z]
         -> range_req({h h(i)#1 j})
-            cat: [a: A, b: B, c: C, d: D, e: E, g: G, i: I, k: K, m: M, o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
-        <- range_resp({f h(f)#1 g})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, l: L, n: N, p: P, q: Q, s: S, u: U, w: W, y: Y, z: Z]
-        -> value_resp(k: K)
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, i: I, k: K, m: M, o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
-        <- range_resp({g h(g)#1 h})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, l: L, n: N, p: P, q: Q, s: S, u: U, w: W, y: Y, z: Z]
+            cat: [a, b, c, e, g, i, k, m, o, p, r, t, v, x, z]
+        -> value(k: k)
+            cat: [a, b, c, e, g, i, k, m, o, p, r, t, v, x, z]
+        <- range_resp({t 0 u}, {u h(u)#1 w}, {w h(w)#1 y}, {y h(y)#1 z}, {z h(z)#1 𝛀 })
+            dog: [a, b, c, d, e, f, g, h, i, j, l, n, p, q, s, u, w, y, z]
         -> range_req({j h(k)#1 l})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, i: I, k: K, m: M, o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
-        <- value_resp(h: H)
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, n: N, p: P, q: Q, s: S, u: U, w: W, y: Y, z: Z]
-        -> value_resp(m: M)
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, i: I, k: K, m: M, o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
-        <- value_resp(i: I)
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, n: N, p: P, q: Q, s: S, u: U, w: W, y: Y, z: Z]
+            cat: [a, b, c, e, g, i, k, m, o, p, r, t, v, x, z]
+        -> value(m: m)
+            cat: [a, b, c, e, g, i, k, m, o, p, r, t, v, x, z]
         -> range_req({l h(m)#1 n})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, k: K, m: M, o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
-        <- range_resp({h h(h, i)#2 j})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, s: S, u: U, w: W, y: Y, z: Z]
-        -> value_resp(o: O)
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, k: K, m: M, o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
-        <- value_resp(j: J)
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, s: S, u: U, w: W, y: Y, z: Z]
+            cat: [a, b, c, e, g, i, k, m, o, p, r, t, v, x, z]
+        <- range_resp({a h(a, b)#2 c})
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, p, q, s, u, w, y, z]
+        -> value(o: o)
+            cat: [a, b, c, e, g, i, k, m, o, p, r, t, v, x, z]
+        <- value(d: d)
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, p, q, s, u, w, y, z]
         -> range_req({n h(o)#1 p})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, k: K, m: M, o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
-        <- value_resp(k: K)
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, s: S, u: U, w: W, y: Y, z: Z]
-        -> value_resp(r: R)
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, m: M, o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
-        <- range_resp({j h(j, k)#2 l})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, s: S, u: U, w: W, y: Y, z: Z]
+            cat: [a, b, c, d, e, g, i, k, m, o, p, r, t, v, x, z]
+        <- value(e: e)
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, s, u, w, y, z]
+        <- range_resp({d h(d, e)#2 f})
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, s, u, w, y, z]
+        <- value(f: f)
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, s, u, w, y, z]
+        -> value(r: r)
+            cat: [a, b, c, d, e, g, i, k, m, o, p, r, t, v, x, z]
+        <- range_resp({f h(f)#1 g})
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, s, u, w, y, z]
         -> range_req({q h(r)#1 s})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, m: M, o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
-        <- value_resp(l: L)
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, u: U, w: W, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, i, k, m, o, p, r, t, v, x, z]
+        <- range_resp({g h(g)#1 h})
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, u, w, y, z]
+        <- value(h: h)
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, u, w, y, z]
         -> range_req({s 0 t})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, m: M, o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
-        <- value_resp(m: M)
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, u: U, w: W, y: Y, z: Z]
-        -> value_resp(t: T)
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, k, m, o, p, r, t, v, x, z]
+        <- value(i: i)
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, u, w, y, z]
+        <- range_resp({h h(h, i)#2 j})
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, u, w, y, z]
+        -> value(t: t)
+            cat: [a, b, c, d, e, f, g, h, i, k, m, o, p, r, t, v, x, z]
+        <- value(j: j)
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, u, w, y, z]
         -> range_req({t h(t)#1 u})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
-        <- range_resp({l h(l, m)#2 n})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, u: U, w: W, y: Y, z: Z]
-        -> value_resp(v: V)
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
-        <- value_resp(n: N)
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, m, o, p, r, t, v, x, z]
+        <- value(k: k)
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, w, y, z]
+        -> value(v: v)
+            cat: [a, b, c, d, e, f, g, h, i, j, k, m, o, p, r, t, v, x, z]
+        <- range_resp({j h(j, k)#2 l})
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, w, y, z]
         -> range_req({u h(v)#1 w})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
-        <- value_resp(o: O)
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, y: Y, z: Z]
-        -> value_resp(x: X)
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
-        <- range_resp({n h(n, o)#2 p})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, m, o, p, r, t, v, x, z]
+        <- value(l: l)
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, y, z]
+        <- value(m: m)
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, y, z]
+        <- range_resp({l h(l, m)#2 n})
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, y, z]
+        -> value(x: x)
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, o, p, r, t, v, x, z]
+        <- value(n: n)
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, y, z]
         -> range_req({w h(x)#1 y})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
-        <- value_resp(q: Q)
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, o, p, r, t, v, x, z]
+        <- value(o: o)
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
+        <- range_resp({n h(n, o)#2 p})
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
         -> range_req({y 0 z})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, r: R, t: T, v: V, x: X, z: Z]
-        <- value_resp(r: R)
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, r, t, v, x, z]
+        <- value(q: q)
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
+        <- value(r: r)
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
         <- range_resp({q h(q, r)#2 s})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
-        <- value_resp(s: S)
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
+        <- value(s: s)
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
         <- range_resp({s h(s)#1 t})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
         <- range_resp({t h(t)#1 u})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
-        <- value_resp(u: U)
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
-        <- value_resp(v: V)
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
+        <- value(u: u)
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
+        <- value(v: v)
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
         <- range_resp({u h(u, v)#2 w})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
-        <- value_resp(w: W)
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
-        <- value_resp(x: X)
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
+        <- value(w: w)
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
+        <- value(x: x)
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
         <- range_resp({w h(w, x)#2 y})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
-        <- value_resp(y: Y)
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
+        <- value(y: y)
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
         <- range_resp({y h(y)#1 z})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
         -> finished
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
-        cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
-        dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
-    "#]]).await;
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
+        cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
+        dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
+    "#]])
+    .await;
 }
 
 #[test(tokio::test)]
 async fn small_diff_zz() {
     recon_test(expect![[r#"
-        cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
-        dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, zz]
+        dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, p, q, r, s, t, u, w, x, y, z]
         -> interest_req((𝚨, 𝛀 ))
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, zz]
         <- interest_resp((𝚨, 𝛀 ))
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, p, q, r, s, t, u, w, x, y, z]
         -> range_req({𝚨 h(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, zz)#27 𝛀 })
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, zz]
         <- range_resp({𝚨 h(a, b, c, d, e, f, g, h, i, j, k, l)#12 m}, {m h(m, n, p, q, r, s, t, u, w, x, y, z)#12 𝛀 })
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, p, q, r, s, t, u, w, x, y, z]
         -> range_req({m h(m, n, o, p, q, r, s)#7 t})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
-        <- range_resp({m h(m, n, p)#3 q}, {q h(q, r, s)#3 t})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, zz]
         -> range_req({t h(t, u, v, w, x, y, z, zz)#8 𝛀 })
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
-        <- range_resp({t h(t, u, w)#3 x}, {x h(x, y, z)#3 𝛀 })
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, zz]
+        <- range_resp({m h(m, n, p)#3 q}, {q h(q, r, s)#3 t})
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, p, q, r, s, t, u, w, x, y, z]
         -> range_req({m h(m)#1 n})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
-        <- range_resp({m h(m)#1 n})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, zz]
+        <- range_resp({t h(t, u, w)#3 x}, {x h(x, y, z)#3 𝛀 })
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, p, q, r, s, t, u, w, x, y, z]
         -> range_req({n h(n)#1 o})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, zz]
+        <- range_resp({m h(m)#1 n})
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, p, q, r, s, t, u, w, x, y, z]
+        -> range_req({o h(o)#1 p})
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, zz]
         <- range_resp({n h(n)#1 o})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
-        -> range_req({o h(o)#1 p})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
-        <- range_resp({o 0 p})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, p, q, r, s, t, u, w, x, y, z]
         -> range_req({p h(p)#1 q})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
-        <- range_resp({p h(p)#1 q})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, zz]
+        <- range_resp({o 0 p})
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, p, q, r, s, t, u, w, x, y, z]
         -> range_req({t h(t)#1 u})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
-        <- range_resp({t h(t)#1 u})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, zz]
         -> range_req({u h(u)#1 v})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
-        <- range_resp({u h(u)#1 v})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, zz]
+        <- range_resp({p h(p)#1 q})
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, p, q, r, s, t, u, w, x, y, z]
         -> range_req({v h(v)#1 w})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
-        <- range_resp({v 0 w})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, zz]
+        <- range_resp({t h(t)#1 u})
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, p, q, r, s, t, u, w, x, y, z]
         -> range_req({w h(w)#1 x})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
-        <- range_resp({w h(w)#1 x})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, zz]
+        <- range_resp({u h(u)#1 v})
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, p, q, r, s, t, u, w, x, y, z]
         -> range_req({x h(x)#1 y})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
-        <- range_resp({x h(x)#1 y})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, zz]
+        <- range_resp({v 0 w})
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, p, q, r, s, t, u, w, x, y, z]
         -> range_req({y h(y)#1 z})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
-        <- range_resp({y h(y)#1 z})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, zz]
         -> range_req({z h(z)#1 zz})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
-        <- range_resp({z h(z)#1 zz})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, zz]
+        <- range_resp({w h(w)#1 x})
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, p, q, r, s, t, u, w, x, y, z]
         -> range_req({zz h(zz)#1 𝛀 })
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
-        <- range_resp({zz 0 𝛀 })
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
-        -> value_resp(o: O)
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, zz]
+        <- range_resp({x h(x)#1 y})
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, p, q, r, s, t, u, w, x, y, z]
+        -> value(o: o)
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, zz]
+        <- range_resp({y h(y)#1 z})
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, w, x, y, z]
         -> range_req({o h(o)#1 p})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
-        <- range_resp({o h(o)#1 p})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
-        -> value_resp(v: V)
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, zz]
+        <- range_resp({z h(z)#1 zz})
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, w, x, y, z]
+        -> value(v: v)
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, zz]
+        <- range_resp({zz 0 𝛀 })
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
         -> range_req({v h(v)#1 w})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, zz]
+        <- range_resp({o h(o)#1 p})
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]
+        -> value(zz: zz)
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, zz]
         <- range_resp({v h(v)#1 w})
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z]
-        -> value_resp(zz: ZZ)
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, zz]
         -> range_req({zz h(zz)#1 𝛀 })
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, zz]
         <- range_resp({zz h(zz)#1 𝛀 })
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
+            dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, zz]
         -> finished
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
-        cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
-        dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, v: V, w: W, x: X, y: Y, z: Z, zz: ZZ]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, zz]
+        cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, zz]
+        dog: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, zz]
     "#]]).await;
 }
 
 #[test(tokio::test)]
 async fn dog_linear_download() {
     recon_test(expect![[r#"
-        cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+        cat: [a, b, c, d, e, f, g]
         dog: []
         -> interest_req((𝚨, 𝛀 ))
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+            cat: [a, b, c, d, e, f, g]
         <- interest_resp((𝚨, 𝛀 ))
             dog: []
         -> range_req({𝚨 h(a, b, c, d, e, f, g)#7 𝛀 })
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+            cat: [a, b, c, d, e, f, g]
         <- range_resp({𝚨 0 𝛀 })
             dog: []
-        -> value_resp(a: A)
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
-        -> value_resp(b: B)
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
-        -> value_resp(c: C)
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
-        -> value_resp(d: D)
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
-        -> value_resp(e: E)
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
-        -> value_resp(f: F)
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
-        -> value_resp(g: G)
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+        -> value(a: a)
+            cat: [a, b, c, d, e, f, g]
+        -> value(b: b)
+            cat: [a, b, c, d, e, f, g]
+        -> value(c: c)
+            cat: [a, b, c, d, e, f, g]
+        -> value(d: d)
+            cat: [a, b, c, d, e, f, g]
+        -> value(e: e)
+            cat: [a, b, c, d, e, f, g]
+        -> value(f: f)
+            cat: [a, b, c, d, e, f, g]
+        -> value(g: g)
+            cat: [a, b, c, d, e, f, g]
         -> range_req({𝚨 h(a, b, c, d, e, f, g)#7 𝛀 })
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+            cat: [a, b, c, d, e, f, g]
         <- range_resp({𝚨 h(a, b, c, d, e, f, g)#7 𝛀 })
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+            dog: [a, b, c, d, e, f, g]
         -> finished
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
-        cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
-        dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+            cat: [a, b, c, d, e, f, g]
+        cat: [a, b, c, d, e, f, g]
+        dog: [a, b, c, d, e, f, g]
     "#]])
     .await
 }
@@ -2014,93 +1903,93 @@ async fn dog_linear_download() {
 async fn cat_linear_download() {
     recon_test(expect![[r#"
         cat: []
-        dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+        dog: [a, b, c, d, e, f, g]
         -> interest_req((𝚨, 𝛀 ))
             cat: []
         <- interest_resp((𝚨, 𝛀 ))
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+            dog: [a, b, c, d, e, f, g]
         -> range_req({𝚨 0 𝛀 })
             cat: []
-        <- value_resp(a: A)
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
-        <- value_resp(b: B)
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
-        <- value_resp(c: C)
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
-        <- value_resp(d: D)
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
-        <- value_resp(e: E)
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
-        <- value_resp(f: F)
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
-        <- value_resp(g: G)
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+        <- value(a: a)
+            dog: [a, b, c, d, e, f, g]
+        <- value(b: b)
+            dog: [a, b, c, d, e, f, g]
+        <- value(c: c)
+            dog: [a, b, c, d, e, f, g]
+        <- value(d: d)
+            dog: [a, b, c, d, e, f, g]
+        <- value(e: e)
+            dog: [a, b, c, d, e, f, g]
+        <- value(f: f)
+            dog: [a, b, c, d, e, f, g]
+        <- value(g: g)
+            dog: [a, b, c, d, e, f, g]
         <- range_resp({𝚨 h(a, b, c, d, e, f, g)#7 𝛀 })
-            dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+            dog: [a, b, c, d, e, f, g]
         -> finished
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
-        cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
-        dog: [a: A, b: B, c: C, d: D, e: E, f: F, g: G]
+            cat: [a, b, c, d, e, f, g]
+        cat: [a, b, c, d, e, f, g]
+        dog: [a, b, c, d, e, f, g]
     "#]])
     .await
 }
 #[test(tokio::test)]
 async fn subset_interest() {
     recon_test(expect![[r#"
-        cat: <(b, i), (m, r)> [c: C, f: F, g: G, r: R]
-        dog: <(a, z)> [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N]
+        cat: <(b, i), (m, r)> [c, f, g, r]
+        dog: <(a, z)> [b, c, d, e, f, g, h, i, j, k, l, m, n]
         -> interest_req((b, i), (m, r))
-            cat: [c: C, f: F, g: G, r: R]
+            cat: [c, f, g, r]
         <- interest_resp((b, i), (m, r))
-            dog: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N]
+            dog: [b, c, d, e, f, g, h, i, j, k, l, m, n]
         -> range_req({b h(c, f, g)#3 i})
-            cat: [c: C, f: F, g: G, r: R]
+            cat: [c, f, g, r]
         -> range_req({m 0 r})
-            cat: [c: C, f: F, g: G, r: R]
+            cat: [c, f, g, r]
         <- range_resp({b h(b, c, d)#3 e}, {e h(e, f, g, h)#4 i})
-            dog: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N]
+            dog: [b, c, d, e, f, g, h, i, j, k, l, m, n]
+        <- value(m: m)
+            dog: [b, c, d, e, f, g, h, i, j, k, l, m, n]
         -> range_req({b 0 c})
-            cat: [c: C, f: F, g: G, r: R]
-        -> range_req({c h(c)#1 e})
-            cat: [c: C, f: F, g: G, r: R]
-        <- value_resp(m: M)
-            dog: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N]
-        -> range_req({e 0 f})
-            cat: [c: C, f: F, g: G, m: M, r: R]
-        <- value_resp(n: N)
-            dog: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N]
-        -> range_req({f h(f)#1 g})
-            cat: [c: C, f: F, g: G, m: M, r: R]
-        -> range_req({g h(g)#1 i})
-            cat: [c: C, f: F, g: G, m: M, n: N, r: R]
+            cat: [c, f, g, r]
+        <- value(n: n)
+            dog: [b, c, d, e, f, g, h, i, j, k, l, m, n]
         <- range_resp({m h(m, n)#2 r})
-            dog: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N]
-        <- value_resp(b: B)
-            dog: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N]
+            dog: [b, c, d, e, f, g, h, i, j, k, l, m, n]
+        -> range_req({c h(c)#1 e})
+            cat: [c, f, g, m, n, r]
+        <- value(b: b)
+            dog: [b, c, d, e, f, g, h, i, j, k, l, m, n]
         <- range_resp({b h(b)#1 c})
-            dog: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N]
-        <- value_resp(c: C)
-            dog: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N]
-        <- value_resp(d: D)
-            dog: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N]
+            dog: [b, c, d, e, f, g, h, i, j, k, l, m, n]
+        -> range_req({e 0 f})
+            cat: [b, c, f, g, m, n, r]
+        <- value(c: c)
+            dog: [b, c, d, e, f, g, h, i, j, k, l, m, n]
+        <- value(d: d)
+            dog: [b, c, d, e, f, g, h, i, j, k, l, m, n]
+        -> range_req({f h(f)#1 g})
+            cat: [b, c, d, f, g, m, n, r]
         <- range_resp({c h(c, d)#2 e})
-            dog: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N]
-        <- value_resp(e: E)
-            dog: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N]
+            dog: [b, c, d, e, f, g, h, i, j, k, l, m, n]
+        -> range_req({g h(g)#1 i})
+            cat: [b, c, d, f, g, m, n, r]
+        <- value(e: e)
+            dog: [b, c, d, e, f, g, h, i, j, k, l, m, n]
         <- range_resp({e h(e)#1 f})
-            dog: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N]
+            dog: [b, c, d, e, f, g, h, i, j, k, l, m, n]
         <- range_resp({f h(f)#1 g})
-            dog: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N]
-        <- value_resp(g: G)
-            dog: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N]
-        <- value_resp(h: H)
-            dog: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N]
+            dog: [b, c, d, e, f, g, h, i, j, k, l, m, n]
+        <- value(g: g)
+            dog: [b, c, d, e, f, g, h, i, j, k, l, m, n]
+        <- value(h: h)
+            dog: [b, c, d, e, f, g, h, i, j, k, l, m, n]
         <- range_resp({g h(g, h)#2 i})
-            dog: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N]
+            dog: [b, c, d, e, f, g, h, i, j, k, l, m, n]
         -> finished
-            cat: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, m: M, n: N, r: R]
-        cat: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, m: M, n: N, r: R]
-        dog: [b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N]
+            cat: [b, c, d, e, f, g, h, m, n, r]
+        cat: [b, c, d, e, f, g, h, m, n, r]
+        dog: [b, c, d, e, f, g, h, i, j, k, l, m, n]
     "#]])
     .await;
 }
@@ -2108,36 +1997,36 @@ async fn subset_interest() {
 #[test(tokio::test)]
 async fn partial_interest() {
     recon_test(expect![[r#"
-        cat: <(b, g), (i, q)> [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, o: O, p: P, q: Q]
-        dog: <(k, t), (u, z)> [j: J, k: K, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+        cat: <(b, g), (i, q)> [a, b, c, d, e, f, g, h, i, j, k, l, m, o, p, q]
+        dog: <(k, t), (u, z)> [j, k, n, o, p, q, r, s, t, u, w, x, y, z]
         -> interest_req((b, g), (i, q))
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, o: O, p: P, q: Q]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, o, p, q]
         <- interest_resp((k, q))
-            dog: [j: J, k: K, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            dog: [j, k, n, o, p, q, r, s, t, u, w, x, y, z]
         -> range_req({k h(k, l, m, o, p)#5 q})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, o: O, p: P, q: Q]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, o, p, q]
         <- range_resp({k h(k)#1 n}, {n h(n)#1 o}, {o h(o)#1 p}, {p h(p)#1 q})
-            dog: [j: J, k: K, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
-        -> value_resp(k: K)
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, o: O, p: P, q: Q]
-        -> value_resp(l: L)
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, o: O, p: P, q: Q]
-        -> value_resp(m: M)
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, o: O, p: P, q: Q]
+            dog: [j, k, n, o, p, q, r, s, t, u, w, x, y, z]
+        -> value(k: k)
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, o, p, q]
+        -> value(l: l)
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, o, p, q]
+        -> value(m: m)
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, o, p, q]
         -> range_req({k h(k, l, m)#3 n})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, o: O, p: P, q: Q]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, o, p, q]
         -> range_req({n 0 o})
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, o: O, p: P, q: Q]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, o, p, q]
         <- range_resp({k h(k, l, m)#3 n})
-            dog: [j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
-        <- value_resp(n: N)
-            dog: [j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            dog: [j, k, l, m, n, o, p, q, r, s, t, u, w, x, y, z]
+        <- value(n: n)
+            dog: [j, k, l, m, n, o, p, q, r, s, t, u, w, x, y, z]
         <- range_resp({n h(n)#1 o})
-            dog: [j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            dog: [j, k, l, m, n, o, p, q, r, s, t, u, w, x, y, z]
         -> finished
-            cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q]
-        cat: [a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, i: I, j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q]
-        dog: [j: J, k: K, l: L, m: M, n: N, o: O, p: P, q: Q, r: R, s: S, t: T, u: U, w: W, x: X, y: Y, z: Z]
+            cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q]
+        cat: [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q]
+        dog: [j, k, l, m, n, o, p, q, r, s, t, u, w, x, y, z]
     "#]])
     .await;
 }

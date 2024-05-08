@@ -36,16 +36,14 @@ where
     H: AssociativeHash,
 {
     /// make a new recon from a set of keys and values
-    pub async fn from_set(s: BTreeMap<K, Option<Vec<u8>>>) -> Self {
+    pub async fn from_set(s: BTreeMap<K, Vec<u8>>) -> Self {
         let r: Self = Default::default();
         {
             let mut inner = r.inner.lock().await;
             for (key, value) in s {
                 let hash = H::digest(&key);
                 inner.keys.insert(key.clone(), hash);
-                if let Some(value) = value {
-                    inner.values.insert(key, value);
-                }
+                inner.values.insert(key, value);
             }
         }
         r
