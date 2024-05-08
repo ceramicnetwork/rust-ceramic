@@ -1,17 +1,16 @@
-mod entities;
-
+mod access;
+pub mod entities;
 mod event;
+mod query;
 mod root;
 mod sqlite;
 
-// TODO: clean up entities
-pub use entities::CeramicOneInterest;
-pub(crate) use entities::*;
-pub use event::SqliteEventStore;
+// temp to make diff cleaner
+pub use event::CeramicOneEvent;
+
+pub use access::{CeramicOneBlock, CeramicOneEventBlock, CeramicOneInterest};
 pub use root::SqliteRootStore;
 pub use sqlite::{DbTxSqlite, SqlitePool};
-
-use std::sync::atomic::AtomicI64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 /// Now to handle outstanding database migrations.
@@ -22,5 +21,3 @@ pub enum Migrations {
     /// Do nothing
     Skip,
 }
-
-pub(crate) static GLOBAL_COUNTER: AtomicI64 = AtomicI64::new(0);

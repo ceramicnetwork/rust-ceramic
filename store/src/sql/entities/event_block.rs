@@ -8,7 +8,7 @@ use multihash_codetable::{Code, MultihashDigest};
 use sqlx::{sqlite::SqliteRow, Row as _};
 
 use crate::{
-    sql::{rebuild_car, BlockHash, BlockRow},
+    sql::entities::{rebuild_car, BlockHash, BlockRow},
     Error, Result,
 };
 

@@ -6,7 +6,7 @@ use iroh_car::{CarHeader, CarReader, CarWriter};
 use std::collections::BTreeSet;
 
 use crate::{
-    sql::{BlockRow, EventBlockRaw},
+    sql::entities::{BlockRow, EventBlockRaw},
     Error, Result,
 };
 
@@ -55,6 +55,10 @@ impl EventRaw {
     }
 
     pub async fn try_build(key: EventId, val: &[u8]) -> Result<Self> {
+        // TODO: remove this when value is always present
+        if val.is_empty() {
+            return Ok(Self::new(key, vec![]));
+        }
         let mut reader = CarReader::new(val)
             .await
             .map_err(|e| Error::new_app(anyhow!(e)))?;
