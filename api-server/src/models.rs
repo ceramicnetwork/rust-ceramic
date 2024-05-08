@@ -281,7 +281,7 @@ impl std::convert::TryFrom<hyper::header::HeaderValue> for header::IntoHeaderVal
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, validator::Validate)]
 #[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]
 pub struct Event {
-    /// Multibase encoding of event id bytes.
+    /// Multibase encoding of event root CID bytes.
     #[serde(rename = "id")]
     pub id: String,
 
