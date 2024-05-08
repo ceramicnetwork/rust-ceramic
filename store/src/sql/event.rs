@@ -28,7 +28,8 @@ use crate::{
 /// individual blocks from the CAR files directly.
 #[derive(Clone, Debug)]
 pub struct SqliteEventStore {
-    pub(crate) pool: SqlitePool,
+    /// The sqlite pool to use for database connections.
+    pub pool: SqlitePool,
 }
 
 impl SqliteEventStore {
@@ -37,6 +38,29 @@ impl SqliteEventStore {
         let store = SqliteEventStore { pool };
         store.init_delivered().await?;
         Ok(store)
+    }
+
+    /// Merge the blocks from one sqlite database into this one.
+    pub async fn merge_blocks_from_sqlite(&self, input_ceramic_db_filename: &str) -> Result<()> {
+        sqlx::query(
+            "
+                    ATTACH DATABASE $1 AS other;
+                    INSERT OR IGNORE INTO ceramic_one_block SELECT multihash, bytes FROM other.ceramic_one_block;
+                ",
+        )
+        .bind(input_ceramic_db_filename)
+        .execute(self.pool.writer())
+        .await?;
+        Ok(())
+    }
+
+    /// Backup the sqlite file to the given filename.
+    pub async fn backup_to_sqlite(&self, output_ceramic_db_filename: &str) -> Result<()> {
+        sqlx::query(".backup $1")
+            .bind(output_ceramic_db_filename)
+            .execute(self.pool.writer())
+            .await?;
+        Ok(())
     }
 
     async fn init_delivered(&self) -> Result<()> {
@@ -55,16 +79,6 @@ impl SqliteEventStore {
     // could change this to rely on time similar to a snowflake ID
     fn get_delivered(&self) -> i64 {
         GLOBAL_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-    }
-
-    /// Begin a database transaction.
-    pub async fn begin_tx(&self) -> Result<DbTxSqlite<'_>> {
-        Ok(self.pool.writer().begin().await?)
-    }
-
-    /// Commit the database transaction.
-    pub async fn commit_tx(&self, tx: DbTxSqlite<'_>) -> Result<()> {
-        Ok(tx.commit().await?)
     }
 
     async fn range_with_values_int(
@@ -266,32 +280,6 @@ impl SqliteEventStore {
 
         DeliveredEvent::parse_query_results(delivered, rows)
     }
-
-    /// merge_from_sqlite takes the filepath to a sqlite file.
-    /// If the file dose not exist the ATTACH DATABASE command will create it.
-    /// This function assumes that the database contains a table named blocks with cid, bytes columns.
-    pub async fn merge_from_sqlite(&self, input_ceramic_db_filename: &str) -> Result<()> {
-        sqlx::query(
-            "
-                    ATTACH DATABASE $1 AS other;
-                    INSERT OR IGNORE INTO ceramic_one_block SELECT multihash, bytes FROM other.ceramic_one_block;
-                ",
-        )
-        .bind(input_ceramic_db_filename)
-        .execute(self.pool.writer())
-        .await?;
-        Ok(())
-    }
-
-    /// Backup the database to a filepath output_ceramic_db_filename.
-    pub async fn backup_to_sqlite(&self, output_ceramic_db_filename: &str) -> Result<()> {
-        sqlx::query(".backup $1")
-            .bind(output_ceramic_db_filename)
-            .execute(self.pool.writer())
-            .await?;
-        Ok(())
-    }
-
     async fn get_block(&self, cid: &Cid) -> Result<Option<Vec<u8>>> {
         let block: Option<BlockBytes> = sqlx::query_as(BlockQuery::get())
             .bind(cid.hash().to_bytes())

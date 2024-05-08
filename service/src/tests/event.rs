@@ -17,8 +17,8 @@ macro_rules! test_with_sqlite {
             async fn [<$test_name _sqlite>]() {
                 let _  =ceramic_metrics::init_local_tracing();
 
-                let conn = $crate::sql::SqlitePool::connect_in_memory().await.unwrap();
-                let store = $crate::SqliteEventStore::new(conn).await.unwrap();
+                let conn = ceramic_store::SqlitePool::connect_in_memory().await.unwrap();
+                let store = $crate::CeramicEventService::new(conn).await.unwrap();
                 $(
                     for stmt in $sql_stmts {
                         store.pool.run_statement(stmt).await.unwrap();

@@ -14,9 +14,9 @@ use anyhow::{anyhow, Result};
 use ceramic_api::{AccessInterestStore, AccessModelStore};
 use ceramic_core::{EventId, Interest};
 use ceramic_kubo_rpc::Multiaddr;
-
 use ceramic_metrics::{config::Config as MetricsConfig, MetricsHandle};
 use ceramic_p2p::{load_identity, DiskStorage, Keychain, Libp2pConfig};
+use ceramic_service::{CeramicEventService, CeramicInterestService};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use futures::StreamExt;
 use multibase::Base;
@@ -32,8 +32,8 @@ use tokio::{io::AsyncReadExt, sync::oneshot};
 use tracing::{debug, info, warn};
 
 use crate::network::Ipfs;
+
 pub use cbor_value::CborValue;
-use ceramic_store::{SqliteEventStore, SqliteInterestStore};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -279,8 +279,8 @@ impl DaemonOpts {
     async fn build_sqlite_dbs(path: &str) -> Result<Databases> {
         let sql_pool =
             ceramic_store::SqlitePool::connect(path, ceramic_store::Migrations::Apply).await?;
-        let interest_store = Arc::new(SqliteInterestStore::new(sql_pool.clone()).await?);
-        let event_store = Arc::new(SqliteEventStore::new(sql_pool.clone()).await?);
+        let interest_store = Arc::new(CeramicInterestService::new(sql_pool.clone()).await?);
+        let event_store = Arc::new(CeramicEventService::new(sql_pool).await?);
         println!("Connected to sqlite database: {}", path);
 
         Ok(Databases::Sqlite(SqliteBackend {
@@ -294,8 +294,8 @@ enum Databases {
     Sqlite(SqliteBackend),
 }
 struct SqliteBackend {
-    interest_store: Arc<SqliteInterestStore>,
-    event_store: Arc<SqliteEventStore>,
+    interest_store: Arc<CeramicInterestService>,
+    event_store: Arc<CeramicEventService>,
 }
 
 struct Daemon;

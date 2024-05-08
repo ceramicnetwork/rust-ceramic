@@ -2,7 +2,8 @@ use ceramic_core::{EventId, Network};
 use ceramic_store::{SqliteEventStore, SqlitePool};
 use cid::Cid;
 use criterion2::{criterion_group, criterion_main, BatchSize, Criterion};
-use multihash::{Code, MultihashDigest};
+use multihash::Multihash;
+use multihash_codetable::Code;
 use rand::RngCore;
 use recon::{ReconItem, Store};
 

@@ -5,13 +5,11 @@
 mod error;
 mod metrics;
 mod sql;
-#[cfg(test)]
-mod tests;
 
 pub use error::Error;
 pub use metrics::{Metrics, StoreMetricsMiddleware};
 pub use sql::{
-    DbTxSqlite, Migrations, SqliteEventStore, SqliteInterestStore, SqlitePool, SqliteRootStore,
+    CeramicOneInterest, DbTxSqlite, Migrations, SqliteEventStore, SqlitePool, SqliteRootStore,
 };
 
 pub(crate) type Result<T> = std::result::Result<T, Error>;
