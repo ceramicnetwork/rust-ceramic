@@ -38,6 +38,7 @@ use swagger::{ApiError, ByteArray};
 use tikv_jemalloc_ctl::epoch;
 use tracing::{instrument, Level};
 
+use crate::server::event::event_id_from_car;
 use crate::ResumeToken;
 
 /// When the incoming events queue has at least this many items, we'll store them.
@@ -409,15 +410,24 @@ where
         ))
     }
 
+    // TODO(stbrody): Only take the event data, don't take an id field at all since its unused.
     pub async fn post_events(&self, event: Event) -> Result<EventsPostResponse, ErrorResponse> {
-        let event_id = match decode_event_id(&event.id) {
-            Ok(v) => v,
-            Err(e) => return Ok(EventsPostResponse::BadRequest(e)),
-        };
         let event_data = match decode_multibase_data(&event.data) {
             Ok(v) => v,
             Err(e) => return Ok(EventsPostResponse::BadRequest(e)),
         };
+
+        let event_id =
+            match event_id_from_car(self.network.clone(), event_data.as_slice(), &self.model).await
+            {
+                Ok(id) => id,
+                Err(err) => {
+                    return Ok(EventsPostResponse::BadRequest(BadRequestResponse::new(
+                        format!("Failed to parse EventID from event CAR file data: {err}"),
+                    )))
+                }
+            };
+
         let (tx, rx) = tokio::sync::oneshot::channel();
         tokio::time::timeout(
             INSERT_ENQUEUE_TIMEOUT,
