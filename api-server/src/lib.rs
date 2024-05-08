@@ -143,7 +143,7 @@ pub trait Api<C: Send + Sync> {
     /// Creates a new event
     async fn events_post(
         &self,
-        event: models::Event,
+        event_data: models::EventData,
         context: &C,
     ) -> Result<EventsPostResponse, ApiError>;
 
@@ -212,7 +212,10 @@ pub trait ApiNoContext<C: Send + Sync> {
     ) -> Result<EventsEventIdGetResponse, ApiError>;
 
     /// Creates a new event
-    async fn events_post(&self, event: models::Event) -> Result<EventsPostResponse, ApiError>;
+    async fn events_post(
+        &self,
+        event_data: models::EventData,
+    ) -> Result<EventsPostResponse, ApiError>;
 
     /// Get events matching the interest stored on the node
     async fn experimental_events_sep_sep_value_get(
@@ -295,9 +298,12 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
     }
 
     /// Creates a new event
-    async fn events_post(&self, event: models::Event) -> Result<EventsPostResponse, ApiError> {
+    async fn events_post(
+        &self,
+        event_data: models::EventData,
+    ) -> Result<EventsPostResponse, ApiError> {
         let context = self.context().clone();
-        self.api().events_post(event, &context).await
+        self.api().events_post(event_data, &context).await
     }
 
     /// Get events matching the interest stored on the node

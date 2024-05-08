@@ -64,7 +64,7 @@ paths:
   /events:
     post:
       requestBody:
-        $ref: '#/components/requestBodies/Event'
+        $ref: '#/components/requestBodies/EventData'
       responses:
         "204":
           description: success
@@ -84,7 +84,8 @@ paths:
   /events/{event_id}:
     get:
       parameters:
-      - description: identifier of the event
+      - description: "CID of the root block of the event, used to identify of the\
+          \ event"
         explode: false
         in: path
         name: event_id
@@ -305,11 +306,11 @@ paths:
       summary: Get all new event keys since resume token
 components:
   requestBodies:
-    Event:
+    EventData:
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/Event'
+            $ref: '#/components/schemas/EventData'
       description: Event to add to the node
       required: true
     Message:
@@ -347,7 +348,8 @@ components:
       title: Response to a bad request (400)
       type: object
     Event:
-      description: A Ceramic event as part of a Ceramic Stream
+      description: A Ceramic event as part of a Ceramic Stream. Contains both the
+        root CID used to identify the Event as well as the Event payload data.
       example:
         data: data
         id: id
@@ -363,6 +365,18 @@ components:
       - id
       title: A Ceramic Event
       type: object
+    EventData:
+      description: The data for a Ceramic event that is part of a Ceramic Stream
+      example:
+        data: data
+      properties:
+        data:
+          description: Multibase encoding of event data.
+          type: string
+      required:
+      - data
+      title: A Ceramic Event Data Payload
+      type: object
     EventFeed:
       description: Ceramic event keys as part of a Ceramic Stream
       example:
@@ -374,7 +388,7 @@ components:
           id: id
       properties:
         events:
-          description: "An array of events. For now, the value is empty."
+          description: "An array of events. For now, the event data payload is empty."
           items:
             $ref: '#/components/schemas/Event'
           type: array
