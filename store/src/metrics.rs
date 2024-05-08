@@ -312,25 +312,6 @@ where
     async fn count(&self, range: Range<&Self::Key>) -> ReconResult<usize> {
         StoreMetricsMiddleware::<S>::record(&self.metrics, "count", self.store.count(range)).await
     }
-    async fn first(&self, range: Range<&Self::Key>) -> ReconResult<Option<Self::Key>> {
-        StoreMetricsMiddleware::<S>::record(&self.metrics, "first", self.store.first(range)).await
-    }
-    async fn last(&self, range: Range<&Self::Key>) -> ReconResult<Option<Self::Key>> {
-        StoreMetricsMiddleware::<S>::record(&self.metrics, "last", self.store.last(range)).await
-    }
-
-    async fn first_and_last(
-        &self,
-        range: Range<&Self::Key>,
-    ) -> ReconResult<Option<(Self::Key, Self::Key)>> {
-        StoreMetricsMiddleware::<S>::record(
-            &self.metrics,
-            "first_and_last",
-            self.store.first_and_last(range),
-        )
-        .await
-    }
-
     async fn len(&self) -> ReconResult<usize> {
         StoreMetricsMiddleware::<S>::record(&self.metrics, "len", self.store.len()).await
     }

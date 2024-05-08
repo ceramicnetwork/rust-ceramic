@@ -114,21 +114,6 @@ where
         self.inner.range_with_values(range, offset, limit).await
     }
 
-    async fn last(&self, range: Range<&Self::Key>) -> ReconResult<Option<Self::Key>> {
-        self.as_error()?;
-
-        self.inner.last(range).await
-    }
-
-    async fn first_and_last(
-        &self,
-        range: Range<&Self::Key>,
-    ) -> ReconResult<Option<(Self::Key, Self::Key)>> {
-        self.as_error()?;
-
-        self.inner.first_and_last(range).await
-    }
-
     async fn value_for_key(&self, key: &Self::Key) -> ReconResult<Option<Vec<u8>>> {
         self.as_error()?;
 
