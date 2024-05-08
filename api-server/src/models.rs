@@ -277,7 +277,7 @@ impl std::convert::TryFrom<hyper::header::HeaderValue> for header::IntoHeaderVal
     }
 }
 
-/// A Ceramic event as part of a Ceramic Stream
+/// A Ceramic event as part of a Ceramic Stream. Contains both the root CID used to identify the Event as well as the Event payload data.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, validator::Validate)]
 #[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]
 pub struct Event {
@@ -426,11 +426,144 @@ impl std::convert::TryFrom<hyper::header::HeaderValue> for header::IntoHeaderVal
     }
 }
 
+/// The data for a Ceramic event that is part of a Ceramic Stream
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, validator::Validate)]
+#[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]
+pub struct EventData {
+    /// Multibase encoding of event data.
+    #[serde(rename = "data")]
+    pub data: String,
+}
+
+impl EventData {
+    #[allow(clippy::new_without_default)]
+    pub fn new(data: String) -> EventData {
+        EventData { data }
+    }
+}
+
+/// Converts the EventData value to the Query Parameters representation (style=form, explode=false)
+/// specified in https://swagger.io/docs/specification/serialization/
+/// Should be implemented in a serde serializer
+impl std::string::ToString for EventData {
+    fn to_string(&self) -> String {
+        let params: Vec<Option<String>> =
+            vec![Some("data".to_string()), Some(self.data.to_string())];
+
+        params.into_iter().flatten().collect::<Vec<_>>().join(",")
+    }
+}
+
+/// Converts Query Parameters representation (style=form, explode=false) to a EventData value
+/// as specified in https://swagger.io/docs/specification/serialization/
+/// Should be implemented in a serde deserializer
+impl std::str::FromStr for EventData {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        /// An intermediate representation of the struct to use for parsing.
+        #[derive(Default)]
+        #[allow(dead_code)]
+        struct IntermediateRep {
+            pub data: Vec<String>,
+        }
+
+        let mut intermediate_rep = IntermediateRep::default();
+
+        // Parse into intermediate representation
+        let mut string_iter = s.split(',');
+        let mut key_result = string_iter.next();
+
+        while key_result.is_some() {
+            let val = match string_iter.next() {
+                Some(x) => x,
+                None => {
+                    return std::result::Result::Err(
+                        "Missing value while parsing EventData".to_string(),
+                    )
+                }
+            };
+
+            if let Some(key) = key_result {
+                #[allow(clippy::match_single_binding)]
+                match key {
+                    #[allow(clippy::redundant_clone)]
+                    "data" => intermediate_rep.data.push(
+                        <String as std::str::FromStr>::from_str(val).map_err(|x| x.to_string())?,
+                    ),
+                    _ => {
+                        return std::result::Result::Err(
+                            "Unexpected key while parsing EventData".to_string(),
+                        )
+                    }
+                }
+            }
+
+            // Get the next key
+            key_result = string_iter.next();
+        }
+
+        // Use the intermediate representation to return the struct
+        std::result::Result::Ok(EventData {
+            data: intermediate_rep
+                .data
+                .into_iter()
+                .next()
+                .ok_or_else(|| "data missing in EventData".to_string())?,
+        })
+    }
+}
+
+// Methods for converting between header::IntoHeaderValue<EventData> and hyper::header::HeaderValue
+
+#[cfg(any(feature = "client", feature = "server"))]
+impl std::convert::TryFrom<header::IntoHeaderValue<EventData>> for hyper::header::HeaderValue {
+    type Error = String;
+
+    fn try_from(
+        hdr_value: header::IntoHeaderValue<EventData>,
+    ) -> std::result::Result<Self, Self::Error> {
+        let hdr_value = hdr_value.to_string();
+        match hyper::header::HeaderValue::from_str(&hdr_value) {
+            std::result::Result::Ok(value) => std::result::Result::Ok(value),
+            std::result::Result::Err(e) => std::result::Result::Err(format!(
+                "Invalid header value for EventData - value: {} is invalid {}",
+                hdr_value, e
+            )),
+        }
+    }
+}
+
+#[cfg(any(feature = "client", feature = "server"))]
+impl std::convert::TryFrom<hyper::header::HeaderValue> for header::IntoHeaderValue<EventData> {
+    type Error = String;
+
+    fn try_from(hdr_value: hyper::header::HeaderValue) -> std::result::Result<Self, Self::Error> {
+        match hdr_value.to_str() {
+            std::result::Result::Ok(value) => {
+                match <EventData as std::str::FromStr>::from_str(value) {
+                    std::result::Result::Ok(value) => {
+                        std::result::Result::Ok(header::IntoHeaderValue(value))
+                    }
+                    std::result::Result::Err(err) => std::result::Result::Err(format!(
+                        "Unable to convert header value '{}' into EventData - {}",
+                        value, err
+                    )),
+                }
+            }
+            std::result::Result::Err(e) => std::result::Result::Err(format!(
+                "Unable to convert header: {:?} to string: {}",
+                hdr_value, e
+            )),
+        }
+    }
+}
+
 /// Ceramic event keys as part of a Ceramic Stream
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, validator::Validate)]
 #[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]
 pub struct EventFeed {
-    /// An array of events. For now, the value is empty.
+    /// An array of events. For now, the event data payload is empty.
     #[serde(rename = "events")]
     pub events: Vec<models::Event>,
 

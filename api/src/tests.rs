@@ -191,8 +191,7 @@ async fn create_event() {
     let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_model));
     let resp = server
         .events_post(
-            models::Event {
-                id: "".to_string(), // todo(stbrody): remove id arg
+            models::EventData {
                 data: event_data.to_string(),
             },
             &Context,
