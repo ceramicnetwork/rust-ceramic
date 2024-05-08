@@ -12,7 +12,7 @@ use anyhow::anyhow;
 use async_trait::async_trait;
 use ceramic_core::{EventId, Interest, PeerId, RangeOpen};
 use serde::{Deserialize, Serialize};
-use tracing::{debug, instrument, trace, Level};
+use tracing::{instrument, trace, Level};
 
 use crate::{Client, Error, Metrics, Result, Sha256a};
 
@@ -496,33 +496,6 @@ pub trait Store {
     async fn count(&self, range: Range<&Self::Key>) -> Result<usize> {
         Ok(self.range(range, 0, usize::MAX).await?.count())
     }
-    /// Return the first key within the range.
-    async fn first(&self, range: Range<&Self::Key>) -> Result<Option<Self::Key>> {
-        Ok(self.range(range, 0, 1).await?.next())
-    }
-    /// Return the last key within the range.
-    async fn last(&self, range: Range<&Self::Key>) -> Result<Option<Self::Key>> {
-        Ok(self.range(range, 0, usize::MAX).await?.last())
-    }
-
-    /// Return the first and last keys within the range.
-    /// If the range contains only a single key it will be returned as both first and last.
-    async fn first_and_last(
-        &self,
-        range: Range<&Self::Key>,
-    ) -> Result<Option<(Self::Key, Self::Key)>> {
-        let mut range = self.range(range, 0, usize::MAX).await?;
-        let first = range.next();
-        if let Some(first) = first {
-            if let Some(last) = range.last() {
-                Ok(Some((first, last)))
-            } else {
-                Ok(Some((first.clone(), first)))
-            }
-        } else {
-            Ok(None)
-        }
-    }
 
     /// Reports total number of keys
     async fn len(&self) -> Result<usize> {
@@ -534,10 +507,7 @@ pub trait Store {
         Ok(self.len().await? == 0)
     }
 
-    /// value_for_key returns
-    /// Ok(Some(value)) if stored,
-    /// Ok(None) if not stored, and
-    /// Err(e) if retrieving failed.
+    /// Reports the value for the key
     async fn value_for_key(&self, key: &Self::Key) -> Result<Option<Vec<u8>>>;
 }
 

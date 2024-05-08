@@ -18,8 +18,8 @@ use tracing::{debug, instrument};
 use crate::{
     sql::{
         rebuild_car, BlockBytes, BlockQuery, BlockRow, CountRow, DeliveredEvent, EventBlockQuery,
-        EventBlockRaw, EventQuery, EventRaw, FirstAndLast, OrderKey, ReconHash, ReconQuery,
-        ReconType, SqlBackend, GLOBAL_COUNTER,
+        EventBlockRaw, EventQuery, EventRaw, OrderKey, ReconHash, ReconQuery, ReconType,
+        SqlBackend, GLOBAL_COUNTER,
     },
     DbTxSqlite, Error, Result, SqlitePool,
 };
@@ -381,62 +381,6 @@ impl recon::Store for SqliteEventStore {
             .await
             .map_err(Error::from)?;
         Ok(row.res as usize)
-    }
-
-    /// Return the first key within the range.
-    #[instrument(skip(self))]
-    async fn first(&self, range: Range<&Self::Key>) -> ReconResult<Option<EventId>> {
-        let row: Option<OrderKey> = sqlx::query_as(ReconQuery::first_key(ReconType::Event))
-            .bind(range.start.as_bytes())
-            .bind(range.end.as_bytes())
-            .fetch_optional(self.pool.reader())
-            .await
-            .map_err(Error::from)?;
-        let res = row
-            .map(|r| EventId::try_from(r).map_err(ReconError::new_app))
-            .transpose()?;
-        Ok(res)
-    }
-
-    #[instrument(skip(self))]
-    async fn last(&self, range: Range<&Self::Key>) -> ReconResult<Option<EventId>> {
-        let row: Option<OrderKey> = sqlx::query_as(ReconQuery::last_key(ReconType::Event))
-            .bind(range.start.as_bytes())
-            .bind(range.end.as_bytes())
-            .fetch_optional(self.pool.reader())
-            .await
-            .map_err(Error::from)?;
-        let res = row
-            .map(|r| EventId::try_from(r).map_err(ReconError::new_app))
-            .transpose()?;
-        Ok(res)
-    }
-
-    #[instrument(skip(self))]
-    async fn first_and_last(
-        &self,
-        range: Range<&Self::Key>,
-    ) -> ReconResult<Option<(EventId, EventId)>> {
-        let row: Option<FirstAndLast> = sqlx::query_as(ReconQuery::first_and_last(
-            ReconType::Event,
-            SqlBackend::Sqlite,
-        ))
-        .bind(range.start.as_bytes())
-        .bind(range.end.as_bytes())
-        .bind(range.start.as_bytes())
-        .bind(range.end.as_bytes())
-        .fetch_optional(self.pool.reader())
-        .await
-        .map_err(Error::from)?;
-
-        if let Some(row) = row {
-            let first = EventId::try_from(row.first_key).map_err(ReconError::new_app)?;
-
-            let last = EventId::try_from(row.last_key).map_err(ReconError::new_app)?;
-            Ok(Some((first, last)))
-        } else {
-            Ok(None)
-        }
     }
 
     #[instrument(skip(self))]

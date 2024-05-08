@@ -178,37 +178,6 @@ where
         BTreeStore::range_with_values(self, range, offset, limit).await
     }
 
-    async fn last(&self, range: Range<&Self::Key>) -> Result<Option<Self::Key>> {
-        Ok(self
-            .inner
-            .lock()
-            .await
-            .keys
-            .range(range)
-            .next_back()
-            .map(|(k, _)| k.to_owned()))
-    }
-
-    async fn first_and_last(
-        &self,
-
-        range: Range<&Self::Key>,
-    ) -> Result<Option<(Self::Key, Self::Key)>> {
-        let inner = self.inner.lock().await;
-        let mut range = inner.keys.range(range);
-        let first = range.next().map(|(k, _)| k);
-        if let Some(first) = first {
-            if let Some(last) = range.next_back().map(|(k, _)| k) {
-                Ok(Some((first.to_owned(), last.to_owned())))
-            } else {
-                Ok(Some((first.to_owned(), first.to_owned())))
-            }
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// value_for_key returns an Error is retrieving failed and None if the key is not stored.
     async fn value_for_key(&self, key: &Self::Key) -> Result<Option<Vec<u8>>> {
         Ok(self.inner.lock().await.values.get(key).cloned())
     }

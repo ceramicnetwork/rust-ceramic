@@ -86,22 +86,15 @@ pub struct ReconMessage<T> {
     pub body: T,
 }
 
-impl<T> ReconMessage<T>
-where
-    T: std::fmt::Debug,
-{
+impl<T> ReconMessage<T> {
     fn new(sync_id: Option<String>, body: T) -> ReconMessage<T>
     where
         MessageLabels: for<'a> From<&'a ReconMessage<T>>,
     {
-        let message = ReconMessage {
+        ReconMessage {
             sync_id: sync_id.clone(),
             body,
-        };
-        let sync_id = sync_id.as_ref().map_or("none", String::as_str);
-        let message_type = MessageLabels::from(&message).message_type;
-        trace!(%sync_id, %message_type, body=?message.body, "create_message");
-        message
+        }
     }
 }
 
