@@ -52,7 +52,7 @@ impl Metrics {
         let sub_registry = registry.sub_registry_with_prefix("ceramic_store");
 
         register!(
-            key_insert_count,
+            key_value_insert_count,
             "Number times a new key/value pair is inserted into the datastore",
             Counter::default(),
             sub_registry
@@ -68,7 +68,7 @@ impl Metrics {
         );
 
         Self {
-            key_value_insert_count: key_insert_count,
+            key_value_insert_count,
             store_query_durations,
         }
     }

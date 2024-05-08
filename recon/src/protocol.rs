@@ -655,7 +655,7 @@ where
         Ok(())
     }
 
-    fn create_message<T: std::fmt::Debug>(&self, body: T) -> ReconMessage<T>
+    fn create_message<T>(&self, body: T) -> ReconMessage<T>
     where
         MessageLabels: for<'a> From<&'a ReconMessage<T>>,
     {
