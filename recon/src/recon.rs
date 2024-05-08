@@ -95,11 +95,9 @@ where
     ///
     /// Reports any new keys and what the range indicates about how the local and remote node are
     /// synchronized.
-    #[instrument(skip(self), fields(range), ret(level = Level::DEBUG))]
+    #[instrument(skip(self), ret(level = Level::DEBUG))]
     pub async fn process_range(&mut self, range: RangeHash<K, H>) -> Result<SyncState<K, H>> {
-        debug!(?range, "process_range");
         let calculated_hash = self.store.hash_range(&range.first..&range.last).await?;
-        tracing::info!(?calculated_hash, ?range, "process_range");
         if calculated_hash == range.hash {
             Ok(SyncState::Synchronized { range })
         } else if calculated_hash.hash.is_zero() {
@@ -470,7 +468,7 @@ pub trait Store {
     /// Return any number of splits of the range.
     /// An exact split is not necessary but performance will be better with a better approximation.
     ///
-    /// The left_fencepost and right_fencepost are not part of the returned split as they are the
+    /// The input range bounds are not part of the returned split as they are the
     /// implicit outermost bounds of the split.
     ///
     /// The default implementation uses middle to split the range approximately in two.
@@ -796,17 +794,6 @@ pub struct RangeHash<K, H> {
     /// Last key in the range,
     /// This key may be a fencepost, meaning its not an actual key but simply a boundary.
     pub last: K,
-}
-
-impl<K, H> RangeHash<K, H>
-where
-    K: Key,
-    H: AssociativeHash,
-{
-    /// If we have no keys in the range except the first.
-    pub fn includes_first_key(&self) -> bool {
-        self.hash.count == 1 && !self.first.is_fencepost()
-    }
 }
 
 impl<K, H> From<RangeHash<K, H>> for RangeOpen<K> {
