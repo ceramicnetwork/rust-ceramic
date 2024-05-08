@@ -36,7 +36,7 @@ where
     let event_bytes = get_block(&event_cid, &car_blocks, store).await?;
     let event: unvalidated::Event<Ipld> =
         serde_ipld_dagcbor::from_slice(&event_bytes).context("decoding event")?;
-    let (init_id, payload) = match event {
+    let (init_id, init_payload) = match event {
         unvalidated::Event::Time(event) => (
             event.id(),
             get_init_event_payload(&event.id(), &car_blocks, store).await?,
@@ -63,9 +63,9 @@ where
 
     Ok(EventId::new(
         &network,
-        payload.header().sep(),
-        payload.header().model().as_slice(),
-        payload
+        init_payload.header().sep(),
+        init_payload.header().model().as_slice(),
+        init_payload
             .header()
             .controllers()
             .first()
