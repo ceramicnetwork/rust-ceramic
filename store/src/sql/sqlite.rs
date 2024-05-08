@@ -78,4 +78,27 @@ impl SqlitePool {
         let _res = sqlx::query(statement).execute(self.writer()).await?;
         Ok(())
     }
+
+    /// Merge the blocks from one sqlite database into this one.
+    pub async fn merge_blocks_from_sqlite(&self, input_ceramic_db_filename: &str) -> Result<()> {
+        sqlx::query(
+                    "
+                            ATTACH DATABASE $1 AS other;
+                            INSERT OR IGNORE INTO ceramic_one_block SELECT multihash, bytes FROM other.ceramic_one_block;
+                        ",
+                )
+                .bind(input_ceramic_db_filename)
+                .execute(&self.writer)
+                .await?;
+        Ok(())
+    }
+
+    /// Backup the sqlite file to the given filename.
+    pub async fn backup_to_sqlite(&self, output_ceramic_db_filename: &str) -> Result<()> {
+        sqlx::query(".backup $1")
+            .bind(output_ceramic_db_filename)
+            .execute(&self.writer)
+            .await?;
+        Ok(())
+    }
 }
