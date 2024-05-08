@@ -139,12 +139,12 @@ where
     /// Creates a new event
     async fn events_post(
         &self,
-        event: models::Event,
+        event_data: models::EventData,
         context: &C,
     ) -> Result<EventsPostResponse, ApiError> {
         info!(
             "events_post({:?}) - X-Span-ID: {:?}",
-            event,
+            event_data,
             context.get().0.clone()
         );
         Err(ApiError("Generic failure".into()))

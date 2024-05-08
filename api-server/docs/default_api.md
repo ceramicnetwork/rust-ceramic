@@ -45,7 +45,7 @@ Get event data
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
-  **event_id** | **String**| identifier of the event | 
+  **event_id** | **String**| CID of the root block of the event, used to identify of the event | 
 
 ### Return type
 
@@ -63,14 +63,14 @@ No authorization required
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
 # ****
-> (event)
+> (event_data)
 Creates a new event
 
 ### Required Parameters
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
-  **event** | [**Event**](Event.md)| Event to add to the node | 
+  **event_data** | [**EventData**](EventData.md)| Event to add to the node | 
 
 ### Return type
 
