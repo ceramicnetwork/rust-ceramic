@@ -82,21 +82,25 @@ async fn get_init_event_payload(
     let init_bytes = get_block(init_id, car_blocks, store).await?;
     let init_event: unvalidated::Event<Ipld> =
         serde_ipld_dagcbor::from_slice(&init_bytes).context("decoding init event")?;
-    if let unvalidated::Event::Signed(event) = init_event {
-        let link = event
-            .link()
-            .ok_or_else(|| anyhow!("init event should have a link"))?;
+    match init_event {
+        unvalidated::Event::Signed(event) => {
+            let link = event
+                .link()
+                .ok_or_else(|| anyhow!("init event should have a link"))?;
 
-        let payload_bytes = get_block(&link, car_blocks, store).await?;
-        let payload: unvalidated::Payload<Ipld> =
-            serde_ipld_dagcbor::from_slice(&payload_bytes).context("decoding init payload")?;
-        if let unvalidated::Payload::Init(payload) = payload {
-            Ok(payload)
-        } else {
-            bail!("init event payload is not well formed")
+            let payload_bytes = get_block(&link, car_blocks, store).await?;
+            let payload: unvalidated::Payload<Ipld> =
+                serde_ipld_dagcbor::from_slice(&payload_bytes).context("decoding init payload")?;
+            if let unvalidated::Payload::Init(payload) = payload {
+                Ok(payload)
+            } else {
+                bail!("init event payload is not well formed")
+            }
         }
-    } else {
-        bail!("init event should be a signed event")
+        unvalidated::Event::Unsigned(event) => Ok(event),
+        unvalidated::Event::Time(_) => {
+            bail!("init event payload can't be a time event")
+        }
     }
 }
 
@@ -123,8 +127,9 @@ mod tests {
     use super::*;
 
     use crate::tests::{
-        decode_multibase_str, mock_get_init_event, MockAccessModelStoreTest, DATA_EVENT_CAR,
-        INIT_EVENT_CAR, TIME_EVENT_CAR,
+        decode_multibase_str, mock_get_init_event, mock_get_unsigned_init_event,
+        MockAccessModelStoreTest, DATA_EVENT_CAR, DATA_EVENT_CAR_UNSIGNED_INIT,
+        SIGNED_INIT_EVENT_CAR, TIME_EVENT_CAR, UNSIGNED_INIT_EVENT_CAR,
     };
     use async_trait::async_trait;
     use expect_test::{expect, Expect};
@@ -172,7 +177,12 @@ mod tests {
             )
         "#]];
         // Init events do not need to access the store
-        test_event_id_from_car(INIT_EVENT_CAR, expected, MockAccessModelStoreTest::new()).await
+        test_event_id_from_car(
+            SIGNED_INIT_EVENT_CAR,
+            expected,
+            MockAccessModelStoreTest::new(),
+        )
+        .await
     }
 
     #[tokio::test]
@@ -181,33 +191,28 @@ mod tests {
         let expected = expect![[r#"
             Ok(
                 EventId {
-                    bytes: "ce0105004bf23f697fcdb44763a8eb5b47190f472416a164017112203130e432a07501b157851b7cc2e30ca2baed822009e02323daf04e4f2416a164",
+                    bytes: "ce010500c703887c2b8374ed63a8eb5b47190f4706aabe66017112200a43060a07ecf21b7d3569c3c67a9e9dabb293e170a2905e1d379fbb06aabe66",
                     network_id: Some(
                         0,
                     ),
                     separator: Some(
-                        "4bf23f697fcdb447",
+                        "c703887c2b8374ed",
                     ),
                     controller: Some(
                         "63a8eb5b47190f47",
                     ),
                     stream_id: Some(
-                        "2416a164",
+                        "06aabe66",
                     ),
                     cid: Some(
-                        "bafyreibrgdsdfidvagyvpbi3ptbogdfcxlwyeiaj4arshwxqjzhsifvbmq",
+                        "bafyreiakimdaub7m6inx2nljypdhvhu5vozjhylqukif4hjxt65qnkv6my",
                     ),
                 },
             )
         "#]];
         test_event_id_from_car(
             // Unsigned init payload event
-            "
-            uOqJlcm9vdHOB2CpYJQABcRIgMTDkMqB1AbFXhRt8wuMMorrtgiAJ4CMj2vBOTyQWoWRndmVyc2lvbgG
-            0AQFxEiAxMOQyoHUBsVeFG3zC4wyiuu2CIAngIyPa8E5PJBahZKJkZGF0YfZmaGVhZGVyo2NzZXBlbW9
-            kZWxlbW9kZWxYKM4BAgGFARIgV1HMaNjwORnyUJjowofErLoZ5HkFm-5dsy3v2onQm6NrY29udHJvbGx
-            lcnOBeDhkaWQ6a2V5Ono2TWt0Q0ZSY3dMUkZRQTlXYmVEUk03VzdrYkJkWlRIUTJ4blBneXhaTHExZ0N
-            wSw",
+            UNSIGNED_INIT_EVENT_CAR,
             expected,
             // Init events do not need to access the store
             MockAccessModelStoreTest::new(),
@@ -244,6 +249,37 @@ mod tests {
         mock_get_init_event(&mut mock_model);
         test_event_id_from_car(DATA_EVENT_CAR, expected, mock_model).await
     }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn event_id_from_car_data_event_unsigned_init() {
+        let expected = expect![[r#"
+            Ok(
+                EventId {
+                    bytes: "ce010500c703887c2b8374ed63a8eb5b47190f4706aabe6601850112200953f8c9dd5669e2f638b04ba24fb57b6f6006b5fb8b63aeea8b7ed33a071bd3",
+                    network_id: Some(
+                        0,
+                    ),
+                    separator: Some(
+                        "c703887c2b8374ed",
+                    ),
+                    controller: Some(
+                        "63a8eb5b47190f47",
+                    ),
+                    stream_id: Some(
+                        "06aabe66",
+                    ),
+                    cid: Some(
+                        "bagcqcerabfj7rso5kzu6f5rywbf2et5vpnxwabvv7ofwhlxkrn7ngoqhdpjq",
+                    ),
+                },
+            )
+        "#]];
+        let mut mock_model = MockAccessModelStoreTest::new();
+        mock_get_unsigned_init_event(&mut mock_model);
+        test_event_id_from_car(DATA_EVENT_CAR_UNSIGNED_INIT, expected, mock_model).await
+    }
+
     #[tokio::test]
     #[traced_test]
     async fn event_id_from_car_time_event() {
