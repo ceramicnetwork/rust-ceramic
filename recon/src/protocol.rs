@@ -294,9 +294,11 @@ where
         let sync_state = self.common.recon.process_range(remote_range).await?;
         match sync_state {
             SyncState::Synchronized { .. } => {}
-            SyncState::RemoteMissing { range } => {
-                self.common.process_remote_missing_range(&range).await?;
-                self.send_ranges([range].into_iter()).await?;
+            SyncState::RemoteMissing { ranges } => {
+                for range in &ranges {
+                    self.common.process_remote_missing_range(range).await?;
+                }
+                self.send_ranges(ranges.into_iter()).await?;
             }
             SyncState::Unsynchronized { ranges } => {
                 self.send_ranges(ranges.into_iter()).await?;
@@ -505,15 +507,17 @@ where
                     )
                     .await?;
             }
-            SyncState::RemoteMissing { range } => {
-                self.common.process_remote_missing_range(&range).await?;
+            SyncState::RemoteMissing { ranges } => {
+                for range in &ranges {
+                    self.common.process_remote_missing_range(range).await?;
+                }
                 // Send the range hash after we have sent all keys so the remote learns we are in
                 // sync.
                 self.common
                     .stream
                     .send(
                         self.common
-                            .create_message(ResponderMessage::RangeResponse(vec![range.clone()])),
+                            .create_message(ResponderMessage::RangeResponse(ranges)),
                     )
                     .await?;
             }

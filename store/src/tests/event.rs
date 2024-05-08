@@ -481,7 +481,7 @@ where
     let (_blocks, store_value) = build_car_file(num_blocks).await;
     assert_eq!(_blocks.len(), num_blocks);
     store
-        .insert_many(&[(key.to_owned(), Some(store_value.clone()))])
+        .insert_many(&[(key.to_owned(), store_value.clone())])
         .await
         .unwrap();
 
@@ -508,7 +508,7 @@ where
     let (_blocks, store_value) = build_car_file(num_blocks).await;
     assert_eq!(_blocks.len(), num_blocks);
     store
-        .insert_many(&[(key.to_owned(), Some(store_value.clone()))])
+        .insert_many(&[(key.to_owned(), store_value.clone())])
         .await
         .unwrap();
 
