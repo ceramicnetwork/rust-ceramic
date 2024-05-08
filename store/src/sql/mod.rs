@@ -1,13 +1,13 @@
 mod entities;
 
 mod event;
-mod interest;
 mod root;
 mod sqlite;
 
+// TODO: clean up entities
+pub use entities::CeramicOneInterest;
 pub(crate) use entities::*;
 pub use event::SqliteEventStore;
-pub use interest::SqliteInterestStore;
 pub use root::SqliteRootStore;
 pub use sqlite::{DbTxSqlite, SqlitePool};
 

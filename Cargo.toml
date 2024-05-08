@@ -18,6 +18,7 @@ members = [
     "beetle/iroh-rpc-client",
     "beetle/iroh-rpc-types",
     "beetle/iroh-util",
+    "service",
 ]
 
 [workspace.dependencies]
@@ -56,6 +57,7 @@ ceramic-metadata = { path = "./metadata" }
 ceramic-metrics = { path = "./metrics" }
 ceramic-one = { path = "./one" }
 ceramic-p2p = { path = "./p2p" }
+ceramic-service = { path = "./service" }
 ceramic-store = { path = "./store" }
 cid = { version = "0.11", features = ["serde-codec"] }
 clap = { version = "4", features = ["derive", "env"] }
