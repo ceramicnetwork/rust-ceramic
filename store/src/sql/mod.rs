@@ -1,14 +1,10 @@
 mod access;
 pub mod entities;
-mod event;
 mod query;
 mod root;
 mod sqlite;
 
-// temp to make diff cleaner
-pub use event::CeramicOneEvent;
-
-pub use access::{CeramicOneBlock, CeramicOneEventBlock, CeramicOneInterest};
+pub use access::{CeramicOneBlock, CeramicOneEvent, CeramicOneEventBlock, CeramicOneInterest};
 pub use root::SqliteRootStore;
 pub use sqlite::{DbTxSqlite, SqlitePool};
 
