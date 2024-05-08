@@ -22,10 +22,11 @@ use tracing_test::traced_test;
 
 struct Context;
 
-pub const INIT_EVENT_CID: &str = "bagcqcerar2aga7747dm6fota3iipogz4q55gkaamcx2weebs6emvtvie2oha";
-pub const INIT_EVENT_PAYLOAD_CID: &str =
+pub const SIGNED_INIT_EVENT_CID: &str =
+    "bagcqcerar2aga7747dm6fota3iipogz4q55gkaamcx2weebs6emvtvie2oha";
+pub const SIGNED_INIT_EVENT_PAYLOAD_CID: &str =
     "bafyreiaroclcgqih242byss6pneufencrulmeex2ttfdzefst67agwq3im";
-pub const INIT_EVENT_CAR: &str = "
+pub const SIGNED_INIT_EVENT_CAR: &str = "
         uO6Jlcm9vdHOB2CpYJgABhQESII6AYH_8-NniumDaEPcbPId6ZQAMFfViEDLxGVnVBNOOZ3ZlcnNpb24
         B0QEBcRIgEXCWI0EH1zQcSl57SUKRoo0WwhL6nMo8kLKfvgNaG0OiZGRhdGGhZXN0ZXBoGQFNZmhlYWR
         lcqRjc2VwZW1vZGVsZW1vZGVsWCjOAQIBhQESIKDoMqM144vTQLQ6DwKZvzxRWg_DPeTNeRCkPouTHo1
@@ -37,17 +38,26 @@ pub const INIT_EVENT_CAR: &str = "
         WdGhiaXlTY21mdThuNVY3Ym9YZ3h5bzVxM1NaUlIifWlzaWduYXR1cmVYQCQDjlx8fT8rbTR4088HtOE
         27LJMc38DSuf1_XtK14hDp1Q6vhHqnuiobqp5EqNOp0vNFCCzwgG-Dsjmes9jJww";
 
-pub const INIT_EVENT: &str = "
+pub const SIGNED_INIT_EVENT: &str = "
         uomdwYXlsb2FkWCQBcRIgEXCWI0EH1zQcSl57SUKRoo0WwhL6nMo8kLKfvgNaG0Nqc2lnbmF0dXJlc4G
         iaXByb3RlY3RlZFiBeyJhbGciOiJFZERTQSIsImtpZCI6ImRpZDprZXk6ejZNa3RCeW5BUExyRXllUzd
         wVnRoYml5U2NtZnU4bjVWN2JvWGd4eW81cTNTWlJSI3o2TWt0QnluQVBMckV5ZVM3cFZ0aGJpeVNjbWZ
         1OG41Vjdib1hneHlvNXEzU1pSUiJ9aXNpZ25hdHVyZVhAJAOOXHx9PyttNHjTzwe04TbsskxzfwNK5_X
         9e0rXiEOnVDq-Eeqe6KhuqnkSo06nS80UILPCAb4OyOZ6z2MnDA";
-pub const INIT_EVENT_PAYLOAD: &str = "
+pub const SIGNED_INIT_EVENT_PAYLOAD: &str = "
         uomRkYXRhoWVzdGVwaBkBTWZoZWFkZXKkY3NlcGVtb2RlbGVtb2RlbFgozgECAYUBEiCg6DKjNeOL00C
         0Og8Cmb88UVoPwz3kzXkQpD6Lkx6NWGZ1bmlxdWVMRKbxOrJBC7tqhWjea2NvbnRyb2xsZXJzgXg4ZGl
         kOmtleTp6Nk1rdEJ5bkFQTHJFeWVTN3BWdGhiaXlTY21mdThuNVY3Ym9YZ3h5bzVxM1NaUlI";
 
+pub const UNSIGNED_INIT_EVENT_CID: &str =
+    "bafyreiakimdaub7m6inx2nljypdhvhu5vozjhylqukif4hjxt65qnkv6my";
+
+pub const UNSIGNED_INIT_EVENT_CAR: &str = "
+        uOqJlcm9vdHOB2CpYJQABcRIgCkMGCgfs8ht9NWnDxnqenauyk-FwopBeHTefuwaqvmZndmVyc2lvbgHDAQFxEiAKQwYKB-zyG301acPGep6dq7KT4XCikF4dN5-7Bqq-ZqJkZGF0YfZmaGVhZGVypGNzZXBlbW9kZWxlbW9kZWxYKM4BAgGFARIghHTHRYxxeQXgc9Q6LUJVelzW5bnrw9TWgoBJlBIOVtdmdW5pcXVlR2Zvb3xiYXJrY29udHJvbGxlcnOBeDhkaWQ6a2V5Ono2TWt0Q0ZSY3dMUkZRQTlXYmVEUk03VzdrYkJkWlRIUTJ4blBneXhaTHExZ0NwSw";
+
+pub const UNSIGNED_INIT_EVENT_PAYLOAD: &str = "uomRkYXRh9mZoZWFkZXKkY3NlcGVtb2RlbGVtb2RlbFgozgECAYUBEiCEdMdFjHF5BeBz1DotQlV6XNbluevD1NaCgEmUEg5W12Z1bmlxdWVHZm9vfGJhcmtjb250cm9sbGVyc4F4OGRpZDprZXk6ejZNa3RDRlJjd0xSRlFBOVdiZURSTTdXN2tiQmRaVEhRMnhuUGd5eFpMcTFnQ3BL";
+
+// Data Event for a stream with a signed init event
 pub const DATA_EVENT_CAR: &str = "
         uO6Jlcm9vdHOB2CpYJgABhQESICddBxl5Sk2e7I20pzX9kDLf0jj6WvIQ1KqbM3WQiClDZ3ZlcnNpb24
         BqAEBcRIgdtssXEgR7sXQQQA1doBpxUpTn4pcAaVFZfQjyo-03SGjYmlk2CpYJgABhQESII6AYH_8-Nn
@@ -63,6 +73,10 @@ pub const DATA_EVENT_CAR: &str = "
 // Assumes Mainnet network
 pub const DATA_EVENT_ID: &str =
     "ce010500aa5773c7d75777e1deb6cb4af0e69eebd504d38e0185011220275d0719794a4d9eec8db4a735fd9032dfd238fa5af210d4aa9b337590882943";
+
+// Data Event for a stream with an unsigned init event
+pub const DATA_EVENT_CAR_UNSIGNED_INIT: &str = "
+        uO6Jlcm9vdHOB2CpYJgABhQESIAlT-MndVmni9jiwS6JPtXtvYAa1-4tjruqLftM6BxvTZ3ZlcnNpb24B-gEBcRIguZ-ORAzcRLjL2LKcFJX2lC3Cv_4bywuG4Q8gEc5dbYajYmlk2CpYJQABcRIgCkMGCgfs8ht9NWnDxnqenauyk-FwopBeHTefuwaqvmZkZGF0YYSjYm9wY2FkZGRwYXRoZC9vbmVldmFsdWVjZm9vo2JvcGNhZGRkcGF0aGQvdHdvZXZhbHVlY2JhcqNib3BjYWRkZHBhdGhmL3RocmVlZXZhbHVlZmZvb2JhcqNib3BjYWRkZHBhdGhnL215RGF0YWV2YWx1ZQFkcHJldtgqWCUAAXESIApDBgoH7PIbfTVpw8Z6np2rspPhcKKQXh03n7sGqr5mugIBhQESIAlT-MndVmni9jiwS6JPtXtvYAa1-4tjruqLftM6BxvTomdwYXlsb2FkWCQBcRIguZ-ORAzcRLjL2LKcFJX2lC3Cv_4bywuG4Q8gEc5dbYZqc2lnbmF0dXJlc4GiaXByb3RlY3RlZFiBeyJhbGciOiJFZERTQSIsImtpZCI6ImRpZDprZXk6ejZNa3RDRlJjd0xSRlFBOVdiZURSTTdXN2tiQmRaVEhRMnhuUGd5eFpMcTFnQ3BLI3o2TWt0Q0ZSY3dMUkZRQTlXYmVEUk03VzdrYkJkWlRIUTJ4blBneXhaTHExZ0NwSyJ9aXNpZ25hdHVyZVhAZSJEw5QkFrYhbLYdLgnBn5SIbGAgm5i2jHhntWwe8nDkyKcCu4OvLMvFyGpjPloYVOr0JKwXlQfbgccHtbJpDw";
 
 pub const TIME_EVENT_CAR: &str = "
         uOqJlcm9vdHOB2CpYJQABcRIgcmqgb7eHSgQ32hS1NGVKZruLJGcKDI1f4lqOyNYn3eVndmVyc2lvbgG
@@ -151,17 +165,29 @@ pub fn mock_get_init_event(mock_store: &mut MockAccessModelStoreTest) {
     mock_store
         .expect_get_block()
         .once()
-        .with(predicate::eq(Cid::from_str(INIT_EVENT_CID).unwrap()))
-        .return_once(move |_| Ok(Some(decode_multibase_str(INIT_EVENT))));
+        .with(predicate::eq(Cid::from_str(SIGNED_INIT_EVENT_CID).unwrap()))
+        .return_once(move |_| Ok(Some(decode_multibase_str(SIGNED_INIT_EVENT))));
 
     // Call to get the init event payload
     mock_store
         .expect_get_block()
         .once()
         .with(predicate::eq(
-            Cid::from_str(INIT_EVENT_PAYLOAD_CID).unwrap(),
+            Cid::from_str(SIGNED_INIT_EVENT_PAYLOAD_CID).unwrap(),
         ))
-        .return_once(move |_| Ok(Some(decode_multibase_str(INIT_EVENT_PAYLOAD))));
+        .return_once(move |_| Ok(Some(decode_multibase_str(SIGNED_INIT_EVENT_PAYLOAD))));
+}
+
+/// Given a mock of the AccessModelStore, prepare it to expect calls to load the unsigned init event.
+pub fn mock_get_unsigned_init_event(mock_store: &mut MockAccessModelStoreTest) {
+    // Call to get the init event payload
+    mock_store
+        .expect_get_block()
+        .once()
+        .with(predicate::eq(
+            Cid::from_str(UNSIGNED_INIT_EVENT_CID).unwrap(),
+        ))
+        .return_once(move |_| Ok(Some(decode_multibase_str(UNSIGNED_INIT_EVENT_PAYLOAD))));
 }
 
 #[tokio::test]
