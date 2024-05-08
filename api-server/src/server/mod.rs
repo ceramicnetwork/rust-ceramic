@@ -355,31 +355,31 @@ where
                     match result {
                             Ok(body) => {
                                 let mut unused_elements = Vec::new();
-                                let param_event: Option<models::Event> = if !body.is_empty() {
+                                let param_event_data: Option<models::EventData> = if !body.is_empty() {
                                     let deserializer = &mut serde_json::Deserializer::from_slice(&body);
                                     match serde_ignored::deserialize(deserializer, |path| {
                                             warn!("Ignoring unknown field in body: {}", path);
                                             unused_elements.push(path.to_string());
                                     }) {
-                                        Ok(param_event) => param_event,
+                                        Ok(param_event_data) => param_event_data,
                                         Err(e) => return Ok(Response::builder()
                                                         .status(StatusCode::BAD_REQUEST)
-                                                        .body(Body::from(format!("Couldn't parse body parameter Event - doesn't match schema: {}", e)))
-                                                        .expect("Unable to create Bad Request response for invalid body parameter Event due to schema")),
+                                                        .body(Body::from(format!("Couldn't parse body parameter EventData - doesn't match schema: {}", e)))
+                                                        .expect("Unable to create Bad Request response for invalid body parameter EventData due to schema")),
                                     }
                                 } else {
                                     None
                                 };
-                                let param_event = match param_event {
-                                    Some(param_event) => param_event,
+                                let param_event_data = match param_event_data {
+                                    Some(param_event_data) => param_event_data,
                                     None => return Ok(Response::builder()
                                                         .status(StatusCode::BAD_REQUEST)
-                                                        .body(Body::from("Missing required body parameter Event"))
-                                                        .expect("Unable to create Bad Request response for missing body parameter Event")),
+                                                        .body(Body::from("Missing required body parameter EventData"))
+                                                        .expect("Unable to create Bad Request response for missing body parameter EventData")),
                                 };
 
                                 let result = api_impl.events_post(
-                                            param_event,
+                                            param_event_data,
                                         &context
                                     ).await;
                                 let mut response = Response::new(Body::empty());
@@ -436,8 +436,8 @@ where
                             },
                             Err(e) => Ok(Response::builder()
                                                 .status(StatusCode::BAD_REQUEST)
-                                                .body(Body::from(format!("Couldn't read body parameter Event: {}", e)))
-                                                .expect("Unable to create Bad Request response due to unable to read body parameter Event")),
+                                                .body(Body::from(format!("Couldn't read body parameter EventData: {}", e)))
+                                                .expect("Unable to create Bad Request response due to unable to read body parameter EventData")),
                         }
                 }
 

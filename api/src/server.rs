@@ -21,7 +21,7 @@ use std::{
 
 use anyhow::Result;
 use async_trait::async_trait;
-use ceramic_api_server::models::{BadRequestResponse, ErrorResponse};
+use ceramic_api_server::models::{BadRequestResponse, ErrorResponse, EventData};
 use ceramic_api_server::{
     models::{self, Event},
     DebugHeapGetResponse, EventsEventIdGetResponse, EventsPostResponse,
@@ -411,7 +411,7 @@ where
     }
 
     // TODO(stbrody): Only take the event data, don't take an id field at all since its unused.
-    pub async fn post_events(&self, event: Event) -> Result<EventsPostResponse, ErrorResponse> {
+    pub async fn post_events(&self, event: EventData) -> Result<EventsPostResponse, ErrorResponse> {
         let event_data = match decode_multibase_data(&event.data) {
             Ok(v) => v,
             Err(e) => return Ok(EventsPostResponse::BadRequest(e)),
@@ -681,10 +681,10 @@ where
             .or_else(|err| Ok(ExperimentalEventsSepSepValueGetResponse::InternalServerError(err)))
     }
 
-    #[instrument(skip(self, _context, event), fields(event.id = event.id, event.data.len = event.data.len()), ret(level = Level::DEBUG), err(level = Level::ERROR))]
+    #[instrument(skip(self, _context, event), fields(event.data.len = event.data.len()), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn events_post(
         &self,
-        event: Event,
+        event: EventData,
         _context: &C,
     ) -> Result<EventsPostResponse, ApiError> {
         self.post_events(event)
