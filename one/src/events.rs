@@ -81,10 +81,10 @@ async fn slurp(opts: SlurpOpts) -> Result<()> {
     let block_store = CeramicEventService::new(pool).await.unwrap();
 
     if let Some(input_ceramic_db) = opts.input_ceramic_db {
-        migrate_from_database(input_ceramic_db, Clone::clone(&block_store)).await?;
+        migrate_from_database(input_ceramic_db, &block_store).await?;
     }
     if let Some(input_ipfs_path) = opts.input_ipfs_path {
-        migrate_from_filesystem(input_ipfs_path, Clone::clone(&block_store)).await?;
+        migrate_from_filesystem(input_ipfs_path, &block_store).await?;
     }
     Ok(())
 }
@@ -310,7 +310,7 @@ async fn prev_in_root(
 
 async fn migrate_from_filesystem(
     input_ipfs_path: PathBuf,
-    store: CeramicEventService,
+    store: &CeramicEventService,
 ) -> Result<()> {
     // the block store is split in to 1024 directories and then the blocks stored as files.
     // the dir structure is the penultimate two characters as dir then the b32 sha256 multihash of the block
@@ -397,7 +397,7 @@ async fn migrate_from_filesystem(
 
 async fn migrate_from_database(
     input_ceramic_db: PathBuf,
-    store: CeramicEventService,
+    store: &CeramicEventService,
 ) -> Result<()> {
     let input_ceramic_db_filename = input_ceramic_db.to_str().expect("expect utf8");
     info!(
@@ -411,7 +411,7 @@ async fn migrate_from_database(
         Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
         input_ceramic_db_filename
     );
-    result
+    Ok(result?)
 }
 
 #[cfg(test)]

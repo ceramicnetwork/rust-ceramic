@@ -433,7 +433,7 @@ where
 }
 
 /// The result of an insert operation.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Default)]
 pub struct InsertResult {
     /// A true/false list indicating whether or not the key was new.
     /// It is in the same order as the input list of keys.

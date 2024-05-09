@@ -1,5 +1,6 @@
 mod event;
 mod interest;
+mod ordering;
 
 use std::str::FromStr;
 
@@ -114,4 +115,12 @@ pub(crate) fn random_block() -> Block {
         cid: Cid::new_v1(0x00, hash),
         data: data.to_vec().into(),
     }
+}
+
+pub(crate) async fn assert_deliverable(pool: &ceramic_store::SqlitePool, cid: &Cid) {
+    let (exists, deliverable) = ceramic_store::CeramicOneEvent::delivered_by_cid(pool, cid)
+        .await
+        .unwrap();
+    assert!(exists);
+    assert!(deliverable);
 }

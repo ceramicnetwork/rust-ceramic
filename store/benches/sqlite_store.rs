@@ -1,5 +1,5 @@
 use ceramic_core::{EventId, Network};
-use ceramic_store::{CeramicOneEvent, SqlitePool};
+use ceramic_store::{CeramicOneEvent, EventInsertable, SqlitePool};
 use cid::Cid;
 use criterion2::{criterion_group, criterion_main, BatchSize, Criterion};
 use multihash_codetable::{Code, MultihashDigest};
@@ -7,7 +7,7 @@ use rand::RngCore;
 
 struct ModelSetup {
     pool: SqlitePool,
-    events: Vec<(EventId, Vec<u8>)>,
+    events: Vec<EventInsertable>,
 }
 
 enum ModelType {
@@ -44,14 +44,14 @@ async fn model_setup(tpe: ModelType, cnt: usize) -> ModelSetup {
             }
         };
         rand::thread_rng().fill_bytes(&mut data);
-        let event_id = generate_event_id(&data);
-        let cid = event_id.cid().unwrap();
-        let header = iroh_car::CarHeader::V1(iroh_car::CarHeaderV1::from(vec![cid]));
-        let writer = tokio::io::BufWriter::new(Vec::with_capacity(1024 * 1024));
-        let mut writer = iroh_car::CarWriter::new(header, writer);
-        writer.write(cid, data.as_slice()).await.unwrap();
-        let data = writer.finish().await.unwrap().into_inner();
-        events.push((event_id, data));
+
+        // let header = iroh_car::CarHeader::V1(iroh_car::CarHeaderV1::from(vec![cid]));
+        // let writer = tokio::io::BufWriter::new(Vec::with_capacity(1024 * 1024));
+        // let mut writer = iroh_car::CarWriter::new(header, writer);
+        // writer.write(cid, data.as_slice()).await.unwrap();
+        // let data = writer.finish().await.unwrap().into_inner();
+        // events.push((event_id, data));
+        todo!();
     }
 
     let pool = SqlitePool::connect_in_memory().await.unwrap();
@@ -59,13 +59,10 @@ async fn model_setup(tpe: ModelType, cnt: usize) -> ModelSetup {
 }
 
 async fn model_routine(input: ModelSetup) {
-    let futs =
-        input.events.into_iter().map(|(event_id, data)| {
-            let store = input.pool.clone();
-            async move {
-                CeramicOneEvent::insert_raw_carfiles(&store, &[(event_id, data.as_slice())]).await
-            }
-        });
+    let futs = input.events.into_iter().map(|event| {
+        let store = input.pool.clone();
+        async move { CeramicOneEvent::insert_many(&store, &[event]).await }
+    });
     futures::future::join_all(futs).await;
 }
 
