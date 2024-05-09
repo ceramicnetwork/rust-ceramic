@@ -402,7 +402,6 @@ where
         ))
     }
 
-    // TODO(stbrody): Only take the event data, don't take an id field at all since its unused.
     pub async fn post_events(&self, event: EventData) -> Result<EventsPostResponse, ErrorResponse> {
         let event_data = match decode_multibase_data(&event.data) {
             Ok(v) => v,

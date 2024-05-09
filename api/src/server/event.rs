@@ -12,8 +12,6 @@ use crate::AccessModelStore;
 
 // Helper function to construct an event Id from CAR data of an event
 // We should likely move this closer to where its needed but this is good enough for now.
-// TODO remove this allow once its used as part of the API
-#[allow(dead_code)]
 pub async fn event_id_from_car<R, S>(network: Network, reader: R, store: &S) -> Result<EventId>
 where
     R: AsyncRead + Send + Unpin,
@@ -35,6 +33,7 @@ where
     let event_bytes = get_block(&event_cid, &car_blocks, store).await?;
     let event: unvalidated::Event<Ipld> =
         serde_ipld_dagcbor::from_slice(&event_bytes).context("decoding event")?;
+
     let (init_id, init_payload) = match event {
         unvalidated::Event::Time(event) => (
             event.id(),
