@@ -1,6 +1,5 @@
 use async_trait::async_trait;
-use ceramic_core::RangeOpen;
-use std::{collections::BTreeMap, ops::Bound, sync::Arc};
+use std::{collections::BTreeMap, ops::Range, sync::Arc};
 use tokio::sync::Mutex;
 
 use crate::{
@@ -54,26 +53,18 @@ where
 
     /// Return the hash of all keys in the range between left_fencepost and right_fencepost.
     /// Both range bounds are exclusive.
-    pub async fn hash_range(
-        &self,
-        left_fencepost: &K,
-        right_fencepost: &K,
-    ) -> Result<HashCount<H>> {
-        if left_fencepost >= right_fencepost {
+    pub async fn hash_range(&self, range: Range<&K>) -> Result<HashCount<H>> {
+        if range.start >= range.end {
             return Ok(HashCount {
                 hash: H::identity(),
                 count: 0,
             });
         }
-        let range = (
-            Bound::Excluded(left_fencepost),
-            Bound::Excluded(right_fencepost),
-        );
         let inner = self.inner.lock().await;
         let hash: H = H::identity().digest_many(
             inner
                 .keys
-                .range(range)
+                .range(range.clone())
                 .map(|(key, hash)| MaybeHashedKey::new(key, Some(hash))),
         );
         let count: usize = inner.keys.range(range).count();
@@ -89,15 +80,10 @@ where
     /// Offset and limit values are applied within the range of keys.
     pub async fn range(
         &self,
-        left_fencepost: &K,
-        right_fencepost: &K,
+        range: Range<&K>,
         offset: usize,
         limit: usize,
     ) -> Result<Box<dyn Iterator<Item = K> + Send + 'static>> {
-        let range = (
-            Bound::Excluded(left_fencepost),
-            Bound::Excluded(right_fencepost),
-        );
         let keys: Vec<K> = self
             .inner
             .lock()
@@ -117,16 +103,12 @@ where
     /// Offset and limit values are applied within the range of keys.
     pub async fn range_with_values(
         &self,
-        left_fencepost: &K,
-        right_fencepost: &K,
+        range: Range<&K>,
         offset: usize,
         limit: usize,
     ) -> Result<Box<dyn Iterator<Item = (K, Vec<u8>)> + Send + 'static>> {
-        let range = (
-            Bound::Excluded(left_fencepost),
-            Bound::Excluded(right_fencepost),
-        );
         let inner = self.inner.lock().await;
+
         let keys: Vec<(K, Vec<u8>)> = inner
             .keys
             .range(range)
@@ -159,64 +141,44 @@ where
             .insert(item.key.clone(), H::digest(item.key))
             .is_none();
 
-        if let Some(val) = item.value {
-            inner.values.insert(item.key.clone(), val.to_vec());
-        }
+        inner.values.insert(item.key.clone(), item.value.to_vec());
         Ok(new)
     }
 
     async fn insert_many(&self, items: &[ReconItem<'_, K>]) -> Result<InsertResult> {
         let mut new = vec![false; items.len()];
-        let mut new_val_cnt = 0;
         for (idx, item) in items.iter().enumerate() {
-            if item.value.is_some() {
-                new_val_cnt += 1;
-            }
             new[idx] = self.insert(item).await?;
         }
-        Ok(InsertResult::new(new, new_val_cnt))
+        Ok(InsertResult::new(new))
     }
 
-    async fn hash_range(
-        &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Result<HashCount<Self::Hash>> {
+    async fn hash_range(&self, range: Range<&Self::Key>) -> Result<HashCount<Self::Hash>> {
         // Self does not need async to implement hash_range, so it exposes a pub non async hash_range function
         // and we delegate to its implementation here.
-        BTreeStore::hash_range(self, left_fencepost, right_fencepost).await
+        BTreeStore::hash_range(self, range).await
     }
 
     async fn range(
         &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
+        range: Range<&Self::Key>,
         offset: usize,
         limit: usize,
     ) -> Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
         // Self does not need async to implement range, so it exposes a pub non async range function
         // and we delegate to its implementation here.
-        BTreeStore::range(self, left_fencepost, right_fencepost, offset, limit).await
+        BTreeStore::range(self, range, offset, limit).await
     }
     async fn range_with_values(
         &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
+        range: Range<&Self::Key>,
         offset: usize,
         limit: usize,
     ) -> Result<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>> {
-        BTreeStore::range_with_values(self, left_fencepost, right_fencepost, offset, limit).await
+        BTreeStore::range_with_values(self, range, offset, limit).await
     }
 
-    async fn last(
-        &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
-    ) -> Result<Option<Self::Key>> {
-        let range = (
-            Bound::Excluded(left_fencepost),
-            Bound::Excluded(right_fencepost),
-        );
+    async fn last(&self, range: Range<&Self::Key>) -> Result<Option<Self::Key>> {
         Ok(self
             .inner
             .lock()
@@ -229,13 +191,9 @@ where
 
     async fn first_and_last(
         &self,
-        left_fencepost: &Self::Key,
-        right_fencepost: &Self::Key,
+
+        range: Range<&Self::Key>,
     ) -> Result<Option<(Self::Key, Self::Key)>> {
-        let range = (
-            Bound::Excluded(left_fencepost),
-            Bound::Excluded(right_fencepost),
-        );
         let inner = self.inner.lock().await;
         let mut range = inner.keys.range(range);
         let first = range.next().map(|(k, _)| k);
@@ -253,17 +211,5 @@ where
     /// value_for_key returns an Error is retrieving failed and None if the key is not stored.
     async fn value_for_key(&self, key: &Self::Key) -> Result<Option<Vec<u8>>> {
         Ok(self.inner.lock().await.values.get(key).cloned())
-    }
-    async fn keys_with_missing_values(
-        &self,
-        range: RangeOpen<Self::Key>,
-    ) -> Result<Vec<Self::Key>> {
-        let inner = self.inner.lock().await;
-        Ok(inner
-            .keys
-            .range(range)
-            .filter(|&(key, _hash)| (!inner.values.contains_key(key)))
-            .map(|(key, _hash)| key.clone())
-            .collect())
     }
 }

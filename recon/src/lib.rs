@@ -7,8 +7,8 @@ pub use crate::{
     metrics::Metrics,
     recon::{
         btreestore::BTreeStore, AssociativeHash, EventIdStore, FullInterests, HashCount,
-        InsertResult, InterestProvider, InterestStore, Key, Range, Recon, ReconInterestProvider,
-        ReconItem, Store, SyncState,
+        InsertResult, InterestProvider, InterestStore, Key, RangeHash, Recon,
+        ReconInterestProvider, ReconItem, Split, Store, SyncState,
     },
     sha256a::Sha256a,
 };

@@ -31,6 +31,45 @@ impl std::ops::Add for Sha256a {
         ])
     }
 }
+impl std::ops::Add<&Sha256a> for Sha256a {
+    type Output = Self;
+    fn add(self, rhs: &Self) -> Self::Output {
+        Sha256a([
+            self.0[0].wrapping_add(rhs.0[0]),
+            self.0[1].wrapping_add(rhs.0[1]),
+            self.0[2].wrapping_add(rhs.0[2]),
+            self.0[3].wrapping_add(rhs.0[3]),
+            self.0[4].wrapping_add(rhs.0[4]),
+            self.0[5].wrapping_add(rhs.0[5]),
+            self.0[6].wrapping_add(rhs.0[6]),
+            self.0[7].wrapping_add(rhs.0[7]),
+        ])
+    }
+}
+impl std::ops::AddAssign<Sha256a> for Sha256a {
+    fn add_assign(&mut self, rhs: Sha256a) {
+        self.0[0] = self.0[0].wrapping_add(rhs.0[0]);
+        self.0[1] = self.0[1].wrapping_add(rhs.0[1]);
+        self.0[2] = self.0[2].wrapping_add(rhs.0[2]);
+        self.0[3] = self.0[3].wrapping_add(rhs.0[3]);
+        self.0[4] = self.0[4].wrapping_add(rhs.0[4]);
+        self.0[5] = self.0[5].wrapping_add(rhs.0[5]);
+        self.0[6] = self.0[6].wrapping_add(rhs.0[6]);
+        self.0[7] = self.0[7].wrapping_add(rhs.0[7]);
+    }
+}
+impl std::ops::AddAssign<&Sha256a> for Sha256a {
+    fn add_assign(&mut self, rhs: &Sha256a) {
+        self.0[0] = self.0[0].wrapping_add(rhs.0[0]);
+        self.0[1] = self.0[1].wrapping_add(rhs.0[1]);
+        self.0[2] = self.0[2].wrapping_add(rhs.0[2]);
+        self.0[3] = self.0[3].wrapping_add(rhs.0[3]);
+        self.0[4] = self.0[4].wrapping_add(rhs.0[4]);
+        self.0[5] = self.0[5].wrapping_add(rhs.0[5]);
+        self.0[6] = self.0[6].wrapping_add(rhs.0[6]);
+        self.0[7] = self.0[7].wrapping_add(rhs.0[7]);
+    }
+}
 
 impl Serialize for Sha256a {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

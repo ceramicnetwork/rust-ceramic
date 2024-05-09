@@ -55,7 +55,7 @@ impl AccessInterestStore for MockReconInterestTest {
 }
 mock! {
     pub ReconModelTest {
-        fn insert_many(&self, items: &[(EventId, Option<Vec<u8>>)]) -> Result<(Vec<bool>, usize)>;
+        fn insert_many(&self, items: &[(EventId, Vec<u8>)]) -> Result<Vec<bool>>;
         fn range_with_values(
             &self,
             start: &EventId,
@@ -71,10 +71,7 @@ mock! {
 }
 #[async_trait]
 impl AccessModelStore for MockReconModelTest {
-    async fn insert_many(
-        &self,
-        items: &[(EventId, Option<Vec<u8>>)],
-    ) -> Result<(Vec<bool>, usize)> {
+    async fn insert_many(&self, items: &[(EventId, Vec<u8>)]) -> Result<Vec<bool>> {
         self.insert_many(items)
     }
     async fn range_with_values(
@@ -115,13 +112,13 @@ async fn create_event() {
     let event_data = "f".to_string();
     let mock_interest = MockReconInterestTest::new();
     let mut mock_model = MockReconModelTest::new();
-    let event_data_arg = Some(decode_event_data(event_data.as_str()).unwrap());
+    let event_data_arg = decode_event_data(event_data.as_str()).unwrap();
     let args = vec![(event_id.clone(), event_data_arg)];
     mock_model
         .expect_insert_many()
         .with(predicate::eq(args))
         .times(1)
-        .returning(|_| Ok((vec![true], 1)));
+        .returning(|_| Ok(vec![true]));
     let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_model));
     let resp = server
         .events_post(

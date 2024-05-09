@@ -138,8 +138,7 @@ pub trait AccessInterestStore: Send + Sync {
     async fn insert(&self, key: Interest) -> Result<bool>;
     async fn range(
         &self,
-        start: &Interest,
-        end: &Interest,
+        range: Range<&Interest>,
         offset: usize,
         limit: usize,
     ) -> Result<Vec<Interest>>;
@@ -153,24 +152,21 @@ impl<S: AccessInterestStore> AccessInterestStore for Arc<S> {
 
     async fn range(
         &self,
-        start: &Interest,
-        end: &Interest,
+        range: Range<&Interest>,
         offset: usize,
         limit: usize,
     ) -> Result<Vec<Interest>> {
-        self.as_ref().range(start, end, offset, limit).await
+        self.as_ref().range(range, offset, limit).await
     }
 }
 
 #[async_trait]
 pub trait AccessModelStore: Send + Sync {
     /// Returns (new_key, new_value) where true if was newly inserted, false if it already existed.
-    async fn insert_many(&self, items: &[(EventId, Option<Vec<u8>>)])
-        -> Result<(Vec<bool>, usize)>;
+    async fn insert_many(&self, items: &[(EventId, Vec<u8>)]) -> Result<Vec<bool>>;
     async fn range_with_values(
         &self,
-        start: &EventId,
-        end: &EventId,
+        range: Range<&EventId>,
         offset: usize,
         limit: usize,
     ) -> Result<Vec<(EventId, Vec<u8>)>>;
@@ -188,23 +184,17 @@ pub trait AccessModelStore: Send + Sync {
 
 #[async_trait::async_trait]
 impl<S: AccessModelStore> AccessModelStore for Arc<S> {
-    async fn insert_many(
-        &self,
-        items: &[(EventId, Option<Vec<u8>>)],
-    ) -> Result<(Vec<bool>, usize)> {
+    async fn insert_many(&self, items: &[(EventId, Vec<u8>)]) -> Result<Vec<bool>> {
         self.as_ref().insert_many(items).await
     }
 
     async fn range_with_values(
         &self,
-        start: &EventId,
-        end: &EventId,
+        range: Range<&EventId>,
         offset: usize,
         limit: usize,
     ) -> Result<Vec<(EventId, Vec<u8>)>> {
-        self.as_ref()
-            .range_with_values(start, end, offset, limit)
-            .await
+        self.as_ref().range_with_values(range, offset, limit).await
     }
 
     async fn value_for_key(&self, key: &EventId) -> Result<Option<Vec<u8>>> {
@@ -302,11 +292,11 @@ where
         let mut items = Vec::with_capacity(events.len());
         events.drain(..).for_each(|req: EventInsert| {
             oneshots.push(req.tx);
-            items.push((req.id, Some(req.data)));
+            items.push((req.id, req.data));
         });
         tracing::trace!("calling insert many with {} items.", items.len());
         match event_store.insert_many(&items).await {
-            Ok((results, _)) => {
+            Ok(results) => {
                 tracing::debug!("insert many returned {} results.", results.len());
                 for (tx, result) in oneshots.into_iter().zip(results.into_iter()) {
                     if let Err(e) = tx.send(Ok(result)) {
@@ -377,7 +367,7 @@ where
 
         let events = self
             .model
-            .range_with_values(&start, &stop, offset, limit)
+            .range_with_values(&start..&stop, offset, limit)
             .await
             .map_err(|err| ErrorResponse::new(format!("failed to get keys: {err}")))?
             .into_iter()

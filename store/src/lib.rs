@@ -4,12 +4,14 @@
 
 mod error;
 mod metrics;
+mod red_tree;
 mod sql;
 #[cfg(test)]
 mod tests;
 
 pub use error::Error;
 pub use metrics::{Metrics, StoreMetricsMiddleware};
+pub use red_tree::RedTree;
 pub use sql::{
     DbTxSqlite, Migrations, SqliteEventStore, SqliteInterestStore, SqlitePool, SqliteRootStore,
 };

@@ -1,0 +1,12 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 5552ca3b7d1c86c7b3228d74868f23935ae08a2af2fa0d1be846f511f5b3b3cf # shrinks to b = 2, bucket_size = 2, keys_and_ranges = ([1717, 57039, 46210, 35047, 58066, 31222, 40009, 56659, 7065, 46442, 21737, 26525, 30365, 47995, 19317, 10192, 15260, 28550, 53107], [(1, 6)])
+cc 87a3d56c1d141ecfa437c8ffbca8abf2ef07619814f26fb18287f9134bce618e # shrinks to b = 2, bucket_size = 2, keys_and_ranges = ([1, 2, 3, 4], [(2, 3)])
+cc 03dbaf7c332a555961b51b74f53e7e88c2dfb82723567a407f9d78b2980e7a96 # shrinks to b = 2, bucket_size = 2, keys_and_ranges = ([1, 2, 3, 4], [(2, 3)])
+cc 4ec68cb3e5c330cf1844a956e1cad0f0bbaa613066b4fa344b1b696b31203d83 # shrinks to b = 2, bucket_size = 2, keys_and_ranges = ([12016, 12017, 1, 2, 17105, 34969, 12015, 16824, 33199], [(6, 8)])
+cc 2769998268f9aede80916b625ab56da1751084e831e541ef212ece5193edff98 # shrinks to b = 5, bucket_size = 4, keys_and_ranges = ([34646, 38207, 57118, 15147, 5702, 41727, 30116, 30885, 62060, 64443, 64213, 65374, 18047, 43846, 11587, 32028, 16756, 60399, 50609, 52749, 54527, 28323, 63861, 30837, 45854, 36036, 61411, 37838, 54690, 6761, 2119, 18621, 35207, 16358, 20068, 7000, 2140, 59463, 40594, 34063, 26780, 46465, 21588, 14196, 11960, 51227, 15522, 6241, 25122, 46708, 58452, 17490, 60735, 37976, 34031, 51142, 23794, 59283, 34562, 44051, 24378, 20441, 54945, 36752, 49263, 49549, 18647, 39590, 9077, 14787, 60639, 13891, 47887, 60822, 54275, 52428, 20142, 33699, 10039], [(0, 1)])
+cc 22c9a151fa84419cf8104aeb2879234e986c5bea66fadf21cf327654ba712f54 # shrinks to b = 4, bucket_size = 2, keys_and_ranges = ([2289, 1013], [(0, 1)])
