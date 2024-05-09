@@ -15,9 +15,10 @@ impl recon::Store for CeramicEventService {
     type Hash = Sha256a;
 
     async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> ReconResult<bool> {
-        let res =
-            CeramicOneEvent::insert_raw_carfiles(&self.pool, &[(item.key.clone(), item.value)])
-                .await?;
+        let res = self
+            .insert_events_from_carfiles(&[item.to_owned()], false)
+            .await?;
+
         Ok(res.keys.first().copied().unwrap_or(false))
     }
 
@@ -25,11 +26,7 @@ impl recon::Store for CeramicEventService {
     /// Returns true for each key if it did not previously exist, in the
     /// same order as the input iterator.
     async fn insert_many(&self, items: &[ReconItem<'_, Self::Key>]) -> ReconResult<InsertResult> {
-        let items = items
-            .iter()
-            .map(|item| (item.key.clone(), item.value))
-            .collect::<Vec<_>>();
-        let res = CeramicOneEvent::insert_raw_carfiles(&self.pool, &items[..]).await?;
+        let res = self.insert_events_from_carfiles(items, false).await?;
         Ok(res)
     }
 
@@ -110,9 +107,9 @@ impl ceramic_api::AccessModelStore for CeramicEventService {
     async fn insert_many(&self, items: &[(EventId, Vec<u8>)]) -> anyhow::Result<Vec<bool>> {
         let items = items
             .iter()
-            .map(|(key, val)| (key.clone(), val.as_slice()))
+            .map(|(key, val)| ReconItem::new(key, val.as_slice()))
             .collect::<Vec<_>>();
-        let res = CeramicOneEvent::insert_raw_carfiles(&self.pool, &items[..]).await?;
+        let res = self.insert_events_from_carfiles(&items[..], true).await?;
         Ok(res.keys)
     }
 

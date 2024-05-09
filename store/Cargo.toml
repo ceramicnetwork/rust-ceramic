@@ -27,7 +27,6 @@ thiserror.workspace = true
 recon.workspace = true
 sqlx.workspace = true
 tokio.workspace = true
-tracing.workspace = true
 
 [dev-dependencies]
 criterion2 = { workspace = true, features = ["async", "async_tokio"] }

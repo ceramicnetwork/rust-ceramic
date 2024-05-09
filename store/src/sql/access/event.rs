@@ -12,7 +12,7 @@ use recon::{AssociativeHash, HashCount, InsertResult, Key, Result as ReconResult
 use crate::{
     sql::{
         entities::{
-            rebuild_car, BlockRow, CountRow, DeliveredEvent, EventRaw, OrderKey,
+            rebuild_car, BlockRow, CountRow, DeliveredEvent, EventInsertable, OrderKey,
             ReconEventBlockRaw, ReconHash,
         },
         query::{EventQuery, ReconQuery, ReconType, SqlBackend},
@@ -79,10 +79,7 @@ impl CeramicOneEvent {
     }
 
     /// Mark an event ready to deliver to js-ceramic or other clients. This implies it's valid and it's previous events are known.
-    pub async fn mark_ready_to_deliver(
-        conn: &mut SqliteTransaction<'_>,
-        key: &EventId,
-    ) -> Result<()> {
+    pub async fn mark_ready_to_deliver(conn: &mut SqliteTransaction<'_>, key: &Cid) -> Result<()> {
         // Fetch add happens with an open transaction (on one writer for the db) so we're guaranteed to get a unique value
         sqlx::query(EventQuery::mark_ready_to_deliver())
             .bind(GLOBAL_COUNTER.fetch_add(1, Ordering::SeqCst))
@@ -93,52 +90,48 @@ impl CeramicOneEvent {
         Ok(())
     }
 
-    /// Parse an event from carfiles and store in the database. This is temporary and the parsing logic will be moved up to the service layer,
-    /// and we will only rely on `insert_many` to store the events.
-    pub async fn insert_raw_carfiles(
-        pool: &SqlitePool,
-        items: &[(EventId, &[u8])],
-    ) -> Result<InsertResult> {
-        if items.is_empty() {
-            return Ok(InsertResult::new(vec![]));
-        }
-        let mut to_add = Vec::with_capacity(items.len());
-        for (key, val) in items {
-            match EventRaw::try_build(key.to_owned(), val).await {
-                Ok(parsed) => to_add.push(parsed),
-                Err(error) => {
-                    tracing::warn!(%error, order_key=%key, "Error parsing event into carfile");
-                    continue;
-                }
-            }
-        }
-        if to_add.is_empty() {
-            return Ok(InsertResult::new(vec![]));
-        }
-        Self::insert_many(pool, &to_add).await
-    }
-
     /// Insert many events into the database. This is the main function to use when storing events.
-    pub async fn insert_many(pool: &SqlitePool, to_add: &[EventRaw]) -> Result<InsertResult> {
+    pub async fn insert_many(
+        pool: &SqlitePool,
+        to_add: &[EventInsertable],
+    ) -> Result<InsertResult> {
         let mut new_keys = vec![false; to_add.len()];
         let mut tx = pool.begin_tx().await.map_err(Error::from)?;
 
         for (idx, item) in to_add.iter().enumerate() {
             let new_key = Self::insert_key(&mut tx, &item.order_key).await?;
             if new_key {
-                for block in item.blocks.iter() {
+                for block in item.body.blocks.iter() {
                     CeramicOneBlock::insert(&mut tx, block.multihash.inner(), &block.bytes).await?;
                     CeramicOneEventBlock::insert(&mut tx, block).await?;
                 }
             }
-
-            Self::mark_ready_to_deliver(&mut tx, &item.order_key).await?;
+            if item.body.deliverable {
+                Self::mark_ready_to_deliver(&mut tx, &item.body.cid).await?;
+            }
             new_keys[idx] = new_key;
         }
         tx.commit().await.map_err(Error::from)?;
         let res = InsertResult::new(new_keys);
 
         Ok(res)
+    }
+
+    /// Find events that haven't been delivered to the client and may be ready
+    pub async fn undelivered_with_values(
+        pool: &SqlitePool,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Vec<(EventId, Vec<u8>)>> {
+        let all_blocks: Vec<ReconEventBlockRaw> =
+            sqlx::query_as(EventQuery::undelivered_with_values())
+                .bind(limit as i64)
+                .bind(offset as i64)
+                .fetch_all(pool.reader())
+                .await?;
+
+        let values = ReconEventBlockRaw::into_carfiles(all_blocks).await?;
+        Ok(values)
     }
 
     /// Calculate the hash of a range of events
@@ -247,5 +240,20 @@ impl CeramicOneEvent {
             .fetch_all(pool.reader())
             .await?;
         rebuild_car(blocks).await
+    }
+
+    /// Finds if an event exists and has been previously delivered, meaning anything that depends on it can be delivered.
+    /// (bool, bool) = (exists, delivered)
+    pub async fn delivered_by_cid(pool: &SqlitePool, key: &Cid) -> Result<(bool, bool)> {
+        #[derive(sqlx::FromRow)]
+        struct CidExists {
+            exists: bool,
+            delivered: bool,
+        }
+        let exist: Option<CidExists> = sqlx::query_as(EventQuery::value_delivered_by_cid())
+            .bind(key.to_bytes())
+            .fetch_optional(pool.reader())
+            .await?;
+        Ok(exist.map_or((false, false), |row| (row.exists, row.delivered)))
     }
 }

@@ -1,5 +1,3 @@
-use anyhow::Result;
-
 use ceramic_store::SqlitePool;
 
 /// A Service that understands how to process and store Ceramic Interests.
@@ -8,7 +6,7 @@ pub struct CeramicInterestService {
     pub(crate) pool: SqlitePool,
 }
 impl CeramicInterestService {
-    pub async fn new(pool: SqlitePool) -> Result<Self> {
-        Ok(Self { pool })
+    pub fn new(pool: SqlitePool) -> Self {
+        Self { pool }
     }
 }

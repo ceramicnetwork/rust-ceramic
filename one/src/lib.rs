@@ -279,7 +279,7 @@ impl DaemonOpts {
     async fn build_sqlite_dbs(path: &str) -> Result<Databases> {
         let sql_pool =
             ceramic_store::SqlitePool::connect(path, ceramic_store::Migrations::Apply).await?;
-        let interest_store = Arc::new(CeramicInterestService::new(sql_pool.clone()).await?);
+        let interest_store = Arc::new(CeramicInterestService::new(sql_pool.clone()));
         let event_store = Arc::new(CeramicEventService::new(sql_pool).await?);
         println!("Connected to sqlite database: {}", path);
 

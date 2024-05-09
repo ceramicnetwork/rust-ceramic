@@ -21,7 +21,7 @@ macro_rules! test_with_sqlite {
                 let _ = ceramic_metrics::init_local_tracing();
 
                 let conn = ceramic_store::SqlitePool::connect_in_memory().await.unwrap();
-                let store = $crate::CeramicInterestService::new(conn).await.unwrap();
+                let store = $crate::CeramicInterestService::new(conn);
                 $(
                     for stmt in $sql_stmts {
                         store.pool.run_statement(stmt).await.unwrap();

@@ -5,7 +5,7 @@ mod hash;
 mod utils;
 
 pub use block::{BlockBytes, BlockRow};
-pub use event::{rebuild_car, EventRaw};
+pub use event::{rebuild_car, EventInsertable, EventInsertableBody};
 pub use event_block::{EventBlockRaw, ReconEventBlockRaw};
 pub use hash::{BlockHash, ReconHash};
 

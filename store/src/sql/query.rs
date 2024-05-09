@@ -46,6 +46,15 @@ impl EventQuery {
             ORDER BY eb.idx;"#
     }
 
+    /// Requires binding 1 parameter. Would be nice to support IN/ANY for multiple CIDs
+    /// but might require rarray/carray support (see rusqlite)
+    pub fn value_delivered_by_cid() -> &'static str {
+        r#"SELECT count(1) > 0 as "exists", e.delivered is NOT NULL as "delivered"
+            FROM ceramic_one_event_block eb
+            join ceramic_one_event e on e.cid = eb.event_cid
+            WHERE e.cid = $1;"#
+    }
+
     /// Requires binding 4 parameters. Finds the `EventValueRaw` values needed to rebuild the event
     pub fn value_blocks_by_order_key_many() -> &'static str {
         r#"SELECT
@@ -63,6 +72,29 @@ impl EventQuery {
                     $3
                 OFFSET
                     $4
+            ) key
+            JOIN
+                ceramic_one_event_block eb ON key.event_cid = eb.event_cid
+            JOIN ceramic_one_block b on b.multihash = eb.block_multihash
+                ORDER BY key.order_key, eb.idx;"#
+    }
+
+    /// Find event CIDs that have not yet been delivered to the client
+    /// Useful after a restart, or if the task managing delivery has availability to try old events
+    pub fn undelivered_with_values() -> &'static str {
+        r#"SELECT
+                key.order_key, key.event_cid, eb.codec, eb.root, eb.idx, b.multihash, b.bytes
+            FROM (
+                SELECT
+                    e.cid as event_cid, e.order_key
+                FROM ceramic_one_event e
+                WHERE
+                    EXISTS (SELECT 1 FROM ceramic_one_event_block where event_cid = e.cid)
+                    AND e.delivered IS NULL
+                LIMIT
+                    $1
+                OFFSET
+                    $2
             ) key
             JOIN
                 ceramic_one_event_block eb ON key.event_cid = eb.event_cid
@@ -89,7 +121,7 @@ impl EventQuery {
 
     /// Updates the delivered column in the event table so it can be set to the client
     pub fn mark_ready_to_deliver() -> &'static str {
-        "UPDATE ceramic_one_event SET delivered = $1 WHERE order_key = $2;"
+        "UPDATE ceramic_one_event SET delivered = $1 WHERE cid = $2;"
     }
 }
 

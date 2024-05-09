@@ -137,12 +137,13 @@ where
     ]
     .assert_debug_eq(&recon::Store::insert(&store, &ReconItem::new(&id, &car1)).await);
 
-    expect![[r#"
-            Ok(
-                false,
-            )
-        "#]]
-    .assert_debug_eq(&recon::Store::insert(&store, &ReconItem::new(&id, &car2)).await);
+    match recon::Store::insert(&store, &ReconItem::new(&id, &car2)).await {
+        Ok(_) => panic!("expected error"),
+        Err(recon::Error::Application { .. }) => {
+            // Event ID does not match the root CID of the CAR file
+        }
+        Err(e) => panic!("unexpected error: {}", e),
+    }
 
     assert_eq!(
         hex::encode(&car1),
@@ -304,12 +305,12 @@ where
 }
 
 test_with_dbs!(
-    test_store_block,
-    test_store_block,
+    get_event_by_event_id,
+    get_event_by_event_id,
     [
         "delete from ceramic_one_event_block",
         "delete from ceramic_one_event",
-        "delete from ceramic_one_block"
+        "delete from ceramic_one_block",
     ]
 );
 
@@ -330,8 +331,8 @@ where
 }
 
 test_with_dbs!(
-    get_event_by_event_id,
-    get_event_by_event_id,
+    get_event_by_cid,
+    get_event_by_cid,
     [
         "delete from ceramic_one_event_block",
         "delete from ceramic_one_event",
@@ -360,12 +361,12 @@ where
 }
 
 test_with_dbs!(
-    get_event_by_cid,
-    get_event_by_cid,
+    test_store_block,
+    test_store_block,
     [
         "delete from ceramic_one_event_block",
         "delete from ceramic_one_event",
-        "delete from ceramic_one_block",
+        "delete from ceramic_one_block"
     ]
 );
 
@@ -373,6 +374,7 @@ async fn test_store_block<S>(store: S)
 where
     S: iroh_bitswap::Store,
 {
+    let _ = ceramic_metrics::init_local_tracing();
     let data: Bytes = hex::decode("0a050001020304").unwrap().into();
     let cid: CidGeneric<64> =
         Cid::from_str("bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom").unwrap(); // cspell:disable-line

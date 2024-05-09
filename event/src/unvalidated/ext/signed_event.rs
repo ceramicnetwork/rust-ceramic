@@ -79,7 +79,7 @@ mod tests {
             .await
             .expect("failed to build event");
         let evt = SignedEvent::new(evt.into(), &signer).await.unwrap();
-        let data: Ipld = DagCborCodec::decode_from_slice(&evt.linked_block.as_ref()).unwrap();
+        let data: Ipld = DagCborCodec::decode_from_slice(evt.linked_block.as_ref()).unwrap();
         let encoded = DagJsonCodec::encode_to_vec(&data).unwrap();
         expect![[r#"
             {
