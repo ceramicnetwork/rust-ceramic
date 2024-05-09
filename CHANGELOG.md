@@ -2,7 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.16.0] - 2024-05-06
+## [0.17.0] - 2024-05-09
+
+### 🚀 Features
+
+- Update events GET API to return event CID instead of EventID
+- Return event root cid instead of EventID from feed
+- Update experimental API for getting a range of events to return event root CID, not EventID (#337)
+- Simplify event id
+- Add serde methods for Events
+- Make event creation endpoint infer EventID from event CAR file data (#341)
+- Remove id argument from events POST endpoint (#347)
+
+### 🐛 Bug Fixes
+
+- Parse unsigned init events
+- Handle data events with unsigned init events (#348)
+
+### 🚜 Refactor
+
+- Rename payload -> init_payload
+
+### ⚙️ Miscellaneous Tasks
+
+- SQL queries for event blocks dont need order_key
+- Update comment for Event type in API (#338)
+- Make gen-api-server
+
+## [0.16.0] - 2024-05-08
 
 ### 🚀 Features
 
@@ -16,11 +43,13 @@ All notable changes to this project will be documented in this file.
 ### 🚜 Refactor
 
 - Update deps cid, multihash, and ipld (#309)
+- Update recon word list test to make it easier to debug (#342)
 
 ### ⚙️ Miscellaneous Tasks
 
 - Add bad request response to get events API (#329)
 - Run build/test/check CI on all PRs (#333)
+- Version v0.16.0 (#336)
 
 ## [0.15.0] - 2024-04-29
 
