@@ -79,7 +79,6 @@ where
     #[allow(dead_code)]
     rpc_client: RpcClient,
     rpc_task: JoinHandle<()>,
-    use_dht: bool,
     bitswap_sessions: BitswapSessions,
     providers: Providers,
     listen_addrs: Vec<Multiaddr>,
@@ -104,7 +103,6 @@ where
             .field("network_events", &self.network_events)
             .field("rpc_client", &self.rpc_client)
             .field("rpc_task", &self.rpc_task)
-            .field("use_dht", &self.use_dht)
             .field("bitswap_sessions", &self.bitswap_sessions)
             .field("providers", &self.providers)
             .finish()
@@ -225,7 +223,6 @@ where
             network_events: Vec::new(),
             rpc_client,
             rpc_task,
-            use_dht: libp2p_config.kademlia,
             bitswap_sessions: Default::default(),
             providers: Providers::new(4),
             listen_addrs,
@@ -249,7 +246,7 @@ where
         info!("Listen addrs: {:?}", self.listen_addrs());
         info!("Local Peer ID: {}", self.local_peer_id());
 
-        let mut nice_interval = self.use_dht.then(|| tokio::time::interval(NICE_INTERVAL));
+        let mut nice_interval = tokio::time::interval(NICE_INTERVAL);
         // Initialize bootstrap_interval to not start immediately but at now + interval.
         // This is because we know that initially there are no nodes with whom to bootstrap.
         // This interval can be reset if we find a kademlia node before the first tick.
@@ -313,13 +310,7 @@ where
                         }
                     }
                 }
-                _ = async {
-                    if let Some(ref mut nice_interval) = nice_interval {
-                        nice_interval.tick().await
-                    } else {
-                        unreachable!()
-                    }
-                }, if nice_interval.is_some() => {
+                _ = nice_interval.tick() => {
                     // Print peer count on an interval.
                     info!("Peers connected: {:?}", self.swarm.connected_peers().count());
                 }
