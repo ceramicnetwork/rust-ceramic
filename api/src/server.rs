@@ -28,7 +28,8 @@ use ceramic_api_server::{
     InterestsSortKeySortValuePostResponse, LivenessGetResponse, VersionPostResponse,
 };
 use ceramic_api_server::{
-    Api, ExperimentalEventsSepSepValueGetResponse, FeedEventsGetResponse, InterestsPostResponse,
+    Api, ExperimentalEventsSepSepValueGetResponse, ExperimentalInterestsGetResponse,
+    FeedEventsGetResponse, InterestsPostResponse,
 };
 use ceramic_core::{Cid, EventId, Interest, Network, PeerId, StreamId};
 use futures::TryFutureExt;
@@ -376,6 +377,30 @@ where
         }))
     }
 
+    pub async fn get_interests(&self) -> Result<ExperimentalInterestsGetResponse, ErrorResponse> {
+        let interests = self
+            .interest
+            .range(
+                &Interest::min_value(),
+                &Interest::max_value(),
+                0,
+                usize::MAX,
+            )
+            .await
+            .map_err(|e| ErrorResponse::new(format!("failed to get interests: {e}")))?;
+
+        Ok(ExperimentalInterestsGetResponse::Success(
+            models::InterestsGet {
+                interests: interests
+                    .into_iter()
+                    .map(|i| models::InterestsGetInterestsInner {
+                        data: i.to_string(),
+                    })
+                    .collect(),
+            },
+        ))
+    }
+
     pub async fn get_events_sort_key_sort_value(
         &self,
         sep_key: String,
@@ -667,6 +692,15 @@ where
         self.get_event_feed(resume_at, limit)
             .await
             .or_else(|err| Ok(FeedEventsGetResponse::InternalServerError(err)))
+    }
+
+    async fn experimental_interests_get(
+        &self,
+        _context: &C,
+    ) -> Result<ExperimentalInterestsGetResponse, ApiError> {
+        self.get_interests()
+            .await
+            .or_else(|err| Ok(ExperimentalInterestsGetResponse::InternalServerError(err)))
     }
 
     #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]

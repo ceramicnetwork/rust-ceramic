@@ -24,8 +24,9 @@ type ServiceFuture = BoxFuture<'static, Result<Response<Body>, crate::ServiceErr
 
 use crate::{
     Api, DebugHeapGetResponse, EventsEventIdGetResponse, EventsPostResponse,
-    ExperimentalEventsSepSepValueGetResponse, FeedEventsGetResponse, InterestsPostResponse,
-    InterestsSortKeySortValuePostResponse, LivenessGetResponse, VersionPostResponse,
+    ExperimentalEventsSepSepValueGetResponse, ExperimentalInterestsGetResponse,
+    FeedEventsGetResponse, InterestsPostResponse, InterestsSortKeySortValuePostResponse,
+    LivenessGetResponse, VersionPostResponse,
 };
 
 mod paths {
@@ -37,6 +38,7 @@ mod paths {
             r"^/ceramic/events$",
             r"^/ceramic/events/(?P<event_id>[^/?#]*)$",
             r"^/ceramic/experimental/events/(?P<sep>[^/?#]*)/(?P<sepValue>[^/?#]*)$",
+            r"^/ceramic/experimental/interests$",
             r"^/ceramic/feed/events$",
             r"^/ceramic/interests$",
             r"^/ceramic/interests/(?P<sort_key>[^/?#]*)/(?P<sort_value>[^/?#]*)$",
@@ -63,9 +65,10 @@ mod paths {
             )
             .expect("Unable to create regex for EXPERIMENTAL_EVENTS_SEP_SEPVALUE");
     }
-    pub(crate) static ID_FEED_EVENTS: usize = 4;
-    pub(crate) static ID_INTERESTS: usize = 5;
-    pub(crate) static ID_INTERESTS_SORT_KEY_SORT_VALUE: usize = 6;
+    pub(crate) static ID_EXPERIMENTAL_INTERESTS: usize = 4;
+    pub(crate) static ID_FEED_EVENTS: usize = 5;
+    pub(crate) static ID_INTERESTS: usize = 6;
+    pub(crate) static ID_INTERESTS_SORT_KEY_SORT_VALUE: usize = 7;
     lazy_static! {
         pub static ref REGEX_INTERESTS_SORT_KEY_SORT_VALUE: regex::Regex =
             #[allow(clippy::invalid_regex)]
@@ -74,8 +77,8 @@ mod paths {
             )
             .expect("Unable to create regex for INTERESTS_SORT_KEY_SORT_VALUE");
     }
-    pub(crate) static ID_LIVENESS: usize = 7;
-    pub(crate) static ID_VERSION: usize = 8;
+    pub(crate) static ID_LIVENESS: usize = 8;
+    pub(crate) static ID_VERSION: usize = 9;
 }
 
 pub struct MakeService<T, C>
@@ -630,6 +633,69 @@ where
                     Ok(response)
                 }
 
+                // ExperimentalInterestsGet - GET /experimental/interests
+                hyper::Method::GET if path.matched(paths::ID_EXPERIMENTAL_INTERESTS) => {
+                    let result = api_impl.experimental_interests_get(&context).await;
+                    let mut response = Response::new(Body::empty());
+                    response.headers_mut().insert(
+                        HeaderName::from_static("x-span-id"),
+                        HeaderValue::from_str(
+                            (&context as &dyn Has<XSpanIdString>)
+                                .get()
+                                .0
+                                .clone()
+                                .as_str(),
+                        )
+                        .expect("Unable to create X-Span-ID header value"),
+                    );
+
+                    match result {
+                        Ok(rsp) => match rsp {
+                            ExperimentalInterestsGetResponse::Success(body) => {
+                                *response.status_mut() = StatusCode::from_u16(200)
+                                    .expect("Unable to turn 200 into a StatusCode");
+                                response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for EXPERIMENTAL_INTERESTS_GET_SUCCESS"));
+                                let body_content = serde_json::to_string(&body)
+                                    .expect("impossible to fail to serialize");
+                                *response.body_mut() = Body::from(body_content);
+                            }
+                            ExperimentalInterestsGetResponse::BadRequest(body) => {
+                                *response.status_mut() = StatusCode::from_u16(400)
+                                    .expect("Unable to turn 400 into a StatusCode");
+                                response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for EXPERIMENTAL_INTERESTS_GET_BAD_REQUEST"));
+                                let body_content = serde_json::to_string(&body)
+                                    .expect("impossible to fail to serialize");
+                                *response.body_mut() = Body::from(body_content);
+                            }
+                            ExperimentalInterestsGetResponse::InternalServerError(body) => {
+                                *response.status_mut() = StatusCode::from_u16(500)
+                                    .expect("Unable to turn 500 into a StatusCode");
+                                response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for EXPERIMENTAL_INTERESTS_GET_INTERNAL_SERVER_ERROR"));
+                                let body_content = serde_json::to_string(&body)
+                                    .expect("impossible to fail to serialize");
+                                *response.body_mut() = Body::from(body_content);
+                            }
+                        },
+                        Err(_) => {
+                            // Application code returned an error. This should not happen, as the implementation should
+                            // return a valid response.
+                            *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                            *response.body_mut() = Body::from("An internal error occurred");
+                        }
+                    }
+
+                    Ok(response)
+                }
+
                 // FeedEventsGet - GET /feed/events
                 hyper::Method::GET if path.matched(paths::ID_FEED_EVENTS) => {
                     // Query parameters (note that non-required or collection query parameters will ignore garbage values, rather than causing a 400 response)
@@ -1079,6 +1145,7 @@ where
                 _ if path.matched(paths::ID_EXPERIMENTAL_EVENTS_SEP_SEPVALUE) => {
                     method_not_allowed()
                 }
+                _ if path.matched(paths::ID_EXPERIMENTAL_INTERESTS) => method_not_allowed(),
                 _ if path.matched(paths::ID_FEED_EVENTS) => method_not_allowed(),
                 _ if path.matched(paths::ID_INTERESTS) => method_not_allowed(),
                 _ if path.matched(paths::ID_INTERESTS_SORT_KEY_SORT_VALUE) => method_not_allowed(),
@@ -1111,6 +1178,10 @@ impl<T> RequestParser<T> for ApiRequestParser {
             // ExperimentalEventsSepSepValueGet - GET /experimental/events/{sep}/{sepValue}
             hyper::Method::GET if path.matched(paths::ID_EXPERIMENTAL_EVENTS_SEP_SEPVALUE) => {
                 Some("ExperimentalEventsSepSepValueGet")
+            }
+            // ExperimentalInterestsGet - GET /experimental/interests
+            hyper::Method::GET if path.matched(paths::ID_EXPERIMENTAL_INTERESTS) => {
+                Some("ExperimentalInterestsGet")
             }
             // FeedEventsGet - GET /feed/events
             hyper::Method::GET if path.matched(paths::ID_FEED_EVENTS) => Some("FeedEventsGet"),

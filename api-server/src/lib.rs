@@ -70,6 +70,17 @@ pub enum ExperimentalEventsSepSepValueGetResponse {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[must_use]
+pub enum ExperimentalInterestsGetResponse {
+    /// success
+    Success(models::InterestsGet),
+    /// bad request
+    BadRequest(models::BadRequestResponse),
+    /// Internal server error
+    InternalServerError(models::ErrorResponse),
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[must_use]
 pub enum FeedEventsGetResponse {
     /// success
     Success(models::EventFeed),
@@ -159,6 +170,12 @@ pub trait Api<C: Send + Sync> {
         context: &C,
     ) -> Result<ExperimentalEventsSepSepValueGetResponse, ApiError>;
 
+    /// Get the interests stored on the node
+    async fn experimental_interests_get(
+        &self,
+        context: &C,
+    ) -> Result<ExperimentalInterestsGetResponse, ApiError>;
+
     /// Get all new event keys since resume token
     async fn feed_events_get(
         &self,
@@ -227,6 +244,11 @@ pub trait ApiNoContext<C: Send + Sync> {
         offset: Option<i32>,
         limit: Option<i32>,
     ) -> Result<ExperimentalEventsSepSepValueGetResponse, ApiError>;
+
+    /// Get the interests stored on the node
+    async fn experimental_interests_get(
+        &self,
+    ) -> Result<ExperimentalInterestsGetResponse, ApiError>;
 
     /// Get all new event keys since resume token
     async fn feed_events_get(
@@ -322,6 +344,14 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
                 sep, sep_value, controller, stream_id, offset, limit, &context,
             )
             .await
+    }
+
+    /// Get the interests stored on the node
+    async fn experimental_interests_get(
+        &self,
+    ) -> Result<ExperimentalInterestsGetResponse, ApiError> {
+        let context = self.context().clone();
+        self.api().experimental_interests_get(&context).await
     }
 
     /// Get all new event keys since resume token

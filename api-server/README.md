@@ -15,7 +15,7 @@ To see how to make this your own, look here:
 [README]((https://openapi-generator.tech))
 
 - API version: 0.19.0
-- Build date: 2024-05-20T19:02:59.005663581Z[Etc/UTC]
+- Build date: 2024-05-21T13:44:55.207918-06:00[America/Denver]
 
 
 
@@ -65,6 +65,7 @@ To run a client, follow one of the following simple steps:
 cargo run --example client DebugHeapGet
 cargo run --example client EventsEventIdGet
 cargo run --example client ExperimentalEventsSepSepValueGet
+cargo run --example client ExperimentalInterestsGet
 cargo run --example client FeedEventsGet
 cargo run --example client InterestsSortKeySortValuePost
 cargo run --example client LivenessGet
@@ -106,6 +107,7 @@ Method | HTTP request | Description
 [****](docs/default_api.md#) | **GET** /events/{event_id} | Get event data
 [****](docs/default_api.md#) | **POST** /events | Creates a new event
 [****](docs/default_api.md#) | **GET** /experimental/events/{sep}/{sepValue} | Get events matching the interest stored on the node
+[****](docs/default_api.md#) | **GET** /experimental/interests | Get the interests stored on the node
 [****](docs/default_api.md#) | **GET** /feed/events | Get all new event keys since resume token
 [****](docs/default_api.md#) | **POST** /interests | Register interest for a sort key
 [****](docs/default_api.md#) | **POST** /interests/{sort_key}/{sort_value} | Register interest for a sort key
@@ -122,6 +124,8 @@ Method | HTTP request | Description
  - [EventFeed](docs/EventFeed.md)
  - [EventsGet](docs/EventsGet.md)
  - [Interest](docs/Interest.md)
+ - [InterestsGet](docs/InterestsGet.md)
+ - [InterestsGetInterestsInner](docs/InterestsGetInterestsInner.md)
  - [Version](docs/Version.md)
 
 
