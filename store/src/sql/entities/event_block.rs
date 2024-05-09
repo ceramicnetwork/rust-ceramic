@@ -14,12 +14,64 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub struct EventBlockRaw {
-    pub order_key: Vec<u8>,
+    pub event_cid: Vec<u8>,
     pub codec: i64,
     pub root: bool,
     pub idx: i32,
     pub multihash: BlockHash,
     pub bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ReconEventBlockRaw {
+    pub order_key: EventId,
+    pub block: EventBlockRaw,
+}
+
+impl ReconEventBlockRaw {
+    pub async fn into_carfiles(all_blocks: Vec<Self>) -> Result<Vec<(EventId, Vec<u8>)>> {
+        // Consume all block into groups of blocks by their key.
+        let all_blocks: Vec<(EventId, Vec<BlockRow>)> = process_results(
+            all_blocks
+                .into_iter()
+                .map(|row| -> Result<(EventId, BlockRow)> {
+                    let block = row.block.try_into()?;
+
+                    Ok((row.order_key, block))
+                }),
+            |blocks| {
+                blocks
+                    .group_by(|(key, _)| key.clone())
+                    .into_iter()
+                    .map(|(key, group)| {
+                        (
+                            key,
+                            group.map(|(_key, block)| block).collect::<Vec<BlockRow>>(),
+                        )
+                    })
+                    .collect()
+            },
+        )?;
+
+        let mut values: Vec<(EventId, Vec<u8>)> = Vec::new();
+        for (key, blocks) in all_blocks {
+            if let Some(value) = rebuild_car(blocks).await? {
+                values.push((key.clone(), value));
+            }
+        }
+
+        Ok(values)
+    }
+}
+
+impl sqlx::FromRow<'_, SqliteRow> for ReconEventBlockRaw {
+    fn from_row(row: &SqliteRow) -> std::result::Result<Self, sqlx::Error> {
+        let block = EventBlockRaw::from_row(row)?;
+        let order_key: Vec<u8> = row.try_get("order_key")?;
+        let order_key =
+            EventId::try_from(order_key).map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+        Ok(Self { order_key, block })
+    }
 }
 
 impl sqlx::FromRow<'_, SqliteRow> for EventBlockRaw {
@@ -28,7 +80,7 @@ impl sqlx::FromRow<'_, SqliteRow> for EventBlockRaw {
         let multihash =
             BlockHash::try_from_vec(&multihash).map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
         Ok(Self {
-            order_key: row.try_get("order_key")?,
+            event_cid: row.try_get("event_cid")?,
             codec: row.try_get("codec")?,
             root: row.try_get("root")?,
             idx: row.try_get("idx")?,
@@ -39,7 +91,13 @@ impl sqlx::FromRow<'_, SqliteRow> for EventBlockRaw {
 }
 
 impl EventBlockRaw {
-    pub fn try_new(key: &EventId, idx: i32, root: bool, cid: Cid, bytes: Vec<u8>) -> Result<Self> {
+    pub fn try_new(
+        event_cid: &Cid,
+        idx: i32,
+        root: bool,
+        cid: Cid,
+        bytes: Vec<u8>,
+    ) -> Result<Self> {
         let multihash = match cid.hash().code() {
             0x12 => Code::Sha2_256.digest(&bytes),
             0x1b => Code::Keccak256.digest(&bytes),
@@ -66,72 +124,14 @@ impl EventBlockRaw {
                 cid.codec()
             )))
         })?;
-        let order_key = key
-            .cid()
-            .ok_or_else(|| Error::new_app(anyhow!("Event CID is required")))?
-            .to_bytes();
 
         Ok(Self {
-            order_key,
+            event_cid: event_cid.to_bytes(),
             codec,
             root,
             idx,
             multihash: BlockHash::new(multihash),
             bytes,
         })
-    }
-
-    pub fn into_block_row(self) -> Result<(EventId, BlockRow)> {
-        let id = EventId::try_from(self.order_key).map_err(Error::new_app)?;
-        let hash = self.multihash.inner().to_owned();
-        let code = self.codec.try_into().map_err(|e: TryFromIntError| {
-            let er = anyhow::anyhow!(e).context(format!("Invalid codec: {}", self.codec));
-            Error::new_app(er)
-        })?;
-
-        let cid = Cid::new_v1(code, hash);
-
-        Ok((
-            id,
-            BlockRow {
-                cid,
-                root: self.root,
-                bytes: self.bytes,
-            },
-        ))
-    }
-
-    pub async fn into_carfiles(all_blocks: Vec<Self>) -> Result<Vec<(EventId, Vec<u8>)>> {
-        // Consume all block into groups of blocks by their key.
-        let all_blocks: Vec<(EventId, Vec<BlockRow>)> = process_results(
-            all_blocks
-                .into_iter()
-                .map(|row| -> Result<(EventId, BlockRow)> {
-                    let (order_key, block) = row.into_block_row()?;
-
-                    Ok((order_key, block))
-                }),
-            |blocks| {
-                blocks
-                    .group_by(|(key, _)| key.clone())
-                    .into_iter()
-                    .map(|(key, group)| {
-                        (
-                            key,
-                            group.map(|(_key, block)| block).collect::<Vec<BlockRow>>(),
-                        )
-                    })
-                    .collect()
-            },
-        )?;
-
-        let mut values: Vec<(EventId, Vec<u8>)> = Vec::new();
-        for (key, blocks) in all_blocks {
-            if let Some(value) = rebuild_car(blocks).await? {
-                values.push((key.clone(), value));
-            }
-        }
-
-        Ok(values)
     }
 }

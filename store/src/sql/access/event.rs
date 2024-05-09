@@ -15,8 +15,8 @@ use recon::{
 use crate::{
     sql::{
         entities::{
-            rebuild_car, BlockRow, CountRow, DeliveredEvent, EventBlockRaw, EventRaw, FirstAndLast,
-            OrderKey, ReconHash,
+            rebuild_car, BlockRow, CountRow, DeliveredEvent, EventRaw, FirstAndLast, OrderKey,
+            ReconEventBlockRaw, ReconHash,
         },
         query::{EventQuery, ReconQuery, ReconType, SqlBackend},
     },
@@ -196,8 +196,8 @@ impl CeramicOneEvent {
     ) -> Result<Vec<(EventId, Vec<u8>)>> {
         let offset = offset.try_into().unwrap_or(i64::MAX);
         let limit: i64 = limit.try_into().unwrap_or(i64::MAX);
-        let all_blocks: Vec<EventBlockRaw> =
-            sqlx::query_as(EventQuery::value_blocks_by_order_key_many())
+        let all_blocks: Vec<ReconEventBlockRaw> =
+            sqlx::query_as(EventQuery::value_blocks_with_order_key_many())
                 .bind(left_fencepost.as_bytes())
                 .bind(right_fencepost.as_bytes())
                 .bind(limit)
@@ -205,7 +205,7 @@ impl CeramicOneEvent {
                 .fetch_all(pool.reader())
                 .await?;
 
-        let values = EventBlockRaw::into_carfiles(all_blocks).await?;
+        let values = ReconEventBlockRaw::into_carfiles(all_blocks).await?;
         Ok(values)
     }
 
