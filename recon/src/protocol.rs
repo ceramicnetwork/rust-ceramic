@@ -145,10 +145,7 @@ where
 // Protocol manages the state machine of the protocol, delegating to a role implementation.
 struct Protocol<R: Role> {
     role: R,
-
-    listen_only_sent: bool,
     remote_done: bool,
-
     metrics: Metrics,
 }
 
@@ -162,7 +159,6 @@ where
     fn new(role: R, metrics: Metrics) -> Self {
         Self {
             role,
-            listen_only_sent: false,
             remote_done: false,
             metrics,
         }
@@ -175,7 +171,7 @@ where
             .context("initializing protocol loop")?;
 
         loop {
-            trace!(self.listen_only_sent, self.remote_done, "iter");
+            trace!(self.remote_done, "iter");
 
             self.metrics.record(&ProtocolLoop);
 
@@ -633,11 +629,9 @@ where
         //    This can be a potential deadlock if both side enter this method for a large amount of
         //    keys at the same time.
 
-        //let offset = if range.first.is_fencepost() { 0 } else { 1 };
-        let offset = 0;
         let keys = self
             .recon
-            .range(range.first.clone(), range.last.clone(), offset, usize::MAX)
+            .range(range.first.clone(), range.last.clone(), 0, usize::MAX)
             .await?;
         for key in keys {
             if let Some(value) = self.recon.value_for_key(key.clone()).await? {
