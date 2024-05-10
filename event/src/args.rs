@@ -14,12 +14,7 @@ use crate::{
     DidDocument, StreamId,
 };
 
-const SEP: &str = "model";
 
-/// All models have this model StreamId, while all documents have the model stream id of the model
-/// they use
-pub static PARENT_STREAM_ID: Lazy<StreamId> =
-    Lazy::new(|| StreamId::from_str("kh4q0ozorrgaq2mezktnrmdwleo1d").unwrap());
 
 /// Arguments for creating an event
 pub struct EventArgs<'a, S: Signer> {

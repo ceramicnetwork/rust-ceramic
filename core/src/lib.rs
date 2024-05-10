@@ -164,10 +164,18 @@ impl Base64UrlString {
     pub fn from_cid(cid: &Cid) -> Self {
         Self::from(cid.to_bytes().as_slice())
     }
+
     /// Convert the Base64UrlString to a Vec<u8>
     pub fn to_vec(&self) -> anyhow::Result<Vec<u8>> {
         let v = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(&self.0)?;
         Ok(v)
+    }
+
+    /// Deserialize the Base64UrlString to a value
+    pub fn to_value<T: serde::de::DeserializeOwned>(&self) -> anyhow::Result<T> {
+        let v = self.to_vec()?;
+        let res = serde_json::from_slice(&v)?;
+        Ok(res)
     }
 }
 

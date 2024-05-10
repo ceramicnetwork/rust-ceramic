@@ -11,6 +11,7 @@ publish = false
 
 [dependencies]
 anyhow.workspace = true
+async-trait.workspace = true
 ceramic-core.workspace = true
 cid.workspace = true
 ipld-core.workspace = true

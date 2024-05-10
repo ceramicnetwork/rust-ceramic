@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use anyhow::{anyhow, bail, Context, Result};
 use ceramic_core::{Cid, EventId, Network};
-use ceramic_event::unvalidated;
+use ceramic_event::{CeramicExt, UnvalidatedEvent, UnvalidatedInitPayload, UnvalidatedPayload};
 use ipld_core::ipld::Ipld;
 use iroh_car::CarReader;
 use tokio::io::AsyncRead;
@@ -33,37 +33,37 @@ where
         car_blocks.insert(cid, bytes);
     }
     let event_bytes = get_block(&event_cid, &car_blocks, store).await?;
-    let event: unvalidated::Event<Ipld> =
+    let event: UnvalidatedEvent<Ipld> =
         serde_ipld_dagcbor::from_slice(&event_bytes).context("decoding event")?;
     let (init_id, init_payload) = match event {
-        unvalidated::Event::Time(event) => (
+        UnvalidatedEvent::Time(event) => (
             event.id(),
             get_init_event_payload(&event.id(), &car_blocks, store).await?,
         ),
-        unvalidated::Event::Signed(event) => {
+        UnvalidatedEvent::Signed(event) => {
             let link = event
                 .link()
                 .ok_or_else(|| anyhow!("event should have a link"))?;
 
             let payload_bytes = get_block(&link, &car_blocks, store).await?;
-            let payload: unvalidated::Payload<Ipld> =
+            let payload: UnvalidatedPayload<Ipld> =
                 serde_ipld_dagcbor::from_slice(&payload_bytes).context("decoding payload")?;
             let init_id = match payload {
-                unvalidated::Payload::Init(_) => event_cid,
-                unvalidated::Payload::Data(payload) => payload.id(),
+                UnvalidatedPayload::Init(_) => event_cid,
+                UnvalidatedPayload::Data(payload) => payload.id(),
             };
             (
                 init_id,
                 get_init_event_payload(&init_id, &car_blocks, store).await?,
             )
         }
-        unvalidated::Event::Unsigned(event) => (event_cid, event),
+        UnvalidatedEvent::Unsigned(event) => (event_cid, event),
     };
 
     Ok(EventId::new(
         &network,
-        init_payload.header().sep(),
-        init_payload.header().model().as_slice(),
+        init_payload.sep()?,
+        init_payload.model()?.as_slice(),
         init_payload
             .header()
             .controllers()
@@ -78,27 +78,27 @@ async fn get_init_event_payload(
     init_id: &Cid,
     car_blocks: &HashMap<Cid, Vec<u8>>,
     store: &impl AccessModelStore,
-) -> Result<unvalidated::InitPayload<Ipld>> {
+) -> Result<UnvalidatedInitPayload<Ipld>> {
     let init_bytes = get_block(init_id, car_blocks, store).await?;
-    let init_event: unvalidated::Event<Ipld> =
+    let init_event: UnvalidatedEvent<Ipld> =
         serde_ipld_dagcbor::from_slice(&init_bytes).context("decoding init event")?;
     match init_event {
-        unvalidated::Event::Signed(event) => {
+        UnvalidatedEvent::Signed(event) => {
             let link = event
                 .link()
                 .ok_or_else(|| anyhow!("init event should have a link"))?;
 
             let payload_bytes = get_block(&link, car_blocks, store).await?;
-            let payload: unvalidated::Payload<Ipld> =
+            let payload: UnvalidatedPayload<Ipld> =
                 serde_ipld_dagcbor::from_slice(&payload_bytes).context("decoding init payload")?;
-            if let unvalidated::Payload::Init(payload) = payload {
+            if let UnvalidatedPayload::Init(payload) = payload {
                 Ok(payload)
             } else {
                 bail!("init event payload is not well formed")
             }
         }
-        unvalidated::Event::Unsigned(event) => Ok(event),
-        unvalidated::Event::Time(_) => {
+        UnvalidatedEvent::Unsigned(event) => Ok(event),
+        UnvalidatedEvent::Time(_) => {
             bail!("init event payload can't be a time event")
         }
     }

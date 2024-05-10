@@ -12,6 +12,21 @@ pub trait Signer {
     async fn sign(&self, bytes: &[u8]) -> anyhow::Result<Base64UrlString>;
 }
 
+#[async_trait::async_trait]
+impl<'a, S: Signer + Sync> Signer for &'a S {
+    fn algorithm(&self) -> Algorithm {
+        (*self).algorithm()
+    }
+
+    fn id(&self) -> &DidDocument {
+        (*self).id()
+    }
+
+    async fn sign(&self, bytes: &[u8]) -> anyhow::Result<Base64UrlString> {
+        (*self).sign(bytes).await
+    }
+}
+
 /// Did and jwk based signer
 #[derive(Clone, Debug)]
 pub struct JwkSigner {

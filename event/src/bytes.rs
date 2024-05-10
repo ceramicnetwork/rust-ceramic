@@ -6,7 +6,7 @@ use serde::{
 };
 
 /// Sequence of byte values.
-#[derive(PartialEq, Default, Debug)]
+#[derive(Clone, PartialEq, Default, Debug)]
 pub struct Bytes(Vec<u8>);
 
 impl Bytes {
