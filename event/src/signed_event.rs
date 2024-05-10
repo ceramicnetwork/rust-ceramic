@@ -1,15 +1,14 @@
+use crate::unvalidated::payload::Payload;
 use anyhow::Result;
 use ceramic_core::{Cid, DagCborEncoded, Jws, Signer};
 use multihash_codetable::{Code, MultihashDigest};
 use serde::Serialize;
 
-use crate::unvalidated;
-
 // https://github.com/multiformats/multicodec/blob/master/table.csv
 const DAG_CBOR_CODEC: u64 = 0x71;
 
 /// A ceramic event
-pub struct Event {
+pub struct SignedEvent {
     /// Cid of the data for the event
     pub cid: Cid,
     /// The data for the event to be encoded in the block
@@ -18,16 +17,16 @@ pub struct Event {
     pub jws: Jws,
 }
 
-impl Event {
+impl SignedEvent {
     /// Create a new event from an unsigned event, signer, and jwk
     pub async fn new<T: Serialize>(
-        unsigned: unvalidated::Payload<T>,
-        signer: &impl Signer,
+        unsigned: Payload<T>,
+        signer: &(impl Signer + Sync),
     ) -> Result<Self> {
         // encode our event with dag cbor, hashing that to create cid
         let linked_block = DagCborEncoded::new(&unsigned)?;
         let cid = Cid::new_v1(DAG_CBOR_CODEC, Code::Sha2_256.digest(linked_block.as_ref()));
-        let jws = Jws::for_cid(signer, &cid).await?;
+        let jws = Jws::builder(signer).build_for_cid(&cid).await?;
         Ok(Self {
             cid,
             linked_block,
@@ -40,8 +39,9 @@ impl Event {
 mod tests {
     use super::*;
 
-    use crate::{DidDocument, EventArgs, StreamId};
+    use crate::{DidDocument, StreamId};
 
+    use crate::event_builder::*;
     use ceramic_core::JwkSigner;
     use expect_test::expect;
     use ipld_core::{codec::Codec, ipld::Ipld};
@@ -93,9 +93,17 @@ mod tests {
         let model =
             StreamId::from_str("kjzl6kcym7w8y6of44g27v981fuutovbrnlw2ifbf8n26j2t4g5mmm6zc43nx1u")
                 .unwrap();
-        let args = EventArgs::new_with_model(&signer, &model);
-        let evt = args.init().unwrap();
-        let data: Ipld = DagCborCodec::decode_from_slice(evt.encoded.as_ref()).unwrap();
+        let evt = Builder::default()
+            .init()
+            .with_sep("model".to_string())
+            .with_controller(signer.id().id.clone())
+            .with_additional("model".to_string(), model.to_string().into())
+            .build()
+            .await
+            .expect("failed to build event");
+        let evt = SignedEvent::new(evt.into(), &signer).await.unwrap();
+        let data: Ipld =
+            DagCborCodec::decode_from_slice(evt.jws.payload.to_vec().unwrap().as_ref()).unwrap();
         let encoded = DagJsonCodec::encode_to_vec(&data).unwrap();
         expect![[r#"
             {
@@ -129,9 +137,16 @@ mod tests {
             "green": 3,
             "blue": 4,
         });
-        let args = EventArgs::new_with_model(&signer, &mid);
-        let evt = args.init_with_data(&data).await.unwrap();
-
+        let evt = Builder::default()
+            .init()
+            .with_data(data.clone())
+            .with_sep("model".to_string())
+            .with_controller(signer.id().id.clone())
+            .with_additional("model".to_string(), mid.to_string().into())
+            .build()
+            .await
+            .expect("failed to build event");
+        let evt = SignedEvent::new(evt.into(), &signer).await.unwrap();
         let protected = evt.jws.signatures[0].protected.as_ref().unwrap();
         let protected = protected.to_vec().unwrap();
         let protected: serde_json::Value = serde_json::from_slice(protected.as_ref()).unwrap();
