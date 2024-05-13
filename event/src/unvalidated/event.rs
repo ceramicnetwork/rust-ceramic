@@ -1,4 +1,5 @@
 //! Types of raw unvalidated Ceramic Events
+#![allow(dead_code)]
 use crate::unvalidated::payload::{InitPayload, SignedPayload};
 use cid::Cid;
 use serde::{Deserialize, Serialize};
