@@ -1159,7 +1159,7 @@ pub async fn load_identity<S: Storage>(kc: &mut Keychain<S>) -> Result<Keypair> 
 
 #[cfg(test)]
 mod tests {
-    use std::{marker::PhantomData, ops::Range};
+    use std::marker::PhantomData;
 
     use crate::keys::Keypair;
 
@@ -1271,12 +1271,6 @@ mod tests {
 
         async fn value_for_key(&self, _key: Self::Key) -> ReconResult<Option<Vec<u8>>> {
             Ok(None)
-        }
-        async fn keys_with_missing_values(
-            &self,
-            _range: Range<&Self::Key>,
-        ) -> ReconResult<Vec<Self::Key>> {
-            unreachable!()
         }
         async fn interests(&self) -> ReconResult<Vec<RangeOpen<Self::Key>>> {
             unreachable!()

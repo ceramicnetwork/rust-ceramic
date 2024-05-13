@@ -10,7 +10,7 @@
 //!
 //! Encoding and framing of messages is outside the scope of this crate.
 //! However the message types do implement serde::Serialize and serde::Deserialize.
-use std::{ops::Range, pin::Pin};
+use std::pin::Pin;
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -746,12 +746,6 @@ pub trait Recon: Clone + Send + Sync + 'static {
     /// Retrieve a value associated with a recon key
     async fn value_for_key(&self, key: Self::Key) -> ReconResult<Option<Vec<u8>>>;
 
-    /// Report all keys in the range that are missing a value
-    async fn keys_with_missing_values(
-        &self,
-        range: Range<&Self::Key>,
-    ) -> ReconResult<Vec<Self::Key>>;
-
     /// Reports the interests of this recon instance
     async fn interests(&self) -> ReconResult<Vec<RangeOpen<Self::Key>>>;
 
@@ -811,12 +805,6 @@ where
 
     async fn value_for_key(&self, key: Self::Key) -> ReconResult<Option<Vec<u8>>> {
         Client::value_for_key(self, key).await
-    }
-    async fn keys_with_missing_values(
-        &self,
-        range: Range<&Self::Key>,
-    ) -> ReconResult<Vec<Self::Key>> {
-        Client::keys_with_missing_values(self, range).await
     }
     async fn interests(&self) -> ReconResult<Vec<RangeOpen<Self::Key>>> {
         Client::interests(self).await
