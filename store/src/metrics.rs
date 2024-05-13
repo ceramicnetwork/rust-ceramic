@@ -277,7 +277,7 @@ where
     type Key = K;
     type Hash = H;
 
-    async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> ReconResult<bool> {
+    async fn insert<'a>(&self, item: &ReconItem<'a, Self::Key>) -> ReconResult<bool> {
         let new_val = item.value.is_some();
         let new =
             StoreMetricsMiddleware::<S>::record(&self.metrics, "insert", self.store.insert(item))
@@ -286,7 +286,7 @@ where
         Ok(new)
     }
 
-    async fn insert_many(&self, items: &[ReconItem<'_, K>]) -> ReconResult<InsertResult> {
+    async fn insert_many<'a>(&self, items: &[ReconItem<'a, K>]) -> ReconResult<InsertResult> {
         let res = StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "insert_many",

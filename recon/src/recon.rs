@@ -1,4 +1,3 @@
-pub mod btreestore;
 #[cfg(test)]
 pub mod tests;
 
@@ -310,8 +309,8 @@ where
 /// A hash with a count of how many values produced the hash.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct HashCount<H> {
-    hash: H,
-    count: u64,
+    pub(crate) hash: H,
+    pub(crate) count: u64,
 }
 
 impl<H> HashCount<H> {
@@ -435,12 +434,12 @@ pub trait Store {
 
     /// Insert a new key into the key space. Returns true if the key did not exist.
     /// The value will be updated if included
-    async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> Result<bool>;
+    async fn insert<'a>(&self, item: &ReconItem<'a, Self::Key>) -> Result<bool>;
 
     /// Insert new keys into the key space.
     /// Returns true for each key if it did not previously exist, in the
     /// same order as the input iterator.
-    async fn insert_many(&self, items: &[ReconItem<'_, Self::Key>]) -> Result<InsertResult>;
+    async fn insert_many<'a>(&self, items: &[ReconItem<'a, Self::Key>]) -> Result<InsertResult>;
 
     /// Return the hash of all keys in the range between left_fencepost and right_fencepost.
     /// Both range bounds are exclusive.
@@ -592,11 +591,11 @@ where
     type Key = K;
     type Hash = H;
 
-    async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> Result<bool> {
+    async fn insert<'a>(&self, item: &ReconItem<'a, Self::Key>) -> Result<bool> {
         self.as_ref().insert(item).await
     }
 
-    async fn insert_many(&self, items: &[ReconItem<'_, Self::Key>]) -> Result<InsertResult> {
+    async fn insert_many<'a>(&self, items: &[ReconItem<'a, Self::Key>]) -> Result<InsertResult> {
         self.as_ref().insert_many(items).await
     }
 

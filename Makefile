@@ -6,6 +6,7 @@
 
 RUSTFLAGS = -D warnings --cfg tokio_unstable
 CARGO = RUSTFLAGS='${RUSTFLAGS}' cargo
+CARGO_LOOM = RUSTFLAGS='${RUSTFLAGS} --cfg loomtest' cargo
 
 RELEASE_LEVEL ?= minor
 
@@ -83,9 +84,9 @@ release-pr:
 .PHONY: test
 test:
 	# Test with default features
-	$(CARGO) test --locked --release
+	$(CARGO_LOOM) test --locked --release
 	# Test with all features
-	$(CARGO) test --locked --release --all-features
+	$(CARGO_LOOM) test --locked --release --all-features
 
 .PHONY: check-fmt
 check-fmt:

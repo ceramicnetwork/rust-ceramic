@@ -69,6 +69,11 @@ criterion2.workspace = true
 rand_chacha.workspace = true
 test-log.workspace = true
 ceramic-store.workspace = true
+mockall.workspace = true
+recon = { workspace = true, features = ["test-utils"]}
+
+[target.'cfg(loomtest)'.dependencies]
+loom.workspace = true
 
 [[bench]]
 name = "lru_cache"

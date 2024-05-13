@@ -129,7 +129,7 @@ impl recon::Store for SqliteInterestStore {
     type Hash = Sha256a;
 
     /// Returns true if the key was new. The value is always updated if included
-    async fn insert(&self, item: &ReconItem<'_, Interest>) -> ReconResult<bool> {
+    async fn insert<'a>(&self, item: &ReconItem<'a, Interest>) -> ReconResult<bool> {
         // interests don't have values, if someone gives us something we throw an error but allow None/vec![]
         if let Some(val) = item.value {
             if !val.is_empty() {
@@ -143,7 +143,10 @@ impl recon::Store for SqliteInterestStore {
 
     /// Insert new keys into the key space.
     /// Returns true if a key did not previously exist.
-    async fn insert_many(&self, items: &[ReconItem<'_, Interest>]) -> ReconResult<InsertResult> {
+    async fn insert_many<'a>(
+        &self,
+        items: &[ReconItem<'a, Interest>],
+    ) -> ReconResult<InsertResult> {
         match items.len() {
             0 => Ok(InsertResult::new(vec![], 0)),
             _ => {

@@ -335,14 +335,14 @@ impl recon::Store for SqliteEventStore {
     type Hash = Sha256a;
 
     /// Returns true if the key was new. The value is always updated if included
-    async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> ReconResult<bool> {
+    async fn insert<'a>(&self, item: &ReconItem<'a, Self::Key>) -> ReconResult<bool> {
         let (res, _new_val) = self.insert_item_int(item.to_owned()).await?;
         Ok(res)
     }
 
     /// Insert new keys into the key space.
     /// Returns true if a key did not previously exist.
-    async fn insert_many(&self, items: &[ReconItem<'_, EventId>]) -> ReconResult<InsertResult> {
+    async fn insert_many<'a>(&self, items: &[ReconItem<'a, EventId>]) -> ReconResult<InsertResult> {
         match items.len() {
             0 => Ok(InsertResult::new(vec![], 0)),
             _ => {

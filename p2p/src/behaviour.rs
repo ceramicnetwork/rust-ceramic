@@ -222,3 +222,153 @@ where
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cid::Cid;
+    use libp2p::swarm::{ConnectionId, ToSwarm};
+    use mockall::mock;
+    use prometheus_client::registry::Registry;
+    use recon::test_utils::{
+        InjectedEvent, MockReconForEventId, MockReconForInterest, TestBehaviour, TestSwarm,
+    };
+
+    fn convert_behaviour_event(ev: Event) -> Option<recon::libp2p::Event> {
+        match ev {
+            Event::Ping(_ev) => None,
+            Event::Identify(_ev) => None,
+            Event::Kademlia(_ev) => None,
+            Event::Mdns(_ev) => None,
+            Event::Bitswap(_ev) => None,
+            Event::Autonat(_ev) => None,
+            Event::Relay(_ev) => None,
+            Event::RelayClient(_ev) => None,
+            Event::Dcutr(_ev) => None,
+            Event::PeerManager(_ev) => None,
+            Event::Recon(ev) => Some(ev),
+            Event::Void => None,
+        }
+    }
+
+    mock! {
+        BitswapStore {}
+
+        #[async_trait::async_trait]
+        impl iroh_bitswap::Store for BitswapStore {
+            async fn get_size(&self, cid: &Cid) -> Result<usize>;
+            async fn get(&self, cid: &Cid) -> Result<Block>;
+            async fn has(&self, cid: &Cid) -> Result<bool>;
+            async fn put(&self, block: &Block) -> Result<bool>;
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn behavior_runs() {
+        let mut cfg = Libp2pConfig::default();
+        cfg.autonat = false;
+        cfg.bitswap_server = false;
+        cfg.bitswap_client = false;
+        cfg.mdns = false;
+        cfg.relay_client = false;
+        cfg.relay_server = false;
+        let behavior = NodeBehaviour::new(
+            &Keypair::generate_ed25519(),
+            &cfg,
+            None,
+            Some((
+                MockReconForInterest::default(),
+                MockReconForEventId::default(),
+            )),
+            Arc::new(MockBitswapStore::default()),
+            Metrics::register(&mut Registry::default()),
+        )
+        .await
+        .unwrap();
+        let swarm = TestSwarm::from_behaviour(TestBehaviour {
+            inner: behavior,
+            convert: Box::new(|_, ev| {
+                if let ToSwarm::GenerateEvent(ev) = ev {
+                    if let Some(ev) = convert_behaviour_event(ev) {
+                        Some(ToSwarm::GenerateEvent(ev))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }),
+            api: Box::new(|_, _| ()),
+        });
+        let driver = swarm.drive();
+
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        let stats = driver.stop().await;
+        assert!(stats.polled >= 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn behavior_polled_when_using_public_api() {
+        let mut mock_interest = MockReconForInterest::default();
+        mock_interest
+            .expect_clone()
+            .returning(|| MockReconForInterest::default());
+        let mut mock_event = MockReconForEventId::default();
+        mock_event
+            .expect_clone()
+            .returning(|| MockReconForEventId::default());
+        let mut cfg = Libp2pConfig::default();
+        cfg.autonat = false;
+        cfg.bitswap_server = false;
+        cfg.bitswap_client = false;
+        cfg.mdns = false;
+        cfg.relay_client = false;
+        cfg.relay_server = false;
+        let behavior = NodeBehaviour::new(
+            &Keypair::generate_ed25519(),
+            &cfg,
+            None,
+            Some((mock_interest, mock_event)),
+            Arc::new(MockBitswapStore::default()),
+            Metrics::register(&mut Registry::default()),
+        )
+        .await
+        .unwrap();
+        let swarm = TestSwarm::from_behaviour(TestBehaviour {
+            inner: behavior,
+            convert: Box::new(|_, ev| {
+                if let ToSwarm::GenerateEvent(ev) = ev {
+                    if let Some(ev) = convert_behaviour_event(ev) {
+                        Some(ToSwarm::GenerateEvent(ev))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }),
+            api: Box::new(|beh, _| {
+                beh.handle_established_inbound_connection(
+                    ConnectionId::new_unchecked(0),
+                    recon::test_utils::PEER_ID.parse().unwrap(),
+                    &"/ip4/1.2.3.4/tcp/443".parse().unwrap(),
+                    &"/ip4/1.2.3.4/tcp/443".parse().unwrap(),
+                )
+                .unwrap();
+            }),
+        });
+        let driver = swarm.drive();
+
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        driver
+            .inject(InjectedEvent::Api("connect".to_string()))
+            .await;
+
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        let stats = driver.stop().await;
+        assert!(stats.polled >= 2);
+    }
+}

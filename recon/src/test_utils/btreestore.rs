@@ -4,8 +4,8 @@ use std::{collections::BTreeMap, ops::Bound, sync::Arc};
 use tokio::sync::Mutex;
 
 use crate::{
-    recon::{AssociativeHash, Key, MaybeHashedKey, ReconItem, Store},
-    HashCount, InsertResult, Result,
+    recon::{AssociativeHash, HashCount, InsertResult, Key, MaybeHashedKey, ReconItem, Store},
+    Result,
 };
 
 #[derive(Clone, Debug)]
@@ -152,7 +152,7 @@ where
     type Key = K;
     type Hash = H;
 
-    async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> Result<bool> {
+    async fn insert<'a>(&self, item: &ReconItem<'a, Self::Key>) -> Result<bool> {
         let mut inner = self.inner.lock().await;
         let new = inner
             .keys
@@ -165,7 +165,7 @@ where
         Ok(new)
     }
 
-    async fn insert_many(&self, items: &[ReconItem<'_, K>]) -> Result<InsertResult> {
+    async fn insert_many<'a>(&self, items: &[ReconItem<'a, K>]) -> Result<InsertResult> {
         let mut new = vec![false; items.len()];
         let mut new_val_cnt = 0;
         for (idx, item) in items.iter().enumerate() {
