@@ -28,6 +28,7 @@ All notable changes to this project will be documented in this file.
 - SQL queries for event blocks dont need order_key
 - Update comment for Event type in API (#338)
 - Make gen-api-server
+- Version v0.17.0
 
 ## [0.16.0] - 2024-05-08
 
