@@ -137,7 +137,6 @@ jobs:
           curl -LO https://raw.githubusercontent.com/3box/ceramic-tests/main/networks/basic-rust.yaml
           ./bin/yq -i '.spec.ceramic[0].ipfs.rust.image = strenv(RUST_CERAMIC_IMAGE)' basic-rust.yaml
           ./bin/yq -i '.metadata.name = strenv(KERAMIK_NETWORK_NAME)' basic-rust.yaml
-          ./bin/yq -i '.spec.ttlSeconds = 3600' basic-rust.yaml
           ./bin/yq --no-colors basic-rust.yaml
 
       -
@@ -157,5 +156,5 @@ jobs:
           ./bin/hermetic-driver test \
             --network basic-rust.yaml \
             --flavor correctness \
-            --test-selector ${TESTS}
-
+            --test-selector ${TESTS} \
+            --network-ttl 3600
