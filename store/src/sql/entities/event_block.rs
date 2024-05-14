@@ -30,7 +30,7 @@ pub struct ReconEventBlockRaw {
 
 impl ReconEventBlockRaw {
     pub async fn into_carfiles(all_blocks: Vec<Self>) -> Result<Vec<(EventId, Vec<u8>)>> {
-        // Consume all block into groups of blocks by their key.
+        // Consume all block into groups of blocks by their key. This assumes the blocks are ordered by idx for an event
         let all_blocks: Vec<(EventId, Vec<BlockRow>)> = process_results(
             all_blocks
                 .into_iter()

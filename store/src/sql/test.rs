@@ -7,7 +7,9 @@ use ceramic_core::{
 use cid::Cid;
 use expect_test::expect;
 
-use crate::{CeramicOneEvent, EventInsertable, SqlitePool};
+use crate::{CeramicOneEvent, SqlitePool};
+
+use super::entities::EventRaw;
 
 const MODEL_ID: &str = "k2t6wz4yhfp1r5pwi52gw89nzjbu53qk7m32o5iguw42c6knsaj0feuf927agb";
 const CONTROLLER: &str = "did:key:z6Mkqtw7Pj5Lv9xc4PgUYAnwfaVoMC6FRneGWVr5ekTEfKVL";
@@ -23,17 +25,11 @@ fn event_id_builder() -> Builder<WithInit> {
         .with_init(&Cid::from_str(INIT_ID).unwrap())
 }
 
-fn random_event(cid: &str) -> EventInsertable {
+fn random_event(cid: &str) -> EventRaw {
     let order_key = event_id_builder()
         .with_event(&Cid::from_str(cid).unwrap())
         .build();
-    let cid = order_key.cid().unwrap();
-    EventInsertable {
-        order_key,
-        cid,
-        deliverable: false,
-        blocks: vec![],
-    }
+    EventRaw::new(order_key, vec![])
 }
 
 #[tokio::test]

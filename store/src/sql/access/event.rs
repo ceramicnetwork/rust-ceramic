@@ -16,8 +16,9 @@ use crate::{
             ReconEventBlockRaw, ReconHash,
         },
         query::{EventQuery, ReconQuery, ReconType, SqlBackend},
+        sqlite::SqliteTransaction,
     },
-    CeramicOneBlock, CeramicOneEventBlock, DbTxSqlite, Error, Result, SqlitePool,
+    CeramicOneBlock, CeramicOneEventBlock, Error, Result, SqlitePool,
 };
 
 static GLOBAL_COUNTER: AtomicI64 = AtomicI64::new(0);
@@ -26,7 +27,7 @@ static GLOBAL_COUNTER: AtomicI64 = AtomicI64::new(0);
 pub struct CeramicOneEvent {}
 
 impl CeramicOneEvent {
-    async fn insert_key(tx: &mut DbTxSqlite<'_>, key: &EventId) -> Result<bool> {
+    async fn insert_key(tx: &mut SqliteTransaction<'_>, key: &EventId) -> Result<bool> {
         let id = key.as_bytes();
         let cid = key
             .cid()
@@ -45,7 +46,7 @@ impl CeramicOneEvent {
             .bind(hash.as_u32s()[5])
             .bind(hash.as_u32s()[6])
             .bind(hash.as_u32s()[7])
-            .execute(&mut **tx)
+            .execute(&mut **tx.inner())
             .await;
 
         match resp {
@@ -78,13 +79,15 @@ impl CeramicOneEvent {
     }
 
     /// Mark an event ready to deliver to js-ceramic or other clients. This implies it's valid and it's previous events are known.
-    pub async fn mark_ready_to_deliver(conn: &mut DbTxSqlite<'_>, key: &EventId) -> Result<()> {
-        let id = key.as_bytes();
+    pub async fn mark_ready_to_deliver(
+        conn: &mut SqliteTransaction<'_>,
+        key: &EventId,
+    ) -> Result<()> {
         // Fetch add happens with an open transaction (on one writer for the db) so we're guaranteed to get a unique value
         sqlx::query(EventQuery::mark_ready_to_deliver())
             .bind(GLOBAL_COUNTER.fetch_add(1, Ordering::SeqCst))
-            .bind(id)
-            .execute(&mut **conn)
+            .bind(&key.to_bytes())
+            .execute(&mut **conn.inner())
             .await?;
 
         Ok(())
@@ -118,8 +121,7 @@ impl CeramicOneEvent {
     /// Insert many events into the database. This is the main function to use when storing events.
     pub async fn insert_many(pool: &SqlitePool, to_add: &[EventRaw]) -> Result<InsertResult> {
         let mut new_keys = vec![false; to_add.len()];
-
-        let mut tx = pool.writer().begin().await.map_err(Error::from)?;
+        let mut tx = pool.begin_tx().await.map_err(Error::from)?;
 
         for (idx, item) in to_add.iter().enumerate() {
             let new_key = Self::insert_key(&mut tx, &item.order_key).await?;

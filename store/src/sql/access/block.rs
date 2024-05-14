@@ -2,9 +2,12 @@ use cid::Cid;
 use multihash_codetable::Multihash;
 
 use crate::{
-    sql::entities::{BlockBytes, CountRow},
-    sql::query::BlockQuery,
-    DbTxSqlite, Result, SqlitePool,
+    sql::{
+        entities::{BlockBytes, CountRow},
+        query::BlockQuery,
+        sqlite::SqliteTransaction,
+    },
+    Result, SqlitePool,
 };
 
 /// Access to the block table and related logic
@@ -13,14 +16,14 @@ pub struct CeramicOneBlock {}
 impl CeramicOneBlock {
     /// Insert a block in a transaction (i.e. when creating an event)
     pub(crate) async fn insert(
-        conn: &mut DbTxSqlite<'_>,
+        conn: &mut SqliteTransaction<'_>,
         hash: &Multihash,
         blob: &[u8],
     ) -> Result<bool> {
         let resp = sqlx::query(BlockQuery::put())
             .bind(hash.to_bytes())
             .bind(blob)
-            .execute(&mut **conn)
+            .execute(&mut **conn.inner())
             .await;
 
         match resp {
@@ -65,7 +68,7 @@ impl CeramicOneBlock {
 
     /// Add a block to the database
     pub async fn put(pool: &SqlitePool, block: &iroh_bitswap::Block) -> Result<bool> {
-        let mut tx = pool.writer().begin().await?;
+        let mut tx = pool.begin_tx().await?;
         let new = CeramicOneBlock::insert(&mut tx, block.cid().hash(), block.data()).await?;
         tx.commit().await?;
         Ok(new)

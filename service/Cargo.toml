@@ -23,7 +23,6 @@ recon.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
-
 [dev-dependencies]
 expect-test.workspace = true
 ipld-core.workspace = true

@@ -12,8 +12,9 @@ use crate::{
     sql::{
         entities::ReconHash,
         query::{ReconQuery, ReconType, SqlBackend},
+        sqlite::SqliteTransaction,
     },
-    DbTxSqlite, Error, Result, SqlitePool,
+    Error, Result, SqlitePool,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -23,7 +24,7 @@ pub struct CeramicOneInterest {}
 type InterestError = <Interest as TryFrom<Vec<u8>>>::Error;
 
 impl CeramicOneInterest {
-    async fn insert_tx<'a>(conn: &mut DbTxSqlite<'a>, key: &Interest) -> Result<bool> {
+    async fn insert_tx<'a>(conn: &mut SqliteTransaction<'a>, key: &Interest) -> Result<bool> {
         let key_insert = sqlx::query(ReconQuery::insert_interest());
 
         let hash = Sha256a::digest(key);
@@ -37,7 +38,7 @@ impl CeramicOneInterest {
             .bind(hash.as_u32s()[5])
             .bind(hash.as_u32s()[6])
             .bind(hash.as_u32s()[7])
-            .execute(&mut **conn)
+            .execute(&mut **conn.inner())
             .await;
         match resp {
             std::result::Result::Ok(_rows) => Ok(true),
@@ -56,7 +57,7 @@ impl CeramicOneInterest {
 impl CeramicOneInterest {
     /// Insert a single interest into the database.
     pub async fn insert(pool: &SqlitePool, key: &Interest) -> Result<bool> {
-        let mut tx = pool.writer().begin().await.map_err(Error::from)?;
+        let mut tx = pool.begin_tx().await.map_err(Error::from)?;
         let new_key = CeramicOneInterest::insert_tx(&mut tx, key).await?;
         tx.commit().await.map_err(Error::from)?;
         Ok(new_key)
@@ -68,7 +69,7 @@ impl CeramicOneInterest {
             0 => Ok(InsertResult::new(vec![])),
             _ => {
                 let mut results = vec![false; items.len()];
-                let mut tx = pool.writer().begin().await.map_err(Error::from)?;
+                let mut tx = pool.begin_tx().await.map_err(Error::from)?;
 
                 for (idx, item) in items.iter().enumerate() {
                     let new_key = CeramicOneInterest::insert_tx(&mut tx, item).await?;
