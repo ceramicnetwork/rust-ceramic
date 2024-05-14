@@ -1,6 +1,6 @@
 //! Types of raw unvalidated Ceramic Events
 #![allow(dead_code)]
-use crate::unvalidated::payload::{InitPayload, SignedPayload};
+use crate::unvalidated::{init, signed};
 use cid::Cid;
 use serde::{Deserialize, Serialize};
 
@@ -13,9 +13,9 @@ pub enum Event<D> {
     // the compiler). Therefore we box it here to keep the Event enum small.
     Time(Box<TimeEvent>),
     /// Signed event in a stream
-    Signed(SignedPayload),
+    Signed(signed::Payload),
     /// Unsigned event in a stream
-    Unsigned(InitPayload<D>),
+    Unsigned(init::Payload<D>),
 }
 
 impl<D> From<Box<TimeEvent>> for Event<D> {
@@ -24,14 +24,14 @@ impl<D> From<Box<TimeEvent>> for Event<D> {
     }
 }
 
-impl<D> From<InitPayload<D>> for Event<D> {
-    fn from(value: InitPayload<D>) -> Self {
+impl<D> From<init::Payload<D>> for Event<D> {
+    fn from(value: init::Payload<D>) -> Self {
         Self::Unsigned(value)
     }
 }
 
-impl<D> From<SignedPayload> for Event<D> {
-    fn from(value: SignedPayload) -> Self {
+impl<D> From<signed::Payload> for Event<D> {
+    fn from(value: signed::Payload) -> Self {
         Self::Signed(value)
     }
 }

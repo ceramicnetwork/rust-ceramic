@@ -2,24 +2,47 @@
 //! Implementation of ceramic event protocol, with appropriate compatibilility with js-ceramic
 #![deny(missing_docs)]
 mod bytes;
-mod signed_event;
-mod unvalidated;
-mod validated;
-mod value;
+/// Unvalidated event types
+pub mod unvalidated;
 
 pub use bytes::Bytes as EventBytes;
-pub use signed_event::SignedEvent;
-pub use unvalidated::{
-    event::Event as UnvalidatedEvent,
-    ext::*,
-    payload::{InitPayload as UnvalidatedInitPayload, Payload as UnvalidatedPayload},
-};
-pub use validated::Event as ValidatedEvent;
-pub use value::Value;
-
 pub use ceramic_core::*;
 
 /// Prelude for building events
 pub mod event_builder {
-    pub use super::unvalidated::builder::*;
+    pub use super::unvalidated::{
+        Additional, Builder, CeramicExt, Controllers, IntoSignedCeramicEvent,
+        IntoUnsignedCeramicEvent, Sep,
+    };
+}
+
+#[cfg(test)]
+pub mod tests {
+    use ceramic_core::{DidDocument, JwkSigner};
+
+    pub fn to_pretty_json(json_data: &[u8]) -> String {
+        let json: serde_json::Value = match serde_json::from_slice(json_data) {
+            Ok(r) => r,
+            Err(_) => {
+                panic!(
+                    "input data should be valid json: {:?}",
+                    String::from_utf8(json_data.to_vec())
+                )
+            }
+        };
+        serde_json::to_string_pretty(&json).unwrap()
+    }
+
+    pub fn serialize_to_pretty_json<T: serde::Serialize>(data: &T) -> String {
+        serde_json::to_string_pretty(data).unwrap()
+    }
+
+    pub async fn signer() -> JwkSigner {
+        JwkSigner::new(
+            DidDocument::new("did:key:z6Mkk3rtfoKDMMG4zyarNGwCQs44GSQ49pcYKQspHJPXSnVw"),
+            "810d51e02cb63066b7d2d2ec67e05e18c29b938412050bdd3c04d878d8001f3c",
+        )
+        .await
+        .unwrap()
+    }
 }

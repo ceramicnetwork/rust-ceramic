@@ -155,7 +155,7 @@ mod tests {
         let data = "some data";
         let linked_block = DagCborEncoded::new(&data).unwrap();
         let cid = Cid::new_v1(0x71, Code::Sha2_256.digest(linked_block.as_ref()));
-        let jws = Jws::for_cid(&signer, &cid).await.unwrap();
+        let jws = Jws::builder(&signer).build_for_cid(&cid).await.unwrap();
         let compact = format!(
             "{}.{}.{}",
             jws.signatures[0].protected.as_ref().unwrap().as_ref(),

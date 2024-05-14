@@ -1,4 +1,4 @@
-use crate::unvalidated::payload::Payload;
+use crate::unvalidated::Payload;
 use anyhow::Result;
 use ceramic_core::{Cid, DagCborEncoded, Jws, Signer};
 use multihash_codetable::{Code, MultihashDigest};
@@ -39,38 +39,15 @@ impl SignedEvent {
 mod tests {
     use super::*;
 
-    use crate::{DidDocument, StreamId};
+    use crate::StreamId;
 
     use crate::event_builder::*;
-    use ceramic_core::JwkSigner;
     use expect_test::expect;
     use ipld_core::{codec::Codec, ipld::Ipld};
     use serde_ipld_dagcbor::codec::DagCborCodec;
     use serde_ipld_dagjson::codec::DagJsonCodec;
     use std::str::FromStr;
     use test_log::test;
-
-    fn to_pretty_json(json_data: &[u8]) -> String {
-        let json: serde_json::Value = match serde_json::from_slice(json_data) {
-            Ok(r) => r,
-            Err(_) => {
-                panic!(
-                    "input data should be valid json: {:?}",
-                    String::from_utf8(json_data.to_vec())
-                )
-            }
-        };
-        serde_json::to_string_pretty(&json).unwrap()
-    }
-
-    async fn signer() -> JwkSigner {
-        JwkSigner::new(
-            DidDocument::new("did:key:z6Mkk3rtfoKDMMG4zyarNGwCQs44GSQ49pcYKQspHJPXSnVw"),
-            "810d51e02cb63066b7d2d2ec67e05e18c29b938412050bdd3c04d878d8001f3c",
-        )
-        .await
-        .unwrap()
-    }
 
     #[test]
     fn should_roundtrip_json_data() {
@@ -89,7 +66,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_dag_json_init_event() {
-        let signer = signer().await;
+        let signer = crate::tests::signer().await;
         let model =
             StreamId::from_str("kjzl6kcym7w8y6of44g27v981fuutovbrnlw2ifbf8n26j2t4g5mmm6zc43nx1u")
                 .unwrap();
@@ -102,26 +79,19 @@ mod tests {
             .await
             .expect("failed to build event");
         let evt = SignedEvent::new(evt.into(), &signer).await.unwrap();
-        let data: Ipld =
-            DagCborCodec::decode_from_slice(evt.jws.payload.to_vec().unwrap().as_ref()).unwrap();
+        let data: Ipld = DagCborCodec::decode_from_slice(&evt.linked_block.as_ref()).unwrap();
         let encoded = DagJsonCodec::encode_to_vec(&data).unwrap();
         expect![[r#"
             {
-              "data": null,
               "header": {
                 "controllers": [
                   "did:key:z6Mkk3rtfoKDMMG4zyarNGwCQs44GSQ49pcYKQspHJPXSnVw"
                 ],
-                "model": {
-                  "/": {
-                    "bytes": "zgEDAYUBEiBICac5WcThoeb40H49X/XNgN0enh/EJNtBhIMsTp36Eg"
-                  }
-                },
-                "sep": "model",
-                "unique": null
+                "model": "kjzl6kcym7w8y6of44g27v981fuutovbrnlw2ifbf8n26j2t4g5mmm6zc43nx1u",
+                "sep": "model"
               }
             }"#]]
-        .assert_eq(&to_pretty_json(&encoded));
+        .assert_eq(&crate::tests::to_pretty_json(&encoded));
     }
 
     #[tokio::test]
@@ -129,7 +99,7 @@ mod tests {
         let mid =
             StreamId::from_str("kjzl6kcym7w8y7nzgytqayf6aro12zt0mm01n6ydjomyvvklcspx9kr6gpbwd09")
                 .unwrap();
-        let signer = signer().await;
+        let signer = crate::tests::signer().await;
         let data = serde_json::json!({
             "creator": signer.id().id,
             "radius": 1,
