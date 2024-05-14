@@ -1159,6 +1159,7 @@ dependencies = [
  "serde_ipld_dagcbor",
  "serde_ipld_dagjson",
  "serde_json",
+ "serde_with 2.3.3",
  "test-log",
  "tokio",
  "tracing",

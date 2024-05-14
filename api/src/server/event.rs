@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use anyhow::{anyhow, bail, Context, Result};
 use ceramic_core::{Cid, EventId, Network};
-use ceramic_event::{CeramicExt, UnvalidatedEvent, UnvalidatedInitPayload, UnvalidatedPayload};
+use ceramic_event::{unvalidated, unvalidated::CeramicExt};
 use ipld_core::ipld::Ipld;
 use iroh_car::CarReader;
 use tokio::io::AsyncRead;
@@ -33,42 +33,43 @@ where
         car_blocks.insert(cid, bytes);
     }
     let event_bytes = get_block(&event_cid, &car_blocks, store).await?;
-    let event: UnvalidatedEvent<Ipld> =
+    let event: unvalidated::Event<Ipld> =
         serde_ipld_dagcbor::from_slice(&event_bytes).context("decoding event")?;
     let (init_id, init_payload) = match event {
-        UnvalidatedEvent::Time(event) => (
+        unvalidated::Event::Time(event) => (
             event.id(),
             get_init_event_payload(&event.id(), &car_blocks, store).await?,
         ),
-        UnvalidatedEvent::Signed(event) => {
+        unvalidated::Event::Signed(event) => {
             let link = event
                 .link()
                 .ok_or_else(|| anyhow!("event should have a link"))?;
 
             let payload_bytes = get_block(&link, &car_blocks, store).await?;
-            let payload: UnvalidatedPayload<Ipld> =
+            let payload: unvalidated::Payload<Ipld> =
                 serde_ipld_dagcbor::from_slice(&payload_bytes).context("decoding payload")?;
             let init_id = match payload {
-                UnvalidatedPayload::Init(_) => event_cid,
-                UnvalidatedPayload::Data(payload) => payload.id(),
+                unvalidated::Payload::Init(_) => event_cid,
+                unvalidated::Payload::Data(payload) => *payload.id(),
             };
             (
                 init_id,
                 get_init_event_payload(&init_id, &car_blocks, store).await?,
             )
         }
-        UnvalidatedEvent::Unsigned(event) => (event_cid, event),
+        unvalidated::Event::Unsigned(event) => (event_cid, event),
     };
 
+    let controller = init_payload
+        .header()
+        .controllers()
+        .first()
+        .ok_or_else(|| anyhow!("init header should contain at least one controller"))?;
     Ok(EventId::new(
         &network,
         init_payload.sep()?,
         init_payload.model()?.as_slice(),
-        init_payload
-            .header()
-            .controllers()
-            .first()
-            .ok_or_else(|| anyhow!("init header should contain at least one controller"))?,
+        controller,
         &init_id,
         &event_cid,
     ))
@@ -78,27 +79,27 @@ async fn get_init_event_payload(
     init_id: &Cid,
     car_blocks: &HashMap<Cid, Vec<u8>>,
     store: &impl AccessModelStore,
-) -> Result<UnvalidatedInitPayload<Ipld>> {
+) -> Result<unvalidated::init::Payload<Ipld>> {
     let init_bytes = get_block(init_id, car_blocks, store).await?;
-    let init_event: UnvalidatedEvent<Ipld> =
+    let init_event: unvalidated::Event<Ipld> =
         serde_ipld_dagcbor::from_slice(&init_bytes).context("decoding init event")?;
     match init_event {
-        UnvalidatedEvent::Signed(event) => {
+        unvalidated::Event::Signed(event) => {
             let link = event
                 .link()
                 .ok_or_else(|| anyhow!("init event should have a link"))?;
 
             let payload_bytes = get_block(&link, car_blocks, store).await?;
-            let payload: UnvalidatedPayload<Ipld> =
+            let payload: unvalidated::Payload<Ipld> =
                 serde_ipld_dagcbor::from_slice(&payload_bytes).context("decoding init payload")?;
-            if let UnvalidatedPayload::Init(payload) = payload {
+            if let unvalidated::Payload::Init(payload) = payload {
                 Ok(payload)
             } else {
                 bail!("init event payload is not well formed")
             }
         }
-        UnvalidatedEvent::Unsigned(event) => Ok(event),
-        UnvalidatedEvent::Time(_) => {
+        unvalidated::Event::Unsigned(event) => Ok(event),
+        unvalidated::Event::Time(_) => {
             bail!("init event payload can't be a time event")
         }
     }

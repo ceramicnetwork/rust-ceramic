@@ -1,11 +1,12 @@
-pub(crate) mod data;
-pub(crate) mod init;
-pub(crate) mod signed;
+/// unvalidated data payloads
+pub mod data;
+/// unvalidated init payloads
+pub mod init;
+/// unvalidated signed payloads
+pub mod signed;
 
-pub use data::{Header as DataHeader, Payload as DataPayload};
-pub use init::{Header as InitHeader, Payload as InitPayload};
+use crate::unvalidated::Value;
 use serde::{Deserialize, Serialize};
-pub use signed::Payload as SignedPayload;
 
 /// Payload of a signed event
 #[derive(Serialize, Deserialize)]
@@ -14,19 +15,29 @@ pub use signed::Payload as SignedPayload;
 #[serde(untagged)]
 pub enum Payload<D> {
     /// Data event
-    Data(DataPayload<D>),
+    Data(data::Payload<D>),
     /// Init event
-    Init(InitPayload<D>),
+    Init(init::Payload<D>),
 }
 
-impl<D> From<DataPayload<D>> for Payload<D> {
-    fn from(value: DataPayload<D>) -> Self {
+impl<D> Payload<D> {
+    /// Get a header value
+    pub fn header_value(&self, key: &str) -> Option<&Value> {
+        match self {
+            Self::Data(p) => p.header_value(key),
+            Self::Init(p) => p.header_value(key),
+        }
+    }
+}
+
+impl<D> From<data::Payload<D>> for Payload<D> {
+    fn from(value: data::Payload<D>) -> Self {
         Self::Data(value)
     }
 }
 
-impl<D> From<InitPayload<D>> for Payload<D> {
-    fn from(value: InitPayload<D>) -> Self {
+impl<D> From<init::Payload<D>> for Payload<D> {
+    fn from(value: init::Payload<D>) -> Self {
         Self::Init(value)
     }
 }

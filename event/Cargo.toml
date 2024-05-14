@@ -20,6 +20,7 @@ once_cell.workspace = true
 rand = "0.8.5"
 serde.workspace = true
 serde_json.workspace = true
+serde_with.workspace = true
 
 [dev-dependencies]
 serde_ipld_dagcbor.workspace = true
