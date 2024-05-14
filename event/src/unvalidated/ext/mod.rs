@@ -11,9 +11,6 @@ use unsigned_event::UnsignedEvent;
 pub trait CeramicExt {
     /// Obtain the model of the payload
     fn model(&self) -> anyhow::Result<&EventBytes>;
-
-    /// Obtain the seperator of the payload
-    fn sep(&self) -> anyhow::Result<&str>;
 }
 
 /// Extension trait to convert payloads into ceramic compatible events
@@ -31,27 +28,16 @@ pub trait IntoSignedCeramicEvent {
 }
 
 const MODEL_KEY: &str = "model";
-const SEP_KEY: &str = "sep";
 
 #[async_trait::async_trait]
 impl<D> CeramicExt for crate::unvalidated::payload::Payload<D> {
     fn model(&self) -> anyhow::Result<&EventBytes> {
         let value = self
             .header_value(MODEL_KEY)
-            .ok_or_else(|| anyhow::anyhow!("model not found"))?;
+            .ok_or_else(|| anyhow::anyhow!(format!("{MODEL_KEY} not found")))?;
         let value = value
             .as_bytes()
-            .ok_or_else(|| anyhow::anyhow!("model is not bytes"))?;
-        Ok(value)
-    }
-
-    fn sep(&self) -> anyhow::Result<&str> {
-        let value = self
-            .header_value(SEP_KEY)
-            .ok_or_else(|| anyhow::anyhow!("sep not found"))?;
-        let value = value
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("sep is not string"))?;
+            .ok_or_else(|| anyhow::anyhow!(format!("{MODEL_KEY} is not bytes")))?;
         Ok(value)
     }
 }
@@ -65,16 +51,6 @@ impl<D> CeramicExt for crate::unvalidated::payload::init::Payload<D> {
         let value = value
             .as_bytes()
             .ok_or_else(|| anyhow::anyhow!(format!("{MODEL_KEY} is not bytes")))?;
-        Ok(value)
-    }
-
-    fn sep(&self) -> anyhow::Result<&str> {
-        let value = self
-            .header_value(SEP_KEY)
-            .ok_or_else(|| anyhow::anyhow!(format!("{SEP_KEY} not found")))?;
-        let value = value
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!(format!("${SEP_KEY} is not string")))?;
         Ok(value)
     }
 }
