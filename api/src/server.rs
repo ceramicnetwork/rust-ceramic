@@ -41,6 +41,8 @@ use tracing::{instrument, Level};
 use crate::server::event::event_id_from_car;
 use crate::ResumeToken;
 
+/// How many events to try to process at once i.e. read from the channel in batches.
+const EVENTS_TO_RECEIVE: usize = 10;
 /// When the incoming events queue has at least this many items, we'll store them.
 /// This imples when we're getting writes faster than the flush interval.
 const EVENT_INSERT_QUEUE_SIZE: usize = 3;
@@ -285,12 +287,19 @@ where
             // without processing one at a time. when we stop parsing the carfile in the store
             // i.e. validate before sending here and this is just an insert, we may want to process more at once.
             loop {
+                let mut buf = Vec::with_capacity(EVENTS_TO_RECEIVE);
                 tokio::select! {
                     _ = interval.tick(), if !events.is_empty() => {
                         Self::process_events(&mut events, &event_store).await;
                     }
-                    Some(req) = event_rx.recv() => {
-                        events.push(req);
+                    val = event_rx.recv_many(&mut buf, EVENTS_TO_RECEIVE) => {
+                        if val > 0 {
+                            events.extend(buf);
+                        }
+                    }
+                    else => {
+                        tracing::info!("Shutting down insert task.");
+                        Self::process_events(&mut events, &event_store).await;
                     }
                 }
                 // make sure the events queue doesn't get too deep when we're under heavy load
