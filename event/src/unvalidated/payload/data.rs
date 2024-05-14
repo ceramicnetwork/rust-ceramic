@@ -1,42 +1,12 @@
 use crate::unvalidated::{Value, ValueMap};
 use cid::Cid;
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DisplayFromStr};
-
-#[derive(Serialize, Deserialize)]
-struct CidStr {
-    #[serde(flatten)]
-    inner: Cid,
-}
-
-impl std::fmt::Display for CidStr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.inner)
-    }
-}
-
-impl std::str::FromStr for CidStr {
-    type Err = cid::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Self { inner: s.parse()? })
-    }
-}
-
-impl From<Cid> for CidStr {
-    fn from(cid: Cid) -> Self {
-        Self { inner: cid }
-    }
-}
 
 /// Payload of a data event
-#[serde_as]
 #[derive(Serialize, Deserialize)]
 pub struct Payload<D> {
-    #[serde_as(as = "DisplayFromStr")]
-    id: CidStr,
-    #[serde_as(as = "DisplayFromStr")]
-    prev: CidStr,
+    id: Cid,
+    prev: Cid,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     header: Option<Header>,
     data: D,
@@ -46,8 +16,8 @@ impl<D> Payload<D> {
     /// Construct a new payload for a data event
     pub fn new(id: Cid, prev: Cid, header: Option<Header>, data: D) -> Self {
         Self {
-            id: id.into(),
-            prev: prev.into(),
+            id,
+            prev,
             header,
             data,
         }
@@ -55,12 +25,12 @@ impl<D> Payload<D> {
 
     /// Get the id
     pub fn id(&self) -> &Cid {
-        &self.id.inner
+        &self.id
     }
 
     /// Get the prev
     pub fn prev(&self) -> &Cid {
-        &self.prev.inner
+        &self.prev
     }
 
     /// Get the header

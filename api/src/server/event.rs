@@ -67,7 +67,7 @@ where
         .ok_or_else(|| anyhow!("init header should contain at least one controller"))?;
     Ok(EventId::new(
         &network,
-        init_payload.sep()?,
+        init_payload.header().sep(),
         init_payload.model()?.as_slice(),
         controller,
         &init_id,
