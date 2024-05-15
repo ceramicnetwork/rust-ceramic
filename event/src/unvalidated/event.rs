@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 /// Ceramic Event
 #[derive(Serialize, Deserialize)]
-#[serde(untagged)]
+#[serde(untagged, deny_unknown_fields)]
 pub enum Event<D> {
     /// Time event in a stream
     // NOTE: TimeEvent has several CIDs so its a relatively large struct (~312 bytes according to
@@ -38,6 +38,7 @@ impl<D> From<signed::Payload> for Event<D> {
 
 /// Time event
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TimeEvent {
     id: Cid,
     prev: Cid,

@@ -41,7 +41,7 @@ mod tests {
 
     use crate::StreamId;
 
-    use crate::event_builder::*;
+    use crate::unvalidated;
     use expect_test::expect;
     use ipld_core::{codec::Codec, ipld::Ipld};
     use serde_ipld_dagcbor::codec::DagCborCodec;
@@ -70,14 +70,16 @@ mod tests {
         let model =
             StreamId::from_str("kjzl6kcym7w8y6of44g27v981fuutovbrnlw2ifbf8n26j2t4g5mmm6zc43nx1u")
                 .unwrap();
-        let evt = Builder::default()
-            .init()
-            .with_sep("model".to_string())
-            .with_controller(signer.id().id.clone())
-            .with_additional("model".to_string(), model.to_string().into())
-            .build()
-            .await
-            .expect("failed to build event");
+        let evt: unvalidated::init::Payload<Ipld> = unvalidated::init::Payload::new(
+            unvalidated::init::Header::new(
+                vec![signer.id().id.clone()],
+                "model".to_string(),
+                Some(model.to_vec().unwrap().into()),
+                None,
+                None,
+            ),
+            None,
+        );
         let evt = SignedEvent::new(evt.into(), &signer).await.unwrap();
         let data: Ipld = DagCborCodec::decode_from_slice(&evt.linked_block.as_ref()).unwrap();
         let encoded = DagJsonCodec::encode_to_vec(&data).unwrap();
@@ -87,7 +89,11 @@ mod tests {
                 "controllers": [
                   "did:key:z6Mkk3rtfoKDMMG4zyarNGwCQs44GSQ49pcYKQspHJPXSnVw"
                 ],
-                "model": "kjzl6kcym7w8y6of44g27v981fuutovbrnlw2ifbf8n26j2t4g5mmm6zc43nx1u",
+                "model": {
+                  "/": {
+                    "bytes": "zgEDAYUBEiBICac5WcThoeb40H49X/XNgN0enh/EJNtBhIMsTp36Eg"
+                  }
+                },
                 "sep": "model"
               }
             }"#]]
@@ -107,15 +113,16 @@ mod tests {
             "green": 3,
             "blue": 4,
         });
-        let evt = Builder::default()
-            .init()
-            .with_data(data.clone())
-            .with_sep("model".to_string())
-            .with_controller(signer.id().id.clone())
-            .with_additional("model".to_string(), mid.to_string().into())
-            .build()
-            .await
-            .expect("failed to build event");
+        let evt = unvalidated::init::Payload::new(
+            unvalidated::init::Header::new(
+                vec![signer.id().id.clone()],
+                "model".to_string(),
+                Some(mid.to_vec().unwrap().into()),
+                None,
+                None,
+            ),
+            Some(data.clone()),
+        );
         let evt = SignedEvent::new(evt.into(), &signer).await.unwrap();
         let protected = evt.jws.signatures[0].protected.as_ref().unwrap();
         let protected = protected.to_vec().unwrap();

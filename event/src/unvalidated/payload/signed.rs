@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 
 /// A signed event payload.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Payload {
     payload: EventBytes,
     signatures: Vec<Signature>,

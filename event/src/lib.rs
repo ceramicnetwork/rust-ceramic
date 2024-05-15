@@ -10,10 +10,7 @@ pub use ceramic_core::*;
 
 /// Prelude for building events
 pub mod event_builder {
-    pub use super::unvalidated::{
-        Additional, Builder, CeramicExt, Controllers, IntoSignedCeramicEvent,
-        IntoUnsignedCeramicEvent, Sep,
-    };
+    pub use super::unvalidated::{CeramicExt, IntoSignedCeramicEvent, IntoUnsignedCeramicEvent};
 }
 
 #[cfg(test)]
