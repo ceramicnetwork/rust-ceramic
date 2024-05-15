@@ -1,7 +1,6 @@
 mod signed_event;
 mod unsigned_event;
 
-use crate::EventBytes;
 use ceramic_core::Signer;
 use serde::Serialize;
 use signed_event::SignedEvent;
@@ -10,7 +9,7 @@ use unsigned_event::UnsignedEvent;
 /// Extension trait to pull fields from payloads
 pub trait CeramicExt {
     /// Obtain the model of the payload
-    fn model(&self) -> anyhow::Result<&EventBytes>;
+    fn model(&self) -> anyhow::Result<&[u8]>;
 }
 
 /// Extension trait to convert payloads into ceramic compatible events
@@ -25,34 +24,6 @@ pub trait IntoUnsignedCeramicEvent {
 pub trait IntoSignedCeramicEvent {
     /// Convert this event into a ceramic compatible event
     async fn signed(self, signer: &(impl Signer + Sync)) -> anyhow::Result<SignedEvent>;
-}
-
-const MODEL_KEY: &str = "model";
-
-#[async_trait::async_trait]
-impl<D> CeramicExt for crate::unvalidated::payload::Payload<D> {
-    fn model(&self) -> anyhow::Result<&EventBytes> {
-        let value = self
-            .header_value(MODEL_KEY)
-            .ok_or_else(|| anyhow::anyhow!(format!("{MODEL_KEY} not found")))?;
-        let value = value
-            .as_bytes()
-            .ok_or_else(|| anyhow::anyhow!(format!("{MODEL_KEY} is not bytes")))?;
-        Ok(value)
-    }
-}
-
-#[async_trait::async_trait]
-impl<D> CeramicExt for crate::unvalidated::payload::init::Payload<D> {
-    fn model(&self) -> anyhow::Result<&EventBytes> {
-        let value = self
-            .header_value(MODEL_KEY)
-            .ok_or_else(|| anyhow::anyhow!(format!("{MODEL_KEY} not found")))?;
-        let value = value
-            .as_bytes()
-            .ok_or_else(|| anyhow::anyhow!(format!("{MODEL_KEY} is not bytes")))?;
-        Ok(value)
-    }
 }
 
 #[async_trait::async_trait]
@@ -73,8 +44,9 @@ impl<D: Serialize + Send> IntoSignedCeramicEvent for crate::unvalidated::Payload
 mod tests {
     use super::*;
 
-    use crate::{event_builder::*, StreamId};
+    use crate::StreamId;
 
+    use crate::unvalidated;
     use ceramic_core::DagCborEncoded;
     use expect_test::expect;
     use ipld_core::{codec::Codec, ipld::Ipld};
@@ -104,14 +76,16 @@ mod tests {
         let model =
             StreamId::from_str("kjzl6kcym7w8y6of44g27v981fuutovbrnlw2ifbf8n26j2t4g5mmm6zc43nx1u")
                 .unwrap();
-        let evt = Builder::default()
-            .init()
-            .with_sep("model".to_string())
-            .with_controller(signer.id().id.clone())
-            .with_additional("model".to_string(), model.to_string().into())
-            .build()
-            .await
-            .expect("failed to build event");
+        let evt = unvalidated::init::Payload::new(
+            unvalidated::init::Header::new(
+                vec![signer.id().id.clone()],
+                "model".to_string(),
+                model.to_vec(),
+                None,
+                None,
+            ),
+            None,
+        );
         let evt = evt.unsigned().await.unwrap();
         let data: Ipld = DagCborCodec::decode_from_slice(evt.encoded.as_ref()).unwrap();
         let encoded = DagJsonCodec::encode_to_vec(&data).unwrap();
@@ -121,7 +95,11 @@ mod tests {
                 "controllers": [
                   "did:key:z6Mkk3rtfoKDMMG4zyarNGwCQs44GSQ49pcYKQspHJPXSnVw"
                 ],
-                "model": "kjzl6kcym7w8y6of44g27v981fuutovbrnlw2ifbf8n26j2t4g5mmm6zc43nx1u",
+                "model": {
+                  "/": {
+                    "bytes": "zgEDAYUBEiBICac5WcThoeb40H49X/XNgN0enh/EJNtBhIMsTp36Eg"
+                  }
+                },
                 "sep": "model"
               }
             }"#]]
@@ -141,15 +119,16 @@ mod tests {
             "green": 3,
             "blue": 4,
         });
-        let evt = Builder::default()
-            .init()
-            .with_data(data.clone())
-            .with_sep("model".to_string())
-            .with_controller(signer.id().id.clone())
-            .with_additional("model".to_string(), mid.to_string().into())
-            .build()
-            .await
-            .expect("failed to build event");
+        let evt = unvalidated::init::Payload::new(
+            unvalidated::init::Header::new(
+                vec![signer.id().id.clone()],
+                "model".to_string(),
+                mid.to_vec(),
+                None,
+                None,
+            ),
+            Some(data.clone()),
+        );
         let evt: crate::unvalidated::payload::Payload<_> = evt.into();
         let evt = evt.signed(&signer).await.unwrap();
         let protected = evt.jws.signatures[0].protected.as_ref().unwrap();

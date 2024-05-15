@@ -2,6 +2,9 @@ mod builder;
 mod event;
 mod ext;
 mod payload;
+
+pub mod signed;
+
 mod value;
 
 pub use builder::*;

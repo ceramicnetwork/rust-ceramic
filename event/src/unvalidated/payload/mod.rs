@@ -2,10 +2,7 @@
 pub mod data;
 /// unvalidated init payloads
 pub mod init;
-/// unvalidated signed payloads
-pub mod signed;
 
-use crate::unvalidated::Value;
 use serde::{Deserialize, Serialize};
 
 /// Payload of a signed event
@@ -18,16 +15,6 @@ pub enum Payload<D> {
     Data(data::Payload<D>),
     /// Init event
     Init(init::Payload<D>),
-}
-
-impl<D> Payload<D> {
-    /// Get a header value
-    pub fn header_value(&self, key: &str) -> Option<&Value> {
-        match self {
-            Self::Data(p) => p.header_value(key),
-            Self::Init(p) => p.header_value(key),
-        }
-    }
 }
 
 impl<D> From<data::Payload<D>> for Payload<D> {

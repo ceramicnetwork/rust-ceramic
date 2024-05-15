@@ -101,12 +101,13 @@ impl StreamId {
     }
 
     /// Convert the stream id to a vector
-    pub fn to_vec(&self) -> anyhow::Result<Vec<u8>> {
+    pub fn to_vec(&self) -> Vec<u8> {
         // Use self.len() here when we have cid@0.10
         let buf = Vec::new();
         let mut writer = std::io::BufWriter::new(buf);
-        self.write(&mut writer)?;
-        Ok(writer.into_inner()?)
+        // safe to unwrap because self.write should never fail.
+        self.write(&mut writer).unwrap();
+        writer.into_inner().unwrap()
     }
 }
 
@@ -122,7 +123,7 @@ impl TryInto<Bytes> for &StreamId {
     type Error = anyhow::Error;
 
     fn try_into(self) -> Result<Bytes, Self::Error> {
-        Ok(Bytes::from(self.to_vec()?))
+        Ok(Bytes::from(self.to_vec()))
     }
 }
 
@@ -137,12 +138,9 @@ impl std::str::FromStr for StreamId {
 
 impl std::fmt::Display for StreamId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        if let Ok(b) = self.to_vec() {
-            let s = multibase::encode(Base::Base36Lower, b);
-            write!(f, "{}", s)
-        } else {
-            Err(std::fmt::Error)
-        }
+        let b = self.to_vec();
+        let s = multibase::encode(Base::Base36Lower, b);
+        write!(f, "{}", s)
     }
 }
 
