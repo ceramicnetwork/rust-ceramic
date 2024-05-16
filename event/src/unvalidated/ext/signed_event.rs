@@ -8,6 +8,7 @@ use serde::Serialize;
 const DAG_CBOR_CODEC: u64 = 0x71;
 
 /// A ceramic event
+/// TODO: What is the relationship between this and signed::Envelope?
 pub struct SignedEvent {
     /// Cid of the data for the event
     pub cid: Cid,

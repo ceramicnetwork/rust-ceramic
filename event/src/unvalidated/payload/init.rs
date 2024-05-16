@@ -34,10 +34,10 @@ impl<D> Payload<D> {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Header {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(crate) controllers: Vec<String>,
+    pub(crate) controllers: Vec<String>, // todo make all fields private
     pub(crate) sep: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) model: Option<Bytes>,
+    pub(crate) model: Option<Bytes>, // rename to sep_value, make not optional
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) should_index: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -50,11 +50,10 @@ impl Header {
     pub fn new(
         controllers: Vec<String>,
         sep: String,
-        model: Option<StreamId>,
+        model: Option<Bytes>,
         should_index: Option<bool>,
         unique: Option<Bytes>,
     ) -> Self {
-        let model: Option<Bytes> = model.map(|id| Bytes::from(id.to_vec()));
         Self {
             controllers,
             sep,
