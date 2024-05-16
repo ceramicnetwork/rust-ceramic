@@ -16,6 +16,7 @@ async-trait.workspace = true
 backoff.workspace = true
 ceramic-core.workspace = true
 ceramic-metrics.workspace = true
+ceramic-service.workspace = true
 ceramic-store.workspace = true
 cid.workspace = true
 futures-util.workspace = true
