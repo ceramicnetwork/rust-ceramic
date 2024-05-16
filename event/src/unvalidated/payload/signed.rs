@@ -7,12 +7,12 @@ use std::collections::BTreeMap;
 /// A signed event payload.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Payload {
+pub struct Envelope {
     payload: EventBytes,
     signatures: Vec<Signature>,
 }
 
-impl Payload {
+impl Envelope {
     /// Report the link of this signed event
     pub fn link(&self) -> Option<Cid> {
         // Parse payload as cid bytes
