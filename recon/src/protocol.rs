@@ -218,7 +218,7 @@ where
 {
     if let Some(sync_id) = &sync_id {
         // Record sync_id on the tracing span
-        tracing::Span::current().record("sync_id", &sync_id);
+        tracing::Span::current().record("sync_id", sync_id);
     }
 
     pin_mut!(stream);
@@ -277,7 +277,7 @@ where
 {
     if let Some(sync_id) = &sync_id {
         // Record sync_id on the tracing span
-        tracing::Span::current().record("sync_id", &sync_id);
+        tracing::Span::current().record("sync_id", sync_id);
     }
     pin_mut!(sink);
 
@@ -418,7 +418,7 @@ where
                     .send(ToWriter::SendAll(
                         self.common
                             .process_remote_missing_ranges(ranges.clone())
-                            .map(move |value| value.map(|value| InitiatorMessage::Value(value)))
+                            .map(|value| value.map(InitiatorMessage::Value))
                             .boxed(),
                     ))
                     .await
@@ -441,9 +441,7 @@ where
         self.pending_ranges += ranges.len();
         to_writer
             .send(ToWriter::SendWIPLimited(
-                ranges
-                    .map(move |range| InitiatorMessage::RangeRequest(range))
-                    .collect(),
+                ranges.map(InitiatorMessage::RangeRequest).collect(),
             ))
             .await
             .map_err(|err| anyhow!("{err}"))?;
@@ -556,7 +554,7 @@ where
                     .send(ToWriter::SendAll(
                         self.common
                             .process_remote_missing_ranges(ranges.clone())
-                            .map(move |value| value.map(|value| ResponderMessage::Value(value)))
+                            .map(move |value| value.map(ResponderMessage::Value))
                             // Send the range hash after we have sent all keys so the remote learns we are in
                             // sync.
                             .chain(once(Ok(ResponderMessage::RangeResponse(ranges))))
