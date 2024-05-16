@@ -323,4 +323,24 @@ mod tests {
         );
         assert_eq!(DATA_EVENT_PAYLOAD, dagcbor_str);
     }
+
+    #[test]
+    fn sign_init_payload() {
+        let model =
+            StreamId::from_str("kjzl6hvfrbw6c90uwoyz8j519gxma787qbsfjtrarkr1huq1g1s224k7hopvsyg")
+                .unwrap();
+        let model = model.to_vec();
+        let unique = vec![68, 166, 241, 58, 178, 65, 11, 187, 106, 133, 104, 222];
+        let data = ipld_core::ipld!({"steph": 333});
+
+        let event = Builder::init()
+            .with_controller("did:key:z6MktBynAPLrEyeS7pVthbiyScmfu8n5V7boXgxyo5q3SZRR".to_string())
+            .with_sep("model".to_string(), model)
+            .with_unique(unique) // optional
+            .with_data(data) // optional
+            .build();
+
+        assert_eq!(SIGNED_INIT_EVENT, "");
+        assert_eq!(SIGNED_INIT_EVENT_CAR, "");
+    }
 }

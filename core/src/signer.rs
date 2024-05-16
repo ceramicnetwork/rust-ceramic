@@ -36,6 +36,7 @@ pub struct JwkSigner {
 
 impl JwkSigner {
     /// Create a new signer from a did and private key
+    /// TODO: DidDocument should be generated from private key.
     pub async fn new(did: DidDocument, pk: &str) -> anyhow::Result<Self> {
         let jwk = Jwk::new(&did).await?;
         Ok(Self {

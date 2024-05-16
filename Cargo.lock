@@ -1120,6 +1120,7 @@ version = "0.18.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "base64 0.21.7",
  "ceramic-core",
  "cid 0.11.1",
  "expect-test",
@@ -1130,6 +1131,7 @@ dependencies = [
  "serde_ipld_dagcbor",
  "serde_ipld_dagjson",
  "serde_json",
+ "ssi",
  "test-log",
  "tokio",
  "tracing",

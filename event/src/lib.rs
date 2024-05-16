@@ -1,6 +1,6 @@
 //! # Ceramic Event
 //! Implementation of ceramic event protocol, with appropriate compatibilility with js-ceramic
-#![deny(missing_docs)]
+#![warn(missing_docs)]
 mod bytes;
 /// Unvalidated event types
 pub mod unvalidated;

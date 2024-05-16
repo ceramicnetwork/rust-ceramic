@@ -2,8 +2,6 @@
 pub mod data;
 /// unvalidated init payloads
 pub mod init;
-/// unvalidated signed payloads
-pub mod signed;
 
 use serde::{Deserialize, Serialize};
 
