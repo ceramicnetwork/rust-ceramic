@@ -20,6 +20,7 @@ serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+multibase.workspace = true
 serde_ipld_dagcbor.workspace = true
 serde_ipld_dagjson.workspace = true
 tokio = { workspace = true, features = ["fs", "macros", "rt"] }

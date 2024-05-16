@@ -1124,6 +1124,7 @@ dependencies = [
  "cid 0.11.1",
  "expect-test",
  "ipld-core",
+ "multibase 0.9.1",
  "multihash-codetable",
  "serde",
  "serde_ipld_dagcbor",

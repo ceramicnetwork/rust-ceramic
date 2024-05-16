@@ -1,4 +1,3 @@
-use crate::EventBytes;
 use serde::{Deserialize, Serialize};
 
 /// Allowed values in additional headers
@@ -12,7 +11,7 @@ pub enum Value {
     /// String value
     String(String),
     /// Bytes value
-    Bytes(EventBytes),
+    Bytes(Vec<u8>),
 }
 
 impl Value {
@@ -41,9 +40,9 @@ impl Value {
     }
 
     /// Get the value as bytes
-    pub fn as_bytes(&self) -> Option<&EventBytes> {
+    pub fn as_bytes(&self) -> Option<&[u8]> {
         match self {
-            Self::Bytes(v) => Some(v),
+            Self::Bytes(v) => Some(v.as_slice()),
             _ => None,
         }
     }
@@ -67,8 +66,8 @@ impl From<String> for Value {
     }
 }
 
-impl From<EventBytes> for Value {
-    fn from(value: EventBytes) -> Self {
+impl From<Vec<u8>> for Value {
+    fn from(value: Vec<u8>) -> Self {
         Self::Bytes(value)
     }
 }

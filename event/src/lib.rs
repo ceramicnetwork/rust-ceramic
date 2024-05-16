@@ -5,7 +5,6 @@ mod bytes;
 /// Unvalidated event types
 pub mod unvalidated;
 
-pub use bytes::Bytes as EventBytes;
 pub use ceramic_core::*;
 
 /// Prelude for building events

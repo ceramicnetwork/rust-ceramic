@@ -1,4 +1,4 @@
-use crate::EventBytes;
+use crate::bytes::Bytes;
 use cid::Cid;
 use ipld_core::ipld::Ipld;
 use serde::{Deserialize, Serialize};
@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Envelope {
-    payload: EventBytes,
+    payload: Bytes,
     signatures: Vec<Signature>,
 }
 
@@ -37,9 +37,9 @@ pub struct Signature {
     /// The optional unprotected header.
     pub header: Option<BTreeMap<String, Ipld>>,
     /// The protected header as a JSON object
-    pub protected: Option<EventBytes>,
+    pub protected: Option<Bytes>,
     /// The web signature
-    pub signature: EventBytes,
+    pub signature: Bytes,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

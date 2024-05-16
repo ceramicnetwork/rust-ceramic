@@ -1,7 +1,6 @@
 mod signed_event;
 mod unsigned_event;
 
-use crate::EventBytes;
 use ceramic_core::Signer;
 use serde::Serialize;
 use signed_event::SignedEvent;
@@ -10,7 +9,7 @@ use unsigned_event::UnsignedEvent;
 /// Extension trait to pull fields from payloads
 pub trait CeramicExt {
     /// Obtain the model of the payload
-    fn model(&self) -> anyhow::Result<&EventBytes>;
+    fn model(&self) -> anyhow::Result<&[u8]>;
 }
 
 /// Extension trait to convert payloads into ceramic compatible events
@@ -31,7 +30,7 @@ const MODEL_KEY: &str = "model";
 
 #[async_trait::async_trait]
 impl<D> CeramicExt for crate::unvalidated::payload::init::Payload<D> {
-    fn model(&self) -> anyhow::Result<&EventBytes> {
+    fn model(&self) -> anyhow::Result<&[u8]> {
         let value = self
             .header
             .model()
@@ -94,7 +93,7 @@ mod tests {
             unvalidated::init::Header::new(
                 vec![signer.id().id.clone()],
                 "model".to_string(),
-                Some(model),
+                Some(model.to_vec()),
                 None,
                 None,
             ),
@@ -137,7 +136,7 @@ mod tests {
             unvalidated::init::Header::new(
                 vec![signer.id().id.clone()],
                 "model".to_string(),
-                Some(mid),
+                Some(mid.to_vec()),
                 None,
                 None,
             ),

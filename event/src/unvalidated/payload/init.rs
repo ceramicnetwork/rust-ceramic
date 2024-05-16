@@ -1,5 +1,4 @@
 use crate::bytes::Bytes;
-use ceramic_core::StreamId;
 use serde::{Deserialize, Serialize};
 
 /// Payload of an init event
@@ -50,16 +49,16 @@ impl Header {
     pub fn new(
         controllers: Vec<String>,
         sep: String,
-        model: Option<Bytes>,
+        model: Option<Vec<u8>>,
         should_index: Option<bool>,
-        unique: Option<Bytes>,
+        unique: Option<Vec<u8>>,
     ) -> Self {
         Self {
             controllers,
             sep,
-            model,
+            model: model.map(Bytes::from),
             should_index,
-            unique,
+            unique: unique.map(Bytes::from),
         }
     }
 
@@ -74,8 +73,8 @@ impl Header {
     }
 
     /// Get the model
-    pub fn model(&self) -> Option<&Bytes> {
-        self.model.as_ref()
+    pub fn model(&self) -> Option<&[u8]> {
+        self.model.as_ref().map(|m| m.as_slice())
     }
 
     /// Signal to indexers whether this stream should be indexed
