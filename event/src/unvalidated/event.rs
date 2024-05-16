@@ -13,7 +13,7 @@ pub enum Event<D> {
     // the compiler). Therefore we box it here to keep the Event enum small.
     Time(Box<TimeEvent>),
     /// Signed event in a stream
-    Signed(signed::Payload),
+    Signed(signed::Envelope),
     /// Unsigned event in a stream
     Unsigned(init::Payload<D>),
 }
@@ -30,8 +30,8 @@ impl<D> From<init::Payload<D>> for Event<D> {
     }
 }
 
-impl<D> From<signed::Payload> for Event<D> {
-    fn from(value: signed::Payload) -> Self {
+impl<D> From<signed::Envelope> for Event<D> {
+    fn from(value: signed::Envelope) -> Self {
         Self::Signed(value)
     }
 }
