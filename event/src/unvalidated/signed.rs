@@ -14,8 +14,8 @@ use std::collections::BTreeMap;
 
 /// Materialized signed Event.
 pub struct Event<D> {
-    pub envelope: Envelope, // todo not public
-    pub payload: Payload<D>,
+    envelope: Envelope,
+    payload: Payload<D>,
 }
 
 impl<D: serde::Serialize> Event<D> {
@@ -51,6 +51,10 @@ impl<D: serde::Serialize> Event<D> {
                 }],
             },
         })
+    }
+
+    pub fn encode_envelope(&self) -> anyhow::Result<Vec<u8>> {
+        Ok(serde_ipld_dagcbor::to_vec(&self.envelope)?)
     }
 }
 

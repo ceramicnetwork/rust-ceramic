@@ -351,7 +351,7 @@ mod tests {
 
         let envelope_cbor_str = multibase::encode(
             multibase::Base::Base64Url,
-            &serde_ipld_dagcbor::to_vec(&signed_event.envelope).unwrap(),
+            &signed_event.encode_envelope().unwrap(),
         );
 
         assert_eq!(SIGNED_INIT_EVENT, envelope_cbor_str);
