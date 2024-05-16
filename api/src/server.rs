@@ -289,7 +289,7 @@ where
             loop {
                 let mut buf = Vec::with_capacity(EVENTS_TO_RECEIVE);
                 tokio::select! {
-                    _ = interval.tick(), if !events.is_empty() => {
+                    _ = interval.tick() => {
                         Self::process_events(&mut events, &event_store).await;
                     }
                     val = event_rx.recv_many(&mut buf, EVENTS_TO_RECEIVE) => {
@@ -297,20 +297,24 @@ where
                             events.extend(buf);
                         }
                     }
-                    else => {
-                        tracing::info!("Shutting down insert task.");
-                        Self::process_events(&mut events, &event_store).await;
-                    }
                 }
+                let shutdown = event_rx.is_closed();
                 // make sure the events queue doesn't get too deep when we're under heavy load
-                if events.len() >= EVENT_INSERT_QUEUE_SIZE {
+                if events.len() >= EVENT_INSERT_QUEUE_SIZE || shutdown {
                     Self::process_events(&mut events, &event_store).await;
+                }
+                if shutdown {
+                    tracing::info!("Shutting down insert task.");
+                    return;
                 }
             }
         })
     }
 
     async fn process_events(events: &mut Vec<EventInsert>, event_store: &Arc<M>) {
+        if events.is_empty() {
+            return;
+        }
         let mut oneshots = Vec::with_capacity(events.len());
         let mut items = Vec::with_capacity(events.len());
         events.drain(..).for_each(|req: EventInsert| {
