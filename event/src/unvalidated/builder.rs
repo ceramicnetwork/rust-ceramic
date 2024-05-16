@@ -210,6 +210,9 @@ mod tests {
     use multibase;
 
     use super::*;
+    use crate::unvalidated::signed;
+    use crate::unvalidated::signed::JwkSigner;
+    use crate::DidDocument;
     use cid::Cid;
     use std::str::FromStr;
 
@@ -229,12 +232,7 @@ mod tests {
         WdGhiaXlTY21mdThuNVY3Ym9YZ3h5bzVxM1NaUlIifWlzaWduYXR1cmVYQCQDjlx8fT8rbTR4088HtOE
         27LJMc38DSuf1_XtK14hDp1Q6vhHqnuiobqp5EqNOp0vNFCCzwgG-Dsjmes9jJww";
 
-    const SIGNED_INIT_EVENT: &str = "
-        uomdwYXlsb2FkWCQBcRIgEXCWI0EH1zQcSl57SUKRoo0WwhL6nMo8kLKfvgNaG0Nqc2lnbmF0dXJlc4G
-        iaXByb3RlY3RlZFiBeyJhbGciOiJFZERTQSIsImtpZCI6ImRpZDprZXk6ejZNa3RCeW5BUExyRXllUzd
-        wVnRoYml5U2NtZnU4bjVWN2JvWGd4eW81cTNTWlJSI3o2TWt0QnluQVBMckV5ZVM3cFZ0aGJpeVNjbWZ
-        1OG41Vjdib1hneHlvNXEzU1pSUiJ9aXNpZ25hdHVyZVhAJAOOXHx9PyttNHjTzwe04TbsskxzfwNK5_X
-        9e0rXiEOnVDq-Eeqe6KhuqnkSo06nS80UILPCAb4OyOZ6z2MnDA";
+    const SIGNED_INIT_EVENT: &str = "uomdwYXlsb2FkWCQBcRIgEXCWI0EH1zQcSl57SUKRoo0WwhL6nMo8kLKfvgNaG0Nqc2lnbmF0dXJlc4GiaXByb3RlY3RlZFiBeyJhbGciOiJFZERTQSIsImtpZCI6ImRpZDprZXk6ejZNa3RCeW5BUExyRXllUzdwVnRoYml5U2NtZnU4bjVWN2JvWGd4eW81cTNTWlJSI3o2TWt0QnluQVBMckV5ZVM3cFZ0aGJpeVNjbWZ1OG41Vjdib1hneHlvNXEzU1pSUiJ9aXNpZ25hdHVyZVhAJAOOXHx9PyttNHjTzwe04TbsskxzfwNK5_X9e0rXiEOnVDq-Eeqe6KhuqnkSo06nS80UILPCAb4OyOZ6z2MnDA";
     const SIGNED_INIT_EVENT_PAYLOAD: &str = "uomRkYXRhoWVzdGVwaBkBTWZoZWFkZXKkY3NlcGVtb2RlbGVtb2RlbFgozgECAYUBEiCg6DKjNeOL00C0Og8Cmb88UVoPwz3kzXkQpD6Lkx6NWGZ1bmlxdWVMRKbxOrJBC7tqhWjea2NvbnRyb2xsZXJzgXg4ZGlkOmtleTp6Nk1rdEJ5bkFQTHJFeWVTN3BWdGhiaXlTY21mdThuNVY3Ym9YZ3h5bzVxM1NaUlI";
 
     const UNSIGNED_INIT_EVENT_CID: &str =
@@ -324,8 +322,8 @@ mod tests {
         assert_eq!(DATA_EVENT_PAYLOAD, dagcbor_str);
     }
 
-    #[test]
-    fn sign_init_payload() {
+    #[tokio::test]
+    async fn sign_init_payload() {
         let model =
             StreamId::from_str("kjzl6hvfrbw6c90uwoyz8j519gxma787qbsfjtrarkr1huq1g1s224k7hopvsyg")
                 .unwrap();
@@ -333,14 +331,30 @@ mod tests {
         let unique = vec![68, 166, 241, 58, 178, 65, 11, 187, 106, 133, 104, 222];
         let data = ipld_core::ipld!({"steph": 333});
 
-        let event = Builder::init()
+        let payload = Builder::init()
             .with_controller("did:key:z6MktBynAPLrEyeS7pVthbiyScmfu8n5V7boXgxyo5q3SZRR".to_string())
             .with_sep("model".to_string(), model)
             .with_unique(unique) // optional
             .with_data(data) // optional
             .build();
 
-        assert_eq!(SIGNED_INIT_EVENT, "");
-        assert_eq!(SIGNED_INIT_EVENT_CAR, "");
+        let signer = JwkSigner::new(
+            DidDocument::new("did:key:z6MktBynAPLrEyeS7pVthbiyScmfu8n5V7boXgxyo5q3SZRR#z6MktBynAPLrEyeS7pVthbiyScmfu8n5V7boXgxyo5q3SZRR"),
+            "df9ecf4c79e5ad77701cfc88c196632b353149d85810a381f469f8fc05dc1b92",
+        )
+        .await
+        .unwrap();
+
+        let signed_event = signed::Event::from_payload(unvalidated::Payload::Init(payload), signer)
+            .await
+            .unwrap();
+
+        let envelope_cbor_str = multibase::encode(
+            multibase::Base::Base64Url,
+            &serde_ipld_dagcbor::to_vec(&signed_event.envelope).unwrap(),
+        );
+
+        assert_eq!(SIGNED_INIT_EVENT, envelope_cbor_str);
+        //assert_eq!(SIGNED_INIT_EVENT_CAR, "");
     }
 }

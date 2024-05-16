@@ -14,8 +14,8 @@ use std::collections::BTreeMap;
 
 /// Materialized signed Event.
 pub struct Event<D> {
-    envelope: Envelope,
-    payload: Payload<D>,
+    pub envelope: Envelope, // todo not public
+    pub payload: Payload<D>,
 }
 
 impl<D: serde::Serialize> Event<D> {
@@ -30,7 +30,7 @@ impl<D: serde::Serialize> Event<D> {
         let alg = signer.algorithm();
         let header = ssi::jws::Header {
             algorithm: alg,
-            type_: Some("JWT".to_string()),
+            //            type_: Some("JWT".to_string()),
             key_id: Some(signer.id().id.clone()),
             ..Default::default()
         };
@@ -85,6 +85,7 @@ impl Envelope {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Signature {
     /// The optional unprotected header.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub header: Option<BTreeMap<String, Ipld>>,
     /// The protected header as a JSON object
     pub protected: Option<Bytes>,
