@@ -5,20 +5,16 @@ mod bytes;
 pub mod event_id;
 pub mod interest;
 mod jwk;
-mod jws;
 mod network;
 mod range;
-mod signer;
 mod stream_id;
 
 pub use bytes::Bytes;
 pub use event_id::EventId;
 pub use interest::{Interest, PeerId};
 pub use jwk::Jwk;
-pub use jws::{Jws, JwsSignature};
 pub use network::Network;
 pub use range::RangeOpen;
-pub use signer::{JwkSigner, Signer};
 pub use stream_id::{StreamId, StreamIdType};
 
 pub use cid::Cid;

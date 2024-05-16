@@ -1,13 +1,11 @@
 use crate::unvalidated;
 use cid::Cid;
-use ipld_core::ipld::Ipld;
 
 /// Builder for construct events.
 pub struct Builder;
 
 impl Builder {
     /// Create builder for init events
-    #[allow(private_interfaces)]
     pub fn init() -> InitBuilder<InitBuilderEmpty> {
         InitBuilder {
             state: InitBuilderEmpty,
@@ -15,7 +13,6 @@ impl Builder {
     }
 
     /// Create builder for data events
-    #[allow(private_interfaces)]
     pub fn data() -> DataBuilder<DataBuilderEmpty> {
         DataBuilder {
             state: DataBuilderEmpty,
@@ -30,17 +27,16 @@ struct Separator {
 
 /// Builder for constructing an [`unvalidated::init::Payload`].
 #[derive(Default)]
-#[allow(private_bounds)]
 pub struct InitBuilder<S: InitBuilderState> {
     state: S,
 }
 
-trait InitBuilderState {}
+pub trait InitBuilderState {}
 
-struct InitBuilderEmpty;
+pub struct InitBuilderEmpty;
 impl InitBuilderState for InitBuilderEmpty {}
 
-struct InitBuilderWithController {
+pub struct InitBuilderWithController {
     controller: String,
 }
 impl InitBuilderState for InitBuilderWithController {}
@@ -53,17 +49,17 @@ impl InitBuilder<InitBuilderEmpty> {
     }
 }
 
-struct InitBuilderWithSep {
+pub struct InitBuilderWithSep<D> {
     controller: String,
     sep: Separator,
     unique: Option<Vec<u8>>,
-    data: Option<Ipld>,
+    data: Option<D>,
     should_index: Option<bool>,
 }
-impl InitBuilderState for InitBuilderWithSep {}
+impl<D> InitBuilderState for InitBuilderWithSep<D> {}
 impl InitBuilder<InitBuilderWithController> {
     /// Specify the separator key and value.
-    pub fn with_sep(self, key: String, value: Vec<u8>) -> InitBuilder<InitBuilderWithSep> {
+    pub fn with_sep<D>(self, key: String, value: Vec<u8>) -> InitBuilder<InitBuilderWithSep<D>> {
         InitBuilder {
             state: InitBuilderWithSep {
                 controller: self.state.controller,
@@ -76,7 +72,7 @@ impl InitBuilder<InitBuilderWithController> {
     }
 }
 
-impl InitBuilder<InitBuilderWithSep> {
+impl<D> InitBuilder<InitBuilderWithSep<D>> {
     /// Specify the unique bytes.
     pub fn with_unique(mut self, unique: Vec<u8>) -> Self {
         self.state.unique = Some(unique);
@@ -90,12 +86,12 @@ impl InitBuilder<InitBuilderWithSep> {
     }
 
     /// Specify the data.
-    pub fn with_data(mut self, data: Ipld) -> Self {
+    pub fn with_data(mut self, data: D) -> Self {
         self.state.data = Some(data);
         self
     }
     /// Build the event.
-    pub fn build(self) -> unvalidated::init::Payload<Ipld> {
+    pub fn build(self) -> unvalidated::init::Payload<D> {
         let header = unvalidated::init::Header::new(
             vec![self.state.controller],
             self.state.sep.key,
@@ -115,15 +111,15 @@ pub struct DataBuilder<S: crate::unvalidated::builder::DataBuilderState> {
     state: S,
 }
 
-trait DataBuilderState {}
+pub trait DataBuilderState {}
 
-struct DataBuilderEmpty;
+pub struct DataBuilderEmpty;
 impl crate::unvalidated::builder::DataBuilderState
     for crate::unvalidated::builder::DataBuilderEmpty
 {
 }
 
-struct DataBuilderWithId {
+pub struct DataBuilderWithId {
     id: Cid,
 }
 impl DataBuilderState for DataBuilderWithId {}
@@ -136,7 +132,7 @@ impl DataBuilder<DataBuilderEmpty> {
     }
 }
 
-struct DataBuilderWithPrev {
+pub struct DataBuilderWithPrev {
     id: Cid,
     prev: Cid,
 }
@@ -156,19 +152,19 @@ impl DataBuilder<DataBuilderWithId> {
     }
 }
 
-struct DataBuilderWithData {
+pub struct DataBuilderWithData<D> {
     id: Cid,
     prev: Cid,
-    data: Ipld,
+    data: D,
     should_index: Option<bool>,
 }
-impl DataBuilderState for crate::unvalidated::builder::DataBuilderWithData {}
+impl<D> DataBuilderState for crate::unvalidated::builder::DataBuilderWithData<D> {}
 impl DataBuilder<DataBuilderWithPrev> {
     /// Specify the data.
-    pub fn with_data(
+    pub fn with_data<D>(
         self,
-        data: Ipld,
-    ) -> DataBuilder<crate::unvalidated::builder::DataBuilderWithData> {
+        data: D,
+    ) -> DataBuilder<crate::unvalidated::builder::DataBuilderWithData<D>> {
         DataBuilder {
             state: crate::unvalidated::builder::DataBuilderWithData {
                 id: self.state.id,
@@ -180,7 +176,7 @@ impl DataBuilder<DataBuilderWithPrev> {
     }
 }
 
-impl DataBuilder<DataBuilderWithData> {
+impl<D> DataBuilder<DataBuilderWithData<D>> {
     /// Specify should_index.
     pub fn with_should_index(mut self, should_index: bool) -> Self {
         self.state.should_index = Some(should_index);
@@ -188,7 +184,7 @@ impl DataBuilder<DataBuilderWithData> {
     }
 
     /// Build the event.
-    pub fn build(self) -> unvalidated::data::Payload<Ipld> {
+    pub fn build(self) -> unvalidated::data::Payload<D> {
         let header = self
             .state
             .should_index
@@ -206,7 +202,6 @@ impl DataBuilder<DataBuilderWithData> {
 #[cfg(test)]
 mod tests {
     use ceramic_core::StreamId;
-    use expect_test::expect;
     use multibase;
 
     use super::*;
@@ -335,9 +330,8 @@ mod tests {
         .await
         .unwrap();
 
-        let signed_event = signed::Event::from_payload(unvalidated::Payload::Init(payload), signer)
-            .await
-            .unwrap();
+        let signed_event =
+            signed::Event::from_payload(unvalidated::Payload::Init(payload), signer).unwrap();
 
         let envelope_cbor_str = multibase::encode(
             multibase::Base::Base64Url,

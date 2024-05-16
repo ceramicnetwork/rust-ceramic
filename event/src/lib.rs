@@ -7,14 +7,11 @@ pub mod unvalidated;
 
 pub use ceramic_core::*;
 
-/// Prelude for building events
-pub mod event_builder {
-    pub use super::unvalidated::{CeramicExt, IntoSignedCeramicEvent, IntoUnsignedCeramicEvent};
-}
-
 #[cfg(test)]
 pub mod tests {
-    use ceramic_core::{DidDocument, JwkSigner};
+    use ceramic_core::DidDocument;
+
+    use crate::unvalidated::signed::JwkSigner;
 
     pub fn to_pretty_json(json_data: &[u8]) -> String {
         let json: serde_json::Value = match serde_json::from_slice(json_data) {

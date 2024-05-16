@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use anyhow::{anyhow, bail, Context, Result};
 use ceramic_core::{Cid, EventId, Network};
-use ceramic_event::{unvalidated, unvalidated::CeramicExt};
+use ceramic_event::unvalidated;
 use ipld_core::ipld::Ipld;
 use iroh_car::CarReader;
 use tokio::io::AsyncRead;

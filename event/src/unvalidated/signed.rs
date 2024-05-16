@@ -37,7 +37,7 @@ impl<D: serde::Serialize> Event<D> {
     }
 
     /// TODO comment
-    pub async fn from_payload(payload: Payload<D>, signer: impl Signer) -> anyhow::Result<Self> {
+    pub fn from_payload(payload: Payload<D>, signer: impl Signer) -> anyhow::Result<Self> {
         let payload_cid = Self::cid_from_dag_cbor(&serde_ipld_dagcbor::to_vec(&payload)?);
         let payload_cid_str =
             base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&payload_cid.to_bytes());
@@ -52,7 +52,7 @@ impl<D: serde::Serialize> Event<D> {
         let header_bytes = serde_json::to_vec(&header)?;
         let header_str = base64::engine::general_purpose::STANDARD_NO_PAD.encode(&header_bytes);
         let signing_input = format!("{}.{}", header_str, payload_cid_str);
-        let signed = signer.sign(signing_input.as_bytes()).await?;
+        let signed = signer.sign(signing_input.as_bytes())?;
 
         let envelope = Envelope {
             payload: payload_cid.to_bytes().into(),
@@ -102,6 +102,10 @@ impl<D: serde::Serialize> Event<D> {
 
         Ok(car)
     }
+
+    pub fn into_parts(self) -> (Envelope, Payload<D>) {
+        (self.envelope, self.payload)
+    }
 }
 
 /// A signed event envelope.
@@ -150,14 +154,25 @@ struct Protected {
 }
 
 /// Sign bytes for an id and algorithm
-#[async_trait::async_trait]
 pub trait Signer {
     /// Algorithm used by signer
     fn algorithm(&self) -> Algorithm;
     /// Id of signer
     fn id(&self) -> &DidDocument;
     /// Sign bytes
-    async fn sign(&self, bytes: &[u8]) -> anyhow::Result<Vec<u8>>;
+    fn sign(&self, bytes: &[u8]) -> anyhow::Result<Vec<u8>>;
+}
+
+impl<'a, S: Signer + Sync> Signer for &'a S {
+    fn algorithm(&self) -> Algorithm {
+        (*self).algorithm()
+    }
+    fn id(&self) -> &DidDocument {
+        (*self).id()
+    }
+    fn sign(&self, bytes: &[u8]) -> anyhow::Result<Vec<u8>> {
+        (*self).sign(bytes)
+    }
 }
 
 /// Did and jwk based signer
@@ -179,7 +194,6 @@ impl JwkSigner {
     }
 }
 
-#[async_trait::async_trait]
 impl Signer for JwkSigner {
     fn algorithm(&self) -> Algorithm {
         Algorithm::EdDSA
@@ -189,7 +203,7 @@ impl Signer for JwkSigner {
         &self.did
     }
 
-    async fn sign(&self, bytes: &[u8]) -> anyhow::Result<Vec<u8>> {
+    fn sign(&self, bytes: &[u8]) -> anyhow::Result<Vec<u8>> {
         Ok(ssi::jws::sign_bytes(self.algorithm(), bytes, &self.jwk)?)
     }
 }
