@@ -90,7 +90,7 @@ impl InitBuilder<InitBuilderWithSep> {
         let header = unvalidated::init::Header::new(
             vec![self.state.controller],
             self.state.sep.key,
-            Some(self.state.sep.value),
+            self.state.sep.value,
             self.state.should_index,
             self.state.unique,
         );

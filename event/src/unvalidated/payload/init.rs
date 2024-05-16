@@ -35,8 +35,8 @@ pub struct Header {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) controllers: Vec<String>, // todo make all fields private
     pub(crate) sep: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) model: Option<Bytes>, // rename to sep_value, make not optional
+    // TODO: Handle separator keys other than "model"
+    pub(crate) model: Bytes,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) should_index: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -49,14 +49,14 @@ impl Header {
     pub fn new(
         controllers: Vec<String>,
         sep: String,
-        model: Option<Vec<u8>>,
+        model: Vec<u8>,
         should_index: Option<bool>,
         unique: Option<Vec<u8>>,
     ) -> Self {
         Self {
             controllers,
             sep,
-            model: model.map(Bytes::from),
+            model: Bytes::from(model),
             should_index,
             unique: unique.map(Bytes::from),
         }
@@ -73,8 +73,8 @@ impl Header {
     }
 
     /// Get the model
-    pub fn model(&self) -> Option<&[u8]> {
-        self.model.as_ref().map(|m| m.as_slice())
+    pub fn model(&self) -> &[u8] {
+        self.model.as_slice()
     }
 
     /// Signal to indexers whether this stream should be indexed

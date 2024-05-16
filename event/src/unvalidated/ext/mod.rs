@@ -26,19 +26,6 @@ pub trait IntoSignedCeramicEvent {
     async fn signed(self, signer: &(impl Signer + Sync)) -> anyhow::Result<SignedEvent>;
 }
 
-const MODEL_KEY: &str = "model";
-
-#[async_trait::async_trait]
-impl<D> CeramicExt for crate::unvalidated::payload::init::Payload<D> {
-    fn model(&self) -> anyhow::Result<&[u8]> {
-        let value = self
-            .header
-            .model()
-            .ok_or_else(|| anyhow::anyhow!(format!("{MODEL_KEY} not found")))?;
-        Ok(value)
-    }
-}
-
 #[async_trait::async_trait]
 impl IntoUnsignedCeramicEvent for crate::unvalidated::init::Payload<()> {
     async fn unsigned(self) -> anyhow::Result<UnsignedEvent> {
@@ -93,7 +80,7 @@ mod tests {
             unvalidated::init::Header::new(
                 vec![signer.id().id.clone()],
                 "model".to_string(),
-                Some(model.to_vec()),
+                model.to_vec(),
                 None,
                 None,
             ),
@@ -136,7 +123,7 @@ mod tests {
             unvalidated::init::Header::new(
                 vec![signer.id().id.clone()],
                 "model".to_string(),
-                Some(mid.to_vec()),
+                mid.to_vec(),
                 None,
                 None,
             ),

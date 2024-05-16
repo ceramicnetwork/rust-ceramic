@@ -68,7 +68,7 @@ where
     Ok(EventId::new(
         &network,
         init_payload.header().sep(),
-        init_payload.model()?,
+        init_payload.header().model(),
         controller,
         &init_id,
         &event_cid,
