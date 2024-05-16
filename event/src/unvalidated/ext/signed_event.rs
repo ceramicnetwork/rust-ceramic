@@ -8,6 +8,10 @@ use serde::Serialize;
 const DAG_CBOR_CODEC: u64 = 0x71;
 
 /// A ceramic event
+/// This is used the format that js-ceramic expects to receive events in via its http api, and is
+/// used by the rust client for js-ceramic.  This is *not* the actual format of a signed-event in
+/// the protocol.
+/// TODO: Delete this once js-ceramic is gone, or once we no longer test against it with a rust client.
 pub struct SignedEvent {
     /// Cid of the data for the event
     pub cid: Cid,
