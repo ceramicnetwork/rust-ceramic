@@ -54,8 +54,7 @@ impl Header {
         should_index: Option<bool>,
         unique: Option<Bytes>,
     ) -> Self {
-        // TODO: Builder should properly handle errors from serializing StreamID to Bytes
-        let model: Option<Bytes> = model.map(|id| Bytes::from(id.to_vec().unwrap()));
+        let model: Option<Bytes> = model.map(|id| Bytes::from(id.to_vec()));
         Self {
             controllers,
             sep,
