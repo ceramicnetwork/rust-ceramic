@@ -6649,6 +6649,7 @@ name = "recon"
 version = "0.18.0"
 dependencies = [
  "anyhow",
+ "async-stream",
  "async-trait",
  "asynchronous-codec 0.6.2",
  "ceramic-core",

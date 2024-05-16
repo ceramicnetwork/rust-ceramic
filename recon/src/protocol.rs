@@ -10,22 +10,23 @@
 //!
 //! Encoding and framing of messages is outside the scope of this crate.
 //! However the message types do implement serde::Serialize and serde::Deserialize.
-use std::pin::Pin;
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
+use async_stream::try_stream;
 use async_trait::async_trait;
 use ceramic_core::RangeOpen;
 use ceramic_metrics::Recorder;
-use futures::{Sink, SinkExt, Stream, TryStreamExt};
+use futures::{pin_mut, stream::BoxStream, Sink, SinkExt, Stream, StreamExt, TryStreamExt};
 use serde::{Deserialize, Serialize};
-use tokio::time::Instant;
-use tracing::{trace, Level};
+use tokio::{join, sync::mpsc, time::Instant};
+use tokio_stream::once;
+use tracing::{instrument, trace, Level};
 use uuid::Uuid;
 
 use crate::{
     metrics::{
-        MessageLabels, MessageRecv, MessageSent, Metrics, ProtocolLoop, ProtocolRun, RangeDequeued,
-        RangeEnqueueFailed, RangeEnqueued,
+        MessageLabels, MessageRecv, MessageSent, Metrics, ProtocolReadLoop, ProtocolRun,
+        ProtocolWriteLoop,
     },
     recon::{RangeHash, SyncState},
     AssociativeHash, Client, Key, Result as ReconResult,
@@ -45,19 +46,23 @@ use crate::{
 // Even a small limit will quickly mean that both peers have work to do.
 const PENDING_RANGES_LIMIT: usize = 20;
 
+type IM<K, H> = ReconMessage<InitiatorMessage<K, H>>;
+type RM<K, H> = ReconMessage<ResponderMessage<K, H>>;
+
 /// Intiate Recon synchronization with a peer over a stream.
 #[tracing::instrument(skip(recon, stream), ret(level = Level::DEBUG))]
 pub async fn initiate_synchronize<S, R, E>(recon: R, stream: S) -> Result<()>
 where
     R: Recon,
-    S: Stream<Item = Result<ReconMessage<ResponderMessage<R::Key, R::Hash>>, E>>
-        + Sink<ReconMessage<InitiatorMessage<R::Key, R::Hash>>, Error = E>
-        + Send,
+    S: Stream<Item = Result<RM<R::Key, R::Hash>, E>>
+        + Sink<IM<R::Key, R::Hash>, Error = E>
+        + Send
+        + 'static,
     E: std::error::Error + Send + Sync + 'static,
 {
     let metrics = recon.metrics();
-    let protocol = Protocol::new(Initiator::new(stream, recon), metrics);
-    protocol.run().await?;
+    let sync_id = Some(Uuid::new_v4().to_string());
+    protocol(sync_id, Initiator::new(recon), stream, metrics).await?;
     Ok(())
 }
 /// Respond to an initiated Recon synchronization with a peer over a stream.
@@ -65,14 +70,14 @@ where
 pub async fn respond_synchronize<S, R, E>(recon: R, stream: S) -> Result<()>
 where
     R: Recon,
-    S: Stream<Item = std::result::Result<ReconMessage<InitiatorMessage<R::Key, R::Hash>>, E>>
-        + Sink<ReconMessage<ResponderMessage<R::Key, R::Hash>>, Error = E>
-        + Send,
+    S: Stream<Item = std::result::Result<IM<R::Key, R::Hash>, E>>
+        + Sink<RM<R::Key, R::Hash>, Error = E>
+        + Send
+        + 'static,
     E: std::error::Error + Send + Sync + 'static,
 {
     let metrics = recon.metrics();
-    let protocol = Protocol::new(Responder::new(stream, recon), metrics);
-    protocol.run().await?;
+    protocol(None, Responder::new(recon), stream, metrics).await?;
     Ok(())
 }
 
@@ -87,14 +92,8 @@ pub struct ReconMessage<T> {
 }
 
 impl<T> ReconMessage<T> {
-    fn new(sync_id: Option<String>, body: T) -> ReconMessage<T>
-    where
-        MessageLabels: for<'a> From<&'a ReconMessage<T>>,
-    {
-        ReconMessage {
-            sync_id: sync_id.clone(),
-            body,
-        }
+    fn new(sync_id: Option<String>, body: T) -> ReconMessage<T> {
+        ReconMessage { sync_id, body }
     }
 }
 
@@ -142,74 +141,222 @@ where
     }
 }
 
-// Protocol manages the state machine of the protocol, delegating to a role implementation.
-struct Protocol<R: Role> {
-    role: R,
-    remote_done: bool,
-    metrics: Metrics,
+type ToWriterSender<M> = mpsc::Sender<ToWriter<M>>;
+
+enum ToWriter<M> {
+    // SyncId learned from the remote.
+    SyncId(String),
+    // Send all messages from the stream to the remote.
+    SendAll(BoxStream<'static, Result<M>>),
+    // Send the messages to the remote as long as its below the work-in-progress limit.
+    // Otherwise messages are queued in LIFO order.
+    SendWIPLimited(Vec<M>),
+    // Mark that in-progress work has completed.
+    WIPCompleted(usize),
 }
 
-impl<R, E> Protocol<R>
+// Run the recon protocol conversation to completion.
+#[instrument(skip_all)]
+async fn protocol<R, S, E>(
+    sync_id: Option<String>,
+    mut role: R,
+    stream: S,
+    metrics: Metrics,
+) -> Result<()>
 where
     R: Role,
+    R::Out: std::fmt::Debug + Send + 'static,
+    R::In: std::fmt::Debug,
+    MessageLabels: for<'a> From<&'a R::Out>,
     MessageLabels: for<'a> From<&'a R::In>,
-    R::Stream: Stream<Item = Result<R::In, E>>,
+    S: Stream<Item = Result<ReconMessage<R::In>, E>>
+        + Sink<ReconMessage<R::Out>, Error = E>
+        + Send
+        + 'static,
     E: std::error::Error + Send + Sync + 'static,
 {
-    fn new(role: R, metrics: Metrics) -> Self {
-        Self {
-            role,
-            remote_done: false,
-            metrics,
+    let start = Instant::now();
+    let (sink, stream) = stream.split();
+    let (to_writer_tx, to_writer_rx) = mpsc::channel(1000);
+
+    let init = role.init().await?;
+    let write = write(
+        sync_id.clone(),
+        sink.sink_map_err(anyhow::Error::from),
+        to_writer_rx,
+        init,
+        role.finish(),
+        PENDING_RANGES_LIMIT,
+        metrics.clone(),
+    );
+
+    let read = read(sync_id.clone(), stream, role, to_writer_tx, metrics.clone());
+
+    let (write, read) = join!(write, read);
+    write?;
+    read?;
+    metrics.record(&ProtocolRun(start.elapsed()));
+    Ok(())
+}
+
+#[instrument(skip_all, fields(sync_id))]
+async fn read<R, S, E>(
+    mut sync_id: Option<String>,
+    stream: S,
+    mut role: R,
+    mut to_writer_tx: mpsc::Sender<ToWriter<R::Out>>,
+    metrics: Metrics,
+) -> Result<()>
+where
+    R: Role,
+    R::Out: std::fmt::Debug + Send,
+    R::In: std::fmt::Debug,
+    MessageLabels: for<'a> From<&'a R::Out>,
+    MessageLabels: for<'a> From<&'a R::In>,
+    S: Stream<Item = Result<ReconMessage<R::In>, E>>,
+    E: std::error::Error + Send + Sync + 'static,
+{
+    if let Some(sync_id) = &sync_id {
+        // Record sync_id on the tracing span
+        tracing::Span::current().record("sync_id", &sync_id);
+    }
+
+    pin_mut!(stream);
+
+    let mut remote_done = false;
+    loop {
+        metrics.record(&ProtocolReadLoop);
+
+        // Read from network
+        if let Some(message) = stream.try_next().await? {
+            metrics.record(&MessageRecv(&message.body));
+            if sync_id.is_none() {
+                if let Some(remote_sync_id) = message.sync_id {
+                    // Record sync_id on the tracing span
+                    tracing::Span::current().record("sync_id", &remote_sync_id);
+                    // Send sync_id to writer task
+                    to_writer_tx
+                        .send(ToWriter::SyncId(remote_sync_id.clone()))
+                        .await
+                        .map_err(|err| anyhow!("{err}"))?;
+                    sync_id = Some(remote_sync_id);
+                }
+            }
+            trace!(?message.body, "received message");
+            if let RemoteStatus::Finished = role
+                .handle_incoming(&mut to_writer_tx, message.body)
+                .await
+                .context("handle incoming")?
+            {
+                remote_done = true;
+            }
+        }
+
+        if role.is_done() && remote_done {
+            break;
         }
     }
-    async fn run(mut self) -> Result<()> {
-        let start = Instant::now();
-        self.role
-            .init()
-            .await
-            .context("initializing protocol loop")?;
 
-        loop {
-            trace!(self.remote_done, "iter");
+    Ok(())
+}
 
-            self.metrics.record(&ProtocolLoop);
+#[instrument(skip_all, fields(sync_id))]
+async fn write<M, S>(
+    mut sync_id: Option<String>,
+    sink: S,
+    mut to_writer_rx: mpsc::Receiver<ToWriter<M>>,
+    init: Option<M>,
+    finish: Option<M>,
+    wip_limit: usize,
+    metrics: Metrics,
+) -> Result<()>
+where
+    S: Sink<ReconMessage<M>, Error = anyhow::Error>,
+    MessageLabels: for<'a> From<&'a M>,
+    M: std::fmt::Debug,
+{
+    if let Some(sync_id) = &sync_id {
+        // Record sync_id on the tracing span
+        tracing::Span::current().record("sync_id", &sync_id);
+    }
+    pin_mut!(sink);
 
-            // Poll network
-            let stream = self.role.stream();
-            if let Some(message) = stream.try_next().await? {
-                self.metrics.record(&MessageRecv(&message));
-                self.handle_incoming(message)
-                    .await
-                    .context("handle incoming")?;
+    // Use a stack so we get depth first traversal
+    let mut message_stack = Vec::new();
+    // Track in progress
+    let mut in_progress = 0;
+
+    if let Some(init) = init {
+        trace!(?init, "sending init");
+        metrics.record(&MessageSent(&init));
+        sink.send(ReconMessage::new(sync_id.clone(), init)).await?;
+    }
+
+    // Write messages to the remote until there are no more messages to send.
+    while let Some(action) = to_writer_rx.recv().await {
+        metrics.record(&ProtocolWriteLoop);
+        match action {
+            ToWriter::SyncId(remote_sync_id) => {
+                // Record sync_id on the tracing span
+                tracing::Span::current().record("sync_id", &remote_sync_id);
+                sync_id = Some(remote_sync_id);
             }
+            ToWriter::SendAll(messages) => {
+                sink.send_all(&mut messages.map(|msg| {
+                    msg.map(|message| {
+                        metrics.record(&MessageSent(&message));
+                        trace!(?message, "sending message");
+                        ReconMessage::new(sync_id.clone(), message)
+                    })
+                }))
+                .await?;
+            }
+            ToWriter::WIPCompleted(count) => {
+                in_progress -= count;
+            }
+            ToWriter::SendWIPLimited(mut messages) => {
+                if in_progress < wip_limit {
+                    let capacity = wip_limit - in_progress;
+                    let mut sent = false;
+                    for message in messages.drain(..std::cmp::min(messages.len(), capacity)) {
+                        in_progress += 1;
+                        sent = true;
+                        trace!(?message, "feeding message");
+                        metrics.record(&MessageSent(&message));
+                        sink.feed(ReconMessage::new(sync_id.clone(), message))
+                            .await?;
+                    }
+                    if sent {
+                        sink.flush().await?;
+                    }
+                }
+                message_stack.extend(messages);
+            }
+        }
 
-            self.role.each().await?;
-
-            if self.role.is_done() && self.remote_done {
+        // Send any pending messages from the stack
+        let mut sent = false;
+        while in_progress < wip_limit {
+            if let Some(message) = message_stack.pop() {
+                sent = true;
+                in_progress += 1;
+                trace!(?message, "feeding message");
+                metrics.record(&MessageSent(&message));
+                sink.feed(ReconMessage::new(sync_id.clone(), message))
+                    .await?
+            } else {
                 break;
             }
         }
-
-        self.role
-            .finish()
-            .await
-            .context("finishing protocol loop")?;
-
-        self.role.close().await.context("closing stream")?;
-        self.metrics.record(&ProtocolRun(start.elapsed()));
-        Ok(())
-    }
-
-    async fn handle_incoming(&mut self, message: R::In) -> Result<()> {
-        match self.role.handle_incoming(message).await? {
-            RemoteStatus::Active => {}
-            RemoteStatus::Finished => {
-                self.remote_done = true;
-            }
+        if sent {
+            sink.flush().await?;
         }
-        Ok(())
     }
+
+    if let Some(finish) = finish {
+        sink.send(ReconMessage::new(sync_id, finish)).await?;
+    }
+    Ok(())
 }
 
 // Role represents a specific behavior within the overal protocol state machine
@@ -217,87 +364,69 @@ where
 #[async_trait]
 trait Role {
     type In;
+    type Out;
     type Key;
-    type Stream;
 
-    // Borrow the stream so we can read from it.
-    fn stream(&mut self) -> &mut Pin<Box<Self::Stream>>;
+    // Compute initial message if any to send
+    async fn init(&mut self) -> Result<Option<Self::Out>>;
 
-    // Do work before the main event loop.
-    async fn init(&mut self) -> Result<()>;
-    // Do work within each event loop.
-    // This is called only after the main select has resovled.
-    // This allows pending work to make progress without competing with the main event loop.
-    async fn each(&mut self) -> Result<()>;
-    // Do work after the main event loop has finished.
-    async fn finish(&mut self) -> Result<()>;
-    // Close the stream + sink down.
-    async fn close(&mut self) -> Result<()>;
+    // Finish message if any to send when the protocol is complete
+    fn finish(&mut self) -> Option<Self::Out>;
 
     // Report if we are expecting more incoming messages.
     fn is_done(&self) -> bool;
 
     // Handle an incoming message from the remote.
-    async fn handle_incoming(&mut self, message: Self::In) -> Result<RemoteStatus>;
+    async fn handle_incoming(
+        &mut self,
+        to_writer: &mut ToWriterSender<Self::Out>,
+        message: Self::In,
+    ) -> Result<RemoteStatus>;
 }
-
-type InitiatorValue<K, H> = fn(Option<String>, Value<K>) -> ReconMessage<InitiatorMessage<K, H>>;
 
 // Initiator implements the Role that starts the synchronize conversation.
-struct Initiator<R, S>
+struct Initiator<R>
 where
     R: Recon,
 {
-    common: Common<R, S, InitiatorValue<R::Key, R::Hash>>,
+    common: Common<R>,
 
-    // Use a stack for buffered ranges as this ensures we traverse depth first
-    // through the key space tree.
-    ranges_stack: Vec<RangeHash<R::Key, R::Hash>>,
     pending_ranges: usize,
-
-    metrics: Metrics,
 }
 
-impl<R, S, E> Initiator<R, S>
+impl<R> Initiator<R>
 where
     R: Recon,
-    S: Stream<Item = Result<ReconMessage<ResponderMessage<R::Key, R::Hash>>, E>>
-        + Sink<ReconMessage<InitiatorMessage<R::Key, R::Hash>>, Error = E>,
-    E: std::error::Error + Send + Sync + 'static,
 {
-    fn new(stream: S, recon: R) -> Self {
-        let metrics = recon.metrics();
-        let stream = SinkFlusher::new(stream, metrics.clone());
-        // Use a stack size large enough to handle the split factor of range requests.
-        let ranges_stack = Vec::with_capacity(PENDING_RANGES_LIMIT * 10);
-
+    fn new(recon: R) -> Self {
         Self {
-            common: Common {
-                stream,
-                recon,
-                value_resp_fn: |sync_id, value_resp| {
-                    ReconMessage::new(sync_id, InitiatorMessage::Value(value_resp))
-                },
-                sync_id: Some(Uuid::new_v4().to_string()),
-            },
-            ranges_stack,
+            common: Common { recon },
             pending_ranges: 0,
-            metrics,
         }
     }
 
-    async fn process_range(&mut self, remote_range: RangeHash<R::Key, R::Hash>) -> Result<()> {
+    async fn process_range(
+        &mut self,
+        to_writer: &mut ToWriterSender<InitiatorMessage<R::Key, R::Hash>>,
+        remote_range: RangeHash<R::Key, R::Hash>,
+    ) -> Result<()> {
         let sync_state = self.common.recon.process_range(remote_range).await?;
         match sync_state {
             SyncState::Synchronized { .. } => {}
             SyncState::RemoteMissing { ranges } => {
-                for range in &ranges {
-                    self.common.process_remote_missing_range(range).await?;
-                }
-                self.send_ranges(ranges.into_iter()).await?;
+                to_writer
+                    .send(ToWriter::SendAll(
+                        self.common
+                            .process_remote_missing_ranges(ranges.clone())
+                            .map(move |value| value.map(|value| InitiatorMessage::Value(value)))
+                            .boxed(),
+                    ))
+                    .await
+                    .map_err(|err| anyhow!("{err}"))?;
+                self.send_ranges(ranges.into_iter(), to_writer).await?;
             }
             SyncState::Unsynchronized { ranges } => {
-                self.send_ranges(ranges.into_iter()).await?;
+                self.send_ranges(ranges.into_iter(), to_writer).await?;
             }
         }
 
@@ -307,110 +436,50 @@ where
     async fn send_ranges(
         &mut self,
         ranges: impl ExactSizeIterator<Item = RangeHash<R::Key, R::Hash>>,
+        to_writer: &mut ToWriterSender<InitiatorMessage<R::Key, R::Hash>>,
     ) -> Result<()> {
-        // Do all ranges fit under the limit, if so send them all
-        if self.pending_ranges < PENDING_RANGES_LIMIT {
-            self.pending_ranges += ranges.len();
-            self.common
-                .stream
-                .send_all(
-                    ranges
-                        .into_iter()
-                        .map(|range| {
-                            self.common
-                                .create_message(InitiatorMessage::RangeRequest(range))
-                        })
-                        .collect(),
-                )
-                .await?;
-        } else {
-            // Send as many as fit under the limit and buffer the rest
-            let mut to_send = Vec::with_capacity(PENDING_RANGES_LIMIT);
-            for range in ranges {
-                if self.pending_ranges < PENDING_RANGES_LIMIT {
-                    self.pending_ranges += 1;
-                    to_send.push(
-                        self.common
-                            .create_message(InitiatorMessage::RangeRequest(range)),
-                    );
-                } else if self.ranges_stack.len() < self.ranges_stack.capacity() {
-                    self.ranges_stack.push(range);
-                    self.metrics.record(&RangeEnqueued);
-                } else {
-                    // blocked due to channel back pressure
-                    self.metrics.record(&RangeEnqueueFailed);
-                }
-            }
-            if !to_send.is_empty() {
-                self.common.stream.send_all(to_send).await?;
-            }
-        };
+        self.pending_ranges += ranges.len();
+        to_writer
+            .send(ToWriter::SendWIPLimited(
+                ranges
+                    .map(move |range| InitiatorMessage::RangeRequest(range))
+                    .collect(),
+            ))
+            .await
+            .map_err(|err| anyhow!("{err}"))?;
+
         Ok(())
     }
 }
 
 #[async_trait]
-impl<R, S, E> Role for Initiator<R, S>
+impl<R> Role for Initiator<R>
 where
     R: Recon,
-    S: Stream<Item = std::result::Result<ReconMessage<ResponderMessage<R::Key, R::Hash>>, E>>
-        + Sink<ReconMessage<InitiatorMessage<R::Key, R::Hash>>, Error = E>
-        + Send,
-    E: std::error::Error + Send + Sync + 'static,
 {
-    type In = ReconMessage<ResponderMessage<R::Key, R::Hash>>;
+    type In = ResponderMessage<R::Key, R::Hash>;
+    type Out = InitiatorMessage<R::Key, R::Hash>;
     type Key = R::Key;
-    type Stream = S;
 
-    fn stream(&mut self) -> &mut Pin<Box<Self::Stream>> {
-        &mut self.common.stream.inner
-    }
-
-    async fn init(&mut self) -> Result<()> {
+    async fn init(&mut self) -> Result<Option<Self::Out>> {
         //  Send interests
         let interests = self.common.recon.interests().await.context("interests")?;
-        self.common
-            .stream
-            .send(
-                self.common
-                    .create_message(InitiatorMessage::InterestRequest(interests)),
-            )
-            .await
-            .context("sending interests")
-    }
-    async fn each(&mut self) -> Result<()> {
-        if self.pending_ranges < PENDING_RANGES_LIMIT {
-            if let Some(range) = self.ranges_stack.pop() {
-                self.metrics.record(&RangeDequeued);
-                self.pending_ranges += 1;
-                self.common
-                    .stream
-                    .send(
-                        self.common
-                            .create_message(InitiatorMessage::RangeRequest(range)),
-                    )
-                    .await?;
-            };
-        }
-        Ok(())
+        Ok(Some(InitiatorMessage::InterestRequest(interests)))
     }
 
-    async fn finish(&mut self) -> Result<()> {
-        self.common
-            .stream
-            .send(self.common.create_message(InitiatorMessage::Finished))
-            .await
-    }
-    async fn close(&mut self) -> Result<()> {
-        self.common.stream.close().await
+    fn finish(&mut self) -> Option<Self::Out> {
+        Some(InitiatorMessage::Finished)
     }
     fn is_done(&self) -> bool {
         self.pending_ranges == 0
     }
 
-    async fn handle_incoming(&mut self, message: Self::In) -> Result<RemoteStatus> {
-        trace!(?message, "handle_incoming");
-        match message.body {
+    async fn handle_incoming(
+        &mut self,
+        to_writer: &mut ToWriterSender<Self::Out>,
+        message: Self::In,
+    ) -> Result<RemoteStatus> {
+        match message {
             ResponderMessage::InterestResponse(interests) => {
                 let mut ranges = Vec::with_capacity(interests.len());
                 for interest in interests {
@@ -422,25 +491,18 @@ where
                             .context("querying initial range")?,
                     );
                 }
-                self.send_ranges(ranges.into_iter()).await?;
-                // Handle the case of no interests in common
-                if self.is_done() {
-                    Ok(RemoteStatus::Finished)
-                } else {
-                    Ok(RemoteStatus::Active)
-                }
+                self.send_ranges(ranges.into_iter(), to_writer).await?;
             }
             ResponderMessage::RangeResponse(ranges) => {
                 self.pending_ranges -= 1;
+                to_writer
+                    .send(ToWriter::WIPCompleted(1))
+                    .await
+                    .map_err(|err| anyhow!("{err}"))?;
                 for range in ranges {
-                    self.process_range(range)
+                    self.process_range(to_writer, range)
                         .await
                         .context("processing range")?;
-                }
-                if self.is_done() {
-                    Ok(RemoteStatus::Finished)
-                } else {
-                    Ok(RemoteStatus::Active)
                 }
             }
             ResponderMessage::Value(Value { key, value }) => {
@@ -448,83 +510,68 @@ where
                     .process_value_response(key, value)
                     .await
                     .context("processing value response")?;
-                Ok(RemoteStatus::Active)
             }
-        }
+        };
+        // Local is the initiator, the remote (responder) is always finished
+        Ok(RemoteStatus::Finished)
     }
 }
-
-type ResponderValueResponseFn<K, H> =
-    fn(Option<String>, Value<K>) -> ReconMessage<ResponderMessage<K, H>>;
 
 // Responder implements the [`Role`] where it responds to incoming requests.
-struct Responder<R, S>
+struct Responder<R>
 where
     R: Recon,
 {
-    common: Common<R, S, ResponderValueResponseFn<R::Key, R::Hash>>,
+    common: Common<R>,
 }
 
-impl<R, S, E> Responder<R, S>
+impl<R> Responder<R>
 where
     R: Recon,
-    S: Stream<Item = std::result::Result<ReconMessage<InitiatorMessage<R::Key, R::Hash>>, E>>
-        + Sink<ReconMessage<ResponderMessage<R::Key, R::Hash>>, Error = E>,
-    E: std::error::Error + Send + Sync + 'static,
 {
-    fn new(stream: S, recon: R) -> Self {
-        let metrics = recon.metrics();
-        let stream = SinkFlusher::new(stream, metrics);
-
+    fn new(recon: R) -> Self {
         Self {
-            common: Common {
-                stream,
-                recon,
-                value_resp_fn: |sync_id, value_resp| {
-                    ReconMessage::new(sync_id, ResponderMessage::Value(value_resp))
-                },
-                // Responder does not generate a sync ID. This will be set after the Responder receives the sync ID from
-                // the Initiator in the InterestRequest message.
-                sync_id: None,
-            },
+            common: Common { recon },
         }
     }
 
-    async fn process_range(&mut self, range: RangeHash<R::Key, R::Hash>) -> Result<()> {
+    async fn process_range(
+        &mut self,
+        to_writer: &mut ToWriterSender<ResponderMessage<R::Key, R::Hash>>,
+        range: RangeHash<R::Key, R::Hash>,
+    ) -> Result<()> {
         let sync_state = self.common.recon.process_range(range).await?;
         match sync_state {
             SyncState::Synchronized { range } => {
                 // We are sync echo back the same range so that the remote learns we are in sync.
-                self.common
-                    .stream
-                    .send(
-                        self.common
-                            .create_message(ResponderMessage::RangeResponse(vec![range])),
-                    )
-                    .await?;
+                to_writer
+                    .send(ToWriter::SendAll(
+                        once(Ok(ResponderMessage::RangeResponse(vec![range]))).boxed(),
+                    ))
+                    .await
+                    .map_err(|err| anyhow!("{err}"))?;
             }
             SyncState::RemoteMissing { ranges } => {
-                for range in &ranges {
-                    self.common.process_remote_missing_range(range).await?;
-                }
-                // Send the range hash after we have sent all keys so the remote learns we are in
-                // sync.
-                self.common
-                    .stream
-                    .send(
+                to_writer
+                    .send(ToWriter::SendAll(
                         self.common
-                            .create_message(ResponderMessage::RangeResponse(ranges)),
-                    )
-                    .await?;
+                            .process_remote_missing_ranges(ranges.clone())
+                            .map(move |value| value.map(|value| ResponderMessage::Value(value)))
+                            // Send the range hash after we have sent all keys so the remote learns we are in
+                            // sync.
+                            .chain(once(Ok(ResponderMessage::RangeResponse(ranges))))
+                            .boxed(),
+                    ))
+                    .await
+                    .map_err(|err| anyhow!("{err}"))?;
             }
             SyncState::Unsynchronized { ranges: splits } => {
-                self.common
-                    .stream
-                    .send(
-                        self.common
-                            .create_message(ResponderMessage::RangeResponse(splits)),
-                    )
-                    .await?;
+                to_writer
+                    .send(ToWriter::SendAll(
+                        once(Ok(ResponderMessage::RangeResponse(splits))).boxed(),
+                    ))
+                    .await
+                    .map_err(|err| anyhow!("{err}"))?;
             }
         }
         Ok(())
@@ -532,56 +579,42 @@ where
 }
 
 #[async_trait]
-impl<R, S, E> Role for Responder<R, S>
+impl<R> Role for Responder<R>
 where
     R: Recon,
-    S: Stream<Item = std::result::Result<ReconMessage<InitiatorMessage<R::Key, R::Hash>>, E>>
-        + Sink<ReconMessage<ResponderMessage<R::Key, R::Hash>>, Error = E>
-        + Send,
-    E: std::error::Error + Send + Sync + 'static,
 {
-    type In = ReconMessage<InitiatorMessage<R::Key, R::Hash>>;
+    type In = InitiatorMessage<R::Key, R::Hash>;
+    type Out = ResponderMessage<R::Key, R::Hash>;
     type Key = R::Key;
-    type Stream = S;
 
-    fn stream(&mut self) -> &mut Pin<Box<Self::Stream>> {
-        &mut self.common.stream.inner
+    async fn init(&mut self) -> Result<Option<Self::Out>> {
+        Ok(None)
     }
-
-    async fn init(&mut self) -> Result<()> {
-        Ok(())
-    }
-    async fn each(&mut self) -> Result<()> {
-        Ok(())
-    }
-    async fn finish(&mut self) -> Result<()> {
-        Ok(())
-    }
-    async fn close(&mut self) -> Result<()> {
-        self.common.stream.close().await
+    fn finish(&mut self) -> Option<Self::Out> {
+        None
     }
     fn is_done(&self) -> bool {
         true
     }
 
-    async fn handle_incoming(&mut self, message: Self::In) -> Result<RemoteStatus> {
-        trace!(?message, "handle_incoming");
-        match message.body {
+    async fn handle_incoming(
+        &mut self,
+        to_writer: &mut ToWriterSender<Self::Out>,
+        message: Self::In,
+    ) -> Result<RemoteStatus> {
+        match message {
             InitiatorMessage::InterestRequest(interests) => {
-                // Store the sync ID from the InterestRequest
-                self.common.sync_id = message.sync_id;
                 let ranges = self.common.recon.process_interests(interests).await?;
-                self.common
-                    .stream
-                    .send(
-                        self.common
-                            .create_message(ResponderMessage::InterestResponse(ranges)),
-                    )
-                    .await?;
+                to_writer
+                    .send(ToWriter::SendAll(
+                        once(Ok(ResponderMessage::InterestResponse(ranges))).boxed(),
+                    ))
+                    .await
+                    .map_err(|err| anyhow!("{err}"))?;
                 Ok(RemoteStatus::Active)
             }
             InitiatorMessage::RangeRequest(range) => {
-                self.process_range(range).await?;
+                self.process_range(to_writer, range).await?;
                 Ok(RemoteStatus::Active)
             }
             InitiatorMessage::Value(Value { key, value }) => {
@@ -594,22 +627,13 @@ where
 }
 
 // Common implements common behaviors to both [`Initiator`] and [`Responder`].
-struct Common<R: Recon, S, V> {
-    stream: SinkFlusher<S>,
+struct Common<R: Recon> {
     recon: R,
-
-    value_resp_fn: V,
-
-    sync_id: Option<String>,
 }
 
-impl<R, S, E, In, Out, V> Common<R, S, V>
+impl<R> Common<R>
 where
     R: Recon,
-    S: Stream<Item = std::result::Result<In, E>> + Sink<Out, Error = E>,
-    E: std::error::Error + Send + Sync + 'static,
-    V: Fn(Option<String>, Value<R::Key>) -> Out,
-    MessageLabels: for<'a> From<&'a Out>,
 {
     async fn process_value_response(&mut self, key: R::Key, value: Vec<u8>) -> Result<()> {
         self.recon
@@ -619,38 +643,25 @@ where
         Ok(())
     }
     // The remote is missing all keys in the range send them over.
-    async fn process_remote_missing_range(
+    fn process_remote_missing_ranges(
         &mut self,
-        range: &RangeHash<R::Key, R::Hash>,
-    ) -> Result<()> {
-        // TODO: This logic has two potential failure modes we need to test them
-        // 1. We allocate memory of all keys in the range, this can be very large.
-        // 2. We spend a lot of time writing out to the stream but not reading from the stream.
-        //    This can be a potential deadlock if both side enter this method for a large amount of
-        //    keys at the same time.
-
-        let keys = self
-            .recon
-            .range(range.first.clone(), range.last.clone(), 0, usize::MAX)
-            .await?;
-        for key in keys {
-            if let Some(value) = self.recon.value_for_key(key.clone()).await? {
-                self.stream
-                    .send((self.value_resp_fn)(
-                        self.sync_id.clone(),
-                        Value { key, value },
-                    ))
+        ranges: Vec<RangeHash<R::Key, R::Hash>>,
+    ) -> impl Stream<Item = Result<Value<R::Key>>> {
+        let recon = self.recon.clone();
+        try_stream! {
+            for range in ranges {
+                // TODO this holds all keys in memory
+                // Paginate or otherwise stream the keys and values back out
+                let keys = recon
+                    .range(range.first, range.last, 0, usize::MAX)
                     .await?;
+                for key in keys {
+                    if let Some(value) = recon.value_for_key(key.clone()).await? {
+                        yield Value { key, value };
+                    }
+                }
             }
         }
-        Ok(())
-    }
-
-    fn create_message<T>(&self, body: T) -> ReconMessage<T>
-    where
-        MessageLabels: for<'a> From<&'a ReconMessage<T>>,
-    {
-        ReconMessage::new(self.sync_id.clone(), body)
     }
 }
 
@@ -659,60 +670,6 @@ enum RemoteStatus {
     Active,
     // The remote will no longer send any messages.
     Finished,
-}
-
-// Wrapper around a sink that flushes at least every [`SINK_BUFFER_COUNT`].
-struct SinkFlusher<S> {
-    inner: Pin<Box<S>>,
-    feed_count: usize,
-    metrics: Metrics,
-}
-
-impl<S> SinkFlusher<S> {
-    fn new<T>(stream: S, metrics: Metrics) -> Self
-    where
-        S: Sink<T>,
-    {
-        let stream = Box::pin(stream);
-        Self {
-            inner: stream,
-            feed_count: 0,
-            metrics,
-        }
-    }
-    async fn send<T, E>(&mut self, message: T) -> Result<()>
-    where
-        S: Sink<T, Error = E>,
-        E: std::error::Error + Send + Sync + 'static,
-        MessageLabels: for<'a> From<&'a T>,
-    {
-        self.metrics.record(&MessageSent(&message));
-        self.inner.send(message).await?;
-        self.feed_count = 0;
-        Ok(())
-    }
-    async fn send_all<T, E>(&mut self, messages: Vec<T>) -> Result<()>
-    where
-        S: Sink<T, Error = E>,
-        E: std::error::Error + Send + Sync + 'static,
-        MessageLabels: for<'a> From<&'a T>,
-    {
-        for message in messages {
-            self.metrics.record(&MessageSent(&message));
-            self.inner.feed(message).await?;
-        }
-        self.inner.flush().await?;
-        self.feed_count = 0;
-        Ok(())
-    }
-    async fn close<T, E>(&mut self) -> Result<()>
-    where
-        S: Sink<T, Error = E>,
-        E: std::error::Error + Send + Sync + 'static,
-    {
-        // sink `poll_close()` will flush
-        self.inner.close().await.context("closing")
-    }
 }
 
 /// Defines the Recon API.
