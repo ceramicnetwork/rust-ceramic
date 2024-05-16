@@ -17,6 +17,8 @@ use std::collections::BTreeMap;
 pub struct Event<D> {
     envelope: Envelope,
     payload: Payload<D>,
+    envelope_cid: Cid,
+    payload_cid: Cid,
 }
 
 impl<D: serde::Serialize> Event<D> {
@@ -36,8 +38,9 @@ impl<D: serde::Serialize> Event<D> {
 
     /// TODO comment
     pub async fn from_payload(payload: Payload<D>, signer: impl Signer) -> anyhow::Result<Self> {
-        let cid = Self::cid_from_dag_cbor(&serde_ipld_dagcbor::to_vec(&payload)?);
-        let cid_str = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&cid.to_bytes());
+        let payload_cid = Self::cid_from_dag_cbor(&serde_ipld_dagcbor::to_vec(&payload)?);
+        let payload_cid_str =
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&payload_cid.to_bytes());
 
         let alg = signer.algorithm();
         let header = ssi::jws::Header {
@@ -48,19 +51,25 @@ impl<D: serde::Serialize> Event<D> {
         // creates compact signature of protected.signature
         let header_bytes = serde_json::to_vec(&header)?;
         let header_str = base64::engine::general_purpose::STANDARD_NO_PAD.encode(&header_bytes);
-        let signing_input = format!("{}.{}", header_str, cid_str);
+        let signing_input = format!("{}.{}", header_str, payload_cid_str);
         let signed = signer.sign(signing_input.as_bytes()).await?;
+
+        let envelope = Envelope {
+            payload: payload_cid.to_bytes().into(),
+            signatures: vec![Signature {
+                header: None,
+                protected: Some(header_bytes.into()),
+                signature: signed.into(),
+            }],
+        };
+
+        let envelope_cid = Self::cid_from_dag_jose(&serde_ipld_dagcbor::to_vec(&envelope)?);
 
         Ok(Self {
             payload,
-            envelope: Envelope {
-                payload: cid.to_bytes().into(),
-                signatures: vec![Signature {
-                    header: None,
-                    protected: Some(header_bytes.into()),
-                    signature: signed.into(),
-                }],
-            },
+            envelope,
+            envelope_cid,
+            payload_cid,
         })
     }
 
@@ -72,18 +81,23 @@ impl<D: serde::Serialize> Event<D> {
         Ok(serde_ipld_dagcbor::to_vec(&self.payload)?)
     }
 
+    pub fn envelope_cid(&self) -> Cid {
+        self.envelope_cid
+    }
+
+    pub fn payload_cid(&self) -> Cid {
+        self.payload_cid
+    }
+
     pub async fn encode_car(&self) -> anyhow::Result<Vec<u8>> {
         let envelope_bytes = self.encode_envelope()?;
         let payload_bytes = self.encode_payload()?;
 
-        let envelope_cid = Self::cid_from_dag_jose(&envelope_bytes);
-        let payload_cid = Self::cid_from_dag_cbor(&payload_bytes);
-
         let mut car = Vec::new();
-        let roots: Vec<Cid> = vec![envelope_cid];
+        let roots: Vec<Cid> = vec![self.envelope_cid];
         let mut writer = CarWriter::new(CarHeader::V1(roots.into()), &mut car);
-        writer.write(payload_cid, payload_bytes).await?;
-        writer.write(envelope_cid, envelope_bytes).await?;
+        writer.write(self.payload_cid, payload_bytes).await?;
+        writer.write(self.envelope_cid, envelope_bytes).await?;
         writer.finish().await?;
 
         Ok(car)
