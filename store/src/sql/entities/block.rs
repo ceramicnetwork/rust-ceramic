@@ -1,6 +1,13 @@
+use std::num::TryFromIntError;
+
+use anyhow::anyhow;
 use cid::Cid;
 use multihash_codetable::Multihash;
 use sqlx::{sqlite::SqliteRow, FromRow, Row};
+
+use crate::Error;
+
+use super::EventBlockRaw;
 
 #[derive(Debug)]
 /// A CID identified block of (ipfs) data
@@ -33,4 +40,23 @@ impl FromRow<'_, SqliteRow> for BlockRow {
 #[derive(Debug, FromRow)]
 pub struct BlockBytes {
     pub bytes: Vec<u8>,
+}
+
+impl TryFrom<EventBlockRaw> for BlockRow {
+    type Error = Error;
+
+    fn try_from(block: EventBlockRaw) -> Result<Self, Self::Error> {
+        let hash = block.multihash.into_inner();
+        let codec = block.codec.try_into().map_err(|e: TryFromIntError| {
+            Error::new_app(anyhow!("Failed to parse block codec: {}", e))
+        })?;
+
+        let cid = Cid::new_v1(codec, hash);
+
+        Ok(Self {
+            cid,
+            root: block.root,
+            bytes: block.bytes,
+        })
+    }
 }

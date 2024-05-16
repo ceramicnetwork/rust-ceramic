@@ -123,11 +123,11 @@ impl ceramic_api::AccessModelStore for CeramicEventService {
 
     async fn range_with_values(
         &self,
-        range: Range<&EventId>,
+        range: Range<EventId>,
         offset: usize,
         limit: usize,
     ) -> anyhow::Result<Vec<(Cid, Vec<u8>)>> {
-        CeramicOneEvent::range_with_values(&self.pool, range, offset, limit)
+        CeramicOneEvent::range_with_values(&self.pool, &range.start..&range.end, offset, limit)
             .await?
             .into_iter()
             .map(|(event_id, value)| {

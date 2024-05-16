@@ -6,13 +6,7 @@ mod utils;
 
 pub use block::{BlockBytes, BlockRow};
 pub use event::{rebuild_car, EventRaw};
-pub use event_block::EventBlockRaw;
+pub use event_block::{EventBlockRaw, ReconEventBlockRaw};
 pub use hash::{BlockHash, ReconHash};
 
 pub use utils::{CountRow, DeliveredEvent, OrderKey};
-
-#[derive(Debug, Clone, sqlx::FromRow)]
-pub struct FirstAndLast {
-    pub first_key: Vec<u8>,
-    pub last_key: Vec<u8>,
-}

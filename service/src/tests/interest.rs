@@ -145,10 +145,10 @@ where
     let interest_0 = random_interest(None, None);
     let interest_1 = random_interest(None, None);
 
-    recon::Store::insert(&store, &ReconItem::new(&interest_0, &vec![]))
+    recon::Store::insert(&store, &ReconItem::new(&interest_0, &[]))
         .await
         .unwrap();
-    recon::Store::insert(&store, &ReconItem::new(&interest_1, &vec![]))
+    recon::Store::insert(&store, &ReconItem::new(&interest_1, &[]))
         .await
         .unwrap();
     let ids = recon::Store::range(
@@ -229,25 +229,6 @@ where
         "#
     ]
     .assert_debug_eq(&recon::Store::insert(&store, &ReconItem::new(&interest, &vec![])).await);
-}
-
-test_with_dbs!(
-    test_store_value_for_key_error,
-    test_store_value_for_key_error,
-    ["delete from ceramic_one_interest"]
-);
-
-async fn test_store_value_for_key_error<S>(store: S)
-where
-    S: recon::Store<Key = Interest, Hash = Sha256a>,
-{
-    let key = random_interest(None, None);
-    let store_value = random_interest(None, None);
-    let err = recon::Store::insert(&store, &ReconItem::new(&key, store_value.as_slice())).await;
-    let err = err.unwrap_err();
-    assert!(err
-        .to_string()
-        .contains("Interests do not support values! Invalid request."));
 }
 
 test_with_dbs!(

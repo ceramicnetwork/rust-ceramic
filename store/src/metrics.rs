@@ -175,7 +175,7 @@ where
     }
     async fn range_with_values(
         &self,
-        range: Range<&EventId>,
+        range: Range<EventId>,
         offset: usize,
         limit: usize,
     ) -> anyhow::Result<Vec<(Cid, Vec<u8>)>> {

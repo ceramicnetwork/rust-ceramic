@@ -55,10 +55,9 @@ impl EventRaw {
     }
 
     pub async fn try_build(key: EventId, val: &[u8]) -> Result<Self> {
-        // TODO: remove this when value is always present
-        if val.is_empty() {
-            return Ok(Self::new(key, vec![]));
-        }
+        let event_cid = key
+            .cid()
+            .ok_or_else(|| Error::new_app(anyhow!("Event ID requires a CID")))?;
         let mut reader = CarReader::new(val)
             .await
             .map_err(|e| Error::new_app(anyhow!(e)))?;
@@ -66,7 +65,7 @@ impl EventRaw {
         let mut idx = 0;
         let mut blocks = vec![];
         while let Some((cid, data)) = reader.next_block().await.map_err(Error::new_app)? {
-            let ebr = EventBlockRaw::try_new(&key, idx, roots.contains(&cid), cid, data)
+            let ebr = EventBlockRaw::try_new(&event_cid, idx, roots.contains(&cid), cid, data)
                 .map_err(Error::from)?;
             blocks.push(ebr);
             idx += 1;

@@ -23,6 +23,10 @@ impl BlockHash {
     pub fn inner(&self) -> &Multihash<64> {
         &self.0
     }
+
+    pub fn into_inner(self) -> Multihash<64> {
+        self.0
+    }
 }
 
 #[derive(Debug, Clone)]

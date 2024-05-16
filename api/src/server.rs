@@ -163,7 +163,7 @@ pub trait AccessModelStore: Send + Sync {
     async fn insert_many(&self, items: &[(EventId, Vec<u8>)]) -> Result<Vec<bool>>;
     async fn range_with_values(
         &self,
-        range: Range<&EventId>,
+        range: Range<EventId>,
         offset: usize,
         limit: usize,
     ) -> Result<Vec<(Cid, Vec<u8>)>>;
@@ -197,7 +197,7 @@ impl<S: AccessModelStore> AccessModelStore for Arc<S> {
 
     async fn range_with_values(
         &self,
-        range: Range<&EventId>,
+        range: Range<EventId>,
         offset: usize,
         limit: usize,
     ) -> Result<Vec<(Cid, Vec<u8>)>> {
@@ -385,7 +385,7 @@ where
 
         let events = self
             .model
-            .range_with_values(&start..&stop, offset, limit)
+            .range_with_values(start..stop, offset, limit)
             .await
             .map_err(|err| ErrorResponse::new(format!("failed to get keys: {err}")))?
             .into_iter()

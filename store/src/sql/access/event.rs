@@ -12,8 +12,8 @@ use recon::{AssociativeHash, HashCount, InsertResult, Key, Result as ReconResult
 use crate::{
     sql::{
         entities::{
-            rebuild_car, BlockRow, CountRow, DeliveredEvent, EventBlockRaw, EventRaw, OrderKey,
-            ReconHash,
+            rebuild_car, BlockRow, CountRow, DeliveredEvent, EventRaw, OrderKey,
+            ReconEventBlockRaw, ReconHash,
         },
         query::{EventQuery, ReconQuery, ReconType, SqlBackend},
     },
@@ -123,10 +123,11 @@ impl CeramicOneEvent {
 
         for (idx, item) in to_add.iter().enumerate() {
             let new_key = Self::insert_key(&mut tx, &item.order_key).await?;
-            // TODO: should we skip ever? all keys should be new, right?
-            for block in item.blocks.iter() {
-                CeramicOneBlock::insert(&mut tx, block.multihash.inner(), &block.bytes).await?;
-                CeramicOneEventBlock::insert(&mut tx, block).await?;
+            if new_key {
+                for block in item.blocks.iter() {
+                    CeramicOneBlock::insert(&mut tx, block.multihash.inner(), &block.bytes).await?;
+                    CeramicOneEventBlock::insert(&mut tx, block).await?;
+                }
             }
 
             Self::mark_ready_to_deliver(&mut tx, &item.order_key).await?;
@@ -188,7 +189,8 @@ impl CeramicOneEvent {
     ) -> Result<Vec<(EventId, Vec<u8>)>> {
         let offset = offset.try_into().unwrap_or(i64::MAX);
         let limit: i64 = limit.try_into().unwrap_or(i64::MAX);
-        let all_blocks: Vec<EventBlockRaw> =
+
+        let all_blocks: Vec<ReconEventBlockRaw> =
             sqlx::query_as(EventQuery::value_blocks_by_order_key_many())
                 .bind(range.start.as_bytes())
                 .bind(range.end.as_bytes())
@@ -197,7 +199,7 @@ impl CeramicOneEvent {
                 .fetch_all(pool.reader())
                 .await?;
 
-        let values = EventBlockRaw::into_carfiles(all_blocks).await?;
+        let values = ReconEventBlockRaw::into_carfiles(all_blocks).await?;
         Ok(values)
     }
 
