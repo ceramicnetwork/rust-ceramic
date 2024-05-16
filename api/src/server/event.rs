@@ -33,14 +33,14 @@ where
         car_blocks.insert(cid, bytes);
     }
     let event_bytes = get_block(&event_cid, &car_blocks, store).await?;
-    let event: unvalidated::Event<Ipld> =
+    let event: unvalidated::RawEvent<Ipld> =
         serde_ipld_dagcbor::from_slice(&event_bytes).context("decoding event")?;
     let (init_id, init_payload) = match event {
-        unvalidated::Event::Time(event) => (
+        unvalidated::RawEvent::Time(event) => (
             event.id(),
             get_init_event_payload(&event.id(), &car_blocks, store).await?,
         ),
-        unvalidated::Event::Signed(event) => {
+        unvalidated::RawEvent::Signed(event) => {
             let link = event
                 .link()
                 .ok_or_else(|| anyhow!("event should have a link"))?;
@@ -57,7 +57,7 @@ where
                 get_init_event_payload(&init_id, &car_blocks, store).await?,
             )
         }
-        unvalidated::Event::Unsigned(event) => (event_cid, event),
+        unvalidated::RawEvent::Unsigned(event) => (event_cid, event),
     };
 
     let controller = init_payload
@@ -81,10 +81,10 @@ async fn get_init_event_payload(
     store: &impl AccessModelStore,
 ) -> Result<unvalidated::init::Payload<Ipld>> {
     let init_bytes = get_block(init_id, car_blocks, store).await?;
-    let init_event: unvalidated::Event<Ipld> =
+    let init_event: unvalidated::RawEvent<Ipld> =
         serde_ipld_dagcbor::from_slice(&init_bytes).context("decoding init event")?;
     match init_event {
-        unvalidated::Event::Signed(event) => {
+        unvalidated::RawEvent::Signed(event) => {
             let link = event
                 .link()
                 .ok_or_else(|| anyhow!("init event should have a link"))?;
@@ -98,8 +98,8 @@ async fn get_init_event_payload(
                 bail!("init event payload is not well formed")
             }
         }
-        unvalidated::Event::Unsigned(event) => Ok(event),
-        unvalidated::Event::Time(_) => {
+        unvalidated::RawEvent::Unsigned(event) => Ok(event),
+        unvalidated::RawEvent::Time(_) => {
             bail!("init event payload can't be a time event")
         }
     }
