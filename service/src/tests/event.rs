@@ -343,7 +343,6 @@ async fn get_event_by_cid<S>(store: S)
 where
     S: AccessModelStore,
 {
-    let key = random_event_id(None);
     let num_blocks = 3;
     let (key, _blocks, store_value) = build_car_file(num_blocks).await;
     assert_eq!(_blocks.len(), num_blocks);

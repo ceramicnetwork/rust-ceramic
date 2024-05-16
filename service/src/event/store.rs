@@ -19,13 +19,8 @@ impl recon::Store for CeramicEventService {
             CeramicOneEvent::insert_raw_carfiles(&self.pool, &[(item.key.clone(), item.value)])
                 .await?;
         Ok(res.keys.first().copied().unwrap_or(false))
-
-        // if no value, we store it? do nothing?
-        // parse the value into a ceramic event
-        // we check if it exists already and return true/false
-        // check if all conditions are met to store: prev exists, etc
-        // store it
     }
+
     /// Insert new keys into the key space.
     /// Returns true for each key if it did not previously exist, in the
     /// same order as the input iterator.
@@ -140,6 +135,7 @@ impl ceramic_api::AccessModelStore for CeramicEventService {
             })
             .collect()
     }
+
     async fn value_for_order_key(&self, key: &EventId) -> anyhow::Result<Option<Vec<u8>>> {
         Ok(CeramicOneEvent::value_by_order_key(&self.pool, key).await?)
     }

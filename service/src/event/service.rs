@@ -11,7 +11,6 @@ pub struct CeramicEventService {
 impl CeramicEventService {
     /// Create a new CeramicEventStore
     pub async fn new(pool: SqlitePool) -> Result<Self> {
-        // who owns initiating/managing this.. feels awkward rn
         CeramicOneEvent::init_delivered_order(&pool).await?;
         Ok(Self { pool })
     }
@@ -34,16 +33,3 @@ impl CeramicEventService {
         Ok(())
     }
 }
-
-/*
-The goal is to implement a "wrapper" of the key value store that recon relies on and adds the ceramic business logic.
-
-Recon does recon things and tells us about keys and values. We need to:
- - Validate that the values are valid ceramic events
-    - parse the carfile, build the event ID/order key, find the prev field, etc
- - Store the values in the database AFTER we have validated them.
- - any keys that don't have values or can't be validated should NOT be put on disk
-    (or they can be put in a temp table and nuked)
- -
-
-*/

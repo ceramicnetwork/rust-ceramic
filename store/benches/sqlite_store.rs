@@ -23,10 +23,9 @@ fn generate_event_id(data: &[u8]) -> EventId {
     EventId::new(
         &Network::Mainnet,
         "model",
-        "kh4q0ozorrgaq2mezktnrmdwleo1d",
+        "kh4q0ozorrgaq2mezktnrmdwleo1d".as_bytes(),
         "did:key:z6MkgSV3tAuw7gUWqKCUY7ae6uWNxqYgdwPhUJbJhF9EFXm9",
         &cid,
-        1,
         &cid,
     )
 }

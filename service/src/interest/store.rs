@@ -15,13 +15,8 @@ impl recon::Store for CeramicInterestService {
     #[instrument(skip(self))]
     async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> ReconResult<bool> {
         Ok(CeramicOneInterest::insert(&self.pool, item.key).await?)
-
-        // if no value, we store it? do nothing?
-        // parse the value into a ceramic event
-        // we check if it exists already and return true/false
-        // check if all conditions are met to store: prev exists, etc
-        // store it
     }
+
     /// Insert new keys into the key space.
     /// Returns true for each key if it did not previously exist, in the
     /// same order as the input iterator.
