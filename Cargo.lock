@@ -1125,6 +1125,7 @@ dependencies = [
  "cid 0.11.1",
  "expect-test",
  "ipld-core",
+ "iroh-car",
  "multibase 0.9.1",
  "multihash-codetable",
  "serde",

@@ -15,6 +15,7 @@ async-trait.workspace = true
 ceramic-core.workspace = true
 cid.workspace = true
 ipld-core.workspace = true
+iroh-car.workspace = true
 multihash-codetable.workspace = true
 serde.workspace = true
 serde_ipld_dagcbor.workspace = true

@@ -6,6 +6,7 @@ use ceramic_core::{DidDocument, Jwk};
 use cid::Cid;
 use ipld_core::codec::Codec;
 use ipld_core::ipld::Ipld;
+use iroh_car::{CarHeader, CarWriter};
 use multihash_codetable::{Code, MultihashDigest};
 use serde::{Deserialize, Serialize};
 use serde_ipld_dagcbor::codec::DagCborCodec;
@@ -19,18 +20,28 @@ pub struct Event<D> {
 }
 
 impl<D: serde::Serialize> Event<D> {
+    fn cid_from_dag_cbor(data: &[u8]) -> Cid {
+        Cid::new_v1(
+            <DagCborCodec as Codec<Ipld>>::CODE,
+            Code::Sha2_256.digest(data),
+        )
+    }
+
+    fn cid_from_dag_jose(data: &[u8]) -> Cid {
+        Cid::new_v1(
+            0x85, // TODO use constant for DagJose codec
+            Code::Sha2_256.digest(data),
+        )
+    }
+
     /// TODO comment
     pub async fn from_payload(payload: Payload<D>, signer: impl Signer) -> anyhow::Result<Self> {
-        let cid = Cid::new_v1(
-            <DagCborCodec as Codec<Ipld>>::CODE,
-            Code::Sha2_256.digest(&serde_ipld_dagcbor::to_vec(&payload)?),
-        );
+        let cid = Self::cid_from_dag_cbor(&serde_ipld_dagcbor::to_vec(&payload)?);
         let cid_str = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&cid.to_bytes());
 
         let alg = signer.algorithm();
         let header = ssi::jws::Header {
             algorithm: alg,
-            //            type_: Some("JWT".to_string()),
             key_id: Some(signer.id().id.clone()),
             ..Default::default()
         };
@@ -55,6 +66,27 @@ impl<D: serde::Serialize> Event<D> {
 
     pub fn encode_envelope(&self) -> anyhow::Result<Vec<u8>> {
         Ok(serde_ipld_dagcbor::to_vec(&self.envelope)?)
+    }
+
+    pub fn encode_payload(&self) -> anyhow::Result<Vec<u8>> {
+        Ok(serde_ipld_dagcbor::to_vec(&self.payload)?)
+    }
+
+    pub async fn encode_car(&self) -> anyhow::Result<Vec<u8>> {
+        let envelope_bytes = self.encode_envelope()?;
+        let payload_bytes = self.encode_payload()?;
+
+        let envelope_cid = Self::cid_from_dag_jose(&envelope_bytes);
+        let payload_cid = Self::cid_from_dag_cbor(&payload_bytes);
+
+        let mut car = Vec::new();
+        let roots: Vec<Cid> = vec![envelope_cid];
+        let mut writer = CarWriter::new(CarHeader::V1(roots.into()), &mut car);
+        writer.write(payload_cid, payload_bytes).await?;
+        writer.write(envelope_cid, envelope_bytes).await?;
+        writer.finish().await?;
+
+        Ok(car)
     }
 }
 
