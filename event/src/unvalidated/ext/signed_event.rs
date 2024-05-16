@@ -74,7 +74,7 @@ mod tests {
             unvalidated::init::Header::new(
                 vec![signer.id().id.clone()],
                 "model".to_string(),
-                Some(model.to_vec().unwrap().into()),
+                Some(model),
                 None,
                 None,
             ),
@@ -117,7 +117,7 @@ mod tests {
             unvalidated::init::Header::new(
                 vec![signer.id().id.clone()],
                 "model".to_string(),
-                Some(mid.to_vec().unwrap().into()),
+                Some(mid),
                 None,
                 None,
             ),

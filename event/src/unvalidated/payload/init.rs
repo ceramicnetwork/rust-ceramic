@@ -1,4 +1,5 @@
 use crate::bytes::Bytes;
+use ceramic_core::StreamId;
 use serde::{Deserialize, Serialize};
 
 /// Payload of an init event
@@ -12,6 +13,7 @@ pub struct Payload<D> {
 
 impl<D> Payload<D> {
     /// Construct a new payload for an init event
+    /// TODO: Remove this method and use a builder pattern for building events instead.
     pub fn new(header: Header, data: Option<D>) -> Self {
         Self { header, data }
     }
@@ -44,13 +46,16 @@ pub struct Header {
 
 impl Header {
     /// Construct a header for an init event payload
+    /// TODO: Remove this method and use a builder pattern for building events instead.
     pub fn new(
         controllers: Vec<String>,
         sep: String,
-        model: Option<Bytes>, // this should take StreamID
+        model: Option<StreamId>,
         should_index: Option<bool>,
         unique: Option<Bytes>,
     ) -> Self {
+        // TODO: Builder should properly handle errors from serializing StreamID to Bytes
+        let model: Option<Bytes> = model.map(|id| Bytes::from(id.to_vec().unwrap()));
         Self {
             controllers,
             sep,
