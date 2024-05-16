@@ -14,7 +14,6 @@ pub struct Payload<D> {
 
 impl<D> Payload<D> {
     /// Construct a new payload for a data event
-    /// TODO: Remove this method and use a builder pattern for building events instead.
     pub fn new(id: Cid, prev: Cid, header: Option<Header>, data: D) -> Self {
         Self {
             id,
@@ -55,7 +54,6 @@ pub struct Header {
 
 impl Header {
     /// Construct a header for a data event payload
-    /// TODO: Remove this method and use a builder pattern for building events instead.
     pub fn new(should_index: Option<bool>) -> Self {
         Self { should_index }
     }

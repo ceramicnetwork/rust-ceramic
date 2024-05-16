@@ -12,7 +12,6 @@ pub struct Payload<D> {
 
 impl<D> Payload<D> {
     /// Construct a new payload for an init event
-    /// TODO: Remove this method and use a builder pattern for building events instead.
     pub fn new(header: Header, data: Option<D>) -> Self {
         Self { header, data }
     }
