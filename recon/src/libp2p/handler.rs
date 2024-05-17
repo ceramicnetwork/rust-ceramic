@@ -14,7 +14,7 @@ use libp2p::{
     },
 };
 use libp2p_identity::PeerId;
-use tracing::{debug, trace};
+use tracing::trace;
 
 use crate::{
     libp2p::{protocol, stream_set::StreamSet, upgrade::MultiReadyUpgrade, Recon},
@@ -58,7 +58,7 @@ where
     // should map to exactly one call of this transition_state function.
     //
     fn transition_state(&mut self, state: State) {
-        debug!(
+        trace!(
             %self.remote_peer_id,
             ?self.connection_id,
             previous_state = ?self.state,

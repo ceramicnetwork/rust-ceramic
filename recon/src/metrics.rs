@@ -22,7 +22,6 @@ pub struct Metrics {
     protocol_message_received_count: Family<MessageLabels, Counter>,
     protocol_message_sent_count: Family<MessageLabels, Counter>,
 
-    protocol_read_loop_count: Counter,
     protocol_write_loop_count: Counter,
     protocol_run_duration: Histogram,
 }
@@ -86,12 +85,6 @@ impl Metrics {
             sub_registry
         );
         register!(
-            protocol_read_loop_count,
-            "Number times the protocol read loop has iterated",
-            Counter::default(),
-            sub_registry
-        );
-        register!(
             protocol_write_loop_count,
             "Number times the protocol write loop has iterated",
             Counter::default(),
@@ -107,7 +100,6 @@ impl Metrics {
         Self {
             protocol_message_received_count,
             protocol_message_sent_count,
-            protocol_read_loop_count,
             protocol_write_loop_count,
             protocol_run_duration,
         }
@@ -137,13 +129,6 @@ where
         self.protocol_message_sent_count
             .get_or_create(&labels)
             .inc();
-    }
-}
-
-pub(crate) struct ProtocolReadLoop;
-impl Recorder<ProtocolReadLoop> for Metrics {
-    fn record(&self, _event: &ProtocolReadLoop) {
-        self.protocol_read_loop_count.inc();
     }
 }
 

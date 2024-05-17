@@ -24,10 +24,7 @@ use tracing::{instrument, trace, Level};
 use uuid::Uuid;
 
 use crate::{
-    metrics::{
-        MessageLabels, MessageRecv, MessageSent, Metrics, ProtocolReadLoop, ProtocolRun,
-        ProtocolWriteLoop,
-    },
+    metrics::{MessageLabels, MessageRecv, MessageSent, Metrics, ProtocolRun, ProtocolWriteLoop},
     recon::{RangeHash, SyncState},
     AssociativeHash, Client, Key, Result as ReconResult,
 };
@@ -40,8 +37,9 @@ use crate::{
 // In order to ensure we do not have too much pending work in
 // progress at any moment we place a limit.
 // A higher limit means more concurrent work is getting done between peers.
-// Too high of a limit means peers can deadlock because each peer can be
-// trying to write to the network while neither is reading.
+// Too high of a limit means peers can livelock because each peer can be
+// spending its resources producing new work instead of completing
+// in progress work.
 //
 // Even a small limit will quickly mean that both peers have work to do.
 const PENDING_RANGES_LIMIT: usize = 20;
@@ -153,6 +151,9 @@ enum ToWriter<M> {
     SendWIPLimited(Vec<M>),
     // Mark that in-progress work has completed.
     WIPCompleted(usize),
+    // Send the finish message as the final message to the remote.
+    // Sender must ensure all in progress work has been completed before sending Finish.
+    Finish,
 }
 
 // Run the recon protocol conversation to completion.
@@ -192,9 +193,33 @@ where
 
     let read = read(sync_id.clone(), stream, role, to_writer_tx, metrics.clone());
 
+    // In a recon conversation there are 4 futures being polled:
+    //
+    //  * Initiator Read
+    //  * Initiator Write
+    //  * Responder Read
+    //  * Responder Write
+    //
+    //  The following sequence occurs to end the conversation:
+    //
+    //  1. Initator Read determines there is no more work to do when it reads the final
+    //     [`ResponderMessage::RangeResponse`] from the Responder.
+    //  2. Initator Read sends [`ToWrite::Finish`] to the Initator Writer.
+    //  3. Initiator Writer sends the [`InitiatorMessage::Finished`] to the Responder and
+    //     completes.
+    //  4. Responder Read receives the Finished message and completes, dropping the
+    //     to_writer_tx sender.
+    //  5. Responder Write completes because the to_writer_rx has completed. This drops the substream
+    //     to the remote which closes it.
+    //  6. Initiator Read sees the substream has closed and completes.
+    //
+    //  This is analogous to the FIN -> FIN ACK sequence in TCP which ensures that boths ends of
+    //  the conversation agree it has completed. This prevents a class of bugs where the Initiator
+    //  may try and start a new conversation before Responder is aware the previous one has completed.
     let (write, read) = join!(write, read);
     write?;
     read?;
+
     metrics.record(&ProtocolRun(start.elapsed()));
     Ok(())
 }
@@ -223,40 +248,30 @@ where
 
     pin_mut!(stream);
 
-    let mut remote_done = false;
-    loop {
-        metrics.record(&ProtocolReadLoop);
-
-        // Read from network
-        if let Some(message) = stream.try_next().await? {
-            metrics.record(&MessageRecv(&message.body));
-            if sync_id.is_none() {
-                if let Some(remote_sync_id) = message.sync_id {
-                    // Record sync_id on the tracing span
-                    tracing::Span::current().record("sync_id", &remote_sync_id);
-                    // Send sync_id to writer task
-                    to_writer_tx
-                        .send(ToWriter::SyncId(remote_sync_id.clone()))
-                        .await
-                        .map_err(|err| anyhow!("{err}"))?;
-                    sync_id = Some(remote_sync_id);
-                }
-            }
-            trace!(?message.body, "received message");
-            if let RemoteStatus::Finished = role
-                .handle_incoming(&mut to_writer_tx, message.body)
-                .await
-                .context("handle incoming")?
-            {
-                remote_done = true;
+    // Read from network, until the stream is closed
+    while let Some(message) = stream.try_next().await? {
+        metrics.record(&MessageRecv(&message.body));
+        if sync_id.is_none() {
+            if let Some(remote_sync_id) = message.sync_id {
+                // Record sync_id on the tracing span
+                tracing::Span::current().record("sync_id", &remote_sync_id);
+                // Send sync_id to writer task
+                to_writer_tx
+                    .send(ToWriter::SyncId(remote_sync_id.clone()))
+                    .await
+                    .map_err(|err| anyhow!("{err}"))?;
+                sync_id = Some(remote_sync_id);
             }
         }
-
-        if role.is_done() && remote_done {
+        trace!(?message.body, "received message");
+        if let RemoteStatus::Finished = role
+            .handle_incoming(&mut to_writer_tx, message.body)
+            .await
+            .context("handle incoming")?
+        {
             break;
         }
     }
-
     Ok(())
 }
 
@@ -315,6 +330,7 @@ where
                 in_progress -= count;
             }
             ToWriter::SendWIPLimited(mut messages) => {
+                // Send all message that fit within the work in progress limit.
                 if in_progress < wip_limit {
                     let capacity = wip_limit - in_progress;
                     let mut sent = false;
@@ -330,7 +346,17 @@ where
                         sink.flush().await?;
                     }
                 }
+                // Queue any extra messages for later in LIFO order.
                 message_stack.extend(messages);
+            }
+            ToWriter::Finish => {
+                // We should never get a Finish if all in flight work has not completed.
+                debug_assert!(message_stack.is_empty());
+                debug_assert_eq!(0, in_progress);
+                if let Some(finish) = finish {
+                    sink.send(ReconMessage::new(sync_id, finish)).await?;
+                }
+                break;
             }
         }
 
@@ -352,10 +378,6 @@ where
             sink.flush().await?;
         }
     }
-
-    if let Some(finish) = finish {
-        sink.send(ReconMessage::new(sync_id, finish)).await?;
-    }
     Ok(())
 }
 
@@ -372,9 +394,6 @@ trait Role {
 
     // Finish message if any to send when the protocol is complete
     fn finish(&mut self) -> Option<Self::Out>;
-
-    // Report if we are expecting more incoming messages.
-    fn is_done(&self) -> bool;
 
     // Handle an incoming message from the remote.
     async fn handle_incoming(
@@ -432,7 +451,6 @@ where
 
         Ok(())
     }
-    // Send ranges to the remote while buffering any ranges over the [`PENDING_RANGES_LIMIT`].
     async fn send_ranges(
         &mut self,
         ranges: impl ExactSizeIterator<Item = RangeHash<R::Key, R::Hash>>,
@@ -468,9 +486,6 @@ where
     fn finish(&mut self) -> Option<Self::Out> {
         Some(InitiatorMessage::Finished)
     }
-    fn is_done(&self) -> bool {
-        self.pending_ranges == 0
-    }
 
     async fn handle_incoming(
         &mut self,
@@ -502,6 +517,14 @@ where
                         .await
                         .context("processing range")?;
                 }
+                if self.pending_ranges == 0 {
+                    // All work has completed, we no longer expect any messages from the remote
+                    // responder.
+                    to_writer
+                        .send(ToWriter::Finish)
+                        .await
+                        .map_err(|err| anyhow!("{err}"))?;
+                }
             }
             ResponderMessage::Value(Value { key, value }) => {
                 self.common
@@ -510,8 +533,7 @@ where
                     .context("processing value response")?;
             }
         };
-        // Local is the initiator, the remote (responder) is always finished
-        Ok(RemoteStatus::Finished)
+        Ok(RemoteStatus::Active)
     }
 }
 
@@ -590,9 +612,6 @@ where
     }
     fn finish(&mut self) -> Option<Self::Out> {
         None
-    }
-    fn is_done(&self) -> bool {
-        true
     }
 
     async fn handle_incoming(
