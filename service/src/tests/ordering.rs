@@ -31,9 +31,7 @@ async fn init_event(model: Cid, signer: &signed::JwkSigner) -> signed::Event<Ipl
         .with_controller("controller".to_string())
         .with_sep("sep".to_string(), model.to_bytes())
         .build();
-    signed::Event::from_payload(unvalidated::Payload::Init(init), signer.to_owned())
-        .await
-        .unwrap()
+    signed::Event::from_payload(unvalidated::Payload::Init(init), signer.to_owned()).unwrap()
 }
 
 async fn data_event(
@@ -49,9 +47,7 @@ async fn data_event(
         .with_data(data)
         .build();
 
-    signed::Event::from_payload(unvalidated::Payload::Data(commit), signer.to_owned())
-        .await
-        .unwrap()
+    signed::Event::from_payload(unvalidated::Payload::Data(commit), signer.to_owned()).unwrap()
 }
 
 // builds init -> data -> data that are a stream (will be a different stream each call)
@@ -82,8 +78,6 @@ async fn get_events() -> [(EventId, Vec<u8>); 3] {
     let (event_id, car) = (
         random_event_id(Some(&init.envelope_cid().to_string())),
         init.encode_car().await.unwrap(),
-        // multibase::encode(multibase::Base::Base64Url, init.encode_car().await.unwrap())
-        //     .into_bytes(),
     );
 
     let init_cid = event_id.cid().unwrap();
@@ -92,17 +86,10 @@ async fn get_events() -> [(EventId, Vec<u8>); 3] {
     let (data_id, data_car) = (
         random_event_id(Some(&data.envelope_cid().to_string())),
         data.encode_car().await.unwrap(),
-        // multibase::encode(multibase::Base::Base64Url, data.encode_car().await.unwrap())
-        //     .into_bytes(),
     );
     let data2 = data_event(model, init_cid, cid, data2, &signer).await;
     let (data_id_2, data_car_2) = (
         random_event_id(Some(&data2.envelope_cid().to_string())),
-        // multibase::encode(
-        // multibase::Base::Base64Url,
-        // data2.encode_car().await.unwrap(),
-        // )
-        // .into_bytes(),
         data2.encode_car().await.unwrap(),
     );
 

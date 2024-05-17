@@ -79,7 +79,6 @@ pub(crate) async fn build_event() -> (EventId, Vec<Block>, Vec<u8>) {
     let signer = crate::tests::signer().await;
     let signed =
         signed::Event::from_payload(ceramic_event::unvalidated::Payload::Init(init), signer)
-            .await
             .unwrap();
 
     let event_id = random_event_id(Some(signed.envelope_cid().to_string().as_str()));
