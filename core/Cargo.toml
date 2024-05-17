@@ -9,7 +9,6 @@ publish = false
 
 [dependencies]
 anyhow.workspace = true
-async-trait.workspace = true
 base64 = "0.21.2"
 cid.workspace = true
 did-method-key = "0.2.1"

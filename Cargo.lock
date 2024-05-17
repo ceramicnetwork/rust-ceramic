@@ -1087,7 +1087,6 @@ name = "ceramic-core"
 version = "0.18.0"
 dependencies = [
  "anyhow",
- "async-trait",
  "base64 0.21.7",
  "cid 0.11.1",
  "did-method-key",
@@ -1119,7 +1118,6 @@ name = "ceramic-event"
 version = "0.18.0"
 dependencies = [
  "anyhow",
- "async-trait",
  "base64 0.21.7",
  "ceramic-core",
  "cid 0.11.1",
