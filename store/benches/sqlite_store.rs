@@ -33,7 +33,7 @@ fn generate_event_id(data: &[u8]) -> EventId {
 const INSERTION_COUNT: usize = 10_000;
 
 async fn model_setup(tpe: ModelType, cnt: usize) -> ModelSetup {
-    let mut events = Vec::with_capacity(cnt);
+    let events = Vec::with_capacity(cnt);
     for _ in 0..cnt {
         let mut data = match tpe {
             ModelType::Small => {

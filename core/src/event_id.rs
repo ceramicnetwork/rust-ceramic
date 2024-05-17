@@ -522,7 +522,7 @@ mod tests {
         let received = EventId::new(
             &Network::Mainnet,
             &sep_key,
-            &multibase::decode(&separator).unwrap().1,
+            &multibase::decode(separator).unwrap().1,
             &controller,
             &init,
             &event_cid,
@@ -578,7 +578,7 @@ mod tests {
         let event_id = EventId::new(
             &Network::Mainnet,
             &sepy,
-            &multibase::decode(&separator).unwrap().1,
+            &multibase::decode(separator).unwrap().1,
             &controller,
             &init,
             &event_cid,
@@ -626,7 +626,7 @@ mod tests {
         let event_id = EventId::new(
             &Network::TestnetClay,
             &sep_key,
-            &multibase::decode(&separator).unwrap().1,
+            &multibase::decode(separator).unwrap().1,
             &controller,
             &init,
             &event_cid,
