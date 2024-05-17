@@ -245,10 +245,20 @@ impl OrderingState {
         }
     }
 
-    /// This will process all the events in the queues to see if they can be marked as delivered.
-    pub async fn process_events(&mut self, pool: &SqlitePool) -> Result<()> {
+    /// This will process update any events that can be delivered and then review all the in memory events to see
+    /// if any of them are now deliverable. This could take a long time and not really find new work. Intended to be used
+    /// when the system is starting up, not during normal operation, when a channel should be relied on to target the updates.
+    pub(crate) async fn process_events(&mut self, pool: &SqlitePool) -> Result<()> {
         self.persist_ready_events(pool).await?;
-        self.process_pending_events(pool).await?;
+        for stream_events in self.pending_by_stream.values_mut() {
+            let deliverable = Self::discover_deliverable_events(pool, stream_events).await?;
+            if !deliverable.is_empty() {
+                self.ready_events.extend(deliverable)
+            }
+        }
+        if !self.ready_events.is_empty() {
+            self.persist_ready_events(pool).await?;
+        }
 
         Ok(())
     }
@@ -331,34 +341,15 @@ impl OrderingState {
         Ok(deliverable)
     }
 
-    /// Review all pending items to see if they can be delivered now. Requires reviewing the database and the events we have in memory.
-    /// Will order the events as defined by the linked list of prevs and add them to the queue to be marked as delivered.
-    /// Returns true if new events were discovered and added to the ready list.
-    async fn process_pending_events(&mut self, pool: &SqlitePool) -> Result<()> {
-        let mut new_to_persist = false;
-        for stream_events in self.pending_by_stream.values_mut() {
-            let deliverable = Self::discover_deliverable_events(pool, stream_events).await?;
-            if !deliverable.is_empty() {
-                new_to_persist = true;
-                self.ready_events.extend(deliverable)
-            }
-        }
-        if new_to_persist {
-            self.persist_ready_events(pool).await?;
-        }
-
-        Ok(())
-    }
-
     /// Process all undelivered events in the database. This is a blocking operation that could take a long time
     /// and is intended to be run at startup.
-    pub async fn process_all_undelivered_events(
+    pub(crate) async fn process_all_undelivered_events(
         &mut self,
         pool: &SqlitePool,
         max_iterations: usize,
     ) -> Result<()> {
         let mut cnt = 0;
-        let mut offset = 0;
+        let mut offset: usize = 0;
         while cnt < max_iterations {
             cnt += 1;
             let (new, found) = self

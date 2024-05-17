@@ -1,5 +1,5 @@
 use ceramic_api::AccessModelStore;
-use ceramic_core::EventId;
+use ceramic_core::{EventId, StreamId};
 use ceramic_event::unvalidated::{
     self,
     signed::{self},
@@ -14,7 +14,7 @@ use crate::{
     CeramicEventService,
 };
 
-use super::{random_cid, random_event_id};
+use super::{build_event_id, random_cid};
 
 async fn setup_service() -> CeramicEventService {
     let _ = ceramic_metrics::init_local_tracing();
@@ -26,16 +26,15 @@ async fn setup_service() -> CeramicEventService {
         .unwrap()
 }
 
-async fn init_event(model: Cid, signer: &signed::JwkSigner) -> signed::Event<Ipld> {
+async fn init_event(model: &StreamId, signer: &signed::JwkSigner) -> signed::Event<Ipld> {
     let init = Builder::init()
         .with_controller("controller".to_string())
-        .with_sep("sep".to_string(), model.to_bytes())
+        .with_sep("model".to_string(), model.to_vec())
         .build();
     signed::Event::from_payload(unvalidated::Payload::Init(init), signer.to_owned()).unwrap()
 }
 
 async fn data_event(
-    _model: Cid,
     init_id: Cid,
     prev: Cid,
     data: Ipld,
@@ -52,7 +51,7 @@ async fn data_event(
 
 // builds init -> data -> data that are a stream (will be a different stream each call)
 async fn get_events() -> [(EventId, Vec<u8>); 3] {
-    let model = random_cid();
+    let model = StreamId::document(random_cid());
     let signer = Box::new(signer().await);
 
     let data = gen_rand_bytes::<50>();
@@ -74,22 +73,23 @@ async fn get_events() -> [(EventId, Vec<u8>); 3] {
         "raw": data2.as_slice(),
     });
 
-    let init = init_event(model, &signer).await;
+    let init = init_event(&model, &signer).await;
+    let init_cid = init.envelope_cid();
     let (event_id, car) = (
-        random_event_id(Some(&init.envelope_cid().to_string())),
+        build_event_id(&init_cid, &init_cid, &model),
         init.encode_car().await.unwrap(),
     );
 
     let init_cid = event_id.cid().unwrap();
-    let data = data_event(model, init_cid, init_cid, data, &signer).await;
+    let data = data_event(init_cid, init_cid, data, &signer).await;
     let cid = data.envelope_cid();
     let (data_id, data_car) = (
-        random_event_id(Some(&data.envelope_cid().to_string())),
+        build_event_id(&data.envelope_cid(), &init_cid, &model),
         data.encode_car().await.unwrap(),
     );
-    let data2 = data_event(model, init_cid, cid, data2, &signer).await;
+    let data2 = data_event(init_cid, cid, data2, &signer).await;
     let (data_id_2, data_car_2) = (
-        random_event_id(Some(&data2.envelope_cid().to_string())),
+        build_event_id(&data2.envelope_cid(), &init_cid, &model),
         data2.encode_car().await.unwrap(),
     );
 
@@ -161,6 +161,15 @@ async fn test_prev_exists_history_required() {
     let new = new.keys.into_iter().filter(|k| *k).count();
     assert_eq!(1, new);
     check_deliverable(&store.pool, &data.0.cid().unwrap(), true).await;
+
+    let (_, delivered) = store
+        .events_since_highwater_mark(0, i64::MAX)
+        .await
+        .unwrap();
+    assert_eq!(2, delivered.len());
+
+    let expected = vec![init.0.cid().unwrap(), data.0.cid().unwrap()];
+    assert_eq!(expected, delivered);
 }
 
 #[tokio::test]
@@ -180,6 +189,14 @@ async fn test_prev_in_same_write_history_required() {
     assert_eq!(2, new);
     check_deliverable(&store.pool, &init.0.cid().unwrap(), true).await;
     check_deliverable(&store.pool, &data.0.cid().unwrap(), true).await;
+    let (_, delivered) = store
+        .events_since_highwater_mark(0, i64::MAX)
+        .await
+        .unwrap();
+    assert_eq!(2, delivered.len());
+
+    let expected = vec![init.0.cid().unwrap(), data.0.cid().unwrap()];
+    assert_eq!(expected, delivered);
 }
 
 #[tokio::test]

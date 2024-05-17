@@ -23,25 +23,24 @@ const CONTROLLER: &str = "did:key:z6Mkqtw7Pj5Lv9xc4PgUYAnwfaVoMC6FRneGWVr5ekTEfK
 const INIT_ID: &str = "baeabeiajn5ypv2gllvkk4muvzujvcnoen2orknxix7qtil2daqn6vu6khq";
 const SEP_KEY: &str = "model";
 
-// Return an builder for an event with the same network,model,controller,stream.
-pub(crate) fn event_id_builder() -> event_id::Builder<WithInit> {
+// Generate an event
+pub(crate) fn build_event_id(init: &Cid, cid: &Cid, model: &StreamId) -> EventId {
+    EventId::builder()
+        .with_network(&Network::DevUnstable)
+        .with_sep(SEP_KEY, &model.to_vec())
+        .with_controller(CONTROLLER)
+        .with_init(init)
+        .with_event(cid)
+        .build()
+}
+
+// Generate an event for the same network,model,controller,stream
+fn event_id_builder() -> event_id::Builder<WithInit> {
     EventId::builder()
         .with_network(&Network::DevUnstable)
         .with_sep(SEP_KEY, &multibase::decode(MODEL_ID).unwrap().1)
         .with_controller(CONTROLLER)
         .with_init(&Cid::from_str(INIT_ID).unwrap())
-}
-
-// Generate an event for the same network,model,controller,stream
-// The event and height are random when when its None.
-pub(crate) fn random_event_id(event: Option<&str>) -> EventId {
-    event_id_builder()
-        .with_event(
-            &event
-                .map(|cid| Cid::from_str(cid).unwrap())
-                .unwrap_or_else(random_cid),
-        )
-        .build()
 }
 // The EventId that is the minumum of all possible random event ids
 pub(crate) fn random_event_id_min() -> EventId {
@@ -81,7 +80,7 @@ pub(crate) async fn build_event() -> (EventId, Vec<Block>, Vec<u8>) {
         signed::Event::from_payload(ceramic_event::unvalidated::Payload::Init(init), signer)
             .unwrap();
 
-    let event_id = random_event_id(Some(signed.envelope_cid().to_string().as_str()));
+    let event_id = build_event_id(&signed.envelope_cid(), &signed.envelope_cid(), &model);
     let car = signed.encode_car().await.unwrap();
     (
         event_id,

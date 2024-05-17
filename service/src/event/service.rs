@@ -140,6 +140,10 @@ impl CeramicEventService {
     }
 
     #[tracing::instrument(skip(self, items), level = tracing::Level::DEBUG, fields(items = items.len()))]
+    /// This function is used to insert events from a carfile WITHOUT requiring that the history is local to the node.
+    /// This is used in recon contexts when we are discovering events from peers in a recon but not ceramic order and
+    /// don't have the complete order. To enforce that the history is local, e.g. in API contexts, use
+    /// `insert_events_from_carfiles_local_history`.
     pub(crate) async fn insert_events_from_carfiles_remote_history<'a>(
         &self,
         items: &[recon::ReconItem<'a, EventId>],
@@ -201,6 +205,8 @@ struct InsertEventOrdering {
 }
 
 impl InsertEventOrdering {
+    /// This will mark events as deliverable if their prev exists locally. Otherwise they will be
+    /// sorted into the bucket for the background task to process.
     pub(crate) async fn discover_deliverable_remote_history<'a>(
         items: &[ReconItem<'a, EventId>],
     ) -> Result<Self> {
@@ -311,7 +317,7 @@ impl InsertEventOrdering {
 
         let required_to_find = to_check.len();
         let mut found_in_batch = 0;
-        let mut insert_if_greenlit = Vec::with_capacity(required_to_find);
+        let mut insert_if_greenlit = HashMap::with_capacity(required_to_find);
 
         for (meta, ev) in to_check {
             if incoming_deliverable_cids.contains(&meta.prev) {
@@ -326,7 +332,7 @@ impl InsertEventOrdering {
                     meta.to_owned(),
                     None,
                 ));
-                insert_if_greenlit.push((meta, ev));
+                insert_if_greenlit.insert(ev.body.cid, (meta, ev));
             }
         }
 
@@ -338,7 +344,7 @@ impl InsertEventOrdering {
             OrderingState::discover_deliverable_events(pool, &mut to_check_map).await?;
         if deliverable.len() != required_to_find - found_in_batch {
             let missing = insert_if_greenlit
-                .iter()
+                .values()
                 .filter_map(|(_, ev)| {
                     if !deliverable.contains(&ev.body.cid) {
                         Some(ev.body.cid)
@@ -355,8 +361,14 @@ impl InsertEventOrdering {
                 missing
             )))
         } else {
-            for (meta, insertable) in insert_if_greenlit.drain(..) {
-                self.mark_event_deliverable_now(insertable, meta.init_cid);
+            // we need to use the deliverable list's order because we might depend on something in the same batch, and that function will
+            // ensure we have a queue in the correct order. So we follow the order and use our insert_if_greenlit map to get the details.
+            for cid in deliverable {
+                if let Some((meta, insertable)) = insert_if_greenlit.remove(&cid) {
+                    self.mark_event_deliverable_now(insertable, meta.init_cid);
+                } else {
+                    warn!(%cid, "Didn't find event to insert in memory when it was expected");
+                }
             }
             Ok(())
         }
