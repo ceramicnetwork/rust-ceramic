@@ -87,7 +87,9 @@ impl EventInsertableBody {
 
     /// Find a block from the carfile for a given CID if it's included
     pub fn block_for_cid_opt(&self, cid: &Cid) -> Option<&EventBlockRaw> {
-        self.blocks.iter().find(|b| b.event_cid == cid.to_bytes())
+        self.blocks
+            .iter()
+            .find(|b| Cid::new_v1(b.codec.try_into().unwrap(), *b.multihash.inner()) == *cid)
     }
 
     /// Find a block from the carfile for a given CID if it's included
