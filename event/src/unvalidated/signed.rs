@@ -36,11 +36,12 @@ impl<D: serde::Serialize> Event<D> {
         )
     }
 
-    /// TODO comment
+    /// Build a signed event from a payload and a signer
+    // TODO: do we need an owned generic here or can we take Box<dyn Signer> or a reference?
     pub async fn from_payload(payload: Payload<D>, signer: impl Signer) -> anyhow::Result<Self> {
         let payload_cid = Self::cid_from_dag_cbor(&serde_ipld_dagcbor::to_vec(&payload)?);
         let payload_cid_str =
-            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&payload_cid.to_bytes());
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(payload_cid.to_bytes());
 
         let alg = signer.algorithm();
         let header = ssi::jws::Header {
@@ -73,22 +74,27 @@ impl<D: serde::Serialize> Event<D> {
         })
     }
 
-    pub fn encode_envelope(&self) -> anyhow::Result<Vec<u8>> {
+    /// Encode the envelope as a IPLD DAG-CBOR
+    pub(crate) fn encode_envelope(&self) -> anyhow::Result<Vec<u8>> {
         Ok(serde_ipld_dagcbor::to_vec(&self.envelope)?)
     }
 
-    pub fn encode_payload(&self) -> anyhow::Result<Vec<u8>> {
+    /// Encode the payload as a IPLD DAG-CBOR
+    pub(crate) fn encode_payload(&self) -> anyhow::Result<Vec<u8>> {
         Ok(serde_ipld_dagcbor::to_vec(&self.payload)?)
     }
 
+    /// Retrieve the CID of the envelope
     pub fn envelope_cid(&self) -> Cid {
         self.envelope_cid
     }
 
+    /// Retrieve the CID of the payload
     pub fn payload_cid(&self) -> Cid {
         self.payload_cid
     }
 
+    /// Encode the event into a CAR file with the envelope and payload blocks
     pub async fn encode_car(&self) -> anyhow::Result<Vec<u8>> {
         let envelope_bytes = self.encode_envelope()?;
         let payload_bytes = self.encode_payload()?;

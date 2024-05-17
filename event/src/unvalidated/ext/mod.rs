@@ -3,8 +3,8 @@ mod unsigned_event;
 
 use ceramic_core::Signer;
 use serde::Serialize;
-use signed_event::SignedEvent;
-use unsigned_event::UnsignedEvent;
+pub use signed_event::SignedEvent;
+pub use unsigned_event::UnsignedEvent;
 
 /// Extension trait to pull fields from payloads
 pub trait CeramicExt {

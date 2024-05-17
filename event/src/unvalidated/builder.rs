@@ -37,10 +37,12 @@ pub struct InitBuilder<S: InitBuilderState> {
 
 trait InitBuilderState {}
 
-struct InitBuilderEmpty;
+/// Initial state of the InitBuilder.
+pub struct InitBuilderEmpty;
 impl InitBuilderState for InitBuilderEmpty {}
 
-struct InitBuilderWithController {
+/// With controller
+pub struct InitBuilderWithController {
     controller: String,
 }
 impl InitBuilderState for InitBuilderWithController {}
@@ -53,7 +55,8 @@ impl InitBuilder<InitBuilderEmpty> {
     }
 }
 
-struct InitBuilderWithSep {
+/// With separater key and value
+pub struct InitBuilderWithSep {
     controller: String,
     sep: Separator,
     unique: Option<Vec<u8>>,
@@ -103,8 +106,7 @@ impl InitBuilder<InitBuilderWithSep> {
             self.state.should_index,
             self.state.unique,
         );
-        let payload = unvalidated::init::Payload::new(header, self.state.data);
-        payload
+        unvalidated::init::Payload::new(header, self.state.data)
     }
 }
 
@@ -117,13 +119,15 @@ pub struct DataBuilder<S: crate::unvalidated::builder::DataBuilderState> {
 
 trait DataBuilderState {}
 
-struct DataBuilderEmpty;
+/// Initial state of the DataBuilder.
+pub struct DataBuilderEmpty;
 impl crate::unvalidated::builder::DataBuilderState
     for crate::unvalidated::builder::DataBuilderEmpty
 {
 }
 
-struct DataBuilderWithId {
+/// With an `id` added
+pub struct DataBuilderWithId {
     id: Cid,
 }
 impl DataBuilderState for DataBuilderWithId {}
@@ -136,7 +140,8 @@ impl DataBuilder<DataBuilderEmpty> {
     }
 }
 
-struct DataBuilderWithPrev {
+/// With `prev` added to the builder
+pub struct DataBuilderWithPrev {
     id: Cid,
     prev: Cid,
 }
@@ -156,7 +161,8 @@ impl DataBuilder<DataBuilderWithId> {
     }
 }
 
-struct DataBuilderWithData {
+/// With `data` added to the builder
+pub struct DataBuilderWithData {
     id: Cid,
     prev: Cid,
     data: Ipld,
@@ -180,6 +186,7 @@ impl DataBuilder<DataBuilderWithPrev> {
     }
 }
 
+// TODO: we should include sep on data events
 impl DataBuilder<DataBuilderWithData> {
     /// Specify should_index.
     pub fn with_should_index(mut self, should_index: bool) -> Self {
@@ -193,13 +200,7 @@ impl DataBuilder<DataBuilderWithData> {
             .state
             .should_index
             .map(|si| unvalidated::data::Header::new(Some(si)));
-        let payload = unvalidated::data::Payload::new(
-            self.state.id,
-            self.state.prev,
-            header,
-            self.state.data,
-        );
-        payload
+        unvalidated::data::Payload::new(self.state.id, self.state.prev, header, self.state.data)
     }
 }
 
@@ -307,7 +308,7 @@ mod tests {
 
         let dagcbor_str = multibase::encode(
             multibase::Base::Base64Url,
-            &serde_ipld_dagcbor::to_vec(&event).unwrap(),
+            serde_ipld_dagcbor::to_vec(&event).unwrap(),
         );
         assert_eq!(DATA_EVENT_PAYLOAD, dagcbor_str);
     }
@@ -341,14 +342,14 @@ mod tests {
 
         let envelope_cbor_str = multibase::encode(
             multibase::Base::Base64Url,
-            &signed_event.encode_envelope().unwrap(),
+            signed_event.encode_envelope().unwrap(),
         );
 
         assert_eq!(SIGNED_INIT_EVENT, envelope_cbor_str);
 
         let event_car_str = multibase::encode(
             multibase::Base::Base64Url,
-            &signed_event.encode_car().await.unwrap(),
+            signed_event.encode_car().await.unwrap(),
         );
         assert_eq!(SIGNED_INIT_EVENT_CAR, event_car_str);
     }
