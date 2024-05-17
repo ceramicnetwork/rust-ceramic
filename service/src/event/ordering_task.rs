@@ -304,7 +304,7 @@ impl OrderingState {
 
                     if let Some(prev) = maybe_prev {
                         let event = DeliverableEvent::new(insertable_body.cid, prev, None);
-                        debug!("Adding event discovered in database to stream pending list");
+                        trace!(cid=%event.cid, "Adding event discovered in database to stream pending list");
                         stream_map.add_event(event);
                     } else {
                         warn!(event_cid=%insertable_body.cid,"Found undelivered event with no prev while processing pending. Should not happen.");

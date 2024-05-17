@@ -106,7 +106,7 @@ async fn test_init_event_delivered() {
     let events = get_events().await;
     let init = &events[0];
     let new = store
-        .insert_events_from_carfiles(&[ReconItem::new(&init.0, &init.1)], true)
+        .insert_events_from_carfiles_local_history(&[ReconItem::new(&init.0, &init.1)])
         .await
         .unwrap();
     let new = new.keys.into_iter().filter(|k| *k).count();
@@ -121,7 +121,7 @@ async fn test_missing_prev_error_history_required() {
     let data = &events[1];
 
     let new = store
-        .insert_events_from_carfiles(&[ReconItem::new(&data.0, &data.1)], true)
+        .insert_events_from_carfiles_local_history(&[ReconItem::new(&data.0, &data.1)])
         .await;
     match new {
         Ok(v) => panic!("should have errored: {:?}", v),
@@ -148,14 +148,14 @@ async fn test_prev_exists_history_required() {
     let init: &(EventId, Vec<u8>) = &events[0];
     let data = &events[1];
     let new = store
-        .insert_events_from_carfiles(&[ReconItem::new(&init.0, &init.1)], true)
+        .insert_events_from_carfiles_local_history(&[ReconItem::new(&init.0, &init.1)])
         .await
         .unwrap();
     let new = new.keys.into_iter().filter(|k| *k).count();
     assert_eq!(1, new);
     check_deliverable(&store.pool, &init.0.cid().unwrap(), true).await;
     let new = store
-        .insert_events_from_carfiles(&[ReconItem::new(&data.0, &data.1)], true)
+        .insert_events_from_carfiles_local_history(&[ReconItem::new(&data.0, &data.1)])
         .await
         .unwrap();
     let new = new.keys.into_iter().filter(|k| *k).count();
@@ -170,13 +170,10 @@ async fn test_prev_in_same_write_history_required() {
     let init: &(EventId, Vec<u8>) = &events[0];
     let data = &events[1];
     let new = store
-        .insert_events_from_carfiles(
-            &[
-                ReconItem::new(&data.0, &data.1),
-                ReconItem::new(&init.0, &init.1),
-            ],
-            true,
-        )
+        .insert_events_from_carfiles_local_history(&[
+            ReconItem::new(&data.0, &data.1),
+            ReconItem::new(&init.0, &init.1),
+        ])
         .await
         .unwrap();
     let new = new.keys.into_iter().filter(|k| *k).count();
@@ -191,7 +188,7 @@ async fn test_missing_prev_pending_recon() {
     let events = get_events().await;
     let data = &events[1];
     let new = store
-        .insert_events_from_carfiles(&[ReconItem::new(&data.0, &data.1)], false)
+        .insert_events_from_carfiles_remote_history(&[ReconItem::new(&data.0, &data.1)])
         .await
         .unwrap();
     let new = new.keys.into_iter().filter(|k| *k).count();
@@ -207,7 +204,7 @@ async fn test_missing_prev_pending_recon() {
     let data = &events[2];
 
     let new = store
-        .insert_events_from_carfiles(&[ReconItem::new(&data.0, &data.1)], false)
+        .insert_events_from_carfiles_remote_history(&[ReconItem::new(&data.0, &data.1)])
         .await
         .unwrap();
     let new = new.keys.into_iter().filter(|k| *k).count();
@@ -222,7 +219,7 @@ async fn test_missing_prev_pending_recon() {
     // now we add the init and we should see init, data 1 (first stored), data 2 (second stored) as highwater returns
     let data = &events[0];
     let new = store
-        .insert_events_from_carfiles(&[ReconItem::new(&data.0, &data.1)], false)
+        .insert_events_from_carfiles_remote_history(&[ReconItem::new(&data.0, &data.1)])
         .await
         .unwrap();
     let new = new.keys.into_iter().filter(|k| *k).count();

@@ -3,8 +3,9 @@ use std::collections::{HashMap, HashSet};
 use ceramic_core::EventId;
 use ceramic_event::unvalidated;
 use ceramic_store::{CeramicOneEvent, EventInsertable, EventInsertableBody, SqlitePool};
+use cid::Cid;
 use ipld_core::ipld::Ipld;
-use recon::InsertResult;
+use recon::{InsertResult, ReconItem};
 use tracing::{trace, warn};
 
 use super::ordering_task::{
@@ -121,71 +122,40 @@ impl CeramicEventService {
     }
 
     #[tracing::instrument(skip(self, items), level = tracing::Level::DEBUG, fields(items = items.len()))]
-    pub(crate) async fn insert_events_from_carfiles<'a>(
+    /// This function is used to insert events from a carfile requiring that the history is local to the node.
+    /// This is likely used in API contexts when a user is trying to insert events. Events discovered from
+    /// peers can come in any order and we will discover the prev chain over time. Use
+    /// `insert_events_from_carfiles_remote_history` for that case.
+    pub(crate) async fn insert_events_from_carfiles_local_history<'a>(
         &self,
         items: &[recon::ReconItem<'a, EventId>],
-        must_have_history: bool,
     ) -> Result<recon::InsertResult> {
         if items.is_empty() {
             return Ok(InsertResult::default());
         }
 
-        let mut insert_now = Vec::with_capacity(items.len());
-        let mut notify_task_new = Vec::with_capacity(items.len());
-        let mut insert_after_history_check = if must_have_history {
-            Vec::with_capacity(items.len())
-        } else {
-            Vec::default()
-        };
+        let ordering =
+            InsertEventOrdering::discover_deliverable_local_history(items, &self.pool).await?;
+        self.process_events(ordering).await
+    }
 
-        let mut background_task_deliverable = HashMap::new();
-        for item in items {
-            let cid = item.key.cid().ok_or_else(|| {
-                Error::new_invalid_arg(anyhow::anyhow!("EventID is missing a CID: {}", item.key))
-            })?;
-            // we want to end a conversation if any of the events aren't ceramic events and not store them
-            // this includes making sure the key matched the body cid
-            let (insertable_body, maybe_prev) = Self::parse_event_carfile(cid, item.value).await?;
-            let mut insertable = EventInsertable::try_new(item.key.to_owned(), insertable_body)?;
-            if let Some(meta) = maybe_prev {
-                if must_have_history {
-                    insert_after_history_check.push((meta, insertable));
-                } else {
-                    background_task_deliverable.insert(insertable.body.cid, meta);
-                    insert_now.push(insertable);
-                }
-            } else {
-                insertable.deliverable(true);
-                notify_task_new.push(DeliveredEvent::new(
-                    insertable.body.cid,
-                    insertable.body.cid,
-                ));
-                insert_now.push(insertable);
-            }
+    #[tracing::instrument(skip(self, items), level = tracing::Level::DEBUG, fields(items = items.len()))]
+    pub(crate) async fn insert_events_from_carfiles_remote_history<'a>(
+        &self,
+        items: &[recon::ReconItem<'a, EventId>],
+    ) -> Result<recon::InsertResult> {
+        if items.is_empty() {
+            return Ok(InsertResult::default());
         }
 
-        if !insert_after_history_check.is_empty() {
-            let deliverable = insert_now
-                .iter()
-                .filter_map(|e| {
-                    if e.body.deliverable {
-                        Some(e.body.cid)
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-            self.verify_history_inline(
-                insert_after_history_check,
-                &mut insert_now,
-                &mut notify_task_new,
-                &deliverable,
-            )
-            .await?;
-        }
-        let res = CeramicOneEvent::insert_many(&self.pool, &insert_now[..]).await?;
+        let ordering = InsertEventOrdering::discover_deliverable_remote_history(items).await?;
+        self.process_events(ordering).await
+    }
 
-        for ev in background_task_deliverable {
+    async fn process_events(&self, ordering: InsertEventOrdering) -> Result<recon::InsertResult> {
+        let res = CeramicOneEvent::insert_many(&self.pool, &ordering.insert_now[..]).await?;
+
+        for ev in ordering.background_task_deliverable {
             trace!(cid=%ev.0, prev=%ev.1.prev, init=%ev.1.init_cid, "sending to delivery task");
             if let Err(e) = self
                 .delivery_task
@@ -205,7 +175,7 @@ impl CeramicEventService {
                 }
             }
         }
-        for new in notify_task_new {
+        for new in ordering.notify_task_new {
             if let Err(e) = self.delivery_task.tx_new.try_send(new) {
                 match e {
                     tokio::sync::mpsc::error::TrySendError::Full(ev) => {
@@ -220,32 +190,137 @@ impl CeramicEventService {
                 }
             }
         }
-
         Ok(res)
+    }
+}
+
+struct InsertEventOrdering {
+    insert_now: Vec<EventInsertable>,
+    notify_task_new: Vec<DeliveredEvent>,
+    background_task_deliverable: HashMap<cid::Cid, DeliverableMetadata>,
+}
+
+impl InsertEventOrdering {
+    pub(crate) async fn discover_deliverable_remote_history<'a>(
+        items: &[ReconItem<'a, EventId>],
+    ) -> Result<Self> {
+        let mut result = Self {
+            insert_now: Vec::with_capacity(items.len()),
+            notify_task_new: Vec::with_capacity(items.len()),
+            background_task_deliverable: HashMap::new(),
+        };
+
+        for item in items {
+            let (insertable, maybe_prev) = Self::parse_item(item).await?;
+            if let Some(meta) = maybe_prev {
+                result.mark_event_deliverable_later(insertable, meta);
+            } else {
+                let init_cid = insertable.body.cid;
+                result.mark_event_deliverable_now(insertable, init_cid);
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// This will error if any of the events doesn't have its prev on the local node (in the database/memory or in this batch).
+    pub(crate) async fn discover_deliverable_local_history<'a>(
+        items: &[ReconItem<'a, EventId>],
+        pool: &SqlitePool,
+    ) -> Result<Self> {
+        let mut result = Self {
+            insert_now: Vec::with_capacity(items.len()),
+            notify_task_new: Vec::with_capacity(items.len()),
+            background_task_deliverable: HashMap::new(),
+        };
+
+        let mut insert_after_history_check: Vec<(DeliverableMetadata, EventInsertable)> =
+            Vec::with_capacity(items.len());
+
+        for item in items {
+            let (insertable, maybe_prev) = Self::parse_item(item).await?;
+            if let Some(meta) = maybe_prev {
+                insert_after_history_check.push((meta, insertable));
+            } else {
+                let init_cid = insertable.body.cid;
+                result.mark_event_deliverable_now(insertable, init_cid);
+            }
+        }
+
+        trace!(local_events_checking=%insert_after_history_check.len(), "checking local history");
+        result
+            .verify_history_inline(pool, insert_after_history_check)
+            .await?;
+        Ok(result)
+    }
+
+    async fn parse_item<'a>(
+        item: &ReconItem<'a, EventId>,
+    ) -> Result<(EventInsertable, Option<DeliverableMetadata>)> {
+        let cid = item.key.cid().ok_or_else(|| {
+            Error::new_invalid_arg(anyhow::anyhow!("EventID is missing a CID: {}", item.key))
+        })?;
+        // we want to end a conversation if any of the events aren't ceramic events and not store them
+        // this includes making sure the key matched the body cid
+        let (insertable_body, maybe_prev) =
+            CeramicEventService::parse_event_carfile(cid, item.value).await?;
+        let insertable = EventInsertable::try_new(item.key.to_owned(), insertable_body)?;
+        Ok((insertable, maybe_prev))
+    }
+
+    fn mark_event_deliverable_later(
+        &mut self,
+        insertable: EventInsertable,
+        meta: DeliverableMetadata,
+    ) {
+        self.background_task_deliverable
+            .insert(insertable.body.cid, meta);
+        self.insert_now.push(insertable);
+    }
+
+    fn mark_event_deliverable_now(&mut self, mut ev: EventInsertable, init_cid: Cid) {
+        ev.deliverable(true);
+        self.notify_task_new
+            .push(DeliveredEvent::new(ev.body.cid, init_cid));
+        self.insert_now.push(ev);
     }
 
     async fn verify_history_inline(
-        &self,
-        insert_after_history_check: Vec<(DeliverableMetadata, EventInsertable)>,
-        insert_now: &mut Vec<EventInsertable>,
-        notify_new: &mut Vec<DeliveredEvent>,
-        incoming_deliverable_cids: &HashSet<cid::Cid>,
+        &mut self,
+        pool: &SqlitePool,
+        to_check: Vec<(DeliverableMetadata, EventInsertable)>,
     ) -> Result<()> {
+        if to_check.is_empty() {
+            return Ok(());
+        }
+
+        let incoming_deliverable_cids: HashSet<Cid> = self
+            .insert_now
+            .iter()
+            .filter_map(|e| {
+                if e.body.deliverable {
+                    Some(e.body.cid)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
         // ideally, this map would be per stream, but we are just processing all of them together for now
         let mut to_check_map = StreamEvents::new();
 
-        let required_to_find = insert_after_history_check.len();
+        let required_to_find = to_check.len();
         let mut found_in_batch = 0;
         let mut insert_if_greenlit = Vec::with_capacity(required_to_find);
 
-        for (meta, mut ev) in insert_after_history_check {
+        for (meta, ev) in to_check {
             if incoming_deliverable_cids.contains(&meta.prev) {
                 trace!(new=%ev.body.cid, prev=%meta.prev, "prev event being added in same batch");
                 found_in_batch += 1;
-                ev.deliverable(true);
-                notify_new.push(DeliveredEvent::new(ev.body.cid, meta.init_cid));
-                insert_now.push(ev);
+                self.mark_event_deliverable_now(ev, meta.init_cid);
             } else {
+                trace!(new=%ev.body.cid, prev=%meta.prev, "will check for prev event in db");
+
                 let _new = to_check_map.add_event(DeliverableEvent::new(
                     ev.body.cid,
                     meta.to_owned(),
@@ -260,7 +335,7 @@ impl CeramicEventService {
         }
 
         let deliverable =
-            OrderingState::discover_deliverable_events(&self.pool, &mut to_check_map).await?;
+            OrderingState::discover_deliverable_events(pool, &mut to_check_map).await?;
         if deliverable.len() != required_to_find - found_in_batch {
             let missing = insert_if_greenlit
                 .iter()
@@ -280,10 +355,8 @@ impl CeramicEventService {
                 missing
             )))
         } else {
-            for (meta, mut insertable) in insert_if_greenlit.drain(..) {
-                insertable.deliverable(true);
-                notify_new.push(DeliveredEvent::new(insertable.body.cid, meta.init_cid));
-                insert_now.push(insertable);
+            for (meta, insertable) in insert_if_greenlit.drain(..) {
+                self.mark_event_deliverable_now(insertable, meta.init_cid);
             }
             Ok(())
         }

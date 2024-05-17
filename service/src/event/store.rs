@@ -16,7 +16,7 @@ impl recon::Store for CeramicEventService {
 
     async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> ReconResult<bool> {
         let res = self
-            .insert_events_from_carfiles(&[item.to_owned()], false)
+            .insert_events_from_carfiles_remote_history(&[item.to_owned()])
             .await?;
 
         Ok(res.keys.first().copied().unwrap_or(false))
@@ -26,7 +26,9 @@ impl recon::Store for CeramicEventService {
     /// Returns true for each key if it did not previously exist, in the
     /// same order as the input iterator.
     async fn insert_many(&self, items: &[ReconItem<'_, Self::Key>]) -> ReconResult<InsertResult> {
-        let res = self.insert_events_from_carfiles(items, false).await?;
+        let res = self
+            .insert_events_from_carfiles_remote_history(items)
+            .await?;
         Ok(res)
     }
 
@@ -109,7 +111,9 @@ impl ceramic_api::AccessModelStore for CeramicEventService {
             .iter()
             .map(|(key, val)| ReconItem::new(key, val.as_slice()))
             .collect::<Vec<_>>();
-        let res = self.insert_events_from_carfiles(&items[..], true).await?;
+        let res = self
+            .insert_events_from_carfiles_local_history(&items[..])
+            .await?;
         Ok(res.keys)
     }
 
