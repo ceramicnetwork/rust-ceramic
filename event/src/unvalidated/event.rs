@@ -4,34 +4,46 @@ use crate::unvalidated::{init, signed};
 use cid::Cid;
 use serde::{Deserialize, Serialize};
 
-/// Ceramic Event
-#[derive(Serialize, Deserialize)]
-#[serde(untagged)]
+/// Materialized Ceramic Event where internal structure is accessible.
 pub enum Event<D> {
     /// Time event in a stream
-    // NOTE: TimeEvent has several CIDs so its a relatively large struct (~312 bytes according to
-    // the compiler). Therefore we box it here to keep the Event enum small.
+    // NOTE: TimeEvent has several CIDs so it's a relatively large struct (~312 bytes according to
+    // the compiler). Therefore, we box it here to keep the Event enum small.
     Time(Box<TimeEvent>),
     /// Signed event in a stream
-    Signed(signed::Payload),
+    Signed(signed::Event<D>),
     /// Unsigned event in a stream
     Unsigned(init::Payload<D>),
 }
 
-impl<D> From<Box<TimeEvent>> for Event<D> {
+/// Ceramic Event as it is encoded in the protocol.
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum RawEvent<D> {
+    /// Time event in a stream
+    // NOTE: TimeEvent has several CIDs so it's a relatively large struct (~312 bytes according to
+    // the compiler). Therefore, we box it here to keep the Event enum small.
+    Time(Box<TimeEvent>),
+    /// Signed event in a stream
+    Signed(signed::Envelope),
+    /// Unsigned event in a stream
+    Unsigned(init::Payload<D>),
+}
+
+impl<D> From<Box<TimeEvent>> for RawEvent<D> {
     fn from(value: Box<TimeEvent>) -> Self {
         Self::Time(value)
     }
 }
 
-impl<D> From<init::Payload<D>> for Event<D> {
+impl<D> From<init::Payload<D>> for RawEvent<D> {
     fn from(value: init::Payload<D>) -> Self {
         Self::Unsigned(value)
     }
 }
 
-impl<D> From<signed::Payload> for Event<D> {
-    fn from(value: signed::Payload) -> Self {
+impl<D> From<signed::Envelope> for RawEvent<D> {
+    fn from(value: signed::Envelope) -> Self {
         Self::Signed(value)
     }
 }

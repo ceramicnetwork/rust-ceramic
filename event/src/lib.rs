@@ -1,24 +1,17 @@
 //! # Ceramic Event
 //! Implementation of ceramic event protocol, with appropriate compatibilility with js-ceramic
-#![deny(missing_docs)]
+#![warn(missing_docs)]
 mod bytes;
 /// Unvalidated event types
 pub mod unvalidated;
 
-pub use bytes::Bytes as EventBytes;
 pub use ceramic_core::*;
-
-/// Prelude for building events
-pub mod event_builder {
-    pub use super::unvalidated::{
-        Additional, Builder, CeramicExt, Controllers, IntoSignedCeramicEvent,
-        IntoUnsignedCeramicEvent, Sep,
-    };
-}
 
 #[cfg(test)]
 pub mod tests {
-    use ceramic_core::{DidDocument, JwkSigner};
+    use ceramic_core::DidDocument;
+
+    use crate::unvalidated::signed::JwkSigner;
 
     pub fn to_pretty_json(json_data: &[u8]) -> String {
         let json: serde_json::Value = match serde_json::from_slice(json_data) {

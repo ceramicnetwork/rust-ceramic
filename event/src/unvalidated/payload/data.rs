@@ -1,4 +1,3 @@
-use crate::unvalidated::{Value, ValueMap};
 use cid::Cid;
 use serde::{Deserialize, Serialize};
 
@@ -38,11 +37,6 @@ impl<D> Payload<D> {
         self.header.as_ref()
     }
 
-    /// Get a header value
-    pub fn header_value(&self, key: &str) -> Option<&Value> {
-        self.header.as_ref().and_then(|h| h.additional.get(key))
-    }
-
     /// Get the data
     pub fn data(&self) -> &D {
         &self.data
@@ -53,35 +47,18 @@ impl<D> Payload<D> {
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Header {
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(crate) controllers: Vec<String>,
-    #[serde(flatten, skip_serializing_if = "ValueMap::is_empty")]
-    pub(crate) additional: ValueMap,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) should_index: Option<bool>,
 }
 
 impl Header {
     /// Construct a header for a data event payload
-    pub fn new(controllers: Vec<String>, additional: ValueMap) -> Self {
-        Self {
-            controllers,
-            additional,
-        }
+    pub fn new(should_index: Option<bool>) -> Self {
+        Self { should_index }
     }
 
-    /// Get the controllers
-    pub fn controllers(&self) -> &[String] {
-        self.controllers.as_ref()
-    }
-
-    /// Report the should_index property of the header.
-    pub fn additional(&self) -> &ValueMap {
-        &self.additional
-    }
-
-    /// Determine if this should be indexed
+    /// Signal to indexers whether this stream should be indexed
     pub fn should_index(&self) -> bool {
-        self.additional
-            .get("shouldIndex")
-            .map_or(true, |v| v.as_bool().unwrap_or(true))
+        self.should_index.unwrap_or(true)
     }
 }

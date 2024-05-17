@@ -1087,7 +1087,6 @@ name = "ceramic-core"
 version = "0.18.0"
 dependencies = [
  "anyhow",
- "async-trait",
  "base64 0.21.7",
  "cid 0.11.1",
  "did-method-key",
@@ -1119,16 +1118,19 @@ name = "ceramic-event"
 version = "0.18.0"
 dependencies = [
  "anyhow",
- "async-trait",
+ "base64 0.21.7",
  "ceramic-core",
  "cid 0.11.1",
  "expect-test",
  "ipld-core",
+ "iroh-car",
+ "multibase 0.9.1",
  "multihash-codetable",
  "serde",
  "serde_ipld_dagcbor",
  "serde_ipld_dagjson",
  "serde_json",
+ "ssi",
  "test-log",
  "tokio",
  "tracing",

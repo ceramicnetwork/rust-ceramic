@@ -11,16 +11,19 @@ publish = false
 
 [dependencies]
 anyhow.workspace = true
-async-trait.workspace = true
 ceramic-core.workspace = true
 cid.workspace = true
 ipld-core.workspace = true
+iroh-car.workspace = true
 multihash-codetable.workspace = true
 serde.workspace = true
+serde_ipld_dagcbor.workspace = true
 serde_json.workspace = true
+ssi.workspace = true
+base64.workspace = true
 
 [dev-dependencies]
-serde_ipld_dagcbor.workspace = true
+multibase.workspace = true
 serde_ipld_dagjson.workspace = true
 tokio = { workspace = true, features = ["fs", "macros", "rt"] }
 tracing.workspace = true
