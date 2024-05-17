@@ -1,7 +1,7 @@
 use crate::unvalidated;
 use cid::Cid;
 
-/// Builder for construct events.
+/// Builder for constructing events.
 pub struct Builder;
 
 impl Builder {
@@ -18,6 +18,8 @@ impl Builder {
             state: DataBuilderEmpty,
         }
     }
+
+    // TODO(stbrody): add builder for TimeEvents
 }
 
 struct Separator {
@@ -31,11 +33,14 @@ pub struct InitBuilder<S: InitBuilderState> {
     state: S,
 }
 
+/// State of the builder
 pub trait InitBuilderState {}
 
+/// Initial state
 pub struct InitBuilderEmpty;
 impl InitBuilderState for InitBuilderEmpty {}
 
+/// State with controller added
 pub struct InitBuilderWithController {
     controller: String,
 }
@@ -49,6 +54,7 @@ impl InitBuilder<InitBuilderEmpty> {
     }
 }
 
+/// State with separator added, also supports all optional init event fields.
 pub struct InitBuilderWithSep<D> {
     controller: String,
     sep: Separator,
@@ -107,18 +113,18 @@ impl<D> InitBuilder<InitBuilderWithSep<D>> {
 /// Builder for constructing an [`unvalidated::data::Payload`].
 #[derive(Default)]
 #[allow(private_bounds)]
-pub struct DataBuilder<S: crate::unvalidated::builder::DataBuilderState> {
+pub struct DataBuilder<S: unvalidated::builder::DataBuilderState> {
     state: S,
 }
 
+/// State of the builder
 pub trait DataBuilderState {}
 
+/// Initial state
 pub struct DataBuilderEmpty;
-impl crate::unvalidated::builder::DataBuilderState
-    for crate::unvalidated::builder::DataBuilderEmpty
-{
-}
+impl DataBuilderState for DataBuilderEmpty {}
 
+/// State with id added
 pub struct DataBuilderWithId {
     id: Cid,
 }
@@ -132,19 +138,17 @@ impl DataBuilder<DataBuilderEmpty> {
     }
 }
 
+/// State with prev added
 pub struct DataBuilderWithPrev {
     id: Cid,
     prev: Cid,
 }
-impl DataBuilderState for crate::unvalidated::builder::DataBuilderWithPrev {}
+impl DataBuilderState for DataBuilderWithPrev {}
 impl DataBuilder<DataBuilderWithId> {
     /// Specify the prev.
-    pub fn with_prev(
-        self,
-        prev: Cid,
-    ) -> DataBuilder<crate::unvalidated::builder::DataBuilderWithPrev> {
+    pub fn with_prev(self, prev: Cid) -> DataBuilder<DataBuilderWithPrev> {
         DataBuilder {
-            state: crate::unvalidated::builder::DataBuilderWithPrev {
+            state: DataBuilderWithPrev {
                 id: self.state.id,
                 prev,
             },
@@ -152,21 +156,19 @@ impl DataBuilder<DataBuilderWithId> {
     }
 }
 
+/// State with data added, also supports the optional should_index field.
 pub struct DataBuilderWithData<D> {
     id: Cid,
     prev: Cid,
     data: D,
     should_index: Option<bool>,
 }
-impl<D> DataBuilderState for crate::unvalidated::builder::DataBuilderWithData<D> {}
+impl<D> DataBuilderState for DataBuilderWithData<D> {}
 impl DataBuilder<DataBuilderWithPrev> {
     /// Specify the data.
-    pub fn with_data<D>(
-        self,
-        data: D,
-    ) -> DataBuilder<crate::unvalidated::builder::DataBuilderWithData<D>> {
+    pub fn with_data<D>(self, data: D) -> DataBuilder<DataBuilderWithData<D>> {
         DataBuilder {
-            state: crate::unvalidated::builder::DataBuilderWithData {
+            state: DataBuilderWithData {
                 id: self.state.id,
                 prev: self.state.prev,
                 data,

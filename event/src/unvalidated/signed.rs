@@ -36,7 +36,7 @@ impl<D: serde::Serialize> Event<D> {
         )
     }
 
-    /// TODO comment
+    /// Constructs a signed event by signing a given event payload.
     pub fn from_payload(payload: Payload<D>, signer: impl Signer) -> anyhow::Result<Self> {
         let payload_cid = Self::cid_from_dag_cbor(&serde_ipld_dagcbor::to_vec(&payload)?);
         let payload_cid_str =
@@ -73,22 +73,27 @@ impl<D: serde::Serialize> Event<D> {
         })
     }
 
+    /// Encodes the signature envelope as IPLD
     pub fn encode_envelope(&self) -> anyhow::Result<Vec<u8>> {
         Ok(serde_ipld_dagcbor::to_vec(&self.envelope)?)
     }
 
+    /// Encodes the payload as IPLD
     pub fn encode_payload(&self) -> anyhow::Result<Vec<u8>> {
         Ok(serde_ipld_dagcbor::to_vec(&self.payload)?)
     }
 
+    /// Get the CID of the signature envelope
     pub fn envelope_cid(&self) -> Cid {
         self.envelope_cid
     }
 
+    /// Get the CID of the payload
     pub fn payload_cid(&self) -> Cid {
         self.payload_cid
     }
 
+    /// Encodes the full signed event into a CAR file.
     pub async fn encode_car(&self) -> anyhow::Result<Vec<u8>> {
         let envelope_bytes = self.encode_envelope()?;
         let payload_bytes = self.encode_payload()?;
@@ -103,13 +108,13 @@ impl<D: serde::Serialize> Event<D> {
         Ok(car)
     }
 
+    /// Accessor for the envelope and payload.
     pub fn into_parts(self) -> (Envelope, Payload<D>) {
         (self.envelope, self.payload)
     }
 }
 
 /// A signed event envelope.
-/// TODO: What is the relationship between this and SignedEvent?
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Envelope {
