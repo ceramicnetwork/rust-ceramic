@@ -1,36 +1,29 @@
 [package]
-name = "ceramic-store"
-description = "A storage implementation for Ceramic"
+name = "ceramic-service"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-publish = false
 
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
+bytes.workspace = true
 ceramic-api.workspace = true
 ceramic-core.workspace = true
 ceramic-metrics.workspace = true
+ceramic-store.workspace = true
 cid.workspace = true
-futures.workspace = true
 hex.workspace = true
 iroh-bitswap.workspace = true
 iroh-car.workspace = true
-itertools = "0.12.0"
-multihash.workspace = true
 multihash-codetable.workspace = true
-prometheus-client.workspace = true
-thiserror.workspace = true
 recon.workspace = true
-sqlx.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
-criterion2 = { workspace = true, features = ["async", "async_tokio"] }
 expect-test.workspace = true
 ipld-core.workspace = true
 multibase.workspace = true
@@ -41,10 +34,5 @@ test-log.workspace = true
 tmpdir.workspace = true
 tokio.workspace = true
 tracing-subscriber.workspace = true
-tracing-test.workspace = true
 uuid.workspace = true
 
-
-[[bench]]
-name = "sqlite_store"
-harness = false

@@ -41,6 +41,8 @@ use tracing::{instrument, Level};
 use crate::server::event::event_id_from_car;
 use crate::ResumeToken;
 
+/// How many events to try to process at once i.e. read from the channel in batches.
+const EVENTS_TO_RECEIVE: usize = 10;
 /// When the incoming events queue has at least this many items, we'll store them.
 /// This imples when we're getting writes faster than the flush interval.
 const EVENT_INSERT_QUEUE_SIZE: usize = 3;
@@ -285,23 +287,34 @@ where
             // without processing one at a time. when we stop parsing the carfile in the store
             // i.e. validate before sending here and this is just an insert, we may want to process more at once.
             loop {
+                let mut buf = Vec::with_capacity(EVENTS_TO_RECEIVE);
                 tokio::select! {
-                    _ = interval.tick(), if !events.is_empty() => {
+                    _ = interval.tick() => {
                         Self::process_events(&mut events, &event_store).await;
                     }
-                    Some(req) = event_rx.recv() => {
-                        events.push(req);
+                    val = event_rx.recv_many(&mut buf, EVENTS_TO_RECEIVE) => {
+                        if val > 0 {
+                            events.extend(buf);
+                        }
                     }
                 }
+                let shutdown = event_rx.is_closed();
                 // make sure the events queue doesn't get too deep when we're under heavy load
-                if events.len() >= EVENT_INSERT_QUEUE_SIZE {
+                if events.len() >= EVENT_INSERT_QUEUE_SIZE || shutdown {
                     Self::process_events(&mut events, &event_store).await;
+                }
+                if shutdown {
+                    tracing::info!("Shutting down insert task.");
+                    return;
                 }
             }
         })
     }
 
     async fn process_events(events: &mut Vec<EventInsert>, event_store: &Arc<M>) {
+        if events.is_empty() {
+            return;
+        }
         let mut oneshots = Vec::with_capacity(events.len());
         let mut items = Vec::with_capacity(events.len());
         events.drain(..).for_each(|req: EventInsert| {
@@ -402,7 +415,6 @@ where
         ))
     }
 
-    // TODO(stbrody): Only take the event data, don't take an id field at all since its unused.
     pub async fn post_events(&self, event: EventData) -> Result<EventsPostResponse, ErrorResponse> {
         let event_data = match decode_multibase_data(&event.data) {
             Ok(v) => v,

@@ -17,6 +17,7 @@ ceramic-kubo-rpc = { path = "../kubo-rpc", features = ["http"] }
 ceramic-kubo-rpc-server.workspace = true
 ceramic-metrics.workspace = true
 ceramic-p2p.workspace = true
+ceramic-service.workspace = true
 ceramic-store.workspace = true
 chrono = "0.4.31"
 cid.workspace = true

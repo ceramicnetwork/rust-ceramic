@@ -49,7 +49,7 @@ impl EventQuery {
     /// Requires binding 4 parameters. Finds the `EventValueRaw` values needed to rebuild the event
     pub fn value_blocks_by_order_key_many() -> &'static str {
         r#"SELECT
-                key.order_key, eb.codec, eb.root, eb.idx, b.multihash, b.bytes
+                key.order_key, key.event_cid, eb.codec, eb.root, eb.idx, b.multihash, b.bytes
             FROM (
                 SELECT
                     e.cid as event_cid, e.order_key

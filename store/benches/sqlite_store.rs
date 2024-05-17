@@ -1,13 +1,12 @@
 use ceramic_core::{EventId, Network};
-use ceramic_store::{SqliteEventStore, SqlitePool};
+use ceramic_store::{CeramicOneEvent, SqlitePool};
 use cid::Cid;
 use criterion2::{criterion_group, criterion_main, BatchSize, Criterion};
-use multihash::{Code, MultihashDigest};
+use multihash_codetable::{Code, MultihashDigest};
 use rand::RngCore;
-use recon::{ReconItem, Store};
 
 struct ModelSetup {
-    store: SqliteEventStore,
+    pool: SqlitePool,
     events: Vec<(EventId, Vec<u8>)>,
 }
 
@@ -24,10 +23,9 @@ fn generate_event_id(data: &[u8]) -> EventId {
     EventId::new(
         &Network::Mainnet,
         "model",
-        "kh4q0ozorrgaq2mezktnrmdwleo1d",
+        "kh4q0ozorrgaq2mezktnrmdwleo1d".as_bytes(),
         "did:key:z6MkgSV3tAuw7gUWqKCUY7ae6uWNxqYgdwPhUJbJhF9EFXm9",
         &cid,
-        1,
         &cid,
     )
 }
@@ -57,18 +55,17 @@ async fn model_setup(tpe: ModelType, cnt: usize) -> ModelSetup {
     }
 
     let pool = SqlitePool::connect_in_memory().await.unwrap();
-    let store = SqliteEventStore::new(pool).await.unwrap();
-    ModelSetup { store, events }
+    ModelSetup { pool, events }
 }
 
 async fn model_routine(input: ModelSetup) {
-    let futs = input.events.into_iter().map(|(event_id, data)| {
-        let store = input.store.clone();
-        async move {
-            let event = ReconItem::new(&event_id, Some(data.as_slice()));
-            store.insert(&event).await
-        }
-    });
+    let futs =
+        input.events.into_iter().map(|(event_id, data)| {
+            let store = input.pool.clone();
+            async move {
+                CeramicOneEvent::insert_raw_carfiles(&store, &[(event_id, data.as_slice())]).await
+            }
+        });
     futures::future::join_all(futs).await;
 }
 

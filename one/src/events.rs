@@ -3,7 +3,8 @@ use crate::CborValue;
 use anyhow::{anyhow, bail, Context, Result};
 use ceramic_core::{ssi, Base64UrlString, DidDocument, Jwk};
 use ceramic_metrics::init_local_tracing;
-use ceramic_store::{Migrations, SqliteEventStore, SqlitePool, SqliteRootStore};
+use ceramic_service::CeramicEventService;
+use ceramic_store::{Migrations, SqlitePool, SqliteRootStore};
 use chrono::{SecondsFormat, TimeZone, Utc};
 use cid::{multibase, multihash, Cid};
 use clap::{Args, Subcommand};
@@ -77,7 +78,7 @@ async fn slurp(opts: SlurpOpts) -> Result<()> {
     let pool = SqlitePool::connect(&output_ceramic_path, Migrations::Apply)
         .await
         .context("Failed to connect to database")?;
-    let block_store = SqliteEventStore::new(pool).await.unwrap();
+    let block_store = CeramicEventService::new(pool).await.unwrap();
 
     if let Some(input_ceramic_db) = opts.input_ceramic_db {
         migrate_from_database(input_ceramic_db, Clone::clone(&block_store)).await?;
@@ -109,7 +110,7 @@ async fn validate(opts: ValidateOpts) -> Result<()> {
     let pool = SqlitePool::connect(&path, Migrations::Apply)
         .await
         .context("Failed to connect to database")?;
-    let block_store = SqliteEventStore::new(pool.clone())
+    let block_store = CeramicEventService::new(pool.clone())
         .await
         .with_context(|| "Failed to create block store")?;
     let root_store = SqliteRootStore::new(pool)
@@ -175,7 +176,10 @@ async fn validate(opts: ValidateOpts) -> Result<()> {
     Ok(())
 }
 
-async fn validate_data_event_envelope(cid: &Cid, block_store: &SqliteEventStore) -> Result<String> {
+async fn validate_data_event_envelope(
+    cid: &Cid,
+    block_store: &CeramicEventService,
+) -> Result<String> {
     let block = block_store.get(cid).await?;
     let envelope = CborValue::parse(&block.data)?;
     let signatures_0 = envelope
@@ -219,7 +223,7 @@ async fn validate_data_event_envelope(cid: &Cid, block_store: &SqliteEventStore)
 // TODO: Validate CACAO
 async fn validate_data_event_payload(
     _payload_cid: &Cid,
-    _block_store: &SqliteEventStore,
+    _block_store: &CeramicEventService,
     _controller: Option<String>,
 ) -> Result<()> {
     Ok(())
@@ -233,7 +237,7 @@ async fn validate_data_event_payload(
 // - Validated time is the time from the Root Store
 async fn validate_time_event(
     cid: &Cid,
-    block_store: &SqliteEventStore,
+    block_store: &CeramicEventService,
     root_store: &SqliteRootStore,
     eth_rpc: &impl EthRpc,
 ) -> Result<i64> {
@@ -291,7 +295,7 @@ async fn prev_in_root(
     prev: Cid,
     root: Cid,
     path: String,
-    block_store: &SqliteEventStore,
+    block_store: &CeramicEventService,
 ) -> Result<bool> {
     let mut current_cid = root;
     for segment in path.split('/') {
@@ -304,7 +308,10 @@ async fn prev_in_root(
     Ok(prev == current_cid)
 }
 
-async fn migrate_from_filesystem(input_ipfs_path: PathBuf, store: SqliteEventStore) -> Result<()> {
+async fn migrate_from_filesystem(
+    input_ipfs_path: PathBuf,
+    store: CeramicEventService,
+) -> Result<()> {
     // the block store is split in to 1024 directories and then the blocks stored as files.
     // the dir structure is the penultimate two characters as dir then the b32 sha256 multihash of the block
     // The leading "B" for the b32 sha256 multihash is left off
@@ -323,11 +330,6 @@ async fn migrate_from_filesystem(input_ipfs_path: PathBuf, store: SqliteEventSto
 
     let mut count = 0;
     let mut err_count = 0;
-
-    let mut tx = store
-        .begin_tx()
-        .await
-        .with_context(|| "Failed to begin database transaction")?;
 
     for path in paths {
         let path = path.unwrap().as_path().to_owned();
@@ -369,7 +371,8 @@ async fn migrate_from_filesystem(input_ipfs_path: PathBuf, store: SqliteEventSto
             );
         }
 
-        let result = store.put_block_tx(cid.hash(), &blob, &mut tx).await;
+        let block = iroh_bitswap::Block::new(blob.into(), cid);
+        let result = store.put(&block).await;
         if result.is_err() {
             info!(
                 "{} err: {} {:?}",
@@ -392,7 +395,10 @@ async fn migrate_from_filesystem(input_ipfs_path: PathBuf, store: SqliteEventSto
     Ok(())
 }
 
-async fn migrate_from_database(input_ceramic_db: PathBuf, store: SqliteEventStore) -> Result<()> {
+async fn migrate_from_database(
+    input_ceramic_db: PathBuf,
+    store: CeramicEventService,
+) -> Result<()> {
     let input_ceramic_db_filename = input_ceramic_db.to_str().expect("expect utf8");
     info!(
         "{} Importing blocks from {}.",
@@ -405,7 +411,7 @@ async fn migrate_from_database(input_ceramic_db: PathBuf, store: SqliteEventStor
         Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
         input_ceramic_db_filename
     );
-    Ok(result?)
+    result
 }
 
 #[cfg(test)]
@@ -443,7 +449,7 @@ mod tests {
         let pool = SqlitePool::connect_in_memory().await.unwrap();
 
         // Create a new SQLiteBlockStore and SQLiteRootStore
-        let block_store = SqliteEventStore::new(pool.clone()).await.unwrap();
+        let block_store = CeramicEventService::new(pool.clone()).await.unwrap();
         let root_store = SqliteRootStore::new(pool).await.unwrap();
 
         // Add all the blocks for the Data Event & Time Event to the block store
@@ -540,18 +546,14 @@ mod tests {
              37675557714b4355593761653675574e7871596764775068554a624a6846
              394546586d39",
         ];
-        let mut tx = block_store.begin_tx().await.unwrap();
         for block in blocks {
             // Strip whitespace and decode the block from hex
             let block = hex::decode(block.replace(['\n', ' '], "")).unwrap();
             // Create the CID and store the block.
             let hash = Code::Sha2_256.digest(block.as_slice());
-            block_store
-                .put_block_tx(&hash, &block, &mut tx)
-                .await
-                .unwrap();
+            let block = iroh_bitswap::Block::new(block.into(), Cid::new_v1(0x71, hash));
+            block_store.put(&block).await.unwrap();
         }
-        block_store.commit_tx(tx).await.unwrap();
 
         assert_eq!(
             validate_time_event(
