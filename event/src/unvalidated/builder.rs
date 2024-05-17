@@ -250,8 +250,8 @@ mod tests {
         let event = Builder::init()
             .with_controller("did:key:z6MktBynAPLrEyeS7pVthbiyScmfu8n5V7boXgxyo5q3SZRR".to_string())
             .with_sep("model".to_string(), model)
-            .with_unique(unique) // optional
-            .with_data(data) // optional
+            .with_unique(unique)
+            .with_data(data)
             .build();
 
         let dagcbor_str = multibase::encode(
@@ -294,8 +294,8 @@ mod tests {
         let payload = Builder::init()
             .with_controller("did:key:z6MktBynAPLrEyeS7pVthbiyScmfu8n5V7boXgxyo5q3SZRR".to_string())
             .with_sep("model".to_string(), model)
-            .with_unique(unique) // optional
-            .with_data(data) // optional
+            .with_unique(unique)
+            .with_data(data)
             .build();
 
         let signer = JwkSigner::new(
