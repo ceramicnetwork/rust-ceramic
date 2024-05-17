@@ -5,17 +5,18 @@ mod ordering;
 use std::str::FromStr;
 
 use ceramic_core::{
-    event_id::{Builder, WithInit},
-    DagCborEncoded, EventId, Network, StreamId,
+    event_id::{self, WithInit},
+    DidDocument, EventId, Network, StreamId,
 };
 
+use ceramic_event::unvalidated::signed;
 use cid::Cid;
-use ipld_core::{codec::Codec, ipld, ipld::Ipld};
+
+use ipld_core::ipld;
 use iroh_bitswap::Block;
-use iroh_car::{CarHeader, CarWriter};
+
 use multihash_codetable::{Code, MultihashDigest};
 use rand::{thread_rng, Rng};
-use serde_ipld_dagcbor::codec::DagCborCodec;
 
 const MODEL_ID: &str = "k2t6wz4yhfp1r5pwi52gw89nzjbu53qk7m32o5iguw42c6knsaj0feuf927agb";
 const CONTROLLER: &str = "did:key:z6Mkqtw7Pj5Lv9xc4PgUYAnwfaVoMC6FRneGWVr5ekTEfKVL";
@@ -23,7 +24,7 @@ const INIT_ID: &str = "baeabeiajn5ypv2gllvkk4muvzujvcnoen2orknxix7qtil2daqn6vu6k
 const SEP_KEY: &str = "model";
 
 // Return an builder for an event with the same network,model,controller,stream.
-pub(crate) fn event_id_builder() -> Builder<WithInit> {
+pub(crate) fn event_id_builder() -> event_id::Builder<WithInit> {
     EventId::builder()
         .with_network(&Network::DevUnstable)
         .with_sep(SEP_KEY, &multibase::decode(MODEL_ID).unwrap().1)
@@ -58,9 +59,8 @@ pub(crate) fn random_cid() -> Cid {
     Cid::new_v1(0x00, hash)
 }
 
-pub(crate) async fn build_car_file(count: usize) -> (EventId, Vec<Block>, Vec<u8>) {
-    let blocks: Vec<Block> = (0..count).map(|_| random_block()).collect();
-
+/// returns (event ID, array of block CIDs, car bytes)
+pub(crate) async fn build_event() -> (EventId, Vec<Block>, Vec<u8>) {
     let controller = thread_rng()
         .sample_iter(&rand::distributions::Alphanumeric)
         .take(32)
@@ -69,32 +69,35 @@ pub(crate) async fn build_car_file(count: usize) -> (EventId, Vec<Block>, Vec<u8
 
     let model = StreamId::document(random_cid());
     let unique = gen_rand_bytes::<12>();
-    let init = ipld!( {
-        "header": {
-            "controllers": [controller],
-            "model": model.to_vec(),
-            "sep": "model",
-            "unique": unique.as_slice(),
-        },
-        "links": blocks.iter().map(|block| Ipld::Link(block.cid)).collect::<Vec<Ipld>>(),
-    });
+    let init = ceramic_event::unvalidated::Builder::init()
+        .with_controller(controller)
+        .with_sep("model".to_string(), model.to_vec())
+        .with_unique(unique.to_vec())
+        .with_data(ipld!({"radius": 1, "red": 2, "green": 3, "blue": 4}))
+        .build();
 
-    let commit = DagCborEncoded::new(&init).unwrap();
-    let root_cid = Cid::new_v1(
-        <DagCborCodec as Codec<Ipld>>::CODE,
-        Code::Sha2_256.digest(commit.as_ref()),
-    );
+    let signer = crate::tests::signer().await;
+    let signed =
+        signed::Event::from_payload(ceramic_event::unvalidated::Payload::Init(init), signer)
+            .await
+            .unwrap();
 
-    let mut car = Vec::new();
-    let roots: Vec<Cid> = vec![root_cid];
-    let mut writer = CarWriter::new(CarHeader::V1(roots.into()), &mut car);
-    writer.write(root_cid, commit).await.unwrap();
-    for block in &blocks {
-        writer.write(block.cid, &block.data).await.unwrap();
-    }
-    writer.finish().await.unwrap();
-    let event_id = random_event_id(Some(&root_cid.to_string()));
-    (event_id, blocks, car)
+    let event_id = random_event_id(Some(signed.envelope_cid().to_string().as_str()));
+    let car = signed.encode_car().await.unwrap();
+    (
+        event_id,
+        vec![
+            Block::new(
+                signed.encode_envelope().unwrap().into(),
+                signed.envelope_cid(),
+            ),
+            Block::new(
+                signed.encode_payload().unwrap().into(),
+                signed.payload_cid(),
+            ),
+        ],
+        car,
+    )
 }
 
 fn gen_rand_bytes<const SIZE: usize>() -> [u8; SIZE] {
@@ -117,10 +120,27 @@ pub(crate) fn random_block() -> Block {
     }
 }
 
-pub(crate) async fn assert_deliverable(pool: &ceramic_store::SqlitePool, cid: &Cid) {
-    let (exists, deliverable) = ceramic_store::CeramicOneEvent::delivered_by_cid(pool, cid)
+pub(crate) async fn check_deliverable(
+    pool: &ceramic_store::SqlitePool,
+    cid: &Cid,
+    deliverable: bool,
+) {
+    let (exists, delivered) = ceramic_store::CeramicOneEvent::delivered_by_cid(pool, cid)
         .await
         .unwrap();
     assert!(exists);
-    assert!(deliverable);
+    if deliverable {
+        assert!(delivered, "{} should be delivered", cid);
+    } else {
+        assert!(!delivered, "{} should NOT be delivered", cid);
+    }
+}
+
+pub(crate) async fn signer() -> signed::JwkSigner {
+    signed::JwkSigner::new(
+        DidDocument::new("did:key:z6Mkk3rtfoKDMMG4zyarNGwCQs44GSQ49pcYKQspHJPXSnVw"),
+        "810d51e02cb63066b7d2d2ec67e05e18c29b938412050bdd3c04d878d8001f3c",
+    )
+    .await
+    .unwrap()
 }

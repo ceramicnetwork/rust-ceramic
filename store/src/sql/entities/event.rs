@@ -61,6 +61,11 @@ impl EventInsertable {
         }
         Ok(Self { order_key, body })
     }
+
+    /// change the deliverable status of the event
+    pub fn deliverable(&mut self, deliverable: bool) {
+        self.body.deliverable = deliverable;
+    }
 }
 
 #[derive(Debug, Clone)]
