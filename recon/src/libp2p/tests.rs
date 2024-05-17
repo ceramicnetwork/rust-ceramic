@@ -7,9 +7,9 @@ use crate::{
 };
 
 use async_trait::async_trait;
+use ceramic_metrics::init_local_tracing;
 use libp2p::{metrics::Registry, PeerId, Swarm};
 use libp2p_swarm_test::SwarmExt;
-use test_log::test;
 use tracing::info;
 
 fn start_recon<K, H, S, I>(recon: Recon<K, H, S, I>) -> crate::Client<K, H>
@@ -124,7 +124,7 @@ where
 // use a hackro to avoid setting all the generic types we'd need if using functions
 macro_rules! setup_test {
     ($alice_store: expr, $alice_interests: expr, $bob_store: expr, $bob_interest: expr,) => {{
-        //let _ = init_local_tracing();
+        let _ = init_local_tracing();
 
         let alice = Recon::new(
             $alice_store,
@@ -174,7 +174,7 @@ macro_rules! setup_test {
     }};
 }
 
-#[test(tokio::test(flavor = "multi_thread", worker_threads = 2))]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn in_sync_no_overlap() {
     let (mut swarm1, mut swarm2) = setup_test!(
         BTreeStoreErrors::default(),
