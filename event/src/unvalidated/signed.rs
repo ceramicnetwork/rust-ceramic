@@ -116,6 +116,7 @@ impl<D: serde::Serialize> Event<D> {
 
 /// A signed event envelope.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)] // TODO Should this be here?
 pub struct Envelope {
     payload: Bytes,
     signatures: Vec<Signature>,
@@ -141,6 +142,7 @@ impl Envelope {
 
 /// A signature part of a JSON Web Signature.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)] // TODO Should this be here?
 pub struct Signature {
     /// The optional unprotected header.
     #[serde(skip_serializing_if = "Option::is_none")]

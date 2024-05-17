@@ -18,7 +18,7 @@ pub enum Event<D> {
 
 /// Ceramic Event as it is encoded in the protocol.
 #[derive(Serialize, Deserialize)]
-#[serde(untagged)]
+#[serde(untagged, deny_unknown_fields)]
 pub enum RawEvent<D> {
     /// Time event in a stream
     // NOTE: TimeEvent has several CIDs so it's a relatively large struct (~312 bytes according to
@@ -50,6 +50,7 @@ impl<D> From<signed::Envelope> for RawEvent<D> {
 
 /// Time event
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)] // TODO Should this be here?
 pub struct TimeEvent {
     id: Cid,
     prev: Cid,
@@ -81,7 +82,7 @@ impl TimeEvent {
 
 /// Proof data
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)] // TODO Should this be here?
 pub struct Proof {
     chain_id: String,
     root: Cid,

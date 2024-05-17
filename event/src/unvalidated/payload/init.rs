@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 /// Payload of an init event
 #[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Payload<D> {
     pub(crate) header: Header,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -28,7 +29,7 @@ impl<D> Payload<D> {
 
 /// Headers for an init event
 #[derive(Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Header {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) controllers: Vec<String>, // todo(stbrody) make all fields private

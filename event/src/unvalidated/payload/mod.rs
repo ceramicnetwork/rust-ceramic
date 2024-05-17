@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize)]
 // Note untagged variants a deserialized in order and the first one that succeeds is returned.
 // Therefore the order of the variants is important to be most specific to least specific
-#[serde(untagged)]
+#[serde(untagged, deny_unknown_fields)]
 pub enum Payload<D> {
     /// Data event
     Data(data::Payload<D>),

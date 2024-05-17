@@ -5,7 +5,7 @@ use serde::{
     Deserialize, Serialize,
 };
 
-/// Sequence of byte values.
+/// Sequence of byte values that can be properly serialized and deserialized.
 #[derive(Clone, PartialEq, Default, Debug)]
 pub struct Bytes(Vec<u8>);
 
