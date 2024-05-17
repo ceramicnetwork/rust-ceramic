@@ -115,18 +115,32 @@ impl OrderingTask {
                 }
                 new = rx_new.recv_many(&mut newly_added_buf, 100) => {
                     if new > 0 {
-                        let mut new = false;
+                        let mut newly_ready: HashMap<cid::CidGeneric<64>, VecDeque<_>> = HashMap::with_capacity(new); // worst case
                         for item in newly_added_buf {
                             if let Some(waiting) = state.pending_by_stream.get_mut(&item.init_cid) {
                                 if let Some(good_to_go) = waiting.remove_by_prev_cid(&item.cid) {
-                                    state.ready_events.push_back(good_to_go);
+                                    newly_ready.entry(item.init_cid).or_default().push_back(good_to_go);
                                     tracing::trace!(%good_to_go, "Found event unblocked by incoming delivered list.");
-                                    new = true;
                                 }
                             }
                         }
-                        if new && state.persist_ready_events(&pool).await.map_err(Self::log_error).is_err() {
-                            return;
+                        if !newly_ready.is_empty() {
+                            for (updated_stream, mut unblocked) in newly_ready {
+                                if let Some(waiting) = state.pending_by_stream.get_mut(&updated_stream) {
+                                    while let Some(cid) = unblocked.pop_front() {
+                                        // we're we unblocked by the message on the channel and need to be updated
+                                        state.ready_events.push_back(cid);
+                                        // now find anyone we just unblocked
+                                        if let Some(now_ready_ev) = waiting.remove_by_prev_cid(&cid) {
+                                            state.ready_events.push_back(now_ready_ev);
+                                            unblocked.push_back(now_ready_ev);
+                                        }
+                                    }
+                                }
+                            }
+                            if state.persist_ready_events(&pool).await.map_err(Self::log_error).is_err() {
+                                return;
+                            }
                         }
                     }
                 }
@@ -139,15 +153,6 @@ impl OrderingTask {
                     return;
                 }
             };
-
-            if state
-                .process_events(&pool)
-                .await
-                .map_err(Self::log_error)
-                .is_err()
-            {
-                return;
-            }
         }
     }
 

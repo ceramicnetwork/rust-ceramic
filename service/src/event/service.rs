@@ -14,8 +14,8 @@ use super::ordering_task::{
 
 use crate::{Error, Result};
 
-/// The max number of events we can have pending for delivery before we start dropping them
-pub(crate) const PENDING_DELIVERABLE_EVENTS: usize = 10000;
+/// The max number of events we can have pending for delivery in the channel before we start dropping them.
+pub(crate) const PENDING_EVENTS_CHANNEL_DEPTH: usize = 10_000;
 
 #[derive(Debug)]
 /// A database store that verifies the bytes it stores are valid Ceramic events.
@@ -30,7 +30,8 @@ impl CeramicEventService {
     pub async fn new(pool: SqlitePool) -> Result<Self> {
         CeramicOneEvent::init_delivered_order(&pool).await?;
 
-        let delivery_task = OrderingTask::run(pool.clone(), PENDING_DELIVERABLE_EVENTS, true).await;
+        let delivery_task =
+            OrderingTask::run(pool.clone(), PENDING_EVENTS_CHANNEL_DEPTH, true).await;
 
         Ok(Self {
             pool,
@@ -44,7 +45,7 @@ impl CeramicEventService {
         CeramicOneEvent::init_delivered_order(&pool).await?;
 
         let delivery_task =
-            OrderingTask::run(pool.clone(), PENDING_DELIVERABLE_EVENTS, false).await;
+            OrderingTask::run(pool.clone(), PENDING_EVENTS_CHANNEL_DEPTH, false).await;
 
         Ok(Self {
             pool,
@@ -195,7 +196,7 @@ impl CeramicEventService {
                     tokio::sync::mpsc::error::TrySendError::Full(e) => {
                         // we should only be doing this during recon, in which case we can rediscover events.
                         // the delivery task will start picking up these events once it's drained since they are stored in the db
-                        warn!(cid=%e.cid, meta=?e.meta, limit=%PENDING_DELIVERABLE_EVENTS, "Delivery task full. Dropping event and will not be able to mark deliverable until queue drains");
+                        warn!(cid=%e.cid, meta=?e.meta, limit=%PENDING_EVENTS_CHANNEL_DEPTH, "Delivery task full. Dropping event and will not be able to mark deliverable until queue drains");
                     }
                     tokio::sync::mpsc::error::TrySendError::Closed(_) => {
                         warn!("Delivery task closed. shutting down");
@@ -210,7 +211,7 @@ impl CeramicEventService {
                     tokio::sync::mpsc::error::TrySendError::Full(ev) => {
                         // we should only be doing this during recon, in which case we can rediscover events.
                         // the delivery task will start picking up these events once it's drained since they are stored in the db
-                        warn!(attempt=?ev, limit=%PENDING_DELIVERABLE_EVENTS, "Notify new task full");
+                        warn!(attempt=?ev, limit=%PENDING_EVENTS_CHANNEL_DEPTH, "Notify new task full");
                     }
                     tokio::sync::mpsc::error::TrySendError::Closed(_) => {
                         warn!("Delivery task closed. shutting down");
