@@ -71,7 +71,7 @@ pub(crate) async fn build_car_file(count: usize) -> (EventId, Vec<Block>, Vec<u8
     let init = ipld!( {
         "header": {
             "controllers": [controller],
-            "model": model.to_vec().unwrap(),
+            "model": model.to_vec(),
             "sep": "model",
             "unique": unique.as_slice(),
         },
