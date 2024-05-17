@@ -75,12 +75,12 @@ impl<D: serde::Serialize> Event<D> {
     }
 
     /// Encode the envelope as a IPLD DAG-CBOR
-    pub(crate) fn encode_envelope(&self) -> anyhow::Result<Vec<u8>> {
+    pub fn encode_envelope(&self) -> anyhow::Result<Vec<u8>> {
         Ok(serde_ipld_dagcbor::to_vec(&self.envelope)?)
     }
 
     /// Encode the payload as a IPLD DAG-CBOR
-    pub(crate) fn encode_payload(&self) -> anyhow::Result<Vec<u8>> {
+    pub fn encode_payload(&self) -> anyhow::Result<Vec<u8>> {
         Ok(serde_ipld_dagcbor::to_vec(&self.payload)?)
     }
 

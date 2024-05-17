@@ -53,8 +53,8 @@ async fn range_query_with_values<S>(store: S)
 where
     S: recon::Store<Key = EventId, Hash = Sha256a>,
 {
-    let (one_id, _one_blocks, one_car) = build_car_file(2).await;
-    let (two_id, _two_blocks, two_car) = build_car_file(3).await;
+    let (one_id, _one_blocks, one_car) = build_event().await;
+    let (two_id, _two_blocks, two_car) = build_event().await;
     recon::Store::insert(&store, &ReconItem::new(&one_id, &one_car))
         .await
         .unwrap();
@@ -89,7 +89,7 @@ async fn double_insert<S>(store: S)
 where
     S: recon::Store<Key = EventId, Hash = Sha256a>,
 {
-    let (id, _, car) = build_car_file(2).await;
+    let (id, _, car) = build_event().await;
 
     // first insert reports its a new key
     expect![
@@ -125,8 +125,8 @@ async fn try_update_value<S>(store: S)
 where
     S: recon::Store<Key = EventId, Hash = Sha256a>,
 {
-    let (id, _, car1) = build_car_file(2).await;
-    let (_, _, car2) = build_car_file(2).await;
+    let (id, _, car1) = build_event().await;
+    let (_, _, car2) = build_event().await;
 
     expect![
         r#"
@@ -169,7 +169,7 @@ async fn store_value_for_key<S>(store: S)
 where
     S: recon::Store<Key = EventId, Hash = Sha256a>,
 {
-    let (key, _, store_value) = build_car_file(3).await;
+    let (key, _, store_value) = build_event().await;
     recon::Store::insert(&store, &ReconItem::new(&key, store_value.as_slice()))
         .await
         .unwrap();
@@ -193,7 +193,7 @@ async fn read_value_as_block<S>(store: S)
 where
     S: recon::Store<Key = EventId, Hash = Sha256a> + iroh_bitswap::Store,
 {
-    let (key, blocks, store_value) = build_car_file(3).await;
+    let (key, blocks, store_value) = build_event().await;
     recon::Store::insert(&store, &ReconItem::new(&key, store_value.as_slice()))
         .await
         .unwrap();
@@ -215,9 +215,8 @@ where
 // but we use a delivered integer per event, so we expect it to increment by 1 for each event
 async fn prep_highwater_tests(store: &dyn AccessModelStore) -> (Cid, Cid, Cid) {
     let mut keys = Vec::with_capacity(3);
-    for x in [3, 5, 10].into_iter() {
-        let (key, _blocks, store_value) = build_car_file(x).await;
-        assert_eq!(_blocks.len(), x);
+    for _ in 0..3 {
+        let (key, _, store_value) = build_event().await;
         keys.push((key, store_value));
     }
     store.insert_many(&keys[..]).await.unwrap();
@@ -318,9 +317,7 @@ async fn get_event_by_event_id<S>(store: S)
 where
     S: AccessModelStore,
 {
-    let num_blocks = 3;
-    let (key, _blocks, store_value) = build_car_file(num_blocks).await;
-    assert_eq!(_blocks.len(), num_blocks);
+    let (key, _blocks, store_value) = build_event().await;
     store
         .insert_many(&[(key.to_owned(), store_value.clone())])
         .await
@@ -344,9 +341,8 @@ async fn get_event_by_cid<S>(store: S)
 where
     S: AccessModelStore,
 {
-    let num_blocks = 3;
-    let (key, _blocks, store_value) = build_car_file(num_blocks).await;
-    assert_eq!(_blocks.len(), num_blocks);
+    let (key, _blocks, store_value) = build_event().await;
+
     store
         .insert_many(&[(key.to_owned(), store_value.clone())])
         .await

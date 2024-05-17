@@ -20,7 +20,6 @@ hex.workspace = true
 ipld-core.workspace = true
 serde_ipld_dagcbor.workspace = true
 iroh-bitswap.workspace = true
-iroh-car.workspace = true
 multihash-codetable.workspace = true
 recon.workspace = true
 thiserror.workspace = true

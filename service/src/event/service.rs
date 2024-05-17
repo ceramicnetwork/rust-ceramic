@@ -30,7 +30,21 @@ impl CeramicEventService {
     pub async fn new(pool: SqlitePool) -> Result<Self> {
         CeramicOneEvent::init_delivered_order(&pool).await?;
 
-        let delivery_task = OrderingTask::run(pool.clone(), PENDING_DELIVERABLE_EVENTS).await;
+        let delivery_task = OrderingTask::run(pool.clone(), PENDING_DELIVERABLE_EVENTS, true).await;
+
+        Ok(Self {
+            pool,
+            delivery_task,
+        })
+    }
+
+    /// Skip loading all undelivered events from the database on startup (for testing)
+    #[allow(dead_code)] // used in tests
+    pub(crate) async fn new_without_undelivered(pool: SqlitePool) -> Result<Self> {
+        CeramicOneEvent::init_delivered_order(&pool).await?;
+
+        let delivery_task =
+            OrderingTask::run(pool.clone(), PENDING_DELIVERABLE_EVENTS, false).await;
 
         Ok(Self {
             pool,
@@ -66,41 +80,37 @@ impl CeramicEventService {
         let ev_block = insertable.block_for_cid(&insertable.cid)?;
 
         trace!(count=%insertable.blocks.len(), cid=%event_cid, "parsing event blocks");
-        let event_ipld: unvalidated::Event<Ipld> = serde_ipld_dagcbor::from_slice(&ev_block.bytes)
-            .map_err(|e| {
+        let event_ipld: unvalidated::RawEvent<Ipld> =
+            serde_ipld_dagcbor::from_slice(&ev_block.bytes).map_err(|e| {
                 Error::new_invalid_arg(
                     anyhow::anyhow!(e).context("event block is not valid event format"),
                 )
             })?;
 
         let maybe_init_prev = match event_ipld {
-            unvalidated::Event::Time(t) => Some((t.id(), t.prev())),
-            unvalidated::Event::Signed(signed) => {
-                if let Some(prev) = signed.link() {
-                    let link = insertable.block_for_cid(&prev).map_err(|e| {
+            unvalidated::RawEvent::Time(t) => Some((t.id(), t.prev())),
+            unvalidated::RawEvent::Signed(signed) => {
+                let link = signed.link().ok_or_else(|| {
+                    Error::new_invalid_arg(anyhow::anyhow!("event should have a link"))
+                })?;
+                let link = insertable.block_for_cid(&link).map_err(|e| {
+                    Error::new_invalid_arg(
+                        anyhow::anyhow!(e).context("prev CID missing from carfile"),
+                    )
+                })?;
+                let payload: unvalidated::Payload<Ipld> =
+                    serde_ipld_dagcbor::from_slice(&link.bytes).map_err(|e| {
                         Error::new_invalid_arg(
-                            anyhow::anyhow!(e).context("prev CID missing from carfile"),
+                            anyhow::anyhow!(e).context("Failed to follow event link"),
                         )
                     })?;
 
-                    let payload: unvalidated::Payload<Ipld> =
-                        serde_ipld_dagcbor::from_slice(&link.bytes).map_err(|e| {
-                            Error::new_invalid_arg(
-                                anyhow::anyhow!(e).context("Failed to follow event link"),
-                            )
-                        })?;
-
-                    match payload {
-                        unvalidated::Payload::Data(d) => {
-                            Some((d.id().to_owned(), d.prev().to_owned()))
-                        }
-                        unvalidated::Payload::Init(_init) => None,
-                    }
-                } else {
-                    None
+                match payload {
+                    unvalidated::Payload::Data(d) => Some((*d.id(), *d.prev())),
+                    unvalidated::Payload::Init(_init) => None,
                 }
             }
-            unvalidated::Event::Unsigned(_init) => None,
+            unvalidated::RawEvent::Unsigned(_init) => None,
         };
         let meta = maybe_init_prev.map(|(cid, prev)| DeliverableMetadata {
             init_cid: cid,

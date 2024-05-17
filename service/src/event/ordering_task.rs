@@ -71,11 +71,12 @@ pub struct DeliverableTask {
 pub struct OrderingTask {}
 
 impl OrderingTask {
-    pub async fn run(pool: SqlitePool, q_depth: usize) -> DeliverableTask {
+    pub async fn run(pool: SqlitePool, q_depth: usize, load_delivered: bool) -> DeliverableTask {
         let (tx, rx) = tokio::sync::mpsc::channel::<DeliverableEvent>(q_depth);
         let (tx_new, rx_new) = tokio::sync::mpsc::channel::<DeliveredEvent>(q_depth);
 
-        let handle = tokio::spawn(async move { Self::run_loop(pool, rx, rx_new).await });
+        let handle =
+            tokio::spawn(async move { Self::run_loop(pool, load_delivered, rx, rx_new).await });
 
         DeliverableTask {
             _handle: handle,
@@ -86,16 +87,18 @@ impl OrderingTask {
 
     async fn run_loop(
         pool: SqlitePool,
+        load_undelivered: bool,
         mut rx: tokio::sync::mpsc::Receiver<DeliverableEvent>,
         mut rx_new: tokio::sync::mpsc::Receiver<DeliveredEvent>,
     ) {
         // before starting, make sure we've updated any events in the database we missed
         let mut state = OrderingState::new();
-        if state
-            .process_all_undelivered_events(&pool, MAX_ITERATIONS)
-            .await
-            .map_err(Self::log_error)
-            .is_err()
+        if load_undelivered
+            && state
+                .process_all_undelivered_events(&pool, MAX_ITERATIONS)
+                .await
+                .map_err(Self::log_error)
+                .is_err()
         {
             return;
         }
