@@ -20,7 +20,6 @@ hex = "0.4.3"
 libp2p-identity.workspace = true
 libp2p.workspace = true
 multihash-codetable.workspace = true
-pin-project = "1.1.3"
 prometheus-client.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -37,6 +36,7 @@ expect-test.workspace = true
 lalrpop-util = { version = "0.20.0", features = ["lexer"] }
 libp2p = { workspace = true, features = ["ping"] }
 libp2p-swarm-test = "0.3.0"
+pin-project = "1.1.3"
 pretty = "0.12.1"
 quickcheck = "1.0.3"
 regex = "1"
