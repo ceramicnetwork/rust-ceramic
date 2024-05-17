@@ -10,23 +10,36 @@ use crate::{CeramicEventService, Error, Result};
 /// How many events to select at once to see if they've become deliverable when we have downtime
 /// Used at startup and occassionally in case we ever dropped something
 /// We keep the number small for now as we may need to traverse many prevs for each one of these and load them into memory.
-const DELIVERABLE_EVENTS_BATCH_SIZE: usize = 100;
-/// How much queue availability do we need to pick up new work to do in the background (i.e. look for undelivered events)
-/// For now we just go with 50% of the queue needs to be free
-const AVAILABILITY_NEEDED: usize = super::service::PENDING_DELIVERABLE_EVENTS / 2;
+const DELIVERABLE_EVENTS_BATCH_SIZE: usize = 1000;
 /// How many batches of undelivered events are we willing to process on start up?
 /// To avoid an infinite loop. It's going to take a long time to process `DELIVERABLE_EVENTS_BATCH_SIZE * MAX_ITERATIONS` events
 const MAX_ITERATIONS: usize = 100_000_000;
 
+type InitCid = cid::Cid;
+type PrevCid = cid::Cid;
+type EventCid = cid::Cid;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct DeliveredEvent {
+    pub(crate) cid: Cid,
+    pub(crate) init_cid: InitCid,
+}
+
+impl DeliveredEvent {
+    pub fn new(cid: Cid, init_cid: InitCid) -> Self {
+        Self { cid, init_cid }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct DeliverableMetadata {
-    pub(crate) init_cid: Cid,
-    pub(crate) prev: Cid,
+    pub(crate) init_cid: InitCid,
+    pub(crate) prev: PrevCid,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DeliverableEvent {
-    pub(crate) cid: Cid,
+    pub(crate) cid: EventCid,
     pub(crate) meta: DeliverableMetadata,
     attempts: usize,
     last_attempt: std::time::Instant,
@@ -51,6 +64,7 @@ impl DeliverableEvent {
 pub struct DeliverableTask {
     pub(crate) _handle: tokio::task::JoinHandle<()>,
     pub(crate) tx: tokio::sync::mpsc::Sender<DeliverableEvent>,
+    pub(crate) tx_new: tokio::sync::mpsc::Sender<DeliveredEvent>,
 }
 
 #[derive(Debug)]
@@ -58,17 +72,23 @@ pub struct OrderingTask {}
 
 impl OrderingTask {
     pub async fn run(pool: SqlitePool, q_depth: usize) -> DeliverableTask {
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<DeliverableEvent>(q_depth);
+        let (tx, rx) = tokio::sync::mpsc::channel::<DeliverableEvent>(q_depth);
+        let (tx_new, rx_new) = tokio::sync::mpsc::channel::<DeliveredEvent>(q_depth);
 
-        let handle = tokio::spawn(async move { Self::run_loop(pool, &mut rx).await });
+        let handle = tokio::spawn(async move { Self::run_loop(pool, rx, rx_new).await });
 
         DeliverableTask {
             _handle: handle,
             tx,
+            tx_new,
         }
     }
 
-    async fn run_loop(pool: SqlitePool, rx: &mut tokio::sync::mpsc::Receiver<DeliverableEvent>) {
+    async fn run_loop(
+        pool: SqlitePool,
+        mut rx: tokio::sync::mpsc::Receiver<DeliverableEvent>,
+        mut rx_new: tokio::sync::mpsc::Receiver<DeliveredEvent>,
+    ) {
         // before starting, make sure we've updated any events in the database we missed
         let mut state = OrderingState::new();
         if state
@@ -80,46 +100,43 @@ impl OrderingTask {
             return;
         }
 
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
-        let mut offset = 0;
         loop {
-            let mut buffer = Vec::with_capacity(10);
+            let mut need_prev_buf = Vec::with_capacity(100);
+            let mut newly_added_buf = Vec::with_capacity(100);
+
             tokio::select! {
-                incoming = rx.recv_many(&mut buffer, 10) => {
+                incoming = rx.recv_many(&mut need_prev_buf, 100) => {
                     if incoming > 0 {
-                        state.add_incoming_batch(buffer);
-                    }
-                },
-                _ = interval.tick() => {
-                    if rx.len() < AVAILABILITY_NEEDED {
-                        let (new, found) = match state.add_undelivered_batch(&pool, DELIVERABLE_EVENTS_BATCH_SIZE, offset).await{
-                            Ok(v) => v,
-                            Err(e) => {
-                                if Self::log_error(e).is_err() {
-                                    return;
-                                } else {
-                                    continue;
-                                }
-                            }
-                        };
-                        if new == 0 && found > 0 {
-                            offset += DELIVERABLE_EVENTS_BATCH_SIZE;
-                        }
-                        else if found == 0 || offset > 10000 {
-                            // since offset requires scanning don't increase it forever (could use cid index to order)
-                            // if we aren't finding work with a small offset, we have events that are missing their prevs that we're not discovering.
-                            // how should we handle this? on next start up we should resolve them or we could start a new task to try to process all
-                            // but it could be resource intensive. should we not try to "fix" events in the background like this?
-                            offset = 0;
-                        }
-                    }
-                } else => {
-                    info!("Ordering task shutting down");
-                    if state.process_events(&pool).await.map_err(Self::log_error).is_err() {
-                        return;
+                        state.add_incoming_batch(need_prev_buf);
                     }
                 }
+                new = rx_new.recv_many(&mut newly_added_buf, 100) => {
+                    if new > 0 {
+                        let mut new = false;
+                        for item in newly_added_buf {
+                            if let Some(waiting) = state.pending_by_stream.get_mut(&item.init_cid) {
+                                if let Some(good_to_go) = waiting.remove_by_prev_cid(&item.cid) {
+                                    state.ready_events.push_back(good_to_go);
+                                    tracing::trace!(%good_to_go, "Found event unblocked by incoming delivered list.");
+                                    new = true;
+                                }
+                            }
+                        }
+                        if new && state.persist_ready_events(&pool).await.map_err(Self::log_error).is_err() {
+                            return;
+                        }
+                    }
+                }
+                else => {
+                    info!("Server dropped the ordering task. Processing once more before exiting...");
+                    let _ = state
+                        .process_events(&pool)
+                        .await
+                        .map_err(Self::log_error);
+                    return;
+                }
             };
+
             if state
                 .process_events(&pool)
                 .await
@@ -150,16 +167,12 @@ impl OrderingTask {
     }
 }
 
-type InitCid = cid::Cid;
-type PrevCid = cid::Cid;
-type EventCid = cid::Cid;
-
 #[derive(Debug)]
 pub struct OrderingState {
     /// Map of undelivered events by init CID.
     ///  { Init CID: { prevCid: eventData } }
     pending_by_stream: HashMap<InitCid, StreamEvents>,
-    /// Stack of events that can be marked ready to deliver.
+    /// Queue of events that can be marked ready to deliver.
     /// Can be added as long as their prev is stored or in this list ahead of them.
     ready_events: VecDeque<EventCid>,
 }
@@ -192,7 +205,7 @@ impl StreamEvents {
         res
     }
 
-    fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         // these should always match
         self.prev_map.is_empty() && self.cid_map.is_empty()
     }
@@ -312,13 +325,20 @@ impl OrderingState {
 
     /// Review all pending items to see if they can be delivered now. Requires reviewing the database and the events we have in memory.
     /// Will order the events as defined by the linked list of prevs and add them to the queue to be marked as delivered.
+    /// Returns true if new events were discovered and added to the ready list.
     async fn process_pending_events(&mut self, pool: &SqlitePool) -> Result<()> {
+        let mut new_to_persist = false;
         for stream_events in self.pending_by_stream.values_mut() {
             let deliverable = Self::discover_deliverable_events(pool, stream_events).await?;
             if !deliverable.is_empty() {
+                new_to_persist = true;
                 self.ready_events.extend(deliverable)
             }
         }
+        if new_to_persist {
+            self.persist_ready_events(pool).await?;
+        }
+
         Ok(())
     }
 
@@ -352,14 +372,16 @@ impl OrderingState {
                 break;
             }
         }
-
-        Ok(())
+        if self.ready_events.is_empty() {
+            Ok(())
+        } else {
+            self.persist_ready_events(pool).await?;
+            Ok(())
+        }
     }
 
     /// Add a batch of events from the database to the pending list to be processed.
-    /// This is okay to run on an interval to  find any events that have been missed in the past and aren't already in memory.
-    /// Is this needed on an interval? Just re-adds things we already have, right?
-    /// Returns the (#events new events found, #events returned by query)
+    /// Returns the (#events new events found , #events returned by query)
     async fn add_undelivered_batch(
         &mut self,
         pool: &SqlitePool,
@@ -385,8 +407,10 @@ impl OrderingState {
                     new += 1;
                 }
             } else {
-                warn!(event_cid=%insertable_body.cid,"Found undelivered event with no prev while processing undelivered. Should not happen.");
+                // safe to ignore in tests, shows up because when we mark init events as undelivered even though they don't have a prev
+                info!(event_cid=%insertable_body.cid,"Found undelivered event with no prev while processing undelivered. Should not happen. Likely means events were dropped before.");
                 self.ready_events.push_back(insertable_body.cid);
+                new += 1; // we treat this as new since it might unlock something else but it's not actually going in our queue is it's a bit odd
             }
         }
         trace!(%new, %found, "Adding undelivered events to pending set");
@@ -410,6 +434,7 @@ impl OrderingState {
     /// Process all the events that are ready to be marked as delivered
     async fn persist_ready_events(&mut self, pool: &SqlitePool) -> Result<()> {
         if !self.ready_events.is_empty() {
+            tracing::debug!(count=%self.ready_events.len(), "Marking events as ready to deliver");
             let mut tx = pool.begin_tx().await?;
 
             // We process the ready events as a FIFO queue so they are marked delivered before events
@@ -425,12 +450,26 @@ impl OrderingState {
 
 #[cfg(test)]
 mod test {
+    use ceramic_store::EventInsertable;
     use multihash_codetable::{Code, MultihashDigest};
     use recon::ReconItem;
 
-    use crate::tests::{assert_deliverable, build_car_file, random_block};
+    use crate::tests::{build_event, check_deliverable, random_block};
 
     use super::*;
+
+    /// these events are init events so they should have been delivered
+    /// need to build with data events that have the prev stored already
+    async fn build_insertable_undelivered() -> EventInsertable {
+        let (id, _, car) = build_event().await;
+        let cid = id.cid().unwrap();
+
+        let (body, _meta) = CeramicEventService::parse_event_carfile(cid, &car)
+            .await
+            .unwrap();
+        assert!(!body.deliverable);
+        EventInsertable::try_new(id, body).unwrap()
+    }
 
     fn assert_stream_map_elems(map: &StreamEvents, size: usize) {
         assert_eq!(size, map.cid_map.len(), "{:?}", map);
@@ -490,7 +529,7 @@ mod test {
     #[tokio::test]
     async fn test_all_deliverable_one_stream() {
         let _ = ceramic_metrics::init_local_tracing();
-        let (one_id, _, one_car) = build_car_file(2).await;
+        let (one_id, _, one_car) = build_event().await;
         let one_cid = one_id.cid().unwrap();
         let store = CeramicEventService::new(SqlitePool::connect_in_memory().await.unwrap())
             .await
@@ -499,7 +538,7 @@ mod test {
             .await
             .unwrap();
 
-        assert_deliverable(&store.pool, &one_cid).await;
+        check_deliverable(&store.pool, &one_cid, true).await;
 
         let stream_cid = Cid::new_v1(0x71, Code::Sha2_256.digest(b"arbitrary"));
 
@@ -521,7 +560,7 @@ mod test {
     #[tokio::test]
     async fn test_some_deliverable_one_stream() {
         let _ = ceramic_metrics::init_local_tracing();
-        let (one_id, _, one_car) = build_car_file(2).await;
+        let (one_id, _, one_car) = build_event().await;
         let one_cid = one_id.cid().unwrap();
         let store = CeramicEventService::new(SqlitePool::connect_in_memory().await.unwrap())
             .await
@@ -530,7 +569,7 @@ mod test {
             .await
             .unwrap();
 
-        assert_deliverable(&store.pool, &one_cid).await;
+        check_deliverable(&store.pool, &one_cid, true).await;
 
         let stream_cid = Cid::new_v1(0x71, Code::Sha2_256.digest(b"arbitrary"));
         let missing = Cid::new_v1(0x71, Code::Sha2_256.digest(b"missing"));
@@ -557,8 +596,8 @@ mod test {
     // this needs to work as well
     async fn test_all_deliverable_multiple_streams() {
         let _ = ceramic_metrics::init_local_tracing();
-        let (one_id, _, one_car) = build_car_file(2).await;
-        let (two_id, _, two_car) = build_car_file(2).await;
+        let (one_id, _, one_car) = build_event().await;
+        let (two_id, _, two_car) = build_event().await;
         let one_cid = one_id.cid().unwrap();
         let two_cid = two_id.cid().unwrap();
         let store = CeramicEventService::new(SqlitePool::connect_in_memory().await.unwrap())
@@ -574,8 +613,8 @@ mod test {
         .await
         .unwrap();
 
-        assert_deliverable(&store.pool, &one_cid).await;
-        assert_deliverable(&store.pool, &two_cid).await;
+        check_deliverable(&store.pool, &one_cid, true).await;
+        check_deliverable(&store.pool, &two_cid, true).await;
 
         let stream_cid = Cid::new_v1(0x71, Code::Sha2_256.digest(b"arbitrary-one"));
         let stream_cid_2 = Cid::new_v1(0x71, Code::Sha2_256.digest(b"arbitrary-two"));
@@ -628,5 +667,61 @@ mod test {
             .unwrap();
         assert_eq!(0, new);
         assert_eq!(0, found);
+    }
+
+    #[tokio::test]
+    async fn test_undelivered_batch_offset() {
+        let _ = ceramic_metrics::init_local_tracing();
+        let pool = SqlitePool::connect_in_memory().await.unwrap();
+        let insertable = build_insertable_undelivered().await;
+
+        let _new = CeramicOneEvent::insert_many(&pool, &[insertable])
+            .await
+            .unwrap();
+
+        let mut state = OrderingState::new();
+        let (new, found) = state.add_undelivered_batch(&pool, 0, 10).await.unwrap();
+        assert_eq!(1, found);
+        assert_eq!(1, new);
+        let (new, found) = state.add_undelivered_batch(&pool, 10, 10).await.unwrap();
+        assert_eq!(0, new);
+        assert_eq!(0, found);
+        state.persist_ready_events(&pool).await.unwrap();
+        let (new, found) = state.add_undelivered_batch(&pool, 0, 10).await.unwrap();
+        assert_eq!(0, new);
+        assert_eq!(0, found);
+    }
+
+    #[tokio::test]
+    async fn test_undelivered_batch_all() {
+        let _ = ceramic_metrics::init_local_tracing();
+
+        let pool = SqlitePool::connect_in_memory().await.unwrap();
+        let mut undelivered = Vec::with_capacity(10);
+        for _ in 0..10 {
+            let insertable = build_insertable_undelivered().await;
+            undelivered.push(insertable);
+        }
+
+        let (hw, event) = CeramicOneEvent::new_events_since_value(&pool, 0, 1000)
+            .await
+            .unwrap();
+        assert_eq!(0, hw);
+        assert!(event.is_empty());
+
+        let _new = CeramicOneEvent::insert_many(&pool, &undelivered[..])
+            .await
+            .unwrap();
+
+        let mut state = OrderingState::new();
+        state
+            .process_all_undelivered_events(&pool, 1)
+            .await
+            .unwrap();
+
+        let (_hw, event) = CeramicOneEvent::new_events_since_value(&pool, 0, 1000)
+            .await
+            .unwrap();
+        assert_eq!(event.len(), 10);
     }
 }
