@@ -453,14 +453,16 @@ mod test {
     use multihash_codetable::{Code, MultihashDigest};
     use recon::ReconItem;
 
-    use crate::tests::{build_event, check_deliverable, random_block};
+    use crate::tests::{build_event, check_deliverable, random_block, TestEventInfo};
 
     use super::*;
 
     /// these events are init events so they should have been delivered
     /// need to build with data events that have the prev stored already
     async fn build_insertable_undelivered() -> EventInsertable {
-        let (id, _, car) = build_event().await;
+        let TestEventInfo {
+            event_id: id, car, ..
+        } = build_event().await;
         let cid = id.cid().unwrap();
 
         let (body, _meta) = CeramicEventService::parse_event_carfile(cid, &car)
@@ -528,7 +530,11 @@ mod test {
     #[tokio::test]
     async fn test_all_deliverable_one_stream() {
         let _ = ceramic_metrics::init_local_tracing();
-        let (one_id, _, one_car) = build_event().await;
+        let TestEventInfo {
+            event_id: one_id,
+            car: one_car,
+            ..
+        } = build_event().await;
         let one_cid = one_id.cid().unwrap();
         let store = CeramicEventService::new(SqlitePool::connect_in_memory().await.unwrap())
             .await
@@ -559,7 +565,11 @@ mod test {
     #[tokio::test]
     async fn test_some_deliverable_one_stream() {
         let _ = ceramic_metrics::init_local_tracing();
-        let (one_id, _, one_car) = build_event().await;
+        let TestEventInfo {
+            event_id: one_id,
+            car: one_car,
+            ..
+        } = build_event().await;
         let one_cid = one_id.cid().unwrap();
         let store = CeramicEventService::new(SqlitePool::connect_in_memory().await.unwrap())
             .await
@@ -595,8 +605,16 @@ mod test {
     // this needs to work as well
     async fn test_all_deliverable_multiple_streams() {
         let _ = ceramic_metrics::init_local_tracing();
-        let (one_id, _, one_car) = build_event().await;
-        let (two_id, _, two_car) = build_event().await;
+        let TestEventInfo {
+            event_id: one_id,
+            car: one_car,
+            ..
+        } = build_event().await;
+        let TestEventInfo {
+            event_id: two_id,
+            car: two_car,
+            ..
+        } = build_event().await;
         let one_cid = one_id.cid().unwrap();
         let two_cid = two_id.cid().unwrap();
         let store = CeramicEventService::new(SqlitePool::connect_in_memory().await.unwrap())

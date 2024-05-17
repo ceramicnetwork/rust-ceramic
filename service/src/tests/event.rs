@@ -53,25 +53,28 @@ async fn range_query_with_values<S>(store: S)
 where
     S: recon::Store<Key = EventId, Hash = Sha256a>,
 {
-    let (one_id, _one_blocks, one_car) = build_event().await;
-    let (two_id, _two_blocks, two_car) = build_event().await;
-    recon::Store::insert(&store, &ReconItem::new(&one_id, &one_car))
+    let (model, events) = get_events_return_model().await;
+    let (one_id, one_car) = (&events[0].0, &events[0].1);
+    let (two_id, two_car) = (&events[1].0, &events[1].1);
+    let init_cid = one_id.cid().unwrap();
+    let min_id = event_id_min(&init_cid, &model);
+    let max_id = event_id_max(&init_cid, &model);
+    recon::Store::insert(&store, &ReconItem::new(one_id, one_car))
         .await
         .unwrap();
-    recon::Store::insert(&store, &ReconItem::new(&two_id, &two_car))
+    recon::Store::insert(&store, &ReconItem::new(two_id, two_car))
         .await
         .unwrap();
-    let values: Vec<(EventId, Vec<u8>)> = recon::Store::range_with_values(
-        &store,
-        &random_event_id_min()..&random_event_id_max(),
-        0,
-        usize::MAX,
-    )
-    .await
-    .unwrap()
-    .collect();
+    let values: Vec<(EventId, Vec<u8>)> =
+        recon::Store::range_with_values(&store, &min_id..&max_id, 0, usize::MAX)
+            .await
+            .unwrap()
+            .collect();
 
-    let mut expected = vec![(one_id, one_car.clone()), (two_id, two_car.clone())];
+    let mut expected = vec![
+        (one_id.to_owned(), one_car.clone()),
+        (two_id.to_owned(), two_car.clone()),
+    ];
     expected.sort();
     assert_eq!(expected, values);
 }
@@ -89,7 +92,9 @@ async fn double_insert<S>(store: S)
 where
     S: recon::Store<Key = EventId, Hash = Sha256a>,
 {
-    let (id, _, car) = build_event().await;
+    let TestEventInfo {
+        event_id: id, car, ..
+    } = build_event().await;
 
     // first insert reports its a new key
     expect![
@@ -125,8 +130,12 @@ async fn try_update_value<S>(store: S)
 where
     S: recon::Store<Key = EventId, Hash = Sha256a>,
 {
-    let (id, _, car1) = build_event().await;
-    let (_, _, car2) = build_event().await;
+    let TestEventInfo {
+        event_id: id,
+        car: car1,
+        ..
+    } = build_event().await;
+    let TestEventInfo { car: car2, .. } = build_event().await;
 
     expect![
         r#"
@@ -169,7 +178,11 @@ async fn store_value_for_key<S>(store: S)
 where
     S: recon::Store<Key = EventId, Hash = Sha256a>,
 {
-    let (key, _, store_value) = build_event().await;
+    let TestEventInfo {
+        event_id: key,
+        car: store_value,
+        ..
+    } = build_event().await;
     recon::Store::insert(&store, &ReconItem::new(&key, store_value.as_slice()))
         .await
         .unwrap();
@@ -193,7 +206,12 @@ async fn read_value_as_block<S>(store: S)
 where
     S: recon::Store<Key = EventId, Hash = Sha256a> + iroh_bitswap::Store,
 {
-    let (key, blocks, store_value) = build_event().await;
+    let TestEventInfo {
+        event_id: key,
+        car: store_value,
+        blocks,
+        ..
+    } = build_event().await;
     recon::Store::insert(&store, &ReconItem::new(&key, store_value.as_slice()))
         .await
         .unwrap();
@@ -216,7 +234,11 @@ where
 async fn prep_highwater_tests(store: &dyn AccessModelStore) -> (Cid, Cid, Cid) {
     let mut keys = Vec::with_capacity(3);
     for _ in 0..3 {
-        let (key, _, store_value) = build_event().await;
+        let TestEventInfo {
+            event_id: key,
+            car: store_value,
+            ..
+        } = build_event().await;
         keys.push((key, store_value));
     }
     store.insert_many(&keys[..]).await.unwrap();
@@ -317,7 +339,11 @@ async fn get_event_by_event_id<S>(store: S)
 where
     S: AccessModelStore,
 {
-    let (key, _blocks, store_value) = build_event().await;
+    let TestEventInfo {
+        event_id: key,
+        car: store_value,
+        ..
+    } = build_event().await;
     store
         .insert_many(&[(key.to_owned(), store_value.clone())])
         .await
@@ -341,7 +367,11 @@ async fn get_event_by_cid<S>(store: S)
 where
     S: AccessModelStore,
 {
-    let (key, _blocks, store_value) = build_event().await;
+    let TestEventInfo {
+        event_id: key,
+        car: store_value,
+        ..
+    } = build_event().await;
 
     store
         .insert_many(&[(key.to_owned(), store_value.clone())])

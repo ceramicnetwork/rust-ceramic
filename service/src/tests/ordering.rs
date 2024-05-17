@@ -1,20 +1,11 @@
 use ceramic_api::AccessModelStore;
-use ceramic_core::{EventId, StreamId};
-use ceramic_event::unvalidated::{
-    self,
-    signed::{self},
-    Builder,
-};
-use cid::Cid;
-use ipld_core::{ipld, ipld::Ipld};
+use ceramic_core::EventId;
 use recon::ReconItem;
 
 use crate::{
-    tests::{check_deliverable, gen_rand_bytes, signer},
+    tests::{check_deliverable, get_events},
     CeramicEventService,
 };
-
-use super::{build_event_id, random_cid};
 
 async fn setup_service() -> CeramicEventService {
     let _ = ceramic_metrics::init_local_tracing();
@@ -24,80 +15,6 @@ async fn setup_service() -> CeramicEventService {
     CeramicEventService::new_without_undelivered(conn)
         .await
         .unwrap()
-}
-
-async fn init_event(model: &StreamId, signer: &signed::JwkSigner) -> signed::Event<Ipld> {
-    let init = Builder::init()
-        .with_controller("controller".to_string())
-        .with_sep("model".to_string(), model.to_vec())
-        .build();
-    signed::Event::from_payload(unvalidated::Payload::Init(init), signer.to_owned()).unwrap()
-}
-
-async fn data_event(
-    init_id: Cid,
-    prev: Cid,
-    data: Ipld,
-    signer: &signed::JwkSigner,
-) -> signed::Event<Ipld> {
-    let commit = Builder::data()
-        .with_id(init_id)
-        .with_prev(prev)
-        .with_data(data)
-        .build();
-
-    signed::Event::from_payload(unvalidated::Payload::Data(commit), signer.to_owned()).unwrap()
-}
-
-// builds init -> data -> data that are a stream (will be a different stream each call)
-async fn get_events() -> [(EventId, Vec<u8>); 3] {
-    let model = StreamId::document(random_cid());
-    let signer = Box::new(signer().await);
-
-    let data = gen_rand_bytes::<50>();
-    let data2 = gen_rand_bytes::<50>();
-
-    let data = ipld!({
-        "radius": 1,
-        "red": 2,
-        "green": 3,
-        "blue": 4,
-        "raw": data.as_slice(),
-    });
-
-    let data2 = ipld!({
-        "radius": 1,
-        "red": 2,
-        "green": 3,
-        "blue": 4,
-        "raw": data2.as_slice(),
-    });
-
-    let init = init_event(&model, &signer).await;
-    let init_cid = init.envelope_cid();
-    let (event_id, car) = (
-        build_event_id(&init_cid, &init_cid, &model),
-        init.encode_car().await.unwrap(),
-    );
-
-    let init_cid = event_id.cid().unwrap();
-    let data = data_event(init_cid, init_cid, data, &signer).await;
-    let cid = data.envelope_cid();
-    let (data_id, data_car) = (
-        build_event_id(&data.envelope_cid(), &init_cid, &model),
-        data.encode_car().await.unwrap(),
-    );
-    let data2 = data_event(init_cid, cid, data2, &signer).await;
-    let (data_id_2, data_car_2) = (
-        build_event_id(&data2.envelope_cid(), &init_cid, &model),
-        data2.encode_car().await.unwrap(),
-    );
-
-    [
-        (event_id, car),
-        (data_id, data_car),
-        (data_id_2, data_car_2),
-    ]
 }
 
 #[tokio::test]
