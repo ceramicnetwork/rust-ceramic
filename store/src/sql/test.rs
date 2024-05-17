@@ -7,9 +7,7 @@ use ceramic_core::{
 use cid::Cid;
 use expect_test::expect;
 
-use crate::{CeramicOneEvent, SqlitePool};
-
-use super::entities::EventRaw;
+use crate::{CeramicOneEvent, EventInsertable, EventInsertableBody, SqlitePool};
 
 const MODEL_ID: &str = "k2t6wz4yhfp1r5pwi52gw89nzjbu53qk7m32o5iguw42c6knsaj0feuf927agb";
 const CONTROLLER: &str = "did:key:z6Mkqtw7Pj5Lv9xc4PgUYAnwfaVoMC6FRneGWVr5ekTEfKVL";
@@ -25,11 +23,19 @@ fn event_id_builder() -> Builder<WithInit> {
         .with_init(&Cid::from_str(INIT_ID).unwrap())
 }
 
-fn random_event(cid: &str) -> EventRaw {
+fn random_event(cid: &str) -> EventInsertable {
     let order_key = event_id_builder()
         .with_event(&Cid::from_str(cid).unwrap())
         .build();
-    EventRaw::new(order_key, vec![])
+    let cid = order_key.cid().unwrap();
+    EventInsertable {
+        order_key,
+        body: EventInsertableBody {
+            cid,
+            deliverable: false,
+            blocks: vec![],
+        },
+    }
 }
 
 #[tokio::test]
@@ -117,4 +123,28 @@ async fn range_query() {
         ]
     "#]]
         .assert_debug_eq(&ids);
+}
+
+#[tokio::test]
+async fn undelivered_with_values() {
+    let pool = SqlitePool::connect_in_memory().await.unwrap();
+    let res = CeramicOneEvent::undelivered_with_values(&pool, 0, 10000)
+        .await
+        .unwrap();
+    assert_eq!(res.len(), 0);
+}
+
+#[tokio::test]
+async fn range_with_values() {
+    let pool = SqlitePool::connect_in_memory().await.unwrap();
+
+    let res = CeramicOneEvent::range_with_values(
+        &pool,
+        &event_id_builder().with_min_event().build()..&event_id_builder().with_max_event().build(),
+        0,
+        100000,
+    )
+    .await
+    .unwrap();
+    assert_eq!(res.len(), 0);
 }

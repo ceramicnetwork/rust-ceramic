@@ -27,9 +27,9 @@ thiserror.workspace = true
 recon.workspace = true
 sqlx.workspace = true
 tokio.workspace = true
-tracing.workspace = true
 
 [dev-dependencies]
+ceramic-event.workspace = true
 criterion2 = { workspace = true, features = ["async", "async_tokio"] }
 expect-test.workspace = true
 ipld-core.workspace = true

@@ -1,53 +1,48 @@
 mod event;
 mod interest;
+mod ordering;
 
-use std::str::FromStr;
-
-use ceramic_core::{
-    event_id::{Builder, WithInit},
-    DagCborEncoded, EventId, Network, StreamId,
-};
-
+use ceramic_core::{DidDocument, EventId, Network, StreamId};
+use ceramic_event::unvalidated::{self, signed};
 use cid::Cid;
-use ipld_core::{codec::Codec, ipld, ipld::Ipld};
+use ipld_core::{ipld, ipld::Ipld};
 use iroh_bitswap::Block;
-use iroh_car::{CarHeader, CarWriter};
 use multihash_codetable::{Code, MultihashDigest};
 use rand::{thread_rng, Rng};
-use serde_ipld_dagcbor::codec::DagCborCodec;
 
-const MODEL_ID: &str = "k2t6wz4yhfp1r5pwi52gw89nzjbu53qk7m32o5iguw42c6knsaj0feuf927agb";
-const CONTROLLER: &str = "did:key:z6Mkqtw7Pj5Lv9xc4PgUYAnwfaVoMC6FRneGWVr5ekTEfKVL";
-const INIT_ID: &str = "baeabeiajn5ypv2gllvkk4muvzujvcnoen2orknxix7qtil2daqn6vu6khq";
+const CONTROLLER: &str = "did:key:z6Mkk3rtfoKDMMG4zyarNGwCQs44GSQ49pcYKQspHJPXSnVw";
 const SEP_KEY: &str = "model";
 
-// Return an builder for an event with the same network,model,controller,stream.
-pub(crate) fn event_id_builder() -> Builder<WithInit> {
+// Generate an event (sep key and controller are fixed)
+pub(crate) fn build_event_id(cid: &Cid, init: &Cid, model: &StreamId) -> EventId {
     EventId::builder()
         .with_network(&Network::DevUnstable)
-        .with_sep(SEP_KEY, &multibase::decode(MODEL_ID).unwrap().1)
+        .with_sep(SEP_KEY, &model.to_vec())
         .with_controller(CONTROLLER)
-        .with_init(&Cid::from_str(INIT_ID).unwrap())
-}
-
-// Generate an event for the same network,model,controller,stream
-// The event and height are random when when its None.
-pub(crate) fn random_event_id(event: Option<&str>) -> EventId {
-    event_id_builder()
-        .with_event(
-            &event
-                .map(|cid| Cid::from_str(cid).unwrap())
-                .unwrap_or_else(random_cid),
-        )
+        .with_init(init)
+        .with_event(cid)
         .build()
 }
-// The EventId that is the minumum of all possible random event ids
-pub(crate) fn random_event_id_min() -> EventId {
-    event_id_builder().with_min_event().build_fencepost()
+
+// The EventId that is the minumum of all possible random event ids for that stream
+pub(crate) fn event_id_min(init: &Cid, model: &StreamId) -> EventId {
+    EventId::builder()
+        .with_network(&Network::DevUnstable)
+        .with_sep(SEP_KEY, &model.to_vec())
+        .with_controller(CONTROLLER)
+        .with_init(init)
+        .with_min_event()
+        .build_fencepost()
 }
-// The EventId that is the maximum of all possible random event ids
-pub(crate) fn random_event_id_max() -> EventId {
-    event_id_builder().with_max_event().build_fencepost()
+// The EventId that is the maximum of all possible random event ids for that stream
+pub(crate) fn event_id_max(init: &Cid, model: &StreamId) -> EventId {
+    EventId::builder()
+        .with_network(&Network::DevUnstable)
+        .with_sep(SEP_KEY, &model.to_vec())
+        .with_controller(CONTROLLER)
+        .with_init(init)
+        .with_max_event()
+        .build_fencepost()
 }
 
 pub(crate) fn random_cid() -> Cid {
@@ -57,43 +52,56 @@ pub(crate) fn random_cid() -> Cid {
     Cid::new_v1(0x00, hash)
 }
 
-pub(crate) async fn build_car_file(count: usize) -> (EventId, Vec<Block>, Vec<u8>) {
-    let blocks: Vec<Block> = (0..count).map(|_| random_block()).collect();
+#[derive(Debug)]
+pub(crate) struct TestEventInfo {
+    pub(crate) event_id: EventId,
+    pub(crate) car: Vec<u8>,
+    pub(crate) blocks: Vec<Block>,
+}
 
+async fn build_event_fixed_model(model: StreamId) -> TestEventInfo {
     let controller = thread_rng()
         .sample_iter(&rand::distributions::Alphanumeric)
         .take(32)
         .map(char::from)
         .collect::<String>();
 
-    let model = StreamId::document(random_cid());
     let unique = gen_rand_bytes::<12>();
-    let init = ipld!( {
-        "header": {
-            "controllers": [controller],
-            "model": model.to_vec(),
-            "sep": "model",
-            "unique": unique.as_slice(),
-        },
-        "links": blocks.iter().map(|block| Ipld::Link(block.cid)).collect::<Vec<Ipld>>(),
-    });
+    let init = ceramic_event::unvalidated::Builder::init()
+        .with_controller(controller)
+        .with_sep("model".to_string(), model.to_vec())
+        .with_unique(unique.to_vec())
+        .with_data(ipld!({"radius": 1, "red": 2, "green": 3, "blue": 4}))
+        .build();
 
-    let commit = DagCborEncoded::new(&init).unwrap();
-    let root_cid = Cid::new_v1(
-        <DagCborCodec as Codec<Ipld>>::CODE,
-        Code::Sha2_256.digest(commit.as_ref()),
-    );
+    let signer = crate::tests::signer().await;
+    let signed =
+        signed::Event::from_payload(ceramic_event::unvalidated::Payload::Init(init), signer)
+            .unwrap();
+    let init_cid = signed.envelope_cid();
 
-    let mut car = Vec::new();
-    let roots: Vec<Cid> = vec![root_cid];
-    let mut writer = CarWriter::new(CarHeader::V1(roots.into()), &mut car);
-    writer.write(root_cid, commit).await.unwrap();
-    for block in &blocks {
-        writer.write(block.cid, &block.data).await.unwrap();
+    let event_id = build_event_id(&init_cid, &init_cid, &model);
+    let car = signed.encode_car().await.unwrap();
+    TestEventInfo {
+        event_id,
+        blocks: vec![
+            Block::new(
+                signed.encode_envelope().unwrap().into(),
+                signed.envelope_cid(),
+            ),
+            Block::new(
+                signed.encode_payload().unwrap().into(),
+                signed.payload_cid(),
+            ),
+        ],
+        car,
     }
-    writer.finish().await.unwrap();
-    let event_id = random_event_id(Some(&root_cid.to_string()));
-    (event_id, blocks, car)
+}
+
+/// returns (event ID, array of block CIDs, car bytes)
+pub(crate) async fn build_event() -> TestEventInfo {
+    let model = StreamId::document(random_cid());
+    build_event_fixed_model(model).await
 }
 
 fn gen_rand_bytes<const SIZE: usize>() -> [u8; SIZE] {
@@ -114,4 +122,113 @@ pub(crate) fn random_block() -> Block {
         cid: Cid::new_v1(0x00, hash),
         data: data.to_vec().into(),
     }
+}
+
+pub(crate) async fn check_deliverable(
+    pool: &ceramic_store::SqlitePool,
+    cid: &Cid,
+    deliverable: bool,
+) {
+    let (exists, delivered) = ceramic_store::CeramicOneEvent::delivered_by_cid(pool, cid)
+        .await
+        .unwrap();
+    assert!(exists);
+    if deliverable {
+        assert!(delivered, "{} should be delivered", cid);
+    } else {
+        assert!(!delivered, "{} should NOT be delivered", cid);
+    }
+}
+
+pub(crate) async fn signer() -> signed::JwkSigner {
+    signed::JwkSigner::new(
+        DidDocument::new(CONTROLLER),
+        "810d51e02cb63066b7d2d2ec67e05e18c29b938412050bdd3c04d878d8001f3c",
+    )
+    .await
+    .unwrap()
+}
+
+async fn init_event(model: &StreamId, signer: &signed::JwkSigner) -> signed::Event<Ipld> {
+    let init = unvalidated::Builder::init()
+        .with_controller("controller".to_string())
+        .with_sep("model".to_string(), model.to_vec())
+        .build();
+    signed::Event::from_payload(unvalidated::Payload::Init(init), signer.to_owned()).unwrap()
+}
+
+async fn data_event(
+    init_id: Cid,
+    prev: Cid,
+    data: Ipld,
+    signer: &signed::JwkSigner,
+) -> signed::Event<Ipld> {
+    let commit = unvalidated::Builder::data()
+        .with_id(init_id)
+        .with_prev(prev)
+        .with_data(data)
+        .build();
+
+    signed::Event::from_payload(unvalidated::Payload::Data(commit), signer.to_owned()).unwrap()
+}
+
+async fn get_events_with_model(model: &StreamId) -> [(EventId, Vec<u8>); 3] {
+    let signer = Box::new(signer().await);
+
+    let data = gen_rand_bytes::<50>();
+    let data2 = gen_rand_bytes::<50>();
+
+    let data = ipld!({
+        "radius": 1,
+        "red": 2,
+        "green": 3,
+        "blue": 4,
+        "raw": data.as_slice(),
+    });
+
+    let data2 = ipld!({
+        "radius": 1,
+        "red": 2,
+        "green": 3,
+        "blue": 4,
+        "raw": data2.as_slice(),
+    });
+
+    let init = init_event(model, &signer).await;
+    let init_cid = init.envelope_cid();
+    let (event_id, car) = (
+        build_event_id(&init_cid, &init_cid, model),
+        init.encode_car().await.unwrap(),
+    );
+
+    let init_cid = event_id.cid().unwrap();
+    let data = data_event(init_cid, init_cid, data, &signer).await;
+    let cid = data.envelope_cid();
+    let (data_id, data_car) = (
+        build_event_id(&data.envelope_cid(), &init_cid, model),
+        data.encode_car().await.unwrap(),
+    );
+    let data2 = data_event(init_cid, cid, data2, &signer).await;
+    let (data_id_2, data_car_2) = (
+        build_event_id(&data2.envelope_cid(), &init_cid, model),
+        data2.encode_car().await.unwrap(),
+    );
+
+    [
+        (event_id, car),
+        (data_id, data_car),
+        (data_id_2, data_car_2),
+    ]
+}
+
+pub(crate) async fn get_events_return_model() -> (StreamId, [(EventId, Vec<u8>); 3]) {
+    let model = StreamId::document(random_cid());
+    let events = get_events_with_model(&model).await;
+    (model, events)
+}
+
+// builds init -> data -> data that are a stream (will be a different stream each call)
+pub(crate) async fn get_events() -> [(EventId, Vec<u8>); 3] {
+    let model = StreamId::document(random_cid());
+    get_events_with_model(&model).await
 }

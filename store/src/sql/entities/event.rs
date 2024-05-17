@@ -41,26 +41,92 @@ pub async fn rebuild_car(blocks: Vec<BlockRow>) -> Result<Option<Vec<u8>>> {
 }
 
 #[derive(Debug, Clone)]
-pub struct EventRaw {
+/// The type we use to insert events into the database
+pub struct EventInsertable {
+    /// The event order key (e.g. EventID)
     pub order_key: EventId,
+    /// The data that makes up the event
+    pub body: EventInsertableBody,
+}
+
+impl EventInsertable {
+    /// Try to build the EventInsertable struct. Will error if the key and body don't match.
+    pub fn try_new(order_key: EventId, body: EventInsertableBody) -> Result<Self> {
+        if order_key.cid().as_ref() != Some(&body.cid) {
+            return Err(Error::new_app(anyhow!(
+                "Event ID and body CID do not match: {:?} != {:?}",
+                order_key.cid(),
+                body.cid
+            )))?;
+        }
+        Ok(Self { order_key, body })
+    }
+
+    /// change the deliverable status of the event
+    pub fn deliverable(&mut self, deliverable: bool) {
+        self.body.deliverable = deliverable;
+    }
+}
+
+#[derive(Debug, Clone)]
+/// The type we use to insert events into the database
+pub struct EventInsertableBody {
+    /// The event CID i.e. the root CID from the car file
+    pub cid: Cid,
+    /// Whether this event is deliverable to clients or is waiting for more data
+    pub deliverable: bool,
+    /// The blocks of the event
+    // could use a map but there aren't that many blocks per event (right?)
     pub blocks: Vec<EventBlockRaw>,
 }
 
-impl EventRaw {
-    pub fn new(key: EventId, blocks: Vec<EventBlockRaw>) -> Self {
+impl EventInsertableBody {
+    /// Create a new EventInsertRaw struct. Deliverable is set to false by default.
+    pub fn new(cid: Cid, blocks: Vec<EventBlockRaw>) -> Self {
         Self {
-            order_key: key,
+            cid,
+            deliverable: false,
             blocks,
         }
     }
 
-    pub async fn try_build(key: EventId, val: &[u8]) -> Result<Self> {
-        let event_cid = key
-            .cid()
-            .ok_or_else(|| Error::new_app(anyhow!("Event ID requires a CID")))?;
+    /// Find a block from the carfile for a given CID if it's included
+    pub fn block_for_cid_opt(&self, cid: &Cid) -> Option<&EventBlockRaw> {
+        self.blocks
+            .iter()
+            .find(|b| Cid::new_v1(b.codec.try_into().unwrap(), *b.multihash.inner()) == *cid)
+    }
+
+    /// Find a block from the carfile for a given CID if it's included
+    pub fn block_for_cid(&self, cid: &Cid) -> Result<&EventBlockRaw> {
+        self.block_for_cid_opt(cid)
+            .ok_or_else(|| Error::new_app(anyhow!("Event data is missing data for CID {}", cid)))
+    }
+
+    /// Builds a new EventInsertRaw from a CAR file. Will error if the CID in the EventID doesn't match the
+    /// first root of the carfile.
+    pub async fn try_from_carfile(event_cid: Cid, val: &[u8]) -> Result<Self> {
+        if val.is_empty() {
+            return Err(Error::new_app(anyhow!(
+                "CAR file is empty: cid={}",
+                event_cid
+            )))?;
+        }
+
         let mut reader = CarReader::new(val)
             .await
             .map_err(|e| Error::new_app(anyhow!(e)))?;
+        let root_cid = reader
+            .header()
+            .roots()
+            .first()
+            .ok_or_else(|| Error::new_app(anyhow!("car data should have at least one root")))?;
+
+        if event_cid != *root_cid {
+            return Err(Error::new_app(anyhow!(
+                "Event ID does not match the root CID of the CAR file"
+            )));
+        }
         let roots: BTreeSet<Cid> = reader.header().roots().iter().cloned().collect();
         let mut idx = 0;
         let mut blocks = vec![];
@@ -70,6 +136,6 @@ impl EventRaw {
             blocks.push(ebr);
             idx += 1;
         }
-        Ok(Self::new(key, blocks))
+        Ok(Self::new(event_cid, blocks))
     }
 }

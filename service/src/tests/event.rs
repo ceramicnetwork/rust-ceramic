@@ -53,25 +53,28 @@ async fn range_query_with_values<S>(store: S)
 where
     S: recon::Store<Key = EventId, Hash = Sha256a>,
 {
-    let (one_id, _one_blocks, one_car) = build_car_file(2).await;
-    let (two_id, _two_blocks, two_car) = build_car_file(3).await;
-    recon::Store::insert(&store, &ReconItem::new(&one_id, &one_car))
+    let (model, events) = get_events_return_model().await;
+    let (one_id, one_car) = (&events[0].0, &events[0].1);
+    let (two_id, two_car) = (&events[1].0, &events[1].1);
+    let init_cid = one_id.cid().unwrap();
+    let min_id = event_id_min(&init_cid, &model);
+    let max_id = event_id_max(&init_cid, &model);
+    recon::Store::insert(&store, &ReconItem::new(one_id, one_car))
         .await
         .unwrap();
-    recon::Store::insert(&store, &ReconItem::new(&two_id, &two_car))
+    recon::Store::insert(&store, &ReconItem::new(two_id, two_car))
         .await
         .unwrap();
-    let values: Vec<(EventId, Vec<u8>)> = recon::Store::range_with_values(
-        &store,
-        &random_event_id_min()..&random_event_id_max(),
-        0,
-        usize::MAX,
-    )
-    .await
-    .unwrap()
-    .collect();
+    let values: Vec<(EventId, Vec<u8>)> =
+        recon::Store::range_with_values(&store, &min_id..&max_id, 0, usize::MAX)
+            .await
+            .unwrap()
+            .collect();
 
-    let mut expected = vec![(one_id, one_car.clone()), (two_id, two_car.clone())];
+    let mut expected = vec![
+        (one_id.to_owned(), one_car.clone()),
+        (two_id.to_owned(), two_car.clone()),
+    ];
     expected.sort();
     assert_eq!(expected, values);
 }
@@ -89,7 +92,9 @@ async fn double_insert<S>(store: S)
 where
     S: recon::Store<Key = EventId, Hash = Sha256a>,
 {
-    let (id, _, car) = build_car_file(2).await;
+    let TestEventInfo {
+        event_id: id, car, ..
+    } = build_event().await;
 
     // first insert reports its a new key
     expect![
@@ -125,8 +130,12 @@ async fn try_update_value<S>(store: S)
 where
     S: recon::Store<Key = EventId, Hash = Sha256a>,
 {
-    let (id, _, car1) = build_car_file(2).await;
-    let (_, _, car2) = build_car_file(2).await;
+    let TestEventInfo {
+        event_id: id,
+        car: car1,
+        ..
+    } = build_event().await;
+    let TestEventInfo { car: car2, .. } = build_event().await;
 
     expect![
         r#"
@@ -137,12 +146,13 @@ where
     ]
     .assert_debug_eq(&recon::Store::insert(&store, &ReconItem::new(&id, &car1)).await);
 
-    expect![[r#"
-            Ok(
-                false,
-            )
-        "#]]
-    .assert_debug_eq(&recon::Store::insert(&store, &ReconItem::new(&id, &car2)).await);
+    match recon::Store::insert(&store, &ReconItem::new(&id, &car2)).await {
+        Ok(_) => panic!("expected error"),
+        Err(recon::Error::Application { .. }) => {
+            // Event ID does not match the root CID of the CAR file
+        }
+        Err(e) => panic!("unexpected error: {}", e),
+    }
 
     assert_eq!(
         hex::encode(&car1),
@@ -168,7 +178,11 @@ async fn store_value_for_key<S>(store: S)
 where
     S: recon::Store<Key = EventId, Hash = Sha256a>,
 {
-    let (key, _, store_value) = build_car_file(3).await;
+    let TestEventInfo {
+        event_id: key,
+        car: store_value,
+        ..
+    } = build_event().await;
     recon::Store::insert(&store, &ReconItem::new(&key, store_value.as_slice()))
         .await
         .unwrap();
@@ -192,7 +206,12 @@ async fn read_value_as_block<S>(store: S)
 where
     S: recon::Store<Key = EventId, Hash = Sha256a> + iroh_bitswap::Store,
 {
-    let (key, blocks, store_value) = build_car_file(3).await;
+    let TestEventInfo {
+        event_id: key,
+        car: store_value,
+        blocks,
+        ..
+    } = build_event().await;
     recon::Store::insert(&store, &ReconItem::new(&key, store_value.as_slice()))
         .await
         .unwrap();
@@ -214,9 +233,12 @@ where
 // but we use a delivered integer per event, so we expect it to increment by 1 for each event
 async fn prep_highwater_tests(store: &dyn AccessModelStore) -> (Cid, Cid, Cid) {
     let mut keys = Vec::with_capacity(3);
-    for x in [3, 5, 10].into_iter() {
-        let (key, _blocks, store_value) = build_car_file(x).await;
-        assert_eq!(_blocks.len(), x);
+    for _ in 0..3 {
+        let TestEventInfo {
+            event_id: key,
+            car: store_value,
+            ..
+        } = build_event().await;
         keys.push((key, store_value));
     }
     store.insert_many(&keys[..]).await.unwrap();
@@ -304,12 +326,12 @@ where
 }
 
 test_with_dbs!(
-    test_store_block,
-    test_store_block,
+    get_event_by_event_id,
+    get_event_by_event_id,
     [
         "delete from ceramic_one_event_block",
         "delete from ceramic_one_event",
-        "delete from ceramic_one_block"
+        "delete from ceramic_one_block",
     ]
 );
 
@@ -317,9 +339,11 @@ async fn get_event_by_event_id<S>(store: S)
 where
     S: AccessModelStore,
 {
-    let num_blocks = 3;
-    let (key, _blocks, store_value) = build_car_file(num_blocks).await;
-    assert_eq!(_blocks.len(), num_blocks);
+    let TestEventInfo {
+        event_id: key,
+        car: store_value,
+        ..
+    } = build_event().await;
     store
         .insert_many(&[(key.to_owned(), store_value.clone())])
         .await
@@ -330,8 +354,8 @@ where
 }
 
 test_with_dbs!(
-    get_event_by_event_id,
-    get_event_by_event_id,
+    get_event_by_cid,
+    get_event_by_cid,
     [
         "delete from ceramic_one_event_block",
         "delete from ceramic_one_event",
@@ -343,9 +367,12 @@ async fn get_event_by_cid<S>(store: S)
 where
     S: AccessModelStore,
 {
-    let num_blocks = 3;
-    let (key, _blocks, store_value) = build_car_file(num_blocks).await;
-    assert_eq!(_blocks.len(), num_blocks);
+    let TestEventInfo {
+        event_id: key,
+        car: store_value,
+        ..
+    } = build_event().await;
+
     store
         .insert_many(&[(key.to_owned(), store_value.clone())])
         .await
@@ -360,12 +387,12 @@ where
 }
 
 test_with_dbs!(
-    get_event_by_cid,
-    get_event_by_cid,
+    test_store_block,
+    test_store_block,
     [
         "delete from ceramic_one_event_block",
         "delete from ceramic_one_event",
-        "delete from ceramic_one_block",
+        "delete from ceramic_one_block"
     ]
 );
 
@@ -373,6 +400,7 @@ async fn test_store_block<S>(store: S)
 where
     S: iroh_bitswap::Store,
 {
+    let _ = ceramic_metrics::init_local_tracing();
     let data: Bytes = hex::decode("0a050001020304").unwrap().into();
     let cid: CidGeneric<64> =
         Cid::from_str("bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom").unwrap(); // cspell:disable-line

@@ -1,13 +1,18 @@
-use ceramic_core::{EventId, Network};
-use ceramic_store::{CeramicOneEvent, SqlitePool};
-use cid::Cid;
+use std::str::FromStr;
+
+use ceramic_core::{DidDocument, EventId, Network, StreamId};
+use ceramic_event::unvalidated::{
+    self,
+    signed::{self, Signer},
+    Builder,
+};
+use ceramic_store::{CeramicOneEvent, EventInsertable, EventInsertableBody, SqlitePool};
 use criterion2::{criterion_group, criterion_main, BatchSize, Criterion};
-use multihash_codetable::{Code, MultihashDigest};
 use rand::RngCore;
 
 struct ModelSetup {
     pool: SqlitePool,
-    events: Vec<(EventId, Vec<u8>)>,
+    events: Vec<EventInsertable>,
 }
 
 enum ModelType {
@@ -15,25 +20,46 @@ enum ModelType {
     Large,
 }
 
-fn generate_event_id(data: &[u8]) -> EventId {
-    let cid = Cid::new_v1(
-        0x55, //RAW
-        Code::Sha2_256.digest(data),
-    );
-    EventId::new(
-        &Network::Mainnet,
+async fn generate_init_event(
+    model: &StreamId,
+    data: &[u8],
+    signer: impl Signer,
+) -> (EventId, Vec<u8>) {
+    let data = ipld_core::ipld!({
+        "raw": data,
+    });
+    let init = Builder::init()
+        .with_controller("controller".to_string())
+        .with_sep("sep".to_string(), model.to_vec())
+        .with_data(data)
+        .build();
+    let signed = signed::Event::from_payload(unvalidated::Payload::Init(init), signer).unwrap();
+    let cid = signed.envelope_cid();
+    let data = signed.encode_car().await.unwrap();
+    let id = EventId::new(
+        &Network::DevUnstable,
         "model",
-        "kh4q0ozorrgaq2mezktnrmdwleo1d".as_bytes(),
+        &model.to_vec(),
         "did:key:z6MkgSV3tAuw7gUWqKCUY7ae6uWNxqYgdwPhUJbJhF9EFXm9",
         &cid,
         &cid,
-    )
+    );
+    (id, data)
 }
 
 const INSERTION_COUNT: usize = 10_000;
 
 async fn model_setup(tpe: ModelType, cnt: usize) -> ModelSetup {
     let mut events = Vec::with_capacity(cnt);
+    let signer = signed::JwkSigner::new(
+        DidDocument::new("did:key:z6Mkk3rtfoKDMMG4zyarNGwCQs44GSQ49pcYKQspHJPXSnVw"),
+        "810d51e02cb63066b7d2d2ec67e05e18c29b938412050bdd3c04d878d8001f3c",
+    )
+    .await
+    .unwrap();
+    let model =
+        StreamId::from_str("k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9")
+            .unwrap();
     for _ in 0..cnt {
         let mut data = match tpe {
             ModelType::Small => {
@@ -44,14 +70,12 @@ async fn model_setup(tpe: ModelType, cnt: usize) -> ModelSetup {
             }
         };
         rand::thread_rng().fill_bytes(&mut data);
-        let event_id = generate_event_id(&data);
-        let cid = event_id.cid().unwrap();
-        let header = iroh_car::CarHeader::V1(iroh_car::CarHeaderV1::from(vec![cid]));
-        let writer = tokio::io::BufWriter::new(Vec::with_capacity(1024 * 1024));
-        let mut writer = iroh_car::CarWriter::new(header, writer);
-        writer.write(cid, data.as_slice()).await.unwrap();
-        let data = writer.finish().await.unwrap().into_inner();
-        events.push((event_id, data));
+
+        let init = generate_init_event(&model, &data, signer.clone()).await;
+        let body = EventInsertableBody::try_from_carfile(init.0.cid().unwrap(), &init.1)
+            .await
+            .unwrap();
+        events.push(EventInsertable::try_new(init.0, body).unwrap());
     }
 
     let pool = SqlitePool::connect_in_memory().await.unwrap();
@@ -59,13 +83,10 @@ async fn model_setup(tpe: ModelType, cnt: usize) -> ModelSetup {
 }
 
 async fn model_routine(input: ModelSetup) {
-    let futs =
-        input.events.into_iter().map(|(event_id, data)| {
-            let store = input.pool.clone();
-            async move {
-                CeramicOneEvent::insert_raw_carfiles(&store, &[(event_id, data.as_slice())]).await
-            }
-        });
+    let futs = input.events.into_iter().map(|event| {
+        let store = input.pool.clone();
+        async move { CeramicOneEvent::insert_many(&store, &[event]).await }
+    });
     futures::future::join_all(futs).await;
 }
 
