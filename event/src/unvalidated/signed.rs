@@ -116,7 +116,6 @@ impl<D: serde::Serialize> Event<D> {
 
 /// A signed event envelope.
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Envelope {
     payload: Bytes,
     signatures: Vec<Signature>,

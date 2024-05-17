@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 /// Materialized Ceramic Event where internal structure is accessible.
 pub enum Event<D> {
     /// Time event in a stream
-    // NOTE: TimeEvent has several CIDs so its a relatively large struct (~312 bytes according to
-    // the compiler). Therefore we box it here to keep the Event enum small.
+    // NOTE: TimeEvent has several CIDs so it's a relatively large struct (~312 bytes according to
+    // the compiler). Therefore, we box it here to keep the Event enum small.
     Time(Box<TimeEvent>),
     /// Signed event in a stream
     Signed(signed::Event<D>),
@@ -18,11 +18,11 @@ pub enum Event<D> {
 
 /// Ceramic Event as it is encoded in the protocol.
 #[derive(Serialize, Deserialize)]
-#[serde(untagged, deny_unknown_fields)]
+#[serde(untagged)]
 pub enum RawEvent<D> {
     /// Time event in a stream
-    // NOTE: TimeEvent has several CIDs so its a relatively large struct (~312 bytes according to
-    // the compiler). Therefore we box it here to keep the Event enum small.
+    // NOTE: TimeEvent has several CIDs so it's a relatively large struct (~312 bytes according to
+    // the compiler). Therefore, we box it here to keep the Event enum small.
     Time(Box<TimeEvent>),
     /// Signed event in a stream
     Signed(signed::Envelope),
@@ -50,7 +50,6 @@ impl<D> From<signed::Envelope> for RawEvent<D> {
 
 /// Time event
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct TimeEvent {
     id: Cid,
     prev: Cid,

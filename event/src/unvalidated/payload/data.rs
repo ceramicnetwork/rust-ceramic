@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 
 /// Payload of a data event
 #[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Payload<D> {
     id: Cid,
     prev: Cid,
@@ -46,7 +45,7 @@ impl<D> Payload<D> {
 
 /// Headers for a data event
 #[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 pub struct Header {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) should_index: Option<bool>,

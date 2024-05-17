@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 
 /// Payload of an init event
 #[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Payload<D> {
     pub(crate) header: Header,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -29,10 +28,10 @@ impl<D> Payload<D> {
 
 /// Headers for an init event
 #[derive(Default, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 pub struct Header {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(crate) controllers: Vec<String>, // todo make all fields private
+    pub(crate) controllers: Vec<String>, // todo(stbrody) make all fields private
     pub(crate) sep: String,
     // TODO: Handle separator keys other than "model"
     pub(crate) model: Bytes,
@@ -44,7 +43,6 @@ pub struct Header {
 
 impl Header {
     /// Construct a header for an init event payload
-    /// TODO: Remove this method and use a builder pattern for building events instead.
     pub fn new(
         controllers: Vec<String>,
         sep: String,
