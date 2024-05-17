@@ -40,7 +40,7 @@ impl<D: serde::Serialize> Event<D> {
     pub fn from_payload(payload: Payload<D>, signer: impl Signer) -> anyhow::Result<Self> {
         let payload_cid = Self::cid_from_dag_cbor(&serde_ipld_dagcbor::to_vec(&payload)?);
         let payload_cid_str =
-            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&payload_cid.to_bytes());
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(payload_cid.to_bytes());
 
         let alg = signer.algorithm();
         let header = ssi::jws::Header {

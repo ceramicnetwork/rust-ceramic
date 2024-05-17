@@ -105,8 +105,7 @@ impl<D> InitBuilder<InitBuilderWithSep<D>> {
             self.state.should_index,
             self.state.unique,
         );
-        let payload = unvalidated::init::Payload::new(header, self.state.data);
-        payload
+        unvalidated::init::Payload::new(header, self.state.data)
     }
 }
 
@@ -191,13 +190,7 @@ impl<D> DataBuilder<DataBuilderWithData<D>> {
             .state
             .should_index
             .map(|si| unvalidated::data::Header::new(Some(si)));
-        let payload = unvalidated::data::Payload::new(
-            self.state.id,
-            self.state.prev,
-            header,
-            self.state.data,
-        );
-        payload
+        unvalidated::data::Payload::new(self.state.id, self.state.prev, header, self.state.data)
     }
 }
 
