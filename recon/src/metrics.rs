@@ -12,7 +12,7 @@ use prometheus_client::{
 };
 
 use crate::{
-    protocol::{InitiatorMessage, ReconMessage, ResponderMessage},
+    protocol::{InitiatorMessage, ResponderMessage},
     AssociativeHash, Key,
 };
 
@@ -22,11 +22,7 @@ pub struct Metrics {
     protocol_message_received_count: Family<MessageLabels, Counter>,
     protocol_message_sent_count: Family<MessageLabels, Counter>,
 
-    protocol_range_enqueue_failed_count: Counter,
-    protocol_range_enqueued_count: Counter,
-    protocol_range_dequeued_count: Counter,
-
-    protocol_loop_count: Counter,
+    protocol_write_loop_count: Counter,
     protocol_run_duration: Histogram,
 }
 
@@ -35,9 +31,9 @@ pub(crate) struct MessageLabels {
     pub(crate) message_type: &'static str,
 }
 
-impl<K: Key, H: AssociativeHash> From<&ReconMessage<InitiatorMessage<K, H>>> for MessageLabels {
-    fn from(value: &ReconMessage<InitiatorMessage<K, H>>) -> Self {
-        match value.body {
+impl<K: Key, H: AssociativeHash> From<&InitiatorMessage<K, H>> for MessageLabels {
+    fn from(value: &InitiatorMessage<K, H>) -> Self {
+        match value {
             InitiatorMessage::Value(_) => Self {
                 message_type: "Value",
             },
@@ -54,9 +50,9 @@ impl<K: Key, H: AssociativeHash> From<&ReconMessage<InitiatorMessage<K, H>>> for
     }
 }
 
-impl<K: Key, H: AssociativeHash> From<&ReconMessage<ResponderMessage<K, H>>> for MessageLabels {
-    fn from(value: &ReconMessage<ResponderMessage<K, H>>) -> Self {
-        match value.body {
+impl<K: Key, H: AssociativeHash> From<&ResponderMessage<K, H>> for MessageLabels {
+    fn from(value: &ResponderMessage<K, H>) -> Self {
+        match value {
             ResponderMessage::Value(_) => Self {
                 message_type: "Value",
             },
@@ -88,31 +84,9 @@ impl Metrics {
             Family::<MessageLabels, Counter>::default(),
             sub_registry
         );
-
         register!(
-            protocol_range_enqueue_failed_count,
-            "Number times a range is dropped when enqueing into the ranges queue",
-            Counter::default(),
-            sub_registry
-        );
-
-        register!(
-            protocol_range_enqueued_count,
-            "Number times a range is enqued into the ranges queue",
-            Counter::default(),
-            sub_registry
-        );
-
-        register!(
-            protocol_range_dequeued_count,
-            "Number times a range is dequed from the ranges queue",
-            Counter::default(),
-            sub_registry
-        );
-
-        register!(
-            protocol_loop_count,
-            "Number times the protocol loop has iterated",
+            protocol_write_loop_count,
+            "Number times the protocol write loop has iterated",
             Counter::default(),
             sub_registry
         );
@@ -126,10 +100,7 @@ impl Metrics {
         Self {
             protocol_message_received_count,
             protocol_message_sent_count,
-            protocol_range_enqueue_failed_count,
-            protocol_range_enqueued_count,
-            protocol_range_dequeued_count,
-            protocol_loop_count,
+            protocol_write_loop_count,
             protocol_run_duration,
         }
     }
@@ -161,34 +132,13 @@ where
     }
 }
 
-pub(crate) struct RangeEnqueueFailed;
-impl Recorder<RangeEnqueueFailed> for Metrics {
-    fn record(&self, _event: &RangeEnqueueFailed) {
-        self.protocol_range_enqueue_failed_count.inc();
+pub(crate) struct ProtocolWriteLoop;
+impl Recorder<ProtocolWriteLoop> for Metrics {
+    fn record(&self, _event: &ProtocolWriteLoop) {
+        self.protocol_write_loop_count.inc();
     }
 }
 
-pub(crate) struct RangeEnqueued;
-impl Recorder<RangeEnqueued> for Metrics {
-    fn record(&self, _event: &RangeEnqueued) {
-        self.protocol_range_enqueued_count.inc();
-    }
-}
-
-pub(crate) struct RangeDequeued;
-impl Recorder<RangeDequeued> for Metrics {
-    fn record(&self, _event: &RangeDequeued) {
-        self.protocol_range_dequeued_count.inc();
-    }
-}
-
-pub(crate) struct ProtocolLoop;
-
-impl Recorder<ProtocolLoop> for Metrics {
-    fn record(&self, _event: &ProtocolLoop) {
-        self.protocol_loop_count.inc();
-    }
-}
 pub(crate) struct ProtocolRun(pub Duration);
 impl Recorder<ProtocolRun> for Metrics {
     fn record(&self, event: &ProtocolRun) {

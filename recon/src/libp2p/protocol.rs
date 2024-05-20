@@ -21,7 +21,7 @@ pub async fn initiate_synchronize<S, R>(
 ) -> Result<StreamSet>
 where
     R: Recon,
-    S: AsyncRead + AsyncWrite + Unpin + Send,
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     let codec = CborCodec::new();
     let stream = Framed::new(stream, codec);
@@ -39,7 +39,7 @@ pub async fn respond_synchronize<S, R>(
 ) -> Result<StreamSet>
 where
     R: Recon,
-    S: AsyncRead + AsyncWrite + Unpin + Send,
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     let codec = CborCodec::new();
     let stream = Framed::new(stream, codec);
