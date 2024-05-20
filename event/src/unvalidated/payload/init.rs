@@ -4,9 +4,9 @@ use serde::{Deserialize, Serialize};
 /// Payload of an init event
 #[derive(Serialize, Deserialize)]
 pub struct Payload<D> {
-    pub(crate) header: Header,
+    header: Header,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) data: Option<D>,
+    data: Option<D>,
 }
 
 impl<D> Payload<D> {
@@ -31,14 +31,14 @@ impl<D> Payload<D> {
 #[serde(rename_all = "camelCase")]
 pub struct Header {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(crate) controllers: Vec<String>, // todo(stbrody) make all fields private
-    pub(crate) sep: String,
+    controllers: Vec<String>,
+    sep: String,
     // TODO: Handle separator keys other than "model"
-    pub(crate) model: Bytes,
+    model: Bytes,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) should_index: Option<bool>,
+    should_index: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) unique: Option<Bytes>,
+    unique: Option<Bytes>,
 }
 
 impl Header {

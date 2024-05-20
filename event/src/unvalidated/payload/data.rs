@@ -48,7 +48,7 @@ impl<D> Payload<D> {
 #[serde(rename_all = "camelCase")]
 pub struct Header {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) should_index: Option<bool>,
+    should_index: Option<bool>,
 }
 
 impl Header {
