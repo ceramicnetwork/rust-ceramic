@@ -2,6 +2,46 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.19.0] - 2024-05-20
+
+### 🚀 Features
+
+- Adjust recon bounds to be lower inclusive and always store value
+- Use builder pattern to create unvalidated and validated events
+- Update event types and builder APIs to prevent building events that dont align with the protocol spec (#357)
+- In order delivery of ceramic events (#344)
+
+### 🐛 Bug Fixes
+
+- Remove first/last from recon::Store trait
+- Lower correctness test network ttl
+- Move network ttl to hermetic driver command
+- Tests
+- Recon protocol hang with large diffs (#356)
+
+### 🚜 Refactor
+
+- Make recon value required
+- Remove value parsing from recon tests
+- Optimize remote missing edge cases
+- Remove keys_with_missing_values from all traits
+- Add service crate (#354)
+
+### ⚙️ Miscellaneous Tasks
+
+- Address review feedback
+- PR review comments (#346)
+- Clippy
+- Review and test fixes
+- Unused deps
+- Make event struct fields private (#359)
+
+## [0.18.0] - 2024-05-13
+
+### ⚙️ Miscellaneous Tasks
+
+- Version v0.18.0
+
 ## [0.17.0] - 2024-05-09
 
 ### 🚀 Features
