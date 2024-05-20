@@ -39,6 +39,8 @@ pub struct Header {
     should_index: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     unique: Option<Bytes>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    context: Option<Bytes>,
 }
 
 impl Header {
@@ -49,6 +51,7 @@ impl Header {
         model: Vec<u8>,
         should_index: Option<bool>,
         unique: Option<Vec<u8>>,
+        context: Option<Vec<u8>>,
     ) -> Self {
         Self {
             controllers,
@@ -56,6 +59,7 @@ impl Header {
             model: Bytes::from(model),
             should_index,
             unique: unique.map(Bytes::from),
+            context: context.map(Bytes::from),
         }
     }
 
