@@ -259,7 +259,8 @@ where
                 to_writer_tx
                     .send(ToWriter::SyncId(remote_sync_id.clone()))
                     .await
-                    .map_err(|err| anyhow!("{err}"))?;
+                    .map_err(|err| anyhow!("{err}"))
+                    .context("sending sync id")?;
                 sync_id = Some(remote_sync_id);
             }
         }
@@ -441,7 +442,8 @@ where
                             .boxed(),
                     ))
                     .await
-                    .map_err(|err| anyhow!("{err}"))?;
+                    .map_err(|err| anyhow!("{err}"))
+                    .context("sending missing values for ranges")?;
                 self.send_ranges(ranges.into_iter(), to_writer).await?;
             }
             SyncState::Unsynchronized { ranges } => {
@@ -462,7 +464,8 @@ where
                 ranges.map(InitiatorMessage::RangeRequest).collect(),
             ))
             .await
-            .map_err(|err| anyhow!("{err}"))?;
+            .map_err(|err| anyhow!("{err}"))
+            .context("sending range requests")?;
 
         Ok(())
     }
@@ -511,7 +514,8 @@ where
                 to_writer
                     .send(ToWriter::WIPCompleted(1))
                     .await
-                    .map_err(|err| anyhow!("{err}"))?;
+                    .map_err(|err| anyhow!("{err}"))
+                    .context("sending wip completed")?;
                 for range in ranges {
                     self.process_range(to_writer, range)
                         .await
@@ -523,7 +527,8 @@ where
                     to_writer
                         .send(ToWriter::Finish)
                         .await
-                        .map_err(|err| anyhow!("{err}"))?;
+                        .map_err(|err| anyhow!("{err}"))
+                        .context("sending finish")?;
                 }
             }
             ResponderMessage::Value(Value { key, value }) => {
@@ -569,7 +574,8 @@ where
                         once(Ok(ResponderMessage::RangeResponse(vec![range]))).boxed(),
                     ))
                     .await
-                    .map_err(|err| anyhow!("{err}"))?;
+                    .map_err(|err| anyhow!("{err}"))
+                    .context("sending range response synchronized")?;
             }
             SyncState::RemoteMissing { ranges } => {
                 to_writer
@@ -583,7 +589,8 @@ where
                             .boxed(),
                     ))
                     .await
-                    .map_err(|err| anyhow!("{err}"))?;
+                    .map_err(|err| anyhow!("{err}"))
+                    .context("sending missing values and range response")?;
             }
             SyncState::Unsynchronized { ranges: splits } => {
                 to_writer
@@ -591,7 +598,8 @@ where
                         once(Ok(ResponderMessage::RangeResponse(splits))).boxed(),
                     ))
                     .await
-                    .map_err(|err| anyhow!("{err}"))?;
+                    .map_err(|err| anyhow!("{err}"))
+                    .context("sending range response splits")?;
             }
         }
         Ok(())
@@ -627,7 +635,8 @@ where
                         once(Ok(ResponderMessage::InterestResponse(ranges))).boxed(),
                     ))
                     .await
-                    .map_err(|err| anyhow!("{err}"))?;
+                    .map_err(|err| anyhow!("{err}"))
+                    .context("sending interest response")?;
                 Ok(RemoteStatus::Active)
             }
             InitiatorMessage::RangeRequest(range) => {
