@@ -191,7 +191,7 @@ where
         metrics.clone(),
     );
 
-    let read = read(sync_id.clone(), stream, role, to_writer_tx, metrics.clone());
+    let read = read(sync_id, stream, role, to_writer_tx, metrics.clone());
 
     // In a recon conversation there are 4 futures being polled:
     //
@@ -682,9 +682,8 @@ where
                     .range(range.first, range.last, 0, usize::MAX)
                     .await?;
                 for key in keys {
-                    if let Some(value) = recon.value_for_key(key.clone()).await? {
-                        yield Value { key, value };
-                    }
+                    let value = recon.value_for_key(key.clone()).await?.ok_or_else(|| anyhow!("recon key does not have a value: key={}", key))?;
+                    yield Value { key, value };
                 }
             }
         }
