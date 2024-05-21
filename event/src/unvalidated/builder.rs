@@ -61,6 +61,7 @@ pub struct InitBuilderWithSep<D> {
     unique: Option<Vec<u8>>,
     data: Option<D>,
     should_index: Option<bool>,
+    context: Option<Vec<u8>>,
 }
 impl<D> InitBuilderState for InitBuilderWithSep<D> {}
 impl InitBuilder<InitBuilderWithController> {
@@ -73,6 +74,7 @@ impl InitBuilder<InitBuilderWithController> {
                 unique: None,
                 data: None,
                 should_index: None,
+                context: None,
             },
         }
     }
@@ -82,6 +84,12 @@ impl<D> InitBuilder<InitBuilderWithSep<D>> {
     /// Specify the unique bytes.
     pub fn with_unique(mut self, unique: Vec<u8>) -> Self {
         self.state.unique = Some(unique);
+        self
+    }
+
+    /// Specify the context.
+    pub fn with_context(mut self, context: Vec<u8>) -> Self {
+        self.state.context = Some(context);
         self
     }
 
@@ -104,6 +112,7 @@ impl<D> InitBuilder<InitBuilderWithSep<D>> {
             self.state.sep.value,
             self.state.should_index,
             self.state.unique,
+            self.state.context,
         );
         unvalidated::init::Payload::new(header, self.state.data)
     }
