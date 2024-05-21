@@ -349,5 +349,4 @@ mod test {
         });
         assert_ne!(&interest.path, "/ceramic/interests/{sep_key}/{sep_value}");
     }
-
 }

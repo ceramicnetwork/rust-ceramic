@@ -501,20 +501,12 @@ impl Daemon {
             interest_api_store,
             Arc::new(model_api_store),
         );
-        let ceramic_metrics = MetricsHandle::register(ceramic_api::Metrics::register);
-        // Wrap server in metrics middleware
-        let ceramic_server = ceramic_api::MetricsMiddleware::new(ceramic_server, ceramic_metrics);
         let ceramic_service = ceramic_api_server::server::MakeService::new(ceramic_server);
         let ceramic_service = MakeAllowAllAuthenticator::new(ceramic_service, "");
         let ceramic_service =
             ceramic_api_server::context::MakeAddContext::<_, EmptyContext>::new(ceramic_service);
 
         let kubo_rpc_server = ceramic_kubo_rpc::http::Server::new(ipfs.api());
-        let kubo_rpc_metrics =
-            ceramic_metrics::MetricsHandle::register(ceramic_kubo_rpc::http::Metrics::register);
-        // Wrap server in metrics middleware
-        let kubo_rpc_server =
-            ceramic_kubo_rpc::http::MetricsMiddleware::new(kubo_rpc_server, kubo_rpc_metrics);
         let kubo_rpc_service = ceramic_kubo_rpc_server::server::MakeService::new(kubo_rpc_server);
         let kubo_rpc_service = MakeAllowAllAuthenticator::new(kubo_rpc_service, "");
         let kubo_rpc_service =
