@@ -102,8 +102,9 @@ impl<C> Server<C> {
 use ceramic_api_server::server::MakeService;
 use ceramic_api_server::{
     Api, DebugHeapGetResponse, EventsEventIdGetResponse, EventsPostResponse,
-    ExperimentalEventsSepSepValueGetResponse, FeedEventsGetResponse, InterestsPostResponse,
-    InterestsSortKeySortValuePostResponse, LivenessGetResponse, VersionPostResponse,
+    ExperimentalEventsSepSepValueGetResponse, ExperimentalInterestsGetResponse,
+    FeedEventsGetResponse, InterestsPostResponse, InterestsSortKeySortValuePostResponse,
+    LivenessGetResponse, VersionPostResponse,
 };
 use std::error::Error;
 use swagger::ApiError;
@@ -162,6 +163,18 @@ where
         context: &C,
     ) -> Result<ExperimentalEventsSepSepValueGetResponse, ApiError> {
         info!("experimental_events_sep_sep_value_get(\"{}\", \"{}\", {:?}, {:?}, {:?}, {:?}) - X-Span-ID: {:?}", sep, sep_value, controller, stream_id, offset, limit, context.get().0.clone());
+        Err(ApiError("Generic failure".into()))
+    }
+
+    /// Get the interests stored on the node
+    async fn experimental_interests_get(
+        &self,
+        context: &C,
+    ) -> Result<ExperimentalInterestsGetResponse, ApiError> {
+        info!(
+            "experimental_interests_get() - X-Span-ID: {:?}",
+            context.get().0.clone()
+        );
         Err(ApiError("Generic failure".into()))
     }
 

@@ -4,8 +4,8 @@
 use ceramic_api_server::{
     models, Api, ApiNoContext, Client, ContextWrapperExt, DebugHeapGetResponse,
     EventsEventIdGetResponse, EventsPostResponse, ExperimentalEventsSepSepValueGetResponse,
-    FeedEventsGetResponse, InterestsPostResponse, InterestsSortKeySortValuePostResponse,
-    LivenessGetResponse, VersionPostResponse,
+    ExperimentalInterestsGetResponse, FeedEventsGetResponse, InterestsPostResponse,
+    InterestsSortKeySortValuePostResponse, LivenessGetResponse, VersionPostResponse,
 };
 use clap::{App, Arg};
 #[allow(unused_imports)]
@@ -38,6 +38,7 @@ fn main() {
                     "DebugHeapGet",
                     "EventsEventIdGet",
                     "ExperimentalEventsSepSepValueGet",
+                    "ExperimentalInterestsGet",
                     "FeedEventsGet",
                     "InterestsSortKeySortValuePost",
                     "LivenessGet",
@@ -130,6 +131,14 @@ fn main() {
                 Some(56),
                 Some(56),
             ));
+            info!(
+                "{:?} (X-Span-ID: {:?})",
+                result,
+                (client.context() as &dyn Has<XSpanIdString>).get().clone()
+            );
+        }
+        Some("ExperimentalInterestsGet") => {
+            let result = rt.block_on(client.experimental_interests_get());
             info!(
                 "{:?} (X-Span-ID: {:?})",
                 result,

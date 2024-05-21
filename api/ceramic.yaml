@@ -184,6 +184,28 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /experimental/interests:
+    get:
+      summary: Get the interests stored on the node
+      responses:
+        "200":
+          description: success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InterestsGet"
+        "400":
+          description: bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BadRequestResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   "/experimental/events/{sep}/{sepValue}":
     get:
       summary: Get events matching the interest stored on the node
@@ -382,6 +404,24 @@ components:
         isComplete:
           type: boolean
           description: A boolean specifying if there are more events to be fetched. Repeat with the resumeOffset to get next set.
+    InterestsGet:
+      title: Information about multiple interests.
+      description: Ceramic interest keys
+      type: object
+      required:
+        - interests
+      properties:
+        interests:
+          type: array
+          items:
+            type: object
+            required:
+              - data
+            properties:
+              data:
+                type: string
+                description: The multbase encoded bytes of the interest.
+          description: An array of interests
     ErrorResponse:
       title: Error response
       description: Error response
