@@ -5,6 +5,7 @@ mod cbor_value;
 mod ethereum_rpc;
 mod events;
 mod http;
+mod http_metrics;
 mod metrics;
 mod network;
 
@@ -428,9 +429,12 @@ impl Daemon {
         let keypair = load_identity(&mut kc).await?;
         let peer_id = keypair.public().to_peer_id();
 
-        // Create recon metrics
+        // Register metrics for all components
         let recon_metrics = MetricsHandle::register(recon::Metrics::register);
         let store_metrics = MetricsHandle::register(ceramic_store::Metrics::register);
+        let http_metrics = Arc::new(ceramic_metrics::MetricsHandle::register(
+            http_metrics::Metrics::register,
+        ));
 
         // Create recon store for interests.
         let interest_store = ceramic_store::StoreMetricsMiddleware::new(
@@ -517,6 +521,9 @@ impl Daemon {
             ceramic_kubo_rpc_server::context::MakeAddContext::<_, EmptyContext>::new(
                 kubo_rpc_service,
             );
+        let kubo_rpc_service =
+            http::MakeMetricsService::new(kubo_rpc_service, http_metrics.clone());
+        let ceramic_service = http::MakeMetricsService::new(ceramic_service, http_metrics);
 
         // Compose both services
         let service = http::MakePrefixService::new(

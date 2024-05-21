@@ -1,10 +1,15 @@
 use std::{
     error::Error,
+    sync::Arc,
     task::{Context, Poll},
+    time::Instant,
 };
 
+use ceramic_metrics::Recorder;
 use futures::{future::BoxFuture, Future};
 use hyper::{service::Service, Body, Request, Response, StatusCode};
+
+use crate::http_metrics::{Event, Metrics};
 
 type ServiceError = Box<dyn Error + Send + Sync + 'static>;
 type ServiceFuture = BoxFuture<'static, Result<Response<Body>, ServiceError>>;
@@ -124,5 +129,96 @@ where
                     .map_err(|err| err.into())
             })
         }
+    }
+}
+
+pub struct MetricsService<T> {
+    inner: T,
+    metrics: Arc<Metrics>,
+}
+
+impl<T> MetricsService<T> {
+    pub fn new(inner: T, metrics: Arc<Metrics>) -> Self {
+        MetricsService { inner, metrics }
+    }
+}
+
+impl<T> Service<Request<Body>> for MetricsService<T>
+where
+    T: Service<Request<Body>, Error = ServiceError, Future = ServiceFuture> + Send + Sync + 'static,
+{
+    type Response = Response<Body>;
+    type Error = ServiceError;
+    type Future = ServiceFuture;
+
+    fn poll_ready(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(cx)
+    }
+
+    fn call(&mut self, req: Request<Body>) -> Self::Future {
+        let start_time = Instant::now();
+        let method = req.method().clone();
+        let path = req.uri().path().to_string();
+
+        let fut = self.inner.call(req);
+
+        let metrics = self.metrics.clone();
+        Box::pin(async move {
+            let response = fut.await;
+            let elapsed = start_time.elapsed();
+            let status = response
+                .as_ref()
+                .map(|res| res.status())
+                .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+
+            metrics.record(&Event {
+                method: method.to_string(),
+                path,
+                duration: elapsed,
+                status_code: status.as_u16(),
+            });
+
+            response
+        })
+    }
+}
+
+pub struct MakeMetricsService<T> {
+    inner: T,
+    metrics: Arc<Metrics>,
+}
+
+impl<T> MakeMetricsService<T> {
+    pub fn new(inner: T, metrics: Arc<Metrics>) -> Self {
+        Self { inner, metrics }
+    }
+}
+
+impl<A, Target, AResponse, AError, AMakeError, AFuture> Service<Target> for MakeMetricsService<A>
+where
+    A: for<'a> Service<&'a Target, Response = AResponse, Error = AMakeError, Future = AFuture>,
+    AResponse: Service<Request<Body>, Response = Response<Body>> + Send,
+    AMakeError: Into<Box<dyn std::error::Error + Send + Sync>>,
+    AError: Into<Box<dyn std::error::Error + Send + Sync>>,
+    AFuture: Future<Output = Result<AResponse, AError>> + Send + 'static,
+{
+    type Response = MetricsService<AResponse>;
+    type Error = ServiceError;
+    type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(cx).map_err(|err| err.into())
+    }
+
+    fn call(&mut self, target: Target) -> Self::Future {
+        let target = self.inner.call(&target);
+        let metrics = self.metrics.clone();
+        Box::pin(async move {
+            let inner = target.await.map_err(|err| err.into())?;
+            Ok(MetricsService::new(inner, metrics))
+        })
     }
 }

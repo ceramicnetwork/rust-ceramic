@@ -44,6 +44,15 @@ pub trait Recorder<Event> {
     fn record(&self, event: &Event);
 }
 
+impl<S, Event> Recorder<Event> for std::sync::Arc<S>
+where
+    S: Recorder<Event>,
+{
+    fn record(&self, event: &Event) {
+        self.as_ref().record(event);
+    }
+}
+
 #[derive(Debug)]
 pub struct MetricsHandle {
     metrics_task: Option<JoinHandle<()>>,
