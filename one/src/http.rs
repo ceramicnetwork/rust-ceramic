@@ -174,12 +174,12 @@ where
                 .map(|res| res.status())
                 .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
 
-            metrics.record(&Event {
+            metrics.record(&reduce_prom_cardinality(Event {
                 method: method.to_string(),
                 path,
                 duration: elapsed,
                 status_code: status.as_u16(),
-            });
+            }));
 
             response
         })
@@ -221,4 +221,133 @@ where
             Ok(MetricsService::new(inner, metrics))
         })
     }
+}
+
+/// Replace certain variable paths with a more general path to reduce prometheus cardinality
+/// Without this, we could end up with 1000s (or millions) of unique paths in prometheus
+fn reduce_prom_cardinality(mut event: Event) -> Event {
+    // split('/') returns the number of '/' + 1
+    match event.method.as_str() {
+        "GET" => {
+            if event
+                .path
+                .strip_prefix("/ceramic/experimental/events/")
+                .is_some()
+                && event.path.split('/').count() == 5
+            {
+                event.path = "/ceramic/experimental/events/{event_id}".to_string();
+            } else if event.path.strip_prefix("/ceramic/events/").is_some()
+                && event.path.split('/').count() == 4
+            {
+                event.path = "/ceramic/events/{event_id}".to_string();
+            }
+        }
+        "POST" => {
+            // It might be worth leaving this in prom since we shouldn't have _that_ many interests
+            // and it's useful for debugging, but we could just log an info message or something.
+            if event.path.strip_prefix("/ceramic/interests/").is_some()
+                && event.path.split('/').count() == 5
+            {
+                event.path = "/ceramic/interests/{sep_key}/{sep_value}".to_string();
+            }
+        }
+        _ => {}
+    }
+    event
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn expected_prom_cardinality_replacement() {
+        let experimental = reduce_prom_cardinality(Event {
+            method: "GET".to_string(),
+            path: "/ceramic/experimental/events/1234".to_string(),
+            status_code: 200,
+            duration: std::time::Duration::from_secs(1),
+        });
+        assert_eq!(
+            &experimental.path,
+            "/ceramic/experimental/events/{event_id}"
+        );
+
+        let get_event = reduce_prom_cardinality(Event {
+            method: "GET".to_string(),
+            path: "/ceramic/events/1234".to_string(),
+            status_code: 200,
+            duration: std::time::Duration::from_secs(1),
+        });
+        assert_eq!(&get_event.path, "/ceramic/events/{event_id}");
+
+        let interest = reduce_prom_cardinality(Event {
+            method: "POST".to_string(),
+            path: "/ceramic/interests/model/1234".to_string(),
+            status_code: 200,
+            duration: std::time::Duration::from_secs(1),
+        });
+        assert_eq!(&interest.path, "/ceramic/interests/{sep_key}/{sep_value}");
+    }
+
+    #[test]
+    fn should_not_replace_wrong_method() {
+        let experimental = reduce_prom_cardinality(Event {
+            method: "POST".to_string(),
+            path: "/ceramic/experimental/events/1234".to_string(),
+            status_code: 200,
+            duration: std::time::Duration::from_secs(1),
+        });
+        assert_ne!(
+            &experimental.path,
+            "/ceramic/experimental/events/{event_id}"
+        );
+
+        let get_event = reduce_prom_cardinality(Event {
+            method: "POST".to_string(),
+            path: "/ceramic/events/1234".to_string(),
+            status_code: 200,
+            duration: std::time::Duration::from_secs(1),
+        });
+        assert_ne!(&get_event.path, "/ceramic/events/{event_id}");
+
+        let interest = reduce_prom_cardinality(Event {
+            method: "GET".to_string(),
+            path: "/ceramic/interests/model/1234".to_string(),
+            status_code: 200,
+            duration: std::time::Duration::from_secs(1),
+        });
+        assert_ne!(&interest.path, "/ceramic/interests/{sep_key}/{sep_value}");
+    }
+
+    #[test]
+    fn should_not_replace_extra_parts() {
+        let experimental = reduce_prom_cardinality(Event {
+            method: "GET".to_string(),
+            path: "/ceramic/experimental/events/1234/hello".to_string(),
+            status_code: 200,
+            duration: std::time::Duration::from_secs(1),
+        });
+        assert_ne!(
+            &experimental.path,
+            "/ceramic/experimental/events/{event_id}"
+        );
+
+        let get_event = reduce_prom_cardinality(Event {
+            method: "GET".to_string(),
+            path: "/ceramic/events/1234/resources".to_string(),
+            status_code: 200,
+            duration: std::time::Duration::from_secs(1),
+        });
+        assert_ne!(&get_event.path, "/ceramic/events/{event_id}");
+
+        let interest = reduce_prom_cardinality(Event {
+            method: "POST".to_string(),
+            path: "/ceramic/interests/model/1234/strip".to_string(),
+            status_code: 200,
+            duration: std::time::Duration::from_secs(1),
+        });
+        assert_ne!(&interest.path, "/ceramic/interests/{sep_key}/{sep_value}");
+    }
+
 }
