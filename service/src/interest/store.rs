@@ -84,7 +84,7 @@ impl recon::Store for CeramicInterestService {
 }
 
 #[async_trait::async_trait]
-impl ceramic_api::AccessInterestStore for CeramicInterestService {
+impl ceramic_api::InterestStore for CeramicInterestService {
     async fn insert(&self, key: Interest) -> anyhow::Result<bool> {
         Ok(CeramicOneInterest::insert(&self.pool, &key).await?)
     }

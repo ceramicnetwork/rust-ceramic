@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use anyhow::Error;
 use bytes::Bytes;
-use ceramic_api::AccessModelStore;
+use ceramic_api::EventStore;
 use cid::{Cid, CidGeneric};
 use expect_test::expect;
 use iroh_bitswap::Store;
@@ -231,7 +231,7 @@ where
 // stores 3 keys with 3,5,10 block long CAR files
 // each one takes n+1 blocks as it needs to store the root and all blocks so we expect 3+5+10+3=21 blocks
 // but we use a delivered integer per event, so we expect it to increment by 1 for each event
-async fn prep_highwater_tests(store: &dyn AccessModelStore) -> (Cid, Cid, Cid) {
+async fn prep_highwater_tests(store: &dyn EventStore) -> (Cid, Cid, Cid) {
     let mut keys = Vec::with_capacity(3);
     for _ in 0..3 {
         let TestEventInfo {
@@ -261,7 +261,7 @@ test_with_dbs!(
 );
 async fn events_since_highwater_mark_all_global_counter<S>(store: S)
 where
-    S: AccessModelStore,
+    S: EventStore,
 {
     let (key_a, key_b, key_c) = prep_highwater_tests(&store).await;
 
@@ -283,7 +283,7 @@ test_with_dbs!(
 );
 async fn events_since_highwater_mark_limit_1<S>(store: S)
 where
-    S: AccessModelStore,
+    S: EventStore,
 {
     let (key_a, _key_b, _key_c) = prep_highwater_tests(&store).await;
     let (hw_og, res) = store.events_since_highwater_mark(0, 1).await.unwrap();
@@ -305,7 +305,7 @@ test_with_dbs!(
 );
 async fn events_since_highwater_mark_middle_start<S>(store: S)
 where
-    S: AccessModelStore,
+    S: EventStore,
 {
     let (key_a, key_b, key_c) = prep_highwater_tests(&store).await;
 
@@ -337,7 +337,7 @@ test_with_dbs!(
 
 async fn get_event_by_event_id<S>(store: S)
 where
-    S: AccessModelStore,
+    S: EventStore,
 {
     let TestEventInfo {
         event_id: key,
@@ -365,7 +365,7 @@ test_with_dbs!(
 
 async fn get_event_by_cid<S>(store: S)
 where
-    S: AccessModelStore,
+    S: EventStore,
 {
     let TestEventInfo {
         event_id: key,
