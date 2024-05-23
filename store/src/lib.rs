@@ -4,6 +4,7 @@
 
 mod error;
 mod metrics;
+mod red_tree;
 mod sql;
 
 pub use error::Error;
