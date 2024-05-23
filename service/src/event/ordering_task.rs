@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use anyhow::anyhow;
 use ceramic_store::{CeramicOneEvent, SqlitePool};
@@ -110,7 +110,11 @@ impl OrderingTask {
             tokio::select! {
                 incoming = rx.recv_many(&mut need_prev_buf, 100) => {
                     if incoming > 0 {
-                        state.add_incoming_batch(need_prev_buf);
+                        let modified = state.add_incoming_batch(need_prev_buf);
+                        // Now we check if any of the streams that had new events are now deliverable so we aren't stuck waiting for a new stream commit
+                        if state.process_events(&pool, Some(modified)).await.map_err(Self::log_error).is_err() {
+                            return;
+                        }
                     }
                 }
                 new = rx_new.recv_many(&mut newly_added_buf, 100) => {
@@ -147,7 +151,7 @@ impl OrderingTask {
                 else => {
                     info!("Server dropped the ordering task. Processing once more before exiting...");
                     let _ = state
-                        .process_events(&pool)
+                        .process_events(&pool, None)
                         .await
                         .map_err(Self::log_error);
                     return;
@@ -206,9 +210,13 @@ impl StreamEvents {
         Self::default()
     }
 
-    /// returns true if we didn't know about this event previously
-    pub fn add_event(&mut self, event: DeliverableEvent) -> bool {
-        let res = self.prev_map.insert(event.meta.prev, event.cid).is_some();
+    /// returns Some(Stream init CID) if we didn't know about this event previously
+    pub fn add_event(&mut self, event: DeliverableEvent) -> Option<InitCid> {
+        let res = if self.prev_map.insert(event.meta.prev, event.cid).is_none() {
+            Some(event.meta.init_cid)
+        } else {
+            None
+        };
         self.cid_map.insert(event.cid, event);
         res
     }
@@ -248,9 +256,20 @@ impl OrderingState {
     /// This will process update any events that can be delivered and then review all the in memory events to see
     /// if any of them are now deliverable. This could take a long time and not really find new work. Intended to be used
     /// when the system is starting up, not during normal operation, when a channel should be relied on to target the updates.
-    pub(crate) async fn process_events(&mut self, pool: &SqlitePool) -> Result<()> {
+    /// If `streams_to_process` is None, all streams will be processed, otherwise only the streams in the set will be processed.
+    pub(crate) async fn process_events(
+        &mut self,
+        pool: &SqlitePool,
+        streams_to_process: Option<HashSet<InitCid>>,
+    ) -> Result<()> {
         self.persist_ready_events(pool).await?;
-        for stream_events in self.pending_by_stream.values_mut() {
+        for (cid, stream_events) in self.pending_by_stream.iter_mut() {
+            if streams_to_process
+                .as_ref()
+                .map_or(false, |to_do| !to_do.contains(cid))
+            {
+                continue;
+            }
             let deliverable = Self::discover_deliverable_events(pool, stream_events).await?;
             if !deliverable.is_empty() {
                 self.ready_events.extend(deliverable)
@@ -360,7 +379,7 @@ impl OrderingState {
             } else {
                 // process the pending events to clear out the queue
                 // we have a batch of events in our pending queue by stream ID. We can pick one and process it.
-                self.process_events(pool).await?;
+                self.process_events(pool, None).await?;
                 if new < DELIVERABLE_EVENTS_BATCH_SIZE {
                     break;
                 }
@@ -402,7 +421,7 @@ impl OrderingState {
                 CeramicEventService::parse_event_carfile(event_cid, &data).await?;
             if let Some(prev) = maybe_prev {
                 let event = DeliverableEvent::new(insertable_body.cid, prev, None);
-                if self.track_pending(event) {
+                if self.track_pending(event).is_some() {
                     new += 1;
                 }
             } else {
@@ -416,14 +435,18 @@ impl OrderingState {
         Ok((new, found))
     }
 
-    fn add_incoming_batch(&mut self, events: Vec<DeliverableEvent>) {
+    fn add_incoming_batch(&mut self, events: Vec<DeliverableEvent>) -> HashSet<InitCid> {
+        let mut updated_streams = HashSet::with_capacity(events.len());
         for event in events {
-            self.track_pending(event);
+            if let Some(updated_stream) = self.track_pending(event) {
+                updated_streams.insert(updated_stream);
+            }
         }
+        updated_streams
     }
 
     /// returns true if this is a new event
-    fn track_pending(&mut self, event: DeliverableEvent) -> bool {
+    fn track_pending(&mut self, event: DeliverableEvent) -> Option<InitCid> {
         self.pending_by_stream
             .entry(event.meta.init_cid)
             .or_default()
