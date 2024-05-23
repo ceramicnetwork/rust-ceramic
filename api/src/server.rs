@@ -744,14 +744,14 @@ where
     async fn interests_sort_key_sort_value_post(
         &self,
         sep_key: String,
-        seplue: String,
+        sep_value: String,
         controller: Option<String>,
         stream_id: Option<String>,
         _context: &C,
     ) -> Result<InterestsSortKeySortValuePostResponse, ApiError> {
         let interest = models::Interest {
             sep: sep_key,
-            sep_value: seplue,
+            sep_value,
             controller,
             stream_id,
         };
