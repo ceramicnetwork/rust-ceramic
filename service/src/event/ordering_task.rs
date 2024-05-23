@@ -104,48 +104,19 @@ impl OrderingTask {
         }
 
         loop {
+            let mut modified: Option<HashSet<InitCid>> = None;
             let mut need_prev_buf = Vec::with_capacity(100);
             let mut newly_added_buf = Vec::with_capacity(100);
 
             tokio::select! {
                 incoming = rx.recv_many(&mut need_prev_buf, 100) => {
                     if incoming > 0 {
-                        let modified = state.add_incoming_batch(need_prev_buf);
-                        // Now we check if any of the streams that had new events are now deliverable so we aren't stuck waiting for a new stream commit
-                        if state.process_events(&pool, Some(modified)).await.map_err(Self::log_error).is_err() {
-                            return;
-                        }
+                        modified = Some(state.add_incoming_batch(need_prev_buf));
                     }
                 }
                 new = rx_new.recv_many(&mut newly_added_buf, 100) => {
                     if new > 0 {
-                        let mut newly_ready: HashMap<cid::CidGeneric<64>, VecDeque<_>> = HashMap::with_capacity(new); // worst case
-                        for item in newly_added_buf {
-                            if let Some(waiting) = state.pending_by_stream.get_mut(&item.init_cid) {
-                                if let Some(good_to_go) = waiting.remove_by_prev_cid(&item.cid) {
-                                    newly_ready.entry(item.init_cid).or_default().push_back(good_to_go);
-                                    tracing::trace!(%good_to_go, "Found event unblocked by incoming delivered list.");
-                                }
-                            }
-                        }
-                        if !newly_ready.is_empty() {
-                            for (updated_stream, mut unblocked) in newly_ready {
-                                if let Some(waiting) = state.pending_by_stream.get_mut(&updated_stream) {
-                                    while let Some(cid) = unblocked.pop_front() {
-                                        // we're we unblocked by the message on the channel and need to be updated
-                                        state.ready_events.push_back(cid);
-                                        // now find anyone we just unblocked
-                                        if let Some(now_ready_ev) = waiting.remove_by_prev_cid(&cid) {
-                                            state.ready_events.push_back(now_ready_ev);
-                                            unblocked.push_back(now_ready_ev);
-                                        }
-                                    }
-                                }
-                            }
-                            if state.persist_ready_events(&pool).await.map_err(Self::log_error).is_err() {
-                                return;
-                            }
-                        }
+                        modified = Some(newly_added_buf.into_iter().map(|ev| ev.init_cid).collect::<HashSet<InitCid>>());
                     }
                 }
                 else => {
@@ -157,6 +128,17 @@ impl OrderingTask {
                     return;
                 }
             };
+
+            // Process events for streams we know have changed
+            if modified.is_some()
+                && state
+                    .process_events(&pool, modified)
+                    .await
+                    .map_err(Self::log_error)
+                    .is_err()
+            {
+                return;
+            }
         }
     }
 
