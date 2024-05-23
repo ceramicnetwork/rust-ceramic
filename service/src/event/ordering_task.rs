@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use anyhow::anyhow;
 use ceramic_store::{CeramicOneEvent, SqlitePool};
@@ -14,6 +14,9 @@ const DELIVERABLE_EVENTS_BATCH_SIZE: usize = 1000;
 /// How many batches of undelivered events are we willing to process on start up?
 /// To avoid an infinite loop. It's going to take a long time to process `DELIVERABLE_EVENTS_BATCH_SIZE * MAX_ITERATIONS` events
 const MAX_ITERATIONS: usize = 100_000_000;
+
+/// How often should we try to process all undelivered events in case we missed something
+const CHECK_ALL_INTERVAL_SECONDS: u64 = 60 * 10; // 10 minutes
 
 type InitCid = cid::Cid;
 type PrevCid = cid::Cid;
@@ -103,56 +106,53 @@ impl OrderingTask {
             return;
         }
 
+        let mut last_processed = std::time::Instant::now();
         loop {
+            let mut modified: Option<HashSet<InitCid>> = None;
             let mut need_prev_buf = Vec::with_capacity(100);
             let mut newly_added_buf = Vec::with_capacity(100);
 
             tokio::select! {
                 incoming = rx.recv_many(&mut need_prev_buf, 100) => {
                     if incoming > 0 {
-                        state.add_incoming_batch(need_prev_buf);
+                        modified = Some(state.add_incoming_batch(need_prev_buf));
                     }
                 }
                 new = rx_new.recv_many(&mut newly_added_buf, 100) => {
                     if new > 0 {
-                        let mut newly_ready: HashMap<cid::CidGeneric<64>, VecDeque<_>> = HashMap::with_capacity(new); // worst case
-                        for item in newly_added_buf {
-                            if let Some(waiting) = state.pending_by_stream.get_mut(&item.init_cid) {
-                                if let Some(good_to_go) = waiting.remove_by_prev_cid(&item.cid) {
-                                    newly_ready.entry(item.init_cid).or_default().push_back(good_to_go);
-                                    tracing::trace!(%good_to_go, "Found event unblocked by incoming delivered list.");
-                                }
-                            }
-                        }
-                        if !newly_ready.is_empty() {
-                            for (updated_stream, mut unblocked) in newly_ready {
-                                if let Some(waiting) = state.pending_by_stream.get_mut(&updated_stream) {
-                                    while let Some(cid) = unblocked.pop_front() {
-                                        // we're we unblocked by the message on the channel and need to be updated
-                                        state.ready_events.push_back(cid);
-                                        // now find anyone we just unblocked
-                                        if let Some(now_ready_ev) = waiting.remove_by_prev_cid(&cid) {
-                                            state.ready_events.push_back(now_ready_ev);
-                                            unblocked.push_back(now_ready_ev);
-                                        }
-                                    }
-                                }
-                            }
-                            if state.persist_ready_events(&pool).await.map_err(Self::log_error).is_err() {
-                                return;
-                            }
-                        }
+                        modified = Some(newly_added_buf.into_iter().map(|ev| ev.init_cid).collect::<HashSet<InitCid>>());
                     }
                 }
                 else => {
-                    info!("Server dropped the ordering task. Processing once more before exiting...");
+                    info!(stream_count=%state.pending_by_stream.len(), "Server dropped the ordering task. Processing once more before exiting...");
                     let _ = state
-                        .process_events(&pool)
+                        .process_events(&pool, None)
                         .await
                         .map_err(Self::log_error);
                     return;
                 }
             };
+            // Given the math on OrderingState and the generally low number of updates to streams, we are going
+            // to ignore pruning until there's  more of an indication that it's necessary. Just log some stats.
+            if last_processed.elapsed().as_secs() > CHECK_ALL_INTERVAL_SECONDS {
+                let stream_count = state.pending_by_stream.len();
+                if stream_count > 1000 {
+                    info!(%stream_count, "Over 1000 pending streams without recent updates.");
+                } else {
+                    debug!(%stream_count, "Fewer than 1000 streams pending without recent updates.");
+                }
+            }
+
+            if modified.is_some()
+                && state
+                    .process_events(&pool, modified)
+                    .await
+                    .map_err(Self::log_error)
+                    .is_err()
+            {
+                return;
+            }
+            last_processed = std::time::Instant::now();
         }
     }
 
@@ -176,9 +176,13 @@ impl OrderingTask {
 }
 
 #[derive(Debug)]
+/// Rough size estimate:
+///     pending_by_stream: 96 * stream_cnt + 540 * event_cnt
+///     ready_events: 96 * ready_event_cnt
+/// so for stream_cnt = 1000, event_cnt = 2, ready_event_cnt = 1000
+/// we get about 1 MB of memory used.
 pub struct OrderingState {
-    /// Map of undelivered events by init CID.
-    ///  { Init CID: { prevCid: eventData } }
+    /// Map of undelivered events by init CID (i.e. the stream CID).
     pending_by_stream: HashMap<InitCid, StreamEvents>,
     /// Queue of events that can be marked ready to deliver.
     /// Can be added as long as their prev is stored or in this list ahead of them.
@@ -186,6 +190,7 @@ pub struct OrderingState {
 }
 
 #[derive(Debug, Clone, Default)]
+/// ~540 bytes per event in this struct
 pub(crate) struct StreamEvents {
     prev_map: HashMap<PrevCid, EventCid>,
     cid_map: HashMap<EventCid, DeliverableEvent>,
@@ -206,9 +211,13 @@ impl StreamEvents {
         Self::default()
     }
 
-    /// returns true if we didn't know about this event previously
-    pub fn add_event(&mut self, event: DeliverableEvent) -> bool {
-        let res = self.prev_map.insert(event.meta.prev, event.cid).is_some();
+    /// returns Some(Stream Init CID) if this is a new event, else None.
+    pub fn add_event(&mut self, event: DeliverableEvent) -> Option<InitCid> {
+        let res = if self.prev_map.insert(event.meta.prev, event.cid).is_none() {
+            Some(event.meta.init_cid)
+        } else {
+            None
+        };
         self.cid_map.insert(event.cid, event);
         res
     }
@@ -245,12 +254,23 @@ impl OrderingState {
         }
     }
 
-    /// This will process update any events that can be delivered and then review all the in memory events to see
-    /// if any of them are now deliverable. This could take a long time and not really find new work. Intended to be used
-    /// when the system is starting up, not during normal operation, when a channel should be relied on to target the updates.
-    pub(crate) async fn process_events(&mut self, pool: &SqlitePool) -> Result<()> {
+    /// This will review all the events for any streams known to have undelivered events and see if any of them are now deliverable.
+    /// If `streams_to_process` is None, all streams will be processed, otherwise only the streams in the set will be processed.
+    /// Processing all streams could take a long time and not necessarily do anything productive (if we're missing a key event, we're still blocked).
+    /// However, passing a value for `streams_to_process` when we know something has changed is likely to have positive results and be much faster.
+    pub(crate) async fn process_events(
+        &mut self,
+        pool: &SqlitePool,
+        streams_to_process: Option<HashSet<InitCid>>,
+    ) -> Result<()> {
         self.persist_ready_events(pool).await?;
-        for stream_events in self.pending_by_stream.values_mut() {
+        for (cid, stream_events) in self.pending_by_stream.iter_mut() {
+            if streams_to_process
+                .as_ref()
+                .map_or(false, |to_do| !to_do.contains(cid))
+            {
+                continue;
+            }
             let deliverable = Self::discover_deliverable_events(pool, stream_events).await?;
             if !deliverable.is_empty() {
                 self.ready_events.extend(deliverable)
@@ -299,9 +319,7 @@ impl OrderingState {
                     stream_map.remove_by_event_cid(&ev_cid);
                 } else if exists {
                     trace!("Found undelivered prev in database. Building data to check for deliverable.");
-                    // if it's not in memory, we need to read it from the db and parse it for the prev value
-                    // to add it to our set. this is most likely when processing a batch of events that were undelivered
-
+                    // if it's not in memory, we need to read it from the db and parse it for the prev value to add it to our set
                     let data = CeramicOneEvent::value_by_cid(pool, &prev)
                         .await?
                         .ok_or_else(|| {
@@ -341,8 +359,8 @@ impl OrderingState {
         Ok(deliverable)
     }
 
-    /// Process all undelivered events in the database. This is a blocking operation that could take a long time
-    /// and is intended to be run at startup.
+    /// Process all undelivered events in the database. This is a blocking operation that could take a long time.
+    /// It is intended to be run at startup but could be used on an interval or after some errors to recover.
     pub(crate) async fn process_all_undelivered_events(
         &mut self,
         pool: &SqlitePool,
@@ -358,9 +376,11 @@ impl OrderingState {
             if new == 0 {
                 break;
             } else {
-                // process the pending events to clear out the queue
-                // we have a batch of events in our pending queue by stream ID. We can pick one and process it.
-                self.process_events(pool).await?;
+                // We can start processing and we'll follow the stream history if we have it. In that case, we either arrive
+                // at the beginning and mark them all delivered, or we find a gap and stop processing and leave them in memory.
+                // In this case, we won't discover them until we start running recon with a peer, so maybe we should drop them
+                // or otherwise mark them ignored somehow.
+                self.process_events(pool, None).await?;
                 if new < DELIVERABLE_EVENTS_BATCH_SIZE {
                     break;
                 }
@@ -402,12 +422,12 @@ impl OrderingState {
                 CeramicEventService::parse_event_carfile(event_cid, &data).await?;
             if let Some(prev) = maybe_prev {
                 let event = DeliverableEvent::new(insertable_body.cid, prev, None);
-                if self.track_pending(event) {
+                if self.track_pending(event).is_some() {
                     new += 1;
                 }
             } else {
                 // safe to ignore in tests, shows up because when we mark init events as undelivered even though they don't have a prev
-                info!(event_cid=%insertable_body.cid,"Found undelivered event with no prev while processing undelivered. Should not happen. Likely means events were dropped before.");
+                info!(event_cid=%insertable_body.cid, "Found undelivered event with no prev while processing undelivered. Should not happen. Likely means events were dropped before.");
                 self.ready_events.push_back(insertable_body.cid);
                 new += 1; // we treat this as new since it might unlock something else but it's not actually going in our queue is it's a bit odd
             }
@@ -416,32 +436,41 @@ impl OrderingState {
         Ok((new, found))
     }
 
-    fn add_incoming_batch(&mut self, events: Vec<DeliverableEvent>) {
+    fn add_incoming_batch(&mut self, events: Vec<DeliverableEvent>) -> HashSet<InitCid> {
+        let mut updated_streams = HashSet::with_capacity(events.len());
         for event in events {
-            self.track_pending(event);
+            if let Some(updated_stream) = self.track_pending(event) {
+                updated_streams.insert(updated_stream);
+            }
         }
+        updated_streams
     }
 
-    /// returns true if this is a new event
-    fn track_pending(&mut self, event: DeliverableEvent) -> bool {
+    /// returns the init event CID (stream CID) if this is a new event
+    fn track_pending(&mut self, event: DeliverableEvent) -> Option<InitCid> {
         self.pending_by_stream
             .entry(event.meta.init_cid)
             .or_default()
             .add_event(event)
     }
 
-    /// Process all the events that are ready to be marked as delivered
+    /// Modify all the events that are ready to be marked as delivered.
+
+    /// We should improve the error handling and likely add some batching if the number of ready events is very high.
+    /// We copy the events up front to avoid losing any events if the task is cancelled.
     async fn persist_ready_events(&mut self, pool: &SqlitePool) -> Result<()> {
         if !self.ready_events.is_empty() {
+            let mut to_process = self.ready_events.clone(); // to avoid cancel loss
             tracing::debug!(count=%self.ready_events.len(), "Marking events as ready to deliver");
             let mut tx = pool.begin_tx().await?;
 
             // We process the ready events as a FIFO queue so they are marked delivered before events
             // that were added after and depend on them.
-            while let Some(cid) = self.ready_events.pop_front() {
+            while let Some(cid) = to_process.pop_front() {
                 CeramicOneEvent::mark_ready_to_deliver(&mut tx, &cid).await?;
             }
             tx.commit().await?;
+            self.ready_events.clear(); // safe to clear since we are past any await points and hold exclusive access
         }
         Ok(())
     }
