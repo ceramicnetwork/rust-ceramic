@@ -181,8 +181,7 @@ impl OrderingTask {
 
 #[derive(Debug)]
 pub struct OrderingState {
-    /// Map of undelivered events by init CID.
-    ///  { Init CID: { prevCid: eventData } }
+    /// Map of undelivered events by init CID (i.e. the stream CID).
     pending_by_stream: HashMap<InitCid, StreamEvents>,
     /// Queue of events that can be marked ready to deliver.
     /// Can be added as long as their prev is stored or in this list ahead of them.
@@ -210,7 +209,7 @@ impl StreamEvents {
         Self::default()
     }
 
-    /// returns Some(Stream init CID) if we didn't know about this event previously
+    /// returns Some(Stream Init CID) if this is a new event, else None.
     pub fn add_event(&mut self, event: DeliverableEvent) -> Option<InitCid> {
         let res = if self.prev_map.insert(event.meta.prev, event.cid).is_none() {
             Some(event.meta.init_cid)
@@ -253,10 +252,10 @@ impl OrderingState {
         }
     }
 
-    /// This will process update any events that can be delivered and then review all the in memory events to see
-    /// if any of them are now deliverable. This could take a long time and not really find new work. Intended to be used
-    /// when the system is starting up, not during normal operation, when a channel should be relied on to target the updates.
+    /// This will review all the events for any streams known to have undelivered events and see if any of them are now deliverable.
     /// If `streams_to_process` is None, all streams will be processed, otherwise only the streams in the set will be processed.
+    /// Processing all streams could take a long time and not necessarily do anything productive (if we're missing a key event, we're still blocked).
+    /// However, passing a value for `streams_to_process` when we know something has changed is likely to have positive results and be much faster.
     pub(crate) async fn process_events(
         &mut self,
         pool: &SqlitePool,
@@ -318,9 +317,7 @@ impl OrderingState {
                     stream_map.remove_by_event_cid(&ev_cid);
                 } else if exists {
                     trace!("Found undelivered prev in database. Building data to check for deliverable.");
-                    // if it's not in memory, we need to read it from the db and parse it for the prev value
-                    // to add it to our set. this is most likely when processing a batch of events that were undelivered
-
+                    // if it's not in memory, we need to read it from the db and parse it for the prev value to add it to our set
                     let data = CeramicOneEvent::value_by_cid(pool, &prev)
                         .await?
                         .ok_or_else(|| {
@@ -360,8 +357,8 @@ impl OrderingState {
         Ok(deliverable)
     }
 
-    /// Process all undelivered events in the database. This is a blocking operation that could take a long time
-    /// and is intended to be run at startup.
+    /// Process all undelivered events in the database. This is a blocking operation that could take a long time.
+    /// It is intended to be run at startup but could be used on an interval or after some errors to recover.
     pub(crate) async fn process_all_undelivered_events(
         &mut self,
         pool: &SqlitePool,
@@ -377,8 +374,10 @@ impl OrderingState {
             if new == 0 {
                 break;
             } else {
-                // process the pending events to clear out the queue
-                // we have a batch of events in our pending queue by stream ID. We can pick one and process it.
+                // We can start processing and we'll follow the stream history if we have it. In that case, we either arrive
+                // at the beginning and mark them all delivered, or we find a gap and stop processing and leave them in memory.
+                // In this case, we won't discover them until we start running recon with a peer, so maybe we should drop them
+                // or otherwise mark them ignored somehow.
                 self.process_events(pool, None).await?;
                 if new < DELIVERABLE_EVENTS_BATCH_SIZE {
                     break;
@@ -426,7 +425,7 @@ impl OrderingState {
                 }
             } else {
                 // safe to ignore in tests, shows up because when we mark init events as undelivered even though they don't have a prev
-                info!(event_cid=%insertable_body.cid,"Found undelivered event with no prev while processing undelivered. Should not happen. Likely means events were dropped before.");
+                info!(event_cid=%insertable_body.cid, "Found undelivered event with no prev while processing undelivered. Should not happen. Likely means events were dropped before.");
                 self.ready_events.push_back(insertable_body.cid);
                 new += 1; // we treat this as new since it might unlock something else but it's not actually going in our queue is it's a bit odd
             }
@@ -445,7 +444,7 @@ impl OrderingState {
         updated_streams
     }
 
-    /// returns true if this is a new event
+    /// returns the init event CID (stream CID) if this is a new event
     fn track_pending(&mut self, event: DeliverableEvent) -> Option<InitCid> {
         self.pending_by_stream
             .entry(event.meta.init_cid)
@@ -453,7 +452,12 @@ impl OrderingState {
             .add_event(event)
     }
 
-    /// Process all the events that are ready to be marked as delivered
+    /// Modify all the events that are ready to be marked as delivered
+    /// While this should be cancel safe, as the borrowed self owns the data so we can't be dropped, we could
+    /// still dequeue events and fail to commit them. In this case, we need error handling to make sure to query
+    /// and process undelivered events. If the error is bad enough to kill the process, we will fix them at start up.
+    /// This could resolve itself if there are new events for the stream, but we'll otherwise need a trigger,
+    /// so simply checking on an interval would likely be fine to make sure we don't leave anything hidden.
     async fn persist_ready_events(&mut self, pool: &SqlitePool) -> Result<()> {
         if !self.ready_events.is_empty() {
             tracing::debug!(count=%self.ready_events.len(), "Marking events as ready to deliver");
