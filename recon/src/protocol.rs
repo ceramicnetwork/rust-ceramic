@@ -18,7 +18,7 @@ use ceramic_core::RangeOpen;
 use ceramic_metrics::Recorder;
 use futures::{pin_mut, stream::BoxStream, Sink, SinkExt, Stream, StreamExt, TryStreamExt};
 use serde::{Deserialize, Serialize};
-use tokio::{join, sync::mpsc, time::Instant};
+use tokio::{sync::mpsc, time::Instant};
 use tokio_stream::once;
 use tracing::{instrument, trace, Level};
 use uuid::Uuid;
@@ -202,8 +202,8 @@ where
     //
     //  The following sequence occurs to end the conversation:
     //
-    //  1. Initator Read determines there is no more work to do when it reads the final
-    //     [`ResponderMessage::RangeResponse`] from the Responder.
+    //  1. Initator Read determines there is no more work to do when there are no interests in
+    //     common, or it reads the final [`ResponderMessage::RangeResponse`] from the Responder.
     //  2. Initator Read sends [`ToWrite::Finish`] to the Initator Writer.
     //  3. Initiator Writer sends the [`InitiatorMessage::Finished`] to the Responder and
     //     completes.
@@ -216,9 +216,8 @@ where
     //  This is analogous to the FIN -> FIN ACK sequence in TCP which ensures that boths ends of
     //  the conversation agree it has completed. This prevents a class of bugs where the Initiator
     //  may try and start a new conversation before Responder is aware the previous one has completed.
-    let (write, read) = join!(write, read);
-    write?;
-    read?;
+    let _res = tokio::try_join!(write, read)
+        .map_err(|e: anyhow::Error| anyhow!("protocol error: {}", e))?;
 
     metrics.record(&ProtocolRun(start.elapsed()));
     Ok(())
@@ -497,17 +496,25 @@ where
     ) -> Result<RemoteStatus> {
         match message {
             ResponderMessage::InterestResponse(interests) => {
-                let mut ranges = Vec::with_capacity(interests.len());
-                for interest in interests {
-                    ranges.push(
-                        self.common
-                            .recon
-                            .initial_range(interest)
-                            .await
-                            .context("querying initial range")?,
-                    );
+                if interests.is_empty() {
+                    to_writer
+                        .send(ToWriter::Finish)
+                        .await
+                        .map_err(|err| anyhow!("{err}"))
+                        .context("sending finish")?;
+                } else {
+                    let mut ranges = Vec::with_capacity(interests.len());
+                    for interest in interests {
+                        ranges.push(
+                            self.common
+                                .recon
+                                .initial_range(interest)
+                                .await
+                                .context("querying initial range")?,
+                        );
+                    }
+                    self.send_ranges(ranges.into_iter(), to_writer).await?;
                 }
-                self.send_ranges(ranges.into_iter(), to_writer).await?;
             }
             ResponderMessage::RangeResponse(ranges) => {
                 self.pending_ranges -= 1;

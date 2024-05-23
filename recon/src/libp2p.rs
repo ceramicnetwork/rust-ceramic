@@ -191,6 +191,7 @@ where
                         status: info.status,
                     })))
                 } else {
+                    tracing::warn!(%peer_id, "peer not found in peers map when started syncronizing?");
                     None
                 }
             }
@@ -204,6 +205,7 @@ where
                         status: info.status,
                     })))
                 } else {
+                    tracing::warn!(%peer_id, "peer not found in peers map when stopped syncronizing?");
                     None
                 }
             }
@@ -220,6 +222,7 @@ where
                         status: info.status,
                     })))
                 } else {
+                    tracing::warn!(%peer_id, "peer not found in peers map when succeeded syncronizing?");
                     None
                 }
             }
@@ -237,6 +240,7 @@ where
                         status: info.status,
                     })))
                 } else {
+                    tracing::warn!(%peer_id, "peer not found in peers map when failed syncronizing?");
                     None
                 }
             }

@@ -490,7 +490,6 @@ impl Daemon {
             metrics::start(&opts.metrics_bind_address.parse()?);
 
         // Build HTTP server
-        let network = network.clone();
         let ceramic_server = ceramic_api::Server::new(
             peer_id,
             network,

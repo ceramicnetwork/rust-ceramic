@@ -2028,3 +2028,20 @@ async fn partial_interest() {
     "#]])
     .await;
 }
+
+#[test(tokio::test)]
+async fn no_interest() {
+    recon_test(expect![[r#"
+        cat: <(a, d)> [a, b, c]
+        dog: <(x, z)> [x, y]
+        -> interest_req((a, d))
+            cat: [a, b, c]
+        <- interest_resp()
+            dog: [x, y]
+        -> finished
+            cat: [a, b, c]
+        cat: [a, b, c]
+        dog: [x, y]
+    "#]])
+    .await;
+}
