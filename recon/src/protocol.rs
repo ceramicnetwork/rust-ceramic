@@ -202,8 +202,8 @@ where
     //
     //  The following sequence occurs to end the conversation:
     //
-    //  1. Initator Read determines there is no more work to do when it reads the final
-    //     [`ResponderMessage::RangeResponse`] from the Responder.
+    //  1. Initator Read determines there is no more work to do when there are no interests in
+    //     common, or it reads the final [`ResponderMessage::RangeResponse`] from the Responder.
     //  2. Initator Read sends [`ToWrite::Finish`] to the Initator Writer.
     //  3. Initiator Writer sends the [`InitiatorMessage::Finished`] to the Responder and
     //     completes.
@@ -502,7 +502,6 @@ where
                         .await
                         .map_err(|err| anyhow!("{err}"))
                         .context("sending finish")?;
-                    return Ok(RemoteStatus::Finished);
                 } else {
                     let mut ranges = Vec::with_capacity(interests.len());
                     for interest in interests {
