@@ -15,6 +15,9 @@ const DELIVERABLE_EVENTS_BATCH_SIZE: usize = 1000;
 /// To avoid an infinite loop. It's going to take a long time to process `DELIVERABLE_EVENTS_BATCH_SIZE * MAX_ITERATIONS` events
 const MAX_ITERATIONS: usize = 100_000_000;
 
+/// How often should we try to process all undelivered events in case we missed something
+const CHECK_ALL_INTERVAL_SECONDS: u64 = 60 * 10; // 10 minutes
+
 type InitCid = cid::Cid;
 type PrevCid = cid::Cid;
 type EventCid = cid::Cid;
@@ -103,6 +106,7 @@ impl OrderingTask {
             return;
         }
 
+        let mut last_processed = std::time::Instant::now();
         loop {
             let mut modified: Option<HashSet<InitCid>> = None;
             let mut need_prev_buf = Vec::with_capacity(100);
@@ -120,7 +124,7 @@ impl OrderingTask {
                     }
                 }
                 else => {
-                    info!("Server dropped the ordering task. Processing once more before exiting...");
+                    info!(stream_count=%state.pending_by_stream.len(), "Server dropped the ordering task. Processing once more before exiting...");
                     let _ = state
                         .process_events(&pool, None)
                         .await
@@ -128,8 +132,17 @@ impl OrderingTask {
                     return;
                 }
             };
+            // Given the math on OrderingState and the generally low number of updates to streams, we are going
+            // to ignore pruning until there's  more of an indication that it's necessary. Just log some stats.
+            if last_processed.elapsed().as_secs() > CHECK_ALL_INTERVAL_SECONDS {
+                let stream_count = state.pending_by_stream.len();
+                if stream_count > 1000 {
+                    info!(%stream_count, "Over 1000 pending streams without recent updates.");
+                } else {
+                    debug!(%stream_count, "Fewer than 1000 streams pending without recent updates.");
+                }
+            }
 
-            // Process events for streams we know have changed
             if modified.is_some()
                 && state
                     .process_events(&pool, modified)
@@ -139,6 +152,7 @@ impl OrderingTask {
             {
                 return;
             }
+            last_processed = std::time::Instant::now();
         }
     }
 
@@ -162,6 +176,11 @@ impl OrderingTask {
 }
 
 #[derive(Debug)]
+/// Rough size estimate:
+///     pending_by_stream: 96 * stream_cnt + 540 * event_cnt
+///     ready_events: 96 * ready_event_cnt
+/// so for stream_cnt = 1000, event_cnt = 2, ready_event_cnt = 1000
+/// we get about 1 MB of memory used.
 pub struct OrderingState {
     /// Map of undelivered events by init CID (i.e. the stream CID).
     pending_by_stream: HashMap<InitCid, StreamEvents>,
@@ -171,6 +190,7 @@ pub struct OrderingState {
 }
 
 #[derive(Debug, Clone, Default)]
+/// ~540 bytes per event in this struct
 pub(crate) struct StreamEvents {
     prev_map: HashMap<PrevCid, EventCid>,
     cid_map: HashMap<EventCid, DeliverableEvent>,
@@ -434,23 +454,23 @@ impl OrderingState {
             .add_event(event)
     }
 
-    /// Modify all the events that are ready to be marked as delivered
-    /// While this should be cancel safe, as the borrowed self owns the data so we can't be dropped, we could
-    /// still dequeue events and fail to commit them. In this case, we need error handling to make sure to query
-    /// and process undelivered events. If the error is bad enough to kill the process, we will fix them at start up.
-    /// This could resolve itself if there are new events for the stream, but we'll otherwise need a trigger,
-    /// so simply checking on an interval would likely be fine to make sure we don't leave anything hidden.
+    /// Modify all the events that are ready to be marked as delivered.
+
+    /// We should improve the error handling and likely add some batching if the number of ready events is very high.
+    /// We copy the events up front to avoid losing any events if the task is cancelled.
     async fn persist_ready_events(&mut self, pool: &SqlitePool) -> Result<()> {
         if !self.ready_events.is_empty() {
+            let mut to_process = self.ready_events.clone(); // to avoid cancel loss
             tracing::debug!(count=%self.ready_events.len(), "Marking events as ready to deliver");
             let mut tx = pool.begin_tx().await?;
 
             // We process the ready events as a FIFO queue so they are marked delivered before events
             // that were added after and depend on them.
-            while let Some(cid) = self.ready_events.pop_front() {
+            while let Some(cid) = to_process.pop_front() {
                 CeramicOneEvent::mark_ready_to_deliver(&mut tx, &cid).await?;
             }
             tx.commit().await?;
+            self.ready_events.clear(); // safe to clear since we are past any await points and hold exclusive access
         }
         Ok(())
     }
