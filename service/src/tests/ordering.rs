@@ -66,7 +66,7 @@ async fn test_missing_prev_error_history_required() {
                     // yes fragile, but we want to make sure it's not a parsing error or something unexpected
                     assert!(error
                         .to_string()
-                        .contains("Missing required `prev` event CIDs"));
+                        .contains("Failed to discover history for all events"));
                 }
                 e => {
                     panic!("unexpected error: {:?}", e);
