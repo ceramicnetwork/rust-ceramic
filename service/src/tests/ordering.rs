@@ -1,5 +1,9 @@
+use std::collections::HashSet;
+
 use ceramic_api::AccessModelStore;
 use ceramic_core::EventId;
+use rand::seq::SliceRandom;
+use rand::thread_rng;
 use recon::ReconItem;
 
 use crate::{
@@ -18,6 +22,7 @@ async fn setup_service() -> CeramicEventService {
 }
 
 async fn add_and_assert_new_recon_event(store: &CeramicEventService, item: ReconItem<'_, EventId>) {
+    tracing::trace!("inserted event: {}", item.key.cid().unwrap());
     let new = store
         .insert_events_from_carfiles_remote_history(&[item])
         .await
@@ -234,7 +239,7 @@ async fn multiple_streams_missing_prev_recon_should_deliver_without_stream_updat
     // this _could_ be deliverable immediately if we checked but for now we just send to the other task,
     // so `check_deliverable` could return true or false depending on timing (but probably false).
     // as this is an implementation detail and we'd prefer true, we just use HW ordering to make sure it's been delivered
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     let (_, delivered) = store
         .events_since_highwater_mark(0, i64::MAX)
         .await
@@ -265,4 +270,130 @@ async fn multiple_streams_missing_prev_recon_should_deliver_without_stream_updat
         s2_3.0.cid().unwrap(),
     ];
     assert_eq!(expected, delivered);
+}
+
+async fn validate_all_delivered(store: &CeramicEventService, expected_delivered: usize) {
+    loop {
+        let (_, delivered) = store
+            .events_since_highwater_mark(0, i64::MAX)
+            .await
+            .unwrap();
+        let total = delivered.len();
+        if total < expected_delivered {
+            tracing::trace!(
+                "found {} delivered, waiting for {}",
+                total,
+                expected_delivered
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        } else {
+            break;
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn recon_lots_of_streams() {
+    let store = setup_service().await;
+    let mut streams = Vec::new();
+    let mut streams_to_check = Vec::new();
+    let mut required_cids = Vec::new();
+    let per_stream = 11;
+    let num_streams = 10;
+    let expected = per_stream * num_streams;
+    for i in 0..num_streams {
+        let (mut events, all_cids) = crate::tests::get_n_events(10).await;
+        assert_eq!(per_stream, all_cids.len(), "at {i} for {}", all_cids.len());
+        required_cids.extend(all_cids);
+        streams_to_check.push((events[0].0.cid().unwrap(), events[9].0.cid().unwrap()));
+        events.shuffle(&mut thread_rng());
+        streams.push(events);
+    }
+    let mut total_added = 0;
+    for stream in streams.iter_mut() {
+        while let Some(event) = stream.pop() {
+            if stream.len() > 4 {
+                total_added += 1;
+                add_and_assert_new_recon_event(&store, ReconItem::new(&event.0, &event.1)).await;
+            } else {
+                total_added += 1;
+                add_and_assert_new_recon_event(&store, ReconItem::new(&event.0, &event.1)).await;
+                break;
+            }
+        }
+    }
+    streams.shuffle(&mut thread_rng());
+    for stream in streams.iter_mut() {
+        while let Some(event) = stream.pop() {
+            total_added += 1;
+            add_and_assert_new_recon_event(&store, ReconItem::new(&event.0, &event.1)).await;
+        }
+    }
+    for (i, cid) in required_cids.into_iter().enumerate() {
+        let (exists, _delivered) =
+            ceramic_store::CeramicOneEvent::delivered_by_cid(&store.pool, &cid)
+                .await
+                .unwrap();
+        assert!(exists, "idx: {}. missing cid: {}", i, cid);
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+
+    assert_eq!(expected, total_added);
+    tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        validate_all_delivered(&store, expected),
+    )
+    .await
+    .unwrap();
+
+    // spot check a couple just for sanity sake
+    for stream in streams_to_check {
+        check_deliverable(&store.pool, &stream.0, true).await;
+        check_deliverable(&store.pool, &stream.1, true).await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn recon_lots_of_streams_simple() {
+    let store = setup_service().await;
+
+    let mut streams_to_check = Vec::new();
+    let mut required_cids = HashSet::new();
+    let (mut events, all_cids) = crate::tests::get_n_events(10).await;
+
+    required_cids.extend(all_cids);
+    streams_to_check.push((events[0].0.cid().unwrap(), events[9].0.cid().unwrap()));
+    events.shuffle(&mut thread_rng());
+
+    assert_eq!(11, events.len());
+    assert_eq!(required_cids.len(), 11);
+
+    while let Some(event) = events.pop() {
+        add_and_assert_new_recon_event(&store, ReconItem::new(&event.0, &event.1)).await;
+    }
+    for (i, cid) in required_cids.into_iter().enumerate() {
+        let (exists, _delivered) =
+            ceramic_store::CeramicOneEvent::delivered_by_cid(&store.pool, &cid)
+                .await
+                .unwrap();
+        assert!(exists, "idx: {}. missing cid: {}", i, cid);
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+    let (_, delivered) = store
+        .events_since_highwater_mark(0, i64::MAX)
+        .await
+        .unwrap();
+
+    tracing::debug!("delivered: {:?}", delivered);
+    tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        validate_all_delivered(&store, 11),
+    )
+    .await
+    .unwrap();
+
+    for stream in streams_to_check {
+        check_deliverable(&store.pool, &stream.0, true).await;
+        check_deliverable(&store.pool, &stream.1, true).await;
+    }
 }

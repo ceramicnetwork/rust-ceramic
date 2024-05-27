@@ -18,47 +18,41 @@ const MAX_ITERATIONS: usize = 100_000_000;
 /// How often should we try to process all undelivered events in case we missed something
 const CHECK_ALL_INTERVAL_SECONDS: u64 = 60 * 10; // 10 minutes
 
-type InitCid = cid::Cid;
+type StreamCid = cid::Cid;
 type PrevCid = cid::Cid;
 type EventCid = cid::Cid;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DeliveredEvent {
     pub(crate) cid: Cid,
-    pub(crate) init_cid: InitCid,
+    pub(crate) stream_cid: StreamCid,
 }
 
 impl DeliveredEvent {
-    pub fn new(cid: Cid, init_cid: InitCid) -> Self {
-        Self { cid, init_cid }
+    pub fn new(cid: Cid, stream_cid: StreamCid) -> Self {
+        Self { cid, stream_cid }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct DeliverableMetadata {
-    pub(crate) init_cid: InitCid,
+    pub(crate) stream_cid: StreamCid,
     pub(crate) prev: PrevCid,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct DeliverableEvent {
+pub struct DiscoveredEvent {
+    pub(crate) stream_cid: StreamCid,
     pub(crate) cid: EventCid,
-    pub(crate) meta: DeliverableMetadata,
-    attempts: usize,
-    last_attempt: std::time::Instant,
-    started: std::time::Instant,
-    expires: Option<std::time::Instant>,
+    pub(crate) prev: PrevCid,
 }
 
-impl DeliverableEvent {
-    pub fn new(cid: Cid, meta: DeliverableMetadata, expires: Option<std::time::Instant>) -> Self {
+impl DiscoveredEvent {
+    pub fn new(cid: EventCid, meta: DeliverableMetadata) -> Self {
         Self {
             cid,
-            meta,
-            attempts: 0,
-            last_attempt: std::time::Instant::now(),
-            started: std::time::Instant::now(),
-            expires,
+            stream_cid: meta.stream_cid,
+            prev: meta.prev,
         }
     }
 }
@@ -66,7 +60,7 @@ impl DeliverableEvent {
 #[derive(Debug)]
 pub struct DeliverableTask {
     pub(crate) _handle: tokio::task::JoinHandle<()>,
-    pub(crate) tx: tokio::sync::mpsc::Sender<DeliverableEvent>,
+    pub(crate) tx: tokio::sync::mpsc::Sender<DiscoveredEvent>,
     pub(crate) tx_new: tokio::sync::mpsc::Sender<DeliveredEvent>,
 }
 
@@ -75,7 +69,7 @@ pub struct OrderingTask {}
 
 impl OrderingTask {
     pub async fn run(pool: SqlitePool, q_depth: usize, load_delivered: bool) -> DeliverableTask {
-        let (tx, rx) = tokio::sync::mpsc::channel::<DeliverableEvent>(q_depth);
+        let (tx, rx) = tokio::sync::mpsc::channel::<DiscoveredEvent>(q_depth);
         let (tx_new, rx_new) = tokio::sync::mpsc::channel::<DeliveredEvent>(q_depth);
 
         let handle =
@@ -91,7 +85,7 @@ impl OrderingTask {
     async fn run_loop(
         pool: SqlitePool,
         load_undelivered: bool,
-        mut rx: tokio::sync::mpsc::Receiver<DeliverableEvent>,
+        mut rx: tokio::sync::mpsc::Receiver<DiscoveredEvent>,
         mut rx_new: tokio::sync::mpsc::Receiver<DeliveredEvent>,
     ) {
         // before starting, make sure we've updated any events in the database we missed
@@ -108,7 +102,7 @@ impl OrderingTask {
 
         let mut last_processed = std::time::Instant::now();
         loop {
-            let mut modified: Option<HashSet<InitCid>> = None;
+            let mut modified: Option<HashSet<StreamCid>> = None;
             let mut need_prev_buf = Vec::with_capacity(100);
             let mut newly_added_buf = Vec::with_capacity(100);
 
@@ -120,7 +114,7 @@ impl OrderingTask {
                 }
                 new = rx_new.recv_many(&mut newly_added_buf, 100) => {
                     if new > 0 {
-                        modified = Some(newly_added_buf.into_iter().map(|ev| ev.init_cid).collect::<HashSet<InitCid>>());
+                        modified = Some(newly_added_buf.into_iter().map(|ev| ev.stream_cid).collect::<HashSet<StreamCid>>());
                     }
                 }
                 else => {
@@ -143,16 +137,17 @@ impl OrderingTask {
                 }
             }
 
-            if modified.is_some()
-                && state
+            if modified.is_some() {
+                if state
                     .process_events(&pool, modified)
                     .await
                     .map_err(Self::log_error)
                     .is_err()
-            {
-                return;
+                {
+                    return;
+                }
+                last_processed = std::time::Instant::now();
             }
-            last_processed = std::time::Instant::now();
         }
     }
 
@@ -175,29 +170,15 @@ impl OrderingTask {
     }
 }
 
-#[derive(Debug)]
-/// Rough size estimate:
-///     pending_by_stream: 96 * stream_cnt + 540 * event_cnt
-///     ready_events: 96 * ready_event_cnt
-/// so for stream_cnt = 1000, event_cnt = 2, ready_event_cnt = 1000
-/// we get about 1 MB of memory used.
-pub struct OrderingState {
-    /// Map of undelivered events by init CID (i.e. the stream CID).
-    pending_by_stream: HashMap<InitCid, StreamEvents>,
-    /// Queue of events that can be marked ready to deliver.
-    /// Can be added as long as their prev is stored or in this list ahead of them.
-    ready_events: VecDeque<EventCid>,
-}
-
 #[derive(Debug, Clone, Default)]
 /// ~540 bytes per event in this struct
 pub(crate) struct StreamEvents {
     prev_map: HashMap<PrevCid, EventCid>,
-    cid_map: HashMap<EventCid, DeliverableEvent>,
+    cid_map: HashMap<EventCid, DiscoveredEvent>,
 }
 
-impl FromIterator<DeliverableEvent> for StreamEvents {
-    fn from_iter<T: IntoIterator<Item = DeliverableEvent>>(iter: T) -> Self {
+impl FromIterator<DiscoveredEvent> for StreamEvents {
+    fn from_iter<T: IntoIterator<Item = DiscoveredEvent>>(iter: T) -> Self {
         let mut stream = Self::new();
         for item in iter {
             stream.add_event(item);
@@ -212,9 +193,9 @@ impl StreamEvents {
     }
 
     /// returns Some(Stream Init CID) if this is a new event, else None.
-    pub fn add_event(&mut self, event: DeliverableEvent) -> Option<InitCid> {
-        let res = if self.prev_map.insert(event.meta.prev, event.cid).is_none() {
-            Some(event.meta.init_cid)
+    pub fn add_event(&mut self, event: DiscoveredEvent) -> Option<StreamCid> {
+        let res = if self.prev_map.insert(event.prev, event.cid).is_none() {
+            Some(event.stream_cid)
         } else {
             None
         };
@@ -227,9 +208,9 @@ impl StreamEvents {
         self.prev_map.is_empty() && self.cid_map.is_empty()
     }
 
-    fn remove_by_event_cid(&mut self, cid: &Cid) -> Option<DeliverableEvent> {
+    fn remove_by_event_cid(&mut self, cid: &Cid) -> Option<DiscoveredEvent> {
         if let Some(cid) = self.cid_map.remove(cid) {
-            self.prev_map.remove(&cid.meta.prev);
+            self.prev_map.remove(&cid.prev);
             Some(cid)
         } else {
             None
@@ -244,6 +225,26 @@ impl StreamEvents {
             None
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct UndeliveredBatch {
+    new: usize,
+    found: usize,
+}
+
+#[derive(Debug)]
+/// Rough size estimate:
+///     pending_by_stream: 96 * stream_cnt + 540 * event_cnt
+///     ready_events: 96 * ready_event_cnt
+/// so for stream_cnt = 1000, event_cnt = 2, ready_event_cnt = 1000
+/// we get about 1 MB of memory used.
+pub struct OrderingState {
+    /// Map of undelivered events by init CID (i.e. the stream CID).
+    pending_by_stream: HashMap<StreamCid, StreamEvents>,
+    /// Queue of events that can be marked ready to deliver.
+    /// Can be added as long as their prev is stored or in this list ahead of them.
+    ready_events: VecDeque<EventCid>,
 }
 
 impl OrderingState {
@@ -261,7 +262,7 @@ impl OrderingState {
     pub(crate) async fn process_events(
         &mut self,
         pool: &SqlitePool,
-        streams_to_process: Option<HashSet<InitCid>>,
+        streams_to_process: Option<HashSet<StreamCid>>,
     ) -> Result<()> {
         self.persist_ready_events(pool).await?;
         for (cid, stream_events) in self.pending_by_stream.iter_mut() {
@@ -331,12 +332,12 @@ impl OrderingState {
                         CeramicEventService::parse_event_carfile(prev, &data).await?;
 
                     if let Some(prev) = maybe_prev {
-                        let event = DeliverableEvent::new(insertable_body.cid, prev, None);
+                        let event = DiscoveredEvent::new(insertable_body.cid(), prev);
                         trace!(cid=%event.cid, "Adding event discovered in database to stream pending list");
                         stream_map.add_event(event);
                     } else {
-                        warn!(event_cid=%insertable_body.cid,"Found undelivered event with no prev while processing pending. Should not happen.");
-                        deliverable.push_back(insertable_body.cid);
+                        warn!(event_cid=%insertable_body.cid(),"Found undelivered event with no prev while processing pending. Should not happen.");
+                        deliverable.push_back(insertable_body.cid());
                         stream_map.remove_by_event_cid(&ev_cid);
                     }
                 } else {
@@ -370,7 +371,7 @@ impl OrderingState {
         let mut offset: usize = 0;
         while cnt < max_iterations {
             cnt += 1;
-            let (new, found) = self
+            let UndeliveredBatch { new, found } = self
                 .add_undelivered_batch(pool, offset, DELIVERABLE_EVENTS_BATCH_SIZE)
                 .await?;
             if new == 0 {
@@ -406,11 +407,11 @@ impl OrderingState {
         pool: &SqlitePool,
         offset: usize,
         limit: usize,
-    ) -> Result<(usize, usize)> {
+    ) -> Result<UndeliveredBatch> {
         let undelivered = CeramicOneEvent::undelivered_with_values(pool, offset, limit).await?;
         trace!(count=%undelivered.len(), "Found undelivered events to process");
         if undelivered.is_empty() {
-            return Ok((0, 0));
+            return Ok(UndeliveredBatch { new: 0, found: 0 });
         }
         let found = undelivered.len();
         let mut new = 0;
@@ -421,22 +422,23 @@ impl OrderingState {
             let (insertable_body, maybe_prev) =
                 CeramicEventService::parse_event_carfile(event_cid, &data).await?;
             if let Some(prev) = maybe_prev {
-                let event = DeliverableEvent::new(insertable_body.cid, prev, None);
+                tracing::trace!(cid=%insertable_body.cid(), ?prev, "Parsed event from database in batch");
+                let event = DiscoveredEvent::new(insertable_body.cid(), prev);
                 if self.track_pending(event).is_some() {
                     new += 1;
                 }
             } else {
                 // safe to ignore in tests, shows up because when we mark init events as undelivered even though they don't have a prev
-                info!(event_cid=%insertable_body.cid, "Found undelivered event with no prev while processing undelivered. Should not happen. Likely means events were dropped before.");
-                self.ready_events.push_back(insertable_body.cid);
+                info!(event_cid=%insertable_body.cid(), "Found undelivered event with no prev while processing undelivered. Should not happen. Likely means events were dropped before.");
+                self.ready_events.push_back(insertable_body.cid());
                 new += 1; // we treat this as new since it might unlock something else but it's not actually going in our queue is it's a bit odd
             }
         }
-        trace!(%new, %found, "Adding undelivered events to pending set");
-        Ok((new, found))
+        debug!(%new, %found, "Adding undelivered events to pending set");
+        Ok(UndeliveredBatch { new, found })
     }
 
-    fn add_incoming_batch(&mut self, events: Vec<DeliverableEvent>) -> HashSet<InitCid> {
+    fn add_incoming_batch(&mut self, events: Vec<DiscoveredEvent>) -> HashSet<StreamCid> {
         let mut updated_streams = HashSet::with_capacity(events.len());
         for event in events {
             if let Some(updated_stream) = self.track_pending(event) {
@@ -447,27 +449,24 @@ impl OrderingState {
     }
 
     /// returns the init event CID (stream CID) if this is a new event
-    fn track_pending(&mut self, event: DeliverableEvent) -> Option<InitCid> {
+    fn track_pending(&mut self, event: DiscoveredEvent) -> Option<StreamCid> {
         self.pending_by_stream
-            .entry(event.meta.init_cid)
+            .entry(event.stream_cid)
             .or_default()
             .add_event(event)
     }
 
     /// Modify all the events that are ready to be marked as delivered.
-
     /// We should improve the error handling and likely add some batching if the number of ready events is very high.
-    /// We copy the events up front to avoid losing any events if the task is cancelled.
     async fn persist_ready_events(&mut self, pool: &SqlitePool) -> Result<()> {
         if !self.ready_events.is_empty() {
-            let mut to_process = self.ready_events.clone(); // to avoid cancel loss
             tracing::debug!(count=%self.ready_events.len(), "Marking events as ready to deliver");
             let mut tx = pool.begin_tx().await?;
 
             // We process the ready events as a FIFO queue so they are marked delivered before events
-            // that were added after and depend on them.
-            while let Some(cid) = to_process.pop_front() {
-                CeramicOneEvent::mark_ready_to_deliver(&mut tx, &cid).await?;
+            // that were added after and depend on them. Could use `pop_front` but we don't want to modify the queue until committed.
+            for cid in &self.ready_events {
+                CeramicOneEvent::mark_ready_to_deliver(&mut tx, cid).await?;
             }
             tx.commit().await?;
             self.ready_events.clear(); // safe to clear since we are past any await points and hold exclusive access
@@ -497,7 +496,7 @@ mod test {
         let (body, _meta) = CeramicEventService::parse_event_carfile(cid, &car)
             .await
             .unwrap();
-        assert!(!body.deliverable);
+        assert!(!body.deliverable());
         EventInsertable::try_new(id, body).unwrap()
     }
 
@@ -510,28 +509,26 @@ mod test {
         number: usize,
         stream_cid: Cid,
         first_prev: Cid,
-    ) -> Vec<DeliverableEvent> {
+    ) -> Vec<DiscoveredEvent> {
         let mut events = Vec::with_capacity(number);
 
         let first_cid = random_block().cid;
-        events.push(DeliverableEvent::new(
+        events.push(DiscoveredEvent::new(
             first_cid,
             DeliverableMetadata {
-                init_cid: stream_cid,
+                stream_cid,
                 prev: first_prev,
             },
-            None,
         ));
 
         for i in 1..number {
             let random = random_block();
-            let ev = DeliverableEvent::new(
+            let ev = DiscoveredEvent::new(
                 random.cid,
                 DeliverableMetadata {
-                    init_cid: stream_cid,
+                    stream_cid,
                     prev: events[i - 1].cid,
                 },
-                None,
             );
             events.push(ev);
         }
@@ -707,7 +704,7 @@ mod test {
     async fn test_undelivered_batch_empty() {
         let _ = ceramic_metrics::init_local_tracing();
         let pool = SqlitePool::connect_in_memory().await.unwrap();
-        let (new, found) = OrderingState::new()
+        let UndeliveredBatch { new, found } = OrderingState::new()
             .add_undelivered_batch(&pool, 0, 10)
             .await
             .unwrap();
@@ -726,14 +723,17 @@ mod test {
             .unwrap();
 
         let mut state = OrderingState::new();
-        let (new, found) = state.add_undelivered_batch(&pool, 0, 10).await.unwrap();
+        let UndeliveredBatch { new, found } =
+            state.add_undelivered_batch(&pool, 0, 10).await.unwrap();
         assert_eq!(1, found);
         assert_eq!(1, new);
-        let (new, found) = state.add_undelivered_batch(&pool, 10, 10).await.unwrap();
+        let UndeliveredBatch { new, found } =
+            state.add_undelivered_batch(&pool, 10, 10).await.unwrap();
         assert_eq!(0, new);
         assert_eq!(0, found);
         state.persist_ready_events(&pool).await.unwrap();
-        let (new, found) = state.add_undelivered_batch(&pool, 0, 10).await.unwrap();
+        let UndeliveredBatch { new, found } =
+            state.add_undelivered_batch(&pool, 0, 10).await.unwrap();
         assert_eq!(0, new);
         assert_eq!(0, found);
     }

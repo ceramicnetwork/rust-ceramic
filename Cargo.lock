@@ -1339,6 +1339,7 @@ dependencies = [
  "hex",
  "ipld-core",
  "iroh-bitswap",
+ "itertools 0.12.1",
  "multibase 0.9.1",
  "multihash-codetable",
  "paste",

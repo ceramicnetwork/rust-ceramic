@@ -63,8 +63,18 @@ impl EventInsertable {
     }
 
     /// change the deliverable status of the event
-    pub fn deliverable(&mut self, deliverable: bool) {
+    pub fn set_deliverable(&mut self, deliverable: bool) {
         self.body.deliverable = deliverable;
+    }
+
+    /// Whether or not the event is deliverable
+    pub fn deliverable(&self) -> bool {
+        self.body.deliverable
+    }
+
+    /// Get the CID of the event
+    pub fn cid(&self) -> Cid {
+        self.body.cid
     }
 }
 
@@ -72,12 +82,12 @@ impl EventInsertable {
 /// The type we use to insert events into the database
 pub struct EventInsertableBody {
     /// The event CID i.e. the root CID from the car file
-    pub cid: Cid,
+    pub(crate) cid: Cid,
     /// Whether this event is deliverable to clients or is waiting for more data
-    pub deliverable: bool,
+    pub(crate) deliverable: bool,
     /// The blocks of the event
     // could use a map but there aren't that many blocks per event (right?)
-    pub blocks: Vec<EventBlockRaw>,
+    pub(crate) blocks: Vec<EventBlockRaw>,
 }
 
 impl EventInsertableBody {
@@ -88,6 +98,21 @@ impl EventInsertableBody {
             deliverable: false,
             blocks,
         }
+    }
+
+    /// Get the CID of the event
+    pub fn cid(&self) -> Cid {
+        self.cid
+    }
+
+    /// Whether this event is deliverable to clients or is waiting for more data
+    pub fn deliverable(&self) -> bool {
+        self.deliverable
+    }
+
+    /// Get the blocks of the event
+    pub fn blocks(&self) -> &Vec<EventBlockRaw> {
+        &self.blocks
     }
 
     /// Find a block from the carfile for a given CID if it's included

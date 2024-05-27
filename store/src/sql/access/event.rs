@@ -107,7 +107,7 @@ impl CeramicOneEvent {
                 }
             }
             if item.body.deliverable {
-                Self::mark_ready_to_deliver(&mut tx, &item.body.cid).await?;
+                Self::mark_ready_to_deliver(&mut tx, &item.cid()).await?;
             }
             new_keys[idx] = new_key;
         }

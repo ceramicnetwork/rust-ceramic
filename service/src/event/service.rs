@@ -9,7 +9,7 @@ use recon::{InsertResult, ReconItem};
 use tracing::{trace, warn};
 
 use super::ordering_task::{
-    DeliverableEvent, DeliverableMetadata, DeliverableTask, DeliveredEvent, OrderingState,
+    DeliverableMetadata, DeliverableTask, DeliveredEvent, DiscoveredEvent, OrderingState,
     OrderingTask, StreamEvents,
 };
 
@@ -41,7 +41,7 @@ impl CeramicEventService {
     }
 
     /// Skip loading all undelivered events from the database on startup (for testing)
-    #[allow(dead_code)] // used in tests
+    #[cfg(test)]
     pub(crate) async fn new_without_undelivered(pool: SqlitePool) -> Result<Self> {
         CeramicOneEvent::init_delivered_order(&pool).await?;
 
@@ -79,9 +79,8 @@ impl CeramicEventService {
         carfile: &[u8],
     ) -> Result<(EventInsertableBody, Option<DeliverableMetadata>)> {
         let insertable = EventInsertableBody::try_from_carfile(event_cid, carfile).await?;
-        let ev_block = insertable.block_for_cid(&insertable.cid)?;
+        let ev_block = insertable.block_for_cid(&insertable.cid())?;
 
-        trace!(count=%insertable.blocks.len(), cid=%event_cid, "parsing event blocks");
         let event_ipld: unvalidated::RawEvent<Ipld> =
             serde_ipld_dagcbor::from_slice(&ev_block.bytes).map_err(|e| {
                 Error::new_invalid_arg(
@@ -89,8 +88,11 @@ impl CeramicEventService {
                 )
             })?;
 
-        let maybe_init_prev = match event_ipld {
-            unvalidated::RawEvent::Time(t) => Some((t.id(), t.prev())),
+        let meta = match event_ipld {
+            unvalidated::RawEvent::Time(t) => Some(DeliverableMetadata {
+                stream_cid: t.id(),
+                prev: t.prev(),
+            }),
             unvalidated::RawEvent::Signed(signed) => {
                 let link = signed.link().ok_or_else(|| {
                     Error::new_invalid_arg(anyhow::anyhow!("event should have a link"))
@@ -108,16 +110,15 @@ impl CeramicEventService {
                     })?;
 
                 match payload {
-                    unvalidated::Payload::Data(d) => Some((*d.id(), *d.prev())),
+                    unvalidated::Payload::Data(d) => Some(DeliverableMetadata {
+                        stream_cid: *d.id(),
+                        prev: *d.prev(),
+                    }),
                     unvalidated::Payload::Init(_init) => None,
                 }
             }
             unvalidated::RawEvent::Unsigned(_init) => None,
         };
-        let meta = maybe_init_prev.map(|(cid, prev)| DeliverableMetadata {
-            init_cid: cid,
-            prev,
-        });
         Ok((insertable, meta))
     }
 
@@ -160,17 +161,17 @@ impl CeramicEventService {
         let res = CeramicOneEvent::insert_many(&self.pool, &ordering.insert_now[..]).await?;
 
         for ev in ordering.background_task_deliverable {
-            trace!(cid=%ev.0, prev=%ev.1.prev, init=%ev.1.init_cid, "sending to delivery task");
+            trace!(cid=%ev.0, prev=%ev.1.prev, init=%ev.1.stream_cid, "sending to delivery task");
             if let Err(e) = self
                 .delivery_task
                 .tx
-                .try_send(DeliverableEvent::new(ev.0, ev.1, None))
+                .try_send(DiscoveredEvent::new(ev.0, ev.1))
             {
                 match e {
                     tokio::sync::mpsc::error::TrySendError::Full(e) => {
                         // we should only be doing this during recon, in which case we can rediscover events.
                         // the delivery task will start picking up these events once it's drained since they are stored in the db
-                        warn!(cid=%e.cid, meta=?e.meta, limit=%PENDING_EVENTS_CHANNEL_DEPTH, "Delivery task full. Dropping event and will not be able to mark deliverable until queue drains");
+                        warn!(cid=%e.cid, stream=%e.stream_cid, limit=%PENDING_EVENTS_CHANNEL_DEPTH, "Delivery task full. Dropping event and will not be able to mark deliverable until queue drains");
                     }
                     tokio::sync::mpsc::error::TrySendError::Closed(_) => {
                         warn!("Delivery task closed. shutting down");
@@ -221,7 +222,7 @@ impl InsertEventOrdering {
             if let Some(meta) = maybe_prev {
                 result.mark_event_deliverable_later(insertable, meta);
             } else {
-                let init_cid = insertable.body.cid;
+                let init_cid = insertable.cid();
                 result.mark_event_deliverable_now(insertable, init_cid);
             }
         }
@@ -248,7 +249,7 @@ impl InsertEventOrdering {
             if let Some(meta) = maybe_prev {
                 insert_after_history_check.push((meta, insertable));
             } else {
-                let init_cid = insertable.body.cid;
+                let init_cid = insertable.cid();
                 result.mark_event_deliverable_now(insertable, init_cid);
             }
         }
@@ -280,14 +281,14 @@ impl InsertEventOrdering {
         meta: DeliverableMetadata,
     ) {
         self.background_task_deliverable
-            .insert(insertable.body.cid, meta);
+            .insert(insertable.cid(), meta);
         self.insert_now.push(insertable);
     }
 
     fn mark_event_deliverable_now(&mut self, mut ev: EventInsertable, init_cid: Cid) {
-        ev.deliverable(true);
+        ev.set_deliverable(true);
         self.notify_task_new
-            .push(DeliveredEvent::new(ev.body.cid, init_cid));
+            .push(DeliveredEvent::new(ev.cid(), init_cid));
         self.insert_now.push(ev);
     }
 
@@ -303,13 +304,7 @@ impl InsertEventOrdering {
         let incoming_deliverable_cids: HashSet<Cid> = self
             .insert_now
             .iter()
-            .filter_map(|e| {
-                if e.body.deliverable {
-                    Some(e.body.cid)
-                } else {
-                    None
-                }
-            })
+            .filter_map(|e| if e.deliverable() { Some(e.cid()) } else { None })
             .collect();
 
         // ideally, this map would be per stream, but we are just processing all of them together for now
@@ -321,18 +316,14 @@ impl InsertEventOrdering {
 
         for (meta, ev) in to_check {
             if incoming_deliverable_cids.contains(&meta.prev) {
-                trace!(new=%ev.body.cid, prev=%meta.prev, "prev event being added in same batch");
+                trace!(new=%ev.cid(), prev=%meta.prev, "prev event being added in same batch");
                 found_in_batch += 1;
-                self.mark_event_deliverable_now(ev, meta.init_cid);
+                self.mark_event_deliverable_now(ev, meta.stream_cid);
             } else {
-                trace!(new=%ev.body.cid, prev=%meta.prev, "will check for prev event in db");
+                trace!(new=%ev.cid(), prev=%meta.prev, "will check for prev event in db");
 
-                let _new = to_check_map.add_event(DeliverableEvent::new(
-                    ev.body.cid,
-                    meta.to_owned(),
-                    None,
-                ));
-                insert_if_greenlit.insert(ev.body.cid, (meta, ev));
+                let _new = to_check_map.add_event(DiscoveredEvent::new(ev.cid(), meta.to_owned()));
+                insert_if_greenlit.insert(ev.cid(), (meta, ev));
             }
         }
 
@@ -346,8 +337,8 @@ impl InsertEventOrdering {
             let missing = insert_if_greenlit
                 .values()
                 .filter_map(|(_, ev)| {
-                    if !deliverable.contains(&ev.body.cid) {
-                        Some(ev.body.cid)
+                    if !deliverable.contains(&ev.cid()) {
+                        Some(ev.cid())
                     } else {
                         None
                     }
@@ -365,7 +356,7 @@ impl InsertEventOrdering {
             // ensure we have a queue in the correct order. So we follow the order and use our insert_if_greenlit map to get the details.
             for cid in deliverable {
                 if let Some((meta, insertable)) = insert_if_greenlit.remove(&cid) {
-                    self.mark_event_deliverable_now(insertable, meta.init_cid);
+                    self.mark_event_deliverable_now(insertable, meta.stream_cid);
                 } else {
                     warn!(%cid, "Didn't find event to insert in memory when it was expected");
                 }
