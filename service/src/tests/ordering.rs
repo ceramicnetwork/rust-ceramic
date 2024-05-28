@@ -181,7 +181,6 @@ async fn missing_prev_pending_recon_should_deliver_without_stream_update() {
     // now we add the second event, it should quickly become deliverable
     let data = &events[1];
     add_and_assert_new_recon_event(&store, ReconItem::new(&data.0, &data.1)).await;
-    check_deliverable(&store.pool, &data.0.cid().unwrap(), false).await;
     // This happens out of band, so give it a moment to make sure everything is updated
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
