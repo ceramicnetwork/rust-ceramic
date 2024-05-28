@@ -16,6 +16,7 @@ use super::ordering_task::{
 use crate::{Error, Result};
 
 /// The max number of events we can have pending for delivery in the channel before we start dropping them.
+/// This quickly becomes a bottleneck with very long streams and high throughput.
 pub(crate) const PENDING_EVENTS_CHANNEL_DEPTH: usize = 10_000;
 
 #[derive(Debug)]

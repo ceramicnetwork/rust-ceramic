@@ -242,6 +242,8 @@ impl StreamEvents {
     }
 
     /// Find the next event that is known to be deliverable (tip).
+    /// Could be simplified if we could query "current tip for a stream" and then "known events for a stream".
+    /// With that info, we could just arrange them rather than have to try to find them one by one.
     async fn find_next_tip(
         &self,
         pool: &SqlitePool,
@@ -282,6 +284,7 @@ impl StreamEvents {
                             ?event,
                             "Adding event discovered in database to stream pending list"
                         );
+                        // this might be a tip, or it might have a prev we need to inspect, so we just add it to the set and try again
                         discovered_candidates.push(event);
                     } else {
                         warn!(cid=%insertable_body.cid(), "Found undelivered init event while processing. Should not happen.");
@@ -299,7 +302,7 @@ impl StreamEvents {
     /// Builds the chain of deliverable events for the stream. Returns None if no events are deliverable.
     /// Will modify the internal state to remove the events that are deliverable, and will extend the state
     /// with events discovered from the database. In the end, every event that is deliverable will be removed
-    /// and returned, while anything that requires discovering an event will be left in memory.
+    /// and returned, while anything that requires discovering an event from a peer will be left in memory.
     async fn process_new_deliverable(
         &mut self,
         pool: &SqlitePool,
@@ -316,10 +319,15 @@ impl StreamEvents {
             trace!(?self, iteration=%cnt, "looping for new tip: process_new_deliverable");
             cnt += 1;
             let (new_tip, candidates) = self.find_next_tip(pool).await?;
-            // previously, we added the candidates to the set, but didn't retry the loop to see if the chain could be extended. This meant
-            // we could end up quitting with the newest tip, even though it might be possible to find everything in the chain if we kept looking.
-            // Now, we make sure we connect all the partial chains on the last event received so we can deliver all the events in the stream.
+            // Previously, we added the candidates to the set, but didn't retry the loop to see if the chain could be extended. This meant we
+            // could end up quitting early, even though it might be possible to find and connect everything if we kept looking. Now, we make
+            // sure we discover all the partial chains on the last event received so we can deliver all the events in the stream. This basically
+            // comes down to not being able to query "all events for a stream" and "current tip of stream" so we end up building the chain one
+            // by one. As this is inefficient, especially for long streams, we should probably add stream meta/header info to the database.
             done = new_tip.is_none() && candidates.is_empty();
+            if !candidates.is_empty() {
+                trace!(?new_tip, ?candidates, stream=?self, "need to recurse to find more deliverable events");
+            }
             for candidate in candidates {
                 self.add_candidate(candidate);
             }

@@ -2,8 +2,6 @@ mod event;
 mod interest;
 mod ordering;
 
-use std::collections::HashSet;
-
 use ceramic_core::{DidDocument, EventId, Network, StreamId};
 use ceramic_event::unvalidated::{self, signed};
 use cid::Cid;
@@ -175,10 +173,7 @@ async fn data_event(
 }
 
 // returns init + N events
-async fn get_n_events_with_model(
-    model: &StreamId,
-    number: usize,
-) -> (Vec<(EventId, Vec<u8>)>, Vec<Cid>) {
+async fn get_n_events_with_model(model: &StreamId, number: usize) -> Vec<(EventId, Vec<u8>)> {
     let signer = Box::new(signer().await);
 
     let init = init_event(model, &signer).await;
@@ -188,10 +183,8 @@ async fn get_n_events_with_model(
         init.encode_car().await.unwrap(),
     );
 
-    let mut all_cids = HashSet::new();
-
     let init_cid = event_id.cid().unwrap();
-    all_cids.insert(init_cid);
+
     let mut events = Vec::with_capacity(number);
     events.push((event_id, car));
     let mut prev = init_cid;
@@ -211,25 +204,24 @@ async fn get_n_events_with_model(
             data.encode_car().await.unwrap(),
         );
         prev = data_id.cid().unwrap();
-        all_cids.insert(data_id.cid().unwrap());
         events.push((data_id, data_car));
     }
-    (events, all_cids.into_iter().collect())
+    events
 }
 
 pub(crate) async fn get_events_return_model() -> (StreamId, Vec<(EventId, Vec<u8>)>) {
     let model = StreamId::document(random_cid());
-    let (events, _) = get_n_events_with_model(&model, 3).await;
+    let events = get_n_events_with_model(&model, 3).await;
     (model, events)
 }
 
 // builds init -> data -> data that are a stream (will be a different stream each call)
 pub(crate) async fn get_events() -> Vec<(EventId, Vec<u8>)> {
     let model = StreamId::document(random_cid());
-    get_n_events_with_model(&model, 3).await.0
+    get_n_events_with_model(&model, 3).await
 }
 
-async fn get_n_events(number: usize) -> (Vec<(EventId, Vec<u8>)>, Vec<Cid>) {
+async fn get_n_events(number: usize) -> Vec<(EventId, Vec<u8>)> {
     let model = &StreamId::document(random_cid());
     get_n_events_with_model(model, number).await
 }
