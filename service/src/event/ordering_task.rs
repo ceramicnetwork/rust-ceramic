@@ -126,12 +126,14 @@ impl OrderingTask {
 
             tokio::select! {
                 _incoming = rx.recv_many(&mut need_prev_buf, 100) => {
+                    debug!(?need_prev_buf, "incoming pending!");
                     for event in need_prev_buf {
                         modified.insert(event.stream_cid);
                         state.track_pending(event);
                     }
                 }
                 _new = rx_new.recv_many(&mut newly_added_buf, 100) => {
+                    debug!(?newly_added_buf, "incoming writes!");
                     for ev in newly_added_buf {
                         modified.insert(ev.stream_cid);
                     }

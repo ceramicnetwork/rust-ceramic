@@ -121,7 +121,7 @@ impl EventQuery {
 
     /// Updates the delivered column in the event table so it can be set to the client
     pub fn mark_ready_to_deliver() -> &'static str {
-        "UPDATE ceramic_one_event SET delivered = $1 WHERE cid = $2;"
+        "UPDATE ceramic_one_event SET delivered = $1 WHERE cid = $2 and delivered is NULL;"
     }
 }
 
