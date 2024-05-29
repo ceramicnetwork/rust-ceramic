@@ -1,4 +1,4 @@
-use ceramic_api::AccessModelStore;
+use ceramic_api::EventStore;
 use ceramic_core::EventId;
 use recon::ReconItem;
 

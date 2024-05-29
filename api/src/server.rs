@@ -130,8 +130,9 @@ impl TryFrom<models::Interest> for ValidatedInterest {
     }
 }
 
+/// Trait for accessing persistent storage of Interests
 #[async_trait]
-pub trait AccessInterestStore: Send + Sync {
+pub trait InterestStore: Send + Sync {
     /// Returns true if the key was newly inserted, false if it already existed.
     async fn insert(&self, key: Interest) -> Result<bool>;
     async fn range(
@@ -144,7 +145,7 @@ pub trait AccessInterestStore: Send + Sync {
 }
 
 #[async_trait]
-impl<S: AccessInterestStore> AccessInterestStore for Arc<S> {
+impl<S: InterestStore> InterestStore for Arc<S> {
     async fn insert(&self, key: Interest) -> Result<bool> {
         self.as_ref().insert(key).await
     }
@@ -160,8 +161,9 @@ impl<S: AccessInterestStore> AccessInterestStore for Arc<S> {
     }
 }
 
+/// Trait for accessing persistent storage of Events
 #[async_trait]
-pub trait AccessModelStore: Send + Sync {
+pub trait EventStore: Send + Sync {
     /// Returns (new_key, new_value) where true if was newly inserted, false if it already existed.
     async fn insert_many(&self, items: &[(EventId, Vec<u8>)]) -> Result<Vec<bool>>;
     async fn range_with_values(
@@ -193,7 +195,7 @@ pub trait AccessModelStore: Send + Sync {
 }
 
 #[async_trait::async_trait]
-impl<S: AccessModelStore> AccessModelStore for Arc<S> {
+impl<S: EventStore> EventStore for Arc<S> {
     async fn insert_many(&self, items: &[(EventId, Vec<u8>)]) -> Result<Vec<bool>> {
         self.as_ref().insert_many(items).await
     }
@@ -254,8 +256,8 @@ pub struct Server<C, I, M> {
 
 impl<C, I, M> Server<C, I, M>
 where
-    I: AccessInterestStore,
-    M: AccessModelStore + 'static,
+    I: InterestStore,
+    M: EventStore + 'static,
 {
     pub fn new(peer_id: PeerId, network: Network, interest: I, model: Arc<M>) -> Self {
         let (tx, event_rx) = tokio::sync::mpsc::channel::<EventInsert>(1024);
@@ -634,8 +636,8 @@ pub(crate) fn decode_multibase_data(value: &str) -> Result<Vec<u8>, BadRequestRe
 impl<C, I, M> Api<C> for Server<C, I, M>
 where
     C: Send + Sync,
-    I: AccessInterestStore + Sync,
-    M: AccessModelStore + Sync + 'static,
+    I: InterestStore + Sync,
+    M: EventStore + Sync + 'static,
 {
     #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn liveness_get(

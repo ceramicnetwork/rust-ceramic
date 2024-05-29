@@ -1,6 +1,6 @@
 use std::{collections::BTreeSet, str::FromStr};
 
-use ceramic_api::AccessInterestStore;
+use ceramic_api::InterestStore;
 use ceramic_core::{
     interest::{Builder, WithPeerId},
     Interest, PeerId,
@@ -77,16 +77,16 @@ test_with_dbs!(
 );
 
 // This is the same as the recon::Store range test, but with the interest store (hits all its methods)
-async fn access_interest_model(store: impl AccessInterestStore) {
+async fn access_interest_model(store: impl InterestStore) {
     let interest_0 = random_interest(None, None);
     let interest_1 = random_interest(None, None);
-    AccessInterestStore::insert(&store, interest_0.clone())
+    InterestStore::insert(&store, interest_0.clone())
         .await
         .unwrap();
-    AccessInterestStore::insert(&store, interest_1.clone())
+    InterestStore::insert(&store, interest_1.clone())
         .await
         .unwrap();
-    let interests = AccessInterestStore::range(
+    let interests = InterestStore::range(
         &store,
         &random_interest_min(),
         &random_interest_max(),
