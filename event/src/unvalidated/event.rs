@@ -49,6 +49,7 @@ impl<D> From<signed::Envelope> for RawEvent<D> {
 }
 
 /// Time event
+/// TODO: Parse out all the blocks for the full witness proof.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TimeEvent {
     id: Cid,

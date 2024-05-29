@@ -36,6 +36,26 @@ impl<D: serde::Serialize> Event<D> {
         )
     }
 
+    /// Factory for building an Event.
+    pub fn new(
+        envelope_cid: Cid,
+        envelope: Envelope,
+        payload_cid: Cid,
+        payload: Payload<D>,
+    ) -> Self {
+        Self {
+            envelope_cid,
+            envelope,
+            payload_cid,
+            payload,
+        }
+    }
+
+    /// Get the Payload
+    pub fn payload(&self) -> &Payload<D> {
+        &self.payload
+    }
+
     /// Constructs a signed event by signing a given event payload.
     pub fn from_payload(payload: Payload<D>, signer: impl Signer) -> anyhow::Result<Self> {
         let payload_cid = Self::cid_from_dag_cbor(&serde_ipld_dagcbor::to_vec(&payload)?);

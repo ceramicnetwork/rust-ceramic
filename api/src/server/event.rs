@@ -10,19 +10,26 @@ use tracing::debug;
 
 use crate::EventStore;
 
-// Helper function to construct an event Id from CAR data of an event
-// We should likely move this closer to where its needed but this is good enough for now.
+// Helper function to construct an event ID from CAR data of an event coming in via the HTTP api.
 pub async fn event_id_from_car<R, S>(network: Network, reader: R, store: &S) -> Result<EventId>
 where
     R: AsyncRead + Send + Unpin,
     S: EventStore,
+{
+    let (event_cid, event) = event_from_car(reader).await?;
+    event_id_for_event(event_cid, event, network, store).await
+}
+
+async fn event_from_car<R>(reader: R) -> Result<(Cid, unvalidated::Event<Ipld>)>
+where
+    R: AsyncRead + Send + Unpin,
 {
     let mut car = CarReader::new(reader).await?;
     let event_cid = *car
         .header()
         .roots()
         .first()
-        .ok_or_else(|| anyhow!("car data should have at least one root"))?;
+        .ok_or_else(|| anyhow!("CAR data should have at least one root"))?;
 
     debug!(%event_cid, "first root cid");
 
@@ -30,56 +37,111 @@ where
     while let Some((cid, bytes)) = car.next_block().await? {
         car_blocks.insert(cid, bytes);
     }
-    let event_bytes = get_block(&event_cid, &car_blocks, store).await?;
-    let event: unvalidated::RawEvent<Ipld> =
-        serde_ipld_dagcbor::from_slice(&event_bytes).context("decoding event")?;
+    let event_bytes = car_blocks
+        .get(&event_cid)
+        .ok_or_else(|| anyhow!("Event CAR data missing block for root CID"))?;
+    let raw_event: unvalidated::RawEvent<Ipld> =
+        serde_ipld_dagcbor::from_slice(event_bytes).context("decoding event")?;
+    // TODO(stbrody) add check for round-trip-ability to catch extra fields.
 
-    let (init_id, init_payload) = match event {
-        unvalidated::RawEvent::Time(event) => (
-            event.id(),
-            get_init_event_payload(&event.id(), &car_blocks, store).await?,
-        ),
-        unvalidated::RawEvent::Signed(event) => {
-            let link = event
+    match raw_event {
+        unvalidated::RawEvent::Time(event) => Ok((event_cid, unvalidated::Event::Time(event))),
+        unvalidated::RawEvent::Signed(envelope) => {
+            let payload_cid = envelope
                 .link()
                 .ok_or_else(|| anyhow!("event should have a link"))?;
 
-            let payload_bytes = get_block(&link, &car_blocks, store).await?;
+            let payload_bytes = car_blocks
+                .get(&payload_cid)
+                .ok_or_else(|| anyhow!("Signed Event CAR data missing block for payload"))?;
             let payload: unvalidated::Payload<Ipld> =
-                serde_ipld_dagcbor::from_slice(&payload_bytes).context("decoding payload")?;
-            let init_id = match payload {
-                unvalidated::Payload::Init(_) => event_cid,
-                unvalidated::Payload::Data(payload) => *payload.id(),
-            };
-            (
-                init_id,
-                get_init_event_payload(&init_id, &car_blocks, store).await?,
-            )
-        }
-        unvalidated::RawEvent::Unsigned(event) => (event_cid, event),
-    };
+                serde_ipld_dagcbor::from_slice(payload_bytes).context("decoding payload")?;
+            // TODO(stbrody) add check for round-trip-ability to catch extra fields.
 
+            Ok((
+                event_cid,
+                unvalidated::Event::Signed(unvalidated::signed::Event::new(
+                    event_cid,
+                    envelope,
+                    payload_cid,
+                    payload,
+                )),
+            ))
+        }
+        unvalidated::RawEvent::Unsigned(event) => {
+            Ok((event_cid, unvalidated::Event::Unsigned(event)))
+        }
+    }
+}
+
+async fn event_id_for_event<S>(
+    event_cid: Cid,
+    event: unvalidated::Event<Ipld>,
+    network: Network,
+    store: &S,
+) -> Result<EventId>
+where
+    S: EventStore,
+{
+    match event {
+        unvalidated::Event::Time(time_event) => {
+            let init_payload = get_init_event_payload_from_store(&time_event.id(), store).await?;
+            event_id_from_init_payload(event_cid, network, time_event.id(), &init_payload)
+        }
+        unvalidated::Event::Signed(signed_event) => {
+            let payload = signed_event.payload();
+
+            match payload {
+                unvalidated::Payload::Init(init_payload) => event_id_from_init_payload(
+                    event_cid,
+                    network,
+                    signed_event.envelope_cid(),
+                    init_payload,
+                ),
+                unvalidated::Payload::Data(payload) => {
+                    let init_cid = *payload.id();
+                    let init_payload = get_init_event_payload_from_store(&init_cid, store).await?;
+                    event_id_from_init_payload(event_cid, network, init_cid, &init_payload)
+                }
+            }
+        }
+        unvalidated::Event::Unsigned(payload) => {
+            event_id_from_init_payload(event_cid, network, event_cid, &payload)
+        }
+    }
+}
+
+fn event_id_from_init_payload(
+    event_cid: Cid,
+    network: Network,
+    init_cid: Cid,
+    init_payload: &unvalidated::init::Payload<Ipld>,
+) -> Result<EventId> {
     let controller = init_payload
         .header()
         .controllers()
         .first()
         .ok_or_else(|| anyhow!("init header should contain at least one controller"))?;
+
     Ok(EventId::new(
         &network,
         init_payload.header().sep(),
         init_payload.header().model(),
         controller,
-        &init_id,
+        &init_cid,
         &event_cid,
     ))
 }
 
-async fn get_init_event_payload(
-    init_id: &Cid,
-    car_blocks: &HashMap<Cid, Vec<u8>>,
+async fn get_init_event_payload_from_store(
+    init_cid: &Cid,
     store: &impl EventStore,
 ) -> Result<unvalidated::init::Payload<Ipld>> {
-    let init_bytes = get_block(init_id, car_blocks, store).await?;
+    let init_bytes = store
+        .get_block(init_cid)
+        .await?
+        .ok_or_else(|| anyhow!("cannot find init event block {init_cid}"))?;
+
     let init_event: unvalidated::RawEvent<Ipld> =
         serde_ipld_dagcbor::from_slice(&init_bytes).context("decoding init event")?;
     match init_event {
@@ -88,7 +150,10 @@ async fn get_init_event_payload(
                 .link()
                 .ok_or_else(|| anyhow!("init event should have a link"))?;
 
-            let payload_bytes = get_block(&link, car_blocks, store).await?;
+            let payload_bytes = store
+                .get_block(&link)
+                .await?
+                .ok_or_else(|| anyhow!("cannot find init event payload block {link}"))?;
             let payload: unvalidated::Payload<Ipld> =
                 serde_ipld_dagcbor::from_slice(&payload_bytes).context("decoding init payload")?;
             if let unvalidated::Payload::Init(payload) = payload {
@@ -101,22 +166,6 @@ async fn get_init_event_payload(
         unvalidated::RawEvent::Time(_) => {
             bail!("init event payload can't be a time event")
         }
-    }
-}
-
-// Helper function to get the block first from the CAR file data or otherwise from the store.
-async fn get_block<S: EventStore>(
-    cid: &Cid,
-    car_blocks: &HashMap<Cid, Vec<u8>>,
-    store: &S,
-) -> Result<Vec<u8>> {
-    if let Some(bytes) = car_blocks.get(cid) {
-        Ok(bytes.clone())
-    } else {
-        Ok(store
-            .get_block(cid)
-            .await?
-            .ok_or_else(|| anyhow!("cannot find block {cid}"))?)
     }
 }
 
@@ -315,7 +364,7 @@ mod tests {
             .returning(move |_| Ok(None));
         let expected = expect![[r#"
             Err(
-                "cannot find block bagcqcerar2aga7747dm6fota3iipogz4q55gkaamcx2weebs6emvtvie2oha",
+                "cannot find init event block bagcqcerar2aga7747dm6fota3iipogz4q55gkaamcx2weebs6emvtvie2oha",
             )
         "#]];
         test_event_id_from_car(DATA_EVENT_CAR, expected, mock_store).await
