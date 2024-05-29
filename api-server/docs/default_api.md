@@ -8,6 +8,7 @@ Method | HTTP request | Description
 ****](default_api.md#) | **GET** /events/{event_id} | Get event data
 ****](default_api.md#) | **POST** /events | Creates a new event
 ****](default_api.md#) | **GET** /experimental/events/{sep}/{sepValue} | Get events matching the interest stored on the node
+****](default_api.md#) | **GET** /experimental/interests | Get the interests stored on the node
 ****](default_api.md#) | **GET** /feed/events | Get all new event keys since resume token
 ****](default_api.md#) | **POST** /interests | Register interest for a sort key
 ****](default_api.md#) | **POST** /interests/{sort_key}/{sort_value} | Register interest for a sort key
@@ -114,6 +115,28 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**models::EventsGet**](EventsGet.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# ****
+> models::InterestsGet ()
+Get the interests stored on the node
+
+### Required Parameters
+This endpoint does not need any parameter.
+
+### Return type
+
+[**models::InterestsGet**](InterestsGet.md)
 
 ### Authorization
 

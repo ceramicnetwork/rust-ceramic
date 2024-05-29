@@ -8,13 +8,13 @@ use iroh_car::CarReader;
 use tokio::io::AsyncRead;
 use tracing::debug;
 
-use crate::AccessModelStore;
+use crate::EventStore;
 
 // Helper function to construct an event ID from CAR data of an event coming in via the HTTP api.
 pub async fn event_id_from_car<R, S>(network: Network, reader: R, store: &S) -> Result<EventId>
 where
     R: AsyncRead + Send + Unpin,
-    S: AccessModelStore,
+    S: EventStore,
 {
     let (event_cid, event) = event_from_car(reader).await?;
     event_id_for_event(event_cid, event, network, store).await
@@ -81,7 +81,7 @@ async fn event_id_for_event<S>(
     store: &S,
 ) -> Result<EventId>
 where
-    S: AccessModelStore,
+    S: EventStore,
 {
     match event {
         unvalidated::Event::Time(time_event) => {
@@ -135,7 +135,7 @@ fn event_id_from_init_payload(
 
 async fn get_init_event_payload_from_store(
     init_cid: &Cid,
-    store: &impl AccessModelStore,
+    store: &impl EventStore,
 ) -> Result<unvalidated::init::Payload<Ipld>> {
     let init_bytes = store
         .get_block(init_cid)
@@ -177,8 +177,8 @@ mod tests {
 
     use crate::tests::{
         decode_multibase_str, mock_get_init_event, mock_get_unsigned_init_event,
-        MockAccessModelStoreTest, DATA_EVENT_CAR, DATA_EVENT_CAR_UNSIGNED_INIT,
-        SIGNED_INIT_EVENT_CAR, TIME_EVENT_CAR, UNSIGNED_INIT_EVENT_CAR,
+        MockEventStoreTest, DATA_EVENT_CAR, DATA_EVENT_CAR_UNSIGNED_INIT, SIGNED_INIT_EVENT_CAR,
+        TIME_EVENT_CAR, UNSIGNED_INIT_EVENT_CAR,
     };
     use async_trait::async_trait;
     use expect_test::{expect, Expect};
@@ -188,7 +188,7 @@ mod tests {
     async fn test_event_id_from_car(
         event_data: &str,
         expected_event_id: Expect,
-        mock_store: MockAccessModelStoreTest,
+        mock_store: MockEventStoreTest,
     ) {
         let event_id = event_id_from_car(
             Network::Mainnet,
@@ -226,12 +226,7 @@ mod tests {
             )
         "#]];
         // Init events do not need to access the store
-        test_event_id_from_car(
-            SIGNED_INIT_EVENT_CAR,
-            expected,
-            MockAccessModelStoreTest::new(),
-        )
-        .await
+        test_event_id_from_car(SIGNED_INIT_EVENT_CAR, expected, MockEventStoreTest::new()).await
     }
 
     #[tokio::test]
@@ -264,7 +259,7 @@ mod tests {
             UNSIGNED_INIT_EVENT_CAR,
             expected,
             // Init events do not need to access the store
-            MockAccessModelStoreTest::new(),
+            MockEventStoreTest::new(),
         )
         .await
     }
@@ -294,9 +289,9 @@ mod tests {
                 },
             )
         "#]];
-        let mut mock_model = MockAccessModelStoreTest::new();
-        mock_get_init_event(&mut mock_model);
-        test_event_id_from_car(DATA_EVENT_CAR, expected, mock_model).await
+        let mut mock_event_store = MockEventStoreTest::new();
+        mock_get_init_event(&mut mock_event_store);
+        test_event_id_from_car(DATA_EVENT_CAR, expected, mock_event_store).await
     }
 
     #[tokio::test]
@@ -324,9 +319,9 @@ mod tests {
                 },
             )
         "#]];
-        let mut mock_model = MockAccessModelStoreTest::new();
-        mock_get_unsigned_init_event(&mut mock_model);
-        test_event_id_from_car(DATA_EVENT_CAR_UNSIGNED_INIT, expected, mock_model).await
+        let mut mock_event_store = MockEventStoreTest::new();
+        mock_get_unsigned_init_event(&mut mock_event_store);
+        test_event_id_from_car(DATA_EVENT_CAR_UNSIGNED_INIT, expected, mock_event_store).await
     }
 
     #[tokio::test]
@@ -354,15 +349,15 @@ mod tests {
                 },
             )
         "#]];
-        let mut mock_model = MockAccessModelStoreTest::new();
-        mock_get_init_event(&mut mock_model);
-        test_event_id_from_car(TIME_EVENT_CAR, expected, mock_model).await
+        let mut mock_event_store = MockEventStoreTest::new();
+        mock_get_init_event(&mut mock_event_store);
+        test_event_id_from_car(TIME_EVENT_CAR, expected, mock_event_store).await
     }
 
     #[tokio::test]
     #[traced_test]
     async fn event_id_from_car_data_event_missing() {
-        let mut mock_store = MockAccessModelStoreTest::new();
+        let mut mock_store = MockEventStoreTest::new();
         mock_store
             .expect_get_block()
             // Report that the block does not exist

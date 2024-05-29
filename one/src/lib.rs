@@ -11,7 +11,7 @@ mod network;
 use std::{env, path::PathBuf, time::Duration};
 
 use anyhow::{anyhow, Result};
-use ceramic_api::{AccessInterestStore, AccessModelStore};
+use ceramic_api::{EventStore, InterestStore};
 use ceramic_core::{EventId, Interest};
 use ceramic_kubo_rpc::Multiaddr;
 use ceramic_metrics::{config::Config as MetricsConfig, MetricsHandle};
@@ -331,9 +331,9 @@ impl Daemon {
         bitswap_block_store: Arc<E3>,
     ) -> Result<()>
     where
-        I1: AccessInterestStore + Send + Sync + 'static,
+        I1: InterestStore + Send + Sync + 'static,
         I2: recon::Store<Key = Interest, Hash = Sha256a> + Send + Sync + 'static,
-        E1: AccessModelStore + Send + Sync + 'static,
+        E1: EventStore + Send + Sync + 'static,
         E2: recon::Store<Key = EventId, Hash = Sha256a> + Send + Sync + 'static,
         E3: iroh_bitswap::Store + Send + Sync + 'static,
     {
@@ -490,7 +490,6 @@ impl Daemon {
             metrics::start(&opts.metrics_bind_address.parse()?);
 
         // Build HTTP server
-        let network = network.clone();
         let ceramic_server = ceramic_api::Server::new(
             peer_id,
             network,

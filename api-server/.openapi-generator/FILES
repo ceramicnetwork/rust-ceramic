@@ -10,6 +10,8 @@ docs/EventData.md
 docs/EventFeed.md
 docs/EventsGet.md
 docs/Interest.md
+docs/InterestsGet.md
+docs/InterestsGetInterestsInner.md
 docs/Version.md
 docs/default_api.md
 examples/ca.pem

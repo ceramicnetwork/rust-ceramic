@@ -5,7 +5,8 @@ use std::{ops::Range, str::FromStr, sync::Arc};
 use crate::server::decode_multibase_data;
 use crate::server::BuildResponse;
 use crate::server::Server;
-use crate::{AccessInterestStore, AccessModelStore};
+use crate::{EventStore, InterestStore};
+
 use anyhow::Result;
 use async_trait::async_trait;
 use ceramic_api_server::Api;
@@ -16,8 +17,10 @@ use ceramic_api_server::{
 };
 use ceramic_core::{Cid, Interest};
 use ceramic_core::{EventId, Network, PeerId, StreamId};
+use expect_test::expect;
 use mockall::{mock, predicate};
 use multibase::Base;
+use recon::Key;
 use tracing_test::traced_test;
 
 struct Context;
@@ -100,41 +103,24 @@ pub fn decode_multibase_str(encoded: &str) -> Vec<u8> {
 }
 
 mock! {
-    pub ReconInterestTest {
-        fn insert(&self, key: Interest, value: Option<Vec<u8>>) -> Result<bool>;
-        fn range_with_values(
+    pub AccessInterestStoreTest {}
+    #[async_trait]
+    impl InterestStore for AccessInterestStoreTest {
+        async fn insert(&self, key: Interest) -> Result<bool>;
+        async fn range(
             &self,
             start: &Interest,
             end: &Interest,
             offset: usize,
             limit: usize,
-        ) -> Result<Vec<(Interest, Vec<u8>)>>;
-    }
-    impl Clone for ReconInterestTest {
-        fn clone(&self) -> Self;
-    }
-}
-#[async_trait]
-impl AccessInterestStore for MockReconInterestTest {
-    async fn insert(&self, key: Interest) -> Result<bool> {
-        self.insert(key, None)
-    }
-    async fn range(
-        &self,
-        start: &Interest,
-        end: &Interest,
-        offset: usize,
-        limit: usize,
-    ) -> Result<Vec<Interest>> {
-        let res = self.range_with_values(start, end, offset, limit)?;
-        Ok(res.into_iter().map(|(k, _)| k).collect())
+        ) -> Result<Vec<Interest>>;
     }
 }
 
 mock! {
-    pub AccessModelStoreTest {}
+    pub EventStoreTest {}
     #[async_trait]
-    impl AccessModelStore for AccessModelStoreTest {
+    impl EventStore for EventStoreTest {
         async fn insert_many(&self, items: &[(EventId, Vec<u8>)]) -> Result<Vec<bool>>;
         async fn range_with_values(
             &self,
@@ -153,8 +139,8 @@ mock! {
     }
 }
 
-/// Given a mock of the AccessModelStore, prepare it to expect calls to load the init event.
-pub fn mock_get_init_event(mock_store: &mut MockAccessModelStoreTest) {
+/// Given a mock of the EventStore, prepare it to expect calls to load the init event.
+pub fn mock_get_init_event(mock_store: &mut MockEventStoreTest) {
     // Expect two get_block calls
 
     // Call to get the init event envelope
@@ -174,8 +160,8 @@ pub fn mock_get_init_event(mock_store: &mut MockAccessModelStoreTest) {
         .return_once(move |_| Ok(Some(decode_multibase_str(SIGNED_INIT_EVENT_PAYLOAD))));
 }
 
-/// Given a mock of the AccessModelStore, prepare it to expect calls to load the unsigned init event.
-pub fn mock_get_unsigned_init_event(mock_store: &mut MockAccessModelStoreTest) {
+/// Given a mock of the EventStore, prepare it to expect calls to load the unsigned init event.
+pub fn mock_get_unsigned_init_event(mock_store: &mut MockEventStoreTest) {
     // Call to get the init event payload
     mock_store
         .expect_get_block()
@@ -197,20 +183,20 @@ async fn create_event() {
         .chars()
         .filter(|c| !c.is_whitespace())
         .collect::<String>();
-    let mock_interest = MockReconInterestTest::new();
-    let mut mock_model = MockAccessModelStoreTest::new();
-    mock_get_init_event(&mut mock_model);
+    let mock_interest = MockAccessInterestStoreTest::new();
+    let mut mock_event_store = MockEventStoreTest::new();
+    mock_get_init_event(&mut mock_event_store);
     let args = vec![(
         expected_event_id,
         decode_multibase_data(&event_data).unwrap(),
     )];
 
-    mock_model
+    mock_event_store
         .expect_insert_many()
         .with(predicate::eq(args))
         .times(1)
         .returning(|_| Ok(vec![true]));
-    let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_model));
+    let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_event_store));
     let resp = server
         .events_post(
             models::EventData {
@@ -246,24 +232,21 @@ async fn register_interest_sort_value() {
         .build_fencepost();
 
     // Setup mock expectations
-    let mut mock_interest = MockReconInterestTest::new();
+    let mut mock_interest = MockAccessInterestStoreTest::new();
     mock_interest
         .expect_insert()
-        .with(
-            predicate::eq(
-                Interest::builder()
-                    .with_sep_key("model")
-                    .with_peer_id(&peer_id)
-                    .with_range((start.as_slice(), end.as_slice()))
-                    .with_not_after(0)
-                    .build(),
-            ),
-            predicate::eq(None),
-        )
+        .with(predicate::eq(
+            Interest::builder()
+                .with_sep_key("model")
+                .with_peer_id(&peer_id)
+                .with_range((start.as_slice(), end.as_slice()))
+                .with_not_after(0)
+                .build(),
+        ))
         .times(1)
-        .returning(|_, _| Ok(true));
-    let mock_model = MockAccessModelStoreTest::new();
-    let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_model));
+        .returning(|_| Ok(true));
+    let mock_event_store = MockEventStoreTest::new();
+    let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_event_store));
     let interest = models::Interest {
         sep: "model".to_string(),
         sep_value: model.to_owned(),
@@ -283,9 +266,9 @@ async fn register_interest_sort_value_bad_request() {
     let model = "2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9"; //missing 'k' cspell:disable-line
 
     // Setup mock expectations
-    let mock_interest = MockReconInterestTest::new();
-    let mock_model = MockAccessModelStoreTest::new();
-    let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_model));
+    let mock_interest = MockAccessInterestStoreTest::new();
+    let mock_event_store = MockEventStoreTest::new();
+    let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_event_store));
     let interest = models::Interest {
         sep: "model".to_string(),
         sep_value: model.to_owned(),
@@ -319,24 +302,21 @@ async fn register_interest_sort_value_controller() {
         .with_max_init()
         .with_max_event()
         .build_fencepost();
-    let mut mock_interest = MockReconInterestTest::new();
+    let mut mock_interest = MockAccessInterestStoreTest::new();
     mock_interest
         .expect_insert()
-        .with(
-            predicate::eq(
-                Interest::builder()
-                    .with_sep_key("model")
-                    .with_peer_id(&peer_id)
-                    .with_range((start.as_slice(), end.as_slice()))
-                    .with_not_after(0)
-                    .build(),
-            ),
-            predicate::eq(None),
-        )
+        .with(predicate::eq(
+            Interest::builder()
+                .with_sep_key("model")
+                .with_peer_id(&peer_id)
+                .with_range((start.as_slice(), end.as_slice()))
+                .with_not_after(0)
+                .build(),
+        ))
         .times(1)
-        .returning(|_, _| Ok(true));
-    let mock_model = MockAccessModelStoreTest::new();
-    let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_model));
+        .returning(|__| Ok(true));
+    let mock_event_store = MockEventStoreTest::new();
+    let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_event_store));
     let resp = server
         .interests_sort_key_sort_value_post(
             "model".to_string(),
@@ -374,24 +354,21 @@ async fn register_interest_value_controller_stream() {
         .with_init(&stream.cid)
         .with_max_event()
         .build_fencepost();
-    let mut mock_interest = MockReconInterestTest::new();
+    let mut mock_interest = MockAccessInterestStoreTest::new();
     mock_interest
         .expect_insert()
-        .with(
-            predicate::eq(
-                Interest::builder()
-                    .with_sep_key("model")
-                    .with_peer_id(&peer_id)
-                    .with_range((start.as_slice(), end.as_slice()))
-                    .with_not_after(0)
-                    .build(),
-            ),
-            predicate::eq(None),
-        )
+        .with(predicate::eq(
+            Interest::builder()
+                .with_sep_key("model")
+                .with_peer_id(&peer_id)
+                .with_range((start.as_slice(), end.as_slice()))
+                .with_not_after(0)
+                .build(),
+        ))
         .times(1)
-        .returning(|_, _| Ok(true));
-    let mock_model = MockAccessModelStoreTest::new();
-    let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_model));
+        .returning(|__| Ok(true));
+    let mock_event_store = MockEventStoreTest::new();
+    let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_event_store));
     let resp = server
         .interests_sort_key_sort_value_post(
             "model".to_string(),
@@ -403,6 +380,75 @@ async fn register_interest_value_controller_stream() {
         .await
         .unwrap();
     assert_eq!(resp, InterestsSortKeySortValuePostResponse::Success);
+}
+
+#[tokio::test]
+async fn get_interests() {
+    let peer_id = PeerId::from_str("1AaNXU5G2SJQSzCCP23V2TEDierSRBBGLA7aSCYScUTke9").unwrap();
+    let network = Network::InMemory;
+    let model = "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9"; // cspell:disable-line
+    let controller = "did:key:zGs1Det7LHNeu7DXT4nvoYrPfj3n6g7d6bj2K4AMXEvg1";
+    let stream =
+        StreamId::from_str("k2t6wz4ylx0qs435j9oi1s6469uekyk6qkxfcb21ikm5ag2g1cook14ole90aw") // cspell:disable-line
+            .unwrap();
+    let start = EventId::builder()
+        .with_network(&network)
+        .with_sep("model", &decode_multibase_data(model).unwrap())
+        .with_controller(controller)
+        .with_init(&stream.cid)
+        .with_min_event()
+        .build_fencepost();
+    let end = EventId::builder()
+        .with_network(&network)
+        .with_sep("model", &decode_multibase_data(model).unwrap())
+        .with_controller(controller)
+        .with_init(&stream.cid)
+        .with_max_event()
+        .build_fencepost();
+    let mut mock_interest = MockAccessInterestStoreTest::new();
+    mock_interest
+        .expect_range()
+        .with(
+            predicate::eq(Interest::min_value()),
+            predicate::eq(Interest::max_value()),
+            predicate::eq(0),
+            predicate::eq(usize::MAX),
+        )
+        .once()
+        .return_once(move |_, _, _, _| {
+            Ok(vec![
+                Interest::builder()
+                    .with_sep_key("model")
+                    .with_peer_id(&peer_id)
+                    .with_range((start.as_slice(), end.as_slice()))
+                    .with_not_after(0)
+                    .build(),
+                Interest::builder()
+                    .with_sep_key("model")
+                    .with_peer_id(&peer_id)
+                    .with_range((start.as_slice(), end.as_slice()))
+                    .with_not_after(1)
+                    .build(),
+            ])
+        });
+
+    let mock_event_store = MockEventStoreTest::new();
+    let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_event_store));
+    let resp = server.experimental_interests_get(&Context).await.unwrap();
+    expect![[r#"
+        Success(
+            InterestsGet {
+                interests: [
+                    InterestsGetInterestsInner {
+                        data: "zwZSodouDdQxpoGdqDjfm1n8r3v18Eoo4si4AFo1UbGArVey2XHwDBwDshSiPN36DDWaE7MprPpBmNrZkDhrFugryq9nnAVyP6M9oTns8fjB4RqR7oCNEX8HDBZAbVVrpXY2QcWHu5Dy",
+                    },
+                    InterestsGetInterestsInner {
+                        data: "zwZSodouDdQxpoGdqDjfm1n8r3v18Eoo4si4AFo1UbGArVey2XHwDBwDshSiPN36DDWaE7MprPpBmNrZkDhrFugryq9nnAVyP6M9oTns8fjB4RqR7oCNEX8HDBZAbVVrpXY2QcWHu5Dz",
+                    },
+                ],
+            },
+        )
+    "#]].assert_debug_eq(&resp);
 }
 #[tokio::test]
 #[traced_test]
@@ -433,10 +479,10 @@ async fn get_events_for_interest_range() {
     l: Success(EventsGet { events: [Event { id: "fce0105ff012616e0f0c1e987ef0f772afbe2c7f05c50102bc800", data: "" }, Event { id: "fce0105ff012616e0f0c1e987ef0f772afbe2c7f05c50102bc8ff", data: "" }], resume_offset: 2, is_complete: false })
     r: Success(EventsGet { events: [Event { id: "fce0105ff012616e0f0c1e987ef0f772afbe2c7f05c50102bc800", data: "" }], resume_offset: 1, is_complete: false })
             */
-    let mock_interest = MockReconInterestTest::new();
+    let mock_interest = MockAccessInterestStoreTest::new();
     let expected = BuildResponse::event(cid.clone(), vec![]);
-    let mut mock_model = MockAccessModelStoreTest::new();
-    mock_model
+    let mut mock_event_store = MockEventStoreTest::new();
+    mock_event_store
         .expect_range_with_values()
         .with(
             predicate::eq(start..end),
@@ -445,7 +491,7 @@ async fn get_events_for_interest_range() {
         )
         .times(1)
         .returning(move |_, _, _| Ok(vec![(cid, vec![])]));
-    let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_model));
+    let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_event_store));
     let resp = server
         .experimental_events_sep_sep_value_get(
             "model".to_string(),
@@ -488,14 +534,14 @@ async fn test_events_event_id_get_by_event_id_success() {
     let event_id_str = multibase::encode(Base::Base16Lower, event_id.to_bytes());
     let event_data = b"event data".to_vec();
     let event_data_base64 = multibase::encode(multibase::Base::Base64, &event_data);
-    let mut mock_model = MockAccessModelStoreTest::new();
-    mock_model
+    let mut mock_event_store = MockEventStoreTest::new();
+    mock_event_store
         .expect_value_for_order_key()
         .with(predicate::eq(event_id))
         .times(1)
         .returning(move |_| Ok(Some(event_data.clone())));
-    let mock_interest = MockReconInterestTest::new();
-    let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_model));
+    let mock_interest = MockAccessInterestStoreTest::new();
+    let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_event_store));
     let result = server.events_event_id_get(event_id_str, &Context).await;
     let EventsEventIdGetResponse::Success(event) = result.unwrap() else {
         panic!("Expected EventsEventIdGetResponse::Success but got another variant");
@@ -516,14 +562,14 @@ async fn test_events_event_id_get_by_cid_success() {
         Cid::from_str("baejbeihyr3kf77etqdccjfoc33dmko2ijyugn6qk6yucfkioasjssz3bbu").unwrap(); // cspell:disable-line
     let event_data = b"event data".to_vec();
     let event_data_base64 = multibase::encode(multibase::Base::Base64, &event_data);
-    let mut mock_model = MockAccessModelStoreTest::new();
-    mock_model
+    let mut mock_event_store = MockEventStoreTest::new();
+    mock_event_store
         .expect_value_for_cid()
         .with(predicate::eq(event_cid))
         .times(1)
         .returning(move |_| Ok(Some(event_data.clone())));
-    let mock_interest = MockReconInterestTest::new();
-    let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_model));
+    let mock_interest = MockAccessInterestStoreTest::new();
+    let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_event_store));
     let result = server
         .events_event_id_get(event_cid.to_string(), &Context)
         .await;

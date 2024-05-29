@@ -105,7 +105,7 @@ impl iroh_bitswap::Store for CeramicEventService {
 }
 
 #[async_trait::async_trait]
-impl ceramic_api::AccessModelStore for CeramicEventService {
+impl ceramic_api::EventStore for CeramicEventService {
     async fn insert_many(&self, items: &[(EventId, Vec<u8>)]) -> anyhow::Result<Vec<bool>> {
         let items = items
             .iter()

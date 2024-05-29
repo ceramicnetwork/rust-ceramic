@@ -6,7 +6,7 @@ info:
     name: MIT
     url: https://mit-license.org/
   title: Ceramic API
-  version: 0.19.0
+  version: 0.20.0
 servers:
 - url: /ceramic
 paths:
@@ -190,6 +190,28 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
           description: Internal server error
       summary: Register interest for a sort key
+  /experimental/interests:
+    get:
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InterestsGet'
+          description: success
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: bad request
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Internal server error
+      summary: Get the interests stored on the node
   /experimental/events/{sep}/{sepValue}:
     get:
       parameters:
@@ -430,6 +452,22 @@ components:
       - resumeOffset
       title: Information about multiple events.
       type: object
+    InterestsGet:
+      description: Ceramic interest keys
+      example:
+        interests:
+        - data: data
+        - data: data
+      properties:
+        interests:
+          description: An array of interests
+          items:
+            $ref: '#/components/schemas/InterestsGet_interests_inner'
+          type: array
+      required:
+      - interests
+      title: Information about multiple interests.
+      type: object
     ErrorResponse:
       description: Error response
       properties:
@@ -465,5 +503,15 @@ components:
       - sep
       - sepValue
       title: A recon interest
+      type: object
+    InterestsGet_interests_inner:
+      example:
+        data: data
+      properties:
+        data:
+          description: The multbase encoded bytes of the interest.
+          type: string
+      required:
+      - data
       type: object
 

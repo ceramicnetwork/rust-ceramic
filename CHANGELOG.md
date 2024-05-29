@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.20.0] - 2024-05-24
+
+### 🚀 Features
+
+- Add interests endpoint for inspecting interests of a node (#353)
+
+### 🐛 Bug Fixes
+
+- Add context to init event header (#360)
+- Events incorrectly left undelivered (#366)
+- Recon protocol stall with no shared interests (#367)
+
 ## [0.19.0] - 2024-05-20
 
 ### 🚀 Features
@@ -35,6 +47,7 @@ All notable changes to this project will be documented in this file.
 - Review and test fixes
 - Unused deps
 - Make event struct fields private (#359)
+- Version v0.19.0 (#361)
 
 ## [0.18.0] - 2024-05-13
 

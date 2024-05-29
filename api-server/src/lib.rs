@@ -20,7 +20,7 @@ use swagger::{ApiError, ContextWrapper};
 type ServiceError = Box<dyn Error + Send + Sync + 'static>;
 
 pub const BASE_PATH: &str = "/ceramic";
-pub const API_VERSION: &str = "0.19.0";
+pub const API_VERSION: &str = "0.20.0";
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[must_use]
@@ -62,6 +62,17 @@ pub enum EventsPostResponse {
 pub enum ExperimentalEventsSepSepValueGetResponse {
     /// success
     Success(models::EventsGet),
+    /// bad request
+    BadRequest(models::BadRequestResponse),
+    /// Internal server error
+    InternalServerError(models::ErrorResponse),
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[must_use]
+pub enum ExperimentalInterestsGetResponse {
+    /// success
+    Success(models::InterestsGet),
     /// bad request
     BadRequest(models::BadRequestResponse),
     /// Internal server error
@@ -159,6 +170,12 @@ pub trait Api<C: Send + Sync> {
         context: &C,
     ) -> Result<ExperimentalEventsSepSepValueGetResponse, ApiError>;
 
+    /// Get the interests stored on the node
+    async fn experimental_interests_get(
+        &self,
+        context: &C,
+    ) -> Result<ExperimentalInterestsGetResponse, ApiError>;
+
     /// Get all new event keys since resume token
     async fn feed_events_get(
         &self,
@@ -227,6 +244,11 @@ pub trait ApiNoContext<C: Send + Sync> {
         offset: Option<i32>,
         limit: Option<i32>,
     ) -> Result<ExperimentalEventsSepSepValueGetResponse, ApiError>;
+
+    /// Get the interests stored on the node
+    async fn experimental_interests_get(
+        &self,
+    ) -> Result<ExperimentalInterestsGetResponse, ApiError>;
 
     /// Get all new event keys since resume token
     async fn feed_events_get(
@@ -322,6 +344,14 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
                 sep, sep_value, controller, stream_id, offset, limit, &context,
             )
             .await
+    }
+
+    /// Get the interests stored on the node
+    async fn experimental_interests_get(
+        &self,
+    ) -> Result<ExperimentalInterestsGetResponse, ApiError> {
+        let context = self.context().clone();
+        self.api().experimental_interests_get(&context).await
     }
 
     /// Get all new event keys since resume token
