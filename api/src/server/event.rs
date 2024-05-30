@@ -16,13 +16,13 @@ where
     R: AsyncRead + Send + Unpin,
     S: EventStore,
 {
-    let (event_cid, event) = event_from_car(reader, false).await?;
+    let (event_cid, event) = event_from_car(reader, true).await?;
     event_id_for_event(event_cid, event, network, store).await
 }
 
 async fn event_from_car<R>(
     reader: R,
-    allow_unexpected_fields: bool,
+    deny_unexpected_fields: bool,
 ) -> Result<(Cid, unvalidated::Event<Ipld>)>
 where
     R: AsyncRead + Send + Unpin,
@@ -46,14 +46,14 @@ where
     let raw_event: unvalidated::RawEvent<Ipld> =
         serde_ipld_dagcbor::from_slice(event_bytes).context("decoding event")?;
 
-    if !allow_unexpected_fields {
+    if deny_unexpected_fields {
         // Re-serialize the event and compare the bytes. This indirectly checks that there were no
         // unexpected fields in the event sent by the client.
         let event_bytes_reserialized = serde_ipld_dagcbor::to_vec(&raw_event)?;
         if !event_bytes.eq(&event_bytes_reserialized) {
-            return Err(anyhow!(
-                "Event bytes do not round-trip. This mostly means the event contains unexpected fields."
-            ));
+            bail!(
+                "Event bytes do not round-trip. This most likely means the event contains unexpected fields."
+            );
         }
     }
 
@@ -70,12 +70,12 @@ where
             let payload: unvalidated::Payload<Ipld> =
                 serde_ipld_dagcbor::from_slice(payload_bytes).context("decoding payload")?;
 
-            if !allow_unexpected_fields {
+            if deny_unexpected_fields {
                 // Re-serialize the payload and compare the bytes. This indirectly checks that there
                 // were no unexpected fields in the event sent by the client.
                 let payload_bytes_reserialized = serde_ipld_dagcbor::to_vec(&payload)?;
                 if !payload_bytes.eq(&payload_bytes_reserialized) {
-                    return Err(anyhow!("Signed event payload bytes do not round-trip. This mostly means the event contains unexpected fields."));
+                    bail!("Signed event payload bytes do not round-trip. This most likely means the event contains unexpected fields.");
                 }
             }
 
