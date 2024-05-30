@@ -1,9 +1,5 @@
-pub mod api;
-
 use std::time::Duration;
 
-use ceramic_kubo_rpc_server::{API_VERSION, BASE_PATH};
-use ceramic_metrics::Recorder;
 use prometheus_client::{
     encoding::EncodeLabelSet,
     metrics::{
@@ -15,17 +11,6 @@ use prometheus_client::{
     registry::Registry,
 };
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
-struct RequestLabels {
-    path: &'static str,
-}
-
-impl From<&Event> for RequestLabels {
-    fn from(value: &Event) -> Self {
-        Self { path: value.path }
-    }
-}
-
 /// Metrics for Kubo RPC API
 #[derive(Clone)]
 pub struct Metrics {
@@ -35,14 +20,31 @@ pub struct Metrics {
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
 struct InfoLabels {
-    base_path: &'static str,
-    version: &'static str,
+    api_version: &'static str,
+    kubo_api_version: &'static str,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+struct RequestLabels {
+    method: String,
+    path: String,
+    status: u16,
+}
+
+impl From<&Event> for RequestLabels {
+    fn from(value: &Event) -> Self {
+        Self {
+            method: value.method.clone(),
+            path: value.path.clone(),
+            status: value.status_code,
+        }
+    }
 }
 
 impl Metrics {
     /// Register and construct Metrics
     pub fn register(registry: &mut Registry) -> Self {
-        let sub_registry = registry.sub_registry_with_prefix("kubo_rpc");
+        let sub_registry = registry.sub_registry_with_prefix("http_api");
 
         let requests = Family::<RequestLabels, Counter>::default();
         sub_registry.register("requests", "Number of HTTP requests", requests.clone());
@@ -57,10 +59,14 @@ impl Metrics {
         );
 
         let info: Info<InfoLabels> = Info::new(InfoLabels {
-            base_path: BASE_PATH,
-            version: API_VERSION,
+            api_version: ceramic_api_server::API_VERSION,
+            kubo_api_version: ceramic_kubo_rpc_server::API_VERSION,
         });
-        sub_registry.register("api", "Information about the Kubo RPC API", info);
+        sub_registry.register(
+            "http_api",
+            "Information about the Ceramic and Kubo APIs",
+            info,
+        );
 
         Self {
             requests,
@@ -69,14 +75,17 @@ impl Metrics {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct Event {
-    pub(crate) path: &'static str,
+    pub(crate) path: String,
+    pub(crate) method: String,
+    pub(crate) status_code: u16,
     pub(crate) duration: Duration,
 }
 
-impl Recorder<Event> for Metrics {
+impl ceramic_metrics::Recorder<Event> for Metrics {
     fn record(&self, event: &Event) {
-        let labels: RequestLabels = event.into();
+        let labels = event.into();
         self.requests.get_or_create(&labels).inc();
         self.request_durations
             .get_or_create(&labels)

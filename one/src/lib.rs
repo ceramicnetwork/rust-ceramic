@@ -5,6 +5,7 @@ mod cbor_value;
 mod ethereum_rpc;
 mod events;
 mod http;
+mod http_metrics;
 mod metrics;
 mod network;
 
@@ -428,9 +429,12 @@ impl Daemon {
         let keypair = load_identity(&mut kc).await?;
         let peer_id = keypair.public().to_peer_id();
 
-        // Create recon metrics
+        // Register metrics for all components
         let recon_metrics = MetricsHandle::register(recon::Metrics::register);
         let store_metrics = MetricsHandle::register(ceramic_store::Metrics::register);
+        let http_metrics = Arc::new(ceramic_metrics::MetricsHandle::register(
+            http_metrics::Metrics::register,
+        ));
 
         // Create recon store for interests.
         let interest_store = ceramic_store::StoreMetricsMiddleware::new(
@@ -496,26 +500,21 @@ impl Daemon {
             interest_api_store,
             Arc::new(model_api_store),
         );
-        let ceramic_metrics = MetricsHandle::register(ceramic_api::Metrics::register);
-        // Wrap server in metrics middleware
-        let ceramic_server = ceramic_api::MetricsMiddleware::new(ceramic_server, ceramic_metrics);
         let ceramic_service = ceramic_api_server::server::MakeService::new(ceramic_server);
         let ceramic_service = MakeAllowAllAuthenticator::new(ceramic_service, "");
         let ceramic_service =
             ceramic_api_server::context::MakeAddContext::<_, EmptyContext>::new(ceramic_service);
 
         let kubo_rpc_server = ceramic_kubo_rpc::http::Server::new(ipfs.api());
-        let kubo_rpc_metrics =
-            ceramic_metrics::MetricsHandle::register(ceramic_kubo_rpc::http::Metrics::register);
-        // Wrap server in metrics middleware
-        let kubo_rpc_server =
-            ceramic_kubo_rpc::http::MetricsMiddleware::new(kubo_rpc_server, kubo_rpc_metrics);
         let kubo_rpc_service = ceramic_kubo_rpc_server::server::MakeService::new(kubo_rpc_server);
         let kubo_rpc_service = MakeAllowAllAuthenticator::new(kubo_rpc_service, "");
         let kubo_rpc_service =
             ceramic_kubo_rpc_server::context::MakeAddContext::<_, EmptyContext>::new(
                 kubo_rpc_service,
             );
+        let kubo_rpc_service =
+            http::MakeMetricsService::new(kubo_rpc_service, http_metrics.clone());
+        let ceramic_service = http::MakeMetricsService::new(ceramic_service, http_metrics);
 
         // Compose both services
         let service = http::MakePrefixService::new(

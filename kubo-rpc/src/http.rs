@@ -3,10 +3,6 @@
 // See https://github.com/tokio-rs/tracing/pull/2880
 #![allow(clippy::blocks_in_conditions)]
 
-mod metrics;
-
-pub use metrics::{api::MetricsMiddleware, Metrics};
-
 use std::{collections::HashSet, marker::PhantomData, str::FromStr, time::Duration};
 
 use anyhow::anyhow;
