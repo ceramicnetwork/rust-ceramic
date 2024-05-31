@@ -46,6 +46,21 @@ paths:
           description: Internal server error
       summary: Get the heap statistics of the Ceramic node
   /version:
+    get:
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Version'
+          description: success
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Internal server error
+      summary: Get the version of the Ceramic node
     post:
       responses:
         "200":
@@ -225,7 +240,7 @@ paths:
           type: string
         style: simple
       - description: The value of the field in the Events header indicated by the
-          separator key me.g. multibase encoded model ID
+          separator key e.g. multibase encoded model ID
         explode: false
         in: path
         name: sepValue

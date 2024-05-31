@@ -26,7 +26,7 @@ use crate::{
     Api, DebugHeapGetResponse, EventsEventIdGetResponse, EventsPostResponse,
     ExperimentalEventsSepSepValueGetResponse, ExperimentalInterestsGetResponse,
     FeedEventsGetResponse, InterestsPostResponse, InterestsSortKeySortValuePostResponse,
-    LivenessGetResponse, VersionPostResponse,
+    LivenessGetResponse, VersionGetResponse, VersionPostResponse,
 };
 
 mod paths {
@@ -1087,6 +1087,58 @@ where
                     Ok(response)
                 }
 
+                // VersionGet - GET /version
+                hyper::Method::GET if path.matched(paths::ID_VERSION) => {
+                    let result = api_impl.version_get(&context).await;
+                    let mut response = Response::new(Body::empty());
+                    response.headers_mut().insert(
+                        HeaderName::from_static("x-span-id"),
+                        HeaderValue::from_str(
+                            (&context as &dyn Has<XSpanIdString>)
+                                .get()
+                                .0
+                                .clone()
+                                .as_str(),
+                        )
+                        .expect("Unable to create X-Span-ID header value"),
+                    );
+
+                    match result {
+                        Ok(rsp) => match rsp {
+                            VersionGetResponse::Success(body) => {
+                                *response.status_mut() = StatusCode::from_u16(200)
+                                    .expect("Unable to turn 200 into a StatusCode");
+                                response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for VERSION_GET_SUCCESS"));
+                                let body_content = serde_json::to_string(&body)
+                                    .expect("impossible to fail to serialize");
+                                *response.body_mut() = Body::from(body_content);
+                            }
+                            VersionGetResponse::InternalServerError(body) => {
+                                *response.status_mut() = StatusCode::from_u16(500)
+                                    .expect("Unable to turn 500 into a StatusCode");
+                                response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for VERSION_GET_INTERNAL_SERVER_ERROR"));
+                                let body_content = serde_json::to_string(&body)
+                                    .expect("impossible to fail to serialize");
+                                *response.body_mut() = Body::from(body_content);
+                            }
+                        },
+                        Err(_) => {
+                            // Application code returned an error. This should not happen, as the implementation should
+                            // return a valid response.
+                            *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                            *response.body_mut() = Body::from("An internal error occurred");
+                        }
+                    }
+
+                    Ok(response)
+                }
+
                 // VersionPost - POST /version
                 hyper::Method::POST if path.matched(paths::ID_VERSION) => {
                     let result = api_impl.version_post(&context).await;
@@ -1193,6 +1245,8 @@ impl<T> RequestParser<T> for ApiRequestParser {
             }
             // LivenessGet - GET /liveness
             hyper::Method::GET if path.matched(paths::ID_LIVENESS) => Some("LivenessGet"),
+            // VersionGet - GET /version
+            hyper::Method::GET if path.matched(paths::ID_VERSION) => Some("VersionGet"),
             // VersionPost - POST /version
             hyper::Method::POST if path.matched(paths::ID_VERSION) => Some("VersionPost"),
             _ => None,

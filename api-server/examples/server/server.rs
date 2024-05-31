@@ -104,7 +104,7 @@ use ceramic_api_server::{
     Api, DebugHeapGetResponse, EventsEventIdGetResponse, EventsPostResponse,
     ExperimentalEventsSepSepValueGetResponse, ExperimentalInterestsGetResponse,
     FeedEventsGetResponse, InterestsPostResponse, InterestsSortKeySortValuePostResponse,
-    LivenessGetResponse, VersionPostResponse,
+    LivenessGetResponse, VersionGetResponse, VersionPostResponse,
 };
 use std::error::Error;
 use swagger::ApiError;
@@ -231,6 +231,12 @@ where
     /// Test the liveness of the Ceramic node
     async fn liveness_get(&self, context: &C) -> Result<LivenessGetResponse, ApiError> {
         info!("liveness_get() - X-Span-ID: {:?}", context.get().0.clone());
+        Err(ApiError("Generic failure".into()))
+    }
+
+    /// Get the version of the Ceramic node
+    async fn version_get(&self, context: &C) -> Result<VersionGetResponse, ApiError> {
+        info!("version_get() - X-Span-ID: {:?}", context.get().0.clone());
         Err(ApiError("Generic failure".into()))
     }
 

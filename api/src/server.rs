@@ -25,7 +25,8 @@ use ceramic_api_server::models::{BadRequestResponse, ErrorResponse, EventData};
 use ceramic_api_server::{
     models::{self, Event},
     DebugHeapGetResponse, EventsEventIdGetResponse, EventsPostResponse,
-    InterestsSortKeySortValuePostResponse, LivenessGetResponse, VersionPostResponse,
+    InterestsSortKeySortValuePostResponse, LivenessGetResponse, VersionGetResponse,
+    VersionPostResponse,
 };
 use ceramic_api_server::{
     Api, ExperimentalEventsSepSepValueGetResponse, ExperimentalInterestsGetResponse,
@@ -674,6 +675,14 @@ where
         Ok(DebugHeapGetResponse::BadRequest(
             models::BadRequestResponse::new("unsupported platform".to_string()),
         ))
+    }
+
+    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
+    async fn version_get(&self, _context: &C) -> Result<VersionGetResponse, ApiError> {
+        let resp = VersionGetResponse::Success(models::Version {
+            version: Some(ceramic_metadata::Version::default().version),
+        });
+        Ok(resp)
     }
 
     #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]

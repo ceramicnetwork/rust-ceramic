@@ -51,6 +51,21 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
   /version:
+    get:
+      summary: Get the version of the Ceramic node
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Version"
+          description: success
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
     post:
       summary: Get the version of the Ceramic node
       responses:
@@ -218,7 +233,7 @@ paths:
           required: true
         - name: sepValue
           in: path
-          description: The value of the field in the Events header indicated by the separator key me.g. multibase encoded model ID
+          description: The value of the field in the Events header indicated by the separator key e.g. multibase encoded model ID
           schema:
             type: string
           required: true

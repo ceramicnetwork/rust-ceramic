@@ -123,6 +123,15 @@ pub enum LivenessGetResponse {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[must_use]
+pub enum VersionGetResponse {
+    /// success
+    Success(models::Version),
+    /// Internal server error
+    InternalServerError(models::ErrorResponse),
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[must_use]
 pub enum VersionPostResponse {
     /// success
     Success(models::Version),
@@ -205,6 +214,9 @@ pub trait Api<C: Send + Sync> {
     async fn liveness_get(&self, context: &C) -> Result<LivenessGetResponse, ApiError>;
 
     /// Get the version of the Ceramic node
+    async fn version_get(&self, context: &C) -> Result<VersionGetResponse, ApiError>;
+
+    /// Get the version of the Ceramic node
     async fn version_post(&self, context: &C) -> Result<VersionPostResponse, ApiError>;
 }
 
@@ -274,6 +286,9 @@ pub trait ApiNoContext<C: Send + Sync> {
 
     /// Test the liveness of the Ceramic node
     async fn liveness_get(&self) -> Result<LivenessGetResponse, ApiError>;
+
+    /// Get the version of the Ceramic node
+    async fn version_get(&self) -> Result<VersionGetResponse, ApiError>;
 
     /// Get the version of the Ceramic node
     async fn version_post(&self) -> Result<VersionPostResponse, ApiError>;
@@ -393,6 +408,12 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
     async fn liveness_get(&self) -> Result<LivenessGetResponse, ApiError> {
         let context = self.context().clone();
         self.api().liveness_get(&context).await
+    }
+
+    /// Get the version of the Ceramic node
+    async fn version_get(&self) -> Result<VersionGetResponse, ApiError> {
+        let context = self.context().clone();
+        self.api().version_get(&context).await
     }
 
     /// Get the version of the Ceramic node

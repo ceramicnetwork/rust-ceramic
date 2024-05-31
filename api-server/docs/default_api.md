@@ -13,6 +13,7 @@ Method | HTTP request | Description
 ****](default_api.md#) | **POST** /interests | Register interest for a sort key
 ****](default_api.md#) | **POST** /interests/{sort_key}/{sort_value} | Register interest for a sort key
 ****](default_api.md#) | **GET** /liveness | Test the liveness of the Ceramic node
+****](default_api.md#) | **GET** /version | Get the version of the Ceramic node
 ****](default_api.md#) | **POST** /version | Get the version of the Ceramic node
 
 
@@ -97,7 +98,7 @@ Get events matching the interest stored on the node
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
   **sep** | **String**| Name of the field in the Events header that holds the separator value e.g. 'model' | 
-  **sep_value** | **String**| The value of the field in the Events header indicated by the separator key me.g. multibase encoded model ID | 
+  **sep_value** | **String**| The value of the field in the Events header indicated by the separator key e.g. multibase encoded model ID | 
  **optional** | **map[string]interface{}** | optional parameters | nil if no parameters
 
 ### Optional Parameters
@@ -106,7 +107,7 @@ Optional parameters are passed through a map[string]interface{}.
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
  **sep** | **String**| Name of the field in the Events header that holds the separator value e.g. 'model' | 
- **sep_value** | **String**| The value of the field in the Events header indicated by the separator key me.g. multibase encoded model ID | 
+ **sep_value** | **String**| The value of the field in the Events header indicated by the separator key e.g. multibase encoded model ID | 
  **controller** | **String**| the controller to filter (DID string) | 
  **stream_id** | **String**| the stream to filter (multibase encoded stream ID) | 
  **offset** | **i32**| token that designates the point to resume from, that is find keys added after this point | 
@@ -254,6 +255,28 @@ This endpoint does not need any parameter.
 ### Return type
 
  (empty response body)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# ****
+> models::Version ()
+Get the version of the Ceramic node
+
+### Required Parameters
+This endpoint does not need any parameter.
+
+### Return type
+
+[**models::Version**](Version.md)
 
 ### Authorization
 
