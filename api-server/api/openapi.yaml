@@ -341,6 +341,29 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
           description: Internal server error
       summary: Get all new event keys since resume token
+  /feed/resumeToken:
+    get:
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/_feed_resumeToken_get_200_response'
+          description: success
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: bad request
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Internal server error
+      summary: Get the current (maximum) highwater mark/continuation token of the
+        feed. Allows starting `feed/events` from 'now'.
 components:
   requestBodies:
     EventData:
@@ -518,6 +541,17 @@ components:
       - sep
       - sepValue
       title: A recon interest
+      type: object
+    _feed_resumeToken_get_200_response:
+      example:
+        resumeToken: resumeToken
+      properties:
+        resumeToken:
+          description: The highwater mark/resume token to use with the event/feed
+            endpoint.
+          type: string
+      required:
+      - resumeToken
       type: object
     InterestsGet_interests_inner:
       example:

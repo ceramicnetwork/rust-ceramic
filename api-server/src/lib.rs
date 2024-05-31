@@ -92,6 +92,17 @@ pub enum FeedEventsGetResponse {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[must_use]
+pub enum FeedResumeTokenGetResponse {
+    /// success
+    Success(models::FeedResumeTokenGet200Response),
+    /// bad request
+    BadRequest(models::BadRequestResponse),
+    /// Internal server error
+    InternalServerError(models::ErrorResponse),
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[must_use]
 pub enum InterestsPostResponse {
     /// success
     Success,
@@ -193,6 +204,12 @@ pub trait Api<C: Send + Sync> {
         context: &C,
     ) -> Result<FeedEventsGetResponse, ApiError>;
 
+    /// Get the current (maximum) highwater mark/continuation token of the feed. Allows starting `feed/events` from 'now'.
+    async fn feed_resume_token_get(
+        &self,
+        context: &C,
+    ) -> Result<FeedResumeTokenGetResponse, ApiError>;
+
     /// Register interest for a sort key
     async fn interests_post(
         &self,
@@ -268,6 +285,9 @@ pub trait ApiNoContext<C: Send + Sync> {
         resume_at: Option<String>,
         limit: Option<i32>,
     ) -> Result<FeedEventsGetResponse, ApiError>;
+
+    /// Get the current (maximum) highwater mark/continuation token of the feed. Allows starting `feed/events` from 'now'.
+    async fn feed_resume_token_get(&self) -> Result<FeedResumeTokenGetResponse, ApiError>;
 
     /// Register interest for a sort key
     async fn interests_post(
@@ -377,6 +397,12 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
     ) -> Result<FeedEventsGetResponse, ApiError> {
         let context = self.context().clone();
         self.api().feed_events_get(resume_at, limit, &context).await
+    }
+
+    /// Get the current (maximum) highwater mark/continuation token of the feed. Allows starting `feed/events` from 'now'.
+    async fn feed_resume_token_get(&self) -> Result<FeedResumeTokenGetResponse, ApiError> {
+        let context = self.context().clone();
+        self.api().feed_resume_token_get(&context).await
     }
 
     /// Register interest for a sort key

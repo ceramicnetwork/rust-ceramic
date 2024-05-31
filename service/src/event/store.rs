@@ -153,6 +153,10 @@ impl ceramic_api::EventStore for CeramicEventService {
         Ok(CeramicOneEvent::new_events_since_value(&self.pool, highwater, limit).await?)
     }
 
+    async fn highwater_mark(&self) -> anyhow::Result<i64> {
+        Ok(CeramicOneEvent::get_highwater_mark(&self.pool).await?)
+    }
+
     async fn get_block(&self, cid: &Cid) -> anyhow::Result<Option<Vec<u8>>> {
         let block = CeramicOneBlock::get(&self.pool, cid).await?;
         Ok(block.map(|b| b.data.to_vec()))

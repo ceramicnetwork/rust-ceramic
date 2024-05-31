@@ -316,6 +316,34 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  "/feed/resumeToken":
+    get:
+      summary: Get the current (maximum) highwater mark/continuation token of the feed. Allows starting `feed/events` from 'now'.
+      responses:
+        "200":
+          description: success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - resumeToken
+                properties:
+                  resumeToken:
+                    type: string
+                    description: The highwater mark/resume token to use with the event/feed endpoint.
+        "400":
+          description: bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BadRequestResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 components:
   requestBodies:
     EventData:

@@ -103,8 +103,9 @@ use ceramic_api_server::server::MakeService;
 use ceramic_api_server::{
     Api, DebugHeapGetResponse, EventsEventIdGetResponse, EventsPostResponse,
     ExperimentalEventsSepSepValueGetResponse, ExperimentalInterestsGetResponse,
-    FeedEventsGetResponse, InterestsPostResponse, InterestsSortKeySortValuePostResponse,
-    LivenessGetResponse, VersionGetResponse, VersionPostResponse,
+    FeedEventsGetResponse, FeedResumeTokenGetResponse, InterestsPostResponse,
+    InterestsSortKeySortValuePostResponse, LivenessGetResponse, VersionGetResponse,
+    VersionPostResponse,
 };
 use std::error::Error;
 use swagger::ApiError;
@@ -189,6 +190,18 @@ where
             "feed_events_get({:?}, {:?}) - X-Span-ID: {:?}",
             resume_at,
             limit,
+            context.get().0.clone()
+        );
+        Err(ApiError("Generic failure".into()))
+    }
+
+    /// Get the current (maximum) highwater mark/continuation token of the feed. Allows starting `feed/events` from 'now'.
+    async fn feed_resume_token_get(
+        &self,
+        context: &C,
+    ) -> Result<FeedResumeTokenGetResponse, ApiError> {
+        info!(
+            "feed_resume_token_get() - X-Span-ID: {:?}",
             context.get().0.clone()
         );
         Err(ApiError("Generic failure".into()))

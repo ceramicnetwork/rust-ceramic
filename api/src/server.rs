@@ -30,7 +30,7 @@ use ceramic_api_server::{
 };
 use ceramic_api_server::{
     Api, ExperimentalEventsSepSepValueGetResponse, ExperimentalInterestsGetResponse,
-    FeedEventsGetResponse, InterestsPostResponse,
+    FeedEventsGetResponse, FeedResumeTokenGetResponse, InterestsPostResponse,
 };
 use ceramic_core::{Cid, EventId, Interest, Network, PeerId, StreamId};
 use futures::TryFutureExt;
@@ -192,6 +192,8 @@ pub trait EventStore: Send + Sync {
         limit: i64,
     ) -> Result<(i64, Vec<Cid>)>;
 
+    async fn highwater_mark(&self) -> Result<i64>;
+
     async fn get_block(&self, cid: &Cid) -> Result<Option<Vec<u8>>>;
 }
 
@@ -226,6 +228,10 @@ impl<S: EventStore> EventStore for Arc<S> {
         self.as_ref()
             .events_since_highwater_mark(highwater, limit)
             .await
+    }
+
+    async fn highwater_mark(&self) -> Result<i64> {
+        self.as_ref().highwater_mark().await
     }
     async fn get_block(&self, cid: &Cid) -> Result<Option<Vec<u8>>> {
         self.as_ref().get_block(cid).await
@@ -378,6 +384,20 @@ where
             resume_token: new_hw.to_string(),
             events,
         }))
+    }
+
+    pub async fn get_feed_resume_token(&self) -> Result<FeedResumeTokenGetResponse, ErrorResponse> {
+        let hw = self
+            .model
+            .highwater_mark()
+            .await
+            .map_err(|e| ErrorResponse::new(format!("failed to get highwater mark: {e}")))?;
+
+        Ok(FeedResumeTokenGetResponse::Success(
+            models::FeedResumeTokenGet200Response {
+                resume_token: hw.to_string(),
+            },
+        ))
     }
 
     pub async fn get_interests(&self) -> Result<ExperimentalInterestsGetResponse, ErrorResponse> {
@@ -703,6 +723,16 @@ where
         self.get_event_feed(resume_at, limit)
             .await
             .or_else(|err| Ok(FeedEventsGetResponse::InternalServerError(err)))
+    }
+
+    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
+    async fn feed_resume_token_get(
+        &self,
+        _context: &C,
+    ) -> Result<FeedResumeTokenGetResponse, ApiError> {
+        self.get_feed_resume_token()
+            .await
+            .or_else(|err| Ok(FeedResumeTokenGetResponse::InternalServerError(err)))
     }
 
     async fn experimental_interests_get(

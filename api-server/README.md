@@ -15,7 +15,7 @@ To see how to make this your own, look here:
 [README]((https://openapi-generator.tech))
 
 - API version: 0.21.0
-- Build date: 2024-06-03T09:28:33.738904-06:00[America/Denver]
+- Build date: 2024-06-03T09:28:50.638487-06:00[America/Denver]
 
 
 
@@ -67,6 +67,7 @@ cargo run --example client EventsEventIdGet
 cargo run --example client ExperimentalEventsSepSepValueGet
 cargo run --example client ExperimentalInterestsGet
 cargo run --example client FeedEventsGet
+cargo run --example client FeedResumeTokenGet
 cargo run --example client InterestsSortKeySortValuePost
 cargo run --example client LivenessGet
 cargo run --example client VersionGet
@@ -110,6 +111,7 @@ Method | HTTP request | Description
 [****](docs/default_api.md#) | **GET** /experimental/events/{sep}/{sepValue} | Get events matching the interest stored on the node
 [****](docs/default_api.md#) | **GET** /experimental/interests | Get the interests stored on the node
 [****](docs/default_api.md#) | **GET** /feed/events | Get all new event keys since resume token
+[****](docs/default_api.md#) | **GET** /feed/resumeToken | Get the current (maximum) highwater mark/continuation token of the feed. Allows starting `feed/events` from 'now'.
 [****](docs/default_api.md#) | **POST** /interests | Register interest for a sort key
 [****](docs/default_api.md#) | **POST** /interests/{sort_key}/{sort_value} | Register interest for a sort key
 [****](docs/default_api.md#) | **GET** /liveness | Test the liveness of the Ceramic node
@@ -125,6 +127,7 @@ Method | HTTP request | Description
  - [EventData](docs/EventData.md)
  - [EventFeed](docs/EventFeed.md)
  - [EventsGet](docs/EventsGet.md)
+ - [FeedResumeTokenGet200Response](docs/FeedResumeTokenGet200Response.md)
  - [Interest](docs/Interest.md)
  - [InterestsGet](docs/InterestsGet.md)
  - [InterestsGetInterestsInner](docs/InterestsGetInterestsInner.md)

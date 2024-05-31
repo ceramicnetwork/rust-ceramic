@@ -135,6 +135,9 @@ mock! {
             highwater: i64,
             limit: i64,
         ) -> Result<(i64, Vec<Cid>)>;
+        async fn highwater_mark(
+            &self,
+        ) -> Result<i64>;
         async fn get_block(& self, cid: &Cid) -> Result<Option<Vec<u8>>>;
     }
 }

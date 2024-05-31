@@ -9,6 +9,7 @@ docs/Event.md
 docs/EventData.md
 docs/EventFeed.md
 docs/EventsGet.md
+docs/FeedResumeTokenGet200Response.md
 docs/Interest.md
 docs/InterestsGet.md
 docs/InterestsGetInterestsInner.md
