@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.21.0] - 2024-06-03
+
+### 🚀 Features
+
+- Adjust prom metrics to capture path info and status codes  (#364)
+- Disallow events with unexpected fields via the http api (#363)
+
+### ⚙️ Miscellaneous Tasks
+
+- Rename store traits to InterestStore and EventStore (#365)
+- Deserialize CAR into Event before extracting EventID. (#362)
+
 ## [0.20.0] - 2024-05-24
 
 ### 🚀 Features
@@ -13,6 +25,10 @@ All notable changes to this project will be documented in this file.
 - Add context to init event header (#360)
 - Events incorrectly left undelivered (#366)
 - Recon protocol stall with no shared interests (#367)
+
+### ⚙️ Miscellaneous Tasks
+
+- Version v0.20.0 (#368)
 
 ## [0.19.0] - 2024-05-20
 
