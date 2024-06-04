@@ -217,6 +217,14 @@ where
         )
         .await
     }
+    async fn highwater_mark(&self) -> anyhow::Result<i64> {
+        StoreMetricsMiddleware::<S>::record(
+            &self.metrics,
+            "api_highwater_mark",
+            self.store.highwater_mark(),
+        )
+        .await
+    }
     async fn get_block(&self, cid: &Cid) -> anyhow::Result<Option<Vec<u8>>> {
         StoreMetricsMiddleware::<S>::record(
             &self.metrics,

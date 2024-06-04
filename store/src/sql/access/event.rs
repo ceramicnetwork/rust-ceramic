@@ -78,6 +78,11 @@ impl CeramicOneEvent {
         Ok(())
     }
 
+    /// Get the current highwater mark for delivered events.
+    pub async fn get_highwater_mark(_pool: &SqlitePool) -> Result<i64> {
+        Ok(GLOBAL_COUNTER.load(Ordering::Relaxed))
+    }
+
     /// Mark an event ready to deliver to js-ceramic or other clients. This implies it's valid and it's previous events are known.
     pub async fn mark_ready_to_deliver(conn: &mut SqliteTransaction<'_>, key: &Cid) -> Result<()> {
         // Fetch add happens with an open transaction (on one writer for the db) so we're guaranteed to get a unique value
