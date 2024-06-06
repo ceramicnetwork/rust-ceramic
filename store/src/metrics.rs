@@ -43,13 +43,13 @@ impl From<&StorageQuery> for QueryLabels {
 pub struct Metrics {
     key_value_insert_count: Counter,
 
-    store_query_durations: Family<QueryLabels, Histogram>,
+    query_durations: Family<QueryLabels, Histogram>,
 }
 
 impl Metrics {
     /// Register and construct Metrics
     pub fn register(registry: &mut Registry) -> Self {
-        let sub_registry = registry.sub_registry_with_prefix("ceramic_store");
+        let sub_registry = registry.sub_registry_with_prefix("store");
 
         register!(
             key_value_insert_count,
@@ -59,7 +59,7 @@ impl Metrics {
         );
 
         register!(
-            store_query_durations,
+            query_durations,
             "Durations of store queries in seconds",
             Family::<QueryLabels, Histogram>::new_with_constructor(|| {
                 Histogram::new(exponential_buckets(0.005, 2.0, 20))
@@ -69,7 +69,7 @@ impl Metrics {
 
         Self {
             key_value_insert_count,
-            store_query_durations,
+            query_durations,
         }
     }
 }
@@ -83,7 +83,7 @@ impl Recorder<InsertEvent> for Metrics {
 impl Recorder<StorageQuery> for Metrics {
     fn record(&self, event: &StorageQuery) {
         let labels: QueryLabels = event.into();
-        self.store_query_durations
+        self.query_durations
             .get_or_create(&labels)
             .observe(event.duration.as_secs_f64());
     }
