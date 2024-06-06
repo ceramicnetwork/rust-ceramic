@@ -240,6 +240,13 @@ fn reduce_prom_cardinality(mut event: Event) -> Event {
                 && event.path.split('/').count() == 4
             {
                 event.path = "/ceramic/events/{event_id}".to_string();
+            } else if event
+                .path
+                .strip_prefix("/ceramic/experimental/events/")
+                .is_some()
+                && event.path.split('/').count() == 6
+            {
+                event.path = "/ceramic/experimental/events/{sep_key}/{sep_value}".to_string();
             }
         }
         "POST" => {
@@ -281,6 +288,17 @@ mod test {
         });
         assert_eq!(&get_event.path, "/ceramic/events/{event_id}");
 
+        let experimental_get = reduce_prom_cardinality(Event {
+            method: "GET".to_string(),
+            path: "/ceramic/experimental/events/model/k2t6wz4z9kggnsqejudguto4u2wqbepja581hy1dsfs16ltohp1ncxs8d1rbvr".to_string(),
+            status_code: 200,
+            duration: std::time::Duration::from_secs(1),
+        });
+        assert_eq!(
+            &experimental_get.path,
+            "/ceramic/experimental/events/{sep_key}/{sep_value}"
+        );
+
         let interest = reduce_prom_cardinality(Event {
             method: "POST".to_string(),
             path: "/ceramic/interests/model/1234".to_string(),
@@ -311,6 +329,17 @@ mod test {
         });
         assert_ne!(&get_event.path, "/ceramic/events/{event_id}");
 
+        let experimental_get = reduce_prom_cardinality(Event {
+            method: "POST".to_string(),
+            path: "/ceramic/experimental/events/model/k2t6wz4z9kggnsqejudguto4u2wqbepja581hy1dsfs16ltohp1ncxs8d1rbvr".to_string(),
+            status_code: 200,
+            duration: std::time::Duration::from_secs(1),
+        });
+        assert_ne!(
+            &experimental_get.path,
+            "/ceramic/experimental/events/{sep_key}/{sep_value}"
+        );
+
         let interest = reduce_prom_cardinality(Event {
             method: "GET".to_string(),
             path: "/ceramic/interests/model/1234".to_string(),
@@ -340,6 +369,17 @@ mod test {
             duration: std::time::Duration::from_secs(1),
         });
         assert_ne!(&get_event.path, "/ceramic/events/{event_id}");
+
+        let experimental_get = reduce_prom_cardinality(Event {
+            method: "POST".to_string(),
+            path: "/ceramic/experimental/events/model/k2t6wz4z9kggnsqejudguto4u2wqbepja581hy1dsfs16ltohp1ncxs8d1rbvr/123".to_string(),
+            status_code: 200,
+            duration: std::time::Duration::from_secs(1),
+        });
+        assert_ne!(
+            &experimental_get.path,
+            "/ceramic/experimental/events/{sep_key}/{sep_value}"
+        );
 
         let interest = reduce_prom_cardinality(Event {
             method: "POST".to_string(),
