@@ -26,7 +26,7 @@ impl<D> Payload<D> {
 }
 
 /// Headers for an init event
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Header {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -80,5 +80,15 @@ impl Header {
     /// Signal to indexers whether this stream should be indexed
     pub fn should_index(&self) -> bool {
         self.should_index.unwrap_or(true)
+    }
+
+    /// The unique value for the stream
+    pub fn unique(&self) -> Option<&[u8]> {
+        self.unique.as_ref().map(Bytes::as_slice)
+    }
+
+    /// The context value for the stream
+    pub fn context(&self) -> Option<&[u8]> {
+        self.context.as_ref().map(Bytes::as_slice)
     }
 }
