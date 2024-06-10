@@ -22,7 +22,6 @@ iroh-bitswap.workspace = true
 itertools = "0.12"
 multihash-codetable.workspace = true
 recon.workspace = true
-serde_ipld_dagcbor.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
