@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.22.0] - 2024-06-10
+
+### 🚀 Features
+
+- Get feed highwater mark to start from "now" (#370)
+
+### ⚙️ Miscellaneous Tasks
+
+- Fix prom cardinality for test path (#372)
+
 ## [0.21.0] - 2024-06-03
 
 ### 🚀 Features
@@ -13,6 +23,7 @@ All notable changes to this project will be documented in this file.
 
 - Rename store traits to InterestStore and EventStore (#365)
 - Deserialize CAR into Event before extracting EventID. (#362)
+- Version v0.21.0 (#371)
 
 ## [0.20.0] - 2024-05-24
 
