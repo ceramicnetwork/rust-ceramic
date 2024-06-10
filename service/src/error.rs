@@ -81,18 +81,10 @@ impl Error {
 impl From<Error> for recon::Error {
     fn from(value: Error) -> Self {
         match value {
-            Error::Application { error } => recon::Error::Application {
-                error: error.context("recon error"),
-            },
-            Error::Fatal { error } => recon::Error::Fatal {
-                error: error.context("recon error"),
-            },
-            Error::Transient { error } => recon::Error::Transient {
-                error: error.context("recon error"),
-            },
-            Error::InvalidArgument { error } => recon::Error::Application {
-                error: error.context("recon error"),
-            },
+            Error::Application { error } => recon::Error::Application { error },
+            Error::Fatal { error } => recon::Error::Fatal { error },
+            Error::Transient { error } => recon::Error::Transient { error },
+            Error::InvalidArgument { error } => recon::Error::Application { error },
         }
     }
 }
@@ -100,15 +92,10 @@ impl From<Error> for recon::Error {
 impl From<ceramic_store::Error> for Error {
     fn from(value: ceramic_store::Error) -> Self {
         match value {
-            ceramic_store::Error::Application { error } => Error::Application {
-                error: error.context("store error"),
-            },
-            ceramic_store::Error::Fatal { error } => Error::Fatal {
-                error: error.context("store error"),
-            },
-            ceramic_store::Error::Transient { error } => Error::Transient {
-                error: error.context("store error"),
-            },
+            ceramic_store::Error::Application { error } => Error::Application { error },
+            ceramic_store::Error::Fatal { error } => Error::Fatal { error },
+            ceramic_store::Error::Transient { error } => Error::Transient { error },
+            ceramic_store::Error::InvalidArgument { error } => Error::InvalidArgument { error },
         }
     }
 }
