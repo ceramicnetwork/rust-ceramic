@@ -1,3 +1,8 @@
+use cid::Cid;
+use sqlx::{sqlite::SqliteRow, Row};
+
+use super::StreamCid;
+
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct StreamRow {
     pub cid: Vec<u8>,
@@ -27,5 +32,30 @@ impl StreamCommitRow {
             JOIN ceramic_one_event_header eh on eh.stream_cid = s.cid
             JOIN ceramic_one_event e on e.cid = eh.cid
         WHERE s.cid = $1"#
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct IncompleteStream {
+    pub stream_cid: StreamCid,
+}
+
+impl IncompleteStream {
+    pub fn fetch_all_with_undelivered() -> &'static str {
+        r#"
+        SELECT DISTINCT s.cid as "stream_cid" 
+        FROM ceramic_one_stream s
+            JOIN ceramic_one_event_header eh on eh.stream_cid = s.cid
+            JOIN ceramic_one_event e on e.cid = eh.cid
+        WHERE e.delivered is NULL and s.cid > $1
+        LIMIT $2"#
+    }
+}
+
+impl sqlx::FromRow<'_, SqliteRow> for IncompleteStream {
+    fn from_row(row: &SqliteRow) -> sqlx::Result<Self> {
+        let cid: Vec<u8> = row.try_get("stream_cid")?;
+        let stream_cid = Cid::try_from(cid).map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+        Ok(Self { stream_cid })
     }
 }

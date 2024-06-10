@@ -3,7 +3,8 @@ use cid::Cid;
 
 use crate::{
     sql::entities::{
-        EventHeader, EventHeaderRow, EventType, StreamCid, StreamCommitRow, StreamRow,
+        EventHeader, EventHeaderRow, EventType, IncompleteStream, StreamCid, StreamCommitRow,
+        StreamRow,
     },
     Error, Result, SqlitePool, SqliteTransaction,
 };
@@ -12,7 +13,7 @@ use crate::{
 pub struct CeramicOneStream {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-/// Represents a stream event in a way that allows ordering it in the stream.
+/// Represents a stream event in a way that allows ordering it in the stream. It is metadata and not the event payload itself.
 pub struct StreamCommit {
     /// The event CID
     pub cid: Cid,
@@ -68,6 +69,21 @@ impl CeramicOneStream {
             .collect();
 
         Ok(res)
+    }
+
+    /// Load streams with undelivered events to see if they need to be delivered now.
+    pub async fn load_stream_cids_with_undelivered_events(
+        pool: &SqlitePool,
+        last_cid: StreamCid,
+    ) -> Result<Vec<StreamCid>> {
+        let streams: Vec<IncompleteStream> =
+            sqlx::query_as(IncompleteStream::fetch_all_with_undelivered())
+                .bind(last_cid.to_bytes())
+                .bind(1000)
+                .fetch_all(pool.reader())
+                .await?;
+
+        Ok(streams.into_iter().map(|s| s.stream_cid).collect())
     }
 
     pub(crate) async fn insert_tx(

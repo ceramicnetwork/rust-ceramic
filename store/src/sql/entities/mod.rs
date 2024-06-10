@@ -11,7 +11,7 @@ pub use event::{rebuild_car, EventInsertable, EventInsertableBody};
 pub use event_block::{EventBlockRaw, ReconEventBlockRaw};
 pub use event_header::{EventHeader, EventHeaderRow, EventType};
 pub use hash::{BlockHash, ReconHash};
-pub use stream::{StreamCommitRow, StreamRow};
+pub use stream::{IncompleteStream, StreamCommitRow, StreamRow};
 
 pub use utils::{CountRow, DeliveredEventRow, OrderKey};
 

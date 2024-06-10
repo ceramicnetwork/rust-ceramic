@@ -66,8 +66,6 @@ impl OrderingTask {
             let mut delivered_events = Vec::with_capacity(100);
             let mut updated_streams = Vec::with_capacity(100);
 
-            // TODO: we need to capture all events for a stream because there's nothing to retrigger this on the last event to come in
-            // we should be able to remove the loop jankiness then since _something_ will trigger us to process the stream
             tokio::select! {
                 _new = rx_delivered.recv_many(&mut delivered_events, 100) => {
                     debug!(?delivered_events, "incoming writes!");
@@ -304,11 +302,115 @@ impl OrderingState {
         Ok(())
     }
 
-    async fn process_all_undelivered_events(&mut self, pool: &SqlitePool) -> Result<()> {
+    /// Processes all streams with undelivered events returning the total number of streams identified. This is a recursive function that will
+    /// continue to process streams until it finds no more streams with undelivered events. This is useful for bootstrapping the ordering task
+    /// in case we missed/dropped something in the past. Anything we can't process now requires discovering from a peer, so there isn't really
+    /// any advantage to keeping it in memory and trying again later.
+    async fn process_all_undelivered_events(&mut self, pool: &SqlitePool) -> Result<usize> {
         tracing::trace!("Processing all undelivered events for ordering");
-        // get first X streams with undelivered events
-        // process each one. if we can deliver, do it and commit, else drop (nothing to do without recon, could log something)
-        // get next 100 after that and repeat forever
-        Ok(())
+
+        let mut streams_discovered = 0;
+        let mut last_cid = Some(StreamCid::default());
+        while let Some(cid) = last_cid {
+            let cids =
+                CeramicOneStream::load_stream_cids_with_undelivered_events(pool, cid).await?;
+            last_cid = cids.last().cloned();
+            for cid in cids {
+                self.add_stream(cid);
+                streams_discovered += 1;
+            }
+            self.process_streams(pool).await?;
+        }
+
+        Ok(streams_discovered)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use ceramic_store::EventInsertable;
+
+    use crate::tests::get_n_events;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn test_undelivered_batch_empty() {
+        let _ = ceramic_metrics::init_local_tracing();
+        let pool = SqlitePool::connect_in_memory().await.unwrap();
+        let total = OrderingState::new()
+            .process_all_undelivered_events(&pool)
+            .await
+            .unwrap();
+        assert_eq!(0, total);
+    }
+
+    #[tokio::test]
+    async fn test_undelivered_streams_all() {
+        let _ = ceramic_metrics::init_local_tracing();
+        let pool = SqlitePool::connect_in_memory().await.unwrap();
+        let s1_events = get_n_events(3).await;
+        let s2_events = get_n_events(5).await;
+        let mut insert_later = Vec::with_capacity(2);
+        let mut all_insertable = Vec::with_capacity(8);
+
+        for (i, event) in s1_events.iter().enumerate() {
+            let insertable = EventInsertable::try_new(event.0.to_owned(), &event.1)
+                .await
+                .unwrap();
+            all_insertable.push(insertable.clone());
+            if i == 1 {
+                insert_later.push(insertable);
+            } else {
+                CeramicOneEvent::insert_many(&pool, &[insertable], false)
+                    .await
+                    .unwrap();
+            }
+        }
+        for (i, event) in s2_events.iter().enumerate() {
+            let insertable = EventInsertable::try_new(event.0.to_owned(), &event.1)
+                .await
+                .unwrap();
+            all_insertable.push(insertable.clone());
+
+            if i == 1 {
+                insert_later.push(insertable);
+            } else {
+                CeramicOneEvent::insert_many(&pool, &[insertable], false)
+                    .await
+                    .unwrap();
+            }
+        }
+
+        CeramicOneEvent::insert_many(&pool, &insert_later[..], false)
+            .await
+            .unwrap();
+
+        for event in &all_insertable {
+            let (_exists, delivered) = CeramicOneEvent::delivered_by_cid(&pool, &event.cid())
+                .await
+                .unwrap();
+            // init events are always delivered and the last two would have been okay.. but the rest should have been skipped
+            if event.cid() == event.stream_cid()
+                || event.order_key == s1_events[1].0
+                || event.order_key == s2_events[1].0
+            {
+                assert!(delivered);
+            } else {
+                assert!(!delivered);
+            }
+        }
+        let total = OrderingState::new()
+            .process_all_undelivered_events(&pool)
+            .await
+            .unwrap();
+
+        assert_eq!(2, total);
+        for event in &all_insertable {
+            let (_exists, delivered) = CeramicOneEvent::delivered_by_cid(&pool, &event.cid())
+                .await
+                .unwrap();
+            assert!(delivered);
+        }
     }
 }

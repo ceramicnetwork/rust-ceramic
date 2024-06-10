@@ -218,7 +218,7 @@ impl CeramicOneEvent {
         let mut delivered = Vec::with_capacity(to_add.len());
         let mut undelivered = Vec::with_capacity(to_add.len());
         // TODO: this changes the order of the keys so the response is not in the same order as the input as claimed
-        // we currently throw this result away in recon but the recon::Store trait claims that it will be met. would be nice to remove
+        // we currently throw this result away in recon but the recon::Store trait claims that it will be met. would be nice to remove that claim
         let to_add = Self::with_deliverable_marker(to_add, pool, require_history).await?;
         let mut tx = pool.begin_tx().await.map_err(Error::from)?;
 
@@ -246,7 +246,7 @@ impl CeramicOneEvent {
                 CeramicOneStream::insert_event_header_tx(&mut tx, &item.body.header).await?;
             }
 
-            // TODO: this order has changed
+            // see above: this order has changed
             new_keys[idx] = new_key;
         }
         tx.commit().await.map_err(Error::from)?;

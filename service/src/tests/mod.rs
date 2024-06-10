@@ -211,7 +211,7 @@ pub(crate) async fn get_events() -> Vec<(EventId, Vec<u8>)> {
     get_n_events_with_model(&model, 3).await
 }
 
-async fn get_n_events(number: usize) -> Vec<(EventId, Vec<u8>)> {
+pub(crate) async fn get_n_events(number: usize) -> Vec<(EventId, Vec<u8>)> {
     let model = &StreamId::document(random_cid());
     get_n_events_with_model(model, number).await
 }
