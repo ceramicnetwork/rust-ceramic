@@ -1,6 +1,6 @@
 [package]
 name = "ceramic-kubo-rpc-server"
-version = "0.21.0"
+version = "0.22.0"
 authors = ["OpenAPI Generator team and contributors"]
 description = "This is the Kubo RPC API for working with IPLD data on IPFS This API only defines a small subset of the official API. "
 license = "MIT"
