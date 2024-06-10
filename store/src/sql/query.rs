@@ -167,11 +167,13 @@ impl ReconQuery {
         "INSERT INTO ceramic_one_event (
             order_key, cid,
             ahash_0, ahash_1, ahash_2, ahash_3,
-            ahash_4, ahash_5, ahash_6, ahash_7
+            ahash_4, ahash_5, ahash_6, ahash_7,
+            delivered
         ) VALUES (
             $1, $2,
             $3, $4, $5, $6,
-            $7, $8, $9, $10
+            $7, $8, $9, $10,
+            $11
         );"
     }
 

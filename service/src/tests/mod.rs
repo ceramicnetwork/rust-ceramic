@@ -114,16 +114,6 @@ fn gen_rand_bytes<const SIZE: usize>() -> [u8; SIZE] {
     arr
 }
 
-pub(crate) fn random_block() -> Block {
-    let mut data = [0u8; 1024];
-    rand::Rng::fill(&mut ::rand::thread_rng(), &mut data);
-    let hash = Code::Sha2_256.digest(&data);
-    Block {
-        cid: Cid::new_v1(0x00, hash),
-        data: data.to_vec().into(),
-    }
-}
-
 pub(crate) async fn check_deliverable(
     pool: &ceramic_store::SqlitePool,
     cid: &Cid,

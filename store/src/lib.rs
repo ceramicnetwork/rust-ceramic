@@ -9,9 +9,9 @@ mod sql;
 pub use error::Error;
 pub use metrics::{Metrics, StoreMetricsMiddleware};
 pub use sql::{
-    entities::EventInsertable, entities::EventInsertableBody, CeramicOneBlock, CeramicOneEvent,
-    CeramicOneEventBlock, CeramicOneInterest, Migrations, SqlitePool, SqliteRootStore,
-    SqliteTransaction,
+    entities::EventInsertable, entities::EventInsertableBody, CandidateEvent, CeramicOneBlock,
+    CeramicOneEvent, CeramicOneEventBlock, CeramicOneInterest, CeramicOneStream, InsertResult,
+    Migrations, SqlitePool, SqliteRootStore, SqliteTransaction, StreamCommit,
 };
 
 pub(crate) type Result<T> = std::result::Result<T, Error>;

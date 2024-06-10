@@ -14,6 +14,7 @@ async fn setup_service() -> CeramicEventService {
     let conn = ceramic_store::SqlitePool::connect_in_memory()
         .await
         .unwrap();
+
     CeramicEventService::new_without_undelivered(conn)
         .await
         .unwrap()
@@ -22,7 +23,7 @@ async fn setup_service() -> CeramicEventService {
 async fn add_and_assert_new_recon_event(store: &CeramicEventService, item: ReconItem<'_, EventId>) {
     tracing::trace!("inserted event: {}", item.key.cid().unwrap());
     let new = store
-        .insert_events_from_carfiles_remote_history(&[item])
+        .insert_events_from_carfiles_recon(&[item])
         .await
         .unwrap();
     let new = new.keys.into_iter().filter(|k| *k).count();
@@ -31,7 +32,7 @@ async fn add_and_assert_new_recon_event(store: &CeramicEventService, item: Recon
 
 async fn add_and_assert_new_local_event(store: &CeramicEventService, item: ReconItem<'_, EventId>) {
     let new = store
-        .insert_events_from_carfiles_local_history(&[item])
+        .insert_events_from_carfiles_local_api(&[item])
         .await
         .unwrap();
     let new = new.keys.into_iter().filter(|k| *k).count();
@@ -54,7 +55,7 @@ async fn test_missing_prev_error_history_required() {
     let data = &events[1];
 
     let new = store
-        .insert_events_from_carfiles_local_history(&[ReconItem::new(&data.0, &data.1)])
+        .insert_events_from_carfiles_local_api(&[ReconItem::new(&data.0, &data.1)])
         .await;
     match new {
         Ok(v) => panic!("should have errored: {:?}", v),
@@ -62,9 +63,11 @@ async fn test_missing_prev_error_history_required() {
             match e {
                 crate::Error::InvalidArgument { error } => {
                     // yes fragile, but we want to make sure it's not a parsing error or something unexpected
-                    assert!(error
-                        .to_string()
-                        .contains("Failed to discover history for all events"));
+                    assert!(
+                        error.to_string().contains("Missing history for event"),
+                        "{:?}",
+                        error.to_string()
+                    );
                 }
                 e => {
                     panic!("unexpected error: {:?}", e);
@@ -103,7 +106,7 @@ async fn test_prev_in_same_write_history_required() {
     let init: &(EventId, Vec<u8>) = &events[0];
     let data = &events[1];
     let new = store
-        .insert_events_from_carfiles_local_history(&[
+        .insert_events_from_carfiles_local_api(&[
             ReconItem::new(&data.0, &data.1),
             ReconItem::new(&init.0, &init.1),
         ])

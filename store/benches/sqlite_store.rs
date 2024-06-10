@@ -85,7 +85,7 @@ async fn model_setup(tpe: ModelType, cnt: usize) -> ModelSetup {
 async fn model_routine(input: ModelSetup) {
     let futs = input.events.into_iter().map(|event| {
         let store = input.pool.clone();
-        async move { CeramicOneEvent::insert_many(&store, &[event]).await }
+        async move { CeramicOneEvent::insert_many_local(&store, &[event]).await }
     });
     futures::future::join_all(futs).await;
 }
