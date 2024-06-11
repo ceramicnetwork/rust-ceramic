@@ -224,15 +224,15 @@ impl CeramicOneEvent {
 
         for (idx, (deliverable, item)) in to_add.iter().enumerate() {
             let new_key = Self::insert_key(&mut tx, &item.order_key, *deliverable).await?;
-            let candiadate = CandidateEvent::new(item.cid(), item.stream_cid());
+            let candidate = CandidateEvent::new(item.cid(), item.stream_cid());
             if *deliverable {
-                delivered.push(candiadate);
+                delivered.push(candidate);
                 // the insert failed so we didn't mark it as deliverable.. is this possible?
                 if !new_key {
                     Self::mark_ready_to_deliver(&mut tx, &item.cid()).await?;
                 }
             } else {
-                undelivered.push(candiadate);
+                undelivered.push(candidate);
             }
             if new_key {
                 for block in item.body.blocks.iter() {
@@ -253,22 +253,6 @@ impl CeramicOneEvent {
         let res = InsertResult::new(new_keys, delivered, undelivered);
 
         Ok(res)
-    }
-    /// Find events that haven't been delivered to the client and may be ready
-    pub async fn undelivered_with_values(
-        pool: &SqlitePool,
-        offset: usize,
-        limit: usize,
-    ) -> Result<Vec<(EventId, Vec<u8>)>> {
-        let all_blocks: Vec<ReconEventBlockRaw> =
-            sqlx::query_as(EventQuery::undelivered_with_values())
-                .bind(limit as i64)
-                .bind(offset as i64)
-                .fetch_all(pool.reader())
-                .await?;
-
-        let values = ReconEventBlockRaw::into_carfiles(all_blocks).await?;
-        Ok(values)
     }
 
     /// Calculate the hash of a range of events

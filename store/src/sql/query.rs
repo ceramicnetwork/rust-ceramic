@@ -79,29 +79,6 @@ impl EventQuery {
                 ORDER BY key.order_key, eb.idx;"#
     }
 
-    /// Find event CIDs that have not yet been delivered to the client
-    /// Useful after a restart, or if the task managing delivery has availability to try old events
-    pub fn undelivered_with_values() -> &'static str {
-        r#"SELECT
-                key.order_key, key.event_cid, eb.codec, eb.root, eb.idx, b.multihash, b.bytes
-            FROM (
-                SELECT
-                    e.cid as event_cid, e.order_key
-                FROM ceramic_one_event e
-                WHERE
-                    EXISTS (SELECT 1 FROM ceramic_one_event_block where event_cid = e.cid)
-                    AND e.delivered IS NULL
-                LIMIT
-                    $1
-                OFFSET
-                    $2
-            ) key
-            JOIN
-                ceramic_one_event_block eb ON key.event_cid = eb.event_cid
-            JOIN ceramic_one_block b on b.multihash = eb.block_multihash
-                ORDER BY key.order_key, eb.idx;"#
-    }
-
     /// Requires binding 2 parameters. Fetches the new rows as `DeliveredEvent` objects
     pub fn new_delivered_events() -> &'static str {
         r#"SELECT 
