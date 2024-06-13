@@ -1,4 +1,6 @@
-use crate::bytes::Bytes;
+use crate::{bytes::Bytes, unvalidated::cid_from_dag_cbor};
+use cid::Cid;
+use iroh_car::{CarHeader, CarWriter};
 use serde::{Deserialize, Serialize};
 
 /// Payload of an init event
@@ -22,6 +24,20 @@ impl<D> Payload<D> {
     /// Get the data
     pub fn data(&self) -> Option<&D> {
         self.data.as_ref()
+    }
+}
+
+impl<D: serde::Serialize> Payload<D> {
+    /// Encode the unsigned init event into CAR bytes.
+    pub async fn encode_car(&self) -> Result<Vec<u8>, anyhow::Error> {
+        let event = serde_ipld_dagcbor::to_vec(self)?;
+        let cid = cid_from_dag_cbor(&event);
+        let mut car = Vec::new();
+        let roots: Vec<Cid> = vec![cid];
+        let mut writer = CarWriter::new(CarHeader::V1(roots.into()), &mut car);
+        writer.write(cid, event).await?;
+        writer.finish().await?;
+        Ok(car)
     }
 }
 
