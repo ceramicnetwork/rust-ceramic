@@ -4,10 +4,12 @@
 
 mod error;
 mod metrics;
+mod migration;
 mod sql;
 
 pub use error::Error;
 pub use metrics::{Metrics, StoreMetricsMiddleware};
+pub use migration::DataMigrator;
 pub use sql::{
     entities::EventInsertable, entities::EventInsertableBody, CeramicOneBlock, CeramicOneEvent,
     CeramicOneEventBlock, CeramicOneInterest, Migrations, SqlitePool, SqliteRootStore,
