@@ -72,6 +72,25 @@ impl EventInsertable {
     pub fn stream_cid(&self) -> Cid {
         self.body.header.stream_cid()
     }
+
+    /// Get the previous event CID if any
+    pub fn prev(&self) -> Option<Cid> {
+        match &self.body.header {
+            EventHeader::Data { prev, .. } | EventHeader::Time { prev, .. } => Some(*prev),
+            EventHeader::Init { .. } => None,
+        }
+    }
+
+    /// Whether this event is deliverable currently
+    pub fn deliverable(&self) -> bool {
+        self.body.deliverable
+    }
+
+    /// Mark the event as deliverable.
+    /// This will be used when inserting the event to make sure the field is updated accordingly.
+    pub fn set_deliverable(&mut self, deliverable: bool) {
+        self.body.deliverable = deliverable;
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -81,6 +100,8 @@ pub struct EventInsertableBody {
     pub(crate) cid: Cid,
     /// The event header data about the event type and stream
     pub(crate) header: EventHeader,
+    /// Whether the event is deliverable i.e. it's prev has been delivered and the chain is continuous to an init event
+    pub(crate) deliverable: bool,
     /// The blocks of the event
     // could use a map but there aren't that many blocks per event (right?)
     pub(crate) blocks: Vec<EventBlockRaw>,
@@ -88,11 +109,17 @@ pub struct EventInsertableBody {
 
 impl EventInsertableBody {
     /// Create a new EventInsertRaw struct. Deliverable is set to false by default.
-    pub fn new(cid: Cid, header: EventHeader, blocks: Vec<EventBlockRaw>) -> Self {
+    pub fn new(
+        cid: Cid,
+        header: EventHeader,
+        blocks: Vec<EventBlockRaw>,
+        deliverable: bool,
+    ) -> Self {
         Self {
             cid,
             header,
             blocks,
+            deliverable,
         }
     }
 
@@ -177,12 +204,15 @@ impl EventInsertableBody {
 
         let cid = event_cid;
 
-        let header = match event_ipld {
-            unvalidated::RawEvent::Time(t) => EventHeader::Time {
-                cid,
-                stream_cid: t.id(),
-                prev: t.prev(),
-            },
+        let (deliverable, header) = match event_ipld {
+            unvalidated::RawEvent::Time(t) => (
+                false,
+                EventHeader::Time {
+                    cid,
+                    stream_cid: t.id(),
+                    prev: t.prev(),
+                },
+            ),
             unvalidated::RawEvent::Signed(signed) => {
                 let link = signed.link().ok_or_else(|| {
                     Error::new_invalid_arg(anyhow::anyhow!("event should have a link"))
@@ -198,24 +228,30 @@ impl EventInsertableBody {
                     })?;
 
                 match payload {
-                    unvalidated::Payload::Data(d) => EventHeader::Data {
-                        cid,
-                        stream_cid: *d.id(),
-                        prev: *d.prev(),
-                    },
+                    unvalidated::Payload::Data(d) => (
+                        false,
+                        EventHeader::Data {
+                            cid,
+                            stream_cid: *d.id(),
+                            prev: *d.prev(),
+                        },
+                    ),
                     unvalidated::Payload::Init(init) => {
                         let header = init.header().to_owned();
 
-                        EventHeader::Init { cid, header }
+                        (true, EventHeader::Init { cid, header })
                     }
                 }
             }
-            unvalidated::RawEvent::Unsigned(init) => EventHeader::Init {
-                cid,
-                header: init.header().to_owned(),
-            },
+            unvalidated::RawEvent::Unsigned(init) => (
+                true,
+                EventHeader::Init {
+                    cid,
+                    header: init.header().to_owned(),
+                },
+            ),
         };
 
-        Ok(Self::new(event_cid, header, blocks))
+        Ok(Self::new(event_cid, header, blocks, deliverable))
     }
 }

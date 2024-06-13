@@ -6,6 +6,7 @@
 
 mod event;
 
+use std::collections::HashMap;
 use std::time::Duration;
 use std::{future::Future, ops::Range};
 use std::{marker::PhantomData, ops::RangeBounds};
@@ -162,11 +163,28 @@ impl<S: InterestStore> InterestStore for Arc<S> {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct EventInsertResult {
+    id: EventId,
+    // if set, the reason this event couldn't be inserted
+    failed: Option<String>,
+}
+
+impl EventInsertResult {
+    pub fn new(id: EventId, failed: Option<String>) -> Self {
+        Self { id, failed }
+    }
+
+    pub fn success(&self) -> bool {
+        self.failed.is_none()
+    }
+}
+
 /// Trait for accessing persistent storage of Events
 #[async_trait]
 pub trait EventStore: Send + Sync {
     /// Returns (new_key, new_value) where true if was newly inserted, false if it already existed.
-    async fn insert_many(&self, items: &[(EventId, Vec<u8>)]) -> Result<Vec<bool>>;
+    async fn insert_many(&self, items: &[(EventId, Vec<u8>)]) -> Result<Vec<EventInsertResult>>;
     async fn range_with_values(
         &self,
         range: Range<EventId>,
@@ -199,7 +217,7 @@ pub trait EventStore: Send + Sync {
 
 #[async_trait::async_trait]
 impl<S: EventStore> EventStore for Arc<S> {
-    async fn insert_many(&self, items: &[(EventId, Vec<u8>)]) -> Result<Vec<bool>> {
+    async fn insert_many(&self, items: &[(EventId, Vec<u8>)]) -> Result<Vec<EventInsertResult>> {
         self.as_ref().insert_many(items).await
     }
 
@@ -241,7 +259,7 @@ impl<S: EventStore> EventStore for Arc<S> {
 struct EventInsert {
     id: EventId,
     data: Vec<u8>,
-    tx: tokio::sync::oneshot::Sender<Result<bool>>,
+    tx: tokio::sync::oneshot::Sender<Result<EventInsertResult>>,
 }
 
 struct InsertTask {
@@ -325,25 +343,35 @@ where
         if events.is_empty() {
             return;
         }
-        let mut oneshots = Vec::with_capacity(events.len());
+        let mut oneshots = HashMap::with_capacity(events.len());
         let mut items = Vec::with_capacity(events.len());
         events.drain(..).for_each(|req: EventInsert| {
-            oneshots.push(req.tx);
+            oneshots.insert(req.id.to_bytes(), req.tx);
             items.push((req.id, req.data));
         });
         tracing::trace!("calling insert many with {} items.", items.len());
         match event_store.insert_many(&items).await {
             Ok(results) => {
                 tracing::debug!("insert many returned {} results.", results.len());
-                for (tx, result) in oneshots.into_iter().zip(results.into_iter()) {
-                    if let Err(e) = tx.send(Ok(result)) {
-                        tracing::warn!("failed to send success response to api listener: {:?}", e);
+                for result in results {
+                    if let Some(tx) = oneshots.remove(&result.id.to_bytes()) {
+                        if let Err(e) = tx.send(Ok(result)) {
+                            tracing::warn!(
+                                "failed to send success response to api listener: {:?}",
+                                e
+                            );
+                        }
+                    } else {
+                        tracing::warn!(
+                            "lost channel to respond to API listener for event ID: {:?}",
+                            result.id
+                        );
                     }
                 }
             }
             Err(e) => {
                 tracing::warn!("failed to insert events: {e}");
-                for tx in oneshots.into_iter() {
+                for tx in oneshots.into_values() {
                     if let Err(e) = tx.send(Err(anyhow::anyhow!("Failed to insert event: {e}"))) {
                         tracing::warn!("failed to send failed response to api listener: {:?}", e);
                     }
@@ -495,7 +523,7 @@ where
         .await?
         .map_err(|_| ErrorResponse::new("Database service not available".to_owned()))?;
 
-        let _new = tokio::time::timeout(INSERT_REQUEST_TIMEOUT, rx)
+        let new = tokio::time::timeout(INSERT_REQUEST_TIMEOUT, rx)
             .await
             .map_err(|_| {
                 ErrorResponse::new("Timeout waiting for database service response".to_owned())
@@ -503,7 +531,13 @@ where
             .map_err(|_| ErrorResponse::new("No response. Database service crashed".to_owned()))?
             .map_err(|e| ErrorResponse::new(format!("Failed to insert event: {e}")))?;
 
-        Ok(EventsPostResponse::Success)
+        if let Some(failed) = new.failed {
+            Ok(EventsPostResponse::BadRequest(BadRequestResponse::new(
+                failed,
+            )))
+        } else {
+            Ok(EventsPostResponse::Success)
+        }
     }
 
     pub async fn post_interests(

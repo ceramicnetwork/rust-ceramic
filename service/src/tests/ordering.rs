@@ -35,7 +35,7 @@ async fn add_and_assert_new_local_event(store: &CeramicEventService, item: Recon
         .insert_events_from_carfiles_local_api(&[item])
         .await
         .unwrap();
-    let new = new.keys.into_iter().filter(|k| *k).count();
+    let new = new.store_result.count_new_keys();
     assert_eq!(1, new);
 }
 
@@ -49,32 +49,17 @@ async fn test_init_event_delivered() {
 }
 
 #[tokio::test]
-async fn test_missing_prev_error_history_required() {
+async fn test_missing_prev_history_required_not_inserted() {
     let store = setup_service().await;
     let events = get_events().await;
     let data = &events[1];
 
     let new = store
         .insert_events_from_carfiles_local_api(&[ReconItem::new(&data.0, &data.1)])
-        .await;
-    match new {
-        Ok(v) => panic!("should have errored: {:?}", v),
-        Err(e) => {
-            match e {
-                crate::Error::InvalidArgument { error } => {
-                    // yes fragile, but we want to make sure it's not a parsing error or something unexpected
-                    assert!(
-                        error.to_string().contains("Missing history for event"),
-                        "{:?}",
-                        error.to_string()
-                    );
-                }
-                e => {
-                    panic!("unexpected error: {:?}", e);
-                }
-            };
-        }
-    };
+        .await
+        .unwrap();
+    assert!(new.store_result.inserted.is_empty());
+    assert_eq!(1, new.missing_history.len());
 }
 
 #[tokio::test]
@@ -112,7 +97,7 @@ async fn test_prev_in_same_write_history_required() {
         ])
         .await
         .unwrap();
-    let new = new.keys.into_iter().filter(|k| *k).count();
+    let new = new.store_result.count_new_keys();
     assert_eq!(2, new);
     check_deliverable(&store.pool, &init.0.cid().unwrap(), true).await;
     check_deliverable(&store.pool, &data.0.cid().unwrap(), true).await;
@@ -294,7 +279,7 @@ async fn validate_all_delivered(store: &CeramicEventService, expected_delivered:
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn recon_lots_of_streams() {
-    // adds 101 events to 10 streams, mixes up the event order for each stream, inserts half
+    // adds 100 events to 10 streams, mixes up the event order for each stream, inserts half
     // the events for each stream before mixing up the stream order and inserting the rest
     let per_stream = 100;
     let num_streams = 10;
@@ -303,7 +288,7 @@ async fn recon_lots_of_streams() {
     let mut all_cids = Vec::new();
     let expected = per_stream * num_streams;
     for _ in 0..num_streams {
-        let mut events = crate::tests::get_n_events(per_stream - 1).await;
+        let mut events = crate::tests::get_n_events(per_stream).await;
         let cids = events
             .iter()
             .map(|e| e.0.cid().unwrap())
@@ -339,12 +324,12 @@ async fn recon_lots_of_streams() {
     // first just make sure they were all inserted (not delivered yet)
     for (i, cid) in all_cids.iter().enumerate() {
         let (exists, _delivered) =
-            ceramic_store::CeramicOneEvent::delivered_by_cid(&store.pool, cid)
+            ceramic_store::CeramicOneEvent::deliverable_by_cid(&store.pool, cid)
                 .await
                 .unwrap();
         assert!(exists, "idx: {}. missing cid: {}", i, cid);
     }
-    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(5000)).await;
 
     assert_eq!(expected, total_added);
     tokio::time::timeout(

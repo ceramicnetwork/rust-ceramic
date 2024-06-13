@@ -119,7 +119,7 @@ pub(crate) async fn check_deliverable(
     cid: &Cid,
     deliverable: bool,
 ) {
-    let (exists, delivered) = ceramic_store::CeramicOneEvent::delivered_by_cid(pool, cid)
+    let (exists, delivered) = ceramic_store::CeramicOneEvent::deliverable_by_cid(pool, cid)
         .await
         .unwrap();
     assert!(exists);
@@ -163,7 +163,10 @@ async fn data_event(
 }
 
 // returns init + N events
-async fn get_n_events_with_model(model: &StreamId, number: usize) -> Vec<(EventId, Vec<u8>)> {
+async fn get_init_plus_n_events_with_model(
+    model: &StreamId,
+    number: usize,
+) -> Vec<(EventId, Vec<u8>)> {
     let signer = Box::new(signer().await);
 
     let init = init_event(model, &signer).await;
@@ -201,17 +204,18 @@ async fn get_n_events_with_model(model: &StreamId, number: usize) -> Vec<(EventI
 
 pub(crate) async fn get_events_return_model() -> (StreamId, Vec<(EventId, Vec<u8>)>) {
     let model = StreamId::document(random_cid());
-    let events = get_n_events_with_model(&model, 3).await;
+    let events = get_init_plus_n_events_with_model(&model, 3).await;
     (model, events)
 }
 
 // builds init -> data -> data that are a stream (will be a different stream each call)
 pub(crate) async fn get_events() -> Vec<(EventId, Vec<u8>)> {
     let model = StreamId::document(random_cid());
-    get_n_events_with_model(&model, 3).await
+    get_init_plus_n_events_with_model(&model, 3).await
 }
 
+// Get N events with the same model (init + N-1 data events)
 pub(crate) async fn get_n_events(number: usize) -> Vec<(EventId, Vec<u8>)> {
     let model = &StreamId::document(random_cid());
-    get_n_events_with_model(model, number).await
+    get_init_plus_n_events_with_model(model, number - 1).await
 }

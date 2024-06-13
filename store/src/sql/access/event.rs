@@ -13,8 +13,8 @@ use recon::{AssociativeHash, HashCount, Key, Result as ReconResult, Sha256a};
 use crate::{
     sql::{
         entities::{
-            rebuild_car, BlockRow, CountRow, DeliveredEventRow, EventCid, EventHeader,
-            EventInsertable, EventType, OrderKey, ReconEventBlockRaw, ReconHash, StreamCid,
+            rebuild_car, BlockRow, CountRow, DeliveredEventRow, EventHeader, EventInsertable,
+            OrderKey, ReconEventBlockRaw, ReconHash, StreamCid,
         },
         query::{EventQuery, ReconQuery, ReconType, SqlBackend},
         sqlite::SqliteTransaction,
@@ -24,50 +24,48 @@ use crate::{
 
 static GLOBAL_COUNTER: AtomicI64 = AtomicI64::new(0);
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-/// An event that has been delivered to the client. Generally returned from a batch of inserts.
-pub struct CandidateEvent {
-    /// The Event CID
-    pub cid: EventCid,
+#[derive(Debug, Clone, PartialEq, Eq)]
+/// An event that was inserted into the database
+pub struct InsertedEvent {
+    /// The event order key that was inserted
+    pub order_key: EventId,
     /// The Stream CID
     pub stream_cid: StreamCid,
+    /// Whether the event was marked as deliverable
+    pub deliverable: bool,
+    /// Whether the event was a new key
+    pub new_key: bool,
 }
 
-impl CandidateEvent {
+impl InsertedEvent {
     /// Create a new delivered event
-    fn new(cid: Cid, stream_cid: StreamCid) -> Self {
-        Self { cid, stream_cid }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-/// The result of inserting events into the database
-pub struct InsertResult {
-    /// True for new keys, false for existing keys. In same order as the input. BAH THIS ISN'T TRUE
-    pub keys: Vec<bool>,
-    /// The events that were delivered because they were init events or their previous events were known
-    pub delivered: Vec<CandidateEvent>,
-    /// Undelivered events in this batch
-    pub undelivered: Vec<CandidateEvent>,
-}
-
-impl InsertResult {
-    fn new(
-        keys: Vec<bool>,
-        delivered: Vec<CandidateEvent>,
-        undelivered: Vec<CandidateEvent>,
-    ) -> Self {
+    fn new(order_key: EventId, new_key: bool, stream_cid: StreamCid, deliverable: bool) -> Self {
         Self {
-            keys,
-            delivered,
-            undelivered,
+            order_key,
+            stream_cid,
+            deliverable,
+            new_key,
         }
     }
 }
 
-impl From<InsertResult> for recon::InsertResult {
-    fn from(res: InsertResult) -> Self {
-        Self { keys: res.keys }
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+/// The result of inserting events into the database
+pub struct InsertResult {
+    /// The events that were marked as delivered in this batch
+    pub inserted: Vec<InsertedEvent>,
+}
+
+impl InsertResult {
+    /// The count of new keys added in this batch
+    pub fn count_new_keys(&self) -> usize {
+        self.inserted.iter().filter(|e| e.new_key).count()
+    }
+}
+
+impl InsertResult {
+    fn new(inserted: Vec<InsertedEvent>) -> Self {
+        Self { inserted }
     }
 }
 
@@ -79,7 +77,8 @@ impl CeramicOneEvent {
         GLOBAL_COUNTER.fetch_add(1, Ordering::SeqCst)
     }
 
-    async fn insert_key(
+    /// Insert the event and its hash into the ceramic_one_event table
+    async fn insert_event(
         tx: &mut SqliteTransaction<'_>,
         key: &EventId,
         deliverable: bool,
@@ -123,56 +122,6 @@ impl CeramicOneEvent {
             Err(err) => Err(err.into()),
         }
     }
-
-    /// Splits the evtents into deliverable and non-deliverable events. Non-deliverable events are checked against the database to see if they can be delivered.
-    /// If `require_history` is true, an error is returned if any event is missing history, oherwise they will not be marked as deliverable.
-    async fn with_deliverable_marker<'a>(
-        events: &'a [EventInsertable],
-        pool: &SqlitePool,
-        require_history: bool,
-    ) -> Result<Vec<(bool, &'a EventInsertable)>> {
-        // move all the init events to the front so we make sure to add them first and get the deliverable order correct
-        let mut insert = Vec::with_capacity(events.len());
-        let mut insert_check_history = Vec::with_capacity(events.len());
-        for event in events {
-            if event.body.event_type() == EventType::Init {
-                insert.push((true, event));
-            } else {
-                insert_check_history.push(event);
-            }
-        }
-
-        for event in insert_check_history {
-            match &event.body.header {
-                EventHeader::Init { .. } => {
-                    unreachable!("Init events should have been filtered out")
-                }
-                EventHeader::Data { cid, prev, .. } | EventHeader::Time { cid, prev, .. } => {
-                    // check for prev in this set and fallback to database
-                    if insert.iter().any(|(_, e)| e.body.cid == *prev) {
-                        insert.push((true, event));
-                    } else {
-                        let (_, delivered) = Self::delivered_by_cid(pool, prev).await?;
-                        if !delivered {
-                            if require_history {
-                                return Err(Error::new_invalid_arg(anyhow!(
-                                    "Missing history for event '{}' (prev: {})",
-                                    cid,
-                                    prev
-                                )));
-                            } else {
-                                insert.push((false, event));
-                            }
-                        } else {
-                            insert.push((true, event));
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(insert)
-    }
 }
 
 impl CeramicOneEvent {
@@ -207,32 +156,33 @@ impl CeramicOneEvent {
         Ok(())
     }
 
-    /// Insert many events into the database. If require_history is false, events can be stored without their previous events being present.
-    /// For local writes (i.e. over the API), `require_history` should be true. For events discovered over recon, it should be false.
+    /// Insert many events into the database. The events and their blocks and metadata are inserted in a single
+    /// transaction and either all successful or rolled back.
+    ///
+    /// IMPORTANT:
+    ///     It is the caller's responsibility to order events marked deliverable correctly.
+    ///     That is, events will be processed in the order they are given so earlier events are given a lower global ordering 
+    ///     and will be returned earlier in the feed. Events can be intereaved with different streams, but if two events 
+    ///     depend on each other, the `prev` must come first in the list to ensure the correct order for indexers and consumers.
     pub async fn insert_many(
         pool: &SqlitePool,
         to_add: &[EventInsertable],
-        require_history: bool,
     ) -> Result<InsertResult> {
-        let mut new_keys = vec![false; to_add.len()];
-        let mut delivered = Vec::with_capacity(to_add.len());
-        let mut undelivered = Vec::with_capacity(to_add.len());
-        // TODO: this changes the order of the keys so the response is not in the same order as the input as claimed
-        // we currently throw this result away in recon but the recon::Store trait claims that it will be met. would be nice to remove that claim
-        let to_add = Self::with_deliverable_marker(to_add, pool, require_history).await?;
+        let mut inserted = Vec::with_capacity(to_add.len());
         let mut tx = pool.begin_tx().await.map_err(Error::from)?;
 
-        for (idx, (deliverable, item)) in to_add.iter().enumerate() {
-            let new_key = Self::insert_key(&mut tx, &item.order_key, *deliverable).await?;
-            let candidate = CandidateEvent::new(item.cid(), item.stream_cid());
-            if *deliverable {
-                delivered.push(candidate);
-                // the insert failed so we didn't mark it as deliverable.. is this possible?
-                if !new_key {
-                    Self::mark_ready_to_deliver(&mut tx, &item.cid()).await?;
-                }
-            } else {
-                undelivered.push(candidate);
+        for item in to_add {
+            let new_key =
+                Self::insert_event(&mut tx, &item.order_key, item.body.deliverable).await?;
+            inserted.push(InsertedEvent::new(
+                item.order_key.clone(),
+                new_key,
+                item.stream_cid(),
+                item.body.deliverable,
+            ));
+            // the insert failed so we didn't mark it as deliverable.. is this possible?
+            if item.body.deliverable && !new_key {
+                Self::mark_ready_to_deliver(&mut tx, &item.cid()).await?;
             }
             if new_key {
                 for block in item.body.blocks.iter() {
@@ -245,12 +195,9 @@ impl CeramicOneEvent {
 
                 CeramicOneStream::insert_event_header_tx(&mut tx, &item.body.header).await?;
             }
-
-            // see above: this order has changed
-            new_keys[idx] = new_key;
         }
         tx.commit().await.map_err(Error::from)?;
-        let res = InsertResult::new(new_keys, delivered, undelivered);
+        let res = InsertResult::new(inserted);
 
         Ok(res)
     }
@@ -364,8 +311,9 @@ impl CeramicOneEvent {
     }
 
     /// Finds if an event exists and has been previously delivered, meaning anything that depends on it can be delivered.
-    /// (bool, bool) = (exists, delivered)
-    pub async fn delivered_by_cid(pool: &SqlitePool, key: &Cid) -> Result<(bool, bool)> {
+    ///     returns (bool, bool) = (exists, deliverable)
+    /// We don't guarantee that a client has seen the event, just that it's been marked as deliverable and they could.
+    pub async fn deliverable_by_cid(pool: &SqlitePool, key: &Cid) -> Result<(bool, bool)> {
         #[derive(sqlx::FromRow)]
         struct CidExists {
             exists: bool,

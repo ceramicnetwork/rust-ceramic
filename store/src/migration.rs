@@ -1,12 +1,10 @@
 use std::sync::OnceLock;
 
 use sqlx::{prelude::FromRow, types::chrono};
-use tracing::{info};
+use tracing::info;
 
 use crate::{
-    sql::{
-        entities::{EventCid, EventHeader, ReconEventBlockRaw},
-    },
+    sql::entities::{EventCid, EventHeader, ReconEventBlockRaw},
     CeramicOneStream, Error, EventInsertableBody, Result, SqlitePool,
 };
 

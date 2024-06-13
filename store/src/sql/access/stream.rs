@@ -3,7 +3,7 @@ use cid::Cid;
 
 use crate::{
     sql::entities::{
-        EventHeader, EventHeaderRow, EventType, IncompleteStream, StreamCid, StreamCommitRow,
+        EventHeader, EventMetadataRow, EventType, IncompleteStream, StreamCid, StreamEventRow,
         StreamRow,
     },
     Error, Result, SqlitePool, SqliteTransaction,
@@ -14,19 +14,19 @@ pub struct CeramicOneStream {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// Represents a stream event in a way that allows ordering it in the stream. It is metadata and not the event payload itself.
-pub struct StreamCommit {
+pub struct StreamEventMetadata {
     /// The event CID
     pub cid: Cid,
     /// The previous event CID
     pub prev: Option<Cid>,
-    /// Whether the event has been delivered
-    pub delivered: bool,
+    /// Whether the event is deliverable
+    pub deliverable: bool,
 }
 
-impl TryFrom<StreamCommitRow> for StreamCommit {
+impl TryFrom<StreamEventRow> for StreamEventMetadata {
     type Error = crate::Error;
 
-    fn try_from(row: StreamCommitRow) -> std::result::Result<Self, Self::Error> {
+    fn try_from(row: StreamEventRow) -> std::result::Result<Self, Self::Error> {
         let cid = Cid::try_from(row.cid)
             .map_err(|e| Error::new_app(anyhow!("Invalid event cid: {}", e)))?;
         let prev = row
@@ -37,19 +37,19 @@ impl TryFrom<StreamCommitRow> for StreamCommit {
         Ok(Self {
             cid,
             prev,
-            delivered: row.delivered,
+            deliverable: row.deliverable,
         })
     }
 }
 
 impl CeramicOneStream {
-    /// Load the events (commits) for a given stream
-    pub async fn load_stream_commits(
+    /// Load the events for a given stream. Will return nothing if the stream does not exist (i.e. the init event is undiscovered).
+    pub async fn load_stream_events(
         pool: &SqlitePool,
         stream_cid: StreamCid,
-    ) -> Result<Vec<StreamCommit>> {
+    ) -> Result<Vec<StreamEventMetadata>> {
         let rows: Vec<(Vec<u8>, Option<Vec<u8>>, bool)> =
-            sqlx::query_as(StreamCommitRow::fetch_by_stream_cid())
+            sqlx::query_as(StreamEventRow::fetch_by_stream_cid())
                 .bind(stream_cid.to_bytes())
                 .fetch_all(pool.reader())
                 .await?;
@@ -60,10 +60,10 @@ impl CeramicOneStream {
                 let cid = Cid::try_from(cid).expect("cid");
                 let prev = prev.map(Cid::try_from).transpose().expect("prev");
 
-                StreamCommit {
+                StreamEventMetadata {
                     cid,
                     prev,
-                    delivered,
+                    deliverable: delivered,
                 }
             })
             .collect();
@@ -72,13 +72,15 @@ impl CeramicOneStream {
     }
 
     /// Load streams with undelivered events to see if they need to be delivered now.
+    /// cid_cursor is the last CID processed that you want to start after.
+    /// Start with `Cid::default()` to start at the beginning.
     pub async fn load_stream_cids_with_undelivered_events(
         pool: &SqlitePool,
-        last_cid: StreamCid,
+        cid_cursor: StreamCid,
     ) -> Result<Vec<StreamCid>> {
         let streams: Vec<IncompleteStream> =
             sqlx::query_as(IncompleteStream::fetch_all_with_undelivered())
-                .bind(last_cid.to_bytes())
+                .bind(cid_cursor.to_bytes())
                 .bind(1000)
                 .fetch_all(pool.reader())
                 .await?;
@@ -134,7 +136,7 @@ impl CeramicOneStream {
             ),
         };
 
-        let _res = sqlx::query(EventHeaderRow::insert())
+        let _res = sqlx::query(EventMetadataRow::insert())
             .bind(cid)
             .bind(stream_cid)
             .bind(event_type)

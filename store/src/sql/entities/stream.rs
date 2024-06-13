@@ -17,19 +17,21 @@ impl StreamRow {
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
-pub struct StreamCommitRow {
+pub struct StreamEventRow {
     pub cid: Vec<u8>,
     pub prev: Option<Vec<u8>>,
-    pub delivered: bool,
+    pub deliverable: bool,
 }
 
-impl StreamCommitRow {
+impl StreamEventRow {
+    /// Requires binding one argument:
+    ///     $1 = stream_cid (bytes)
     pub fn fetch_by_stream_cid() -> &'static str {
         r#"
-        SELECT eh.cid as "cid", eh.prev as "prev", 
-            e.delivered IS NOT NULL as "delivered" 
+        SELECT e.cid as "cid", eh.prev as "prev", 
+            e.delivered IS NOT NULL as "deliverable" 
         FROM ceramic_one_stream s
-            JOIN ceramic_one_event_header eh on eh.stream_cid = s.cid
+            JOIN ceramic_one_event_metadata eh on eh.stream_cid = s.cid
             JOIN ceramic_one_event e on e.cid = eh.cid
         WHERE s.cid = $1"#
     }
@@ -41,11 +43,14 @@ pub struct IncompleteStream {
 }
 
 impl IncompleteStream {
+    /// Requires binding two arguments:
+    ///     $1 = stream_cid (bytes)
+    ///     $2 = limit (usize)
     pub fn fetch_all_with_undelivered() -> &'static str {
         r#"
         SELECT DISTINCT s.cid as "stream_cid" 
         FROM ceramic_one_stream s
-            JOIN ceramic_one_event_header eh on eh.stream_cid = s.cid
+            JOIN ceramic_one_event_metadata eh on eh.stream_cid = s.cid
             JOIN ceramic_one_event e on e.cid = eh.cid
         WHERE e.delivered is NULL and s.cid > $1
         LIMIT $2"#

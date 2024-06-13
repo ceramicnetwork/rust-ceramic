@@ -8,20 +8,17 @@ pub enum EventType {
 }
 
 #[derive(Debug, Clone)]
-pub struct EventHeaderRow {
-    pub cid: Vec<u8>,
-    pub stream_cid: Vec<u8>,
-    pub event_type: EventType,
-    pub prev: Option<Vec<u8>>,
-}
+pub struct EventMetadataRow {}
 
-impl EventHeaderRow {
+impl EventMetadataRow {
     pub fn insert() -> &'static str {
-        "INSERT INTO ceramic_one_event_header (cid, stream_cid, event_type, prev) VALUES ($1, $2, $3, $4)"
+        "INSERT INTO ceramic_one_event_metadata (cid, stream_cid, event_type, prev) VALUES ($1, $2, $3, $4)"
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// An event header wrapper for use in the store crate.
+/// TODO: replace this with something from the event crate
 pub enum EventHeader {
     Init {
         cid: Cid,
@@ -40,7 +37,8 @@ pub enum EventHeader {
 }
 
 impl EventHeader {
-    pub fn event_type(&self) -> EventType {
+    /// Returns the event type of the event header
+    pub(crate) fn event_type(&self) -> EventType {
         match self {
             EventHeader::Init { .. } => EventType::Init,
             EventHeader::Data { .. } => EventType::Data,
@@ -48,7 +46,8 @@ impl EventHeader {
         }
     }
 
-    pub fn stream_cid(&self) -> Cid {
+    /// Returns the stream CID of the event
+    pub(crate) fn stream_cid(&self) -> Cid {
         match self {
             EventHeader::Init { cid, .. } => *cid,
             EventHeader::Data { stream_cid, .. } | EventHeader::Time { stream_cid, .. } => {

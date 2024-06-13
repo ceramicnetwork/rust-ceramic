@@ -1,16 +1,12 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use ceramic_store::{CandidateEvent, CeramicOneEvent, CeramicOneStream, SqlitePool, StreamCommit};
+use ceramic_store::{
+    CeramicOneEvent, CeramicOneStream, InsertedEvent, SqlitePool, StreamEventMetadata,
+};
 use cid::Cid;
-use itertools::Itertools;
 use tracing::{debug, error, info, trace, warn};
 
 use crate::{Error, Result};
-
-/// How often should we try to review our internal state to see if we missed something?
-/// Should this query the database to try to discover any events? Probably add some "channel full" global flag so we
-/// know to start querying the database for more events when we recover.
-const CHECK_ALL_INTERVAL_SECONDS: u64 = 60 * 10; // 10 minutes
 
 type StreamCid = Cid;
 type EventCid = Cid;
@@ -19,8 +15,7 @@ type PrevCid = Cid;
 #[derive(Debug)]
 pub struct DeliverableTask {
     pub(crate) _handle: tokio::task::JoinHandle<()>,
-    pub(crate) tx_delivered: tokio::sync::mpsc::Sender<CandidateEvent>,
-    pub(crate) tx_stream_update: tokio::sync::mpsc::Sender<StreamCid>,
+    pub(crate) tx_delivered: tokio::sync::mpsc::Sender<InsertedEvent>,
 }
 
 #[derive(Debug)]
@@ -28,25 +23,21 @@ pub struct OrderingTask {}
 
 impl OrderingTask {
     pub async fn run(pool: SqlitePool, q_depth: usize, load_delivered: bool) -> DeliverableTask {
-        let (tx_delivered, rx_delivered) = tokio::sync::mpsc::channel::<CandidateEvent>(q_depth);
-        let (tx_stream_update, rx_stream_update) = tokio::sync::mpsc::channel::<StreamCid>(q_depth);
+        let (tx_delivered, rx_delivered) = tokio::sync::mpsc::channel::<InsertedEvent>(q_depth);
 
-        let handle = tokio::spawn(async move {
-            Self::run_loop(pool, load_delivered, rx_delivered, rx_stream_update).await
-        });
+        let handle =
+            tokio::spawn(async move { Self::run_loop(pool, load_delivered, rx_delivered).await });
 
         DeliverableTask {
             _handle: handle,
             tx_delivered,
-            tx_stream_update,
         }
     }
 
     async fn run_loop(
         pool: SqlitePool,
         load_undelivered: bool,
-        mut rx_delivered: tokio::sync::mpsc::Receiver<CandidateEvent>,
-        mut rx_stream_update: tokio::sync::mpsc::Receiver<StreamCid>,
+        mut rx_delivered: tokio::sync::mpsc::Receiver<InsertedEvent>,
     ) {
         // before starting, make sure we've updated any events in the database we missed
         let mut state = OrderingState::new();
@@ -60,41 +51,9 @@ impl OrderingTask {
             return;
         }
 
-        let mut interval =
-            tokio::time::interval(std::time::Duration::from_secs(CHECK_ALL_INTERVAL_SECONDS));
         loop {
-            let mut delivered_events = Vec::with_capacity(100);
-            let mut updated_streams = Vec::with_capacity(100);
-
-            tokio::select! {
-                _new = rx_delivered.recv_many(&mut delivered_events, 100) => {
-                    debug!(?delivered_events, "incoming writes!");
-                }
-                _new = rx_stream_update.recv_many(&mut updated_streams, 100) => {
-                    debug!(?updated_streams, "incoming updates!");
-                    for stream in updated_streams {
-                        state.add_stream(stream);
-                    }
-                }
-                _ = interval.tick() => {
-                    // For this and the else branch, we allow the loop to complete and if state has anything to process, it will be processed.
-                    debug!(stream_count=%state.streams.len(),"Process undelivered stream events interval triggered.");
-                    }
-                else => {
-                    debug!(stream_count=%state.streams.len(), "Server dropped the ordering task. Processing once more before exiting...");
-                }
-            };
-
-            if !delivered_events.is_empty()
-                && state
-                    .process_delivered_events(&pool, delivered_events)
-                    .await
-                    .map_err(Self::log_error)
-                    .is_err()
-            {
-                return;
-            }
-
+            // review anything we couldn't finish in case new writes came in while we were processing
+            // should no-op, but we don't want to require a deliverable event to trigger a review just in case
             if state
                 .process_streams(&pool)
                 .await
@@ -102,6 +61,37 @@ impl OrderingTask {
                 .is_err()
             {
                 return;
+            }
+            let mut delivered_events = Vec::with_capacity(100);
+
+            if rx_delivered.recv_many(&mut delivered_events, 100).await > 0 {
+                debug!(?delivered_events, "new delivered events!");
+                for event in delivered_events {
+                    state.add_stream(event.stream_cid);
+                }
+
+                if state
+                    .process_streams(&pool)
+                    .await
+                    .map_err(Self::log_error)
+                    .is_err()
+                {
+                    return;
+                }
+            } else if rx_delivered.is_closed() {
+                debug!(
+                "Server dropped the delivered events channel. Processing streams in memory once more before exiting."
+                );
+
+                if state
+                    .process_streams(&pool)
+                    .await
+                    .map_err(Self::log_error)
+                    .is_err()
+                {
+                    return;
+                }
+                break;
             }
         }
     }
@@ -128,17 +118,28 @@ impl OrderingTask {
 #[derive(Debug, Clone, Default)]
 /// ~540 bytes per event in this struct
 pub(crate) struct StreamEvents {
-    _cid: StreamCid,
+    /// Map of `event.prev` to `event.cid` for quick lookup of the next event in the stream.
     prev_map: HashMap<PrevCid, EventCid>,
-    cid_map: HashMap<EventCid, StreamCommit>,
+    /// Map of `event.cid` to `metadata` for quick lookup of the event metadata.
+    cid_map: HashMap<EventCid, StreamEventMetadata>,
+    /// Events that can be delivered FIFO order for the stream
+    deliverable: VecDeque<EventCid>,
+    /// The total number of events in the stream when we started
+    total_events: usize,
 }
 
 impl StreamEvents {
-    fn new<I>(cid: StreamCid, events: I) -> Self
+    fn new<I>(_cid: StreamCid, events: I) -> Self
     where
-        I: IntoIterator<Item = StreamCommit>,
+        I: ExactSizeIterator<Item = StreamEventMetadata>,
     {
-        let mut new = Self::new_empty(cid);
+        let total_events = events.len();
+        let mut new = Self {
+            prev_map: HashMap::with_capacity(total_events),
+            cid_map: HashMap::with_capacity(total_events),
+            deliverable: VecDeque::with_capacity(total_events),
+            total_events,
+        };
 
         for event in events {
             new.add_event(event);
@@ -146,23 +147,26 @@ impl StreamEvents {
         new
     }
 
-    fn new_empty(cid: StreamCid) -> Self {
-        Self {
-            _cid: cid,
-            prev_map: HashMap::default(),
-            cid_map: HashMap::default(),
-        }
+    async fn new_from_db(stream: StreamCid, pool: &SqlitePool) -> Result<Self> {
+        let stream_events = CeramicOneStream::load_stream_events(pool, stream).await?;
+        trace!(?stream_events, "Loaded stream events for ordering");
+        Ok(Self::new(stream, stream_events.into_iter()))
+    }
+
+    fn is_empty(&self) -> bool {
+        // The init event can remain in the cid_map so we use the prev_map
+        self.prev_map.is_empty()
     }
 
     /// returns true if this is a new event.
-    fn add_event(&mut self, event: StreamCommit) -> bool {
+    fn add_event(&mut self, event: StreamEventMetadata) -> bool {
         if let Some(prev) = event.prev {
             self.prev_map.insert(prev, event.cid);
         }
         self.cid_map.insert(event.cid, event).is_none()
     }
 
-    fn remove_by_event_cid(&mut self, cid: &Cid) -> Option<StreamCommit> {
+    fn remove_by_event_cid(&mut self, cid: &Cid) -> Option<StreamEventMetadata> {
         if let Some(ev) = self.cid_map.remove(cid) {
             if let Some(prev) = ev.prev {
                 self.prev_map.remove(&prev);
@@ -185,27 +189,41 @@ impl StreamEvents {
     fn delivered_events(&self) -> impl Iterator<Item = &EventCid> {
         self.cid_map
             .iter()
-            .filter_map(|(cid, event)| if event.delivered { Some(cid) } else { None })
+            .filter_map(|(cid, event)| if event.deliverable { Some(cid) } else { None })
     }
 
-    fn order_events(&mut self, start_with: EventCid) -> VecDeque<Cid> {
-        let mut deliverable = VecDeque::with_capacity(self.prev_map.len());
-
-        deliverable.push_back(start_with);
-        self.remove_by_event_cid(&start_with);
-        let mut tip = start_with;
-        // technically, could be in deliverable set as well if the stream is forking?
-        while let Some(next_event) = self.remove_by_prev_cid(&tip) {
-            deliverable.push_back(next_event);
-            tip = next_event;
+    async fn order_events(pool: &SqlitePool, stream: StreamCid) -> Result<Self> {
+        let mut to_process = Self::new_from_db(stream, pool).await?;
+        if to_process.delivered_events().count() == 0 {
+            return Ok(to_process);
         }
-        deliverable
+
+        let stream_event_count = to_process.cid_map.len();
+        let delivered_cids = to_process.delivered_events().cloned().collect::<Vec<_>>();
+        let mut start_with = VecDeque::with_capacity(stream_event_count - delivered_cids.len());
+
+        for cid in delivered_cids {
+            if let Some(next_event) = to_process.remove_by_prev_cid(&cid) {
+                to_process.remove_by_event_cid(&next_event);
+                start_with.push_back(next_event);
+            }
+        }
+
+        while let Some(new_tip) = start_with.pop_front() {
+            to_process.deliverable.push_back(new_tip);
+            let mut tip = new_tip;
+            while let Some(next_event) = to_process.remove_by_prev_cid(&tip) {
+                to_process.deliverable.push_back(next_event);
+                tip = next_event;
+            }
+        }
+        Ok(to_process)
     }
 }
 
+#[derive(Debug)]
 pub struct OrderingState {
     streams: HashSet<StreamCid>,
-    processed_streams: HashSet<StreamCid>,
     deliverable: VecDeque<EventCid>,
 }
 
@@ -213,92 +231,58 @@ impl OrderingState {
     fn new() -> Self {
         Self {
             streams: HashSet::new(),
-            processed_streams: HashSet::new(),
             deliverable: VecDeque::new(),
         }
     }
 
     /// Add a stream to the list of streams to process. This implies it has undelivered events and is worthwhile to attempt.
-    fn add_stream(&mut self, stream: StreamCid) {
-        self.processed_streams.remove(&stream);
-        self.streams.insert(stream);
+    fn add_stream(&mut self, stream: StreamCid) -> bool {
+        self.streams.insert(stream)
     }
 
     /// Process every stream we know about that has undelivered events that should be "unlocked" now. This could be adjusted to process commit things in batches,
     /// but for now it assumes it can process all the streams and events in one go. It should be idempotent, so if it fails, it can be retried. Events that are
     /// delivered multiple times will not change the original delivered state.
     async fn process_streams(&mut self, pool: &SqlitePool) -> Result<()> {
-        for stream in &self.streams {
-            let stream_events = CeramicOneStream::load_stream_commits(pool, *stream).await?;
-            trace!(?stream_events, "Loaded stream events for ordering");
-            let mut to_process = StreamEvents::new(*stream, stream_events.into_iter());
-            if to_process.delivered_events().count() == 0 {
-                return Ok(());
-            }
-
-            let mut start_with = VecDeque::with_capacity(to_process.cid_map.len());
-            let delivered_cids = to_process.delivered_events().cloned().collect::<Vec<_>>();
-
-            for cid in delivered_cids {
-                if let Some(needs_me) = to_process.remove_by_prev_cid(&cid) {
-                    start_with.push_back(needs_me);
+        let mut stream_cnt = HashMap::new();
+        // we need to handle the fact that new writes can come in without knowing they're deliverable because we're still in the process of updating them.
+        // so when we finish the loop, we need to check if any of our streams had new writes and try again, if nothing changed we exit.
+        // this could certainly be optimized. we could check the count of events to make sure it's different, or we could load undelivered events and keep track of our
+        // total state, as anything forking that was deliverable would arrive on the incoming channel. for now, streams are short and this is probably sufficient.
+        // e.g. track in_progress as a HashMap<StreamCid, StreamEvents> and update it as we go.
+        loop {
+            let mut processed_streams = Vec::with_capacity(self.streams.len());
+            for stream in &self.streams {
+                let ordered_events = StreamEvents::order_events(pool, *stream).await?;
+                stream_cnt.insert(*stream, ordered_events.total_events);
+                if ordered_events.is_empty() {
+                    processed_streams.push(*stream);
                 }
+                self.deliverable.extend(ordered_events.deliverable);
             }
 
-            while let Some(new_tip) = start_with.pop_front() {
-                self.deliverable.extend(to_process.order_events(new_tip));
-            }
-            self.processed_streams.insert(*stream);
-        }
-
-        if !self.deliverable.is_empty() {
-            tracing::debug!(count=%self.deliverable.len(), "Marking events as ready to deliver");
-            let mut tx = pool.begin_tx().await?;
-            // We process the ready events as a FIFO queue so they are marked delivered before events that were added after and depend on them.
-            // Could use `pop_front` but we want to make sure we commit and then clear everything at once.
-            for cid in &self.deliverable {
-                CeramicOneEvent::mark_ready_to_deliver(&mut tx, cid).await?;
-            }
-            tx.commit().await?;
-            self.deliverable.clear();
-            self.streams
-                .retain(|stream| !self.processed_streams.contains(stream));
-            self.processed_streams.clear();
-        }
-        Ok(())
-    }
-
-    /// We group the events into their stream and see if something was waiting for one of these. If so, we process the stream.
-    async fn process_delivered_events(
-        &mut self,
-        pool: &SqlitePool,
-        events: Vec<CandidateEvent>,
-    ) -> Result<()> {
-        tracing::trace!("Processing {} delivered events for ordering", events.len());
-        let stream_events: HashMap<StreamCid, Vec<EventCid>> = events
-            .into_iter()
-            .into_group_map_by(|event| event.stream_cid)
-            .into_iter()
-            .map(|(stream_cid, events)| {
-                (
-                    stream_cid,
-                    events
-                        .into_iter()
-                        .map(|event| event.cid)
-                        .collect::<Vec<_>>(),
-                )
-            })
-            .collect();
-
-        for (stream, event_cids) in stream_events {
-            for cid in event_cids {
-                let (_exists, delivered) = CeramicOneEvent::delivered_by_cid(pool, &cid).await?;
-                if delivered {
-                    self.add_stream(stream);
+            if !self.deliverable.is_empty() {
+                tracing::debug!(count=%self.deliverable.len(), "Marking events as ready to deliver");
+                let mut tx = pool.begin_tx().await?;
+                // We process the ready events as a FIFO queue so they are marked delivered before events that were added after and depend on them.
+                // Could use `pop_front` but we want to make sure we commit and then clear everything at once.
+                for cid in &self.deliverable {
+                    CeramicOneEvent::mark_ready_to_deliver(&mut tx, cid).await?;
+                }
+                tx.commit().await?;
+                self.deliverable.clear();
+                self.streams
+                    .retain(|stream| !processed_streams.contains(stream));
+                // not strictly necessary as the next loop will not do anything, but we can avoid allocating a new vec
+                if self.streams.is_empty() {
                     break;
                 }
+            } else {
+                break;
             }
+            debug!(stream_state=?self, ?processed_streams, "Finished processing streams");
         }
+
         Ok(())
     }
 
@@ -315,9 +299,11 @@ impl OrderingState {
             let cids =
                 CeramicOneStream::load_stream_cids_with_undelivered_events(pool, cid).await?;
             last_cid = cids.last().cloned();
+            trace!(count=cids.len(), stream_cids=?cids, "Discovered streams with undelivered events");
             for cid in cids {
-                self.add_stream(cid);
-                streams_discovered += 1;
+                if self.add_stream(cid) {
+                    streams_discovered += 1;
+                }
             }
             self.process_streams(pool).await?;
         }
@@ -351,51 +337,56 @@ mod test {
         let pool = SqlitePool::connect_in_memory().await.unwrap();
         let s1_events = get_n_events(3).await;
         let s2_events = get_n_events(5).await;
-        let mut insert_later = Vec::with_capacity(2);
         let mut all_insertable = Vec::with_capacity(8);
 
-        for (i, event) in s1_events.iter().enumerate() {
+        for event in s1_events.iter() {
             let insertable = EventInsertable::try_new(event.0.to_owned(), &event.1)
                 .await
                 .unwrap();
-            all_insertable.push(insertable.clone());
-            if i == 1 {
-                insert_later.push(insertable);
-            } else {
-                CeramicOneEvent::insert_many(&pool, &[insertable], false)
-                    .await
-                    .unwrap();
-            }
+            let expected_deliverable = insertable.deliverable();
+            let res = CeramicOneEvent::insert_many(&pool, &[insertable.clone()])
+                .await
+                .unwrap();
+            assert_eq!(expected_deliverable, res.inserted[0].deliverable);
+
+            all_insertable.push(insertable);
         }
-        for (i, event) in s2_events.iter().enumerate() {
+        for event in s2_events.iter() {
             let insertable = EventInsertable::try_new(event.0.to_owned(), &event.1)
                 .await
                 .unwrap();
-            all_insertable.push(insertable.clone());
+            let expected_deliverable = insertable.deliverable();
+            let res = CeramicOneEvent::insert_many(&pool, &[insertable.clone()])
+                .await
+                .unwrap();
+            assert_eq!(expected_deliverable, res.inserted[0].deliverable);
 
-            if i == 1 {
-                insert_later.push(insertable);
-            } else {
-                CeramicOneEvent::insert_many(&pool, &[insertable], false)
-                    .await
-                    .unwrap();
-            }
+            all_insertable.push(insertable);
         }
-
-        CeramicOneEvent::insert_many(&pool, &insert_later[..], false)
-            .await
-            .unwrap();
 
         for event in &all_insertable {
-            let (_exists, delivered) = CeramicOneEvent::delivered_by_cid(&pool, &event.cid())
+            let (_exists, delivered) = CeramicOneEvent::deliverable_by_cid(&pool, &event.cid())
                 .await
                 .unwrap();
-            // init events are always delivered and the last two would have been okay.. but the rest should have been skipped
+            // init events are always delivered and the others should have been skipped
             if event.cid() == event.stream_cid()
-                || event.order_key == s1_events[1].0
-                || event.order_key == s2_events[1].0
+                || event.order_key == s1_events[0].0
+                || event.order_key == s2_events[0].0
             {
-                assert!(delivered);
+                assert!(
+                    delivered,
+                    "Event {:?} was not delivered. init={:?}, s1={:?}, s2={:?}",
+                    event.cid(),
+                    event.stream_cid(),
+                    s1_events
+                        .iter()
+                        .map(|(e, _)| e.cid().unwrap())
+                        .collect::<Vec<_>>(),
+                    s2_events
+                        .iter()
+                        .map(|(e, _)| e.cid().unwrap())
+                        .collect::<Vec<_>>(),
+                );
             } else {
                 assert!(!delivered);
             }
@@ -407,7 +398,7 @@ mod test {
 
         assert_eq!(2, total);
         for event in &all_insertable {
-            let (_exists, delivered) = CeramicOneEvent::delivered_by_cid(&pool, &event.cid())
+            let (_exists, delivered) = CeramicOneEvent::deliverable_by_cid(&pool, &event.cid())
                 .await
                 .unwrap();
             assert!(delivered);

@@ -5,7 +5,7 @@ mod interest;
 mod stream;
 
 pub use block::CeramicOneBlock;
-pub use event::{CandidateEvent, CeramicOneEvent, InsertResult};
+pub use event::{CeramicOneEvent, InsertResult, InsertedEvent};
 pub use event_block::CeramicOneEventBlock;
 pub use interest::CeramicOneInterest;
-pub use stream::{CeramicOneStream, StreamCommit};
+pub use stream::{CeramicOneStream, StreamEventMetadata};
