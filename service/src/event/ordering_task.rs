@@ -52,16 +52,6 @@ impl OrderingTask {
         }
 
         loop {
-            // review anything we couldn't finish in case new writes came in while we were processing
-            // should no-op, but we don't want to require a deliverable event to trigger a review just in case
-            if state
-                .process_streams(&pool)
-                .await
-                .map_err(Self::log_error)
-                .is_err()
-            {
-                return;
-            }
             let mut delivered_events = Vec::with_capacity(100);
 
             if rx_delivered.recv_many(&mut delivered_events, 100).await > 0 {
@@ -154,7 +144,7 @@ impl StreamEvents {
     }
 
     fn is_empty(&self) -> bool {
-        // The init event can remain in the cid_map so we use the prev_map
+        // We only care if we have things that are pending to be delivered
         self.prev_map.is_empty()
     }
 
@@ -246,10 +236,9 @@ impl OrderingState {
     async fn process_streams(&mut self, pool: &SqlitePool) -> Result<()> {
         let mut stream_cnt = HashMap::new();
         // we need to handle the fact that new writes can come in without knowing they're deliverable because we're still in the process of updating them.
-        // so when we finish the loop, we need to check if any of our streams had new writes and try again, if nothing changed we exit.
-        // this could certainly be optimized. we could check the count of events to make sure it's different, or we could load undelivered events and keep track of our
+        // so when we finish the loop and we had streams we couldn't complete, we try again to see if they had new writes. if nothing changed we exit.
+        // this could certainly be optimized. we could only query the count of events, or we could load undelivered events and keep track of our
         // total state, as anything forking that was deliverable would arrive on the incoming channel. for now, streams are short and this is probably sufficient.
-        // e.g. track in_progress as a HashMap<StreamCid, StreamEvents> and update it as we go.
         loop {
             let mut processed_streams = Vec::with_capacity(self.streams.len());
             for stream in &self.streams {
@@ -261,7 +250,8 @@ impl OrderingState {
                 self.deliverable.extend(ordered_events.deliverable);
             }
 
-            if !self.deliverable.is_empty() {
+            let found_events = !self.deliverable.is_empty();
+            if found_events {
                 tracing::debug!(count=%self.deliverable.len(), "Marking events as ready to deliver");
                 let mut tx = pool.begin_tx().await?;
                 // We process the ready events as a FIFO queue so they are marked delivered before events that were added after and depend on them.
@@ -271,17 +261,17 @@ impl OrderingState {
                 }
                 tx.commit().await?;
                 self.deliverable.clear();
-                self.streams
-                    .retain(|stream| !processed_streams.contains(stream));
-                // not strictly necessary as the next loop will not do anything, but we can avoid allocating a new vec
-                if self.streams.is_empty() {
-                    break;
-                }
-            } else {
+            }
+            self.streams
+                .retain(|stream| !processed_streams.contains(stream));
+            // not strictly necessary as the next loop will not do anything but we can avoid allocating
+            if self.streams.is_empty() || !found_events {
                 break;
             }
-            debug!(stream_state=?self, ?processed_streams, "Finished processing streams");
+
+            debug!(stream_state=?self, ?processed_streams, "Finished processing streams loop with more to do");
         }
+        debug!(stream_state=?self, "Finished processing streams");
 
         Ok(())
     }
