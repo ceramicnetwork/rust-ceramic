@@ -1,5 +1,6 @@
 mod event;
 mod interest;
+mod migration;
 mod ordering;
 
 use ceramic_core::{DidDocument, EventId, Network, StreamId};

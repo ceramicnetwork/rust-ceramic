@@ -4,27 +4,30 @@ use sqlx::{sqlite::SqliteRow, Row as _};
 
 use crate::{Error, Result};
 
-#[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]
+// TODO: make type private
+#[allow(missing_docs)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, sqlx::Type)]
 pub struct BlockHash(Multihash<64>);
 
 impl BlockHash {
+    #[allow(missing_docs)]
     pub fn new(hash: Multihash<64>) -> Self {
         Self(hash)
     }
 
-    pub fn try_from_vec(data: &[u8]) -> Result<Self> {
+    pub(crate) fn try_from_vec(data: &[u8]) -> Result<Self> {
         Ok(Self(Multihash::from_bytes(data).map_err(Error::new_app)?))
     }
 
-    pub fn to_bytes(&self) -> Vec<u8> {
+    pub(crate) fn to_bytes(&self) -> Vec<u8> {
         self.0.to_bytes()
     }
 
-    pub fn inner(&self) -> &Multihash<64> {
+    pub(crate) fn inner(&self) -> &Multihash<64> {
         &self.0
     }
 
-    pub fn into_inner(self) -> Multihash<64> {
+    pub(crate) fn into_inner(self) -> Multihash<64> {
         self.0
     }
 }

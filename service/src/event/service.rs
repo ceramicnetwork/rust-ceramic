@@ -1,16 +1,21 @@
 use std::collections::{HashMap, HashSet};
 
-use ceramic_core::EventId;
+use async_trait::async_trait;
+use ceramic_core::{EventId, Network};
 use ceramic_event::unvalidated;
 use ceramic_store::{CeramicOneEvent, EventInsertable, EventInsertableBody, SqlitePool};
 use cid::Cid;
+use futures::Stream;
 use ipld_core::ipld::Ipld;
 use recon::ReconItem;
 use tracing::{trace, warn};
 
-use super::ordering_task::{
-    DeliverableEvent, DeliverableMetadata, DeliverableTask, DeliveredEvent, OrderingState,
-    OrderingTask, StreamEvents,
+use super::{
+    migration::Migrator,
+    ordering_task::{
+        DeliverableEvent, DeliverableMetadata, DeliverableTask, DeliveredEvent, OrderingState,
+        OrderingTask, StreamEvents,
+    },
 };
 
 use crate::{Error, Result};
@@ -25,6 +30,16 @@ pub struct CeramicEventService {
     pub(crate) pool: SqlitePool,
     delivery_task: DeliverableTask,
 }
+/// An object that represents an IPFS block where the data can be loaded async.
+#[async_trait]
+pub trait Block {
+    /// Report the CID of the block.
+    fn cid(&self) -> Cid;
+    /// Asynchronously load the block data.
+    /// This data should not be cached in memory as block data is accessed randomly.
+    async fn data(&self) -> anyhow::Result<Vec<u8>>;
+}
+pub type BoxedBlock = Box<dyn Block>;
 
 impl CeramicEventService {
     /// Create a new CeramicEventStore
@@ -52,6 +67,20 @@ impl CeramicEventService {
             pool,
             delivery_task,
         })
+    }
+    pub async fn migrate_from_ipfs(
+        &self,
+        network: Network,
+        blocks: impl Stream<Item = anyhow::Result<BoxedBlock>>,
+    ) -> Result<()> {
+        let migrator = Migrator::new(network, blocks)
+            .await
+            .map_err(Error::new_fatal)?;
+        migrator
+            .migrate(&self.pool)
+            .await
+            .map_err(Error::new_fatal)?;
+        Ok(())
     }
 
     /// merge_from_sqlite takes the filepath to a sqlite file.

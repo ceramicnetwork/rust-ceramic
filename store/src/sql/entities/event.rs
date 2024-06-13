@@ -5,10 +5,9 @@ use iroh_car::{CarHeader, CarReader, CarWriter};
 
 use std::collections::BTreeSet;
 
-use crate::{
-    sql::entities::{BlockRow, EventBlockRaw},
-    Error, Result,
-};
+pub use crate::sql::entities::EventBlockRaw;
+
+use crate::{sql::entities::BlockRow, Error, Result};
 
 pub async fn rebuild_car(blocks: Vec<BlockRow>) -> Result<Option<Vec<u8>>> {
     if blocks.is_empty() {

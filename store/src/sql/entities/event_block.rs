@@ -12,7 +12,9 @@ use crate::{
     Error, Result,
 };
 
+// TODO: make type private
 #[derive(Debug, Clone)]
+#[allow(missing_docs)]
 pub struct EventBlockRaw {
     pub event_cid: Vec<u8>,
     pub codec: i64,
@@ -91,6 +93,7 @@ impl sqlx::FromRow<'_, SqliteRow> for EventBlockRaw {
 }
 
 impl EventBlockRaw {
+    #[allow(missing_docs)]
     pub fn try_new(
         event_cid: &Cid,
         idx: i32,
@@ -135,6 +138,7 @@ impl EventBlockRaw {
         })
     }
 
+    /// CID of the block
     pub fn cid(&self) -> Cid {
         Cid::new_v1(self.codec as u64, self.multihash.clone().into_inner())
     }
