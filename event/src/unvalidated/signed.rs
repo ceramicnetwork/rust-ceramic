@@ -4,14 +4,13 @@ use crate::unvalidated::Payload;
 use base64::Engine;
 use ceramic_core::{DidDocument, Jwk};
 use cid::Cid;
-use ipld_core::codec::Codec;
 use ipld_core::ipld::Ipld;
 use iroh_car::{CarHeader, CarWriter};
-use multihash_codetable::{Code, MultihashDigest};
 use serde::{Deserialize, Serialize};
-use serde_ipld_dagcbor::codec::DagCborCodec;
 use ssi::jwk::Algorithm;
 use std::collections::BTreeMap;
+
+use super::{cid_from_dag_cbor, cid_from_dag_jose};
 
 /// Materialized signed Event.
 pub struct Event<D> {
@@ -22,20 +21,6 @@ pub struct Event<D> {
 }
 
 impl<D: serde::Serialize> Event<D> {
-    fn cid_from_dag_cbor(data: &[u8]) -> Cid {
-        Cid::new_v1(
-            <DagCborCodec as Codec<Ipld>>::CODE,
-            Code::Sha2_256.digest(data),
-        )
-    }
-
-    fn cid_from_dag_jose(data: &[u8]) -> Cid {
-        Cid::new_v1(
-            0x85, // TODO use constant for DagJose codec
-            Code::Sha2_256.digest(data),
-        )
-    }
-
     /// Factory for building an Event.
     pub fn new(
         envelope_cid: Cid,
@@ -58,7 +43,7 @@ impl<D: serde::Serialize> Event<D> {
 
     /// Constructs a signed event by signing a given event payload.
     pub fn from_payload(payload: Payload<D>, signer: impl Signer) -> anyhow::Result<Self> {
-        let payload_cid = Self::cid_from_dag_cbor(&serde_ipld_dagcbor::to_vec(&payload)?);
+        let payload_cid = cid_from_dag_cbor(&serde_ipld_dagcbor::to_vec(&payload)?);
         let payload_cid_str =
             base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(payload_cid.to_bytes());
 
@@ -83,7 +68,7 @@ impl<D: serde::Serialize> Event<D> {
             }],
         };
 
-        let envelope_cid = Self::cid_from_dag_jose(&serde_ipld_dagcbor::to_vec(&envelope)?);
+        let envelope_cid = cid_from_dag_jose(&serde_ipld_dagcbor::to_vec(&envelope)?);
 
         Ok(Self {
             payload,
