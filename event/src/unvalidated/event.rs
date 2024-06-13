@@ -119,6 +119,19 @@ where
                     .ok_or_else(|| anyhow!("Signed Event CAR data missing block for payload"))?;
                 let payload =
                     serde_ipld_dagcbor::from_slice(payload_bytes).context("decoding payload")?;
+                let capability = envelope
+                    .capability()
+                    .map(|capability_cid| -> anyhow::Result<_> {
+                        let capability_bytes =
+                            car_blocks.get(&capability_cid).ok_or_else(|| {
+                                anyhow!("Signed Event CAR data missing block for capability")
+                            })?;
+                        let capability: signed::cacao::Capability =
+                            serde_ipld_dagcbor::from_slice(capability_bytes)
+                                .context("decoding capability")?;
+                        Ok((capability_cid, capability))
+                    })
+                    .transpose()?;
 
                 if deny_unexpected_fields {
                     // Re-serialize the payload and compare the bytes. This indirectly checks that there
@@ -136,6 +149,7 @@ where
                         envelope,
                         payload_cid,
                         payload,
+                        capability,
                     )),
                 ))
             }
@@ -345,8 +359,8 @@ mod tests {
 
     use crate::unvalidated::{
         tests::{
-            DATA_EVENT_CAR, DATA_EVENT_CAR_UNSIGNED_INIT, SIGNED_INIT_EVENT_CAR, TIME_EVENT_CAR,
-            UNSIGNED_INIT_EVENT_CAR,
+            CACAO_SIGNED_DATA_EVENT_CAR, DATA_EVENT_CAR_UNSIGNED_INIT, SIGNED_DATA_EVENT_CAR,
+            SIGNED_INIT_EVENT_CAR, TIME_EVENT_CAR, UNSIGNED_INIT_EVENT_CAR,
         },
         Event,
     };
@@ -370,8 +384,12 @@ mod tests {
         round_trip(UNSIGNED_INIT_EVENT_CAR).await;
     }
     #[test(tokio::test)]
-    async fn round_trip_data_event() {
-        round_trip(DATA_EVENT_CAR).await;
+    async fn round_trip_signed_data_event() {
+        round_trip(SIGNED_DATA_EVENT_CAR).await;
+    }
+    #[test(tokio::test)]
+    async fn round_trip_cacao_signed_data_event() {
+        round_trip(CACAO_SIGNED_DATA_EVENT_CAR).await;
     }
     #[test(tokio::test)]
     async fn round_trip_data_event_unsigned_init() {
