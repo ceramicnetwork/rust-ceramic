@@ -4,11 +4,7 @@ use sqlx::{sqlite::SqliteRow, Row};
 use super::StreamCid;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
-pub struct StreamRow {
-    pub cid: Vec<u8>,
-    pub sep: String,
-    pub sep_val: Vec<u8>,
-}
+pub struct StreamRow {}
 
 impl StreamRow {
     pub fn insert() -> &'static str {

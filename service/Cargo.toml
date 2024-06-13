@@ -19,7 +19,6 @@ cid.workspace = true
 hex.workspace = true
 ipld-core.workspace = true
 iroh-bitswap.workspace = true
-itertools = "0.12"
 multihash-codetable.workspace = true
 recon.workspace = true
 thiserror.workspace = true

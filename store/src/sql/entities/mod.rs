@@ -16,4 +16,3 @@ pub use stream::{IncompleteStream, StreamEventRow, StreamRow};
 pub use utils::{CountRow, DeliveredEventRow, OrderKey};
 
 pub type StreamCid = cid::Cid;
-pub type EventCid = cid::Cid;

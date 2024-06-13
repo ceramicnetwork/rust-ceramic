@@ -401,10 +401,9 @@ impl Daemon {
         let migrator = service.data_migrator().await?;
         if migrator.needs_migration().await? {
             if opts.migrate_data {
-                info!("applying data migrations");
                 migrator.run_all().await?;
             } else {
-                warn!("data migrations are required, but --migrate-data is not set");
+                warn!("Data migrations are required, but --migrate-data is not set. Run with --migrate-data to apply migrations. Before doing so, you should back up your sqlite files from {:?}", dir);
                 return Ok(());
             }
         }
