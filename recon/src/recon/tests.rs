@@ -524,7 +524,7 @@ async fn word_lists() {
             if !s.is_empty() {
                 r.insert(&ReconItem::new(
                     &key.as_bytes().into(),
-                    key.to_uppercase().as_bytes().into(),
+                    key.to_uppercase().as_bytes(),
                 ))
                 .await
                 .unwrap();

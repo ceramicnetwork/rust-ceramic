@@ -265,7 +265,7 @@ mod tests {
 
         let dagcbor_str = multibase::encode(
             multibase::Base::Base64Url,
-            &serde_ipld_dagcbor::to_vec(&event).unwrap(),
+            serde_ipld_dagcbor::to_vec(&event).unwrap(),
         );
         assert_eq!(SIGNED_INIT_EVENT_PAYLOAD, dagcbor_str);
     }
@@ -286,7 +286,7 @@ mod tests {
 
         let dagcbor_str = multibase::encode(
             multibase::Base::Base64Url,
-            &serde_ipld_dagcbor::to_vec(&event).unwrap(),
+            serde_ipld_dagcbor::to_vec(&event).unwrap(),
         );
         assert_eq!(DATA_EVENT_PAYLOAD, dagcbor_str);
     }
@@ -319,14 +319,14 @@ mod tests {
 
         let envelope_cbor_str = multibase::encode(
             multibase::Base::Base64Url,
-            &signed_event.encode_envelope().unwrap(),
+            signed_event.encode_envelope().unwrap(),
         );
 
         assert_eq!(SIGNED_INIT_EVENT, envelope_cbor_str);
 
         let event_car_str = multibase::encode(
             multibase::Base::Base64Url,
-            &signed_event.encode_car().await.unwrap(),
+            signed_event.encode_car().await.unwrap(),
         );
         assert_eq!(SIGNED_INIT_EVENT_CAR, event_car_str);
     }

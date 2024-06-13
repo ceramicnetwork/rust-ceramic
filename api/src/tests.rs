@@ -483,7 +483,7 @@ async fn get_events_for_interest_range() {
     r: Success(EventsGet { events: [Event { id: "fce0105ff012616e0f0c1e987ef0f772afbe2c7f05c50102bc800", data: "" }], resume_offset: 1, is_complete: false })
             */
     let mock_interest = MockAccessInterestStoreTest::new();
-    let expected = BuildResponse::event(cid.clone(), vec![]);
+    let expected = BuildResponse::event(cid, vec![]);
     let mut mock_event_store = MockEventStoreTest::new();
     mock_event_store
         .expect_range_with_values()
