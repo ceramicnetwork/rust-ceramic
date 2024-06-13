@@ -113,14 +113,14 @@ where
 {
     recon::Store::insert(
         &store,
-        &ReconItem::new(&random_interest(Some((&[0], &[1])), Some(42)), &vec![]),
+        &ReconItem::new(&random_interest(Some((&[0], &[1])), Some(42)), &[]),
     )
     .await
     .unwrap();
 
     recon::Store::insert(
         &store,
-        &ReconItem::new(&random_interest(Some((&[0], &[1])), Some(24)), &vec![]),
+        &ReconItem::new(&random_interest(Some((&[0], &[1])), Some(24)), &[]),
     )
     .await
     .unwrap();
@@ -177,11 +177,11 @@ where
     let interest_1 = random_interest(None, None);
 
     store
-        .insert(&ReconItem::new(&interest_0, &vec![]))
+        .insert(&ReconItem::new(&interest_0, &[]))
         .await
         .unwrap();
     store
-        .insert(&ReconItem::new(&interest_1, &vec![]))
+        .insert(&ReconItem::new(&interest_1, &[]))
         .await
         .unwrap();
     let ids = store
@@ -218,7 +218,7 @@ where
         )
         "#
     ]
-    .assert_debug_eq(&recon::Store::insert(&store, &ReconItem::new(&interest, &vec![])).await);
+    .assert_debug_eq(&recon::Store::insert(&store, &ReconItem::new(&interest, &[])).await);
 
     // reject the second insert of same key
     expect![
@@ -228,7 +228,7 @@ where
         )
         "#
     ]
-    .assert_debug_eq(&recon::Store::insert(&store, &ReconItem::new(&interest, &vec![])).await);
+    .assert_debug_eq(&recon::Store::insert(&store, &ReconItem::new(&interest, &[])).await);
 }
 
 test_with_dbs!(
@@ -242,7 +242,7 @@ where
     S: recon::Store<Key = Interest, Hash = Sha256a>,
 {
     let key = random_interest(None, None);
-    recon::Store::insert(&store, &ReconItem::new(&key, &vec![]))
+    recon::Store::insert(&store, &ReconItem::new(&key, &[]))
         .await
         .unwrap();
     let value = store.value_for_key(&key).await.unwrap();
