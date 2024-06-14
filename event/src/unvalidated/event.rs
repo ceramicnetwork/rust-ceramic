@@ -112,7 +112,6 @@ impl TimeEvent {
     }
 }
 /// Raw Time Event as it is encoded in the protocol.
-/// TODO: Parse out all the blocks for the full witness proof.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RawTimeEvent {
     id: Cid,

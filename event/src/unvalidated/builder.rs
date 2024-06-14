@@ -271,15 +271,16 @@ impl TimeBuilderState for TimeBuilderWithTx {}
 
 impl TimeBuilder<TimeBuilderWithTx> {
     /// Specify the root of the proof.
+    /// The edge_index is an index into the node that should be followed.
     /// The index is an index into the edge that should be followed.
-    pub fn with_root(self, index: usize, edge: Ipld) -> TimeBuilder<TimeBuilderWithRoot> {
+    pub fn with_root(self, edge_index: usize, node: Ipld) -> TimeBuilder<TimeBuilderWithRoot> {
         TimeBuilder {
             state: TimeBuilderWithRoot {
                 id: self.state.id,
                 chain_id: self.state.chain_id,
                 tx_hash: self.state.tx_hash,
                 tx_type: self.state.tx_type,
-                edges: vec![(index, edge)],
+                edges: vec![(edge_index, node)],
             },
         }
     }
@@ -297,10 +298,10 @@ pub struct TimeBuilderWithRoot {
 impl TimeBuilderState for TimeBuilderWithRoot {}
 impl TimeBuilder<TimeBuilderWithRoot> {
     /// Specify an additional edge of the proof.
-    /// The index is an index into the edge that should be followed.
-    /// The last edge must index to a Cid of the previous event.
-    pub fn with_edge(mut self, index: usize, edge: Ipld) -> Self {
-        self.state.edges.push((index, edge));
+    /// The edge_index is an index into the node that should be followed.
+    /// The last edge_index must index to a Cid of the previous event.
+    pub fn with_edge(mut self, edge_index: usize, node: Ipld) -> Self {
+        self.state.edges.push((edge_index, node));
         self
     }
     /// Build the [`unvalidated::TimeEvent`].
