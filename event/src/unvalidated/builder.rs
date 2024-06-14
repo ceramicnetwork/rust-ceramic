@@ -355,10 +355,9 @@ impl TimeBuilder<TimeBuilderWithRoot> {
 }
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
+    use std::str::FromStr as _;
 
     use ceramic_core::StreamId;
-    use cid::Cid;
     use ipld_core::ipld;
     use ipld_core::ipld::Ipld;
     use multibase;

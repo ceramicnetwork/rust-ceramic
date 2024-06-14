@@ -1,4 +1,6 @@
 //! Unvalidated signed events.
+pub mod cacao;
+
 use crate::bytes::Bytes;
 use crate::unvalidated::Payload;
 use base64::Engine;
@@ -8,16 +10,19 @@ use ipld_core::ipld::Ipld;
 use iroh_car::{CarHeader, CarWriter};
 use serde::{Deserialize, Serialize};
 use ssi::jwk::Algorithm;
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, str::FromStr as _};
+
+use self::cacao::Capability;
 
 use super::{cid_from_dag_cbor, cid_from_dag_jose};
 
 /// Materialized signed Event.
 pub struct Event<D> {
     envelope: Envelope,
-    payload: Payload<D>,
     envelope_cid: Cid,
+    payload: Payload<D>,
     payload_cid: Cid,
+    capability: Option<(Cid, Capability)>,
 }
 
 impl<D: serde::Serialize> Event<D> {
@@ -27,12 +32,14 @@ impl<D: serde::Serialize> Event<D> {
         envelope: Envelope,
         payload_cid: Cid,
         payload: Payload<D>,
+        capability: Option<(Cid, Capability)>,
     ) -> Self {
         Self {
             envelope_cid,
             envelope,
             payload_cid,
             payload,
+            capability,
         }
     }
 
@@ -75,6 +82,8 @@ impl<D: serde::Serialize> Event<D> {
             envelope,
             envelope_cid,
             payload_cid,
+            //TODO: Implement CACAO signing
+            capability: None,
         })
     }
 
@@ -87,6 +96,13 @@ impl<D: serde::Serialize> Event<D> {
     pub fn encode_payload(&self) -> anyhow::Result<Vec<u8>> {
         Ok(serde_ipld_dagcbor::to_vec(&self.payload)?)
     }
+    /// Encodes the capability as IPLD if present
+    pub fn encode_capability(&self) -> anyhow::Result<Option<(Cid, Vec<u8>)>> {
+        self.capability
+            .as_ref()
+            .map(|(cid, cacao)| Ok((*cid, serde_ipld_dagcbor::to_vec(cacao)?)))
+            .transpose()
+    }
 
     /// Get the CID of the signature envelope
     pub fn envelope_cid(&self) -> Cid {
@@ -98,14 +114,23 @@ impl<D: serde::Serialize> Event<D> {
         self.payload_cid
     }
 
+    /// Get the CID of the capability
+    pub fn capability_cid(&self) -> Option<Cid> {
+        self.capability.as_ref().map(|c| c.0)
+    }
+
     /// Encodes the full signed event into a CAR file.
     pub async fn encode_car(&self) -> anyhow::Result<Vec<u8>> {
         let envelope_bytes = self.encode_envelope()?;
         let payload_bytes = self.encode_payload()?;
+        let capability_bytes = self.encode_capability()?;
 
         let mut car = Vec::new();
         let roots: Vec<Cid> = vec![self.envelope_cid];
         let mut writer = CarWriter::new(CarHeader::V1(roots.into()), &mut car);
+        if let Some((cid, bytes)) = capability_bytes {
+            writer.write(cid, &bytes).await?;
+        }
         writer.write(self.payload_cid, payload_bytes).await?;
         writer.write(self.envelope_cid, envelope_bytes).await?;
         writer.finish().await?;
@@ -133,13 +158,18 @@ impl Envelope {
         Cid::read_bytes(self.payload.as_slice()).ok()
     }
 
-    /// Report the cap field of the protected header if present
-    pub fn cap(&self) -> Option<Cid> {
+    /// Report the capability from the protected header if present
+    pub fn capability(&self) -> Option<Cid> {
         // Parse signatures[0].protected for cad
         self.signatures[0].protected.as_ref().and_then(|protected| {
             serde_json::from_slice::<Protected>(protected.as_slice())
                 .ok()
-                .and_then(|protected| protected.cap)
+                .and_then(|protected| {
+                    protected.cap.and_then(|cid| {
+                        cid.strip_prefix("ipfs://")
+                            .and_then(|cid| Cid::from_str(cid).ok())
+                    })
+                })
         })
     }
 }
@@ -159,7 +189,7 @@ pub struct Signature {
 #[derive(Debug, Serialize, Deserialize)]
 struct Protected {
     // There are more field in this struct be we only care about cap so far.
-    cap: Option<Cid>,
+    cap: Option<String>,
 }
 
 /// Sign bytes for an id and algorithm
