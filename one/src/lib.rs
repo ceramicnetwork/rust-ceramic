@@ -317,7 +317,7 @@ impl Daemon {
         // though they are currently all implemented by a single struct and we're just cloning Arcs.
         match db {
             Databases::Sqlite(db) => {
-                Daemon::run_int(
+                Daemon::run_internal(
                     opts,
                     db.ceramic_service,
                     db.interest_store.clone(),
@@ -331,7 +331,7 @@ impl Daemon {
         }
     }
 
-    async fn run_int<I1, I2, E1, E2, E3>(
+    async fn run_internal<I1, I2, E1, E2, E3>(
         opts: DaemonOpts,
         service: CeramicService,
         interest_api_store: Arc<I1>,
