@@ -12,8 +12,8 @@ pub use metrics::{Metrics, StoreMetricsMiddleware};
 pub use migration::DataMigrator;
 pub use sql::{
     entities::EventInsertable, entities::EventInsertableBody, CeramicOneBlock, CeramicOneEvent,
-    CeramicOneEventBlock, CeramicOneInterest, Migrations, SqlitePool, SqliteRootStore,
-    SqliteTransaction,
+    CeramicOneEventBlock, CeramicOneInterest, CeramicOneStream, InsertResult, InsertedEvent,
+    Migrations, SqlitePool, SqliteRootStore, SqliteTransaction, StreamEventMetadata,
 };
 
 pub(crate) type Result<T> = std::result::Result<T, Error>;

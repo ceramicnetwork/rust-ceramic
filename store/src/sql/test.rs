@@ -32,8 +32,19 @@ fn random_event(cid: &str) -> EventInsertable {
         order_key,
         body: EventInsertableBody {
             cid,
-            deliverable: false,
             blocks: vec![],
+            deliverable: true,
+            header: super::entities::EventHeader::Init {
+                cid,
+                header: ceramic_event::unvalidated::init::Header::new(
+                    vec![CONTROLLER.to_string()],
+                    SEP_KEY.to_string(),
+                    vec![3, 2, 45, 8],
+                    None,
+                    None,
+                    None,
+                ),
+            },
         },
     }
 }
@@ -48,8 +59,7 @@ async fn hash_range_query() {
         .await
         .unwrap();
 
-    let new = x.keys.into_iter().filter(|x| *x).count();
-    assert_eq!(new, 2);
+    assert_eq!(x.count_new_keys(), 2);
 
     let hash = CeramicOneEvent::hash_range(
         &pool,
@@ -70,8 +80,7 @@ async fn range_query() {
         .await
         .unwrap();
 
-    let new = x.keys.into_iter().filter(|x| *x).count();
-    assert_eq!(new, 2);
+    assert_eq!(x.count_new_keys(), 2);
 
     let ids = CeramicOneEvent::range(
         &pool,

@@ -1,6 +1,8 @@
 use anyhow::anyhow;
 use ceramic_core::EventId;
+use ceramic_event::unvalidated;
 use cid::Cid;
+use ipld_core::ipld::Ipld;
 use iroh_car::{CarHeader, CarReader, CarWriter};
 
 use std::collections::BTreeSet;
@@ -9,6 +11,8 @@ use crate::{
     sql::entities::{BlockRow, EventBlockRaw},
     Error, Result,
 };
+
+use super::{EventHeader, EventType};
 
 pub async fn rebuild_car(blocks: Vec<BlockRow>) -> Result<Option<Vec<u8>>> {
     if blocks.is_empty() {
@@ -50,20 +54,41 @@ pub struct EventInsertable {
 }
 
 impl EventInsertable {
-    /// Try to build the EventInsertable struct. Will error if the key and body don't match.
-    pub fn try_new(order_key: EventId, body: EventInsertableBody) -> Result<Self> {
-        if order_key.cid().as_ref() != Some(&body.cid) {
-            return Err(Error::new_app(anyhow!(
-                "Event ID and body CID do not match: {:?} != {:?}",
-                order_key.cid(),
-                body.cid
-            )))?;
-        }
+    /// Try to build the EventInsertable struct from a carfile.
+    pub async fn try_new(order_key: EventId, body: &[u8]) -> Result<Self> {
+        let cid = order_key.cid().ok_or_else(|| {
+            Error::new_invalid_arg(anyhow::anyhow!("EventID is missing a CID: {}", order_key))
+        })?;
+        let body = EventInsertableBody::try_from_carfile(cid, body).await?;
         Ok(Self { order_key, body })
     }
 
-    /// change the deliverable status of the event
-    pub fn deliverable(&mut self, deliverable: bool) {
+    /// Get the CID of the event
+    pub fn cid(&self) -> Cid {
+        self.body.cid
+    }
+
+    /// Get the stream CID
+    pub fn stream_cid(&self) -> Cid {
+        self.body.header.stream_cid()
+    }
+
+    /// Get the previous event CID if any
+    pub fn prev(&self) -> Option<Cid> {
+        match &self.body.header {
+            EventHeader::Data { prev, .. } | EventHeader::Time { prev, .. } => Some(*prev),
+            EventHeader::Init { .. } => None,
+        }
+    }
+
+    /// Whether this event is deliverable currently
+    pub fn deliverable(&self) -> bool {
+        self.body.deliverable
+    }
+
+    /// Mark the event as deliverable.
+    /// This will be used when inserting the event to make sure the field is updated accordingly.
+    pub fn set_deliverable(&mut self, deliverable: bool) {
         self.body.deliverable = deliverable;
     }
 }
@@ -72,22 +97,46 @@ impl EventInsertable {
 /// The type we use to insert events into the database
 pub struct EventInsertableBody {
     /// The event CID i.e. the root CID from the car file
-    pub cid: Cid,
-    /// Whether this event is deliverable to clients or is waiting for more data
-    pub deliverable: bool,
+    pub(crate) cid: Cid,
+    /// The event header data about the event type and stream
+    pub(crate) header: EventHeader,
+    /// Whether the event is deliverable i.e. it's prev has been delivered and the chain is continuous to an init event
+    pub(crate) deliverable: bool,
     /// The blocks of the event
     // could use a map but there aren't that many blocks per event (right?)
-    pub blocks: Vec<EventBlockRaw>,
+    pub(crate) blocks: Vec<EventBlockRaw>,
 }
 
 impl EventInsertableBody {
     /// Create a new EventInsertRaw struct. Deliverable is set to false by default.
-    pub fn new(cid: Cid, blocks: Vec<EventBlockRaw>) -> Self {
+    pub fn new(
+        cid: Cid,
+        header: EventHeader,
+        blocks: Vec<EventBlockRaw>,
+        deliverable: bool,
+    ) -> Self {
         Self {
             cid,
-            deliverable: false,
+            header,
             blocks,
+            deliverable,
         }
+    }
+
+    /// Get the CID of the event
+    pub fn cid(&self) -> Cid {
+        self.cid
+    }
+
+    /// Whether this event is immediately deliverable to clients or the history chain needs to be reviewed
+    /// false indicates it can be stored and delivered immediately
+    pub fn event_type(&self) -> EventType {
+        self.header.event_type()
+    }
+
+    /// Get the blocks of the event
+    pub fn blocks(&self) -> &Vec<EventBlockRaw> {
+        &self.blocks
     }
 
     /// Find a block from the carfile for a given CID if it's included
@@ -136,6 +185,73 @@ impl EventInsertableBody {
             blocks.push(ebr);
             idx += 1;
         }
-        Ok(Self::new(event_cid, blocks))
+
+        let ev_block = blocks
+            .iter()
+            .find(|b| b.cid() == event_cid)
+            .ok_or_else(|| {
+                Error::new_app(anyhow!(
+                    "event block not found in car file: cid={}",
+                    event_cid
+                ))
+            })?;
+        let event_ipld: unvalidated::RawEvent<Ipld> =
+            serde_ipld_dagcbor::from_slice(&ev_block.bytes).map_err(|e| {
+                Error::new_invalid_arg(
+                    anyhow::anyhow!(e).context("event block is not valid event format"),
+                )
+            })?;
+
+        let cid = event_cid;
+
+        let (deliverable, header) = match event_ipld {
+            unvalidated::RawEvent::Time(t) => (
+                false,
+                EventHeader::Time {
+                    cid,
+                    stream_cid: t.id(),
+                    prev: t.prev(),
+                },
+            ),
+            unvalidated::RawEvent::Signed(signed) => {
+                let link = signed.link().ok_or_else(|| {
+                    Error::new_invalid_arg(anyhow::anyhow!("event should have a link"))
+                })?;
+                let link = blocks.iter().find(|b| b.cid() == link).ok_or_else(|| {
+                    Error::new_invalid_arg(anyhow::anyhow!("prev CID missing from carfile"))
+                })?;
+                let payload: unvalidated::Payload<Ipld> =
+                    serde_ipld_dagcbor::from_slice(&link.bytes).map_err(|e| {
+                        Error::new_invalid_arg(
+                            anyhow::anyhow!(e).context("Failed to follow event link"),
+                        )
+                    })?;
+
+                match payload {
+                    unvalidated::Payload::Data(d) => (
+                        false,
+                        EventHeader::Data {
+                            cid,
+                            stream_cid: *d.id(),
+                            prev: *d.prev(),
+                        },
+                    ),
+                    unvalidated::Payload::Init(init) => {
+                        let header = init.header().to_owned();
+
+                        (true, EventHeader::Init { cid, header })
+                    }
+                }
+            }
+            unvalidated::RawEvent::Unsigned(init) => (
+                true,
+                EventHeader::Init {
+                    cid,
+                    header: init.header().to_owned(),
+                },
+            ),
+        };
+
+        Ok(Self::new(event_cid, header, blocks, deliverable))
     }
 }

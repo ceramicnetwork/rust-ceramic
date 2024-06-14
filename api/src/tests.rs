@@ -5,6 +5,7 @@ use std::{ops::Range, str::FromStr, sync::Arc};
 use crate::server::decode_multibase_data;
 use crate::server::BuildResponse;
 use crate::server::Server;
+use crate::EventInsertResult;
 use crate::{EventStore, InterestStore};
 
 use anyhow::Result;
@@ -121,7 +122,7 @@ mock! {
     pub EventStoreTest {}
     #[async_trait]
     impl EventStore for EventStoreTest {
-        async fn insert_many(&self, items: &[(EventId, Vec<u8>)]) -> Result<Vec<bool>>;
+        async fn insert_many(&self, items: &[(EventId, Vec<u8>)]) -> Result<Vec<EventInsertResult>>;
         async fn range_with_values(
             &self,
             range: Range<EventId>,
@@ -198,7 +199,12 @@ async fn create_event() {
         .expect_insert_many()
         .with(predicate::eq(args))
         .times(1)
-        .returning(|_| Ok(vec![true]));
+        .returning(|input| {
+            Ok(input
+                .iter()
+                .map(|(id, _)| EventInsertResult::new(id.clone(), None))
+                .collect())
+        });
     let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_event_store));
     let resp = server
         .events_post(
@@ -211,6 +217,51 @@ async fn create_event() {
         .unwrap();
     assert!(matches!(resp, EventsPostResponse::Success));
 }
+
+#[tokio::test]
+async fn create_event_fails() {
+    let peer_id = PeerId::random();
+    let network = Network::Mainnet;
+    let expected_event_id = EventId::try_from(hex::decode(DATA_EVENT_ID).unwrap()).unwrap();
+
+    // Remove whitespace from event CAR file
+    let event_data = DATA_EVENT_CAR
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect::<String>();
+    let mock_interest = MockAccessInterestStoreTest::new();
+    let mut mock_event_store = MockEventStoreTest::new();
+    mock_get_init_event(&mut mock_event_store);
+    let args = vec![(
+        expected_event_id.clone(),
+        decode_multibase_data(&event_data).unwrap(),
+    )];
+
+    mock_event_store
+        .expect_insert_many()
+        .with(predicate::eq(args))
+        .times(1)
+        .returning(|input| {
+            Ok(input
+                .iter()
+                .map(|(id, _)| {
+                    EventInsertResult::new(id.clone(), Some("Event is missing prev".to_string()))
+                })
+                .collect())
+        });
+    let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_event_store));
+    let resp = server
+        .events_post(
+            models::EventData {
+                data: event_data.to_string(),
+            },
+            &Context,
+        )
+        .await
+        .unwrap();
+    assert!(matches!(resp, EventsPostResponse::BadRequest(_)));
+}
+
 #[tokio::test]
 #[traced_test]
 async fn register_interest_sort_value() {

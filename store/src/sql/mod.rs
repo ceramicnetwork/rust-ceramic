@@ -6,7 +6,10 @@ mod sqlite;
 #[cfg(test)]
 mod test;
 
-pub use access::{CeramicOneBlock, CeramicOneEvent, CeramicOneEventBlock, CeramicOneInterest};
+pub use access::{
+    CeramicOneBlock, CeramicOneEvent, CeramicOneEventBlock, CeramicOneInterest, CeramicOneStream,
+    InsertResult, InsertedEvent, StreamEventMetadata,
+};
 pub use root::SqliteRootStore;
 pub use sqlite::{SqlitePool, SqliteTransaction};
 
