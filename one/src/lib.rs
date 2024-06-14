@@ -398,8 +398,8 @@ impl Daemon {
             );
         });
 
-        let migrator = service.data_migrator().await?;
-        if migrator.needs_migration().await? {
+        let mut migrator = service.data_migrator().await?;
+        if migrator.needs_migration() {
             if opts.migrate_data {
                 migrator.run_all().await?;
             } else {
