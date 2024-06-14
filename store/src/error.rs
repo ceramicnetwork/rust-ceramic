@@ -9,6 +9,12 @@ pub enum Error {
         /// The error details that may include context and other information
         error: anyhow::Error,
     },
+    #[error("InvalidArgument: {error}")]
+    /// Invalid client input
+    InvalidArgument {
+        /// The error details that may include context and other information
+        error: anyhow::Error,
+    },
     #[error("Fatal error encountered: {error}")]
     /// A fatal error that is unlikely to be recoverable, and may require terminating the process completely
     Fatal {
@@ -45,6 +51,13 @@ impl Error {
         }
     }
 
+    /// Crate an InvalidArgument error
+    pub fn new_invalid_arg(error: impl Into<anyhow::Error>) -> Self {
+        Self::InvalidArgument {
+            error: error.into(),
+        }
+    }
+
     /// Add context to the internal error. Works identically to `anyhow::context`
     pub fn context<C>(self, context: C) -> Self
     where
@@ -58,6 +71,9 @@ impl Error {
                 error: error.context(context),
             },
             Error::Transient { error } => Self::Transient {
+                error: error.context(context),
+            },
+            Error::InvalidArgument { error } => Self::InvalidArgument {
                 error: error.context(context),
             },
         }
@@ -115,6 +131,7 @@ impl From<Error> for recon::Error {
             Error::Application { error } => recon::Error::Application { error },
             Error::Fatal { error } => recon::Error::Fatal { error },
             Error::Transient { error } => recon::Error::Transient { error },
+            Error::InvalidArgument { error } => recon::Error::Application { error },
         }
     }
 }
