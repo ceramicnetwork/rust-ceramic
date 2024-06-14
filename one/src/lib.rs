@@ -17,7 +17,7 @@ use ceramic_core::{EventId, Interest};
 use ceramic_kubo_rpc::Multiaddr;
 use ceramic_metrics::{config::Config as MetricsConfig, MetricsHandle};
 use ceramic_p2p::{load_identity, DiskStorage, Keychain, Libp2pConfig};
-use ceramic_service::{CeramicEventService, CeramicInterestService};
+use ceramic_service::{CeramicEventService, CeramicInterestService, CeramicService};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use futures::StreamExt;
 use multibase::Base;
@@ -157,6 +157,10 @@ struct DaemonOpts {
     /// The default is to use `db.sqlite3` in the store directory.
     #[arg(long, env = "CERAMIC_ONE_DATABASE_URL")]
     database_url: Option<String>,
+
+    #[arg(long, default_value_t = false, env = "CERAMIC_ONE_MIGRATE_DATA")]
+    /// Whether to apply any required data migrations at startup. If false and migrations are required, the server will exit.
+    migrate_data: bool,
 }
 
 #[derive(ValueEnum, Debug, Clone, Default)]
@@ -280,11 +284,13 @@ impl DaemonOpts {
     async fn build_sqlite_dbs(path: &str) -> Result<Databases> {
         let sql_pool =
             ceramic_store::SqlitePool::connect(path, ceramic_store::Migrations::Apply).await?;
-        let interest_store = Arc::new(CeramicInterestService::new(sql_pool.clone()));
-        let event_store = Arc::new(CeramicEventService::new(sql_pool).await?);
+        let ceramic_service = CeramicService::try_new(sql_pool).await?;
+        let interest_store = ceramic_service.interest_service().to_owned();
+        let event_store = ceramic_service.event_service().to_owned();
         println!("Connected to sqlite database: {}", path);
 
         Ok(Databases::Sqlite(SqliteBackend {
+            ceramic_service,
             event_store,
             interest_store,
         }))
@@ -295,6 +301,7 @@ enum Databases {
     Sqlite(SqliteBackend),
 }
 struct SqliteBackend {
+    ceramic_service: CeramicService,
     interest_store: Arc<CeramicInterestService>,
     event_store: Arc<CeramicEventService>,
 }
@@ -312,6 +319,7 @@ impl Daemon {
             Databases::Sqlite(db) => {
                 Daemon::run_int(
                     opts,
+                    db.ceramic_service,
                     db.interest_store.clone(),
                     db.interest_store,
                     db.event_store.clone(),
@@ -325,6 +333,7 @@ impl Daemon {
 
     async fn run_int<I1, I2, E1, E2, E3>(
         opts: DaemonOpts,
+        service: CeramicService,
         interest_api_store: Arc<I1>,
         interest_recon_store: Arc<I2>,
         model_api_store: Arc<E1>,
@@ -388,6 +397,16 @@ impl Daemon {
                 registry.sub_registry_with_prefix("tokio"),
             );
         });
+
+        let migrator = service.data_migrator().await?;
+        if migrator.needs_migration().await? {
+            if opts.migrate_data {
+                migrator.run_all().await?;
+            } else {
+                warn!("Data migrations are required, but --migrate-data is not set. Run with --migrate-data to apply migrations. Before doing so, you should back up your sqlite files from {:?}", dir);
+                return Ok(());
+            }
+        }
 
         let p2p_config = Libp2pConfig {
             mdns: false,
