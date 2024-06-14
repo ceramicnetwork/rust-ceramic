@@ -1,5 +1,9 @@
 use crate::unvalidated;
+use anyhow::{anyhow, bail};
 use cid::Cid;
+use ipld_core::ipld::Ipld;
+
+use super::cid_from_dag_cbor;
 
 /// Builder for constructing events.
 pub struct Builder;
@@ -19,7 +23,12 @@ impl Builder {
         }
     }
 
-    // TODO(stbrody): add builder for TimeEvents
+    /// Create builder for data events
+    pub fn time() -> TimeBuilder<TimeBuilderEmpty> {
+        TimeBuilder {
+            state: TimeBuilderEmpty,
+        }
+    }
 }
 
 struct Separator {
@@ -203,9 +212,152 @@ impl<D> DataBuilder<DataBuilderWithData<D>> {
     }
 }
 
+/// Builder for constructing an [`unvalidated::TimeEvent`].
+#[derive(Default)]
+#[allow(private_bounds)]
+pub struct TimeBuilder<S: unvalidated::builder::TimeBuilderState> {
+    state: S,
+}
+
+/// State of the builder
+pub trait TimeBuilderState {}
+
+/// Initial state
+pub struct TimeBuilderEmpty;
+impl TimeBuilderState for TimeBuilderEmpty {}
+
+impl TimeBuilder<TimeBuilderEmpty> {
+    /// Specify the Cid of the init event for the stream.
+    pub fn with_id(self, id: Cid) -> TimeBuilder<TimeBuilderWithId> {
+        TimeBuilder {
+            state: TimeBuilderWithId { id },
+        }
+    }
+}
+
+/// State with id added
+pub struct TimeBuilderWithId {
+    id: Cid,
+}
+impl TimeBuilderState for TimeBuilderWithId {}
+
+impl TimeBuilder<TimeBuilderWithId> {
+    /// Specify details about the time transaction.
+    pub fn with_tx(
+        self,
+        chain_id: String,
+        tx_hash: Cid,
+        tx_type: String,
+    ) -> TimeBuilder<TimeBuilderWithTx> {
+        TimeBuilder {
+            state: TimeBuilderWithTx {
+                id: self.state.id,
+                chain_id,
+                tx_hash,
+                tx_type,
+            },
+        }
+    }
+}
+
+/// State with the transaction details.
+pub struct TimeBuilderWithTx {
+    id: Cid,
+    chain_id: String,
+    tx_hash: Cid,
+    tx_type: String,
+}
+impl TimeBuilderState for TimeBuilderWithTx {}
+
+impl TimeBuilder<TimeBuilderWithTx> {
+    /// Specify the root of the proof.
+    /// The edge_index is an index into the node that should be followed.
+    /// The index is an index into the edge that should be followed.
+    pub fn with_root(self, edge_index: usize, node: Ipld) -> TimeBuilder<TimeBuilderWithRoot> {
+        TimeBuilder {
+            state: TimeBuilderWithRoot {
+                id: self.state.id,
+                chain_id: self.state.chain_id,
+                tx_hash: self.state.tx_hash,
+                tx_type: self.state.tx_type,
+                edges: vec![(edge_index, node)],
+            },
+        }
+    }
+}
+
+/// State with the proof root added.
+/// More edges may be added.
+pub struct TimeBuilderWithRoot {
+    id: Cid,
+    chain_id: String,
+    tx_hash: Cid,
+    tx_type: String,
+    edges: Vec<(usize, Ipld)>,
+}
+impl TimeBuilderState for TimeBuilderWithRoot {}
+impl TimeBuilder<TimeBuilderWithRoot> {
+    /// Specify an additional edge of the proof.
+    /// The edge_index is an index into the node that should be followed.
+    /// The last edge_index must index to a Cid of the previous event.
+    pub fn with_edge(mut self, edge_index: usize, node: Ipld) -> Self {
+        self.state.edges.push((edge_index, node));
+        self
+    }
+    /// Build the [`unvalidated::TimeEvent`].
+    /// Errors if the proof edges and indexes are not valid.
+    pub fn build(self) -> anyhow::Result<unvalidated::TimeEvent> {
+        let path = self
+            .state
+            .edges
+            .iter()
+            .map(|(index, _edge)| index.to_string())
+            .collect::<Vec<_>>()
+            .join("/");
+        let (_index, root) = self
+            .state
+            .edges
+            .first()
+            .expect("should always be at least one edge");
+        let (leaf_index, leaf_edge) = self
+            .state
+            .edges
+            .iter()
+            .last()
+            .expect("should always be at least one edge");
+        let prev = leaf_edge
+            .get(*leaf_index)?
+            .ok_or_else(|| anyhow!("leaf index should always exist"))?;
+        let prev = match prev {
+            Ipld::Link(prev) => *prev,
+            _ => bail!("leaf indexed value should always be a Cid"),
+        };
+        let root_bytes = serde_ipld_dagcbor::to_vec(root)?;
+        let root_cid = cid_from_dag_cbor(&root_bytes);
+        let proof = unvalidated::Proof::new(
+            self.state.chain_id,
+            root_cid,
+            self.state.tx_hash,
+            self.state.tx_type,
+        );
+        let proof_bytes = serde_ipld_dagcbor::to_vec(&proof)?;
+        let proof_cid = cid_from_dag_cbor(&proof_bytes);
+        let blocks_in_path = self
+            .state
+            .edges
+            .into_iter()
+            .map(|(_index, edge)| edge)
+            .collect();
+
+        let event = unvalidated::RawTimeEvent::new(self.state.id, prev, proof_cid, path);
+        Ok(unvalidated::TimeEvent::new(event, proof, blocks_in_path))
+    }
+}
 #[cfg(test)]
 mod tests {
     use ceramic_core::StreamId;
+    use ipld_core::ipld;
+    use ipld_core::ipld::Ipld;
     use multibase;
 
     use super::*;
@@ -215,8 +367,8 @@ mod tests {
     use cid::Cid;
     use std::str::FromStr;
 
-    // const SIGNED_INIT_EVENT_CID: &str =
-    //     "bagcqcerar2aga7747dm6fota3iipogz4q55gkaamcx2weebs6emvtvie2oha";
+    const SIGNED_INIT_EVENT_CID: &str =
+        "bagcqcerar2aga7747dm6fota3iipogz4q55gkaamcx2weebs6emvtvie2oha";
     // const SIGNED_INIT_EVENT_PAYLOAD_CID: &str =
     //     "bafyreiaroclcgqih242byss6pneufencrulmeex2ttfdzefst67agwq3im";
     const SIGNED_INIT_EVENT_CAR: &str = "uO6Jlcm9vdHOB2CpYJgABhQESII6AYH_8-NniumDaEPcbPId6ZQAMFfViEDLxGVnVBNOOZ3ZlcnNpb24B0QEBcRIgEXCWI0EH1zQcSl57SUKRoo0WwhL6nMo8kLKfvgNaG0OiZGRhdGGhZXN0ZXBoGQFNZmhlYWRlcqRjc2VwZW1vZGVsZW1vZGVsWCjOAQIBhQESIKDoMqM144vTQLQ6DwKZvzxRWg_DPeTNeRCkPouTHo1YZnVuaXF1ZUxEpvE6skELu2qFaN5rY29udHJvbGxlcnOBeDhkaWQ6a2V5Ono2TWt0QnluQVBMckV5ZVM3cFZ0aGJpeVNjbWZ1OG41Vjdib1hneHlvNXEzU1pSUroCAYUBEiCOgGB__PjZ4rpg2hD3GzyHemUADBX1YhAy8RlZ1QTTjqJncGF5bG9hZFgkAXESIBFwliNBB9c0HEpee0lCkaKNFsIS-pzKPJCyn74DWhtDanNpZ25hdHVyZXOBomlwcm90ZWN0ZWRYgXsiYWxnIjoiRWREU0EiLCJraWQiOiJkaWQ6a2V5Ono2TWt0QnluQVBMckV5ZVM3cFZ0aGJpeVNjbWZ1OG41Vjdib1hneHlvNXEzU1pSUiN6Nk1rdEJ5bkFQTHJFeWVTN3BWdGhiaXlTY21mdThuNVY3Ym9YZ3h5bzVxM1NaUlIifWlzaWduYXR1cmVYQCQDjlx8fT8rbTR4088HtOE27LJMc38DSuf1_XtK14hDp1Q6vhHqnuiobqp5EqNOp0vNFCCzwgG-Dsjmes9jJww";
@@ -245,7 +397,7 @@ mod tests {
     // const DATA_EVENT_CAR_UNSIGNED_INIT: &str = "
     //     uO6Jlcm9vdHOB2CpYJgABhQESIAlT-MndVmni9jiwS6JPtXtvYAa1-4tjruqLftM6BxvTZ3ZlcnNpb24B-gEBcRIguZ-ORAzcRLjL2LKcFJX2lC3Cv_4bywuG4Q8gEc5dbYajYmlk2CpYJQABcRIgCkMGCgfs8ht9NWnDxnqenauyk-FwopBeHTefuwaqvmZkZGF0YYSjYm9wY2FkZGRwYXRoZC9vbmVldmFsdWVjZm9vo2JvcGNhZGRkcGF0aGQvdHdvZXZhbHVlY2JhcqNib3BjYWRkZHBhdGhmL3RocmVlZXZhbHVlZmZvb2JhcqNib3BjYWRkZHBhdGhnL215RGF0YWV2YWx1ZQFkcHJldtgqWCUAAXESIApDBgoH7PIbfTVpw8Z6np2rspPhcKKQXh03n7sGqr5mugIBhQESIAlT-MndVmni9jiwS6JPtXtvYAa1-4tjruqLftM6BxvTomdwYXlsb2FkWCQBcRIguZ-ORAzcRLjL2LKcFJX2lC3Cv_4bywuG4Q8gEc5dbYZqc2lnbmF0dXJlc4GiaXByb3RlY3RlZFiBeyJhbGciOiJFZERTQSIsImtpZCI6ImRpZDprZXk6ejZNa3RDRlJjd0xSRlFBOVdiZURSTTdXN2tiQmRaVEhRMnhuUGd5eFpMcTFnQ3BLI3o2TWt0Q0ZSY3dMUkZRQTlXYmVEUk03VzdrYkJkWlRIUTJ4blBneXhaTHExZ0NwSyJ9aXNpZ25hdHVyZVhAZSJEw5QkFrYhbLYdLgnBn5SIbGAgm5i2jHhntWwe8nDkyKcCu4OvLMvFyGpjPloYVOr0JKwXlQfbgccHtbJpDw";
 
-    // const TIME_EVENT_CAR: &str = "uOqJlcm9vdHOB2CpYJQABcRIgcmqgb7eHSgQ32hS1NGVKZruLJGcKDI1f4lqOyNYn3eVndmVyc2lvbgG3AQFxEiByaqBvt4dKBDfaFLU0ZUpmu4skZwoMjV_iWo7I1ifd5aRiaWTYKlgmAAGFARIgjoBgf_z42eK6YNoQ9xs8h3plAAwV9WIQMvEZWdUE045kcGF0aGEwZHByZXbYKlgmAAGFARIgJ10HGXlKTZ7sjbSnNf2QMt_SOPpa8hDUqpszdZCIKUNlcHJvb2bYKlglAAFxEiAFKLx3fi7-yD1aPNyqnblI_r_5XllReVz55jBMvMxs9q4BAXESIAUovHd-Lv7IPVo83KqduUj-v_leWVF5XPnmMEy8zGz2pGRyb2902CpYJQABcRIgfWtbF-FQN6GN6ZL8OtHvp2YrGlmLbZwkOl6UY-3AUNFmdHhIYXNo2CpYJgABkwEbIBv-WU6fLnsyo5_lDSTC_T-xUlW95brOAUDByGHJzbCRZnR4VHlwZWpmKGJ5dGVzMzIpZ2NoYWluSWRvZWlwMTU1OjExMTU1MTExeQFxEiB9a1sX4VA3oY3pkvw60e-nZisaWYttnCQ6XpRj7cBQ0YPYKlgmAAGFARIgJ10HGXlKTZ7sjbSnNf2QMt_SOPpa8hDUqpszdZCIKUP22CpYJQABcRIgqVOMo-IVjo08Mk0cim3Z8flNyHY7c9g7uGMqeS0PFHA";
+    const TIME_EVENT_CAR: &str = "uOqJlcm9vdHOB2CpYJQABcRIgcmqgb7eHSgQ32hS1NGVKZruLJGcKDI1f4lqOyNYn3eVndmVyc2lvbgG3AQFxEiByaqBvt4dKBDfaFLU0ZUpmu4skZwoMjV_iWo7I1ifd5aRiaWTYKlgmAAGFARIgjoBgf_z42eK6YNoQ9xs8h3plAAwV9WIQMvEZWdUE045kcGF0aGEwZHByZXbYKlgmAAGFARIgJ10HGXlKTZ7sjbSnNf2QMt_SOPpa8hDUqpszdZCIKUNlcHJvb2bYKlglAAFxEiAFKLx3fi7-yD1aPNyqnblI_r_5XllReVz55jBMvMxs9q4BAXESIAUovHd-Lv7IPVo83KqduUj-v_leWVF5XPnmMEy8zGz2pGRyb2902CpYJQABcRIgfWtbF-FQN6GN6ZL8OtHvp2YrGlmLbZwkOl6UY-3AUNFmdHhIYXNo2CpYJgABkwEbIBv-WU6fLnsyo5_lDSTC_T-xUlW95brOAUDByGHJzbCRZnR4VHlwZWpmKGJ5dGVzMzIpZ2NoYWluSWRvZWlwMTU1OjExMTU1MTExeQFxEiB9a1sX4VA3oY3pkvw60e-nZisaWYttnCQ6XpRj7cBQ0YPYKlgmAAGFARIgJ10HGXlKTZ7sjbSnNf2QMt_SOPpa8hDUqpszdZCIKUP22CpYJQABcRIgqVOMo-IVjo08Mk0cim3Z8flNyHY7c9g7uGMqeS0PFHA";
 
     #[test]
     fn build_init_payload() {
@@ -273,10 +425,8 @@ mod tests {
     #[test]
     fn build_data_payload() {
         let data = ipld_core::ipld!([{"op":"replace","path":"/steph","value":334}]);
-        let id =
-            Cid::from_str("bagcqcerar2aga7747dm6fota3iipogz4q55gkaamcx2weebs6emvtvie2oha").unwrap();
-        let prev =
-            Cid::from_str("bagcqcerar2aga7747dm6fota3iipogz4q55gkaamcx2weebs6emvtvie2oha").unwrap();
+        let id = Cid::from_str(SIGNED_INIT_EVENT_CID).unwrap();
+        let prev = Cid::from_str(SIGNED_INIT_EVENT_CID).unwrap();
 
         let event = Builder::data()
             .with_id(id)
@@ -329,5 +479,32 @@ mod tests {
             signed_event.encode_car().await.unwrap(),
         );
         assert_eq!(SIGNED_INIT_EVENT_CAR, event_car_str);
+    }
+    #[tokio::test]
+    async fn build_time_event() {
+        let id = Cid::from_str(SIGNED_INIT_EVENT_CID).unwrap();
+        let prev =
+            Cid::from_str("bagcqcerae5oqoglzjjgz53enwsttl7mqglp5eoh2llzbbvfktmzxleeiffbq").unwrap();
+        let tx_hash =
+            Cid::from_str("bagjqcgzadp7fstu7fz5tfi474ugsjqx5h6yvevn54w5m4akayhegdsonwciq").unwrap();
+
+        let metadata_cid =
+            Cid::from_str("bafyreifjkogkhyqvr2gtymsndsfg3wpr7fg4q5r3opmdxoddfj4s2dyuoa").unwrap();
+        let event = Builder::time()
+            .with_id(id)
+            .with_tx(
+                "eip155:11155111".to_string(),
+                tx_hash,
+                "f(bytes32)".to_string(),
+            )
+            .with_root(0, ipld! {[prev, Ipld::Null, metadata_cid]})
+            .build()
+            .unwrap();
+
+        let event_car_str = multibase::encode(
+            multibase::Base::Base64Url,
+            event.encode_car().await.unwrap(),
+        );
+        assert_eq!(TIME_EVENT_CAR, event_car_str);
     }
 }

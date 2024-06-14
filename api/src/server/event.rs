@@ -58,7 +58,43 @@ where
     }
 
     match raw_event {
-        unvalidated::RawEvent::Time(event) => Ok((event_cid, unvalidated::Event::Time(event))),
+        unvalidated::RawEvent::Time(event) => {
+            let proof_bytes = car_blocks
+                .get(&event.proof())
+                .ok_or_else(|| anyhow!("Time Event CAR data missing block for proof"))?;
+            let proof: unvalidated::Proof =
+                serde_ipld_dagcbor::from_slice(proof_bytes).context("decoding proof")?;
+            let mut blocks_in_path = Vec::new();
+            let block_bytes = car_blocks
+                .get(&proof.root())
+                .ok_or_else(|| anyhow!("Time Event CAR data missing block for root",))?;
+            let mut block: Ipld = serde_ipld_dagcbor::from_slice(block_bytes)?;
+            let parts: Vec<_> = event.path().split('/').collect();
+            // Add blocks for all parts but the last as it is the prev.
+            for index in parts.iter().take(parts.len() - 1) {
+                let cid = block
+                    .get(*index)?
+                    .ok_or_else(|| anyhow!("Time Event path indexes missing data"))?;
+                let cid = match cid {
+                    Ipld::Link(cid) => cid,
+                    _ => bail!("Time Event path does not index to a CID"),
+                };
+                let block_bytes = car_blocks
+                    .get(cid)
+                    .ok_or_else(|| anyhow!("Time Event CAR data missing block for path index"))?;
+                blocks_in_path.push(block);
+                block = serde_ipld_dagcbor::from_slice(block_bytes)?;
+            }
+
+            Ok((
+                event_cid,
+                unvalidated::Event::Time(Box::new(unvalidated::TimeEvent::new(
+                    *event,
+                    proof,
+                    blocks_in_path,
+                ))),
+            ))
+        }
         unvalidated::RawEvent::Signed(envelope) => {
             let payload_cid = envelope
                 .link()
