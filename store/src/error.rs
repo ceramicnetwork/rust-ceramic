@@ -119,7 +119,7 @@ impl From<sqlx::Error> for Error {
             sqlx::Error::Decode(e) => Self::new_app(anyhow!(e)),
             sqlx::Error::RowNotFound => Self::new_app(anyhow!("Row not found")),
             // non_exhaustive
-            // TODO: is there a way to skip a variant and throw a compilation error if one is ever added?
+            // is there a way to skip a variant and throw a compilation error if one is ever added?
             e => Self::new_app(e),
         }
     }
