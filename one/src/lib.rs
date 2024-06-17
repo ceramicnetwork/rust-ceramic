@@ -149,14 +149,6 @@ struct DaemonOpts {
         env = "CERAMIC_ONE_IDLE_CONNS_TIMEOUT_MS"
     )]
     idle_conns_timeout_ms: u64,
-
-    /// The database to connect to e.g.
-    ///
-    /// `sqlite:///path/to/file.sqlite3` or `sqlite://:memory:` or `sqlite://~/.ceramic-one/db.sqlite3`
-    ///
-    /// The default is to use `db.sqlite3` in the store directory.
-    #[arg(long, env = "CERAMIC_ONE_DATABASE_URL")]
-    database_url: Option<String>,
 }
 
 #[derive(ValueEnum, Debug, Clone, Default)]
@@ -255,26 +247,12 @@ impl DaemonOpts {
         }
     }
     async fn get_database(&self) -> Result<Databases> {
-        // this is called before tracing is initialized so we use stdout/stderr
-        match self.database_url.as_ref() {
-            Some(url) if url.starts_with("sqlite://") => Self::build_sqlite_dbs(url).await,
-            Some(url) if url.starts_with("postgres://") => {
-                anyhow::bail!("Postgres database is not supported")
-            }
-            Some(unknown) => {
-                let message = format!("Database URL is not supported: {}", unknown);
-                eprintln!("{}", message);
-                anyhow::bail!(message)
-            }
-            None => {
-                let sql_db_path = self
-                    .default_directory()
-                    .join("db.sqlite3")
-                    .display()
-                    .to_string();
-                Self::build_sqlite_dbs(&sql_db_path).await
-            }
-        }
+        let sql_db_path = self
+            .default_directory()
+            .join("db.sqlite3")
+            .display()
+            .to_string();
+        Self::build_sqlite_dbs(&sql_db_path).await
     }
 
     async fn build_sqlite_dbs(path: &str) -> Result<Databases> {
