@@ -27,13 +27,27 @@ static GLOBAL_COUNTER: AtomicI64 = AtomicI64::new(0);
 pub struct CeramicOneEvent {}
 
 impl CeramicOneEvent {
-    async fn insert_key(tx: &mut SqliteTransaction<'_>, key: &EventId) -> Result<bool> {
+    fn next_deliverable() -> i64 {
+        GLOBAL_COUNTER.fetch_add(1, Ordering::SeqCst)
+    }
+
+    /// Insert the event and its hash into the ceramic_one_event table
+    async fn insert_event(
+        tx: &mut SqliteTransaction<'_>,
+        key: &EventId,
+        deliverable: bool,
+    ) -> Result<bool> {
         let id = key.as_bytes();
         let cid = key
             .cid()
             .map(|cid| cid.to_bytes())
             .ok_or_else(|| Error::new_app(anyhow!("Event CID is required")))?;
         let hash = Sha256a::digest(key);
+        let delivered: Option<i64> = if deliverable {
+            Some(Self::next_deliverable())
+        } else {
+            None
+        };
 
         let resp = sqlx::query(ReconQuery::insert_event())
             .bind(id)
@@ -46,6 +60,7 @@ impl CeramicOneEvent {
             .bind(hash.as_u32s()[5])
             .bind(hash.as_u32s()[6])
             .bind(hash.as_u32s()[7])
+            .bind(delivered)
             .execute(&mut **tx.inner())
             .await;
 
@@ -87,7 +102,7 @@ impl CeramicOneEvent {
     pub async fn mark_ready_to_deliver(conn: &mut SqliteTransaction<'_>, key: &Cid) -> Result<()> {
         // Fetch add happens with an open transaction (on one writer for the db) so we're guaranteed to get a unique value
         sqlx::query(EventQuery::mark_ready_to_deliver())
-            .bind(GLOBAL_COUNTER.fetch_add(1, Ordering::SeqCst))
+            .bind(Self::next_deliverable())
             .bind(&key.to_bytes())
             .execute(&mut **conn.inner())
             .await?;
@@ -104,14 +119,15 @@ impl CeramicOneEvent {
         let mut tx = pool.begin_tx().await.map_err(Error::from)?;
 
         for (idx, item) in to_add.iter().enumerate() {
-            let new_key = Self::insert_key(&mut tx, &item.order_key).await?;
+            let new_key =
+                Self::insert_event(&mut tx, &item.order_key, item.body.deliverable).await?;
             if new_key {
                 for block in item.body.blocks.iter() {
                     CeramicOneBlock::insert(&mut tx, block.multihash.inner(), &block.bytes).await?;
                     CeramicOneEventBlock::insert(&mut tx, block).await?;
                 }
             }
-            if item.body.deliverable {
+            if !new_key && item.body.deliverable {
                 Self::mark_ready_to_deliver(&mut tx, &item.body.cid).await?;
             }
             new_keys[idx] = new_key;
@@ -248,8 +264,9 @@ impl CeramicOneEvent {
     }
 
     /// Finds if an event exists and has been previously delivered, meaning anything that depends on it can be delivered.
-    /// (bool, bool) = (exists, delivered)
-    pub async fn delivered_by_cid(pool: &SqlitePool, key: &Cid) -> Result<(bool, bool)> {
+    ///     returns (bool, bool) = (exists, deliverable)
+    /// We don't guarantee that a client has seen the event, just that it's been marked as deliverable and they could.
+    pub async fn deliverable_by_cid(pool: &SqlitePool, key: &Cid) -> Result<(bool, bool)> {
         #[derive(sqlx::FromRow)]
         struct CidExists {
             exists: bool,

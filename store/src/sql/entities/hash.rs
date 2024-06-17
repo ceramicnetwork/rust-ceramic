@@ -4,7 +4,7 @@ use sqlx::{sqlite::SqliteRow, Row as _};
 
 use crate::{Error, Result};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, sqlx::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]
 pub struct BlockHash(Multihash<64>);
 
 impl BlockHash {
