@@ -7,7 +7,7 @@ use std::{
 use anyhow::anyhow;
 use ceramic_core::{event_id::InvalidEventId, EventId};
 use cid::Cid;
-use recon::{AssociativeHash, HashCount, InsertResult, Key, Result as ReconResult, Sha256a};
+use recon::{AssociativeHash, HashCount, Key, Result as ReconResult, Sha256a};
 
 use crate::{
     sql::{
@@ -18,10 +18,55 @@ use crate::{
         query::{EventQuery, ReconQuery, ReconType, SqlBackend},
         sqlite::SqliteTransaction,
     },
-    CeramicOneBlock, CeramicOneEventBlock, Error, Result, SqlitePool,
+    CeramicOneBlock, CeramicOneEventBlock, Error, EventHeader, Result, SqlitePool,
 };
 
 static GLOBAL_COUNTER: AtomicI64 = AtomicI64::new(0);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+/// An event that was inserted into the database
+pub struct InsertedEvent {
+    /// The event order key that was inserted
+    pub order_key: EventId,
+    /// The event header metadata including the stream CID and type of event
+    pub header: EventHeader,
+    /// Whether the event was marked as deliverable
+    pub deliverable: bool,
+    /// Whether the event was a new key
+    pub new_key: bool,
+}
+
+impl InsertedEvent {
+    /// Create a new delivered event
+    fn new(order_key: EventId, new_key: bool, header: EventHeader, deliverable: bool) -> Self {
+        Self {
+            order_key,
+            header,
+            deliverable,
+            new_key,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+/// The result of inserting events into the database
+pub struct InsertResult {
+    /// The events that were marked as delivered in this batch
+    pub inserted: Vec<InsertedEvent>,
+}
+
+impl InsertResult {
+    /// The count of new keys added in this batch
+    pub fn count_new_keys(&self) -> usize {
+        self.inserted.iter().filter(|e| e.new_key).count()
+    }
+}
+
+impl InsertResult {
+    fn new(inserted: Vec<InsertedEvent>) -> Self {
+        Self { inserted }
+    }
+}
 
 /// Access to the ceramic event table and related logic
 pub struct CeramicOneEvent {}
@@ -110,49 +155,80 @@ impl CeramicOneEvent {
         Ok(())
     }
 
-    /// Insert many events into the database. This is the main function to use when storing events.
+    /// Insert many events into the database. The events and their blocks and metadata are inserted in a single
+    /// transaction and either all successful or rolled back.
+    ///
+    /// IMPORTANT:
+    ///     It is the caller's responsibility to order events marked deliverable correctly.
+    ///     That is, events will be processed in the order they are given so earlier events are given a lower global ordering
+    ///     and will be returned earlier in the feed. Events can be intereaved with different streams, but if two events
+    ///     depend on each other, the `prev` must come first in the list to ensure the correct order for indexers and consumers.
     pub async fn insert_many(
         pool: &SqlitePool,
         to_add: &[EventInsertable],
     ) -> Result<InsertResult> {
-        let mut new_keys = vec![false; to_add.len()];
+        let mut inserted = Vec::with_capacity(to_add.len());
         let mut tx = pool.begin_tx().await.map_err(Error::from)?;
 
-        for (idx, item) in to_add.iter().enumerate() {
-            let new_key =
-                Self::insert_event(&mut tx, &item.order_key, item.body.deliverable).await?;
+        for item in to_add {
+            let new_key = Self::insert_event(&mut tx, &item.order_key, item.deliverable()).await?;
+            inserted.push(InsertedEvent::new(
+                item.order_key.clone(),
+                new_key,
+                item.body.header().to_owned(),
+                item.deliverable(),
+            ));
             if new_key {
-                for block in item.body.blocks.iter() {
+                for block in item.body.blocks().iter() {
                     CeramicOneBlock::insert(&mut tx, block.multihash.inner(), &block.bytes).await?;
                     CeramicOneEventBlock::insert(&mut tx, block).await?;
                 }
             }
-            if !new_key && item.body.deliverable {
-                Self::mark_ready_to_deliver(&mut tx, &item.body.cid).await?;
+            // the item already existed so we didn't mark it as deliverable on insert
+            if !new_key && item.deliverable() {
+                Self::mark_ready_to_deliver(&mut tx, &item.cid()).await?;
             }
-            new_keys[idx] = new_key;
         }
         tx.commit().await.map_err(Error::from)?;
-        let res = InsertResult::new(new_keys);
+        let res = InsertResult::new(inserted);
 
         Ok(res)
     }
 
-    /// Find events that haven't been delivered to the client and may be ready
+    /// Find events that haven't been delivered to the client and may be ready.
+    /// Returns the events and their values, and the highwater mark of the last event.
+    /// The highwater mark can be used on the next call to get the next batch of events and will be 0 when done.
     pub async fn undelivered_with_values(
         pool: &SqlitePool,
-        offset: usize,
-        limit: usize,
-    ) -> Result<Vec<(EventId, Vec<u8>)>> {
-        let all_blocks: Vec<ReconEventBlockRaw> =
+        limit: i64,
+        highwater_mark: i64,
+    ) -> Result<(Vec<(EventId, Vec<u8>)>, i64)> {
+        struct UndeliveredEventBlockRow {
+            block: ReconEventBlockRaw,
+            row_id: i64,
+        }
+
+        use sqlx::Row as _;
+
+        impl sqlx::FromRow<'_, sqlx::sqlite::SqliteRow> for UndeliveredEventBlockRow {
+            fn from_row(row: &sqlx::sqlite::SqliteRow) -> std::result::Result<Self, sqlx::Error> {
+                let row_id = row.try_get("rowid")?;
+                let block = ReconEventBlockRaw::from_row(row)?;
+                Ok(Self { block, row_id })
+            }
+        }
+
+        let all_blocks: Vec<UndeliveredEventBlockRow> =
             sqlx::query_as(EventQuery::undelivered_with_values())
-                .bind(limit as i64)
-                .bind(offset as i64)
+                .bind(limit)
+                .bind(highwater_mark)
                 .fetch_all(pool.reader())
                 .await?;
 
-        let values = ReconEventBlockRaw::into_carfiles(all_blocks).await?;
-        Ok(values)
+        let max_highwater = all_blocks.iter().map(|row| row.row_id).max().unwrap_or(0); // if there's nothing in the list we just return 0
+        let blocks = all_blocks.into_iter().map(|b| b.block).collect();
+        let values = ReconEventBlockRaw::into_carfiles(blocks).await?;
+        Ok((values, max_highwater))
     }
 
     /// Calculate the hash of a range of events

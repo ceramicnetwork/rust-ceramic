@@ -30,11 +30,7 @@ fn random_event(cid: &str) -> EventInsertable {
     let cid = order_key.cid().unwrap();
     EventInsertable {
         order_key,
-        body: EventInsertableBody {
-            cid,
-            deliverable: false,
-            blocks: vec![],
-        },
+        body: EventInsertableBody::new(cid, crate::EventHeader::Init { cid }, vec![], true),
     }
 }
 
@@ -48,8 +44,7 @@ async fn hash_range_query() {
         .await
         .unwrap();
 
-    let new = x.keys.into_iter().filter(|x| *x).count();
-    assert_eq!(new, 2);
+    assert_eq!(x.count_new_keys(), 2);
 
     let hash = CeramicOneEvent::hash_range(
         &pool,
@@ -70,8 +65,7 @@ async fn range_query() {
         .await
         .unwrap();
 
-    let new = x.keys.into_iter().filter(|x| *x).count();
-    assert_eq!(new, 2);
+    assert_eq!(x.count_new_keys(), 2);
 
     let ids = CeramicOneEvent::range(
         &pool,
@@ -128,10 +122,11 @@ async fn range_query() {
 #[tokio::test]
 async fn undelivered_with_values() {
     let pool = SqlitePool::connect_in_memory().await.unwrap();
-    let res = CeramicOneEvent::undelivered_with_values(&pool, 0, 10000)
+    let (res, hw) = CeramicOneEvent::undelivered_with_values(&pool, 0, 10000)
         .await
         .unwrap();
     assert_eq!(res.len(), 0);
+    assert_eq!(hw, 0);
 }
 
 #[tokio::test]
