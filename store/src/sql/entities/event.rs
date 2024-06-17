@@ -63,7 +63,7 @@ impl EventInsertable {
     }
 
     /// change the deliverable status of the event
-    pub fn deliverable(&mut self, deliverable: bool) {
+    pub fn set_deliverable(&mut self, deliverable: bool) {
         self.body.deliverable = deliverable;
     }
 }

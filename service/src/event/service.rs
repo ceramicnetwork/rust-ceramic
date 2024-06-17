@@ -285,7 +285,7 @@ impl InsertEventOrdering {
     }
 
     fn mark_event_deliverable_now(&mut self, mut ev: EventInsertable, init_cid: Cid) {
-        ev.deliverable(true);
+        ev.set_deliverable(true);
         self.notify_task_new
             .push(DeliveredEvent::new(ev.body.cid, init_cid));
         self.insert_now.push(ev);
