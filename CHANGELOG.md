@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.23.0] - 2024-06-17
+
+### 🚀 Features
+
+- Cd to dev (#376)
+- Add builder for time events (#378)
+- Add cacao serde to unvalidated::Events (#380)
+
+### 🚜 Refactor
+
+- Consolidate car serde logic into event crate (#379)
+
+### ⚙️ Miscellaneous Tasks
+
+- Run clippy fix (#377)
+- Minor clean up and derive more behavior on events (#381)
+
 ## [0.22.0] - 2024-06-10
 
 ### 🚀 Features
@@ -11,6 +28,7 @@ All notable changes to this project will be documented in this file.
 ### ⚙️ Miscellaneous Tasks
 
 - Fix prom cardinality for test path (#372)
+- Version v0.22.0 (#374)
 
 ## [0.21.0] - 2024-06-03
 
