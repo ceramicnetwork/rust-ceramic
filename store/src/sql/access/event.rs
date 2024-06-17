@@ -12,7 +12,7 @@ use recon::{AssociativeHash, HashCount, InsertResult, Key, Result as ReconResult
 use crate::{
     sql::{
         entities::{
-            rebuild_car, BlockRow, CountRow, DeliveredEvent, EventInsertable, OrderKey,
+            rebuild_car, BlockRow, CountRow, DeliveredEventRow, EventInsertable, OrderKey,
             ReconEventBlockRaw, ReconHash,
         },
         query::{EventQuery, ReconQuery, ReconType, SqlBackend},
@@ -220,13 +220,13 @@ impl CeramicOneEvent {
         delivered: i64,
         limit: i64,
     ) -> Result<(i64, Vec<Cid>)> {
-        let rows: Vec<DeliveredEvent> = sqlx::query_as(EventQuery::new_delivered_events())
+        let rows: Vec<DeliveredEventRow> = sqlx::query_as(EventQuery::new_delivered_events())
             .bind(delivered)
             .bind(limit)
             .fetch_all(pool.reader())
             .await?;
 
-        DeliveredEvent::parse_query_results(delivered, rows)
+        DeliveredEventRow::parse_query_results(delivered, rows)
     }
 
     /// Finds the event data by a given EventId i.e. "order key".
