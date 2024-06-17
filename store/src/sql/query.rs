@@ -120,6 +120,9 @@ impl EventQuery {
     }
 
     /// Updates the delivered column in the event table so it can be set to the client
+    /// Requires 2 parameters:
+    ///     $1 = delivered (i64)
+    ///     $2 = cid (bytes)
     pub fn mark_ready_to_deliver() -> &'static str {
         "UPDATE ceramic_one_event SET delivered = $1 WHERE cid = $2;"
     }

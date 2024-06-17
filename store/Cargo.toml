@@ -27,6 +27,7 @@ thiserror.workspace = true
 recon.workspace = true
 sqlx.workspace = true
 tokio.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
 ceramic-event.workspace = true
