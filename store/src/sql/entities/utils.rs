@@ -24,12 +24,12 @@ impl TryFrom<OrderKey> for EventId {
 }
 
 #[derive(sqlx::FromRow)]
-pub struct DeliveredEvent {
+pub struct DeliveredEventRow {
     pub cid: Vec<u8>,
     pub new_highwater_mark: i64,
 }
 
-impl DeliveredEvent {
+impl DeliveredEventRow {
     /// assumes rows are sorted by `delivered` ascending
     pub fn parse_query_results(current: i64, rows: Vec<Self>) -> Result<(i64, Vec<Cid>)> {
         let max: i64 = rows.last().map_or(current, |r| r.new_highwater_mark + 1);
