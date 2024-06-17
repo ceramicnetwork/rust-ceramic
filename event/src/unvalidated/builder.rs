@@ -242,6 +242,26 @@ pub struct TimeBuilderWithId {
 impl TimeBuilderState for TimeBuilderWithId {}
 
 impl TimeBuilder<TimeBuilderWithId> {
+    /// Specify the CID of the event being anchored
+    pub fn with_prev(self, prev: Cid) -> TimeBuilder<TimeBuilderWithPrev> {
+        TimeBuilder {
+            state: TimeBuilderWithPrev {
+                id: self.state.id,
+                prev,
+            },
+        }
+    }
+}
+
+/// State with the Cid that is anchored by this TimeEvent
+pub struct TimeBuilderWithPrev {
+    id: Cid,
+    prev: Cid,
+}
+
+impl TimeBuilderState for TimeBuilderWithPrev {}
+
+impl TimeBuilder<TimeBuilderWithPrev> {
     /// Specify details about the time transaction.
     pub fn with_tx(
         self,
@@ -252,9 +272,11 @@ impl TimeBuilder<TimeBuilderWithId> {
         TimeBuilder {
             state: TimeBuilderWithTx {
                 id: self.state.id,
+                prev: self.state.prev,
                 chain_id,
                 tx_hash,
                 tx_type,
+                witness_nodes: vec![],
             },
         }
     }
@@ -263,77 +285,67 @@ impl TimeBuilder<TimeBuilderWithId> {
 /// State with the transaction details.
 pub struct TimeBuilderWithTx {
     id: Cid,
+    prev: Cid,
     chain_id: String,
     tx_hash: Cid,
     tx_type: String,
+    witness_nodes: Vec<(usize, Ipld)>,
 }
 impl TimeBuilderState for TimeBuilderWithTx {}
 
 impl TimeBuilder<TimeBuilderWithTx> {
-    /// Specify the root of the proof.
+    /// Add a node in the anchor merkle tree into the witness path.
     /// The edge_index is an index into the node that should be followed.
-    /// The index is an index into the edge that should be followed.
-    pub fn with_root(self, edge_index: usize, node: Ipld) -> TimeBuilder<TimeBuilderWithRoot> {
-        TimeBuilder {
-            state: TimeBuilderWithRoot {
-                id: self.state.id,
-                chain_id: self.state.chain_id,
-                tx_hash: self.state.tx_hash,
-                tx_type: self.state.tx_type,
-                edges: vec![(edge_index, node)],
-            },
-        }
-    }
-}
-
-/// State with the proof root added.
-/// More edges may be added.
-pub struct TimeBuilderWithRoot {
-    id: Cid,
-    chain_id: String,
-    tx_hash: Cid,
-    tx_type: String,
-    edges: Vec<(usize, Ipld)>,
-}
-impl TimeBuilderState for TimeBuilderWithRoot {}
-impl TimeBuilder<TimeBuilderWithRoot> {
-    /// Specify an additional edge of the proof.
-    /// The edge_index is an index into the node that should be followed.
-    /// The last edge_index must index to a Cid of the previous event.
-    pub fn with_edge(mut self, edge_index: usize, node: Ipld) -> Self {
-        self.state.edges.push((edge_index, node));
+    /// The first node added is the root of the tree.
+    /// The last node's edge_index must index to a Cid of the previous event.
+    pub fn with_tree_node(mut self, edge_index: usize, node: Ipld) -> Self {
+        self.state.witness_nodes.push((edge_index, node));
         self
     }
+
+    /// Helper function to validate the structure of the witness proof.
+    /// Returns the CID of the root.
+    fn validate_witness_and_get_root(&self) -> anyhow::Result<Cid> {
+        if self.state.witness_nodes.is_empty() {
+            return Ok(self.state.prev);
+        }
+
+        let (_index, root) = self
+            .state
+            .witness_nodes
+            .first()
+            .expect("should always be at least one edge");
+        let (leaf_index, leaf_edge) = self
+            .state
+            .witness_nodes
+            .iter()
+            .last()
+            .expect("should always be at least one edge");
+        let last = leaf_edge
+            .get(*leaf_index)?
+            .ok_or_else(|| anyhow!("leaf index should always exist"))?;
+        let last = match last {
+            Ipld::Link(last) => *last,
+            _ => bail!("leaf indexed value should always be a Cid"),
+        };
+        if last != self.state.prev {
+            bail!("Last node in witness proof path must be the prev");
+        }
+        let root_bytes = serde_ipld_dagcbor::to_vec(root)?;
+        Ok(cid_from_dag_cbor(&root_bytes))
+    }
+
     /// Build the [`unvalidated::TimeEvent`].
     /// Errors if the proof edges and indexes are not valid.
     pub fn build(self) -> anyhow::Result<unvalidated::TimeEvent> {
         let path = self
             .state
-            .edges
+            .witness_nodes
             .iter()
             .map(|(index, _edge)| index.to_string())
             .collect::<Vec<_>>()
             .join("/");
-        let (_index, root) = self
-            .state
-            .edges
-            .first()
-            .expect("should always be at least one edge");
-        let (leaf_index, leaf_edge) = self
-            .state
-            .edges
-            .iter()
-            .last()
-            .expect("should always be at least one edge");
-        let prev = leaf_edge
-            .get(*leaf_index)?
-            .ok_or_else(|| anyhow!("leaf index should always exist"))?;
-        let prev = match prev {
-            Ipld::Link(prev) => *prev,
-            _ => bail!("leaf indexed value should always be a Cid"),
-        };
-        let root_bytes = serde_ipld_dagcbor::to_vec(root)?;
-        let root_cid = cid_from_dag_cbor(&root_bytes);
+        let root_cid = self.validate_witness_and_get_root()?;
         let proof = unvalidated::Proof::new(
             self.state.chain_id,
             root_cid,
@@ -344,12 +356,12 @@ impl TimeBuilder<TimeBuilderWithRoot> {
         let proof_cid = cid_from_dag_cbor(&proof_bytes);
         let blocks_in_path = self
             .state
-            .edges
+            .witness_nodes
             .into_iter()
             .map(|(_index, edge)| edge)
             .collect();
 
-        let event = unvalidated::RawTimeEvent::new(self.state.id, prev, proof_cid, path);
+        let event = unvalidated::RawTimeEvent::new(self.state.id, self.state.prev, proof_cid, path);
         Ok(unvalidated::TimeEvent::new(event, proof, blocks_in_path))
     }
 }
@@ -464,12 +476,13 @@ mod tests {
             Cid::from_str("bafyreifjkogkhyqvr2gtymsndsfg3wpr7fg4q5r3opmdxoddfj4s2dyuoa").unwrap();
         let event = Builder::time()
             .with_id(id)
+            .with_prev(prev)
             .with_tx(
                 "eip155:11155111".to_string(),
                 tx_hash,
                 "f(bytes32)".to_string(),
             )
-            .with_root(0, ipld! {[prev, Ipld::Null, metadata_cid]})
+            .with_tree_node(0, ipld! {[prev, Ipld::Null, metadata_cid]})
             .build()
             .unwrap();
 
