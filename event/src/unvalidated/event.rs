@@ -36,6 +36,41 @@ where
         }
     }
 
+    fn get_time_event_witness_blocks(
+        event: &RawTimeEvent,
+        proof: &Proof,
+        car_blocks: HashMap<Cid, Vec<u8>>,
+    ) -> anyhow::Result<Vec<Ipld>> {
+        let mut blocks_in_path = Vec::new();
+        if event.prev == proof.root && event.path.is_empty() {
+            return Ok(blocks_in_path);
+        }
+
+        let block_bytes = car_blocks
+            .get(&proof.root())
+            .ok_or_else(|| anyhow!("Time Event CAR data missing block for root",))?;
+        let mut block: Ipld = serde_ipld_dagcbor::from_slice(block_bytes)?;
+        blocks_in_path.push(block.clone());
+        let parts: Vec<_> = event.path().split('/').collect();
+        // Add blocks for all parts but the last as it is the prev.
+        for index in parts.iter().take(parts.len() - 1) {
+            let cid = block
+                .get(*index)?
+                .ok_or_else(|| anyhow!("Time Event path indexes missing data"))?;
+            let cid = match cid {
+                Ipld::Link(cid) => cid,
+                _ => bail!("Time Event path does not index to a CID"),
+            };
+            let block_bytes = car_blocks
+                .get(cid)
+                .ok_or_else(|| anyhow!("Time Event CAR data missing block for path index"))?;
+            blocks_in_path.push(block);
+            block = serde_ipld_dagcbor::from_slice(block_bytes)?;
+        }
+
+        Ok(blocks_in_path)
+    }
+
     /// Decode bytes into a materialized event.
     pub async fn decode_car<R>(
         reader: R,
@@ -81,28 +116,8 @@ where
                     .ok_or_else(|| anyhow!("Time Event CAR data missing block for proof"))?;
                 let proof: Proof =
                     serde_ipld_dagcbor::from_slice(proof_bytes).context("decoding proof")?;
-                let mut blocks_in_path = Vec::new();
-                let block_bytes = car_blocks
-                    .get(&proof.root())
-                    .ok_or_else(|| anyhow!("Time Event CAR data missing block for root",))?;
-                let mut block: Ipld = serde_ipld_dagcbor::from_slice(block_bytes)?;
-                blocks_in_path.push(block.clone());
-                let parts: Vec<_> = event.path().split('/').collect();
-                // Add blocks for all parts but the last as it is the prev.
-                for index in parts.iter().take(parts.len() - 1) {
-                    let cid = block
-                        .get(*index)?
-                        .ok_or_else(|| anyhow!("Time Event path indexes missing data"))?;
-                    let cid = match cid {
-                        Ipld::Link(cid) => cid,
-                        _ => bail!("Time Event path does not index to a CID"),
-                    };
-                    let block_bytes = car_blocks.get(cid).ok_or_else(|| {
-                        anyhow!("Time Event CAR data missing block for path index")
-                    })?;
-                    blocks_in_path.push(block);
-                    block = serde_ipld_dagcbor::from_slice(block_bytes)?;
-                }
+                let blocks_in_path =
+                    Self::get_time_event_witness_blocks(&event, &proof, car_blocks)?;
 
                 Ok((
                     event_cid,
@@ -353,16 +368,19 @@ pub type ProofEdge = Vec<Cid>;
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr as _;
 
+    use cid::Cid;
     use ipld_core::ipld::Ipld;
     use test_log::test;
 
+    use crate::unvalidated::tests::SIGNED_INIT_EVENT_CID;
     use crate::unvalidated::{
         tests::{
             CACAO_SIGNED_DATA_EVENT_CAR, DATA_EVENT_CAR_UNSIGNED_INIT, SIGNED_DATA_EVENT_CAR,
             SIGNED_INIT_EVENT_CAR, TIME_EVENT_CAR, UNSIGNED_INIT_EVENT_CAR,
         },
-        Event,
+        Builder, Event,
     };
 
     async fn round_trip(car: &str) {
@@ -398,5 +416,38 @@ mod tests {
     #[test(tokio::test)]
     async fn round_trip_time_event() {
         round_trip(TIME_EVENT_CAR).await;
+    }
+
+    #[test(tokio::test)]
+    async fn decode_time_event_with_no_tree() {
+        let id = Cid::from_str(SIGNED_INIT_EVENT_CID).unwrap();
+        let prev =
+            Cid::from_str("bagcqcerae5oqoglzjjgz53enwsttl7mqglp5eoh2llzbbvfktmzxleeiffbq").unwrap();
+        let tx_hash =
+            Cid::from_str("bagjqcgzadp7fstu7fz5tfi474ugsjqx5h6yvevn54w5m4akayhegdsonwciq").unwrap();
+
+        let event = Builder::time()
+            .with_id(id)
+            .with_tx(
+                "eip155:11155111".to_string(),
+                tx_hash,
+                "f(bytes32)".to_string(),
+            )
+            .with_prev(prev)
+            .build()
+            .unwrap();
+
+        let event_car = event.encode_car().await.unwrap();
+        let (_cid, parsed_event) = Event::<Ipld>::decode_car(event_car.as_slice(), true)
+            .await
+            .unwrap();
+
+        let Event::Time(parsed_event) = parsed_event else {
+            panic!("Event must be a time event")
+        };
+
+        assert_eq!(prev, parsed_event.event.prev);
+        assert_eq!(prev, parsed_event.proof.root);
+        assert_eq!("", parsed_event.event.path);
     }
 }

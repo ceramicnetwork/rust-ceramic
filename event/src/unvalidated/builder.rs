@@ -270,9 +270,8 @@ pub struct TimeBuilderWithTx {
 impl TimeBuilderState for TimeBuilderWithTx {}
 
 impl TimeBuilder<TimeBuilderWithTx> {
-    /// Specify the root of the proof.
+    /// Specify the root node of the witness proof.
     /// The edge_index is an index into the node that should be followed.
-    /// The index is an index into the edge that should be followed.
     pub fn with_root(self, edge_index: usize, node: Ipld) -> TimeBuilder<TimeBuilderWithRoot> {
         TimeBuilder {
             state: TimeBuilderWithRoot {
@@ -280,28 +279,77 @@ impl TimeBuilder<TimeBuilderWithTx> {
                 chain_id: self.state.chain_id,
                 tx_hash: self.state.tx_hash,
                 tx_type: self.state.tx_type,
-                edges: vec![(edge_index, node)],
+                witness_nodes: vec![(edge_index, node)],
+            },
+        }
+    }
+
+    /// Specify the Cid of the event being anchored. Only used in the special case where the event
+    /// was anchored in a single-write batch and no anchor merkle tree was created.
+    pub fn with_prev(self, prev: Cid) -> TimeBuilder<TimeBuilderWithPrev> {
+        TimeBuilder {
+            state: TimeBuilderWithPrev {
+                id: self.state.id,
+                chain_id: self.state.chain_id,
+                tx_hash: self.state.tx_hash,
+                tx_type: self.state.tx_type,
+                prev,
             },
         }
     }
 }
 
-/// State with the proof root added.
-/// More edges may be added.
+/// State with the Cid that is anchored by this TimeEvent added.
+/// Only used for TimeEvents from single-write anchor batches that don't have an associated
+/// anchor merkle tree.
+pub struct TimeBuilderWithPrev {
+    id: Cid,
+    chain_id: String,
+    tx_hash: Cid,
+    tx_type: String,
+    prev: Cid,
+}
+impl TimeBuilderState for TimeBuilderWithPrev {}
+impl TimeBuilder<TimeBuilderWithPrev> {
+    /// Build the [`unvalidated::TimeEvent`].
+    pub fn build(self) -> anyhow::Result<unvalidated::TimeEvent> {
+        let proof = unvalidated::Proof::new(
+            self.state.chain_id,
+            self.state.prev,
+            self.state.tx_hash,
+            self.state.tx_type,
+        );
+        let proof_bytes = serde_ipld_dagcbor::to_vec(&proof)?;
+        let proof_cid = cid_from_dag_cbor(&proof_bytes);
+
+        let event = unvalidated::RawTimeEvent::new(
+            self.state.id,
+            self.state.prev,
+            proof_cid,
+            "".to_string(),
+        );
+        Ok(unvalidated::TimeEvent::new(event, proof, vec![]))
+    }
+}
+
+/// State with the proof root node added. Used in the (more common) case where the event was
+/// anchored in a batch along with other writes and so there is an anchor merkle tree and a witness
+/// proof path through that tree.
+/// More nodes may be added.
 pub struct TimeBuilderWithRoot {
     id: Cid,
     chain_id: String,
     tx_hash: Cid,
     tx_type: String,
-    edges: Vec<(usize, Ipld)>,
+    witness_nodes: Vec<(usize, Ipld)>,
 }
 impl TimeBuilderState for TimeBuilderWithRoot {}
 impl TimeBuilder<TimeBuilderWithRoot> {
-    /// Specify an additional edge of the proof.
+    /// Specify an additional node in the witness proof.
     /// The edge_index is an index into the node that should be followed.
     /// The last edge_index must index to a Cid of the previous event.
-    pub fn with_edge(mut self, edge_index: usize, node: Ipld) -> Self {
-        self.state.edges.push((edge_index, node));
+    pub fn with_witness_node(mut self, edge_index: usize, node: Ipld) -> Self {
+        self.state.witness_nodes.push((edge_index, node));
         self
     }
     /// Build the [`unvalidated::TimeEvent`].
@@ -309,19 +357,19 @@ impl TimeBuilder<TimeBuilderWithRoot> {
     pub fn build(self) -> anyhow::Result<unvalidated::TimeEvent> {
         let path = self
             .state
-            .edges
+            .witness_nodes
             .iter()
             .map(|(index, _edge)| index.to_string())
             .collect::<Vec<_>>()
             .join("/");
         let (_index, root) = self
             .state
-            .edges
+            .witness_nodes
             .first()
             .expect("should always be at least one edge");
         let (leaf_index, leaf_edge) = self
             .state
-            .edges
+            .witness_nodes
             .iter()
             .last()
             .expect("should always be at least one edge");
@@ -344,7 +392,7 @@ impl TimeBuilder<TimeBuilderWithRoot> {
         let proof_cid = cid_from_dag_cbor(&proof_bytes);
         let blocks_in_path = self
             .state
-            .edges
+            .witness_nodes
             .into_iter()
             .map(|(_index, edge)| edge)
             .collect();
