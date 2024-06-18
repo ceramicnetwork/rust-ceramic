@@ -395,3 +395,20 @@ pub struct InsertResult {
     pub(crate) store_result: ceramic_store::InsertResult,
     pub(crate) missing_history: Vec<EventId>,
 }
+
+impl From<InsertResult> for Vec<ceramic_api::EventInsertResult> {
+    fn from(res: InsertResult) -> Self {
+        let mut api_res =
+            Vec::with_capacity(res.store_result.inserted.len() + res.missing_history.len());
+        for ev in res.store_result.inserted {
+            api_res.push(ceramic_api::EventInsertResult::new_ok(ev.order_key));
+        }
+        for ev in res.missing_history {
+            api_res.push(ceramic_api::EventInsertResult::new_failed(
+                ev,
+                "Failed to insert event as `prev` event was missing".to_owned(),
+            ));
+        }
+        api_res
+    }
+}
