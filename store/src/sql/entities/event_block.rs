@@ -134,4 +134,8 @@ impl EventBlockRaw {
             bytes,
         })
     }
+
+    pub fn cid(&self) -> Cid {
+        Cid::new_v1(self.codec as u64, self.multihash.clone().into_inner())
+    }
 }

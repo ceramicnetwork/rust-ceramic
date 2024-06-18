@@ -129,7 +129,7 @@ pub(crate) async fn check_deliverable(
     cid: &Cid,
     deliverable: bool,
 ) {
-    let (exists, delivered) = ceramic_store::CeramicOneEvent::delivered_by_cid(pool, cid)
+    let (exists, delivered) = ceramic_store::CeramicOneEvent::deliverable_by_cid(pool, cid)
         .await
         .unwrap();
     assert!(exists);

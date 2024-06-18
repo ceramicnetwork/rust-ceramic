@@ -5,7 +5,7 @@ use ceramic_event::unvalidated;
 use ceramic_store::{CeramicOneEvent, EventInsertable, EventInsertableBody, SqlitePool};
 use cid::Cid;
 use ipld_core::ipld::Ipld;
-use recon::{InsertResult, ReconItem};
+use recon::ReconItem;
 use tracing::{trace, warn};
 
 use super::ordering_task::{
@@ -126,10 +126,10 @@ impl CeramicEventService {
     /// This is likely used in API contexts when a user is trying to insert events. Events discovered from
     /// peers can come in any order and we will discover the prev chain over time. Use
     /// `insert_events_from_carfiles_remote_history` for that case.
-    pub(crate) async fn insert_events_from_carfiles_local_history<'a>(
+    pub(crate) async fn insert_events_from_carfiles_local_api<'a>(
         &self,
         items: &[recon::ReconItem<'a, EventId>],
-    ) -> Result<recon::InsertResult> {
+    ) -> Result<InsertResult> {
         if items.is_empty() {
             return Ok(InsertResult::default());
         }
@@ -144,19 +144,31 @@ impl CeramicEventService {
     /// This is used in recon contexts when we are discovering events from peers in a recon but not ceramic order and
     /// don't have the complete order. To enforce that the history is local, e.g. in API contexts, use
     /// `insert_events_from_carfiles_local_history`.
-    pub(crate) async fn insert_events_from_carfiles_remote_history<'a>(
+    pub(crate) async fn insert_events_from_carfiles_recon<'a>(
         &self,
         items: &[recon::ReconItem<'a, EventId>],
     ) -> Result<recon::InsertResult> {
         if items.is_empty() {
-            return Ok(InsertResult::default());
+            return Ok(recon::InsertResult::default());
         }
 
         let ordering = InsertEventOrdering::discover_deliverable_remote_history(items).await?;
-        self.process_events(ordering).await
+        let res = self.process_events(ordering).await?;
+        // we need to put things back in the right order that the recon trait expects, even though we don't really care about the result
+        let mut keys = vec![false; items.len()];
+        for (i, item) in items.iter().enumerate() {
+            let new_key = res
+                .store_result
+                .inserted
+                .iter()
+                .find(|e| e.order_key == *item.key)
+                .map_or(false, |e| e.new_key); // TODO: should we error if it's not in this set
+            keys[i] = new_key;
+        }
+        Ok(recon::InsertResult::new(keys))
     }
 
-    async fn process_events(&self, ordering: InsertEventOrdering) -> Result<recon::InsertResult> {
+    async fn process_events(&self, ordering: InsertEventOrdering) -> Result<InsertResult> {
         let res = CeramicOneEvent::insert_many(&self.pool, &ordering.insert_now[..]).await?;
 
         for ev in ordering.background_task_deliverable {
@@ -194,7 +206,10 @@ impl CeramicEventService {
                 }
             }
         }
-        Ok(res)
+        Ok(InsertResult {
+            store_result: res,
+            missing_history: vec![],
+        })
     }
 }
 
@@ -285,7 +300,7 @@ impl InsertEventOrdering {
     }
 
     fn mark_event_deliverable_now(&mut self, mut ev: EventInsertable, init_cid: Cid) {
-        ev.deliverable(true);
+        ev.set_deliverable(true);
         self.notify_task_new
             .push(DeliveredEvent::new(ev.body.cid, init_cid));
         self.insert_now.push(ev);
@@ -373,4 +388,10 @@ impl InsertEventOrdering {
             Ok(())
         }
     }
+}
+
+#[derive(Debug, PartialEq, Eq, Default)]
+pub struct InsertResult {
+    pub(crate) store_result: ceramic_store::InsertResult,
+    pub(crate) missing_history: Vec<EventId>,
 }

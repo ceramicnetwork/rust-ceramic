@@ -13,7 +13,7 @@ use prometheus_client::{
     },
     registry::Registry,
 };
-use recon::{AssociativeHash, HashCount, InsertResult, ReconItem, Result as ReconResult};
+use recon::{AssociativeHash, HashCount, ReconItem, Result as ReconResult};
 use tokio::time::Instant;
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -253,7 +253,7 @@ where
         Ok(new)
     }
 
-    async fn insert_many(&self, items: &[ReconItem<'_, K>]) -> ReconResult<InsertResult> {
+    async fn insert_many(&self, items: &[ReconItem<'_, K>]) -> ReconResult<recon::InsertResult> {
         let res = StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "insert_many",

@@ -9,4 +9,4 @@ pub use event::{rebuild_car, EventInsertable, EventInsertableBody};
 pub use event_block::{EventBlockRaw, ReconEventBlockRaw};
 pub use hash::{BlockHash, ReconHash};
 
-pub use utils::{CountRow, DeliveredEvent, OrderKey};
+pub use utils::{CountRow, DeliveredEventRow, OrderKey};

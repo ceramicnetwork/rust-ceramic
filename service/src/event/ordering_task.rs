@@ -312,7 +312,7 @@ impl OrderingState {
                 // once we find the first event that's deliverable, we can go back through and find the rest
                 continue;
             } else {
-                let (exists, delivered) = CeramicOneEvent::delivered_by_cid(pool, &prev).await?;
+                let (exists, delivered) = CeramicOneEvent::deliverable_by_cid(pool, &prev).await?;
                 if delivered {
                     trace!(deliverable=?ev_cid, "Found delivered prev in database. Adding to ready list");
                     deliverable.push_back(ev_cid);

@@ -5,7 +5,7 @@ use ceramic_core::EventId;
 use ceramic_store::{CeramicOneBlock, CeramicOneEvent};
 use cid::Cid;
 use iroh_bitswap::Block;
-use recon::{HashCount, InsertResult, ReconItem, Result as ReconResult, Sha256a};
+use recon::{HashCount, ReconItem, Result as ReconResult, Sha256a};
 
 use crate::event::CeramicEventService;
 
@@ -16,7 +16,7 @@ impl recon::Store for CeramicEventService {
 
     async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> ReconResult<bool> {
         let res = self
-            .insert_events_from_carfiles_remote_history(&[item.to_owned()])
+            .insert_events_from_carfiles_recon(&[item.to_owned()])
             .await?;
 
         Ok(res.keys.first().copied().unwrap_or(false))
@@ -25,10 +25,11 @@ impl recon::Store for CeramicEventService {
     /// Insert new keys into the key space.
     /// Returns true for each key if it did not previously exist, in the
     /// same order as the input iterator.
-    async fn insert_many(&self, items: &[ReconItem<'_, Self::Key>]) -> ReconResult<InsertResult> {
-        let res = self
-            .insert_events_from_carfiles_remote_history(items)
-            .await?;
+    async fn insert_many(
+        &self,
+        items: &[ReconItem<'_, Self::Key>],
+    ) -> ReconResult<recon::InsertResult> {
+        let res = self.insert_events_from_carfiles_recon(items).await?;
         Ok(res)
     }
 
@@ -112,9 +113,14 @@ impl ceramic_api::EventStore for CeramicEventService {
             .map(|(key, val)| ReconItem::new(key, val.as_slice()))
             .collect::<Vec<_>>();
         let res = self
-            .insert_events_from_carfiles_local_history(&items[..])
+            .insert_events_from_carfiles_local_api(&items[..])
             .await?;
-        Ok(res.keys)
+        Ok(res
+            .store_result
+            .inserted
+            .iter()
+            .map(|r| r.new_key)
+            .collect())
     }
 
     async fn range_with_values(

@@ -62,8 +62,24 @@ impl EventInsertable {
         Ok(Self { order_key, body })
     }
 
-    /// change the deliverable status of the event
-    pub fn deliverable(&mut self, deliverable: bool) {
+    /// Get the CID of the event
+    pub fn cid(&self) -> Cid {
+        self.body.cid
+    }
+
+    /// Whether this event is deliverable currently
+    pub fn deliverable(&self) -> bool {
+        self.body.deliverable
+    }
+
+    /// Whether this event is deliverable currently
+    pub fn blocks(&self) -> &Vec<EventBlockRaw> {
+        &self.body.blocks
+    }
+
+    /// Mark the event as deliverable.
+    /// This will be used when inserting the event to make sure the field is updated accordingly.
+    pub fn set_deliverable(&mut self, deliverable: bool) {
         self.body.deliverable = deliverable;
     }
 }
@@ -82,10 +98,10 @@ pub struct EventInsertableBody {
 
 impl EventInsertableBody {
     /// Create a new EventInsertRaw struct. Deliverable is set to false by default.
-    pub fn new(cid: Cid, blocks: Vec<EventBlockRaw>) -> Self {
+    pub fn new(cid: Cid, blocks: Vec<EventBlockRaw>, deliverable: bool) -> Self {
         Self {
             cid,
-            deliverable: false,
+            deliverable,
             blocks,
         }
     }
@@ -136,6 +152,6 @@ impl EventInsertableBody {
             blocks.push(ebr);
             idx += 1;
         }
-        Ok(Self::new(event_cid, blocks))
+        Ok(Self::new(event_cid, blocks, false))
     }
 }
