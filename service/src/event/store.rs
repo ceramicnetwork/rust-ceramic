@@ -107,7 +107,10 @@ impl iroh_bitswap::Store for CeramicEventService {
 
 #[async_trait::async_trait]
 impl ceramic_api::EventStore for CeramicEventService {
-    async fn insert_many(&self, items: &[(EventId, Vec<u8>)]) -> anyhow::Result<Vec<bool>> {
+    async fn insert_many(
+        &self,
+        items: &[(EventId, Vec<u8>)],
+    ) -> anyhow::Result<Vec<ceramic_api::EventInsertResult>> {
         let items = items
             .iter()
             .map(|(key, val)| ReconItem::new(key, val.as_slice()))
@@ -115,12 +118,8 @@ impl ceramic_api::EventStore for CeramicEventService {
         let res = self
             .insert_events_from_carfiles_local_api(&items[..])
             .await?;
-        Ok(res
-            .store_result
-            .inserted
-            .iter()
-            .map(|r| r.new_key)
-            .collect())
+
+        Ok(res.into())
     }
 
     async fn range_with_values(

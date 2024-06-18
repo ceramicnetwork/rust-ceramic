@@ -158,7 +158,10 @@ impl<S> ceramic_api::EventStore for StoreMetricsMiddleware<S>
 where
     S: ceramic_api::EventStore,
 {
-    async fn insert_many(&self, items: &[(EventId, Vec<u8>)]) -> anyhow::Result<Vec<bool>> {
+    async fn insert_many(
+        &self,
+        items: &[(EventId, Vec<u8>)],
+    ) -> anyhow::Result<Vec<ceramic_api::EventInsertResult>> {
         let new_keys = StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "api_insert_many",
@@ -166,7 +169,7 @@ where
         )
         .await?;
 
-        let key_cnt = new_keys.iter().filter(|k| **k).count();
+        let key_cnt = new_keys.iter().filter(|k| k.success()).count();
 
         self.metrics.record(&InsertEvent {
             cnt: key_cnt as u64,
