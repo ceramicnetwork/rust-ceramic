@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.24.0] - 2024-06-18
+
+### 🐛 Bug Fixes
+
+- Remove redundant db url cli arg (#384)
+- TimeEvents from single-write anchor batches don't have a separate root block (#386)
+
 ## [0.23.0] - 2024-06-17
 
 ### 🚀 Features
@@ -18,6 +25,7 @@ All notable changes to this project will be documented in this file.
 
 - Run clippy fix (#377)
 - Minor clean up and derive more behavior on events (#381)
+- Version v0.23.0 (#383)
 
 ## [0.22.0] - 2024-06-10
 
