@@ -7,7 +7,7 @@ use std::{
 use anyhow::anyhow;
 use ceramic_core::{event_id::InvalidEventId, EventId};
 use cid::Cid;
-use recon::{AssociativeHash, HashCount, InsertResult, Key, Result as ReconResult, Sha256a};
+use recon::{AssociativeHash, HashCount, Key, Result as ReconResult, Sha256a};
 
 use crate::{
     sql::{
@@ -22,6 +22,48 @@ use crate::{
 };
 
 static GLOBAL_COUNTER: AtomicI64 = AtomicI64::new(0);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+/// An event that was inserted into the database
+pub struct InsertedEvent {
+    /// The event order key that was inserted
+    pub order_key: EventId,
+    /// Whether the event was marked as deliverable
+    pub deliverable: bool,
+    /// Whether the event was a new key
+    pub new_key: bool,
+}
+
+impl InsertedEvent {
+    /// Create a new delivered event
+    fn new(order_key: EventId, new_key: bool, deliverable: bool) -> Self {
+        Self {
+            order_key,
+            deliverable,
+            new_key,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+/// The result of inserting events into the database
+pub struct InsertResult {
+    /// The events that were marked as delivered in this batch
+    pub inserted: Vec<InsertedEvent>,
+}
+
+impl InsertResult {
+    /// The count of new keys added in this batch
+    pub fn count_new_keys(&self) -> usize {
+        self.inserted.iter().filter(|e| e.new_key).count()
+    }
+}
+
+impl InsertResult {
+    fn new(inserted: Vec<InsertedEvent>) -> Self {
+        Self { inserted }
+    }
+}
 
 /// Access to the ceramic event table and related logic
 pub struct CeramicOneEvent {}
@@ -110,30 +152,41 @@ impl CeramicOneEvent {
         Ok(())
     }
 
-    /// Insert many events into the database. This is the main function to use when storing events.
+    /// Insert many events into the database. The events and their blocks and metadata are inserted in a single
+    /// transaction and either all successful or rolled back.
+    ///
+    /// IMPORTANT:
+    ///     It is the caller's responsibility to order events marked deliverable correctly.
+    ///     That is, events will be processed in the order they are given so earlier events are given a lower global ordering
+    ///     and will be returned earlier in the feed. Events can be intereaved with different streams, but if two events
+    ///     depend on each other, the `prev` must come first in the list to ensure the correct order for indexers and consumers.
     pub async fn insert_many(
         pool: &SqlitePool,
         to_add: &[EventInsertable],
     ) -> Result<InsertResult> {
-        let mut new_keys = vec![false; to_add.len()];
+        let mut inserted = Vec::with_capacity(to_add.len());
         let mut tx = pool.begin_tx().await.map_err(Error::from)?;
 
-        for (idx, item) in to_add.iter().enumerate() {
-            let new_key =
-                Self::insert_event(&mut tx, &item.order_key, item.body.deliverable).await?;
+        for item in to_add {
+            let new_key = Self::insert_event(&mut tx, &item.order_key, item.deliverable()).await?;
+            inserted.push(InsertedEvent::new(
+                item.order_key.clone(),
+                new_key,
+                item.deliverable(),
+            ));
             if new_key {
-                for block in item.body.blocks.iter() {
+                for block in item.blocks().iter() {
                     CeramicOneBlock::insert(&mut tx, block.multihash.inner(), &block.bytes).await?;
                     CeramicOneEventBlock::insert(&mut tx, block).await?;
                 }
             }
-            if !new_key && item.body.deliverable {
-                Self::mark_ready_to_deliver(&mut tx, &item.body.cid).await?;
+            // the item already existed so we didn't mark it as deliverable on insert
+            if !new_key && item.deliverable() {
+                Self::mark_ready_to_deliver(&mut tx, &item.cid()).await?;
             }
-            new_keys[idx] = new_key;
         }
         tx.commit().await.map_err(Error::from)?;
-        let res = InsertResult::new(new_keys);
+        let res = InsertResult::new(inserted);
 
         Ok(res)
     }

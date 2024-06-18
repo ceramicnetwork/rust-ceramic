@@ -19,7 +19,7 @@ async fn setup_service() -> CeramicEventService {
 
 async fn add_and_assert_new_recon_event(store: &CeramicEventService, item: ReconItem<'_, EventId>) {
     let new = store
-        .insert_events_from_carfiles_remote_history(&[item])
+        .insert_events_from_carfiles_recon(&[item])
         .await
         .unwrap();
     let new = new.keys.into_iter().filter(|k| *k).count();
@@ -28,10 +28,10 @@ async fn add_and_assert_new_recon_event(store: &CeramicEventService, item: Recon
 
 async fn add_and_assert_new_local_event(store: &CeramicEventService, item: ReconItem<'_, EventId>) {
     let new = store
-        .insert_events_from_carfiles_local_history(&[item])
+        .insert_events_from_carfiles_local_api(&[item])
         .await
         .unwrap();
-    let new = new.keys.into_iter().filter(|k| *k).count();
+    let new = new.store_result.count_new_keys();
     assert_eq!(1, new);
 }
 
@@ -51,7 +51,7 @@ async fn test_missing_prev_error_history_required() {
     let data = &events[1];
 
     let new = store
-        .insert_events_from_carfiles_local_history(&[ReconItem::new(&data.0, &data.1)])
+        .insert_events_from_carfiles_local_api(&[ReconItem::new(&data.0, &data.1)])
         .await;
     match new {
         Ok(v) => panic!("should have errored: {:?}", v),
@@ -100,13 +100,13 @@ async fn test_prev_in_same_write_history_required() {
     let init: &(EventId, Vec<u8>) = &events[0];
     let data = &events[1];
     let new = store
-        .insert_events_from_carfiles_local_history(&[
+        .insert_events_from_carfiles_local_api(&[
             ReconItem::new(&data.0, &data.1),
             ReconItem::new(&init.0, &init.1),
         ])
         .await
         .unwrap();
-    let new = new.keys.into_iter().filter(|k| *k).count();
+    let new = new.store_result.count_new_keys();
     assert_eq!(2, new);
     check_deliverable(&store.pool, &init.0.cid().unwrap(), true).await;
     check_deliverable(&store.pool, &data.0.cid().unwrap(), true).await;
