@@ -115,16 +115,6 @@ fn gen_rand_bytes<const SIZE: usize>() -> [u8; SIZE] {
     arr
 }
 
-pub(crate) fn random_block() -> Block {
-    let mut data = [0u8; 1024];
-    rand::Rng::fill(&mut ::rand::thread_rng(), &mut data);
-    let hash = Code::Sha2_256.digest(&data);
-    Block {
-        cid: Cid::new_v1(0x00, hash),
-        data: data.to_vec().into(),
-    }
-}
-
 pub(crate) async fn check_deliverable(
     pool: &ceramic_store::SqlitePool,
     cid: &Cid,
@@ -173,27 +163,12 @@ async fn data_event(
     signed::Event::from_payload(unvalidated::Payload::Data(commit), signer.to_owned()).unwrap()
 }
 
-async fn get_events_with_model(model: &StreamId) -> [(EventId, Vec<u8>); 3] {
+// returns init + N events
+async fn get_init_plus_n_events_with_model(
+    model: &StreamId,
+    number: usize,
+) -> Vec<(EventId, Vec<u8>)> {
     let signer = Box::new(signer().await);
-
-    let data = gen_rand_bytes::<50>();
-    let data2 = gen_rand_bytes::<50>();
-
-    let data = ipld!({
-        "radius": 1,
-        "red": 2,
-        "green": 3,
-        "blue": 4,
-        "raw": data.as_slice(),
-    });
-
-    let data2 = ipld!({
-        "radius": 1,
-        "red": 2,
-        "green": 3,
-        "blue": 4,
-        "raw": data2.as_slice(),
-    });
 
     let init = init_event(model, &signer).await;
     let init_cid = init.envelope_cid();
@@ -203,33 +178,45 @@ async fn get_events_with_model(model: &StreamId) -> [(EventId, Vec<u8>); 3] {
     );
 
     let init_cid = event_id.cid().unwrap();
-    let data = data_event(init_cid, init_cid, data, &signer).await;
-    let cid = data.envelope_cid();
-    let (data_id, data_car) = (
-        build_event_id(&data.envelope_cid(), &init_cid, model),
-        data.encode_car().await.unwrap(),
-    );
-    let data2 = data_event(init_cid, cid, data2, &signer).await;
-    let (data_id_2, data_car_2) = (
-        build_event_id(&data2.envelope_cid(), &init_cid, model),
-        data2.encode_car().await.unwrap(),
-    );
 
-    [
-        (event_id, car),
-        (data_id, data_car),
-        (data_id_2, data_car_2),
-    ]
+    let mut events = Vec::with_capacity(number);
+    events.push((event_id, car));
+    let mut prev = init_cid;
+    for _ in 0..number {
+        let data = gen_rand_bytes::<50>();
+        let data = ipld!({
+            "radius": 1,
+            "red": 2,
+            "green": 3,
+            "blue": 4,
+            "raw": data.as_slice(),
+        });
+
+        let data = data_event(init_cid, prev, data, &signer).await;
+        let (data_id, data_car) = (
+            build_event_id(&data.envelope_cid(), &init_cid, model),
+            data.encode_car().await.unwrap(),
+        );
+        prev = data_id.cid().unwrap();
+        events.push((data_id, data_car));
+    }
+    events
 }
 
-pub(crate) async fn get_events_return_model() -> (StreamId, [(EventId, Vec<u8>); 3]) {
+pub(crate) async fn get_events_return_model() -> (StreamId, Vec<(EventId, Vec<u8>)>) {
     let model = StreamId::document(random_cid());
-    let events = get_events_with_model(&model).await;
+    let events = get_init_plus_n_events_with_model(&model, 3).await;
     (model, events)
 }
 
 // builds init -> data -> data that are a stream (will be a different stream each call)
-pub(crate) async fn get_events() -> [(EventId, Vec<u8>); 3] {
+pub(crate) async fn get_events() -> Vec<(EventId, Vec<u8>)> {
     let model = StreamId::document(random_cid());
-    get_events_with_model(&model).await
+    get_init_plus_n_events_with_model(&model, 3).await
+}
+
+// Get N events with the same model (init + N-1 data events)
+pub(crate) async fn get_n_events(number: usize) -> Vec<(EventId, Vec<u8>)> {
+    let model = &StreamId::document(random_cid());
+    get_init_plus_n_events_with_model(model, number - 1).await
 }

@@ -175,7 +175,7 @@ impl CeramicOneEvent {
                 item.deliverable(),
             ));
             if new_key {
-                for block in item.blocks().iter() {
+                for block in item.body.blocks().iter() {
                     CeramicOneBlock::insert(&mut tx, block.multihash.inner(), &block.bytes).await?;
                     CeramicOneEventBlock::insert(&mut tx, block).await?;
                 }
@@ -191,21 +191,40 @@ impl CeramicOneEvent {
         Ok(res)
     }
 
-    /// Find events that haven't been delivered to the client and may be ready
+    /// Find events that haven't been delivered to the client and may be ready.
+    /// Returns the events and their values, and the highwater mark of the last event.
+    /// The highwater mark can be used on the next call to get the next batch of events and will be 0 when done.
     pub async fn undelivered_with_values(
         pool: &SqlitePool,
-        offset: usize,
-        limit: usize,
-    ) -> Result<Vec<(EventId, Vec<u8>)>> {
-        let all_blocks: Vec<ReconEventBlockRaw> =
+        limit: i64,
+        highwater_mark: i64,
+    ) -> Result<(Vec<(EventId, Vec<u8>)>, i64)> {
+        struct UndeliveredEventBlockRow {
+            block: ReconEventBlockRaw,
+            row_id: i64,
+        }
+
+        use sqlx::Row as _;
+
+        impl sqlx::FromRow<'_, sqlx::sqlite::SqliteRow> for UndeliveredEventBlockRow {
+            fn from_row(row: &sqlx::sqlite::SqliteRow) -> std::result::Result<Self, sqlx::Error> {
+                let row_id = row.try_get("rowid")?;
+                let block = ReconEventBlockRaw::from_row(row)?;
+                Ok(Self { block, row_id })
+            }
+        }
+
+        let all_blocks: Vec<UndeliveredEventBlockRow> =
             sqlx::query_as(EventQuery::undelivered_with_values())
-                .bind(limit as i64)
-                .bind(offset as i64)
+                .bind(limit)
+                .bind(highwater_mark)
                 .fetch_all(pool.reader())
                 .await?;
 
-        let values = ReconEventBlockRaw::into_carfiles(all_blocks).await?;
-        Ok(values)
+        let max_highwater = all_blocks.iter().map(|row| row.row_id).max().unwrap_or(0); // if there's nothing in the list we just return 0
+        let blocks = all_blocks.into_iter().map(|b| b.block).collect();
+        let values = ReconEventBlockRaw::into_carfiles(blocks).await?;
+        Ok((values, max_highwater))
     }
 
     /// Calculate the hash of a range of events

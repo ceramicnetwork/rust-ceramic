@@ -123,10 +123,11 @@ async fn range_query() {
 #[test(tokio::test)]
 async fn undelivered_with_values() {
     let pool = SqlitePool::connect_in_memory().await.unwrap();
-    let res = CeramicOneEvent::undelivered_with_values(&pool, 0, 10000)
+    let (res, hw) = CeramicOneEvent::undelivered_with_values(&pool, 0, 10000)
         .await
         .unwrap();
     assert_eq!(res.len(), 0);
+    assert_eq!(hw, 0);
 }
 
 #[test(tokio::test)]
