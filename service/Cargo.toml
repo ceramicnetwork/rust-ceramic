@@ -13,7 +13,6 @@ bytes.workspace = true
 ceramic-api.workspace = true
 ceramic-core.workspace = true
 ceramic-event.workspace = true
-ceramic-metrics.workspace = true
 ceramic-store.workspace = true
 cid.workspace = true
 hex.workspace = true

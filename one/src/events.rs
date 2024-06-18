@@ -420,6 +420,7 @@ mod tests {
     use crate::ethereum_rpc::EthRpc;
     use ceramic_store::SqlitePool;
     use multihash_codetable::{Code, MultihashDigest};
+    use test_log::test;
 
     struct HardCodedEthRpc {}
     impl EthRpc for HardCodedEthRpc {
@@ -442,7 +443,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_validate_time_event() {
         // todo: add a negative test.
         // Create an in-memory SQLite pool

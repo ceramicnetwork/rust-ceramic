@@ -6,6 +6,7 @@ use ceramic_core::{
 };
 use cid::Cid;
 use expect_test::expect;
+use test_log::test;
 
 use crate::{CeramicOneEvent, EventInsertable, EventInsertableBody, SqlitePool};
 
@@ -38,7 +39,7 @@ fn random_event(cid: &str) -> EventInsertable {
     }
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn hash_range_query() {
     let pool = SqlitePool::connect_in_memory().await.unwrap();
     let first = random_event("baeabeiazgwnti363jifhxaeaegbluw4ogcd2t5hsjaglo46wuwcgajqa5u");
@@ -61,7 +62,7 @@ async fn hash_range_query() {
         .assert_eq(&format!("{hash}"));
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn range_query() {
     let first = random_event("baeabeichhhmbhsic4maraneqf5gkhekgzcawhtpj3fh6opjtglznapz524");
     let second = random_event("baeabeibmek7v4ljsu575ohgjhovdxhcw6p6oivgb55hzkeap5po7ghzqty");
@@ -125,7 +126,7 @@ async fn range_query() {
         .assert_debug_eq(&ids);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn undelivered_with_values() {
     let pool = SqlitePool::connect_in_memory().await.unwrap();
     let res = CeramicOneEvent::undelivered_with_values(&pool, 0, 10000)
@@ -134,7 +135,7 @@ async fn undelivered_with_values() {
     assert_eq!(res.len(), 0);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn range_with_values() {
     let pool = SqlitePool::connect_in_memory().await.unwrap();
 
