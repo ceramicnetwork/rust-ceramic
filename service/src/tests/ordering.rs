@@ -1,6 +1,7 @@
 use ceramic_api::EventStore;
 use ceramic_core::EventId;
 use recon::ReconItem;
+use test_log::test;
 
 use crate::{
     tests::{check_deliverable, get_events},
@@ -8,7 +9,6 @@ use crate::{
 };
 
 async fn setup_service() -> CeramicEventService {
-    let _ = ceramic_metrics::init_local_tracing();
     let conn = ceramic_store::SqlitePool::connect_in_memory()
         .await
         .unwrap();
@@ -35,7 +35,7 @@ async fn add_and_assert_new_local_event(store: &CeramicEventService, item: Recon
     assert_eq!(1, new);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_init_event_delivered() {
     let store = setup_service().await;
     let events = get_events().await;
@@ -44,7 +44,7 @@ async fn test_init_event_delivered() {
     check_deliverable(&store.pool, &init.0.cid().unwrap(), true).await;
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_missing_prev_error_history_required() {
     let store = setup_service().await;
     let events = get_events().await;
@@ -71,7 +71,7 @@ async fn test_missing_prev_error_history_required() {
     };
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_prev_exists_history_required() {
     let store = setup_service().await;
     let events = get_events().await;
@@ -93,7 +93,7 @@ async fn test_prev_exists_history_required() {
     assert_eq!(expected, delivered);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_prev_in_same_write_history_required() {
     let store = setup_service().await;
     let events = get_events().await;
@@ -120,7 +120,7 @@ async fn test_prev_in_same_write_history_required() {
     assert_eq!(expected, delivered);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_missing_prev_pending_recon() {
     let store = setup_service().await;
     let events = get_events().await;
@@ -166,7 +166,7 @@ async fn test_missing_prev_pending_recon() {
     assert_eq!(expected, delivered);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn missing_prev_pending_recon_should_deliver_without_stream_update() {
     let store = setup_service().await;
     let events = get_events().await;
@@ -192,7 +192,7 @@ async fn missing_prev_pending_recon_should_deliver_without_stream_update() {
     assert_eq!(expected, delivered);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn multiple_streams_missing_prev_recon_should_deliver_without_stream_update() {
     let store = setup_service().await;
     let stream_1 = get_events().await;

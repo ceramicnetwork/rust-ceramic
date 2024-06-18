@@ -1045,10 +1045,10 @@ dependencies = [
  "serde",
  "serde_ipld_dagcbor",
  "swagger",
+ "test-log",
  "tikv-jemalloc-ctl",
  "tokio",
  "tracing",
- "tracing-test",
 ]
 
 [[package]]
@@ -1165,10 +1165,10 @@ dependencies = [
  "serde_ipld_dagjson",
  "serde_json",
  "swagger",
+ "test-log",
  "thiserror",
  "tokio",
  "tracing",
- "tracing-test",
 ]
 
 [[package]]
@@ -1385,7 +1385,6 @@ dependencies = [
  "tmpdir",
  "tokio",
  "tracing-subscriber",
- "tracing-test",
  "uuid 1.8.0",
 ]
 
@@ -8942,29 +8941,6 @@ dependencies = [
  "tracing-core",
  "tracing-log",
  "tracing-serde",
-]
-
-[[package]]
-name = "tracing-test"
-version = "0.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a2c0ff408fe918a94c428a3f2ad04e4afd5c95bbc08fcf868eff750c15728a4"
-dependencies = [
- "lazy_static",
- "tracing-core",
- "tracing-subscriber",
- "tracing-test-macro",
-]
-
-[[package]]
-name = "tracing-test-macro"
-version = "0.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "258bc1c4f8e2e73a977812ab339d503e6feeb92700f6d07a6de4d321522d5c08"
-dependencies = [
- "lazy_static",
- "quote",
- "syn 1.0.109",
 ]
 
 [[package]]

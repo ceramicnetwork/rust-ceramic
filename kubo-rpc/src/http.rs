@@ -360,12 +360,11 @@ mod tests {
 
     use bytes::Bytes;
     use ceramic_metadata::Version;
+    use expect_test::expect;
     use ipld_core::codec::Codec;
     use ipld_dagpb::DagPbCodec;
     use mockall::predicate;
-    use tracing_test::traced_test;
-
-    use expect_test::expect;
+    use test_log::test;
 
     // Empty Context
     struct Context;
@@ -425,8 +424,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    #[traced_test]
+    #[test(tokio::test)]
     async fn block_get() {
         let cid =
             Cid::from_str("bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom").unwrap();
@@ -449,8 +447,7 @@ mod tests {
         .assert_debug_eq(&DebugResponse::from(resp));
     }
 
-    #[tokio::test]
-    #[traced_test]
+    #[test(tokio::test)]
     async fn block_get_offline() {
         // Test data from:
         // https://ipld.io/specs/codecs/dag-pb/fixtures/cross-codec/#dagpb_data_some
@@ -479,8 +476,7 @@ mod tests {
         "#]]
         .assert_debug_eq(&DebugResponse::from(resp));
     }
-    #[tokio::test]
-    #[traced_test]
+    #[test(tokio::test)]
     async fn block_get_offline_not_found() {
         let cid =
             Cid::from_str("bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom").unwrap();
@@ -511,8 +507,7 @@ mod tests {
         .assert_debug_eq(&DebugResponse::from(resp));
     }
 
-    #[tokio::test]
-    #[traced_test]
+    #[test(tokio::test)]
     async fn block_get_timeout_success() {
         // Test data from:
         // https://ipld.io/specs/codecs/dag-pb/fixtures/cross-codec/#dagpb_data_some
@@ -549,8 +544,7 @@ mod tests {
         .assert_debug_eq(&DebugResponse::from(resp));
     }
 
-    #[tokio::test]
-    #[traced_test]
+    #[test(tokio::test)]
     async fn block_get_bad_request() {
         let mock_ipfs = MockIpfsDepTest::new();
         let server = Server::new(mock_ipfs);
@@ -572,8 +566,7 @@ mod tests {
         .assert_debug_eq(&DebugResponse::from(resp));
     }
 
-    #[tokio::test]
-    #[traced_test]
+    #[test(tokio::test)]
     async fn block_stat() {
         // Test data from:
         // https://ipld.io/specs/codecs/dag-pb/fixtures/cross-codec/#dagpb_data_some
@@ -605,8 +598,7 @@ mod tests {
         .assert_debug_eq(&resp);
     }
 
-    #[tokio::test]
-    #[traced_test]
+    #[test(tokio::test)]
     async fn block_stat_bad_request() {
         let mock_ipfs = MockIpfsDepTest::new();
         let server = Server::new(mock_ipfs);
@@ -628,8 +620,7 @@ mod tests {
         .assert_debug_eq(&resp);
     }
 
-    #[tokio::test]
-    #[traced_test]
+    #[test(tokio::test)]
     async fn dag_get_json() {
         // Test data from:
         // https://ipld.io/specs/codecs/dag-pb/fixtures/cross-codec/#dagpb_data_some
@@ -670,8 +661,7 @@ mod tests {
         "#]]
         .assert_debug_eq(&DebugResponse::from(resp));
     }
-    #[tokio::test]
-    #[traced_test]
+    #[test(tokio::test)]
     async fn dag_get_cbor() {
         // Test data from:
         // https://ipld.io/specs/codecs/dag-pb/fixtures/cross-codec/#dagpb_data_some
@@ -706,8 +696,7 @@ mod tests {
         .assert_debug_eq(&DebugResponse::from(resp));
     }
 
-    #[tokio::test]
-    #[traced_test]
+    #[test(tokio::test)]
     async fn dag_get_bad_request() {
         let mock_ipfs = MockIpfsDepTest::new();
         let server = Server::new(mock_ipfs);
@@ -729,8 +718,7 @@ mod tests {
         .assert_debug_eq(&resp);
     }
 
-    #[tokio::test]
-    #[traced_test]
+    #[test(tokio::test)]
     async fn dag_resolve() {
         // Test data uses getting started guide for IPFS:
         // ipfs://QmQPeNsJPyVWPFDVHb77w8G42Fvo15z4bG2X8D2GhfbSXc // cspell:disable-line
@@ -765,8 +753,7 @@ mod tests {
         .assert_debug_eq(&resp);
     }
 
-    #[tokio::test]
-    #[traced_test]
+    #[test(tokio::test)]
     async fn dag_resolve_remaining() {
         let path = "bafyreih6aqnl3v2d6jlidqqnw6skf2ntrtswvra65xz73ymrqspdy2jfai/chainId"; // cspell:disable-line
 
@@ -799,8 +786,7 @@ mod tests {
         "#]]
         .assert_debug_eq(&resp);
     }
-    #[tokio::test]
-    #[traced_test]
+    #[test(tokio::test)]
     async fn dag_resolve_bad_request() {
         let mock_ipfs = MockIpfsDepTest::new();
         let server = Server::new(mock_ipfs);
@@ -821,8 +807,7 @@ mod tests {
         "#]]
         .assert_debug_eq(&resp);
     }
-    #[tokio::test]
-    #[traced_test]
+    #[test(tokio::test)]
     async fn id_local() {
         let info = PeerInfo {
             peer_id: "12D3KooWQuKj4A11GNZ4MmcAmJzCNGZjArjyRTgkLhSutqeqVypv"
@@ -891,8 +876,7 @@ mod tests {
         "#]]
         .assert_debug_eq(&resp);
     }
-    #[tokio::test]
-    #[traced_test]
+    #[test(tokio::test)]
     async fn id_remote() {
         let info = PeerInfo {
             peer_id: "12D3KooWQuKj4A11GNZ4MmcAmJzCNGZjArjyRTgkLhSutqeqVypv"
@@ -965,8 +949,7 @@ mod tests {
         "#]]
         .assert_debug_eq(&resp);
     }
-    #[tokio::test]
-    #[traced_test]
+    #[test(tokio::test)]
     async fn id_bad_request() {
         let mock_ipfs = MockIpfsDepTest::new();
         let server = Server::new(mock_ipfs);
@@ -988,8 +971,7 @@ mod tests {
         .assert_debug_eq(&resp);
     }
 
-    #[tokio::test]
-    #[traced_test]
+    #[test(tokio::test)]
     async fn pin_add() {
         // Test data from:
         // https://ipld.io/specs/codecs/dag-pb/fixtures/cross-codec/#dagpb_data_some
@@ -1027,8 +1009,7 @@ mod tests {
         "#]]
         .assert_debug_eq(&resp);
     }
-    #[tokio::test]
-    #[traced_test]
+    #[test(tokio::test)]
     async fn pin_add_bad_request() {
         let cid =
             Cid::from_str("bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom").unwrap();
@@ -1083,8 +1064,7 @@ mod tests {
         "#]]
         .assert_debug_eq(&resp);
     }
-    #[tokio::test]
-    #[traced_test]
+    #[test(tokio::test)]
     async fn pin_rm() {
         let cid =
             Cid::from_str("bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom").unwrap();
@@ -1108,8 +1088,7 @@ mod tests {
         .assert_debug_eq(&resp);
     }
 
-    #[tokio::test]
-    #[traced_test]
+    #[test(tokio::test)]
     async fn pin_rm_bad_request() {
         let mock_ipfs = MockIpfsDepTest::new();
         let server = Server::new(mock_ipfs);
@@ -1129,8 +1108,7 @@ mod tests {
         "#]]
         .assert_debug_eq(&resp);
     }
-    #[tokio::test]
-    #[traced_test]
+    #[test(tokio::test)]
     async fn swarm_peers() {
         let mut mock_ipfs = MockIpfsDepTest::new();
         mock_ipfs.expect_clone().once().return_once(|| {
@@ -1173,8 +1151,7 @@ mod tests {
         .assert_debug_eq(&resp);
     }
 
-    #[tokio::test]
-    #[traced_test]
+    #[test(tokio::test)]
     async fn swarm_connect() {
         let mut mock_ipfs = MockIpfsDepTest::new();
         mock_ipfs.expect_clone().once().return_once(|| {
@@ -1205,8 +1182,7 @@ mod tests {
         "#]]
         .assert_debug_eq(&resp);
     }
-    #[tokio::test]
-    #[traced_test]
+    #[test(tokio::test)]
     async fn swarm_connect_bad_request() {
         let mock_ipfs = MockIpfsDepTest::new();
         let server = Server::new(mock_ipfs);
@@ -1226,8 +1202,7 @@ mod tests {
         "#]]
         .assert_debug_eq(&resp);
     }
-    #[tokio::test]
-    #[traced_test]
+    #[test(tokio::test)]
     async fn version() {
         let mut mock_ipfs = MockIpfsDepTest::new();
         mock_ipfs.expect_clone().once().return_once(|| {

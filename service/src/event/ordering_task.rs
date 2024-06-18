@@ -481,6 +481,7 @@ mod test {
     use ceramic_store::EventInsertable;
     use multihash_codetable::{Code, MultihashDigest};
     use recon::ReconItem;
+    use test_log::test;
 
     use crate::tests::{build_event, check_deliverable, random_block, TestEventInfo};
 
@@ -556,9 +557,8 @@ mod test {
         assert_eq!(0, deliverable.len());
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_all_deliverable_one_stream() {
-        let _ = ceramic_metrics::init_local_tracing();
         let TestEventInfo {
             event_id: one_id,
             car: one_car,
@@ -591,9 +591,8 @@ mod test {
         assert_stream_map_elems(&prev_map, 0);
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_some_deliverable_one_stream() {
-        let _ = ceramic_metrics::init_local_tracing();
         let TestEventInfo {
             event_id: one_id,
             car: one_car,
@@ -629,11 +628,10 @@ mod test {
         assert_stream_map_elems(&prev_map, 8);
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     // expected to be per stream but all events are combined for the history required version currently so
     // this needs to work as well
     async fn test_all_deliverable_multiple_streams() {
-        let _ = ceramic_metrics::init_local_tracing();
         let TestEventInfo {
             event_id: one_id,
             car: one_car,
@@ -703,9 +701,8 @@ mod test {
         assert_eq!(expected_b, split_b);
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_undelivered_batch_empty() {
-        let _ = ceramic_metrics::init_local_tracing();
         let pool = SqlitePool::connect_in_memory().await.unwrap();
         let (new, found) = OrderingState::new()
             .add_undelivered_batch(&pool, 0, 10)
@@ -715,9 +712,8 @@ mod test {
         assert_eq!(0, found);
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_undelivered_batch_offset() {
-        let _ = ceramic_metrics::init_local_tracing();
         let pool = SqlitePool::connect_in_memory().await.unwrap();
         let insertable = build_insertable_undelivered().await;
 
@@ -738,10 +734,8 @@ mod test {
         assert_eq!(0, found);
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_undelivered_batch_all() {
-        let _ = ceramic_metrics::init_local_tracing();
-
         let pool = SqlitePool::connect_in_memory().await.unwrap();
         let mut undelivered = Vec::with_capacity(10);
         for _ in 0..10 {
