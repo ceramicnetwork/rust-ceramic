@@ -62,11 +62,7 @@ impl Metrics {
             api_version: ceramic_api_server::API_VERSION,
             kubo_api_version: ceramic_kubo_rpc_server::API_VERSION,
         });
-        sub_registry.register(
-            "http_api",
-            "Information about the Ceramic and Kubo APIs",
-            info,
-        );
+        sub_registry.register("info", "Information about the Ceramic and Kubo APIs", info);
 
         Self {
             requests,
