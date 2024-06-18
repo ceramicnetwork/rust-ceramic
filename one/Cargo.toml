@@ -63,3 +63,4 @@ tokio-console = ["ceramic-metrics/tokio-console"]
 
 [dev-dependencies]
 expect-test.workspace = true
+test-log.workspace = true

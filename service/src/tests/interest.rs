@@ -5,10 +5,10 @@ use ceramic_core::{
     interest::{Builder, WithPeerId},
     Interest, PeerId,
 };
+use expect_test::expect;
 use rand::{thread_rng, Rng};
 use recon::{AssociativeHash, ReconItem, Sha256a};
-
-use expect_test::expect;
+use test_log::test;
 
 const SEP_KEY: &str = "model";
 const PEER_ID: &str = "1AdgHpWeBKTU3F2tUkAQqL2Y2Geh4QgHJwcWMPuiY1qiRQ";
@@ -16,9 +16,8 @@ const PEER_ID: &str = "1AdgHpWeBKTU3F2tUkAQqL2Y2Geh4QgHJwcWMPuiY1qiRQ";
 macro_rules! test_with_sqlite {
     ($test_name: ident, $test_fn: expr $(, $sql_stmts:expr)?) => {
         paste::paste! {
-            #[tokio::test]
+            #[test(tokio::test)]
             async fn [<$test_name _sqlite>]() {
-                let _ = ceramic_metrics::init_local_tracing();
 
                 let conn = ceramic_store::SqlitePool::connect_in_memory().await.unwrap();
                 let store = $crate::CeramicInterestService::new(conn);

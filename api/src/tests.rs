@@ -21,7 +21,7 @@ use expect_test::expect;
 use mockall::{mock, predicate};
 use multibase::Base;
 use recon::Key;
-use tracing_test::traced_test;
+use test_log::test;
 
 struct Context;
 
@@ -165,7 +165,7 @@ pub fn mock_get_unsigned_init_event(mock_store: &mut MockEventStoreTest) {
         .return_once(move |_| Ok(Some(decode_multibase_str(UNSIGNED_INIT_EVENT_PAYLOAD))));
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn create_event() {
     let peer_id = PeerId::random();
     let network = Network::Mainnet;
@@ -201,8 +201,8 @@ async fn create_event() {
         .unwrap();
     assert!(matches!(resp, EventsPostResponse::Success));
 }
-#[tokio::test]
-#[traced_test]
+#[test(tokio::test)]
+
 async fn register_interest_sort_value() {
     let peer_id = PeerId::random();
     let network = Network::InMemory;
@@ -250,8 +250,8 @@ async fn register_interest_sort_value() {
     assert_eq!(resp, InterestsPostResponse::Success);
 }
 
-#[tokio::test]
-#[traced_test]
+#[test(tokio::test)]
+
 async fn register_interest_sort_value_bad_request() {
     let peer_id = PeerId::random();
     let network = Network::InMemory;
@@ -272,8 +272,8 @@ async fn register_interest_sort_value_bad_request() {
     assert!(matches!(resp, InterestsPostResponse::BadRequest(_)));
 }
 
-#[tokio::test]
-#[traced_test]
+#[test(tokio::test)]
+
 async fn register_interest_sort_value_controller() {
     let peer_id = PeerId::random();
     let network = Network::InMemory;
@@ -323,8 +323,8 @@ async fn register_interest_sort_value_controller() {
     assert_eq!(resp, InterestsSortKeySortValuePostResponse::Success);
 }
 
-#[tokio::test]
-#[traced_test]
+#[test(tokio::test)]
+
 async fn register_interest_value_controller_stream() {
     let peer_id = PeerId::random();
     let network = Network::InMemory;
@@ -375,7 +375,7 @@ async fn register_interest_value_controller_stream() {
     assert_eq!(resp, InterestsSortKeySortValuePostResponse::Success);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn get_interests() {
     let peer_id = PeerId::from_str("1AaNXU5G2SJQSzCCP23V2TEDierSRBBGLA7aSCYScUTke9").unwrap();
     let network = Network::InMemory;
@@ -443,8 +443,8 @@ async fn get_interests() {
         )
     "#]].assert_debug_eq(&resp);
 }
-#[tokio::test]
-#[traced_test]
+#[test(tokio::test)]
+
 async fn get_events_for_interest_range() {
     let peer_id = PeerId::random();
     let network = Network::InMemory;
@@ -507,8 +507,7 @@ async fn get_events_for_interest_range() {
     );
 }
 
-#[tokio::test]
-#[traced_test]
+#[test(tokio::test)]
 async fn test_events_event_id_get_by_event_id_success() {
     let peer_id = PeerId::random();
     let network = Network::InMemory;
@@ -546,8 +545,8 @@ async fn test_events_event_id_get_by_event_id_success() {
     assert_eq!(event.data, event_data_base64);
 }
 
-#[tokio::test]
-#[traced_test]
+#[test(tokio::test)]
+
 async fn test_events_event_id_get_by_cid_success() {
     let peer_id = PeerId::random();
     let network = Network::InMemory;

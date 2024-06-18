@@ -409,6 +409,7 @@ mod tests {
     use ipld_core::ipld;
     use ipld_core::ipld::Ipld;
     use multibase;
+    use test_log::test;
 
     use super::*;
     use crate::unvalidated::signed;
@@ -461,7 +462,7 @@ mod tests {
         assert_eq!(DATA_EVENT_PAYLOAD, dagcbor_str);
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn sign_init_payload() {
         let model =
             StreamId::from_str("kjzl6hvfrbw6c90uwoyz8j519gxma787qbsfjtrarkr1huq1g1s224k7hopvsyg")
@@ -500,7 +501,7 @@ mod tests {
         );
         assert_eq!(SIGNED_INIT_EVENT_CAR, event_car_str);
     }
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn build_time_event() {
         let id = Cid::from_str(SIGNED_INIT_EVENT_CID).unwrap();
         let prev =

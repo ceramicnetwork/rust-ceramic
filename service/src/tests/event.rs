@@ -13,9 +13,8 @@ use super::*;
 macro_rules! test_with_sqlite {
     ($test_name: ident, $test_fn: expr $(, $sql_stmts:expr)?) => {
         paste::paste! {
-            #[tokio::test]
+            #[test_log::test(tokio::test)]
             async fn [<$test_name _sqlite>]() {
-                let _  =ceramic_metrics::init_local_tracing();
 
                 let conn = ceramic_store::SqlitePool::connect_in_memory().await.unwrap();
                 let store = $crate::CeramicEventService::new(conn).await.unwrap();
@@ -400,7 +399,6 @@ async fn test_store_block<S>(store: S)
 where
     S: iroh_bitswap::Store,
 {
-    let _ = ceramic_metrics::init_local_tracing();
     let data: Bytes = hex::decode("0a050001020304").unwrap().into();
     let cid: CidGeneric<64> =
         Cid::from_str("bafybeibazl2z4vqp2tmwcfag6wirmtpnomxknqcgrauj7m2yisrz3qjbom").unwrap(); // cspell:disable-line

@@ -129,7 +129,7 @@ mod tests {
     use async_trait::async_trait;
     use expect_test::{expect, Expect};
     use mockall::{mock, predicate};
-    use tracing_test::traced_test;
+    use test_log::test;
 
     async fn test_event_id_from_car(
         event_data: &str,
@@ -146,8 +146,7 @@ mod tests {
         expected_event_id.assert_debug_eq(&event_id);
     }
 
-    #[tokio::test]
-    #[traced_test]
+    #[test(tokio::test)]
     async fn event_id_from_car_signed_init_event() {
         let expected = expect![[r#"
             Ok(
@@ -175,8 +174,8 @@ mod tests {
         test_event_id_from_car(SIGNED_INIT_EVENT_CAR, expected, MockEventStoreTest::new()).await
     }
 
-    #[tokio::test]
-    #[traced_test]
+    #[test(tokio::test)]
+
     async fn event_id_from_car_unsigned_init_event() {
         let expected = expect![[r#"
             Ok(
@@ -210,8 +209,8 @@ mod tests {
         .await
     }
 
-    #[tokio::test]
-    #[traced_test]
+    #[test(tokio::test)]
+
     async fn event_id_from_car_data_event() {
         let expected = expect![[r#"
             Ok(
@@ -240,8 +239,8 @@ mod tests {
         test_event_id_from_car(DATA_EVENT_CAR, expected, mock_event_store).await
     }
 
-    #[tokio::test]
-    #[traced_test]
+    #[test(tokio::test)]
+
     async fn event_id_from_car_data_event_unsigned_init() {
         let expected = expect![[r#"
             Ok(
@@ -270,8 +269,8 @@ mod tests {
         test_event_id_from_car(DATA_EVENT_CAR_UNSIGNED_INIT, expected, mock_event_store).await
     }
 
-    #[tokio::test]
-    #[traced_test]
+    #[test(tokio::test)]
+
     async fn event_id_from_car_time_event() {
         let expected = expect![[r#"
             Ok(
@@ -300,8 +299,8 @@ mod tests {
         test_event_id_from_car(TIME_EVENT_CAR, expected, mock_event_store).await
     }
 
-    #[tokio::test]
-    #[traced_test]
+    #[test(tokio::test)]
+
     async fn event_id_from_car_data_event_missing() {
         let mut mock_store = MockEventStoreTest::new();
         mock_store
