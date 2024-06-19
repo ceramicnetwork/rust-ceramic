@@ -75,9 +75,9 @@ To run tests for a single crate in the workspace use:
 To debug code and tests enable logging of traces:
 
  * By default no tracing logs are output
- * Use env var `RUST_LOG`, i.e. `RUST_LOG=debug`, to enable logging in tests. Note only failing tests will print their logs, as this is the default cargo test behavior.
- * Use cargo test -- --show-output to print logs from passing tests. This is because by default cargo test suppresses all logs from passing tests.
- * Use cargo test -- --nocapture to print logs from passing or failing tests as they are printed without any buffering.
+ * Use env var `RUST_LOG`, i.e. `RUST_LOG=debug`, to enable logging in tests. Note only failing tests will print their logs, as this is the default `cargo test` behavior.
+ * Use `cargo test -- --show-output` to print logs from passing tests. This is because by default cargo test suppresses all logs from passing tests.
+ * Use `cargo test -- --nocapture` to print logs from passing or failing tests as they are printed without any buffering.
 
 See the [env_logger](https://docs.rs/env_logger/latest/env_logger/index.html) docs for more details on how `RUST_LOG` can be used.
 See the [tracing](https://docs.rs/tracing/latest/tracing/#shorthand-macros) docs for more details on adding new trace events into code or tests.
