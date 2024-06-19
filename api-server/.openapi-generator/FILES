@@ -3,6 +3,7 @@
 Cargo.toml
 README.md
 api/openapi.yaml
+docs/AccessTokenRequest.md
 docs/BadRequestResponse.md
 docs/ErrorResponse.md
 docs/Event.md
@@ -13,6 +14,7 @@ docs/FeedResumeTokenGet200Response.md
 docs/Interest.md
 docs/InterestsGet.md
 docs/InterestsGetInterestsInner.md
+docs/RefreshTokenRequest.md
 docs/Version.md
 docs/default_api.md
 examples/ca.pem

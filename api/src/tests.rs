@@ -583,7 +583,9 @@ async fn test_events_event_id_get_by_event_id_success() {
         .returning(move |_| Ok(Some(event_data.clone())));
     let mock_interest = MockAccessInterestStoreTest::new();
     let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_event_store));
-    let result = server.events_event_id_get(event_id_str, &Context).await;
+    let result = server
+        .events_event_id_get(event_id_str, None, None, &Context)
+        .await;
     let EventsEventIdGetResponse::Success(event) = result.unwrap() else {
         panic!("Expected EventsEventIdGetResponse::Success but got another variant");
     };
@@ -612,7 +614,7 @@ async fn test_events_event_id_get_by_cid_success() {
     let mock_interest = MockAccessInterestStoreTest::new();
     let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_event_store));
     let result = server
-        .events_event_id_get(event_cid.to_string(), &Context)
+        .events_event_id_get(event_cid.to_string(), None, None, &Context)
         .await;
     let EventsEventIdGetResponse::Success(event) = result.unwrap() else {
         panic!("Expected EventsEventIdGetResponse::Success but got another variant");

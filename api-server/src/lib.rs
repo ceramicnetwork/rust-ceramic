@@ -24,6 +24,24 @@ pub const API_VERSION: &str = "0.24.0";
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[must_use]
+pub enum AuthTokenAccessPostResponse {
+    /// success
+    Success,
+    /// Internal server error
+    InternalServerError(models::ErrorResponse),
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[must_use]
+pub enum AuthTokenRefreshPostResponse {
+    /// success
+    Success,
+    /// Internal server error
+    InternalServerError(models::ErrorResponse),
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[must_use]
 pub enum DebugHeapGetResponse {
     /// success
     Success(swagger::ByteArray),
@@ -161,6 +179,24 @@ pub trait Api<C: Send + Sync> {
         Poll::Ready(Ok(()))
     }
 
+    /// Create an access token
+    async fn auth_token_access_post(
+        &self,
+        authorization: String,
+        did: String,
+        access_token_request: models::AccessTokenRequest,
+        context: &C,
+    ) -> Result<AuthTokenAccessPostResponse, ApiError>;
+
+    /// Create a refresh token
+    async fn auth_token_refresh_post(
+        &self,
+        authorization: String,
+        did: String,
+        refresh_token_request: models::RefreshTokenRequest,
+        context: &C,
+    ) -> Result<AuthTokenRefreshPostResponse, ApiError>;
+
     /// Get the heap statistics of the Ceramic node
     async fn debug_heap_get(&self, context: &C) -> Result<DebugHeapGetResponse, ApiError>;
 
@@ -168,6 +204,8 @@ pub trait Api<C: Send + Sync> {
     async fn events_event_id_get(
         &self,
         event_id: String,
+        authorization: Option<String>,
+        did: Option<String>,
         context: &C,
     ) -> Result<EventsEventIdGetResponse, ApiError>;
 
@@ -248,6 +286,22 @@ pub trait ApiNoContext<C: Send + Sync> {
 
     fn context(&self) -> &C;
 
+    /// Create an access token
+    async fn auth_token_access_post(
+        &self,
+        authorization: String,
+        did: String,
+        access_token_request: models::AccessTokenRequest,
+    ) -> Result<AuthTokenAccessPostResponse, ApiError>;
+
+    /// Create a refresh token
+    async fn auth_token_refresh_post(
+        &self,
+        authorization: String,
+        did: String,
+        refresh_token_request: models::RefreshTokenRequest,
+    ) -> Result<AuthTokenRefreshPostResponse, ApiError>;
+
     /// Get the heap statistics of the Ceramic node
     async fn debug_heap_get(&self) -> Result<DebugHeapGetResponse, ApiError>;
 
@@ -255,6 +309,8 @@ pub trait ApiNoContext<C: Send + Sync> {
     async fn events_event_id_get(
         &self,
         event_id: String,
+        authorization: Option<String>,
+        did: Option<String>,
     ) -> Result<EventsEventIdGetResponse, ApiError>;
 
     /// Creates a new event
@@ -339,6 +395,32 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
         ContextWrapper::context(self)
     }
 
+    /// Create an access token
+    async fn auth_token_access_post(
+        &self,
+        authorization: String,
+        did: String,
+        access_token_request: models::AccessTokenRequest,
+    ) -> Result<AuthTokenAccessPostResponse, ApiError> {
+        let context = self.context().clone();
+        self.api()
+            .auth_token_access_post(authorization, did, access_token_request, &context)
+            .await
+    }
+
+    /// Create a refresh token
+    async fn auth_token_refresh_post(
+        &self,
+        authorization: String,
+        did: String,
+        refresh_token_request: models::RefreshTokenRequest,
+    ) -> Result<AuthTokenRefreshPostResponse, ApiError> {
+        let context = self.context().clone();
+        self.api()
+            .auth_token_refresh_post(authorization, did, refresh_token_request, &context)
+            .await
+    }
+
     /// Get the heap statistics of the Ceramic node
     async fn debug_heap_get(&self) -> Result<DebugHeapGetResponse, ApiError> {
         let context = self.context().clone();
@@ -349,9 +431,13 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
     async fn events_event_id_get(
         &self,
         event_id: String,
+        authorization: Option<String>,
+        did: Option<String>,
     ) -> Result<EventsEventIdGetResponse, ApiError> {
         let context = self.context().clone();
-        self.api().events_event_id_get(event_id, &context).await
+        self.api()
+            .events_event_id_get(event_id, authorization, did, &context)
+            .await
     }
 
     /// Creates a new event

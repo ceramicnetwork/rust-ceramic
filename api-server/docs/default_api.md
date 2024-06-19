@@ -4,6 +4,8 @@ All URIs are relative to */ceramic*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
+****](default_api.md#) | **POST** /auth/token/access | Create an access token
+****](default_api.md#) | **POST** /auth/token/refresh | Create a refresh token
 ****](default_api.md#) | **GET** /debug/heap | Get the heap statistics of the Ceramic node
 ****](default_api.md#) | **GET** /events/{event_id} | Get event data
 ****](default_api.md#) | **POST** /events | Creates a new event
@@ -17,6 +19,60 @@ Method | HTTP request | Description
 ****](default_api.md#) | **GET** /version | Get the version of the Ceramic node
 ****](default_api.md#) | **POST** /version | Get the version of the Ceramic node
 
+
+# ****
+> (authorization, did, access_token_request)
+Create an access token
+
+### Required Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+  **authorization** | **String**| Bearer token | 
+  **did** | **String**| DID used to sign the bearer token | 
+  **access_token_request** | [**AccessTokenRequest**](AccessTokenRequest.md)| Access token | 
+
+### Return type
+
+ (empty response body)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: application/json
+ - **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# ****
+> (authorization, did, refresh_token_request)
+Create a refresh token
+
+### Required Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+  **authorization** | **String**| Bearer token | 
+  **did** | **String**| DID used to sign the bearer token | 
+  **refresh_token_request** | [**RefreshTokenRequest**](RefreshTokenRequest.md)| Refresh token | 
+
+### Return type
+
+ (empty response body)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: application/json
+ - **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
 # ****
 > swagger::ByteArray ()
@@ -41,7 +97,7 @@ No authorization required
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
 # ****
-> models::Event (event_id)
+> models::Event (event_id, optional)
 Get event data
 
 ### Required Parameters
@@ -49,6 +105,16 @@ Get event data
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
   **event_id** | **String**| CID of the root block of the event, used to identify of the event | 
+ **optional** | **map[string]interface{}** | optional parameters | nil if no parameters
+
+### Optional Parameters
+Optional parameters are passed through a map[string]interface{}.
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **event_id** | **String**| CID of the root block of the event, used to identify of the event | 
+ **authorization** | **String**| Bearer token | 
+ **did** | **String**| DID used to sign the bearer token | 
 
 ### Return type
 

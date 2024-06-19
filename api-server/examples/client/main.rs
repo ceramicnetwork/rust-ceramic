@@ -2,11 +2,12 @@
 
 #[allow(unused_imports)]
 use ceramic_api_server::{
-    models, Api, ApiNoContext, Client, ContextWrapperExt, DebugHeapGetResponse,
-    EventsEventIdGetResponse, EventsPostResponse, ExperimentalEventsSepSepValueGetResponse,
-    ExperimentalInterestsGetResponse, FeedEventsGetResponse, FeedResumeTokenGetResponse,
-    InterestsPostResponse, InterestsSortKeySortValuePostResponse, LivenessGetResponse,
-    VersionGetResponse, VersionPostResponse,
+    models, Api, ApiNoContext, AuthTokenAccessPostResponse, AuthTokenRefreshPostResponse, Client,
+    ContextWrapperExt, DebugHeapGetResponse, EventsEventIdGetResponse, EventsPostResponse,
+    ExperimentalEventsSepSepValueGetResponse, ExperimentalInterestsGetResponse,
+    FeedEventsGetResponse, FeedResumeTokenGetResponse, InterestsPostResponse,
+    InterestsSortKeySortValuePostResponse, LivenessGetResponse, VersionGetResponse,
+    VersionPostResponse,
 };
 use clap::{App, Arg};
 #[allow(unused_imports)]
@@ -101,6 +102,26 @@ fn main() {
     let mut rt = tokio::runtime::Runtime::new().unwrap();
 
     match matches.value_of("operation") {
+        /* Disabled because there's no example.
+        Some("AuthTokenAccessPost") => {
+            let result = rt.block_on(client.auth_token_access_post(
+                  "authorization_example".to_string(),
+                  "did_example".to_string(),
+                  ???
+            ));
+            info!("{:?} (X-Span-ID: {:?})", result, (client.context() as &dyn Has<XSpanIdString>).get().clone());
+        },
+        */
+        /* Disabled because there's no example.
+        Some("AuthTokenRefreshPost") => {
+            let result = rt.block_on(client.auth_token_refresh_post(
+                  "authorization_example".to_string(),
+                  "did_example".to_string(),
+                  ???
+            ));
+            info!("{:?} (X-Span-ID: {:?})", result, (client.context() as &dyn Has<XSpanIdString>).get().clone());
+        },
+        */
         Some("DebugHeapGet") => {
             let result = rt.block_on(client.debug_heap_get());
             info!(
@@ -110,7 +131,11 @@ fn main() {
             );
         }
         Some("EventsEventIdGet") => {
-            let result = rt.block_on(client.events_event_id_get("event_id_example".to_string()));
+            let result = rt.block_on(client.events_event_id_get(
+                "event_id_example".to_string(),
+                Some("authorization_example".to_string()),
+                Some("did_example".to_string()),
+            ));
             info!(
                 "{:?} (X-Span-ID: {:?})",
                 result,

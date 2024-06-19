@@ -12,7 +12,7 @@ mod network;
 use std::{env, path::PathBuf, time::Duration};
 
 use anyhow::{anyhow, Result};
-use ceramic_api::{EventStore, InterestStore};
+use ceramic_api::{feature_flags, EventStore, InterestStore};
 use ceramic_core::{EventId, Interest};
 use ceramic_kubo_rpc::Multiaddr;
 use ceramic_metrics::{config::Config as MetricsConfig, MetricsHandle};
@@ -149,6 +149,14 @@ struct DaemonOpts {
         env = "CERAMIC_ONE_IDLE_CONNS_TIMEOUT_MS"
     )]
     idle_conns_timeout_ms: u64,
+
+    /// Enable authentication feature
+    #[arg(
+        long,
+        default_value_t = false,
+        env = "CERAMIC_ONE_ENABLE_AUTHENTICATION"
+    )]
+    enable_authentication: bool,
 }
 
 #[derive(ValueEnum, Debug, Clone, Default)]
@@ -472,12 +480,15 @@ impl Daemon {
             metrics::start(&opts.metrics_bind_address.parse()?);
 
         // Build HTTP server
-        let ceramic_server = ceramic_api::Server::new(
+        let mut ceramic_server = ceramic_api::Server::new(
             peer_id,
             network,
             interest_api_store,
             Arc::new(model_api_store),
         );
+        if opts.enable_authentication {
+            ceramic_server.enable_feature(feature_flags::FEATURE_AUTHENTICATION);
+        }
         let ceramic_service = ceramic_api_server::server::MakeService::new(ceramic_server);
         let ceramic_service = MakeAllowAllAuthenticator::new(ceramic_service, "");
         let ceramic_service =
