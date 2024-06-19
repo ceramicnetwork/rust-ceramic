@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, VecDeque};
 
 use ceramic_store::{CeramicOneEvent, EventInsertable, SqlitePool};
 use cid::Cid;
@@ -20,8 +20,11 @@ impl OrderEvents {
         pool: &SqlitePool,
         mut candidate_events: Vec<(EventInsertable, EventHeader)>,
     ) -> Result<Self> {
-        let new_cids: HashSet<Cid> =
-            HashSet::from_iter(candidate_events.iter().map(|(e, _)| e.cid()));
+        let mut new_cids: HashMap<Cid, bool> = HashMap::from_iter(
+            candidate_events
+                .iter()
+                .map(|(e, _)| (e.cid(), e.body.deliverable())),
+        );
         let mut deliverable = Vec::with_capacity(candidate_events.len());
         candidate_events.retain(|(e, h)| {
             if e.deliverable() {
@@ -38,7 +41,7 @@ impl OrderEvents {
             });
         }
 
-        let mut prevs_in_memory = Vec::with_capacity(candidate_events.len());
+        let mut undelivered_prevs_in_memory = VecDeque::with_capacity(candidate_events.len());
         let mut missing_history = Vec::with_capacity(candidate_events.len());
 
         while let Some((mut event, header)) = candidate_events.pop() {
@@ -47,19 +50,22 @@ impl OrderEvents {
                     unreachable!("Init events should have been filtered out since they're always deliverable");
                 }
                 Some(prev) => {
-                    if new_cids.contains(&prev) {
-                        prevs_in_memory.push((event, header));
-                        continue;
+                    if let Some(in_mem) = new_cids.get(&prev) {
+                        if *in_mem {
+                            event.body.set_deliverable(true);
+                            *new_cids.get_mut(&event.cid()).expect("CID must exist") = true;
+                            deliverable.push((event, header));
+                        } else {
+                            undelivered_prevs_in_memory.push_back((event, header));
+                        }
                     } else {
                         let (_exists, prev_deliverable) =
                             CeramicOneEvent::deliverable_by_cid(pool, &prev).await?;
                         if prev_deliverable {
                             event.body.set_deliverable(true);
+                            *new_cids.get_mut(&event.cid()).expect("CID must exist") = true;
                             deliverable.push((event, header));
                         } else {
-                            // technically, we may have the "rosetta stone" event in memory that could unlock this chain, if we loaded everything and recursed,
-                            // but the immediate prev is not in this set and has not been delivered to the client yet, so they shouldn't have known how to
-                            // construct this event so we'll consider this missing history. This can be used to return an error if the event is required to have history.
                             missing_history.push((event, header));
                         }
                     }
@@ -67,27 +73,30 @@ impl OrderEvents {
             }
         }
 
-        // We add the events to the deliverable list until nothing changes
-        while let Some((mut event, header)) = prevs_in_memory.pop() {
+        // We continually loop through the set adding events to the deliverable list until nothing changes.
+        // If our prev is in this list, we won't find it until it's added to the deliverable set. This means
+        // we may loop through multiple times putting things back in the queue, but it should be a short list
+        // and it will shrink every time we move something to the deliverable set, so it should be acceptable.
+        // We can't quite get rid of this loop because we may have discovered the prev from the database in the previous pass.
+        while let Some((mut event, header)) = undelivered_prevs_in_memory.pop_front() {
             let mut made_changes = false;
             match header.prev() {
                 None => {
                     unreachable!("Init events should have been filtered out of the in memory set");
                 }
                 Some(prev) => {
-                    // a hashset would be better loopkup but we're not going to have that many events so hashing
-                    // for a handful of lookups and then convert back to a vec probably isn't worth it.
-                    if deliverable.iter().any(|(e, _)| e.cid() == prev) {
+                    if new_cids.get(&prev).map_or(false, |v| *v) {
+                        *new_cids.get_mut(&event.cid()).expect("CID must exist") = true;
                         event.body.set_deliverable(true);
                         deliverable.push((event, header));
                         made_changes = true;
                     } else {
-                        prevs_in_memory.push((event, header));
+                        undelivered_prevs_in_memory.push_back((event, header));
                     }
                 }
             }
             if !made_changes {
-                missing_history.extend(prevs_in_memory);
+                missing_history.extend(undelivered_prevs_in_memory);
                 break;
             }
         }
