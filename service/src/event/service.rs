@@ -100,7 +100,7 @@ impl CeramicEventService {
     pub(crate) async fn parse_event_carfile_order_key(
         event_id: EventId,
         carfile: &[u8],
-    ) -> Result<(EventInsertable, EventHeader)> {
+    ) -> Result<(EventInsertable, EventMetadata)> {
         let mut insertable = EventInsertable::try_from_carfile(event_id, carfile).await?;
 
         let header = Self::parse_event_body(&mut insertable.body).await?;
@@ -110,14 +110,14 @@ impl CeramicEventService {
     pub(crate) async fn parse_event_carfile_cid(
         cid: ceramic_core::Cid,
         carfile: &[u8],
-    ) -> Result<InsertableBodyWithHeader> {
+    ) -> Result<InsertableBodyWithMeta> {
         let mut body = EventInsertableBody::try_from_carfile(cid, carfile).await?;
 
         let header = Self::parse_event_body(&mut body).await?;
-        Ok(InsertableBodyWithHeader { body, header })
+        Ok(InsertableBodyWithMeta { body, header })
     }
 
-    pub(crate) async fn parse_event_body(body: &mut EventInsertableBody) -> Result<EventHeader> {
+    pub(crate) async fn parse_event_body(body: &mut EventInsertableBody) -> Result<EventMetadata> {
         let cid = body.cid(); // purely for convenience writing out the match
         let ev_block = body.block_for_cid(&cid)?;
 
@@ -132,7 +132,7 @@ impl CeramicEventService {
         let (deliverable, header) = match event_ipld {
             unvalidated::RawEvent::Time(t) => (
                 false,
-                EventHeader::Time {
+                EventMetadata::Time {
                     cid,
                     stream_cid: t.id(),
                     prev: t.prev(),
@@ -159,16 +159,16 @@ impl CeramicEventService {
                 match payload {
                     unvalidated::Payload::Data(d) => (
                         false,
-                        EventHeader::Data {
+                        EventMetadata::Data {
                             cid,
                             stream_cid: *d.id(),
                             prev: *d.prev(),
                         },
                     ),
-                    unvalidated::Payload::Init(_init) => (true, EventHeader::Init { cid }),
+                    unvalidated::Payload::Init(_init) => (true, EventMetadata::Init { cid }),
                 }
             }
-            unvalidated::RawEvent::Unsigned(_init) => (true, EventHeader::Init { cid }),
+            unvalidated::RawEvent::Unsigned(_init) => (true, EventMetadata::Init { cid }),
         };
         body.set_deliverable(deliverable);
         Ok(header)
@@ -267,7 +267,7 @@ impl CeramicEventService {
                     .iter()
                     .find(|(i, _)| i.order_key == ev.order_key)
                 {
-                    let new = InsertableBodyWithHeader {
+                    let new = InsertableBodyWithMeta {
                         body: ev.body.clone(),
                         header: header.to_owned(),
                     };
@@ -302,7 +302,7 @@ impl CeramicEventService {
     pub(crate) async fn load_by_cid(
         pool: &SqlitePool,
         cid: ceramic_core::Cid,
-    ) -> Result<Option<InsertableBodyWithHeader>> {
+    ) -> Result<Option<InsertableBodyWithMeta>> {
         let data = if let Some(ev) = CeramicOneEvent::value_by_cid(pool, &cid).await? {
             ev
         } else {
@@ -311,7 +311,7 @@ impl CeramicEventService {
 
         let mut body = EventInsertableBody::try_from_carfile(cid, &data).await?;
         let header = Self::parse_event_body(&mut body).await?;
-        Ok(Some(InsertableBodyWithHeader { body, header }))
+        Ok(Some(InsertableBodyWithMeta { body, header }))
     }
 }
 
@@ -339,15 +339,15 @@ impl From<InsertResult> for Vec<ceramic_api::EventInsertResult> {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct InsertableBodyWithHeader {
+pub(crate) struct InsertableBodyWithMeta {
     pub(crate) body: EventInsertableBody,
-    pub(crate) header: EventHeader,
+    pub(crate) header: EventMetadata,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// An event header wrapper for use in the store crate.
 /// TODO: replace this with something from the event crate
-pub(crate) enum EventHeader {
+pub(crate) enum EventMetadata {
     Init {
         cid: ceramic_core::Cid,
     },
@@ -363,12 +363,12 @@ pub(crate) enum EventHeader {
     },
 }
 
-impl EventHeader {
+impl EventMetadata {
     /// Returns the stream CID of the event
     pub(crate) fn stream_cid(&self) -> ceramic_core::Cid {
         match self {
-            EventHeader::Init { cid, .. } => *cid,
-            EventHeader::Data { stream_cid, .. } | EventHeader::Time { stream_cid, .. } => {
+            EventMetadata::Init { cid, .. } => *cid,
+            EventMetadata::Data { stream_cid, .. } | EventMetadata::Time { stream_cid, .. } => {
                 *stream_cid
             }
         }
@@ -376,8 +376,8 @@ impl EventHeader {
 
     pub(crate) fn prev(&self) -> Option<ceramic_core::Cid> {
         match self {
-            EventHeader::Init { .. } => None,
-            EventHeader::Data { prev, .. } | EventHeader::Time { prev, .. } => Some(*prev),
+            EventMetadata::Init { .. } => None,
+            EventMetadata::Data { prev, .. } | EventMetadata::Time { prev, .. } => Some(*prev),
         }
     }
 }

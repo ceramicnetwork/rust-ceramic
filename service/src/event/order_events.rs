@@ -5,11 +5,11 @@ use cid::Cid;
 
 use crate::Result;
 
-use super::service::EventHeader;
+use super::service::EventMetadata;
 
 pub(crate) struct OrderEvents {
-    pub(crate) deliverable: Vec<(EventInsertable, EventHeader)>,
-    pub(crate) missing_history: Vec<(EventInsertable, EventHeader)>,
+    pub(crate) deliverable: Vec<(EventInsertable, EventMetadata)>,
+    pub(crate) missing_history: Vec<(EventInsertable, EventMetadata)>,
 }
 
 impl OrderEvents {
@@ -18,7 +18,7 @@ impl OrderEvents {
     /// Will look up the prev from the database if needed to check if it's deliverable (could possibly change this for recon and allow the ordering task to handle it?)
     pub async fn try_new(
         pool: &SqlitePool,
-        mut candidate_events: Vec<(EventInsertable, EventHeader)>,
+        mut candidate_events: Vec<(EventInsertable, EventMetadata)>,
     ) -> Result<Self> {
         let mut new_cids: HashMap<Cid, bool> = HashMap::from_iter(
             candidate_events

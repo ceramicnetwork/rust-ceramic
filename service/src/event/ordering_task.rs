@@ -7,7 +7,7 @@ use tracing::{debug, error, info, trace, warn};
 
 use crate::{CeramicEventService, Error, Result};
 
-use super::service::{EventHeader, InsertableBodyWithHeader};
+use super::service::{EventMetadata, InsertableBodyWithMeta};
 
 /// How many events to select at once to see if they've become deliverable when we have downtime
 /// Used at startup and occassionally in case we ever dropped something
@@ -27,7 +27,7 @@ pub struct DeliverableTask {
     pub(crate) _handle: tokio::task::JoinHandle<()>,
     /// Currently events discovered over recon that are out of order and need to be marked ready (deliverable)
     /// when their prev chain is discovered and complete (i.e. my prev is deliverable then I am deliverable).
-    pub(crate) tx_inserted: tokio::sync::mpsc::Sender<InsertableBodyWithHeader>,
+    pub(crate) tx_inserted: tokio::sync::mpsc::Sender<InsertableBodyWithMeta>,
 }
 
 #[derive(Debug)]
@@ -36,7 +36,7 @@ pub struct OrderingTask {}
 impl OrderingTask {
     pub async fn run(pool: SqlitePool, q_depth: usize, load_delivered: bool) -> DeliverableTask {
         let (tx_inserted, rx_inserted) =
-            tokio::sync::mpsc::channel::<InsertableBodyWithHeader>(q_depth);
+            tokio::sync::mpsc::channel::<InsertableBodyWithMeta>(q_depth);
 
         let handle =
             tokio::spawn(async move { Self::run_loop(pool, load_delivered, rx_inserted).await });
@@ -50,7 +50,7 @@ impl OrderingTask {
     async fn run_loop(
         pool: SqlitePool,
         load_undelivered: bool,
-        mut rx_inserted: tokio::sync::mpsc::Receiver<InsertableBodyWithHeader>,
+        mut rx_inserted: tokio::sync::mpsc::Receiver<InsertableBodyWithMeta>,
     ) {
         // before starting, make sure we've updated any events in the database we missed
         // this could take a long time. possibly we want to put it in another task so we can start processing events immediately
@@ -146,7 +146,7 @@ impl StreamEvent {
                 };
 
             let known_prev = match &parsed_body.header {
-                EventHeader::Init { cid, .. } => {
+                EventMetadata::Init { cid, .. } => {
                     if !deliverable {
                         warn!(%cid,"Found init event in database that wasn't previously marked as deliverable. Updating now...");
                         let mut tx = pool.begin_tx().await?;
@@ -155,7 +155,7 @@ impl StreamEvent {
                     }
                     StreamEvent::InitEvent(*cid)
                 }
-                EventHeader::Data { prev, .. } | EventHeader::Time { prev, .. } => {
+                EventMetadata::Data { prev, .. } | EventMetadata::Time { prev, .. } => {
                     if deliverable {
                         trace!(%cid, "Found deliverable event in database");
                         StreamEvent::KnownDeliverable(StreamEventMetadata::new(cid, *prev))
@@ -173,11 +173,11 @@ impl StreamEvent {
     }
 }
 
-impl From<InsertableBodyWithHeader> for StreamEvent {
-    fn from(ev: InsertableBodyWithHeader) -> Self {
+impl From<InsertableBodyWithMeta> for StreamEvent {
+    fn from(ev: InsertableBodyWithMeta) -> Self {
         match ev.header {
-            EventHeader::Init { cid, .. } => StreamEvent::InitEvent(cid),
-            EventHeader::Data { cid, prev, .. } | EventHeader::Time { cid, prev, .. } => {
+            EventMetadata::Init { cid, .. } => StreamEvent::InitEvent(cid),
+            EventMetadata::Data { cid, prev, .. } | EventMetadata::Time { cid, prev, .. } => {
                 let meta = StreamEventMetadata::new(cid, prev);
                 if ev.body.deliverable() {
                     StreamEvent::KnownDeliverable(meta)
@@ -388,7 +388,7 @@ impl OrderingState {
     /// Add a stream to the list of streams to process.
     /// We ignore delivered events for streams we're not tracking as we can look them up later if we need them.
     /// We will get lots of init events we can ignore unless we need them, otherwise they'll be stuck in memory for a long time.
-    fn add_inserted_events(&mut self, events: Vec<InsertableBodyWithHeader>) {
+    fn add_inserted_events(&mut self, events: Vec<InsertableBodyWithMeta>) {
         for ev in events {
             let stream_cid = ev.header.stream_cid();
             let event = ev.into();
@@ -484,12 +484,12 @@ impl OrderingState {
             let loaded = CeramicEventService::parse_event_carfile_cid(event_cid, &carfile).await?;
 
             let event = match &loaded.header {
-                EventHeader::Init { cid, .. } => {
+                EventMetadata::Init { cid, .. } => {
                     warn!(%cid,"Found init event in database that wasn't previously marked as deliverable. Updating now...");
                     to_store_asap.push(*cid);
                     StreamEvent::InitEvent(*cid)
                 }
-                EventHeader::Data { cid, prev, .. } | EventHeader::Time { cid, prev, .. } => {
+                EventMetadata::Data { cid, prev, .. } | EventMetadata::Time { cid, prev, .. } => {
                     StreamEvent::Undelivered(StreamEventMetadata::new(*cid, *prev))
                 }
             };
