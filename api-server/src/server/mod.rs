@@ -23,11 +23,11 @@ pub use crate::context;
 type ServiceFuture = BoxFuture<'static, Result<Response<Body>, crate::ServiceError>>;
 
 use crate::{
-    Api, DebugHeapGetResponse, EventsEventIdGetResponse, EventsPostResponse,
-    ExperimentalEventsSepSepValueGetResponse, ExperimentalInterestsGetResponse,
-    FeedEventsGetResponse, FeedResumeTokenGetResponse, InterestsPostResponse,
-    InterestsSortKeySortValuePostResponse, LivenessGetResponse, VersionGetResponse,
-    VersionPostResponse,
+    Api, AuthTokenAccessPostResponse, AuthTokenRefreshPostResponse, DebugHeapGetResponse,
+    EventsEventIdGetResponse, EventsPostResponse, ExperimentalEventsSepSepValueGetResponse,
+    ExperimentalInterestsGetResponse, FeedEventsGetResponse, FeedResumeTokenGetResponse,
+    InterestsPostResponse, InterestsSortKeySortValuePostResponse, LivenessGetResponse,
+    VersionGetResponse, VersionPostResponse,
 };
 
 mod paths {
@@ -35,6 +35,8 @@ mod paths {
 
     lazy_static! {
         pub static ref GLOBAL_REGEX_SET: regex::RegexSet = regex::RegexSet::new(vec![
+            r"^/ceramic/auth/token/access$",
+            r"^/ceramic/auth/token/refresh$",
             r"^/ceramic/debug/heap$",
             r"^/ceramic/events$",
             r"^/ceramic/events/(?P<event_id>[^/?#]*)$",
@@ -49,16 +51,18 @@ mod paths {
         ])
         .expect("Unable to create global regex set");
     }
-    pub(crate) static ID_DEBUG_HEAP: usize = 0;
-    pub(crate) static ID_EVENTS: usize = 1;
-    pub(crate) static ID_EVENTS_EVENT_ID: usize = 2;
+    pub(crate) static ID_AUTH_TOKEN_ACCESS: usize = 0;
+    pub(crate) static ID_AUTH_TOKEN_REFRESH: usize = 1;
+    pub(crate) static ID_DEBUG_HEAP: usize = 2;
+    pub(crate) static ID_EVENTS: usize = 3;
+    pub(crate) static ID_EVENTS_EVENT_ID: usize = 4;
     lazy_static! {
         pub static ref REGEX_EVENTS_EVENT_ID: regex::Regex =
             #[allow(clippy::invalid_regex)]
             regex::Regex::new(r"^/ceramic/events/(?P<event_id>[^/?#]*)$")
                 .expect("Unable to create regex for EVENTS_EVENT_ID");
     }
-    pub(crate) static ID_EXPERIMENTAL_EVENTS_SEP_SEPVALUE: usize = 3;
+    pub(crate) static ID_EXPERIMENTAL_EVENTS_SEP_SEPVALUE: usize = 5;
     lazy_static! {
         pub static ref REGEX_EXPERIMENTAL_EVENTS_SEP_SEPVALUE: regex::Regex =
             #[allow(clippy::invalid_regex)]
@@ -67,11 +71,11 @@ mod paths {
             )
             .expect("Unable to create regex for EXPERIMENTAL_EVENTS_SEP_SEPVALUE");
     }
-    pub(crate) static ID_EXPERIMENTAL_INTERESTS: usize = 4;
-    pub(crate) static ID_FEED_EVENTS: usize = 5;
-    pub(crate) static ID_FEED_RESUMETOKEN: usize = 6;
-    pub(crate) static ID_INTERESTS: usize = 7;
-    pub(crate) static ID_INTERESTS_SORT_KEY_SORT_VALUE: usize = 8;
+    pub(crate) static ID_EXPERIMENTAL_INTERESTS: usize = 6;
+    pub(crate) static ID_FEED_EVENTS: usize = 7;
+    pub(crate) static ID_FEED_RESUMETOKEN: usize = 8;
+    pub(crate) static ID_INTERESTS: usize = 9;
+    pub(crate) static ID_INTERESTS_SORT_KEY_SORT_VALUE: usize = 10;
     lazy_static! {
         pub static ref REGEX_INTERESTS_SORT_KEY_SORT_VALUE: regex::Regex =
             #[allow(clippy::invalid_regex)]
@@ -80,8 +84,8 @@ mod paths {
             )
             .expect("Unable to create regex for INTERESTS_SORT_KEY_SORT_VALUE");
     }
-    pub(crate) static ID_LIVENESS: usize = 9;
-    pub(crate) static ID_VERSION: usize = 10;
+    pub(crate) static ID_LIVENESS: usize = 11;
+    pub(crate) static ID_VERSION: usize = 12;
 }
 
 pub struct MakeService<T, C>
@@ -194,6 +198,266 @@ where
             let path = paths::GLOBAL_REGEX_SET.matches(uri.path());
 
             match method {
+                // AuthTokenAccessPost - POST /auth/token/access
+                hyper::Method::POST if path.matched(paths::ID_AUTH_TOKEN_ACCESS) => {
+                    // Header parameters
+                    let param_authorization = headers.get(HeaderName::from_static("authorization"));
+
+                    let param_authorization = match param_authorization {
+                        Some(v) => {
+                            match header::IntoHeaderValue::<String>::try_from((*v).clone()) {
+                                Ok(result) => result.0,
+                                Err(err) => {
+                                    return Ok(Response::builder()
+                                        .status(StatusCode::BAD_REQUEST)
+                                        .body(Body::from(format!("Invalid header Authorization - {}", err)))
+                                        .expect("Unable to create Bad Request response for invalid header Authorization"));
+                                }
+                            }
+                        }
+                        None => {
+                            return Ok(Response::builder()
+                                        .status(StatusCode::BAD_REQUEST)
+                                        .body(Body::from("Missing required header Authorization"))
+                                        .expect("Unable to create Bad Request response for missing required header Authorization"));
+                        }
+                    };
+                    let param_did = headers.get(HeaderName::from_static("did"));
+
+                    let param_did = match param_did {
+                        Some(v) => {
+                            match header::IntoHeaderValue::<String>::try_from((*v).clone()) {
+                                Ok(result) => result.0,
+                                Err(err) => {
+                                    return Ok(Response::builder()
+                                        .status(StatusCode::BAD_REQUEST)
+                                        .body(Body::from(format!("Invalid header Did - {}", err)))
+                                        .expect("Unable to create Bad Request response for invalid header Did"));
+                                }
+                            }
+                        }
+                        None => {
+                            return Ok(Response::builder()
+                                        .status(StatusCode::BAD_REQUEST)
+                                        .body(Body::from("Missing required header Did"))
+                                        .expect("Unable to create Bad Request response for missing required header Did"));
+                        }
+                    };
+
+                    // Body parameters (note that non-required body parameters will ignore garbage
+                    // values, rather than causing a 400 response). Produce warning header and logs for
+                    // any unused fields.
+                    let result = body.into_raw().await;
+                    match result {
+                            Ok(body) => {
+                                let mut unused_elements = Vec::new();
+                                let param_access_token_request: Option<models::AccessTokenRequest> = if !body.is_empty() {
+                                    let deserializer = &mut serde_json::Deserializer::from_slice(&body);
+                                    match serde_ignored::deserialize(deserializer, |path| {
+                                            warn!("Ignoring unknown field in body: {}", path);
+                                            unused_elements.push(path.to_string());
+                                    }) {
+                                        Ok(param_access_token_request) => param_access_token_request,
+                                        Err(e) => return Ok(Response::builder()
+                                                        .status(StatusCode::BAD_REQUEST)
+                                                        .body(Body::from(format!("Couldn't parse body parameter AccessTokenRequest - doesn't match schema: {}", e)))
+                                                        .expect("Unable to create Bad Request response for invalid body parameter AccessTokenRequest due to schema")),
+                                    }
+                                } else {
+                                    None
+                                };
+                                let param_access_token_request = match param_access_token_request {
+                                    Some(param_access_token_request) => param_access_token_request,
+                                    None => return Ok(Response::builder()
+                                                        .status(StatusCode::BAD_REQUEST)
+                                                        .body(Body::from("Missing required body parameter AccessTokenRequest"))
+                                                        .expect("Unable to create Bad Request response for missing body parameter AccessTokenRequest")),
+                                };
+
+                                let result = api_impl.auth_token_access_post(
+                                            param_authorization,
+                                            param_did,
+                                            param_access_token_request,
+                                        &context
+                                    ).await;
+                                let mut response = Response::new(Body::empty());
+                                response.headers_mut().insert(
+                                            HeaderName::from_static("x-span-id"),
+                                            HeaderValue::from_str((&context as &dyn Has<XSpanIdString>).get().0.clone().as_str())
+                                                .expect("Unable to create X-Span-ID header value"));
+
+                                        if !unused_elements.is_empty() {
+                                            response.headers_mut().insert(
+                                                HeaderName::from_static("warning"),
+                                                HeaderValue::from_str(format!("Ignoring unknown fields in body: {:?}", unused_elements).as_str())
+                                                    .expect("Unable to create Warning header value"));
+                                        }
+
+                                        match result {
+                                            Ok(rsp) => match rsp {
+                                                AuthTokenAccessPostResponse::Success
+                                                => {
+                                                    *response.status_mut() = StatusCode::from_u16(204).expect("Unable to turn 204 into a StatusCode");
+                                                },
+                                                AuthTokenAccessPostResponse::InternalServerError
+                                                    (body)
+                                                => {
+                                                    *response.status_mut() = StatusCode::from_u16(500).expect("Unable to turn 500 into a StatusCode");
+                                                    response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for AUTH_TOKEN_ACCESS_POST_INTERNAL_SERVER_ERROR"));
+                                                    let body_content = serde_json::to_string(&body).expect("impossible to fail to serialize");
+                                                    *response.body_mut() = Body::from(body_content);
+                                                },
+                                            },
+                                            Err(_) => {
+                                                // Application code returned an error. This should not happen, as the implementation should
+                                                // return a valid response.
+                                                *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                                                *response.body_mut() = Body::from("An internal error occurred");
+                                            },
+                                        }
+
+                                        Ok(response)
+                            },
+                            Err(e) => Ok(Response::builder()
+                                                .status(StatusCode::BAD_REQUEST)
+                                                .body(Body::from(format!("Couldn't read body parameter AccessTokenRequest: {}", e)))
+                                                .expect("Unable to create Bad Request response due to unable to read body parameter AccessTokenRequest")),
+                        }
+                }
+
+                // AuthTokenRefreshPost - POST /auth/token/refresh
+                hyper::Method::POST if path.matched(paths::ID_AUTH_TOKEN_REFRESH) => {
+                    // Header parameters
+                    let param_authorization = headers.get(HeaderName::from_static("authorization"));
+
+                    let param_authorization = match param_authorization {
+                        Some(v) => {
+                            match header::IntoHeaderValue::<String>::try_from((*v).clone()) {
+                                Ok(result) => result.0,
+                                Err(err) => {
+                                    return Ok(Response::builder()
+                                        .status(StatusCode::BAD_REQUEST)
+                                        .body(Body::from(format!("Invalid header Authorization - {}", err)))
+                                        .expect("Unable to create Bad Request response for invalid header Authorization"));
+                                }
+                            }
+                        }
+                        None => {
+                            return Ok(Response::builder()
+                                        .status(StatusCode::BAD_REQUEST)
+                                        .body(Body::from("Missing required header Authorization"))
+                                        .expect("Unable to create Bad Request response for missing required header Authorization"));
+                        }
+                    };
+                    let param_did = headers.get(HeaderName::from_static("did"));
+
+                    let param_did = match param_did {
+                        Some(v) => {
+                            match header::IntoHeaderValue::<String>::try_from((*v).clone()) {
+                                Ok(result) => result.0,
+                                Err(err) => {
+                                    return Ok(Response::builder()
+                                        .status(StatusCode::BAD_REQUEST)
+                                        .body(Body::from(format!("Invalid header Did - {}", err)))
+                                        .expect("Unable to create Bad Request response for invalid header Did"));
+                                }
+                            }
+                        }
+                        None => {
+                            return Ok(Response::builder()
+                                        .status(StatusCode::BAD_REQUEST)
+                                        .body(Body::from("Missing required header Did"))
+                                        .expect("Unable to create Bad Request response for missing required header Did"));
+                        }
+                    };
+
+                    // Body parameters (note that non-required body parameters will ignore garbage
+                    // values, rather than causing a 400 response). Produce warning header and logs for
+                    // any unused fields.
+                    let result = body.into_raw().await;
+                    match result {
+                            Ok(body) => {
+                                let mut unused_elements = Vec::new();
+                                let param_refresh_token_request: Option<models::RefreshTokenRequest> = if !body.is_empty() {
+                                    let deserializer = &mut serde_json::Deserializer::from_slice(&body);
+                                    match serde_ignored::deserialize(deserializer, |path| {
+                                            warn!("Ignoring unknown field in body: {}", path);
+                                            unused_elements.push(path.to_string());
+                                    }) {
+                                        Ok(param_refresh_token_request) => param_refresh_token_request,
+                                        Err(e) => return Ok(Response::builder()
+                                                        .status(StatusCode::BAD_REQUEST)
+                                                        .body(Body::from(format!("Couldn't parse body parameter RefreshTokenRequest - doesn't match schema: {}", e)))
+                                                        .expect("Unable to create Bad Request response for invalid body parameter RefreshTokenRequest due to schema")),
+                                    }
+                                } else {
+                                    None
+                                };
+                                let param_refresh_token_request = match param_refresh_token_request {
+                                    Some(param_refresh_token_request) => param_refresh_token_request,
+                                    None => return Ok(Response::builder()
+                                                        .status(StatusCode::BAD_REQUEST)
+                                                        .body(Body::from("Missing required body parameter RefreshTokenRequest"))
+                                                        .expect("Unable to create Bad Request response for missing body parameter RefreshTokenRequest")),
+                                };
+
+                                let result = api_impl.auth_token_refresh_post(
+                                            param_authorization,
+                                            param_did,
+                                            param_refresh_token_request,
+                                        &context
+                                    ).await;
+                                let mut response = Response::new(Body::empty());
+                                response.headers_mut().insert(
+                                            HeaderName::from_static("x-span-id"),
+                                            HeaderValue::from_str((&context as &dyn Has<XSpanIdString>).get().0.clone().as_str())
+                                                .expect("Unable to create X-Span-ID header value"));
+
+                                        if !unused_elements.is_empty() {
+                                            response.headers_mut().insert(
+                                                HeaderName::from_static("warning"),
+                                                HeaderValue::from_str(format!("Ignoring unknown fields in body: {:?}", unused_elements).as_str())
+                                                    .expect("Unable to create Warning header value"));
+                                        }
+
+                                        match result {
+                                            Ok(rsp) => match rsp {
+                                                AuthTokenRefreshPostResponse::Success
+                                                => {
+                                                    *response.status_mut() = StatusCode::from_u16(204).expect("Unable to turn 204 into a StatusCode");
+                                                },
+                                                AuthTokenRefreshPostResponse::InternalServerError
+                                                    (body)
+                                                => {
+                                                    *response.status_mut() = StatusCode::from_u16(500).expect("Unable to turn 500 into a StatusCode");
+                                                    response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for AUTH_TOKEN_REFRESH_POST_INTERNAL_SERVER_ERROR"));
+                                                    let body_content = serde_json::to_string(&body).expect("impossible to fail to serialize");
+                                                    *response.body_mut() = Body::from(body_content);
+                                                },
+                                            },
+                                            Err(_) => {
+                                                // Application code returned an error. This should not happen, as the implementation should
+                                                // return a valid response.
+                                                *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                                                *response.body_mut() = Body::from("An internal error occurred");
+                                            },
+                                        }
+
+                                        Ok(response)
+                            },
+                            Err(e) => Ok(Response::builder()
+                                                .status(StatusCode::BAD_REQUEST)
+                                                .body(Body::from(format!("Couldn't read body parameter RefreshTokenRequest: {}", e)))
+                                                .expect("Unable to create Bad Request response due to unable to read body parameter RefreshTokenRequest")),
+                        }
+                }
+
                 // DebugHeapGet - GET /debug/heap
                 hyper::Method::GET if path.matched(paths::ID_DEBUG_HEAP) => {
                     let result = api_impl.debug_heap_get(&context).await;
@@ -281,7 +545,48 @@ where
                                         .expect("Unable to create Bad Request response for invalid percent decode"))
                 };
 
-                    let result = api_impl.events_event_id_get(param_event_id, &context).await;
+                    // Header parameters
+                    let param_authorization = headers.get(HeaderName::from_static("authorization"));
+
+                    let param_authorization = match param_authorization {
+                        Some(v) => {
+                            match header::IntoHeaderValue::<String>::try_from((*v).clone()) {
+                                Ok(result) => Some(result.0),
+                                Err(err) => {
+                                    return Ok(Response::builder()
+                                        .status(StatusCode::BAD_REQUEST)
+                                        .body(Body::from(format!("Invalid header Authorization - {}", err)))
+                                        .expect("Unable to create Bad Request response for invalid header Authorization"));
+                                }
+                            }
+                        }
+                        None => None,
+                    };
+                    let param_did = headers.get(HeaderName::from_static("did"));
+
+                    let param_did = match param_did {
+                        Some(v) => {
+                            match header::IntoHeaderValue::<String>::try_from((*v).clone()) {
+                                Ok(result) => Some(result.0),
+                                Err(err) => {
+                                    return Ok(Response::builder()
+                                        .status(StatusCode::BAD_REQUEST)
+                                        .body(Body::from(format!("Invalid header Did - {}", err)))
+                                        .expect("Unable to create Bad Request response for invalid header Did"));
+                                }
+                            }
+                        }
+                        None => None,
+                    };
+
+                    let result = api_impl
+                        .events_event_id_get(
+                            param_event_id,
+                            param_authorization,
+                            param_did,
+                            &context,
+                        )
+                        .await;
                     let mut response = Response::new(Body::empty());
                     response.headers_mut().insert(
                         HeaderName::from_static("x-span-id"),
@@ -1257,6 +1562,8 @@ where
                     Ok(response)
                 }
 
+                _ if path.matched(paths::ID_AUTH_TOKEN_ACCESS) => method_not_allowed(),
+                _ if path.matched(paths::ID_AUTH_TOKEN_REFRESH) => method_not_allowed(),
                 _ if path.matched(paths::ID_DEBUG_HEAP) => method_not_allowed(),
                 _ if path.matched(paths::ID_EVENTS) => method_not_allowed(),
                 _ if path.matched(paths::ID_EVENTS_EVENT_ID) => method_not_allowed(),
@@ -1286,6 +1593,14 @@ impl<T> RequestParser<T> for ApiRequestParser {
     fn parse_operation_id(request: &Request<T>) -> Option<&'static str> {
         let path = paths::GLOBAL_REGEX_SET.matches(request.uri().path());
         match *request.method() {
+            // AuthTokenAccessPost - POST /auth/token/access
+            hyper::Method::POST if path.matched(paths::ID_AUTH_TOKEN_ACCESS) => {
+                Some("AuthTokenAccessPost")
+            }
+            // AuthTokenRefreshPost - POST /auth/token/refresh
+            hyper::Method::POST if path.matched(paths::ID_AUTH_TOKEN_REFRESH) => {
+                Some("AuthTokenRefreshPost")
+            }
             // DebugHeapGet - GET /debug/heap
             hyper::Method::GET if path.matched(paths::ID_DEBUG_HEAP) => Some("DebugHeapGet"),
             // EventsEventIdGet - GET /events/{event_id}

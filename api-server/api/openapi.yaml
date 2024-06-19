@@ -10,6 +10,68 @@ info:
 servers:
 - url: /ceramic
 paths:
+  /auth/token/refresh:
+    post:
+      parameters:
+      - description: Bearer token
+        explode: false
+        in: header
+        name: Authorization
+        required: true
+        schema:
+          type: string
+        style: simple
+      - description: DID used to sign the bearer token
+        explode: false
+        in: header
+        name: Did
+        required: true
+        schema:
+          type: string
+        style: simple
+      requestBody:
+        $ref: '#/components/requestBodies/RefreshTokenRequest'
+      responses:
+        "204":
+          description: success
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Internal server error
+      summary: Create a refresh token
+  /auth/token/access:
+    post:
+      parameters:
+      - description: Bearer token
+        explode: false
+        in: header
+        name: Authorization
+        required: true
+        schema:
+          type: string
+        style: simple
+      - description: DID used to sign the bearer token
+        explode: false
+        in: header
+        name: Did
+        required: true
+        schema:
+          type: string
+        style: simple
+      requestBody:
+        $ref: '#/components/requestBodies/AccessTokenRequest'
+      responses:
+        "204":
+          description: success
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Internal server error
+      summary: Create an access token
   /liveness:
     get:
       responses:
@@ -105,6 +167,22 @@ paths:
         in: path
         name: event_id
         required: true
+        schema:
+          type: string
+        style: simple
+      - description: Bearer token
+        explode: false
+        in: header
+        name: Authorization
+        required: false
+        schema:
+          type: string
+        style: simple
+      - description: DID used to sign the bearer token
+        explode: false
+        in: header
+        name: Did
+        required: false
         schema:
           type: string
         style: simple
@@ -366,6 +444,20 @@ paths:
         feed. Allows starting `feed/events` from 'now'.
 components:
   requestBodies:
+    RefreshTokenRequest:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/RefreshTokenRequest'
+      description: Refresh token
+      required: true
+    AccessTokenRequest:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/AccessTokenRequest'
+      description: Access token
+      required: true
     EventData:
       content:
         application/json:
@@ -541,6 +633,24 @@ components:
       - sep
       - sepValue
       title: A recon interest
+      type: object
+    RefreshTokenRequest:
+      example:
+        requestId: requestId
+      properties:
+        requestId:
+          description: Request ID
+          type: string
+      title: A request for a refresh token
+      type: object
+    AccessTokenRequest:
+      example:
+        requestId: requestId
+      properties:
+        requestId:
+          description: Request ID
+          type: string
+      title: A request for a access token
       type: object
     _feed_resumeToken_get_200_response:
       example:

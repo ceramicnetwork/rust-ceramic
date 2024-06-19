@@ -101,11 +101,11 @@ impl<C> Server<C> {
 
 use ceramic_api_server::server::MakeService;
 use ceramic_api_server::{
-    Api, DebugHeapGetResponse, EventsEventIdGetResponse, EventsPostResponse,
-    ExperimentalEventsSepSepValueGetResponse, ExperimentalInterestsGetResponse,
-    FeedEventsGetResponse, FeedResumeTokenGetResponse, InterestsPostResponse,
-    InterestsSortKeySortValuePostResponse, LivenessGetResponse, VersionGetResponse,
-    VersionPostResponse,
+    Api, AuthTokenAccessPostResponse, AuthTokenRefreshPostResponse, DebugHeapGetResponse,
+    EventsEventIdGetResponse, EventsPostResponse, ExperimentalEventsSepSepValueGetResponse,
+    ExperimentalInterestsGetResponse, FeedEventsGetResponse, FeedResumeTokenGetResponse,
+    InterestsPostResponse, InterestsSortKeySortValuePostResponse, LivenessGetResponse,
+    VersionGetResponse, VersionPostResponse,
 };
 use std::error::Error;
 use swagger::ApiError;
@@ -115,6 +115,42 @@ impl<C> Api<C> for Server<C>
 where
     C: Has<XSpanIdString> + Send + Sync,
 {
+    /// Create an access token
+    async fn auth_token_access_post(
+        &self,
+        authorization: String,
+        did: String,
+        access_token_request: models::AccessTokenRequest,
+        context: &C,
+    ) -> Result<AuthTokenAccessPostResponse, ApiError> {
+        info!(
+            "auth_token_access_post(\"{}\", \"{}\", {:?}) - X-Span-ID: {:?}",
+            authorization,
+            did,
+            access_token_request,
+            context.get().0.clone()
+        );
+        Err(ApiError("Generic failure".into()))
+    }
+
+    /// Create a refresh token
+    async fn auth_token_refresh_post(
+        &self,
+        authorization: String,
+        did: String,
+        refresh_token_request: models::RefreshTokenRequest,
+        context: &C,
+    ) -> Result<AuthTokenRefreshPostResponse, ApiError> {
+        info!(
+            "auth_token_refresh_post(\"{}\", \"{}\", {:?}) - X-Span-ID: {:?}",
+            authorization,
+            did,
+            refresh_token_request,
+            context.get().0.clone()
+        );
+        Err(ApiError("Generic failure".into()))
+    }
+
     /// Get the heap statistics of the Ceramic node
     async fn debug_heap_get(&self, context: &C) -> Result<DebugHeapGetResponse, ApiError> {
         info!(
@@ -128,11 +164,15 @@ where
     async fn events_event_id_get(
         &self,
         event_id: String,
+        authorization: Option<String>,
+        did: Option<String>,
         context: &C,
     ) -> Result<EventsEventIdGetResponse, ApiError> {
         info!(
-            "events_event_id_get(\"{}\") - X-Span-ID: {:?}",
+            "events_event_id_get(\"{}\", {:?}, {:?}) - X-Span-ID: {:?}",
             event_id,
+            authorization,
+            did,
             context.get().0.clone()
         );
         Err(ApiError("Generic failure".into()))

@@ -15,7 +15,7 @@ To see how to make this your own, look here:
 [README]((https://openapi-generator.tech))
 
 - API version: 0.24.0
-- Build date: 2024-06-18T16:13:40.568723758Z[Etc/UTC]
+- Build date: 2024-06-19T10:37:22.933337-06:00[America/Denver]
 
 
 
@@ -105,6 +105,8 @@ All URIs are relative to */ceramic*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
+[****](docs/default_api.md#) | **POST** /auth/token/access | Create an access token
+[****](docs/default_api.md#) | **POST** /auth/token/refresh | Create a refresh token
 [****](docs/default_api.md#) | **GET** /debug/heap | Get the heap statistics of the Ceramic node
 [****](docs/default_api.md#) | **GET** /events/{event_id} | Get event data
 [****](docs/default_api.md#) | **POST** /events | Creates a new event
@@ -121,6 +123,7 @@ Method | HTTP request | Description
 
 ## Documentation For Models
 
+ - [AccessTokenRequest](docs/AccessTokenRequest.md)
  - [BadRequestResponse](docs/BadRequestResponse.md)
  - [ErrorResponse](docs/ErrorResponse.md)
  - [Event](docs/Event.md)
@@ -131,6 +134,7 @@ Method | HTTP request | Description
  - [Interest](docs/Interest.md)
  - [InterestsGet](docs/InterestsGet.md)
  - [InterestsGetInterestsInner](docs/InterestsGetInterestsInner.md)
+ - [RefreshTokenRequest](docs/RefreshTokenRequest.md)
  - [Version](docs/Version.md)
 
 

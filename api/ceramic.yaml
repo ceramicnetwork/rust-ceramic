@@ -15,6 +15,60 @@ servers:
   - url: /ceramic
 
 paths:
+  /auth/token/refresh:
+    post:
+      summary: Create a refresh token
+      parameters:
+        - name: Authorization
+          in: header
+          description: Bearer token
+          required: true
+          schema:
+            type: string
+        - name: Did
+          in: header
+          description: DID used to sign the bearer token
+          required: true
+          schema:
+            type: string
+      requestBody:
+        $ref: "#/components/requestBodies/RefreshTokenRequest"
+      responses:
+        "204":
+          description: success
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /auth/token/access:
+    post:
+      summary: Create an access token
+      parameters:
+        - name: Authorization
+          in: header
+          description: Bearer token
+          required: true
+          schema:
+            type: string
+        - name: Did
+          in: header
+          description: DID used to sign the bearer token
+          required: true
+          schema:
+            type: string
+      requestBody:
+        $ref: "#/components/requestBodies/AccessTokenRequest"
+      responses:
+        "204":
+          description: success
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /liveness:
     get:
       summary: Test the liveness of the Ceramic node
@@ -111,6 +165,18 @@ paths:
           schema:
             type: string
           required: true
+        - name: Authorization
+          in: header
+          description: Bearer token
+          #required: true
+          schema:
+            type: string
+        - name: Did
+          in: header
+          description: DID used to sign the bearer token
+          #required: true
+          schema:
+            type: string
       responses:
         "200":
           description: success
@@ -346,6 +412,20 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
 components:
   requestBodies:
+    RefreshTokenRequest:
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/RefreshTokenRequest"
+      description: Refresh token
+      required: true
+    AccessTokenRequest:
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AccessTokenRequest"
+      description: Access token
+      required: true
     EventData:
       content:
         application/json:
@@ -495,3 +575,17 @@ components:
         streamId:
           type: string
           description: Multibase encoded stream ID.
+    RefreshTokenRequest:
+      title: A request for a refresh token
+      type: object
+      properties:
+        requestId:
+          type: string
+          description: Request ID
+    AccessTokenRequest:
+      title: A request for a access token
+      type: object
+      properties:
+        requestId:
+          type: string
+          description: Request ID

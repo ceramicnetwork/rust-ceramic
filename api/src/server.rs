@@ -6,7 +6,7 @@
 
 mod event;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 use std::{future::Future, ops::Range};
 use std::{marker::PhantomData, ops::RangeBounds};
@@ -22,12 +22,14 @@ use std::{
 
 use anyhow::Result;
 use async_trait::async_trait;
-use ceramic_api_server::models::{BadRequestResponse, ErrorResponse, EventData};
+use ceramic_api_server::models::{
+    AccessTokenRequest, BadRequestResponse, ErrorResponse, EventData, RefreshTokenRequest,
+};
 use ceramic_api_server::{
     models::{self, Event},
-    DebugHeapGetResponse, EventsEventIdGetResponse, EventsPostResponse,
-    InterestsSortKeySortValuePostResponse, LivenessGetResponse, VersionGetResponse,
-    VersionPostResponse,
+    AuthTokenAccessPostResponse, AuthTokenRefreshPostResponse, DebugHeapGetResponse,
+    EventsEventIdGetResponse, EventsPostResponse, InterestsSortKeySortValuePostResponse,
+    LivenessGetResponse, VersionGetResponse, VersionPostResponse,
 };
 use ceramic_api_server::{
     Api, ExperimentalEventsSepSepValueGetResponse, ExperimentalInterestsGetResponse,
@@ -43,6 +45,11 @@ use tracing::{instrument, Level};
 
 use crate::server::event::event_id_from_car;
 use crate::ResumeToken;
+
+/// Feature flag keys
+pub mod feature_flags {
+    pub const FEATURE_AUTHENTICATION: &str = "authentication";
+}
 
 /// How many events to try to process at once i.e. read from the channel in batches.
 const EVENTS_TO_RECEIVE: usize = 10;
@@ -289,6 +296,7 @@ pub struct Server<C, I, M> {
     // so we just keep track to gracefully shutdown, but if the task dies, the server is in a fatal error state.
     insert_task: Arc<InsertTask>,
     marker: PhantomData<C>,
+    feature_flags: HashSet<String>,
 }
 
 impl<C, I, M> Server<C, I, M>
@@ -312,6 +320,27 @@ where
             model,
             insert_task,
             marker: PhantomData,
+            feature_flags: HashSet::default(),
+        }
+    }
+
+    pub fn enable_feature(&mut self, feature: &str) {
+        self.feature_flags.insert(feature.to_string());
+    }
+
+    pub fn disable_feature(&mut self, feature: &str) {
+        self.feature_flags.remove(feature);
+    }
+
+    pub fn has_feature(&self, feature: &str) -> bool {
+        self.feature_flags.contains(feature)
+    }
+
+    pub fn check_feature(&self, feature: &str) -> std::result::Result<(), ApiError> {
+        if !self.has_feature(feature) {
+            Err(ApiError(format!("{feature} is not enabled")))
+        } else {
+            Ok(())
         }
     }
 
@@ -707,6 +736,30 @@ where
     M: EventStore + Sync + 'static,
 {
     #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
+    async fn auth_token_access_post(
+        &self,
+        _bearer: String,
+        _did: String,
+        _body: AccessTokenRequest,
+        _context: &C,
+    ) -> std::result::Result<AuthTokenAccessPostResponse, ApiError> {
+        self.check_feature(feature_flags::FEATURE_AUTHENTICATION)?;
+        unimplemented!();
+    }
+
+    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
+    async fn auth_token_refresh_post(
+        &self,
+        _bearer: String,
+        _did: String,
+        _body: RefreshTokenRequest,
+        _context: &C,
+    ) -> std::result::Result<AuthTokenRefreshPostResponse, ApiError> {
+        self.check_feature(feature_flags::FEATURE_AUTHENTICATION)?;
+        unimplemented!();
+    }
+
+    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn liveness_get(
         &self,
         _context: &C,
@@ -864,8 +917,19 @@ where
     async fn events_event_id_get(
         &self,
         event_id: String,
+        bearer: Option<String>,
+        did: Option<String>,
         _context: &C,
     ) -> Result<EventsEventIdGetResponse, ApiError> {
+        if self.has_feature(feature_flags::FEATURE_AUTHENTICATION) {
+            if let (Some(_bearer), Some(_did)) = (bearer, did) {
+                unimplemented!();
+            } else {
+                return Err(ApiError(
+                    "Authentication headers not present in request".to_string(),
+                ));
+            }
+        }
         self.get_events_event_id(event_id)
             .await
             .or_else(|err| Ok(EventsEventIdGetResponse::InternalServerError(err)))
