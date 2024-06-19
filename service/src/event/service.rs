@@ -15,8 +15,17 @@ use super::{
 
 use crate::{Error, Result};
 
+/// How many events to select at once to see if they've become deliverable when we have downtime
+/// Used at startup and occassionally in case we ever dropped something
+/// We keep the number small for now as we may need to traverse many prevs for each one of these and load them into memory.
+const DELIVERABLE_EVENTS_BATCH_SIZE: u32 = 1000;
+
+/// How many batches of undelivered events are we willing to process on start up?
+/// To avoid an infinite loop. It's going to take a long time to process `DELIVERABLE_EVENTS_BATCH_SIZE * MAX_ITERATIONS` events
+const MAX_ITERATIONS: usize = 100_000_000;
+
 /// The max number of events we can have pending for delivery in the channel before we start dropping them.
-pub(crate) const PENDING_EVENTS_CHANNEL_DEPTH: usize = 10_000;
+const PENDING_EVENTS_CHANNEL_DEPTH: usize = 10_000;
 
 #[derive(Debug)]
 /// A database store that verifies the bytes it stores are valid Ceramic events.
@@ -41,8 +50,14 @@ impl CeramicEventService {
     pub async fn new(pool: SqlitePool) -> Result<Self> {
         CeramicOneEvent::init_delivered_order(&pool).await?;
 
-        let delivery_task =
-            OrderingTask::run(pool.clone(), PENDING_EVENTS_CHANNEL_DEPTH, true).await;
+        let _updated = OrderingTask::process_all_undelivered_events(
+            &pool,
+            MAX_ITERATIONS,
+            DELIVERABLE_EVENTS_BATCH_SIZE,
+        )
+        .await?;
+
+        let delivery_task = OrderingTask::run(pool.clone(), PENDING_EVENTS_CHANNEL_DEPTH).await;
 
         Ok(Self {
             pool,
@@ -55,8 +70,7 @@ impl CeramicEventService {
     pub(crate) async fn new_without_undelivered(pool: SqlitePool) -> Result<Self> {
         CeramicOneEvent::init_delivered_order(&pool).await?;
 
-        let delivery_task =
-            OrderingTask::run(pool.clone(), PENDING_EVENTS_CHANNEL_DEPTH, false).await;
+        let delivery_task = OrderingTask::run(pool.clone(), PENDING_EVENTS_CHANNEL_DEPTH).await;
 
         Ok(Self {
             pool,

@@ -77,7 +77,7 @@ impl OrderEvents {
         // If our prev is in this list, we won't find it until it's added to the deliverable set. This means
         // we may loop through multiple times putting things back in the queue, but it should be a short list
         // and it will shrink every time we move something to the deliverable set, so it should be acceptable.
-        // We can't quite get rid of this loop because we may have discovered the prev from the database in the previous pass.
+        // We can't quite get rid of this loop because we may have discovered our prev's prev from the database in the previous pass.
         while let Some((mut event, header)) = undelivered_prevs_in_memory.pop_front() {
             let mut made_changes = false;
             match header.prev() {
