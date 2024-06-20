@@ -870,4 +870,153 @@ where
             .await
             .or_else(|err| Ok(EventsEventIdGetResponse::InternalServerError(err)))
     }
+
+    /// cors
+    async fn debug_heap_options(
+        &self,
+        _context: &C,
+    ) -> Result<ceramic_api_server::DebugHeapOptionsResponse, ApiError> {
+        Ok(ceramic_api_server::DebugHeapOptionsResponse::CORSHeaders {
+            access_control_allow_origin: Some("*".to_string()),
+            access_control_allow_methods: Some("POST, GET, OPTIONS, DELETE".to_string()),
+            access_control_allow_headers: Some("*".to_string()),
+        })
+    }
+
+    /// cors
+    async fn events_event_id_options(
+        &self,
+        _event_id: String,
+        _context: &C,
+    ) -> Result<ceramic_api_server::EventsEventIdOptionsResponse, ApiError> {
+        Ok(
+            ceramic_api_server::EventsEventIdOptionsResponse::CORSHeaders {
+                access_control_allow_origin: Some("*".to_string()),
+                access_control_allow_methods: Some("POST, GET, OPTIONS, DELETE".to_string()),
+                access_control_allow_headers: Some("*".to_string()),
+            },
+        )
+    }
+
+    /// cors
+    async fn events_options(
+        &self,
+        _context: &C,
+    ) -> Result<ceramic_api_server::EventsOptionsResponse, ApiError> {
+        Ok(ceramic_api_server::EventsOptionsResponse::CORSHeaders {
+            access_control_allow_origin: Some("*".to_string()),
+            access_control_allow_methods: Some("POST, GET, OPTIONS, DELETE".to_string()),
+            access_control_allow_headers: Some("*".to_string()),
+        })
+    }
+
+    /// cors
+    async fn experimental_events_sep_sep_value_options(
+        &self,
+        _sep: String,
+        _sep_value: String,
+        _context: &C,
+    ) -> Result<ceramic_api_server::ExperimentalEventsSepSepValueOptionsResponse, ApiError> {
+        Ok(
+            ceramic_api_server::ExperimentalEventsSepSepValueOptionsResponse::CORSHeaders {
+                access_control_allow_origin: Some("*".to_string()),
+                access_control_allow_methods: Some("POST, GET, OPTIONS, DELETE".to_string()),
+                access_control_allow_headers: Some("*".to_string()),
+            },
+        )
+    }
+
+    /// cors
+    async fn experimental_interests_options(
+        &self,
+        _context: &C,
+    ) -> Result<ceramic_api_server::ExperimentalInterestsOptionsResponse, ApiError> {
+        Ok(
+            ceramic_api_server::ExperimentalInterestsOptionsResponse::CORSHeaders {
+                access_control_allow_origin: Some("*".to_string()),
+                access_control_allow_methods: Some("POST, GET, OPTIONS, DELETE".to_string()),
+                access_control_allow_headers: Some("*".to_string()),
+            },
+        )
+    }
+
+    /// cors
+    async fn feed_events_options(
+        &self,
+        _context: &C,
+    ) -> Result<ceramic_api_server::FeedEventsOptionsResponse, ApiError> {
+        Ok(ceramic_api_server::FeedEventsOptionsResponse::CORSHeaders {
+            access_control_allow_origin: Some("*".to_string()),
+            access_control_allow_methods: Some("POST, GET, OPTIONS, DELETE".to_string()),
+            access_control_allow_headers: Some("*".to_string()),
+        })
+    }
+
+    /// cors
+    async fn feed_resume_token_options(
+        &self,
+        _context: &C,
+    ) -> Result<ceramic_api_server::FeedResumeTokenOptionsResponse, ApiError> {
+        Ok(
+            ceramic_api_server::FeedResumeTokenOptionsResponse::CORSHeaders {
+                access_control_allow_origin: Some("*".to_string()),
+                access_control_allow_methods: Some("POST, GET, OPTIONS, DELETE".to_string()),
+                access_control_allow_headers: Some("*".to_string()),
+            },
+        )
+    }
+
+    /// cors
+    async fn interests_options(
+        &self,
+        _context: &C,
+    ) -> Result<ceramic_api_server::InterestsOptionsResponse, ApiError> {
+        Ok(ceramic_api_server::InterestsOptionsResponse::CORSHeaders {
+            access_control_allow_origin: Some("*".to_string()),
+            access_control_allow_methods: Some("POST, GET, OPTIONS, DELETE".to_string()),
+            access_control_allow_headers: Some("*".to_string()),
+        })
+    }
+
+    /// cors
+    async fn interests_sort_key_sort_value_options(
+        &self,
+        _sort_key: String,
+        _sort_value: String,
+        _context: &C,
+    ) -> Result<ceramic_api_server::InterestsSortKeySortValueOptionsResponse, ApiError> {
+        Ok(
+            ceramic_api_server::InterestsSortKeySortValueOptionsResponse::CORSHeaders {
+                access_control_allow_origin: Some("*".to_string()),
+                access_control_allow_methods: Some("POST, GET, OPTIONS, DELETE".to_string()),
+                access_control_allow_headers: Some("*".to_string()),
+            },
+        )
+    }
+
+    /// Test the liveness of the Ceramic node
+
+    /// cors
+    async fn liveness_options(
+        &self,
+        _context: &C,
+    ) -> Result<ceramic_api_server::LivenessOptionsResponse, ApiError> {
+        Ok(ceramic_api_server::LivenessOptionsResponse::CORSHeaders {
+            access_control_allow_origin: Some("*".to_string()),
+            access_control_allow_methods: Some("POST, GET, OPTIONS, DELETE".to_string()),
+            access_control_allow_headers: Some("*".to_string()),
+        })
+    }
+
+    /// cors
+    async fn version_options(
+        &self,
+        _context: &C,
+    ) -> Result<ceramic_api_server::VersionOptionsResponse, ApiError> {
+        Ok(ceramic_api_server::VersionOptionsResponse::CORSHeaders {
+            access_control_allow_origin: Some("*".to_string()),
+            access_control_allow_methods: Some("POST, GET, OPTIONS, DELETE".to_string()),
+            access_control_allow_headers: Some("*".to_string()),
+        })
+    }
 }

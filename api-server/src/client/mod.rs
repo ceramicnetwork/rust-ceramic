@@ -42,11 +42,14 @@ const FRAGMENT_ENCODE_SET: &AsciiSet = &percent_encoding::CONTROLS
 const ID_ENCODE_SET: &AsciiSet = &FRAGMENT_ENCODE_SET.add(b'|');
 
 use crate::{
-    Api, DebugHeapGetResponse, EventsEventIdGetResponse, EventsPostResponse,
-    ExperimentalEventsSepSepValueGetResponse, ExperimentalInterestsGetResponse,
-    FeedEventsGetResponse, FeedResumeTokenGetResponse, InterestsPostResponse,
-    InterestsSortKeySortValuePostResponse, LivenessGetResponse, VersionGetResponse,
-    VersionPostResponse,
+    Api, DebugHeapGetResponse, DebugHeapOptionsResponse, EventsEventIdGetResponse,
+    EventsEventIdOptionsResponse, EventsOptionsResponse, EventsPostResponse,
+    ExperimentalEventsSepSepValueGetResponse, ExperimentalEventsSepSepValueOptionsResponse,
+    ExperimentalInterestsGetResponse, ExperimentalInterestsOptionsResponse, FeedEventsGetResponse,
+    FeedEventsOptionsResponse, FeedResumeTokenGetResponse, FeedResumeTokenOptionsResponse,
+    InterestsOptionsResponse, InterestsPostResponse, InterestsSortKeySortValueOptionsResponse,
+    InterestsSortKeySortValuePostResponse, LivenessGetResponse, LivenessOptionsResponse,
+    VersionGetResponse, VersionOptionsResponse, VersionPostResponse,
 };
 
 /// Convert input into a base path, e.g. "http://example:123". Also checks the scheme as it goes.
@@ -496,6 +499,146 @@ where
         }
     }
 
+    async fn debug_heap_options(&self, context: &C) -> Result<DebugHeapOptionsResponse, ApiError> {
+        let mut client_service = self.client_service.clone();
+        let mut uri = format!("{}/ceramic/debug/heap", self.base_path);
+
+        // Query parameters
+        let query_string = {
+            let mut query_string = form_urlencoded::Serializer::new("".to_owned());
+            query_string.finish()
+        };
+        if !query_string.is_empty() {
+            uri += "?";
+            uri += &query_string;
+        }
+
+        let uri = match Uri::from_str(&uri) {
+            Ok(uri) => uri,
+            Err(err) => return Err(ApiError(format!("Unable to build URI: {}", err))),
+        };
+
+        let mut request = match Request::builder()
+            .method("OPTIONS")
+            .uri(uri)
+            .body(Body::empty())
+        {
+            Ok(req) => req,
+            Err(e) => return Err(ApiError(format!("Unable to create request: {}", e))),
+        };
+
+        let header = HeaderValue::from_str(Has::<XSpanIdString>::get(context).0.as_str());
+        request.headers_mut().insert(
+            HeaderName::from_static("x-span-id"),
+            match header {
+                Ok(h) => h,
+                Err(e) => {
+                    return Err(ApiError(format!(
+                        "Unable to create X-Span ID header value: {}",
+                        e
+                    )))
+                }
+            },
+        );
+
+        let response = client_service
+            .call((request, context.clone()))
+            .map_err(|e| ApiError(format!("No response received: {}", e)))
+            .await?;
+
+        match response.status().as_u16() {
+            200 => {
+                let response_access_control_allow_origin = match response
+                    .headers()
+                    .get(HeaderName::from_static("access-control-allow-origin"))
+                {
+                    Some(response_access_control_allow_origin) => {
+                        let response_access_control_allow_origin =
+                            response_access_control_allow_origin.clone();
+                        let response_access_control_allow_origin = match TryInto::<
+                            header::IntoHeaderValue<String>,
+                        >::try_into(
+                            response_access_control_allow_origin,
+                        ) {
+                            Ok(value) => value,
+                            Err(e) => {
+                                return Err(ApiError(format!("Invalid response header Access-Control-Allow-Origin for response 200 - {}", e)));
+                            }
+                        };
+                        Some(response_access_control_allow_origin.0)
+                    }
+                    None => None,
+                };
+
+                let response_access_control_allow_methods = match response
+                    .headers()
+                    .get(HeaderName::from_static("access-control-allow-methods"))
+                {
+                    Some(response_access_control_allow_methods) => {
+                        let response_access_control_allow_methods =
+                            response_access_control_allow_methods.clone();
+                        let response_access_control_allow_methods = match TryInto::<
+                            header::IntoHeaderValue<String>,
+                        >::try_into(
+                            response_access_control_allow_methods,
+                        ) {
+                            Ok(value) => value,
+                            Err(e) => {
+                                return Err(ApiError(format!("Invalid response header Access-Control-Allow-Methods for response 200 - {}", e)));
+                            }
+                        };
+                        Some(response_access_control_allow_methods.0)
+                    }
+                    None => None,
+                };
+
+                let response_access_control_allow_headers = match response
+                    .headers()
+                    .get(HeaderName::from_static("access-control-allow-headers"))
+                {
+                    Some(response_access_control_allow_headers) => {
+                        let response_access_control_allow_headers =
+                            response_access_control_allow_headers.clone();
+                        let response_access_control_allow_headers = match TryInto::<
+                            header::IntoHeaderValue<String>,
+                        >::try_into(
+                            response_access_control_allow_headers,
+                        ) {
+                            Ok(value) => value,
+                            Err(e) => {
+                                return Err(ApiError(format!("Invalid response header Access-Control-Allow-Headers for response 200 - {}", e)));
+                            }
+                        };
+                        Some(response_access_control_allow_headers.0)
+                    }
+                    None => None,
+                };
+
+                Ok(DebugHeapOptionsResponse::CORSHeaders {
+                    access_control_allow_origin: response_access_control_allow_origin,
+                    access_control_allow_methods: response_access_control_allow_methods,
+                    access_control_allow_headers: response_access_control_allow_headers,
+                })
+            }
+            code => {
+                let headers = response.headers().clone();
+                let body = response.into_body().take(100).into_raw().await;
+                Err(ApiError(format!(
+                    "Unexpected response code {}:\n{:?}\n\n{}",
+                    code,
+                    headers,
+                    match body {
+                        Ok(body) => match String::from_utf8(body) {
+                            Ok(body) => body,
+                            Err(e) => format!("<Body was not UTF8: {:?}>", e),
+                        },
+                        Err(e) => format!("<Failed to read body: {}>", e),
+                    }
+                )))
+            }
+        }
+    }
+
     async fn events_event_id_get(
         &self,
         param_event_id: String,
@@ -602,6 +745,294 @@ where
                     ApiError(format!("Response body did not match the schema: {}", e))
                 })?;
                 Ok(EventsEventIdGetResponse::InternalServerError(body))
+            }
+            code => {
+                let headers = response.headers().clone();
+                let body = response.into_body().take(100).into_raw().await;
+                Err(ApiError(format!(
+                    "Unexpected response code {}:\n{:?}\n\n{}",
+                    code,
+                    headers,
+                    match body {
+                        Ok(body) => match String::from_utf8(body) {
+                            Ok(body) => body,
+                            Err(e) => format!("<Body was not UTF8: {:?}>", e),
+                        },
+                        Err(e) => format!("<Failed to read body: {}>", e),
+                    }
+                )))
+            }
+        }
+    }
+
+    async fn events_event_id_options(
+        &self,
+        param_event_id: String,
+        context: &C,
+    ) -> Result<EventsEventIdOptionsResponse, ApiError> {
+        let mut client_service = self.client_service.clone();
+        let mut uri = format!(
+            "{}/ceramic/events/{event_id}",
+            self.base_path,
+            event_id = utf8_percent_encode(&param_event_id.to_string(), ID_ENCODE_SET)
+        );
+
+        // Query parameters
+        let query_string = {
+            let mut query_string = form_urlencoded::Serializer::new("".to_owned());
+            query_string.finish()
+        };
+        if !query_string.is_empty() {
+            uri += "?";
+            uri += &query_string;
+        }
+
+        let uri = match Uri::from_str(&uri) {
+            Ok(uri) => uri,
+            Err(err) => return Err(ApiError(format!("Unable to build URI: {}", err))),
+        };
+
+        let mut request = match Request::builder()
+            .method("OPTIONS")
+            .uri(uri)
+            .body(Body::empty())
+        {
+            Ok(req) => req,
+            Err(e) => return Err(ApiError(format!("Unable to create request: {}", e))),
+        };
+
+        let header = HeaderValue::from_str(Has::<XSpanIdString>::get(context).0.as_str());
+        request.headers_mut().insert(
+            HeaderName::from_static("x-span-id"),
+            match header {
+                Ok(h) => h,
+                Err(e) => {
+                    return Err(ApiError(format!(
+                        "Unable to create X-Span ID header value: {}",
+                        e
+                    )))
+                }
+            },
+        );
+
+        let response = client_service
+            .call((request, context.clone()))
+            .map_err(|e| ApiError(format!("No response received: {}", e)))
+            .await?;
+
+        match response.status().as_u16() {
+            200 => {
+                let response_access_control_allow_origin = match response
+                    .headers()
+                    .get(HeaderName::from_static("access-control-allow-origin"))
+                {
+                    Some(response_access_control_allow_origin) => {
+                        let response_access_control_allow_origin =
+                            response_access_control_allow_origin.clone();
+                        let response_access_control_allow_origin = match TryInto::<
+                            header::IntoHeaderValue<String>,
+                        >::try_into(
+                            response_access_control_allow_origin,
+                        ) {
+                            Ok(value) => value,
+                            Err(e) => {
+                                return Err(ApiError(format!("Invalid response header Access-Control-Allow-Origin for response 200 - {}", e)));
+                            }
+                        };
+                        Some(response_access_control_allow_origin.0)
+                    }
+                    None => None,
+                };
+
+                let response_access_control_allow_methods = match response
+                    .headers()
+                    .get(HeaderName::from_static("access-control-allow-methods"))
+                {
+                    Some(response_access_control_allow_methods) => {
+                        let response_access_control_allow_methods =
+                            response_access_control_allow_methods.clone();
+                        let response_access_control_allow_methods = match TryInto::<
+                            header::IntoHeaderValue<String>,
+                        >::try_into(
+                            response_access_control_allow_methods,
+                        ) {
+                            Ok(value) => value,
+                            Err(e) => {
+                                return Err(ApiError(format!("Invalid response header Access-Control-Allow-Methods for response 200 - {}", e)));
+                            }
+                        };
+                        Some(response_access_control_allow_methods.0)
+                    }
+                    None => None,
+                };
+
+                let response_access_control_allow_headers = match response
+                    .headers()
+                    .get(HeaderName::from_static("access-control-allow-headers"))
+                {
+                    Some(response_access_control_allow_headers) => {
+                        let response_access_control_allow_headers =
+                            response_access_control_allow_headers.clone();
+                        let response_access_control_allow_headers = match TryInto::<
+                            header::IntoHeaderValue<String>,
+                        >::try_into(
+                            response_access_control_allow_headers,
+                        ) {
+                            Ok(value) => value,
+                            Err(e) => {
+                                return Err(ApiError(format!("Invalid response header Access-Control-Allow-Headers for response 200 - {}", e)));
+                            }
+                        };
+                        Some(response_access_control_allow_headers.0)
+                    }
+                    None => None,
+                };
+
+                Ok(EventsEventIdOptionsResponse::CORSHeaders {
+                    access_control_allow_origin: response_access_control_allow_origin,
+                    access_control_allow_methods: response_access_control_allow_methods,
+                    access_control_allow_headers: response_access_control_allow_headers,
+                })
+            }
+            code => {
+                let headers = response.headers().clone();
+                let body = response.into_body().take(100).into_raw().await;
+                Err(ApiError(format!(
+                    "Unexpected response code {}:\n{:?}\n\n{}",
+                    code,
+                    headers,
+                    match body {
+                        Ok(body) => match String::from_utf8(body) {
+                            Ok(body) => body,
+                            Err(e) => format!("<Body was not UTF8: {:?}>", e),
+                        },
+                        Err(e) => format!("<Failed to read body: {}>", e),
+                    }
+                )))
+            }
+        }
+    }
+
+    async fn events_options(&self, context: &C) -> Result<EventsOptionsResponse, ApiError> {
+        let mut client_service = self.client_service.clone();
+        let mut uri = format!("{}/ceramic/events", self.base_path);
+
+        // Query parameters
+        let query_string = {
+            let mut query_string = form_urlencoded::Serializer::new("".to_owned());
+            query_string.finish()
+        };
+        if !query_string.is_empty() {
+            uri += "?";
+            uri += &query_string;
+        }
+
+        let uri = match Uri::from_str(&uri) {
+            Ok(uri) => uri,
+            Err(err) => return Err(ApiError(format!("Unable to build URI: {}", err))),
+        };
+
+        let mut request = match Request::builder()
+            .method("OPTIONS")
+            .uri(uri)
+            .body(Body::empty())
+        {
+            Ok(req) => req,
+            Err(e) => return Err(ApiError(format!("Unable to create request: {}", e))),
+        };
+
+        let header = HeaderValue::from_str(Has::<XSpanIdString>::get(context).0.as_str());
+        request.headers_mut().insert(
+            HeaderName::from_static("x-span-id"),
+            match header {
+                Ok(h) => h,
+                Err(e) => {
+                    return Err(ApiError(format!(
+                        "Unable to create X-Span ID header value: {}",
+                        e
+                    )))
+                }
+            },
+        );
+
+        let response = client_service
+            .call((request, context.clone()))
+            .map_err(|e| ApiError(format!("No response received: {}", e)))
+            .await?;
+
+        match response.status().as_u16() {
+            200 => {
+                let response_access_control_allow_origin = match response
+                    .headers()
+                    .get(HeaderName::from_static("access-control-allow-origin"))
+                {
+                    Some(response_access_control_allow_origin) => {
+                        let response_access_control_allow_origin =
+                            response_access_control_allow_origin.clone();
+                        let response_access_control_allow_origin = match TryInto::<
+                            header::IntoHeaderValue<String>,
+                        >::try_into(
+                            response_access_control_allow_origin,
+                        ) {
+                            Ok(value) => value,
+                            Err(e) => {
+                                return Err(ApiError(format!("Invalid response header Access-Control-Allow-Origin for response 200 - {}", e)));
+                            }
+                        };
+                        Some(response_access_control_allow_origin.0)
+                    }
+                    None => None,
+                };
+
+                let response_access_control_allow_methods = match response
+                    .headers()
+                    .get(HeaderName::from_static("access-control-allow-methods"))
+                {
+                    Some(response_access_control_allow_methods) => {
+                        let response_access_control_allow_methods =
+                            response_access_control_allow_methods.clone();
+                        let response_access_control_allow_methods = match TryInto::<
+                            header::IntoHeaderValue<String>,
+                        >::try_into(
+                            response_access_control_allow_methods,
+                        ) {
+                            Ok(value) => value,
+                            Err(e) => {
+                                return Err(ApiError(format!("Invalid response header Access-Control-Allow-Methods for response 200 - {}", e)));
+                            }
+                        };
+                        Some(response_access_control_allow_methods.0)
+                    }
+                    None => None,
+                };
+
+                let response_access_control_allow_headers = match response
+                    .headers()
+                    .get(HeaderName::from_static("access-control-allow-headers"))
+                {
+                    Some(response_access_control_allow_headers) => {
+                        let response_access_control_allow_headers =
+                            response_access_control_allow_headers.clone();
+                        let response_access_control_allow_headers = match TryInto::<
+                            header::IntoHeaderValue<String>,
+                        >::try_into(
+                            response_access_control_allow_headers,
+                        ) {
+                            Ok(value) => value,
+                            Err(e) => {
+                                return Err(ApiError(format!("Invalid response header Access-Control-Allow-Headers for response 200 - {}", e)));
+                            }
+                        };
+                        Some(response_access_control_allow_headers.0)
+                    }
+                    None => None,
+                };
+
+                Ok(EventsOptionsResponse::CORSHeaders {
+                    access_control_allow_origin: response_access_control_allow_origin,
+                    access_control_allow_methods: response_access_control_allow_methods,
+                    access_control_allow_headers: response_access_control_allow_headers,
+                })
             }
             code => {
                 let headers = response.headers().clone();
@@ -871,6 +1302,156 @@ where
         }
     }
 
+    async fn experimental_events_sep_sep_value_options(
+        &self,
+        param_sep: String,
+        param_sep_value: String,
+        context: &C,
+    ) -> Result<ExperimentalEventsSepSepValueOptionsResponse, ApiError> {
+        let mut client_service = self.client_service.clone();
+        let mut uri = format!(
+            "{}/ceramic/experimental/events/{sep}/{sep_value}",
+            self.base_path,
+            sep = utf8_percent_encode(&param_sep.to_string(), ID_ENCODE_SET),
+            sep_value = utf8_percent_encode(&param_sep_value.to_string(), ID_ENCODE_SET)
+        );
+
+        // Query parameters
+        let query_string = {
+            let mut query_string = form_urlencoded::Serializer::new("".to_owned());
+            query_string.finish()
+        };
+        if !query_string.is_empty() {
+            uri += "?";
+            uri += &query_string;
+        }
+
+        let uri = match Uri::from_str(&uri) {
+            Ok(uri) => uri,
+            Err(err) => return Err(ApiError(format!("Unable to build URI: {}", err))),
+        };
+
+        let mut request = match Request::builder()
+            .method("OPTIONS")
+            .uri(uri)
+            .body(Body::empty())
+        {
+            Ok(req) => req,
+            Err(e) => return Err(ApiError(format!("Unable to create request: {}", e))),
+        };
+
+        let header = HeaderValue::from_str(Has::<XSpanIdString>::get(context).0.as_str());
+        request.headers_mut().insert(
+            HeaderName::from_static("x-span-id"),
+            match header {
+                Ok(h) => h,
+                Err(e) => {
+                    return Err(ApiError(format!(
+                        "Unable to create X-Span ID header value: {}",
+                        e
+                    )))
+                }
+            },
+        );
+
+        let response = client_service
+            .call((request, context.clone()))
+            .map_err(|e| ApiError(format!("No response received: {}", e)))
+            .await?;
+
+        match response.status().as_u16() {
+            200 => {
+                let response_access_control_allow_origin = match response
+                    .headers()
+                    .get(HeaderName::from_static("access-control-allow-origin"))
+                {
+                    Some(response_access_control_allow_origin) => {
+                        let response_access_control_allow_origin =
+                            response_access_control_allow_origin.clone();
+                        let response_access_control_allow_origin = match TryInto::<
+                            header::IntoHeaderValue<String>,
+                        >::try_into(
+                            response_access_control_allow_origin,
+                        ) {
+                            Ok(value) => value,
+                            Err(e) => {
+                                return Err(ApiError(format!("Invalid response header Access-Control-Allow-Origin for response 200 - {}", e)));
+                            }
+                        };
+                        Some(response_access_control_allow_origin.0)
+                    }
+                    None => None,
+                };
+
+                let response_access_control_allow_methods = match response
+                    .headers()
+                    .get(HeaderName::from_static("access-control-allow-methods"))
+                {
+                    Some(response_access_control_allow_methods) => {
+                        let response_access_control_allow_methods =
+                            response_access_control_allow_methods.clone();
+                        let response_access_control_allow_methods = match TryInto::<
+                            header::IntoHeaderValue<String>,
+                        >::try_into(
+                            response_access_control_allow_methods,
+                        ) {
+                            Ok(value) => value,
+                            Err(e) => {
+                                return Err(ApiError(format!("Invalid response header Access-Control-Allow-Methods for response 200 - {}", e)));
+                            }
+                        };
+                        Some(response_access_control_allow_methods.0)
+                    }
+                    None => None,
+                };
+
+                let response_access_control_allow_headers = match response
+                    .headers()
+                    .get(HeaderName::from_static("access-control-allow-headers"))
+                {
+                    Some(response_access_control_allow_headers) => {
+                        let response_access_control_allow_headers =
+                            response_access_control_allow_headers.clone();
+                        let response_access_control_allow_headers = match TryInto::<
+                            header::IntoHeaderValue<String>,
+                        >::try_into(
+                            response_access_control_allow_headers,
+                        ) {
+                            Ok(value) => value,
+                            Err(e) => {
+                                return Err(ApiError(format!("Invalid response header Access-Control-Allow-Headers for response 200 - {}", e)));
+                            }
+                        };
+                        Some(response_access_control_allow_headers.0)
+                    }
+                    None => None,
+                };
+
+                Ok(ExperimentalEventsSepSepValueOptionsResponse::CORSHeaders {
+                    access_control_allow_origin: response_access_control_allow_origin,
+                    access_control_allow_methods: response_access_control_allow_methods,
+                    access_control_allow_headers: response_access_control_allow_headers,
+                })
+            }
+            code => {
+                let headers = response.headers().clone();
+                let body = response.into_body().take(100).into_raw().await;
+                Err(ApiError(format!(
+                    "Unexpected response code {}:\n{:?}\n\n{}",
+                    code,
+                    headers,
+                    match body {
+                        Ok(body) => match String::from_utf8(body) {
+                            Ok(body) => body,
+                            Err(e) => format!("<Body was not UTF8: {:?}>", e),
+                        },
+                        Err(e) => format!("<Failed to read body: {}>", e),
+                    }
+                )))
+            }
+        }
+    }
+
     async fn experimental_interests_get(
         &self,
         context: &C,
@@ -961,6 +1542,149 @@ where
                     ApiError(format!("Response body did not match the schema: {}", e))
                 })?;
                 Ok(ExperimentalInterestsGetResponse::InternalServerError(body))
+            }
+            code => {
+                let headers = response.headers().clone();
+                let body = response.into_body().take(100).into_raw().await;
+                Err(ApiError(format!(
+                    "Unexpected response code {}:\n{:?}\n\n{}",
+                    code,
+                    headers,
+                    match body {
+                        Ok(body) => match String::from_utf8(body) {
+                            Ok(body) => body,
+                            Err(e) => format!("<Body was not UTF8: {:?}>", e),
+                        },
+                        Err(e) => format!("<Failed to read body: {}>", e),
+                    }
+                )))
+            }
+        }
+    }
+
+    async fn experimental_interests_options(
+        &self,
+        context: &C,
+    ) -> Result<ExperimentalInterestsOptionsResponse, ApiError> {
+        let mut client_service = self.client_service.clone();
+        let mut uri = format!("{}/ceramic/experimental/interests", self.base_path);
+
+        // Query parameters
+        let query_string = {
+            let mut query_string = form_urlencoded::Serializer::new("".to_owned());
+            query_string.finish()
+        };
+        if !query_string.is_empty() {
+            uri += "?";
+            uri += &query_string;
+        }
+
+        let uri = match Uri::from_str(&uri) {
+            Ok(uri) => uri,
+            Err(err) => return Err(ApiError(format!("Unable to build URI: {}", err))),
+        };
+
+        let mut request = match Request::builder()
+            .method("OPTIONS")
+            .uri(uri)
+            .body(Body::empty())
+        {
+            Ok(req) => req,
+            Err(e) => return Err(ApiError(format!("Unable to create request: {}", e))),
+        };
+
+        let header = HeaderValue::from_str(Has::<XSpanIdString>::get(context).0.as_str());
+        request.headers_mut().insert(
+            HeaderName::from_static("x-span-id"),
+            match header {
+                Ok(h) => h,
+                Err(e) => {
+                    return Err(ApiError(format!(
+                        "Unable to create X-Span ID header value: {}",
+                        e
+                    )))
+                }
+            },
+        );
+
+        let response = client_service
+            .call((request, context.clone()))
+            .map_err(|e| ApiError(format!("No response received: {}", e)))
+            .await?;
+
+        match response.status().as_u16() {
+            200 => {
+                let response_access_control_allow_origin = match response
+                    .headers()
+                    .get(HeaderName::from_static("access-control-allow-origin"))
+                {
+                    Some(response_access_control_allow_origin) => {
+                        let response_access_control_allow_origin =
+                            response_access_control_allow_origin.clone();
+                        let response_access_control_allow_origin = match TryInto::<
+                            header::IntoHeaderValue<String>,
+                        >::try_into(
+                            response_access_control_allow_origin,
+                        ) {
+                            Ok(value) => value,
+                            Err(e) => {
+                                return Err(ApiError(format!("Invalid response header Access-Control-Allow-Origin for response 200 - {}", e)));
+                            }
+                        };
+                        Some(response_access_control_allow_origin.0)
+                    }
+                    None => None,
+                };
+
+                let response_access_control_allow_methods = match response
+                    .headers()
+                    .get(HeaderName::from_static("access-control-allow-methods"))
+                {
+                    Some(response_access_control_allow_methods) => {
+                        let response_access_control_allow_methods =
+                            response_access_control_allow_methods.clone();
+                        let response_access_control_allow_methods = match TryInto::<
+                            header::IntoHeaderValue<String>,
+                        >::try_into(
+                            response_access_control_allow_methods,
+                        ) {
+                            Ok(value) => value,
+                            Err(e) => {
+                                return Err(ApiError(format!("Invalid response header Access-Control-Allow-Methods for response 200 - {}", e)));
+                            }
+                        };
+                        Some(response_access_control_allow_methods.0)
+                    }
+                    None => None,
+                };
+
+                let response_access_control_allow_headers = match response
+                    .headers()
+                    .get(HeaderName::from_static("access-control-allow-headers"))
+                {
+                    Some(response_access_control_allow_headers) => {
+                        let response_access_control_allow_headers =
+                            response_access_control_allow_headers.clone();
+                        let response_access_control_allow_headers = match TryInto::<
+                            header::IntoHeaderValue<String>,
+                        >::try_into(
+                            response_access_control_allow_headers,
+                        ) {
+                            Ok(value) => value,
+                            Err(e) => {
+                                return Err(ApiError(format!("Invalid response header Access-Control-Allow-Headers for response 200 - {}", e)));
+                            }
+                        };
+                        Some(response_access_control_allow_headers.0)
+                    }
+                    None => None,
+                };
+
+                Ok(ExperimentalInterestsOptionsResponse::CORSHeaders {
+                    access_control_allow_origin: response_access_control_allow_origin,
+                    access_control_allow_methods: response_access_control_allow_methods,
+                    access_control_allow_headers: response_access_control_allow_headers,
+                })
             }
             code => {
                 let headers = response.headers().clone();
@@ -1099,6 +1823,149 @@ where
         }
     }
 
+    async fn feed_events_options(
+        &self,
+        context: &C,
+    ) -> Result<FeedEventsOptionsResponse, ApiError> {
+        let mut client_service = self.client_service.clone();
+        let mut uri = format!("{}/ceramic/feed/events", self.base_path);
+
+        // Query parameters
+        let query_string = {
+            let mut query_string = form_urlencoded::Serializer::new("".to_owned());
+            query_string.finish()
+        };
+        if !query_string.is_empty() {
+            uri += "?";
+            uri += &query_string;
+        }
+
+        let uri = match Uri::from_str(&uri) {
+            Ok(uri) => uri,
+            Err(err) => return Err(ApiError(format!("Unable to build URI: {}", err))),
+        };
+
+        let mut request = match Request::builder()
+            .method("OPTIONS")
+            .uri(uri)
+            .body(Body::empty())
+        {
+            Ok(req) => req,
+            Err(e) => return Err(ApiError(format!("Unable to create request: {}", e))),
+        };
+
+        let header = HeaderValue::from_str(Has::<XSpanIdString>::get(context).0.as_str());
+        request.headers_mut().insert(
+            HeaderName::from_static("x-span-id"),
+            match header {
+                Ok(h) => h,
+                Err(e) => {
+                    return Err(ApiError(format!(
+                        "Unable to create X-Span ID header value: {}",
+                        e
+                    )))
+                }
+            },
+        );
+
+        let response = client_service
+            .call((request, context.clone()))
+            .map_err(|e| ApiError(format!("No response received: {}", e)))
+            .await?;
+
+        match response.status().as_u16() {
+            200 => {
+                let response_access_control_allow_origin = match response
+                    .headers()
+                    .get(HeaderName::from_static("access-control-allow-origin"))
+                {
+                    Some(response_access_control_allow_origin) => {
+                        let response_access_control_allow_origin =
+                            response_access_control_allow_origin.clone();
+                        let response_access_control_allow_origin = match TryInto::<
+                            header::IntoHeaderValue<String>,
+                        >::try_into(
+                            response_access_control_allow_origin,
+                        ) {
+                            Ok(value) => value,
+                            Err(e) => {
+                                return Err(ApiError(format!("Invalid response header Access-Control-Allow-Origin for response 200 - {}", e)));
+                            }
+                        };
+                        Some(response_access_control_allow_origin.0)
+                    }
+                    None => None,
+                };
+
+                let response_access_control_allow_methods = match response
+                    .headers()
+                    .get(HeaderName::from_static("access-control-allow-methods"))
+                {
+                    Some(response_access_control_allow_methods) => {
+                        let response_access_control_allow_methods =
+                            response_access_control_allow_methods.clone();
+                        let response_access_control_allow_methods = match TryInto::<
+                            header::IntoHeaderValue<String>,
+                        >::try_into(
+                            response_access_control_allow_methods,
+                        ) {
+                            Ok(value) => value,
+                            Err(e) => {
+                                return Err(ApiError(format!("Invalid response header Access-Control-Allow-Methods for response 200 - {}", e)));
+                            }
+                        };
+                        Some(response_access_control_allow_methods.0)
+                    }
+                    None => None,
+                };
+
+                let response_access_control_allow_headers = match response
+                    .headers()
+                    .get(HeaderName::from_static("access-control-allow-headers"))
+                {
+                    Some(response_access_control_allow_headers) => {
+                        let response_access_control_allow_headers =
+                            response_access_control_allow_headers.clone();
+                        let response_access_control_allow_headers = match TryInto::<
+                            header::IntoHeaderValue<String>,
+                        >::try_into(
+                            response_access_control_allow_headers,
+                        ) {
+                            Ok(value) => value,
+                            Err(e) => {
+                                return Err(ApiError(format!("Invalid response header Access-Control-Allow-Headers for response 200 - {}", e)));
+                            }
+                        };
+                        Some(response_access_control_allow_headers.0)
+                    }
+                    None => None,
+                };
+
+                Ok(FeedEventsOptionsResponse::CORSHeaders {
+                    access_control_allow_origin: response_access_control_allow_origin,
+                    access_control_allow_methods: response_access_control_allow_methods,
+                    access_control_allow_headers: response_access_control_allow_headers,
+                })
+            }
+            code => {
+                let headers = response.headers().clone();
+                let body = response.into_body().take(100).into_raw().await;
+                Err(ApiError(format!(
+                    "Unexpected response code {}:\n{:?}\n\n{}",
+                    code,
+                    headers,
+                    match body {
+                        Ok(body) => match String::from_utf8(body) {
+                            Ok(body) => body,
+                            Err(e) => format!("<Body was not UTF8: {:?}>", e),
+                        },
+                        Err(e) => format!("<Failed to read body: {}>", e),
+                    }
+                )))
+            }
+        }
+    }
+
     async fn feed_resume_token_get(
         &self,
         context: &C,
@@ -1190,6 +2057,289 @@ where
                     ApiError(format!("Response body did not match the schema: {}", e))
                 })?;
                 Ok(FeedResumeTokenGetResponse::InternalServerError(body))
+            }
+            code => {
+                let headers = response.headers().clone();
+                let body = response.into_body().take(100).into_raw().await;
+                Err(ApiError(format!(
+                    "Unexpected response code {}:\n{:?}\n\n{}",
+                    code,
+                    headers,
+                    match body {
+                        Ok(body) => match String::from_utf8(body) {
+                            Ok(body) => body,
+                            Err(e) => format!("<Body was not UTF8: {:?}>", e),
+                        },
+                        Err(e) => format!("<Failed to read body: {}>", e),
+                    }
+                )))
+            }
+        }
+    }
+
+    async fn feed_resume_token_options(
+        &self,
+        context: &C,
+    ) -> Result<FeedResumeTokenOptionsResponse, ApiError> {
+        let mut client_service = self.client_service.clone();
+        let mut uri = format!("{}/ceramic/feed/resumeToken", self.base_path);
+
+        // Query parameters
+        let query_string = {
+            let mut query_string = form_urlencoded::Serializer::new("".to_owned());
+            query_string.finish()
+        };
+        if !query_string.is_empty() {
+            uri += "?";
+            uri += &query_string;
+        }
+
+        let uri = match Uri::from_str(&uri) {
+            Ok(uri) => uri,
+            Err(err) => return Err(ApiError(format!("Unable to build URI: {}", err))),
+        };
+
+        let mut request = match Request::builder()
+            .method("OPTIONS")
+            .uri(uri)
+            .body(Body::empty())
+        {
+            Ok(req) => req,
+            Err(e) => return Err(ApiError(format!("Unable to create request: {}", e))),
+        };
+
+        let header = HeaderValue::from_str(Has::<XSpanIdString>::get(context).0.as_str());
+        request.headers_mut().insert(
+            HeaderName::from_static("x-span-id"),
+            match header {
+                Ok(h) => h,
+                Err(e) => {
+                    return Err(ApiError(format!(
+                        "Unable to create X-Span ID header value: {}",
+                        e
+                    )))
+                }
+            },
+        );
+
+        let response = client_service
+            .call((request, context.clone()))
+            .map_err(|e| ApiError(format!("No response received: {}", e)))
+            .await?;
+
+        match response.status().as_u16() {
+            200 => {
+                let response_access_control_allow_origin = match response
+                    .headers()
+                    .get(HeaderName::from_static("access-control-allow-origin"))
+                {
+                    Some(response_access_control_allow_origin) => {
+                        let response_access_control_allow_origin =
+                            response_access_control_allow_origin.clone();
+                        let response_access_control_allow_origin = match TryInto::<
+                            header::IntoHeaderValue<String>,
+                        >::try_into(
+                            response_access_control_allow_origin,
+                        ) {
+                            Ok(value) => value,
+                            Err(e) => {
+                                return Err(ApiError(format!("Invalid response header Access-Control-Allow-Origin for response 200 - {}", e)));
+                            }
+                        };
+                        Some(response_access_control_allow_origin.0)
+                    }
+                    None => None,
+                };
+
+                let response_access_control_allow_methods = match response
+                    .headers()
+                    .get(HeaderName::from_static("access-control-allow-methods"))
+                {
+                    Some(response_access_control_allow_methods) => {
+                        let response_access_control_allow_methods =
+                            response_access_control_allow_methods.clone();
+                        let response_access_control_allow_methods = match TryInto::<
+                            header::IntoHeaderValue<String>,
+                        >::try_into(
+                            response_access_control_allow_methods,
+                        ) {
+                            Ok(value) => value,
+                            Err(e) => {
+                                return Err(ApiError(format!("Invalid response header Access-Control-Allow-Methods for response 200 - {}", e)));
+                            }
+                        };
+                        Some(response_access_control_allow_methods.0)
+                    }
+                    None => None,
+                };
+
+                let response_access_control_allow_headers = match response
+                    .headers()
+                    .get(HeaderName::from_static("access-control-allow-headers"))
+                {
+                    Some(response_access_control_allow_headers) => {
+                        let response_access_control_allow_headers =
+                            response_access_control_allow_headers.clone();
+                        let response_access_control_allow_headers = match TryInto::<
+                            header::IntoHeaderValue<String>,
+                        >::try_into(
+                            response_access_control_allow_headers,
+                        ) {
+                            Ok(value) => value,
+                            Err(e) => {
+                                return Err(ApiError(format!("Invalid response header Access-Control-Allow-Headers for response 200 - {}", e)));
+                            }
+                        };
+                        Some(response_access_control_allow_headers.0)
+                    }
+                    None => None,
+                };
+
+                Ok(FeedResumeTokenOptionsResponse::CORSHeaders {
+                    access_control_allow_origin: response_access_control_allow_origin,
+                    access_control_allow_methods: response_access_control_allow_methods,
+                    access_control_allow_headers: response_access_control_allow_headers,
+                })
+            }
+            code => {
+                let headers = response.headers().clone();
+                let body = response.into_body().take(100).into_raw().await;
+                Err(ApiError(format!(
+                    "Unexpected response code {}:\n{:?}\n\n{}",
+                    code,
+                    headers,
+                    match body {
+                        Ok(body) => match String::from_utf8(body) {
+                            Ok(body) => body,
+                            Err(e) => format!("<Body was not UTF8: {:?}>", e),
+                        },
+                        Err(e) => format!("<Failed to read body: {}>", e),
+                    }
+                )))
+            }
+        }
+    }
+
+    async fn interests_options(&self, context: &C) -> Result<InterestsOptionsResponse, ApiError> {
+        let mut client_service = self.client_service.clone();
+        let mut uri = format!("{}/ceramic/interests", self.base_path);
+
+        // Query parameters
+        let query_string = {
+            let mut query_string = form_urlencoded::Serializer::new("".to_owned());
+            query_string.finish()
+        };
+        if !query_string.is_empty() {
+            uri += "?";
+            uri += &query_string;
+        }
+
+        let uri = match Uri::from_str(&uri) {
+            Ok(uri) => uri,
+            Err(err) => return Err(ApiError(format!("Unable to build URI: {}", err))),
+        };
+
+        let mut request = match Request::builder()
+            .method("OPTIONS")
+            .uri(uri)
+            .body(Body::empty())
+        {
+            Ok(req) => req,
+            Err(e) => return Err(ApiError(format!("Unable to create request: {}", e))),
+        };
+
+        let header = HeaderValue::from_str(Has::<XSpanIdString>::get(context).0.as_str());
+        request.headers_mut().insert(
+            HeaderName::from_static("x-span-id"),
+            match header {
+                Ok(h) => h,
+                Err(e) => {
+                    return Err(ApiError(format!(
+                        "Unable to create X-Span ID header value: {}",
+                        e
+                    )))
+                }
+            },
+        );
+
+        let response = client_service
+            .call((request, context.clone()))
+            .map_err(|e| ApiError(format!("No response received: {}", e)))
+            .await?;
+
+        match response.status().as_u16() {
+            200 => {
+                let response_access_control_allow_origin = match response
+                    .headers()
+                    .get(HeaderName::from_static("access-control-allow-origin"))
+                {
+                    Some(response_access_control_allow_origin) => {
+                        let response_access_control_allow_origin =
+                            response_access_control_allow_origin.clone();
+                        let response_access_control_allow_origin = match TryInto::<
+                            header::IntoHeaderValue<String>,
+                        >::try_into(
+                            response_access_control_allow_origin,
+                        ) {
+                            Ok(value) => value,
+                            Err(e) => {
+                                return Err(ApiError(format!("Invalid response header Access-Control-Allow-Origin for response 200 - {}", e)));
+                            }
+                        };
+                        Some(response_access_control_allow_origin.0)
+                    }
+                    None => None,
+                };
+
+                let response_access_control_allow_methods = match response
+                    .headers()
+                    .get(HeaderName::from_static("access-control-allow-methods"))
+                {
+                    Some(response_access_control_allow_methods) => {
+                        let response_access_control_allow_methods =
+                            response_access_control_allow_methods.clone();
+                        let response_access_control_allow_methods = match TryInto::<
+                            header::IntoHeaderValue<String>,
+                        >::try_into(
+                            response_access_control_allow_methods,
+                        ) {
+                            Ok(value) => value,
+                            Err(e) => {
+                                return Err(ApiError(format!("Invalid response header Access-Control-Allow-Methods for response 200 - {}", e)));
+                            }
+                        };
+                        Some(response_access_control_allow_methods.0)
+                    }
+                    None => None,
+                };
+
+                let response_access_control_allow_headers = match response
+                    .headers()
+                    .get(HeaderName::from_static("access-control-allow-headers"))
+                {
+                    Some(response_access_control_allow_headers) => {
+                        let response_access_control_allow_headers =
+                            response_access_control_allow_headers.clone();
+                        let response_access_control_allow_headers = match TryInto::<
+                            header::IntoHeaderValue<String>,
+                        >::try_into(
+                            response_access_control_allow_headers,
+                        ) {
+                            Ok(value) => value,
+                            Err(e) => {
+                                return Err(ApiError(format!("Invalid response header Access-Control-Allow-Headers for response 200 - {}", e)));
+                            }
+                        };
+                        Some(response_access_control_allow_headers.0)
+                    }
+                    None => None,
+                };
+
+                Ok(InterestsOptionsResponse::CORSHeaders {
+                    access_control_allow_origin: response_access_control_allow_origin,
+                    access_control_allow_methods: response_access_control_allow_methods,
+                    access_control_allow_headers: response_access_control_allow_headers,
+                })
             }
             code => {
                 let headers = response.headers().clone();
@@ -1305,6 +2455,156 @@ where
                     ApiError(format!("Response body did not match the schema: {}", e))
                 })?;
                 Ok(InterestsPostResponse::InternalServerError(body))
+            }
+            code => {
+                let headers = response.headers().clone();
+                let body = response.into_body().take(100).into_raw().await;
+                Err(ApiError(format!(
+                    "Unexpected response code {}:\n{:?}\n\n{}",
+                    code,
+                    headers,
+                    match body {
+                        Ok(body) => match String::from_utf8(body) {
+                            Ok(body) => body,
+                            Err(e) => format!("<Body was not UTF8: {:?}>", e),
+                        },
+                        Err(e) => format!("<Failed to read body: {}>", e),
+                    }
+                )))
+            }
+        }
+    }
+
+    async fn interests_sort_key_sort_value_options(
+        &self,
+        param_sort_key: String,
+        param_sort_value: String,
+        context: &C,
+    ) -> Result<InterestsSortKeySortValueOptionsResponse, ApiError> {
+        let mut client_service = self.client_service.clone();
+        let mut uri = format!(
+            "{}/ceramic/interests/{sort_key}/{sort_value}",
+            self.base_path,
+            sort_key = utf8_percent_encode(&param_sort_key.to_string(), ID_ENCODE_SET),
+            sort_value = utf8_percent_encode(&param_sort_value.to_string(), ID_ENCODE_SET)
+        );
+
+        // Query parameters
+        let query_string = {
+            let mut query_string = form_urlencoded::Serializer::new("".to_owned());
+            query_string.finish()
+        };
+        if !query_string.is_empty() {
+            uri += "?";
+            uri += &query_string;
+        }
+
+        let uri = match Uri::from_str(&uri) {
+            Ok(uri) => uri,
+            Err(err) => return Err(ApiError(format!("Unable to build URI: {}", err))),
+        };
+
+        let mut request = match Request::builder()
+            .method("OPTIONS")
+            .uri(uri)
+            .body(Body::empty())
+        {
+            Ok(req) => req,
+            Err(e) => return Err(ApiError(format!("Unable to create request: {}", e))),
+        };
+
+        let header = HeaderValue::from_str(Has::<XSpanIdString>::get(context).0.as_str());
+        request.headers_mut().insert(
+            HeaderName::from_static("x-span-id"),
+            match header {
+                Ok(h) => h,
+                Err(e) => {
+                    return Err(ApiError(format!(
+                        "Unable to create X-Span ID header value: {}",
+                        e
+                    )))
+                }
+            },
+        );
+
+        let response = client_service
+            .call((request, context.clone()))
+            .map_err(|e| ApiError(format!("No response received: {}", e)))
+            .await?;
+
+        match response.status().as_u16() {
+            200 => {
+                let response_access_control_allow_origin = match response
+                    .headers()
+                    .get(HeaderName::from_static("access-control-allow-origin"))
+                {
+                    Some(response_access_control_allow_origin) => {
+                        let response_access_control_allow_origin =
+                            response_access_control_allow_origin.clone();
+                        let response_access_control_allow_origin = match TryInto::<
+                            header::IntoHeaderValue<String>,
+                        >::try_into(
+                            response_access_control_allow_origin,
+                        ) {
+                            Ok(value) => value,
+                            Err(e) => {
+                                return Err(ApiError(format!("Invalid response header Access-Control-Allow-Origin for response 200 - {}", e)));
+                            }
+                        };
+                        Some(response_access_control_allow_origin.0)
+                    }
+                    None => None,
+                };
+
+                let response_access_control_allow_methods = match response
+                    .headers()
+                    .get(HeaderName::from_static("access-control-allow-methods"))
+                {
+                    Some(response_access_control_allow_methods) => {
+                        let response_access_control_allow_methods =
+                            response_access_control_allow_methods.clone();
+                        let response_access_control_allow_methods = match TryInto::<
+                            header::IntoHeaderValue<String>,
+                        >::try_into(
+                            response_access_control_allow_methods,
+                        ) {
+                            Ok(value) => value,
+                            Err(e) => {
+                                return Err(ApiError(format!("Invalid response header Access-Control-Allow-Methods for response 200 - {}", e)));
+                            }
+                        };
+                        Some(response_access_control_allow_methods.0)
+                    }
+                    None => None,
+                };
+
+                let response_access_control_allow_headers = match response
+                    .headers()
+                    .get(HeaderName::from_static("access-control-allow-headers"))
+                {
+                    Some(response_access_control_allow_headers) => {
+                        let response_access_control_allow_headers =
+                            response_access_control_allow_headers.clone();
+                        let response_access_control_allow_headers = match TryInto::<
+                            header::IntoHeaderValue<String>,
+                        >::try_into(
+                            response_access_control_allow_headers,
+                        ) {
+                            Ok(value) => value,
+                            Err(e) => {
+                                return Err(ApiError(format!("Invalid response header Access-Control-Allow-Headers for response 200 - {}", e)));
+                            }
+                        };
+                        Some(response_access_control_allow_headers.0)
+                    }
+                    None => None,
+                };
+
+                Ok(InterestsSortKeySortValueOptionsResponse::CORSHeaders {
+                    access_control_allow_origin: response_access_control_allow_origin,
+                    access_control_allow_methods: response_access_control_allow_methods,
+                    access_control_allow_headers: response_access_control_allow_headers,
+                })
             }
             code => {
                 let headers = response.headers().clone();
@@ -1521,6 +2821,146 @@ where
         }
     }
 
+    async fn liveness_options(&self, context: &C) -> Result<LivenessOptionsResponse, ApiError> {
+        let mut client_service = self.client_service.clone();
+        let mut uri = format!("{}/ceramic/liveness", self.base_path);
+
+        // Query parameters
+        let query_string = {
+            let mut query_string = form_urlencoded::Serializer::new("".to_owned());
+            query_string.finish()
+        };
+        if !query_string.is_empty() {
+            uri += "?";
+            uri += &query_string;
+        }
+
+        let uri = match Uri::from_str(&uri) {
+            Ok(uri) => uri,
+            Err(err) => return Err(ApiError(format!("Unable to build URI: {}", err))),
+        };
+
+        let mut request = match Request::builder()
+            .method("OPTIONS")
+            .uri(uri)
+            .body(Body::empty())
+        {
+            Ok(req) => req,
+            Err(e) => return Err(ApiError(format!("Unable to create request: {}", e))),
+        };
+
+        let header = HeaderValue::from_str(Has::<XSpanIdString>::get(context).0.as_str());
+        request.headers_mut().insert(
+            HeaderName::from_static("x-span-id"),
+            match header {
+                Ok(h) => h,
+                Err(e) => {
+                    return Err(ApiError(format!(
+                        "Unable to create X-Span ID header value: {}",
+                        e
+                    )))
+                }
+            },
+        );
+
+        let response = client_service
+            .call((request, context.clone()))
+            .map_err(|e| ApiError(format!("No response received: {}", e)))
+            .await?;
+
+        match response.status().as_u16() {
+            200 => {
+                let response_access_control_allow_origin = match response
+                    .headers()
+                    .get(HeaderName::from_static("access-control-allow-origin"))
+                {
+                    Some(response_access_control_allow_origin) => {
+                        let response_access_control_allow_origin =
+                            response_access_control_allow_origin.clone();
+                        let response_access_control_allow_origin = match TryInto::<
+                            header::IntoHeaderValue<String>,
+                        >::try_into(
+                            response_access_control_allow_origin,
+                        ) {
+                            Ok(value) => value,
+                            Err(e) => {
+                                return Err(ApiError(format!("Invalid response header Access-Control-Allow-Origin for response 200 - {}", e)));
+                            }
+                        };
+                        Some(response_access_control_allow_origin.0)
+                    }
+                    None => None,
+                };
+
+                let response_access_control_allow_methods = match response
+                    .headers()
+                    .get(HeaderName::from_static("access-control-allow-methods"))
+                {
+                    Some(response_access_control_allow_methods) => {
+                        let response_access_control_allow_methods =
+                            response_access_control_allow_methods.clone();
+                        let response_access_control_allow_methods = match TryInto::<
+                            header::IntoHeaderValue<String>,
+                        >::try_into(
+                            response_access_control_allow_methods,
+                        ) {
+                            Ok(value) => value,
+                            Err(e) => {
+                                return Err(ApiError(format!("Invalid response header Access-Control-Allow-Methods for response 200 - {}", e)));
+                            }
+                        };
+                        Some(response_access_control_allow_methods.0)
+                    }
+                    None => None,
+                };
+
+                let response_access_control_allow_headers = match response
+                    .headers()
+                    .get(HeaderName::from_static("access-control-allow-headers"))
+                {
+                    Some(response_access_control_allow_headers) => {
+                        let response_access_control_allow_headers =
+                            response_access_control_allow_headers.clone();
+                        let response_access_control_allow_headers = match TryInto::<
+                            header::IntoHeaderValue<String>,
+                        >::try_into(
+                            response_access_control_allow_headers,
+                        ) {
+                            Ok(value) => value,
+                            Err(e) => {
+                                return Err(ApiError(format!("Invalid response header Access-Control-Allow-Headers for response 200 - {}", e)));
+                            }
+                        };
+                        Some(response_access_control_allow_headers.0)
+                    }
+                    None => None,
+                };
+
+                Ok(LivenessOptionsResponse::CORSHeaders {
+                    access_control_allow_origin: response_access_control_allow_origin,
+                    access_control_allow_methods: response_access_control_allow_methods,
+                    access_control_allow_headers: response_access_control_allow_headers,
+                })
+            }
+            code => {
+                let headers = response.headers().clone();
+                let body = response.into_body().take(100).into_raw().await;
+                Err(ApiError(format!(
+                    "Unexpected response code {}:\n{:?}\n\n{}",
+                    code,
+                    headers,
+                    match body {
+                        Ok(body) => match String::from_utf8(body) {
+                            Ok(body) => body,
+                            Err(e) => format!("<Body was not UTF8: {:?}>", e),
+                        },
+                        Err(e) => format!("<Failed to read body: {}>", e),
+                    }
+                )))
+            }
+        }
+    }
+
     async fn version_get(&self, context: &C) -> Result<VersionGetResponse, ApiError> {
         let mut client_service = self.client_service.clone();
         let mut uri = format!("{}/ceramic/version", self.base_path);
@@ -1594,6 +3034,146 @@ where
                     ApiError(format!("Response body did not match the schema: {}", e))
                 })?;
                 Ok(VersionGetResponse::InternalServerError(body))
+            }
+            code => {
+                let headers = response.headers().clone();
+                let body = response.into_body().take(100).into_raw().await;
+                Err(ApiError(format!(
+                    "Unexpected response code {}:\n{:?}\n\n{}",
+                    code,
+                    headers,
+                    match body {
+                        Ok(body) => match String::from_utf8(body) {
+                            Ok(body) => body,
+                            Err(e) => format!("<Body was not UTF8: {:?}>", e),
+                        },
+                        Err(e) => format!("<Failed to read body: {}>", e),
+                    }
+                )))
+            }
+        }
+    }
+
+    async fn version_options(&self, context: &C) -> Result<VersionOptionsResponse, ApiError> {
+        let mut client_service = self.client_service.clone();
+        let mut uri = format!("{}/ceramic/version", self.base_path);
+
+        // Query parameters
+        let query_string = {
+            let mut query_string = form_urlencoded::Serializer::new("".to_owned());
+            query_string.finish()
+        };
+        if !query_string.is_empty() {
+            uri += "?";
+            uri += &query_string;
+        }
+
+        let uri = match Uri::from_str(&uri) {
+            Ok(uri) => uri,
+            Err(err) => return Err(ApiError(format!("Unable to build URI: {}", err))),
+        };
+
+        let mut request = match Request::builder()
+            .method("OPTIONS")
+            .uri(uri)
+            .body(Body::empty())
+        {
+            Ok(req) => req,
+            Err(e) => return Err(ApiError(format!("Unable to create request: {}", e))),
+        };
+
+        let header = HeaderValue::from_str(Has::<XSpanIdString>::get(context).0.as_str());
+        request.headers_mut().insert(
+            HeaderName::from_static("x-span-id"),
+            match header {
+                Ok(h) => h,
+                Err(e) => {
+                    return Err(ApiError(format!(
+                        "Unable to create X-Span ID header value: {}",
+                        e
+                    )))
+                }
+            },
+        );
+
+        let response = client_service
+            .call((request, context.clone()))
+            .map_err(|e| ApiError(format!("No response received: {}", e)))
+            .await?;
+
+        match response.status().as_u16() {
+            200 => {
+                let response_access_control_allow_origin = match response
+                    .headers()
+                    .get(HeaderName::from_static("access-control-allow-origin"))
+                {
+                    Some(response_access_control_allow_origin) => {
+                        let response_access_control_allow_origin =
+                            response_access_control_allow_origin.clone();
+                        let response_access_control_allow_origin = match TryInto::<
+                            header::IntoHeaderValue<String>,
+                        >::try_into(
+                            response_access_control_allow_origin,
+                        ) {
+                            Ok(value) => value,
+                            Err(e) => {
+                                return Err(ApiError(format!("Invalid response header Access-Control-Allow-Origin for response 200 - {}", e)));
+                            }
+                        };
+                        Some(response_access_control_allow_origin.0)
+                    }
+                    None => None,
+                };
+
+                let response_access_control_allow_methods = match response
+                    .headers()
+                    .get(HeaderName::from_static("access-control-allow-methods"))
+                {
+                    Some(response_access_control_allow_methods) => {
+                        let response_access_control_allow_methods =
+                            response_access_control_allow_methods.clone();
+                        let response_access_control_allow_methods = match TryInto::<
+                            header::IntoHeaderValue<String>,
+                        >::try_into(
+                            response_access_control_allow_methods,
+                        ) {
+                            Ok(value) => value,
+                            Err(e) => {
+                                return Err(ApiError(format!("Invalid response header Access-Control-Allow-Methods for response 200 - {}", e)));
+                            }
+                        };
+                        Some(response_access_control_allow_methods.0)
+                    }
+                    None => None,
+                };
+
+                let response_access_control_allow_headers = match response
+                    .headers()
+                    .get(HeaderName::from_static("access-control-allow-headers"))
+                {
+                    Some(response_access_control_allow_headers) => {
+                        let response_access_control_allow_headers =
+                            response_access_control_allow_headers.clone();
+                        let response_access_control_allow_headers = match TryInto::<
+                            header::IntoHeaderValue<String>,
+                        >::try_into(
+                            response_access_control_allow_headers,
+                        ) {
+                            Ok(value) => value,
+                            Err(e) => {
+                                return Err(ApiError(format!("Invalid response header Access-Control-Allow-Headers for response 200 - {}", e)));
+                            }
+                        };
+                        Some(response_access_control_allow_headers.0)
+                    }
+                    None => None,
+                };
+
+                Ok(VersionOptionsResponse::CORSHeaders {
+                    access_control_allow_origin: response_access_control_allow_origin,
+                    access_control_allow_methods: response_access_control_allow_methods,
+                    access_control_allow_headers: response_access_control_allow_headers,
+                })
             }
             code => {
                 let headers = response.headers().clone();
