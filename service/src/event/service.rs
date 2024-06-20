@@ -109,86 +109,35 @@ impl CeramicEventService {
             .await?;
         Ok(())
     }
-    /// This function is used to parse the event from the carfile and return the insertable event and the previous cid pointer.
-    /// Probably belongs in the event crate.
-    pub(crate) async fn parse_event_carfile_order_key(
-        event_id: EventId,
+
+    /// Currently only verifies that the event parses into a valid ceramic event, determining whether it's
+    /// immediately deliverable because it's an init event or it needs review.
+    /// In the future, we will need to do more event validation (verify all EventID pieces, hashes, signatures, etc).
+    pub(crate) async fn validate_discovered_event(
+        event_id: ceramic_core::EventId,
         carfile: &[u8],
     ) -> Result<(EventInsertable, EventMetadata)> {
-        let mut insertable = EventInsertable::try_from_carfile(event_id, carfile).await?;
+        let event_cid = event_id.cid().ok_or_else(|| {
+            Error::new_app(anyhow::anyhow!("EventId missing CID. EventID={}", event_id))
+        })?;
 
-        let header = Self::parse_event_body(&mut insertable.body).await?;
-        Ok((insertable, header))
-    }
+        let (cid, parsed_event) = unvalidated::Event::<Ipld>::decode_car(carfile, false)
+            .await
+            .map_err(Error::new_app)?;
 
-    pub(crate) async fn parse_event_carfile_cid(
-        cid: ceramic_core::Cid,
-        carfile: &[u8],
-    ) -> Result<InsertableBodyWithMeta> {
+        if event_cid != cid {
+            return Err(Error::new_app(anyhow::anyhow!(
+                "EventId CID ({}) does not match the body CID ({})",
+                event_cid,
+                cid
+            )));
+        }
+
+        let metadata = EventMetadata::from(parsed_event);
         let mut body = EventInsertableBody::try_from_carfile(cid, carfile).await?;
+        body.set_deliverable(matches!(metadata, EventMetadata::Init { .. }));
 
-        let header = Self::parse_event_body(&mut body).await?;
-        Ok(InsertableBodyWithMeta {
-            body,
-            metadata: header,
-        })
-    }
-
-    pub(crate) async fn parse_event_body(body: &mut EventInsertableBody) -> Result<EventMetadata> {
-        let cid = body.cid(); // purely for convenience writing out the match
-        let ev_block = body.block_for_cid(&cid)?;
-
-        trace!(count=%body.blocks().len(), %cid, "parsing event blocks");
-        let event_ipld: unvalidated::RawEvent<Ipld> =
-            serde_ipld_dagcbor::from_slice(&ev_block.bytes).map_err(|e| {
-                Error::new_invalid_arg(
-                    anyhow::anyhow!(e).context("event block is not valid event format"),
-                )
-            })?;
-
-        let (deliverable, header) = match event_ipld {
-            unvalidated::RawEvent::Time(t) => (
-                false,
-                EventMetadata::Time {
-                    cid,
-                    stream_cid: t.id(),
-                    prev: t.prev(),
-                },
-            ),
-            unvalidated::RawEvent::Signed(signed) => {
-                let link = signed.link().ok_or_else(|| {
-                    Error::new_invalid_arg(anyhow::anyhow!("event should have a link"))
-                })?;
-                let link = body
-                    .blocks()
-                    .iter()
-                    .find(|b| b.cid() == link)
-                    .ok_or_else(|| {
-                        Error::new_invalid_arg(anyhow::anyhow!("prev CID missing from carfile"))
-                    })?;
-                let payload: unvalidated::Payload<Ipld> =
-                    serde_ipld_dagcbor::from_slice(&link.bytes).map_err(|e| {
-                        Error::new_invalid_arg(
-                            anyhow::anyhow!(e).context("Failed to follow event link"),
-                        )
-                    })?;
-
-                match payload {
-                    unvalidated::Payload::Data(d) => (
-                        false,
-                        EventMetadata::Data {
-                            cid,
-                            stream_cid: *d.id(),
-                            prev: *d.prev(),
-                        },
-                    ),
-                    unvalidated::Payload::Init(_init) => (true, EventMetadata::Init { cid }),
-                }
-            }
-            unvalidated::RawEvent::Unsigned(_init) => (true, EventMetadata::Init { cid }),
-        };
-        body.set_deliverable(deliverable);
-        Ok(header)
+        Ok((EventInsertable::try_new(event_id, body)?, metadata))
     }
 
     #[tracing::instrument(skip(self, items), level = tracing::Level::DEBUG, fields(items = items.len()))]
@@ -240,7 +189,7 @@ impl CeramicEventService {
 
         for event in items {
             let insertable =
-                Self::parse_event_carfile_order_key(event.key.to_owned(), event.value).await?;
+                Self::validate_discovered_event(event.key.to_owned(), event.value).await?;
             to_insert.push(insertable);
         }
 
@@ -284,12 +233,13 @@ impl CeramicEventService {
                     .iter()
                     .find(|(i, _)| i.order_key == ev.order_key)
                 {
-                    let new = InsertableBodyWithMeta {
-                        body: ev.body.clone(),
+                    let discovered = DiscoveredEvent {
+                        cid: ev.cid(),
+                        known_deliverable: ev.deliverable(),
                         metadata: metadata.to_owned(),
                     };
-                    trace!(event_cid=%ev.cid(), deliverable=%ev.deliverable(), "sending delivered to ordering task");
-                    if let Err(e) = self.delivery_task.tx_inserted.try_send(new) {
+                    trace!(?discovered, "sending delivered to ordering task");
+                    if let Err(e) = self.delivery_task.tx_inserted.try_send(discovered) {
                         match e {
                             tokio::sync::mpsc::error::TrySendError::Full(e) => {
                                 warn!(event=?e, limit=%PENDING_EVENTS_CHANNEL_DEPTH, "Delivery task full. Dropping event and will not be able to mark deliverable new stream event arrives or process is restarted");
@@ -314,24 +264,6 @@ impl CeramicEventService {
             store_result: res,
             missing_history,
         })
-    }
-
-    pub(crate) async fn load_by_cid(
-        pool: &SqlitePool,
-        cid: ceramic_core::Cid,
-    ) -> Result<Option<InsertableBodyWithMeta>> {
-        let data = if let Some(ev) = CeramicOneEvent::value_by_cid(pool, &cid).await? {
-            ev
-        } else {
-            return Ok(None);
-        };
-
-        let mut body = EventInsertableBody::try_from_carfile(cid, &data).await?;
-        let header = Self::parse_event_body(&mut body).await?;
-        Ok(Some(InsertableBodyWithMeta {
-            body,
-            metadata: header,
-        }))
     }
 }
 
@@ -358,42 +290,61 @@ impl From<InsertResult> for Vec<ceramic_api::EventInsertResult> {
     }
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct InsertableBodyWithMeta {
-    pub(crate) body: EventInsertableBody,
-    pub(crate) metadata: EventMetadata,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiscoveredEvent {
+    pub cid: ceramic_core::Cid,
+    pub known_deliverable: bool,
+    pub metadata: EventMetadata,
+}
+
+impl DiscoveredEvent {
+    pub(crate) fn stream_cid(&self) -> ceramic_core::Cid {
+        match self.metadata {
+            EventMetadata::Init => self.cid,
+            EventMetadata::Data { stream_cid, .. } | EventMetadata::Time { stream_cid, .. } => {
+                stream_cid
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// An event header wrapper for use in the store crate.
 /// TODO: replace this with something from the event crate
 pub(crate) enum EventMetadata {
-    Init {
-        cid: ceramic_core::Cid,
-    },
+    /// The init CID and stream CID are the same
+    Init,
     Data {
-        cid: ceramic_core::Cid,
         stream_cid: ceramic_core::Cid,
         prev: ceramic_core::Cid,
     },
     Time {
-        cid: ceramic_core::Cid,
         stream_cid: ceramic_core::Cid,
         prev: ceramic_core::Cid,
     },
 }
 
-impl EventMetadata {
-    /// Returns the stream CID of the event
-    pub(crate) fn stream_cid(&self) -> ceramic_core::Cid {
-        match self {
-            EventMetadata::Init { cid, .. } => *cid,
-            EventMetadata::Data { stream_cid, .. } | EventMetadata::Time { stream_cid, .. } => {
-                *stream_cid
-            }
+impl From<unvalidated::Event<Ipld>> for EventMetadata {
+    fn from(value: unvalidated::Event<Ipld>) -> Self {
+        match value {
+            unvalidated::Event::Time(t) => EventMetadata::Time {
+                stream_cid: t.id(),
+                prev: t.prev(),
+            },
+
+            unvalidated::Event::Signed(signed) => match signed.payload() {
+                unvalidated::Payload::Data(d) => EventMetadata::Data {
+                    stream_cid: *d.id(),
+                    prev: *d.prev(),
+                },
+                unvalidated::Payload::Init(_init) => EventMetadata::Init,
+            },
+            unvalidated::Event::Unsigned(_init) => EventMetadata::Init,
         }
     }
+}
 
+impl EventMetadata {
     pub(crate) fn prev(&self) -> Option<ceramic_core::Cid> {
         match self {
             EventMetadata::Init { .. } => None,

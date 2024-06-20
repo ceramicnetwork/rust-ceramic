@@ -50,8 +50,8 @@ impl OrderEvents {
                     unreachable!("Init events should have been filtered out since they're always deliverable");
                 }
                 Some(prev) => {
-                    if let Some(in_mem) = new_cids.get(&prev) {
-                        if *in_mem {
+                    if let Some(in_mem_is_deliverable) = new_cids.get(&prev) {
+                        if *in_mem_is_deliverable {
                             event.body.set_deliverable(true);
                             *new_cids.get_mut(&event.cid()).expect("CID must exist") = true;
                             deliverable.push((event, header));
