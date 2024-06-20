@@ -128,7 +128,10 @@ impl CeramicEventService {
         let mut body = EventInsertableBody::try_from_carfile(cid, carfile).await?;
 
         let header = Self::parse_event_body(&mut body).await?;
-        Ok(InsertableBodyWithMeta { body, header })
+        Ok(InsertableBodyWithMeta {
+            body,
+            metadata: header,
+        })
     }
 
     pub(crate) async fn parse_event_body(body: &mut EventInsertableBody) -> Result<EventMetadata> {
@@ -249,7 +252,7 @@ impl CeramicEventService {
             .map(|(e, _)| e.order_key.clone())
             .collect();
 
-        let to_insert_with_header = if history_required {
+        let to_insert_with_metadata = if history_required {
             ordered.deliverable
         } else {
             ordered
@@ -259,7 +262,7 @@ impl CeramicEventService {
                 .collect()
         };
 
-        let to_insert = to_insert_with_header
+        let to_insert = to_insert_with_metadata
             .iter()
             .map(|(e, _)| e.clone())
             .collect::<Vec<_>>();
@@ -277,15 +280,15 @@ impl CeramicEventService {
                 .collect::<Vec<_>>();
 
             for ev in to_send {
-                if let Some((ev, header)) = to_insert_with_header
+                if let Some((ev, metadata)) = to_insert_with_metadata
                     .iter()
                     .find(|(i, _)| i.order_key == ev.order_key)
                 {
                     let new = InsertableBodyWithMeta {
                         body: ev.body.clone(),
-                        header: header.to_owned(),
+                        metadata: metadata.to_owned(),
                     };
-                    trace!(event=?ev, "sending delivered to ordering task");
+                    trace!(event_cid=%ev.cid(), deliverable=%ev.deliverable(), "sending delivered to ordering task");
                     if let Err(e) = self.delivery_task.tx_inserted.try_send(new) {
                         match e {
                             tokio::sync::mpsc::error::TrySendError::Full(e) => {
@@ -325,7 +328,10 @@ impl CeramicEventService {
 
         let mut body = EventInsertableBody::try_from_carfile(cid, &data).await?;
         let header = Self::parse_event_body(&mut body).await?;
-        Ok(Some(InsertableBodyWithMeta { body, header }))
+        Ok(Some(InsertableBodyWithMeta {
+            body,
+            metadata: header,
+        }))
     }
 }
 
@@ -355,7 +361,7 @@ impl From<InsertResult> for Vec<ceramic_api::EventInsertResult> {
 #[derive(Debug, Clone)]
 pub(crate) struct InsertableBodyWithMeta {
     pub(crate) body: EventInsertableBody,
-    pub(crate) header: EventMetadata,
+    pub(crate) metadata: EventMetadata,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
