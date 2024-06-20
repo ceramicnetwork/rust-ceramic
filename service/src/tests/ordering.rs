@@ -184,7 +184,7 @@ async fn missing_prev_pending_recon_should_deliver_without_stream_update() {
     assert_eq!(expected, delivered);
 }
 
-#[test(tokio::test)]
+#[test(test(tokio::test))]
 async fn multiple_streams_missing_prev_recon_should_deliver_without_stream_update() {
     let store = setup_service().await;
     let stream_1 = get_events().await;
@@ -279,7 +279,7 @@ async fn validate_all_delivered(store: &CeramicEventService, expected_delivered:
     }
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[test(tokio::test(flavor = "multi_thread", worker_threads = 2))]
 async fn recon_lots_of_streams() {
     // adds `per_stream` events to `num_streams` streams, mixes up the event order for each stream, inserts half
     // the events for each stream before mixing up the stream order and inserting the rest
