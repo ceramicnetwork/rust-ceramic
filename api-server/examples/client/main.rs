@@ -116,7 +116,7 @@ fn main() {
         Some("AuthTokenRefreshPost") => {
             let result = rt.block_on(client.auth_token_refresh_post(
                   "authorization_example".to_string(),
-                  "did_example".to_string(),
+                  "x_did_example".to_string(),
                   ???
             ));
             info!("{:?} (X-Span-ID: {:?})", result, (client.context() as &dyn Has<XSpanIdString>).get().clone());

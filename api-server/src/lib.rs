@@ -192,7 +192,7 @@ pub trait Api<C: Send + Sync> {
     async fn auth_token_refresh_post(
         &self,
         authorization: String,
-        did: String,
+        x_did: String,
         refresh_token_request: models::RefreshTokenRequest,
         context: &C,
     ) -> Result<AuthTokenRefreshPostResponse, ApiError>;
@@ -298,7 +298,7 @@ pub trait ApiNoContext<C: Send + Sync> {
     async fn auth_token_refresh_post(
         &self,
         authorization: String,
-        did: String,
+        x_did: String,
         refresh_token_request: models::RefreshTokenRequest,
     ) -> Result<AuthTokenRefreshPostResponse, ApiError>;
 
@@ -412,12 +412,12 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
     async fn auth_token_refresh_post(
         &self,
         authorization: String,
-        did: String,
+        x_did: String,
         refresh_token_request: models::RefreshTokenRequest,
     ) -> Result<AuthTokenRefreshPostResponse, ApiError> {
         let context = self.context().clone();
         self.api()
-            .auth_token_refresh_post(authorization, did, refresh_token_request, &context)
+            .auth_token_refresh_post(authorization, x_did, refresh_token_request, &context)
             .await
     }
 

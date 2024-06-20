@@ -48,7 +48,7 @@ No authorization required
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
 # ****
-> (authorization, did, refresh_token_request)
+> (authorization, x_did, refresh_token_request)
 Create a refresh token
 
 ### Required Parameters
@@ -56,7 +56,7 @@ Create a refresh token
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
   **authorization** | **String**| Bearer token | 
-  **did** | **String**| DID used to sign the bearer token | 
+  **x_did** | **String**| DID used to sign the bearer token | 
   **refresh_token_request** | [**RefreshTokenRequest**](RefreshTokenRequest.md)| Refresh token | 
 
 ### Return type

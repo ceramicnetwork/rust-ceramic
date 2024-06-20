@@ -25,7 +25,7 @@ paths:
           required: true
           schema:
             type: string
-        - name: Did
+        - name: X-Did
           in: header
           description: DID used to sign the bearer token
           required: true

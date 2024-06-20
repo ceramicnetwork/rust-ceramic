@@ -137,14 +137,14 @@ where
     async fn auth_token_refresh_post(
         &self,
         authorization: String,
-        did: String,
+        x_did: String,
         refresh_token_request: models::RefreshTokenRequest,
         context: &C,
     ) -> Result<AuthTokenRefreshPostResponse, ApiError> {
         info!(
             "auth_token_refresh_post(\"{}\", \"{}\", {:?}) - X-Span-ID: {:?}",
             authorization,
-            did,
+            x_did,
             refresh_token_request,
             context.get().0.clone()
         );

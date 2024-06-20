@@ -524,7 +524,7 @@ where
     async fn auth_token_refresh_post(
         &self,
         param_authorization: String,
-        param_did: String,
+        param_x_did: String,
         param_refresh_token_request: models::RefreshTokenRequest,
         context: &C,
     ) -> Result<AuthTokenRefreshPostResponse, ApiError> {
@@ -599,12 +599,12 @@ where
         );
 
         request.headers_mut().append(
-            HeaderName::from_static("did"),
+            HeaderName::from_static("x-did"),
             #[allow(clippy::redundant_clone)]
-            match header::IntoHeaderValue(param_did.clone()).try_into() {
+            match header::IntoHeaderValue(param_x_did.clone()).try_into() {
                 Ok(header) => header,
                 Err(e) => {
-                    return Err(ApiError(format!("Invalid header did - {}", e)));
+                    return Err(ApiError(format!("Invalid header x_did - {}", e)));
                 }
             },
         );

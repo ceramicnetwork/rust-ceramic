@@ -744,7 +744,7 @@ where
         _context: &C,
     ) -> std::result::Result<AuthTokenAccessPostResponse, ApiError> {
         self.check_feature(feature_flags::FEATURE_AUTHENTICATION)?;
-        unimplemented!();
+        Err(ApiError("Not Implemented".to_string()))
     }
 
     #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
@@ -756,7 +756,7 @@ where
         _context: &C,
     ) -> std::result::Result<AuthTokenRefreshPostResponse, ApiError> {
         self.check_feature(feature_flags::FEATURE_AUTHENTICATION)?;
-        unimplemented!();
+        Err(ApiError("Not Implemented".to_string()))
     }
 
     #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
@@ -922,13 +922,13 @@ where
         _context: &C,
     ) -> Result<EventsEventIdGetResponse, ApiError> {
         if self.has_feature(feature_flags::FEATURE_AUTHENTICATION) {
-            if let (Some(_bearer), Some(_did)) = (bearer, did) {
-                unimplemented!();
+            return if let (Some(_bearer), Some(_did)) = (bearer, did) {
+                Err(ApiError("Not Implemented".to_string()))
             } else {
-                return Err(ApiError(
+                Err(ApiError(
                     "Authentication headers not present in request".to_string(),
-                ));
-            }
+                ))
+            };
         }
         self.get_events_event_id(event_id)
             .await

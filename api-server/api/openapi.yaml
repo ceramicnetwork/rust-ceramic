@@ -24,7 +24,7 @@ paths:
       - description: DID used to sign the bearer token
         explode: false
         in: header
-        name: Did
+        name: X-Did
         required: true
         schema:
           type: string

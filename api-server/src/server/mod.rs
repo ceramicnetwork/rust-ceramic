@@ -352,25 +352,25 @@ where
                                         .expect("Unable to create Bad Request response for missing required header Authorization"));
                         }
                     };
-                    let param_did = headers.get(HeaderName::from_static("did"));
+                    let param_x_did = headers.get(HeaderName::from_static("x-did"));
 
-                    let param_did = match param_did {
+                    let param_x_did = match param_x_did {
                         Some(v) => {
                             match header::IntoHeaderValue::<String>::try_from((*v).clone()) {
                                 Ok(result) => result.0,
                                 Err(err) => {
                                     return Ok(Response::builder()
                                         .status(StatusCode::BAD_REQUEST)
-                                        .body(Body::from(format!("Invalid header Did - {}", err)))
-                                        .expect("Unable to create Bad Request response for invalid header Did"));
+                                        .body(Body::from(format!("Invalid header X-Did - {}", err)))
+                                        .expect("Unable to create Bad Request response for invalid header X-Did"));
                                 }
                             }
                         }
                         None => {
                             return Ok(Response::builder()
                                         .status(StatusCode::BAD_REQUEST)
-                                        .body(Body::from("Missing required header Did"))
-                                        .expect("Unable to create Bad Request response for missing required header Did"));
+                                        .body(Body::from("Missing required header X-Did"))
+                                        .expect("Unable to create Bad Request response for missing required header X-Did"));
                         }
                     };
 
@@ -406,7 +406,7 @@ where
 
                                 let result = api_impl.auth_token_refresh_post(
                                             param_authorization,
-                                            param_did,
+                                            param_x_did,
                                             param_refresh_token_request,
                                         &context
                                     ).await;
