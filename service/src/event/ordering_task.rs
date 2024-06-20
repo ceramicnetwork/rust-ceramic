@@ -238,7 +238,16 @@ impl StreamEvents {
                 self.prev_map.insert(meta.prev, meta.cid);
                 if !self.should_process {
                     // we depend on something in memory
-                    self.should_process = self.prev_map.contains_key(&meta.prev);
+                    if let Some(in_memory_prev) = self.cid_map.get(&meta.prev) {
+                        match in_memory_prev {
+                            StreamEvent::InitEvent(_) | StreamEvent::KnownDeliverable(_) => {
+                                self.should_process = true;
+                            }
+                            StreamEvent::Undelivered(_) => {
+                                // nothing to do until it's prev arrives
+                            }
+                        }
+                    }
                 }
                 meta.cid
             }
@@ -544,7 +553,7 @@ mod test {
     use ceramic_store::EventInsertable;
     use test_log::test;
 
-    use crate::tests::get_n_events;
+    use crate::{tests::get_n_events, CeramicEventService};
 
     use super::*;
 
