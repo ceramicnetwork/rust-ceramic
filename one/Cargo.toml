@@ -10,42 +10,37 @@ publish = false
 
 [dependencies]
 anyhow.workspace = true
+async-stream.workspace = true
+async-trait.workspace = true
 ceramic-api-server.workspace = true
 ceramic-api.workspace = true
 ceramic-core.workspace = true
+ceramic-event.workspace = true
 ceramic-kubo-rpc = { path = "../kubo-rpc", features = ["http"] }
 ceramic-kubo-rpc-server.workspace = true
 ceramic-metrics.workspace = true
 ceramic-p2p.workspace = true
 ceramic-service.workspace = true
 ceramic-store.workspace = true
-chrono.workspace = true
 cid.workspace = true
 clap.workspace = true
-dirs = "5.0.1"
-enum-as-inner = "0.6.0"
 futures.workspace = true
 git-version = "0.3"
-glob = "0.3.1"
-hex.workspace = true
 home = "0.5"
 hyper.workspace = true
 iroh-bitswap.workspace = true
 iroh-rpc-client.workspace = true
 iroh-rpc-types.workspace = true
 libp2p.workspace = true
-minicbor.workspace = true
 multiaddr.workspace = true
 multibase.workspace = true
-multihash.workspace = true
 multihash-codetable.workspace = true
 multihash-derive.workspace = true
+multihash.workspace = true
 names.workspace = true
-ordered-float = "4.1.1"
 prometheus-client.workspace = true
 recon.workspace = true
-reqwest.workspace = true
-serde_json.workspace = true
+serde_ipld_dagcbor.workspace = true
 signal-hook = "0.3.17"
 signal-hook-tokio = { version = "0.3.1", features = ["futures-v0_3"] }
 swagger.workspace = true

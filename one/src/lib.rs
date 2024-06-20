@@ -1,12 +1,10 @@
 //! Ceramic implements a single binary ceramic node.
 #![warn(missing_docs)]
 
-mod cbor_value;
-mod ethereum_rpc;
-mod events;
 mod http;
 mod http_metrics;
 mod metrics;
+mod migrations;
 mod network;
 
 use std::{env, path::PathBuf, time::Duration};
@@ -34,8 +32,6 @@ use tracing::{debug, info, warn};
 
 use crate::network::Ipfs;
 
-pub use cbor_value::CborValue;
-
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
@@ -47,9 +43,9 @@ struct Cli {
 enum Command {
     /// Run a daemon process
     Daemon(DaemonOpts),
-    /// Event store tools
+    /// Perform various migrations
     #[command(subcommand)]
-    Events(events::EventsCommand),
+    Migrations(migrations::EventsCommand),
 }
 
 #[derive(Args, Debug)]
@@ -82,10 +78,6 @@ struct DaemonOpts {
         env = "CERAMIC_ONE_EXTRA_CERAMIC_PEER_ADDRESSES"
     )]
     extra_ceramic_peer_addresses: Vec<String>,
-
-    /// Path to storage directory
-    #[arg(short, long, env = "CERAMIC_ONE_STORE_DIR")]
-    store_dir: Option<PathBuf>,
 
     /// Bind address of the metrics endpoint.
     #[arg(
@@ -149,6 +141,16 @@ struct DaemonOpts {
         env = "CERAMIC_ONE_IDLE_CONNS_TIMEOUT_MS"
     )]
     idle_conns_timeout_ms: u64,
+
+    #[command(flatten)]
+    db_opts: DBOpts,
+}
+
+#[derive(Args, Debug)]
+struct DBOpts {
+    /// Path to storage directory
+    #[arg(short, long, env = "CERAMIC_ONE_STORE_DIR")]
+    store_dir: Option<PathBuf>,
 }
 
 #[derive(ValueEnum, Debug, Clone, Default)]
@@ -226,14 +228,14 @@ pub async fn run() -> Result<()> {
     let args = Cli::parse();
     match args.command {
         Command::Daemon(opts) => Daemon::run(opts).await,
-        Command::Events(opts) => events::events(opts).await,
+        Command::Migrations(opts) => migrations::migrate(opts).await,
     }
 }
 
 type InterestInterest = FullInterests<Interest>;
 type ModelInterest = ReconInterestProvider<Sha256a>;
 
-impl DaemonOpts {
+impl DBOpts {
     fn default_directory(&self) -> PathBuf {
         // 1 path from options
         // 2 path $HOME/.ceramic-one
@@ -281,7 +283,7 @@ struct Daemon;
 
 impl Daemon {
     async fn run(opts: DaemonOpts) -> Result<()> {
-        let db = opts.get_database().await?;
+        let db = opts.db_opts.get_database().await?;
 
         // we should be able to consolidate the Store traits now that they all rely on &self, but for now we use
         // static dispatch and require compile-time type information, so we pass all the types we need in, even
@@ -354,7 +356,7 @@ impl Daemon {
         );
         debug!(?opts, "using daemon options");
 
-        let dir = opts.default_directory();
+        let dir = opts.db_opts.default_directory();
         debug!("using directory: {}", dir.display());
 
         // Setup tokio-metrics
