@@ -4,7 +4,7 @@ use anyhow::{anyhow, Result};
 use async_stream::try_stream;
 use async_trait::async_trait;
 use ceramic_event::unvalidated;
-use ceramic_metrics::{config::Config as MetricsConfig, init_local_tracing};
+use ceramic_metrics::config::Config as MetricsConfig;
 use ceramic_service::{Block, BoxedBlock};
 use cid::Cid;
 use clap::{Args, Subcommand};
@@ -48,11 +48,7 @@ impl From<&FromIpfsOpts> for DBOpts {
 }
 
 pub async fn migrate(cmd: EventsCommand) -> Result<()> {
-    if let Err(e) = init_local_tracing() {
-        eprintln!("Failed to initialize tracing: {}", e);
-    }
     let info = Info::new().await?;
-
     let mut metrics_config = MetricsConfig {
         export: false,
         tracing: false,
@@ -60,12 +56,17 @@ pub async fn migrate(cmd: EventsCommand) -> Result<()> {
         ..Default::default()
     };
     info.apply_to_metrics_config(&mut metrics_config);
-    ceramic_metrics::MetricsHandle::new(metrics_config.clone())
+    // Logging Tracing and metrics are initialized here,
+    // debug,info etc will not work until after this line
+    let metrics_handle = ceramic_metrics::MetricsHandle::new(metrics_config.clone())
         .await
         .expect("failed to initialize metrics");
     match cmd {
-        EventsCommand::FromIpfs(opts) => from_ipfs(opts).await,
+        EventsCommand::FromIpfs(opts) => from_ipfs(opts).await?,
     }
+    metrics_handle.shutdown();
+    debug!("metrics server stopped");
+    Ok(())
 }
 
 async fn from_ipfs(opts: FromIpfsOpts) -> Result<()> {

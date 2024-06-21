@@ -4,7 +4,7 @@ use iroh_car::{CarHeader, CarWriter};
 use serde::{Deserialize, Serialize};
 
 /// Payload of an init event
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Payload<D> {
     header: Header,
     data: Option<D>,
@@ -28,6 +28,11 @@ impl<D> Payload<D> {
 }
 
 impl<D: serde::Serialize> Payload<D> {
+    /// Compute CID of encoded event.
+    pub async fn encoded_cid(&self) -> Result<Cid, anyhow::Error> {
+        let event = serde_ipld_dagcbor::to_vec(self)?;
+        Ok(cid_from_dag_cbor(&event))
+    }
     /// Encode the unsigned init event into CAR bytes.
     pub async fn encode_car(&self) -> Result<Vec<u8>, anyhow::Error> {
         let event = serde_ipld_dagcbor::to_vec(self)?;

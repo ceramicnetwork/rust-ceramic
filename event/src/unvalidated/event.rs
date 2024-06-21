@@ -364,7 +364,7 @@ impl Proof {
 }
 
 /// Proof edge
-pub type ProofEdge = Vec<Cid>;
+pub type ProofEdge = Vec<Ipld>;
 
 #[cfg(test)]
 mod tests {
