@@ -21,8 +21,7 @@ const LOG_EVERY_N_ENTRIES: usize = 10_000;
 #[derive(Debug)]
 pub struct DeliverableTask {
     pub(crate) _handle: tokio::task::JoinHandle<()>,
-    /// Currently only receives events discovered over recon that are out of order and need to be marked ready (deliverable)
-    /// when their prev chain is discovered and complete (i.e. my prev is deliverable then I am deliverable).
+    /// Currently receives events discovered over recon.
     pub(crate) tx_inserted: tokio::sync::mpsc::Sender<DiscoveredEvent>,
 }
 
@@ -246,7 +245,7 @@ impl StreamEvents {
                                 self.should_process = true;
                             }
                             StreamEvent::Undelivered(_) => {
-                                // nothing to do until it's prev arrives
+                                // nothing to do until its prev arrives
                             }
                         }
                     }
@@ -271,6 +270,11 @@ impl StreamEvents {
     /// Returns `false` if we have more work to do and should be retained for future processing
     fn processing_completed(&mut self) -> bool {
         self.should_process = false;
+        // It's worth considering whether we should prune the `cid_map` and `prev_map` with everything from the `new_deliverable` set to avoid
+        // memory leaks due to never finding events. This requires setting `self.should_process` to true for all undelivered events (or making a db query),
+        // as we will no longer have everything we've discovered in memory and need to go to the db to figure out what to do. As streams are generally
+        // short, I'm opting to not make this change now. We could consider something like an expiration time as well, but generally we don't want
+        // to be dropping things from memory that we might need to process in the future unless we have to.
         self.new_deliverable.clear();
         !self
             .cid_map
@@ -407,7 +411,8 @@ impl OrderingState {
         }
     }
 
-    /// Add a stream to the list of streams to process.
+    /// Update the list of streams to process with new events.
+    /// Relies on `add_stream_event` to handle updating the internal state.
     fn add_inserted_events(&mut self, events: Vec<DiscoveredEvent>) {
         for ev in events {
             let stream_cid = ev.stream_cid();

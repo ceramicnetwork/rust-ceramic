@@ -25,7 +25,8 @@ const DELIVERABLE_EVENTS_BATCH_SIZE: u32 = 1000;
 const MAX_ITERATIONS: usize = 100_000_000;
 
 /// The max number of events we can have pending for delivery in the channel before we start dropping them.
-const PENDING_EVENTS_CHANNEL_DEPTH: usize = 10_000;
+/// This is currently 304 bytes per event, so this is 3 MB of data
+const PENDING_EVENTS_CHANNEL_DEPTH: usize = 1_000_000;
 
 #[derive(Debug)]
 /// A database store that verifies the bytes it stores are valid Ceramic events.
@@ -216,47 +217,41 @@ impl CeramicEventService {
             .map(|(e, _)| e.clone())
             .collect::<Vec<_>>();
 
-        // need to make a better interface around events. needing to know about the stream in some places but
-        // not in the store makes it inconvenient to map back and forth
         let res = CeramicOneEvent::insert_many(&self.pool, &to_insert[..]).await?;
 
-        // api writes shouldn't have any missed pieces that need ordering so we don't send those
-        if !history_required {
-            let to_send = res
-                .inserted
-                .iter()
-                .filter(|i| i.new_key)
-                .collect::<Vec<_>>();
+        // api writes shouldn't have any missed pieces that need ordering so we don't send those and return early
+        if history_required {
+            return Ok(InsertResult {
+                store_result: res,
+                missing_history,
+            });
+        }
 
-            for ev in to_send {
-                if let Some((ev, metadata)) = to_insert_with_metadata
-                    .iter()
-                    .find(|(i, _)| i.order_key == ev.order_key)
-                {
-                    let discovered = DiscoveredEvent {
-                        cid: ev.cid(),
-                        known_deliverable: ev.deliverable(),
-                        metadata: metadata.to_owned(),
-                    };
-                    trace!(?discovered, "sending delivered to ordering task");
-                    if let Err(e) = self.delivery_task.tx_inserted.try_send(discovered) {
-                        match e {
-                            tokio::sync::mpsc::error::TrySendError::Full(e) => {
-                                warn!(event=?e, limit=%PENDING_EVENTS_CHANNEL_DEPTH, "Delivery task full. Dropping event and will not be able to mark deliverable new stream event arrives or process is restarted");
-                            }
-                            tokio::sync::mpsc::error::TrySendError::Closed(_) => {
-                                warn!("Delivery task closed. shutting down");
-                                return Err(Error::new_fatal(anyhow::anyhow!(
-                                    "Delivery task closed"
-                                )));
-                            }
-                        }
-                    }
-                } else {
-                    tracing::error!(event_id=%ev.order_key, "Missing header for inserted event should be unreachable!");
-                    debug_assert!(false); // panic in debug mode
-                    continue;
+        let to_send = res
+            .inserted
+            .iter()
+            .filter(|i| i.new_key)
+            .collect::<Vec<_>>();
+
+        for ev in to_send {
+            if let Some((ev, metadata)) = to_insert_with_metadata
+                .iter()
+                .find(|(i, _)| i.order_key == ev.order_key)
+            {
+                let discovered = DiscoveredEvent {
+                    cid: ev.cid(),
+                    known_deliverable: ev.deliverable(),
+                    metadata: metadata.to_owned(),
+                };
+                trace!(?discovered, "sending delivered to ordering task");
+                if let Err(_e) = self.delivery_task.tx_inserted.send(discovered).await {
+                    warn!("Delivery task closed. shutting down");
+                    return Err(Error::new_fatal(anyhow::anyhow!("Delivery task closed")));
                 }
+            } else {
+                tracing::error!(event_id=%ev.order_key, "Missing header for inserted event should be unreachable!");
+                debug_assert!(false); // panic in debug mode
+                continue;
             }
         }
 
