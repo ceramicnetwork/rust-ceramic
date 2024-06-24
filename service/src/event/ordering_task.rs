@@ -16,6 +16,8 @@ type StreamCid = Cid;
 type EventCid = Cid;
 type PrevCid = Cid;
 
+const LOG_EVERY_N_ENTRIES: usize = 10_000;
+
 #[derive(Debug)]
 pub struct DeliverableTask {
     pub(crate) _handle: tokio::task::JoinHandle<()>,
@@ -464,6 +466,7 @@ impl OrderingState {
         max_iterations: usize,
         batch_size: u32,
     ) -> Result<usize> {
+        info!("Attempting to process all undelivered events. This could take some time.");
         let mut state = Self::new();
         let mut iter_cnt = 0;
         let mut event_cnt = 0;
@@ -477,20 +480,25 @@ impl OrderingState {
             let found_something = !undelivered.is_empty();
             let found_everything = undelivered.len() < batch_size as usize;
             if found_something {
+                debug!(new_batch_count=%undelivered.len(), "Found undelivered events in the database to process.");
                 // We can start processing and we'll follow the stream history if we have it. In that case, we either arrive
                 // at the beginning and mark them all delivered, or we find a gap and stop processing and leave them in memory.
                 // In this case, we won't discover them until we start running recon with a peer, so maybe we should drop them
                 // or otherwise mark them ignored somehow. When this function ends, we do drop everything so for now it's probably okay.
-                event_cnt += state
+                let number_processed = state
                     .process_undelivered_events_batch(pool, undelivered)
                     .await?;
+                event_cnt += number_processed;
+                if event_cnt % LOG_EVERY_N_ENTRIES < number_processed {
+                    info!(count=%event_cnt, "Processed undelivered events");
+                }
             }
             if !found_something || found_everything {
                 break;
             }
         }
         if iter_cnt > max_iterations {
-            info!(%batch_size, iterations=%iter_cnt, "Exceeded max iterations for finding undelivered events!");
+            warn!(%batch_size, iterations=%iter_cnt, "Exceeded max iterations for finding undelivered events!");
         }
 
         Ok(event_cnt)
