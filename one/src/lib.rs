@@ -494,6 +494,8 @@ impl Daemon {
             );
         let kubo_rpc_service =
             http::MakeMetricsService::new(kubo_rpc_service, http_metrics.clone());
+        let kubo_rpc_service = http::MakeCorsService::new(kubo_rpc_service);
+        let ceramic_service = http::MakeCorsService::new(ceramic_service);
         let ceramic_service = http::MakeMetricsService::new(ceramic_service, http_metrics);
 
         // Compose both services

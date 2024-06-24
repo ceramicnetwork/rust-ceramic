@@ -7,7 +7,7 @@ use std::{
 
 use ceramic_metrics::Recorder;
 use futures::{future::BoxFuture, Future};
-use hyper::{service::Service, Body, Request, Response, StatusCode};
+use hyper::{header::HeaderValue, service::Service, Body, Request, Response, StatusCode};
 
 use crate::http_metrics::{Event, Metrics};
 
@@ -182,6 +182,93 @@ where
             }));
 
             response
+        })
+    }
+}
+
+pub struct CorsService<T> {
+    inner: T,
+}
+
+impl<T> CorsService<T> {
+    pub fn new(inner: T) -> Self {
+        CorsService { inner }
+    }
+}
+
+impl<T> Service<Request<Body>> for CorsService<T>
+where
+    T: Service<Request<Body>, Error = ServiceError, Future = ServiceFuture> + Send + Sync + 'static,
+{
+    type Response = Response<Body>;
+    type Error = ServiceError;
+    type Future = ServiceFuture;
+
+    fn poll_ready(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(cx)
+    }
+
+    fn call(&mut self, req: Request<Body>) -> Self::Future {
+        let fut = self.inner.call(req);
+
+        Box::pin(async move {
+            match fut.await {
+                Ok(mut response) => {
+                    let headers = response.headers_mut();
+                    headers.insert(
+                        "Access-Control-Allow-Origin",
+                        HeaderValue::from_bytes(b"*").unwrap(),
+                    );
+                    headers.insert(
+                        "Access-Control-Allow-Methods",
+                        HeaderValue::from_bytes(b"POST, GET, OPTIONS, DELETE").unwrap(),
+                    );
+                    headers.insert(
+                        "Access-Control-Allow-Headers",
+                        HeaderValue::from_bytes(b"*").unwrap(),
+                    );
+                    Ok(response)
+                }
+                Err(err) => Err(err),
+            }
+        })
+    }
+}
+
+pub struct MakeCorsService<T> {
+    inner: T,
+}
+
+impl<T> MakeCorsService<T> {
+    pub fn new(inner: T) -> Self {
+        Self { inner }
+    }
+}
+
+impl<A, Target, AResponse, AError, AMakeError, AFuture> Service<Target> for MakeCorsService<A>
+where
+    A: for<'a> Service<&'a Target, Response = AResponse, Error = AMakeError, Future = AFuture>,
+    AResponse: Service<Request<Body>, Response = Response<Body>> + Send,
+    AMakeError: Into<Box<dyn std::error::Error + Send + Sync>>,
+    AError: Into<Box<dyn std::error::Error + Send + Sync>>,
+    AFuture: Future<Output = Result<AResponse, AError>> + Send + 'static,
+{
+    type Response = CorsService<AResponse>;
+    type Error = ServiceError;
+    type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(cx).map_err(|err| err.into())
+    }
+
+    fn call(&mut self, target: Target) -> Self::Future {
+        let target = self.inner.call(&target);
+        Box::pin(async move {
+            let inner = target.await.map_err(|err| err.into())?;
+            Ok(CorsService::new(inner))
         })
     }
 }
