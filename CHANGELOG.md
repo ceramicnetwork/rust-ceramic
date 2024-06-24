@@ -2,12 +2,35 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.25.0] - 2024-06-24
+
+### 🚀 Features
+
+- Adds migration logic from IPFS (#326)
+
+### 🐛 Bug Fixes
+
+- Adjust API insert contract and avoid failing entire batch if any one is invalid (#388)
+
+### 🚜 Refactor
+
+- Modify store API and rename some things  (#390)
+
+### ⚙️ Miscellaneous Tasks
+
+- Replace tracing_test with test-log and don't init tracing manually (#391)
+- Rename prometheus registry and metrics for better consistency (#373)
+
 ## [0.24.0] - 2024-06-18
 
 ### 🐛 Bug Fixes
 
 - Remove redundant db url cli arg (#384)
 - TimeEvents from single-write anchor batches don't have a separate root block (#386)
+
+### ⚙️ Miscellaneous Tasks
+
+- Version v0.24.0 (#389)
 
 ## [0.23.0] - 2024-06-17
 

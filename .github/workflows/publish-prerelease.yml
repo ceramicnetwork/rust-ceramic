@@ -6,9 +6,10 @@ permissions:
 
 on:
   push:
-    branches: [ "main" ]
-    paths:
-      - 'Cargo.toml'
+    branches: [ "test/release" ]
+#    paths:
+#      - 'Cargo.toml'
+  workflow_dispatch:
 
 jobs:
   # Build and package all the things
@@ -27,13 +28,13 @@ jobs:
           - target: x86_64-apple-darwin
             os: macos-latest
             arch: x86_64
-            ext: pkg
+            ext: bin
             protoc-arch: osx-x86_64
           - target: aarch64-apple-darwin
             os: macos-latest
             config-file: fpm/osx.fpm
             arch: aarch64
-            ext: pkg
+            ext: bin
             protoc-arch: osx-aarch_64
         #- target: x86_64-pc-windows-msvc
         #  os: windows-latest
@@ -77,31 +78,31 @@ jobs:
           path: |
             ceramic-one_${{ matrix.target }}.tar.gz
 
-  release:
-    needs: [build-binaries]
-    runs-on: ubuntu-latest
-    env:
-      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
-      GH_TOKEN: ${{ secrets.GH_TOKEN_PAT }}
-      GITHUB_TOKEN: ${{ secrets.GH_TOKEN_PAT }}
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-      - uses: actions/download-artifact@v3
-        with:
-          path: artifacts
-      - name: check artifacts
-        run: |
-          ls artifacts/**/*
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-      - id: release
-        run: |
-          export TAG=$(cargo metadata --format-version=1 --no-deps | jq '.packages[0].version' | tr -d '"')
-          echo "Releasing "$TAG
-          # Generate a GitHub pre-release. This will trigger the "published" event that will deploy to Clay. When the
-          # pre-release is promoted to a release from the GitHub console, the "released" event will trigger and deploy
-          # to Prod.
-          current_branch=$(git rev-parse --abbrev-ref HEAD)
-          gh release create "v${TAG}" -t "v${TAG}" --target "$current_branch" --generate-notes --prerelease artifacts/**/*.tar.gz
+#  release:
+#    needs: [build-binaries]
+#    runs-on: ubuntu-latest
+#    env:
+#      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
+#      GH_TOKEN: ${{ secrets.GH_TOKEN_PAT }}
+#      GITHUB_TOKEN: ${{ secrets.GH_TOKEN_PAT }}
+#    steps:
+#      - uses: actions/checkout@v3
+#        with:
+#          fetch-depth: 0
+#      - uses: actions/download-artifact@v3
+#        with:
+#          path: artifacts
+#      - name: check artifacts
+#        run: |
+#          ls artifacts/**/*
+#      - name: Install Rust toolchain
+#        uses: dtolnay/rust-toolchain@stable
+#      - id: release
+#        run: |
+#          export TAG=$(cargo metadata --format-version=1 --no-deps | jq '.packages[0].version' | tr -d '"')
+#          echo "Releasing "$TAG
+#          # Generate a GitHub pre-release. This will trigger the "published" event that will deploy to Clay. When the
+#          # pre-release is promoted to a release from the GitHub console, the "released" event will trigger and deploy
+#          # to Prod.
+#          current_branch=$(git rev-parse --abbrev-ref HEAD)
+#          gh release create "v${TAG}" -t "v${TAG}" --target "$current_branch" --generate-notes --prerelease artifacts/**/*.tar.gz
