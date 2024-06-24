@@ -503,6 +503,7 @@ impl OrderingState {
     ) -> Result<usize> {
         trace!(cnt=%event_data.len(), "Processing undelivered events batch");
         let mut event_cnt = 0;
+        let mut discovered_inits = Vec::new();
         for (_event_id, carfile) in event_data {
             let (cid, parsed_event) =
                 unvalidated::Event::<Ipld>::decode_car(carfile.as_slice(), false)
@@ -513,7 +514,8 @@ impl OrderingState {
 
             let (stream_cid, loaded) = match &metadata {
                 EventMetadata::Init => {
-                    unreachable!("Init events should not be undelivered. CID={}", cid);
+                    discovered_inits.push(cid);
+                    continue;
                 }
                 EventMetadata::Data { stream_cid, prev }
                 | EventMetadata::Time { stream_cid, prev } => (
@@ -524,6 +526,22 @@ impl OrderingState {
 
             event_cnt += 1;
             self.add_stream_event(*stream_cid, loaded);
+        }
+        // while undelivered init events should be unreachable, we can fix the state if it happens so we won't panic in release mode
+        // and simply correct things in the database. We could make this fatal in the future, but for now it's just a warning to
+        // make sure we aren't overlooking something with the migration from ipfs or the previous state of the database.
+        if !discovered_inits.is_empty() {
+            warn!(
+                count=%discovered_inits.len(),
+                cids=?discovered_inits,
+                "Found init events in undelivered batch. This should never happen.",
+            );
+            debug_assert!(false);
+            let mut tx = pool.begin_tx().await?;
+            for cid in discovered_inits {
+                CeramicOneEvent::mark_ready_to_deliver(&mut tx, &cid).await?;
+            }
+            tx.commit().await?;
         }
         self.process_streams(pool).await?;
 
