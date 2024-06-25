@@ -4,17 +4,6 @@ Implementation of the Ceramic protocol in Rust.
 
 Current status is that the `ceramic-one` binary only mimics the Kubo RPC API and relies on https://github.com/ceramicnetwork/js-ceramic for the remaining logic.
 
-## Usage
-
-Run in single binary using the `ceramic-one` crate:
-
-    $ cargo run -p ceramic-one -- daemon
-
-The process honors RUST_LOG env variable for controlling its logging output.
-For example, to enable debug logging for code from this repo but error logging for all other code use:
-
-    $ RUST_LOG=ERROR,ceramic_kubo_rpc=DEBUG,ceramic_one=DEBUG cargo run -p ceramic-one -- daemon
-
 ## Installation
 
 The following section covers several ways one can install Rust-Ceramic contingent on the recieving environment:
@@ -110,6 +99,32 @@ volumes:
 ```
 
 3. Run `docker-compose up -d`
+
+## Usage
+
+Running the ceramic-one binary is simply passing the `daemon` cli option.
+
+```sh
+# if necessary, include the path/to/the/binary e.g. /usr/local/bin/ceramic-one or ./target/release/ceramic-one
+$ ceramic-one daemon 
+
+# There are many flags for the daemon CLI that can be passed directly or set as environment variables. 
+# See `DaemonOpts` in one/src/lib.rs for the complete list or pass the -h flag
+$ ceramic-one daemon -h
+
+# A few common options are overriding the log level:
+$ RUST_LOG=warn,ceramic_one=info,ceramic_service=debug ceramic-one daemon
+# Or modifying the network 
+$ ceramic-one daemon --network testnet-clay 
+$ ceramic-one daemon --network local --local-network-id 0
+# Or changing where directory where all data is stored. This folder SHOULD be backed up in production
+# and if you change the defaults, you MUST specify it every time you start the daemon.
+$ ceramic-one daemon --store-dir ./custom-store-dir
+```
+
+The process honors RUST_LOG env variable for controlling its logging output.
+For example, to enable debug logging for code from this repo but error logging for all other code use:
+
 
 ### Generating Servers
 
