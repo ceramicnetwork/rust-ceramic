@@ -15,6 +15,17 @@ Using the makefile is not necessary during your development cycle, feel free to 
 
 However running `make` before publishing a PR will provide a good signal if you PR will pass CI.
 
+### Generating Servers
+
+There are two OpenAPI based servers that are generated.
+The `ceramic-api-server` and `ceramic-kubo-rpc-server` crates are generated using OpenAPI.
+Install `@openapitools/openapi-generator-cli` and make to generate the crates. You will need to install augtools to run the checks:
+
+      # Install augtools e.g. brew install augeas or apt-get install augeas-tools
+      npm install @openapitools/openapi-generator-cli@2.6.0 -g
+      make gen-api-server
+      make gen-kubo-rpc-server
+
 ## Packaging
 To package rust-ceramic, you will need the following dependencies
 
@@ -41,3 +52,4 @@ You will also need to login with the `gh` client to your github account, and tha
 a release of the rust-ceramic repository.
 
 You can then run the [release script](./ci-scripts/release.sh) to create a release of rust-ceramic.
+

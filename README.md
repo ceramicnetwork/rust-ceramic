@@ -125,18 +125,6 @@ $ ceramic-one daemon --store-dir ./custom-store-dir
 The process honors RUST_LOG env variable for controlling its logging output.
 For example, to enable debug logging for code from this repo but error logging for all other code use:
 
-
-### Generating Servers
-
-There are two OpenAPI based servers that are generated.
-The `ceramic-api-server` and `ceramic-kubo-rpc-server` crates are generated using OpenAPI.
-Install `@openapitools/openapi-generator-cli` and make to generate the crates. You will need to install augtools to run the checks:
-
-      # Install augtools e.g. brew install augeas or apt-get install augeas-tools
-      npm install @openapitools/openapi-generator-cli@2.6.0 -g
-      make gen-api-server
-      make gen-kubo-rpc-server
-
 ### Migration
 This repo also contains the kubo to ceramic-one migration script.
 
