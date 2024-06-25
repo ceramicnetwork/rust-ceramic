@@ -199,6 +199,9 @@ pub(crate) struct StreamEvents {
     cid_map: HashMap<EventCid, StreamEvent>,
     /// whether we should process this stream because new events have been added
     should_process: bool,
+    /// The last event in our deliverable queue that we kept in memory to try to
+    /// avoid looking it back up as soon as we get the next event. Need to remove next time.
+    last_deliverable: Option<EventCid>,
     /// The newly discovered events that are deliverable and should be processed.
     new_deliverable: VecDeque<EventCid>,
 }
@@ -211,6 +214,7 @@ impl Default for StreamEvents {
             // default to true so we try to follow the event history on the the first batch loading
             // will also avoid any possible race conditions if we somehow get things out of order on the channel
             should_process: true,
+            last_deliverable: None,
             new_deliverable: VecDeque::new(),
         }
     }
@@ -238,17 +242,11 @@ impl StreamEvents {
             StreamEvent::Undelivered(meta) => {
                 self.prev_map.insert(meta.prev, meta.cid);
                 if !self.should_process {
-                    // we depend on something in memory
-                    if let Some(in_memory_prev) = self.cid_map.get(&meta.prev) {
-                        match in_memory_prev {
-                            StreamEvent::InitEvent(_) | StreamEvent::KnownDeliverable(_) => {
-                                self.should_process = true;
-                            }
-                            StreamEvent::Undelivered(_) => {
-                                // nothing to do until its prev arrives
-                            }
-                        }
-                    }
+                    // as we could sit in the channel for a while and streams can fork, we can't rely
+                    // on our in memory state to know what happened between enqueue and dequeque
+                    // and need to try to process. We could add an LRU cache in the future to
+                    // avoid looking up that were processed while were were enqueued.
+                    self.should_process = true;
                 }
                 meta.cid
             }
@@ -269,17 +267,43 @@ impl StreamEvents {
     /// Returns `true` if we're finished processing and can be dropped from memory.
     /// Returns `false` if we have more work to do and should be retained for future processing
     fn processing_completed(&mut self) -> bool {
-        self.should_process = false;
-        // It's worth considering whether we should prune the `cid_map` and `prev_map` with everything from the `new_deliverable` set to avoid
-        // memory leaks due to never finding events. This requires setting `self.should_process` to true for all undelivered events (or making a db query),
-        // as we will no longer have everything we've discovered in memory and need to go to the db to figure out what to do. As streams are generally
-        // short, I'm opting to not make this change now. We could consider something like an expiration time as well, but generally we don't want
-        // to be dropping things from memory that we might need to process in the future unless we have to.
-        self.new_deliverable.clear();
-        !self
+        // if we're done, we don't need to bother cleaning up since we get dropped
+        if !self
             .cid_map
             .iter()
             .any(|(_, ev)| matches!(ev, StreamEvent::Undelivered(_)))
+        {
+            true
+        } else {
+            self.should_process = false;
+
+            if let Some(prune_now) = self.last_deliverable.take() {
+                self.new_deliverable.push_front(prune_now);
+            }
+            self.last_deliverable = self.new_deliverable.back().cloned();
+            for cid in self
+                .new_deliverable
+                .iter()
+                .take(self.new_deliverable.len().saturating_sub(1))
+            {
+                if let Some(ev) = self.cid_map.remove(cid) {
+                    match ev {
+                        StreamEvent::InitEvent(_) => {
+                            warn!(%cid, "should not have init event in our delivery queue when processing_completed");
+                            debug_assert!(false); // panic in debug mode
+                        }
+                        StreamEvent::KnownDeliverable(meta) => {
+                            self.prev_map.remove(&meta.prev);
+                        }
+                        StreamEvent::Undelivered(_) => {
+                            unreachable!("should not have undelivered event in our delivery queue")
+                        }
+                    }
+                }
+            }
+            self.new_deliverable.clear();
+            false
+        }
     }
 
     /// When we discover the prev event is deliverable, we can mark ourselves as deliverable.
