@@ -251,76 +251,174 @@ async fn prep_highwater_tests(store: &dyn EventStore) -> (Cid, Cid, Cid) {
 }
 
 test_with_dbs!(
-    events_since_highwater_mark_all_global_counter,
-    events_since_highwater_mark_all_global_counter,
+    events_since_highwater_mark_all_global_counter_with_data,
+    events_since_highwater_mark_all_global_counter_with_data,
     [
         "delete from ceramic_one_event_block",
         "delete from ceramic_one_event",
         "delete from ceramic_one_block",
     ]
 );
-async fn events_since_highwater_mark_all_global_counter<S>(store: S)
+async fn events_since_highwater_mark_all_global_counter_with_data<S>(store: S)
 where
     S: EventStore,
 {
+    events_since_highwater_mark_all_global_counter(store, true).await;
+}
+
+test_with_dbs!(
+    events_since_highwater_mark_all_global_counter_no_data,
+    events_since_highwater_mark_all_global_counter_no_data,
+    [
+        "delete from ceramic_one_event_block",
+        "delete from ceramic_one_event",
+        "delete from ceramic_one_block",
+    ]
+);
+async fn events_since_highwater_mark_all_global_counter_no_data<S>(store: S)
+where
+    S: EventStore,
+{
+    events_since_highwater_mark_all_global_counter(store, false).await;
+}
+
+async fn events_since_highwater_mark_all_global_counter(
+    store: impl EventStore,
+    include_data: bool,
+) {
+    let include_data = if include_data {
+        ceramic_api::IncludeEventData::Full
+    } else {
+        ceramic_api::IncludeEventData::None
+    };
     let (key_a, key_b, key_c) = prep_highwater_tests(&store).await;
 
-    let (hw, res) = store.events_since_highwater_mark(0, 10).await.unwrap();
-    assert_eq!(3, res.len());
+    let (hw, res) = store
+        .events_since_highwater_mark(0, 10, include_data)
+        .await
+        .unwrap();
+    let res = res.into_iter().map(|r| r.id).collect::<Vec<_>>();
+    assert_eq!(3, res.len(), "include_data={:?}", include_data);
     assert!(hw >= 4); // THIS IS THE GLOBAL COUNTER. we have 3 rows in the db we have a counter of 4 or more
     let exp = [key_a, key_b, key_c];
     assert_eq!(exp, res.as_slice());
 }
 
 test_with_dbs!(
-    events_since_highwater_mark_limit_1,
-    events_since_highwater_mark_limit_1,
+    events_since_highwater_mark_limit_1_with_data,
+    events_since_highwater_mark_limit_1_with_data,
     [
         "delete from ceramic_one_event_block",
         "delete from ceramic_one_event",
         "delete from ceramic_one_block",
     ]
 );
-async fn events_since_highwater_mark_limit_1<S>(store: S)
+async fn events_since_highwater_mark_limit_1_with_data<S>(store: S)
 where
     S: EventStore,
 {
+    events_since_highwater_mark_limit_1(store, true).await;
+}
+
+test_with_dbs!(
+    events_since_highwater_mark_limit_1_no_data,
+    events_since_highwater_mark_limit_1_no_data,
+    [
+        "delete from ceramic_one_event_block",
+        "delete from ceramic_one_event",
+        "delete from ceramic_one_block",
+    ]
+);
+async fn events_since_highwater_mark_limit_1_no_data<S>(store: S)
+where
+    S: EventStore,
+{
+    events_since_highwater_mark_limit_1(store, false).await;
+}
+
+async fn events_since_highwater_mark_limit_1<S>(store: S, include_data: bool)
+where
+    S: EventStore,
+{
+    let include_data = if include_data {
+        ceramic_api::IncludeEventData::Full
+    } else {
+        ceramic_api::IncludeEventData::None
+    };
     let (key_a, _key_b, _key_c) = prep_highwater_tests(&store).await;
-    let (hw_og, res) = store.events_since_highwater_mark(0, 1).await.unwrap();
-    assert_eq!(1, res.len());
+    let (hw_og, res) = store
+        .events_since_highwater_mark(0, 1, include_data)
+        .await
+        .unwrap();
+    let res = res.into_iter().map(|r| r.id).collect::<Vec<_>>();
+    assert_eq!(1, res.len(), "include_data={:?}", include_data);
     assert!(hw_og >= 2); // other tests might be incrementing the count. but we should have at least 2 and it shouldn't change between calls
-    let (hw, res) = store.events_since_highwater_mark(0, 1).await.unwrap();
+    let (hw, res) = store
+        .events_since_highwater_mark(0, 1, include_data)
+        .await
+        .unwrap();
+    let res = res.into_iter().map(|r| r.id).collect::<Vec<_>>();
     assert_eq!(hw_og, hw);
     assert_eq!([key_a], res.as_slice());
 }
 
 test_with_dbs!(
-    events_since_highwater_mark_middle_start,
-    events_since_highwater_mark_middle_start,
+    events_since_highwater_mark_middle_start_with_data,
+    events_since_highwater_mark_middle_start_with_data,
     [
         "delete from ceramic_one_event_block",
         "delete from ceramic_one_event",
         "delete from ceramic_one_block",
     ]
 );
-async fn events_since_highwater_mark_middle_start<S>(store: S)
-where
-    S: EventStore,
-{
+async fn events_since_highwater_mark_middle_start_with_data(store: impl EventStore) {
+    events_since_highwater_mark_middle_start(store, true).await;
+}
+
+test_with_dbs!(
+    events_since_highwater_mark_middle_start_no_data,
+    events_since_highwater_mark_middle_start_no_data,
+    [
+        "delete from ceramic_one_event_block",
+        "delete from ceramic_one_event",
+        "delete from ceramic_one_block",
+    ]
+);
+async fn events_since_highwater_mark_middle_start_no_data(store: impl EventStore) {
+    events_since_highwater_mark_middle_start(store, false).await;
+}
+
+async fn events_since_highwater_mark_middle_start(store: impl EventStore, include_data: bool) {
+    let include_data = if include_data {
+        ceramic_api::IncludeEventData::Full
+    } else {
+        ceramic_api::IncludeEventData::None
+    };
     let (key_a, key_b, key_c) = prep_highwater_tests(&store).await;
 
     // starting at rowid 1 which is in the middle of key A should still return key A
-    let (hw, res) = store.events_since_highwater_mark(1, 2).await.unwrap();
-    assert_eq!(2, res.len());
+    let (hw, res) = store
+        .events_since_highwater_mark(1, 2, include_data)
+        .await
+        .unwrap();
+    let res = res.into_iter().map(|r| r.id).collect::<Vec<_>>();
+    assert_eq!(2, res.len(), "include_data={:?}", include_data);
     assert!(hw >= 3);
     assert_eq!([key_a, key_b], res.as_slice());
 
-    let (hw, res) = store.events_since_highwater_mark(hw, 1).await.unwrap();
+    let (hw, res) = store
+        .events_since_highwater_mark(hw, 1, include_data)
+        .await
+        .unwrap();
+    let res = res.into_iter().map(|r| r.id).collect::<Vec<_>>();
     assert_eq!(1, res.len());
     assert!(hw >= 4);
     assert_eq!([key_c], res.as_slice());
 
-    let (hw, res) = store.events_since_highwater_mark(hw, 1).await.unwrap();
+    let (hw, res) = store
+        .events_since_highwater_mark(hw, 1, include_data)
+        .await
+        .unwrap();
     assert_eq!(0, res.len());
     assert!(hw >= 4); // previously returned 0
 }

@@ -1,7 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 
 use anyhow::anyhow;
-use ceramic_core::EventId;
 use ceramic_event::unvalidated;
 use ceramic_store::{CeramicOneEvent, SqlitePool};
 use cid::Cid;
@@ -503,7 +502,7 @@ impl OrderingState {
         while iter_cnt < max_iterations {
             iter_cnt += 1;
             let (undelivered, new_hw) =
-                CeramicOneEvent::undelivered_with_values(pool, batch_size.into(), highwater)
+                CeramicOneEvent::undelivered_with_values(pool, highwater, batch_size.into())
                     .await?;
             highwater = new_hw;
             let found_something = !undelivered.is_empty();
@@ -536,17 +535,12 @@ impl OrderingState {
     async fn process_undelivered_events_batch(
         &mut self,
         pool: &SqlitePool,
-        event_data: Vec<(EventId, Vec<u8>)>,
+        event_data: Vec<(Cid, unvalidated::Event<Ipld>)>,
     ) -> Result<usize> {
         trace!(cnt=%event_data.len(), "Processing undelivered events batch");
         let mut event_cnt = 0;
         let mut discovered_inits = Vec::new();
-        for (_event_id, carfile) in event_data {
-            let (cid, parsed_event) =
-                unvalidated::Event::<Ipld>::decode_car(carfile.as_slice(), false)
-                    .await
-                    .map_err(Error::new_app)?;
-
+        for (cid, parsed_event) in event_data {
             let metadata = EventMetadata::from(parsed_event);
 
             let (stream_cid, loaded) = match &metadata {

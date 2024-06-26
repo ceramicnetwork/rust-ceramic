@@ -5,15 +5,16 @@ use std::{
 };
 
 use anyhow::anyhow;
-use ceramic_core::{event_id::InvalidEventId, EventId};
-use cid::Cid;
+use ceramic_core::{event_id::InvalidEventId, Cid, EventId};
+use ceramic_event::unvalidated;
+use ipld_core::ipld::Ipld;
 use recon::{AssociativeHash, HashCount, Key, Result as ReconResult, Sha256a};
 
 use crate::{
     sql::{
         entities::{
-            rebuild_car, BlockRow, CountRow, DeliveredEventRow, EventInsertable, OrderKey,
-            ReconEventBlockRaw, ReconHash,
+            rebuild_car, BlockRow, CountRow, EventInsertable, OrderKey, ReconEventBlockRaw,
+            ReconHash,
         },
         query::{EventQuery, ReconQuery, ReconType, SqlBackend},
         sqlite::SqliteTransaction,
@@ -191,42 +192,6 @@ impl CeramicOneEvent {
         Ok(res)
     }
 
-    /// Find events that haven't been delivered to the client and may be ready.
-    /// Returns the events and their values, and the highwater mark of the last event.
-    /// The highwater mark can be used on the next call to get the next batch of events and will be 0 when done.
-    pub async fn undelivered_with_values(
-        pool: &SqlitePool,
-        limit: i64,
-        highwater_mark: i64,
-    ) -> Result<(Vec<(EventId, Vec<u8>)>, i64)> {
-        struct UndeliveredEventBlockRow {
-            block: ReconEventBlockRaw,
-            row_id: i64,
-        }
-
-        use sqlx::Row as _;
-
-        impl sqlx::FromRow<'_, sqlx::sqlite::SqliteRow> for UndeliveredEventBlockRow {
-            fn from_row(row: &sqlx::sqlite::SqliteRow) -> std::result::Result<Self, sqlx::Error> {
-                let row_id = row.try_get("rowid")?;
-                let block = ReconEventBlockRaw::from_row(row)?;
-                Ok(Self { block, row_id })
-            }
-        }
-
-        let all_blocks: Vec<UndeliveredEventBlockRow> =
-            sqlx::query_as(EventQuery::undelivered_with_values())
-                .bind(limit)
-                .bind(highwater_mark)
-                .fetch_all(pool.reader())
-                .await?;
-
-        let max_highwater = all_blocks.iter().map(|row| row.row_id).max().unwrap_or(0); // if there's nothing in the list we just return 0
-        let blocks = all_blocks.into_iter().map(|b| b.block).collect();
-        let values = ReconEventBlockRaw::into_carfiles(blocks).await?;
-        Ok((values, max_highwater))
-    }
-
     /// Calculate the hash of a range of events
     pub async fn hash_range(
         pool: &SqlitePool,
@@ -308,13 +273,106 @@ impl CeramicOneEvent {
         delivered: i64,
         limit: i64,
     ) -> Result<(i64, Vec<Cid>)> {
-        let rows: Vec<DeliveredEventRow> = sqlx::query_as(EventQuery::new_delivered_events())
-            .bind(delivered)
-            .bind(limit)
-            .fetch_all(pool.reader())
-            .await?;
+        #[derive(sqlx::FromRow)]
+        struct DeliveredEventRow {
+            cid: Vec<u8>,
+            new_highwater_mark: i64,
+        }
 
-        DeliveredEventRow::parse_query_results(delivered, rows)
+        let rows: Vec<DeliveredEventRow> =
+            sqlx::query_as(EventQuery::new_delivered_events_id_only())
+                .bind(delivered)
+                .bind(limit)
+                .fetch_all(pool.reader())
+                .await?;
+
+        let max: i64 = rows.last().map_or(delivered, |r| r.new_highwater_mark + 1);
+        let rows = rows
+            .into_iter()
+            .map(|row| Cid::try_from(row.cid).map_err(Error::new_app))
+            .collect::<Result<Vec<Cid>>>()?;
+
+        Ok((max, rows))
+    }
+
+    /// Returns the root CIDs and the data of all the events found after the given delivered value.
+    pub async fn new_events_since_value_with_data(
+        pool: &SqlitePool,
+        delivered: i64,
+        limit: i64,
+    ) -> Result<(i64, Vec<(Cid, unvalidated::Event<Ipld>)>)> {
+        struct DeliveredEventBlockRow {
+            block: ReconEventBlockRaw,
+            new_highwater_mark: i64,
+        }
+
+        use sqlx::Row as _;
+
+        impl sqlx::FromRow<'_, sqlx::sqlite::SqliteRow> for DeliveredEventBlockRow {
+            fn from_row(row: &sqlx::sqlite::SqliteRow) -> std::result::Result<Self, sqlx::Error> {
+                let new_highwater_mark = row.try_get("new_highwater_mark")?;
+
+                let block = ReconEventBlockRaw::from_row(row)?;
+                Ok(Self {
+                    block,
+                    new_highwater_mark,
+                })
+            }
+        }
+
+        let mut all_blocks: Vec<DeliveredEventBlockRow> =
+            sqlx::query_as(EventQuery::new_delivered_events_with_data())
+                .bind(delivered)
+                .bind(limit)
+                .fetch_all(pool.reader())
+                .await?;
+
+        // default to the passed in value if there are no new events to avoid the client going back to 0
+        let max_highwater = all_blocks
+            .iter()
+            .map(|row| row.new_highwater_mark + 1)
+            .max()
+            .unwrap_or(delivered);
+        all_blocks.sort_by(|a, b| a.new_highwater_mark.cmp(&b.new_highwater_mark));
+        let blocks = all_blocks.into_iter().map(|b| b.block).collect();
+        let values = ReconEventBlockRaw::into_events(blocks).await?;
+        Ok((max_highwater, values))
+    }
+
+    /// Find events that haven't been delivered to the client and may be ready.
+    /// Returns the events and their values, and the highwater mark of the last event.
+    /// The highwater mark can be used on the next call to get the next batch of events and will be 0 when done.
+    pub async fn undelivered_with_values(
+        pool: &SqlitePool,
+        highwater_mark: i64,
+        limit: i64,
+    ) -> Result<(Vec<(Cid, unvalidated::Event<Ipld>)>, i64)> {
+        struct UndeliveredEventBlockRow {
+            block: ReconEventBlockRaw,
+            row_id: i64,
+        }
+
+        use sqlx::Row as _;
+
+        impl sqlx::FromRow<'_, sqlx::sqlite::SqliteRow> for UndeliveredEventBlockRow {
+            fn from_row(row: &sqlx::sqlite::SqliteRow) -> std::result::Result<Self, sqlx::Error> {
+                let row_id = row.try_get("rowid")?;
+                let block = ReconEventBlockRaw::from_row(row)?;
+                Ok(Self { block, row_id })
+            }
+        }
+
+        let all_blocks: Vec<UndeliveredEventBlockRow> =
+            sqlx::query_as(EventQuery::undelivered_with_values())
+                .bind(highwater_mark)
+                .bind(limit)
+                .fetch_all(pool.reader())
+                .await?;
+
+        let max_highwater = all_blocks.iter().map(|row| row.row_id).max().unwrap_or(0); // if there's nothing in the list we just return 0
+        let blocks = all_blocks.into_iter().map(|b| b.block).collect();
+        let values = ReconEventBlockRaw::into_events(blocks).await?;
+        Ok((values, max_highwater))
     }
 
     /// Finds the event data by a given EventId i.e. "order key".

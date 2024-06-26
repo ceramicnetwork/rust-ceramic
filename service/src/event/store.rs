@@ -171,8 +171,34 @@ impl ceramic_api::EventStore for CeramicEventService {
         &self,
         highwater: i64,
         limit: i64,
-    ) -> anyhow::Result<(i64, Vec<Cid>)> {
-        Ok(CeramicOneEvent::new_events_since_value(&self.pool, highwater, limit).await?)
+        include_data: ceramic_api::IncludeEventData,
+    ) -> anyhow::Result<(i64, Vec<ceramic_api::EventDataResult>)> {
+        let res = match include_data {
+            ceramic_api::IncludeEventData::None => {
+                let (hw, cids) =
+                    CeramicOneEvent::new_events_since_value(&self.pool, highwater, limit).await?;
+                let res = cids
+                    .into_iter()
+                    .map(|cid| ceramic_api::EventDataResult::new(cid, vec![]))
+                    .collect();
+                (hw, res)
+            }
+            ceramic_api::IncludeEventData::Full => {
+                let (hw, data) =
+                    CeramicOneEvent::new_events_since_value_with_data(&self.pool, highwater, limit)
+                        .await?;
+                let mut res = Vec::with_capacity(data.len());
+                for (cid, value) in data {
+                    res.push(ceramic_api::EventDataResult::new(
+                        cid,
+                        value.encode_car().await?,
+                    ));
+                }
+                (hw, res)
+            }
+        };
+
+        Ok(res)
     }
 
     async fn highwater_mark(&self) -> anyhow::Result<i64> {

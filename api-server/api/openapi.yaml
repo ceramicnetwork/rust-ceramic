@@ -421,13 +421,28 @@ paths:
         schema:
           type: string
         style: form
-      - description: "the maximum number of events to return, default is 10000."
+      - description: "The maximum number of events to return, default is 100. The\
+          \ max with data is 10000."
         explode: true
         in: query
         name: limit
         required: false
         schema:
           type: integer
+        style: form
+      - description: |
+          Whether to include the event data (carfile) in the response. In the future, only the payload or other options may be supported:
+            * `none` - Empty, only the event ID is returned
+            * `full` - The entire envelope carfile (including the envelope and payload)
+        explode: true
+        in: query
+        name: includeData
+        required: false
+        schema:
+          enum:
+          - none
+          - full
+          type: string
         style: form
       responses:
         "200":

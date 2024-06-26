@@ -226,8 +226,11 @@ fn main() {
             );
         }
         Some("FeedEventsGet") => {
-            let result = rt
-                .block_on(client.feed_events_get(Some("resume_at_example".to_string()), Some(56)));
+            let result = rt.block_on(client.feed_events_get(
+                Some("resume_at_example".to_string()),
+                Some(56),
+                Some("include_data_example".to_string()),
+            ));
             info!(
                 "{:?} (X-Span-ID: {:?})",
                 result,
