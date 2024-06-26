@@ -245,7 +245,7 @@ impl StreamEvents {
                     // as we could sit in the channel for a while and streams can fork, we can't rely
                     // on our in memory state to know what happened between enqueue and dequeque
                     // and need to try to process. We could add an LRU cache in the future to
-                    // avoid looking up that were processed while were were enqueued.
+                    // avoid looking up events that were processed while were were enqueued.
                     self.should_process = true;
                 }
                 meta.cid
