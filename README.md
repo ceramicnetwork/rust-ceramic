@@ -4,71 +4,126 @@ Implementation of the Ceramic protocol in Rust.
 
 Current status is that the `ceramic-one` binary only mimics the Kubo RPC API and relies on https://github.com/ceramicnetwork/js-ceramic for the remaining logic.
 
+## Installation
+
+The following section covers several ways one can install Rust-Ceramic contingent on the recieving environment:
+
+### Linux - from Binary Distribution
+
+Install a Github release (Debian-based distributions):
+
+```bash
+# get deb.tar.gz
+curl -LO https://github.com/ceramicnetwork/rust-ceramic/releases/download/latest/ceramic-one_x86_64-unknown-linux-gnu.tar.gz
+# untar the Debian software package file
+tar zxvf ceramic-one_x86_64-unknown-linux-gnu.tar.gz 
+# install with dpkg - package manager for Debian
+dpkg -i ceramic-one.deb
+```
+
+### Linux - from Source
+
+```bash
+# Install rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+# Install build tools
+apt-get install -y build-essential pkg-config openssl libssl-dev unzip
+# Update environment
+source "$HOME/.cargo/env"
+# Install protobuf
+PROTOC_VERSION=3.20.1
+PROTOC_ZIP=protoc-$PROTOC_VERSION-linux-x86_64.zip
+curl --retry 3 --retry-max-time 90 -OL https://github.com/protocolbuffers/protobuf/releases/download/v$PROTOC_VERSION/$PROTOC_ZIP \
+    && unzip -o $PROTOC_ZIP -d /usr/local bin/protoc \
+    && unzip -o $PROTOC_ZIP -d /usr/local 'include/*' \
+    && rm -f $PROTOC_ZIP
+# Checkout rust-ceramic repo
+git clone https://github.com/ceramicnetwork/rust-ceramic
+# Enter repo and build
+cd rust-ceramic
+make build
+cp ./target/release/ceramic-one /usr/local/bin/ceramic-one
+```
+
+### MacOS - Local System
+
+Install a Github release (Darwin armv64)
+
+1. Download the binary:
+
+```bash
+curl -LO https://github.com/ceramicnetwork/rust-ceramic/releases/download/latest/ceramic-one_aarch64-apple-darwin.tar.gz
+tar zxvf ceramic-one_aarch64-apple-darwin.tar.gz
+```
+
+2. Open Finder and double-click the `ceramic-one.pkg` file to start the installation
+
+3. After the installation is complete, copy the binary:
+
+```bash
+sudo cp /Applications/ceramic-one /usr/local/bin/
+```
+
+### Docker
+
+Start rust-ceramic using the host network:
+
+```bash
+docker run --network=host \
+  public.ecr.aws/r5b3e0r5/3box/ceramic-one:latest
+```
+
+### Docker-Compose
+
+1. Create a testing directory, and enter it:
+
+```bash
+mkdir ceramic-recon
+cd ceramic-recon
+```
+
+2. Save the following docker-compose.yaml there:
+
+```YAML
+version: '3.8'
+
+services:
+  ceramic-one:
+    image: public.ecr.aws/r5b3e0r5/3box/ceramic-one:latest
+    network_mode: "host"
+    volumes:
+      - ceramic-one-data:/root/.ceramic-one
+volumes:
+  ceramic-one-data:
+    driver: local
+```
+
+3. Run `docker-compose up -d`
+
 ## Usage
 
-Run in single binary using the `ceramic-one` crate:
+Running the ceramic-one binary is simply passing the `daemon` cli option.
 
-    $ cargo run -p ceramic-one -- daemon
+```sh
+# if necessary, include the path/to/the/binary e.g. /usr/local/bin/ceramic-one or ./target/release/ceramic-one
+$ ceramic-one daemon 
+
+# There are many flags for the daemon CLI that can be passed directly or set as environment variables. 
+# See `DaemonOpts` in one/src/lib.rs for the complete list or pass the -h flag
+$ ceramic-one daemon -h
+
+# A few common options are overriding the log level:
+$ RUST_LOG=warn,ceramic_one=info,ceramic_service=debug ceramic-one daemon
+# Or modifying the network 
+$ ceramic-one daemon --network testnet-clay 
+$ ceramic-one daemon --network local --local-network-id 0
+# Or changing where directory where all data is stored. This folder SHOULD be backed up in production
+# and if you change the defaults, you MUST specify it every time you start the daemon.
+$ ceramic-one daemon --store-dir ./custom-store-dir
+```
 
 The process honors RUST_LOG env variable for controlling its logging output.
 For example, to enable debug logging for code from this repo but error logging for all other code use:
-
-    $ RUST_LOG=ERROR,ceramic_kubo_rpc=DEBUG,ceramic_one=DEBUG cargo run -p ceramic-one -- daemon
-
-## Packaging
-To package rust-ceramic, you will need the following dependencies
-
-* [jq](https://jqlang.github.io/jq/)
-* [FPM](https://fpm.readthedocs.io/en/v1.15.1/) - `gem install fpm`
- * Dependent on your system, you might also need [ruby](https://www.ruby-lang.org/en/)
-
-You can then run the [package script](./ci-scripts/package.sh) to generate a package for your operating system.
-
-## Releasing
-To release rust-ceramic, you will need the following dependencies
-
-* [git cliff](https://git-cliff.org/docs/installation/crates-io)
-* [cargo-release](https://github.com/crate-ci/cargo-release)
-* [gh client](https://cli.github.com/)
-
-When releasing, please release at the appropriate level
-
-* `patch` -> binary compatible, no new functionality
-* `minor` (default) -> binary incompatible or binary compatible with new functionality
-* `major` -> breaking functionality
-
-You will also need to login with the `gh` client to your github account, and that account needs permission to perform
-a release of the rust-ceramic repository.
-
-You can then run the [release script](./ci-scripts/release.sh) to create a release of rust-ceramic.
-
-## Contributing
-
-We are happy to accept small and large contributions, feel free to make a suggestion or submit a pull request.
-
-Use the provided `Makefile` for basic actions to ensure your changes are ready for CI.
-
-    $ make build
-    $ make check-clippy
-    $ make check-fmt
-    $ make test
-
-Using the makefile is not necessary during your development cycle, feel free to use the relevant cargo commands directly, in which case you'll likely need openssl's dev files, the protocol buffer compiler and a c dev environment; on a clean slate Ubuntu:
-
-    $ apt install make protobuf-compiler clang libssl-dev
-
-However running `make` before publishing a PR will provide a good signal if you PR will pass CI.
-
-### Generating Servers
-
-There are two OpenAPI based servers that are generated.
-The `ceramic-api-server` and `ceramic-kubo-rpc-server` crates are generated using OpenAPI.
-Install `@openapitools/openapi-generator-cli` and make to generate the crates. You will need to install augtools to run the checks:
-
-      # Install augtools e.g. brew install augeas or apt-get install augeas-tools
-      npm install @openapitools/openapi-generator-cli@2.6.0 -g
-      make gen-api-server
-      make gen-kubo-rpc-server
 
 ### Migration
 This repo also contains the kubo to ceramic-one migration script.
