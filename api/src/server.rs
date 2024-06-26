@@ -64,14 +64,13 @@ const INSERT_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_se
 // Helper to build responses consistent as we can't implement for the api_server::models directly
 pub struct BuildResponse {}
 impl BuildResponse {
-    pub fn event(id: Cid, data: Vec<u8>) -> models::Event {
+    pub fn event(id: Cid, data: Option<Vec<u8>>) -> models::Event {
         let id = id.to_string();
-        let data = if data.is_empty() {
-            String::default()
-        } else {
-            multibase::encode(multibase::Base::Base64, data)
-        };
-        models::Event::new(id, data)
+        let mut res = models::Event::new(id);
+        if data.as_ref().map_or(false, |e| !e.is_empty()) {
+            res.data = Some(multibase::encode(multibase::Base::Base64, data.unwrap()));
+        }
+        res
     }
 }
 
@@ -197,12 +196,12 @@ impl EventInsertResult {
 pub struct EventDataResult {
     /// The CID of the event
     pub id: ceramic_core::Cid,
-    /// The data as a car file
-    pub data: Vec<u8>,
+    /// The data as a car file. Can be none if not requested.
+    pub data: Option<Vec<u8>>,
 }
 
 impl EventDataResult {
-    pub fn new(id: ceramic_core::Cid, data: Vec<u8>) -> Self {
+    pub fn new(id: ceramic_core::Cid, data: Option<Vec<u8>>) -> Self {
         Self { id, data }
     }
 }
@@ -549,7 +548,7 @@ where
             .await
             .map_err(|err| ErrorResponse::new(format!("failed to get keys: {err}")))?
             .into_iter()
-            .map(|(id, data)| BuildResponse::event(id, data))
+            .map(|(id, data)| BuildResponse::event(id, Some(data)))
             .collect::<Vec<_>>();
 
         let event_cnt = events.len();
@@ -672,7 +671,7 @@ where
         };
         match data {
             Ok(Some(data)) => {
-                let event = BuildResponse::event(cid, data);
+                let event = BuildResponse::event(cid, Some(data));
                 Ok(EventsEventIdGetResponse::Success(event))
             }
             Ok(None) => Ok(EventsEventIdGetResponse::EventNotFound(format!(

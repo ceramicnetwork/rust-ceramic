@@ -179,7 +179,7 @@ impl ceramic_api::EventStore for CeramicEventService {
                     CeramicOneEvent::new_events_since_value(&self.pool, highwater, limit).await?;
                 let res = cids
                     .into_iter()
-                    .map(|cid| ceramic_api::EventDataResult::new(cid, vec![]))
+                    .map(|cid| ceramic_api::EventDataResult::new(cid, None))
                     .collect();
                 (hw, res)
             }
@@ -191,7 +191,7 @@ impl ceramic_api::EventStore for CeramicEventService {
                 for (cid, value) in data {
                     res.push(ceramic_api::EventDataResult::new(
                         cid,
-                        value.encode_car().await?,
+                        Some(value.encode_car().await?),
                     ));
                 }
                 (hw, res)

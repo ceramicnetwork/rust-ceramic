@@ -554,7 +554,6 @@ components:
           description: Multibase encoding of event data.
           type: string
       required:
-      - data
       - id
       title: A Ceramic Event
       type: object

@@ -505,7 +505,6 @@ components:
       type: object
       required:
         - id
-        - data
       properties:
         id:
           type: string

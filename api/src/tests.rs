@@ -520,7 +520,7 @@ async fn get_events_for_interest_range() {
     r: Success(EventsGet { events: [Event { id: "fce0105ff012616e0f0c1e987ef0f772afbe2c7f05c50102bc800", data: "" }], resume_offset: 1, is_complete: false })
             */
     let mock_interest = MockAccessInterestStoreTest::new();
-    let expected = BuildResponse::event(cid, vec![]);
+    let expected = BuildResponse::event(cid, None);
     let mut mock_event_store = MockEventStoreTest::new();
     mock_event_store
         .expect_range_with_values()
@@ -589,7 +589,7 @@ async fn test_events_event_id_get_by_event_id_success() {
         event.id,
         multibase::encode(multibase::Base::Base32Lower, event_cid.to_bytes())
     );
-    assert_eq!(event.data, event_data_base64);
+    assert_eq!(event.data.unwrap(), event_data_base64);
 }
 
 #[test(tokio::test)]
@@ -619,5 +619,5 @@ async fn test_events_event_id_get_by_cid_success() {
         event.id,
         multibase::encode(multibase::Base::Base32Lower, event_cid.to_bytes())
     );
-    assert_eq!(event.data, event_data_base64);
+    assert_eq!(event.data.unwrap(), event_data_base64);
 }
