@@ -212,11 +212,13 @@ where
         &self,
         highwater: i64,
         limit: i64,
-    ) -> anyhow::Result<(i64, Vec<Cid>)> {
+        include_data: ceramic_api::IncludeEventData,
+    ) -> anyhow::Result<(i64, Vec<ceramic_api::EventDataResult>)> {
         StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "api_events_since_highwater_mark",
-            self.store.events_since_highwater_mark(highwater, limit),
+            self.store
+                .events_since_highwater_mark(highwater, limit, include_data),
         )
         .await
     }

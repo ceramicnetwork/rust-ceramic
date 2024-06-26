@@ -2,11 +2,8 @@
 
 use std::{ops::Range, str::FromStr, sync::Arc};
 
-use crate::server::decode_multibase_data;
-use crate::server::BuildResponse;
-use crate::server::Server;
-use crate::EventInsertResult;
-use crate::{EventStore, InterestStore};
+use crate::server::{decode_multibase_data, BuildResponse, Server};
+use crate::{EventDataResult, EventInsertResult, EventStore, IncludeEventData, InterestStore};
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -125,7 +122,8 @@ mock! {
             &self,
             highwater: i64,
             limit: i64,
-        ) -> Result<(i64, Vec<Cid>)>;
+            include_data: IncludeEventData,
+        ) -> Result<(i64, Vec<EventDataResult>)>;
         async fn highwater_mark(
             &self,
         ) -> Result<i64>;
