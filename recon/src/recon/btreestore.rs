@@ -132,7 +132,7 @@ where
     type Key = K;
     type Hash = H;
 
-    async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> Result<bool> {
+    async fn insert<'a>(&self, item: &ReconItem<'a, Self::Key>) -> Result<bool> {
         let mut inner = self.inner.lock().await;
         let new = inner
             .keys
@@ -143,7 +143,7 @@ where
         Ok(new)
     }
 
-    async fn insert_many(&self, items: &[ReconItem<'_, K>]) -> Result<InsertResult> {
+    async fn insert_many<'a>(&self, items: &[ReconItem<'a, K>]) -> Result<InsertResult> {
         let mut new = vec![false; items.len()];
         for (idx, item) in items.iter().enumerate() {
             new[idx] = self.insert(item).await?;

@@ -14,7 +14,7 @@ impl recon::Store for CeramicEventService {
     type Key = EventId;
     type Hash = Sha256a;
 
-    async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> ReconResult<bool> {
+    async fn insert<'a>(&self, item: &ReconItem<'a, Self::Key>) -> ReconResult<bool> {
         let res = self
             .insert_events_from_carfiles_recon(&[item.to_owned()])
             .await?;
@@ -25,9 +25,9 @@ impl recon::Store for CeramicEventService {
     /// Insert new keys into the key space.
     /// Returns true for each key if it did not previously exist, in the
     /// same order as the input iterator.
-    async fn insert_many(
+    async fn insert_many<'a>(
         &self,
-        items: &[ReconItem<'_, Self::Key>],
+        items: &[ReconItem<'a, Self::Key>],
     ) -> ReconResult<recon::InsertResult> {
         let res = self.insert_events_from_carfiles_recon(items).await?;
         Ok(res)
