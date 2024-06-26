@@ -49,14 +49,22 @@ pub struct EventInsertable {
 }
 
 impl EventInsertable {
-    /// Try to build the EventInsertable struct. Will error if the key and body don't match.
+    /// Try to build the EventInsertable struct from a carfile.
+    pub async fn try_from_carfile(order_key: EventId, body: &[u8]) -> Result<Self> {
+        let cid = order_key.cid().ok_or_else(|| {
+            Error::new_invalid_arg(anyhow::anyhow!("EventID is missing a CID: {}", order_key))
+        })?;
+        let body = EventInsertableBody::try_from_carfile(cid, body).await?;
+        Ok(Self { order_key, body })
+    }
+
+    /// Build the EventInsertable struct from an EventID and EventInsertableBody.
+    /// Will error if the CID in the EventID doesn't match the CID in the EventInsertableBody.
     pub fn try_new(order_key: EventId, body: EventInsertableBody) -> Result<Self> {
-        if order_key.cid().as_ref() != Some(&body.cid) {
-            return Err(Error::new_app(anyhow!(
-                "Event ID and body CID do not match: {:?} != {:?}",
-                order_key.cid(),
-                body.cid
-            )))?;
+        if order_key.cid() != Some(body.cid()) {
+            return Err(Error::new_invalid_arg(anyhow!(
+                "EventID CID does not match the body CID"
+            )));
         }
         Ok(Self { order_key, body })
     }
@@ -68,18 +76,7 @@ impl EventInsertable {
 
     /// Whether this event is deliverable currently
     pub fn deliverable(&self) -> bool {
-        self.body.deliverable
-    }
-
-    /// Whether this event is deliverable currently
-    pub fn blocks(&self) -> &Vec<EventBlockRaw> {
-        &self.body.blocks
-    }
-
-    /// Mark the event as deliverable.
-    /// This will be used when inserting the event to make sure the field is updated accordingly.
-    pub fn set_deliverable(&mut self, deliverable: bool) {
-        self.body.deliverable = deliverable;
+        self.body.deliverable()
     }
 }
 
@@ -87,12 +84,12 @@ impl EventInsertable {
 /// The type we use to insert events into the database
 pub struct EventInsertableBody {
     /// The event CID i.e. the root CID from the car file
-    pub cid: Cid,
-    /// Whether this event is deliverable to clients or is waiting for more data
-    pub deliverable: bool,
+    cid: Cid,
+    /// Whether the event is deliverable i.e. it's prev has been delivered and the chain is continuous to an init event
+    deliverable: bool,
     /// The blocks of the event
     // could use a map but there aren't that many blocks per event (right?)
-    pub blocks: Vec<EventBlockRaw>,
+    blocks: Vec<EventBlockRaw>,
 }
 
 impl EventInsertableBody {
@@ -103,6 +100,27 @@ impl EventInsertableBody {
             deliverable,
             blocks,
         }
+    }
+
+    /// Get the CID of the event
+    pub fn cid(&self) -> Cid {
+        self.cid
+    }
+
+    /// Whether this event is deliverable currently
+    pub fn blocks(&self) -> &Vec<EventBlockRaw> {
+        &self.blocks
+    }
+
+    /// Whether this event is deliverable currently
+    pub fn deliverable(&self) -> bool {
+        self.deliverable
+    }
+
+    /// Mark the event as deliverable.
+    /// This will be used when inserting the event to make sure the field is updated accordingly.
+    pub fn set_deliverable(&mut self, deliverable: bool) {
+        self.deliverable = deliverable;
     }
 
     /// Find a block from the carfile for a given CID if it's included

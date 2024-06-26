@@ -327,11 +327,7 @@ impl EventBuilder {
             .build();
         Ok(EventInsertable::try_new(
             event_id,
-            EventInsertableBody {
-                cid: self.event_cid,
-                deliverable: false,
-                blocks: self.blocks,
-            },
+            EventInsertableBody::new(self.event_cid, self.blocks, false),
         )?)
     }
 }

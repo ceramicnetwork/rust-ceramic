@@ -75,7 +75,7 @@ async fn model_setup(tpe: ModelType, cnt: usize) -> ModelSetup {
         let body = EventInsertableBody::try_from_carfile(init.0.cid().unwrap(), &init.1)
             .await
             .unwrap();
-        events.push(EventInsertable::try_new(init.0, body).unwrap());
+        events.push(EventInsertable::try_from_carfile(init.0, body).unwrap());
     }
 
     let pool = SqlitePool::connect_in_memory().await.unwrap();
