@@ -111,8 +111,7 @@ impl CeramicEventService {
         Ok(())
     }
 
-    /// Currently only verifies that the event parses into a valid ceramic event, determining whether it's
-    /// immediately deliverable because it's an init event or it needs review.
+    /// Currently only verifies that the event parses into a valid ceramic event.
     /// In the future, we will need to do more event validation (verify all EventID pieces, hashes, signatures, etc).
     pub(crate) async fn validate_discovered_event(
         event_id: ceramic_core::EventId,
@@ -135,8 +134,7 @@ impl CeramicEventService {
         }
 
         let metadata = EventMetadata::from(parsed_event);
-        let mut body = EventInsertableBody::try_from_carfile(cid, carfile).await?;
-        body.set_deliverable(matches!(metadata, EventMetadata::Init { .. }));
+        let  body = EventInsertableBody::try_from_carfile(cid, carfile).await?;
 
         Ok((EventInsertable::try_new(event_id, body)?, metadata))
     }

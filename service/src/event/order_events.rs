@@ -28,11 +28,14 @@ impl OrderEvents {
         pool: &SqlitePool,
         mut candidate_events: Vec<(EventInsertable, EventMetadata)>,
     ) -> Result<Self> {
-        let mut new_cids: HashMap<Cid, bool> = HashMap::from_iter(
-            candidate_events
-                .iter()
-                .map(|(e, _)| (e.cid(), e.deliverable())),
-        );
+        let mut new_cids: HashMap<Cid, bool> =
+            HashMap::from_iter(candidate_events.iter_mut().map(|(e, meta)| {
+                // all init events are deliverable so we mark them as such before we do anything else
+                if matches!(meta, EventMetadata::Init { .. }) {
+                    e.body.set_deliverable(true);
+                }
+                (e.cid(), e.deliverable())
+            }));
         let mut deliverable = Vec::with_capacity(candidate_events.len());
         candidate_events.retain(|(e, h)| {
             if e.deliverable() {
