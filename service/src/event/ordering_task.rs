@@ -640,14 +640,16 @@ mod test {
         init.body.set_deliverable(true);
         let undelivered = insertable.into_iter().skip(1).collect::<Vec<_>>();
 
-        let new = CeramicOneEvent::insert_many(pool, &undelivered[..])
+        let new = CeramicOneEvent::insert_many(pool, undelivered.iter())
             .await
             .unwrap();
 
         assert_eq!(9, new.inserted.len());
         assert_eq!(0, new.inserted.iter().filter(|e| e.deliverable).count());
 
-        let new = CeramicOneEvent::insert_many(pool, &[init]).await.unwrap();
+        let new = CeramicOneEvent::insert_many(pool, [&init].into_iter())
+            .await
+            .unwrap();
         assert_eq!(1, new.inserted.len());
         assert_eq!(1, new.inserted.iter().filter(|e| e.deliverable).count());
     }

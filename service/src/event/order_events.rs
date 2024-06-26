@@ -8,8 +8,18 @@ use crate::Result;
 use super::service::EventMetadata;
 
 pub(crate) struct OrderEvents {
-    pub(crate) deliverable: Vec<(EventInsertable, EventMetadata)>,
-    pub(crate) missing_history: Vec<(EventInsertable, EventMetadata)>,
+    deliverable: Vec<(EventInsertable, EventMetadata)>,
+    missing_history: Vec<(EventInsertable, EventMetadata)>,
+}
+
+impl OrderEvents {
+    pub fn deliverable(&self) -> &[(EventInsertable, EventMetadata)] {
+        &self.deliverable
+    }
+
+    pub fn missing_history(&self) -> &[(EventInsertable, EventMetadata)] {
+        &self.missing_history
+    }
 }
 
 impl OrderEvents {
@@ -246,7 +256,7 @@ mod test {
             .map(|(i, _)| i.clone())
             .collect::<Vec<_>>();
         let mut remaining = insertable.into_iter().skip(3).collect::<Vec<_>>();
-        CeramicOneEvent::insert_many(&pool, &to_insert[..])
+        CeramicOneEvent::insert_many(&pool, to_insert.iter())
             .await
             .unwrap();
 
@@ -287,7 +297,7 @@ mod test {
             })
             .collect::<Vec<_>>();
         let mut remaining = insertable.into_iter().skip(3).collect::<Vec<_>>();
-        CeramicOneEvent::insert_many(&pool, &to_insert[..])
+        CeramicOneEvent::insert_many(&pool, to_insert.iter())
             .await
             .unwrap();
 

@@ -140,7 +140,7 @@ impl Migrator {
         Ok(())
     }
     async fn write_batch(&mut self, sql_pool: &SqlitePool) -> Result<()> {
-        CeramicOneEvent::insert_many(sql_pool, &self.batch).await?;
+        CeramicOneEvent::insert_many(sql_pool, self.batch.iter()).await?;
         self.event_count += self.batch.len();
         self.batch.truncate(0);
         Ok(())
