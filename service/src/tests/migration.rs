@@ -81,7 +81,7 @@ async fn signer() -> unvalidated::signed::JwkSigner {
         .await
         .unwrap()
 }
-async fn random_unsigned_init_event() -> unvalidated::Event<Ipld> {
+async fn random_unsigned_init_event() -> unvalidated::init::Payload<Ipld> {
     let model =
         StreamId::from_str("kjzl6hvfrbw6c90uwoyz8j519gxma787qbsfjtrarkr1huq1g1s224k7hopvsyg")
             .unwrap();
@@ -90,14 +90,12 @@ async fn random_unsigned_init_event() -> unvalidated::Event<Ipld> {
     thread_rng().fill_bytes(&mut unique);
     let data = ipld_core::ipld!({"key": thread_rng().gen::<u32>()});
 
-    let payload = unvalidated::Builder::init()
+    unvalidated::Builder::init()
         .with_controller("did:key:z6MktBynAPLrEyeS7pVthbiyScmfu8n5V7boXgxyo5q3SZRR".to_string())
         .with_sep("model".to_string(), model)
         .with_unique(unique)
         .with_data(data)
-        .build();
-
-    payload.into()
+        .build()
 }
 async fn random_signed_init_event() -> unvalidated::signed::Event<Ipld> {
     let model =
@@ -160,24 +158,43 @@ fn cid_from_dag_cbor(data: &[u8]) -> Cid {
         Code::Sha2_256.digest(data),
     )
 }
-async fn random_time_event() -> Vec<unvalidated::Event<Ipld>> {
+// create random time event with a previous unsigned init event
+async fn random_unsigned_init_time_event() -> Vec<unvalidated::Event<Ipld>> {
+    let init = random_unsigned_init_event().await;
+    let init_cid = init.encoded_cid().await.unwrap();
+    vec![init.into(), random_time_event(init_cid).await.into()]
+}
+// create random time event with a previous signed init event
+async fn random_signed_init_time_event() -> Vec<unvalidated::Event<Ipld>> {
     let init = random_signed_init_event().await;
-    let mut prev = init.envelope_cid();
+
+    let time_event = random_time_event(init.envelope_cid()).await.into();
+    vec![init.into(), time_event]
+}
+
+async fn random_time_event(prev: Cid) -> Box<unvalidated::TimeEvent> {
+    let mut next = prev;
     let mut witness_nodes = Vec::new();
     for _ in 0..10 {
-        let (idx, edge) = if thread_rng().gen() {
-            (0, ipld!([prev, random_cid()]))
+        // The other branch is randomly a cid or null
+        let other = if thread_rng().gen() {
+            Ipld::Link(random_cid())
         } else {
-            (1, ipld!([random_cid(), prev]))
+            Ipld::Null
+        };
+        let (idx, edge) = if thread_rng().gen() {
+            (0, ipld!([next, other]))
+        } else {
+            (1, ipld!([other, next]))
         };
         let edge_bytes = serde_ipld_dagcbor::to_vec(&edge).unwrap();
-        prev = cid_from_dag_cbor(&edge_bytes);
+        next = cid_from_dag_cbor(&edge_bytes);
         witness_nodes.push((idx, edge));
     }
     let (root_idx, root_edge) = witness_nodes.pop().unwrap();
 
     let mut builder = unvalidated::Builder::time()
-        .with_id(init.envelope_cid())
+        .with_id(prev)
         .with_tx(
             "eip155:11155111".to_string(),
             random_cid(),
@@ -188,7 +205,7 @@ async fn random_time_event() -> Vec<unvalidated::Event<Ipld>> {
         builder = builder.with_witness_node(idx, edge);
     }
     let time = builder.build().unwrap();
-    vec![init.into(), Box::new(time).into()]
+    Box::new(time)
 }
 #[test(tokio::test)]
 async fn unsigned_init_event() {
@@ -261,18 +278,32 @@ async fn cacao_signed_data_event() {
     test_migration(vec![new_cacao_signed_data_event()]).await;
 }
 #[test(tokio::test)]
-async fn time_event() {
+async fn unsigned_time_event() {
     let mut cars = Vec::new();
-    for event in random_time_event().await {
+    for event in random_unsigned_init_time_event().await {
         cars.push(event.encode_car().await.unwrap());
     }
+    test_migration(cars).await;
+}
+#[test(tokio::test)]
+async fn sigined_init_time_event() {
+    let mut cars = Vec::new();
+    for event in random_signed_init_time_event().await {
+        cars.push(event.encode_car().await.unwrap());
+    }
+
     test_migration(cars).await;
 }
 #[test(tokio::test)]
 async fn many_time_events() {
     let mut cars = Vec::new();
     for _ in 0..3 {
-        for event in random_time_event().await {
+        for event in random_unsigned_init_time_event().await {
+            cars.push(event.encode_car().await.unwrap());
+        }
+    }
+    for _ in 0..3 {
+        for event in random_signed_init_time_event().await {
             cars.push(event.encode_car().await.unwrap());
         }
     }
@@ -302,7 +333,12 @@ async fn all_events() {
         }
     }
     for _ in 0..3 {
-        for event in random_time_event().await {
+        for event in random_unsigned_init_time_event().await {
+            cars.push(event.encode_car().await.unwrap());
+        }
+    }
+    for _ in 0..3 {
+        for event in random_signed_init_time_event().await {
             cars.push(event.encode_car().await.unwrap());
         }
     }

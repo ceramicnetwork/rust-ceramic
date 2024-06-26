@@ -190,34 +190,6 @@ impl<'writer> FormatFields<'writer> for FieldsFormat {
     }
 }
 
-/// For use in CLI tools that are writing to stdout without metrics
-/// Will start a tokio console subscriber if the feature is enabled
-pub fn init_local_tracing() -> Result<(), Box<dyn std::error::Error>> {
-    let filter_builder = EnvFilter::builder().with_default_directive(LevelFilter::INFO.into());
-
-    let log_filter = filter_builder.from_env()?;
-
-    // Configure both the fields and event formats.
-    let fields_format = FieldsFormat::new(config::LogFormat::MultiLine);
-    let event_format = EventFormat::new(config::LogFormat::MultiLine);
-
-    let log_subscriber = fmt::layer()
-        // The JSON format ignore the ansi setting and always format without colors.
-        .with_ansi(true)
-        .event_format(event_format)
-        .fmt_fields(fields_format)
-        .with_filter(log_filter);
-
-    #[cfg(feature = "tokio-console")]
-    let registry = tracing_subscriber::registry().with(console_subscriber::spawn());
-    #[cfg(not(feature = "tokio-console"))]
-    let registry = tracing_subscriber::registry();
-
-    registry.with(log_subscriber).try_init()?;
-
-    Ok(())
-}
-
 /// Initialize the tracing subsystem.
 fn init_tracer(cfg: Config) -> Result<(), Box<dyn std::error::Error>> {
     // Default to INFO if no env is specified

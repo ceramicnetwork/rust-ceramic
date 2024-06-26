@@ -225,51 +225,45 @@ impl Migrator {
         event: unvalidated::RawTimeEvent,
     ) -> Result<()> {
         let init = event.id();
-        let init_block = self.find_block(&init)?;
-        let init_event: unvalidated::signed::Envelope =
-            serde_ipld_dagcbor::from_slice(&init_block.data().await?)?;
-        if let Some(init_link) = init_event.link() {
-            let payload_block = self.find_block(&init_link)?;
-            let payload: unvalidated::init::Payload<Ipld> =
-                serde_ipld_dagcbor::from_slice(&payload_block.data().await?)?;
-            let mut event_builder = EventBuilder::new(
-                cid,
-                payload.header().model().to_vec(),
-                payload.header().controllers()[0].clone(),
-                init,
-            );
-            event_builder.add_root(cid, data.clone());
-            let proof_id = event.proof();
-            let block = self.find_block(&proof_id)?;
-            let data = block.data().await?;
-            let proof: unvalidated::Proof = serde_ipld_dagcbor::from_slice(&data)?;
-            event_builder.add_block(proof_id, data);
-            let mut curr = proof.root();
-            for index in event.path().split('/') {
-                if curr == event.prev() {
-                    // The time event's previous link is the same as the last link in the proof.
-                    // That block should already be included independently no need to include it here.
-                    break;
-                }
-                let idx: usize = index.parse().context("parsing path segment as index")?;
-                let block = self.find_block(&curr)?;
-                let data = block.data().await?;
-                let edge: unvalidated::ProofEdge = serde_ipld_dagcbor::from_slice(&data)?;
-                // Add edge data to event
-                event_builder.add_block(curr, data);
-
-                // Follow path
-                if let Some(link) = edge.get(idx) {
-                    curr = *link;
-                } else {
-                    error!(%curr, "missing block");
-                    break;
-                }
+        let init_payload = self.find_init_payload(&event.id()).await?;
+        let mut event_builder = EventBuilder::new(
+            cid,
+            init_payload.header().model().to_vec(),
+            init_payload.header().controllers()[0].clone(),
+            init,
+        );
+        event_builder.add_root(cid, data.clone());
+        let proof_id = event.proof();
+        let block = self.find_block(&proof_id)?;
+        let data = block.data().await?;
+        let proof: unvalidated::Proof = serde_ipld_dagcbor::from_slice(&data)?;
+        event_builder.add_block(proof_id, data);
+        let mut curr = proof.root();
+        for index in event.path().split('/') {
+            if curr == event.prev() {
+                // The time event's previous link is the same as the last link in the proof.
+                // That block should already be included independently no need to include it here.
+                break;
             }
+            let idx: usize = index.parse().context("parsing path segment as index")?;
+            let block = self.find_block(&curr)?;
+            let data = block.data().await.context("fetch block data")?;
+            let edge: unvalidated::ProofEdge =
+                serde_ipld_dagcbor::from_slice(&data).context("dag cbor decode")?;
+            // Add edge data to event
+            event_builder.add_block(curr, data);
 
-            self.batch
-                .push(event_builder.build(self.network.clone()).await?);
+            // Follow path
+            if let Some(Ipld::Link(link)) = edge.get(idx) {
+                curr = *link;
+            } else {
+                error!(%curr, "missing block");
+                break;
+            }
         }
+
+        self.batch
+            .push(event_builder.build(self.network.clone()).await?);
         Ok(())
     }
 }
