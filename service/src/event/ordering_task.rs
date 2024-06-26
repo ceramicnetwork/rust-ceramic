@@ -268,10 +268,10 @@ impl StreamEvents {
     /// Returns `false` if we have more work to do and should be retained for future processing
     fn processing_completed(&mut self) -> bool {
         // if we're done, we don't need to bother cleaning up since we get dropped
-        if !self
+        if self
             .cid_map
             .iter()
-            .any(|(_, ev)| matches!(ev, StreamEvent::Undelivered(_)))
+            .all(|(_, ev)| !matches!(ev, StreamEvent::Undelivered(_)))
         {
             true
         } else {
