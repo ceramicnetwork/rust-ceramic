@@ -248,12 +248,25 @@ impl DBOpts {
             },
         }
     }
+    /// This function will create the database directory if it does not exist.
     async fn get_database(&self) -> Result<Databases> {
-        let sql_db_path = self
-            .default_directory()
-            .join("db.sqlite3")
-            .display()
-            .to_string();
+        let dir = self.default_directory();
+        match tokio::fs::create_dir_all(dir.clone()).await {
+            Ok(_) => {}
+            Err(e) => match e.kind() {
+                std::io::ErrorKind::AlreadyExists => {}
+                _ => {
+                    let message = format!(
+                        "Failed to create required directory '{}' due to {}",
+                        dir.display(),
+                        e
+                    );
+                    eprintln!("{}", message);
+                    anyhow::bail!(message);
+                }
+            },
+        }
+        let sql_db_path = dir.join("db.sqlite3").display().to_string();
         Self::build_sqlite_dbs(&sql_db_path).await
     }
 
@@ -283,22 +296,6 @@ struct Daemon;
 
 impl Daemon {
     async fn run(opts: DaemonOpts) -> Result<()> {
-        let dir = opts.db_opts.default_directory();
-        match tokio::fs::create_dir_all(dir.clone()).await {
-            Ok(_) => {}
-            Err(e) => match e.kind() {
-                std::io::ErrorKind::AlreadyExists => {}
-                _ => {
-                    let message = format!(
-                        "Failed to create required directory '{}' due to {}",
-                        dir.display(),
-                        e
-                    );
-                    eprintln!("{}", message);
-                    anyhow::bail!(message);
-                }
-            },
-        }
         let db = opts.db_opts.get_database().await?;
 
         // we should be able to consolidate the Store traits now that they all rely on &self, but for now we use
