@@ -295,7 +295,7 @@ impl Daemon {
                         e
                     );
                     eprintln!("{}", message);
-                    return Err(anyhow!(message));
+                    anyhow::bail!(message);
                 }
             },
         }
