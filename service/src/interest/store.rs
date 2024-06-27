@@ -13,7 +13,7 @@ impl recon::Store for CeramicInterestService {
     type Hash = Sha256a;
 
     #[instrument(skip(self))]
-    async fn insert(&self, item: &ReconItem<'_, Self::Key>) -> ReconResult<bool> {
+    async fn insert<'a>(&self, item: &ReconItem<'a, Self::Key>) -> ReconResult<bool> {
         Ok(CeramicOneInterest::insert(&self.pool, item.key).await?)
     }
 
@@ -21,7 +21,10 @@ impl recon::Store for CeramicInterestService {
     /// Returns true for each key if it did not previously exist, in the
     /// same order as the input iterator.
     #[instrument(skip(self))]
-    async fn insert_many(&self, items: &[ReconItem<'_, Self::Key>]) -> ReconResult<InsertResult> {
+    async fn insert_many<'a>(
+        &self,
+        items: &[ReconItem<'a, Self::Key>],
+    ) -> ReconResult<InsertResult> {
         let keys = items.iter().map(|item| item.key).collect::<Vec<_>>();
         Ok(CeramicOneInterest::insert_many(&self.pool, &keys).await?)
     }

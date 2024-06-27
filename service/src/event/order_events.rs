@@ -8,8 +8,18 @@ use crate::Result;
 use super::service::EventMetadata;
 
 pub(crate) struct OrderEvents {
-    pub(crate) deliverable: Vec<(EventInsertable, EventMetadata)>,
-    pub(crate) missing_history: Vec<(EventInsertable, EventMetadata)>,
+    deliverable: Vec<(EventInsertable, EventMetadata)>,
+    missing_history: Vec<(EventInsertable, EventMetadata)>,
+}
+
+impl OrderEvents {
+    pub fn deliverable(&self) -> &[(EventInsertable, EventMetadata)] {
+        &self.deliverable
+    }
+
+    pub fn missing_history(&self) -> &[(EventInsertable, EventMetadata)] {
+        &self.missing_history
+    }
 }
 
 impl OrderEvents {
@@ -28,11 +38,14 @@ impl OrderEvents {
         pool: &SqlitePool,
         mut candidate_events: Vec<(EventInsertable, EventMetadata)>,
     ) -> Result<Self> {
-        let mut new_cids: HashMap<Cid, bool> = HashMap::from_iter(
-            candidate_events
-                .iter()
-                .map(|(e, _)| (e.cid(), e.deliverable())),
-        );
+        let mut new_cids: HashMap<Cid, bool> =
+            HashMap::from_iter(candidate_events.iter_mut().map(|(e, meta)| {
+                // all init events are deliverable so we mark them as such before we do anything else
+                if matches!(meta, EventMetadata::Init { .. }) {
+                    e.body.set_deliverable(true);
+                }
+                (e.cid(), e.deliverable())
+            }));
         let mut deliverable = Vec::with_capacity(candidate_events.len());
         candidate_events.retain(|(e, h)| {
             if e.deliverable() {
@@ -150,6 +163,43 @@ mod test {
         (stream_1, stream_2, to_insert)
     }
 
+    /// Asserts the events are deliverable and returns IDs for events in stream_1 as the first value and things in stream_2 as the second
+    fn split_deliverable_order_by_stream(
+        stream_1: &[(EventId, Vec<u8>)],
+        stream_2: &[(EventId, Vec<u8>)],
+        events: &[(EventInsertable, EventMetadata)],
+    ) -> (Vec<EventId>, Vec<EventId>) {
+        let mut after_1 = Vec::with_capacity(stream_1.len());
+        let mut after_2 = Vec::with_capacity(stream_2.len());
+        for (event, _) in events {
+            assert!(event.deliverable());
+            if stream_1.iter().any(|e| e.0 == event.order_key) {
+                after_1.push(event.order_key.clone());
+            } else {
+                after_2.push(event.order_key.clone());
+            }
+        }
+
+        (after_1, after_2)
+    }
+
+    async fn get_insertable_events(
+        events: &[(EventId, Vec<u8>)],
+    ) -> Vec<(EventInsertable, EventMetadata)> {
+        let mut insertable = Vec::with_capacity(events.len());
+        for event in events {
+            let new = CeramicEventService::validate_discovered_event(
+                event.0.to_owned(),
+                event.1.as_slice(),
+            )
+            .await
+            .unwrap();
+            insertable.push(new);
+        }
+
+        insertable
+    }
+
     #[test(tokio::test)]
     async fn out_of_order_streams_valid() {
         let pool = SqlitePool::connect_in_memory().await.unwrap();
@@ -164,16 +214,8 @@ mod test {
             ordered.missing_history.len(),
             ordered.missing_history
         );
-        let mut after_1 = Vec::with_capacity(10);
-        let mut after_2 = Vec::with_capacity(10);
-        for (event, _) in ordered.deliverable {
-            assert!(event.deliverable());
-            if stream_1.iter().any(|e| e.0 == event.order_key) {
-                after_1.push(event.order_key.clone());
-            } else {
-                after_2.push(event.order_key.clone());
-            }
-        }
+        let (after_1, after_2) =
+            split_deliverable_order_by_stream(&stream_1, &stream_2, ordered.deliverable());
 
         assert_eq!(
             stream_1.into_iter().map(|e| e.0).collect::<Vec<_>>(),
@@ -201,16 +243,8 @@ mod test {
             "Missing history: {:?}",
             ordered.missing_history
         );
-        let mut after_1 = Vec::with_capacity(10);
-        let mut after_2 = Vec::with_capacity(10);
-        for (event, _) in ordered.deliverable {
-            assert!(event.deliverable());
-            if stream_1.iter().any(|e| e.0 == event.order_key) {
-                after_1.push(event.order_key.clone());
-            } else {
-                after_2.push(event.order_key.clone());
-            }
-        }
+        let (after_1, after_2) =
+            split_deliverable_order_by_stream(&stream_1, &stream_2, ordered.deliverable());
 
         assert_eq!(vec![stream_1[0].0.clone()], after_1);
         assert_eq!(
@@ -227,23 +261,14 @@ mod test {
         let pool = SqlitePool::connect_in_memory().await.unwrap();
 
         let stream_1 = get_n_events(10).await;
-        let mut insertable = Vec::with_capacity(10);
-        for event in stream_1.iter() {
-            let new = CeramicEventService::validate_discovered_event(
-                event.0.to_owned(),
-                event.1.as_slice(),
-            )
-            .await
-            .unwrap();
-            insertable.push(new);
-        }
+        let insertable = get_insertable_events(&stream_1).await;
         let to_insert = insertable
             .iter()
             .take(3)
             .map(|(i, _)| i.clone())
             .collect::<Vec<_>>();
         let mut remaining = insertable.into_iter().skip(3).collect::<Vec<_>>();
-        CeramicOneEvent::insert_many(&pool, &to_insert[..])
+        CeramicOneEvent::insert_many(&pool, to_insert.iter())
             .await
             .unwrap();
 
@@ -265,16 +290,7 @@ mod test {
         let pool = SqlitePool::connect_in_memory().await.unwrap();
 
         let stream_1 = get_n_events(10).await;
-        let mut insertable = Vec::with_capacity(10);
-        for event in stream_1.iter() {
-            let new = CeramicEventService::validate_discovered_event(
-                event.0.to_owned(),
-                event.1.as_slice(),
-            )
-            .await
-            .unwrap();
-            insertable.push(new);
-        }
+        let mut insertable = get_insertable_events(&stream_1).await;
         let to_insert = insertable
             .iter_mut()
             .take(3)
@@ -284,7 +300,7 @@ mod test {
             })
             .collect::<Vec<_>>();
         let mut remaining = insertable.into_iter().skip(3).collect::<Vec<_>>();
-        CeramicOneEvent::insert_many(&pool, &to_insert[..])
+        CeramicOneEvent::insert_many(&pool, to_insert.iter())
             .await
             .unwrap();
 

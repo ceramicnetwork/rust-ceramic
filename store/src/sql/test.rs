@@ -41,7 +41,7 @@ async fn hash_range_query() {
     let first = random_event("baeabeiazgwnti363jifhxaeaegbluw4ogcd2t5hsjaglo46wuwcgajqa5u");
     let second = random_event("baeabeihyl35xdlfju3zrkvy2exmnl6wics3rc5ppz7hwg7l7g4brbtnpny");
 
-    let x = CeramicOneEvent::insert_many(&pool, &[first, second])
+    let x = CeramicOneEvent::insert_many(&pool, [&first, &second].into_iter())
         .await
         .unwrap();
 
@@ -62,7 +62,7 @@ async fn range_query() {
     let first = random_event("baeabeichhhmbhsic4maraneqf5gkhekgzcawhtpj3fh6opjtglznapz524");
     let second = random_event("baeabeibmek7v4ljsu575ohgjhovdxhcw6p6oivgb55hzkeap5po7ghzqty");
     let pool = SqlitePool::connect_in_memory().await.unwrap();
-    let x = CeramicOneEvent::insert_many(&pool, &[first, second])
+    let x = CeramicOneEvent::insert_many(&pool, [&first, &second].into_iter())
         .await
         .unwrap();
 

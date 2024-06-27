@@ -268,10 +268,10 @@ impl StreamEvents {
     /// Returns `false` if we have more work to do and should be retained for future processing
     fn processing_completed(&mut self) -> bool {
         // if we're done, we don't need to bother cleaning up since we get dropped
-        if !self
+        if self
             .cid_map
             .iter()
-            .any(|(_, ev)| matches!(ev, StreamEvent::Undelivered(_)))
+            .all(|(_, ev)| !matches!(ev, StreamEvent::Undelivered(_)))
         {
             true
         } else {
@@ -636,17 +636,20 @@ mod test {
 
     async fn insert_10_with_9_undelivered(pool: &SqlitePool) {
         let insertable = get_n_insertable_events(10).await;
-        let init = insertable.first().unwrap().to_owned();
+        let mut init = insertable.first().unwrap().to_owned();
+        init.body.set_deliverable(true);
         let undelivered = insertable.into_iter().skip(1).collect::<Vec<_>>();
 
-        let new = CeramicOneEvent::insert_many(pool, &undelivered[..])
+        let new = CeramicOneEvent::insert_many(pool, undelivered.iter())
             .await
             .unwrap();
 
         assert_eq!(9, new.inserted.len());
         assert_eq!(0, new.inserted.iter().filter(|e| e.deliverable).count());
 
-        let new = CeramicOneEvent::insert_many(pool, &[init]).await.unwrap();
+        let new = CeramicOneEvent::insert_many(pool, [&init].into_iter())
+            .await
+            .unwrap();
         assert_eq!(1, new.inserted.len());
         assert_eq!(1, new.inserted.iter().filter(|e| e.deliverable).count());
     }

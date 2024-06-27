@@ -160,11 +160,11 @@ impl CeramicOneEvent {
     ///     That is, events will be processed in the order they are given so earlier events are given a lower global ordering
     ///     and will be returned earlier in the feed. Events can be intereaved with different streams, but if two events
     ///     depend on each other, the `prev` must come first in the list to ensure the correct order for indexers and consumers.
-    pub async fn insert_many(
-        pool: &SqlitePool,
-        to_add: &[EventInsertable],
-    ) -> Result<InsertResult> {
-        let mut inserted = Vec::with_capacity(to_add.len());
+    pub async fn insert_many<'a, I>(pool: &SqlitePool, to_add: I) -> Result<InsertResult>
+    where
+        I: Iterator<Item = &'a EventInsertable>,
+    {
+        let mut inserted = Vec::new();
         let mut tx = pool.begin_tx().await.map_err(Error::from)?;
 
         for item in to_add {

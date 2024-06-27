@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use async_trait::async_trait;
 use ceramic_core::{EventId, Network};
 use ceramic_event::unvalidated;
@@ -111,8 +113,7 @@ impl CeramicEventService {
         Ok(())
     }
 
-    /// Currently only verifies that the event parses into a valid ceramic event, determining whether it's
-    /// immediately deliverable because it's an init event or it needs review.
+    /// Currently only verifies that the event parses into a valid ceramic event.
     /// In the future, we will need to do more event validation (verify all EventID pieces, hashes, signatures, etc).
     pub(crate) async fn validate_discovered_event(
         event_id: ceramic_core::EventId,
@@ -135,8 +136,7 @@ impl CeramicEventService {
         }
 
         let metadata = EventMetadata::from(parsed_event);
-        let mut body = EventInsertableBody::try_from_carfile(cid, carfile).await?;
-        body.set_deliverable(matches!(metadata, EventMetadata::Init { .. }));
+        let body = EventInsertableBody::try_from_carfile(cid, carfile).await?;
 
         Ok((EventInsertable::try_new(event_id, body)?, metadata))
     }
@@ -197,68 +197,72 @@ impl CeramicEventService {
         let ordered = OrderEvents::try_new(&self.pool, to_insert).await?;
 
         let missing_history = ordered
-            .missing_history
+            .missing_history()
             .iter()
             .map(|(e, _)| e.order_key.clone())
             .collect();
 
-        let to_insert_with_metadata = if history_required {
-            ordered.deliverable
+        // api writes shouldn't have any missed history so we don't insert those events and
+        // we can skip notifying the ordering task because it's impossible to be waiting on them
+        let store_result = if history_required {
+            let to_insert = ordered.deliverable().iter().map(|(e, _)| e);
+            CeramicOneEvent::insert_many(&self.pool, to_insert).await?
         } else {
-            ordered
-                .deliverable
-                .into_iter()
-                .chain(ordered.missing_history)
-                .collect()
+            let to_insert = ordered
+                .deliverable()
+                .iter()
+                .map(|(e, _)| e)
+                .chain(ordered.missing_history().iter().map(|(e, _)| e));
+
+            let store_result = CeramicOneEvent::insert_many(&self.pool, to_insert).await?;
+            self.notify_ordering_task(&ordered, &store_result).await?;
+
+            store_result
         };
 
-        let to_insert = to_insert_with_metadata
-            .iter()
-            .map(|(e, _)| e.clone())
-            .collect::<Vec<_>>();
+        Ok(InsertResult {
+            store_result,
+            missing_history,
+        })
+    }
 
-        let res = CeramicOneEvent::insert_many(&self.pool, &to_insert[..]).await?;
-
-        // api writes shouldn't have any missed pieces that need ordering so we don't send those and return early
-        if history_required {
-            return Ok(InsertResult {
-                store_result: res,
-                missing_history,
-            });
-        }
-
-        let to_send = res
+    async fn notify_ordering_task(
+        &self,
+        ordered: &OrderEvents,
+        store_result: &ceramic_store::InsertResult,
+    ) -> Result<()> {
+        let new = store_result
             .inserted
             .iter()
-            .filter(|i| i.new_key)
-            .collect::<Vec<_>>();
+            .filter_map(|i| if i.new_key { i.order_key.cid() } else { None })
+            .collect::<HashSet<_>>();
 
-        for ev in to_send {
-            if let Some((ev, metadata)) = to_insert_with_metadata
-                .iter()
-                .find(|(i, _)| i.order_key == ev.order_key)
-            {
-                let discovered = DiscoveredEvent {
+        for (ev, metadata) in ordered
+            .deliverable()
+            .iter()
+            .chain(ordered.missing_history().iter())
+        {
+            if new.contains(&ev.cid()) {
+                self.send_discovered_event(DiscoveredEvent {
                     cid: ev.cid(),
                     known_deliverable: ev.deliverable(),
                     metadata: metadata.to_owned(),
-                };
-                trace!(?discovered, "sending delivered to ordering task");
-                if let Err(_e) = self.delivery_task.tx_inserted.send(discovered).await {
-                    warn!("Delivery task closed. shutting down");
-                    return Err(Error::new_fatal(anyhow::anyhow!("Delivery task closed")));
-                }
-            } else {
-                tracing::error!(event_id=%ev.order_key, "Missing header for inserted event should be unreachable!");
-                debug_assert!(false); // panic in debug mode
-                continue;
+                })
+                .await?;
             }
         }
 
-        Ok(InsertResult {
-            store_result: res,
-            missing_history,
-        })
+        Ok(())
+    }
+
+    async fn send_discovered_event(&self, discovered: DiscoveredEvent) -> Result<()> {
+        trace!(?discovered, "sending delivered to ordering task");
+        if let Err(_e) = self.delivery_task.tx_inserted.send(discovered).await {
+            warn!("Delivery task closed. shutting down");
+            Err(Error::new_fatal(anyhow::anyhow!("Delivery task closed")))
+        } else {
+            Ok(())
+        }
     }
 }
 
