@@ -283,6 +283,22 @@ struct Daemon;
 
 impl Daemon {
     async fn run(opts: DaemonOpts) -> Result<()> {
+        let dir = opts.db_opts.default_directory();
+        match tokio::fs::create_dir_all(dir.clone()).await {
+            Ok(_) => {}
+            Err(e) => match e.kind() {
+                std::io::ErrorKind::AlreadyExists => {}
+                _ => {
+                    let message = format!(
+                        "Failed to create required directory '{}' due to {}",
+                        dir.display(),
+                        e
+                    );
+                    eprintln!("{}", message);
+                    return Err(anyhow!(message));
+                }
+            },
+        }
         let db = opts.db_opts.get_database().await?;
 
         // we should be able to consolidate the Store traits now that they all rely on &self, but for now we use
