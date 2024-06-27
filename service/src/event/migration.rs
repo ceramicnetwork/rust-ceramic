@@ -3,21 +3,21 @@ use std::collections::{BTreeMap, BTreeSet};
 use anyhow::{anyhow, bail, Context as _, Result};
 use ceramic_core::{EventId, Network};
 use ceramic_event::unvalidated::{self, signed::cacao::Capability};
-use ceramic_store::{
-    BlockHash, CeramicOneEvent, EventBlockRaw, EventInsertable, EventInsertableBody, SqlitePool,
-};
 use cid::Cid;
 use futures::{Stream, StreamExt, TryStreamExt};
 use ipld_core::ipld::Ipld;
 use thiserror::Error;
 use tracing::{debug, error, info, instrument, Level};
 
+use crate::CeramicEventService;
+
 use super::service::{Block, BoxedBlock};
 
-pub struct Migrator {
+pub struct Migrator<'a> {
+    service: &'a CeramicEventService,
     network: Network,
     blocks: BTreeMap<Cid, Box<dyn Block>>,
-    batch: Vec<EventInsertable>,
+    batch: Vec<(EventId, Vec<u8>)>,
 
     // All unsigned init payloads we have found.
     unsigned_init_payloads: BTreeSet<Cid>,
@@ -32,8 +32,9 @@ pub struct Migrator {
     event_count: usize,
 }
 
-impl Migrator {
+impl<'a> Migrator<'a> {
     pub async fn new(
+        service: &'a CeramicEventService,
         network: Network,
         blocks: impl Stream<Item = Result<BoxedBlock>>,
     ) -> Result<Self> {
@@ -43,6 +44,7 @@ impl Migrator {
             .await?;
         Ok(Self {
             network,
+            service,
             blocks,
             batch: Default::default(),
             unsigned_init_payloads: Default::default(),
@@ -60,8 +62,8 @@ impl Migrator {
         }
     }
 
-    #[instrument(skip(self, sql_pool), ret(level = Level::DEBUG))]
-    pub async fn migrate(mut self, sql_pool: &SqlitePool) -> Result<()> {
+    #[instrument(skip(self), ret(level = Level::DEBUG))]
+    pub async fn migrate(mut self) -> Result<()> {
         let cids: Vec<Cid> = self.blocks.keys().cloned().collect();
         for cid in cids {
             let ret = self.process_block(cid).await;
@@ -70,12 +72,12 @@ impl Migrator {
                 error!(%cid, %err, "error processing block");
             }
             if self.batch.len() > 1000 {
-                self.write_batch(sql_pool).await?
+                self.write_batch().await?
             }
         }
-        self.write_batch(sql_pool).await?;
+        self.write_batch().await?;
 
-        self.process_unreferenced_init_payloads(sql_pool).await?;
+        self.process_unreferenced_init_payloads().await?;
 
         info!(
             event_count = self.event_count,
@@ -113,7 +115,7 @@ impl Migrator {
     // Therefore once we have processed all other events then the remaining init payloads must be
     // the blocks that are unsigned init events.
     #[instrument(skip(self), ret(level = Level::DEBUG))]
-    async fn process_unreferenced_init_payloads(&mut self, sql_pool: &SqlitePool) -> Result<()> {
+    async fn process_unreferenced_init_payloads(&mut self) -> Result<()> {
         let init_events: Vec<_> = self
             .unsigned_init_payloads
             .difference(&self.referenced_unsigned_init_payloads)
@@ -133,14 +135,21 @@ impl Migrator {
             self.batch
                 .push(event_builder.build(self.network.clone()).await?);
             if self.batch.len() > 1000 {
-                self.write_batch(sql_pool).await?
+                self.write_batch().await?
             }
         }
-        self.write_batch(sql_pool).await?;
+        self.write_batch().await?;
         Ok(())
     }
-    async fn write_batch(&mut self, sql_pool: &SqlitePool) -> Result<()> {
-        CeramicOneEvent::insert_many(sql_pool, self.batch.iter()).await?;
+    async fn write_batch(&mut self) -> Result<()> {
+        let items = self
+            .batch
+            .iter()
+            .map(|(id, body)| recon::ReconItem::new(id, body))
+            .collect::<Vec<_>>();
+        self.service
+            .insert_events_from_carfiles_recon(&items)
+            .await?;
         self.event_count += self.batch.len();
         self.batch.truncate(0);
         Ok(())
@@ -276,8 +285,7 @@ enum AnalyzeError {
 
 struct EventBuilder {
     event_cid: Cid,
-    blocks: Vec<EventBlockRaw>,
-
+    blocks: Vec<(Cid, Vec<u8>, bool)>,
     sep: Vec<u8>,
     controller: String,
     init: Cid,
@@ -295,23 +303,13 @@ impl EventBuilder {
     }
 
     fn add_root(&mut self, cid: Cid, data: Vec<u8>) {
-        self._add_block(cid, data, true)
+        self.blocks.push((cid, data, true));
     }
     fn add_block(&mut self, cid: Cid, data: Vec<u8>) {
-        self._add_block(cid, data, false)
-    }
-    fn _add_block(&mut self, cid: Cid, data: Vec<u8>, root: bool) {
-        self.blocks.push(EventBlockRaw {
-            event_cid: self.event_cid.to_bytes(),
-            codec: cid.codec() as i64,
-            root,
-            idx: self.blocks.len() as i32,
-            multihash: BlockHash::new(cid.hash().to_owned()),
-            bytes: data,
-        })
+        self.blocks.push((cid, data, false));
     }
 
-    async fn build(self, network: Network) -> Result<EventInsertable> {
+    async fn build(self, network: Network) -> Result<(EventId, Vec<u8>)> {
         let event_id = EventId::builder()
             .with_network(&network)
             .with_sep("model", &self.sep)
@@ -319,9 +317,28 @@ impl EventBuilder {
             .with_init(&self.init)
             .with_event(&self.event_cid)
             .build();
-        Ok(EventInsertable::try_new(
-            event_id,
-            EventInsertableBody::new(self.event_cid, self.blocks, false),
-        )?)
+
+        let body = self.build_car().await?;
+        Ok((event_id, body))
+    }
+
+    async fn build_car(&self) -> Result<Vec<u8>> {
+        let size = self
+            .blocks
+            .iter()
+            .fold(0, |sum, (_, row, _)| sum + row.len());
+        // Reconstruct the car file
+        let mut car = Vec::with_capacity(size + 100 * self.blocks.len());
+        let roots = self
+            .blocks
+            .iter()
+            .flat_map(|(cid, _, root)| if *root { Some(*cid) } else { None })
+            .collect::<Vec<_>>();
+        let mut writer = iroh_car::CarWriter::new(iroh_car::CarHeader::V1(roots.into()), &mut car);
+        for (cid, bytes, _) in self.blocks.iter() {
+            writer.write(*cid, bytes).await?;
+        }
+        writer.finish().await?;
+        Ok(car)
     }
 }
