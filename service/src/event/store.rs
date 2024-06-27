@@ -166,6 +166,23 @@ impl ceramic_api::EventStore for CeramicEventService {
                     .collect();
                 (hw, res)
             }
+            ceramic_api::IncludeEventData::Payload => {
+                let (hw, data) =
+                    CeramicOneEvent::new_events_since_value_with_data(&self.pool, highwater, limit)
+                        .await?;
+                let mut res = Vec::with_capacity(data.len());
+                for (cid, event) in data {
+                    let encoded = match event {
+                        ceramic_event::unvalidated::Event::Time(t) => t.encode_car().await?,
+                        ceramic_event::unvalidated::Event::Signed(s) => {
+                            s.encode_payload_car().await?
+                        }
+                        ceramic_event::unvalidated::Event::Unsigned(u) => u.encode_car().await?,
+                    };
+                    res.push(ceramic_api::EventDataResult::new(cid, Some(encoded)));
+                }
+                (hw, res)
+            }
             ceramic_api::IncludeEventData::Full => {
                 let (hw, data) =
                     CeramicOneEvent::new_events_since_value_with_data(&self.pool, highwater, limit)

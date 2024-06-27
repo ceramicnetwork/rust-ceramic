@@ -302,12 +302,13 @@ paths:
           required: false
           schema:
             type: string
-            enum: [none, full]
+            enum: [none, payload, full]
           description: >
             Whether to include the event data (carfile) in the response.
             In the future, only the payload or other options may be supported:
               * `none` - Empty, only the event ID is returned
-              * `full` - The entire envelope carfile (including the envelope and payload)
+              * `payload` - Only the signed event payload data as a carfile. Unsigned and time events are unchanged.
+              * `full` - The entire envelope carfile (including the envelope, capability and payload when applicable)
       responses:
         "200":
           description: success

@@ -208,6 +208,7 @@ impl EventDataResult {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IncludeEventData {
     None,
+    Payload,
     Full,
 }
 
@@ -216,6 +217,7 @@ impl TryFrom<String> for IncludeEventData {
     fn try_from(value: String) -> Result<Self, Self::Error> {
         match value.as_str() {
             "none" => Ok(Self::None),
+            "payload" => Ok(Self::Payload),
             "full" => Ok(Self::Full),
             _ => Err(format!("Invalid value: {}.", value)),
         }
@@ -441,7 +443,7 @@ where
             Err(e) => {
                 return Ok(FeedEventsGetResponse::BadRequest(
                     models::BadRequestResponse::new(format!(
-                        "{} must be one of 'none' or 'full'",
+                        "{} must be one of 'none', 'payload', or 'full'",
                         e
                     )),
                 ))
