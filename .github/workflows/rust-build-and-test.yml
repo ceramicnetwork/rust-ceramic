@@ -147,14 +147,14 @@ jobs:
         run: |
           set -ex
           if [ "${{ github.event_name }}" == "pull_request" ]; then
-            TESTS="fast"
+            TEST_SELECTOR="correctness/fast"
           elif [ "${{ github.event_name }}" == "merge_group" ]; then
-            TESTS="."
+            TEST_SELECTOR="correctness"
           elif [ "${{ github.event_name}}" == "workflow_dispatch" ]; then
-            TESTS="${{ github.event.inputs.test_selector || '.' }}"
+            TEST_SELECTOR="${{ github.event.inputs.test_selector || 'correctness' }}"
           fi
           ./bin/hermetic-driver test \
             --network basic-rust.yaml \
             --flavor correctness \
-            --test-selector ${TESTS} \
+            --test-selector ${TEST_SELECTOR} \
             --network-ttl 3600
