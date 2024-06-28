@@ -46,13 +46,16 @@ impl<D: serde::Serialize> Payload<D> {
     }
 }
 
+const DEFAULT_SEP: &str = "model";
+
 /// Headers for an init event
 #[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Header {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     controllers: Vec<String>,
-    sep: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sep: Option<String>,
     // TODO: Handle separator keys other than "model"
     model: Bytes,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -75,7 +78,7 @@ impl Header {
     ) -> Self {
         Self {
             controllers,
-            sep,
+            sep: Some(sep),
             model: Bytes::from(model),
             should_index,
             unique: unique.map(Bytes::from),
@@ -90,7 +93,10 @@ impl Header {
 
     /// Get the sep
     pub fn sep(&self) -> &str {
-        self.sep.as_ref()
+        // NOTE: We implement the defaulting behavior here, as opposed to defaulting the value of
+        // the sep field itself, so we can re-encode the header with the missing sep value so its
+        // CID doesn't change.
+        self.sep.as_deref().unwrap_or(DEFAULT_SEP)
     }
 
     /// Get the model

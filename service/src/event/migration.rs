@@ -67,7 +67,7 @@ impl Migrator {
             let ret = self.process_block(cid).await;
             if let Err(err) = ret {
                 self.error_count += 1;
-                error!(%cid, %err, "error processing block");
+                error!(%cid, err=format!("{err:#}"), "error processing block");
             }
             if self.batch.len() > 1000 {
                 self.write_batch(sql_pool).await?
@@ -88,7 +88,7 @@ impl Migrator {
     // event.
     #[instrument(skip(self), ret(level = Level::DEBUG))]
     async fn process_block(&mut self, cid: Cid) -> Result<()> {
-        let block = self.find_block(&cid)?;
+        let block = self.find_block(&cid).context("finding top level block")?;
         let data: Vec<u8> = block.data().await?;
         let event: Result<unvalidated::RawEvent<Ipld>, _> = serde_ipld_dagcbor::from_slice(&data);
         match event {
@@ -120,7 +120,7 @@ impl Migrator {
             .cloned()
             .collect();
         for cid in init_events {
-            let block = self.find_block(&cid)?;
+            let block = self.find_block(&cid).context("finding init event block")?;
             let data = block.data().await?;
             let payload: unvalidated::init::Payload<Ipld> = serde_ipld_dagcbor::from_slice(&data)?;
             let mut event_builder = EventBuilder::new(
@@ -157,7 +157,9 @@ impl Migrator {
         let link = event
             .link()
             .ok_or_else(|| anyhow!("event envelope must have a link"))?;
-        let block = self.find_block(&link)?;
+        let block = self
+            .find_block(&link)
+            .context("finding payload link block")?;
         let payload_data = block.data().await?;
         let payload: unvalidated::Payload<Ipld> =
             serde_ipld_dagcbor::from_slice(&payload_data).context("decoding payload")?;
@@ -183,7 +185,9 @@ impl Migrator {
         };
         if let Some(capability_cid) = event.capability() {
             debug!(%capability_cid, "found cap chain");
-            let block = self.find_block(&capability_cid)?;
+            let block = self
+                .find_block(&capability_cid)
+                .context("finding capability block")?;
             let data = block.data().await?;
             // Parse capability to ensure it is valid
             let capability: Capability = serde_ipld_dagcbor::from_slice(&data)?;
@@ -197,18 +201,20 @@ impl Migrator {
         Ok(())
     }
     async fn find_init_payload(&self, cid: &Cid) -> Result<unvalidated::init::Payload<Ipld>> {
-        let init_block = self.find_block(cid)?;
+        let init_block = self.find_block(cid).context("finding init payload block")?;
         let init_data = init_block.data().await?;
         let init: unvalidated::RawEvent<Ipld> =
             serde_ipld_dagcbor::from_slice(&init_data).context("decoding init envelope")?;
         match init {
             unvalidated::RawEvent::Time(_) => bail!("init event must not be a time event"),
             unvalidated::RawEvent::Signed(init) => {
-                let init_payload_block = self.find_block(
-                    &init
-                        .link()
-                        .ok_or_else(|| anyhow!("init envelope must have a link"))?,
-                )?;
+                let init_payload_block = self
+                    .find_block(
+                        &init
+                            .link()
+                            .ok_or_else(|| anyhow!("init envelope must have a link"))?,
+                    )
+                    .context("finding init link block")?;
                 let init_payload_data = init_payload_block.data().await?;
 
                 serde_ipld_dagcbor::from_slice(&init_payload_data).context("decoding init payload")
@@ -234,7 +240,7 @@ impl Migrator {
         );
         event_builder.add_root(cid, data.clone());
         let proof_id = event.proof();
-        let block = self.find_block(&proof_id)?;
+        let block = self.find_block(&proof_id).context("finding proof block")?;
         let data = block.data().await?;
         let proof: unvalidated::Proof = serde_ipld_dagcbor::from_slice(&data)?;
         event_builder.add_block(proof_id, data);
@@ -246,7 +252,7 @@ impl Migrator {
                 break;
             }
             let idx: usize = index.parse().context("parsing path segment as index")?;
-            let block = self.find_block(&curr)?;
+            let block = self.find_block(&curr).context("finding witness block")?;
             let data = block.data().await.context("fetch block data")?;
             let edge: unvalidated::ProofEdge =
                 serde_ipld_dagcbor::from_slice(&data).context("dag cbor decode")?;
