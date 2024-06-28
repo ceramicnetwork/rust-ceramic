@@ -286,7 +286,7 @@ async fn unsigned_time_event() {
     test_migration(cars).await;
 }
 #[test(tokio::test)]
-async fn sigined_init_time_event() {
+async fn signed_init_time_event() {
     let mut cars = Vec::new();
     for event in random_signed_init_time_event().await {
         cars.push(event.encode_car().await.unwrap());

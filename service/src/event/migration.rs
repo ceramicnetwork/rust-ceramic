@@ -98,11 +98,9 @@ impl<'a> Migrator<'a> {
                 self.unsigned_init_payloads.insert(cid);
             }
             Ok(unvalidated::RawEvent::Signed(event)) => {
-                self.process_signed_event(cid, data, event).await?
+                self.process_signed_event(cid, event).await?
             }
-            Ok(unvalidated::RawEvent::Time(event)) => {
-                self.process_time_event(cid, data, *event).await?
-            }
+            Ok(unvalidated::RawEvent::Time(event)) => self.process_time_event(cid, *event).await?,
             // Ignore blocks that are not Ceramic events
             Err(_) => {}
         }
@@ -125,15 +123,15 @@ impl<'a> Migrator<'a> {
             let block = self.find_block(&cid)?;
             let data = block.data().await?;
             let payload: unvalidated::init::Payload<Ipld> = serde_ipld_dagcbor::from_slice(&data)?;
-            let mut event_builder = EventBuilder::new(
+            let event_builder = EventBuilder::new(
                 cid,
                 payload.header().model().to_vec(),
                 payload.header().controllers()[0].clone(),
                 cid,
             );
-            event_builder.add_root(cid, data);
+            let event = unvalidated::Event::from(payload);
             self.batch
-                .push(event_builder.build(self.network.clone()).await?);
+                .push(event_builder.build(&self.network, event).await?);
             if self.batch.len() > 1000 {
                 self.write_batch().await?
             }
@@ -156,11 +154,10 @@ impl<'a> Migrator<'a> {
     }
 
     // Find and add all blocks related to this signed event
-    #[instrument(skip(self, data, event), ret(level = Level::DEBUG))]
+    #[instrument(skip(self, event), ret(level = Level::DEBUG))]
     async fn process_signed_event(
         &mut self,
         cid: Cid,
-        data: Vec<u8>,
         event: unvalidated::signed::Envelope,
     ) -> Result<()> {
         let link = event
@@ -170,7 +167,7 @@ impl<'a> Migrator<'a> {
         let payload_data = block.data().await?;
         let payload: unvalidated::Payload<Ipld> =
             serde_ipld_dagcbor::from_slice(&payload_data).context("decoding payload")?;
-        let mut event_builder = match payload {
+        let event_builder = match &payload {
             unvalidated::Payload::Init(payload) => {
                 self.referenced_unsigned_init_payloads.insert(link);
                 EventBuilder::new(
@@ -190,19 +187,20 @@ impl<'a> Migrator<'a> {
                 )
             }
         };
+        let mut capability = None;
         if let Some(capability_cid) = event.capability() {
             debug!(%capability_cid, "found cap chain");
             let block = self.find_block(&capability_cid)?;
             let data = block.data().await?;
             // Parse capability to ensure it is valid
-            let capability: Capability = serde_ipld_dagcbor::from_slice(&data)?;
-            debug!(%capability_cid, ?capability, "capability");
-            event_builder.add_block(capability_cid, data);
+            let cap: Capability = serde_ipld_dagcbor::from_slice(&data)?;
+            debug!(%capability_cid, ?cap, "capability");
+            capability = Some((capability_cid, cap));
         }
-        event_builder.add_block(link, payload_data.clone());
-        event_builder.add_root(cid, data);
+        let s = unvalidated::signed::Event::new(cid, event, link, payload, capability);
+        let event = unvalidated::Event::from(s);
         self.batch
-            .push(event_builder.build(self.network.clone()).await?);
+            .push(event_builder.build(&self.network, event).await?);
         Ok(())
     }
     async fn find_init_payload(&self, cid: &Cid) -> Result<unvalidated::init::Payload<Ipld>> {
@@ -226,28 +224,26 @@ impl<'a> Migrator<'a> {
         }
     }
     // Find and add all blocks related to this time event
-    #[instrument(skip(self, data, event), ret(level = Level::DEBUG))]
+    #[instrument(skip(self, event), ret(level = Level::DEBUG))]
     async fn process_time_event(
         &mut self,
         cid: Cid,
-        data: Vec<u8>,
         event: unvalidated::RawTimeEvent,
     ) -> Result<()> {
         let init = event.id();
         let init_payload = self.find_init_payload(&event.id()).await?;
-        let mut event_builder = EventBuilder::new(
+        let event_builder = EventBuilder::new(
             cid,
             init_payload.header().model().to_vec(),
             init_payload.header().controllers()[0].clone(),
             init,
         );
-        event_builder.add_root(cid, data.clone());
         let proof_id = event.proof();
         let block = self.find_block(&proof_id)?;
         let data = block.data().await?;
         let proof: unvalidated::Proof = serde_ipld_dagcbor::from_slice(&data)?;
-        event_builder.add_block(proof_id, data);
         let mut curr = proof.root();
+        let mut proof_edges = Vec::new();
         for index in event.path().split('/') {
             if curr == event.prev() {
                 // The time event's previous link is the same as the last link in the proof.
@@ -259,20 +255,22 @@ impl<'a> Migrator<'a> {
             let data = block.data().await.context("fetch block data")?;
             let edge: unvalidated::ProofEdge =
                 serde_ipld_dagcbor::from_slice(&data).context("dag cbor decode")?;
-            // Add edge data to event
-            event_builder.add_block(curr, data);
 
             // Follow path
-            if let Some(Ipld::Link(link)) = edge.get(idx) {
-                curr = *link;
+            let maybe_link = edge.get(idx).cloned();
+            // Add edge data to event
+            proof_edges.push(edge);
+            if let Some(Ipld::Link(link)) = maybe_link {
+                curr = link;
             } else {
                 error!(%curr, "missing block");
                 break;
             }
         }
-
+        let time = unvalidated::TimeEvent::new(event, proof, proof_edges);
+        let event: unvalidated::Event<Ipld> = unvalidated::Event::from(Box::new(time));
         self.batch
-            .push(event_builder.build(self.network.clone()).await?);
+            .push(event_builder.build(&self.network, event).await?);
         Ok(())
     }
 }
@@ -285,7 +283,6 @@ enum AnalyzeError {
 
 struct EventBuilder {
     event_cid: Cid,
-    blocks: Vec<(Cid, Vec<u8>, bool)>,
     sep: Vec<u8>,
     controller: String,
     init: Cid,
@@ -294,7 +291,6 @@ struct EventBuilder {
 impl EventBuilder {
     fn new(event_cid: Cid, sep: Vec<u8>, controller: String, init: Cid) -> Self {
         Self {
-            blocks: Default::default(),
             event_cid,
             sep,
             controller,
@@ -302,43 +298,20 @@ impl EventBuilder {
         }
     }
 
-    fn add_root(&mut self, cid: Cid, data: Vec<u8>) {
-        self.blocks.push((cid, data, true));
-    }
-    fn add_block(&mut self, cid: Cid, data: Vec<u8>) {
-        self.blocks.push((cid, data, false));
-    }
-
-    async fn build(self, network: Network) -> Result<(EventId, Vec<u8>)> {
+    async fn build(
+        self,
+        network: &Network,
+        event: unvalidated::Event<Ipld>,
+    ) -> Result<(EventId, Vec<u8>)> {
         let event_id = EventId::builder()
-            .with_network(&network)
+            .with_network(network)
             .with_sep("model", &self.sep)
             .with_controller(&self.controller)
             .with_init(&self.init)
             .with_event(&self.event_cid)
             .build();
 
-        let body = self.build_car().await?;
+        let body = event.encode_car().await?;
         Ok((event_id, body))
-    }
-
-    async fn build_car(&self) -> Result<Vec<u8>> {
-        let size = self
-            .blocks
-            .iter()
-            .fold(0, |sum, (_, row, _)| sum + row.len());
-        // Reconstruct the car file
-        let mut car = Vec::with_capacity(size + 100 * self.blocks.len());
-        let roots = self
-            .blocks
-            .iter()
-            .flat_map(|(cid, _, root)| if *root { Some(*cid) } else { None })
-            .collect::<Vec<_>>();
-        let mut writer = iroh_car::CarWriter::new(iroh_car::CarHeader::V1(roots.into()), &mut car);
-        for (cid, bytes, _) in self.blocks.iter() {
-            writer.write(*cid, bytes).await?;
-        }
-        writer.finish().await?;
-        Ok(car)
     }
 }

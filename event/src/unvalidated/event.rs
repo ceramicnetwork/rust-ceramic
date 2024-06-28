@@ -118,6 +118,16 @@ where
                     serde_ipld_dagcbor::from_slice(proof_bytes).context("decoding proof")?;
                 let blocks_in_path =
                     Self::get_time_event_witness_blocks(&event, &proof, car_blocks)?;
+                let blocks_in_path = blocks_in_path
+                    .into_iter()
+                    .map(|block| match block {
+                        Ipld::List(l) => Ok(l),
+                        ipld => {
+                            tracing::info!(?ipld, "Time Event witness node is not a list");
+                            Err(anyhow!("Time Event witness node must be a list"))
+                        }
+                    })
+                    .collect::<anyhow::Result<Vec<ProofEdge>>>()?;
 
                 Ok((
                     event_cid,
@@ -228,12 +238,12 @@ impl<D> From<signed::Envelope> for RawEvent<D> {
 pub struct TimeEvent {
     event: RawTimeEvent,
     proof: Proof,
-    blocks_in_path: Vec<Ipld>,
+    blocks_in_path: Vec<ProofEdge>,
 }
 
 impl TimeEvent {
     /// Create a new time event from its parts
-    pub fn new(event: RawTimeEvent, proof: Proof, blocks_in_path: Vec<Ipld>) -> Self {
+    pub fn new(event: RawTimeEvent, proof: Proof, blocks_in_path: Vec<ProofEdge>) -> Self {
         Self {
             event,
             proof,
@@ -363,7 +373,7 @@ impl Proof {
     }
 }
 
-/// Proof edge
+/// Proof edge TODO: rename witness node
 pub type ProofEdge = Vec<Ipld>;
 
 #[cfg(test)]
