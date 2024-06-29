@@ -82,8 +82,14 @@ echo "Building artifacts for "$TARGET
 
 cargo build --release --locked --target $TARGET
 
-echo "Building package for "$TARGET
-fpm --fpm-options-file $CONFIG_FILE -C $BIN_DIR -v $PKG_VERSION -p $OUT_PATH ceramic-one=$INSTALL_DIR/ceramic-one
 
-echo "Compressing package for "$TARGET
-tar -cvzf ceramic-one_$TARGET.tar.gz -C $ARTIFACTS_DIR $OUT_FILE
+if [ "$EXT" = "bin" ]; then
+    echo "Compressing package for $TARGET"
+    tar -cvzf $ARTIFACTS_DIR/ceramic-one_$TARGET.tar.gz $BIN_DIR/ceramic-one
+else
+    echo "Building package for $TARGET"
+    fpm --fpm-options-file $CONFIG_FILE -C $BIN_DIR -v $PKG_VERSION -p $OUT_PATH ceramic-one=$INSTALL_DIR/ceramic-one
+
+    echo "Compressing package for $TARGET"
+    tar -cvzf ceramic-one_$TARGET.tar.gz -C $ARTIFACTS_DIR $OUT_FILE
+fi
