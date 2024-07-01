@@ -47,21 +47,10 @@ cp ./target/release/ceramic-one /usr/local/bin/ceramic-one
 
 ### MacOS - Local System
 
-Install a Github release (Darwin armv64)
-
-1. Download the binary:
+Install from [Homebrew](https://brew.sh/)
 
 ```bash
-curl -LO https://github.com/ceramicnetwork/rust-ceramic/releases/download/latest/ceramic-one_aarch64-apple-darwin.tar.gz
-tar zxvf ceramic-one_aarch64-apple-darwin.tar.gz
-```
-
-2. Open Finder and double-click the `ceramic-one.pkg` file to start the installation
-
-3. After the installation is complete, copy the binary:
-
-```bash
-sudo cp /Applications/ceramic-one /usr/local/bin/
+brew install ceramicnetwork/tap/ceramic-one
 ```
 
 ### Docker

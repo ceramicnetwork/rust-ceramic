@@ -1,0 +1,44 @@
+name: Update Homebrew Formula
+
+on:
+  release:
+    types: [released]
+  workflow_dispatch:
+
+jobs:
+  update-homebrew-formula:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get Latest Release
+        id: release
+        run: |
+          # Download files from the latest release and calculate their SHA256 checksums
+          gh release view --json tagName,assets > release.json
+          echo "X86_URL=$(jq -r '.assets[] | select(.name | contains("x86_64-apple-darwin")) | .url' release.json)" >> $GITHUB_OUTPUT
+          echo "ARM_URL=$(jq -r '.assets[] | select(.name | contains("aarch64-apple-darwin")) | .url' release.json)" >> $GITHUB_OUTPUT
+          gh release download -p '*apple-darwin*'
+          echo "X86_SHA256=$(sha256sum ceramic-one_x86_64-apple-darwin.tar.gz | cut -d ' ' -f 1)" >> $GITHUB_OUTPUT
+          echo "ARM_SHA256=$(sha256sum ceramic-one_aarch64-apple-darwin.tar.gz | cut -d ' ' -f 1)" >> $GITHUB_OUTPUT
+          echo "VERSION=$(jq -r '.tagName' release.json)" >> $GITHUB_OUTPUT
+      - name: Checkout Homebrew Tap
+        uses: actions/checkout@v2
+        with:
+          repository: ceramicnetwork/homebrew-tap
+          path: homebrew-tap
+      - name: Update Homebrew Formula
+        run: |
+          sed -i.bak -E "s|(url \".*_x86_64-apple-darwin.*\")|url \"${steps.release.outputs.X86_URL}\"|" homebrew-tap/Formula/ceramic-one.rb
+          sed -i '' '/CPU.intel?/,/sha256/ s/sha256 "[^"]*"/sha256 "${steps.release.outputs.X86_SHA}"/' homebrew-tap/Formula/ceramic-one.rb
+          sed -i.bak -E "s|(url \".*_aarch64-apple-darwin.*\")|url \"${steps.release.outputs.ARM_URL}\"|" homebrew-tap/Formula/ceramic-one.rb
+          sed -i '' '/CPU.arm?/,/sha256/ s/sha256 "[^"]*"/sha256 "${steps.release.outputs.ARM_SHA}"/' homebrew-tap/Formula/ceramic-one.rb
+      - name: Commit and Push changes
+        run: |
+          cd homebrew-tap
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add Formula/rust-ceramic.rb
+          git diff
+          git commit -m "Update rust-ceramic formula to ${{ steps.release.outputs.VERSION }}"
+#          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
