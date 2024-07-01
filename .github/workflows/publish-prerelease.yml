@@ -145,7 +145,6 @@ jobs:
           sed -i '' '/CPU.intel?/,/sha256/ s/sha256 "[^"]*"/sha256 "${SHA256_x84_64}"/'  homebrew-tap/Formula/ceramic-one.rb
           sed -i.bak -E "s|(url \".*ceramic-one_aarch64-apple-darwin.*\")|url \"https://github.com/ceramicnetwork/rust-ceramic/releases/download/v${VERSION}/ceramic-one_aarch64-apple-darwin.tar.gz\"|" homebrew-tap/Formula/ceramic-one.rb
           sed -i '' '/CPU.arm?/,/sha256/ s/sha256 "[^"]*"/sha256 "${SHA256_aarch64}"/'  homebrew-tap/Formula/ceramic-one.rb
-          sed -i.bak -E "s|(version \".*\")|version \"${VERSION}\"|" homebrew-tap/Formula/ceramic-one.rb
       - name: Commit and Push changes
         run: |
           cd homebrew-tap
