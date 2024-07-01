@@ -275,7 +275,6 @@ impl DBOpts {
             ceramic_store::SqlitePool::connect(path, ceramic_store::Migrations::Apply).await?;
         let interest_store = Arc::new(CeramicInterestService::new(sql_pool.clone()));
         let event_store = Arc::new(CeramicEventService::new(sql_pool).await?);
-        println!("Connected to sqlite database: {}", path);
 
         Ok(Databases::Sqlite(SqliteBackend {
             event_store,
@@ -302,19 +301,17 @@ impl Daemon {
         // static dispatch and require compile-time type information, so we pass all the types we need in, even
         // though they are currently all implemented by a single struct and we're just cloning Arcs.
         match db {
-            Databases::Sqlite(db) => Daemon::run_int(
-                opts,
-                db.interest_store.clone(),
-                db.interest_store,
-                db.event_store.clone(),
-                db.event_store.clone(),
-                db.event_store,
-            )
-            .await
-            .map_err(|e| {
-                tracing::error!("Daemon run error: {:#}", e);
-                e
-            }),
+            Databases::Sqlite(db) => {
+                Daemon::run_int(
+                    opts,
+                    db.interest_store.clone(),
+                    db.interest_store,
+                    db.event_store.clone(),
+                    db.event_store.clone(),
+                    db.event_store,
+                )
+                .await
+            }
         }
     }
 
