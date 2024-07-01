@@ -1382,7 +1382,6 @@ dependencies = [
  "thiserror",
  "tmpdir",
  "tokio",
- "tracing",
  "tracing-subscriber",
  "uuid 1.8.0",
 ]
