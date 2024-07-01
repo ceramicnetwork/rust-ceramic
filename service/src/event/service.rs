@@ -177,7 +177,7 @@ impl CeramicEventService {
         Ok(recon::InsertResult::new(keys))
     }
 
-    async fn insert_events<'a>(
+    pub(crate) async fn insert_events<'a>(
         &self,
         items: &[recon::ReconItem<'a, EventId>],
         history_required: bool,
