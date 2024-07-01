@@ -487,7 +487,14 @@ impl Daemon {
             )
             .await?
             .build(bitswap_block_store, ipfs_metrics)
-            .await?;
+            .await
+            .map_err(|e| {
+                anyhow!(
+                    "Failed to start libp2p server using addresses: {}. {}",
+                    opts.swarm_addresses.join(", "),
+                    e
+                )
+            })?;
 
         // Start metrics server
         debug!(
@@ -495,7 +502,13 @@ impl Daemon {
             "starting prometheus metrics server"
         );
         let (tx_metrics_server_shutdown, metrics_server_handle) =
-            metrics::start(&opts.metrics_bind_address.parse()?);
+            metrics::start(&opts.metrics_bind_address.parse()?).map_err(|e| {
+                anyhow!(
+                    "Failed to start metrics server using address: {}. {}",
+                    opts.metrics_bind_address,
+                    e
+                )
+            })?;
 
         // Build HTTP server
         let ceramic_server = ceramic_api::Server::new(
@@ -539,7 +552,8 @@ impl Daemon {
 
         // The server task blocks until we are ready to start shutdown
         debug!("starting api server");
-        hyper::server::Server::bind(&opts.bind_address.parse()?)
+        hyper::server::Server::try_bind(&opts.bind_address.parse()?)
+            .map_err(|e| anyhow!("Failed to bind address: {}. {}", opts.bind_address, e))?
             .serve(service)
             .with_graceful_shutdown(async {
                 rx.await.ok();
