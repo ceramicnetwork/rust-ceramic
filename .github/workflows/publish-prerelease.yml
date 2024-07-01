@@ -6,7 +6,7 @@ permissions:
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "chore/homebrew-support" ]
     paths:
       - 'Cargo.toml'
 
