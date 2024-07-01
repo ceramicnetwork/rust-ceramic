@@ -85,13 +85,10 @@ impl CeramicEventService {
         network: Network,
         blocks: impl Stream<Item = anyhow::Result<BoxedBlock>>,
     ) -> Result<()> {
-        let migrator = Migrator::new(network, blocks)
+        let migrator = Migrator::new(self, network, blocks)
             .await
             .map_err(Error::new_fatal)?;
-        migrator
-            .migrate(&self.pool)
-            .await
-            .map_err(Error::new_fatal)?;
+        migrator.migrate().await.map_err(Error::new_fatal)?;
         Ok(())
     }
 

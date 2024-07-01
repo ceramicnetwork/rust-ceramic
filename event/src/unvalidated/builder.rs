@@ -3,7 +3,7 @@ use anyhow::{anyhow, bail};
 use cid::Cid;
 use ipld_core::ipld::Ipld;
 
-use super::cid_from_dag_cbor;
+use super::{cid_from_dag_cbor, ProofEdge};
 
 /// Builder for constructing events.
 pub struct Builder;
@@ -394,8 +394,14 @@ impl TimeBuilder<TimeBuilderWithRoot> {
             .state
             .witness_nodes
             .into_iter()
-            .map(|(_index, edge)| edge)
-            .collect();
+            .map(|(_index, edge)| match edge {
+                Ipld::List(v) => Ok(v),
+                ipld => {
+                    tracing::info!(?ipld, "Time event witness node is not a list");
+                    Err(anyhow!("Time event witness node is not a list"))
+                }
+            })
+            .collect::<anyhow::Result<Vec<ProofEdge>>>()?;
 
         let event = unvalidated::RawTimeEvent::new(self.state.id, prev, proof_cid, path);
         Ok(unvalidated::TimeEvent::new(event, proof, blocks_in_path))

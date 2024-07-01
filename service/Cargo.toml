@@ -19,6 +19,7 @@ futures.workspace = true
 hex.workspace = true
 ipld-core.workspace = true
 iroh-bitswap.workspace = true
+iroh-car.workspace = true
 multibase.workspace = true
 multihash-codetable.workspace = true
 multihash-derive.workspace = true
