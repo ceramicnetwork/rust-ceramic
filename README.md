@@ -190,7 +190,7 @@ Migration
 * Move the sqlite3 database to the new rust-ceramic node.
 * Start the new rust-ceramic server and point the compose DB node to it.
     ```zsh
-    ./ceramic-one daemon --bind-address '127.0.0.1:5001'
+    ./ceramic-one daemon --bind-address '127.0.0.1:5101'
     ```
 * Once the traffic is cut over to the new node and we know there are not new block being crated on the old node.
 Re-run the migration to pick up any new block that were crated after the first migration
