@@ -138,6 +138,18 @@ impl<D: serde::Serialize> Event<D> {
         Ok(car)
     }
 
+    /// Encodes the signed event payload into a CAR file without the envelope or capability.
+    pub async fn encode_payload_car(&self) -> anyhow::Result<Vec<u8>> {
+        let payload_bytes = self.encode_payload()?;
+        let mut car = Vec::new();
+        let roots: Vec<Cid> = vec![self.payload_cid];
+        let mut writer = CarWriter::new(CarHeader::V1(roots.into()), &mut car);
+        writer.write(self.payload_cid, payload_bytes).await?;
+        writer.finish().await?;
+
+        Ok(car)
+    }
+
     /// Accessor for the envelope and payload.
     pub fn into_parts(self) -> (Envelope, Payload<D>) {
         (self.envelope, self.payload)

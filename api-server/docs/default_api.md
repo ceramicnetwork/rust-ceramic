@@ -167,7 +167,8 @@ Optional parameters are passed through a map[string]interface{}.
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
  **resume_at** | **String**| token that designates the point to resume from, that is find keys added after this point | 
- **limit** | **i32**| the maximum number of events to return, default is 10000. | 
+ **limit** | **i32**| The maximum number of events to return, default is 100. The max with data is 10000. | 
+ **include_data** | **String**| Whether to include the event data (carfile) in the response. In the future, only the payload or other options may be supported:   * `none` - Empty, only the event ID is returned   * `payload` - Only the signed event payload data as a carfile. Unsigned and time events are unchanged.   * `full` - The entire envelope carfile (including the envelope, capability and payload when applicable)  | 
 
 ### Return type
 

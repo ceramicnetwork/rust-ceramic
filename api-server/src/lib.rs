@@ -201,6 +201,7 @@ pub trait Api<C: Send + Sync> {
         &self,
         resume_at: Option<String>,
         limit: Option<i32>,
+        include_data: Option<String>,
         context: &C,
     ) -> Result<FeedEventsGetResponse, ApiError>;
 
@@ -284,6 +285,7 @@ pub trait ApiNoContext<C: Send + Sync> {
         &self,
         resume_at: Option<String>,
         limit: Option<i32>,
+        include_data: Option<String>,
     ) -> Result<FeedEventsGetResponse, ApiError>;
 
     /// Get the current (maximum) highwater mark/continuation token of the feed. Allows starting `feed/events` from 'now'.
@@ -394,9 +396,12 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
         &self,
         resume_at: Option<String>,
         limit: Option<i32>,
+        include_data: Option<String>,
     ) -> Result<FeedEventsGetResponse, ApiError> {
         let context = self.context().clone();
-        self.api().feed_events_get(resume_at, limit, &context).await
+        self.api()
+            .feed_events_get(resume_at, limit, include_data, &context)
+            .await
     }
 
     /// Get the current (maximum) highwater mark/continuation token of the feed. Allows starting `feed/events` from 'now'.

@@ -2,7 +2,9 @@ use std::num::TryFromIntError;
 
 use anyhow::anyhow;
 use ceramic_core::EventId;
+use ceramic_event::unvalidated;
 use cid::Cid;
+use ipld_core::ipld::Ipld;
 use itertools::{process_results, Itertools};
 use multihash_codetable::{Code, MultihashDigest};
 use sqlx::{sqlite::SqliteRow, Row as _};
@@ -63,6 +65,21 @@ impl ReconEventBlockRaw {
         }
 
         Ok(values)
+    }
+
+    pub async fn into_events(
+        all_blocks: Vec<Self>,
+    ) -> Result<Vec<(cid::Cid, unvalidated::Event<Ipld>)>> {
+        let parsed = Self::into_carfiles(all_blocks).await?;
+        let mut res = Vec::with_capacity(parsed.len());
+        for (_, carfile) in parsed {
+            let (cid, parsed_event) =
+                unvalidated::Event::<Ipld>::decode_car(carfile.as_slice(), false)
+                    .await
+                    .map_err(Error::new_app)?;
+            res.push((cid, parsed_event));
+        }
+        Ok(res)
     }
 }
 

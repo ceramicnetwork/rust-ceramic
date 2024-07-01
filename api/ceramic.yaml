@@ -293,10 +293,22 @@ paths:
           required: false
         - name: limit
           in: query
-          description: the maximum number of events to return, default is 10000.
+          description: The maximum number of events to return, default is 100. The max with data is 10000.
           required: false
           schema:
             type: integer
+        - name: includeData
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [none, payload, full]
+          description: >
+            Whether to include the event data (carfile) in the response.
+            In the future, only the payload or other options may be supported:
+              * `none` - Empty, only the event ID is returned
+              * `payload` - Only the signed event payload data as a carfile. Unsigned and time events are unchanged.
+              * `full` - The entire envelope carfile (including the envelope, capability and payload when applicable)
       responses:
         "200":
           description: success
@@ -391,7 +403,6 @@ components:
       type: object
       required:
         - id
-        - data
       properties:
         id:
           type: string
