@@ -124,7 +124,6 @@ jobs:
 
       - name: Update Homebrew Formula
         run: |
-          VERSION=$(cat version)
           # Calculate SHA256 for x86_64 and aarch64 versions
           SHA256_x86_64=$(sha256sum artifacts/ceramic-one_x86_64-apple-darwin.tar.gz | cut -d ' ' -f 1)
           SHA256_aarch64=$(sha256sum artifacts/ceramic-one_aarch64-apple-darwin.tar.gz | cut -d ' ' -f 1)
