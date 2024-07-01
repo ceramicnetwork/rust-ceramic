@@ -374,8 +374,9 @@ mod tests {
     use ipld_core::ipld::Ipld;
     use test_log::test;
 
-    use crate::unvalidated::tests::SIGNED_INIT_EVENT_CID;
+    use crate::unvalidated::tests::{SIGNED_INIT_EVENT_CID, UNSIGNED_INIT_NO_SEP_CAR};
     use crate::unvalidated::{
+        payload,
         tests::{
             CACAO_SIGNED_DATA_EVENT_CAR, DATA_EVENT_CAR_UNSIGNED_INIT, SIGNED_DATA_EVENT_CAR,
             SIGNED_INIT_EVENT_CAR, TIME_EVENT_CAR, UNSIGNED_INIT_EVENT_CAR,
@@ -417,6 +418,10 @@ mod tests {
     async fn round_trip_time_event() {
         round_trip(TIME_EVENT_CAR).await;
     }
+    #[test(tokio::test)]
+    async fn round_trip_init_payload_with_no_sep() {
+        round_trip(UNSIGNED_INIT_NO_SEP_CAR).await;
+    }
 
     #[test(tokio::test)]
     async fn decode_time_event_with_no_tree() {
@@ -449,5 +454,15 @@ mod tests {
         assert_eq!(prev, parsed_event.event.prev);
         assert_eq!(prev, parsed_event.proof.root);
         assert_eq!("", parsed_event.event.path);
+    }
+    #[test(tokio::test)]
+    async fn decode_event_with_no_sep() {
+        // Tests that decoding an init payload that does not have the `sep` field defaults to
+        // `model`.
+        const INIT_PAYLOAD_NO_SEP:&str="uomRkYXRhpmRkYXRho2N1cmxgZWxhYmVsZ0Zhc3RpbmduY2hpbGRyZW5IaWRkZW70ZHR5cGVsUXVlc3Rpb25Ob2RlZ2NyZWF0ZWR4GDIwMjMtMDItMjBUMTU6MTk6MzYuMjc5Wmhwb3NpdGlvbqJhePtApYOSIAAAAGF5-0C2p4AAAAAAaWxhdGVyYWxJRHgkNjlhYWYzN2QtNTU5Yi00Yjk1LWExMDAtNWVlOTgxOGZjNWVkaXByb2plY3RJRHg_a2p6bDZrY3ltN3c4eTVkNjVmOW9rbjRyaXlkYXQ5MmgzczZ2dnpwd3d1NzU0NGk5MmZqeWdjNTY3bHpocnZjZmhlYWRlcqNlbW9kZWxYKM4BAgGFARIgluyz1feTN9qD54Xo4XHQoMg5Xo_kPE6L5xYBadM3kWNmdW5pcXVlTCrb84nFhVpKhrCYm2tjb250cm9sbGVyc4F4O2RpZDpwa2g6ZWlwMTU1OjE6MHhjYTVmZjRiMzQ0MmZjYWMyN2UxYWY0NDU3ZTAyZWI2MjljNzEyOTgz";
+        let init_payload: payload::init::Payload<Ipld> =
+            serde_ipld_dagcbor::from_slice(&multibase::decode(INIT_PAYLOAD_NO_SEP).unwrap().1)
+                .unwrap();
+        assert_eq!("model", init_payload.header().sep());
     }
 }
