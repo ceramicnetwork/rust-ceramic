@@ -84,6 +84,8 @@ jobs:
       CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
       GH_TOKEN: ${{ secrets.GH_TOKEN_PAT }}
       GITHUB_TOKEN: ${{ secrets.GH_TOKEN_PAT }}
+    outputs:
+      version: ${{ steps.release.outputs.version }}
     steps:
       - uses: actions/checkout@v3
         with:
@@ -104,12 +106,13 @@ jobs:
           # pre-release is promoted to a release from the GitHub console, the "released" event will trigger and deploy
           # to Prod.
           current_branch=$(git rev-parse --abbrev-ref HEAD)
-          gh release create "v${TAG}" -t "v${TAG}" --target "$current_branch" --generate-notes --prerelease artifacts/**/*.tar.gz
+          version="v${TAG}"
+          gh release create "$version" -t "$version" --target "$current_branch" --generate-notes --prerelease artifacts/**/*.tar.gz
+          echo "version=$version" >> $GITHUB_OUTPUT
 
   update-homebrew-formula:
       needs: release
       runs-on: ubuntu-latest
-
       steps:
       - name: Checkout Homebrew Tap
         uses: actions/checkout@v2
@@ -138,7 +141,7 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add Formula/rust-ceramic.rb
-          git commit -m "Update rust-ceramic formula to ${VERSION}"
+          git commit -m "Update rust-ceramic formula to ${{ needs.release.outputs.version }}"
           git push
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
