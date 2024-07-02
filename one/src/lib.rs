@@ -28,7 +28,7 @@ use signal_hook_tokio::Signals;
 use std::sync::Arc;
 use swagger::{auth::MakeAllowAllAuthenticator, EmptyContext};
 use tokio::{io::AsyncReadExt, sync::oneshot};
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::network::Ipfs;
 
@@ -109,9 +109,8 @@ struct DaemonOpts {
     #[arg(long, env = "CERAMIC_ONE_LOCAL_NETWORK_ID")]
     local_network_id: Option<u32>,
 
-    /// Specify the format of log events.
-    #[arg(long, default_value = "multi-line", env = "CERAMIC_ONE_LOG_FORMAT")]
-    log_format: LogFormat,
+    #[command(flatten)]
+    log_opts: LogOpts,
 
     /// Specify maximum established outgoing connections.
     #[arg(long, default_value_t = 2_000, env = "CERAMIC_ONE_MAX_CONNS_OUT")]
@@ -151,6 +150,23 @@ struct DBOpts {
     /// Path to storage directory
     #[arg(short, long, env = "CERAMIC_ONE_STORE_DIR")]
     store_dir: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+struct LogOpts {
+    /// Specify the format of log events.
+    #[arg(long, default_value = "multi-line", env = "CERAMIC_ONE_LOG_FORMAT")]
+    log_format: LogFormat,
+}
+
+impl LogOpts {
+    fn format(&self) -> ceramic_metrics::config::LogFormat {
+        match self.log_format {
+            LogFormat::SingleLine => ceramic_metrics::config::LogFormat::SingleLine,
+            LogFormat::MultiLine => ceramic_metrics::config::LogFormat::MultiLine,
+            LogFormat::Json => ceramic_metrics::config::LogFormat::Json,
+        }
+    }
 }
 
 #[derive(ValueEnum, Debug, Clone, Default)]
@@ -253,16 +269,14 @@ impl DBOpts {
         let dir = self.default_directory();
         match tokio::fs::create_dir_all(dir.clone()).await {
             Ok(_) => {}
-            Err(e) => match e.kind() {
+            Err(err) => match err.kind() {
                 std::io::ErrorKind::AlreadyExists => {}
                 _ => {
-                    let message = format!(
-                        "Failed to create required directory '{}' due to {}",
-                        dir.display(),
-                        e
+                    error!(
+                        dir = %dir.display(),
+                        %err, "failed to create required directory"
                     );
-                    eprintln!("{}", message);
-                    anyhow::bail!(message);
+                    anyhow::bail!(err);
                 }
             },
         }
@@ -275,7 +289,7 @@ impl DBOpts {
             ceramic_store::SqlitePool::connect(path, ceramic_store::Migrations::Apply).await?;
         let interest_store = Arc::new(CeramicInterestService::new(sql_pool.clone()));
         let event_store = Arc::new(CeramicEventService::new(sql_pool).await?);
-        println!("Connected to sqlite database: {}", path);
+        info!(path, "connected to sqlite db");
 
         Ok(Databases::Sqlite(SqliteBackend {
             event_store,
@@ -296,53 +310,12 @@ struct Daemon;
 
 impl Daemon {
     async fn run(opts: DaemonOpts) -> Result<()> {
-        let db = opts.db_opts.get_database().await?;
-
-        // we should be able to consolidate the Store traits now that they all rely on &self, but for now we use
-        // static dispatch and require compile-time type information, so we pass all the types we need in, even
-        // though they are currently all implemented by a single struct and we're just cloning Arcs.
-        match db {
-            Databases::Sqlite(db) => {
-                Daemon::run_int(
-                    opts,
-                    db.interest_store.clone(),
-                    db.interest_store,
-                    db.event_store.clone(),
-                    db.event_store.clone(),
-                    db.event_store,
-                )
-                .await
-            }
-        }
-    }
-
-    async fn run_int<I1, I2, E1, E2, E3>(
-        opts: DaemonOpts,
-        interest_api_store: Arc<I1>,
-        interest_recon_store: Arc<I2>,
-        model_api_store: Arc<E1>,
-        model_recon_store: Arc<E2>,
-        bitswap_block_store: Arc<E3>,
-    ) -> Result<()>
-    where
-        I1: InterestStore + Send + Sync + 'static,
-        I2: recon::Store<Key = Interest, Hash = Sha256a> + Send + Sync + 'static,
-        E1: EventStore + Send + Sync + 'static,
-        E2: recon::Store<Key = EventId, Hash = Sha256a> + Send + Sync + 'static,
-        E3: iroh_bitswap::Store + Send + Sync + 'static,
-    {
-        let network = opts.network.to_network(&opts.local_network_id)?;
-
         let info = Info::new().await?;
 
         let mut metrics_config = MetricsConfig {
             export: opts.metrics,
             tracing: opts.tracing,
-            log_format: match opts.log_format {
-                LogFormat::SingleLine => ceramic_metrics::config::LogFormat::SingleLine,
-                LogFormat::MultiLine => ceramic_metrics::config::LogFormat::MultiLine,
-                LogFormat::Json => ceramic_metrics::config::LogFormat::Json,
-            },
+            log_format: opts.log_opts.format(),
             #[cfg(feature = "tokio-console")]
             tokio_console: opts.tokio_console,
             ..Default::default()
@@ -368,6 +341,44 @@ impl Daemon {
             exe_hash = info.exe_hash,
         );
         debug!(?opts, "using daemon options");
+        let db = opts.db_opts.get_database().await?;
+
+        // we should be able to consolidate the Store traits now that they all rely on &self, but for now we use
+        // static dispatch and require compile-time type information, so we pass all the types we need in, even
+        // though they are currently all implemented by a single struct and we're just cloning Arcs.
+        match db {
+            Databases::Sqlite(db) => {
+                Daemon::run_int(
+                    opts,
+                    db.interest_store.clone(),
+                    db.interest_store,
+                    db.event_store.clone(),
+                    db.event_store.clone(),
+                    db.event_store,
+                    metrics_handle,
+                )
+                .await
+            }
+        }
+    }
+
+    async fn run_int<I1, I2, E1, E2, E3>(
+        opts: DaemonOpts,
+        interest_api_store: Arc<I1>,
+        interest_recon_store: Arc<I2>,
+        model_api_store: Arc<E1>,
+        model_recon_store: Arc<E2>,
+        bitswap_block_store: Arc<E3>,
+        metrics_handle: MetricsHandle,
+    ) -> Result<()>
+    where
+        I1: InterestStore + Send + Sync + 'static,
+        I2: recon::Store<Key = Interest, Hash = Sha256a> + Send + Sync + 'static,
+        E1: EventStore + Send + Sync + 'static,
+        E2: recon::Store<Key = EventId, Hash = Sha256a> + Send + Sync + 'static,
+        E3: iroh_bitswap::Store + Send + Sync + 'static,
+    {
+        let network = opts.network.to_network(&opts.local_network_id)?;
 
         let dir = opts.db_opts.default_directory();
         debug!("using directory: {}", dir.display());

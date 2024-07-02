@@ -12,12 +12,20 @@ use futures::Stream;
 use multihash_codetable::{Code, Multihash, MultihashDigest};
 use tracing::{debug, info};
 
-use crate::{DBOpts, Info};
+use crate::{DBOpts, Info, LogOpts};
 
 #[derive(Subcommand, Debug)]
 pub enum EventsCommand {
     /// Migrate raw event blocks from IPFS.
     FromIpfs(FromIpfsOpts),
+}
+
+impl EventsCommand {
+    fn log_format(&self) -> ceramic_metrics::config::LogFormat {
+        match self {
+            EventsCommand::FromIpfs(opts) => opts.log_opts.format(),
+        }
+    }
 }
 
 #[derive(Args, Debug)]
@@ -37,6 +45,9 @@ pub struct FromIpfsOpts {
     /// Unique id when the network type is 'local'.
     #[arg(long, env = "CERAMIC_ONE_LOCAL_NETWORK_ID")]
     local_network_id: Option<u32>,
+
+    #[command(flatten)]
+    log_opts: LogOpts,
 }
 
 impl From<&FromIpfsOpts> for DBOpts {
@@ -52,7 +63,7 @@ pub async fn migrate(cmd: EventsCommand) -> Result<()> {
     let mut metrics_config = MetricsConfig {
         export: false,
         tracing: false,
-        log_format: ceramic_metrics::config::LogFormat::MultiLine,
+        log_format: cmd.log_format(),
         ..Default::default()
     };
     info.apply_to_metrics_config(&mut metrics_config);
