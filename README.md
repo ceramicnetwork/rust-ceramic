@@ -8,9 +8,17 @@ Current status is that the `ceramic-one` binary only mimics the Kubo RPC API and
 
 The following section covers several ways one can install Rust-Ceramic contingent on the recieving environment:
 
-### Linux - from Binary Distribution
+### MacOS
 
-Install a Github release (Debian-based distributions):
+Install from [Homebrew](https://brew.sh/):
+
+```bash
+brew install ceramicnetwork/tap/ceramic-one
+```
+
+### Linux - Debian-based distributions
+
+Install a the latest release using dpkg:
 
 ```bash
 # get deb.tar.gz
@@ -43,14 +51,6 @@ git clone https://github.com/ceramicnetwork/rust-ceramic
 cd rust-ceramic
 make build
 cp ./target/release/ceramic-one /usr/local/bin/ceramic-one
-```
-
-### MacOS - Local System
-
-Install from [Homebrew](https://brew.sh/)
-
-```bash
-brew install ceramicnetwork/tap/ceramic-one
 ```
 
 ### Docker
