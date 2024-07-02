@@ -1,6 +1,6 @@
 # Upgrade to Ceramic One from Kubo
 
-This document describes how to upgrade an existing Ceramic node using Kubo to run with `ceramic-one` while preserving existing data.
+This document describes how to upgrade an existing Ceramic node (js-ceramic) using Kubo to run with `ceramic-one` while preserving existing data.
 
 ## Overview
 
@@ -17,11 +17,13 @@ If you require a zero downtime upgrade see the section below that expands the ba
 ### Shutdown Existing Node
 
 First shutdown both the `js-ceramic` and `kubo` processes using whatever mechanism your infrastructure dictates.
+If you have your `js-ceramic` daemon configured to _bundle_ `ipfs` then stopping `js-ceramic` will also stop `kubo`.
+Otherwise you will need to explicitly stop `kubo`.
 
 ### Migrate IPFS Blocks to Ceramic Events
 
 Kubo stores data as IPFS blocks on disk.
-If you are not using the disk backed Kubo storage first migrate data to an on disk store following Kubo's instructions.
+You must be using the disk backed Kubo storage.
 
 These IPFS blocks are the raw pieces of Ceramic Events.
 In order to preserve this data we need to migrate them into Ceramic Events stored in as a Sqlite database file.
@@ -46,6 +48,10 @@ You will also see a number of errors. This represents the number of blocks found
 Any error will be logged for investigations.
 Any blocks stored in Kubo that are not Ceramic Events will be ignored.
 
+The `js-ceramic` daemon will not start if it does not find data for its events in its block store.
+Therefore in the next steps you will verify that the migration was successful.
+
+
 ### Start `ceramic-one` Daemon
 
 Once the data is migrated its time to start the node again.
@@ -60,6 +66,35 @@ Once you are familiar with configuring the daemon start it with defaults or spec
     ceramic-one daemon
 
 You should see logs indicating the daemon is running.
+The first few logs line will look similar to this:
+
+```
+2024-07-02T15:04:55.730992Z  INFO ceramic_one: service__name: "ceramic-one", version: "0.25.0", build: "git:efd1fb0-modified", instance_id: "remarkable-screw", exe_hash: "uEiDQmcM1n-lG2Qxi0jOCyFdPpqA_ijIC29RPd_7FhwqqBg"
+  at one/src/lib.rs:363
+
+2024-07-02T15:04:55.731205Z  INFO ceramic_p2p::node: identity loaded: 12D3KooWD2C2aWKagfowBN7LDkiXpXyMiJyN4FAuEptqZAQ2GgZp
+  at p2p/src/node.rs:1153
+
+2024-07-02T15:04:55.732282Z  INFO libp2p_swarm: local_peer_id: 12D3KooWD2C2aWKagfowBN7LDkiXpXyMiJyN4FAuEptqZAQ2GgZp
+  at /home/nathanielc/.cargo/registry/src/index.crates.io-6f17d22bba15001f/libp2p-swarm-0.44.2/src/lib.rs:367
+
+2024-07-02T15:04:55.732300Z  INFO ceramic_p2p::node: iroh-p2p peerid: 12D3KooWD2C2aWKagfowBN7LDkiXpXyMiJyN4FAuEptqZAQ2GgZp
+  at p2p/src/node.rs:168
+
+2024-07-02T15:04:55.733218Z  INFO ceramic_p2p::rpc: p2p rpc listening on: mem
+  at p2p/src/rpc.rs:434
+  in ceramic_p2p::rpc::new with addr=mem
+
+2024-07-02T15:04:55.733239Z  INFO ceramic_p2p::node: Listen addrs: ["/ip4/0.0.0.0/tcp/4001", "/ip4/0.0.0.0/udp/4001/quic-v1"]
+  at p2p/src/node.rs:249
+  in ceramic_p2p::node::run
+
+2024-07-02T15:04:55.733257Z  INFO ceramic_p2p::node: Local Peer ID: 12D3KooWD2C2aWKagfowBN7LDkiXpXyMiJyN4FAuEptqZAQ2GgZp
+  at p2p/src/node.rs:250
+  in ceramic_p2p::node::run
+```
+
+
 
 ### Configure `js-ceramic` for `ceramic-one`
 
@@ -73,7 +108,7 @@ By default the `ceramic-one` daemon listens on port 5001, if you configured it d
   },
 ```
 
-Second, set and environment variable for the `js-ceramic` process so it knows its talking to `ceramic-one` and not Kubo.
+Second, set an environment variable for the `js-ceramic` process so it knows its talking to `ceramic-one` and not Kubo.
 
     CERAMIC_RECON_MODE=true
 
@@ -85,15 +120,20 @@ Both of these configuration options may not be required in the future, however f
 Now start the `js-ceramic` node with its new configuration and environment.
 Validate the process starts as before and that your application can communicate with it as needed.
 
+To validate that everything worked you can run any tests you may have against the node or perform a random sample query to ensure all data has migrated.
+This will depend on the specifics of your application.
+
 ## Recovery
 
 At this point you should have a working upgraded `js-ceramic` node but sometimes things go wrong.
 The Ceramic node does some basic checks on startup to ensure its various data store are in sync, if these check fail the process with exit with an error message about missing data.
 In that case or any other failure mode follow these steps to return your node to its working state.
 
-1. Stop the `ceramic-one` process.
+1. Stop the `ceramic-one` and `js-ceramic` processes.
 2. Revert the configuration and environment changes to `js-ceramic`.
 3. Start `js-ceramic` process.
+
+These steps work because the existing data is not modified during the migration, instead it is only read and copied.
 
 ## Live Upgrade Steps
 
