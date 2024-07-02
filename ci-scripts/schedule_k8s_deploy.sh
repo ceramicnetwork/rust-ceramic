@@ -10,11 +10,11 @@ network=${1-dev}
 environment=ceramic-v4-${network}
 
 if [[ "$network" == "dev" || "$network" == "qa" ]]; then
-    ceramic_image_name="ceramicnetwork/js-ceramic:develop"
+    ceramic_image="ceramicnetwork/js-ceramic:develop"
 elif [[ "$network" == "tnet" ]]; then
-    ceramic_image_name="ceramicnetwork/js-ceramic:release-candidate"
+    ceramic_image="ceramicnetwork/js-ceramic:release-candidate"
 elif [[ "$network" == "prod" ]]; then
-    ceramic_image_name="ceramicnetwork/js-ceramic:latest"
+    ceramic_image="ceramicnetwork/js-ceramic:latest"
 else
     echo "Invalid network value: $network"
     exit 1
@@ -27,28 +27,28 @@ docker run --rm -i \
   -v ~/.aws:/root/.aws \
   -v "$PWD":/aws \
   amazon/aws-cli dynamodb put-item --table-name "ceramic-$network-ops" --item \
-  "{                                                                         \
-    \"id\":     {\"S\": \"$id\"},                                            \
-    \"job\":    {\"S\": \"$job_id\"},                                        \
-    \"ts\":     {\"N\": \"$now\"},                                           \
-    \"ttl\":    {\"N\": \"$ttl\"},                                           \
-    \"stage\":  {\"S\": \"queued\"},                                         \
-    \"type\":   {\"S\": \"workflow\"},                                       \
-    \"params\": {                                                            \
-      \"M\": {                                                               \
-        \"name\":     {\"S\": \"Deploy k8s $network CERAMIC ONE\"},          \
-        \"org\":      {\"S\": \"3box\"},                                     \
-        \"repo\":     {\"S\": \"ceramic-infra\"},                            \
-        \"ref\":      {\"S\": \"$branch\"},                                  \
-        \"workflow\": {\"S\": \"update_image.yml\"},                         \
-        \"labels\":   {\"L\": [{\"S\": \"deploy\"}]},                        \
-        \"inputs\":   {                                                      \
-          \"M\": {                                                           \
-            \"ceramic_one_image\": {\"S\": \"$image\"},                      \
-            \"ceramic_image\":     {\"S\": \"$ceramic_image\"},              \
-            \"environment\":       {\"S\": \"$environment\"}                 \
-          }                                                                  \
-        }                                                                    \
-      }                                                                      \
-    }                                                                        \
+  "{                                                                \
+    \"id\":     {\"S\": \"$id\"},                                   \
+    \"job\":    {\"S\": \"$job_id\"},                               \
+    \"ts\":     {\"N\": \"$now\"},                                  \
+    \"ttl\":    {\"N\": \"$ttl\"},                                  \
+    \"stage\":  {\"S\": \"queued\"},                                \
+    \"type\":   {\"S\": \"workflow\"},                              \
+    \"params\": {                                                   \
+      \"M\": {                                                      \
+        \"name\":     {\"S\": \"Deploy k8s $network CERAMIC ONE\"}, \
+        \"org\":      {\"S\": \"3box\"},                            \
+        \"repo\":     {\"S\": \"ceramic-infra\"},                   \
+        \"ref\":      {\"S\": \"$branch\"},                         \
+        \"workflow\": {\"S\": \"update_image.yml\"},                \
+        \"labels\":   {\"L\": [{\"S\": \"deploy\"}]},               \
+        \"inputs\":   {                                             \
+          \"M\": {                                                  \
+            \"ceramic_one_image\": {\"S\": \"$image\"},             \
+            \"ceramic_image\":     {\"S\": \"$ceramic_image\"},     \
+            \"environment\":       {\"S\": \"$environment\"}        \
+          }                                                         \
+        }                                                           \
+      }                                                             \
+    }                                                               \
   }"
