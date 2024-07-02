@@ -15,7 +15,7 @@ use ceramic_core::{EventId, Interest};
 use ceramic_kubo_rpc::Multiaddr;
 use ceramic_metrics::{config::Config as MetricsConfig, MetricsHandle};
 use ceramic_p2p::{load_identity, DiskStorage, Keychain, Libp2pConfig};
-use ceramic_service::{CeramicEventService, CeramicInterestService};
+use ceramic_service::{CeramicEventService, CeramicInterestService, CeramicService};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use futures::StreamExt;
 use multibase::Base;
@@ -273,8 +273,9 @@ impl DBOpts {
     async fn build_sqlite_dbs(path: &str) -> Result<Databases> {
         let sql_pool =
             ceramic_store::SqlitePool::connect(path, ceramic_store::Migrations::Apply).await?;
-        let interest_store = Arc::new(CeramicInterestService::new(sql_pool.clone()));
-        let event_store = Arc::new(CeramicEventService::new(sql_pool).await?);
+        let ceramic_service = CeramicService::try_new(sql_pool).await?;
+        let interest_store = ceramic_service.interest_service().to_owned();
+        let event_store = ceramic_service.event_service().to_owned();
         println!("Connected to sqlite database: {}", path);
 
         Ok(Databases::Sqlite(SqliteBackend {
@@ -303,7 +304,7 @@ impl Daemon {
         // though they are currently all implemented by a single struct and we're just cloning Arcs.
         match db {
             Databases::Sqlite(db) => {
-                Daemon::run_int(
+                Daemon::run_internal(
                     opts,
                     db.interest_store.clone(),
                     db.interest_store,
@@ -316,7 +317,7 @@ impl Daemon {
         }
     }
 
-    async fn run_int<I1, I2, E1, E2, E3>(
+    async fn run_internal<I1, I2, E1, E2, E3>(
         opts: DaemonOpts,
         interest_api_store: Arc<I1>,
         interest_recon_store: Arc<I2>,
