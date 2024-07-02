@@ -6,6 +6,7 @@ use ceramic_event::unvalidated::{self, signed::cacao::Capability};
 use cid::Cid;
 use futures::{Stream, StreamExt, TryStreamExt};
 use ipld_core::ipld::Ipld;
+use serde::Deserialize;
 use thiserror::Error;
 use tracing::{debug, error, info, instrument, Level};
 
@@ -167,8 +168,15 @@ impl<'a> Migrator<'a> {
             .find_block(&link)
             .context("finding payload link block")?;
         let payload_data = block.data().await?;
-        let payload: unvalidated::Payload<Ipld> =
-            serde_ipld_dagcbor::from_slice(&payload_data).context("decoding payload")?;
+        let payload: unvalidated::Payload<Ipld> = serde_ipld_dagcbor::from_slice(&payload_data)
+            .context("decoding payload")
+            .map_err(|err| {
+                if self.is_tile_doc(&payload_data) {
+                    anyhow!("found Tile Document, skipping")
+                } else {
+                    anyhow!("{err}")
+                }
+            })?;
         let event_builder = match &payload {
             unvalidated::Payload::Init(payload) => {
                 self.referenced_unsigned_init_payloads.insert(link);
@@ -207,6 +215,16 @@ impl<'a> Migrator<'a> {
             .push(event_builder.build(&self.network, event).await?);
         Ok(())
     }
+    fn is_tile_doc(&self, data: &[u8]) -> bool {
+        // Attempt to decode the payload as a loose TileDocument.
+        // If we succeed produce a meaningful error message.
+        #[allow(dead_code)]
+        #[derive(Debug, Deserialize)]
+        struct TileDocPayload {
+            data: Ipld,
+        }
+        serde_ipld_dagcbor::from_slice::<TileDocPayload>(data).is_ok()
+    }
     async fn find_init_payload(&self, cid: &Cid) -> Result<unvalidated::init::Payload<Ipld>> {
         let init_block = self.find_block(cid).context("finding init payload block")?;
         let init_data = init_block.data().await?;
@@ -224,7 +242,15 @@ impl<'a> Migrator<'a> {
                     .context("finding init link block")?;
                 let init_payload_data = init_payload_block.data().await?;
 
-                serde_ipld_dagcbor::from_slice(&init_payload_data).context("decoding init payload")
+                serde_ipld_dagcbor::from_slice(&init_payload_data)
+                    .context("decoding init payload")
+                    .map_err(|err| {
+                        if self.is_tile_doc(&init_payload_data) {
+                            anyhow!("found Tile Document, skipping")
+                        } else {
+                            anyhow!("{err}")
+                        }
+                    })
             }
             unvalidated::RawEvent::Unsigned(payload) => Ok(payload),
         }
