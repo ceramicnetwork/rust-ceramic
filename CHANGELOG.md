@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.26.0] - 2024-07-02
+
+### 🐛 Bug Fixes
+
+- IOD long streams could remain undelivered (#387)
+- Address edge cases in from-ipfs time events (#395)
+- Make sure the store directory exists and create it if needed (#401)
+- Default missing sep to model (#404)
+- Update correctness test selector (#406)
+- Use event service rather than store to enforce deliverability/or… (#403)
+- Homebrew support (#412)
+- Update homebrew workflow (#413)
+
+### 🚜 Refactor
+
+- Use an Iterator for insert_many and other clean up (#399)
+
+### ⚙️ Miscellaneous Tasks
+
+- Mzk/readme installation (#397)
+- Homebrew support (#407)
+
 ## [0.25.0] - 2024-06-24
 
 ### 🚀 Features
@@ -20,6 +42,7 @@ All notable changes to this project will be documented in this file.
 
 - Replace tracing_test with test-log and don't init tracing manually (#391)
 - Rename prometheus registry and metrics for better consistency (#373)
+- Version v0.25.0 (#396)
 
 ## [0.24.0] - 2024-06-18
 
