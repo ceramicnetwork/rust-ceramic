@@ -46,6 +46,10 @@ jobs:
         make check-kubo-rpc-server
     - name: Check deps
       run: make check-deps
+    - name: Test wasm32-wasi compilation
+      run: |
+        rustup target add wasm32-wasi
+        cargo check -p ceramic-event --target wasm32-wasi
   test:
     runs-on: ubuntu-latest
     container: 'public.ecr.aws/r5b3e0r5/3box/rust-builder:latest'

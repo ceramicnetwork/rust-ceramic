@@ -11,8 +11,10 @@ publish = false
 anyhow.workspace = true
 base64 = "0.21.2"
 cid.workspace = true
-did-method-key = "0.2.1"
-did-pkh = "0.2.1"
+#did-method-key = "0.2.1"
+did-method-key = { git = "https://github.com/dbcfd/ssi", branch = "feat/wasi" }
+#did-pkh = "0.2.1"
+did-pkh = { git = "https://github.com/dbcfd/ssi", branch = "feat/wasi" }
 hex.workspace = true
 int-enum = "0.5.0"
 libp2p-identity.workspace = true
