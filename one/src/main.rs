@@ -10,5 +10,9 @@ pub static malloc_conf: &[u8] = b"prof:true,prof_active:true,lg_prof_sample:19\0
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<()> {
-    ceramic_one::run().await
+    ceramic_one::run().await.map_err(|e| {
+        // this should use stderr if we error before tracing is hooked up
+        tracing::error!("Error running command: {:#}", e);
+        e
+    })
 }

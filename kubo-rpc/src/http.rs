@@ -1124,7 +1124,7 @@ mod tests {
                     (
                         PeerId::from_str("12D3KooWBSyp3QZQBFakvXT2uqT2L5ZmTNnpYNXgyVZq5YB3P7DU")
                             .unwrap(),
-                        vec![Multiaddr::from_str("/ip4/95.211.198.178/udp/4001/quic").unwrap()],
+                        vec![Multiaddr::from_str("/ip4/95.211.198.178/udp/4101/quic").unwrap()],
                     ),
                 ]))
             });
@@ -1138,7 +1138,7 @@ mod tests {
                 SwarmPeersPost200Response {
                     peers: [
                         SwarmPeersPost200ResponsePeersInner {
-                            addr: "/ip4/95.211.198.178/udp/4001/quic",
+                            addr: "/ip4/95.211.198.178/udp/4101/quic",
                             peer: "12D3KooWBSyp3QZQBFakvXT2uqT2L5ZmTNnpYNXgyVZq5YB3P7DU",
                         },
                         SwarmPeersPost200ResponsePeersInner {
@@ -1170,7 +1170,7 @@ mod tests {
             m
         });
         let server = Server::new(mock_ipfs);
-        let resp = server.swarm_connect_post(&vec!["/ip4/1.1.1.1/tcp/4001/p2p/12D3KooWFtPWZ1uHShnbvmxYJGmygUfTVmcb6iSQfiAm4XnmsQ8t".to_string()], &Context).await.unwrap();
+        let resp = server.swarm_connect_post(&vec!["/ip4/1.1.1.1/tcp/4101/p2p/12D3KooWFtPWZ1uHShnbvmxYJGmygUfTVmcb6iSQfiAm4XnmsQ8t".to_string()], &Context).await.unwrap();
 
         expect![[r#"
             Success(
@@ -1188,7 +1188,7 @@ mod tests {
         let mock_ipfs = MockIpfsDepTest::new();
         let server = Server::new(mock_ipfs);
         let resp = server
-            .swarm_connect_post(&vec!["/ip4/1.1.1.1/tcp/4001".to_string()], &Context)
+            .swarm_connect_post(&vec!["/ip4/1.1.1.1/tcp/4101".to_string()], &Context)
             .await
             .unwrap();
 

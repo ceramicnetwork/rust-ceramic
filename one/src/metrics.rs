@@ -54,16 +54,18 @@ async fn handle(_req: Request<Body>) -> Result<Response<Body>, Infallible> {
     Ok(resp)
 }
 
+pub type MetricsServerTask = JoinHandle<Result<(), hyper::Error>>;
+
 /// Start metrics server.
 /// Sending on the returned channel will cause the server to shutdown gracefully.
-pub fn start(addr: &SocketAddr) -> (oneshot::Sender<()>, JoinHandle<Result<(), hyper::Error>>) {
+pub fn start(addr: &SocketAddr) -> Result<(oneshot::Sender<()>, MetricsServerTask)> {
     let (tx, rx) = oneshot::channel::<()>();
     let service = make_service_fn(|_conn| async { Ok::<_, Infallible>(service_fn(handle)) });
 
-    let server = hyper::Server::bind(addr)
+    let server = hyper::Server::try_bind(addr)?
         .serve(service)
         .with_graceful_shutdown(async {
             rx.await.ok();
         });
-    (tx, tokio::spawn(server))
+    Ok((tx, tokio::spawn(server)))
 }

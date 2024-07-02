@@ -104,7 +104,7 @@ check-deps:
 
 .PHONY: run
 run:
-	RUST_LOG=ERROR,ceramic_kubo_rpc=DEBUG,ceramic_one=DEBUG $(CARGO) run --all-features --locked --release --bin ceramic-one -- daemon -b 127.0.0.1:5001
+	RUST_LOG=ERROR,ceramic_kubo_rpc=DEBUG,ceramic_one=DEBUG $(CARGO) run --all-features --locked --release --bin ceramic-one -- daemon -b 127.0.0.1:5101
 
 .PHONY: publish-docker
 publish-docker:
