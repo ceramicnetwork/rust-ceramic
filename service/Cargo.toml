@@ -24,6 +24,7 @@ multibase.workspace = true
 multihash-codetable.workspace = true
 multihash-derive.workspace = true
 recon.workspace = true
+serde.workspace = true
 serde_ipld_dagcbor.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
