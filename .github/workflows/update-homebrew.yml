@@ -21,8 +21,8 @@ jobs:
           echo "VERSION=$(jq -r '.tagName' release.json)" >> $GITHUB_OUTPUT
           echo "X86_URL=$(jq -r '.assets[] | select(.name | contains("x86_64-apple-darwin")) | .url' release.json)" >> $GITHUB_OUTPUT
           echo "ARM_URL=$(jq -r '.assets[] | select(.name | contains("aarch64-apple-darwin")) | .url' release.json)" >> $GITHUB_OUTPUT
-          echo "X86_SHA=$(sha256sum ceramic-one_x86_64-apple-darwin.tar.gz | cut -d ' ' -f 1)" >> $GITHUB_OUTPUT
-          echo "ARM_SHA=$(sha256sum ceramic-one_aarch64-apple-darwin.tar.gz | cut -d ' ' -f 1)" >> $GITHUB_OUTPUT
+          echo "X86_SHA=$(sha256sum ceramic-one_x86_64-apple-darwin.bin.tar.gz | cut -d ' ' -f 1)" >> $GITHUB_OUTPUT
+          echo "ARM_SHA=$(sha256sum ceramic-one_aarch64-apple-darwin.bin.tar.gz | cut -d ' ' -f 1)" >> $GITHUB_OUTPUT
       - name: Checkout Homebrew Tap
         uses: actions/checkout@v4
         with:
