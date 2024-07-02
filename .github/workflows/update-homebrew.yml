@@ -1,8 +1,5 @@
 name: Update Homebrew Formula
 
-permissions:
-  contents: write
-
 on:
   release:
 
@@ -12,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ github.event.action == 'released' }}
     env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GH_TOKEN_PAT }}
     steps:
       - uses: actions/checkout@v4
       - name: Get Latest Release
