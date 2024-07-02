@@ -196,30 +196,7 @@ impl Network {
     /// should be kept in sync with js-ceramic.
     /// https://github.com/ceramicnetwork/js-ceramic/blob/develop/packages/ipfs-topology/src/ipfs-topology.ts
     fn bootstrap_addresses(&self) -> Vec<Multiaddr> {
-        match self {
-            Network::Mainnet => vec![
-                "/dns4/go-ipfs-ceramic-private-mainnet-external.3boxlabs.com/tcp/4011/ws/p2p/QmXALVsXZwPWTUbsT8G6VVzzgTJaAWRUD7FWL5f7d5ubAL".to_string(), // cspell:disable-line
-                "/dns4/go-ipfs-ceramic-private-cas-mainnet-external.3boxlabs.com/tcp/4011/ws/p2p/QmUvEKXuorR7YksrVgA7yKGbfjWHuCRisw2cH9iqRVM9P8".to_string(), // cspell:disable-line
-            ],
-            Network::TestnetClay => vec![
-                "/dns4/go-ipfs-ceramic-public-clay-external.3boxlabs.com/tcp/4011/ws/p2p/QmWiY3CbNawZjWnHXx3p3DXsg21pZYTj4CRY1iwMkhP8r3".to_string(), // cspell:disable-line
-                "/dns4/go-ipfs-ceramic-private-clay-external.3boxlabs.com/tcp/4011/ws/p2p/QmQotCKxiMWt935TyCBFTN23jaivxwrZ3uD58wNxeg5npi".to_string(), // cspell:disable-line
-                "/dns4/go-ipfs-ceramic-private-cas-clay-external.3boxlabs.com/tcp/4011/ws/p2p/QmbeBTzSccH8xYottaYeyVX8QsKyox1ExfRx7T1iBqRyCd".to_string(), // cspell:disable-line
-                "/dns/rust-ceramic-v4-tnet-0.3box.io/tcp/4101/p2p/12D3KooWNYomhBwgoCZ5sbhkCfEmmHV8m3bvESm6PL1bjDU7H3ja/p2p/12D3KooWNYomhBwgoCZ5sbhkCfEmmHV8m3bvESm6PL1bjDU7H3ja".to_string(),// cspell:disable-line
-                "/dns/rust-ceramic-v4-tnet-1.3box.io/tcp/4101/p2p/12D3KooWPYNbc6VBfPuJQ84sNb4xNXysD383ZXZuLYbG8xTmHmfj/p2p/12D3KooWPYNbc6VBfPuJQ84sNb4xNXysD383ZXZuLYbG8xTmHmfj".to_string(), // cspell:disable-line
-            ],
-            Network::DevUnstable => vec![
-                "/dns4/go-ipfs-ceramic-public-qa-external.3boxlabs.com/tcp/4011/ws/p2p/QmPP3RdaSWDkhcxZReGo591FWanLw9ucvgmUZhtSLt9t6D".to_string(),  // cspell:disable-line
-                "/dns4/go-ipfs-ceramic-private-qa-external.3boxlabs.com/tcp/4011/ws/p2p/QmXcmXfLkkaGbQdj98cgGvHr5gkwJp4r79j9xbJajsoYHr".to_string(),  // cspell:disable-line
-                "/dns4/go-ipfs-ceramic-private-cas-qa-external.3boxlabs.com/tcp/4011/ws/p2p/QmRvJ4HX4N6H26NgtqjoJEUyaDyDRUhGESP1aoyCJE1X1b".to_string(),  // cspell:disable-line
-            ],
-            Network::Local => vec![],
-            Network::InMemory => vec![],
-        }
-        .iter()
-        .map(|addr| addr.parse())
-        .collect::<Result<Vec<Multiaddr>, multiaddr::Error>>()
-        .expect("hard coded bootstrap addresses should parse")
+        vec![]
     }
 }
 
