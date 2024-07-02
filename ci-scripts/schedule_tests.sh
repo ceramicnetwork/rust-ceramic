@@ -2,11 +2,11 @@
 
 id=$(uuidgen)
 job_id=$(uuidgen)
-# Schedule tests for 10 minutes in the future to allow the network to stabilize. This assumes that the deployment is
+# Schedule tests for 15 minutes in the future to allow the network to stabilize. This assumes that the deployment is
 # successful with the right image being deployed, which might not always be the case if the deployment fails for some
 # reason. In the future, this can be done better via the CD manager, which will check for the network being ready with
 # the right image before scheduling tests.
-now=$(date +%s%N -d "10 minutes")
+now=$(date +%s%N -d "15 minutes")
 ttl=$(date +%s -d "14 days")
 network=${1-dev}
 test_selector=${2-.}
