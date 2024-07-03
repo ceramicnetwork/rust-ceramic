@@ -5,7 +5,7 @@ use ceramic_core::{EventId, Network};
 use ceramic_event::unvalidated;
 use ceramic_store::{CeramicOneEvent, EventInsertable, EventInsertableBody, SqlitePool};
 use cid::Cid;
-use futures::Stream;
+use futures::stream::BoxStream;
 use ipld_core::ipld::Ipld;
 use tracing::{trace, warn};
 
@@ -18,7 +18,7 @@ use super::{
 use crate::{Error, Result};
 
 /// How many events to select at once to see if they've become deliverable when we have downtime
-/// Used at startup and occassionally in case we ever dropped something
+/// Used at startup and occasionally in case we ever dropped something
 /// We keep the number small for now as we may need to traverse many prevs for each one of these and load them into memory.
 const DELIVERABLE_EVENTS_BATCH_SIZE: u32 = 1000;
 
@@ -37,16 +37,16 @@ pub struct CeramicEventService {
     pub(crate) pool: SqlitePool,
     delivery_task: DeliverableTask,
 }
-/// An object that represents an IPFS block where the data can be loaded async.
+/// An object that represents a set of blocks that can produce a stream of all blocks and lookup a
+/// block based on CID.
 #[async_trait]
-pub trait Block {
-    /// Report the CID of the block.
-    fn cid(&self) -> Cid;
+pub trait BlockStore {
+    /// Produce a stream of all blocks in the store
+    fn blocks(&self) -> BoxStream<'static, anyhow::Result<(Cid, Vec<u8>)>>;
     /// Asynchronously load the block data.
     /// This data should not be cached in memory as block data is accessed randomly.
-    async fn data(&self) -> anyhow::Result<Vec<u8>>;
+    async fn block_data(&self, cid: &Cid) -> anyhow::Result<Option<Vec<u8>>>;
 }
-pub type BoxedBlock = Box<dyn Block>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeliverableRequirement {
@@ -54,7 +54,7 @@ pub enum DeliverableRequirement {
     /// for API writes as we cannot create an event without its history.
     Immediate,
     /// This will be ordered as soon as its dependencies are discovered. Can be written in the meantime
-    /// and will consume memory tracking the event until it can be ordered. The approprate setting for recon
+    /// and will consume memory tracking the event until it can be ordered. The appropriate setting for recon
     /// discovered events.
     Asap,
     /// This currently means the event will be ordered on next system startup. An appropriate setting while
@@ -84,11 +84,7 @@ impl CeramicEventService {
         })
     }
 
-    pub async fn migrate_from_ipfs(
-        &self,
-        network: Network,
-        blocks: impl Stream<Item = anyhow::Result<BoxedBlock>>,
-    ) -> Result<()> {
+    pub async fn migrate_from_ipfs(&self, network: Network, blocks: impl BlockStore) -> Result<()> {
         let migrator = Migrator::new(self, network, blocks)
             .await
             .map_err(Error::new_fatal)?;
