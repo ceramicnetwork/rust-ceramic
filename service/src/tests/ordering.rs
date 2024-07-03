@@ -8,6 +8,7 @@ use recon::ReconItem;
 use test_log::test;
 
 use crate::{
+    event::DeliverableRequirement,
     tests::{check_deliverable, get_events},
     CeramicEventService,
 };
@@ -17,24 +18,18 @@ async fn setup_service() -> CeramicEventService {
         .await
         .unwrap();
 
-    CeramicEventService::new_without_undelivered(conn)
-        .await
-        .unwrap()
+    CeramicEventService::new(conn, false).await.unwrap()
 }
 
 async fn add_and_assert_new_recon_event(store: &CeramicEventService, item: ReconItem<'_, EventId>) {
     tracing::trace!("inserted event: {}", item.key.cid().unwrap());
-    let new = store
-        .insert_events_from_carfiles_recon(&[item])
-        .await
-        .unwrap();
-    let new = new.keys.into_iter().filter(|k| *k).count();
-    assert_eq!(1, new);
+    let new = recon::Store::insert(store, &item).await.unwrap();
+    assert!(new);
 }
 
 async fn add_and_assert_new_local_event(store: &CeramicEventService, item: ReconItem<'_, EventId>) {
     let new = store
-        .insert_events_from_carfiles_local_api(&[item])
+        .insert_events(&[item], DeliverableRequirement::Immediate)
         .await
         .unwrap();
     let new = new.store_result.count_new_keys();
@@ -57,7 +52,10 @@ async fn test_missing_prev_history_required_not_inserted() {
     let data = &events[1];
 
     let new = store
-        .insert_events_from_carfiles_local_api(&[ReconItem::new(&data.0, &data.1)])
+        .insert_events(
+            &[ReconItem::new(&data.0, &data.1)],
+            DeliverableRequirement::Immediate,
+        )
         .await
         .unwrap();
     assert!(new.store_result.inserted.is_empty());
@@ -93,10 +91,13 @@ async fn test_prev_in_same_write_history_required() {
     let init: &(EventId, Vec<u8>) = &events[0];
     let data = &events[1];
     let new = store
-        .insert_events_from_carfiles_local_api(&[
-            ReconItem::new(&data.0, &data.1),
-            ReconItem::new(&init.0, &init.1),
-        ])
+        .insert_events(
+            &[
+                ReconItem::new(&data.0, &data.1),
+                ReconItem::new(&init.0, &init.1),
+            ],
+            DeliverableRequirement::Immediate,
+        )
         .await
         .unwrap();
     let new = new.store_result.count_new_keys();

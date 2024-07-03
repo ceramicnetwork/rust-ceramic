@@ -48,17 +48,33 @@ pub trait Block {
 }
 pub type BoxedBlock = Box<dyn Block>;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeliverableRequirement {
+    /// Must be ordered immediately and is rejected if not currently deliverable. The appropriate setting
+    /// for API writes as we cannot create an event without its history.
+    Immediate,
+    /// This will be ordered as soon as its dependencies are discovered. Can be written in the meantime
+    /// and will consume memory tracking the event until it can be ordered. The approprate setting for recon
+    /// discovered events.
+    Asap,
+    /// This currently means the event will be ordered on next system startup. An appropriate setting while
+    /// migrating data from an IPFS datastore.
+    Lazy,
+}
+
 impl CeramicEventService {
     /// Create a new CeramicEventStore
-    pub async fn new(pool: SqlitePool) -> Result<Self> {
+    pub async fn new(pool: SqlitePool, process_undelivered: bool) -> Result<Self> {
         CeramicOneEvent::init_delivered_order(&pool).await?;
 
-        let _updated = OrderingTask::process_all_undelivered_events(
-            &pool,
-            MAX_ITERATIONS,
-            DELIVERABLE_EVENTS_BATCH_SIZE,
-        )
-        .await?;
+        if process_undelivered {
+            let _updated = OrderingTask::process_all_undelivered_events(
+                &pool,
+                MAX_ITERATIONS,
+                DELIVERABLE_EVENTS_BATCH_SIZE,
+            )
+            .await?;
+        }
 
         let delivery_task = OrderingTask::run(pool.clone(), PENDING_EVENTS_CHANNEL_DEPTH).await;
 
@@ -68,18 +84,6 @@ impl CeramicEventService {
         })
     }
 
-    /// Skip loading all undelivered events from the database on startup (for testing)
-    #[cfg(test)]
-    pub(crate) async fn new_without_undelivered(pool: SqlitePool) -> Result<Self> {
-        CeramicOneEvent::init_delivered_order(&pool).await?;
-
-        let delivery_task = OrderingTask::run(pool.clone(), PENDING_EVENTS_CHANNEL_DEPTH).await;
-
-        Ok(Self {
-            pool,
-            delivery_task,
-        })
-    }
     pub async fn migrate_from_ipfs(
         &self,
         network: Network,
@@ -138,46 +142,10 @@ impl CeramicEventService {
         Ok((EventInsertable::try_new(event_id, body)?, metadata))
     }
 
-    #[tracing::instrument(skip(self, items), level = tracing::Level::DEBUG, fields(items = items.len()))]
-    /// This function is used to insert events from a carfile requiring that the history is local to the node.
-    /// This is likely used in API contexts when a user is trying to insert events. Events discovered from
-    /// peers can come in any order and we will discover the prev chain over time. Use
-    /// `insert_events_from_carfiles_remote_history` for that case.
-    pub(crate) async fn insert_events_from_carfiles_local_api<'a>(
+    pub(crate) async fn insert_events<'a>(
         &self,
         items: &[recon::ReconItem<'a, EventId>],
-    ) -> Result<InsertResult> {
-        self.insert_events(items, true).await
-    }
-
-    #[tracing::instrument(skip(self, items), level = tracing::Level::DEBUG, fields(items = items.len()))]
-    /// This function is used to insert events from a carfile WITHOUT requiring that the history is local to the node.
-    /// This is used in recon contexts when we are discovering events from peers in a recon but not ceramic order and
-    /// don't have the complete order. To enforce that the history is local, e.g. in API contexts, use
-    /// `insert_events_from_carfiles_local_history`.
-    pub(crate) async fn insert_events_from_carfiles_recon<'a>(
-        &self,
-        items: &[recon::ReconItem<'a, EventId>],
-    ) -> Result<recon::InsertResult> {
-        let res = self.insert_events(items, false).await?;
-        let mut keys = vec![false; items.len()];
-        // we need to put things back in the right order that the recon trait expects, even though we don't really care about the result
-        for (i, item) in items.iter().enumerate() {
-            let new_key = res
-                .store_result
-                .inserted
-                .iter()
-                .find(|e| e.order_key == *item.key)
-                .map_or(false, |e| e.new_key); // TODO: should we error if it's not in this set
-            keys[i] = new_key;
-        }
-        Ok(recon::InsertResult::new(keys))
-    }
-
-    async fn insert_events<'a>(
-        &self,
-        items: &[recon::ReconItem<'a, EventId>],
-        history_required: bool,
+        source: DeliverableRequirement,
     ) -> Result<InsertResult> {
         if items.is_empty() {
             return Ok(InsertResult::default());
@@ -201,20 +169,26 @@ impl CeramicEventService {
 
         // api writes shouldn't have any missed history so we don't insert those events and
         // we can skip notifying the ordering task because it's impossible to be waiting on them
-        let store_result = if history_required {
-            let to_insert = ordered.deliverable().iter().map(|(e, _)| e);
-            CeramicOneEvent::insert_many(&self.pool, to_insert).await?
-        } else {
-            let to_insert = ordered
-                .deliverable()
-                .iter()
-                .map(|(e, _)| e)
-                .chain(ordered.missing_history().iter().map(|(e, _)| e));
+        let store_result = match source {
+            DeliverableRequirement::Immediate => {
+                let to_insert = ordered.deliverable().iter().map(|(e, _)| e);
+                CeramicOneEvent::insert_many(&self.pool, to_insert).await?
+            }
+            DeliverableRequirement::Lazy | DeliverableRequirement::Asap => {
+                let to_insert = ordered
+                    .deliverable()
+                    .iter()
+                    .map(|(e, _)| e)
+                    .chain(ordered.missing_history().iter().map(|(e, _)| e));
 
-            let store_result = CeramicOneEvent::insert_many(&self.pool, to_insert).await?;
-            self.notify_ordering_task(&ordered, &store_result).await?;
+                let store_result = CeramicOneEvent::insert_many(&self.pool, to_insert).await?;
 
-            store_result
+                if matches!(source, DeliverableRequirement::Asap) {
+                    self.notify_ordering_task(&ordered, &store_result).await?;
+                }
+
+                store_result
+            }
         };
 
         Ok(InsertResult {

@@ -288,7 +288,7 @@ impl DBOpts {
         let sql_pool =
             ceramic_store::SqlitePool::connect(path, ceramic_store::Migrations::Apply).await?;
         let interest_store = Arc::new(CeramicInterestService::new(sql_pool.clone()));
-        let event_store = Arc::new(CeramicEventService::new(sql_pool).await?);
+        let event_store = Arc::new(CeramicEventService::new(sql_pool, true).await?);
         info!(path, "connected to sqlite db");
 
         Ok(Databases::Sqlite(SqliteBackend {

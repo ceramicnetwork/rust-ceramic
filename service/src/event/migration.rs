@@ -10,9 +10,10 @@ use serde::Deserialize;
 use thiserror::Error;
 use tracing::{debug, error, info, instrument, Level};
 
-use crate::CeramicEventService;
-
-use super::service::{Block, BoxedBlock};
+use crate::{
+    event::{Block, BoxedBlock, DeliverableRequirement},
+    CeramicEventService,
+};
 
 pub struct Migrator<'a> {
     service: &'a CeramicEventService,
@@ -147,7 +148,7 @@ impl<'a> Migrator<'a> {
             .map(|(id, body)| recon::ReconItem::new(id, body))
             .collect::<Vec<_>>();
         self.service
-            .insert_events_from_carfiles_recon(&items)
+            .insert_events(&items, DeliverableRequirement::Lazy)
             .await?;
         self.event_count += self.batch.len();
         self.batch.truncate(0);
