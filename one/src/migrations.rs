@@ -181,5 +181,5 @@ async fn block_from_path(block_path: PathBuf) -> Result<Option<(Cid, Vec<u8>)>> 
     } else {
         Cid::new_v1(DAG_CBOR, hash)
     };
-    Ok(Some((cid, tokio::fs::read(&block_path).await?)))
+    Ok(Some((cid, blob)))
 }
