@@ -15,14 +15,36 @@ Using the makefile is not necessary during your development cycle, feel free to 
 
 However running `make` before publishing a PR will provide a good signal if you PR will pass CI.
 
+### Testing Specific Changes
+
+The above `make` targets test changes as a whole.
+In order to test specific changes use the Rust `cargo` tooling directly.
+
+To run all tests via `cargo` use:
+
+    cargo test
+
+To run tests for a single crate in the workspace use:
+
+    cargo test -p ceramic-event
+
+To debug code and tests enable logging of traces:
+
+ * By default no tracing logs are output
+ * Use env var `RUST_LOG`, i.e. `RUST_LOG=debug`, to enable logging in tests. Note only failing tests will print their logs, as this is the default `cargo test` behavior.
+ * Use `cargo test -- --show-output` to print logs from passing tests. This is because by default cargo test suppresses all logs from passing tests.
+ * Use `cargo test -- --nocapture` to print logs from passing or failing tests as they are printed without any buffering.
+
+See the [env_logger](https://docs.rs/env_logger/latest/env_logger/index.html) docs for more details on how `RUST_LOG` can be used.
+See the [tracing](https://docs.rs/tracing/latest/tracing/#shorthand-macros) docs for more details on adding new trace events into code or tests.
+
 ### Generating Servers
 
 There are two OpenAPI based servers that are generated.
 The `ceramic-api-server` and `ceramic-kubo-rpc-server` crates are generated using OpenAPI.
-Install `@openapitools/openapi-generator-cli` and make to generate the crates. You will need to install augtools to run the checks:
+You will need to install augtools to run the checks:
 
       # Install augtools e.g. brew install augeas or apt-get install augeas-tools
-      npm install @openapitools/openapi-generator-cli@2.6.0 -g
       make gen-api-server
       make gen-kubo-rpc-server
 
