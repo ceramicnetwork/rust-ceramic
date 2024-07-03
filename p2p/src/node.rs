@@ -173,7 +173,8 @@ where
 
         let mut listen_addrs = vec![];
         for addr in &libp2p_config.listening_multiaddrs {
-            Swarm::listen_on(&mut swarm, addr.clone())?;
+            Swarm::listen_on(&mut swarm, addr.clone())
+                .map_err(|e| anyhow!("Failed to listen on swarm address: {}. {:#}", addr, e))?;
             listen_addrs.push(addr.clone());
         }
 
@@ -183,8 +184,12 @@ where
         // PeerManager.
         let rpc_task = tokio::task::spawn(async move {
             // TODO: handle error
-            rpc::new(rpc_addr, P2p::new(network_sender_in))
+            rpc::new(rpc_addr.clone(), P2p::new(network_sender_in))
                 .await
+                .map_err(|e| {
+                    warn!("Failed to run RPC server on {}. {:?}", rpc_addr, e);
+                    e
+                })
                 .unwrap()
         });
 
