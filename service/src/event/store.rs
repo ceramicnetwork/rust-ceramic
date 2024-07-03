@@ -7,7 +7,7 @@ use cid::Cid;
 use iroh_bitswap::Block;
 use recon::{HashCount, ReconItem, Result as ReconResult, Sha256a};
 
-use crate::event::CeramicEventService;
+use crate::event::{CeramicEventService, DeliverableRequirement};
 
 #[async_trait::async_trait]
 impl recon::Store for CeramicEventService {
@@ -16,10 +16,14 @@ impl recon::Store for CeramicEventService {
 
     async fn insert<'a>(&self, item: &ReconItem<'a, Self::Key>) -> ReconResult<bool> {
         let res = self
-            .insert_events_from_carfiles_recon(&[item.to_owned()])
+            .insert_events(&[item.to_owned()], DeliverableRequirement::Asap)
             .await?;
 
-        Ok(res.keys.first().copied().unwrap_or(false))
+        Ok(res
+            .store_result
+            .inserted
+            .first()
+            .map_or(false, |i| i.new_key))
     }
 
     /// Insert new keys into the key space.
@@ -29,8 +33,21 @@ impl recon::Store for CeramicEventService {
         &self,
         items: &[ReconItem<'a, Self::Key>],
     ) -> ReconResult<recon::InsertResult> {
-        let res = self.insert_events_from_carfiles_recon(items).await?;
-        Ok(res)
+        let res = self
+            .insert_events(items, DeliverableRequirement::Asap)
+            .await?;
+        let mut keys = vec![false; items.len()];
+        // we need to put things back in the right order that the recon trait expects, even though we don't really care about the result
+        for (i, item) in items.iter().enumerate() {
+            let new_key = res
+                .store_result
+                .inserted
+                .iter()
+                .find(|e| e.order_key == *item.key)
+                .map_or(false, |e| e.new_key); // TODO: should we error if it's not in this set
+            keys[i] = new_key;
+        }
+        Ok(recon::InsertResult::new(keys))
     }
 
     /// Return the hash of all keys in the range between left_fencepost and right_fencepost.
@@ -116,7 +133,7 @@ impl ceramic_api::EventStore for CeramicEventService {
             .map(|(key, val)| ReconItem::new(key, val.as_slice()))
             .collect::<Vec<_>>();
         let res = self
-            .insert_events_from_carfiles_local_api(&items[..])
+            .insert_events(&items[..], DeliverableRequirement::Immediate)
             .await?;
 
         Ok(res.into())
