@@ -48,17 +48,26 @@ pub trait Block {
 }
 pub type BoxedBlock = Box<dyn Block>;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EventSource {
+    Api,
+    IpfsMigration,
+    Recon,
+}
+
 impl CeramicEventService {
     /// Create a new CeramicEventStore
-    pub async fn new(pool: SqlitePool) -> Result<Self> {
+    pub async fn new(pool: SqlitePool, process_undelivered: bool) -> Result<Self> {
         CeramicOneEvent::init_delivered_order(&pool).await?;
 
-        let _updated = OrderingTask::process_all_undelivered_events(
-            &pool,
-            MAX_ITERATIONS,
-            DELIVERABLE_EVENTS_BATCH_SIZE,
-        )
-        .await?;
+        if process_undelivered {
+            let _updated = OrderingTask::process_all_undelivered_events(
+                &pool,
+                MAX_ITERATIONS,
+                DELIVERABLE_EVENTS_BATCH_SIZE,
+            )
+            .await?;
+        }
 
         let delivery_task = OrderingTask::run(pool.clone(), PENDING_EVENTS_CHANNEL_DEPTH).await;
 
@@ -68,18 +77,6 @@ impl CeramicEventService {
         })
     }
 
-    /// Skip loading all undelivered events from the database on startup (for testing)
-    #[cfg(test)]
-    pub(crate) async fn new_without_undelivered(pool: SqlitePool) -> Result<Self> {
-        CeramicOneEvent::init_delivered_order(&pool).await?;
-
-        let delivery_task = OrderingTask::run(pool.clone(), PENDING_EVENTS_CHANNEL_DEPTH).await;
-
-        Ok(Self {
-            pool,
-            delivery_task,
-        })
-    }
     pub async fn migrate_from_ipfs(
         &self,
         network: Network,
@@ -147,7 +144,7 @@ impl CeramicEventService {
         &self,
         items: &[recon::ReconItem<'a, EventId>],
     ) -> Result<InsertResult> {
-        self.insert_events(items, true).await
+        self.insert_events(items, EventSource::Api).await
     }
 
     #[tracing::instrument(skip(self, items), level = tracing::Level::DEBUG, fields(items = items.len()))]
@@ -159,7 +156,7 @@ impl CeramicEventService {
         &self,
         items: &[recon::ReconItem<'a, EventId>],
     ) -> Result<recon::InsertResult> {
-        let res = self.insert_events(items, false).await?;
+        let res = self.insert_events(items, EventSource::Recon).await?;
         let mut keys = vec![false; items.len()];
         // we need to put things back in the right order that the recon trait expects, even though we don't really care about the result
         for (i, item) in items.iter().enumerate() {
@@ -174,10 +171,23 @@ impl CeramicEventService {
         Ok(recon::InsertResult::new(keys))
     }
 
+    #[tracing::instrument(skip(self, items), level = tracing::Level::DEBUG, fields(items = items.len()))]
+    /// This function is used to insert events from a carfile when being migrated from IPFS.
+    /// In this case, we make sure to mark init events as deliverable, but we skip time events and everthing that
+    /// will come afterward, so we don't notify the task about anything. On the next start, we'll order everything we
+    /// skipped and it should be able to happen more quickly without the memory required to store the events in memory
+    /// in multiple places while doing the migration.
+    pub(crate) async fn insert_events_from_carfiles_ipfs<'a>(
+        &self,
+        items: &[recon::ReconItem<'a, EventId>],
+    ) -> Result<InsertResult> {
+        self.insert_events(items, EventSource::IpfsMigration).await
+    }
+
     async fn insert_events<'a>(
         &self,
         items: &[recon::ReconItem<'a, EventId>],
-        history_required: bool,
+        source: EventSource,
     ) -> Result<InsertResult> {
         if items.is_empty() {
             return Ok(InsertResult::default());
@@ -201,20 +211,26 @@ impl CeramicEventService {
 
         // api writes shouldn't have any missed history so we don't insert those events and
         // we can skip notifying the ordering task because it's impossible to be waiting on them
-        let store_result = if history_required {
-            let to_insert = ordered.deliverable().iter().map(|(e, _)| e);
-            CeramicOneEvent::insert_many(&self.pool, to_insert).await?
-        } else {
-            let to_insert = ordered
-                .deliverable()
-                .iter()
-                .map(|(e, _)| e)
-                .chain(ordered.missing_history().iter().map(|(e, _)| e));
+        let store_result = match source {
+            EventSource::Api => {
+                let to_insert = ordered.deliverable().iter().map(|(e, _)| e);
+                CeramicOneEvent::insert_many(&self.pool, to_insert).await?
+            }
+            EventSource::IpfsMigration | EventSource::Recon => {
+                let to_insert = ordered
+                    .deliverable()
+                    .iter()
+                    .map(|(e, _)| e)
+                    .chain(ordered.missing_history().iter().map(|(e, _)| e));
 
-            let store_result = CeramicOneEvent::insert_many(&self.pool, to_insert).await?;
-            self.notify_ordering_task(&ordered, &store_result).await?;
+                let store_result = CeramicOneEvent::insert_many(&self.pool, to_insert).await?;
 
-            store_result
+                if matches!(source, EventSource::Recon) {
+                    self.notify_ordering_task(&ordered, &store_result).await?;
+                }
+
+                store_result
+            }
         };
 
         Ok(InsertResult {

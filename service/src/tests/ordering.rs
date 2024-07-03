@@ -17,9 +17,7 @@ async fn setup_service() -> CeramicEventService {
         .await
         .unwrap();
 
-    CeramicEventService::new_without_undelivered(conn)
-        .await
-        .unwrap()
+    CeramicEventService::new(conn, false).await.unwrap()
 }
 
 async fn add_and_assert_new_recon_event(store: &CeramicEventService, item: ReconItem<'_, EventId>) {

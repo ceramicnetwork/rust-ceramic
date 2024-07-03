@@ -1385,7 +1385,7 @@ mod tests {
                 rpc_server_addr,
                 keypair.into(),
                 None::<(DummyRecon<Interest>, DummyRecon<EventId>)>,
-                Arc::new(CeramicEventService::new(sql_pool).await?),
+                Arc::new(CeramicEventService::new(sql_pool, true).await?),
                 metrics,
             )
             .await?;

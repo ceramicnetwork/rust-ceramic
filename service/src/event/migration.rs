@@ -147,7 +147,7 @@ impl<'a> Migrator<'a> {
             .map(|(id, body)| recon::ReconItem::new(id, body))
             .collect::<Vec<_>>();
         self.service
-            .insert_events_from_carfiles_recon(&items)
+            .insert_events_from_carfiles_ipfs(&items)
             .await?;
         self.event_count += self.batch.len();
         self.batch.truncate(0);

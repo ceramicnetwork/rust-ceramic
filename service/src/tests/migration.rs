@@ -56,7 +56,7 @@ async fn test_migration(cars: Vec<Vec<u8>>) {
     let conn = ceramic_store::SqlitePool::connect_in_memory()
         .await
         .unwrap();
-    let service = CeramicEventService::new(conn).await.unwrap();
+    let service = CeramicEventService::new(conn, false).await.unwrap();
     service
         .migrate_from_ipfs(Network::Local(42), blocks)
         .await
