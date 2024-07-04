@@ -870,4 +870,104 @@ where
             .await
             .or_else(|err| Ok(EventsEventIdGetResponse::InternalServerError(err)))
     }
+
+    /// cors
+    async fn debug_heap_options(
+        &self,
+        _context: &C,
+    ) -> Result<ceramic_api_server::DebugHeapOptionsResponse, ApiError> {
+        Ok(ceramic_api_server::DebugHeapOptionsResponse::Cors)
+    }
+
+    /// cors
+    async fn events_event_id_options(
+        &self,
+        _event_id: String,
+        _context: &C,
+    ) -> Result<ceramic_api_server::EventsEventIdOptionsResponse, ApiError> {
+        Ok(
+            ceramic_api_server::EventsEventIdOptionsResponse::Cors)
+    }
+
+    /// cors
+    async fn events_options(
+        &self,
+        _context: &C,
+    ) -> Result<ceramic_api_server::EventsOptionsResponse, ApiError> {
+        Ok(ceramic_api_server::EventsOptionsResponse::Cors)
+    }
+
+    /// cors
+    async fn experimental_events_sep_sep_value_options(
+        &self,
+        _sep: String,
+        _sep_value: String,
+        _context: &C,
+    ) -> Result<ceramic_api_server::ExperimentalEventsSepSepValueOptionsResponse, ApiError> {
+        Ok(
+            ceramic_api_server::ExperimentalEventsSepSepValueOptionsResponse::Cors)
+    }
+
+    /// cors
+    async fn experimental_interests_options(
+        &self,
+        _context: &C,
+    ) -> Result<ceramic_api_server::ExperimentalInterestsOptionsResponse, ApiError> {
+        Ok(
+            ceramic_api_server::ExperimentalInterestsOptionsResponse::Cors)
+    }
+
+    /// cors
+    async fn feed_events_options(
+        &self,
+        _context: &C,
+    ) -> Result<ceramic_api_server::FeedEventsOptionsResponse, ApiError> {
+        Ok(ceramic_api_server::FeedEventsOptionsResponse::Cors)
+    }
+
+    /// cors
+    async fn feed_resume_token_options(
+        &self,
+        _context: &C,
+    ) -> Result<ceramic_api_server::FeedResumeTokenOptionsResponse, ApiError> {
+        Ok(
+            ceramic_api_server::FeedResumeTokenOptionsResponse::Cors)
+    }
+
+    /// cors
+    async fn interests_options(
+        &self,
+        _context: &C,
+    ) -> Result<ceramic_api_server::InterestsOptionsResponse, ApiError> {
+        Ok(ceramic_api_server::InterestsOptionsResponse::Cors)
+    }
+
+    /// cors
+    async fn interests_sort_key_sort_value_options(
+        &self,
+        _sort_key: String,
+        _sort_value: String,
+        _context: &C,
+    ) -> Result<ceramic_api_server::InterestsSortKeySortValueOptionsResponse, ApiError> {
+        Ok(
+            ceramic_api_server::InterestsSortKeySortValueOptionsResponse::Cors)
+    }
+
+    /// Test the liveness of the Ceramic node
+
+    /// cors
+    async fn liveness_options(
+        &self,
+        _context: &C,
+    ) -> Result<ceramic_api_server::LivenessOptionsResponse, ApiError> {
+        Ok(ceramic_api_server::LivenessOptionsResponse::Cors)
+    }
+
+    /// cors
+    async fn version_options(
+        &self,
+        _context: &C,
+    ) -> Result<ceramic_api_server::VersionOptionsResponse, ApiError> {
+        Ok(ceramic_api_server::VersionOptionsResponse::Cors)
+    }
 }

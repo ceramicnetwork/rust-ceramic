@@ -23,11 +23,14 @@ pub use crate::context;
 type ServiceFuture = BoxFuture<'static, Result<Response<Body>, crate::ServiceError>>;
 
 use crate::{
-    Api, DebugHeapGetResponse, EventsEventIdGetResponse, EventsPostResponse,
-    ExperimentalEventsSepSepValueGetResponse, ExperimentalInterestsGetResponse,
-    FeedEventsGetResponse, FeedResumeTokenGetResponse, InterestsPostResponse,
-    InterestsSortKeySortValuePostResponse, LivenessGetResponse, VersionGetResponse,
-    VersionPostResponse,
+    Api, DebugHeapGetResponse, DebugHeapOptionsResponse, EventsEventIdGetResponse,
+    EventsEventIdOptionsResponse, EventsOptionsResponse, EventsPostResponse,
+    ExperimentalEventsSepSepValueGetResponse, ExperimentalEventsSepSepValueOptionsResponse,
+    ExperimentalInterestsGetResponse, ExperimentalInterestsOptionsResponse, FeedEventsGetResponse,
+    FeedEventsOptionsResponse, FeedResumeTokenGetResponse, FeedResumeTokenOptionsResponse,
+    InterestsOptionsResponse, InterestsPostResponse, InterestsSortKeySortValueOptionsResponse,
+    InterestsSortKeySortValuePostResponse, LivenessGetResponse, LivenessOptionsResponse,
+    VersionGetResponse, VersionOptionsResponse, VersionPostResponse,
 };
 
 mod paths {
@@ -256,6 +259,40 @@ where
                     Ok(response)
                 }
 
+                // DebugHeapOptions - OPTIONS /debug/heap
+                hyper::Method::OPTIONS if path.matched(paths::ID_DEBUG_HEAP) => {
+                    let result = api_impl.debug_heap_options(&context).await;
+                    let mut response = Response::new(Body::empty());
+                    response.headers_mut().insert(
+                        HeaderName::from_static("x-span-id"),
+                        HeaderValue::from_str(
+                            (&context as &dyn Has<XSpanIdString>)
+                                .get()
+                                .0
+                                .clone()
+                                .as_str(),
+                        )
+                        .expect("Unable to create X-Span-ID header value"),
+                    );
+
+                    match result {
+                        Ok(rsp) => match rsp {
+                            DebugHeapOptionsResponse::Cors => {
+                                *response.status_mut() = StatusCode::from_u16(200)
+                                    .expect("Unable to turn 200 into a StatusCode");
+                            }
+                        },
+                        Err(_) => {
+                            // Application code returned an error. This should not happen, as the implementation should
+                            // return a valid response.
+                            *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                            *response.body_mut() = Body::from("An internal error occurred");
+                        }
+                    }
+
+                    Ok(response)
+                }
+
                 // EventsEventIdGet - GET /events/{event_id}
                 hyper::Method::GET if path.matched(paths::ID_EVENTS_EVENT_ID) => {
                     // Path parameters
@@ -339,6 +376,99 @@ where
                                 let body_content = serde_json::to_string(&body)
                                     .expect("impossible to fail to serialize");
                                 *response.body_mut() = Body::from(body_content);
+                            }
+                        },
+                        Err(_) => {
+                            // Application code returned an error. This should not happen, as the implementation should
+                            // return a valid response.
+                            *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                            *response.body_mut() = Body::from("An internal error occurred");
+                        }
+                    }
+
+                    Ok(response)
+                }
+
+                // EventsEventIdOptions - OPTIONS /events/{event_id}
+                hyper::Method::OPTIONS if path.matched(paths::ID_EVENTS_EVENT_ID) => {
+                    // Path parameters
+                    let path: &str = uri.path();
+                    let path_params =
+                    paths::REGEX_EVENTS_EVENT_ID
+                    .captures(path)
+                    .unwrap_or_else(||
+                        panic!("Path {} matched RE EVENTS_EVENT_ID in set but failed match against \"{}\"", path, paths::REGEX_EVENTS_EVENT_ID.as_str())
+                    );
+
+                    let param_event_id = match percent_encoding::percent_decode(path_params["event_id"].as_bytes()).decode_utf8() {
+                    Ok(param_event_id) => match param_event_id.parse::<String>() {
+                        Ok(param_event_id) => param_event_id,
+                        Err(e) => return Ok(Response::builder()
+                                        .status(StatusCode::BAD_REQUEST)
+                                        .body(Body::from(format!("Couldn't parse path parameter event_id: {}", e)))
+                                        .expect("Unable to create Bad Request response for invalid path parameter")),
+                    },
+                    Err(_) => return Ok(Response::builder()
+                                        .status(StatusCode::BAD_REQUEST)
+                                        .body(Body::from(format!("Couldn't percent-decode path parameter as UTF-8: {}", &path_params["event_id"])))
+                                        .expect("Unable to create Bad Request response for invalid percent decode"))
+                };
+
+                    let result = api_impl
+                        .events_event_id_options(param_event_id, &context)
+                        .await;
+                    let mut response = Response::new(Body::empty());
+                    response.headers_mut().insert(
+                        HeaderName::from_static("x-span-id"),
+                        HeaderValue::from_str(
+                            (&context as &dyn Has<XSpanIdString>)
+                                .get()
+                                .0
+                                .clone()
+                                .as_str(),
+                        )
+                        .expect("Unable to create X-Span-ID header value"),
+                    );
+
+                    match result {
+                        Ok(rsp) => match rsp {
+                            EventsEventIdOptionsResponse::Cors => {
+                                *response.status_mut() = StatusCode::from_u16(200)
+                                    .expect("Unable to turn 200 into a StatusCode");
+                            }
+                        },
+                        Err(_) => {
+                            // Application code returned an error. This should not happen, as the implementation should
+                            // return a valid response.
+                            *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                            *response.body_mut() = Body::from("An internal error occurred");
+                        }
+                    }
+
+                    Ok(response)
+                }
+
+                // EventsOptions - OPTIONS /events
+                hyper::Method::OPTIONS if path.matched(paths::ID_EVENTS) => {
+                    let result = api_impl.events_options(&context).await;
+                    let mut response = Response::new(Body::empty());
+                    response.headers_mut().insert(
+                        HeaderName::from_static("x-span-id"),
+                        HeaderValue::from_str(
+                            (&context as &dyn Has<XSpanIdString>)
+                                .get()
+                                .0
+                                .clone()
+                                .as_str(),
+                        )
+                        .expect("Unable to create X-Span-ID header value"),
+                    );
+
+                    match result {
+                        Ok(rsp) => match rsp {
+                            EventsOptionsResponse::Cors => {
+                                *response.status_mut() = StatusCode::from_u16(200)
+                                    .expect("Unable to turn 200 into a StatusCode");
                             }
                         },
                         Err(_) => {
@@ -636,6 +766,85 @@ where
                     Ok(response)
                 }
 
+                // ExperimentalEventsSepSepValueOptions - OPTIONS /experimental/events/{sep}/{sepValue}
+                hyper::Method::OPTIONS
+                    if path.matched(paths::ID_EXPERIMENTAL_EVENTS_SEP_SEPVALUE) =>
+                {
+                    // Path parameters
+                    let path: &str = uri.path();
+                    let path_params =
+                    paths::REGEX_EXPERIMENTAL_EVENTS_SEP_SEPVALUE
+                    .captures(path)
+                    .unwrap_or_else(||
+                        panic!("Path {} matched RE EXPERIMENTAL_EVENTS_SEP_SEPVALUE in set but failed match against \"{}\"", path, paths::REGEX_EXPERIMENTAL_EVENTS_SEP_SEPVALUE.as_str())
+                    );
+
+                    let param_sep = match percent_encoding::percent_decode(path_params["sep"].as_bytes()).decode_utf8() {
+                    Ok(param_sep) => match param_sep.parse::<String>() {
+                        Ok(param_sep) => param_sep,
+                        Err(e) => return Ok(Response::builder()
+                                        .status(StatusCode::BAD_REQUEST)
+                                        .body(Body::from(format!("Couldn't parse path parameter sep: {}", e)))
+                                        .expect("Unable to create Bad Request response for invalid path parameter")),
+                    },
+                    Err(_) => return Ok(Response::builder()
+                                        .status(StatusCode::BAD_REQUEST)
+                                        .body(Body::from(format!("Couldn't percent-decode path parameter as UTF-8: {}", &path_params["sep"])))
+                                        .expect("Unable to create Bad Request response for invalid percent decode"))
+                };
+
+                    let param_sep_value = match percent_encoding::percent_decode(path_params["sepValue"].as_bytes()).decode_utf8() {
+                    Ok(param_sep_value) => match param_sep_value.parse::<String>() {
+                        Ok(param_sep_value) => param_sep_value,
+                        Err(e) => return Ok(Response::builder()
+                                        .status(StatusCode::BAD_REQUEST)
+                                        .body(Body::from(format!("Couldn't parse path parameter sepValue: {}", e)))
+                                        .expect("Unable to create Bad Request response for invalid path parameter")),
+                    },
+                    Err(_) => return Ok(Response::builder()
+                                        .status(StatusCode::BAD_REQUEST)
+                                        .body(Body::from(format!("Couldn't percent-decode path parameter as UTF-8: {}", &path_params["sepValue"])))
+                                        .expect("Unable to create Bad Request response for invalid percent decode"))
+                };
+
+                    let result = api_impl
+                        .experimental_events_sep_sep_value_options(
+                            param_sep,
+                            param_sep_value,
+                            &context,
+                        )
+                        .await;
+                    let mut response = Response::new(Body::empty());
+                    response.headers_mut().insert(
+                        HeaderName::from_static("x-span-id"),
+                        HeaderValue::from_str(
+                            (&context as &dyn Has<XSpanIdString>)
+                                .get()
+                                .0
+                                .clone()
+                                .as_str(),
+                        )
+                        .expect("Unable to create X-Span-ID header value"),
+                    );
+
+                    match result {
+                        Ok(rsp) => match rsp {
+                            ExperimentalEventsSepSepValueOptionsResponse::Cors => {
+                                *response.status_mut() = StatusCode::from_u16(200)
+                                    .expect("Unable to turn 200 into a StatusCode");
+                            }
+                        },
+                        Err(_) => {
+                            // Application code returned an error. This should not happen, as the implementation should
+                            // return a valid response.
+                            *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                            *response.body_mut() = Body::from("An internal error occurred");
+                        }
+                    }
+
+                    Ok(response)
+                }
+
                 // ExperimentalInterestsGet - GET /experimental/interests
                 hyper::Method::GET if path.matched(paths::ID_EXPERIMENTAL_INTERESTS) => {
                     let result = api_impl.experimental_interests_get(&context).await;
@@ -686,6 +895,40 @@ where
                                 let body_content = serde_json::to_string(&body)
                                     .expect("impossible to fail to serialize");
                                 *response.body_mut() = Body::from(body_content);
+                            }
+                        },
+                        Err(_) => {
+                            // Application code returned an error. This should not happen, as the implementation should
+                            // return a valid response.
+                            *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                            *response.body_mut() = Body::from("An internal error occurred");
+                        }
+                    }
+
+                    Ok(response)
+                }
+
+                // ExperimentalInterestsOptions - OPTIONS /experimental/interests
+                hyper::Method::OPTIONS if path.matched(paths::ID_EXPERIMENTAL_INTERESTS) => {
+                    let result = api_impl.experimental_interests_options(&context).await;
+                    let mut response = Response::new(Body::empty());
+                    response.headers_mut().insert(
+                        HeaderName::from_static("x-span-id"),
+                        HeaderValue::from_str(
+                            (&context as &dyn Has<XSpanIdString>)
+                                .get()
+                                .0
+                                .clone()
+                                .as_str(),
+                        )
+                        .expect("Unable to create X-Span-ID header value"),
+                    );
+
+                    match result {
+                        Ok(rsp) => match rsp {
+                            ExperimentalInterestsOptionsResponse::Cors => {
+                                *response.status_mut() = StatusCode::from_u16(200)
+                                    .expect("Unable to turn 200 into a StatusCode");
                             }
                         },
                         Err(_) => {
@@ -806,6 +1049,40 @@ where
                     Ok(response)
                 }
 
+                // FeedEventsOptions - OPTIONS /feed/events
+                hyper::Method::OPTIONS if path.matched(paths::ID_FEED_EVENTS) => {
+                    let result = api_impl.feed_events_options(&context).await;
+                    let mut response = Response::new(Body::empty());
+                    response.headers_mut().insert(
+                        HeaderName::from_static("x-span-id"),
+                        HeaderValue::from_str(
+                            (&context as &dyn Has<XSpanIdString>)
+                                .get()
+                                .0
+                                .clone()
+                                .as_str(),
+                        )
+                        .expect("Unable to create X-Span-ID header value"),
+                    );
+
+                    match result {
+                        Ok(rsp) => match rsp {
+                            FeedEventsOptionsResponse::Cors => {
+                                *response.status_mut() = StatusCode::from_u16(200)
+                                    .expect("Unable to turn 200 into a StatusCode");
+                            }
+                        },
+                        Err(_) => {
+                            // Application code returned an error. This should not happen, as the implementation should
+                            // return a valid response.
+                            *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                            *response.body_mut() = Body::from("An internal error occurred");
+                        }
+                    }
+
+                    Ok(response)
+                }
+
                 // FeedResumeTokenGet - GET /feed/resumeToken
                 hyper::Method::GET if path.matched(paths::ID_FEED_RESUMETOKEN) => {
                     let result = api_impl.feed_resume_token_get(&context).await;
@@ -856,6 +1133,74 @@ where
                                 let body_content = serde_json::to_string(&body)
                                     .expect("impossible to fail to serialize");
                                 *response.body_mut() = Body::from(body_content);
+                            }
+                        },
+                        Err(_) => {
+                            // Application code returned an error. This should not happen, as the implementation should
+                            // return a valid response.
+                            *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                            *response.body_mut() = Body::from("An internal error occurred");
+                        }
+                    }
+
+                    Ok(response)
+                }
+
+                // FeedResumeTokenOptions - OPTIONS /feed/resumeToken
+                hyper::Method::OPTIONS if path.matched(paths::ID_FEED_RESUMETOKEN) => {
+                    let result = api_impl.feed_resume_token_options(&context).await;
+                    let mut response = Response::new(Body::empty());
+                    response.headers_mut().insert(
+                        HeaderName::from_static("x-span-id"),
+                        HeaderValue::from_str(
+                            (&context as &dyn Has<XSpanIdString>)
+                                .get()
+                                .0
+                                .clone()
+                                .as_str(),
+                        )
+                        .expect("Unable to create X-Span-ID header value"),
+                    );
+
+                    match result {
+                        Ok(rsp) => match rsp {
+                            FeedResumeTokenOptionsResponse::Cors => {
+                                *response.status_mut() = StatusCode::from_u16(200)
+                                    .expect("Unable to turn 200 into a StatusCode");
+                            }
+                        },
+                        Err(_) => {
+                            // Application code returned an error. This should not happen, as the implementation should
+                            // return a valid response.
+                            *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                            *response.body_mut() = Body::from("An internal error occurred");
+                        }
+                    }
+
+                    Ok(response)
+                }
+
+                // InterestsOptions - OPTIONS /interests
+                hyper::Method::OPTIONS if path.matched(paths::ID_INTERESTS) => {
+                    let result = api_impl.interests_options(&context).await;
+                    let mut response = Response::new(Body::empty());
+                    response.headers_mut().insert(
+                        HeaderName::from_static("x-span-id"),
+                        HeaderValue::from_str(
+                            (&context as &dyn Has<XSpanIdString>)
+                                .get()
+                                .0
+                                .clone()
+                                .as_str(),
+                        )
+                        .expect("Unable to create X-Span-ID header value"),
+                    );
+
+                    match result {
+                        Ok(rsp) => match rsp {
+                            InterestsOptionsResponse::Cors => {
+                                *response.status_mut() = StatusCode::from_u16(200)
+                                    .expect("Unable to turn 200 into a StatusCode");
                             }
                         },
                         Err(_) => {
@@ -962,6 +1307,83 @@ where
                                                 .body(Body::from(format!("Couldn't read body parameter Interest: {}", e)))
                                                 .expect("Unable to create Bad Request response due to unable to read body parameter Interest")),
                         }
+                }
+
+                // InterestsSortKeySortValueOptions - OPTIONS /interests/{sort_key}/{sort_value}
+                hyper::Method::OPTIONS if path.matched(paths::ID_INTERESTS_SORT_KEY_SORT_VALUE) => {
+                    // Path parameters
+                    let path: &str = uri.path();
+                    let path_params =
+                    paths::REGEX_INTERESTS_SORT_KEY_SORT_VALUE
+                    .captures(path)
+                    .unwrap_or_else(||
+                        panic!("Path {} matched RE INTERESTS_SORT_KEY_SORT_VALUE in set but failed match against \"{}\"", path, paths::REGEX_INTERESTS_SORT_KEY_SORT_VALUE.as_str())
+                    );
+
+                    let param_sort_key = match percent_encoding::percent_decode(path_params["sort_key"].as_bytes()).decode_utf8() {
+                    Ok(param_sort_key) => match param_sort_key.parse::<String>() {
+                        Ok(param_sort_key) => param_sort_key,
+                        Err(e) => return Ok(Response::builder()
+                                        .status(StatusCode::BAD_REQUEST)
+                                        .body(Body::from(format!("Couldn't parse path parameter sort_key: {}", e)))
+                                        .expect("Unable to create Bad Request response for invalid path parameter")),
+                    },
+                    Err(_) => return Ok(Response::builder()
+                                        .status(StatusCode::BAD_REQUEST)
+                                        .body(Body::from(format!("Couldn't percent-decode path parameter as UTF-8: {}", &path_params["sort_key"])))
+                                        .expect("Unable to create Bad Request response for invalid percent decode"))
+                };
+
+                    let param_sort_value = match percent_encoding::percent_decode(path_params["sort_value"].as_bytes()).decode_utf8() {
+                    Ok(param_sort_value) => match param_sort_value.parse::<String>() {
+                        Ok(param_sort_value) => param_sort_value,
+                        Err(e) => return Ok(Response::builder()
+                                        .status(StatusCode::BAD_REQUEST)
+                                        .body(Body::from(format!("Couldn't parse path parameter sort_value: {}", e)))
+                                        .expect("Unable to create Bad Request response for invalid path parameter")),
+                    },
+                    Err(_) => return Ok(Response::builder()
+                                        .status(StatusCode::BAD_REQUEST)
+                                        .body(Body::from(format!("Couldn't percent-decode path parameter as UTF-8: {}", &path_params["sort_value"])))
+                                        .expect("Unable to create Bad Request response for invalid percent decode"))
+                };
+
+                    let result = api_impl
+                        .interests_sort_key_sort_value_options(
+                            param_sort_key,
+                            param_sort_value,
+                            &context,
+                        )
+                        .await;
+                    let mut response = Response::new(Body::empty());
+                    response.headers_mut().insert(
+                        HeaderName::from_static("x-span-id"),
+                        HeaderValue::from_str(
+                            (&context as &dyn Has<XSpanIdString>)
+                                .get()
+                                .0
+                                .clone()
+                                .as_str(),
+                        )
+                        .expect("Unable to create X-Span-ID header value"),
+                    );
+
+                    match result {
+                        Ok(rsp) => match rsp {
+                            InterestsSortKeySortValueOptionsResponse::Cors => {
+                                *response.status_mut() = StatusCode::from_u16(200)
+                                    .expect("Unable to turn 200 into a StatusCode");
+                            }
+                        },
+                        Err(_) => {
+                            // Application code returned an error. This should not happen, as the implementation should
+                            // return a valid response.
+                            *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                            *response.body_mut() = Body::from("An internal error occurred");
+                        }
+                    }
+
+                    Ok(response)
                 }
 
                 // InterestsSortKeySortValuePost - POST /interests/{sort_key}/{sort_value}
@@ -1153,6 +1575,40 @@ where
                     Ok(response)
                 }
 
+                // LivenessOptions - OPTIONS /liveness
+                hyper::Method::OPTIONS if path.matched(paths::ID_LIVENESS) => {
+                    let result = api_impl.liveness_options(&context).await;
+                    let mut response = Response::new(Body::empty());
+                    response.headers_mut().insert(
+                        HeaderName::from_static("x-span-id"),
+                        HeaderValue::from_str(
+                            (&context as &dyn Has<XSpanIdString>)
+                                .get()
+                                .0
+                                .clone()
+                                .as_str(),
+                        )
+                        .expect("Unable to create X-Span-ID header value"),
+                    );
+
+                    match result {
+                        Ok(rsp) => match rsp {
+                            LivenessOptionsResponse::Cors => {
+                                *response.status_mut() = StatusCode::from_u16(200)
+                                    .expect("Unable to turn 200 into a StatusCode");
+                            }
+                        },
+                        Err(_) => {
+                            // Application code returned an error. This should not happen, as the implementation should
+                            // return a valid response.
+                            *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                            *response.body_mut() = Body::from("An internal error occurred");
+                        }
+                    }
+
+                    Ok(response)
+                }
+
                 // VersionGet - GET /version
                 hyper::Method::GET if path.matched(paths::ID_VERSION) => {
                     let result = api_impl.version_get(&context).await;
@@ -1192,6 +1648,40 @@ where
                                 let body_content = serde_json::to_string(&body)
                                     .expect("impossible to fail to serialize");
                                 *response.body_mut() = Body::from(body_content);
+                            }
+                        },
+                        Err(_) => {
+                            // Application code returned an error. This should not happen, as the implementation should
+                            // return a valid response.
+                            *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                            *response.body_mut() = Body::from("An internal error occurred");
+                        }
+                    }
+
+                    Ok(response)
+                }
+
+                // VersionOptions - OPTIONS /version
+                hyper::Method::OPTIONS if path.matched(paths::ID_VERSION) => {
+                    let result = api_impl.version_options(&context).await;
+                    let mut response = Response::new(Body::empty());
+                    response.headers_mut().insert(
+                        HeaderName::from_static("x-span-id"),
+                        HeaderValue::from_str(
+                            (&context as &dyn Has<XSpanIdString>)
+                                .get()
+                                .0
+                                .clone()
+                                .as_str(),
+                        )
+                        .expect("Unable to create X-Span-ID header value"),
+                    );
+
+                    match result {
+                        Ok(rsp) => match rsp {
+                            VersionOptionsResponse::Cors => {
+                                *response.status_mut() = StatusCode::from_u16(200)
+                                    .expect("Unable to turn 200 into a StatusCode");
                             }
                         },
                         Err(_) => {
@@ -1288,36 +1778,72 @@ impl<T> RequestParser<T> for ApiRequestParser {
         match *request.method() {
             // DebugHeapGet - GET /debug/heap
             hyper::Method::GET if path.matched(paths::ID_DEBUG_HEAP) => Some("DebugHeapGet"),
+            // DebugHeapOptions - OPTIONS /debug/heap
+            hyper::Method::OPTIONS if path.matched(paths::ID_DEBUG_HEAP) => {
+                Some("DebugHeapOptions")
+            }
             // EventsEventIdGet - GET /events/{event_id}
             hyper::Method::GET if path.matched(paths::ID_EVENTS_EVENT_ID) => {
                 Some("EventsEventIdGet")
             }
+            // EventsEventIdOptions - OPTIONS /events/{event_id}
+            hyper::Method::OPTIONS if path.matched(paths::ID_EVENTS_EVENT_ID) => {
+                Some("EventsEventIdOptions")
+            }
+            // EventsOptions - OPTIONS /events
+            hyper::Method::OPTIONS if path.matched(paths::ID_EVENTS) => Some("EventsOptions"),
             // EventsPost - POST /events
             hyper::Method::POST if path.matched(paths::ID_EVENTS) => Some("EventsPost"),
             // ExperimentalEventsSepSepValueGet - GET /experimental/events/{sep}/{sepValue}
             hyper::Method::GET if path.matched(paths::ID_EXPERIMENTAL_EVENTS_SEP_SEPVALUE) => {
                 Some("ExperimentalEventsSepSepValueGet")
             }
+            // ExperimentalEventsSepSepValueOptions - OPTIONS /experimental/events/{sep}/{sepValue}
+            hyper::Method::OPTIONS if path.matched(paths::ID_EXPERIMENTAL_EVENTS_SEP_SEPVALUE) => {
+                Some("ExperimentalEventsSepSepValueOptions")
+            }
             // ExperimentalInterestsGet - GET /experimental/interests
             hyper::Method::GET if path.matched(paths::ID_EXPERIMENTAL_INTERESTS) => {
                 Some("ExperimentalInterestsGet")
             }
+            // ExperimentalInterestsOptions - OPTIONS /experimental/interests
+            hyper::Method::OPTIONS if path.matched(paths::ID_EXPERIMENTAL_INTERESTS) => {
+                Some("ExperimentalInterestsOptions")
+            }
             // FeedEventsGet - GET /feed/events
             hyper::Method::GET if path.matched(paths::ID_FEED_EVENTS) => Some("FeedEventsGet"),
+            // FeedEventsOptions - OPTIONS /feed/events
+            hyper::Method::OPTIONS if path.matched(paths::ID_FEED_EVENTS) => {
+                Some("FeedEventsOptions")
+            }
             // FeedResumeTokenGet - GET /feed/resumeToken
             hyper::Method::GET if path.matched(paths::ID_FEED_RESUMETOKEN) => {
                 Some("FeedResumeTokenGet")
             }
+            // FeedResumeTokenOptions - OPTIONS /feed/resumeToken
+            hyper::Method::OPTIONS if path.matched(paths::ID_FEED_RESUMETOKEN) => {
+                Some("FeedResumeTokenOptions")
+            }
+            // InterestsOptions - OPTIONS /interests
+            hyper::Method::OPTIONS if path.matched(paths::ID_INTERESTS) => Some("InterestsOptions"),
             // InterestsPost - POST /interests
             hyper::Method::POST if path.matched(paths::ID_INTERESTS) => Some("InterestsPost"),
+            // InterestsSortKeySortValueOptions - OPTIONS /interests/{sort_key}/{sort_value}
+            hyper::Method::OPTIONS if path.matched(paths::ID_INTERESTS_SORT_KEY_SORT_VALUE) => {
+                Some("InterestsSortKeySortValueOptions")
+            }
             // InterestsSortKeySortValuePost - POST /interests/{sort_key}/{sort_value}
             hyper::Method::POST if path.matched(paths::ID_INTERESTS_SORT_KEY_SORT_VALUE) => {
                 Some("InterestsSortKeySortValuePost")
             }
             // LivenessGet - GET /liveness
             hyper::Method::GET if path.matched(paths::ID_LIVENESS) => Some("LivenessGet"),
+            // LivenessOptions - OPTIONS /liveness
+            hyper::Method::OPTIONS if path.matched(paths::ID_LIVENESS) => Some("LivenessOptions"),
             // VersionGet - GET /version
             hyper::Method::GET if path.matched(paths::ID_VERSION) => Some("VersionGet"),
+            // VersionOptions - OPTIONS /version
+            hyper::Method::OPTIONS if path.matched(paths::ID_VERSION) => Some("VersionOptions"),
             // VersionPost - POST /version
             hyper::Method::POST if path.matched(paths::ID_VERSION) => Some("VersionPost"),
             _ => None,

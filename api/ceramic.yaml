@@ -16,6 +16,11 @@ servers:
 
 paths:
   /liveness:
+    options:
+      summary: cors
+      responses:
+        "200":
+          description: cors
     get:
       summary: Test the liveness of the Ceramic node
       responses:
@@ -28,6 +33,11 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
   /debug/heap:
+    options:
+      summary: cors
+      responses:
+        "200":
+          description: cors
     get:
       summary: Get the heap statistics of the Ceramic node
       responses:
@@ -51,6 +61,11 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
   /version:
+    options:
+      summary: cors
+      responses:
+        "200":
+          description: cors
     get:
       summary: Get the version of the Ceramic node
       responses:
@@ -82,6 +97,11 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
   /events:
+    options:
+      summary: cors
+      responses:
+        "200":
+          description: cors
     post:
       summary: Creates a new event
       requestBody:
@@ -102,6 +122,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
   /events/{event_id}:
+    options:
+      summary: cors
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          description: Name of the field in the Events header that holds the separator value e.g. 'model'
+          schema:
+            type: string
+      responses:
+        "200":
+          description: cors
     get:
       summary: Get event data
       parameters:
@@ -137,6 +169,24 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
   "/interests/{sort_key}/{sort_value}":
+    options:
+      summary: cors
+      parameters:
+        - name: sort_key
+          in: path
+          description: Name of the field in the Events header that holds the separator value e.g. 'model'
+          schema:
+            type: string
+          required: true
+        - name: sort_value
+          in: path
+          description: The value of the field in the Events header indicated by the separator key e.g. multibase encoded model ID
+          schema:
+            type: string
+          required: true
+      responses:
+        "200":
+          description: cors
     post:
       summary: Register interest for a sort key
       parameters:
@@ -180,6 +230,11 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
   "/interests":
+    options:
+      summary: cors
+      responses:
+        "200":
+          description: cors
     post:
       summary: Register interest for a sort key
       requestBody:
@@ -200,6 +255,11 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
   /experimental/interests:
+    options:
+      summary: cors
+      responses:
+        "200":
+          description: cors
     get:
       summary: Get the interests stored on the node
       responses:
@@ -222,6 +282,24 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
   "/experimental/events/{sep}/{sepValue}":
+    options:
+      summary: cors
+      parameters:
+        - name: sep
+          in: path
+          description: Name of the field in the Events header that holds the separator value e.g. 'model'
+          schema:
+            type: string
+          required: true
+        - name: sepValue
+          in: path
+          description: The value of the field in the Events header indicated by the separator key e.g. multibase encoded model ID
+          schema:
+            type: string
+          required: true
+      responses:
+        "200":
+          description: cors
     get:
       summary: Get events matching the interest stored on the node
       parameters:
@@ -282,6 +360,11 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
 
   "/feed/events":
+    options:
+      summary: cors
+      responses:
+        "200":
+          description: cors
     get:
       summary: Get all new event keys since resume token
       parameters:
@@ -317,6 +400,11 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
   "/feed/resumeToken":
+    options:
+      summary: cors
+      responses:
+        "200":
+          description: cors
     get:
       summary: Get the current (maximum) highwater mark/continuation token of the feed. Allows starting `feed/events` from 'now'.
       responses:

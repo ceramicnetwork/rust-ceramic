@@ -101,11 +101,14 @@ impl<C> Server<C> {
 
 use ceramic_api_server::server::MakeService;
 use ceramic_api_server::{
-    Api, DebugHeapGetResponse, EventsEventIdGetResponse, EventsPostResponse,
-    ExperimentalEventsSepSepValueGetResponse, ExperimentalInterestsGetResponse,
-    FeedEventsGetResponse, FeedResumeTokenGetResponse, InterestsPostResponse,
-    InterestsSortKeySortValuePostResponse, LivenessGetResponse, VersionGetResponse,
-    VersionPostResponse,
+    Api, DebugHeapGetResponse, DebugHeapOptionsResponse, EventsEventIdGetResponse,
+    EventsEventIdOptionsResponse, EventsOptionsResponse, EventsPostResponse,
+    ExperimentalEventsSepSepValueGetResponse, ExperimentalEventsSepSepValueOptionsResponse,
+    ExperimentalInterestsGetResponse, ExperimentalInterestsOptionsResponse, FeedEventsGetResponse,
+    FeedEventsOptionsResponse, FeedResumeTokenGetResponse, FeedResumeTokenOptionsResponse,
+    InterestsOptionsResponse, InterestsPostResponse, InterestsSortKeySortValueOptionsResponse,
+    InterestsSortKeySortValuePostResponse, LivenessGetResponse, LivenessOptionsResponse,
+    VersionGetResponse, VersionOptionsResponse, VersionPostResponse,
 };
 use std::error::Error;
 use swagger::ApiError;
@@ -124,6 +127,15 @@ where
         Err(ApiError("Generic failure".into()))
     }
 
+    /// cors
+    async fn debug_heap_options(&self, context: &C) -> Result<DebugHeapOptionsResponse, ApiError> {
+        info!(
+            "debug_heap_options() - X-Span-ID: {:?}",
+            context.get().0.clone()
+        );
+        Err(ApiError("Generic failure".into()))
+    }
+
     /// Get event data
     async fn events_event_id_get(
         &self,
@@ -133,6 +145,29 @@ where
         info!(
             "events_event_id_get(\"{}\") - X-Span-ID: {:?}",
             event_id,
+            context.get().0.clone()
+        );
+        Err(ApiError("Generic failure".into()))
+    }
+
+    /// cors
+    async fn events_event_id_options(
+        &self,
+        event_id: String,
+        context: &C,
+    ) -> Result<EventsEventIdOptionsResponse, ApiError> {
+        info!(
+            "events_event_id_options(\"{}\") - X-Span-ID: {:?}",
+            event_id,
+            context.get().0.clone()
+        );
+        Err(ApiError("Generic failure".into()))
+    }
+
+    /// cors
+    async fn events_options(&self, context: &C) -> Result<EventsOptionsResponse, ApiError> {
+        info!(
+            "events_options() - X-Span-ID: {:?}",
             context.get().0.clone()
         );
         Err(ApiError("Generic failure".into()))
@@ -167,6 +202,22 @@ where
         Err(ApiError("Generic failure".into()))
     }
 
+    /// cors
+    async fn experimental_events_sep_sep_value_options(
+        &self,
+        sep: String,
+        sep_value: String,
+        context: &C,
+    ) -> Result<ExperimentalEventsSepSepValueOptionsResponse, ApiError> {
+        info!(
+            "experimental_events_sep_sep_value_options(\"{}\", \"{}\") - X-Span-ID: {:?}",
+            sep,
+            sep_value,
+            context.get().0.clone()
+        );
+        Err(ApiError("Generic failure".into()))
+    }
+
     /// Get the interests stored on the node
     async fn experimental_interests_get(
         &self,
@@ -174,6 +225,18 @@ where
     ) -> Result<ExperimentalInterestsGetResponse, ApiError> {
         info!(
             "experimental_interests_get() - X-Span-ID: {:?}",
+            context.get().0.clone()
+        );
+        Err(ApiError("Generic failure".into()))
+    }
+
+    /// cors
+    async fn experimental_interests_options(
+        &self,
+        context: &C,
+    ) -> Result<ExperimentalInterestsOptionsResponse, ApiError> {
+        info!(
+            "experimental_interests_options() - X-Span-ID: {:?}",
             context.get().0.clone()
         );
         Err(ApiError("Generic failure".into()))
@@ -195,6 +258,18 @@ where
         Err(ApiError("Generic failure".into()))
     }
 
+    /// cors
+    async fn feed_events_options(
+        &self,
+        context: &C,
+    ) -> Result<FeedEventsOptionsResponse, ApiError> {
+        info!(
+            "feed_events_options() - X-Span-ID: {:?}",
+            context.get().0.clone()
+        );
+        Err(ApiError("Generic failure".into()))
+    }
+
     /// Get the current (maximum) highwater mark/continuation token of the feed. Allows starting `feed/events` from 'now'.
     async fn feed_resume_token_get(
         &self,
@@ -202,6 +277,27 @@ where
     ) -> Result<FeedResumeTokenGetResponse, ApiError> {
         info!(
             "feed_resume_token_get() - X-Span-ID: {:?}",
+            context.get().0.clone()
+        );
+        Err(ApiError("Generic failure".into()))
+    }
+
+    /// cors
+    async fn feed_resume_token_options(
+        &self,
+        context: &C,
+    ) -> Result<FeedResumeTokenOptionsResponse, ApiError> {
+        info!(
+            "feed_resume_token_options() - X-Span-ID: {:?}",
+            context.get().0.clone()
+        );
+        Err(ApiError("Generic failure".into()))
+    }
+
+    /// cors
+    async fn interests_options(&self, context: &C) -> Result<InterestsOptionsResponse, ApiError> {
+        info!(
+            "interests_options() - X-Span-ID: {:?}",
             context.get().0.clone()
         );
         Err(ApiError("Generic failure".into()))
@@ -216,6 +312,22 @@ where
         info!(
             "interests_post({:?}) - X-Span-ID: {:?}",
             interest,
+            context.get().0.clone()
+        );
+        Err(ApiError("Generic failure".into()))
+    }
+
+    /// cors
+    async fn interests_sort_key_sort_value_options(
+        &self,
+        sort_key: String,
+        sort_value: String,
+        context: &C,
+    ) -> Result<InterestsSortKeySortValueOptionsResponse, ApiError> {
+        info!(
+            "interests_sort_key_sort_value_options(\"{}\", \"{}\") - X-Span-ID: {:?}",
+            sort_key,
+            sort_value,
             context.get().0.clone()
         );
         Err(ApiError("Generic failure".into()))
@@ -247,9 +359,27 @@ where
         Err(ApiError("Generic failure".into()))
     }
 
+    /// cors
+    async fn liveness_options(&self, context: &C) -> Result<LivenessOptionsResponse, ApiError> {
+        info!(
+            "liveness_options() - X-Span-ID: {:?}",
+            context.get().0.clone()
+        );
+        Err(ApiError("Generic failure".into()))
+    }
+
     /// Get the version of the Ceramic node
     async fn version_get(&self, context: &C) -> Result<VersionGetResponse, ApiError> {
         info!("version_get() - X-Span-ID: {:?}", context.get().0.clone());
+        Err(ApiError("Generic failure".into()))
+    }
+
+    /// cors
+    async fn version_options(&self, context: &C) -> Result<VersionOptionsResponse, ApiError> {
+        info!(
+            "version_options() - X-Span-ID: {:?}",
+            context.get().0.clone()
+        );
         Err(ApiError("Generic failure".into()))
     }
 

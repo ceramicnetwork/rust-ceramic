@@ -15,7 +15,7 @@ To see how to make this your own, look here:
 [README]((https://openapi-generator.tech))
 
 - API version: 0.28.1
-- Build date: 2024-07-14T19:10:51.794436387Z[Etc/UTC]
+- Build date: 2024-07-15T07:42:36.368308-07:00[America/Los_Angeles]
 
 
 
@@ -63,14 +63,25 @@ To run a client, follow one of the following simple steps:
 
 ```
 cargo run --example client DebugHeapGet
+cargo run --example client DebugHeapOptions
 cargo run --example client EventsEventIdGet
+cargo run --example client EventsEventIdOptions
+cargo run --example client EventsOptions
 cargo run --example client ExperimentalEventsSepSepValueGet
+cargo run --example client ExperimentalEventsSepSepValueOptions
 cargo run --example client ExperimentalInterestsGet
+cargo run --example client ExperimentalInterestsOptions
 cargo run --example client FeedEventsGet
+cargo run --example client FeedEventsOptions
 cargo run --example client FeedResumeTokenGet
+cargo run --example client FeedResumeTokenOptions
+cargo run --example client InterestsOptions
+cargo run --example client InterestsSortKeySortValueOptions
 cargo run --example client InterestsSortKeySortValuePost
 cargo run --example client LivenessGet
+cargo run --example client LivenessOptions
 cargo run --example client VersionGet
+cargo run --example client VersionOptions
 cargo run --example client VersionPost
 ```
 
@@ -106,16 +117,27 @@ All URIs are relative to */ceramic*
 Method | HTTP request | Description
 ------------- | ------------- | -------------
 [****](docs/default_api.md#) | **GET** /debug/heap | Get the heap statistics of the Ceramic node
+[****](docs/default_api.md#) | **OPTIONS** /debug/heap | cors
 [****](docs/default_api.md#) | **GET** /events/{event_id} | Get event data
+[****](docs/default_api.md#) | **OPTIONS** /events/{event_id} | cors
+[****](docs/default_api.md#) | **OPTIONS** /events | cors
 [****](docs/default_api.md#) | **POST** /events | Creates a new event
 [****](docs/default_api.md#) | **GET** /experimental/events/{sep}/{sepValue} | Get events matching the interest stored on the node
+[****](docs/default_api.md#) | **OPTIONS** /experimental/events/{sep}/{sepValue} | cors
 [****](docs/default_api.md#) | **GET** /experimental/interests | Get the interests stored on the node
+[****](docs/default_api.md#) | **OPTIONS** /experimental/interests | cors
 [****](docs/default_api.md#) | **GET** /feed/events | Get all new event keys since resume token
+[****](docs/default_api.md#) | **OPTIONS** /feed/events | cors
 [****](docs/default_api.md#) | **GET** /feed/resumeToken | Get the current (maximum) highwater mark/continuation token of the feed. Allows starting `feed/events` from 'now'.
+[****](docs/default_api.md#) | **OPTIONS** /feed/resumeToken | cors
+[****](docs/default_api.md#) | **OPTIONS** /interests | cors
 [****](docs/default_api.md#) | **POST** /interests | Register interest for a sort key
+[****](docs/default_api.md#) | **OPTIONS** /interests/{sort_key}/{sort_value} | cors
 [****](docs/default_api.md#) | **POST** /interests/{sort_key}/{sort_value} | Register interest for a sort key
 [****](docs/default_api.md#) | **GET** /liveness | Test the liveness of the Ceramic node
+[****](docs/default_api.md#) | **OPTIONS** /liveness | cors
 [****](docs/default_api.md#) | **GET** /version | Get the version of the Ceramic node
+[****](docs/default_api.md#) | **OPTIONS** /version | cors
 [****](docs/default_api.md#) | **POST** /version | Get the version of the Ceramic node
 
 
