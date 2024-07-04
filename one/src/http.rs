@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     error::Error,
     sync::Arc,
     task::{Context, Poll},
@@ -7,7 +8,7 @@ use std::{
 
 use ceramic_metrics::Recorder;
 use futures::{future::BoxFuture, Future};
-use hyper::{service::Service, Body, Request, Response, StatusCode};
+use hyper::{header::HeaderValue, service::Service, Body, Request, Response, StatusCode};
 
 use crate::http_metrics::{Event, Metrics};
 
@@ -129,6 +130,143 @@ where
                     .map_err(|err| err.into())
             })
         }
+    }
+}
+
+pub struct CorsService<T> {
+    default_allow_origin: HeaderValue,
+    allow_methods: HeaderValue,
+    allow_headers: HeaderValue,
+    allowed_origins: HashSet<Vec<u8>>,
+    inner: T,
+}
+
+impl<T> CorsService<T> {
+    fn new(
+        inner: T,
+        default_allow_origin: HeaderValue,
+        allow_methods: HeaderValue,
+        allow_headers: HeaderValue,
+        allowed_origins: HashSet<Vec<u8>>,
+    ) -> Self {
+        Self {
+            default_allow_origin,
+            allow_methods,
+            allow_headers,
+            allowed_origins,
+            inner,
+        }
+    }
+}
+
+impl<T> Service<Request<Body>> for CorsService<T>
+where
+    T: Service<Request<Body>, Error = ServiceError, Future = ServiceFuture> + Send + Sync + 'static,
+{
+    type Response = Response<Body>;
+    type Error = ServiceError;
+    type Future = ServiceFuture;
+
+    fn poll_ready(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(cx)
+    }
+
+    fn call(&mut self, req: Request<Body>) -> Self::Future {
+        let allow_methods = self.allow_methods.clone();
+        let allow_headers = self.allow_headers.clone();
+        // you can only respond with a single origin or *, so we just echo it back if it's in our list
+        let allow_origin = if let Some(requested_origin) = req.headers().get("Origin") {
+            if self.allowed_origins.contains(requested_origin.as_bytes()) {
+                requested_origin.to_owned()
+            } else {
+                // will fail cors check
+                self.default_allow_origin.clone()
+            }
+        } else {
+            self.default_allow_origin.clone()
+        };
+        let fut = self.inner.call(req);
+
+        Box::pin(async move {
+            match fut.await {
+                Ok(mut response) => {
+                    let headers = response.headers_mut();
+                    headers.insert("Access-Control-Allow-Origin", allow_origin);
+                    headers.insert("Access-Control-Allow-Methods", allow_methods);
+                    headers.insert("Access-Control-Allow-Headers", allow_headers);
+                    Ok(response)
+                }
+                Err(err) => Err(err),
+            }
+        })
+    }
+}
+
+pub struct MakeCorsService<T> {
+    inner: T,
+    origins: HashSet<Vec<u8>>,
+    default_allow_origin: HeaderValue,
+    allow_methods: HeaderValue,
+    allow_headers: HeaderValue,
+}
+
+impl<T> MakeCorsService<T> {
+    /// Currently only the first value is used
+    pub fn new(inner: T, origins: Vec<String>) -> Self {
+        let default_allow_origin = origins.first().map(|o| o.as_bytes()).unwrap_or(b"*");
+        let origins = origins
+            .iter()
+            .map(|o| o.as_bytes().to_vec())
+            .collect::<HashSet<Vec<u8>>>();
+        Self {
+            inner,
+            origins,
+            default_allow_origin: HeaderValue::from_bytes(default_allow_origin).unwrap(),
+            // this should be per route, but open API doesn't support generating shared responses very well
+            // so for now we just return everything and it may error if the route doesn't support it
+            // we currently don't have any PUT or DELETE but including in case we add them
+            allow_methods: HeaderValue::from_bytes(b"POST, GET, OPTIONS, DELETE, PUT").unwrap(),
+            // need to add sensitive headers to this list
+            allow_headers: HeaderValue::from_bytes(b"*").unwrap(),
+        }
+    }
+}
+
+impl<A, Target, AResponse, AError, AMakeError, AFuture> Service<Target> for MakeCorsService<A>
+where
+    A: for<'a> Service<&'a Target, Response = AResponse, Error = AMakeError, Future = AFuture>,
+    AResponse: Service<Request<Body>, Response = Response<Body>> + Send,
+    AMakeError: Into<Box<dyn std::error::Error + Send + Sync>>,
+    AError: Into<Box<dyn std::error::Error + Send + Sync>>,
+    AFuture: Future<Output = Result<AResponse, AError>> + Send + 'static,
+{
+    type Response = CorsService<AResponse>;
+    type Error = ServiceError;
+    type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(cx).map_err(|err| err.into())
+    }
+
+    fn call(&mut self, target: Target) -> Self::Future {
+        let target = self.inner.call(&target);
+        let allow_origin = self.default_allow_origin.clone();
+        let allow_headers = self.allow_headers.clone();
+        let allow_methods = self.allow_methods.clone();
+        let allowed_origins = self.origins.clone();
+        Box::pin(async move {
+            let inner = target.await.map_err(|err| err.into())?;
+            Ok(CorsService::new(
+                inner,
+                allow_origin,
+                allow_methods,
+                allow_headers,
+                allowed_origins,
+            ))
+        })
     }
 }
 

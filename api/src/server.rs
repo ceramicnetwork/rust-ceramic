@@ -885,8 +885,7 @@ where
         _event_id: String,
         _context: &C,
     ) -> Result<ceramic_api_server::EventsEventIdOptionsResponse, ApiError> {
-        Ok(
-            ceramic_api_server::EventsEventIdOptionsResponse::Cors)
+        Ok(ceramic_api_server::EventsEventIdOptionsResponse::Cors)
     }
 
     /// cors
@@ -904,8 +903,7 @@ where
         _sep_value: String,
         _context: &C,
     ) -> Result<ceramic_api_server::ExperimentalEventsSepSepValueOptionsResponse, ApiError> {
-        Ok(
-            ceramic_api_server::ExperimentalEventsSepSepValueOptionsResponse::Cors)
+        Ok(ceramic_api_server::ExperimentalEventsSepSepValueOptionsResponse::Cors)
     }
 
     /// cors
@@ -913,8 +911,7 @@ where
         &self,
         _context: &C,
     ) -> Result<ceramic_api_server::ExperimentalInterestsOptionsResponse, ApiError> {
-        Ok(
-            ceramic_api_server::ExperimentalInterestsOptionsResponse::Cors)
+        Ok(ceramic_api_server::ExperimentalInterestsOptionsResponse::Cors)
     }
 
     /// cors
@@ -930,8 +927,7 @@ where
         &self,
         _context: &C,
     ) -> Result<ceramic_api_server::FeedResumeTokenOptionsResponse, ApiError> {
-        Ok(
-            ceramic_api_server::FeedResumeTokenOptionsResponse::Cors)
+        Ok(ceramic_api_server::FeedResumeTokenOptionsResponse::Cors)
     }
 
     /// cors
@@ -949,8 +945,7 @@ where
         _sort_value: String,
         _context: &C,
     ) -> Result<ceramic_api_server::InterestsSortKeySortValueOptionsResponse, ApiError> {
-        Ok(
-            ceramic_api_server::InterestsSortKeySortValueOptionsResponse::Cors)
+        Ok(ceramic_api_server::InterestsSortKeySortValueOptionsResponse::Cors)
     }
 
     /// Test the liveness of the Ceramic node
