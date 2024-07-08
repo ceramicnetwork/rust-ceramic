@@ -143,6 +143,9 @@ struct DaemonOpts {
 
     #[command(flatten)]
     db_opts: DBOpts,
+
+    #[command(flatten)]
+    key_opts: KeyOpts,
 }
 
 #[derive(Args, Debug)]
@@ -236,6 +239,27 @@ impl Network {
         .map(|addr| addr.parse())
         .collect::<Result<Vec<Multiaddr>, multiaddr::Error>>()
         .expect("hard coded bootstrap addresses should parse")
+    }
+}
+
+#[derive(Args, Debug)]
+struct KeyOpts {
+    /// Path to private key directory
+    #[arg(short, long, env = "CERAMIC_ONE_KEY_DIR")]
+    key_dir: Option<PathBuf>,
+}
+
+impl KeyOpts {
+    fn default_directory(&self) -> PathBuf {
+        // 1 path from options
+        // 2 path $HOME/.ceramic-one
+        // 3 pwd/.ceramic-one
+        self.key_dir
+            .clone()
+            .unwrap_or_else(|| match home::home_dir() {
+                Some(home_dir) => home_dir.join(".ceramic-one"),
+                None => PathBuf::from(".ceramic-one"),
+            })
     }
 }
 
@@ -429,7 +453,7 @@ impl Daemon {
         debug!(?p2p_config, "using p2p config");
 
         // Load p2p identity
-        let mut kc = Keychain::<DiskStorage>::new(dir).await?;
+        let mut kc = Keychain::<DiskStorage>::new(opts.key_opts.default_directory()).await?;
         let keypair = load_identity(&mut kc).await?;
         let peer_id = keypair.public().to_peer_id();
 
