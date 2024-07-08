@@ -1,11 +1,15 @@
-use std::{collections::BTreeSet, io::Cursor, str::FromStr};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    io::Cursor,
+    str::FromStr,
+};
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use async_trait::async_trait;
 use ceramic_core::{DidDocument, EventId, Network, StreamId};
 use ceramic_event::unvalidated;
 use cid::Cid;
-use futures::{stream::BoxStream, Stream, StreamExt as _, TryStreamExt as _};
+use futures::{pin_mut, stream::BoxStream, StreamExt as _, TryStreamExt as _};
 use ipld_core::{codec::Codec, ipld, ipld::Ipld};
 use iroh_car::CarReader;
 use multihash_codetable::{Code, MultihashDigest};
@@ -14,38 +18,35 @@ use recon::Key;
 use serde_ipld_dagcbor::codec::DagCborCodec;
 use test_log::test;
 
-use crate::{Block, BoxedBlock, CeramicEventService};
+use crate::{event::BlockStore, CeramicEventService};
 
-struct InMemBlock {
-    cid: Cid,
-    data: Vec<u8>,
+struct InMemBlockStore {
+    blocks: BTreeMap<Cid, Vec<u8>>,
 }
+
 #[async_trait]
-impl Block for InMemBlock {
-    fn cid(&self) -> Cid {
-        self.cid
+impl BlockStore for InMemBlockStore {
+    fn blocks(&self) -> BoxStream<'static, Result<(Cid, Vec<u8>)>> {
+        let blocks = self.blocks.clone();
+        futures::stream::iter(blocks.into_iter().map(Result::Ok)).boxed()
     }
-    async fn data(&self) -> Result<Vec<u8>> {
-        Ok(self.data.clone())
+    async fn block_data(&self, cid: &Cid) -> anyhow::Result<Option<Vec<u8>>> {
+        Ok(self.blocks.get(cid).cloned())
     }
 }
-async fn blocks_from_cars(cars: Vec<Vec<u8>>) -> impl Stream<Item = Result<BoxedBlock>> {
-    let mut stream: Option<BoxStream<Result<BoxedBlock>>> = None;
+
+async fn blocks_from_cars(cars: Vec<Vec<u8>>) -> InMemBlockStore {
+    let mut blocks = BTreeMap::new();
     for car in cars {
         let reader = CarReader::new(Cursor::new(car)).await.unwrap();
-        let s = reader
-            .stream()
-            .map_err(|err| anyhow!("{err}"))
-            .map(|block| block.map(|(cid, data)| Box::new(InMemBlock { cid, data }) as BoxedBlock));
-        if let Some(prev_stream) = stream.take() {
-            stream = Some(prev_stream.chain(s).boxed());
-        } else {
-            stream = Some(s.boxed());
+        let stream = reader.stream();
+        pin_mut!(stream);
+
+        while let Some((cid, block)) = stream.try_next().await.unwrap() {
+            blocks.insert(cid, block);
         }
     }
-    // Error if the stream is not Some, all tests pass at least one car file so this should not
-    // occur.
-    stream.unwrap()
+    InMemBlockStore { blocks }
 }
 async fn test_migration(cars: Vec<Vec<u8>>) {
     let expected_events: BTreeSet<_> = cars

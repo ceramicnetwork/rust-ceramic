@@ -265,7 +265,7 @@ impl DBOpts {
         }
     }
     /// This function will create the database directory if it does not exist.
-    async fn get_database(&self) -> Result<Databases> {
+    async fn get_database(&self, process_undelivered: bool) -> Result<Databases> {
         let dir = self.default_directory();
         match tokio::fs::create_dir_all(dir.clone()).await {
             Ok(_) => {}
@@ -281,14 +281,14 @@ impl DBOpts {
             },
         }
         let sql_db_path = dir.join("db.sqlite3").display().to_string();
-        Self::build_sqlite_dbs(&sql_db_path).await
+        Self::build_sqlite_dbs(&sql_db_path, process_undelivered).await
     }
 
-    async fn build_sqlite_dbs(path: &str) -> Result<Databases> {
+    async fn build_sqlite_dbs(path: &str, process_undelivered: bool) -> Result<Databases> {
         let sql_pool =
             ceramic_store::SqlitePool::connect(path, ceramic_store::Migrations::Apply).await?;
         let interest_store = Arc::new(CeramicInterestService::new(sql_pool.clone()));
-        let event_store = Arc::new(CeramicEventService::new(sql_pool, true).await?);
+        let event_store = Arc::new(CeramicEventService::new(sql_pool, process_undelivered).await?);
         info!(path, "connected to sqlite db");
 
         Ok(Databases::Sqlite(SqliteBackend {
@@ -341,7 +341,7 @@ impl Daemon {
             exe_hash = info.exe_hash,
         );
         debug!(?opts, "using daemon options");
-        let db = opts.db_opts.get_database().await?;
+        let db = opts.db_opts.get_database(true).await?;
 
         // we should be able to consolidate the Store traits now that they all rely on &self, but for now we use
         // static dispatch and require compile-time type information, so we pass all the types we need in, even

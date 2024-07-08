@@ -5,10 +5,10 @@ use async_stream::try_stream;
 use async_trait::async_trait;
 use ceramic_event::unvalidated;
 use ceramic_metrics::config::Config as MetricsConfig;
-use ceramic_service::{Block, BoxedBlock};
+use ceramic_service::BlockStore;
 use cid::Cid;
 use clap::{Args, Subcommand};
-use futures::Stream;
+use futures::{stream::BoxStream, StreamExt};
 use multihash_codetable::{Code, Multihash, MultihashDigest};
 use tracing::{debug, info};
 
@@ -83,35 +83,69 @@ pub async fn migrate(cmd: EventsCommand) -> Result<()> {
 async fn from_ipfs(opts: FromIpfsOpts) -> Result<()> {
     let network = opts.network.to_network(&opts.local_network_id)?;
     let db_opts: DBOpts = (&opts).into();
-    let crate::Databases::Sqlite(db) = db_opts.get_database().await?;
-    let blocks = blocks_from_filesystem(opts.input_ipfs_path);
+    let crate::Databases::Sqlite(db) = db_opts.get_database(false).await?;
+    let blocks = FSBlockStore {
+        input_ipfs_path: opts.input_ipfs_path,
+    };
     db.event_store.migrate_from_ipfs(network, blocks).await?;
     Ok(())
 }
-fn blocks_from_filesystem(input_ipfs_path: PathBuf) -> impl Stream<Item = Result<BoxedBlock>> {
-    // the block store is split in to 1024 directories and then the blocks stored as files.
-    // the dir structure is the penultimate two characters as dir then the b32 sha256 multihash of the block
-    // The leading "B" for the b32 sha256 multihash is left off
-    // ~/.ipfs/blocks/QV/CIQOHMGEIKMPYHAUTL57JSEZN64SIJ5OIHSGJG4TJSSJLGI3PBJLQVI.data // cspell:disable-line
-    info!(path = %input_ipfs_path.display(), "opening IPFS repo");
 
-    let mut dirs = Vec::new();
-    dirs.push(input_ipfs_path);
+struct FSBlockStore {
+    input_ipfs_path: PathBuf,
+}
 
-    try_stream! {
-        while !dirs.is_empty() {
-            let mut entries = tokio::fs::read_dir(dirs.pop().unwrap()).await?;
-            while let Some(entry) = entries.next_entry().await? {
-                if entry.metadata().await?.is_dir() {
-                    dirs.push(entry.path())
-                } else if let Some(block) = block_from_path(entry.path()).await?{
-                    yield block
+#[async_trait]
+impl BlockStore for FSBlockStore {
+    fn blocks(&self) -> BoxStream<'static, anyhow::Result<(Cid, Vec<u8>)>> {
+        // the block store is split in to 1024 directories and then the blocks stored as files.
+        // the dir structure is the penultimate two characters as dir then the b32 sha256 multihash of the block
+        // The leading "B" for the b32 sha256 multihash is left off
+        // ~/.ipfs/blocks/QV/CIQOHMGEIKMPYHAUTL57JSEZN64SIJ5OIHSGJG4TJSSJLGI3PBJLQVI.data // cspell:disable-line
+        info!(path = %self.input_ipfs_path.display(), "opening IPFS repo");
+
+        let mut dirs = Vec::new();
+        dirs.push(self.input_ipfs_path.clone());
+
+        try_stream! {
+            while let Some(dir) = dirs.pop() {
+                let mut entries = tokio::fs::read_dir(dir).await?;
+                while let Some(entry) = entries.next_entry().await? {
+                    if entry.metadata().await?.is_dir() {
+                        dirs.push(entry.path())
+                    } else if let Some(block) = block_from_path(entry.path()).await?{
+                        yield block
+                    }
                 }
             }
         }
+        .boxed()
+    }
+    async fn block_data(&self, cid: &Cid) -> Result<Option<Vec<u8>>> {
+        let path = self.input_ipfs_path.clone();
+        // Determine the path on disk for this CID
+
+        // 1.Create v0 CID throwing away the
+        let v0 = Cid::new_v0(*cid.hash())?;
+        // 2. Determine the base32 encoding of the v0 CID bytes
+        let base32_string = multibase::encode(multibase::Base::Base32Upper, v0.to_bytes());
+        // 3. Get the two characters prefix for this CID
+        let len = base32_string.len();
+        let prefix = &base32_string[len - 3..len - 1];
+        // Construct a path as `{ROOT}/{PREFIX}/{base32 without B}.data`
+        let path = path
+            .join(prefix)
+            .join(base32_string.trim_start_matches('B'))
+            .with_extension("data");
+        if tokio::fs::try_exists(&path).await? {
+            Ok(Some(tokio::fs::read(&path).await?))
+        } else {
+            Ok(None)
+        }
     }
 }
-async fn block_from_path(block_path: PathBuf) -> Result<Option<BoxedBlock>> {
+
+async fn block_from_path(block_path: PathBuf) -> Result<Option<(Cid, Vec<u8>)>> {
     if !block_path.is_file() {
         return Ok(None);
     }
@@ -147,21 +181,5 @@ async fn block_from_path(block_path: PathBuf) -> Result<Option<BoxedBlock>> {
     } else {
         Cid::new_v1(DAG_CBOR, hash)
     };
-    Ok(Some(Box::new(FSBlock {
-        cid,
-        path: block_path,
-    })))
-}
-struct FSBlock {
-    cid: Cid,
-    path: PathBuf,
-}
-#[async_trait]
-impl Block for FSBlock {
-    fn cid(&self) -> Cid {
-        self.cid
-    }
-    async fn data(&self) -> Result<Vec<u8>> {
-        Ok(tokio::fs::read(&self.path).await?)
-    }
+    Ok(Some((cid, blob)))
 }

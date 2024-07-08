@@ -1,24 +1,24 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use anyhow::{anyhow, bail, Context as _, Result};
 use ceramic_core::{EventId, Network};
 use ceramic_event::unvalidated::{self, signed::cacao::Capability};
 use cid::Cid;
-use futures::{Stream, StreamExt, TryStreamExt};
+use futures::TryStreamExt;
 use ipld_core::ipld::Ipld;
 use serde::Deserialize;
 use thiserror::Error;
 use tracing::{debug, error, info, instrument, Level};
 
 use crate::{
-    event::{Block, BoxedBlock, DeliverableRequirement},
+    event::{BlockStore, DeliverableRequirement},
     CeramicEventService,
 };
 
-pub struct Migrator<'a> {
+pub struct Migrator<'a, S> {
     service: &'a CeramicEventService,
     network: Network,
-    blocks: BTreeMap<Cid, Box<dyn Block>>,
+    blocks: S,
     batch: Vec<(EventId, Vec<u8>)>,
 
     // All unsigned init payloads we have found.
@@ -34,16 +34,12 @@ pub struct Migrator<'a> {
     event_count: usize,
 }
 
-impl<'a> Migrator<'a> {
+impl<'a, S: BlockStore> Migrator<'a, S> {
     pub async fn new(
         service: &'a CeramicEventService,
         network: Network,
-        blocks: impl Stream<Item = Result<BoxedBlock>>,
+        blocks: S,
     ) -> Result<Self> {
-        let blocks = blocks
-            .map(|block| block.map(|block| (block.cid(), block)))
-            .try_collect::<BTreeMap<Cid, BoxedBlock>>()
-            .await?;
         Ok(Self {
             network,
             service,
@@ -56,25 +52,32 @@ impl<'a> Migrator<'a> {
         })
     }
 
-    fn find_block(&self, cid: &Cid) -> Result<&BoxedBlock, AnalyzeError> {
-        if let Some(block) = self.blocks.get(cid) {
+    async fn load_block(&self, cid: &Cid) -> Result<Vec<u8>> {
+        if let Some(block) = self.blocks.block_data(cid).await? {
             Ok(block)
         } else {
-            Err(AnalyzeError::MissingBlock(*cid))
+            Err(AnalyzeError::MissingBlock(*cid).into())
         }
     }
 
     #[instrument(skip(self), ret(level = Level::DEBUG))]
     pub async fn migrate(mut self) -> Result<()> {
-        let cids: Vec<Cid> = self.blocks.keys().cloned().collect();
-        for cid in cids {
-            let ret = self.process_block(cid).await;
+        const PROGRESS_COUNT: usize = 1_000;
+
+        let mut all_blocks = self.blocks.blocks();
+        let mut count = 0;
+        while let Some((cid, data)) = all_blocks.try_next().await? {
+            let ret = self.process_block(cid, &data).await;
             if let Err(err) = ret {
                 self.error_count += 1;
                 error!(%cid, err=format!("{err:#}"), "error processing block");
             }
             if self.batch.len() > 1000 {
                 self.write_batch().await?
+            }
+            count += 1;
+            if count % PROGRESS_COUNT == 0 {
+                info!(last_block=%cid, count, error_count = self.error_count, "migrated blocks");
             }
         }
         self.write_batch().await?;
@@ -90,11 +93,9 @@ impl<'a> Migrator<'a> {
     }
     // Decodes the block and if it is a Ceramic event, it and related blocks are constructed into an
     // event.
-    #[instrument(skip(self), ret(level = Level::DEBUG))]
-    async fn process_block(&mut self, cid: Cid) -> Result<()> {
-        let block = self.find_block(&cid).context("finding top level block")?;
-        let data: Vec<u8> = block.data().await?;
-        let event: Result<unvalidated::RawEvent<Ipld>, _> = serde_ipld_dagcbor::from_slice(&data);
+    #[instrument(skip(self, data), ret(level = Level::DEBUG))]
+    async fn process_block(&mut self, cid: Cid, data: &[u8]) -> Result<()> {
+        let event: Result<unvalidated::RawEvent<Ipld>, _> = serde_ipld_dagcbor::from_slice(data);
         match event {
             Ok(unvalidated::RawEvent::Unsigned(_)) => {
                 self.unsigned_init_payloads.insert(cid);
@@ -122,8 +123,10 @@ impl<'a> Migrator<'a> {
             .cloned()
             .collect();
         for cid in init_events {
-            let block = self.find_block(&cid).context("finding init event block")?;
-            let data = block.data().await?;
+            let data = self
+                .load_block(&cid)
+                .await
+                .context("finding init event block")?;
             let payload: unvalidated::init::Payload<Ipld> = serde_ipld_dagcbor::from_slice(&data)?;
             let event_builder = EventBuilder::new(
                 cid,
@@ -165,10 +168,10 @@ impl<'a> Migrator<'a> {
         let link = event
             .link()
             .ok_or_else(|| anyhow!("event envelope must have a link"))?;
-        let block = self
-            .find_block(&link)
+        let payload_data = self
+            .load_block(&link)
+            .await
             .context("finding payload link block")?;
-        let payload_data = block.data().await?;
         let payload: unvalidated::Payload<Ipld> = serde_ipld_dagcbor::from_slice(&payload_data)
             .context("decoding payload")
             .map_err(|err| {
@@ -201,10 +204,10 @@ impl<'a> Migrator<'a> {
         let mut capability = None;
         if let Some(capability_cid) = event.capability() {
             debug!(%capability_cid, "found cap chain");
-            let block = self
-                .find_block(&capability_cid)
+            let data = self
+                .load_block(&capability_cid)
+                .await
                 .context("finding capability block")?;
-            let data = block.data().await?;
             // Parse capability to ensure it is valid
             let cap: Capability = serde_ipld_dagcbor::from_slice(&data)?;
             debug!(%capability_cid, ?cap, "capability");
@@ -227,21 +230,23 @@ impl<'a> Migrator<'a> {
         serde_ipld_dagcbor::from_slice::<TileDocPayload>(data).is_ok()
     }
     async fn find_init_payload(&self, cid: &Cid) -> Result<unvalidated::init::Payload<Ipld>> {
-        let init_block = self.find_block(cid).context("finding init payload block")?;
-        let init_data = init_block.data().await?;
+        let init_data = self
+            .load_block(cid)
+            .await
+            .context("finding init payload block")?;
         let init: unvalidated::RawEvent<Ipld> =
             serde_ipld_dagcbor::from_slice(&init_data).context("decoding init envelope")?;
         match init {
             unvalidated::RawEvent::Time(_) => bail!("init event must not be a time event"),
             unvalidated::RawEvent::Signed(init) => {
-                let init_payload_block = self
-                    .find_block(
+                let init_payload_data = self
+                    .load_block(
                         &init
                             .link()
                             .ok_or_else(|| anyhow!("init envelope must have a link"))?,
                     )
+                    .await
                     .context("finding init link block")?;
-                let init_payload_data = init_payload_block.data().await?;
 
                 serde_ipld_dagcbor::from_slice(&init_payload_data)
                     .context("decoding init payload")
@@ -272,8 +277,10 @@ impl<'a> Migrator<'a> {
             init,
         );
         let proof_id = event.proof();
-        let block = self.find_block(&proof_id).context("finding proof block")?;
-        let data = block.data().await?;
+        let data = self
+            .load_block(&proof_id)
+            .await
+            .context("finding proof block")?;
         let proof: unvalidated::Proof = serde_ipld_dagcbor::from_slice(&data)?;
         let mut curr = proof.root();
         let mut proof_edges = Vec::new();
@@ -284,8 +291,10 @@ impl<'a> Migrator<'a> {
                 break;
             }
             let idx: usize = index.parse().context("parsing path segment as index")?;
-            let block = self.find_block(&curr).context("finding witness block")?;
-            let data = block.data().await.context("fetch block data")?;
+            let data = self
+                .load_block(&curr)
+                .await
+                .context("finding witness block")?;
             let edge: unvalidated::ProofEdge =
                 serde_ipld_dagcbor::from_slice(&data).context("dag cbor decode")?;
 
