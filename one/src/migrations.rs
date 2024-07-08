@@ -83,7 +83,7 @@ pub async fn migrate(cmd: EventsCommand) -> Result<()> {
 async fn from_ipfs(opts: FromIpfsOpts) -> Result<()> {
     let network = opts.network.to_network(&opts.local_network_id)?;
     let db_opts: DBOpts = (&opts).into();
-    let crate::Databases::Sqlite(db) = db_opts.get_database().await?;
+    let crate::Databases::Sqlite(db) = db_opts.get_database(false).await?;
     let blocks = FSBlockStore {
         input_ipfs_path: opts.input_ipfs_path,
     };
@@ -108,8 +108,8 @@ impl BlockStore for FSBlockStore {
         dirs.push(self.input_ipfs_path.clone());
 
         try_stream! {
-            while !dirs.is_empty() {
-                let mut entries = tokio::fs::read_dir(dirs.pop().unwrap()).await?;
+            while let Some(dir) = dirs.pop() {
+                let mut entries = tokio::fs::read_dir(dir).await?;
                 while let Some(entry) = entries.next_entry().await? {
                     if entry.metadata().await?.is_dir() {
                         dirs.push(entry.path())

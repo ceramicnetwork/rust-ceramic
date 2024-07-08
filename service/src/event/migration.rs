@@ -77,7 +77,7 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
             }
             count += 1;
             if count % PROGRESS_COUNT == 0 {
-                info!(count, "migrated blocks");
+                info!(last_block=%cid, count, error_count = self.error_count, "migrated blocks");
             }
         }
         self.write_batch().await?;
