@@ -246,7 +246,7 @@ impl Network {
 struct P2PKeyOpts {
     /// Path to libp2p private key directory
     #[arg(short, long, env = "CERAMIC_ONE_P2P_KEY_DIR")]
-    key_dir: Option<PathBuf>,
+    p2p_key_dir: Option<PathBuf>,
 }
 
 impl P2PKeyOpts {
@@ -254,7 +254,7 @@ impl P2PKeyOpts {
         // 1 path from options
         // 2 path $HOME/.ceramic-one
         // 3 pwd/.ceramic-one
-        self.key_dir
+        self.p2p_key_dir
             .clone()
             .unwrap_or_else(|| match home::home_dir() {
                 Some(home_dir) => home_dir.join(".ceramic-one"),
