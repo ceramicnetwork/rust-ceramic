@@ -145,7 +145,7 @@ struct DaemonOpts {
     db_opts: DBOpts,
 
     #[command(flatten)]
-    key_opts: KeyOpts,
+    p2p_key_opts: P2PKeyOpts,
 }
 
 #[derive(Args, Debug)]
@@ -243,13 +243,13 @@ impl Network {
 }
 
 #[derive(Args, Debug)]
-struct KeyOpts {
-    /// Path to private key directory
-    #[arg(short, long, env = "CERAMIC_ONE_KEY_DIR")]
+struct P2PKeyOpts {
+    /// Path to libp2p private key directory
+    #[arg(short, long, env = "CERAMIC_ONE_P2P_KEY_DIR")]
     key_dir: Option<PathBuf>,
 }
 
-impl KeyOpts {
+impl P2PKeyOpts {
     fn default_directory(&self) -> PathBuf {
         // 1 path from options
         // 2 path $HOME/.ceramic-one
@@ -453,7 +453,7 @@ impl Daemon {
         debug!(?p2p_config, "using p2p config");
 
         // Load p2p identity
-        let mut kc = Keychain::<DiskStorage>::new(opts.key_opts.default_directory()).await?;
+        let mut kc = Keychain::<DiskStorage>::new(opts.p2p_key_opts.default_directory()).await?;
         let keypair = load_identity(&mut kc).await?;
         let peer_id = keypair.public().to_peer_id();
 
