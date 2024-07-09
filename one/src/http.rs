@@ -137,7 +137,7 @@ pub struct CorsService<T> {
     default_allow_origin: HeaderValue,
     allow_methods: HeaderValue,
     allow_headers: HeaderValue,
-    allowed_origins: HashSet<Vec<u8>>,
+    allowed_origins: Arc<HashSet<Vec<u8>>>,
     inner: T,
 }
 
@@ -147,7 +147,7 @@ impl<T> CorsService<T> {
         default_allow_origin: HeaderValue,
         allow_methods: HeaderValue,
         allow_headers: HeaderValue,
-        allowed_origins: HashSet<Vec<u8>>,
+        allowed_origins: Arc<HashSet<Vec<u8>>>,
     ) -> Self {
         Self {
             default_allow_origin,
@@ -207,7 +207,7 @@ where
 
 pub struct MakeCorsService<T> {
     inner: T,
-    origins: HashSet<Vec<u8>>,
+    origins: Arc<HashSet<Vec<u8>>>,
     default_allow_origin: HeaderValue,
     allow_methods: HeaderValue,
     allow_headers: HeaderValue,
@@ -217,10 +217,12 @@ impl<T> MakeCorsService<T> {
     /// Currently only the first value is used
     pub fn new(inner: T, origins: Vec<String>) -> Self {
         let default_allow_origin = origins.first().map(|o| o.as_bytes()).unwrap_or(b"*");
-        let origins = origins
-            .iter()
-            .map(|o| o.as_bytes().to_vec())
-            .collect::<HashSet<Vec<u8>>>();
+        let origins = Arc::new(
+            origins
+                .iter()
+                .map(|o| o.as_bytes().to_vec())
+                .collect::<HashSet<Vec<u8>>>(),
+        );
         Self {
             inner,
             origins,
