@@ -137,6 +137,18 @@ paths:
     get:
       summary: Get event data
       parameters:
+        - name: Authorization
+          in: header
+          description: Bearer token
+          required: false
+          schema:
+            type: string
+        - name: resource
+          in: query
+          description: URI to filter events against, such as ceramic://* or ceramic://*?model=base64url
+          schema:
+            type: string
+          required: false
         - name: event_id
           in: path
           description: CID of the root block of the event, used to identify of the event
@@ -156,6 +168,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/BadRequestResponse"
+        "401":
+          description: Unauthorized
         "404":
           description: Event not found
           content:
@@ -397,6 +411,18 @@ paths:
     get:
       summary: Get all new event keys since resume token
       parameters:
+        - name: Authorization
+          in: header
+          description: Bearer token
+          required: false
+          schema:
+            type: string
+        - name: resource
+          in: query
+          description: URI to filter events against, such as ceramic://* or ceramic://*?model=base64url
+          schema:
+            type: string
+          required: false
         - name: resumeAt
           in: query
           description: token that designates the point to resume from, that is find keys added after this point
@@ -433,6 +459,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/BadRequestResponse"
+        "401":
+          description: Unauthorized
         "500":
           description: Internal server error
           content:

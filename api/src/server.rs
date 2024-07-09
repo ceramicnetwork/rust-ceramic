@@ -20,6 +20,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use crate::auth;
+use crate::auth::Operation;
 use anyhow::Result;
 use async_trait::async_trait;
 use ceramic_api_server::models::{BadRequestResponse, ErrorResponse, EventData};
@@ -35,6 +37,7 @@ use ceramic_api_server::{
     InterestsPostResponse,
 };
 use ceramic_core::{Cid, EventId, Interest, Network, PeerId, StreamId};
+use ceramic_event::ssi::jsonld::syntax::parse::Error::Stream;
 use futures::TryFutureExt;
 use recon::Key;
 use swagger::{ApiError, ByteArray};
@@ -436,6 +439,7 @@ where
 
     pub async fn get_event_feed(
         &self,
+        _resource: Option<String>,
         resume_at: Option<String>,
         limit: Option<i32>,
         include_data: Option<String>,
@@ -848,12 +852,29 @@ where
     #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn feed_events_get(
         &self,
+        authorization: Option<String>,
+        resource: Option<String>,
         resume_at: Option<String>,
         limit: Option<i32>,
         include_data: Option<String>,
         _context: &C,
     ) -> Result<FeedEventsGetResponse, ApiError> {
-        self.get_event_feed(resume_at, limit, include_data)
+        let filter = if self.authentication {
+            if let (Some(auth), Some(resource)) = (authorization, resource) {
+                auth::authenticate(&auth, Operation::Read, &resource)
+                    .await
+                    .map_err(|err| {
+                        tracing::debug!("Unauthorized: {err}");
+                        ApiError("Unauthorized".to_string())
+                    })?;
+                Some(resource)
+            } else {
+                return Err(ApiError("Unauthorized".to_string()));
+            }
+        } else {
+            None
+        };
+        self.get_event_feed(filter, resume_at, limit, include_data)
             .await
             .or_else(|err| Ok(FeedEventsGetResponse::InternalServerError(err)))
     }
@@ -952,8 +973,23 @@ where
     async fn events_event_id_get(
         &self,
         event_id: String,
+        bearer: Option<String>,
+        resource: Option<String>,
         _context: &C,
     ) -> Result<EventsEventIdGetResponse, ApiError> {
+        if self.authentication {
+            if let (Some(bearer), Some(resource)) = (bearer, resource) {
+                auth::authenticate(&bearer, Operation::Read, &resource)
+                    .await
+                    .map_err(|err| {
+                        tracing::debug!("Unauthorized: {err}");
+                        ApiError("Unauthorized".to_string())
+                    })?;
+            } else {
+                return Err(ApiError("Unauthorized".to_string()));
+            }
+        }
+
         self.get_events_event_id(event_id)
             .await
             .or_else(|err| Ok(EventsEventIdGetResponse::InternalServerError(err)))

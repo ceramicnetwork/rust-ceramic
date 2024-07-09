@@ -732,6 +732,57 @@ dependencies = [
 ]
 
 [[package]]
+name = "biscuit-auth"
+version = "4.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57ef2e2634c5493e5374f70bc45c9c8e5ebb547261973fe72698f6833d4b32ea"
+dependencies = [
+ "base64 0.13.1",
+ "biscuit-parser",
+ "biscuit-quote",
+ "ed25519-dalek 2.1.1",
+ "getrandom 0.1.16",
+ "hex",
+ "nom",
+ "prost 0.10.4",
+ "prost-types 0.10.1",
+ "rand 0.8.5",
+ "rand_core 0.6.4",
+ "regex",
+ "sha2 0.9.9",
+ "thiserror",
+ "time 0.3.36",
+ "zeroize",
+]
+
+[[package]]
+name = "biscuit-parser"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1b9fd6da963e73f7e6db729c3bd76784863ba405b15acbbb5cb08ebc2adbd3bf"
+dependencies = [
+ "hex",
+ "nom",
+ "proc-macro2",
+ "quote",
+ "thiserror",
+ "time 0.3.36",
+]
+
+[[package]]
+name = "biscuit-quote"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0071fe3634b644a8df1434e3e14841e480c4238059c66a94e479b7eff98c2bd3"
+dependencies = [
+ "biscuit-parser",
+ "proc-macro-error",
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
 name = "bit-set"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1029,10 +1080,15 @@ version = "0.32.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "base64 0.21.7",
+ "biscuit-auth",
  "ceramic-api-server",
  "ceramic-core",
  "ceramic-event",
  "ceramic-metadata",
+ "chrono",
+ "did-method-key",
+ "did-pkh",
  "expect-test",
  "futures",
  "hex",
@@ -1041,9 +1097,14 @@ dependencies = [
  "jemalloc_pprof",
  "mockall",
  "multibase 0.9.1",
+ "once_cell",
  "recon",
+ "regex",
  "serde",
  "serde_ipld_dagcbor",
+ "serde_json",
+ "ssi",
+ "ssi-dids",
  "swagger",
  "test-log",
  "tikv-jemalloc-ctl",
@@ -1117,6 +1178,7 @@ dependencies = [
  "anyhow",
  "base64 0.21.7",
  "ceramic-core",
+ "chrono",
  "cid 0.11.1",
  "expect-test",
  "ipld-core",
@@ -6262,6 +6324,16 @@ dependencies = [
 
 [[package]]
 name = "prost"
+version = "0.10.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "71adf41db68aa0daaefc69bb30bcd68ded9b9abaad5d1fbb6304c4fb390e083e"
+dependencies = [
+ "bytes 1.6.0",
+ "prost-derive 0.10.1",
+]
+
+[[package]]
+name = "prost"
 version = "0.11.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b82eaa1d779e9a4bc1c3217db8ffbeabaae1dca241bf70183242128d48681cd"
@@ -6304,6 +6376,19 @@ dependencies = [
 
 [[package]]
 name = "prost-derive"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b670f45da57fb8542ebdbb6105a925fe571b67f9e7ed9f47a06a84e72b4e7cc"
+dependencies = [
+ "anyhow",
+ "itertools 0.10.5",
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
+name = "prost-derive"
 version = "0.11.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e5d2d8d10f3c6ded6da8b05b5fb3b8a5082514344d56c9f871412d29b4e075b4"
@@ -6326,6 +6411,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.65",
+]
+
+[[package]]
+name = "prost-types"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d0a014229361011dc8e69c8a1ec6c2e8d0f2af7c91e3ea3f5b2170298461e68"
+dependencies = [
+ "bytes 1.6.0",
+ "prost 0.10.4",
 ]
 
 [[package]]

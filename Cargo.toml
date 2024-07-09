@@ -44,6 +44,7 @@ axum = "0.6"
 backoff = "0.4"
 base64 = "0.21"
 bincode = "1.3.3"
+biscuit-auth = "4.1.1"
 bs58 = "0.4"
 bytecheck = "0.6.7"
 bytes = "1.1"
@@ -72,6 +73,8 @@ dag-jose = "0.2"
 deadqueue = "0.2.3"
 derivative = "2.2"
 derive_more = "0.99.17"
+did-pkh = "0.2.1"
+did-method-key = "0.2.2"
 dirs-next = "2"
 expect-test = "1.4.1"
 fastmurmur3 = "0.1.2"
@@ -154,6 +157,7 @@ smallvec = "1.10"
 sqlx = { version = "0.7", features = ["sqlite", "runtime-tokio", "chrono"] }
 ssh-key = { version = "0.5.1", default-features = false }
 ssi = { version = "0.7", features = ["ed25519"] }
+ssi-dids = "0.1.1"
 swagger = { version = "6.1", features = [
     "serdejson",
     "server",

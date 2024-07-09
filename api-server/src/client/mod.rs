@@ -722,6 +722,8 @@ where
     async fn events_event_id_get(
         &self,
         param_event_id: String,
+        param_authorization: Option<String>,
+        param_resource: Option<String>,
         context: &C,
     ) -> Result<EventsEventIdGetResponse, ApiError> {
         let mut client_service = self.client_service.clone();
@@ -734,6 +736,9 @@ where
         // Query parameters
         let query_string = {
             let mut query_string = form_urlencoded::Serializer::new("".to_owned());
+            if let Some(param_resource) = param_resource {
+                query_string.append_pair("resource", &param_resource);
+            }
             query_string.finish()
         };
         if !query_string.is_empty() {
@@ -769,6 +774,24 @@ where
             },
         );
 
+        // Header parameters
+        #[allow(clippy::single_match)]
+        match param_authorization {
+            Some(param_authorization) => {
+                request.headers_mut().append(
+                    HeaderName::from_static("authorization"),
+                    #[allow(clippy::redundant_clone)]
+                    match header::IntoHeaderValue(param_authorization.clone()).try_into() {
+                        Ok(header) => header,
+                        Err(e) => {
+                            return Err(ApiError(format!("Invalid header authorization - {}", e)));
+                        }
+                    },
+                );
+            }
+            None => {}
+        }
+
         let response = client_service
             .call((request, context.clone()))
             .map_err(|e| ApiError(format!("No response received: {}", e)))
@@ -802,6 +825,7 @@ where
                     })?;
                 Ok(EventsEventIdGetResponse::BadRequest(body))
             }
+            401 => Ok(EventsEventIdGetResponse::Unauthorized),
             404 => {
                 let body = response.into_body();
                 let body = body
@@ -1507,6 +1531,8 @@ where
 
     async fn feed_events_get(
         &self,
+        param_authorization: Option<String>,
+        param_resource: Option<String>,
         param_resume_at: Option<String>,
         param_limit: Option<i32>,
         param_include_data: Option<String>,
@@ -1518,6 +1544,9 @@ where
         // Query parameters
         let query_string = {
             let mut query_string = form_urlencoded::Serializer::new("".to_owned());
+            if let Some(param_resource) = param_resource {
+                query_string.append_pair("resource", &param_resource);
+            }
             if let Some(param_resume_at) = param_resume_at {
                 query_string.append_pair("resumeAt", &param_resume_at);
             }
@@ -1562,6 +1591,24 @@ where
             },
         );
 
+        // Header parameters
+        #[allow(clippy::single_match)]
+        match param_authorization {
+            Some(param_authorization) => {
+                request.headers_mut().append(
+                    HeaderName::from_static("authorization"),
+                    #[allow(clippy::redundant_clone)]
+                    match header::IntoHeaderValue(param_authorization.clone()).try_into() {
+                        Ok(header) => header,
+                        Err(e) => {
+                            return Err(ApiError(format!("Invalid header authorization - {}", e)));
+                        }
+                    },
+                );
+            }
+            None => {}
+        }
+
         let response = client_service
             .call((request, context.clone()))
             .map_err(|e| ApiError(format!("No response received: {}", e)))
@@ -1595,6 +1642,7 @@ where
                     })?;
                 Ok(FeedEventsGetResponse::BadRequest(body))
             }
+            401 => Ok(FeedEventsGetResponse::Unauthorized),
             500 => {
                 let body = response.into_body();
                 let body = body

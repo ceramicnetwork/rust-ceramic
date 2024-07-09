@@ -151,7 +151,11 @@ fn main() {
             );
         }
         Some("EventsEventIdGet") => {
-            let result = rt.block_on(client.events_event_id_get("event_id_example".to_string()));
+            let result = rt.block_on(client.events_event_id_get(
+                "event_id_example".to_string(),
+                Some("authorization_example".to_string()),
+                Some("resource_example".to_string()),
+            ));
             info!(
                 "{:?} (X-Span-ID: {:?})",
                 result,
@@ -230,6 +234,8 @@ fn main() {
         }
         Some("FeedEventsGet") => {
             let result = rt.block_on(client.feed_events_get(
+                Some("authorization_example".to_string()),
+                Some("resource_example".to_string()),
                 Some("resume_at_example".to_string()),
                 Some(56),
                 Some("include_data_example".to_string()),

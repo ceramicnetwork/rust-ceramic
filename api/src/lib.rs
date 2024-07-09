@@ -7,5 +7,6 @@ pub use server::{
     EventDataResult, EventInsertResult, EventStore, IncludeEventData, InterestStore, Server,
 };
 
+mod auth;
 #[cfg(test)]
 mod tests;

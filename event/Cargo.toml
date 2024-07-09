@@ -13,6 +13,7 @@ publish = false
 anyhow.workspace = true
 base64.workspace = true
 ceramic-core.workspace = true
+chrono.workspace = true
 cid.workspace = true
 ipld-core.workspace = true
 iroh-car.workspace = true

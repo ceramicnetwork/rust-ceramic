@@ -162,11 +162,15 @@ where
     async fn events_event_id_get(
         &self,
         event_id: String,
+        authorization: Option<String>,
+        resource: Option<String>,
         context: &C,
     ) -> Result<EventsEventIdGetResponse, ApiError> {
         info!(
-            "events_event_id_get(\"{}\") - X-Span-ID: {:?}",
+            "events_event_id_get(\"{}\", {:?}, {:?}) - X-Span-ID: {:?}",
             event_id,
+            authorization,
+            resource,
             context.get().0.clone()
         );
         Err(ApiError("Generic failure".into()))
@@ -271,13 +275,17 @@ where
     /// Get all new event keys since resume token
     async fn feed_events_get(
         &self,
+        authorization: Option<String>,
+        resource: Option<String>,
         resume_at: Option<String>,
         limit: Option<i32>,
         include_data: Option<String>,
         context: &C,
     ) -> Result<FeedEventsGetResponse, ApiError> {
         info!(
-            "feed_events_get({:?}, {:?}, {:?}) - X-Span-ID: {:?}",
+            "feed_events_get({:?}, {:?}, {:?}, {:?}, {:?}) - X-Span-ID: {:?}",
+            authorization,
+            resource,
             resume_at,
             limit,
             include_data,
