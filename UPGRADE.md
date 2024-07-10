@@ -98,21 +98,15 @@ The first few logs line will look similar to this:
 
 ### Configure `js-ceramic` for `ceramic-one`
 
-First change the `ipfs` section in the `daemon.config.json` to use `remote` mode and point it at the running `ceramic-one` daemon.
-By default the `ceramic-one` daemon listens on port 5001, if you configured it differently make sure to match that configuration for `js-ceramic` as well.
+Change the `ipfs` section in the `daemon.config.json` to use `remote` mode and point it at the running `ceramic-one` daemon.
+By default the `ceramic-one` daemon listens on port 5101, if you configured it differently make sure to match that configuration for `js-ceramic` as well.
 
-```josn
+```json
 "ipfs": {
     "mode": "remote",
-    "host": "http://localhost:5001"
+    "host": "http://localhost:5101"
   },
 ```
-
-Second, set an environment variable for the `js-ceramic` process so it knows its talking to `ceramic-one` and not Kubo.
-
-    CERAMIC_RECON_MODE=true
-
-Both of these configuration options may not be required in the future, however for now they are.
 
 
 ### Start `js-ceramic` Node and Validate
