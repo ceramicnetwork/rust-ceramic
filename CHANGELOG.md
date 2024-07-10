@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.27.0] - 2024-07-10
+
+### 🚀 Features
+
+- Add explicit checking for tile documents for specific errors (#417)
+- Add log-format option to migrations command (#420)
+- Change default ports used for swarm and rpc endpoint (#411)
+- Make private key dir configurable (#426)
+- Add new mainnet and tnet bootstrap peers (#428)
+
+### 🐛 Bug Fixes
+
+- Update homebrew-tap push token (#418)
+- Schedule post-deployment tests 15 min after deployment (#419)
+- Optimize migrations logic for less memory (#424)
+
+### 🚜 Refactor
+
+- Allow skipping ordering all events on start up and skip tracking during migration (#423)
+
+### 📚 Documentation
+
+- Add cargo testing docs (#394)
+
 ## [0.26.0] - 2024-07-02
 
 ### 🐛 Bug Fixes
@@ -24,6 +48,7 @@ All notable changes to this project will be documented in this file.
 
 - Mzk/readme installation (#397)
 - Homebrew support (#407)
+- Version v0.26.0 (#416)
 
 ## [0.25.0] - 2024-06-24
 
