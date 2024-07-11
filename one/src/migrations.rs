@@ -35,8 +35,13 @@ pub struct FromIpfsOpts {
     input_ipfs_path: PathBuf,
 
     /// Path to storage directory
-    #[clap(long, short, env = "CERAMIC_ONE_OUTPUT_STORE_PATH")]
-    output_store_path: Option<PathBuf>,
+    #[clap(
+        long,
+        short,
+        default_value = ".",
+        env = "CERAMIC_ONE_OUTPUT_STORE_PATH"
+    )]
+    output_store_path: PathBuf,
 
     /// Unique key used to find other Ceramic peers via the DHT
     #[arg(long, default_value = "testnet-clay", env = "CERAMIC_ONE_NETWORK")]

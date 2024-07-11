@@ -1250,7 +1250,6 @@ dependencies = [
  "expect-test",
  "futures",
  "git-version",
- "home",
  "hyper",
  "iroh-bitswap",
  "iroh-rpc-client",
