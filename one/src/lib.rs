@@ -50,6 +50,13 @@ enum Command {
 
 #[derive(Args, Debug)]
 struct DaemonOpts {
+    #[command(flatten)]
+    db_opts: DBOpts,
+
+    /// Path to libp2p private key directory
+    #[arg(short, long, default_value = ".", env = "CERAMIC_ONE_P2P_KEY_DIR")]
+    p2p_key_dir: PathBuf,
+
     /// Bind address of the API endpoint.
     #[arg(
         short,
@@ -140,19 +147,13 @@ struct DaemonOpts {
         env = "CERAMIC_ONE_IDLE_CONNS_TIMEOUT_MS"
     )]
     idle_conns_timeout_ms: u64,
-
-    #[command(flatten)]
-    db_opts: DBOpts,
-
-    #[command(flatten)]
-    p2p_key_opts: P2PKeyOpts,
 }
 
 #[derive(Args, Debug)]
 struct DBOpts {
     /// Path to storage directory
-    #[arg(short, long, env = "CERAMIC_ONE_STORE_DIR")]
-    store_dir: Option<PathBuf>,
+    #[arg(short, long, default_value = ".", env = "CERAMIC_ONE_STORE_DIR")]
+    store_dir: PathBuf,
 }
 
 #[derive(Args, Debug)]
@@ -238,27 +239,6 @@ impl Network {
     }
 }
 
-#[derive(Args, Debug)]
-struct P2PKeyOpts {
-    /// Path to libp2p private key directory
-    #[arg(short, long, env = "CERAMIC_ONE_P2P_KEY_DIR")]
-    p2p_key_dir: Option<PathBuf>,
-}
-
-impl P2PKeyOpts {
-    fn default_directory(&self) -> PathBuf {
-        // 1 path from options
-        // 2 path $HOME/.ceramic-one
-        // 3 pwd/.ceramic-one
-        self.p2p_key_dir
-            .clone()
-            .unwrap_or_else(|| match home::home_dir() {
-                Some(home_dir) => home_dir.join(".ceramic-one"),
-                None => PathBuf::from(".ceramic-one"),
-            })
-    }
-}
-
 /// Run the ceramic one binary process
 pub async fn run() -> Result<()> {
     let args = Cli::parse();
@@ -272,35 +252,22 @@ type InterestInterest = FullInterests<Interest>;
 type ModelInterest = ReconInterestProvider<Sha256a>;
 
 impl DBOpts {
-    fn default_directory(&self) -> PathBuf {
-        // 1 path from options
-        // 2 path $HOME/.ceramic-one
-        // 3 pwd/.ceramic-one
-        match self.store_dir.clone() {
-            Some(dir) => dir,
-            None => match home::home_dir() {
-                Some(home_dir) => home_dir.join(".ceramic-one"),
-                None => PathBuf::from(".ceramic-one"),
-            },
-        }
-    }
     /// This function will create the database directory if it does not exist.
     async fn get_database(&self, process_undelivered: bool) -> Result<Databases> {
-        let dir = self.default_directory();
-        match tokio::fs::create_dir_all(dir.clone()).await {
+        match tokio::fs::create_dir_all(&self.store_dir).await {
             Ok(_) => {}
             Err(err) => match err.kind() {
                 std::io::ErrorKind::AlreadyExists => {}
                 _ => {
                     error!(
-                        dir = %dir.display(),
+                        dir = %self.store_dir.display(),
                         %err, "failed to create required directory"
                     );
                     anyhow::bail!(err);
                 }
             },
         }
-        let sql_db_path = dir.join("db.sqlite3").display().to_string();
+        let sql_db_path = self.store_dir.join("db.sqlite3").display().to_string();
         Self::build_sqlite_dbs(&sql_db_path, process_undelivered).await
     }
 
@@ -400,8 +367,9 @@ impl Daemon {
     {
         let network = opts.network.to_network(&opts.local_network_id)?;
 
-        let dir = opts.db_opts.default_directory();
-        debug!("using directory: {}", dir.display());
+        let store_dir = opts.db_opts.store_dir;
+        debug!(dir = %store_dir.display(), "using store directory");
+        debug!(dir = %opts.p2p_key_dir.display(), "using p2p key directory");
 
         // Setup tokio-metrics
         MetricsHandle::register(|registry| {
@@ -449,7 +417,7 @@ impl Daemon {
         debug!(?p2p_config, "using p2p config");
 
         // Load p2p identity
-        let mut kc = Keychain::<DiskStorage>::new(opts.p2p_key_opts.default_directory()).await?;
+        let mut kc = Keychain::<DiskStorage>::new(opts.p2p_key_dir.clone()).await?;
         let keypair = load_identity(&mut kc).await?;
         let peer_id = keypair.public().to_peer_id();
 
