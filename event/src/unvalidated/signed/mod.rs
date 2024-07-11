@@ -1,6 +1,8 @@
 //! Unvalidated signed events.
 pub mod cacao;
 
+use std::fmt::Debug;
+
 use crate::bytes::Bytes;
 use crate::unvalidated::Payload;
 use base64::Engine;
@@ -23,6 +25,24 @@ pub struct Event<D> {
     payload: Payload<D>,
     payload_cid: Cid,
     capability: Option<(Cid, Capability)>,
+}
+
+impl<D: Debug> Debug for Event<D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Event")
+            .field("envelope", &self.envelope)
+            .field("envelope_cid", &self.envelope_cid.to_string())
+            .field("payload", &self.payload)
+            .field("payload_cid", &self.payload_cid.to_string())
+            .field(
+                "capability",
+                &self
+                    .capability
+                    .as_ref()
+                    .map(|(cid, cap)| (cid.to_string(), cap)),
+            )
+            .finish()
+    }
 }
 
 impl<D: serde::Serialize> Event<D> {

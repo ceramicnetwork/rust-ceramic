@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use cid::Cid;
 use serde::{Deserialize, Serialize};
 
@@ -9,6 +11,17 @@ pub struct Payload<D> {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     header: Option<Header>,
     data: D,
+}
+
+impl<D: Debug> Debug for Payload<D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Payload")
+            .field("id", &self.id.to_string())
+            .field("prev", &self.prev.to_string())
+            .field("header", &self.header)
+            .field("data", &self.data)
+            .finish()
+    }
 }
 
 impl<D> Payload<D> {
@@ -44,7 +57,7 @@ impl<D> Payload<D> {
 }
 
 /// Headers for a data event
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Header {
     #[serde(default, skip_serializing_if = "Option::is_none")]

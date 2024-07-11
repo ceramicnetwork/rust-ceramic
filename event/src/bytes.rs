@@ -1,13 +1,23 @@
 //! Thin wrapper on a Vec<u8> that correctly serializes and deserializes as bytes as opposed to a
 //! sequence of u8 integers.
+use std::fmt::Debug;
+
 use serde::{
     de::{self, Visitor},
     Deserialize, Serialize,
 };
 
 /// Sequence of byte values.
-#[derive(Clone, PartialEq, Eq, Default, Debug)]
+#[derive(Clone, PartialEq, Eq, Default)]
 pub struct Bytes(Vec<u8>);
+
+impl Debug for Bytes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("Bytes")
+            .field(&multibase::encode(multibase::Base::Base64Url, &self.0))
+            .finish()
+    }
+}
 
 impl Bytes {
     /// Return a reference to the bytes
