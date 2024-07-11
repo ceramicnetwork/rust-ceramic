@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.28.0] - 2024-07-11
+
+### 🚀 Features
+
+- Add devqa bootstrap peers (#430)
+- [**breaking**] Change default dir to current directory (#431)
+
 ## [0.27.0] - 2024-07-10
 
 ### 🚀 Features
@@ -25,6 +32,10 @@ All notable changes to this project will be documented in this file.
 ### 📚 Documentation
 
 - Add cargo testing docs (#394)
+
+### ⚙️ Miscellaneous Tasks
+
+- Version v0.27.0 (#429)
 
 ## [0.26.0] - 2024-07-02
 
