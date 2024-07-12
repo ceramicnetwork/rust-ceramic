@@ -8,6 +8,10 @@ jobs:
   update-bootstrap-nodes:
     name: Update Bootstrap nodes
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        environment: [bootstrap-devqa, bootstrap-tnet-mainnet]
+      max-parallel: 1
     steps:
       - uses: actions/checkout@v4
       - name: Get Release Version from Cargo.toml
@@ -28,7 +32,7 @@ jobs:
         working-directory: simpledeploy/ansible
         run: |
           sudo pip3 install -r pip.requirements.txt
-      - name: Update Bootstrap nodes
+      - name: Update ${{ matrix.environment }} Bootstrap nodes
         working-directory: simpledeploy/ansible
         env:
           ANSIBLE_PRIVATE_KEY_FILE: ~/.ssh/ansible_ssh_key
@@ -36,4 +40,5 @@ jobs:
         run: |
           ansible-playbook -i inventory/bootstrap.yml \
             --extra-vars "rust_ceramic_version=${{ env.VERSION }}" \
+            --limit ${{ matrix.environment == 'bootstrap-tnet-mainnet' && 'tnet,mainnet' || 'devqa' }} \
             playbooks/bootstrap-update.yaml
