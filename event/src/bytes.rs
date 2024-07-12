@@ -14,7 +14,7 @@ pub struct Bytes(Vec<u8>);
 impl Debug for Bytes {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("Bytes")
-            .field(&multibase::encode(multibase::Base::Base64Url, &self.0))
+            .field(&multibase::encode(multibase::Base::Base16Lower, &self.0))
             .finish()
     }
 }
