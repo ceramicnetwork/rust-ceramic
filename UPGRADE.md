@@ -26,7 +26,7 @@ Kubo stores data as IPFS blocks on disk.
 You must be using the disk backed Kubo storage.
 
 These IPFS blocks are the raw pieces of Ceramic Events.
-In order to preserve this data we need to migrate them into Ceramic Events stored in as a Sqlite database file.
+In order to preserve this data we need to migrate them into Ceramic Events stored in a Sqlite database file.
 
 The `ceramic-one` command contains a subcommand for migrating data from IPFS blocks.
 Install the `ceramic-one` binary following the instructions in README.md.
@@ -35,7 +35,7 @@ See the complete usage information for the migration command:
 
     ceramic-one migrations from-ipfs --help
 
-The command requires an input directory where the IPFS blocks are found and where the output storage directory.
+The command requires an input directory where the IPFS blocks are found and an output directory where the sqlite file containing the migrated events will be written.
 
 The following command will migrate data assuming the default directories for both Kubo and `ceramic-one`.
 Adjust the command arguments as needed by your infrastructure.
@@ -54,7 +54,7 @@ Therefore in the next steps you will verify that the migration was successful.
 
 ### Start `ceramic-one` Daemon
 
-Once the data is migrated its time to start the node again.
+Once the data is migrated it's time to start the node again.
 The `ceramic-one` process is started in place of the `kubo` process, Kubo is no longer needed.
 
 Read the full usage of the `ceramic-one` daemon:
@@ -120,7 +120,7 @@ This will depend on the specifics of your application.
 ## Recovery
 
 At this point you should have a working upgraded `js-ceramic` node but sometimes things go wrong.
-The Ceramic node does some basic checks on startup to ensure its various data store are in sync, if these check fail the process with exit with an error message about missing data.
+The Ceramic node does some basic checks on startup to ensure its various data stores are in sync, if these checks fail the process will exit with an error message about missing data.
 In that case or any other failure mode follow these steps to return your node to its working state.
 
 1. Stop the `ceramic-one` and `js-ceramic` processes.
@@ -131,8 +131,11 @@ These steps work because the existing data is not modified during the migration,
 
 ## Live Upgrade Steps
 
-If you cannot tolerate a window of downtime of o your Ceramic node you can perform a two pass migration process to minimize the amount of time your node is offline.
+If you cannot tolerate a window of downtime of your Ceramic node you can perform a two pass migration process to minimize the amount of time your node is offline.
 The basic strategy here is to run two nodes behind a proxy in an active/passive mode.
+A downside to this approach is that there will be a period of time where the new node is missing data.
+
+If your application cannot tolerate such a regression in this approach is not recommended.
 
 These steps are very similar to the normal upgrade process so please review those steps first.
 The high level sequence is:
@@ -144,5 +147,9 @@ The high level sequence is:
 5. Migrate data from the old node to the new node again to catch any new data since the first migration.
 6. Shutdown old node as it is now behind and out of date.
 
+
 The `ceramic-one migrations from-ipfs` command can be run against a running `ceramic-one` daemon process.
 It will cause contention on the database, as a result traffic to the node may be impacted, but no downtime is required.
+
+NOTE: During step 5 the new node is missing the data that occurred after the initial migration in step 1 until the second migration completes in step 5.
+
