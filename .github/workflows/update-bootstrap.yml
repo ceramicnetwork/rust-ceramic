@@ -22,7 +22,7 @@ jobs:
       - name: Checkout Ansible Playbook
         uses: actions/checkout@v4
         with:
-          repository: ceramicstudio/simpledeploy.git
+          repository: ceramicstudio/simpledeploy
           path: simpledeploy
       - name: Add SSH key
         run: |
