@@ -1,0 +1,39 @@
+name: Update Bootstrap nodes
+
+on:
+  release:
+    types: [released]
+
+jobs:
+  update-bootstrap-nodes:
+    name: Update Bootstrap nodes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get Release Version from Cargo.toml
+        id: cargo_version
+        run: |
+          VERSION=$(grep '^version' Cargo.toml | sed -E 's/version = "(.*)"/\1/')
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+      - name: Checkout Ansible Playbook
+        uses: actions/checkout@v4
+        with:
+          repository: ceramicstudio/simpledeploy.git
+          path: simpledeploy
+      - name: Add SSH key
+        run: |
+          echo "${{ secrets.ANSIBLE_SSH_KEY }}" > ~/.ssh/ansible_ssh_key
+          chmod 600 ~/.ssh/ansible_ssh_key
+      - name: Install Ansible requirements
+        working-directory: simpledeploy/ansible
+        run: |
+          sudo pip3 install -r pip.requirements.txt
+      - name: Update Bootstrap nodes
+        working-directory: simpledeploy/ansible
+        env:
+          ANSIBLE_PRIVATE_KEY_FILE: ~/.ssh/ansible_ssh_key
+          ANSIBLE_REMOTE_USER: ansible
+        run: |
+          ansible-playbook -i inventory/bootstrap.yml \
+            --extra-vars "rust_ceramic_version=${{ env.VERSION }}" \
+            playbooks/bootstrap-update.yaml
