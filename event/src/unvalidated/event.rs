@@ -5,13 +5,14 @@ use cid::Cid;
 use ipld_core::ipld::Ipld;
 use iroh_car::{CarHeader, CarReader, CarWriter};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Debug};
 use tokio::io::AsyncRead;
 use tracing::debug;
 
 use super::{cid_from_dag_cbor, init, signed};
 
 /// Materialized Ceramic Event where internal structure is accessible.
+#[derive(Debug)]
 pub enum Event<D> {
     /// Time event in a stream
     // NOTE: TimeEvent has several CIDs so it's a relatively large struct (~312 bytes according to
@@ -292,12 +293,23 @@ impl TimeEvent {
     }
 }
 /// Raw Time Event as it is encoded in the protocol.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct RawTimeEvent {
     id: Cid,
     prev: Cid,
     proof: Cid,
     path: String,
+}
+
+impl Debug for RawTimeEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RawTimeEvent")
+            .field("id", &self.id.to_string())
+            .field("prev", &self.prev.to_string())
+            .field("proof", &self.proof.to_string())
+            .field("path", &self.path)
+            .finish()
+    }
 }
 
 impl RawTimeEvent {
@@ -332,13 +344,24 @@ impl RawTimeEvent {
     }
 }
 /// Proof data
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Proof {
     chain_id: String,
     root: Cid,
     tx_hash: Cid,
     tx_type: String,
+}
+
+impl Debug for Proof {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Proof")
+            .field("chain_id", &self.chain_id)
+            .field("root", &self.root.to_string())
+            .field("tx_hash", &self.tx_hash.to_string())
+            .field("tx_type", &self.tx_type)
+            .finish()
+    }
 }
 
 impl Proof {
