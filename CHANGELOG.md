@@ -2,12 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.28.0] - 2024-07-11
+## [0.28.1] - 2024-07-14
+
+### 🚀 Features
+
+- Add debug to all event types (#432)
+
+### ⚙️ Miscellaneous Tasks
+
+- Release archive with linux binary (#422)
+- Update selector for post-deployment tests (#435)
+
+## [0.28.0] - 2024-07-12
 
 ### 🚀 Features
 
 - Add devqa bootstrap peers (#430)
 - [**breaking**] Change default dir to current directory (#431)
+
+### ⚙️ Miscellaneous Tasks
+
+- Version v0.28.0 (#433)
 
 ## [0.27.0] - 2024-07-10
 
