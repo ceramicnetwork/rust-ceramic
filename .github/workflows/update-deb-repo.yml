@@ -1,0 +1,39 @@
+name: Update Deb Repo
+
+on:
+  release:
+    types: [released]
+
+jobs:
+  update-deb-repo:
+    name: Update Deb Repo
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout Deb Repo
+        uses: actions/checkout@v4
+        with:
+          repository: ceramicnetwork/repo
+          token: ${{ secrets.GH_TOKEN_PAT }}
+      - name: Get Latest Release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view --json tagName,assets > release.json
+          echo "VERSION=$(jq -r '.tagName' release.json)" >> $GITHUB_OUTPUT
+          gh release download -p ceramic-one_x86_64-unknown-linux-gnu.tar.gz
+          tar xvf ceramic-one_x86_64-unknown-linux-gnu.tar.gz
+      - name: Update Deb Repo
+        working-directory: repo
+        run: |
+          reprepro --basedir . includedeb stable ../ceramic-one.deb
+      - name: Commit and Push changes
+        working-directory: repo
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git diff
+          git add .
+          git commit -m "chore: update ceramic-one deb to ${{ steps.release.outputs.VERSION }}"
+          git push
