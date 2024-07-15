@@ -147,6 +147,16 @@ struct DaemonOpts {
         env = "CERAMIC_ONE_IDLE_CONNS_TIMEOUT_MS"
     )]
     idle_conns_timeout_ms: u64,
+
+    /// Allowed CORS origins. Should include the transport e.g. https:// or http://.
+    #[arg(
+            long,
+            default_values_t = vec!["*".to_string()],
+            use_value_delimiter = true,
+            value_delimiter = ',',
+            env = "CERAMIC_ONE_CORS_ALLOW_ORIGINS"
+        )]
+    cors_allow_origins: Vec<String>,
 }
 
 #[derive(Args, Debug)]
@@ -519,6 +529,9 @@ impl Daemon {
             );
         let kubo_rpc_service =
             http::MakeMetricsService::new(kubo_rpc_service, http_metrics.clone());
+        let kubo_rpc_service =
+            http::MakeCorsService::new(kubo_rpc_service, opts.cors_allow_origins.clone());
+        let ceramic_service = http::MakeCorsService::new(ceramic_service, opts.cors_allow_origins);
         let ceramic_service = http::MakeMetricsService::new(ceramic_service, http_metrics);
 
         // Compose both services
