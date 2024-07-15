@@ -44,5 +44,5 @@ jobs:
         run: |
           ansible-playbook -i inventory/bootstrap.yml \
             --extra-vars "rust_ceramic_version=${{ env.VERSION }}" \
-            --limit ${{ matrix.environment == 'bootstrap-tnet-mainnet' && 'tnet,mainnet' || 'devqa' }} \
+            --limit ${{ matrix.limit }} \
             playbooks/bootstrap-update.yaml
