@@ -10,7 +10,11 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        environment: [bootstrap-devqa, bootstrap-tnet-mainnet]
+        include:
+          - environment: bootstrap-tnet-mainnet
+            limit: tnet,mainnet
+          - environmnt: bootstrap-devqa
+            limit: devqa
       max-parallel: 1
     steps:
       - uses: actions/checkout@v4
