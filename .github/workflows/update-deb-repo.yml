@@ -47,24 +47,12 @@ jobs:
           echo "pinentry-mode loopback" >> ~/.gnupg/gpg.conf
           echo "allow-loopback-pinentry" > ~/.gnupg/gpg-agent.conf
           echo "RELOADAGENT" | gpg-connect-agent
-          # Get the key ID of the imported key
-          KEY_ID=$(gpg --list-secret-keys --keyid-format LONG | grep sec | awk '{print $2}' | awk -F'/' '{print $2}')
-          echo "KEY_ID=$KEY_ID" >> $GITHUB_ENV
-
-      - name: Debug GPG
-        run: |
-          gpg --version
-          echo "GNUPGHOME=$GNUPGHOME"
-          ls -la ~/.gnupg
-          gpg-agent --version
-
 
       - name: Update Deb Repo
         working-directory: debian-repo
         env:
           GPG_PASSPHRASE: ${{ secrets.REPO_GPG_PASSPHRASE }}
         run: |
-          #echo "$GPG_PASSPHRASE" | GNUPGHOME=~/.gnupg reprepro --basedir . includedeb stable ../ceramic-one.deb
           echo "$GPG_PASSPHRASE" | GNUPGHOME=~/.gnupg GPG_TTY=$(tty) reprepro -b . --ask-passphrase -V includedeb stable ../ceramic-one.deb
 
       - name: Commit and Push changes
