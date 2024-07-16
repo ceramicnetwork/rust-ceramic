@@ -25,9 +25,9 @@ jobs:
       - name: Set up GPG
         run: |
           mkdir -p /tmp/gnupg
-          echo "${{ secrets.REPO_GPG_PRIVATE_KEY }}" | gpg --homedir /tmp/gnupg --import
           echo "allow-loopback-pinentry" >> /tmp/gnupg/gpg-agent.conf
           echo "pinentry-mode loopback" >> /tmp/gnupg/gpg.conf
+          echo "${{ secrets.REPO_GPG_PRIVATE_KEY }}" | gpg --homedir /tmp/gnupg --import
       - name: Install Dependencies
         run: sudo apt-get update && sudo apt-get install -y reprepro
 
