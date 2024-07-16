@@ -22,28 +22,53 @@ jobs:
           tar xvf ceramic-one_x86_64-unknown-linux-gnu.tar.gz
 
 
-      - name: Set up GPG
-        run: |
-          mkdir -p /tmp/gnupg
-          echo "${{ secrets.REPO_GPG_PRIVATE_KEY }}" | gpg --homedir /tmp/gnupg --import
-          echo "allow-loopback-pinentry" >> /tmp/gnupg/gpg-agent.conf
-          echo "pinentry-mode loopback" >> /tmp/gnupg/gpg.conf
       - name: Install Dependencies
         run: sudo apt-get update && sudo apt-get install -y reprepro
-
       - name: Checkout Deb Repo
         uses: actions/checkout@v4
         with:
           repository: ceramicnetwork/debian-repo
           token: ${{ secrets.GH_TOKEN_PAT }}
-      - name: Update Deb Repo
-        working-directory: repo
+          path: debian-repo
+
+      - name: Import GPG key
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.REPO_GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.REPO_GPG_PASSPHRASE }}
+        run: |
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import --pinentry-mode loopback
+          gpg --list-secret-keys --keyid-format LONG
+
+      - name: Configure GPG to use passphrase
         env:
           GPG_PASSPHRASE: ${{ secrets.REPO_GPG_PASSPHRASE }}
         run: |
-          GNUPGHOME=/tmp/gnupg reprepro --basedir . includedeb stable ../ceramic-one.deb
+          echo "use-agent" > ~/.gnupg/gpg.conf
+          echo "pinentry-mode loopback" >> ~/.gnupg/gpg.conf
+          echo "allow-loopback-pinentry" > ~/.gnupg/gpg-agent.conf
+          echo "RELOADAGENT" | gpg-connect-agent
+          # Get the key ID of the imported key
+          KEY_ID=$(gpg --list-secret-keys --keyid-format LONG | grep sec | awk '{print $2}' | awk -F'/' '{print $2}')
+          echo "KEY_ID=$KEY_ID" >> $GITHUB_ENV
+
+      - name: Debug GPG
+        run: |
+          gpg --version
+          echo "GNUPGHOME=$GNUPGHOME"
+          ls -la ~/.gnupg
+          gpg-agent --version
+
+
+      - name: Update Deb Repo
+        working-directory: debian-repo
+        env:
+          GPG_PASSPHRASE: ${{ secrets.REPO_GPG_PASSPHRASE }}
+        run: |
+          #echo "$GPG_PASSPHRASE" | GNUPGHOME=~/.gnupg reprepro --basedir . includedeb stable ../ceramic-one.deb
+          echo "$GPG_PASSPHRASE" | GNUPGHOME=~/.gnupg GPG_TTY=$(tty) reprepro -b . --ask-passphrase -V includedeb stable ../ceramic-one.deb
+
       - name: Commit and Push changes
-        working-directory: repo
+        working-directory: debian-repo
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
