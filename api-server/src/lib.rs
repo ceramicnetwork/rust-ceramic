@@ -193,6 +193,18 @@ pub enum LivenessOptionsResponse {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub enum NetworkGetResponse {
+    /// success
+    Success(models::NetworkInfo),
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub enum NetworkOptionsResponse {
+    /// cors
+    Cors,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[must_use]
 pub enum VersionGetResponse {
     /// success
@@ -347,6 +359,12 @@ pub trait Api<C: Send + Sync> {
     /// cors
     async fn liveness_options(&self, context: &C) -> Result<LivenessOptionsResponse, ApiError>;
 
+    /// Get info about the Ceramic network the node is connected to
+    async fn network_get(&self, context: &C) -> Result<NetworkGetResponse, ApiError>;
+
+    /// cors
+    async fn network_options(&self, context: &C) -> Result<NetworkOptionsResponse, ApiError>;
+
     /// Get the version of the Ceramic node
     async fn version_get(&self, context: &C) -> Result<VersionGetResponse, ApiError>;
 
@@ -469,6 +487,12 @@ pub trait ApiNoContext<C: Send + Sync> {
 
     /// cors
     async fn liveness_options(&self) -> Result<LivenessOptionsResponse, ApiError>;
+
+    /// Get info about the Ceramic network the node is connected to
+    async fn network_get(&self) -> Result<NetworkGetResponse, ApiError>;
+
+    /// cors
+    async fn network_options(&self) -> Result<NetworkOptionsResponse, ApiError>;
 
     /// Get the version of the Ceramic node
     async fn version_get(&self) -> Result<VersionGetResponse, ApiError>;
@@ -677,6 +701,18 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
     async fn liveness_options(&self) -> Result<LivenessOptionsResponse, ApiError> {
         let context = self.context().clone();
         self.api().liveness_options(&context).await
+    }
+
+    /// Get info about the Ceramic network the node is connected to
+    async fn network_get(&self) -> Result<NetworkGetResponse, ApiError> {
+        let context = self.context().clone();
+        self.api().network_get(&context).await
+    }
+
+    /// cors
+    async fn network_options(&self) -> Result<NetworkOptionsResponse, ApiError> {
+        let context = self.context().clone();
+        self.api().network_options(&context).await
     }
 
     /// Get the version of the Ceramic node

@@ -108,7 +108,8 @@ use ceramic_api_server::{
     FeedEventsOptionsResponse, FeedResumeTokenGetResponse, FeedResumeTokenOptionsResponse,
     InterestsOptionsResponse, InterestsPostResponse, InterestsSortKeySortValueOptionsResponse,
     InterestsSortKeySortValuePostResponse, LivenessGetResponse, LivenessOptionsResponse,
-    VersionGetResponse, VersionOptionsResponse, VersionPostResponse,
+    NetworkGetResponse, NetworkOptionsResponse, VersionGetResponse, VersionOptionsResponse,
+    VersionPostResponse,
 };
 use std::error::Error;
 use swagger::ApiError;
@@ -363,6 +364,21 @@ where
     async fn liveness_options(&self, context: &C) -> Result<LivenessOptionsResponse, ApiError> {
         info!(
             "liveness_options() - X-Span-ID: {:?}",
+            context.get().0.clone()
+        );
+        Err(ApiError("Generic failure".into()))
+    }
+
+    /// Get info about the Ceramic network the node is connected to
+    async fn network_get(&self, context: &C) -> Result<NetworkGetResponse, ApiError> {
+        info!("network_get() - X-Span-ID: {:?}", context.get().0.clone());
+        Err(ApiError("Generic failure".into()))
+    }
+
+    /// cors
+    async fn network_options(&self, context: &C) -> Result<NetworkOptionsResponse, ApiError> {
+        info!(
+            "network_options() - X-Span-ID: {:?}",
             context.get().0.clone()
         );
         Err(ApiError("Generic failure".into()))

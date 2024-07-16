@@ -269,6 +269,21 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
           description: Internal server error
       summary: Register interest for a sort key
+  /network:
+    get:
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NetworkInfo'
+          description: success
+      summary: Get info about the Ceramic network the node is connected to
+    options:
+      responses:
+        "200":
+          description: cors
+      summary: cors
   /experimental/interests:
     get:
       responses:
@@ -644,6 +659,18 @@ components:
       - sep
       - sepValue
       title: A recon interest
+      type: object
+    NetworkInfo:
+      description: Ceramic network information
+      example:
+        name: name
+      properties:
+        name:
+          description: Name of the Ceramic network
+          type: string
+      required:
+      - name
+      title: Information about the Ceramic network
       type: object
     _feed_resumeToken_get_200_response:
       example:

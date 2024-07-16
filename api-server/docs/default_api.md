@@ -24,6 +24,8 @@ Method | HTTP request | Description
 ****](default_api.md#) | **POST** /interests/{sort_key}/{sort_value} | Register interest for a sort key
 ****](default_api.md#) | **GET** /liveness | Test the liveness of the Ceramic node
 ****](default_api.md#) | **OPTIONS** /liveness | cors
+****](default_api.md#) | **GET** /network | Get info about the Ceramic network the node is connected to
+****](default_api.md#) | **OPTIONS** /network | cors
 ****](default_api.md#) | **GET** /version | Get the version of the Ceramic node
 ****](default_api.md#) | **OPTIONS** /version | cors
 ****](default_api.md#) | **POST** /version | Get the version of the Ceramic node
@@ -498,6 +500,50 @@ This endpoint does not need any parameter.
 ### Return type
 
  (empty response body)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# ****
+> ()
+cors
+
+### Required Parameters
+This endpoint does not need any parameter.
+
+### Return type
+
+ (empty response body)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: Not defined
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# ****
+> models::NetworkInfo ()
+Get info about the Ceramic network the node is connected to
+
+### Required Parameters
+This endpoint does not need any parameter.
+
+### Return type
+
+[**models::NetworkInfo**](NetworkInfo.md)
 
 ### Authorization
 

@@ -30,7 +30,8 @@ use crate::{
     FeedEventsOptionsResponse, FeedResumeTokenGetResponse, FeedResumeTokenOptionsResponse,
     InterestsOptionsResponse, InterestsPostResponse, InterestsSortKeySortValueOptionsResponse,
     InterestsSortKeySortValuePostResponse, LivenessGetResponse, LivenessOptionsResponse,
-    VersionGetResponse, VersionOptionsResponse, VersionPostResponse,
+    NetworkGetResponse, NetworkOptionsResponse, VersionGetResponse, VersionOptionsResponse,
+    VersionPostResponse,
 };
 
 mod paths {
@@ -48,6 +49,7 @@ mod paths {
             r"^/ceramic/interests$",
             r"^/ceramic/interests/(?P<sort_key>[^/?#]*)/(?P<sort_value>[^/?#]*)$",
             r"^/ceramic/liveness$",
+            r"^/ceramic/network$",
             r"^/ceramic/version$"
         ])
         .expect("Unable to create global regex set");
@@ -84,7 +86,8 @@ mod paths {
             .expect("Unable to create regex for INTERESTS_SORT_KEY_SORT_VALUE");
     }
     pub(crate) static ID_LIVENESS: usize = 9;
-    pub(crate) static ID_VERSION: usize = 10;
+    pub(crate) static ID_NETWORK: usize = 10;
+    pub(crate) static ID_VERSION: usize = 11;
 }
 
 pub struct MakeService<T, C>
@@ -1609,6 +1612,81 @@ where
                     Ok(response)
                 }
 
+                // NetworkGet - GET /network
+                hyper::Method::GET if path.matched(paths::ID_NETWORK) => {
+                    let result = api_impl.network_get(&context).await;
+                    let mut response = Response::new(Body::empty());
+                    response.headers_mut().insert(
+                        HeaderName::from_static("x-span-id"),
+                        HeaderValue::from_str(
+                            (&context as &dyn Has<XSpanIdString>)
+                                .get()
+                                .0
+                                .clone()
+                                .as_str(),
+                        )
+                        .expect("Unable to create X-Span-ID header value"),
+                    );
+
+                    match result {
+                        Ok(rsp) => match rsp {
+                            NetworkGetResponse::Success(body) => {
+                                *response.status_mut() = StatusCode::from_u16(200)
+                                    .expect("Unable to turn 200 into a StatusCode");
+                                response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for NETWORK_GET_SUCCESS"));
+                                let body_content = serde_json::to_string(&body)
+                                    .expect("impossible to fail to serialize");
+                                *response.body_mut() = Body::from(body_content);
+                            }
+                        },
+                        Err(_) => {
+                            // Application code returned an error. This should not happen, as the implementation should
+                            // return a valid response.
+                            *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                            *response.body_mut() = Body::from("An internal error occurred");
+                        }
+                    }
+
+                    Ok(response)
+                }
+
+                // NetworkOptions - OPTIONS /network
+                hyper::Method::OPTIONS if path.matched(paths::ID_NETWORK) => {
+                    let result = api_impl.network_options(&context).await;
+                    let mut response = Response::new(Body::empty());
+                    response.headers_mut().insert(
+                        HeaderName::from_static("x-span-id"),
+                        HeaderValue::from_str(
+                            (&context as &dyn Has<XSpanIdString>)
+                                .get()
+                                .0
+                                .clone()
+                                .as_str(),
+                        )
+                        .expect("Unable to create X-Span-ID header value"),
+                    );
+
+                    match result {
+                        Ok(rsp) => match rsp {
+                            NetworkOptionsResponse::Cors => {
+                                *response.status_mut() = StatusCode::from_u16(200)
+                                    .expect("Unable to turn 200 into a StatusCode");
+                            }
+                        },
+                        Err(_) => {
+                            // Application code returned an error. This should not happen, as the implementation should
+                            // return a valid response.
+                            *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                            *response.body_mut() = Body::from("An internal error occurred");
+                        }
+                    }
+
+                    Ok(response)
+                }
+
                 // VersionGet - GET /version
                 hyper::Method::GET if path.matched(paths::ID_VERSION) => {
                     let result = api_impl.version_get(&context).await;
@@ -1759,6 +1837,7 @@ where
                 _ if path.matched(paths::ID_INTERESTS) => method_not_allowed(),
                 _ if path.matched(paths::ID_INTERESTS_SORT_KEY_SORT_VALUE) => method_not_allowed(),
                 _ if path.matched(paths::ID_LIVENESS) => method_not_allowed(),
+                _ if path.matched(paths::ID_NETWORK) => method_not_allowed(),
                 _ if path.matched(paths::ID_VERSION) => method_not_allowed(),
                 _ => Ok(Response::builder()
                     .status(StatusCode::NOT_FOUND)
@@ -1840,6 +1919,10 @@ impl<T> RequestParser<T> for ApiRequestParser {
             hyper::Method::GET if path.matched(paths::ID_LIVENESS) => Some("LivenessGet"),
             // LivenessOptions - OPTIONS /liveness
             hyper::Method::OPTIONS if path.matched(paths::ID_LIVENESS) => Some("LivenessOptions"),
+            // NetworkGet - GET /network
+            hyper::Method::GET if path.matched(paths::ID_NETWORK) => Some("NetworkGet"),
+            // NetworkOptions - OPTIONS /network
+            hyper::Method::OPTIONS if path.matched(paths::ID_NETWORK) => Some("NetworkOptions"),
             // VersionGet - GET /version
             hyper::Method::GET if path.matched(paths::ID_VERSION) => Some("VersionGet"),
             // VersionOptions - OPTIONS /version

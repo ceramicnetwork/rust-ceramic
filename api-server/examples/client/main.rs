@@ -10,7 +10,8 @@ use ceramic_api_server::{
     FeedResumeTokenGetResponse, FeedResumeTokenOptionsResponse, InterestsOptionsResponse,
     InterestsPostResponse, InterestsSortKeySortValueOptionsResponse,
     InterestsSortKeySortValuePostResponse, LivenessGetResponse, LivenessOptionsResponse,
-    VersionGetResponse, VersionOptionsResponse, VersionPostResponse,
+    NetworkGetResponse, NetworkOptionsResponse, VersionGetResponse, VersionOptionsResponse,
+    VersionPostResponse,
 };
 use clap::{App, Arg};
 #[allow(unused_imports)]
@@ -58,6 +59,8 @@ fn main() {
                     "InterestsSortKeySortValuePost",
                     "LivenessGet",
                     "LivenessOptions",
+                    "NetworkGet",
+                    "NetworkOptions",
                     "VersionGet",
                     "VersionOptions",
                     "VersionPost",
@@ -290,6 +293,22 @@ fn main() {
         }
         Some("LivenessOptions") => {
             let result = rt.block_on(client.liveness_options());
+            info!(
+                "{:?} (X-Span-ID: {:?})",
+                result,
+                (client.context() as &dyn Has<XSpanIdString>).get().clone()
+            );
+        }
+        Some("NetworkGet") => {
+            let result = rt.block_on(client.network_get());
+            info!(
+                "{:?} (X-Span-ID: {:?})",
+                result,
+                (client.context() as &dyn Has<XSpanIdString>).get().clone()
+            );
+        }
+        Some("NetworkOptions") => {
+            let result = rt.block_on(client.network_options());
             info!(
                 "{:?} (X-Span-ID: {:?})",
                 result,

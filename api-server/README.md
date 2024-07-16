@@ -15,7 +15,7 @@ To see how to make this your own, look here:
 [README]((https://openapi-generator.tech))
 
 - API version: 0.29.0
-- Build date: 2024-07-22T20:00:53.129668076Z[Etc/UTC]
+- Build date: 2024-07-25T17:06:13.915918-06:00[America/Denver]
 
 
 
@@ -80,6 +80,8 @@ cargo run --example client InterestsSortKeySortValueOptions
 cargo run --example client InterestsSortKeySortValuePost
 cargo run --example client LivenessGet
 cargo run --example client LivenessOptions
+cargo run --example client NetworkGet
+cargo run --example client NetworkOptions
 cargo run --example client VersionGet
 cargo run --example client VersionOptions
 cargo run --example client VersionPost
@@ -136,6 +138,8 @@ Method | HTTP request | Description
 [****](docs/default_api.md#) | **POST** /interests/{sort_key}/{sort_value} | Register interest for a sort key
 [****](docs/default_api.md#) | **GET** /liveness | Test the liveness of the Ceramic node
 [****](docs/default_api.md#) | **OPTIONS** /liveness | cors
+[****](docs/default_api.md#) | **GET** /network | Get info about the Ceramic network the node is connected to
+[****](docs/default_api.md#) | **OPTIONS** /network | cors
 [****](docs/default_api.md#) | **GET** /version | Get the version of the Ceramic node
 [****](docs/default_api.md#) | **OPTIONS** /version | cors
 [****](docs/default_api.md#) | **POST** /version | Get the version of the Ceramic node
@@ -153,6 +157,7 @@ Method | HTTP request | Description
  - [Interest](docs/Interest.md)
  - [InterestsGet](docs/InterestsGet.md)
  - [InterestsGetInterestsInner](docs/InterestsGetInterestsInner.md)
+ - [NetworkInfo](docs/NetworkInfo.md)
  - [Version](docs/Version.md)
 
 
