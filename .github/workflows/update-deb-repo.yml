@@ -33,7 +33,7 @@ jobs:
       - name: Checkout Deb Repo
         uses: actions/checkout@v4
         with:
-          repository: ceramicnetwork/repo
+          repository: ceramicnetwork/debian-repo
           token: ${{ secrets.GH_TOKEN_PAT }}
       - name: Update Deb Repo
         working-directory: repo
