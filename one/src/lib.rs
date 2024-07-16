@@ -9,7 +9,7 @@ mod network;
 
 use std::{env, path::PathBuf, time::Duration};
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use ceramic_api::{EventStore, InterestStore};
 use ceramic_core::{EventId, Interest};
 use ceramic_kubo_rpc::Multiaddr;
@@ -427,7 +427,12 @@ impl Daemon {
         debug!(?p2p_config, "using p2p config");
 
         // Load p2p identity
-        let mut kc = Keychain::<DiskStorage>::new(opts.p2p_key_dir.clone()).await?;
+        let mut kc = Keychain::<DiskStorage>::new(opts.p2p_key_dir.clone())
+            .await
+            .context(format!(
+                "initializing p2p key: using p2p_key_dir={}",
+                opts.p2p_key_dir.display()
+            ))?;
         let keypair = load_identity(&mut kc).await?;
         let peer_id = keypair.public().to_peer_id();
 
