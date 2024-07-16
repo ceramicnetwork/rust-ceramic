@@ -22,7 +22,9 @@ where
     let builder = SwarmBuilder::with_existing_identity(keypair)
         .with_tokio()
         .with_tcp(
-            tcp::Config::default().port_reuse(true),
+            // we've encountered errors when restarting the binary failing to bind with port_reuse(true)
+            // so we use the default which has it disabled and use transient ports for outgoing connections
+            tcp::Config::default(),
             noise::Config::new,
             yamux::Config::default,
         )?
