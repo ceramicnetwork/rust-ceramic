@@ -1318,6 +1318,7 @@ where
 
     async fn experimental_interests_get(
         &self,
+        param_peer_id: Option<String>,
         context: &C,
     ) -> Result<ExperimentalInterestsGetResponse, ApiError> {
         let mut client_service = self.client_service.clone();
@@ -1326,6 +1327,9 @@ where
         // Query parameters
         let query_string = {
             let mut query_string = form_urlencoded::Serializer::new("".to_owned());
+            if let Some(param_peer_id) = param_peer_id {
+                query_string.append_pair("peer_id", &param_peer_id);
+            }
             query_string.finish()
         };
         if !query_string.is_empty() {
@@ -1428,6 +1432,7 @@ where
 
     async fn experimental_interests_options(
         &self,
+        param_peer_id: Option<String>,
         context: &C,
     ) -> Result<ExperimentalInterestsOptionsResponse, ApiError> {
         let mut client_service = self.client_service.clone();
@@ -1436,6 +1441,9 @@ where
         // Query parameters
         let query_string = {
             let mut query_string = form_urlencoded::Serializer::new("".to_owned());
+            if let Some(param_peer_id) = param_peer_id {
+                query_string.append_pair("peer_id", &param_peer_id);
+            }
             query_string.finish()
         };
         if !query_string.is_empty() {

@@ -498,7 +498,10 @@ where
         ))
     }
 
-    pub async fn get_interests(&self) -> Result<ExperimentalInterestsGetResponse, ErrorResponse> {
+    pub async fn get_interests(
+        &self,
+        peer_id: Option<String>,
+    ) -> Result<ExperimentalInterestsGetResponse, ErrorResponse> {
         let interests = self
             .interest
             .range(
@@ -510,12 +513,31 @@ where
             .await
             .map_err(|e| ErrorResponse::new(format!("failed to get interests: {e}")))?;
 
+        let peer_id = peer_id
+            .map(|id| PeerId::from_str(&id))
+            .transpose()
+            .map_err(|e| ErrorResponse::new(format!("failed to parse peer_id: {e}")))?;
+
         Ok(ExperimentalInterestsGetResponse::Success(
             models::InterestsGet {
                 interests: interests
                     .into_iter()
-                    .map(|i| models::InterestsGetInterestsInner {
-                        data: i.to_string(),
+                    .filter_map(|i| {
+                        if peer_id.is_some() {
+                            // return only matching interests
+                            if i.peer_id() == peer_id {
+                                Some(models::InterestsGetInterestsInner {
+                                    data: i.to_string(),
+                                })
+                            } else {
+                                None
+                            }
+                        } else {
+                            // return all interests
+                            Some(models::InterestsGetInterestsInner {
+                                data: i.to_string(),
+                            })
+                        }
                     })
                     .collect(),
             },
@@ -841,9 +863,10 @@ where
 
     async fn experimental_interests_get(
         &self,
+        peer_id: Option<String>,
         _context: &C,
     ) -> Result<ExperimentalInterestsGetResponse, ApiError> {
-        self.get_interests()
+        self.get_interests(peer_id)
             .await
             .or_else(|err| Ok(ExperimentalInterestsGetResponse::InternalServerError(err)))
     }
@@ -982,6 +1005,7 @@ where
     /// cors
     async fn experimental_interests_options(
         &self,
+        _peer_id: Option<String>,
         _context: &C,
     ) -> Result<ceramic_api_server::ExperimentalInterestsOptionsResponse, ApiError> {
         Ok(ceramic_api_server::ExperimentalInterestsOptionsResponse::Cors)

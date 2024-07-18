@@ -243,10 +243,12 @@ where
     /// Get the interests stored on the node
     async fn experimental_interests_get(
         &self,
+        peer_id: Option<String>,
         context: &C,
     ) -> Result<ExperimentalInterestsGetResponse, ApiError> {
         info!(
-            "experimental_interests_get() - X-Span-ID: {:?}",
+            "experimental_interests_get({:?}) - X-Span-ID: {:?}",
+            peer_id,
             context.get().0.clone()
         );
         Err(ApiError("Generic failure".into()))
@@ -255,10 +257,12 @@ where
     /// cors
     async fn experimental_interests_options(
         &self,
+        peer_id: Option<String>,
         context: &C,
     ) -> Result<ExperimentalInterestsOptionsResponse, ApiError> {
         info!(
-            "experimental_interests_options() - X-Span-ID: {:?}",
+            "experimental_interests_options({:?}) - X-Span-ID: {:?}",
+            peer_id,
             context.get().0.clone()
         );
         Err(ApiError("Generic failure".into()))
