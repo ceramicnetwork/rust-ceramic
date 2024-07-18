@@ -3,6 +3,7 @@
 
 # Pick two reviewers for each top level directory:
 # the owner and someone from the eng-reviewers team.
+/.github/           @smrz2001       @ceramicnetwork/eng-reviewers
 /api-server/        @dav1do         @ceramicnetwork/eng-reviewers
 /api/               @dav1do         @ceramicnetwork/eng-reviewers
 /beetle/            @nathanielc     @ceramicnetwork/eng-reviewers
