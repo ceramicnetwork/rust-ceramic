@@ -76,6 +76,16 @@ struct DaemonOpts {
     )]
     swarm_addresses: Vec<String>,
 
+    /// External address of the p2p swarm.
+    /// These addressed are advertised to remote peers in order to dial the local peer.
+    #[arg(
+        long,
+        use_value_delimiter = true,
+        value_delimiter = ',',
+        env = "CERAMIC_ONE_EXTERNAL_SWARM_ADDRESSES"
+    )]
+    external_swarm_addresses: Vec<String>,
+
     /// Extra addresses of peers that participate in the Ceramic network.
     /// A best-effort attempt will be made to maintain a connection to these addresses.
     #[arg(
@@ -417,6 +427,11 @@ impl Daemon {
                         .collect::<Result<Vec<Multiaddr>, multiaddr::Error>>()?,
                 )
                 .collect(),
+            external_multiaddrs: opts
+                .external_swarm_addresses
+                .iter()
+                .map(|addr| addr.parse())
+                .collect::<Result<Vec<Multiaddr>, multiaddr::Error>>()?,
             listening_multiaddrs: opts
                 .swarm_addresses
                 .iter()

@@ -165,7 +165,6 @@ where
             metrics.clone(),
         )
         .await?;
-        info!("iroh-p2p peerid: {}", swarm.local_peer_id());
 
         for addr in &libp2p_config.external_multiaddrs {
             swarm.add_external_address(addr.clone());
