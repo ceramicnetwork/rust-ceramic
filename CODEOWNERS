@@ -15,7 +15,7 @@
 /kubo-rpc/          @nathanielc     @ceramicnetwork/eng-reviewers
 /metrics/           @dav1do         @ceramicnetwork/eng-reviewers
 /migrations/        @dav1do         @ceramicnetwork/eng-reviewers
-/one/               @nathanielc     @ceramicnetwork/eng-reviewers
+/one/               @stbrody        @ceramicnetwork/eng-reviewers
 /p2p/               @nathanielc     @ceramicnetwork/eng-reviewers
 /recon/             @AaronGoldman   @ceramicnetwork/eng-reviewers
 /service/           @dav1do         @ceramicnetwork/eng-reviewers
