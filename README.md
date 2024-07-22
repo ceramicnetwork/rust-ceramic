@@ -114,6 +114,100 @@ $ ceramic-one daemon --store-dir ./custom-store-dir
 The process honors RUST_LOG env variable for controlling its logging output.
 For example, to enable debug logging for code from this repo but error logging for all other code use:
 
+### API
+[OpenAPI Generated Docs](./api-server/docs/default_api.md)
+
+[Ceramic specification](https://developers.ceramic.network/docs/protocol/js-ceramic/overview)
+
+#### POST `/ceramic/events`
+Creates a new event
+```sh
+curl -X POST --data-binary @path/to/event.car "http://127.0.0.1:5101/ceramic/events"
+```
+
+The event payload is a multibase encoded Ceramic [event](https://developers.ceramic.network/docs/protocol/js-ceramic/streams/event-log#jws--dag-jose).
+The Ceramic event is a car file with the envelope as the root.
+The envelope is a dag-jose with a CID as the payload.
+The event data is the dag-cbor object at payload CID.
+For details on signing a ceramic event see [link](./todo.md) #TODO
+
+#### GET `/ceramic/events/{event_id}`
+```
+curl http://127.0.0.1:5101/ceramic/events/{event_id}
+curl "http://127.0.0.1:5101/ceramic/events/bagcqcerahknurn4svfcquedzefgtljgf5qvavja5wttwqq3wnnrsavhzwx7a"
+
+{"id":"bagcqc...","data":"mO6Jlcm..."}
+```
+Gets the event data by id.
+Event_id is the CID of the envelope.
+
+The endpoint will return the id event_id.
+The include data arg is not yet implemented.
+When it is data will be a car file with the event blocks and the envelope as the root is include data is set.
+For now it will always return `"data": ""`
+
+```rs
+pub struct Event {
+    /// Multibase encoding of event root CID.
+    #[serde(rename = "id")]
+    pub id: String,
+
+    /// Multibase encoding of event data CAR file.
+    #[serde(rename = "data")]
+    pub data: String,
+}
+```
+
+#### GET `/feed/events?resumeAt=0&limit=10000`
+```sh
+> curl "http://127.0.0.1:5101/ceramic/feed/events?resumeAt=0&limit=10000"
+```
+```json
+{"events":[{  "id": event_cid,
+            "data": ""}],
+ "resumeToken":"1"}
+```
+Get all new event keys since resume token
+resumeAt: token that designates the point to resume from, that is find keys added after this point
+limit: the maximum number of events to return, default is 10000.
+
+The feed API delivers event is the order that the node learned them.
+A node will deliver events in a consistent order but the order will differ between nodes.
+
+```rs
+pub struct EventFeed {
+    /// An array of events.
+    #[serde(rename = "events")]
+    pub events: Vec<models::Event>,
+
+    /// The token/high water mark to used as resumeAt on a future request
+    #[serde(rename = "resumeToken")]
+    pub resume_token: String,
+}
+
+pub struct Event {
+    /// Multibase encoding of event root CID.
+    #[serde(rename = "id")]
+    pub id: String,
+
+    /// Multibase encoding of event data CAR file.
+    #[serde(rename = "data")]
+    pub data: String,
+}
+```
+
+#### POST `ceramic/interests/{sort_key}/{sort_value}?controller={}&streamId={}`
+```
+http://127.0.0.1:5101/ceramic/interests/model/{sort_value}?controller={}&streamId={}
+
+> curl -X POST "http://127.0.0.1:5101/ceramic/interests/model/kh4q0ozorrgaq2mezktnrmdwleo1d"
+```
+ Instruct your node to begin synchronizing a model by its modelID.
+
+model_ID of the model to subscribe to.
+controller DID to subscribe to is missing all controllers.
+streamId of the specific stream to subscribe to if missing all streams.
+
 ## License
 
 Fully open source and dual-licensed under MIT and Apache 2.
