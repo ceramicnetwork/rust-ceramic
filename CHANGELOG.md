@@ -2,7 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.28.1] - 2024-07-14
+## [0.29.0] - 2024-07-22
+
+### 🚀 Features
+
+- Support cors via cli flag (#425)
+- Workflow update deb repo (#437)
+- Add option for external swarm addresses (#439)
+
+### 🐛 Bug Fixes
+
+- Add context to p2p key dir errors (#438)
+
+### 📚 Documentation
+
+- Adds UPGRADE.md docs (#402)
+
+### ⚙️ Miscellaneous Tasks
+
+- Add CODEOWNERS file (#443)
+
+## [0.28.1] - 2024-07-15
 
 ### 🚀 Features
 
@@ -12,6 +32,7 @@ All notable changes to this project will be documented in this file.
 
 - Release archive with linux binary (#422)
 - Update selector for post-deployment tests (#435)
+- Version v0.28.1 (#436)
 
 ## [0.28.0] - 2024-07-12
 
