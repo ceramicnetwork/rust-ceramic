@@ -23,7 +23,6 @@ use std::{
 use anyhow::Result;
 use async_trait::async_trait;
 use ceramic_api_server::models::{BadRequestResponse, ErrorResponse, EventData};
-use ceramic_api_server::models::{BadRequestResponse, ErrorResponse};
 use cid::Cid;
 use futures::{future, Stream, StreamExt, TryFutureExt, TryStreamExt};
 use hyper::service::Service;
@@ -277,9 +276,9 @@ impl<S: EventStore> EventStore for Arc<S> {
         self.as_ref().highwater_mark().await
     }
 
-    async fn scan_anchor_requests(&self, limit: i64) -> Result<Vec<Cid>> {
-        self.as_ref().scan_anchor_requests(limit).await
-    }
+    // async fn scan_anchor_requests(&self, limit: i64) -> Result<Vec<Cid>> {
+    //     self.as_ref().scan_anchor_requests(limit).await
+    // }
 
     async fn get_block(&self, cid: &Cid) -> Result<Option<Vec<u8>>> {
         self.as_ref().get_block(cid).await
@@ -306,11 +305,11 @@ struct AnchorTask {
 }
 
 #[derive(Clone)]
-pub struct Server<C> {
+pub struct Server<C, I, M> {
     peer_id: PeerId,
     network: Network,
-    interest: ApiInterestStore,
-    model: ApiModelStore,
+    interest: I,
+    model: Arc<M>,
     // If we need to restart this ever, we'll need a mutex. For now we want to avoid locking the channel
     // so we just keep track to gracefully shutdown, but if the task dies, the server is in a fatal error state.
     insert_task: Arc<InsertTask>,
@@ -348,7 +347,7 @@ where
     }
 
     fn start_insert_task(
-        event_store: ApiModelStore,
+        event_store: Arc<M>,
         mut event_rx: tokio::sync::mpsc::Receiver<EventInsert>,
     ) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
@@ -750,7 +749,7 @@ pub(crate) fn decode_multibase_data(value: &str) -> Result<Vec<u8>, BadRequestRe
 }
 
 #[async_trait]
-impl<C> Api<C> for Server<C>
+impl<C, I, M> Api<C> for Server<C, I, M>
 where
     C: Send + Sync,
     I: InterestStore + Sync,

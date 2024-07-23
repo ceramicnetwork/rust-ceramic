@@ -532,7 +532,7 @@ impl Daemon {
         let ceramic_server = ceramic_api::Server::new(
             peer_id,
             network,
-            Arc::new(interest_api_store),
+            interest_api_store,
             Arc::new(model_api_store),
         );
         let ceramic_service = ceramic_api_server::server::MakeService::new(ceramic_server);

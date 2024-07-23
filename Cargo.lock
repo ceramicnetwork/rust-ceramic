@@ -1004,6 +1004,7 @@ dependencies = [
  "anyhow",
  "ceramic-store",
  "cid 0.11.1",
+ "expect-test",
  "hex",
  "ipld-core",
  "multihash-codetable",

@@ -10,6 +10,7 @@ repository.workspace = true
 anyhow.workspace = true
 ceramic-store.workspace = true
 cid.workspace = true
+expect-test = "1.5.0"
 hex.workspace = true
 ipld-core.workspace = true
 multihash-codetable.workspace = true
