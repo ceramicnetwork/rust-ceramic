@@ -13,6 +13,7 @@ use ceramic_store::SqlitePool;
 fn merge_nodes(left: &Cid, right: Option<&Cid>) -> Cid {
     let merkle_node = vec![Some(*left), right.cloned()];
     let x: Vec<u8> = serde_ipld_dagcbor::to_vec(&merkle_node).unwrap();
+    // todo: push the merge tree node.
     Cid::new_v1(
         <DagCborCodec as Codec<Ipld>>::CODE,
         Code::Sha2_256.digest(&x),
@@ -20,13 +21,13 @@ fn merge_nodes(left: &Cid, right: Option<&Cid>) -> Cid {
 }
 
 #[derive(Debug)]
-struct rootCount {
+struct RootCount {
     root: Cid,
     count: u64,
 }
 
 /// Fetch unanchored CIDs from the Anchor Request Store and builds a Merkle tree from them.
-async fn build_tree<I>(cids: I) -> Result<rootCount>
+async fn build_tree<I>(cids: I) -> Result<RootCount>
 where
     I: IntoIterator<Item = Cid>,
 {
@@ -65,7 +66,7 @@ where
         right = Some(merge_nodes(left, right.as_ref()));
     }
     match right {
-        Some(right) => Ok(rootCount {
+        Some(right) => Ok(RootCount {
             root: right,
             count: count,
         }),
@@ -80,7 +81,7 @@ fn index_to_path(index: u64, length: u64) -> Result<String> {
     // e.g. 5, 6
     // 14 = 0b1110
     // 10 = 0b1010
-    //                root
+    //               [root]
     //         /                  [\]
     //     /      \           [/]      \
     //    / \    /  \       /    [\]    / \
@@ -117,7 +118,45 @@ fn index_to_path(index: u64, length: u64) -> Result<String> {
     for bit in format!("{:b}", index).chars() {
         path += &format!("{}/", bit);
     }
-    Ok(path)
+    Ok(path.strip_suffix("/").expect("path ends with /").to_string())
+}
+
+#[derive(Debug)]
+struct TimeEvent {
+    pub id: Cid,
+    pub prev: Cid,
+    pub proof: Cid,
+    pub path: String,
+}
+
+fn build_time_event(id: Cid, prev: Cid, proof: Cid, index: u64, count:u64) -> Result<TimeEvent> {
+    Ok(TimeEvent{
+        id,
+        prev,
+        proof,
+        path: index_to_path(index, count)?
+    })
+}
+
+struct AnchorRequest {
+    pub id: Cid,
+    pub prev: Cid,
+}
+
+fn build_time_events<I>(anchor_requests: I, proof: Cid, count:u64) -> Result<()>
+where
+    I: IntoIterator<Item = AnchorRequest>,
+{
+    for (index, anchor_request) in anchor_requests.into_iter().enumerate() {
+        let time_event = TimeEvent{
+            id: anchor_request.id,
+            prev: anchor_request.prev,
+            proof: proof,
+            path: index_to_path(index.try_into().unwrap(), count)?
+        };
+        // todo push time_event 
+    }
+    Ok(())
 }
 
 /// Tests to ensure that the merge function is working as expected.
@@ -218,32 +257,74 @@ mod tests {
     async fn test_hash_root() {
         let cids: Vec<Cid> = (1..1_000_000_i128).map(int128_cid).into_iter().collect();
         let result = build_tree(cids).await;
-        expect!["Ok(rootCount { root: Cid(bafyreidq247kfkizr3k6wlvx43lt7gro2dno7vzqepmnqt26agri4opzqu), count: 999999 })"]
+        expect!["Ok(RootCount { root: Cid(bafyreidq247kfkizr3k6wlvx43lt7gro2dno7vzqepmnqt26agri4opzqu), count: 999999 })"]
         .assert_eq(&format!("{:?}", &result));
     }
 
-    #[derive(Debug)]
-    struct Proof {
-        pub chainId: String,
-        pub root: Cid,
-        pub txHash: Cid,
-        pub txType: String,
+    #[tokio::test]
+    async fn test_time_event() {
+        let id = Cid::try_from("baeabeifu7qd7bpy4z6vdo7jff6kg3uiwolqtofhut7nrhx6wuhpb2wqxtq").unwrap();
+        let prev = Cid::try_from("baeabeifu7qd7bpy4z6vdo7jff6kg3uiwolqtofhut7nrhx6wuhpb2wqxtq").unwrap();
+        let proof = Cid::try_from("bafyreidq247kfkizr3k6wlvx43lt7gro2dno7vzqepmnqt26agri4opzqu").unwrap();
+        let index = 500_000;
+        let count = 999_999;
+        let time_event = build_time_event(id, prev, proof, index, count);
+        expect![[r#"Ok(TimeEvent { id: Cid(baeabeifu7qd7bpy4z6vdo7jff6kg3uiwolqtofhut7nrhx6wuhpb2wqxtq), prev: Cid(baeabeifu7qd7bpy4z6vdo7jff6kg3uiwolqtofhut7nrhx6wuhpb2wqxtq), proof: Cid(bafyreidq247kfkizr3k6wlvx43lt7gro2dno7vzqepmnqt26agri4opzqu), path: "0/1/1/1/1/0/1/0/0/0/0/1/0/0/1/0/0/0/0/0" })"#]]
+        .assert_eq(&format!("{:?}", time_event));
     }
 
     #[tokio::test]
-    async fn test_build_tree() {
-        let cids: Vec<Cid> = (1..1_000_000_i128).map(int128_cid).into_iter().collect();
-        let root =
-            Cid::try_from("bafyreidq247kfkizr3k6wlvx43lt7gro2dno7vzqepmnqt26agri4opzqu").unwrap();
-        let proof: Proof = Proof {
-            chainId: "eip155:1".into(),
-            root: "bafyreidq247kfkizr3k6wlvx43lt7gro2dno7vzqepmnqt26agri4opzqu"
-                .try_into()
-                .unwrap(),
-            txHash: "bagjqcgzax554ofnatxvdc54gnlcpykkkzgaa5yvutye4kx2wa6cxtp536fma"
-                .try_into()
-                .unwrap(), // todo replace this
-            txType: "f(bytes32)".into(),
-        };
+    async fn test_time_events() {
+        let count = 1_000_000_i128;
+        let anchor_requests: Vec<AnchorRequest> = (0..count)
+            .map(|n| AnchorRequest {
+                id: int128_cid(n),
+                prev: int128_cid(n),
+            })
+            .into_iter()
+            .collect();
+        let proof = Cid::try_from("bafyreidq247kfkizr3k6wlvx43lt7gro2dno7vzqepmnqt26agri4opzqu").unwrap();
+
+        build_time_events(anchor_requests, proof, count.try_into().unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_index_to_path(){
+        // '1/'  10 > 8, 14
+        // '1/0/' 2 > 4, 6
+        // '1/0/' 0b10
+        // '1/0/1/0'
+        expect![[r#"
+            Ok(
+                "1/0/1/0",
+            )
+        "#]]
+        .assert_debug_eq(&index_to_path(10, 14));
+        
+        // '0/' 500_000 < 524288, 1_000_000
+        // '0/' 0b1111010000100100000
+        // '0/1/1/1/1/0/1/0/0/0/0/1/0/0/1/0/0/0/0/0/'
+        expect![[r#"
+            Ok(
+                "0/1/1/1/1/0/1/0/0/0/0/1/0/0/1/0/0/0/0/0",
+            )
+        "#]]
+        .assert_debug_eq(&index_to_path(500_000, 1_000_000));
+
+        // '1/'        999_999 > 524288,  1_000_000
+        // '1/1/'      475_711 > 262_144, 475_712
+        // '1/1/1/'    213_567 > 131072,  213_568
+        // '1/1/1/1/'   82_495 > 65_536,  82_496
+        // '1/1/1/1/1/' 16_959 > 16_384,  16_960
+        // '1/1/1/1/1/1/'  575 > 512,     576
+        // '1/1/1/1/1/1/0/' 63 !> 64,     64
+        // '1/1/1/1/1/1/0/' 0b111111
+        // '1/1/1/1/1/1/0/1/1/1/1/1/1/'
+        expect![[r#"
+        Ok(
+            "1/1/1/1/1/1/0/1/1/1/1/1/1",
+        )
+    "#]]
+    .assert_debug_eq(&index_to_path(999_999, 1_000_000));
     }
 }
