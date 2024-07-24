@@ -3,7 +3,6 @@ use std::{ops::Range, time::Duration};
 use async_trait::async_trait;
 use ceramic_core::{Cid, EventId, Interest};
 use ceramic_metrics::{register, Recorder};
-use cid::Cid;
 use futures::Future;
 use prometheus_client::{
     encoding::EncodeLabelSet,
@@ -238,14 +237,14 @@ where
         .await
     }
 
-    async fn scan_anchor_requests(&self, limit: i64) -> anyhow::Result<Vec<Cid>> {
-        StoreMetricsMiddleware::<S>::record(
-            &self.metrics,
-            "api_scan_anchor_requests",
-            self.store.scan_anchor_requests(limit),
-        )
-        .await
-    }
+    // async fn scan_anchor_requests(&self, limit: i64) -> anyhow::Result<Vec<Cid>> {
+    //     StoreMetricsMiddleware::<S>::record(
+    //         &self.metrics,
+    //         "api_scan_anchor_requests",
+    //         self.store.scan_anchor_requests(limit),
+    //     )
+    //     .await
+    // }
 }
 
 #[async_trait]

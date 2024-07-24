@@ -8,7 +8,7 @@ use sqlx::{
     Decode, Encode, FromRow, Sqlite, Type,
 };
 
-use crate::{DbTxSqlite, Error, Result, SqliteEventStore};
+use crate::{Error, Result};
 
 const PUT_QUERY: &str =
     r#"INSERT INTO ceramic_one_anchor_request (cid) VALUES ($1) ON CONFLICT DO NOTHING"#;

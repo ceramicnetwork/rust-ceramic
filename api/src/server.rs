@@ -23,17 +23,17 @@ use std::{
 use anyhow::Result;
 use async_trait::async_trait;
 use ceramic_api_server::models::{BadRequestResponse, ErrorResponse, EventData};
-use cid::Cid;
-use futures::{future, Stream, StreamExt, TryFutureExt, TryStreamExt};
-use hyper::service::Service;
-use hyper::{server::conn::Http, Request};
-use recon::{AssociativeHash, InterestProvider, Key, Store};
-use serde::{Deserialize, Serialize};
-use swagger::{ByteArray, EmptyContext, XSpanIdString};
-use tokio::net::TcpListener;
-use tracing::{debug, info, instrument, Level};
+// use cid::Cid;
+// use futures::{future, Stream, StreamExt, TryFutureExt, TryStreamExt};
+// use hyper::service::Service;
+// use hyper::{server::conn::Http, Request};
+// use recon::{AssociativeHash, InterestProvider, Key, Store};
+// use serde::{Deserialize, Serialize};
+// use swagger::{ByteArray, EmptyContext, XSpanIdString};
+// use tokio::net::TcpListener;
+// use tracing::{debug, info, instrument, Level};
 
-use ceramic_api_server::server::MakeService;
+// use ceramic_api_server::server::MakeService;
 use ceramic_api_server::{
     models::{self, Event},
     DebugHeapGetResponse, EventsEventIdGetResponse, EventsPostResponse,
@@ -236,7 +236,7 @@ pub trait EventStore: Send + Sync {
     async fn highwater_mark(&self) -> Result<i64>;
 
     async fn get_block(&self, cid: &Cid) -> Result<Option<Vec<u8>>>;
-    async fn scan_anchor_requests(&self, limit: i64) -> Result<Vec<Cid>>;
+    // async fn scan_anchor_requests(&self, limit: i64) -> Result<Vec<Cid>>;
 }
 
 #[async_trait::async_trait]
@@ -313,7 +313,7 @@ pub struct Server<C, I, M> {
     // If we need to restart this ever, we'll need a mutex. For now we want to avoid locking the channel
     // so we just keep track to gracefully shutdown, but if the task dies, the server is in a fatal error state.
     insert_task: Arc<InsertTask>,
-    anchor_task: Arc<AnchorTask>,
+    // anchor_task: Arc<AnchorTask>,
     marker: PhantomData<C>,
 }
 
@@ -327,21 +327,21 @@ where
         let event_store = model.clone();
 
         let insert_task_handle = Self::start_insert_task(event_store.clone(), event_rx);
-        let anchor_task_handle = Self::start_anchor_task(event_store);
+        // let anchor_task_handle = Self::start_anchor_task(event_store);
         let insert_task = Arc::new(InsertTask {
             _handle: insert_task_handle,
             tx,
         });
-        let anchor_task = Arc::new(AnchorTask {
-            _handle: anchor_task_handle,
-        });
+        // let anchor_task = Arc::new(AnchorTask {
+        //     _handle: anchor_task_handle,
+        // });
         Server {
             peer_id,
             network,
             interest,
             model,
             insert_task,
-            anchor_task,
+            // anchor_task,
             marker: PhantomData,
         }
     }
@@ -424,23 +424,23 @@ where
         };
     }
 
-    fn start_anchor_task(event_store: ApiModelStore) -> tokio::task::JoinHandle<()> {
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(20 * 60));
-            loop {
-                let _ = interval.tick().await;
+    // fn start_anchor_task(event_store: ApiModelStore) -> tokio::task::JoinHandle<()> {
+    //     tokio::spawn(async move {
+    //         let mut interval = tokio::time::interval(Duration::from_secs(20 * 60));
+    //         loop {
+    //             let _ = interval.tick().await;
 
-                // Logic for building tree with unanchored CIDs
-                let unanchored_cids = match event_store.scan_anchor_requests(1000).await {
-                    Ok(cids) => cids,
-                    Err(e) => {
-                        tracing::error!("failed to scan anchor requests: {e}");
-                        continue;
-                    }
-                };
-            }
-        })
-    }
+    //             // Logic for building tree with unanchored CIDs
+    //             let unanchored_cids = match event_store.scan_anchor_requests(1000).await {
+    //                 Ok(cids) => cids,
+    //                 Err(e) => {
+    //                     tracing::error!("failed to scan anchor requests: {e}");
+    //                     continue;
+    //                 }
+    //             };
+    //         }
+    //     })
+    // }
 
     pub async fn get_event_feed(
         &self,
