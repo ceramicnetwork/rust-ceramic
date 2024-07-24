@@ -572,7 +572,7 @@ impl Daemon {
         let signals_handle = tokio::spawn(handle_signals(signals, tx));
 
         // The server task blocks until we are ready to start shutdown
-        debug!("starting api server");
+        info!("starting api server at address {}", opts.bind_address);
         hyper::server::Server::try_bind(&opts.bind_address.parse()?)
             .map_err(|e| anyhow!("Failed to bind address: {}. {}", opts.bind_address, e))?
             .serve(service)
