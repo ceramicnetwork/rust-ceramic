@@ -6,6 +6,7 @@ mod bytes;
 pub mod unvalidated;
 
 pub use ceramic_core::*;
+pub use unvalidated::cid_from_dag_cbor;
 
 #[cfg(test)]
 pub mod tests {

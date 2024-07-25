@@ -20,6 +20,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use crate::auth;
+use crate::auth::Operation;
 use anyhow::Result;
 use async_trait::async_trait;
 use ceramic_api_server::models::{BadRequestResponse, ErrorResponse, EventData};
@@ -34,6 +36,7 @@ use ceramic_api_server::{
     FeedEventsGetResponse, FeedResumeTokenGetResponse, InterestsPostResponse,
 };
 use ceramic_core::{Cid, EventId, Interest, Network, PeerId, StreamId};
+use ceramic_event::ssi::jsonld::syntax::parse::Error::Stream;
 use futures::TryFutureExt;
 use recon::Key;
 use swagger::{ApiError, ByteArray};
@@ -285,6 +288,7 @@ pub struct Server<C, I, M> {
     network: Network,
     interest: I,
     model: Arc<M>,
+    authentication: bool,
     // If we need to restart this ever, we'll need a mutex. For now we want to avoid locking the channel
     // so we just keep track to gracefully shutdown, but if the task dies, the server is in a fatal error state.
     insert_task: Arc<InsertTask>,
@@ -310,9 +314,14 @@ where
             network,
             interest,
             model,
+            authentication: false,
             insert_task,
             marker: PhantomData,
         }
+    }
+
+    pub fn set_authentication(&mut self, authentication: bool) {
+        self.authentication = authentication;
     }
 
     fn start_insert_task(
@@ -395,6 +404,7 @@ where
 
     pub async fn get_event_feed(
         &self,
+        _resource: Option<String>,
         resume_at: Option<String>,
         limit: Option<i32>,
     ) -> Result<FeedEventsGetResponse, ErrorResponse> {
@@ -762,11 +772,28 @@ where
     #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn feed_events_get(
         &self,
+        authorization: Option<String>,
+        resource: Option<String>,
         resume_at: Option<String>,
         limit: Option<i32>,
         _context: &C,
     ) -> Result<FeedEventsGetResponse, ApiError> {
-        self.get_event_feed(resume_at, limit)
+        let filter = if self.authentication {
+            if let (Some(auth), Some(resource)) = (authorization, resource) {
+                auth::authenticate(&auth, Operation::Read, &resource)
+                    .await
+                    .map_err(|err| {
+                        tracing::debug!("Unauthorized: {err}");
+                        ApiError("Unauthorized".to_string())
+                    })?;
+                Some(resource)
+            } else {
+                return Err(ApiError("Unauthorized".to_string()));
+            }
+        } else {
+            None
+        };
+        self.get_event_feed(filter, resume_at, limit)
             .await
             .or_else(|err| Ok(FeedEventsGetResponse::InternalServerError(err)))
     }
@@ -864,8 +891,23 @@ where
     async fn events_event_id_get(
         &self,
         event_id: String,
+        bearer: Option<String>,
+        resource: Option<String>,
         _context: &C,
     ) -> Result<EventsEventIdGetResponse, ApiError> {
+        if self.authentication {
+            if let (Some(bearer), Some(resource)) = (bearer, resource) {
+                auth::authenticate(&bearer, Operation::Read, &resource)
+                    .await
+                    .map_err(|err| {
+                        tracing::debug!("Unauthorized: {err}");
+                        ApiError("Unauthorized".to_string())
+                    })?;
+            } else {
+                return Err(ApiError("Unauthorized".to_string()));
+            }
+        }
+
         self.get_events_event_id(event_id)
             .await
             .or_else(|err| Ok(EventsEventIdGetResponse::InternalServerError(err)))

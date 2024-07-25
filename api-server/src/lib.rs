@@ -46,6 +46,8 @@ pub enum EventsEventIdGetResponse {
     Success(models::Event),
     /// bad request
     BadRequest(models::BadRequestResponse),
+    /// Unauthorized
+    Unauthorized,
     /// Event not found
     EventNotFound(String),
     /// Internal server error
@@ -116,6 +118,8 @@ pub enum FeedEventsGetResponse {
     Success(models::EventFeed),
     /// bad request
     BadRequest(models::BadRequestResponse),
+    /// Unauthorized
+    Unauthorized,
     /// Internal server error
     InternalServerError(models::ErrorResponse),
 }
@@ -237,6 +241,8 @@ pub trait Api<C: Send + Sync> {
     async fn events_event_id_get(
         &self,
         event_id: String,
+        authorization: Option<String>,
+        resource: Option<String>,
         context: &C,
     ) -> Result<EventsEventIdGetResponse, ApiError>;
 
@@ -292,6 +298,8 @@ pub trait Api<C: Send + Sync> {
     /// Get all new event keys since resume token
     async fn feed_events_get(
         &self,
+        authorization: Option<String>,
+        resource: Option<String>,
         resume_at: Option<String>,
         limit: Option<i32>,
         context: &C,
@@ -378,6 +386,8 @@ pub trait ApiNoContext<C: Send + Sync> {
     async fn events_event_id_get(
         &self,
         event_id: String,
+        authorization: Option<String>,
+        resource: Option<String>,
     ) -> Result<EventsEventIdGetResponse, ApiError>;
 
     /// cors
@@ -426,6 +436,8 @@ pub trait ApiNoContext<C: Send + Sync> {
     /// Get all new event keys since resume token
     async fn feed_events_get(
         &self,
+        authorization: Option<String>,
+        resource: Option<String>,
         resume_at: Option<String>,
         limit: Option<i32>,
     ) -> Result<FeedEventsGetResponse, ApiError>;
@@ -521,9 +533,13 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
     async fn events_event_id_get(
         &self,
         event_id: String,
+        authorization: Option<String>,
+        resource: Option<String>,
     ) -> Result<EventsEventIdGetResponse, ApiError> {
         let context = self.context().clone();
-        self.api().events_event_id_get(event_id, &context).await
+        self.api()
+            .events_event_id_get(event_id, authorization, resource, &context)
+            .await
     }
 
     /// cors
@@ -599,11 +615,15 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
     /// Get all new event keys since resume token
     async fn feed_events_get(
         &self,
+        authorization: Option<String>,
+        resource: Option<String>,
         resume_at: Option<String>,
         limit: Option<i32>,
     ) -> Result<FeedEventsGetResponse, ApiError> {
         let context = self.context().clone();
-        self.api().feed_events_get(resume_at, limit, &context).await
+        self.api()
+            .feed_events_get(authorization, resource, resume_at, limit, &context)
+            .await
     }
 
     /// cors

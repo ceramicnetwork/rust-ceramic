@@ -1,155 +1,167 @@
 //! Structures for encoding and decoding CACAO capability objects.
 
 use serde::{Deserialize, Serialize};
+use ssi::jwk::Algorithm;
+use std::collections::HashMap;
 
 /// Capability object, see https://github.com/ChainAgnostic/CAIPs/blob/main/CAIPs/caip-74.md
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Capability {
+    /// Header for capability
     #[serde(rename = "h")]
-    header: Header,
+    pub header: Header,
+    /// Payload for capability
     #[serde(rename = "p")]
-    payload: Payload,
+    pub payload: Payload,
+    /// Signature for capability
     #[serde(rename = "s")]
-    signature: Signature,
+    pub signature: Signature,
 }
 
-impl Capability {
-    /// Get the header
-    pub fn header(&self) -> &Header {
-        &self.header
-    }
-
-    /// Get the payload
-    pub fn payload(&self) -> &Payload {
-        &self.payload
-    }
-
-    /// Get the signature
-    pub fn signature(&self) -> &Signature {
-        &self.signature
-    }
+/// Type of Capability Header
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub enum HeaderType {
+    /// EIP-4361 Capability
+    #[serde(rename = "eip4361")]
+    EIP4361,
+    /// CAIP-122 Capability
+    #[serde(rename = "caip122")]
+    CAIP122,
 }
-/// Header for a CACAO
-#[derive(Debug, Serialize, Deserialize)]
+
+/// Header for a Capability
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Header {
+    /// Type of the Capability Header
     #[serde(rename = "t")]
-    r#type: String,
+    pub r#type: HeaderType,
 }
 
-impl Header {
-    /// Get the type of the CACAO
-    pub fn r#type(&self) -> &str {
-        &self.r#type
-    }
-}
+/// Time format for capability
+pub type CapabilityTime = chrono::DateTime<chrono::Utc>;
 
 /// Payload for a CACAO
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Payload {
-    domain: String,
-
-    #[serde(rename = "iss")]
-    issuer: String,
-
+    /// Audience for payload
     #[serde(rename = "aud")]
-    audience: String,
+    pub audience: String,
 
-    version: String,
+    /// Domain for payload
+    pub domain: String,
 
-    nonce: String,
-
-    #[serde(rename = "iat")]
-    issued_at: String,
-
-    #[serde(rename = "nbf", skip_serializing_if = "Option::is_none")]
-    not_before: Option<String>,
-
+    /// Expiration time
     #[serde(rename = "exp", skip_serializing_if = "Option::is_none")]
-    expiration: Option<String>,
+    pub expiration: Option<CapabilityTime>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
-    statement: Option<String>,
+    /// Issued at time
+    #[serde(rename = "iat")]
+    pub issued_at: CapabilityTime,
 
+    /// Issuer for payload. For capability will be DID in URI format
+    #[serde(rename = "iss")]
+    pub issuer: String,
+
+    /// Not before time
+    #[serde(rename = "nbf", skip_serializing_if = "Option::is_none")]
+    pub not_before: Option<CapabilityTime>,
+
+    /// Nonce of payload
+    pub nonce: String,
+
+    /// Request ID
     #[serde(rename = "requestId", skip_serializing_if = "Option::is_none")]
-    request_id: Option<String>,
+    pub request_id: Option<String>,
 
+    /// Resources
     #[serde(skip_serializing_if = "Option::is_none")]
-    resources: Option<Vec<String>>,
+    pub resources: Option<Vec<String>>,
+
+    /// Subject of payload
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub statement: Option<String>,
+
+    /// Version of payload
+    pub version: String,
 }
 
-impl Payload {
-    /// Get the domain
-    pub fn domain(&self) -> &str {
-        &self.domain
-    }
+/// Type of Signature
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub enum SignatureType {
+    /// EIP-191 Signature
+    #[serde(rename = "eip191")]
+    EIP191,
+    /// EIP-1271 Signature
+    #[serde(rename = "eip1271")]
+    EIP1271,
+    /// ED25519 signature for solana
+    #[serde(rename = "solana:ed25519")]
+    SolanaED25519,
+    /// ED25519 signature for tezos
+    #[serde(rename = "tezos:ed25519")]
+    TezosED25519,
+    /// SECP256K1 signature for stacks
+    #[serde(rename = "stacks:secp256k1")]
+    StacksSECP256K1,
+    /// SECP256K1 signature for webauthn
+    #[serde(rename = "webauthn:p256")]
+    WebAuthNP256,
+    /// JWS signature
+    #[serde(rename = "jws")]
+    JWS,
+}
 
-    /// Get the issuer as a DID pkh string
-    pub fn issuer(&self) -> &str {
-        &self.issuer
+impl SignatureType {
+    /// Convert signature type to algorithm
+    pub fn algorithm(&self) -> Algorithm {
+        match self {
+            SignatureType::EIP191 => Algorithm::ES256,
+            SignatureType::EIP1271 => Algorithm::ES256,
+            SignatureType::SolanaED25519 => Algorithm::EdDSA,
+            SignatureType::TezosED25519 => Algorithm::EdDSA,
+            SignatureType::StacksSECP256K1 => Algorithm::ES256K,
+            SignatureType::WebAuthNP256 => Algorithm::ES256,
+            SignatureType::JWS => Algorithm::ES256,
+        }
     }
+}
 
-    /// Get the audience as a URI
-    pub fn audience(&self) -> &str {
-        &self.audience
-    }
+/// Values for unknown metadata
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum MetadataValue {
+    /// Boolean value
+    Boolean(bool),
+    /// Integer value
+    Integer(i64),
+    /// Null value
+    Null,
+    /// String value
+    String(String),
+}
 
-    /// Get the version
-    pub fn version(&self) -> &str {
-        &self.version
-    }
-
-    /// Get the nonce
-    pub fn nonce(&self) -> &str {
-        &self.nonce
-    }
-
-    /// Get the issued at date and time as a RFC3339 string
-    pub fn issued_at(&self) -> &str {
-        &self.issued_at
-    }
-
-    /// Get the not before date and time as a RFC3339 string
-    pub fn not_before(&self) -> Option<&String> {
-        self.not_before.as_ref()
-    }
-
-    /// Get the expiration date and time as a RFC3339 string
-    pub fn expiration(&self) -> Option<&String> {
-        self.expiration.as_ref()
-    }
-
-    /// Get the statement
-    pub fn statement(&self) -> Option<&String> {
-        self.statement.as_ref()
-    }
-
-    /// Get the request Id
-    pub fn request_id(&self) -> Option<&String> {
-        self.request_id.as_ref()
-    }
-
-    /// Get the resources
-    pub fn resources(&self) -> Option<&[String]> {
-        self.resources.as_ref().map(|r| &r[..])
-    }
+/// Metadata for signature
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SignatureMetadata {
+    /// Algorithm for signature
+    pub alg: String,
+    /// Key ID for signature
+    pub kid: String,
+    /// Other metadata
+    #[serde(flatten)]
+    pub rest: HashMap<String, MetadataValue>,
 }
 
 /// Signature of a CACAO
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Signature {
+    /// Metadata for signature
+    #[serde(rename = "m")]
+    pub metadata: SignatureMetadata,
+    /// Type of signature
     #[serde(rename = "t")]
-    r#type: String,
+    pub r#type: SignatureType,
+    /// Signature bytes
     #[serde(rename = "s")]
-    signature: String,
-}
-
-impl Signature {
-    /// Get the type of the signature
-    pub fn r#type(&self) -> &str {
-        &self.r#type
-    }
-    /// Get the signature bytes as hex encoded string prefixed with 0x
-    pub fn signature(&self) -> &str {
-        &self.signature
-    }
+    pub signature: String,
 }

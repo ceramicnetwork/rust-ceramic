@@ -167,6 +167,14 @@ struct DaemonOpts {
             env = "CERAMIC_ONE_CORS_ALLOW_ORIGINS"
         )]
     cors_allow_origins: Vec<String>,
+
+    // Perform authentication on requests
+    #[arg(
+        long,
+        default_value_t = false,
+        env = "CERAMIC_ONE_EXPERIMENTAL_AUTHENTICATION"
+    )]
+    experimental_authentication: bool,
 }
 
 #[derive(Args, Debug)]
@@ -529,12 +537,13 @@ impl Daemon {
             })?;
 
         // Build HTTP server
-        let ceramic_server = ceramic_api::Server::new(
+        let mut ceramic_server = ceramic_api::Server::new(
             peer_id,
             network,
             interest_api_store,
             Arc::new(model_api_store),
         );
+        ceramic_server.set_authentication(opts.experimental_authentication);
         let ceramic_service = ceramic_api_server::server::MakeService::new(ceramic_server);
         let ceramic_service = MakeAllowAllAuthenticator::new(ceramic_service, "");
         let ceramic_service =
