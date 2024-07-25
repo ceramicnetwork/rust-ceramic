@@ -64,17 +64,8 @@ pub enum DeliverableRequirement {
 
 impl CeramicEventService {
     /// Create a new CeramicEventStore
-    pub async fn new(pool: SqlitePool, process_undelivered: bool) -> Result<Self> {
+    pub async fn new(pool: SqlitePool) -> Result<Self> {
         CeramicOneEvent::init_delivered_order(&pool).await?;
-
-        if process_undelivered {
-            let _updated = OrderingTask::process_all_undelivered_events(
-                &pool,
-                MAX_ITERATIONS,
-                DELIVERABLE_EVENTS_BATCH_SIZE,
-            )
-            .await?;
-        }
 
         let delivery_task = OrderingTask::run(pool.clone(), PENDING_EVENTS_CHANNEL_DEPTH).await;
 
@@ -82,6 +73,16 @@ impl CeramicEventService {
             pool,
             delivery_task,
         })
+    }
+
+    /// Returns the number of undelivered events that were updated
+    pub async fn process_all_undelivered_events(&self) -> Result<usize> {
+        OrderingTask::process_all_undelivered_events(
+            &self.pool,
+            MAX_ITERATIONS,
+            DELIVERABLE_EVENTS_BATCH_SIZE,
+        )
+        .await
     }
 
     pub async fn migrate_from_ipfs(&self, network: Network, blocks: impl BlockStore) -> Result<()> {
