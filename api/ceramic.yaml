@@ -254,7 +254,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
-  "/network":
+  "/config/network":
     options:
       summary: cors
       responses:

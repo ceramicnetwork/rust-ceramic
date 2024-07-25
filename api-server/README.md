@@ -15,7 +15,7 @@ To see how to make this your own, look here:
 [README]((https://openapi-generator.tech))
 
 - API version: 0.29.0
-- Build date: 2024-07-25T17:06:13.915918-06:00[America/Denver]
+- Build date: 2024-07-25T17:06:40.519231-06:00[America/Denver]
 
 
 
@@ -62,6 +62,8 @@ cargo run --example server
 To run a client, follow one of the following simple steps:
 
 ```
+cargo run --example client ConfigNetworkGet
+cargo run --example client ConfigNetworkOptions
 cargo run --example client DebugHeapGet
 cargo run --example client DebugHeapOptions
 cargo run --example client EventsEventIdGet
@@ -80,8 +82,6 @@ cargo run --example client InterestsSortKeySortValueOptions
 cargo run --example client InterestsSortKeySortValuePost
 cargo run --example client LivenessGet
 cargo run --example client LivenessOptions
-cargo run --example client NetworkGet
-cargo run --example client NetworkOptions
 cargo run --example client VersionGet
 cargo run --example client VersionOptions
 cargo run --example client VersionPost
@@ -118,6 +118,8 @@ All URIs are relative to */ceramic*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
+[****](docs/default_api.md#) | **GET** /config/network | Get info about the Ceramic network the node is connected to
+[****](docs/default_api.md#) | **OPTIONS** /config/network | cors
 [****](docs/default_api.md#) | **GET** /debug/heap | Get the heap statistics of the Ceramic node
 [****](docs/default_api.md#) | **OPTIONS** /debug/heap | cors
 [****](docs/default_api.md#) | **GET** /events/{event_id} | Get event data
@@ -138,8 +140,6 @@ Method | HTTP request | Description
 [****](docs/default_api.md#) | **POST** /interests/{sort_key}/{sort_value} | Register interest for a sort key
 [****](docs/default_api.md#) | **GET** /liveness | Test the liveness of the Ceramic node
 [****](docs/default_api.md#) | **OPTIONS** /liveness | cors
-[****](docs/default_api.md#) | **GET** /network | Get info about the Ceramic network the node is connected to
-[****](docs/default_api.md#) | **OPTIONS** /network | cors
 [****](docs/default_api.md#) | **GET** /version | Get the version of the Ceramic node
 [****](docs/default_api.md#) | **OPTIONS** /version | cors
 [****](docs/default_api.md#) | **POST** /version | Get the version of the Ceramic node

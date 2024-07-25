@@ -269,7 +269,7 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
           description: Internal server error
       summary: Register interest for a sort key
-  /network:
+  /config/network:
     get:
       responses:
         "200":

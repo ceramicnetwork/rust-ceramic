@@ -30,8 +30,9 @@ use ceramic_api_server::{
     VersionPostResponse,
 };
 use ceramic_api_server::{
-    Api, ExperimentalEventsSepSepValueGetResponse, ExperimentalInterestsGetResponse,
-    FeedEventsGetResponse, FeedResumeTokenGetResponse, InterestsPostResponse, NetworkGetResponse,
+    Api, ConfigNetworkGetResponse, ExperimentalEventsSepSepValueGetResponse,
+    ExperimentalInterestsGetResponse, FeedEventsGetResponse, FeedResumeTokenGetResponse,
+    InterestsPostResponse,
 };
 use ceramic_core::{Cid, EventId, Interest, Network, PeerId, StreamId};
 use futures::TryFutureExt;
@@ -872,18 +873,18 @@ where
     }
 
     #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
-    async fn network_get(&self, _context: &C) -> Result<NetworkGetResponse, ApiError> {
-        Ok(NetworkGetResponse::Success(models::NetworkInfo {
+    async fn config_network_get(&self, _context: &C) -> Result<ConfigNetworkGetResponse, ApiError> {
+        Ok(ConfigNetworkGetResponse::Success(models::NetworkInfo {
             name: self.network.name(),
         }))
     }
 
     /// cors
-    async fn network_options(
+    async fn config_network_options(
         &self,
         _context: &C,
-    ) -> Result<ceramic_api_server::NetworkOptionsResponse, ApiError> {
-        Ok(ceramic_api_server::NetworkOptionsResponse::Cors)
+    ) -> Result<ceramic_api_server::ConfigNetworkOptionsResponse, ApiError> {
+        Ok(ceramic_api_server::ConfigNetworkOptionsResponse::Cors)
     }
 
     /// cors

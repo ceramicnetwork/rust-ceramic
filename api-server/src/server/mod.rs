@@ -23,15 +23,15 @@ pub use crate::context;
 type ServiceFuture = BoxFuture<'static, Result<Response<Body>, crate::ServiceError>>;
 
 use crate::{
-    Api, DebugHeapGetResponse, DebugHeapOptionsResponse, EventsEventIdGetResponse,
-    EventsEventIdOptionsResponse, EventsOptionsResponse, EventsPostResponse,
-    ExperimentalEventsSepSepValueGetResponse, ExperimentalEventsSepSepValueOptionsResponse,
-    ExperimentalInterestsGetResponse, ExperimentalInterestsOptionsResponse, FeedEventsGetResponse,
-    FeedEventsOptionsResponse, FeedResumeTokenGetResponse, FeedResumeTokenOptionsResponse,
-    InterestsOptionsResponse, InterestsPostResponse, InterestsSortKeySortValueOptionsResponse,
+    Api, ConfigNetworkGetResponse, ConfigNetworkOptionsResponse, DebugHeapGetResponse,
+    DebugHeapOptionsResponse, EventsEventIdGetResponse, EventsEventIdOptionsResponse,
+    EventsOptionsResponse, EventsPostResponse, ExperimentalEventsSepSepValueGetResponse,
+    ExperimentalEventsSepSepValueOptionsResponse, ExperimentalInterestsGetResponse,
+    ExperimentalInterestsOptionsResponse, FeedEventsGetResponse, FeedEventsOptionsResponse,
+    FeedResumeTokenGetResponse, FeedResumeTokenOptionsResponse, InterestsOptionsResponse,
+    InterestsPostResponse, InterestsSortKeySortValueOptionsResponse,
     InterestsSortKeySortValuePostResponse, LivenessGetResponse, LivenessOptionsResponse,
-    NetworkGetResponse, NetworkOptionsResponse, VersionGetResponse, VersionOptionsResponse,
-    VersionPostResponse,
+    VersionGetResponse, VersionOptionsResponse, VersionPostResponse,
 };
 
 mod paths {
@@ -39,6 +39,7 @@ mod paths {
 
     lazy_static! {
         pub static ref GLOBAL_REGEX_SET: regex::RegexSet = regex::RegexSet::new(vec![
+            r"^/ceramic/config/network$",
             r"^/ceramic/debug/heap$",
             r"^/ceramic/events$",
             r"^/ceramic/events/(?P<event_id>[^/?#]*)$",
@@ -49,21 +50,21 @@ mod paths {
             r"^/ceramic/interests$",
             r"^/ceramic/interests/(?P<sort_key>[^/?#]*)/(?P<sort_value>[^/?#]*)$",
             r"^/ceramic/liveness$",
-            r"^/ceramic/network$",
             r"^/ceramic/version$"
         ])
         .expect("Unable to create global regex set");
     }
-    pub(crate) static ID_DEBUG_HEAP: usize = 0;
-    pub(crate) static ID_EVENTS: usize = 1;
-    pub(crate) static ID_EVENTS_EVENT_ID: usize = 2;
+    pub(crate) static ID_CONFIG_NETWORK: usize = 0;
+    pub(crate) static ID_DEBUG_HEAP: usize = 1;
+    pub(crate) static ID_EVENTS: usize = 2;
+    pub(crate) static ID_EVENTS_EVENT_ID: usize = 3;
     lazy_static! {
         pub static ref REGEX_EVENTS_EVENT_ID: regex::Regex =
             #[allow(clippy::invalid_regex)]
             regex::Regex::new(r"^/ceramic/events/(?P<event_id>[^/?#]*)$")
                 .expect("Unable to create regex for EVENTS_EVENT_ID");
     }
-    pub(crate) static ID_EXPERIMENTAL_EVENTS_SEP_SEPVALUE: usize = 3;
+    pub(crate) static ID_EXPERIMENTAL_EVENTS_SEP_SEPVALUE: usize = 4;
     lazy_static! {
         pub static ref REGEX_EXPERIMENTAL_EVENTS_SEP_SEPVALUE: regex::Regex =
             #[allow(clippy::invalid_regex)]
@@ -72,11 +73,11 @@ mod paths {
             )
             .expect("Unable to create regex for EXPERIMENTAL_EVENTS_SEP_SEPVALUE");
     }
-    pub(crate) static ID_EXPERIMENTAL_INTERESTS: usize = 4;
-    pub(crate) static ID_FEED_EVENTS: usize = 5;
-    pub(crate) static ID_FEED_RESUMETOKEN: usize = 6;
-    pub(crate) static ID_INTERESTS: usize = 7;
-    pub(crate) static ID_INTERESTS_SORT_KEY_SORT_VALUE: usize = 8;
+    pub(crate) static ID_EXPERIMENTAL_INTERESTS: usize = 5;
+    pub(crate) static ID_FEED_EVENTS: usize = 6;
+    pub(crate) static ID_FEED_RESUMETOKEN: usize = 7;
+    pub(crate) static ID_INTERESTS: usize = 8;
+    pub(crate) static ID_INTERESTS_SORT_KEY_SORT_VALUE: usize = 9;
     lazy_static! {
         pub static ref REGEX_INTERESTS_SORT_KEY_SORT_VALUE: regex::Regex =
             #[allow(clippy::invalid_regex)]
@@ -85,8 +86,7 @@ mod paths {
             )
             .expect("Unable to create regex for INTERESTS_SORT_KEY_SORT_VALUE");
     }
-    pub(crate) static ID_LIVENESS: usize = 9;
-    pub(crate) static ID_NETWORK: usize = 10;
+    pub(crate) static ID_LIVENESS: usize = 10;
     pub(crate) static ID_VERSION: usize = 11;
 }
 
@@ -200,6 +200,81 @@ where
             let path = paths::GLOBAL_REGEX_SET.matches(uri.path());
 
             match method {
+                // ConfigNetworkGet - GET /config/network
+                hyper::Method::GET if path.matched(paths::ID_CONFIG_NETWORK) => {
+                    let result = api_impl.config_network_get(&context).await;
+                    let mut response = Response::new(Body::empty());
+                    response.headers_mut().insert(
+                        HeaderName::from_static("x-span-id"),
+                        HeaderValue::from_str(
+                            (&context as &dyn Has<XSpanIdString>)
+                                .get()
+                                .0
+                                .clone()
+                                .as_str(),
+                        )
+                        .expect("Unable to create X-Span-ID header value"),
+                    );
+
+                    match result {
+                        Ok(rsp) => match rsp {
+                            ConfigNetworkGetResponse::Success(body) => {
+                                *response.status_mut() = StatusCode::from_u16(200)
+                                    .expect("Unable to turn 200 into a StatusCode");
+                                response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for CONFIG_NETWORK_GET_SUCCESS"));
+                                let body_content = serde_json::to_string(&body)
+                                    .expect("impossible to fail to serialize");
+                                *response.body_mut() = Body::from(body_content);
+                            }
+                        },
+                        Err(_) => {
+                            // Application code returned an error. This should not happen, as the implementation should
+                            // return a valid response.
+                            *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                            *response.body_mut() = Body::from("An internal error occurred");
+                        }
+                    }
+
+                    Ok(response)
+                }
+
+                // ConfigNetworkOptions - OPTIONS /config/network
+                hyper::Method::OPTIONS if path.matched(paths::ID_CONFIG_NETWORK) => {
+                    let result = api_impl.config_network_options(&context).await;
+                    let mut response = Response::new(Body::empty());
+                    response.headers_mut().insert(
+                        HeaderName::from_static("x-span-id"),
+                        HeaderValue::from_str(
+                            (&context as &dyn Has<XSpanIdString>)
+                                .get()
+                                .0
+                                .clone()
+                                .as_str(),
+                        )
+                        .expect("Unable to create X-Span-ID header value"),
+                    );
+
+                    match result {
+                        Ok(rsp) => match rsp {
+                            ConfigNetworkOptionsResponse::Cors => {
+                                *response.status_mut() = StatusCode::from_u16(200)
+                                    .expect("Unable to turn 200 into a StatusCode");
+                            }
+                        },
+                        Err(_) => {
+                            // Application code returned an error. This should not happen, as the implementation should
+                            // return a valid response.
+                            *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                            *response.body_mut() = Body::from("An internal error occurred");
+                        }
+                    }
+
+                    Ok(response)
+                }
+
                 // DebugHeapGet - GET /debug/heap
                 hyper::Method::GET if path.matched(paths::ID_DEBUG_HEAP) => {
                     let result = api_impl.debug_heap_get(&context).await;
@@ -1612,81 +1687,6 @@ where
                     Ok(response)
                 }
 
-                // NetworkGet - GET /network
-                hyper::Method::GET if path.matched(paths::ID_NETWORK) => {
-                    let result = api_impl.network_get(&context).await;
-                    let mut response = Response::new(Body::empty());
-                    response.headers_mut().insert(
-                        HeaderName::from_static("x-span-id"),
-                        HeaderValue::from_str(
-                            (&context as &dyn Has<XSpanIdString>)
-                                .get()
-                                .0
-                                .clone()
-                                .as_str(),
-                        )
-                        .expect("Unable to create X-Span-ID header value"),
-                    );
-
-                    match result {
-                        Ok(rsp) => match rsp {
-                            NetworkGetResponse::Success(body) => {
-                                *response.status_mut() = StatusCode::from_u16(200)
-                                    .expect("Unable to turn 200 into a StatusCode");
-                                response.headers_mut().insert(
-                                                        CONTENT_TYPE,
-                                                        HeaderValue::from_str("application/json")
-                                                            .expect("Unable to create Content-Type header for NETWORK_GET_SUCCESS"));
-                                let body_content = serde_json::to_string(&body)
-                                    .expect("impossible to fail to serialize");
-                                *response.body_mut() = Body::from(body_content);
-                            }
-                        },
-                        Err(_) => {
-                            // Application code returned an error. This should not happen, as the implementation should
-                            // return a valid response.
-                            *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
-                            *response.body_mut() = Body::from("An internal error occurred");
-                        }
-                    }
-
-                    Ok(response)
-                }
-
-                // NetworkOptions - OPTIONS /network
-                hyper::Method::OPTIONS if path.matched(paths::ID_NETWORK) => {
-                    let result = api_impl.network_options(&context).await;
-                    let mut response = Response::new(Body::empty());
-                    response.headers_mut().insert(
-                        HeaderName::from_static("x-span-id"),
-                        HeaderValue::from_str(
-                            (&context as &dyn Has<XSpanIdString>)
-                                .get()
-                                .0
-                                .clone()
-                                .as_str(),
-                        )
-                        .expect("Unable to create X-Span-ID header value"),
-                    );
-
-                    match result {
-                        Ok(rsp) => match rsp {
-                            NetworkOptionsResponse::Cors => {
-                                *response.status_mut() = StatusCode::from_u16(200)
-                                    .expect("Unable to turn 200 into a StatusCode");
-                            }
-                        },
-                        Err(_) => {
-                            // Application code returned an error. This should not happen, as the implementation should
-                            // return a valid response.
-                            *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
-                            *response.body_mut() = Body::from("An internal error occurred");
-                        }
-                    }
-
-                    Ok(response)
-                }
-
                 // VersionGet - GET /version
                 hyper::Method::GET if path.matched(paths::ID_VERSION) => {
                     let result = api_impl.version_get(&context).await;
@@ -1825,6 +1825,7 @@ where
                     Ok(response)
                 }
 
+                _ if path.matched(paths::ID_CONFIG_NETWORK) => method_not_allowed(),
                 _ if path.matched(paths::ID_DEBUG_HEAP) => method_not_allowed(),
                 _ if path.matched(paths::ID_EVENTS) => method_not_allowed(),
                 _ if path.matched(paths::ID_EVENTS_EVENT_ID) => method_not_allowed(),
@@ -1837,7 +1838,6 @@ where
                 _ if path.matched(paths::ID_INTERESTS) => method_not_allowed(),
                 _ if path.matched(paths::ID_INTERESTS_SORT_KEY_SORT_VALUE) => method_not_allowed(),
                 _ if path.matched(paths::ID_LIVENESS) => method_not_allowed(),
-                _ if path.matched(paths::ID_NETWORK) => method_not_allowed(),
                 _ if path.matched(paths::ID_VERSION) => method_not_allowed(),
                 _ => Ok(Response::builder()
                     .status(StatusCode::NOT_FOUND)
@@ -1855,6 +1855,14 @@ impl<T> RequestParser<T> for ApiRequestParser {
     fn parse_operation_id(request: &Request<T>) -> Option<&'static str> {
         let path = paths::GLOBAL_REGEX_SET.matches(request.uri().path());
         match *request.method() {
+            // ConfigNetworkGet - GET /config/network
+            hyper::Method::GET if path.matched(paths::ID_CONFIG_NETWORK) => {
+                Some("ConfigNetworkGet")
+            }
+            // ConfigNetworkOptions - OPTIONS /config/network
+            hyper::Method::OPTIONS if path.matched(paths::ID_CONFIG_NETWORK) => {
+                Some("ConfigNetworkOptions")
+            }
             // DebugHeapGet - GET /debug/heap
             hyper::Method::GET if path.matched(paths::ID_DEBUG_HEAP) => Some("DebugHeapGet"),
             // DebugHeapOptions - OPTIONS /debug/heap
@@ -1919,10 +1927,6 @@ impl<T> RequestParser<T> for ApiRequestParser {
             hyper::Method::GET if path.matched(paths::ID_LIVENESS) => Some("LivenessGet"),
             // LivenessOptions - OPTIONS /liveness
             hyper::Method::OPTIONS if path.matched(paths::ID_LIVENESS) => Some("LivenessOptions"),
-            // NetworkGet - GET /network
-            hyper::Method::GET if path.matched(paths::ID_NETWORK) => Some("NetworkGet"),
-            // NetworkOptions - OPTIONS /network
-            hyper::Method::OPTIONS if path.matched(paths::ID_NETWORK) => Some("NetworkOptions"),
             // VersionGet - GET /version
             hyper::Method::GET if path.matched(paths::ID_VERSION) => Some("VersionGet"),
             // VersionOptions - OPTIONS /version

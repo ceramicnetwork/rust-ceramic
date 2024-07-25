@@ -2,16 +2,15 @@
 
 #[allow(unused_imports)]
 use ceramic_api_server::{
-    models, Api, ApiNoContext, Client, ContextWrapperExt, DebugHeapGetResponse,
-    DebugHeapOptionsResponse, EventsEventIdGetResponse, EventsEventIdOptionsResponse,
-    EventsOptionsResponse, EventsPostResponse, ExperimentalEventsSepSepValueGetResponse,
-    ExperimentalEventsSepSepValueOptionsResponse, ExperimentalInterestsGetResponse,
-    ExperimentalInterestsOptionsResponse, FeedEventsGetResponse, FeedEventsOptionsResponse,
-    FeedResumeTokenGetResponse, FeedResumeTokenOptionsResponse, InterestsOptionsResponse,
-    InterestsPostResponse, InterestsSortKeySortValueOptionsResponse,
+    models, Api, ApiNoContext, Client, ConfigNetworkGetResponse, ConfigNetworkOptionsResponse,
+    ContextWrapperExt, DebugHeapGetResponse, DebugHeapOptionsResponse, EventsEventIdGetResponse,
+    EventsEventIdOptionsResponse, EventsOptionsResponse, EventsPostResponse,
+    ExperimentalEventsSepSepValueGetResponse, ExperimentalEventsSepSepValueOptionsResponse,
+    ExperimentalInterestsGetResponse, ExperimentalInterestsOptionsResponse, FeedEventsGetResponse,
+    FeedEventsOptionsResponse, FeedResumeTokenGetResponse, FeedResumeTokenOptionsResponse,
+    InterestsOptionsResponse, InterestsPostResponse, InterestsSortKeySortValueOptionsResponse,
     InterestsSortKeySortValuePostResponse, LivenessGetResponse, LivenessOptionsResponse,
-    NetworkGetResponse, NetworkOptionsResponse, VersionGetResponse, VersionOptionsResponse,
-    VersionPostResponse,
+    VersionGetResponse, VersionOptionsResponse, VersionPostResponse,
 };
 use clap::{App, Arg};
 #[allow(unused_imports)]
@@ -41,6 +40,8 @@ fn main() {
             Arg::with_name("operation")
                 .help("Sets the operation to run")
                 .possible_values(&[
+                    "ConfigNetworkGet",
+                    "ConfigNetworkOptions",
                     "DebugHeapGet",
                     "DebugHeapOptions",
                     "EventsEventIdGet",
@@ -59,8 +60,6 @@ fn main() {
                     "InterestsSortKeySortValuePost",
                     "LivenessGet",
                     "LivenessOptions",
-                    "NetworkGet",
-                    "NetworkOptions",
                     "VersionGet",
                     "VersionOptions",
                     "VersionPost",
@@ -119,6 +118,22 @@ fn main() {
     let mut rt = tokio::runtime::Runtime::new().unwrap();
 
     match matches.value_of("operation") {
+        Some("ConfigNetworkGet") => {
+            let result = rt.block_on(client.config_network_get());
+            info!(
+                "{:?} (X-Span-ID: {:?})",
+                result,
+                (client.context() as &dyn Has<XSpanIdString>).get().clone()
+            );
+        }
+        Some("ConfigNetworkOptions") => {
+            let result = rt.block_on(client.config_network_options());
+            info!(
+                "{:?} (X-Span-ID: {:?})",
+                result,
+                (client.context() as &dyn Has<XSpanIdString>).get().clone()
+            );
+        }
         Some("DebugHeapGet") => {
             let result = rt.block_on(client.debug_heap_get());
             info!(
@@ -293,22 +308,6 @@ fn main() {
         }
         Some("LivenessOptions") => {
             let result = rt.block_on(client.liveness_options());
-            info!(
-                "{:?} (X-Span-ID: {:?})",
-                result,
-                (client.context() as &dyn Has<XSpanIdString>).get().clone()
-            );
-        }
-        Some("NetworkGet") => {
-            let result = rt.block_on(client.network_get());
-            info!(
-                "{:?} (X-Span-ID: {:?})",
-                result,
-                (client.context() as &dyn Has<XSpanIdString>).get().clone()
-            );
-        }
-        Some("NetworkOptions") => {
-            let result = rt.block_on(client.network_options());
             info!(
                 "{:?} (X-Span-ID: {:?})",
                 result,
