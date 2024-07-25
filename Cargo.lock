@@ -1009,6 +1009,7 @@ dependencies = [
  "ipld-core",
  "multihash-codetable",
  "rand 0.8.5",
+ "serde",
  "serde_ipld_dagcbor",
  "tokio",
 ]

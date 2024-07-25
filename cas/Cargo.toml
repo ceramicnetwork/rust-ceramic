@@ -15,5 +15,6 @@ hex.workspace = true
 ipld-core.workspace = true
 multihash-codetable.workspace = true
 rand.workspace = true
+serde.workspace = true
 serde_ipld_dagcbor.workspace = true
 tokio.workspace = true
