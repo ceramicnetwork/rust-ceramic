@@ -7,7 +7,7 @@ mod tests;
 
 use std::sync::Arc;
 
-use ceramic_store::SqlitePool;
+use ceramic_store::{CeramicOneVersion, SqlitePool};
 pub use error::Error;
 pub use event::{BlockStore, CeramicEventService};
 pub use interest::CeramicInterestService;
@@ -25,6 +25,8 @@ pub struct CeramicService {
 impl CeramicService {
     /// Create a new CeramicService and process undelivered events if requested
     pub async fn try_new(pool: SqlitePool) -> Result<Self> {
+        // In the future, we may need to check the previous version to make sure we're not downgrading and risking data loss
+        CeramicOneVersion::insert_current(&pool).await?;
         let interest = Arc::new(CeramicInterestService::new(pool.clone()));
         let event = Arc::new(CeramicEventService::new(pool).await?);
         Ok(Self { interest, event })
