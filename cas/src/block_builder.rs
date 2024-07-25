@@ -9,6 +9,28 @@ use std::sync::mpsc::Sender;
 
 use ceramic_store::SqlitePool;
 
+/// CidSource is a trait that provides a source of CIDs.
+pub trait CidSource {
+    fn cids(&self) -> StepBy<AnchorRequest>;
+}
+
+/// BlockSink is a trait that accepts blocks.
+pub trait BlockSink {
+    fn send(&self, block: DagCborIpfsBlock) -> Result<()>;
+}
+
+// AnchorRequest request for a Time Event
+pub struct AnchorRequest {
+    pub id: Cid,   // The CID of the Stream
+    pub prev: Cid, // The CID of the Event to be anchored
+}
+
+#[derive(Debug)]
+pub struct RootCount {
+    pub root: Cid,
+    pub count: u64,
+}
+
 /// Accepts the CIDs of two blocks and returns the CID of the CBOR list that includes both CIDs.
 fn merge_nodes(left: &Cid, right: Option<&Cid>, blockstore: &Sender<DagCborIpfsBlock>) -> Cid {
     let merkle_node = vec![Some(*left), right.cloned()];
@@ -17,12 +39,6 @@ fn merge_nodes(left: &Cid, right: Option<&Cid>, blockstore: &Sender<DagCborIpfsB
     let cid = block.cid.clone();
     blockstore.send(block).unwrap();
     cid
-}
-
-#[derive(Debug)]
-pub struct RootCount {
-    root: Cid,
-    count: u64,
 }
 
 pub struct DagCborIpfsBlock {
@@ -42,6 +58,31 @@ impl From<&[u8]> for DagCborIpfsBlock {
     }
 }
 
+pub fn build_time_events<'a, I>(
+    anchor_requests: I,
+    proof: Cid,
+    path_prefix: Option<String>,
+    count: u64,
+    block_sink: Sender<DagCborIpfsBlock>,
+) -> Result<()>
+where
+    I: Iterator<Item = &'a AnchorRequest>,
+{
+    for (index, anchor_request) in anchor_requests.into_iter().enumerate() {
+        let time_event = build_time_event(
+            anchor_request.id,
+            anchor_request.prev,
+            proof,
+            path_prefix.clone(),
+            index.try_into().unwrap(),
+            count,
+        )?;
+        let x: Vec<u8> = serde_ipld_dagcbor::to_vec(&time_event).unwrap();
+        block_sink.send(x.into())?;
+    }
+    Ok(())
+}
+
 impl From<Vec<u8>> for DagCborIpfsBlock {
     fn from(data: Vec<u8>) -> DagCborIpfsBlock {
         DagCborIpfsBlock {
@@ -55,13 +96,16 @@ impl From<Vec<u8>> for DagCborIpfsBlock {
 }
 
 /// Fetch unanchored CIDs from the Anchor Request Store and builds a Merkle tree from them.
-pub async fn build_tree<I>(cids: I, blockstore: Sender<DagCborIpfsBlock>) -> Result<RootCount>
+pub async fn build_tree<'a, I>(
+    anchor_requests: I,
+    block_sink: Sender<DagCborIpfsBlock>,
+) -> Result<RootCount>
 where
-    I: IntoIterator<Item = Cid>,
+    I: Iterator<Item = &'a AnchorRequest>,
 {
     let mut peaks: [Option<Cid>; 64] = [None; 64];
     let mut count: u64 = 0;
-    for cid in cids.into_iter() {
+    for anchor_request in anchor_requests {
         count += 1;
         // Ref: https://eprint.iacr.org/2021/038.pdf
         // []
@@ -73,12 +117,12 @@ where
         // [none, (cid5, cid6), ((cid1, cid2), (cid3, cid4))]
         // [cid7, (cid5, cid6), ((cid1, cid2), (cid3, cid4))]
         // [none, none, none, (((cid1, cid2), (cid3, cid4)), ((cid5, cid6), (cid7, cid8))]
-        let mut new_node: Cid = cid;
+        let mut new_node: Cid = anchor_request.prev;
         let mut place_value = 0;
         while place_value < peaks.len() {
             match peaks[place_value].take() {
                 Some(old_node) => {
-                    let merged_node = merge_nodes(&old_node, Some(&new_node), &blockstore);
+                    let merged_node = merge_nodes(&old_node, Some(&new_node), &block_sink);
                     new_node = merged_node;
                     place_value += 1;
                 }
@@ -91,13 +135,10 @@ where
     }
     let mut right: Option<Cid> = None;
     for left in peaks.iter().flatten() {
-        right = Some(merge_nodes(left, right.as_ref(), &blockstore));
+        right = Some(merge_nodes(left, right.as_ref(), &block_sink));
     }
     match right {
-        Some(right) => Ok(RootCount {
-            root: right,
-            count: count,
-        }),
+        Some(right) => Ok(RootCount { root: right, count }),
         None => Err(anyhow!("no CIDs in iterator")),
     }
 }
@@ -160,54 +201,36 @@ struct TimeEvent {
     pub path: String,
 }
 
-pub fn build_time_event(id: Cid, prev: Cid, proof: Cid, index: u64, count: u64) -> Result<TimeEvent> {
+pub fn build_time_event(
+    id: Cid,
+    prev: Cid,
+    proof: Cid,
+    path_prefix: Option<String>,
+    index: u64,
+    count: u64,
+) -> Result<TimeEvent> {
     let time_event = TimeEvent {
         id,
         prev,
         proof,
-        path: index_to_path(index, count)?,
+        path: format!(
+            "{}{}",
+            path_prefix.unwrap_or_default(),
+            index_to_path(index, count)?
+        ),
     };
     Ok(time_event)
-}
-
-// AnchorRequest request for a Time Event
-pub struct AnchorRequest {
-    pub id: Cid,   // The CID of the Stream
-    pub prev: Cid, // The CID of the Event to be anchored
-}
-
-fn build_time_events<I>(
-    anchor_requests: I,
-    proof: Cid,
-    count: u64,
-    blockstore: Sender<DagCborIpfsBlock>,
-) -> Result<()>
-where
-    I: IntoIterator<Item = AnchorRequest>,
-{
-    for (index, anchor_request) in anchor_requests.into_iter().enumerate() {
-        let time_event = build_time_event(
-            anchor_request.id,
-            anchor_request.prev,
-            proof,
-            index.try_into().unwrap(),
-            count,
-        )?;
-        let x: Vec<u8> = serde_ipld_dagcbor::to_vec(&time_event).unwrap();
-        blockstore.send(x.into())?;
-    }
-    Ok(())
 }
 
 /// Tests to ensure that the merge function is working as expected.
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::mpsc::channel;
     use ceramic_store::{Error, Migrations, SqlitePool};
     use cid::CidGeneric;
     use expect_test::expect;
     use std::fmt::{self, Debug};
+    use std::sync::mpsc::channel;
 
     #[test]
     fn test_merge() {
@@ -295,12 +318,25 @@ mod tests {
         Cid::new_v1(0x00, hash)
     }
 
+    fn mock_anchor_requests() -> (i128, Vec<AnchorRequest>) {
+        let count = 1_000_000_i128;
+        (
+            count,
+            (0..count)
+                .map(|n| AnchorRequest {
+                    id: int128_cid(n),
+                    prev: int128_cid(n),
+                })
+                .collect(),
+        )
+    }
+
     #[tokio::test]
     async fn test_hash_root() {
-        let cids: Vec<Cid> = (1..1_000_000_i128).map(int128_cid).into_iter().collect();
+        let (_, anchor_requests) = mock_anchor_requests();
         let (sender, _receiver) = channel();
-        let result = build_tree(cids, sender).await;
-        expect!["Ok(RootCount { root: Cid(bafyreidq247kfkizr3k6wlvx43lt7gro2dno7vzqepmnqt26agri4opzqu), count: 999999 })"]
+        let result = build_tree(anchor_requests.iter(), sender).await;
+        expect!["Ok(RootCount { root: Cid(bafyreicv5owrmctiwt3qhfpto6bs4ld3bxcqwxxjttpfvvzcqljr7bfmum), count: 1000000 })"]
         .assert_eq(&format!("{:?}", &result));
     }
 
@@ -314,26 +350,25 @@ mod tests {
             Cid::try_from("bafyreidq247kfkizr3k6wlvx43lt7gro2dno7vzqepmnqt26agri4opzqu").unwrap();
         let index = 500_000;
         let count = 999_999;
-        let time_event = build_time_event(id, prev, proof, index, count);
+        let time_event = build_time_event(id, prev, proof, Some("".to_owned()), index, count);
         expect![[r#"Ok(TimeEvent { id: Cid(baeabeifu7qd7bpy4z6vdo7jff6kg3uiwolqtofhut7nrhx6wuhpb2wqxtq), prev: Cid(baeabeifu7qd7bpy4z6vdo7jff6kg3uiwolqtofhut7nrhx6wuhpb2wqxtq), proof: Cid(bafyreidq247kfkizr3k6wlvx43lt7gro2dno7vzqepmnqt26agri4opzqu), path: "0/1/1/1/1/0/1/0/0/0/0/1/0/0/1/0/0/0/0/0" })"#]]
         .assert_eq(&format!("{:?}", time_event));
     }
 
     #[tokio::test]
     async fn test_time_events() {
-        let count = 1_000_000_i128;
-        let anchor_requests: Vec<AnchorRequest> = (0..count)
-            .map(|n| AnchorRequest {
-                id: int128_cid(n),
-                prev: int128_cid(n),
-            })
-            .into_iter()
-            .collect();
+        let (count, anchor_requests) = mock_anchor_requests();
         let proof =
-            Cid::try_from("bafyreidq247kfkizr3k6wlvx43lt7gro2dno7vzqepmnqt26agri4opzqu").unwrap();
+            Cid::try_from("bafyreicv5owrmctiwt3qhfpto6bs4ld3bxcqwxxjttpfvvzcqljr7bfmum").unwrap();
 
         let (sender, _receiver) = channel();
-        let result = build_time_events(anchor_requests, proof, count.try_into().unwrap(), sender);
+        let result = build_time_events(
+            anchor_requests.iter(),
+            proof,
+            Some("".to_owned()),
+            count.try_into().unwrap(),
+            sender,
+        );
         expect![[r#"
             Ok(
                 (),

@@ -1,7 +1,9 @@
-mod merkle_tree;
+mod block_builder;
+mod state_machine;
+mod transaction_manager;
 
-pub use merkle_tree::AnchorRequest;
-pub use merkle_tree::DagCborIpfsBlock;
-pub use merkle_tree::RootCount;
-pub use merkle_tree::build_time_event;
-pub use merkle_tree::build_tree;
+pub use block_builder::build_time_event;
+pub use block_builder::build_tree;
+pub use block_builder::AnchorRequest;
+pub use block_builder::DagCborIpfsBlock;
+pub use block_builder::RootCount;
