@@ -15,17 +15,17 @@ fn merge_nodes(left: &Cid, right: Option<&Cid>, blockstore: &Sender<DagCborIpfsB
     let x: Vec<u8> = serde_ipld_dagcbor::to_vec(&merkle_node).unwrap();
     let block: DagCborIpfsBlock = x.into();
     let cid = block.cid.clone();
-    blockstore.send(block);
+    blockstore.send(block).unwrap();
     cid
 }
 
 #[derive(Debug)]
-struct RootCount {
+pub struct RootCount {
     root: Cid,
     count: u64,
 }
 
-struct DagCborIpfsBlock {
+pub struct DagCborIpfsBlock {
     pub cid: Cid,
     pub data: Vec<u8>,
 }
@@ -55,7 +55,7 @@ impl From<Vec<u8>> for DagCborIpfsBlock {
 }
 
 /// Fetch unanchored CIDs from the Anchor Request Store and builds a Merkle tree from them.
-async fn build_tree<I>(cids: I, blockstore: Sender<DagCborIpfsBlock>) -> Result<RootCount>
+pub async fn build_tree<I>(cids: I, blockstore: Sender<DagCborIpfsBlock>) -> Result<RootCount>
 where
     I: IntoIterator<Item = Cid>,
 {
@@ -160,7 +160,7 @@ struct TimeEvent {
     pub path: String,
 }
 
-fn build_time_event(id: Cid, prev: Cid, proof: Cid, index: u64, count: u64) -> Result<TimeEvent> {
+pub fn build_time_event(id: Cid, prev: Cid, proof: Cid, index: u64, count: u64) -> Result<TimeEvent> {
     let time_event = TimeEvent {
         id,
         prev,
