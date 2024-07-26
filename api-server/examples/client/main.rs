@@ -2,13 +2,13 @@
 
 #[allow(unused_imports)]
 use ceramic_api_server::{
-    models, Api, ApiNoContext, Client, ContextWrapperExt, DebugHeapGetResponse,
-    DebugHeapOptionsResponse, EventsEventIdGetResponse, EventsEventIdOptionsResponse,
-    EventsOptionsResponse, EventsPostResponse, ExperimentalEventsSepSepValueGetResponse,
-    ExperimentalEventsSepSepValueOptionsResponse, ExperimentalInterestsGetResponse,
-    ExperimentalInterestsOptionsResponse, FeedEventsGetResponse, FeedEventsOptionsResponse,
-    FeedResumeTokenGetResponse, FeedResumeTokenOptionsResponse, InterestsOptionsResponse,
-    InterestsPostResponse, InterestsSortKeySortValueOptionsResponse,
+    models, Api, ApiNoContext, Client, ConfigNetworkGetResponse, ConfigNetworkOptionsResponse,
+    ContextWrapperExt, DebugHeapGetResponse, DebugHeapOptionsResponse, EventsEventIdGetResponse,
+    EventsEventIdOptionsResponse, EventsOptionsResponse, EventsPostResponse,
+    ExperimentalEventsSepSepValueGetResponse, ExperimentalEventsSepSepValueOptionsResponse,
+    ExperimentalInterestsGetResponse, ExperimentalInterestsOptionsResponse, FeedEventsGetResponse,
+    FeedEventsOptionsResponse, FeedResumeTokenGetResponse, FeedResumeTokenOptionsResponse,
+    InterestsOptionsResponse, InterestsPostResponse, InterestsSortKeySortValueOptionsResponse,
     InterestsSortKeySortValuePostResponse, LivenessGetResponse, LivenessOptionsResponse,
     VersionGetResponse, VersionOptionsResponse, VersionPostResponse,
 };
@@ -40,6 +40,8 @@ fn main() {
             Arg::with_name("operation")
                 .help("Sets the operation to run")
                 .possible_values(&[
+                    "ConfigNetworkGet",
+                    "ConfigNetworkOptions",
                     "DebugHeapGet",
                     "DebugHeapOptions",
                     "EventsEventIdGet",
@@ -116,6 +118,22 @@ fn main() {
     let mut rt = tokio::runtime::Runtime::new().unwrap();
 
     match matches.value_of("operation") {
+        Some("ConfigNetworkGet") => {
+            let result = rt.block_on(client.config_network_get());
+            info!(
+                "{:?} (X-Span-ID: {:?})",
+                result,
+                (client.context() as &dyn Has<XSpanIdString>).get().clone()
+            );
+        }
+        Some("ConfigNetworkOptions") => {
+            let result = rt.block_on(client.config_network_options());
+            info!(
+                "{:?} (X-Span-ID: {:?})",
+                result,
+                (client.context() as &dyn Has<XSpanIdString>).get().clone()
+            );
+        }
         Some("DebugHeapGet") => {
             let result = rt.block_on(client.debug_heap_get());
             info!(

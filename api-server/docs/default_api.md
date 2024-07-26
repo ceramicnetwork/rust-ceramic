@@ -4,6 +4,8 @@ All URIs are relative to */ceramic*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
+****](default_api.md#) | **GET** /config/network | Get info about the Ceramic network the node is connected to
+****](default_api.md#) | **OPTIONS** /config/network | cors
 ****](default_api.md#) | **GET** /debug/heap | Get the heap statistics of the Ceramic node
 ****](default_api.md#) | **OPTIONS** /debug/heap | cors
 ****](default_api.md#) | **GET** /events/{event_id} | Get event data
@@ -28,6 +30,50 @@ Method | HTTP request | Description
 ****](default_api.md#) | **OPTIONS** /version | cors
 ****](default_api.md#) | **POST** /version | Get the version of the Ceramic node
 
+
+# ****
+> models::NetworkInfo ()
+Get info about the Ceramic network the node is connected to
+
+### Required Parameters
+This endpoint does not need any parameter.
+
+### Return type
+
+[**models::NetworkInfo**](NetworkInfo.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# ****
+> ()
+cors
+
+### Required Parameters
+This endpoint does not need any parameter.
+
+### Return type
+
+ (empty response body)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: Not defined
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
 # ****
 > swagger::ByteArray ()

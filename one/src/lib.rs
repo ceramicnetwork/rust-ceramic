@@ -216,6 +216,7 @@ enum Network {
     /// Local network with unique id
     Local,
     /// Singleton network in memory
+    #[clap(alias = "inmemory")]
     InMemory,
 }
 

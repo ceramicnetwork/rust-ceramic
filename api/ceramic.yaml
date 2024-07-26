@@ -254,6 +254,21 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  "/config/network":
+    options:
+      summary: cors
+      responses:
+        "200":
+          description: cors
+    get:
+      summary: Get info about the Ceramic network the node is connected to
+      responses:
+        "200":
+          description: success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NetworkInfo"
   /experimental/interests:
     options:
       summary: cors
@@ -583,3 +598,13 @@ components:
         streamId:
           type: string
           description: Multibase encoded stream ID.
+    NetworkInfo:
+      title: Information about the Ceramic network
+      description: Ceramic network information
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          description: Name of the Ceramic network

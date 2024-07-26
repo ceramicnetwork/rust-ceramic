@@ -23,6 +23,18 @@ pub const BASE_PATH: &str = "/ceramic";
 pub const API_VERSION: &str = "0.29.0";
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub enum ConfigNetworkGetResponse {
+    /// success
+    Success(models::NetworkInfo),
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub enum ConfigNetworkOptionsResponse {
+    /// cors
+    Cors,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[must_use]
 pub enum DebugHeapGetResponse {
     /// success
@@ -227,6 +239,15 @@ pub trait Api<C: Send + Sync> {
         Poll::Ready(Ok(()))
     }
 
+    /// Get info about the Ceramic network the node is connected to
+    async fn config_network_get(&self, context: &C) -> Result<ConfigNetworkGetResponse, ApiError>;
+
+    /// cors
+    async fn config_network_options(
+        &self,
+        context: &C,
+    ) -> Result<ConfigNetworkOptionsResponse, ApiError>;
+
     /// Get the heap statistics of the Ceramic node
     async fn debug_heap_get(&self, context: &C) -> Result<DebugHeapGetResponse, ApiError>;
 
@@ -368,6 +389,12 @@ pub trait ApiNoContext<C: Send + Sync> {
 
     fn context(&self) -> &C;
 
+    /// Get info about the Ceramic network the node is connected to
+    async fn config_network_get(&self) -> Result<ConfigNetworkGetResponse, ApiError>;
+
+    /// cors
+    async fn config_network_options(&self) -> Result<ConfigNetworkOptionsResponse, ApiError>;
+
     /// Get the heap statistics of the Ceramic node
     async fn debug_heap_get(&self) -> Result<DebugHeapGetResponse, ApiError>;
 
@@ -503,6 +530,18 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
 
     fn context(&self) -> &C {
         ContextWrapper::context(self)
+    }
+
+    /// Get info about the Ceramic network the node is connected to
+    async fn config_network_get(&self) -> Result<ConfigNetworkGetResponse, ApiError> {
+        let context = self.context().clone();
+        self.api().config_network_get(&context).await
+    }
+
+    /// cors
+    async fn config_network_options(&self) -> Result<ConfigNetworkOptionsResponse, ApiError> {
+        let context = self.context().clone();
+        self.api().config_network_options(&context).await
     }
 
     /// Get the heap statistics of the Ceramic node

@@ -101,12 +101,13 @@ impl<C> Server<C> {
 
 use ceramic_api_server::server::MakeService;
 use ceramic_api_server::{
-    Api, DebugHeapGetResponse, DebugHeapOptionsResponse, EventsEventIdGetResponse,
-    EventsEventIdOptionsResponse, EventsOptionsResponse, EventsPostResponse,
-    ExperimentalEventsSepSepValueGetResponse, ExperimentalEventsSepSepValueOptionsResponse,
-    ExperimentalInterestsGetResponse, ExperimentalInterestsOptionsResponse, FeedEventsGetResponse,
-    FeedEventsOptionsResponse, FeedResumeTokenGetResponse, FeedResumeTokenOptionsResponse,
-    InterestsOptionsResponse, InterestsPostResponse, InterestsSortKeySortValueOptionsResponse,
+    Api, ConfigNetworkGetResponse, ConfigNetworkOptionsResponse, DebugHeapGetResponse,
+    DebugHeapOptionsResponse, EventsEventIdGetResponse, EventsEventIdOptionsResponse,
+    EventsOptionsResponse, EventsPostResponse, ExperimentalEventsSepSepValueGetResponse,
+    ExperimentalEventsSepSepValueOptionsResponse, ExperimentalInterestsGetResponse,
+    ExperimentalInterestsOptionsResponse, FeedEventsGetResponse, FeedEventsOptionsResponse,
+    FeedResumeTokenGetResponse, FeedResumeTokenOptionsResponse, InterestsOptionsResponse,
+    InterestsPostResponse, InterestsSortKeySortValueOptionsResponse,
     InterestsSortKeySortValuePostResponse, LivenessGetResponse, LivenessOptionsResponse,
     VersionGetResponse, VersionOptionsResponse, VersionPostResponse,
 };
@@ -118,6 +119,27 @@ impl<C> Api<C> for Server<C>
 where
     C: Has<XSpanIdString> + Send + Sync,
 {
+    /// Get info about the Ceramic network the node is connected to
+    async fn config_network_get(&self, context: &C) -> Result<ConfigNetworkGetResponse, ApiError> {
+        info!(
+            "config_network_get() - X-Span-ID: {:?}",
+            context.get().0.clone()
+        );
+        Err(ApiError("Generic failure".into()))
+    }
+
+    /// cors
+    async fn config_network_options(
+        &self,
+        context: &C,
+    ) -> Result<ConfigNetworkOptionsResponse, ApiError> {
+        info!(
+            "config_network_options() - X-Span-ID: {:?}",
+            context.get().0.clone()
+        );
+        Err(ApiError("Generic failure".into()))
+    }
+
     /// Get the heap statistics of the Ceramic node
     async fn debug_heap_get(&self, context: &C) -> Result<DebugHeapGetResponse, ApiError> {
         info!(

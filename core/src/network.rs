@@ -30,11 +30,11 @@ impl Network {
     /// Get the network as a unique name.
     pub fn name(&self) -> String {
         match self {
-            Network::Mainnet => "/ceramic".to_owned(),
-            Network::TestnetClay => "/ceramic/testnet-clay".to_owned(),
-            Network::DevUnstable => "/ceramic/dev-unstable".to_owned(),
-            Network::Local(i) => format!("/ceramic/local-{}", i),
-            Network::InMemory => "/ceramic/inmemory".to_owned(),
+            Network::Mainnet => "mainnet".to_owned(),
+            Network::TestnetClay => "testnet-clay".to_owned(),
+            Network::DevUnstable => "dev-unstable".to_owned(),
+            Network::Local(i) => format!("local-{}", i),
+            Network::InMemory => "inmemory".to_owned(),
         }
     }
 }

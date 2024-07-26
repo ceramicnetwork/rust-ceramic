@@ -15,7 +15,7 @@ To see how to make this your own, look here:
 [README]((https://openapi-generator.tech))
 
 - API version: 0.29.0
-- Build date: 2024-07-22T20:00:53.129668076Z[Etc/UTC]
+- Build date: 2024-07-25T17:06:40.519231-06:00[America/Denver]
 
 
 
@@ -62,6 +62,8 @@ cargo run --example server
 To run a client, follow one of the following simple steps:
 
 ```
+cargo run --example client ConfigNetworkGet
+cargo run --example client ConfigNetworkOptions
 cargo run --example client DebugHeapGet
 cargo run --example client DebugHeapOptions
 cargo run --example client EventsEventIdGet
@@ -116,6 +118,8 @@ All URIs are relative to */ceramic*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
+[****](docs/default_api.md#) | **GET** /config/network | Get info about the Ceramic network the node is connected to
+[****](docs/default_api.md#) | **OPTIONS** /config/network | cors
 [****](docs/default_api.md#) | **GET** /debug/heap | Get the heap statistics of the Ceramic node
 [****](docs/default_api.md#) | **OPTIONS** /debug/heap | cors
 [****](docs/default_api.md#) | **GET** /events/{event_id} | Get event data
@@ -153,6 +157,7 @@ Method | HTTP request | Description
  - [Interest](docs/Interest.md)
  - [InterestsGet](docs/InterestsGet.md)
  - [InterestsGetInterestsInner](docs/InterestsGetInterestsInner.md)
+ - [NetworkInfo](docs/NetworkInfo.md)
  - [Version](docs/Version.md)
 
 
