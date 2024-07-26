@@ -1,0 +1,20 @@
+[package]
+name = "ceramic-anchor-tree"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+ceramic-store.workspace = true
+ceramic-core.workspace = true
+cid.workspace = true
+multihash-codetable.workspace = true
+serde.workspace = true
+serde_ipld_dagcbor.workspace = true
+expect-test.workspace = true
+rand.workspace = true
+tokio.workspace = true
+

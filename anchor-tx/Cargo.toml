@@ -1,0 +1,22 @@
+[package]
+name = "ceramic-anchor-tx"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+ceramic-core.workspace = true
+ceramic-event.workspace = true
+cid.workspace = true
+expect-test.workspace = true
+multihash-codetable.workspace = true
+serde.workspace = true
+serde_ipld_dagcbor.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+reqwest.workspace = true
+tokio.workspace = true
+chrono.workspace = true

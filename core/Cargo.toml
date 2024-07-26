@@ -15,6 +15,7 @@ did-method-key = "0.2.1"
 did-pkh = "0.2.1"
 hex.workspace = true
 int-enum = "0.5.0"
+ipld-core.workspace = true
 libp2p-identity.workspace = true
 minicbor.workspace = true
 multibase.workspace = true

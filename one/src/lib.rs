@@ -563,6 +563,9 @@ impl Daemon {
         let recon_interest_handle = tokio::spawn(recon_interest_svr.run());
         let recon_model_handle = tokio::spawn(recon_model_svr.run());
 
+        // Start the CAS
+        // let cas = tokio::spawn(ceramic_anchor_service::anchor_loop);
+
         // Start HTTP server with a graceful shutdown
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
         let signals = Signals::new([SIGHUP, SIGTERM, SIGINT, SIGQUIT])?;

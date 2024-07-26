@@ -1,6 +1,7 @@
 //! # Ceramic Core
 //! Core functionality for ceramic, including the StreamId, Cid, and Jws types.
 #![warn(missing_docs)]
+mod block;
 mod bytes;
 pub mod event_id;
 pub mod interest;
@@ -9,6 +10,7 @@ mod network;
 mod range;
 mod stream_id;
 
+pub use block::DagCborIpfsBlock;
 pub use bytes::Bytes;
 pub use event_id::EventId;
 pub use interest::{Interest, PeerId};

@@ -1,28 +1,21 @@
 use anyhow::{anyhow, Result};
 use cid::Cid;
-use ipld_core::{codec::Codec, ipld::Ipld};
 use multihash_codetable::{Code, MultihashDigest};
 use serde::{Deserialize, Serialize};
-use serde_ipld_dagcbor::codec::DagCborCodec;
 use std::iter::StepBy;
 use std::sync::mpsc::Sender;
 
-use ceramic_store::SqlitePool;
-
-/// CidSource is a trait that provides a source of CIDs.
-pub trait CidSource {
-    fn cids(&self) -> StepBy<AnchorRequest>;
-}
-
-/// BlockSink is a trait that accepts blocks.
-pub trait BlockSink {
-    fn send(&self, block: DagCborIpfsBlock) -> Result<()>;
-}
+use ceramic_core::DagCborIpfsBlock;
 
 // AnchorRequest request for a Time Event
 pub struct AnchorRequest {
     pub id: Cid,   // The CID of the Stream
     pub prev: Cid, // The CID of the Event to be anchored
+}
+
+pub trait BlockBuilder {
+    fn get_cids(&self) -> StepBy<AnchorRequest>;
+    fn build_time_events(&self, proof: Cid, count: u64) -> Result<()>;
 }
 
 #[derive(Debug)]
@@ -39,23 +32,6 @@ fn merge_nodes(left: &Cid, right: Option<&Cid>, blockstore: &Sender<DagCborIpfsB
     let cid = block.cid.clone();
     blockstore.send(block).unwrap();
     cid
-}
-
-pub struct DagCborIpfsBlock {
-    pub cid: Cid,
-    pub data: Vec<u8>,
-}
-
-impl From<&[u8]> for DagCborIpfsBlock {
-    fn from(data: &[u8]) -> DagCborIpfsBlock {
-        DagCborIpfsBlock {
-            cid: Cid::new_v1(
-                <DagCborCodec as Codec<Ipld>>::CODE,
-                Code::Sha2_256.digest(&data),
-            ),
-            data: data.to_vec(),
-        }
-    }
 }
 
 pub fn build_time_events<'a, I>(
@@ -83,20 +59,8 @@ where
     Ok(())
 }
 
-impl From<Vec<u8>> for DagCborIpfsBlock {
-    fn from(data: Vec<u8>) -> DagCborIpfsBlock {
-        DagCborIpfsBlock {
-            cid: Cid::new_v1(
-                <DagCborCodec as Codec<Ipld>>::CODE,
-                Code::Sha2_256.digest(&data),
-            ),
-            data: data,
-        }
-    }
-}
-
 /// Fetch unanchored CIDs from the Anchor Request Store and builds a Merkle tree from them.
-pub async fn build_tree<'a, I>(
+pub async fn build_merkle_tree<'a, I>(
     anchor_requests: I,
     block_sink: Sender<DagCborIpfsBlock>,
 ) -> Result<RootCount>
@@ -335,7 +299,7 @@ mod tests {
     async fn test_hash_root() {
         let (_, anchor_requests) = mock_anchor_requests();
         let (sender, _receiver) = channel();
-        let result = build_tree(anchor_requests.iter(), sender).await;
+        let result = build_merkle_tree(anchor_requests.iter(), sender).await;
         expect!["Ok(RootCount { root: Cid(bafyreicv5owrmctiwt3qhfpto6bs4ld3bxcqwxxjttpfvvzcqljr7bfmum), count: 1000000 })"]
         .assert_eq(&format!("{:?}", &result));
     }
