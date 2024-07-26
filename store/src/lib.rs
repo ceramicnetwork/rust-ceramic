@@ -10,8 +10,8 @@ pub use error::Error;
 pub use metrics::{Metrics, StoreMetricsMiddleware};
 pub use sql::{
     entities::{BlockHash, EventBlockRaw, EventInsertable, EventInsertableBody},
-    CeramicOneBlock, CeramicOneEvent, CeramicOneEventBlock, CeramicOneInterest, InsertResult,
-    InsertedEvent, Migrations, SqlitePool, SqliteRootStore, SqliteTransaction,
+    CeramicOneBlock, CeramicOneEvent, CeramicOneEventBlock, CeramicOneInterest, CeramicOneVersion,
+    InsertResult, InsertedEvent, Migrations, SqlitePool, SqliteRootStore, SqliteTransaction,
 };
 
 pub(crate) type Result<T> = std::result::Result<T, Error>;

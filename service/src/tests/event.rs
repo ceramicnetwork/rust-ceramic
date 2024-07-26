@@ -17,7 +17,8 @@ macro_rules! test_with_sqlite {
             async fn [<$test_name _sqlite>]() {
 
                 let conn = ceramic_store::SqlitePool::connect_in_memory().await.unwrap();
-                let store = $crate::CeramicEventService::new(conn, true).await.unwrap();
+                let store = $crate::CeramicEventService::new(conn).await.unwrap();
+                store.process_all_undelivered_events().await.unwrap();
                 $(
                     for stmt in $sql_stmts {
                         store.pool.run_statement(stmt).await.unwrap();
