@@ -145,7 +145,7 @@ impl CeramicOneEvent {
         // Fetch add happens with an open transaction (on one writer for the db) so we're guaranteed to get a unique value
         sqlx::query(EventQuery::mark_ready_to_deliver())
             .bind(Self::next_deliverable())
-            .bind(&key.to_bytes())
+            .bind(key.to_bytes())
             .execute(&mut **conn.inner())
             .await?;
 
