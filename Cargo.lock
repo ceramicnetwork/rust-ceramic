@@ -1292,6 +1292,7 @@ dependencies = [
  "criterion2",
  "futures",
  "futures-util",
+ "hickory-resolver",
  "iroh-bitswap",
  "iroh-rpc-client",
  "iroh-rpc-types",
