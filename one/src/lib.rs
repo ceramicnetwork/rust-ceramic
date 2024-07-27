@@ -1,6 +1,7 @@
 //! Ceramic implements a single binary ceramic node.
 #![warn(missing_docs)]
 
+mod feature_flags;
 mod http;
 mod http_metrics;
 mod metrics;
@@ -17,6 +18,7 @@ use ceramic_metrics::{config::Config as MetricsConfig, MetricsHandle};
 use ceramic_p2p::{load_identity, DiskStorage, Keychain, Libp2pConfig};
 use ceramic_service::{CeramicEventService, CeramicInterestService, CeramicService};
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use feature_flags::*;
 use futures::StreamExt;
 use multibase::Base;
 use multihash::Multihash;
@@ -167,6 +169,24 @@ struct DaemonOpts {
             env = "CERAMIC_ONE_CORS_ALLOW_ORIGINS"
         )]
     cors_allow_origins: Vec<String>,
+
+    /// Enable experimental feature flags
+    #[arg(
+        long,
+        value_parser = parse_flags::<ExperimentalFeatureFlags>,
+        env = "CERAMIC_ONE_EXPERIMENTAL_FEATURE_FLAGS",
+        value_names = ["Authentication", "None"]
+    )]
+    experiemental_feature_flags: Vec<ExperimentalFeatureFlags>,
+
+    /// Enable feature flags
+    #[arg(
+        long,
+        value_parser = parse_flags::<FeatureFlags>,
+        env = "CERAMIC_ONE_FEATURE_FLAGS",
+        value_names = ["None"]
+    )]
+    feature_flags: Vec<FeatureFlags>,
 }
 
 #[derive(Args, Debug)]
@@ -534,12 +554,18 @@ impl Daemon {
             })?;
 
         // Build HTTP server
-        let ceramic_server = ceramic_api::Server::new(
+        let mut ceramic_server = ceramic_api::Server::new(
             peer_id,
             network,
             interest_api_store,
             Arc::new(model_api_store),
         );
+        if opts
+            .experiemental_feature_flags
+            .contains(&ExperimentalFeatureFlags::Authentication)
+        {
+            ceramic_server.with_authentication(true);
+        }
         let ceramic_service = ceramic_api_server::server::MakeService::new(ceramic_server);
         let ceramic_service = MakeAllowAllAuthenticator::new(ceramic_service, "");
         let ceramic_service =
