@@ -1,11 +1,32 @@
 use anyhow::Result;
 use ceramic_core::{EventId, Interest};
-use libp2p::{noise, relay, tcp, tls, yamux, Swarm, SwarmBuilder};
+use libp2p::{dns, noise, relay, tcp, tls, yamux, Swarm, SwarmBuilder};
 use libp2p_identity::Keypair;
 use recon::{libp2p::Recon, Sha256a};
 use std::sync::Arc;
 
 use crate::{behaviour::NodeBehaviour, Libp2pConfig, Metrics};
+
+fn get_dns_config() -> (dns::ResolverConfig, dns::ResolverOpts) {
+    match hickory_resolver::system_conf::read_system_conf() {
+        Ok((conf, opts)) => {
+            // Won't be necessary if https://github.com/hickory-dns/hickory-dns/pull/2327 is merged/incoporated into libp2p
+            let conf = if conf.name_servers().is_empty() {
+                tracing::warn!(
+                    "No nameservers found in system DNS configuration. Using Google DNS servers."
+                );
+                dns::ResolverConfig::default()
+            } else {
+                conf
+            };
+            (conf, opts)
+        }
+        Err(e) => {
+            tracing::warn!(err=%e, "Failed to load system DNS configuration. Switching to Google DNS servers. This can only be retried on server restart.");
+            (dns::ResolverConfig::default(), dns::ResolverOpts::default())
+        }
+    }
+}
 
 pub(crate) async fn build_swarm<I, M, S>(
     config: &Libp2pConfig,
@@ -19,6 +40,7 @@ where
     M: Recon<Key = EventId, Hash = Sha256a>,
     S: iroh_bitswap::Store,
 {
+    let (dns_conf, dns_opts) = get_dns_config();
     let builder = SwarmBuilder::with_existing_identity(keypair)
         .with_tokio()
         .with_tcp(
@@ -29,7 +51,7 @@ where
             yamux::Config::default,
         )?
         .with_quic()
-        .with_dns()?
+        .with_dns_config(dns_conf, dns_opts)
         .with_websocket(
             (tls::Config::new, noise::Config::new),
             yamux::Config::default,
