@@ -127,23 +127,6 @@ pub enum FromHandler {
     Failed(anyhow::Error),
 }
 
-#[derive(Debug)]
-pub struct Failure {
-    error: Box<dyn std::error::Error + Send + 'static>,
-}
-
-impl std::fmt::Display for Failure {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Error: {}", self.error)
-    }
-}
-
-impl std::error::Error for Failure {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(&*self.error)
-    }
-}
-
 impl<I, M> ConnectionHandler for Handler<I, M>
 where
     I: Recon<Key = Interest, Hash = Sha256a> + Clone + Send + 'static,
