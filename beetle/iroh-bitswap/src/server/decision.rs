@@ -52,7 +52,7 @@ pub struct Config {
     /// for a block that is not in the blockstore. Either
     /// - Send a DONT_HAVE message
     /// - Simply don't respond
-    /// 
+    ///
     /// This option is only used for testing.
     // TODO: cfg[test]
     pub send_dont_haves: bool,
