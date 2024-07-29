@@ -1,4 +1,5 @@
 #![allow(clippy::to_string_trait_impl)]
+#![allow(unexpected_cfgs)]
 #![allow(unused_qualifications)]
 
 use validator::Validate;
