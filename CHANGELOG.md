@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.30.0] - 2024-07-29
+
+### 🚀 Features
+
+- Log bind address at startup (#446)
+- Expose current ceramic network via api (#441)
+- Track version history in database (#409)
+
+### 🐛 Bug Fixes
+
+- Disable libp2p tcp port reuse (#440)
+- Use default (google) dns servers if system resolv.conf is invalid (#447)
+
 ## [0.29.0] - 2024-07-22
 
 ### 🚀 Features
@@ -21,6 +34,7 @@ All notable changes to this project will be documented in this file.
 ### ⚙️ Miscellaneous Tasks
 
 - Add CODEOWNERS file (#443)
+- Version v0.29.0 (#445)
 
 ## [0.28.1] - 2024-07-15
 
