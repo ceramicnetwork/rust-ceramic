@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use ceramic_core::DagCborIpfsBlock;
 
+#[derive(Debug)]
 pub struct Receipt {
     pub proof_cid: Cid,
     pub path_prefix: Option<String>,

@@ -25,3 +25,5 @@ reqwest.workspace = true
 ring = "0.17.8"
 tokio.workspace = true
 uuid.workspace = true
+iroh-car.workspace = true
+futures.workspace = true

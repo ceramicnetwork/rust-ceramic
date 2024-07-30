@@ -1,5 +1,8 @@
 use anyhow::Result;
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD as b64, Engine as _};
+use base64::{
+    engine::general_purpose::{STANDARD_NO_PAD as b64_standard, URL_SAFE_NO_PAD as b64},
+    Engine as _,
+};
 use ceramic_core::{Cid, StreamId, StreamIdType};
 use ceramic_p2p::Keypair;
 use multihash_codetable::{Code, MultihashDigest};
@@ -160,7 +163,10 @@ impl RemoteCas {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use expect_test::expect;
+    use ceramic_core::DagCborIpfsBlock;
+    use expect_test::{expect, expect_file};
+    use futures::TryStreamExt;
+    use iroh_car::CarReader;
 
     fn dag_cbor_mock_cid() -> Cid {
         let mock_data = serde_ipld_dagcbor::to_vec(b"mock root").unwrap();
@@ -171,8 +177,13 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_create_anchor_request_on_cas() {
-        let node_controller = std::env::var("NODE_DID").unwrap();
-        let signing_key_bytes = hex::decode(std::env::var("NODE_PRIVATE_KEY").unwrap()).unwrap();
+        // secret:z3u2WLX8jeyN6sfbDowLGudoZHudxgVkNJfrw2TDTVx4tijd:z6MkueF19qChpGQJBJXcXjfoM1MYCwC167RMwUiNWXXvEm1M
+        let node_controller = std::env::var("NODE_DID")
+            .unwrap_or("did:key:z6MkueF19qChpGQJBJXcXjfoM1MYCwC167RMwUiNWXXvEm1M".to_string());
+        let signing_key_bytes = hex::decode(std::env::var("NODE_PRIVATE_KEY").unwrap_or(
+            "4c02abf947a7bd4f24fc799168a21cdea5b9d3a8ce8f63801785a4dff7299af4".to_string(),
+        ))
+        .unwrap();
         let cas_api_url = "https://cas-dev.3boxlabs.com".to_owned();
         let result = RemoteCas::create_anchor_request(
             cas_api_url,
@@ -182,6 +193,49 @@ mod tests {
         )
         .await;
         expect!["Request is pending."].assert_eq(&result.unwrap());
+    }
+
+    #[derive(Serialize, Deserialize, Debug)]
+    #[serde(rename_all = "camelCase")]
+    struct AnchorResponse {
+        pub witness_car: String,
+    }
+
+    #[derive(Serialize, Deserialize, Debug)]
+    #[serde(rename_all = "camelCase")]
+    struct DetachedTimeEvent {
+        pub path: String,
+        pub proof: Cid,
+    }
+
+    #[tokio::test]
+    async fn test_anchor_response() {
+        let anchor_response = include_str!("./test-data/anchor-response.json");
+        let witness_car_b64 = serde_json::from_str::<AnchorResponse>(anchor_response)
+            .unwrap()
+            .witness_car;
+        let witness_car_bytes = b64_standard.decode(witness_car_b64).unwrap();
+        let car_reader = CarReader::new(witness_car_bytes.as_ref()).await.unwrap();
+        let header = car_reader.header();
+        let root_cid = header.roots()[0];
+        let blocks: Vec<(Cid, Vec<u8>)> = car_reader.stream().try_collect().await.unwrap();
+        let detached_time_event_bytes = blocks
+            .clone()
+            .into_iter()
+            .find(|(block_cid, _)| block_cid.eq(&root_cid))
+            .unwrap()
+            .1;
+        let detached_time_event: DetachedTimeEvent =
+            serde_ipld_dagcbor::from_slice(&detached_time_event_bytes).unwrap();
+        let receipt = Receipt {
+            proof_cid: detached_time_event.proof,
+            path_prefix: Some(detached_time_event.path),
+            blocks: blocks
+                .into_iter()
+                .map(|(_, value)| DagCborIpfsBlock::from(value))
+                .collect(),
+        };
+        expect_file!["./test-data/anchor-response.test.txt"].assert_debug_eq(&receipt);
     }
 
     #[tokio::test]
