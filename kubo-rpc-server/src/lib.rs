@@ -1,3 +1,4 @@
+#![allow(clippy::duplicated_attributes)]
 #![allow(
     missing_docs,
     trivial_casts,

@@ -29,21 +29,6 @@ use super::{
     task_merger::{TaskData, TaskMerger},
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TaskInfo {
-    peer: PeerId,
-    /// The cid of the block.
-    cid: Cid,
-    /// Tasks can be want-have ro want-block.
-    is_want_block: bool,
-    /// Wether to immediately send a response if the block is not found.
-    send_dont_have: bool,
-    /// The size of the block corresponding to the task.
-    block_size: usize,
-    /// Wether the block was found.
-    have_block: bool,
-}
-
 // Used to accept / deny requests for a CID coming from a PeerID
 // It should return true if the request should be fullfilled.
 pub trait PeerBlockRequestFilter:
@@ -67,6 +52,7 @@ pub struct Config {
     /// for a block that is not in the blockstore. Either
     /// - Send a DONT_HAVE message
     /// - Simply don't respond
+    ///
     /// This option is only used for testing.
     // TODO: cfg[test]
     pub send_dont_haves: bool,
