@@ -9,17 +9,6 @@ branch=${TEST_BRANCH-main}
 network=${1-dev}
 environment=ceramic-v4-${network}
 
-if [[ "$network" == "dev" || "$network" == "qa" ]]; then
-    ceramic_image="ceramicnetwork/js-ceramic:develop"
-elif [[ "$network" == "tnet" ]]; then
-    ceramic_image="ceramicnetwork/js-ceramic:release-candidate"
-elif [[ "$network" == "prod" ]]; then
-    ceramic_image="ceramicnetwork/js-ceramic:latest"
-else
-    echo "Invalid network value: $network"
-    exit 1
-fi
-
 docker run --rm -i \
   -e "AWS_REGION=$AWS_REGION" \
   -e "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID" \
@@ -45,7 +34,6 @@ docker run --rm -i \
         \"inputs\":   {                                             \
           \"M\": {                                                  \
             \"ceramic_one_image\": {\"S\": \"$image\"},             \
-            \"ceramic_image\":     {\"S\": \"$ceramic_image\"},     \
             \"environment\":       {\"S\": \"$environment\"}        \
           }                                                         \
         }                                                           \
