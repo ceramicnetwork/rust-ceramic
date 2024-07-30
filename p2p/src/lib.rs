@@ -9,7 +9,7 @@ mod swarm;
 
 pub use self::behaviour::Event;
 pub use self::config::*;
-pub use self::keys::{DiskStorage, Keychain, MemoryStorage};
+pub use self::keys::{DiskStorage, Keychain, Keypair, MemoryStorage};
 pub use self::metrics::Metrics;
 pub use self::node::*;
 pub use libp2p::PeerId;

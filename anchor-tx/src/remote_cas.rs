@@ -1,15 +1,12 @@
 use anyhow::Result;
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD as b64, Engine as _};
+use ceramic_core::{Cid, StreamId, StreamIdType};
+use ceramic_p2p::Keypair;
 use multihash_codetable::{Code, MultihashDigest};
+use ring::signature::{Ed25519KeyPair, KeyPair};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use ceramic_core::{
-    ssi, Base64String, Base64UrlString, Bytes, Cid, DagCborIpfsBlock, DidDocument, StreamId,
-    StreamIdType,
-};
-use ceramic_event::unvalidated::signed::{Envelope, JwkSigner, Signature, Signer};
-
-use crate::transaction_manager::ProofBlock;
 use crate::{Receipt, TransactionManager};
 
 pub const AGENT_VERSION: &str = concat!("ceramic-one/", env!("CARGO_PKG_VERSION"));
@@ -31,11 +28,17 @@ struct CasAnchorRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct CasAnchorRequestEnvelope {
-    payload: CasAuthPayload,
-    signatures: Vec<Signature>,
+struct Header {
+    pub alg: String,
+    pub kid: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct Claims {
+    nonce: String,
+    url: String,
+    digest: String,
+}
 fn cid_to_stream_id(cid: Cid) -> StreamId {
     StreamId {
         r#type: StreamIdType::Unloadable,
@@ -43,88 +46,83 @@ fn cid_to_stream_id(cid: Cid) -> StreamId {
     }
 }
 
-async fn auth_header(url: String, controller: String, digest: Cid) -> Result<String> {
-    let auth_payload = CasAuthPayload {
-        url,
+async fn auth_jwt(
+    request_url: String,
+    controller: String,
+    digest: String,
+    secret: &[u8; 32],
+) -> Result<String> {
+    let signing_key = Ed25519KeyPair::from_seed_unchecked(secret).unwrap();
+    let public_key_bytes = signing_key.public_key().as_ref();
+    let public_key_b58 = multibase::encode(
+        multibase::Base::Base58Btc,
+        [b"\xed\x01", public_key_bytes].concat(),
+    );
+    println!("did:key:{}", public_key_b58);
+    let header = Header {
+        // multibase.encode('base58btc', (b'\xed\x01' + public_key)))
+        kid: format!(
+            "{}#{}",
+            controller,
+            controller.strip_prefix("did:key:").unwrap()
+        ),
+        alg: "EdDSA".to_string(),
+    };
+    let body = Claims {
+        digest,
         nonce: Uuid::new_v4().to_string(),
-        digest: digest.to_string(),
-    };
-    let payload = serde_json::to_vec(&auth_payload)?;
-    let payload = Base64UrlString::from(payload);
-    // Access the private key directory from the environment, and load the private key.
-    let node_private_key = std::env::var("CERAMIC_ONE_P2P_KEY_DIR").unwrap();
-
-    let signer = JwkSigner::new(
-        DidDocument::new(controller.as_str()),
-        node_private_key.as_str(),
-    )
-    .await
-    .unwrap();
-
-    let alg = signer.algorithm();
-    let header = ssi::jws::Header {
-        algorithm: alg,
-        type_: Some("JWT".to_string()),
-        key_id: Some(signer.id().id.clone()),
-        ..Default::default()
-    };
-    // creates compact signature of protected.signature
-    let header_bytes = serde_json::to_vec(&header)?;
-    let header_str = Base64String::from(serde_json::to_vec(&header)?);
-    let signing_input = format!("{}.{}", header_str.as_ref(), payload);
-    let signed = signer.sign(signing_input.as_bytes())?;
-
-    let envelope = CasAnchorRequestEnvelope {
-        payload: auth_payload,
-        signatures: vec![Signature {
-            header: None,
-            protected: Some(header_bytes.into()),
-            signature: signed.into(),
-        }],
+        url: request_url,
     };
 
-    let (sig, protected) = envelope
-        .signatures
-        .first()
-        .and_then(|sig| sig.protected.as_ref().map(|p| (&sig.signature, p)))
-        .unwrap();
-    Ok(format!(
-        "Bearer {:?}.{:?}.{:?}",
-        protected, envelope.payload, sig
-    ))
+    let header_b64 = b64.encode(serde_json::to_vec(&header).unwrap());
+    let body_b64 = b64.encode(serde_json::to_vec(&body).unwrap());
+    let message = [header_b64, body_b64].join(".");
+    let sig_bytes = signing_key.sign(message.as_bytes());
+    let sig_b64 = b64.encode(sig_bytes);
+    Ok([message.clone(), sig_b64].join("."))
 }
 
-pub struct RemoteCas;
+pub struct RemoteCas {
+    keypair: Keypair,
+}
 
 impl TransactionManager for RemoteCas {
     async fn make_proof(&self, root: Cid) -> Result<Receipt> {
-        let mock_data = b"mock txHash";
-        let mock_hash = MultihashDigest::digest(&Code::Sha2_256, mock_data);
-        let mock_tx_hash = Cid::new_v1(0x00, mock_hash);
-        let mock_proof_block = ProofBlock {
-            chain_id: "mock chain id".to_owned(),
+        let node_controller = std::env::var("NODE_DID").unwrap();
+        let signing_key_bytes = hex::decode(std::env::var("NODE_PRIVATE_KEY").unwrap()).unwrap();
+        let cas_api_url = "https://cas-dev.3boxlabs.com".to_owned();
+        let anchor_response = Self::create_anchor_request(
+            cas_api_url,
+            node_controller,
             root,
-            tx_hash: mock_tx_hash,
-            tx_type: "mock tx type".to_owned(),
-        };
-        let mock_proof: DagCborIpfsBlock = serde_ipld_dagcbor::to_vec(&mock_proof_block)?.into();
-        let mock_path = "".to_owned();
+            &signing_key_bytes.try_into().unwrap(),
+        )
+        .await?;
+        println!("{}", anchor_response);
+        // Poll the CAS asynchronously for the anchor request status
+
         Ok(Receipt {
-            proof_cid: mock_proof.cid,
-            path_prefix: Some(mock_path),
-            blocks: vec![mock_proof],
+            proof_cid: Default::default(),
+            path_prefix: None,
+            blocks: vec![],
         })
     }
 }
 
 impl RemoteCas {
-    pub fn new() -> Self {
-        Self
-    }
+    // async fn new(p2p_key_dir: PathBuf) -> Result<Self> {
+    //     let mut kc = Keychain::<DiskStorage>::new(p2p_key_dir.clone()).await?;
+    //     // TOOD: Handle error later
+    //     let mut keys = kc.keys().as_mut().unwrap;
+    //     let keypair = keys.next().unwrap();
+    //     Ok(Self { keypair })
+    // }
+
     pub async fn create_anchor_request(
         cas_api_url: String,
         node_controller: String,
         root_cid: Cid,
+        secret: &[u8; 32],
     ) -> Result<String> {
         let cas_create_request_url = format!("{}/api/v0/requests", cas_api_url);
         // let auth_header = auth_header(cas_api_url.clone(), node_controller, root_cid).await?;
@@ -134,9 +132,22 @@ impl RemoteCas {
             timestamp: chrono::Utc::now().to_rfc3339(),
             ceramic_one_version: AGENT_VERSION.to_owned(),
         })?;
+        // hash = sha256.hash(u8a.fromString(JSON.stringify(requestOpts.body)))
+        let digest = MultihashDigest::digest(&Code::Sha2_256, cas_request_body.as_bytes());
+        let digest = hex::encode(digest.digest());
+        println!("digest {}", digest);
+        let auth_jwt = auth_jwt(
+            cas_create_request_url.clone(),
+            node_controller,
+            format!("0x{}", digest),
+            secret,
+        )
+        .await?;
+        let auth_header = format!("Bearer {}", auth_jwt);
+        println!("auth_header {}", &auth_header);
         let res = reqwest::Client::new()
             .post(cas_create_request_url)
-            // .header("Authorization", auth_header)
+            .header("Authorization", auth_header)
             .header("Content-Type", "application/json")
             .body(cas_request_body)
             .send()
@@ -151,15 +162,42 @@ mod tests {
     use super::*;
     use expect_test::expect;
 
+    fn dag_cbor_mock_cid() -> Cid {
+        let mock_data = serde_ipld_dagcbor::to_vec(b"mock root").unwrap();
+        let mock_hash = MultihashDigest::digest(&Code::Sha2_256, &mock_data);
+        Cid::new_v1(0x71, mock_hash)
+    }
+
     #[tokio::test]
+    #[ignore]
     async fn test_create_anchor_request_on_cas() {
-        let cas_api_url = "https://cas-dev-direct.3boxlabs.com".to_owned();
-        let node_controller = "did:key:z6Mkh3pajt5brscshuDrCCber9nC9Ujpi7EcECveKtJPMEPo".to_owned();
-        let mock_data = b"mock root";
-        let mock_hash = MultihashDigest::digest(&Code::Sha2_256, mock_data);
-        let mock_root_cid = Cid::new_v1(0x55, mock_hash);
-        let result =
-            RemoteCas::create_anchor_request(cas_api_url, node_controller, mock_root_cid).await;
+        let node_controller = std::env::var("NODE_DID").unwrap();
+        let signing_key_bytes = hex::decode(std::env::var("NODE_PRIVATE_KEY").unwrap()).unwrap();
+        let cas_api_url = "https://cas-dev.3boxlabs.com".to_owned();
+        let result = RemoteCas::create_anchor_request(
+            cas_api_url,
+            node_controller,
+            dag_cbor_mock_cid(),
+            &signing_key_bytes.try_into().unwrap(),
+        )
+        .await;
         expect!["Request is pending."].assert_eq(&result.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_jwt() {
+        let node_controller = std::env::var("NODE_DID").unwrap();
+        let signing_key_bytes = hex::decode(std::env::var("NODE_PRIVATE_KEY").unwrap()).unwrap();
+        let mock_data = serde_ipld_dagcbor::to_vec(b"mock root").unwrap();
+        let mock_hash = MultihashDigest::digest(&Code::Sha2_256, &mock_data);
+        let token = auth_jwt(
+            "https://cas-dev.3boxlabs.com".to_owned(),
+            node_controller,
+            hex::encode(mock_hash.digest()),
+            &signing_key_bytes.try_into().unwrap(),
+        )
+        .await
+        .unwrap();
+        println!("token {}", &token);
     }
 }

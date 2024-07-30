@@ -8,15 +8,20 @@ repository.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+base64.workspace = true
 ceramic-core.workspace = true
 ceramic-event.workspace = true
+ceramic-p2p.workspace = true
+chrono.workspace = true
 cid.workspace = true
 expect-test.workspace = true
+hex.workspace = true
 multihash-codetable.workspace = true
+multibase.workspace = true
 serde.workspace = true
 serde_ipld_dagcbor.workspace = true
 serde_json.workspace = true
-uuid.workspace = true
 reqwest.workspace = true
+ring = "0.17.8"
 tokio.workspace = true
-chrono.workspace = true
+uuid.workspace = true

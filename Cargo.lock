@@ -1065,13 +1065,18 @@ name = "ceramic-anchor-tx"
 version = "0.29.0"
 dependencies = [
  "anyhow",
+ "base64 0.21.7",
  "ceramic-core",
  "ceramic-event",
+ "ceramic-p2p",
  "chrono",
  "cid 0.11.1",
  "expect-test",
+ "hex",
+ "multibase 0.9.1",
  "multihash-codetable",
  "reqwest",
+ "ring 0.17.8",
  "serde",
  "serde_ipld_dagcbor",
  "serde_json",
