@@ -405,7 +405,7 @@ paths:
             Whether to include the event data (carfile) in the response.
             In the future, only the payload or other options may be supported:
               * `none` - Empty, only the event ID is returned
-              * `full` - The entire envelope carfile (including the envelope and payload)
+              * `full` - The entire event carfile (including the envelope and payload)
       responses:
         "200":
           description: success
