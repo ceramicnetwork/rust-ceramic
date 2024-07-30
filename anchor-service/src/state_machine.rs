@@ -15,7 +15,7 @@ use ceramic_anchor_tx::{Receipt, TransactionManager};
 //   - Take the count from the RootCount.
 //   - Takes std::sync::mpsc::Sender<DagCborIpfsBlock> to send the TimeEvents to.
 
-pub async fn anchor_loop(tx_manager: impl TransactionManager + Send + Sync + 'static) {
+pub async fn anchor_loop(tx_manager: impl TransactionManager + 'static) {
     loop {
         let anchor_requests: Vec<AnchorRequest> = vec![];
         let (sender, _receiver) = channel();
