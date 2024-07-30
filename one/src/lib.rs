@@ -44,7 +44,7 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Command {
     /// Run a daemon process
-    Daemon(DaemonOpts),
+    Daemon(Box<DaemonOpts>),
     /// Perform various migrations
     #[command(subcommand)]
     Migrations(migrations::EventsCommand),
@@ -284,7 +284,7 @@ impl Network {
 pub async fn run() -> Result<()> {
     let args = Cli::parse();
     match args.command {
-        Command::Daemon(opts) => Daemon::run(opts).await,
+        Command::Daemon(opts) => Daemon::run(*opts).await,
         Command::Migrations(opts) => migrations::migrate(opts).await,
     }
 }
