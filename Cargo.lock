@@ -1027,21 +1027,8 @@ dependencies = [
 name = "ceramic-anchor-service"
 version = "0.29.0"
 dependencies = [
- "anyhow",
  "ceramic-anchor-tree",
  "ceramic-anchor-tx",
- "ceramic-core",
- "ceramic-store",
- "cid 0.11.1",
- "expect-test",
- "hex",
- "ipld-core",
- "jsonwebtoken",
- "multihash-codetable",
- "rand 0.8.5",
- "serde",
- "serde_ipld_dagcbor",
- "tokio",
 ]
 
 [[package]]
@@ -1050,11 +1037,9 @@ version = "0.29.0"
 dependencies = [
  "anyhow",
  "ceramic-core",
- "ceramic-store",
  "cid 0.11.1",
  "expect-test",
  "multihash-codetable",
- "rand 0.8.5",
  "serde",
  "serde_ipld_dagcbor",
  "tokio",
@@ -1067,8 +1052,6 @@ dependencies = [
  "anyhow",
  "base64 0.21.7",
  "ceramic-core",
- "ceramic-event",
- "ceramic-p2p",
  "chrono",
  "cid 0.11.1",
  "expect-test",
@@ -2234,7 +2217,7 @@ dependencies = [
  "multibase 0.8.0",
  "p256 0.13.2",
  "serde_json",
- "simple_asn1 0.5.4",
+ "simple_asn1",
  "ssi-crypto",
  "ssi-dids",
  "ssi-jwk",
@@ -4025,21 +4008,6 @@ dependencies = [
  "serde",
  "smallstr",
  "smallvec",
-]
-
-[[package]]
-name = "jsonwebtoken"
-version = "9.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b9ae10193d25051e74945f1ea2d0b42e03cc3b890f7e4cc5faa44997d808193f"
-dependencies = [
- "base64 0.21.7",
- "js-sys",
- "pem",
- "ring 0.17.8",
- "serde",
- "serde_json",
- "simple_asn1 0.6.2",
 ]
 
 [[package]]
@@ -7521,18 +7489,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "simple_asn1"
-version = "0.6.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "adc4e5204eb1910f40f9cfa375f6f05b68c3abac4b6fd879c8ff5e7ae8a0a085"
-dependencies = [
- "num-bigint",
- "num-traits",
- "thiserror",
- "time 0.3.36",
-]
-
-[[package]]
 name = "siphasher"
 version = "0.3.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8090,7 +8046,7 @@ dependencies = [
  "rand 0.8.5",
  "rsa 0.6.1",
  "serde",
- "simple_asn1 0.5.4",
+ "simple_asn1",
  "ssi-crypto",
  "thiserror",
  "unsigned-varint 0.7.2",

@@ -300,9 +300,9 @@ struct InsertTask {
     tx: tokio::sync::mpsc::Sender<EventInsert>,
 }
 
-struct AnchorTask {
-    _handle: tokio::task::JoinHandle<()>,
-}
+// struct AnchorTask {
+//     _handle: tokio::task::JoinHandle<()>,
+// }
 
 #[derive(Clone)]
 pub struct Server<C, I, M> {

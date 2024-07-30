@@ -1,7 +1,7 @@
 use std::sync::mpsc::channel;
 
 use ceramic_anchor_tree::{build_merkle_tree, build_time_events, AnchorRequest};
-use ceramic_anchor_tx::{MockCas, RemoteCas, TransactionManager};
+use ceramic_anchor_tx::{Receipt, TransactionManager};
 
 // Loop:
 // 1.
@@ -22,7 +22,11 @@ pub async fn anchor_loop(tx_manager: impl TransactionManager + Send + Sync + 'st
         let root_count = build_merkle_tree(anchor_requests.iter(), sender.clone())
             .await
             .unwrap();
-        let Ok((proof_cid, path_prefix, blocks)) = tx_manager.make_proof(root_count.root).await
+        let Ok(Receipt {
+            proof_cid,
+            path_prefix,
+            blocks,
+        }) = tx_manager.make_proof(root_count.root).await
         else {
             continue;
         };
@@ -32,7 +36,7 @@ pub async fn anchor_loop(tx_manager: impl TransactionManager + Send + Sync + 'st
         build_time_events(
             anchor_requests.iter(),
             proof_cid,
-            Some(path_prefix),
+            path_prefix,
             root_count.count,
             sender.clone(),
         )

@@ -1,10 +1,6 @@
 use anyhow::Result;
-use base64::{
-    engine::general_purpose::{STANDARD_NO_PAD as b64_standard, URL_SAFE_NO_PAD as b64},
-    Engine as _,
-};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD as b64, Engine as _};
 use ceramic_core::{Cid, StreamId, StreamIdType};
-use ceramic_p2p::Keypair;
 use multihash_codetable::{Code, MultihashDigest};
 use ring::signature::{Ed25519KeyPair, KeyPair};
 use serde::{Deserialize, Serialize};
@@ -85,9 +81,7 @@ async fn auth_jwt(
     Ok([message.clone(), sig_b64].join("."))
 }
 
-pub struct RemoteCas {
-    keypair: Keypair,
-}
+pub struct RemoteCas;
 
 impl TransactionManager for RemoteCas {
     async fn make_proof(&self, root: Cid) -> Result<Receipt> {
@@ -113,14 +107,6 @@ impl TransactionManager for RemoteCas {
 }
 
 impl RemoteCas {
-    // async fn new(p2p_key_dir: PathBuf) -> Result<Self> {
-    //     let mut kc = Keychain::<DiskStorage>::new(p2p_key_dir.clone()).await?;
-    //     // TOOD: Handle error later
-    //     let mut keys = kc.keys().as_mut().unwrap;
-    //     let keypair = keys.next().unwrap();
-    //     Ok(Self { keypair })
-    // }
-
     pub async fn create_anchor_request(
         cas_api_url: String,
         node_controller: String,
@@ -163,10 +149,26 @@ impl RemoteCas {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::engine::general_purpose::STANDARD_NO_PAD as b64_standard;
     use ceramic_core::DagCborIpfsBlock;
     use expect_test::{expect, expect_file};
     use futures::TryStreamExt;
     use iroh_car::CarReader;
+
+    fn node_did() -> String {
+        std::env::var("NODE_DID")
+            .unwrap_or("did:key:z6MkueF19qChpGQJBJXcXjfoM1MYCwC167RMwUiNWXXvEm1M".to_string())
+    }
+
+    fn node_private_key() -> [u8; 32] {
+        // secret:z3u2WLX8jeyN6sfbDowLGudoZHudxgVkNJfrw2TDTVx4tijd:z6MkueF19qChpGQJBJXcXjfoM1MYCwC167RMwUiNWXXvEm1M
+        hex::decode(std::env::var("NODE_PRIVATE_KEY").unwrap_or(
+            "4c02abf947a7bd4f24fc799168a21cdea5b9d3a8ce8f63801785a4dff7299af4".to_string(),
+        ))
+        .unwrap()
+        .try_into()
+        .unwrap()
+    }
 
     fn dag_cbor_mock_cid() -> Cid {
         let mock_data = serde_ipld_dagcbor::to_vec(b"mock root").unwrap();
@@ -178,18 +180,14 @@ mod tests {
     #[ignore]
     async fn test_create_anchor_request_on_cas() {
         // secret:z3u2WLX8jeyN6sfbDowLGudoZHudxgVkNJfrw2TDTVx4tijd:z6MkueF19qChpGQJBJXcXjfoM1MYCwC167RMwUiNWXXvEm1M
-        let node_controller = std::env::var("NODE_DID")
-            .unwrap_or("did:key:z6MkueF19qChpGQJBJXcXjfoM1MYCwC167RMwUiNWXXvEm1M".to_string());
-        let signing_key_bytes = hex::decode(std::env::var("NODE_PRIVATE_KEY").unwrap_or(
-            "4c02abf947a7bd4f24fc799168a21cdea5b9d3a8ce8f63801785a4dff7299af4".to_string(),
-        ))
-        .unwrap();
+        let node_controller = node_did();
+        let signing_key_bytes = node_private_key();
         let cas_api_url = "https://cas-dev.3boxlabs.com".to_owned();
         let result = RemoteCas::create_anchor_request(
             cas_api_url,
             node_controller,
             dag_cbor_mock_cid(),
-            &signing_key_bytes.try_into().unwrap(),
+            &signing_key_bytes,
         )
         .await;
         expect!["Request is pending."].assert_eq(&result.unwrap());
@@ -240,15 +238,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_jwt() {
-        let node_controller = std::env::var("NODE_DID").unwrap();
-        let signing_key_bytes = hex::decode(std::env::var("NODE_PRIVATE_KEY").unwrap()).unwrap();
+        let node_controller = node_did();
+        let signing_key_bytes = node_private_key();
         let mock_data = serde_ipld_dagcbor::to_vec(b"mock root").unwrap();
         let mock_hash = MultihashDigest::digest(&Code::Sha2_256, &mock_data);
         let token = auth_jwt(
             "https://cas-dev.3boxlabs.com".to_owned(),
             node_controller,
             hex::encode(mock_hash.digest()),
-            &signing_key_bytes.try_into().unwrap(),
+            &signing_key_bytes,
         )
         .await
         .unwrap();

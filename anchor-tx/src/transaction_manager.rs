@@ -22,6 +22,7 @@ pub struct ProofBlock {
 }
 
 /// Interface for the transaction manager that accepts a root CID and returns a proof.
+#[allow(async_fn_in_trait)]
 pub trait TransactionManager: Send + Sync {
     /// Accepts a root CID and returns a proof.
     async fn make_proof(&self, root: Cid) -> Result<Receipt>;

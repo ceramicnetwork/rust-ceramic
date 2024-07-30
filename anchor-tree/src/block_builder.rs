@@ -1,21 +1,13 @@
 use anyhow::{anyhow, Result};
-use cid::Cid;
-use multihash_codetable::{Code, MultihashDigest};
-use serde::{Deserialize, Serialize};
-use std::iter::StepBy;
-use std::sync::mpsc::Sender;
-
 use ceramic_core::DagCborIpfsBlock;
+use cid::Cid;
+use serde::{Deserialize, Serialize};
+use std::sync::mpsc::Sender;
 
 // AnchorRequest request for a Time Event
 pub struct AnchorRequest {
     pub id: Cid,   // The CID of the Stream
     pub prev: Cid, // The CID of the Event to be anchored
-}
-
-pub trait BlockBuilder {
-    fn get_cids(&self) -> StepBy<AnchorRequest>;
-    fn build_time_events(&self, proof: Cid, count: u64) -> Result<()>;
 }
 
 #[derive(Debug)]
@@ -29,7 +21,7 @@ fn merge_nodes(left: &Cid, right: Option<&Cid>, blockstore: &Sender<DagCborIpfsB
     let merkle_node = vec![Some(*left), right.cloned()];
     let x: Vec<u8> = serde_ipld_dagcbor::to_vec(&merkle_node).unwrap();
     let block: DagCborIpfsBlock = x.into();
-    let cid = block.cid.clone();
+    let cid = block.cid;
     blockstore.send(block).unwrap();
     cid
 }
@@ -152,13 +144,14 @@ fn index_to_path(index: u64, length: u64) -> Result<String> {
         path += &format!("{}/", bit);
     }
     Ok(path
-        .strip_suffix("/")
+        .strip_suffix('/')
         .expect("path ends with /")
         .to_string())
 }
 
+/// TimeEvent is a single TimeEvent anchored to the chain.
 #[derive(Serialize, Deserialize, Debug)]
-struct TimeEvent {
+pub struct TimeEvent {
     pub id: Cid,
     pub prev: Cid,
     pub proof: Cid,
@@ -190,10 +183,9 @@ pub fn build_time_event(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ceramic_store::{Error, Migrations, SqlitePool};
-    use cid::CidGeneric;
+    // use ceramic_store::{Error, Migrations, SqlitePool};
     use expect_test::expect;
-    use std::fmt::{self, Debug};
+    use multihash_codetable::{Code, MultihashDigest};
     use std::sync::mpsc::channel;
 
     #[test]
@@ -269,12 +261,12 @@ mod tests {
     //     );
     // }
 
-    fn random_cid() -> Cid {
-        let mut data = [0u8; 8];
-        rand::Rng::fill(&mut ::rand::thread_rng(), &mut data);
-        let hash = MultihashDigest::digest(&Code::Sha2_256, &data);
-        Cid::new_v1(0x00, hash)
-    }
+    // fn random_cid() -> Cid {
+    //     let mut data = [0u8; 8];
+    //     rand::Rng::fill(&mut ::rand::thread_rng(), &mut data);
+    //     let hash = MultihashDigest::digest(&Code::Sha2_256, &data);
+    //     Cid::new_v1(0x00, hash)
+    // }
 
     fn int128_cid(i: i128) -> Cid {
         let data = i.to_be_bytes();

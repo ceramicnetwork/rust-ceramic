@@ -3,9 +3,12 @@ use ipld_core::{codec::Codec, ipld::Ipld};
 use multihash_codetable::{Code, MultihashDigest};
 use serde_ipld_dagcbor::codec::DagCborCodec;
 
+/// DagCborIpfsBlock generates a CIDv1 assuming the Vec<u8> is DagCbor
 #[derive(Debug)]
 pub struct DagCborIpfsBlock {
+    /// A CIDv1 DagCbor cid
     pub cid: Cid,
+    /// DagCbor bytes
     pub data: Vec<u8>,
 }
 
