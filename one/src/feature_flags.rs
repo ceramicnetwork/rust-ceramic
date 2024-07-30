@@ -50,7 +50,3 @@ impl std::str::FromStr for FeatureFlags {
         }
     }
 }
-
-pub(crate) fn parse_flags<T: std::str::FromStr>(value: &str) -> Result<T> {
-    T::from_str(value).map_err(|_| anyhow!("invalid flag: {value}"))
-}

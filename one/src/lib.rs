@@ -173,18 +173,18 @@ struct DaemonOpts {
     /// Enable experimental feature flags
     #[arg(
         long,
-        value_parser = parse_flags::<ExperimentalFeatureFlags>,
-        env = "CERAMIC_ONE_EXPERIMENTAL_FEATURE_FLAGS",
-        value_names = ["Authentication", "None"]
+        use_value_delimiter = true,
+        value_delimiter = ',',
+        env = "CERAMIC_ONE_EXPERIMENTAL_FEATURE_FLAGS"
     )]
-    experiemental_feature_flags: Vec<ExperimentalFeatureFlags>,
+    experimental_feature_flags: Vec<ExperimentalFeatureFlags>,
 
     /// Enable feature flags
     #[arg(
         long,
-        value_parser = parse_flags::<FeatureFlags>,
-        env = "CERAMIC_ONE_FEATURE_FLAGS",
-        value_names = ["None"]
+        use_value_delimiter = true,
+        value_delimiter = ',',
+        env = "CERAMIC_ONE_FEATURE_FLAGS"
     )]
     feature_flags: Vec<FeatureFlags>,
 }
@@ -561,7 +561,7 @@ impl Daemon {
             Arc::new(model_api_store),
         );
         if opts
-            .experiemental_feature_flags
+            .experimental_feature_flags
             .contains(&ExperimentalFeatureFlags::Authentication)
         {
             ceramic_server.with_authentication(true);
