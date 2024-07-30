@@ -18,12 +18,15 @@ use crate::{DBOpts, Info, LogOpts};
 pub enum EventsCommand {
     /// Migrate raw event blocks from IPFS.
     FromIpfs(FromIpfsOpts),
+    /// Migrate sqlite db to Parquet.
+    FromSqlite(FromSqliteOpts),
 }
 
 impl EventsCommand {
     fn log_format(&self) -> ceramic_metrics::config::LogFormat {
         match self {
             EventsCommand::FromIpfs(opts) => opts.log_opts.format(),
+            EventsCommand::FromSqlite(opts) => opts.log_opts.format(),
         }
     }
 }
@@ -63,6 +66,31 @@ impl From<&FromIpfsOpts> for DBOpts {
     }
 }
 
+#[derive(Args, Debug)]
+pub struct FromSqliteOpts {
+    /// Path to storage directory
+    #[clap(long, short, default_value = ".", env = "CERAMIC_ONE_INPUT_STORE_PATH")]
+    input_store_path: PathBuf,
+
+    /// The path to the ipfs_repo [eg: ~/.ipfs/blocks]
+    #[clap(long, short, value_parser, env = "CERAMIC_ONE_OUTPUT_PARQUET_PATH")]
+    output_parquet_path: PathBuf,
+
+    #[clap(long, short, value_parser, env = "CERAMIC_ONE_MAX")]
+    max: Option<usize>,
+
+    #[command(flatten)]
+    log_opts: LogOpts,
+}
+
+impl From<&FromSqliteOpts> for DBOpts {
+    fn from(value: &FromSqliteOpts) -> Self {
+        Self {
+            store_dir: value.input_store_path.clone(),
+        }
+    }
+}
+
 pub async fn migrate(cmd: EventsCommand) -> Result<()> {
     let info = Info::new().await?;
     let mut metrics_config = MetricsConfig {
@@ -79,6 +107,7 @@ pub async fn migrate(cmd: EventsCommand) -> Result<()> {
         .expect("failed to initialize metrics");
     match cmd {
         EventsCommand::FromIpfs(opts) => from_ipfs(opts).await?,
+        EventsCommand::FromSqlite(opts) => from_sqlite(opts).await?,
     }
     metrics_handle.shutdown();
     debug!("metrics server stopped");
@@ -187,4 +216,13 @@ async fn block_from_path(block_path: PathBuf) -> Result<Option<(Cid, Vec<u8>)>> 
         Cid::new_v1(DAG_CBOR, hash)
     };
     Ok(Some((cid, blob)))
+}
+
+async fn from_sqlite(opts: FromSqliteOpts) -> Result<()> {
+    let db_opts: DBOpts = (&opts).into();
+    let crate::Databases::Sqlite(db) = db_opts.get_database(false).await?;
+    db.event_store
+        .migrate_from_sqlite(opts.output_parquet_path, opts.max)
+        .await?;
+    Ok(())
 }

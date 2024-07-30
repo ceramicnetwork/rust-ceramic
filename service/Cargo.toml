@@ -8,6 +8,8 @@ repository.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+arrow = "52.1.0"
+arrow-schema = "52.1.0"
 async-trait.workspace = true
 bytes.workspace = true
 ceramic-api.workspace = true
@@ -23,6 +25,7 @@ iroh-car.workspace = true
 multibase.workspace = true
 multihash-codetable.workspace = true
 multihash-derive.workspace = true
+parquet = { version = "52.1.0", features = ["async"] }
 recon.workspace = true
 serde.workspace = true
 serde_ipld_dagcbor.workspace = true

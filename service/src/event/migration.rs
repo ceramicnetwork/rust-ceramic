@@ -1,11 +1,20 @@
-use std::collections::BTreeSet;
+use std::{
+    collections::BTreeSet,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use anyhow::{anyhow, bail, Context as _, Result};
+use arrow::array::{ArrayRef, BinaryArray, RecordBatch, UInt32Array};
+use arrow_schema::{DataType, Field, SchemaBuilder};
 use ceramic_core::{EventId, Network};
 use ceramic_event::unvalidated::{self, signed::cacao::Capability};
+use ceramic_store::CeramicOneEvent;
 use cid::Cid;
 use futures::TryStreamExt;
 use ipld_core::ipld::Ipld;
+use parquet::{arrow::AsyncArrowWriter, basic::Compression, file::properties::WriterProperties};
+use recon::{AssociativeHash, Key, Sha256a};
 use serde::Deserialize;
 use thiserror::Error;
 use tracing::{debug, error, info, instrument, Level};
@@ -15,7 +24,7 @@ use crate::{
     CeramicEventService,
 };
 
-pub struct Migrator<'a, S> {
+pub struct FromIpfsMigrator<'a, S> {
     service: &'a CeramicEventService,
     network: Network,
     blocks: S,
@@ -34,7 +43,7 @@ pub struct Migrator<'a, S> {
     event_count: usize,
 }
 
-impl<'a, S: BlockStore> Migrator<'a, S> {
+impl<'a, S: BlockStore> FromIpfsMigrator<'a, S> {
     pub async fn new(
         service: &'a CeramicEventService,
         network: Network,
@@ -355,5 +364,127 @@ impl EventBuilder {
 
         let body = event.encode_car().await?;
         Ok((event_id, body))
+    }
+}
+
+pub struct FromSqliteMigrator<'a> {
+    service: &'a CeramicEventService,
+}
+
+impl<'a> FromSqliteMigrator<'a> {
+    pub fn new(service: &'a CeramicEventService) -> Self {
+        Self { service }
+    }
+
+    pub async fn migrate(
+        &self,
+        output_parquet_path: impl AsRef<Path>,
+        max: Option<usize>,
+    ) -> Result<()> {
+        tokio::fs::create_dir_all(&output_parquet_path).await?;
+        let out_file = tokio::fs::File::create(
+            PathBuf::new()
+                .join(output_parquet_path)
+                .join("events.parquet"),
+        )
+        .await?;
+
+        // WriterProperties can be used to set Parquet file options
+        let props = WriterProperties::builder()
+            .set_compression(Compression::SNAPPY)
+            .build();
+
+        let mut builder = SchemaBuilder::new();
+        builder.push(Field::new("order_key", DataType::Binary, false));
+        builder.push(Field::new("ahash_0", DataType::UInt32, false));
+        builder.push(Field::new("ahash_1", DataType::UInt32, false));
+        builder.push(Field::new("ahash_2", DataType::UInt32, false));
+        builder.push(Field::new("ahash_3", DataType::UInt32, false));
+        builder.push(Field::new("ahash_4", DataType::UInt32, false));
+        builder.push(Field::new("ahash_5", DataType::UInt32, false));
+        builder.push(Field::new("ahash_6", DataType::UInt32, false));
+        builder.push(Field::new("ahash_7", DataType::UInt32, false));
+        builder.push(Field::new("stream_id", DataType::Binary, false));
+        builder.push(Field::new("cid", DataType::Binary, false));
+        builder.push(Field::new("car", DataType::Binary, false));
+
+        let mut writer =
+            AsyncArrowWriter::try_new(out_file, Arc::new(builder.finish()), Some(props)).unwrap();
+
+        let mut offset = 0;
+        let limit = 100_000;
+        loop {
+            let events = CeramicOneEvent::range_with_values(
+                &self.service.pool,
+                &EventId::min_value()..&EventId::max_value(),
+                offset,
+                limit,
+            )
+            .await?;
+            let order_keys = BinaryArray::from_iter_values(
+                events.iter().map(|(event_id, _car)| event_id.as_slice()),
+            );
+            let hashes: Vec<_> = events
+                .iter()
+                .map(|(event_id, _car)| Sha256a::digest(event_id))
+                .collect();
+
+            let ahash_0 =
+                UInt32Array::from_iter_values(hashes.iter().map(|hash| hash.as_u32s()[0]));
+            let ahash_1 =
+                UInt32Array::from_iter_values(hashes.iter().map(|hash| hash.as_u32s()[1]));
+            let ahash_2 =
+                UInt32Array::from_iter_values(hashes.iter().map(|hash| hash.as_u32s()[2]));
+            let ahash_3 =
+                UInt32Array::from_iter_values(hashes.iter().map(|hash| hash.as_u32s()[3]));
+            let ahash_4 =
+                UInt32Array::from_iter_values(hashes.iter().map(|hash| hash.as_u32s()[4]));
+            let ahash_5 =
+                UInt32Array::from_iter_values(hashes.iter().map(|hash| hash.as_u32s()[5]));
+            let ahash_6 =
+                UInt32Array::from_iter_values(hashes.iter().map(|hash| hash.as_u32s()[6]));
+            let ahash_7 =
+                UInt32Array::from_iter_values(hashes.iter().map(|hash| hash.as_u32s()[7]));
+            let stream_ids = BinaryArray::from_iter_values(
+                events
+                    .iter()
+                    .map(|(event_id, _car)| event_id.stream_id().unwrap()),
+            );
+            let cids = BinaryArray::from_iter_values(
+                events
+                    .iter()
+                    .map(|(event_id, _car)| event_id.cid().unwrap().to_bytes()),
+            );
+            let cars =
+                BinaryArray::from_iter_values(events.iter().map(|(_event_id, car)| car.as_slice()));
+
+            let batch = RecordBatch::try_from_iter(vec![
+                ("order_key", Arc::new(order_keys) as ArrayRef),
+                ("ahash_0", Arc::new(ahash_0) as ArrayRef),
+                ("ahash_1", Arc::new(ahash_1) as ArrayRef),
+                ("ahash_2", Arc::new(ahash_2) as ArrayRef),
+                ("ahash_3", Arc::new(ahash_3) as ArrayRef),
+                ("ahash_4", Arc::new(ahash_4) as ArrayRef),
+                ("ahash_5", Arc::new(ahash_5) as ArrayRef),
+                ("ahash_6", Arc::new(ahash_6) as ArrayRef),
+                ("ahash_7", Arc::new(ahash_7) as ArrayRef),
+                ("stream_id", Arc::new(stream_ids) as ArrayRef),
+                ("cid", Arc::new(cids) as ArrayRef),
+                ("car", Arc::new(cars) as ArrayRef),
+            ])?;
+            writer.write(&batch).await?;
+            if events.len() < limit {
+                break;
+            }
+            offset += limit;
+            info!(count = offset, "written events");
+            if let Some(max) = max {
+                if offset >= max {
+                    break;
+                }
+            }
+        }
+        writer.close().await?;
+        Ok(())
     }
 }

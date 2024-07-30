@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, path::Path};
 
 use async_trait::async_trait;
 use ceramic_core::{EventId, Network};
@@ -10,7 +10,7 @@ use ipld_core::ipld::Ipld;
 use tracing::{trace, warn};
 
 use super::{
-    migration::Migrator,
+    migration::{FromIpfsMigrator, FromSqliteMigrator},
     order_events::OrderEvents,
     ordering_task::{DeliverableTask, OrderingTask},
 };
@@ -86,10 +86,23 @@ impl CeramicEventService {
     }
 
     pub async fn migrate_from_ipfs(&self, network: Network, blocks: impl BlockStore) -> Result<()> {
-        let migrator = Migrator::new(self, network, blocks)
+        let migrator = FromIpfsMigrator::new(self, network, blocks)
             .await
             .map_err(Error::new_fatal)?;
         migrator.migrate().await.map_err(Error::new_fatal)?;
+        Ok(())
+    }
+
+    pub async fn migrate_from_sqlite(
+        &self,
+        output_parquet_path: impl AsRef<Path>,
+        max: Option<usize>,
+    ) -> Result<()> {
+        let migrator = FromSqliteMigrator::new(self);
+        migrator
+            .migrate(output_parquet_path, max)
+            .await
+            .map_err(Error::new_fatal)?;
         Ok(())
     }
 
