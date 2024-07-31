@@ -6,9 +6,12 @@ use ceramic_event::unvalidated::{
     signed::{self, Signer},
     Builder,
 };
-use ceramic_store::{CeramicOneEvent, EventInsertable, EventInsertableBody, SqlitePool};
+use ceramic_store::{CeramicOneEvent, EventInsertable, SqlitePool};
 use criterion2::{criterion_group, criterion_main, BatchSize, Criterion};
+use itertools::Itertools;
 use rand::RngCore;
+
+const INSERT_BATCH_SIZE: usize = 10;
 
 struct ModelSetup {
     pool: SqlitePool,
@@ -72,10 +75,11 @@ async fn model_setup(tpe: ModelType, cnt: usize) -> ModelSetup {
         rand::thread_rng().fill_bytes(&mut data);
 
         let init = generate_init_event(&model, &data, signer.clone()).await;
-        let body = EventInsertableBody::try_from_carfile(init.0.cid().unwrap(), &init.1)
-            .await
-            .unwrap();
-        events.push(EventInsertable::try_from_carfile(init.0, body).unwrap());
+        events.push(
+            EventInsertable::try_from_carfile(init.0, &init.1)
+                .await
+                .unwrap(),
+        );
     }
 
     let pool = SqlitePool::connect_in_memory().await.unwrap();
@@ -83,9 +87,11 @@ async fn model_setup(tpe: ModelType, cnt: usize) -> ModelSetup {
 }
 
 async fn model_routine(input: ModelSetup) {
-    let futs = input.events.into_iter().map(|event| {
+    let futs = input.events.into_iter().chunks(INSERT_BATCH_SIZE);
+    let futs = futs.into_iter().map(|batch| {
         let store = input.pool.clone();
-        async move { CeramicOneEvent::insert_many(&store, &[event]).await }
+        let set = batch.into_iter().collect::<Vec<_>>();
+        async move { CeramicOneEvent::insert_many(&store, set.iter()).await }
     });
     futures::future::join_all(futs).await;
 }
