@@ -1501,6 +1501,7 @@ where
         &self,
         param_resume_at: Option<String>,
         param_limit: Option<i32>,
+        param_include_data: Option<String>,
         context: &C,
     ) -> Result<FeedEventsGetResponse, ApiError> {
         let mut client_service = self.client_service.clone();
@@ -1514,6 +1515,9 @@ where
             }
             if let Some(param_limit) = param_limit {
                 query_string.append_pair("limit", &param_limit.to_string());
+            }
+            if let Some(param_include_data) = param_include_data {
+                query_string.append_pair("includeData", &param_include_data);
             }
             query_string.finish()
         };

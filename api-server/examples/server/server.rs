@@ -269,12 +269,14 @@ where
         &self,
         resume_at: Option<String>,
         limit: Option<i32>,
+        include_data: Option<String>,
         context: &C,
     ) -> Result<FeedEventsGetResponse, ApiError> {
         info!(
-            "feed_events_get({:?}, {:?}) - X-Span-ID: {:?}",
+            "feed_events_get({:?}, {:?}, {:?}) - X-Span-ID: {:?}",
             resume_at,
             limit,
+            include_data,
             context.get().0.clone()
         );
         Err(ApiError("Generic failure".into()))

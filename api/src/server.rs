@@ -64,14 +64,13 @@ const INSERT_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_se
 // Helper to build responses consistent as we can't implement for the api_server::models directly
 pub struct BuildResponse {}
 impl BuildResponse {
-    pub fn event(id: Cid, data: Vec<u8>) -> models::Event {
+    pub fn event(id: Cid, data: Option<Vec<u8>>) -> models::Event {
         let id = id.to_string();
-        let data = if data.is_empty() {
-            String::default()
-        } else {
-            multibase::encode(multibase::Base::Base64, data)
-        };
-        models::Event::new(id, data)
+        let mut res = models::Event::new(id);
+        if data.as_ref().map_or(false, |e| !e.is_empty()) {
+            res.data = Some(multibase::encode(multibase::Base::Base64, data.unwrap()));
+        }
+        res
     }
 }
 
@@ -193,6 +192,37 @@ impl EventInsertResult {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EventDataResult {
+    /// The CID of the event
+    pub id: ceramic_core::Cid,
+    /// The data as a car file. Can be none if not requested.
+    pub data: Option<Vec<u8>>,
+}
+
+impl EventDataResult {
+    pub fn new(id: ceramic_core::Cid, data: Option<Vec<u8>>) -> Self {
+        Self { id, data }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IncludeEventData {
+    None,
+    Full,
+}
+
+impl TryFrom<String> for IncludeEventData {
+    type Error = String;
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        match value.as_str() {
+            "none" => Ok(Self::None),
+            "full" => Ok(Self::Full),
+            _ => Err(format!("Invalid value: {}.", value)),
+        }
+    }
+}
+
 /// Trait for accessing persistent storage of Events
 #[async_trait]
 pub trait EventStore: Send + Sync {
@@ -217,11 +247,13 @@ pub trait EventStore: Send + Sync {
 
     // it's likely `highwater` will be a string or struct when we have alternative storage for now we
     // keep it simple to allow easier error propagation. This isn't currently public outside of this repo.
+    // `include_data` indicates whether the payload (carfile) of the event should be returned or just the ID
     async fn events_since_highwater_mark(
         &self,
         highwater: i64,
         limit: i64,
-    ) -> Result<(i64, Vec<Cid>)>;
+        include_data: IncludeEventData,
+    ) -> Result<(i64, Vec<EventDataResult>)>;
 
     async fn highwater_mark(&self) -> Result<i64>;
 
@@ -255,9 +287,10 @@ impl<S: EventStore> EventStore for Arc<S> {
         &self,
         highwater: i64,
         limit: i64,
-    ) -> Result<(i64, Vec<Cid>)> {
+        include_data: IncludeEventData,
+    ) -> Result<(i64, Vec<EventDataResult>)> {
         self.as_ref()
-            .events_since_highwater_mark(highwater, limit)
+            .events_since_highwater_mark(highwater, limit, include_data)
             .await
     }
 
@@ -398,9 +431,32 @@ where
         &self,
         resume_at: Option<String>,
         limit: Option<i32>,
+        include_data: Option<String>,
     ) -> Result<FeedEventsGetResponse, ErrorResponse> {
         let hw = resume_at.map(ResumeToken::new).unwrap_or_default();
-        let limit = limit.unwrap_or(10000) as usize;
+        let limit = limit.unwrap_or(100);
+        let include_data = match include_data.map_or(Ok(IncludeEventData::None), |v| {
+            IncludeEventData::try_from(v)
+        }) {
+            Ok(v) => v,
+            Err(e) => {
+                return Ok(FeedEventsGetResponse::BadRequest(
+                    models::BadRequestResponse::new(format!(
+                        "{} must be one of 'none' or 'full'",
+                        e
+                    )),
+                ))
+            }
+        };
+
+        if limit > 10_000 && !matches!(include_data, IncludeEventData::None) {
+            return Ok(FeedEventsGetResponse::BadRequest(
+                models::BadRequestResponse::new(format!(
+                    "The limit value must be less than 10000 when including data ({}) ",
+                    limit
+                )),
+            ));
+        }
         let hw = match (&hw).try_into() {
             Ok(hw) => hw,
             Err(err) => {
@@ -414,12 +470,12 @@ where
         };
         let (new_hw, event_ids) = self
             .model
-            .events_since_highwater_mark(hw, limit as i64)
+            .events_since_highwater_mark(hw, limit as i64, include_data)
             .await
-            .map_err(|e| ErrorResponse::new(format!("failed to get keys: {e}")))?;
+            .map_err(|e| ErrorResponse::new(format!("failed to get event data: {e}")))?;
         let events = event_ids
             .into_iter()
-            .map(|id| BuildResponse::event(id, vec![]))
+            .map(|ev| BuildResponse::event(ev.id, ev.data))
             .collect();
 
         Ok(FeedEventsGetResponse::Success(models::EventFeed {
@@ -492,7 +548,7 @@ where
             .await
             .map_err(|err| ErrorResponse::new(format!("failed to get keys: {err}")))?
             .into_iter()
-            .map(|(id, data)| BuildResponse::event(id, data))
+            .map(|(id, data)| BuildResponse::event(id, Some(data)))
             .collect::<Vec<_>>();
 
         let event_cnt = events.len();
@@ -615,7 +671,7 @@ where
         };
         match data {
             Ok(Some(data)) => {
-                let event = BuildResponse::event(cid, data);
+                let event = BuildResponse::event(cid, Some(data));
                 Ok(EventsEventIdGetResponse::Success(event))
             }
             Ok(None) => Ok(EventsEventIdGetResponse::EventNotFound(format!(
@@ -765,9 +821,10 @@ where
         &self,
         resume_at: Option<String>,
         limit: Option<i32>,
+        include_data: Option<String>,
         _context: &C,
     ) -> Result<FeedEventsGetResponse, ApiError> {
-        self.get_event_feed(resume_at, limit)
+        self.get_event_feed(resume_at, limit, include_data)
             .await
             .or_else(|err| Ok(FeedEventsGetResponse::InternalServerError(err)))
     }

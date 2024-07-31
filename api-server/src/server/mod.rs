@@ -1063,9 +1063,28 @@ where
                         }
                         None => None,
                     };
+                    let param_include_data = query_params
+                        .iter()
+                        .filter(|e| e.0 == "includeData")
+                        .map(|e| e.1.clone())
+                        .next();
+                    let param_include_data = match param_include_data {
+                        Some(param_include_data) => {
+                            let param_include_data =
+                                <String as std::str::FromStr>::from_str(&param_include_data);
+                            match param_include_data {
+                            Ok(param_include_data) => Some(param_include_data),
+                            Err(e) => return Ok(Response::builder()
+                                .status(StatusCode::BAD_REQUEST)
+                                .body(Body::from(format!("Couldn't parse query parameter includeData - doesn't match schema: {}", e)))
+                                .expect("Unable to create Bad Request response for invalid query parameter includeData")),
+                        }
+                        }
+                        None => None,
+                    };
 
                     let result = api_impl
-                        .feed_events_get(param_resume_at, param_limit, &context)
+                        .feed_events_get(param_resume_at, param_limit, param_include_data, &context)
                         .await;
                     let mut response = Response::new(Body::empty());
                     response.headers_mut().insert(

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use ceramic_api::EventStore;
+use ceramic_api::{EventDataResult, EventStore, IncludeEventData};
 use ceramic_core::EventId;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
@@ -34,6 +34,14 @@ async fn add_and_assert_new_local_event(store: &CeramicEventService, item: Recon
         .unwrap();
     let new = new.store_result.count_new_keys();
     assert_eq!(1, new);
+}
+
+async fn get_delivered_cids(store: &CeramicEventService) -> Vec<ceramic_core::Cid> {
+    let (_, delivered) = store
+        .events_since_highwater_mark(0, i64::MAX, IncludeEventData::Full)
+        .await
+        .unwrap();
+    delivered.iter().map(|e| e.id).collect()
 }
 
 #[test(tokio::test)]
@@ -74,10 +82,7 @@ async fn test_prev_exists_history_required() {
     add_and_assert_new_local_event(&store, ReconItem::new(&data.0, &data.1)).await;
     check_deliverable(&store.pool, &data.0.cid().unwrap(), true).await;
 
-    let (_, delivered) = store
-        .events_since_highwater_mark(0, i64::MAX)
-        .await
-        .unwrap();
+    let delivered = get_delivered_cids(&store).await;
     assert_eq!(2, delivered.len());
 
     let expected = vec![init.0.cid().unwrap(), data.0.cid().unwrap()];
@@ -104,10 +109,8 @@ async fn test_prev_in_same_write_history_required() {
     assert_eq!(2, new);
     check_deliverable(&store.pool, &init.0.cid().unwrap(), true).await;
     check_deliverable(&store.pool, &data.0.cid().unwrap(), true).await;
-    let (_, delivered) = store
-        .events_since_highwater_mark(0, i64::MAX)
-        .await
-        .unwrap();
+    let delivered = get_delivered_cids(&store).await;
+
     assert_eq!(2, delivered.len());
 
     let expected = vec![init.0.cid().unwrap(), data.0.cid().unwrap()];
@@ -122,10 +125,7 @@ async fn test_missing_prev_pending_recon() {
     add_and_assert_new_recon_event(&store, ReconItem::new(&data.0, &data.1)).await;
     check_deliverable(&store.pool, &data.0.cid().unwrap(), false).await;
 
-    let (_, delivered) = store
-        .events_since_highwater_mark(0, i64::MAX)
-        .await
-        .unwrap();
+    let delivered = get_delivered_cids(&store).await;
     assert_eq!(0, delivered.len());
 
     let data = &events[2];
@@ -133,10 +133,8 @@ async fn test_missing_prev_pending_recon() {
 
     check_deliverable(&store.pool, &data.0.cid().unwrap(), false).await;
 
-    let (_, delivered) = store
-        .events_since_highwater_mark(0, i64::MAX)
-        .await
-        .unwrap();
+    let delivered = get_delivered_cids(&store).await;
+
     assert_eq!(0, delivered.len());
     // now we add the init and we should see init, data 1 (first stored), data 2 (second stored) as highwater returns
     let data = &events[0];
@@ -146,10 +144,8 @@ async fn test_missing_prev_pending_recon() {
     // This happens out of band, so give it a moment to make sure everything is updated
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
-    let (_, delivered) = store
-        .events_since_highwater_mark(0, i64::MAX)
-        .await
-        .unwrap();
+    let delivered = get_delivered_cids(&store).await;
+
     assert_eq!(3, delivered.len());
 
     let expected = vec![
@@ -175,10 +171,7 @@ async fn missing_prev_pending_recon_should_deliver_without_stream_update() {
     // This happens out of band, so give it a moment to make sure everything is updated
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
-    let (_, delivered) = store
-        .events_since_highwater_mark(0, i64::MAX)
-        .await
-        .unwrap();
+    let delivered = get_delivered_cids(&store).await;
     assert_eq!(2, delivered.len());
 
     let expected = vec![events[0].0.cid().unwrap(), events[1].0.cid().unwrap()];
@@ -215,10 +208,7 @@ async fn multiple_streams_missing_prev_recon_should_deliver_without_stream_updat
     check_deliverable(&store.pool, &s2_3.0.cid().unwrap(), false).await;
 
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    let (_, delivered) = store
-        .events_since_highwater_mark(0, i64::MAX)
-        .await
-        .unwrap();
+    let delivered = get_delivered_cids(&store).await;
     assert_eq!(2, delivered.len());
 
     // now we add the second event for stream 1, it should unlock the first stream completely but not the second
@@ -228,10 +218,7 @@ async fn multiple_streams_missing_prev_recon_should_deliver_without_stream_updat
     // so `check_deliverable` could return true or false depending on timing (but probably false).
     // as this is an implementation detail and we'd prefer true, we just use HW ordering to make sure it's been delivered
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-    let (_, delivered) = store
-        .events_since_highwater_mark(0, i64::MAX)
-        .await
-        .unwrap();
+    let delivered = get_delivered_cids(&store).await;
     assert_eq!(4, delivered.len());
     let expected: Vec<cid::CidGeneric<64>> = vec![
         s1_init.0.cid().unwrap(),
@@ -245,10 +232,8 @@ async fn multiple_streams_missing_prev_recon_should_deliver_without_stream_updat
     add_and_assert_new_recon_event(&store, ReconItem::new(&s2_2.0, &s2_2.1)).await;
 
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    let (_, delivered) = store
-        .events_since_highwater_mark(0, i64::MAX)
-        .await
-        .unwrap();
+    let delivered = get_delivered_cids(&store).await;
+
     let expected = vec![
         s1_init.0.cid().unwrap(),
         s2_init.0.cid().unwrap(),
@@ -263,7 +248,7 @@ async fn multiple_streams_missing_prev_recon_should_deliver_without_stream_updat
 async fn validate_all_delivered(store: &CeramicEventService, expected_delivered: usize) {
     loop {
         let (_, delivered) = store
-            .events_since_highwater_mark(0, i64::MAX)
+            .events_since_highwater_mark(0, i64::MAX, IncludeEventData::None)
             .await
             .unwrap();
         let total = delivered.len();
@@ -351,7 +336,7 @@ async fn recon_lots_of_streams() {
     .unwrap();
 
     let (_, delivered) = store
-        .events_since_highwater_mark(0, i64::MAX)
+        .events_since_highwater_mark(0, i64::MAX, IncludeEventData::None)
         .await
         .unwrap();
 
@@ -360,7 +345,7 @@ async fn recon_lots_of_streams() {
     for _ in 0..num_streams {
         streams_at_the_end.push(Vec::with_capacity(per_stream));
     }
-    for cid in delivered {
+    for EventDataResult { id: cid, .. } in delivered {
         let stream = cid_to_stream_map.get(&cid).unwrap();
         let stream = streams_at_the_end.get_mut(*stream).unwrap();
         stream.push(cid);

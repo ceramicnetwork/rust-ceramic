@@ -288,13 +288,14 @@ pub struct Event {
 
     /// Multibase encoding of event data.
     #[serde(rename = "data")]
-    pub data: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<String>,
 }
 
 impl Event {
     #[allow(clippy::new_without_default)]
-    pub fn new(id: String, data: String) -> Event {
-        Event { id, data }
+    pub fn new(id: String) -> Event {
+        Event { id, data: None }
     }
 }
 
@@ -306,8 +307,9 @@ impl std::string::ToString for Event {
         let params: Vec<Option<String>> = vec![
             Some("id".to_string()),
             Some(self.id.to_string()),
-            Some("data".to_string()),
-            Some(self.data.to_string()),
+            self.data
+                .as_ref()
+                .map(|data| ["data".to_string(), data.to_string()].join(",")),
         ];
 
         params.into_iter().flatten().collect::<Vec<_>>().join(",")
@@ -375,11 +377,7 @@ impl std::str::FromStr for Event {
                 .into_iter()
                 .next()
                 .ok_or_else(|| "id missing in Event".to_string())?,
-            data: intermediate_rep
-                .data
-                .into_iter()
-                .next()
-                .ok_or_else(|| "data missing in Event".to_string())?,
+            data: intermediate_rep.data.into_iter().next(),
         })
     }
 }

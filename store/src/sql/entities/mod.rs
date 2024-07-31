@@ -11,4 +11,4 @@ pub use event_block::{EventBlockRaw, ReconEventBlockRaw};
 pub use hash::{BlockHash, ReconHash};
 pub use version::VersionRow;
 
-pub use utils::{CountRow, DeliveredEventRow, OrderKey};
+pub use utils::{CountRow, OrderKey};
