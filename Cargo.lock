@@ -1033,6 +1033,7 @@ dependencies = [
  "ceramic-core",
  "cid 0.11.1",
  "expect-test",
+ "hex",
  "multihash-codetable",
  "tokio",
 ]

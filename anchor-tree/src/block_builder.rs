@@ -170,11 +170,10 @@ pub fn build_time_event(
         id,
         prev,
         proof,
-        path: format!(
-            "{}{}",
-            path_prefix.unwrap_or_default(),
-            index_to_path(index, count)?
-        ),
+        path: match path_prefix {
+            Some(path_prefix) => format!("{}/{}", path_prefix, index_to_path(index, count)?),
+            None => index_to_path(index, count)?,
+        },
     };
     Ok(time_event)
 }
@@ -307,7 +306,7 @@ mod tests {
         let index = 500_000;
         let count = 999_999;
         let time_event = build_time_event(id, prev, proof, Some("".to_owned()), index, count);
-        expect![[r#"Ok(TimeEvent { id: Cid(baeabeifu7qd7bpy4z6vdo7jff6kg3uiwolqtofhut7nrhx6wuhpb2wqxtq), prev: Cid(baeabeifu7qd7bpy4z6vdo7jff6kg3uiwolqtofhut7nrhx6wuhpb2wqxtq), proof: Cid(bafyreidq247kfkizr3k6wlvx43lt7gro2dno7vzqepmnqt26agri4opzqu), path: "0/1/1/1/1/0/1/0/0/0/0/1/0/0/1/0/0/0/0/0" })"#]]
+        expect![[r#"Ok(TimeEvent { id: Cid(baeabeifu7qd7bpy4z6vdo7jff6kg3uiwolqtofhut7nrhx6wuhpb2wqxtq), prev: Cid(baeabeifu7qd7bpy4z6vdo7jff6kg3uiwolqtofhut7nrhx6wuhpb2wqxtq), proof: Cid(bafyreidq247kfkizr3k6wlvx43lt7gro2dno7vzqepmnqt26agri4opzqu), path: "/0/1/1/1/1/0/1/0/0/0/0/1/0/0/1/0/0/0/0/0" })"#]]
         .assert_eq(&format!("{:?}", time_event));
     }
 

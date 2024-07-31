@@ -13,5 +13,6 @@ ceramic-anchor-tx.workspace = true
 ceramic-core.workspace = true
 cid.workspace = true
 expect-test.workspace = true
+hex.workspace = true
 multihash-codetable.workspace = true
 tokio.workspace = true

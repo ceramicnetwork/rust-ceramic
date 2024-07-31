@@ -58,6 +58,7 @@ mod tests {
     use cid::Cid;
     use expect_test::{expect, expect_file};
     use multihash_codetable::{Code, MultihashDigest};
+    use std::sync::mpsc::channel;
 
     fn int64_cid(i: i64) -> Cid {
         let data = i.to_be_bytes();
@@ -82,7 +83,18 @@ mod tests {
     async fn test_anchor() {
         let (_, anchor_requests) = mock_anchor_requests(10);
         let (time_event_block_sink_tx, time_event_block_sink_rx) = channel();
-        anchor_loop(anchor_requests, time_event_block_sink_tx, RemoteCas)
+        let remote_cas = RemoteCas::new(
+            std::env::var("NODE_DID")
+                .unwrap_or("did:key:z6MkueF19qChpGQJBJXcXjfoM1MYCwC167RMwUiNWXXvEm1M".to_string()),
+            hex::decode(std::env::var("NODE_PRIVATE_KEY").unwrap_or(
+                "4c02abf947a7bd4f24fc799168a21cdea5b9d3a8ce8f63801785a4dff7299af4".to_string(),
+            ))
+            .unwrap()
+            .try_into()
+            .unwrap(),
+            "https://cas-dev.3boxlabs.com".to_owned(),
+        );
+        anchor_loop(anchor_requests, time_event_block_sink_tx, remote_cas)
             .await
             .unwrap();
         // Pull all the blocks out of the channel
