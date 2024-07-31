@@ -5,13 +5,25 @@ use serde::{Deserialize, Serialize};
 
 use ceramic_core::DagCborIpfsBlock;
 
-#[derive(Debug)]
+/// A receipt containing a blockchain proof CID, the path prefix to the CID in the anchored Merkle tree and the
+/// corresponding Merkle tree nodes.
 pub struct Receipt {
     pub proof_cid: Cid,
     pub path_prefix: Option<String>,
     pub blocks: Vec<DagCborIpfsBlock>,
 }
 
+impl std::fmt::Debug for Receipt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Receipt")
+            .field("proof_cid", &self.proof_cid.to_string())
+            .field("path_prefix", &self.path_prefix.clone().unwrap_or_default())
+            .field("blocks", &self.blocks)
+            .finish()
+    }
+}
+
+/// A block containing a blockchain proof.
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ProofBlock {

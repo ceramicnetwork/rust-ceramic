@@ -3,8 +3,7 @@ use ipld_core::{codec::Codec, ipld::Ipld};
 use multihash_codetable::{Code, MultihashDigest};
 use serde_ipld_dagcbor::codec::DagCborCodec;
 
-/// DagCborIpfsBlock generates a CIDv1 assuming the Vec<u8> is DagCbor
-#[derive(Debug)]
+/// A DagCbor block with a CIDv1 and the raw bytes.
 pub struct DagCborIpfsBlock {
     /// A CIDv1 DagCbor cid
     pub cid: Cid,
@@ -33,5 +32,14 @@ impl From<Vec<u8>> for DagCborIpfsBlock {
             ),
             data,
         }
+    }
+}
+
+impl std::fmt::Debug for DagCborIpfsBlock {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DagCborIpfsBlock")
+            .field("cid", &self.cid.to_string())
+            .field("data", &hex::encode::<&Vec<u8>>(&self.data))
+            .finish()
     }
 }

@@ -7,5 +7,11 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+anyhow.workspace = true
 ceramic-anchor-tree.workspace = true
 ceramic-anchor-tx.workspace = true
+ceramic-core.workspace = true
+cid.workspace = true
+expect-test.workspace = true
+multihash-codetable.workspace = true
+tokio.workspace = true
