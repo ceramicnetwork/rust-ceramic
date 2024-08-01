@@ -273,7 +273,7 @@ paths:
     options:
       summary: cors
       parameters:
-        - name: peer_id
+        - name: peerId
           in: query
           required: false
           description: Only return interests from the specified peer ID.
@@ -285,7 +285,7 @@ paths:
     get:
       summary: Get the interests stored on the node
       parameters:
-        - name: peer_id
+        - name: peerId
           in: query
           required: false
           description: Only return interests from the specified peer ID.

@@ -1328,7 +1328,7 @@ where
         let query_string = {
             let mut query_string = form_urlencoded::Serializer::new("".to_owned());
             if let Some(param_peer_id) = param_peer_id {
-                query_string.append_pair("peer_id", &param_peer_id);
+                query_string.append_pair("peerId", &param_peer_id);
             }
             query_string.finish()
         };
@@ -1442,7 +1442,7 @@ where
         let query_string = {
             let mut query_string = form_urlencoded::Serializer::new("".to_owned());
             if let Some(param_peer_id) = param_peer_id {
-                query_string.append_pair("peer_id", &param_peer_id);
+                query_string.append_pair("peerId", &param_peer_id);
             }
             query_string.finish()
         };

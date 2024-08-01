@@ -290,7 +290,7 @@ paths:
       - description: Only return interests from the specified peer ID.
         explode: true
         in: query
-        name: peer_id
+        name: peerId
         required: false
         schema:
           type: string
@@ -320,7 +320,7 @@ paths:
       - description: Only return interests from the specified peer ID.
         explode: true
         in: query
-        name: peer_id
+        name: peerId
         required: false
         schema:
           type: string

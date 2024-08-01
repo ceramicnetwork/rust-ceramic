@@ -931,7 +931,7 @@ where
                             .collect::<Vec<_>>();
                     let param_peer_id = query_params
                         .iter()
-                        .filter(|e| e.0 == "peer_id")
+                        .filter(|e| e.0 == "peerId")
                         .map(|e| e.1.clone())
                         .next();
                     let param_peer_id = match param_peer_id {
@@ -942,8 +942,8 @@ where
                             Ok(param_peer_id) => Some(param_peer_id),
                             Err(e) => return Ok(Response::builder()
                                 .status(StatusCode::BAD_REQUEST)
-                                .body(Body::from(format!("Couldn't parse query parameter peer_id - doesn't match schema: {}", e)))
-                                .expect("Unable to create Bad Request response for invalid query parameter peer_id")),
+                                .body(Body::from(format!("Couldn't parse query parameter peerId - doesn't match schema: {}", e)))
+                                .expect("Unable to create Bad Request response for invalid query parameter peerId")),
                         }
                         }
                         None => None,
@@ -1020,7 +1020,7 @@ where
                             .collect::<Vec<_>>();
                     let param_peer_id = query_params
                         .iter()
-                        .filter(|e| e.0 == "peer_id")
+                        .filter(|e| e.0 == "peerId")
                         .map(|e| e.1.clone())
                         .next();
                     let param_peer_id = match param_peer_id {
@@ -1031,8 +1031,8 @@ where
                             Ok(param_peer_id) => Some(param_peer_id),
                             Err(e) => return Ok(Response::builder()
                                 .status(StatusCode::BAD_REQUEST)
-                                .body(Body::from(format!("Couldn't parse query parameter peer_id - doesn't match schema: {}", e)))
-                                .expect("Unable to create Bad Request response for invalid query parameter peer_id")),
+                                .body(Body::from(format!("Couldn't parse query parameter peerId - doesn't match schema: {}", e)))
+                                .expect("Unable to create Bad Request response for invalid query parameter peerId")),
                         }
                         }
                         None => None,
