@@ -167,6 +167,10 @@ struct DaemonOpts {
             env = "CERAMIC_ONE_CORS_ALLOW_ORIGINS"
         )]
     cors_allow_origins: Vec<String>,
+
+    /// Mode of anchoring.
+    #[arg(long, default_value = "disable", env = "CERAMIC_ONE_ANCHOR_MODE")]
+    anchor_mode: String,
 }
 
 #[derive(Args, Debug)]
@@ -218,6 +222,16 @@ enum Network {
     /// Singleton network in memory
     #[clap(alias = "inmemory")]
     InMemory,
+}
+
+#[derive(ValueEnum, Debug, Clone)]
+enum AnchorOpts {
+    /// Disable anchoring
+    Disable,
+    /// Enable standalone anchor service
+    InternalAnchor,
+    /// Instead of using internal anchor service, use the test anchor service
+    TestAnchor,
 }
 
 impl Network {
