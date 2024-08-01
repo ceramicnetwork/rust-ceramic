@@ -9,3 +9,18 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+recon.workspace = true
+anyhow.workspace = true
+arrow.workspace = true
+arrow-flight.workspace = true
+arrow-schema = "52.2.0"
+async-trait.workspace = true
+bytes.workspace = true
+cid.workspace = true
+futures.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+tonic.workspace = true
+arrow-ipc = "52.2.0"
+async-stream.workspace = true
+ceramic-core.workspace = true
+tracing.workspace = true

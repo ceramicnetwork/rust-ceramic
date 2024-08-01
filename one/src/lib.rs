@@ -366,6 +366,7 @@ impl Daemon {
                     db.interest_store,
                     db.event_store.clone(),
                     db.event_store.clone(),
+                    db.event_store.clone(),
                     db.event_store,
                     metrics_handle,
                 )
@@ -374,13 +375,14 @@ impl Daemon {
         }
     }
 
-    async fn run_internal<I1, I2, E1, E2, E3>(
+    async fn run_internal<I1, I2, E1, E2, E3, E4>(
         opts: DaemonOpts,
         interest_api_store: Arc<I1>,
         interest_recon_store: Arc<I2>,
         model_api_store: Arc<E1>,
         model_recon_store: Arc<E2>,
-        bitswap_block_store: Arc<E3>,
+        model_rpc_store: Arc<E3>,
+        bitswap_block_store: Arc<E4>,
         metrics_handle: MetricsHandle,
     ) -> Result<()>
     where
@@ -388,7 +390,8 @@ impl Daemon {
         I2: recon::Store<Key = Interest, Hash = Sha256a> + Send + Sync + 'static,
         E1: EventStore + Send + Sync + 'static,
         E2: recon::Store<Key = EventId, Hash = Sha256a> + Send + Sync + 'static,
-        E3: iroh_bitswap::Store + Send + Sync + 'static,
+        E3: ceramic_rpc::EventStore + Send + Sync + 'static,
+        E4: iroh_bitswap::Store + Send + Sync + 'static,
     {
         let network = opts.network.to_network(&opts.local_network_id)?;
 
@@ -567,6 +570,13 @@ impl Daemon {
 
         let recon_interest_handle = tokio::spawn(recon_interest_svr.run());
         let recon_model_handle = tokio::spawn(recon_model_svr.run());
+
+        debug!("staring rpc server");
+        tokio::spawn(async move {
+            ceramic_rpc::run(model_rpc_store)
+                .await
+                .expect("should be able to run rpc server")
+        });
 
         // Start HTTP server with a graceful shutdown
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();

@@ -5,7 +5,7 @@ use ceramic_core::EventId;
 use ceramic_store::{CeramicOneBlock, CeramicOneEvent};
 use cid::Cid;
 use iroh_bitswap::Block;
-use recon::{HashCount, ReconItem, Result as ReconResult, Sha256a};
+use recon::{HashCount, Key, ReconItem, Result as ReconResult, Sha256a};
 
 use crate::event::{CeramicEventService, DeliverableRequirement};
 
@@ -208,5 +208,25 @@ impl ceramic_api::EventStore for CeramicEventService {
     async fn get_block(&self, cid: &Cid) -> anyhow::Result<Option<Vec<u8>>> {
         let block = CeramicOneBlock::get(&self.pool, cid).await?;
         Ok(block.map(|b| b.data.to_vec()))
+    }
+}
+
+#[async_trait::async_trait]
+impl ceramic_rpc::EventStore for CeramicEventService {
+    async fn events_since_highwater_mark(
+        &self,
+        highwater: i64,
+        limit: i64,
+    ) -> anyhow::Result<(i64, Vec<(EventId, Vec<u8>)>)> {
+        Ok((
+            0,
+            CeramicOneEvent::range_with_values(
+                &self.pool,
+                &EventId::min_value()..&EventId::max_value(),
+                0,
+                limit as usize,
+            )
+            .await?,
+        ))
     }
 }
