@@ -1,0 +1,11 @@
+[package]
+name = "ceramic-rpc"
+description = "Implementation of the Ceramic Flight RPC server"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]

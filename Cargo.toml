@@ -12,13 +12,14 @@ members = [
     "one",
     "p2p",
     "recon",
+    "rpc",
+    "service",
     "store",
     "beetle/iroh-bitswap",
     "beetle/iroh-car",
     "beetle/iroh-rpc-client",
     "beetle/iroh-rpc-types",
     "beetle/iroh-util",
-    "service",
 ]
 
 [workspace.dependencies]
