@@ -302,12 +302,14 @@ pub trait Api<C: Send + Sync> {
     /// Get the interests stored on the node
     async fn experimental_interests_get(
         &self,
+        peer_id: Option<String>,
         context: &C,
     ) -> Result<ExperimentalInterestsGetResponse, ApiError>;
 
     /// cors
     async fn experimental_interests_options(
         &self,
+        peer_id: Option<String>,
         context: &C,
     ) -> Result<ExperimentalInterestsOptionsResponse, ApiError>;
 
@@ -445,11 +447,13 @@ pub trait ApiNoContext<C: Send + Sync> {
     /// Get the interests stored on the node
     async fn experimental_interests_get(
         &self,
+        peer_id: Option<String>,
     ) -> Result<ExperimentalInterestsGetResponse, ApiError>;
 
     /// cors
     async fn experimental_interests_options(
         &self,
+        peer_id: Option<String>,
     ) -> Result<ExperimentalInterestsOptionsResponse, ApiError>;
 
     /// Get all new event keys since resume token
@@ -625,17 +629,23 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
     /// Get the interests stored on the node
     async fn experimental_interests_get(
         &self,
+        peer_id: Option<String>,
     ) -> Result<ExperimentalInterestsGetResponse, ApiError> {
         let context = self.context().clone();
-        self.api().experimental_interests_get(&context).await
+        self.api()
+            .experimental_interests_get(peer_id, &context)
+            .await
     }
 
     /// cors
     async fn experimental_interests_options(
         &self,
+        peer_id: Option<String>,
     ) -> Result<ExperimentalInterestsOptionsResponse, ApiError> {
         let context = self.context().clone();
-        self.api().experimental_interests_options(&context).await
+        self.api()
+            .experimental_interests_options(peer_id, &context)
+            .await
     }
 
     /// Get all new event keys since resume token

@@ -272,11 +272,25 @@ paths:
   /experimental/interests:
     options:
       summary: cors
+      parameters:
+        - name: peerId
+          in: query
+          required: false
+          description: Only return interests from the specified peer ID.
+          schema:
+            type: string
       responses:
         "200":
           description: cors
     get:
       summary: Get the interests stored on the node
+      parameters:
+        - name: peerId
+          in: query
+          required: false
+          description: Only return interests from the specified peer ID.
+          schema:
+            type: string
       responses:
         "200":
           description: success

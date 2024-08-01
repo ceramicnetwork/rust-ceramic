@@ -286,6 +286,15 @@ paths:
       summary: cors
   /experimental/interests:
     get:
+      parameters:
+      - description: Only return interests from the specified peer ID.
+        explode: true
+        in: query
+        name: peerId
+        required: false
+        schema:
+          type: string
+        style: form
       responses:
         "200":
           content:
@@ -307,6 +316,15 @@ paths:
           description: Internal server error
       summary: Get the interests stored on the node
     options:
+      parameters:
+      - description: Only return interests from the specified peer ID.
+        explode: true
+        in: query
+        name: peerId
+        required: false
+        schema:
+          type: string
+        style: form
       responses:
         "200":
           description: cors

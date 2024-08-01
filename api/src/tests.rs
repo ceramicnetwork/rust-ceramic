@@ -474,7 +474,10 @@ async fn get_interests() {
 
     let mock_event_store = MockEventStoreTest::new();
     let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_event_store));
-    let resp = server.experimental_interests_get(&Context).await.unwrap();
+    let resp = server
+        .experimental_interests_get(None, &Context)
+        .await
+        .unwrap();
     expect![[r#"
         Success(
             InterestsGet {
@@ -491,7 +494,96 @@ async fn get_interests() {
     "#]].assert_debug_eq(&resp);
 }
 #[test(tokio::test)]
+async fn get_interests_for_peer() {
+    let peer_id_a = PeerId::from_str("1AaNXU5G2SJQSzCCP23V2TEDierSRBBGLA7aSCYScUTke9").unwrap();
+    let peer_id_b = PeerId::from_str("1AcJjoLqKWAPBRQYsff8ZQPjwinCAFUdTEgZrAZgeZkCu7").unwrap();
+    let network = Network::InMemory;
+    let model = "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9"; // cspell:disable-line
+    let controller = "did:key:zGs1Det7LHNeu7DXT4nvoYrPfj3n6g7d6bj2K4AMXEvg1";
+    let stream =
+        StreamId::from_str("k2t6wz4ylx0qs435j9oi1s6469uekyk6qkxfcb21ikm5ag2g1cook14ole90aw") // cspell:disable-line
+            .unwrap();
+    let start = EventId::builder()
+        .with_network(&network)
+        .with_sep("model", &decode_multibase_data(model).unwrap())
+        .with_controller(controller)
+        .with_init(&stream.cid)
+        .with_min_event()
+        .build_fencepost();
+    let end = EventId::builder()
+        .with_network(&network)
+        .with_sep("model", &decode_multibase_data(model).unwrap())
+        .with_controller(controller)
+        .with_init(&stream.cid)
+        .with_max_event()
+        .build_fencepost();
+    let mut mock_interest = MockAccessInterestStoreTest::new();
+    mock_interest
+        .expect_range()
+        .with(
+            predicate::eq(Interest::min_value()),
+            predicate::eq(Interest::max_value()),
+            predicate::eq(0),
+            predicate::eq(usize::MAX),
+        )
+        .once()
+        .return_once(move |_, _, _, _| {
+            Ok(vec![
+                Interest::builder()
+                    .with_sep_key("model")
+                    .with_peer_id(&peer_id_a)
+                    .with_range((start.as_slice(), end.as_slice()))
+                    .with_not_after(0)
+                    .build(),
+                Interest::builder()
+                    .with_sep_key("model")
+                    .with_peer_id(&peer_id_a)
+                    .with_range((start.as_slice(), end.as_slice()))
+                    .with_not_after(1)
+                    .build(),
+                Interest::builder()
+                    .with_sep_key("model")
+                    .with_peer_id(&peer_id_b)
+                    .with_range((start.as_slice(), end.as_slice()))
+                    .with_not_after(0)
+                    .build(),
+                Interest::builder()
+                    .with_sep_key("model")
+                    .with_peer_id(&peer_id_b)
+                    .with_range((start.as_slice(), end.as_slice()))
+                    .with_not_after(1)
+                    .build(),
+            ])
+        });
 
+    let mock_event_store = MockEventStoreTest::new();
+    let server = Server::new(
+        peer_id_b,
+        network,
+        mock_interest,
+        Arc::new(mock_event_store),
+    );
+    let resp = server
+        .experimental_interests_get(Some(peer_id_a.to_string()), &Context)
+        .await
+        .unwrap();
+    expect![[r#"
+        Success(
+            InterestsGet {
+                interests: [
+                    InterestsGetInterestsInner {
+                        data: "zwZSodouDdQxpoGdqDjfm1n8r3v18Eoo4si4AFo1UbGArVey2XHwDBwDshSiPN36DDWaE7MprPpBmNrZkDhrFugryq9nnAVyP6M9oTns8fjB4RqR7oCNEX8HDBZAbVVrpXY2QcWHu5Dy",
+                    },
+                    InterestsGetInterestsInner {
+                        data: "zwZSodouDdQxpoGdqDjfm1n8r3v18Eoo4si4AFo1UbGArVey2XHwDBwDshSiPN36DDWaE7MprPpBmNrZkDhrFugryq9nnAVyP6M9oTns8fjB4RqR7oCNEX8HDBZAbVVrpXY2QcWHu5Dz",
+                    },
+                ],
+            },
+        )
+    "#]].assert_debug_eq(&resp);
+}
+
+#[test(tokio::test)]
 async fn get_events_for_interest_range() {
     let peer_id = PeerId::random();
     let network = Network::InMemory;

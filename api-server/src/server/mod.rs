@@ -925,7 +925,33 @@ where
 
                 // ExperimentalInterestsGet - GET /experimental/interests
                 hyper::Method::GET if path.matched(paths::ID_EXPERIMENTAL_INTERESTS) => {
-                    let result = api_impl.experimental_interests_get(&context).await;
+                    // Query parameters (note that non-required or collection query parameters will ignore garbage values, rather than causing a 400 response)
+                    let query_params =
+                        form_urlencoded::parse(uri.query().unwrap_or_default().as_bytes())
+                            .collect::<Vec<_>>();
+                    let param_peer_id = query_params
+                        .iter()
+                        .filter(|e| e.0 == "peerId")
+                        .map(|e| e.1.clone())
+                        .next();
+                    let param_peer_id = match param_peer_id {
+                        Some(param_peer_id) => {
+                            let param_peer_id =
+                                <String as std::str::FromStr>::from_str(&param_peer_id);
+                            match param_peer_id {
+                            Ok(param_peer_id) => Some(param_peer_id),
+                            Err(e) => return Ok(Response::builder()
+                                .status(StatusCode::BAD_REQUEST)
+                                .body(Body::from(format!("Couldn't parse query parameter peerId - doesn't match schema: {}", e)))
+                                .expect("Unable to create Bad Request response for invalid query parameter peerId")),
+                        }
+                        }
+                        None => None,
+                    };
+
+                    let result = api_impl
+                        .experimental_interests_get(param_peer_id, &context)
+                        .await;
                     let mut response = Response::new(Body::empty());
                     response.headers_mut().insert(
                         HeaderName::from_static("x-span-id"),
@@ -988,7 +1014,33 @@ where
 
                 // ExperimentalInterestsOptions - OPTIONS /experimental/interests
                 hyper::Method::OPTIONS if path.matched(paths::ID_EXPERIMENTAL_INTERESTS) => {
-                    let result = api_impl.experimental_interests_options(&context).await;
+                    // Query parameters (note that non-required or collection query parameters will ignore garbage values, rather than causing a 400 response)
+                    let query_params =
+                        form_urlencoded::parse(uri.query().unwrap_or_default().as_bytes())
+                            .collect::<Vec<_>>();
+                    let param_peer_id = query_params
+                        .iter()
+                        .filter(|e| e.0 == "peerId")
+                        .map(|e| e.1.clone())
+                        .next();
+                    let param_peer_id = match param_peer_id {
+                        Some(param_peer_id) => {
+                            let param_peer_id =
+                                <String as std::str::FromStr>::from_str(&param_peer_id);
+                            match param_peer_id {
+                            Ok(param_peer_id) => Some(param_peer_id),
+                            Err(e) => return Ok(Response::builder()
+                                .status(StatusCode::BAD_REQUEST)
+                                .body(Body::from(format!("Couldn't parse query parameter peerId - doesn't match schema: {}", e)))
+                                .expect("Unable to create Bad Request response for invalid query parameter peerId")),
+                        }
+                        }
+                        None => None,
+                    };
+
+                    let result = api_impl
+                        .experimental_interests_options(param_peer_id, &context)
+                        .await;
                     let mut response = Response::new(Body::empty());
                     response.headers_mut().insert(
                         HeaderName::from_static("x-span-id"),

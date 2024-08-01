@@ -210,7 +210,8 @@ fn main() {
             );
         }
         Some("ExperimentalInterestsGet") => {
-            let result = rt.block_on(client.experimental_interests_get());
+            let result =
+                rt.block_on(client.experimental_interests_get(Some("peer_id_example".to_string())));
             info!(
                 "{:?} (X-Span-ID: {:?})",
                 result,
@@ -218,7 +219,9 @@ fn main() {
             );
         }
         Some("ExperimentalInterestsOptions") => {
-            let result = rt.block_on(client.experimental_interests_options());
+            let result = rt.block_on(
+                client.experimental_interests_options(Some("peer_id_example".to_string())),
+            );
             info!(
                 "{:?} (X-Span-ID: {:?})",
                 result,
