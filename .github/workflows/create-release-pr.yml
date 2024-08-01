@@ -2,6 +2,7 @@
 name: Create Release PR
 
 permissions:
+  checks: write
   contents: write
   pull-requests: write
 
