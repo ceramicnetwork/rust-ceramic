@@ -72,7 +72,7 @@ git push --set-upstream origin "$pr_branch"
 
 # Create a PR against the branch this workflow is running on
 gh pr create \
-    --base "$current_branch" \
+    --base "main" \
     --head "$pr_branch" \
     --label release \
     --title "$msg" \
