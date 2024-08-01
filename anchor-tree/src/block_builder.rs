@@ -171,6 +171,7 @@ pub fn build_time_event(
         prev,
         proof,
         path: match path_prefix {
+            // the path should not have a `/` at the beginning or end e.g. 0/1/0
             Some(path_prefix) => format!("{}/{}", path_prefix, index_to_path(index, count)?),
             None => index_to_path(index, count)?,
         },

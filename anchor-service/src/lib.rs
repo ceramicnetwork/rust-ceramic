@@ -1,3 +1,3 @@
 mod state_machine;
 
-pub use state_machine::anchor_loop;
+pub use state_machine::anchor_batch;

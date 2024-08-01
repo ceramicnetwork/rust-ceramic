@@ -6,6 +6,7 @@ mod bytes;
 pub mod event_id;
 pub mod interest;
 mod jwk;
+mod key;
 mod network;
 mod range;
 mod stream_id;
@@ -18,6 +19,7 @@ pub use jwk::Jwk;
 pub use network::Network;
 pub use range::RangeOpen;
 pub use stream_id::{StreamId, StreamIdType};
+pub use key::{ed25519_key_pair_from_secret, did_key_from_ed25519_key_pair};
 
 pub use cid::Cid;
 pub use ssi;

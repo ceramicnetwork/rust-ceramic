@@ -3,6 +3,7 @@ use anyhow::Result;
 use ceramic_anchor_tree::{build_merkle_tree, build_time_events, AnchorRequest};
 use ceramic_anchor_tx::{Receipt, TransactionManager};
 use ceramic_core::DagCborIpfsBlock;
+// use tokio::time::sleep;
 
 // Loop:
 // 1.
@@ -16,38 +17,43 @@ use ceramic_core::DagCborIpfsBlock;
 //   - Take the count from the RootCount.
 //   - Takes std::sync::mpsc::Sender<DagCborIpfsBlock> to send the TimeEvents to.
 
-pub async fn anchor_loop(
+// pub async fn anchor_batch(){
+//     loop{
+//         let anchor_request: Vec<AnchorRequest> = todo!(); // get anchor requests for batch
+//         let result = anchor_batch(anchor_request, time_event_block_sink, tx_manager).await; // call anchor batch.
+//         sleep(Duration::from_secs(300)); // sleep for 5 minutes.
+//     }
+// }
+
+pub async fn anchor_batch(
     anchor_requests: Vec<AnchorRequest>,
     time_event_block_sink: std::sync::mpsc::Sender<DagCborIpfsBlock>,
     tx_manager: impl TransactionManager + 'static,
 ) -> Result<()> {
-    loop {
-        let root_count = build_merkle_tree(anchor_requests.iter(), time_event_block_sink.clone())
-            .await
-            .unwrap();
-        let Ok(Receipt {
-            proof_cid,
-            path_prefix,
-            blocks,
-        }) = tx_manager.make_proof(root_count.root).await
-        else {
-            // TODO: Replace with a 'continue' when we're actually looping
-            break;
-        };
-        for block in blocks {
-            time_event_block_sink.send(block).unwrap();
-        }
-        build_time_events(
-            anchor_requests.iter(),
-            proof_cid,
-            path_prefix,
-            root_count.count,
-            time_event_block_sink.clone(),
-        )
+    // build the local tree from the CIDs, calculate the root and put the block into the sink.
+    let root_count = build_merkle_tree(anchor_requests.iter(), time_event_block_sink.clone())
+        .await
         .unwrap();
-        // TODO: Pretend we wrote out all the blocks
-        break;
+    // perform the transaction and build the proof Receipt.
+    let Receipt {
+        proof_cid,
+        path_prefix,
+        blocks,
+    } = tx_manager.make_proof(root_count.root).await?;
+    // sink the proof block and path blocks.
+    // this call may have a transaction polling loop here for hours.
+    for block in blocks {
+        time_event_block_sink.send(block)?;
     }
+    // make and sink the time events.
+    build_time_events(
+        anchor_requests.iter(),
+        proof_cid,
+        path_prefix,
+        root_count.count,
+        time_event_block_sink.clone(),
+    )?;
+    // TODO: Pretend we wrote out all the blocks
     Ok(())
 }
 
@@ -94,7 +100,7 @@ mod tests {
             .unwrap(),
             "https://cas-dev.3boxlabs.com".to_owned(),
         );
-        anchor_loop(anchor_requests, time_event_block_sink_tx, remote_cas)
+        anchor_batch(anchor_requests, time_event_block_sink_tx, remote_cas)
             .await
             .unwrap();
         // Pull all the blocks out of the channel
