@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.31.0] - 2024-08-01
+
+### 🚀 Features
+
+- Don't deploy js-ceramic when deploying ceramic-one (#451)
+- Add query parameter to return event data on feed endpoint (#398)
+
+### 🐛 Bug Fixes
+
+- Fix benchmark (#410)
+- Create release prs via bot (#454)
+- Run workflows for prs created via bot
+
+### ⚙️ Miscellaneous Tasks
+
+- Rust 1.80 lints (#450)
+
+### Temp
+
+- Create pr against main
+
 ## [0.30.0] - 2024-07-29
 
 ### 🚀 Features
@@ -14,6 +35,10 @@ All notable changes to this project will be documented in this file.
 
 - Disable libp2p tcp port reuse (#440)
 - Use default (google) dns servers if system resolv.conf is invalid (#447)
+
+### ⚙️ Miscellaneous Tasks
+
+- Version v0.30.0 (#449)
 
 ## [0.29.0] - 2024-07-22
 
