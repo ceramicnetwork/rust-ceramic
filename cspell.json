@@ -80,6 +80,7 @@
         "termcolor",
         "unimock",
         "unixfs",
+        "unvalidated",
         "varint",
         "wordle",
         "wordlist",
