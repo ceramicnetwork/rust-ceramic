@@ -5,9 +5,11 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+publish = false
 
 [dependencies]
 anyhow.workspace = true
+async-trait.workspace = true
 ceramic-anchor-tree.workspace = true
 ceramic-anchor-tx.workspace = true
 ceramic-core.workspace = true
@@ -16,3 +18,4 @@ expect-test.workspace = true
 hex.workspace = true
 multihash-codetable.workspace = true
 tokio.workspace = true
+ring.workspace = true

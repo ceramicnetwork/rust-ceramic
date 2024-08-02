@@ -1,13 +1,15 @@
 use std::collections::HashSet;
 
 use async_trait::async_trait;
-use ceramic_core::{EventId, Network};
-use ceramic_event::unvalidated;
-use ceramic_store::{CeramicOneEvent, EventInsertable, EventInsertableBody, SqlitePool};
 use cid::Cid;
 use futures::stream::BoxStream;
 use ipld_core::ipld::Ipld;
 use tracing::{trace, warn};
+
+use ceramic_anchor_service::{AnchorClient, AnchorRequest};
+use ceramic_core::{DagCborIpfsBlock, EventId, Network};
+use ceramic_event::unvalidated;
+use ceramic_store::{CeramicOneEvent, EventInsertable, EventInsertableBody, SqlitePool};
 
 use super::{
     migration::Migrator,
@@ -230,6 +232,18 @@ impl CeramicEventService {
         } else {
             Ok(())
         }
+    }
+}
+
+impl AnchorClient for CeramicEventService {
+    fn get_requests(&self) -> &[AnchorRequest] {
+        todo!()
+    }
+    fn put_blocks(&self, blocks: &[DagCborIpfsBlock]) -> anyhow::Result<()> {
+        todo!()
+    }
+    fn put_time_event(&self, time_event_cid: Cid, block_cids: &[Cid]) -> anyhow::Result<()> {
+        todo!()
     }
 }
 

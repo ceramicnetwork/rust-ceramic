@@ -4,6 +4,7 @@ use multihash_codetable::{Code, MultihashDigest};
 use serde_ipld_dagcbor::codec::DagCborCodec;
 
 /// A DagCbor block with a CIDv1 and the raw bytes.
+#[derive(Clone, PartialEq)]
 pub struct DagCborIpfsBlock {
     /// A CIDv1 DagCbor cid
     pub cid: Cid,

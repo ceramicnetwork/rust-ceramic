@@ -1,5 +1,8 @@
 Receipt {
-    proof_cid: "bafyreifb3bcc6vsui6rfnu4tyb64u6gthgs4i5guwaybru7desf434kgsy",
+    proof_block: DagCborIpfsBlock {
+        cid: "bafyreifb3bcc6vsui6rfnu4tyb64u6gthgs4i5guwaybru7desf434kgsy",
+        data: "a464726f6f74d82a582500017112204c605012a154199748dcb3f49097852b751e32f127c15c5e4b8539842effd09966747848617368d82a5826000193011b202aea22b28a4c1687cb8ebde6ef5a1ee7038ffc6727fe3d98cbac487df3b07f14667478547970656a6628627974657333322967636861696e49646f6569703135353a3131313535313131",
+    },
     path_prefix: "0/0/0/0/0/0/0/0",
     blocks: [
         DagCborIpfsBlock {

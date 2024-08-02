@@ -44,10 +44,13 @@ mod tests {
         let key1 = ed25519_key_pair_from_secret(secret).unwrap();
         let secret_and_public = "z3u2WLX8jeyN6sfbDowLGudoZHudxgVkNJfrw2TDTVx4tijd:z6MkueF19qChpGQJBJXcXjfoM1MYCwC167RMwUiNWXXvEm1M";
         let key2 = ed25519_key_pair_from_secret(secret_and_public).unwrap();
-        assert!(did_key_from_ed25519_key_pair(&key1) == did_key_from_ed25519_key_pair(&key2));
-        assert!(
-            did_key_from_ed25519_key_pair(&key1)
-                == "did:key:z6MkueF19qChpGQJBJXcXjfoM1MYCwC167RMwUiNWXXvEm1M"
+        assert_eq!(
+            did_key_from_ed25519_key_pair(&key1),
+            did_key_from_ed25519_key_pair(&key2)
+        );
+        assert_eq!(
+            did_key_from_ed25519_key_pair(&key1),
+            "did:key:z6MkueF19qChpGQJBJXcXjfoM1MYCwC167RMwUiNWXXvEm1M"
         );
         println!("{}", did_key_from_ed25519_key_pair(&key1));
     }

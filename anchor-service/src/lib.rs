@@ -1,3 +1,4 @@
-mod state_machine;
+mod service;
 
-pub use state_machine::anchor_batch;
+pub use ceramic_anchor_tree::AnchorRequest;
+pub use service::AnchorClient;

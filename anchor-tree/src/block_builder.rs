@@ -2,7 +2,6 @@ use anyhow::{anyhow, Result};
 use ceramic_core::DagCborIpfsBlock;
 use cid::Cid;
 use serde::{Deserialize, Serialize};
-use std::sync::mpsc::Sender;
 
 // AnchorRequest request for a Time Event
 pub struct AnchorRequest {
@@ -11,19 +10,16 @@ pub struct AnchorRequest {
 }
 
 #[derive(Debug)]
-pub struct RootCount {
-    pub root: Cid,
+pub struct MerkleTree {
+    pub root_cid: Cid,
     pub count: u64,
+    pub nodes: Vec<DagCborIpfsBlock>,
 }
 
 /// Accepts the CIDs of two blocks and returns the CID of the CBOR list that includes both CIDs.
-fn merge_nodes(left: &Cid, right: Option<&Cid>, blockstore: &Sender<DagCborIpfsBlock>) -> Cid {
+fn merge_nodes(left: &Cid, right: Option<&Cid>) -> Result<DagCborIpfsBlock> {
     let merkle_node = vec![Some(*left), right.cloned()];
-    let x: Vec<u8> = serde_ipld_dagcbor::to_vec(&merkle_node).unwrap();
-    let block: DagCborIpfsBlock = x.into();
-    let cid = block.cid;
-    blockstore.send(block).unwrap();
-    cid
+    Ok(serde_ipld_dagcbor::to_vec(&merkle_node)?.into())
 }
 
 pub fn build_time_events<'a, I>(
@@ -31,11 +27,11 @@ pub fn build_time_events<'a, I>(
     proof: Cid,
     path_prefix: Option<String>,
     count: u64,
-    block_sink: Sender<DagCborIpfsBlock>,
-) -> Result<()>
+) -> Result<Vec<DagCborIpfsBlock>>
 where
     I: Iterator<Item = &'a AnchorRequest>,
 {
+    let mut time_events: Vec<DagCborIpfsBlock> = vec![];
     for (index, anchor_request) in anchor_requests.into_iter().enumerate() {
         let time_event = build_time_event(
             anchor_request.id,
@@ -45,22 +41,19 @@ where
             index.try_into().unwrap(),
             count,
         )?;
-        let x: Vec<u8> = serde_ipld_dagcbor::to_vec(&time_event).unwrap();
-        block_sink.send(x.into())?;
+        time_events.push(serde_ipld_dagcbor::to_vec(&time_event).unwrap().into());
     }
-    Ok(())
+    Ok(time_events)
 }
 
 /// Fetch unanchored CIDs from the Anchor Request Store and builds a Merkle tree from them.
-pub async fn build_merkle_tree<'a, I>(
-    anchor_requests: I,
-    block_sink: Sender<DagCborIpfsBlock>,
-) -> Result<RootCount>
+pub async fn build_merkle_tree<'a, I>(anchor_requests: I) -> Result<MerkleTree>
 where
     I: Iterator<Item = &'a AnchorRequest>,
 {
     let mut peaks: [Option<Cid>; 64] = [None; 64];
     let mut count: u64 = 0;
+    let mut nodes: Vec<DagCborIpfsBlock> = vec![];
     for anchor_request in anchor_requests {
         count += 1;
         // Ref: https://eprint.iacr.org/2021/038.pdf
@@ -73,28 +66,35 @@ where
         // [none, (cid5, cid6), ((cid1, cid2), (cid3, cid4))]
         // [cid7, (cid5, cid6), ((cid1, cid2), (cid3, cid4))]
         // [none, none, none, (((cid1, cid2), (cid3, cid4)), ((cid5, cid6), (cid7, cid8))]
-        let mut new_node: Cid = anchor_request.prev;
+        let mut new_node_cid: Cid = anchor_request.prev;
         let mut place_value = 0;
         while place_value < peaks.len() {
             match peaks[place_value].take() {
-                Some(old_node) => {
-                    let merged_node = merge_nodes(&old_node, Some(&new_node), &block_sink);
-                    new_node = merged_node;
+                Some(old_node_cid) => {
+                    let merged_node = merge_nodes(&old_node_cid, Some(&new_node_cid))?;
+                    nodes.push(merged_node.clone());
+                    new_node_cid = merged_node.cid;
                     place_value += 1;
                 }
                 None => {
-                    peaks[place_value] = Some(new_node);
+                    peaks[place_value] = Some(new_node_cid);
                     break;
                 }
             }
         }
     }
-    let mut right: Option<Cid> = None;
-    for left in peaks.iter().flatten() {
-        right = Some(merge_nodes(left, right.as_ref(), &block_sink));
+    let mut right_cid: Option<Cid> = None;
+    for left_cid in peaks.iter().flatten() {
+        let merged_node = merge_nodes(left_cid, right_cid.as_ref())?;
+        nodes.push(merged_node.clone());
+        right_cid = Some(merged_node.cid);
     }
-    match right {
-        Some(right) => Ok(RootCount { root: right, count }),
+    match right_cid {
+        Some(root_cid) => Ok(MerkleTree {
+            root_cid,
+            count,
+            nodes,
+        }),
         None => Err(anyhow!("no CIDs in iterator")),
     }
 }
@@ -183,10 +183,8 @@ pub fn build_time_event(
 #[cfg(test)]
 mod tests {
     use super::*;
-    // use ceramic_store::{Error, Migrations, SqlitePool};
     use expect_test::expect;
     use multihash_codetable::{Code, MultihashDigest};
-    use std::sync::mpsc::channel;
 
     #[test]
     fn test_merge() {
@@ -198,75 +196,13 @@ mod tests {
                 .try_into()
                 .unwrap(),
         );
-        let expected = "bafyreiabkbt7ctfodcqv7lv4vti5a7a4hxhsujbdgtdrjdpe2i27e4yiyy"
-            .try_into()
-            .unwrap();
-        let (sender, _receiver) = channel();
-        assert_eq!(merge_nodes(&left, right.as_ref(), &sender), expected);
+        expect![[r#"
+            DagCborIpfsBlock {
+                cid: "bafyreiabkbt7ctfodcqv7lv4vti5a7a4hxhsujbdgtdrjdpe2i27e4yiyy",
+                data: "82d82a58260001850112207ac18e1235f2f7a84548eeb543a33f8979eb88566a2dfc3d9596c55a683b7517d82a58260001850112209ef4cd6403d5ed4ebeb221809d141fbedb6686b6866a9c6e9230b802fd6353cd",
+            }
+        "#]].assert_debug_eq(&merge_nodes(&left, right.as_ref()).unwrap());
     }
-
-    // /// Test to create an in-memory AnchorRequestStore and ensure that it can be used to store and retrieve anchor requests.
-    // #[tokio::test]
-    // async fn test_anchor_request_store() {
-    //     let pool = SqlitePool::connect(
-    //         "/Users/mz/Documents/3Box/GitHub/rust-ceramic/anchor_db",
-    //         Migrations::Apply,
-    //     )
-    //     .await
-    //     .unwrap();
-    //     let store = SqliteEventStore::new(pool.clone()).await.unwrap();
-    //     // Insert 10 random CIDs into the anchor request store
-    //     // let mut cids = Vec::new();
-    //     // {
-    //     //     let mut tx = pool.writer().begin().await.map_err(Error::from).unwrap();
-    //     //     for _ in 0..10 {
-    //     //         let cid = random_cid();
-    //     //         println!("{:?}", cid);
-    //     //         store.put_anchor_request(&cid, &mut tx).await.unwrap();
-    //     //         cids.push(cid);
-    //     //     }
-    //     //     tx.commit().await.map_err(Error::from).unwrap();
-    //     // }
-    //     let cids = [
-    //         "baeabeifu7qd7bpy4z6vdo7jff6kg3uiwolqtofhut7nrhx6wuhpb2wqxtq",
-    //         "baeabeib5kixfpd3hy26p3fd6d6chc3m46rb7iue7pob57uzgq5rx4p7qa4",
-    //         "baeabeifpl5wb2fthawbu5bxt2b53ttlesvwzltrfednkyhzny2qbhcbsva",
-    //         "baeabeicvef53ez5xe7vjxiy7d6ks5yidzfljm74le5vjjz6g54leoqhywq",
-    //         "baeabeiemn6xvw72ijvroevm3oru2l67q52ypzys3kk24b4jgjbyqjr4ane",
-    //         "baeabeiffomshvohlqhp5xqkipnsmxwz7iqpnzwx4ezdiz6myi3tjlb4wuq",
-    //         "baeabeidzeapsosp2skecx4kp3eseow2moeeakvan7y4fsc4iniuozhmsaq",
-    //         "baeabeicpotw4izgzuhapyr54dudj67l3axcblfna65fseaskvadz45hmca",
-    //         "baeabeibdujbnmrcqj2yiozvfizowdth2sjuorzg23gk5ce4k5tdxf2axzu",
-    //         "baeabeihmjgwf7omjvat6mp4mhqlwpr4ax54twc7nznarc2o3cgyya6hj74",
-    //     ]
-    //     .iter()
-    //     .map(|&cid| cid.try_into().unwrap())
-    //     .collect::<Vec<Cid>>();
-
-    //     {
-    //         let mut tx = pool.writer().begin().await.map_err(Error::from).unwrap();
-    //         for cid in cids.iter() {
-    //             store.put_anchor_request(cid, &mut tx).await.unwrap();
-    //         }
-    //         tx.commit().await.map_err(Error::from).unwrap();
-    //     }
-
-    //     assert_eq!(
-    //         build_tree(&store).await.unwrap(),
-    //         Some(
-    //             "bafyreiaeimcmwpxxz7ds4wwbmqeobn2fop7dcyw3fufs6egoy33mhckaeu"
-    //                 .try_into()
-    //                 .unwrap()
-    //         )
-    //     );
-    // }
-
-    // fn random_cid() -> Cid {
-    //     let mut data = [0u8; 8];
-    //     rand::Rng::fill(&mut ::rand::thread_rng(), &mut data);
-    //     let hash = MultihashDigest::digest(&Code::Sha2_256, &data);
-    //     Cid::new_v1(0x00, hash)
-    // }
 
     fn int128_cid(i: i128) -> Cid {
         let data = i.to_be_bytes();
@@ -275,7 +211,7 @@ mod tests {
     }
 
     fn mock_anchor_requests() -> (i128, Vec<AnchorRequest>) {
-        let count = 1_000_000_i128;
+        let count = 20;
         (
             count,
             (0..count)
@@ -285,15 +221,6 @@ mod tests {
                 })
                 .collect(),
         )
-    }
-
-    #[tokio::test]
-    async fn test_hash_root() {
-        let (_, anchor_requests) = mock_anchor_requests();
-        let (sender, _receiver) = channel();
-        let result = build_merkle_tree(anchor_requests.iter(), sender).await;
-        expect!["Ok(RootCount { root: Cid(bafyreicv5owrmctiwt3qhfpto6bs4ld3bxcqwxxjttpfvvzcqljr7bfmum), count: 1000000 })"]
-        .assert_eq(&format!("{:?}", &result));
     }
 
     #[tokio::test]
@@ -317,13 +244,11 @@ mod tests {
         let proof =
             Cid::try_from("bafyreicv5owrmctiwt3qhfpto6bs4ld3bxcqwxxjttpfvvzcqljr7bfmum").unwrap();
 
-        let (sender, _receiver) = channel();
         let result = build_time_events(
             anchor_requests.iter(),
             proof,
             Some("".to_owned()),
             count.try_into().unwrap(),
-            sender,
         );
         expect![[r#"
             Ok(

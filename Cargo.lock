@@ -1028,6 +1028,7 @@ name = "ceramic-anchor-service"
 version = "0.29.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "ceramic-anchor-tree",
  "ceramic-anchor-tx",
  "ceramic-core",
@@ -1035,6 +1036,7 @@ dependencies = [
  "expect-test",
  "hex",
  "multihash-codetable",
+ "ring 0.17.8",
  "tokio",
 ]
 
@@ -1057,6 +1059,7 @@ name = "ceramic-anchor-tx"
 version = "0.29.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "base64 0.21.7",
  "ceramic-core",
  "chrono",
@@ -1378,6 +1381,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "bytes 1.6.0",
+ "ceramic-anchor-service",
  "ceramic-api",
  "ceramic-core",
  "ceramic-event",
