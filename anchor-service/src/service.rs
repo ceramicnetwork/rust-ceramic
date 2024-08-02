@@ -9,18 +9,6 @@ use ceramic_anchor_tree::{build_merkle_tree, build_time_events, AnchorRequest};
 use ceramic_anchor_tx::TransactionManager;
 use ceramic_core::DagCborIpfsBlock;
 
-// Loop:
-// 1.
-// Call build_tree:
-//   - Take an iterator of AnchorRequest
-//   - Returns a RootCount.
-// 2. Out-of-band, convert RootCount to an anchor proof.
-// 3. Call build_time_events:
-//   - Take an iterator for the same AnchorRequests as before (should be the same AnchorRequests in the same order)
-//   - Take the proof CID from step 2.
-//   - Take the count from the RootCount.
-//   - Takes std::sync::mpsc::Sender<DagCborIpfsBlock> to send the TimeEvents to.
-
 #[async_trait]
 pub trait AnchorClient {
     // 1. Get the requests to anchor
