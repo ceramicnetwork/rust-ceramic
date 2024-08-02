@@ -1028,16 +1028,22 @@ name = "ceramic-anchor-service"
 version = "0.29.0"
 dependencies = [
  "anyhow",
+ "async-stream",
  "async-trait",
  "ceramic-anchor-tree",
  "ceramic-anchor-tx",
  "ceramic-core",
  "cid 0.11.1",
  "expect-test",
+ "futures",
  "hex",
+ "indexmap 2.3.0",
+ "itertools 0.13.0",
  "multihash-codetable",
  "ring 0.17.8",
+ "serde_ipld_dagcbor",
  "tokio",
+ "tokio-stream",
 ]
 
 [[package]]
@@ -1215,7 +1221,7 @@ dependencies = [
  "ipld-dagpb",
  "iroh-bitswap",
  "iroh-rpc-client",
- "itertools 0.11.0",
+ "itertools 0.13.0",
  "libp2p",
  "libp2p-identity",
  "mockall",
@@ -1428,7 +1434,7 @@ dependencies = [
  "ipld-core",
  "iroh-bitswap",
  "iroh-car",
- "itertools 0.12.1",
+ "itertools 0.13.0",
  "multibase 0.9.1",
  "multihash 0.19.1",
  "multihash-codetable",
@@ -3077,7 +3083,7 @@ dependencies = [
  "futures-sink",
  "futures-util",
  "http",
- "indexmap 2.2.6",
+ "indexmap 2.3.0",
  "slab",
  "tokio",
  "tokio-util",
@@ -3546,9 +3552,9 @@ dependencies = [
 
 [[package]]
 name = "indexmap"
-version = "2.2.6"
+version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "168fb715dda47215e360912c096649d23d58bf392ac62f73919e831745e40f26"
+checksum = "de3fc2e30ba82dd1b3911c8de1ffc143c74a914a14e99514d7637e3099df5ea0"
 dependencies = [
  "equivalent",
  "hashbrown 0.14.5",
@@ -3820,6 +3826,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "itertools"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "413ee7dfc52ee1a4949ceeb7dbc8a33f2d6c088194d9f922fb8318faf1f01186"
+dependencies = [
+ "either",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4074,7 +4089,7 @@ version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ee7893dab2e44ae5f9d0173f26ff4aa327c10b01b06a72b52dd9405b628640d"
 dependencies = [
- "indexmap 2.2.6",
+ "indexmap 2.3.0",
 ]
 
 [[package]]
@@ -5930,7 +5945,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4c5cc86750666a3ed20bdaf5ca2a0344f9c67674cae0515bec2da16fbaa47db"
 dependencies = [
  "fixedbitset",
- "indexmap 2.2.6",
+ "indexmap 2.3.0",
 ]
 
 [[package]]
@@ -7725,7 +7740,7 @@ dependencies = [
  "futures-util",
  "hashlink",
  "hex",
- "indexmap 2.2.6",
+ "indexmap 2.3.0",
  "log",
  "memchr",
  "once_cell",
@@ -8815,7 +8830,7 @@ version = "0.19.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1b5bb770da30e5cbfde35a2d7b9b8a2c4b8ef89548a7a6aeab5c9a576e3e7421"
 dependencies = [
- "indexmap 2.2.6",
+ "indexmap 2.3.0",
  "serde",
  "serde_spanned",
  "toml_datetime",

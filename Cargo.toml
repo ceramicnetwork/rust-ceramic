@@ -106,6 +106,7 @@ iroh-p2p = { version = "0.2.0", path = "./beetle/iroh-p2p" }
 iroh-rpc-client = { path = "./beetle/iroh-rpc-client" }
 iroh-rpc-types = { path = "./beetle/iroh-rpc-types" }
 iroh-util = { path = "./beetle/iroh-util" }
+itertools = "0.13.0"
 keyed_priority_queue = "0.4.1"
 lazy_static = "1.4"
 libp2p = { version = "0.53", default-features = false }

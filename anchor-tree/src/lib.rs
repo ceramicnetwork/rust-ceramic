@@ -1,3 +1,9 @@
 mod block_builder;
+mod merkle_tree;
 
-pub use block_builder::{build_merkle_tree, build_time_events, AnchorRequest};
+mod mmr;
+mod utils;
+
+pub use block_builder::{AnchorRequest, TimeEvent};
+pub use merkle_tree::MerkleTree;
+pub use mmr::MerkleMountainRange;

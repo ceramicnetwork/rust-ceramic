@@ -1,4 +1,6 @@
 use anyhow::Result;
+use cid::multihash::Multihash;
+use cid::Cid;
 use ring::signature::{Ed25519KeyPair, KeyPair};
 
 /// Create an Ed25519 key pair from a secret
@@ -32,6 +34,13 @@ pub fn did_key_from_ed25519_key_pair(key: &Ed25519KeyPair) -> String {
     let public_with_prefix = [b"\xed\x01", public].concat();
     let public_multibase = multibase::encode(multibase::Base::Base58Btc, &public_with_prefix);
     format!("did:key:{}", public_multibase)
+}
+
+/// Create a CID from an Ed25519 key pair
+pub fn cid_from_ed25519_key_pair(key: &Ed25519KeyPair) -> Cid {
+    let public = key.public_key().as_ref();
+    let hash = Multihash::<64>::wrap(0, public).expect("ed25519 public key is 32 bytes");
+    Cid::new_v1(0xed, hash)
 }
 
 #[cfg(test)]

@@ -11,7 +11,10 @@ use ring::signature::{Ed25519KeyPair, KeyPair};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use ceramic_core::{did_key_from_ed25519_key_pair, Cid, DagCborIpfsBlock, StreamId, StreamIdType};
+use ceramic_core::{
+    cid_from_ed25519_key_pair, did_key_from_ed25519_key_pair, Cid, DagCborIpfsBlock, StreamId,
+    StreamIdType,
+};
 
 use crate::{Receipt, TransactionManager};
 
@@ -123,10 +126,11 @@ impl RemoteCas {
             cas_api_url,
         }
     }
+
     pub async fn create_anchor_request(&self, root_cid: Cid) -> Result<String> {
         let cas_create_request_url = format!("{}/api/v0/requests", self.cas_api_url);
         let cas_request_body = serde_json::to_string(&CasAnchorRequest {
-            stream_id: cid_to_stream_id(root_cid),
+            stream_id: cid_to_stream_id(cid_from_ed25519_key_pair(&self.signing_key)),
             cid: root_cid.to_string(),
             timestamp: chrono::Utc::now().to_rfc3339(),
             ceramic_one_version: AGENT_VERSION.to_owned(),

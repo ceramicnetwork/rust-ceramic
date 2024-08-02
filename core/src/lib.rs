@@ -16,10 +16,12 @@ pub use bytes::Bytes;
 pub use event_id::EventId;
 pub use interest::{Interest, PeerId};
 pub use jwk::Jwk;
+pub use key::{
+    cid_from_ed25519_key_pair, did_key_from_ed25519_key_pair, ed25519_key_pair_from_secret,
+};
 pub use network::Network;
 pub use range::RangeOpen;
 pub use stream_id::{StreamId, StreamIdType};
-pub use key::{ed25519_key_pair_from_secret, did_key_from_ed25519_key_pair};
 
 pub use cid::Cid;
 pub use ssi;
