@@ -323,6 +323,7 @@ pub struct Server<C, I, M> {
     // so we just keep track to gracefully shutdown, but if the task dies, the server is in a fatal error state.
     insert_task: Arc<InsertTask>,
     marker: PhantomData<C>,
+    authentication: bool,
 }
 
 impl<C, I, M> Server<C, I, M>
@@ -346,7 +347,13 @@ where
             model,
             insert_task,
             marker: PhantomData,
+            authentication: false,
         }
+    }
+
+    pub fn with_authentication(&mut self, authentication: bool) -> &mut Self {
+        self.authentication = authentication;
+        self
     }
 
     fn start_insert_task(

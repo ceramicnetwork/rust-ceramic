@@ -1,6 +1,7 @@
 //! Ceramic implements a single binary ceramic node.
 #![warn(missing_docs)]
 
+mod feature_flags;
 mod http;
 mod http_metrics;
 mod metrics;
@@ -17,6 +18,7 @@ use ceramic_metrics::{config::Config as MetricsConfig, MetricsHandle};
 use ceramic_p2p::{load_identity, DiskStorage, Keychain, Libp2pConfig};
 use ceramic_service::{CeramicEventService, CeramicInterestService, CeramicService};
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use feature_flags::*;
 use futures::StreamExt;
 use multibase::Base;
 use multihash::Multihash;
@@ -42,7 +44,7 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Command {
     /// Run a daemon process
-    Daemon(DaemonOpts),
+    Daemon(Box<DaemonOpts>),
     /// Perform various migrations
     #[command(subcommand)]
     Migrations(migrations::EventsCommand),
@@ -167,6 +169,24 @@ struct DaemonOpts {
             env = "CERAMIC_ONE_CORS_ALLOW_ORIGINS"
         )]
     cors_allow_origins: Vec<String>,
+
+    /// Enable experimental feature flags
+    #[arg(
+        long,
+        use_value_delimiter = true,
+        value_delimiter = ',',
+        env = "CERAMIC_ONE_EXPERIMENTAL_FEATURE_FLAGS"
+    )]
+    experimental_feature_flags: Vec<ExperimentalFeatureFlags>,
+
+    /// Enable feature flags
+    #[arg(
+        long,
+        use_value_delimiter = true,
+        value_delimiter = ',',
+        env = "CERAMIC_ONE_FEATURE_FLAGS"
+    )]
+    feature_flags: Vec<FeatureFlags>,
 }
 
 #[derive(Args, Debug)]
@@ -264,7 +284,7 @@ impl Network {
 pub async fn run() -> Result<()> {
     let args = Cli::parse();
     match args.command {
-        Command::Daemon(opts) => Daemon::run(opts).await,
+        Command::Daemon(opts) => Daemon::run(*opts).await,
         Command::Migrations(opts) => migrations::migrate(opts).await,
     }
 }
@@ -534,12 +554,18 @@ impl Daemon {
             })?;
 
         // Build HTTP server
-        let ceramic_server = ceramic_api::Server::new(
+        let mut ceramic_server = ceramic_api::Server::new(
             peer_id,
             network,
             interest_api_store,
             Arc::new(model_api_store),
         );
+        if opts
+            .experimental_feature_flags
+            .contains(&ExperimentalFeatureFlags::Authentication)
+        {
+            ceramic_server.with_authentication(true);
+        }
         let ceramic_service = ceramic_api_server::server::MakeService::new(ceramic_server);
         let ceramic_service = MakeAllowAllAuthenticator::new(ceramic_service, "");
         let ceramic_service =
