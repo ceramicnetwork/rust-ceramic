@@ -110,8 +110,8 @@ impl CeramicEventService {
             .await?;
         Ok(())
     }
-
-    /// Currently only verifies that the event parses into a valid ceramic event.
+    /// TODO : in the future we want this method to take in an invalid event and give back a validated event
+    /// DOC: Currently only verifies that the event parses into a valid ceramic event.
     /// In the future, we will need to do more event validation (verify all EventID pieces, hashes, signatures, etc).
     pub(crate) async fn validate_discovered_event(
         event_id: ceramic_core::EventId,
@@ -133,12 +133,17 @@ impl CeramicEventService {
             )));
         }
 
+        // TODO: add an event to be validated to the queue
+        
         let metadata = EventMetadata::from(parsed_event);
         let body = EventInsertableBody::try_from_carfile(cid, carfile).await?;
 
         Ok((EventInsertable::try_new(event_id, body)?, metadata))
     }
 
+    /// DOC: Insert events into the database and notify the ordering task
+    /// If the events are deliverable, they will be inserted into the database and the ordering task will be notified.
+    /// If the events are not deliverable, they will be inserted into the database and the ordering task will be notified when they become deliverable.
     pub(crate) async fn insert_events<'a>(
         &self,
         items: &[recon::ReconItem<'a, EventId>],
@@ -150,12 +155,14 @@ impl CeramicEventService {
 
         let mut to_insert = Vec::with_capacity(items.len());
 
+        /// DOC: Validate the events first
         for event in items {
             let insertable =
                 Self::validate_discovered_event(event.key.to_owned(), event.value).await?;
             to_insert.push(insertable);
         }
 
+        /// DOC: Order the events
         let ordered = OrderEvents::try_new(&self.pool, to_insert).await?;
 
         let missing_history = ordered
