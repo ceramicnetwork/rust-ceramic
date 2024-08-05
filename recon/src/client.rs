@@ -23,7 +23,7 @@ where
     H: AssociativeHash,
 {
     /// Sends an insert request to the server and awaits the response.
-    pub async fn insert(&self, key: K, value: Vec<u8>) -> Result<bool> {
+    pub async fn insert(&self, key: K, value: Vec<u8>) -> Result<()> {
         let (ret, rx) = oneshot::channel();
         self.sender
             .send(Request::Insert { key, value, ret })
@@ -142,7 +142,7 @@ enum Request<K, H> {
     Insert {
         key: K,
         value: Vec<u8>,
-        ret: oneshot::Sender<Result<bool>>,
+        ret: oneshot::Sender<Result<()>>,
     },
     Len {
         ret: oneshot::Sender<Result<usize>>,

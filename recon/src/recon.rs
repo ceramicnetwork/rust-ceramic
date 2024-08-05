@@ -280,15 +280,11 @@ where
     }
 
     /// Insert key into the key space.
-    /// Returns a boolean (true) indicating if the key was new.
-    pub async fn insert<'a>(&self, item: ReconItem<'a, K>) -> Result<bool> {
-        Ok(self
-            .store
-            .insert_many(&[item])
-            .await?
-            .keys
-            .first()
-            .map_or(false, |k| *k))
+    /// Returns Ok if the result was accepted. It may be validated and stored
+    /// out of band, meaning it may not immediately return in range queries.
+    pub async fn insert<'a>(&self, item: ReconItem<'a, K>) -> Result<()> {
+        let _res = self.store.insert_many(&[item]).await?;
+        Ok(())
     }
 
     /// Reports total number of keys
