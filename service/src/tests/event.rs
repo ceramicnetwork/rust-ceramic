@@ -59,10 +59,10 @@ where
     let init_cid = one_id.cid().unwrap();
     let min_id = event_id_min(&init_cid, &model);
     let max_id = event_id_max(&init_cid, &model);
-    recon::Store::insert(&store, &ReconItem::new(one_id, one_car))
+    recon::Store::insert_many(&store, &[ReconItem::new(one_id, one_car)])
         .await
         .unwrap();
-    recon::Store::insert(&store, &ReconItem::new(two_id, two_car))
+    recon::Store::insert_many(&store, &[ReconItem::new(two_id, two_car)])
         .await
         .unwrap();
     let values: Vec<(EventId, Vec<u8>)> =
@@ -97,24 +97,20 @@ where
     } = build_event().await;
 
     // first insert reports its a new key
-    expect![
-        r#"
-            Ok(
-                true,
-            )
-            "#
-    ]
-    .assert_debug_eq(&recon::Store::insert(&store, &ReconItem::new(&id, &car)).await);
+    assert!(
+        recon::Store::insert_many(&store, &[ReconItem::new(&id, &car)])
+            .await
+            .unwrap()
+            .included_new_key()
+    );
 
     // second insert of same key reports it already existed
-    expect![
-        r#"
-            Ok(
-                false,
-            )
-            "#
-    ]
-    .assert_debug_eq(&recon::Store::insert(&store, &ReconItem::new(&id, &car)).await);
+    assert!(
+        !recon::Store::insert_many(&store, &[ReconItem::new(&id, &car)])
+            .await
+            .unwrap()
+            .included_new_key()
+    );
 }
 
 test_with_dbs!(
@@ -140,13 +136,17 @@ where
     expect![
         r#"
             Ok(
-                true,
+                InsertResult {
+                    keys: [
+                        true,
+                    ],
+                },
             )
             "#
     ]
-    .assert_debug_eq(&recon::Store::insert(&store, &ReconItem::new(&id, &car1)).await);
+    .assert_debug_eq(&recon::Store::insert_many(&store, &[ReconItem::new(&id, &car1)]).await);
 
-    match recon::Store::insert(&store, &ReconItem::new(&id, &car2)).await {
+    match recon::Store::insert_many(&store, &[ReconItem::new(&id, &car2)]).await {
         Ok(_) => panic!("expected error"),
         Err(recon::Error::Application { .. }) => {
             // Event ID does not match the root CID of the CAR file
@@ -183,7 +183,7 @@ where
         car: store_value,
         ..
     } = build_event().await;
-    recon::Store::insert(&store, &ReconItem::new(&key, store_value.as_slice()))
+    recon::Store::insert_many(&store, &[ReconItem::new(&key, store_value.as_slice())])
         .await
         .unwrap();
     let value = recon::Store::value_for_key(&store, &key)
@@ -212,7 +212,7 @@ where
         blocks,
         ..
     } = build_event().await;
-    recon::Store::insert(&store, &ReconItem::new(&key, store_value.as_slice()))
+    recon::Store::insert_many(&store, &[ReconItem::new(&key, store_value.as_slice())])
         .await
         .unwrap();
     let value = recon::Store::value_for_key(&store, &key)

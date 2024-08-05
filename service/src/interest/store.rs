@@ -12,11 +12,6 @@ impl recon::Store for CeramicInterestService {
     type Key = Interest;
     type Hash = Sha256a;
 
-    #[instrument(skip(self))]
-    async fn insert<'a>(&self, item: &ReconItem<'a, Self::Key>) -> ReconResult<bool> {
-        Ok(CeramicOneInterest::insert(&self.pool, item.key).await?)
-    }
-
     /// Insert new keys into the key space.
     /// Returns true for each key if it did not previously exist, in the
     /// same order as the input iterator.

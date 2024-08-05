@@ -279,19 +279,16 @@ where
         self.store.value_for_key(&key).await
     }
 
-    /// Insert key into the key space. Includes an optional value.
+    /// Insert key into the key space.
     /// Returns a boolean (true) indicating if the key was new.
-    pub async fn insert(&self, item: &ReconItem<'_, K>) -> Result<bool> {
-        self.store.insert(item).await
-    }
-
-    /// Insert many keys into the key space. Includes an optional value for each key.
-    /// Returns an array with a boolean for each key indicating if the key was new.
-    /// The order is the same as the order of the keys. True means new, false means not new.
-    pub async fn insert_many(&self, items: &[ReconItem<'_, K>]) -> Result<Vec<bool>> {
-        let result = self.store.insert_many(items).await?;
-
-        Ok(result.keys)
+    pub async fn insert<'a>(&self, item: ReconItem<'a, K>) -> Result<bool> {
+        Ok(self
+            .store
+            .insert_many(&[item])
+            .await?
+            .keys
+            .first()
+            .map_or(false, |k| *k))
     }
 
     /// Reports total number of keys
@@ -460,10 +457,6 @@ pub trait Store {
     /// Type of the AssociativeHash to compute over keys.
     type Hash: AssociativeHash;
 
-    /// Insert a new key into the key space. Returns true if the key did not exist.
-    /// The value will be updated if included
-    async fn insert<'a>(&self, item: &ReconItem<'a, Self::Key>) -> Result<bool>;
-
     /// Insert new keys into the key space.
     /// Returns true for each key if it did not previously exist, in the
     /// same order as the input iterator.
@@ -574,10 +567,6 @@ where
 {
     type Key = K;
     type Hash = H;
-
-    async fn insert<'a>(&self, item: &ReconItem<'a, Self::Key>) -> Result<bool> {
-        self.as_ref().insert(item).await
-    }
 
     async fn insert_many<'a>(&self, items: &[ReconItem<'a, Self::Key>]) -> Result<InsertResult> {
         self.as_ref().insert_many(items).await

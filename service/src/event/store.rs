@@ -14,18 +14,6 @@ impl recon::Store for CeramicEventService {
     type Key = EventId;
     type Hash = Sha256a;
 
-    async fn insert<'a>(&self, item: &ReconItem<'a, Self::Key>) -> ReconResult<bool> {
-        let res = self
-            .insert_events(&[item.to_owned()], DeliverableRequirement::Asap)
-            .await?;
-
-        Ok(res
-            .store_result
-            .inserted
-            .first()
-            .map_or(false, |i| i.new_key))
-    }
-
     /// Insert new keys into the key space.
     /// Returns true for each key if it did not previously exist, in the
     /// same order as the input iterator.
