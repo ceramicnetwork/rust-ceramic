@@ -242,7 +242,7 @@ where
                     Request::Insert { key, value, ret } => {
                         let val = self
                             .recon
-                            .insert(ReconItem::new(&key, &value))
+                            .insert(ReconItem::new(key, value))
                             .await
                             .map_err(Error::from);
                         send(ret, val);

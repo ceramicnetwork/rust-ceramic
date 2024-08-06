@@ -523,8 +523,8 @@ async fn word_lists() {
         for key in s.split_whitespace().map(|s| s.to_string()) {
             if !s.is_empty() {
                 r.insert(ReconItem::new(
-                    &key.as_bytes().into(),
-                    key.to_uppercase().as_bytes(),
+                    key.as_bytes().into(),
+                    key.to_uppercase().as_bytes().to_vec(),
                 ))
                 .await
                 .unwrap();

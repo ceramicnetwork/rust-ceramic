@@ -113,8 +113,8 @@ where
     recon::Store::insert_many(
         &store,
         &[ReconItem::new(
-            &random_interest(Some((&[0], &[1])), Some(42)),
-            &[],
+            random_interest(Some((&[0], &[1])), Some(42)),
+            vec![],
         )],
     )
     .await
@@ -123,8 +123,8 @@ where
     recon::Store::insert_many(
         &store,
         &[ReconItem::new(
-            &random_interest(Some((&[0], &[1])), Some(24)),
-            &[],
+            random_interest(Some((&[0], &[1])), Some(24)),
+            vec![],
         )],
     )
     .await
@@ -150,10 +150,10 @@ where
     let interest_0 = random_interest(None, None);
     let interest_1 = random_interest(None, None);
 
-    recon::Store::insert_many(&store, &[ReconItem::new(&interest_0, &[])])
+    recon::Store::insert_many(&store, &[ReconItem::new(interest_0.clone(), Vec::new())])
         .await
         .unwrap();
-    recon::Store::insert_many(&store, &[ReconItem::new(&interest_1, &[])])
+    recon::Store::insert_many(&store, &[ReconItem::new(interest_1.clone(), Vec::new())])
         .await
         .unwrap();
     let ids = recon::Store::range(
@@ -182,11 +182,11 @@ where
     let interest_1 = random_interest(None, None);
 
     store
-        .insert_many(&[ReconItem::new(&interest_0, &[])])
+        .insert_many(&[ReconItem::new(interest_0.clone(), Vec::new())])
         .await
         .unwrap();
     store
-        .insert_many(&[ReconItem::new(&interest_1, &[])])
+        .insert_many(&[ReconItem::new(interest_1.clone(), Vec::new())])
         .await
         .unwrap();
     let ids = store
@@ -217,7 +217,7 @@ where
     let interest = random_interest(None, None);
     // do take the first one
     assert!(
-        &recon::Store::insert_many(&store, &[ReconItem::new(&interest, &[])])
+        &recon::Store::insert_many(&store, &[ReconItem::new(interest.clone(), Vec::new())])
             .await
             .unwrap()
             .included_new_key(),
@@ -225,7 +225,7 @@ where
 
     // reject the second insert of same key
     assert!(
-        !recon::Store::insert_many(&store, &[ReconItem::new(&interest, &[])],)
+        !recon::Store::insert_many(&store, &[ReconItem::new(interest.clone(), Vec::new())],)
             .await
             .unwrap()
             .included_new_key()
@@ -243,7 +243,7 @@ where
     S: recon::Store<Key = Interest, Hash = Sha256a>,
 {
     let key = random_interest(None, None);
-    recon::Store::insert_many(&store, &[ReconItem::new(&key, &[])])
+    recon::Store::insert_many(&store, &[ReconItem::new(key.clone(), Vec::new())])
         .await
         .unwrap();
     let value = store.value_for_key(&key).await.unwrap();

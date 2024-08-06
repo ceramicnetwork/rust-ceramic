@@ -160,7 +160,7 @@ where
 {
     async fn insert_many(
         &self,
-        items: &[(EventId, Vec<u8>)],
+        items: Vec<ceramic_api::ApiItem>,
     ) -> anyhow::Result<Vec<ceramic_api::EventInsertResult>> {
         let new_keys = StoreMetricsMiddleware::<S>::record(
             &self.metrics,
@@ -250,9 +250,9 @@ where
     type Key = K;
     type Hash = H;
 
-    async fn insert_many<'a>(
+    async fn insert_many(
         &self,
-        items: &[ReconItem<'a, K>],
+        items: &[ReconItem<Self::Key>],
     ) -> ReconResult<recon::InsertResult> {
         let res = StoreMetricsMiddleware::<S>::record(
             &self.metrics,

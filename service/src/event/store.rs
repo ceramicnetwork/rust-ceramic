@@ -17,9 +17,9 @@ impl recon::Store for CeramicEventService {
     /// Insert new keys into the key space.
     /// Returns true for each key if it did not previously exist, in the
     /// same order as the input iterator.
-    async fn insert_many<'a>(
+    async fn insert_many(
         &self,
-        items: &[ReconItem<'a, Self::Key>],
+        items: &[ReconItem<Self::Key>],
     ) -> ReconResult<recon::InsertResult> {
         let res = self
             .insert_events(items, DeliverableRequirement::Asap)
@@ -31,7 +31,7 @@ impl recon::Store for CeramicEventService {
                 .store_result
                 .inserted
                 .iter()
-                .find(|e| e.order_key == *item.key)
+                .find(|e| e.order_key == item.key)
                 .map_or(false, |e| e.new_key); // TODO: should we error if it's not in this set
             keys[i] = new_key;
         }
@@ -114,14 +114,17 @@ impl iroh_bitswap::Store for CeramicEventService {
 impl ceramic_api::EventStore for CeramicEventService {
     async fn insert_many(
         &self,
-        items: &[(EventId, Vec<u8>)],
+        items: Vec<ceramic_api::ApiItem>,
     ) -> anyhow::Result<Vec<ceramic_api::EventInsertResult>> {
         let items = items
-            .iter()
-            .map(|(key, val)| ReconItem::new(key, val.as_slice()))
+            .into_iter()
+            .map(|i| ReconItem {
+                key: i.key,
+                value: i.value,
+            })
             .collect::<Vec<_>>();
         let res = self
-            .insert_events(&items[..], DeliverableRequirement::Immediate)
+            .insert_events(&items, DeliverableRequirement::Immediate)
             .await?;
 
         Ok(res.into())

@@ -282,7 +282,7 @@ where
     /// Insert key into the key space.
     /// Returns Ok if the result was accepted. It may be validated and stored
     /// out of band, meaning it may not immediately return in range queries.
-    pub async fn insert<'a>(&self, item: ReconItem<'a, K>) -> Result<()> {
+    pub async fn insert(&self, item: ReconItem<K>) -> Result<()> {
         let _res = self.store.insert_many(&[item]).await?;
         Ok(())
     }
@@ -405,23 +405,26 @@ where
 
 /// A key value pair to store
 #[derive(Clone, Debug)]
-pub struct ReconItem<'a, K>
+pub struct ReconItem<K>
 where
     K: Key,
 {
     /// The key.
-    pub key: &'a K,
-    /// The value, if not set no value is stored.
-    pub value: &'a [u8],
+    pub key: K,
+    /// The value of the data for the given key.
+    pub value: std::sync::Arc<Vec<u8>>,
 }
 
-impl<'a, K> ReconItem<'a, K>
+impl<K> ReconItem<K>
 where
     K: Key,
 {
     /// Construct a new item with a key and optional value
-    pub fn new(key: &'a K, value: &'a [u8]) -> Self {
-        Self { key, value }
+    pub fn new(key: K, value: Vec<u8>) -> Self {
+        Self {
+            key,
+            value: std::sync::Arc::new(value),
+        }
     }
 }
 
@@ -456,7 +459,7 @@ pub trait Store {
     /// Insert new keys into the key space.
     /// Returns true for each key if it did not previously exist, in the
     /// same order as the input iterator.
-    async fn insert_many<'a>(&self, items: &[ReconItem<'a, Self::Key>]) -> Result<InsertResult>;
+    async fn insert_many(&self, items: &[ReconItem<Self::Key>]) -> Result<InsertResult>;
 
     /// Return the hash of all keys in the range between left_fencepost and right_fencepost.
     /// The upper range bound is exclusive.
@@ -564,7 +567,7 @@ where
     type Key = K;
     type Hash = H;
 
-    async fn insert_many<'a>(&self, items: &[ReconItem<'a, Self::Key>]) -> Result<InsertResult> {
+    async fn insert_many(&self, items: &[ReconItem<Self::Key>]) -> Result<InsertResult> {
         self.as_ref().insert_many(items).await
     }
 

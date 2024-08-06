@@ -21,13 +21,13 @@ async fn setup_service() -> CeramicEventService {
     CeramicEventService::new(conn).await.unwrap()
 }
 
-async fn add_and_assert_new_recon_event(store: &CeramicEventService, item: ReconItem<'_, EventId>) {
+async fn add_and_assert_new_recon_event(store: &CeramicEventService, item: ReconItem<EventId>) {
     tracing::trace!("inserted event: {}", item.key.cid().unwrap());
     let new = recon::Store::insert_many(store, &[item]).await.unwrap();
     assert!(new.included_new_key());
 }
 
-async fn add_and_assert_new_local_event(store: &CeramicEventService, item: ReconItem<'_, EventId>) {
+async fn add_and_assert_new_local_event(store: &CeramicEventService, item: ReconItem<EventId>) {
     let new = store
         .insert_events(&[item], DeliverableRequirement::Immediate)
         .await
@@ -49,8 +49,8 @@ async fn test_init_event_delivered() {
     let store = setup_service().await;
     let events = get_events().await;
     let init = &events[0];
-    add_and_assert_new_local_event(&store, ReconItem::new(&init.0, &init.1)).await;
-    check_deliverable(&store.pool, &init.0.cid().unwrap(), true).await;
+    add_and_assert_new_local_event(&store, init.to_owned()).await;
+    check_deliverable(&store.pool, &init.key.cid().unwrap(), true).await;
 }
 
 #[test(tokio::test)]
@@ -60,10 +60,7 @@ async fn test_missing_prev_history_required_not_inserted() {
     let data = &events[1];
 
     let new = store
-        .insert_events(
-            &[ReconItem::new(&data.0, &data.1)],
-            DeliverableRequirement::Immediate,
-        )
+        .insert_events(&[data.to_owned()], DeliverableRequirement::Immediate)
         .await
         .unwrap();
     assert!(new.store_result.inserted.is_empty());
@@ -74,18 +71,18 @@ async fn test_missing_prev_history_required_not_inserted() {
 async fn test_prev_exists_history_required() {
     let store = setup_service().await;
     let events = get_events().await;
-    let init: &(EventId, Vec<u8>) = &events[0];
+    let init = &events[0];
     let data = &events[1];
-    add_and_assert_new_local_event(&store, ReconItem::new(&init.0, &init.1)).await;
-    check_deliverable(&store.pool, &init.0.cid().unwrap(), true).await;
+    add_and_assert_new_local_event(&store, init.clone()).await;
+    check_deliverable(&store.pool, &init.key.cid().unwrap(), true).await;
 
-    add_and_assert_new_local_event(&store, ReconItem::new(&data.0, &data.1)).await;
-    check_deliverable(&store.pool, &data.0.cid().unwrap(), true).await;
+    add_and_assert_new_local_event(&store, data.clone()).await;
+    check_deliverable(&store.pool, &data.key.cid().unwrap(), true).await;
 
     let delivered = get_delivered_cids(&store).await;
     assert_eq!(2, delivered.len());
 
-    let expected = vec![init.0.cid().unwrap(), data.0.cid().unwrap()];
+    let expected = vec![init.key.cid().unwrap(), data.key.cid().unwrap()];
     assert_eq!(expected, delivered);
 }
 
@@ -93,27 +90,24 @@ async fn test_prev_exists_history_required() {
 async fn test_prev_in_same_write_history_required() {
     let store = setup_service().await;
     let events = get_events().await;
-    let init: &(EventId, Vec<u8>) = &events[0];
+    let init = &events[0];
     let data = &events[1];
     let new = store
         .insert_events(
-            &[
-                ReconItem::new(&data.0, &data.1),
-                ReconItem::new(&init.0, &init.1),
-            ],
+            &[init.to_owned(), data.to_owned()],
             DeliverableRequirement::Immediate,
         )
         .await
         .unwrap();
     let new = new.store_result.count_new_keys();
     assert_eq!(2, new);
-    check_deliverable(&store.pool, &init.0.cid().unwrap(), true).await;
-    check_deliverable(&store.pool, &data.0.cid().unwrap(), true).await;
+    check_deliverable(&store.pool, &init.key.cid().unwrap(), true).await;
+    check_deliverable(&store.pool, &data.key.cid().unwrap(), true).await;
     let delivered = get_delivered_cids(&store).await;
 
     assert_eq!(2, delivered.len());
 
-    let expected = vec![init.0.cid().unwrap(), data.0.cid().unwrap()];
+    let expected = vec![init.key.cid().unwrap(), data.key.cid().unwrap()];
     assert_eq!(expected, delivered);
 }
 
@@ -122,24 +116,24 @@ async fn test_missing_prev_pending_recon() {
     let store = setup_service().await;
     let events = get_events().await;
     let data = &events[1];
-    add_and_assert_new_recon_event(&store, ReconItem::new(&data.0, &data.1)).await;
-    check_deliverable(&store.pool, &data.0.cid().unwrap(), false).await;
+    add_and_assert_new_recon_event(&store, data.to_owned()).await;
+    check_deliverable(&store.pool, &data.key.cid().unwrap(), false).await;
 
     let delivered = get_delivered_cids(&store).await;
     assert_eq!(0, delivered.len());
 
     let data = &events[2];
-    add_and_assert_new_recon_event(&store, ReconItem::new(&data.0, &data.1)).await;
+    add_and_assert_new_recon_event(&store, data.to_owned()).await;
 
-    check_deliverable(&store.pool, &data.0.cid().unwrap(), false).await;
+    check_deliverable(&store.pool, &data.key.cid().unwrap(), false).await;
 
     let delivered = get_delivered_cids(&store).await;
 
     assert_eq!(0, delivered.len());
     // now we add the init and we should see init, data 1 (first stored), data 2 (second stored) as highwater returns
     let data = &events[0];
-    add_and_assert_new_recon_event(&store, ReconItem::new(&data.0, &data.1)).await;
-    check_deliverable(&store.pool, &data.0.cid().unwrap(), true).await;
+    add_and_assert_new_recon_event(&store, data.to_owned()).await;
+    check_deliverable(&store.pool, &data.key.cid().unwrap(), true).await;
 
     // This happens out of band, so give it a moment to make sure everything is updated
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -149,9 +143,9 @@ async fn test_missing_prev_pending_recon() {
     assert_eq!(3, delivered.len());
 
     let expected = vec![
-        events[0].0.cid().unwrap(),
-        events[1].0.cid().unwrap(),
-        events[2].0.cid().unwrap(),
+        events[0].key.cid().unwrap(),
+        events[1].key.cid().unwrap(),
+        events[2].key.cid().unwrap(),
     ];
     assert_eq!(expected, delivered);
 }
@@ -162,19 +156,19 @@ async fn missing_prev_pending_recon_should_deliver_without_stream_update() {
     let events = get_events().await;
 
     let data = &events[0];
-    add_and_assert_new_recon_event(&store, ReconItem::new(&data.0, &data.1)).await;
-    check_deliverable(&store.pool, &data.0.cid().unwrap(), true).await;
+    add_and_assert_new_recon_event(&store, data.to_owned()).await;
+    check_deliverable(&store.pool, &data.key.cid().unwrap(), true).await;
 
     // now we add the second event, it should quickly become deliverable
     let data = &events[1];
-    add_and_assert_new_recon_event(&store, ReconItem::new(&data.0, &data.1)).await;
+    add_and_assert_new_recon_event(&store, data.to_owned()).await;
     // This happens out of band, so give it a moment to make sure everything is updated
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
     let delivered = get_delivered_cids(&store).await;
     assert_eq!(2, delivered.len());
 
-    let expected = vec![events[0].0.cid().unwrap(), events[1].0.cid().unwrap()];
+    let expected = vec![events[0].key.cid().unwrap(), events[1].key.cid().unwrap()];
     assert_eq!(expected, delivered);
 }
 
@@ -194,25 +188,25 @@ async fn multiple_streams_missing_prev_recon_should_deliver_without_stream_updat
 
     // store the first event in both streams.
     // we could do insert as a list, but to make sure we have the ordering we expect at the end we do them one by one
-    add_and_assert_new_recon_event(&store, ReconItem::new(&s1_init.0, &s1_init.1)).await;
-    check_deliverable(&store.pool, &s1_init.0.cid().unwrap(), true).await;
+    add_and_assert_new_recon_event(&store, s1_init.to_owned()).await;
+    check_deliverable(&store.pool, &s1_init.key.cid().unwrap(), true).await;
 
-    add_and_assert_new_recon_event(&store, ReconItem::new(&s2_init.0, &s2_init.1)).await;
-    check_deliverable(&store.pool, &s2_init.0.cid().unwrap(), true).await;
+    add_and_assert_new_recon_event(&store, s2_init.to_owned()).await;
+    check_deliverable(&store.pool, &s2_init.key.cid().unwrap(), true).await;
 
     // now we add the third event for both and they should be stuck in pending
-    add_and_assert_new_recon_event(&store, ReconItem::new(&s1_3.0, &s1_3.1)).await;
-    check_deliverable(&store.pool, &s1_3.0.cid().unwrap(), false).await;
+    add_and_assert_new_recon_event(&store, s1_3.to_owned()).await;
+    check_deliverable(&store.pool, &s1_3.key.cid().unwrap(), false).await;
 
-    add_and_assert_new_recon_event(&store, ReconItem::new(&s2_3.0, &s2_3.1)).await;
-    check_deliverable(&store.pool, &s2_3.0.cid().unwrap(), false).await;
+    add_and_assert_new_recon_event(&store, s2_3.to_owned()).await;
+    check_deliverable(&store.pool, &s2_3.key.cid().unwrap(), false).await;
 
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     let delivered = get_delivered_cids(&store).await;
     assert_eq!(2, delivered.len());
 
     // now we add the second event for stream 1, it should unlock the first stream completely but not the second
-    add_and_assert_new_recon_event(&store, ReconItem::new(&s1_2.0, &s1_2.1)).await;
+    add_and_assert_new_recon_event(&store, s1_2.to_owned()).await;
 
     // this _could_ be deliverable immediately if we checked but for now we just send to the other task,
     // so `check_deliverable` could return true or false depending on timing (but probably false).
@@ -221,26 +215,26 @@ async fn multiple_streams_missing_prev_recon_should_deliver_without_stream_updat
     let delivered = get_delivered_cids(&store).await;
     assert_eq!(4, delivered.len());
     let expected: Vec<cid::CidGeneric<64>> = vec![
-        s1_init.0.cid().unwrap(),
-        s2_init.0.cid().unwrap(),
-        s1_2.0.cid().unwrap(),
-        s1_3.0.cid().unwrap(),
+        s1_init.key.cid().unwrap(),
+        s2_init.key.cid().unwrap(),
+        s1_2.key.cid().unwrap(),
+        s1_3.key.cid().unwrap(),
     ];
     assert_eq!(expected, delivered);
 
     // now discover the second event for the second stream and everything will be stored
-    add_and_assert_new_recon_event(&store, ReconItem::new(&s2_2.0, &s2_2.1)).await;
+    add_and_assert_new_recon_event(&store, s2_2.to_owned()).await;
 
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     let delivered = get_delivered_cids(&store).await;
 
     let expected = vec![
-        s1_init.0.cid().unwrap(),
-        s2_init.0.cid().unwrap(),
-        s1_2.0.cid().unwrap(),
-        s1_3.0.cid().unwrap(),
-        s2_2.0.cid().unwrap(),
-        s2_3.0.cid().unwrap(),
+        s1_init.key.cid().unwrap(),
+        s2_init.key.cid().unwrap(),
+        s1_2.key.cid().unwrap(),
+        s1_3.key.cid().unwrap(),
+        s2_2.key.cid().unwrap(),
+        s2_3.key.cid().unwrap(),
     ];
     assert_eq!(expected, delivered);
 }
@@ -283,7 +277,7 @@ async fn recon_lots_of_streams() {
         let mut events = crate::tests::get_n_events(per_stream).await;
         let cids = events
             .iter()
-            .map(|e| e.0.cid().unwrap())
+            .map(|e| e.key.cid().unwrap())
             .collect::<Vec<_>>();
         cids.iter().for_each(|cid| {
             cid_to_stream_map.insert(*cid, i);
@@ -303,10 +297,10 @@ async fn recon_lots_of_streams() {
         while let Some(event) = stream.pop() {
             if stream.len() > per_stream / 2 {
                 total_added += 1;
-                add_and_assert_new_recon_event(&store, ReconItem::new(&event.0, &event.1)).await;
+                add_and_assert_new_recon_event(&store, event.to_owned()).await;
             } else {
                 total_added += 1;
-                add_and_assert_new_recon_event(&store, ReconItem::new(&event.0, &event.1)).await;
+                add_and_assert_new_recon_event(&store, event.to_owned()).await;
                 break;
             }
         }
@@ -315,7 +309,7 @@ async fn recon_lots_of_streams() {
     for stream in streams.iter_mut() {
         while let Some(event) = stream.pop() {
             total_added += 1;
-            add_and_assert_new_recon_event(&store, ReconItem::new(&event.0, &event.1)).await;
+            add_and_assert_new_recon_event(&store, event.to_owned()).await;
         }
     }
     // first just make sure they were all inserted (not delivered yet)
