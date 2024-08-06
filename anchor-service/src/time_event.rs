@@ -1,13 +1,50 @@
-use anyhow::anyhow;
-use anyhow::Result;
+use futures::TryStreamExt;
+
+use anyhow::{anyhow, Result};
 use cid::Cid;
 
-use ceramic_core::DagCborIpfsBlock;
+use crate::anchor_batch::AnchorRequest;
+use ceramic_anchor_tx::DetachedTimeEvent;
+use ceramic_event::unvalidated::RawTimeEvent;
 
-/// Accepts the CIDs of two blocks and returns the CID of the CBOR list that includes both CIDs.
-fn merge_nodes(left: &Cid, right: Option<&Cid>) -> Result<DagCborIpfsBlock> {
-    let merkle_node = vec![Some(*left), right.cloned()];
-    Ok(serde_ipld_dagcbor::to_vec(&merkle_node)?.into())
+pub fn build_time_events(
+    anchor_requests: &[AnchorRequest],
+    detached_time_event: &DetachedTimeEvent,
+    count: u64,
+) -> Result<Vec<RawTimeEvent>> {
+    anchor_requests
+        .iter()
+        .enumerate()
+        .map(|(index, anchor_request)| {
+            build_time_event(
+                &anchor_request.id,
+                &anchor_request.prev,
+                &detached_time_event.proof,
+                detached_time_event.path.as_str(),
+                index.try_into()?,
+                count,
+            )
+        })
+        .collect()
+}
+
+pub fn build_time_event(
+    id: &Cid,
+    prev: &Cid,
+    proof_cid: &Cid,
+    remote_path: &str,
+    index: u64,
+    count: u64,
+) -> Result<RawTimeEvent> {
+    let local_path = index_to_path(index, count)?;
+    Ok(RawTimeEvent {
+        id: *id,
+        prev: *prev,
+        proof: *proof_cid,
+        path: format!("{}/{}", remote_path, local_path)
+            .trim_matches('/')
+            .to_owned(),
+    })
 }
 
 pub fn index_to_path(index: u64, count: u64) -> Result<String> {
@@ -59,14 +96,49 @@ pub fn index_to_path(index: u64, count: u64) -> Result<String> {
     Ok(path.trim_end_matches('/').to_string())
 }
 
+/// Tests to ensure that the merge function is working as expected.
 #[cfg(test)]
 mod tests {
     use super::*;
     use expect_test::expect;
+    use multihash_codetable::{Code, MultihashDigest};
+
+    fn intu64_cid(i: u64) -> Cid {
+        let data = i.to_be_bytes();
+        let hash = MultihashDigest::digest(&Code::Sha2_256, &data);
+        Cid::new_v1(0x00, hash)
+    }
+
+    fn mock_anchor_requests() -> (u64, Vec<AnchorRequest>) {
+        let count = 20;
+        (
+            count,
+            (0..count)
+                .map(|n| AnchorRequest {
+                    id: intu64_cid(n),
+                    prev: intu64_cid(n),
+                })
+                .collect(),
+        )
+    }
+
+    #[tokio::test]
+    async fn test_time_event() {
+        let id =
+            Cid::try_from("baeabeifu7qd7bpy4z6vdo7jff6kg3uiwolqtofhut7nrhx6wuhpb2wqxtq").unwrap();
+        let prev =
+            Cid::try_from("baeabeifu7qd7bpy4z6vdo7jff6kg3uiwolqtofhut7nrhx6wuhpb2wqxtq").unwrap();
+        let proof =
+            Cid::try_from("bafyreidq247kfkizr3k6wlvx43lt7gro2dno7vzqepmnqt26agri4opzqu").unwrap();
+        let index = 500_000;
+        let count = 999_999;
+        let time_event = build_time_event(&id, &prev, &proof, "", index, count);
+        expect![[r#"Ok(RawTimeEvent { id: "baeabeifu7qd7bpy4z6vdo7jff6kg3uiwolqtofhut7nrhx6wuhpb2wqxtq", prev: "baeabeifu7qd7bpy4z6vdo7jff6kg3uiwolqtofhut7nrhx6wuhpb2wqxtq", proof: "bafyreidq247kfkizr3k6wlvx43lt7gro2dno7vzqepmnqt26agri4opzqu", path: "0/1/1/1/1/0/1/0/0/0/0/1/0/0/1/0/0/0/0/0" })"#]]
+            .assert_eq(&format!("{:?}", time_event));
+    }
 
     #[tokio::test]
     async fn test_index_to_path() {
-        let mmr = MerkleMountainRange::new();
         // '1/'  10 > 8, 14
         // '1/0/' 2 > 4, 6
         // '1/0/' 0b10
@@ -76,7 +148,7 @@ mod tests {
                 "1/0/1/0",
             )
         "#]]
-        .assert_debug_eq(mmr.index_to_path(10, 14));
+        .assert_debug_eq(&index_to_path(10, 14));
 
         // '0/' 500_000 < 524288, 1_000_000
         // '0/' 0b1111010000100100000

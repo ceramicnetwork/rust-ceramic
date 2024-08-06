@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use base64::{
     engine::general_purpose::{STANDARD_NO_PAD as b64_standard, URL_SAFE_NO_PAD as b64},
@@ -9,14 +9,15 @@ use iroh_car::CarReader;
 use multihash_codetable::{Code, MultihashDigest};
 use ring::signature::{Ed25519KeyPair, KeyPair};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 use ceramic_core::{
-    cid_from_ed25519_key_pair, did_key_from_ed25519_key_pair, Cid, DagCborIpfsBlock, StreamId,
-    StreamIdType,
+    cid_from_ed25519_key_pair, did_key_from_ed25519_key_pair, Cid, StreamId, StreamIdType,
 };
+use ceramic_event::unvalidated::{MerkleNode, Proof};
 
-use crate::{Receipt, TransactionManager};
+use crate::{transaction_manager::DetachedTimeEvent, Receipt, TransactionManager};
 
 pub const AGENT_VERSION: &str = concat!("ceramic-one/", env!("CARGO_PKG_VERSION"));
 
@@ -55,13 +56,6 @@ struct AnchorResponse {
     pub witness_car: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(rename_all = "camelCase")]
-struct DetachedTimeEvent {
-    pub path: String,
-    pub proof: Cid,
-}
-
 fn cid_to_stream_id(cid: Cid) -> StreamId {
     StreamId {
         r#type: StreamIdType::Unloadable,
@@ -79,14 +73,14 @@ async fn auth_jwt(
         multibase::Base::Base58Btc,
         [b"\xed\x01", public_key_bytes].concat(),
     );
-    println!("did:key:{}", public_key_b58);
     let controller = did_key_from_ed25519_key_pair(signing_key);
     let header = Header {
-        // multibase.encode('base58btc', (b'\xed\x01' + public_key)))
         kid: format!(
             "{}#{}",
             controller,
-            controller.strip_prefix("did:key:").unwrap()
+            controller
+                .strip_prefix("did:key:")
+                .context("invalid did:key")?
         ),
         alg: "EdDSA".to_string(),
     };
@@ -96,8 +90,8 @@ async fn auth_jwt(
         url: request_url,
     };
 
-    let header_b64 = b64.encode(serde_json::to_vec(&header).unwrap());
-    let body_b64 = b64.encode(serde_json::to_vec(&body).unwrap());
+    let header_b64 = b64.encode(serde_json::to_vec(&header)?);
+    let body_b64 = b64.encode(serde_json::to_vec(&body)?);
     let message = [header_b64, body_b64].join(".");
     let sig_bytes = signing_key.sign(message.as_bytes());
     let sig_b64 = b64.encode(sig_bytes);
@@ -115,7 +109,7 @@ impl TransactionManager for RemoteCas {
         let anchor_response = self.create_anchor_request(root).await?;
         println!("{}", anchor_response);
         // TODO: Poll the CAS asynchronously for the anchor request status
-        Ok(parse_anchor_response(anchor_response).await)
+        parse_anchor_response(anchor_response).await
     }
 }
 
@@ -157,37 +151,38 @@ impl RemoteCas {
     }
 }
 
-async fn parse_anchor_response(anchor_response: String) -> Receipt {
-    let witness_car_b64 = serde_json::from_str::<AnchorResponse>(anchor_response.as_str())
-        .unwrap()
-        .witness_car;
-    let witness_car_bytes = b64_standard.decode(witness_car_b64).unwrap();
-    let car_reader = CarReader::new(witness_car_bytes.as_ref()).await.unwrap();
-    let header = car_reader.header();
-    let root_cid = header.roots()[0];
-    let blocks: Vec<(Cid, Vec<u8>)> = car_reader.stream().try_collect().await.unwrap();
-    let detached_time_event_bytes = blocks
-        .clone()
-        .into_iter()
-        .find(|(block_cid, _)| block_cid.eq(&root_cid))
-        .unwrap()
-        .1;
-    let blocks: Vec<DagCborIpfsBlock> = blocks
-        .into_iter()
-        .filter(|(block_cid, _)| !block_cid.eq(&root_cid))
-        .map(move |(_, value)| DagCborIpfsBlock::from(value))
-        .collect();
-    let detached_time_event: DetachedTimeEvent =
-        serde_ipld_dagcbor::from_slice(&detached_time_event_bytes).unwrap();
-    let proof_block = blocks
-        .iter()
-        .find(|&block| block.cid.eq(&detached_time_event.proof))
-        .unwrap();
-    Receipt {
-        proof_block: proof_block.clone(),
-        path_prefix: Some(detached_time_event.path),
-        blocks,
+async fn parse_anchor_response(anchor_response: String) -> Result<Receipt> {
+    let witness_car_b64 =
+        serde_json::from_str::<AnchorResponse>(anchor_response.as_str())?.witness_car;
+    let witness_car_bytes = b64_standard.decode(witness_car_b64)?;
+    let car_reader = CarReader::new(witness_car_bytes.as_ref()).await?;
+    let mut remote_merkle_nodes: HashMap<Cid, MerkleNode> = HashMap::new();
+    let mut detached_time_event: Option<DetachedTimeEvent> = None;
+    let mut proof: Option<Proof> = None;
+    for (cid, block) in car_reader
+        .stream()
+        .into_stream()
+        .try_collect::<Vec<(_, _)>>()
+        .await?
+    {
+        if let Ok(block) = serde_ipld_dagcbor::from_slice::<DetachedTimeEvent>(&block) {
+            detached_time_event = Some(block);
+        }
+        if let Ok(block) = serde_ipld_dagcbor::from_slice::<Proof>(&block) {
+            proof = Some(block);
+        }
+        if let Ok(block) = serde_ipld_dagcbor::from_slice::<MerkleNode>(&block) {
+            remote_merkle_nodes.insert(cid, block);
+        }
     }
+    if detached_time_event.is_none() || proof.is_none() {
+        return Err(anyhow::anyhow!("invalid anchor response"));
+    }
+    Ok(Receipt {
+        proof: proof.expect("proof should be present"),
+        detached_time_event: detached_time_event.expect("detached time event should be present"),
+        remote_merkle_nodes,
+    })
 }
 
 // Tests to call the CAS request
@@ -195,7 +190,6 @@ async fn parse_anchor_response(anchor_response: String) -> Receipt {
 mod tests {
     use super::*;
     use ceramic_core::ed25519_key_pair_from_secret;
-    use cid::CidGeneric;
     use expect_test::expect_file;
     use std::str::FromStr;
 
@@ -214,7 +208,7 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_create_anchor_request_on_cas() {
-        let mock_root_cid: CidGeneric<64> =
+        let mock_root_cid =
             Cid::from_str("bafyreia776z4jdg5zgycivcpr3q6lcu6llfowkrljkmq3bex2k5hkzat54").unwrap();
 
         let remote_cas = RemoteCas::new(

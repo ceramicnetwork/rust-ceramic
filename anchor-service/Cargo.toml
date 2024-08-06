@@ -9,19 +9,14 @@ publish = false
 
 [dependencies]
 anyhow.workspace = true
-async-stream.workspace = true
 async-trait.workspace = true
-ceramic-anchor-tree.workspace = true
 ceramic-anchor-tx.workspace = true
 ceramic-core.workspace = true
+ceramic-event.workspace = true
 cid.workspace = true
 expect-test.workspace = true
-futures.workspace = true
-hex.workspace = true
 indexmap = "2.3.0"
-itertools.workspace = true
 multihash-codetable.workspace = true
 serde_ipld_dagcbor.workspace = true
 tokio.workspace = true
-tokio-stream.workspace = true
-ring.workspace = true
+futures = "0.3.30"

@@ -1,4 +1,3 @@
-mod service;
-
-pub use ceramic_anchor_tree::AnchorRequest;
-pub use service::AnchorClient;
+mod anchor_batch;
+mod merkle_tree;
+mod time_event;

@@ -295,10 +295,10 @@ impl TimeEvent {
 /// Raw Time Event as it is encoded in the protocol.
 #[derive(Serialize, Deserialize)]
 pub struct RawTimeEvent {
-    id: Cid,
-    prev: Cid,
-    proof: Cid,
-    path: String,
+    pub id: Cid,
+    pub prev: Cid,
+    pub proof: Cid,
+    pub path: String,
 }
 
 impl Debug for RawTimeEvent {
@@ -347,10 +347,10 @@ impl RawTimeEvent {
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Proof {
-    chain_id: String,
-    root: Cid,
-    tx_hash: Cid,
-    tx_type: String,
+    pub chain_id: String,
+    pub root: Cid,
+    pub tx_hash: Cid,
+    pub tx_type: String,
 }
 
 impl Debug for Proof {
@@ -398,6 +398,9 @@ impl Proof {
 
 /// Proof edge TODO: rename witness node
 pub type ProofEdge = Vec<Ipld>;
+
+/// Merkle tree node
+pub type MerkleNode = Vec<Cid>;
 
 #[cfg(test)]
 mod tests {

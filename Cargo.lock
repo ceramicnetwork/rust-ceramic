@@ -1028,34 +1028,15 @@ name = "ceramic-anchor-service"
 version = "0.29.0"
 dependencies = [
  "anyhow",
- "async-stream",
  "async-trait",
- "ceramic-anchor-tree",
  "ceramic-anchor-tx",
  "ceramic-core",
+ "ceramic-event",
  "cid 0.11.1",
  "expect-test",
  "futures",
- "hex",
  "indexmap 2.3.0",
- "itertools 0.13.0",
  "multihash-codetable",
- "ring 0.17.8",
- "serde_ipld_dagcbor",
- "tokio",
- "tokio-stream",
-]
-
-[[package]]
-name = "ceramic-anchor-tree"
-version = "0.29.0"
-dependencies = [
- "anyhow",
- "ceramic-core",
- "cid 0.11.1",
- "expect-test",
- "multihash-codetable",
- "serde",
  "serde_ipld_dagcbor",
  "tokio",
 ]
@@ -1068,8 +1049,8 @@ dependencies = [
  "async-trait",
  "base64 0.21.7",
  "ceramic-core",
+ "ceramic-event",
  "chrono",
- "cid 0.11.1",
  "expect-test",
  "futures",
  "hex",

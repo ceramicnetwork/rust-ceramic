@@ -4,7 +4,6 @@ members = [
     "api",
     "api-server",
     "anchor-service",
-    "anchor-tree",
     "anchor-tx",
     "core",
     "event",
@@ -21,7 +20,6 @@ members = [
     "beetle/iroh-rpc-client",
     "beetle/iroh-rpc-types",
     "beetle/iroh-util",
-    "service", "anchor-tx", "anchor-tree",
 ]
 
 [workspace.dependencies]
@@ -52,7 +50,6 @@ bytecheck = "0.6.7"
 bytes = "1.1"
 bytesize = "1.1"
 ceramic-anchor-service = { path = "./anchor-service" }
-ceramic-anchor-tree = { path = "./anchor-tree" }
 ceramic-anchor-tx = { path = "./anchor-tx" }
 ceramic-api = { path = "./api" }
 ceramic-api-server = { path = "./api-server" }
