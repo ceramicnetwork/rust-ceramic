@@ -1034,9 +1034,9 @@ dependencies = [
  "ceramic-event",
  "cid 0.11.1",
  "expect-test",
- "futures",
  "indexmap 2.3.0",
  "multihash-codetable",
+ "ring 0.17.8",
  "serde_ipld_dagcbor",
  "tokio",
 ]

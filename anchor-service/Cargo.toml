@@ -17,6 +17,6 @@ cid.workspace = true
 expect-test.workspace = true
 indexmap = "2.3.0"
 multihash-codetable.workspace = true
+ring.workspace = true
 serde_ipld_dagcbor.workspace = true
 tokio.workspace = true
-futures = "0.3.30"

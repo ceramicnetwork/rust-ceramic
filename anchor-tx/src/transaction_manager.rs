@@ -21,7 +21,7 @@ impl std::fmt::Debug for Receipt {
             .field("proof", &self.proof)
             .field("detached_time_event", &self.detached_time_event)
             .field(
-                "blocks",
+                "remote_merkle_nodes",
                 &self
                     .remote_merkle_nodes
                     .iter()

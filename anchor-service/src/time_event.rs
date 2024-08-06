@@ -1,5 +1,3 @@
-use futures::TryStreamExt;
-
 use anyhow::{anyhow, Result};
 use cid::Cid;
 
