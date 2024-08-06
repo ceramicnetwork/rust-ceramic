@@ -282,8 +282,8 @@ where
     /// Insert key into the key space.
     /// Returns Ok if the result was accepted. It may be validated and stored
     /// out of band, meaning it may not immediately return in range queries.
-    pub async fn insert(&self, item: ReconItem<K>) -> Result<()> {
-        let _res = self.store.insert_many(&[item]).await?;
+    pub async fn insert(&self, items: Vec<ReconItem<K>>) -> Result<()> {
+        let _res = self.store.insert_many(&items).await?;
         Ok(())
     }
 
@@ -805,8 +805,7 @@ pub struct RangeHash<K, H> {
     pub hash: HashCount<H>,
     /// Last key in the range,
     /// This key may be a fencepost, meaning its not an actual key but simply a boundary.
-    pub last: K,
-}
+    pub last: K,}
 
 impl<K, H> From<RangeHash<K, H>> for RangeOpen<K> {
     fn from(value: RangeHash<K, H>) -> Self {

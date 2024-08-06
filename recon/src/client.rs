@@ -12,7 +12,10 @@ use crate::{
 
 /// Client to a [`Recon`] [`Server`].
 #[derive(Debug, Clone)]
-pub struct Client<K, H> {
+pub struct Client<K, H>
+where
+    K: Key,
+{
     sender: Sender<Request<K, H>>,
     metrics: Metrics,
 }
@@ -23,11 +26,9 @@ where
     H: AssociativeHash,
 {
     /// Sends an insert request to the server and awaits the response.
-    pub async fn insert(&self, key: K, value: Vec<u8>) -> Result<()> {
+    pub async fn insert(&self, items: Vec<ReconItem<K>>) -> Result<()> {
         let (ret, rx) = oneshot::channel();
-        self.sender
-            .send(Request::Insert { key, value, ret })
-            .await?;
+        self.sender.send(Request::Insert { items, ret }).await?;
         rx.await?
     }
 
@@ -138,10 +139,12 @@ where
     }
 }
 
-enum Request<K, H> {
+enum Request<K, H>
+where
+    K: Key,
+{
     Insert {
-        key: K,
-        value: Vec<u8>,
+        items: Vec<ReconItem<K>>,
         ret: oneshot::Sender<Result<()>>,
     },
     Len {
@@ -239,12 +242,8 @@ where
             let request = self.requests.recv().await;
             if let Some(request) = request {
                 match request {
-                    Request::Insert { key, value, ret } => {
-                        let val = self
-                            .recon
-                            .insert(ReconItem::new(key, value))
-                            .await
-                            .map_err(Error::from);
+                    Request::Insert { items, ret } => {
+                        let val = self.recon.insert(items).await.map_err(Error::from);
                         send(ret, val);
                     }
                     Request::Len { ret } => {
