@@ -1,6 +1,5 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use multihash_codetable::{Code, MultihashDigest};
 
 use ceramic_core::{Cid, DagCborIpfsBlock};
 use ceramic_event::unvalidated::Proof;

@@ -7,7 +7,7 @@ use base64::{
 use futures::TryStreamExt;
 use iroh_car::CarReader;
 use multihash_codetable::{Code, MultihashDigest};
-use ring::signature::{Ed25519KeyPair, KeyPair};
+use ring::signature::Ed25519KeyPair;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
