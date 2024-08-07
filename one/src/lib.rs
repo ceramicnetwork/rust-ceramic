@@ -56,7 +56,7 @@ struct DaemonOpts {
     db_opts: DBOpts,
 
     /// Path to libp2p private key directory
-    #[arg(short, long, default_value = ".", env = "CERAMIC_ONE_P2P_KEY_DIR")]
+    #[arg(short, long, default_value=default_directory().into_os_string(), env = "CERAMIC_ONE_P2P_KEY_DIR")]
     p2p_key_dir: PathBuf,
 
     /// Bind address of the API endpoint.
@@ -189,10 +189,19 @@ struct DaemonOpts {
     feature_flags: Vec<FeatureFlags>,
 }
 
+/// The default storage directory to use if none is provided. In order:
+///     - `$HOME/.ceramic-one`
+///     -  `./.ceramic-one`
+fn default_directory() -> PathBuf {
+    home::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".ceramic-one")
+}
+
 #[derive(Args, Debug)]
 struct DBOpts {
-    /// Path to storage directory
-    #[arg(short, long, default_value = ".", env = "CERAMIC_ONE_STORE_DIR")]
+    /// Path to storage directory.
+    #[arg(short, long, default_value=default_directory().into_os_string(), env = "CERAMIC_ONE_STORE_DIR")]
     store_dir: PathBuf,
 }
 

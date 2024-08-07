@@ -12,7 +12,7 @@ use futures::{stream::BoxStream, StreamExt};
 use multihash_codetable::{Code, Multihash, MultihashDigest};
 use tracing::{debug, info};
 
-use crate::{DBOpts, Info, LogOpts};
+use crate::{default_directory, DBOpts, Info, LogOpts};
 
 #[derive(Subcommand, Debug)]
 pub enum EventsCommand {
@@ -38,7 +38,7 @@ pub struct FromIpfsOpts {
     #[clap(
         long,
         short,
-        default_value = ".",
+        default_value=default_directory().into_os_string(),
         env = "CERAMIC_ONE_OUTPUT_STORE_PATH"
     )]
     output_store_path: PathBuf,
