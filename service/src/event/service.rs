@@ -139,20 +139,16 @@ impl CeramicEventService {
         Ok((EventInsertable::try_new(event_id, body)?, metadata))
     }
 
-    pub(crate) async fn insert_events<'a>(
+    pub(crate) async fn insert_events(
         &self,
-        items: &[recon::ReconItem<'a, EventId>],
+        items: &[recon::ReconItem<EventId>],
         source: DeliverableRequirement,
     ) -> Result<InsertResult> {
-        if items.is_empty() {
-            return Ok(InsertResult::default());
-        }
-
-        let mut to_insert = Vec::with_capacity(items.len());
+        let mut to_insert = Vec::new();
 
         for event in items {
             let insertable =
-                Self::validate_discovered_event(event.key.to_owned(), event.value).await?;
+                Self::validate_discovered_event(event.key.to_owned(), &event.value).await?;
             to_insert.push(insertable);
         }
 

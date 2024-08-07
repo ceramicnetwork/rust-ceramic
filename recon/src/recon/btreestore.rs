@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use std::{collections::BTreeMap, ops::Range, sync::Arc};
 use tokio::sync::Mutex;
+use tracing::instrument;
 
 use crate::{
     recon::{AssociativeHash, Key, MaybeHashedKey, ReconItem, Store},
@@ -121,6 +122,17 @@ where
             .collect();
         Ok(Box::new(keys.into_iter()))
     }
+
+    async fn insert(&self, item: &ReconItem<K>) -> Result<bool> {
+        let mut inner = self.inner.lock().await;
+        let new = inner
+            .keys
+            .insert(item.key.clone(), H::digest(&item.key))
+            .is_none();
+
+        inner.values.insert(item.key.clone(), item.value.to_vec());
+        Ok(new)
+    }
 }
 
 #[async_trait]
@@ -132,18 +144,9 @@ where
     type Key = K;
     type Hash = H;
 
-    async fn insert<'a>(&self, item: &ReconItem<'a, Self::Key>) -> Result<bool> {
-        let mut inner = self.inner.lock().await;
-        let new = inner
-            .keys
-            .insert(item.key.clone(), H::digest(item.key))
-            .is_none();
-
-        inner.values.insert(item.key.clone(), item.value.to_vec());
-        Ok(new)
-    }
-
-    async fn insert_many<'a>(&self, items: &[ReconItem<'a, K>]) -> Result<InsertResult> {
+    #[instrument(skip(self))]
+    async fn insert_many(&self, items: &[ReconItem<Self::Key>]) -> Result<InsertResult> {
+        tracing::trace!("inserting items: {}", items.len());
         let mut new = vec![false; items.len()];
         for (idx, item) in items.iter().enumerate() {
             new[idx] = self.insert(item).await?;

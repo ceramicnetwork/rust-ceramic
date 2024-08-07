@@ -6,6 +6,7 @@ use std::{
     fmt::Display,
     marker::PhantomData,
     ops::{Add, Range},
+    sync::Arc,
 };
 
 use anyhow::anyhow;
@@ -279,19 +280,12 @@ where
         self.store.value_for_key(&key).await
     }
 
-    /// Insert key into the key space. Includes an optional value.
-    /// Returns a boolean (true) indicating if the key was new.
-    pub async fn insert(&self, item: &ReconItem<'_, K>) -> Result<bool> {
-        self.store.insert(item).await
-    }
-
-    /// Insert many keys into the key space. Includes an optional value for each key.
-    /// Returns an array with a boolean for each key indicating if the key was new.
-    /// The order is the same as the order of the keys. True means new, false means not new.
-    pub async fn insert_many(&self, items: &[ReconItem<'_, K>]) -> Result<Vec<bool>> {
-        let result = self.store.insert_many(items).await?;
-
-        Ok(result.keys)
+    /// Insert key into the key space.
+    /// Returns Ok if the result was accepted. It may be validated and stored
+    /// out of band, meaning it may not immediately return in range queries.
+    pub async fn insert(&self, items: Vec<ReconItem<K>>) -> Result<()> {
+        let _res = self.store.insert_many(&items).await?;
+        Ok(())
     }
 
     /// Reports total number of keys
@@ -412,23 +406,26 @@ where
 
 /// A key value pair to store
 #[derive(Clone, Debug)]
-pub struct ReconItem<'a, K>
+pub struct ReconItem<K>
 where
     K: Key,
 {
     /// The key.
-    pub key: &'a K,
-    /// The value, if not set no value is stored.
-    pub value: &'a [u8],
+    pub key: K,
+    /// The value of the data for the given key.
+    pub value: Arc<Vec<u8>>,
 }
 
-impl<'a, K> ReconItem<'a, K>
+impl<K> ReconItem<K>
 where
     K: Key,
 {
     /// Construct a new item with a key and optional value
-    pub fn new(key: &'a K, value: &'a [u8]) -> Self {
-        Self { key, value }
+    pub fn new(key: K, value: Vec<u8>) -> Self {
+        Self {
+            key,
+            value: Arc::new(value),
+        }
     }
 }
 
@@ -460,14 +457,10 @@ pub trait Store {
     /// Type of the AssociativeHash to compute over keys.
     type Hash: AssociativeHash;
 
-    /// Insert a new key into the key space. Returns true if the key did not exist.
-    /// The value will be updated if included
-    async fn insert<'a>(&self, item: &ReconItem<'a, Self::Key>) -> Result<bool>;
-
     /// Insert new keys into the key space.
     /// Returns true for each key if it did not previously exist, in the
     /// same order as the input iterator.
-    async fn insert_many<'a>(&self, items: &[ReconItem<'a, Self::Key>]) -> Result<InsertResult>;
+    async fn insert_many(&self, items: &[ReconItem<Self::Key>]) -> Result<InsertResult>;
 
     /// Return the hash of all keys in the range between left_fencepost and right_fencepost.
     /// The upper range bound is exclusive.
@@ -575,11 +568,7 @@ where
     type Key = K;
     type Hash = H;
 
-    async fn insert<'a>(&self, item: &ReconItem<'a, Self::Key>) -> Result<bool> {
-        self.as_ref().insert(item).await
-    }
-
-    async fn insert_many<'a>(&self, items: &[ReconItem<'a, Self::Key>]) -> Result<InsertResult> {
+    async fn insert_many(&self, items: &[ReconItem<Self::Key>]) -> Result<InsertResult> {
         self.as_ref().insert_many(items).await
     }
 

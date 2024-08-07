@@ -611,7 +611,7 @@ mod test {
         let events = get_n_events(n).await;
         for event in events {
             let (event, _) =
-                CeramicEventService::validate_discovered_event(event.0.to_owned(), &event.1)
+                CeramicEventService::validate_discovered_event(event.key.to_owned(), &event.value)
                     .await
                     .unwrap();
             res.push(event);

@@ -6,6 +6,7 @@ use ceramic_event::unvalidated::{self, signed::cacao::Capability};
 use cid::Cid;
 use futures::TryStreamExt;
 use ipld_core::ipld::Ipld;
+use recon::ReconItem;
 use serde::Deserialize;
 use thiserror::Error;
 use tracing::{debug, error, info, instrument, Level};
@@ -19,7 +20,7 @@ pub struct Migrator<'a, S> {
     service: &'a CeramicEventService,
     network: Network,
     blocks: S,
-    batch: Vec<(EventId, Vec<u8>)>,
+    batch: Vec<ReconItem<EventId>>,
 
     // All unsigned init payloads we have found.
     unsigned_init_payloads: BTreeSet<Cid>,
@@ -145,13 +146,8 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
         Ok(())
     }
     async fn write_batch(&mut self) -> Result<()> {
-        let items = self
-            .batch
-            .iter()
-            .map(|(id, body)| recon::ReconItem::new(id, body))
-            .collect::<Vec<_>>();
         self.service
-            .insert_events(&items, DeliverableRequirement::Lazy)
+            .insert_events(&self.batch, DeliverableRequirement::Lazy)
             .await?;
         self.event_count += self.batch.len();
         self.batch.truncate(0);
@@ -344,7 +340,7 @@ impl EventBuilder {
         self,
         network: &Network,
         event: unvalidated::Event<Ipld>,
-    ) -> Result<(EventId, Vec<u8>)> {
+    ) -> Result<ReconItem<EventId>> {
         let event_id = EventId::builder()
             .with_network(network)
             .with_sep("model", &self.sep)
@@ -354,6 +350,6 @@ impl EventBuilder {
             .build();
 
         let body = event.encode_car().await?;
-        Ok((event_id, body))
+        Ok(ReconItem::new(event_id, body))
     }
 }

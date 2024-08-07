@@ -3,7 +3,9 @@
 use std::{ops::Range, str::FromStr, sync::Arc};
 
 use crate::server::{decode_multibase_data, BuildResponse, Server};
-use crate::{EventDataResult, EventInsertResult, EventStore, IncludeEventData, InterestStore};
+use crate::{
+    ApiItem, EventDataResult, EventInsertResult, EventStore, IncludeEventData, InterestStore,
+};
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -109,7 +111,7 @@ mock! {
     pub EventStoreTest {}
     #[async_trait]
     impl EventStore for EventStoreTest {
-        async fn insert_many(&self, items: &[(EventId, Vec<u8>)]) -> Result<Vec<EventInsertResult>>;
+        async fn insert_many(&self, items: Vec<ApiItem>) -> Result<Vec<EventInsertResult>>;
         async fn range_with_values(
             &self,
             range: Range<EventId>,
@@ -178,7 +180,7 @@ async fn create_event() {
     let mock_interest = MockAccessInterestStoreTest::new();
     let mut mock_event_store = MockEventStoreTest::new();
     mock_get_init_event(&mut mock_event_store);
-    let args = vec![(
+    let args = vec![ApiItem::new(
         expected_event_id,
         decode_multibase_data(&event_data).unwrap(),
     )];
@@ -189,8 +191,8 @@ async fn create_event() {
         .times(1)
         .returning(|input| {
             Ok(input
-                .iter()
-                .map(|(id, _)| EventInsertResult::new_ok(id.clone()))
+                .into_iter()
+                .map(|v| EventInsertResult::new_ok(v.key.clone()))
                 .collect())
         });
     let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_event_store));
@@ -219,7 +221,7 @@ async fn create_event_fails() {
     let mock_interest = MockAccessInterestStoreTest::new();
     let mut mock_event_store = MockEventStoreTest::new();
     mock_get_init_event(&mut mock_event_store);
-    let args = vec![(
+    let args = vec![ApiItem::new(
         expected_event_id.clone(),
         decode_multibase_data(&event_data).unwrap(),
     )];
@@ -231,8 +233,11 @@ async fn create_event_fails() {
         .returning(|input| {
             Ok(input
                 .iter()
-                .map(|(id, _)| {
-                    EventInsertResult::new_failed(id.clone(), "Event is missing prev".to_string())
+                .map(|i| {
+                    EventInsertResult::new_failed(
+                        i.key.clone(),
+                        "Event is missing prev".to_string(),
+                    )
                 })
                 .collect())
         });
