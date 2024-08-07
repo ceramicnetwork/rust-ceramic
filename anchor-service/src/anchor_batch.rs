@@ -192,7 +192,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore]
+    #[cfg_attr(not(feature = "test-network"), ignore)]
     async fn test_anchor_batch_with_cas() {
         let anchor_client = MockAnchorClient::new(10);
         let anchor_requests = anchor_client.get_anchor_requests().await;
@@ -205,6 +205,6 @@ mod tests {
             .anchor_batch(anchor_requests.as_slice())
             .await
             .unwrap();
-        expect_file!["./test-data/test_anchor_batch.test.txt"].assert_debug_eq(&all_blocks);
+        expect_file!["./test-data/test_anchor_batch_with_cas.test.txt"].assert_debug_eq(&all_blocks);
     }
 }

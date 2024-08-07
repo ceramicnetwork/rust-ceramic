@@ -201,7 +201,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore]
+    #[cfg_attr(not(feature = "test-network"), ignore)]
     async fn test_create_anchor_request_on_cas() {
         let mock_root_cid =
             Cid::from_str("bafyreia776z4jdg5zgycivcpr3q6lcu6llfowkrljkmq3bex2k5hkzat54").unwrap();

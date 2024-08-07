@@ -20,3 +20,6 @@ multihash-codetable.workspace = true
 ring.workspace = true
 serde_ipld_dagcbor.workspace = true
 tokio.workspace = true
+
+[features]
+test-network = []

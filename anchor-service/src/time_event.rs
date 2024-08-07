@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use cid::Cid;
 
-use crate::anchor_batch::AnchorRequest;
+use crate::AnchorRequest;
 use ceramic_anchor_tx::DetachedTimeEvent;
 use ceramic_event::unvalidated::RawTimeEvent;
 
