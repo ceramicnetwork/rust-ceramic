@@ -295,9 +295,13 @@ impl TimeEvent {
 /// Raw Time Event as it is encoded in the protocol.
 #[derive(Serialize, Deserialize)]
 pub struct RawTimeEvent {
+    /// The CID of the init event of the stream
     pub id: Cid,
+    /// The CID of the Data event that is being anchored in the chain
     pub prev: Cid,
+    /// The CID of the proof block that tells us how to query the chain
     pub proof: Cid,
+    /// path from the root in the proof block to the prev in the merkle tree
     pub path: String,
 }
 
@@ -347,9 +351,13 @@ impl RawTimeEvent {
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Proof {
+    /// eip-155 CHAIN_ID see https://chainid.network https://github.com/ethereum/EIPs/blob/master/EIPS/eip-155.md
     pub chain_id: String,
+    /// the root node of the merkle tree
     pub root: Cid,
+    /// the transaction hash for looking up the transaction in the chain
     pub tx_hash: Cid,
+    /// the type of the transaction so we know how to extract the root from the transaction
     pub tx_type: String,
 }
 

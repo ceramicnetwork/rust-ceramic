@@ -68,11 +68,6 @@ async fn auth_jwt(
     digest: String,
     signing_key: &Ed25519KeyPair,
 ) -> Result<String> {
-    let public_key_bytes = signing_key.public_key().as_ref();
-    let public_key_b58 = multibase::encode(
-        multibase::Base::Base58Btc,
-        [b"\xed\x01", public_key_bytes].concat(),
-    );
     let controller = did_key_from_ed25519_key_pair(signing_key);
     let header = Header {
         kid: format!(

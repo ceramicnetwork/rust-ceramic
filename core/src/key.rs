@@ -32,7 +32,7 @@ pub fn ed25519_key_pair_from_secret(secret: &str) -> Result<Ed25519KeyPair> {
 pub fn did_key_from_ed25519_key_pair(key: &Ed25519KeyPair) -> String {
     let public = key.public_key().as_ref();
     let public_with_prefix = [b"\xed\x01", public].concat();
-    let public_multibase = multibase::encode(multibase::Base::Base58Btc, &public_with_prefix);
+    let public_multibase = multibase::encode(multibase::Base::Base58Btc, public_with_prefix);
     format!("did:key:{}", public_multibase)
 }
 
