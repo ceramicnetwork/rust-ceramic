@@ -580,7 +580,8 @@ async fn word_lists() {
         // Spawn a task for each half to make things go quick, we do not care about determinism
         // here.
         let local_handle = tokio::spawn(protocol::initiate_synchronize(local, local_channel, 100));
-        let remote_handle = tokio::spawn(protocol::respond_synchronize(remote, remote_channel, 100));
+        let remote_handle =
+            tokio::spawn(protocol::respond_synchronize(remote, remote_channel, 100));
         // Error if either synchronize method errors
         let (local, remote) = tokio::join!(local_handle, remote_handle);
         local.unwrap().unwrap();
@@ -1919,7 +1920,7 @@ async fn small_diff_zz() {
 
 #[test(tokio::test)]
 async fn dog_linear_download() {
-    recon_test(expect![[r#"
+    let recon = expect![[r#"
         cat: [a, b, c, d, e, f, g]
         dog: []
         -> interest_req((𝚨, 𝛀 ))
@@ -1952,12 +1953,15 @@ async fn dog_linear_download() {
             cat: [a, b, c, d, e, f, g]
         cat: [a, b, c, d, e, f, g]
         dog: [a, b, c, d, e, f, g]
-    "#]])
-    .await
+    "#]];
+    let actual = format!("{}", recon_do(recon.data()).await);
+    recon.assert_eq(&actual);
+    let batching = format!("{}", recon_do_batch_size(recon.data(), 100).await);
+    recon.assert_eq(&batching)
 }
 #[test(tokio::test)]
 async fn cat_linear_download() {
-    recon_test(expect![[r#"
+    let recon = expect![[r#"
         cat: []
         dog: [a, b, c, d, e, f, g]
         -> interest_req((𝚨, 𝛀 ))
@@ -1986,8 +1990,12 @@ async fn cat_linear_download() {
             cat: [a, b, c, d, e, f, g]
         cat: [a, b, c, d, e, f, g]
         dog: [a, b, c, d, e, f, g]
-    "#]])
-    .await
+    "#]];
+
+    let actual = format!("{}", recon_do(recon.data()).await);
+    recon.assert_eq(&actual);
+    let batching = format!("{}", recon_do_batch_size(recon.data(), 100).await);
+    recon.assert_eq(&batching)
 }
 #[test(tokio::test)]
 async fn subset_interest() {

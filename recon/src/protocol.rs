@@ -707,7 +707,6 @@ where
         }
     }
     async fn process_value_response(&mut self, key: R::Key, value: Vec<u8>) -> Result<()> {
-        // update queue and update range min/max
         self.event_q.push(ReconItem::new(key, value));
         if self.event_q.len() >= self.batch_size {
             self.persist_all().await?;

@@ -15,7 +15,7 @@ impl recon::Store for CeramicInterestService {
     /// Insert new keys into the key space.
     /// Returns true for each key if it did not previously exist, in the
     /// same order as the input iterator.
-    #[instrument(skip(self, items))]
+    #[instrument(skip(self))]
     async fn insert_many(&self, items: &[ReconItem<Self::Key>]) -> ReconResult<InsertResult> {
         let keys = items.iter().map(|item| &item.key).collect::<Vec<_>>();
         Ok(CeramicOneInterest::insert_many(&self.pool, &keys).await?)

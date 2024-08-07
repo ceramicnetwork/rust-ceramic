@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use std::{collections::BTreeMap, ops::Range, sync::Arc};
 use tokio::sync::Mutex;
+use tracing::instrument;
 
 use crate::{
     recon::{AssociativeHash, Key, MaybeHashedKey, ReconItem, Store},
@@ -143,7 +144,9 @@ where
     type Key = K;
     type Hash = H;
 
+    #[instrument(skip(self))]
     async fn insert_many(&self, items: &[ReconItem<Self::Key>]) -> Result<InsertResult> {
+        tracing::trace!("inserting items: {}", items.len());
         let mut new = vec![false; items.len()];
         for (idx, item) in items.iter().enumerate() {
             new[idx] = self.insert(item).await?;

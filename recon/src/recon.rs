@@ -6,6 +6,7 @@ use std::{
     fmt::Display,
     marker::PhantomData,
     ops::{Add, Range},
+    sync::Arc,
 };
 
 use anyhow::anyhow;
@@ -412,7 +413,7 @@ where
     /// The key.
     pub key: K,
     /// The value of the data for the given key.
-    pub value: std::sync::Arc<Vec<u8>>,
+    pub value: Arc<Vec<u8>>,
 }
 
 impl<K> ReconItem<K>
@@ -423,7 +424,7 @@ where
     pub fn new(key: K, value: Vec<u8>) -> Self {
         Self {
             key,
-            value: std::sync::Arc::new(value),
+            value: Arc::new(value),
         }
     }
 }
@@ -805,7 +806,8 @@ pub struct RangeHash<K, H> {
     pub hash: HashCount<H>,
     /// Last key in the range,
     /// This key may be a fencepost, meaning its not an actual key but simply a boundary.
-    pub last: K,}
+    pub last: K,
+}
 
 impl<K, H> From<RangeHash<K, H>> for RangeOpen<K> {
     fn from(value: RangeHash<K, H>) -> Self {
