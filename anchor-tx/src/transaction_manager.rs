@@ -17,17 +17,16 @@ pub struct Receipt {
 
 impl std::fmt::Debug for Receipt {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut merkle_tree_nodes: Vec<_> = self
+            .remote_merkle_nodes
+            .iter()
+            .map(|(k, v)| format!("{:?}: {:?}", k, v))
+            .collect();
+        merkle_tree_nodes.sort();
         f.debug_struct("Receipt")
             .field("proof", &self.proof)
             .field("detached_time_event", &self.detached_time_event)
-            .field(
-                "remote_merkle_nodes",
-                &self
-                    .remote_merkle_nodes
-                    .iter()
-                    .map(|(k, v)| format!("{:?}: [{:?}, {:?}]", k, v[0], v[1]))
-                    .collect::<Vec<_>>(),
-            )
+            .field("remote_merkle_nodes", &merkle_tree_nodes)
             .finish()
     }
 }

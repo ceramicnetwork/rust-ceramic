@@ -35,15 +35,14 @@ pub struct TimeEventBatch {
 
 impl std::fmt::Debug for TimeEventBatch {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut merkle_tree_nodes: Vec<_> = self
+            .merkle_tree_nodes
+            .iter()
+            .map(|(k, v)| format!("{:?}: {:?}", k, v))
+            .collect();
+        merkle_tree_nodes.sort();
         f.debug_struct("TimeEventBatch")
-            .field(
-                "merkle_tree_nodes",
-                &self
-                    .merkle_tree_nodes
-                    .iter()
-                    .map(|(k, v)| format!("{:?}: [{:?}, {:?}]", k, v[0], v[1]))
-                    .collect::<Vec<_>>(),
-            )
+            .field("merkle_tree_nodes", &merkle_tree_nodes)
             .field("proof", &self.proof)
             .field("time_events", &self.time_events)
             .finish()
@@ -205,6 +204,7 @@ mod tests {
             .anchor_batch(anchor_requests.as_slice())
             .await
             .unwrap();
-        expect_file!["./test-data/test_anchor_batch_with_cas.test.txt"].assert_debug_eq(&all_blocks);
+        expect_file!["./test-data/test_anchor_batch_with_cas.test.txt"]
+            .assert_debug_eq(&all_blocks);
     }
 }
