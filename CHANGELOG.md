@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.32.0] - 2024-08-07
+
+### 🚀 Features
+
+- Feature and experimental feature flags (#448)
+- Change default dir back to shared home location (#471)
+
 ## [0.31.0] - 2024-08-02
 
 ### 🚀 Features
@@ -19,6 +26,7 @@ All notable changes to this project will be documented in this file.
 ### ⚙️ Miscellaneous Tasks
 
 - Rust 1.80 lints (#450)
+- Version v0.31.0 (#464)
 
 ## [0.30.0] - 2024-07-29
 
