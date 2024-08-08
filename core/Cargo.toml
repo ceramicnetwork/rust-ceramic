@@ -28,7 +28,9 @@ serde.workspace = true
 serde_bytes.workspace = true
 serde_ipld_dagcbor.workspace = true
 serde_json.workspace = true
+ssh-key.workspace = true
 ssi.workspace = true
+tokio = { workspace = true, features = ["fs"] }
 unsigned-varint.workspace = true
 
 [dev-dependencies]

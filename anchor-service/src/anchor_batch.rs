@@ -1,10 +1,11 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::Result;
 use async_trait::async_trait;
 use cid::Cid;
 use indexmap::IndexMap;
 use tokio::time::interval;
+use tracing::error;
 
 use ceramic_anchor_tx::{Receipt, TransactionManager};
 
@@ -14,7 +15,7 @@ use crate::{
 };
 
 #[async_trait]
-pub trait AnchorClient {
+pub trait AnchorClient: Send + Sync {
     async fn get_anchor_requests(&self) -> Vec<AnchorRequest>;
     async fn put_time_events(&self, batch: TimeEventBatch) -> Result<()>;
 }
@@ -26,8 +27,8 @@ pub struct AnchorRequest {
 }
 
 pub struct AnchorService {
-    tx_manager: Box<dyn TransactionManager>,
-    anchor_client: Box<dyn AnchorClient>,
+    tx_manager: Arc<dyn TransactionManager>,
+    anchor_client: Arc<dyn AnchorClient>,
     batch_linger_time: Duration,
 }
 
@@ -38,13 +39,13 @@ impl AnchorService {
         batch_linger_time: Duration,
     ) -> Self {
         Self {
-            anchor_client: Box::new(anchor_client),
-            tx_manager: Box::new(tx_manager),
+            anchor_client: Arc::new(anchor_client),
+            tx_manager: Arc::new(tx_manager),
             batch_linger_time,
         }
     }
 
-    pub async fn anchor_loop(&mut self) -> Result<()> {
+    pub async fn run(&mut self) {
         let mut interval = interval(self.batch_linger_time);
         loop {
             interval.tick().await;
@@ -62,9 +63,16 @@ impl AnchorService {
             .collect();
 
             // Anchor the batch to the CAS. This may block for a long time.
-            let time_event_batch = self.anchor_batch(anchor_requests.as_slice()).await?;
-
-            self.anchor_client.put_time_events(time_event_batch).await?;
+            match self.anchor_batch(anchor_requests.as_slice()).await {
+                Ok(time_event_batch) => {
+                    if let Err(e) = self.anchor_client.put_time_events(time_event_batch).await {
+                        error!("error storing time events: {:?}", e);
+                    }
+                }
+                Err(e) => {
+                    error!("error anchoring batch: {:?}", e);
+                }
+            }
         }
     }
 

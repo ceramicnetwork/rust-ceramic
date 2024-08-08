@@ -22,6 +22,7 @@ serde.workspace = true
 serde_ipld_dagcbor.workspace = true
 serde_ipld_dagjson.workspace = true
 tokio.workspace = true
+tracing.workspace = true
 
 [features]
 test-network = []

@@ -1078,6 +1078,7 @@ dependencies = [
  "serde_ipld_dagcbor",
  "serde_ipld_dagjson",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -1102,6 +1103,7 @@ dependencies = [
  "serde_ipld_dagcbor",
  "serde_json",
  "tokio",
+ "tracing",
  "uuid 1.10.0",
 ]
 
@@ -1186,6 +1188,7 @@ dependencies = [
  "serde_bytes",
  "serde_ipld_dagcbor",
  "serde_json",
+ "ssh-key",
  "ssi",
  "test-log",
  "tokio",
@@ -1319,6 +1322,8 @@ dependencies = [
  "anyhow",
  "async-stream",
  "async-trait",
+ "ceramic-anchor-service",
+ "ceramic-anchor-tx",
  "ceramic-api",
  "ceramic-api-server",
  "ceramic-core",

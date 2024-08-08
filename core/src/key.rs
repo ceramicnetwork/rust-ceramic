@@ -1,7 +1,24 @@
+use std::{path::PathBuf, str::FromStr};
+
 use anyhow::Result;
 use cid::multihash::Multihash;
 use cid::Cid;
 use ring::signature::{Ed25519KeyPair, KeyPair};
+
+/// Read an Ed25519 key from a directory and return a key pair
+pub async fn read_ed25519_key_from_dir(p2p_key_dir: PathBuf) -> Result<Ed25519KeyPair> {
+    let key_path = p2p_key_dir.join("id_ed25519_0");
+    let content = tokio::fs::read_to_string(&key_path).await?;
+    let seed = ssh_key::private::PrivateKey::from_str(&content)
+        .map_err(|e| anyhow::anyhow!("failed to parse private key: {}", e))?
+        .key_data()
+        .ed25519()
+        .map_or(Err(anyhow::anyhow!("failed to parse ed25519 key")), |key| {
+            Ok(key.private.to_bytes())
+        })?;
+    Ed25519KeyPair::from_seed_unchecked(seed.as_ref())
+        .map_err(|e| anyhow::anyhow!("failed to create key pair: {}", e))
+}
 
 /// Create an Ed25519 key pair from a secret
 pub fn ed25519_key_pair_from_secret(secret: &str) -> Result<Ed25519KeyPair> {

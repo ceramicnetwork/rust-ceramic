@@ -84,7 +84,7 @@ impl std::fmt::Debug for DetachedTimeEvent {
 
 /// Interface for the transaction manager that accepts a root CID and returns a proof.
 #[async_trait]
-pub trait TransactionManager {
+pub trait TransactionManager: Send + Sync {
     /// Accepts a root CID and returns a proof.
     async fn make_proof(&self, root: Cid) -> Result<Receipt>;
 }

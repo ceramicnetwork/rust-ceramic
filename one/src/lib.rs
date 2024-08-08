@@ -7,28 +7,32 @@ mod metrics;
 mod migrations;
 mod network;
 
-use std::{env, path::PathBuf, time::Duration};
+use std::{env, path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Context, Result};
+use async_trait::async_trait;
+use cid::Cid;
+use clap::{Args, Parser, Subcommand, ValueEnum};
+use futures::StreamExt;
+use multibase::Base;
+use multihash::Multihash;
+use multihash_codetable::Code;
+use multihash_derive::{Hasher, MultihashDigest};
+use recon::{FullInterests, Recon, ReconInterestProvider, Server, Sha256a};
+use signal_hook::consts::signal::*;
+use signal_hook_tokio::Signals;
+use swagger::{auth::MakeAllowAllAuthenticator, EmptyContext};
+use tokio::{io::AsyncReadExt, sync::oneshot};
+use tracing::{debug, error, info, warn};
+
+use ceramic_anchor_service::{AnchorClient, AnchorRequest, AnchorService, TimeEventBatch};
+use ceramic_anchor_tx::RemoteCas;
 use ceramic_api::{EventStore, InterestStore};
 use ceramic_core::{EventId, Interest};
 use ceramic_kubo_rpc::Multiaddr;
 use ceramic_metrics::{config::Config as MetricsConfig, MetricsHandle};
 use ceramic_p2p::{load_identity, DiskStorage, Keychain, Libp2pConfig};
 use ceramic_service::{CeramicEventService, CeramicInterestService, CeramicService};
-use clap::{Args, Parser, Subcommand, ValueEnum};
-use futures::StreamExt;
-use multibase::Base;
-use multihash::Multihash;
-use multihash_codetable::Code;
-use multihash_derive::Hasher;
-use recon::{FullInterests, Recon, ReconInterestProvider, Server, Sha256a};
-use signal_hook::consts::signal::*;
-use signal_hook_tokio::Signals;
-use std::sync::Arc;
-use swagger::{auth::MakeAllowAllAuthenticator, EmptyContext};
-use tokio::{io::AsyncReadExt, sync::oneshot};
-use tracing::{debug, error, info, warn};
 
 use crate::network::Ipfs;
 
@@ -568,6 +572,23 @@ impl Daemon {
         let recon_interest_handle = tokio::spawn(recon_interest_svr.run());
         let recon_model_handle = tokio::spawn(recon_model_svr.run());
 
+        // Start anchoring
+        let keypair = ceramic_core::read_ed25519_key_from_dir(opts.p2p_key_dir.clone()).await?;
+        info!(
+            "Local Node ID: {}",
+            ceramic_core::did_key_from_ed25519_key_pair(&keypair)
+        );
+        // TODO: Take CAS API URL and anchor batch linger from config
+        tokio::spawn(async move {
+            let remote_cas = RemoteCas::new(keypair, "https://cas-dev.3boxlabs.com".to_string());
+            let mut anchor_service = AnchorService::new(
+                MockAnchorClient::new(10),
+                remote_cas,
+                Duration::from_secs(3600), // 1 hour
+            );
+            anchor_service.run().await;
+        });
+
         // Start HTTP server with a graceful shutdown
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
         let signals = Signals::new([SIGHUP, SIGTERM, SIGINT, SIGQUIT])?;
@@ -700,5 +721,39 @@ async fn current_exe_hash() -> Result<Multihash<32>> {
         }
         let hash = hasher.finalize();
         Ok(Multihash::<32>::wrap(Code::Sha2_256.into(), hash)?)
+    }
+}
+
+#[derive(Debug)]
+struct MockAnchorClient {
+    pub anchor_req_count: u64,
+}
+
+impl MockAnchorClient {
+    fn new(anchor_req_count: u64) -> Self {
+        Self { anchor_req_count }
+    }
+
+    fn int64_cid(&self, i: u64) -> Cid {
+        let data = i.to_be_bytes();
+        let hash = MultihashDigest::digest(&Code::Sha2_256, &data);
+        Cid::new_v1(0x00, hash)
+    }
+}
+
+#[async_trait]
+impl AnchorClient for MockAnchorClient {
+    async fn get_anchor_requests(&self) -> Vec<AnchorRequest> {
+        (0..self.anchor_req_count)
+            .map(|n| AnchorRequest {
+                id: self.int64_cid(n),
+                prev: self.int64_cid(n),
+            })
+            .collect()
+    }
+
+    async fn put_time_events(&self, time_event_batch: TimeEventBatch) -> Result<()> {
+        println!("time events: {:?}", time_event_batch);
+        Ok(())
     }
 }

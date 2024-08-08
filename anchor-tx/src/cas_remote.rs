@@ -9,6 +9,7 @@ use iroh_car::CarReader;
 use multihash_codetable::{Code, MultihashDigest};
 use ring::signature::Ed25519KeyPair;
 use serde::{Deserialize, Serialize};
+use tracing::debug;
 use uuid::Uuid;
 
 use ceramic_core::{
@@ -129,7 +130,6 @@ impl RemoteCas {
         })?;
         let digest = MultihashDigest::digest(&Code::Sha2_256, cas_request_body.as_bytes());
         let digest = hex::encode(digest.digest());
-        println!("digest {}", digest);
         let auth_jwt = auth_jwt(
             cas_create_request_url.clone(),
             format!("0x{}", digest),
@@ -137,7 +137,7 @@ impl RemoteCas {
         )
         .await?;
         let auth_header = format!("Bearer {}", auth_jwt);
-        println!("auth_header {}", &auth_header);
+        debug!("auth_header {}", &auth_header);
         let res = reqwest::Client::new()
             .post(cas_create_request_url)
             .header("Authorization", auth_header)
@@ -228,13 +228,15 @@ mod tests {
     async fn test_jwt() {
         let mock_data = serde_ipld_dagcbor::to_vec(b"mock root").unwrap();
         let mock_hash = MultihashDigest::digest(&Code::Sha2_256, &mock_data);
-        let token = auth_jwt(
+        auth_jwt(
             "https://cas-dev.3boxlabs.com".to_owned(),
             hex::encode(mock_hash.digest()),
-            &node_private_key(),
+            &ed25519_key_pair_from_secret(
+                "f80264c02abf947a7bd4f24fc799168a21cdea5b9d3a8ce8f63801785a4dff7299af4",
+            )
+            .unwrap(),
         )
         .await
         .unwrap();
-        println!("token {}", &token);
     }
 }
