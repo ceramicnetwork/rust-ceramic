@@ -1,4 +1,5 @@
 pub mod btreestore;
+pub mod pending_cache;
 #[cfg(test)]
 pub mod tests;
 
@@ -280,11 +281,10 @@ where
         self.store.value_for_key(&key).await
     }
 
-    /// Insert key into the key space.
-    /// Returns Ok if the result was accepted. It may be validated and stored
-    /// out of band, meaning it may not immediately return in range queries.
+    /// Insert keys into the key space.
     pub async fn insert(&self, items: Vec<ReconItem<K>>) -> Result<InsertBatch<K>> {
-        self.store.insert_many(&items).await
+        let res = self.store.insert_many(&items).await?;
+        Ok(res)
     }
 
     /// Reports total number of keys
@@ -456,6 +456,13 @@ where
     pub item: ReconItem<K>,
 }
 
+impl<K: Key> PendingItem<K> {
+    /// Construct a pending item
+    pub fn new(required_key: K, item: ReconItem<K>) -> Self {
+        Self { required_key, item }
+    }
+}
+
 /// The result of an insert operation.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Default)]
 pub struct InsertBatch<K>
@@ -484,6 +491,23 @@ where
             new_cnt,
             invalid: Vec::new(),
             pending: Vec::new(),
+        }
+    }
+
+    /// yah
+    pub fn item_count(&self) -> usize {
+        self.new_cnt + self.invalid.len() + self.pending.len()
+    }
+    /// yayayay
+    pub fn new_err(
+        new_cnt: usize,
+        invalid: Vec<InvalidItem<K>>,
+        pending: Vec<PendingItem<K>>,
+    ) -> Self {
+        Self {
+            new_cnt,
+            invalid,
+            pending,
         }
     }
 

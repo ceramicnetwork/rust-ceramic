@@ -11,7 +11,7 @@
 //! Encoding and framing of messages is outside the scope of this crate.
 //! However the message types do implement serde::Serialize and serde::Deserialize.
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use async_stream::try_stream;
 use async_trait::async_trait;
 use ceramic_core::RangeOpen;
@@ -25,8 +25,11 @@ use tracing::{instrument, trace, Level};
 use uuid::Uuid;
 
 use crate::{
-    metrics::{MessageLabels, MessageRecv, MessageSent, Metrics, ProtocolRun, ProtocolWriteLoop},
-    recon::{RangeHash, SyncState},
+    metrics::{
+        InvalidEvents, MessageLabels, MessageRecv, MessageSent, Metrics, PendingEvents,
+        ProtocolRun, ProtocolWriteLoop,
+    },
+    recon::{pending_cache::PendingCache, RangeHash, SyncState},
     AssociativeHash, Client, InsertBatch, Key, ReconItem, Result as ReconResult,
 };
 
@@ -626,7 +629,12 @@ where
         // There are optimizations we can make here (to the protocol or using in memory data), but for now we keep it simple
         // and should still get some benefit as we were previously writing every value individually.
         self.common.persist_all().await?;
-        let sync_state = self.common.recon.process_range(range).await?;
+        let sync_state = self
+            .common
+            .recon
+            .process_range(range)
+            .await
+            .context("responder process_range")?;
         match sync_state {
             SyncState::Synchronized { range } => {
                 // We are sync echo back the same range so that the remote learns we are in sync.
@@ -721,6 +729,7 @@ struct Common<R: Recon> {
     recon: R,
     event_q: Vec<ReconItem<R::Key>>,
     config: ProtocolConfig,
+    pending: PendingCache<R::Key>,
 }
 
 impl<R> Common<R>
@@ -728,19 +737,30 @@ where
     R: Recon,
 {
     fn new(recon: R, config: ProtocolConfig) -> Self {
+        // allow at least 10 events to be pending
+        let pending = PendingCache::new(config.max_pending_items.max(10));
         Self {
             recon,
             event_q: Vec::with_capacity(config.insert_batch_size.saturating_add(1)),
             config,
+            pending,
         }
     }
+
     async fn process_value_response(&mut self, key: R::Key, value: Vec<u8>) -> Result<()> {
-        self.event_q.push(ReconItem::new(key, value));
+        let new = ReconItem::new(key, value);
+        if let Some(ok_now) = self.pending.remove_by_needed(&new) {
+            self.event_q.push(new);
+            self.event_q.push(ok_now);
+        } else if !self.pending.is_tracking(&new) {
+            self.event_q.push(new);
+        }
         if self.event_q.len() >= self.config.insert_batch_size {
             self.persist_all().await?;
         }
         Ok(())
     }
+
     // The remote is missing all keys in the range send them over.
     fn process_remote_missing_ranges(
         &mut self,
@@ -763,10 +783,35 @@ where
     }
 
     async fn persist_all(&mut self) -> Result<()> {
-        let evs: Vec<_> = self.event_q.drain(..).collect();
-        if !evs.is_empty() {
-            self.recon.insert(evs).await?;
+        if self.event_q.is_empty() {
+            return Ok(());
         }
+
+        let evs: Vec<_> = self.event_q.drain(..).collect();
+
+        let mut batch = self.recon.insert(evs).await.context("persisting all")?;
+        if !batch.invalid.is_empty() {
+            if let Ok(cnt) = batch.invalid.len().try_into() {
+                self.recon.metrics().record(&InvalidEvents(cnt))
+            }
+            tracing::warn!(
+                "Recon discovered data it will never allow. Hanging up on peer {}",
+                self.config.peer_id
+            );
+            bail!("Received unknown data from peer: {}", self.config.peer_id);
+        }
+
+        if !batch.pending.is_empty() {
+            let (added, remaining_capacity) = self.pending.track_pending(&mut batch.pending);
+            if let Ok(cnt) = added.try_into() {
+                self.recon.metrics().record(&PendingEvents(cnt))
+            }
+            if remaining_capacity < self.config.max_pending_items / 10 {
+                tracing::debug!(peer_id=%self.config.peer_id,
+                    capacity=%self.config.max_pending_items, %remaining_capacity, "Pending queue has less than 10% capacity remaining");
+            }
+        }
+
         Ok(())
     }
 }

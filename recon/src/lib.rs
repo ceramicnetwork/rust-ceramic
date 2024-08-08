@@ -6,7 +6,7 @@ pub use crate::{
     error::Error,
     metrics::Metrics,
     recon::{
-        btreestore::BTreeStore, AssociativeHash, EventIdStore, FullInterests, HashCount,
+        btreestore::BTreeStore, pending_cache::PendingCache, AssociativeHash, EventIdStore,
         FullInterests, HashCount, InsertBatch, InterestProvider, InterestStore, InvalidItem, Key,
         PendingItem, RangeHash, Recon, ReconInterestProvider, ReconItem, Split, Store, SyncState,
     },
