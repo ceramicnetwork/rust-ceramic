@@ -5,20 +5,16 @@ use libp2p::swarm::ConnectionId;
 use libp2p_identity::PeerId;
 use tracing::Level;
 
+use crate::protocol::ProtocolConfig;
 use crate::{
     libp2p::stream_set::StreamSet,
     protocol::{self, Recon},
 };
 
-// The max number of writes we'll batch up before flushing anything to disk.
-// As we descend the tree and find smaller ranges, this won't apply as we have to flush
-// before recomputing a range, but it will be used when we're processing large ranges we don't yet have.
-const INSERT_BATCH_SIZE: usize = 100;
-
-// Initiate Recon synchronization with a peer over a stream.
+// Intiate Recon synchronization with a peer over a stream.
 #[tracing::instrument(skip(recon, stream, ), ret(level = Level::DEBUG))]
 pub async fn initiate_synchronize<S, R>(
-    remote_peer_id: PeerId,      // included for context only
+    remote_peer_id: PeerId,
     connection_id: ConnectionId, // included for context only
     stream_set: StreamSet,
     recon: R,
@@ -30,13 +26,14 @@ where
 {
     let codec = CborCodec::new();
     let stream = Framed::new(stream, codec);
-    protocol::initiate_synchronize(recon, stream, INSERT_BATCH_SIZE).await?;
+    protocol::initiate_synchronize(recon, stream, ProtocolConfig::new_peer_id(remote_peer_id))
+        .await?;
     Ok(stream_set)
 }
 // Intiate Recon synchronization with a peer over a stream.
 #[tracing::instrument(skip(recon, stream, ), ret(level = Level::DEBUG))]
 pub async fn respond_synchronize<S, R>(
-    remote_peer_id: PeerId,      // included for context only
+    remote_peer_id: PeerId,
     connection_id: ConnectionId, // included for context only
     stream_set: StreamSet,
     recon: R,
@@ -48,6 +45,7 @@ where
 {
     let codec = CborCodec::new();
     let stream = Framed::new(stream, codec);
-    protocol::respond_synchronize(recon, stream, INSERT_BATCH_SIZE).await?;
+    protocol::respond_synchronize(recon, stream, ProtocolConfig::new_peer_id(remote_peer_id))
+        .await?;
     Ok(stream_set)
 }

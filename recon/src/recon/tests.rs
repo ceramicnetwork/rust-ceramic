@@ -21,6 +21,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use ceramic_core::RangeOpen;
 use futures::{ready, Future, Sink, Stream};
+use libp2p::PeerId;
 use pin_project::pin_project;
 use prometheus_client::registry::Registry;
 use serde::{Deserialize, Serialize};
@@ -39,6 +40,7 @@ use expect_test::{expect, expect_file, Expect};
 use lalrpop_util::ParseError;
 use pretty::{Arena, DocAllocator, DocBuilder, Pretty};
 
+use crate::protocol::ProtocolConfig;
 use crate::{
     protocol::{self, InitiatorMessage, ReconMessage, ResponderMessage, Value},
     recon::{FullInterests, HashCount, InterestProvider, RangeHash, ReconItem},
@@ -579,9 +581,16 @@ async fn word_lists() {
 
         // Spawn a task for each half to make things go quick, we do not care about determinism
         // here.
-        let local_handle = tokio::spawn(protocol::initiate_synchronize(local, local_channel, 100));
-        let remote_handle =
-            tokio::spawn(protocol::respond_synchronize(remote, remote_channel, 100));
+        let local_handle = tokio::spawn(protocol::initiate_synchronize(
+            local,
+            local_channel,
+            ProtocolConfig::new(100, 0, PeerId::random()),
+        ));
+        let remote_handle = tokio::spawn(protocol::respond_synchronize(
+            remote,
+            remote_channel,
+            ProtocolConfig::new(100, 0, PeerId::random()),
+        ));
         // Error if either synchronize method errors
         let (local, remote) = tokio::join!(local_handle, remote_handle);
         local.unwrap().unwrap();
@@ -1148,8 +1157,16 @@ async fn recon_do_batch_size(
         })
     };
 
-    let cat_fut = protocol::initiate_synchronize(cat.clone(), cat_channel, batch_size);
-    let dog_fut = protocol::respond_synchronize(dog.clone(), dog_channel, batch_size);
+    let cat_fut = protocol::initiate_synchronize(
+        cat.clone(),
+        cat_channel,
+        ProtocolConfig::new(batch_size, 0, PeerId::random()),
+    );
+    let dog_fut = protocol::respond_synchronize(
+        dog.clone(),
+        dog_channel,
+        ProtocolConfig::new(batch_size, 0, PeerId::random()),
+    );
     // Drive both synchronize futures on the same thread
     // This is to ensure a deterministic behavior.
     let (cat_ret, dog_ret) = tokio::join!(cat_fut, dog_fut);

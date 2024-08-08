@@ -17,6 +17,7 @@ use async_trait::async_trait;
 use ceramic_core::RangeOpen;
 use ceramic_metrics::Recorder;
 use futures::{pin_mut, stream::BoxStream, Sink, SinkExt, Stream, StreamExt, TryStreamExt};
+use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
 use tokio::{sync::mpsc, time::Instant};
 use tokio_stream::once;
@@ -44,15 +45,58 @@ use crate::{
 // Even a small limit will quickly mean that both peers have work to do.
 const PENDING_RANGES_LIMIT: usize = 20;
 
+// The max number of writes we'll batch up before flushing anything to disk.
+// As we descend the tree and find smaller ranges, this won't apply as we have to flush
+// before recomputing a range, but it will be used when we're processing large ranges we don't yet have.
+const INSERT_BATCH_SIZE: usize = 100;
+/// The maxium number of items we're willing to persist in memory for a given conversation until we find the
+/// necessary history to understand the event. Given a size of about 1KB/event, this is about 1MB per conversation.
+const MAX_PENDING_EVENTS: usize = 1000;
+
 type IM<K, H> = ReconMessage<InitiatorMessage<K, H>>;
 type RM<K, H> = ReconMessage<ResponderMessage<K, H>>;
+
+#[derive(Clone, Debug)]
+/// Parameters for the protocol that can be used to track the conversation or adjust internal behavior
+pub struct ProtocolConfig {
+    /// The max number of writes we'll batch up before flushing anything to disk.
+    /// As we descend the tree and find smaller ranges, this won't apply as we have to flush
+    /// before recomputing a range, but it will be used when we're processing large ranges we don't yet have.
+    pub insert_batch_size: usize,
+    /// The maximum number of items that can not be stored in memory before we begin to drop them.  
+    /// This is due to the event being dependent on another event we need to discover before it can be interpreted.
+    pub max_pending_items: usize,
+    #[allow(dead_code)]
+    /// The ID of the peer we're syncing with.
+    peer_id: PeerId,
+}
+
+impl ProtocolConfig {
+    /// Create an instance of the config
+    pub fn new(insert_batch_size: usize, max_pending_items: usize, peer_id: PeerId) -> Self {
+        Self {
+            insert_batch_size,
+            max_pending_items,
+            peer_id,
+        }
+    }
+
+    /// Uses the constant defaults defined for batch size (100) and max items (1000)
+    pub fn new_peer_id(peer_id: PeerId) -> Self {
+        Self {
+            insert_batch_size: INSERT_BATCH_SIZE,
+            max_pending_items: MAX_PENDING_EVENTS,
+            peer_id,
+        }
+    }
+}
 
 /// Intiate Recon synchronization with a peer over a stream.
 #[tracing::instrument(skip(recon, stream), ret(level = Level::DEBUG))]
 pub async fn initiate_synchronize<S, R, E>(
     recon: R,
     stream: S,
-    insert_batch_size: usize,
+    config: ProtocolConfig,
 ) -> Result<()>
 where
     R: Recon,
@@ -64,22 +108,12 @@ where
 {
     let metrics = recon.metrics();
     let sync_id = Some(Uuid::new_v4().to_string());
-    protocol(
-        sync_id,
-        Initiator::new(recon, insert_batch_size),
-        stream,
-        metrics,
-    )
-    .await?;
+    protocol(sync_id, Initiator::new(recon, config), stream, metrics).await?;
     Ok(())
 }
 /// Respond to an initiated Recon synchronization with a peer over a stream.
 #[tracing::instrument(skip(recon, stream), ret(level = Level::DEBUG))]
-pub async fn respond_synchronize<S, R, E>(
-    recon: R,
-    stream: S,
-    insert_batch_size: usize,
-) -> Result<()>
+pub async fn respond_synchronize<S, R, E>(recon: R, stream: S, config: ProtocolConfig) -> Result<()>
 where
     R: Recon,
     S: Stream<Item = std::result::Result<IM<R::Key, R::Hash>, E>>
@@ -89,13 +123,7 @@ where
     E: std::error::Error + Send + Sync + 'static,
 {
     let metrics = recon.metrics();
-    protocol(
-        None,
-        Responder::new(recon, insert_batch_size),
-        stream,
-        metrics,
-    )
-    .await?;
+    protocol(None, Responder::new(recon, config), stream, metrics).await?;
     Ok(())
 }
 
@@ -437,9 +465,9 @@ impl<R> Initiator<R>
 where
     R: Recon,
 {
-    fn new(recon: R, batch_size: usize) -> Self {
+    fn new(recon: R, config: ProtocolConfig) -> Self {
         Self {
-            common: Common::new(recon, batch_size),
+            common: Common::new(recon, config),
             pending_ranges: 0,
         }
     }
@@ -583,9 +611,9 @@ impl<R> Responder<R>
 where
     R: Recon,
 {
-    fn new(recon: R, batch_size: usize) -> Self {
+    fn new(recon: R, config: ProtocolConfig) -> Self {
         Self {
-            common: Common::new(recon, batch_size),
+            common: Common::new(recon, config),
         }
     }
 
@@ -692,23 +720,23 @@ where
 struct Common<R: Recon> {
     recon: R,
     event_q: Vec<ReconItem<R::Key>>,
-    batch_size: usize,
+    config: ProtocolConfig,
 }
 
 impl<R> Common<R>
 where
     R: Recon,
 {
-    fn new(recon: R, batch_size: usize) -> Self {
+    fn new(recon: R, config: ProtocolConfig) -> Self {
         Self {
             recon,
-            event_q: Vec::with_capacity(batch_size.saturating_add(1)),
-            batch_size,
+            event_q: Vec::with_capacity(config.insert_batch_size.saturating_add(1)),
+            config,
         }
     }
     async fn process_value_response(&mut self, key: R::Key, value: Vec<u8>) -> Result<()> {
         self.event_q.push(ReconItem::new(key, value));
-        if self.event_q.len() >= self.batch_size {
+        if self.event_q.len() >= self.config.insert_batch_size {
             self.persist_all().await?;
         }
         Ok(())
