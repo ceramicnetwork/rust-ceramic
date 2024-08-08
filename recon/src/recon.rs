@@ -283,9 +283,8 @@ where
     /// Insert key into the key space.
     /// Returns Ok if the result was accepted. It may be validated and stored
     /// out of band, meaning it may not immediately return in range queries.
-    pub async fn insert(&self, items: Vec<ReconItem<K>>) -> Result<()> {
-        let _res = self.store.insert_many(&items).await?;
-        Ok(())
+    pub async fn insert(&self, items: Vec<ReconItem<K>>) -> Result<InsertBatch<K>> {
+        self.store.insert_many(&items).await
     }
 
     /// Reports total number of keys
@@ -405,7 +404,7 @@ where
 }
 
 /// A key value pair to store
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ReconItem<K>
 where
     K: Key,
@@ -429,23 +428,73 @@ where
     }
 }
 
-/// The result of an insert operation.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Default)]
-pub struct InsertResult {
-    /// A true/false list indicating whether or not the key was new.
-    /// It is in the same order as the input list of keys.
-    pub keys: Vec<bool>,
+/// Represents reasons the store is unwilling to persist keys and values
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum InvalidItem<K: Key> {
+    /// The key or event data could not be parsed
+    InvalidFormat {
+        /// The key associated with the invalid data
+        key: K,
+    },
+    /// The data did not have a valid signature
+    InvalidSignature {
+        /// The key associated with the invalid data
+        key: K,
+    },
 }
 
-impl InsertResult {
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+/// Represents items the store may be able to persist in the future
+pub struct PendingItem<K>
+where
+    K: Key,
+{
+    /// The key this item needs in order to be processed.
+    pub required_key: K,
+    /// The item that could not be stored. Can be retried in the future if
+    /// the `required_key` is discovered.
+    pub item: ReconItem<K>,
+}
+
+/// The result of an insert operation.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Default)]
+pub struct InsertBatch<K>
+where
+    K: Key,
+{
+    /// The count of keys that were inserted in the batch.
+    new_cnt: usize,
+    /// The list of items that were considered invalid by the store.
+    /// Typically these events are "garbage" and the conversation should be ended or the
+    /// peer informed so they can clean up or stop sending the data.
+    pub invalid: Vec<InvalidItem<K>>,
+    /// Items that may be processed in the future but require more information to be interpreted.
+    /// For example, the store may need another item to interpret this event (e.g. `PendingItem::RequiresEvent`).
+    /// In the context of Ceramic, the init event is needed to verify if a data event is valid.
+    pub pending: Vec<PendingItem<K>>,
+}
+
+impl<K> InsertBatch<K>
+where
+    K: Key,
+{
     /// Construct an insert result
-    pub fn new(new_keys: Vec<bool>) -> Self {
-        Self { keys: new_keys }
+    pub fn new(new_cnt: usize) -> Self {
+        Self {
+            new_cnt,
+            invalid: Vec::new(),
+            pending: Vec::new(),
+        }
     }
 
     /// true if any key is new, false otherwise
     pub fn included_new_key(&self) -> bool {
-        self.keys.iter().any(|new| *new)
+        self.new_cnt > 0
+    }
+
+    /// The count of keys persisted in this batch
+    pub fn count_inserted(&self) -> usize {
+        self.new_cnt
     }
 }
 
@@ -460,7 +509,7 @@ pub trait Store {
     /// Insert new keys into the key space.
     /// Returns true for each key if it did not previously exist, in the
     /// same order as the input iterator.
-    async fn insert_many(&self, items: &[ReconItem<Self::Key>]) -> Result<InsertResult>;
+    async fn insert_many(&self, items: &[ReconItem<Self::Key>]) -> Result<InsertBatch<Self::Key>>;
 
     /// Return the hash of all keys in the range between left_fencepost and right_fencepost.
     /// The upper range bound is exclusive.
@@ -568,7 +617,7 @@ where
     type Key = K;
     type Hash = H;
 
-    async fn insert_many(&self, items: &[ReconItem<Self::Key>]) -> Result<InsertResult> {
+    async fn insert_many(&self, items: &[ReconItem<Self::Key>]) -> Result<InsertBatch<Self::Key>> {
         self.as_ref().insert_many(items).await
     }
 

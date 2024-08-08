@@ -27,7 +27,7 @@ use uuid::Uuid;
 use crate::{
     metrics::{MessageLabels, MessageRecv, MessageSent, Metrics, ProtocolRun, ProtocolWriteLoop},
     recon::{RangeHash, SyncState},
-    AssociativeHash, Client, Key, ReconItem, Result as ReconResult,
+    AssociativeHash, Client, InsertBatch, Key, ReconItem, Result as ReconResult,
 };
 
 // Limit to the number of pending range requests.
@@ -787,7 +787,8 @@ pub trait Recon: Clone + Send + Sync + 'static {
     type Hash: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>;
 
     /// Insert new keys into the key space.
-    async fn insert(&self, items: Vec<ReconItem<Self::Key>>) -> ReconResult<()>;
+    async fn insert(&self, items: Vec<ReconItem<Self::Key>>)
+        -> ReconResult<InsertBatch<Self::Key>>;
 
     /// Get all keys in the specified range
     async fn range(
@@ -843,9 +844,8 @@ where
     type Key = K;
     type Hash = H;
 
-    async fn insert(&self, items: Vec<ReconItem<K>>) -> ReconResult<()> {
-        let _ = Client::insert(self, items).await?;
-        Ok(())
+    async fn insert(&self, items: Vec<ReconItem<K>>) -> ReconResult<InsertBatch<K>> {
+        Client::insert(self, items).await
     }
 
     async fn range(

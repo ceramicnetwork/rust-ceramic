@@ -253,7 +253,7 @@ where
     async fn insert_many(
         &self,
         items: &[ReconItem<Self::Key>],
-    ) -> ReconResult<recon::InsertResult> {
+    ) -> ReconResult<recon::InsertBatch<Self::Key>> {
         let res = StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "insert_many",
@@ -261,10 +261,8 @@ where
         )
         .await?;
 
-        let key_cnt = res.keys.iter().filter(|k| **k).count();
-
         self.metrics.record(&InsertEvent {
-            cnt: key_cnt as u64,
+            cnt: res.count_inserted() as u64,
         });
 
         Ok(res)

@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use crate::{
     libp2p::{stream_set::StreamSet, PeerEvent, PeerStatus},
-    AssociativeHash, BTreeStore, Error, FullInterests, HashCount, InsertResult, InterestProvider,
+    AssociativeHash, BTreeStore, Error, FullInterests, HashCount, InsertBatch, InterestProvider,
     Key, Metrics, Recon, ReconItem, Result as ReconResult, Server, Store,
 };
 
@@ -75,7 +75,7 @@ where
     type Key = K;
     type Hash = H;
 
-    async fn insert_many(&self, items: &[ReconItem<K>]) -> ReconResult<InsertResult> {
+    async fn insert_many(&self, items: &[ReconItem<K>]) -> ReconResult<InsertBatch<Self::Key>> {
         self.as_error()?;
 
         self.inner.insert_many(items).await

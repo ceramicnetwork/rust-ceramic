@@ -20,22 +20,12 @@ impl recon::Store for CeramicEventService {
     async fn insert_many(
         &self,
         items: &[ReconItem<Self::Key>],
-    ) -> ReconResult<recon::InsertResult> {
+    ) -> ReconResult<recon::InsertBatch<EventId>> {
         let res = self
             .insert_events(items, DeliverableRequirement::Asap)
             .await?;
-        let mut keys = vec![false; items.len()];
-        // we need to put things back in the right order that the recon trait expects, even though we don't really care about the result
-        for (i, item) in items.iter().enumerate() {
-            let new_key = res
-                .store_result
-                .inserted
-                .iter()
-                .find(|e| e.order_key == item.key)
-                .map_or(false, |e| e.new_key); // TODO: should we error if it's not in this set
-            keys[i] = new_key;
-        }
-        Ok(recon::InsertResult::new(keys))
+
+        Ok(recon::InsertBatch::new(res.store_result.count_new_keys()))
     }
 
     /// Return the hash of all keys in the range between left_fencepost and right_fencepost.
