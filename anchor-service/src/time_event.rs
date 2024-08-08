@@ -3,9 +3,12 @@ use cid::Cid;
 
 use ceramic_anchor_tx::{DetachedTimeEvent, MerkleNodes};
 use ceramic_event::unvalidated::{Proof, RawTimeEvent};
+use serde::{Deserialize, Serialize};
 
 use crate::AnchorRequest;
 
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TimeEvents {
     events: Vec<RawTimeEvent>,
 }
@@ -140,8 +143,8 @@ mod tests {
         let index = 500_000;
         let count = 999_999;
         let time_event = build_time_event(&id, &prev, &proof, "", index, count);
-        expect![[r#"Ok(RawTimeEvent { id: "baeabeifu7qd7bpy4z6vdo7jff6kg3uiwolqtofhut7nrhx6wuhpb2wqxtq", prev: "baeabeifu7qd7bpy4z6vdo7jff6kg3uiwolqtofhut7nrhx6wuhpb2wqxtq", proof: "bafyreidq247kfkizr3k6wlvx43lt7gro2dno7vzqepmnqt26agri4opzqu", path: "0/1/1/1/1/0/1/0/0/0/0/1/0/0/1/0/0/0/0/0" })"#]]
-            .assert_eq(&format!("{:?}", time_event));
+        expect![[r#"{"id":{"/":"baeabeifu7qd7bpy4z6vdo7jff6kg3uiwolqtofhut7nrhx6wuhpb2wqxtq"},"prev":{"/":"baeabeifu7qd7bpy4z6vdo7jff6kg3uiwolqtofhut7nrhx6wuhpb2wqxtq"},"proof":{"/":"bafyreidq247kfkizr3k6wlvx43lt7gro2dno7vzqepmnqt26agri4opzqu"},"path":"0/1/1/1/1/0/1/0/0/0/0/1/0/0/1/0/0/0/0/0"}"#]]
+            .assert_eq(&String::from_utf8(serde_ipld_dagjson::to_vec(&time_event.unwrap()).unwrap()).unwrap());
     }
 
     #[tokio::test]

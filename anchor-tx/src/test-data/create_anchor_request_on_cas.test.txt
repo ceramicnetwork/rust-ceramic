@@ -2,13 +2,13 @@ Ok(
     Receipt {
         proof: Proof {
             chain_id: "eip155:11155111",
-            root: "bafyreicmmbibfikudglurxft6sijpbjloupdf4jhyfof4s4fhgcc576qte",
-            tx_hash: "bagjqcgzaflvcfmukjqlips4oxxto6wq644by77dhe77d3gglvreh345qp4ka",
+            root: "Cid(bafyreicmmbibfikudglurxft6sijpbjloupdf4jhyfof4s4fhgcc576qte)",
+            tx_hash: "Cid(bagjqcgzaflvcfmukjqlips4oxxto6wq644by77dhe77d3gglvreh345qp4ka)",
             tx_type: "f(bytes32)",
         },
         detached_time_event: DetachedTimeEvent {
             path: "0/0/0/0/0/0/0/0",
-            proof: "bafyreifb3bcc6vsui6rfnu4tyb64u6gthgs4i5guwaybru7desf434kgsy",
+            proof: "Cid(bafyreifb3bcc6vsui6rfnu4tyb64u6gthgs4i5guwaybru7desf434kgsy)",
         },
         remote_merkle_nodes: [
             "Cid(bafyreia6sy7tcncpmszw35jp5phdyjqgcpoljwgcmurppztvnhlzyhjhcy): [Cid(bafyreibgqgypdn36laeszugztazesondjlgnqmnlbrm7hxp7vsz3uwj4gm), Cid(bafyreiha5fbi5jgikjn7lxoncfkuwbpg3wk65gbvanos3z3bzoowloesuu)]",

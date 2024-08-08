@@ -308,9 +308,9 @@ pub struct RawTimeEvent {
 impl Debug for RawTimeEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RawTimeEvent")
-            .field("id", &self.id.to_string())
-            .field("prev", &self.prev.to_string())
-            .field("proof", &self.proof.to_string())
+            .field("id", &format!("{:?}", &self.id))
+            .field("prev", &format!("{:?}", &self.prev))
+            .field("proof", &format!("{:?}", &self.proof))
             .field("path", &self.path)
             .finish()
     }
@@ -365,8 +365,8 @@ impl Debug for Proof {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Proof")
             .field("chain_id", &self.chain_id)
-            .field("root", &self.root.to_string())
-            .field("tx_hash", &self.tx_hash.to_string())
+            .field("root", &format!("{:?}", &self.root))
+            .field("tx_hash", &format!("{:?}", &self.tx_hash))
             .field("tx_type", &self.tx_type)
             .finish()
     }

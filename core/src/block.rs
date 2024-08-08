@@ -39,7 +39,7 @@ impl From<Vec<u8>> for DagCborIpfsBlock {
 impl std::fmt::Debug for DagCborIpfsBlock {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DagCborIpfsBlock")
-            .field("cid", &self.cid.to_string())
+            .field("cid", &format!("{:?}", &self.cid))
             .field("data", &hex::encode::<&Vec<u8>>(&self.data))
             .finish()
     }

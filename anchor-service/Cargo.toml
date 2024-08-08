@@ -18,7 +18,9 @@ expect-test.workspace = true
 indexmap.workspace = true
 multihash-codetable.workspace = true
 ring.workspace = true
+serde.workspace = true
 serde_ipld_dagcbor.workspace = true
+serde_ipld_dagjson.workspace = true
 tokio.workspace = true
 
 [features]

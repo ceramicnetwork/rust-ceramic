@@ -77,7 +77,7 @@ impl std::fmt::Debug for DetachedTimeEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DetachedTimeEvent")
             .field("path", &self.path)
-            .field("proof", &self.proof.to_string())
+            .field("proof", &format!("{:?}", &self.proof))
             .finish()
     }
 }

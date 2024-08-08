@@ -1074,7 +1074,9 @@ dependencies = [
  "indexmap 2.3.0",
  "multihash-codetable",
  "ring 0.17.8",
+ "serde",
  "serde_ipld_dagcbor",
+ "serde_ipld_dagjson",
  "tokio",
 ]
 
