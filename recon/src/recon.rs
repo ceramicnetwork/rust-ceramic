@@ -404,7 +404,7 @@ where
 }
 
 /// A key value pair to store
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReconItem<K>
 where
     K: Key,
@@ -429,7 +429,7 @@ where
 }
 
 /// Represents reasons the store is unwilling to persist keys and values
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InvalidItem<K: Key> {
     /// The key or event data could not be parsed
     InvalidFormat {
@@ -443,7 +443,7 @@ pub enum InvalidItem<K: Key> {
     },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 /// Represents items the store may be able to persist in the future
 pub struct PendingItem<K>
 where
@@ -464,7 +464,7 @@ impl<K: Key> PendingItem<K> {
 }
 
 /// The result of an insert operation.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Default)]
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct InsertBatch<K>
 where
     K: Key,
