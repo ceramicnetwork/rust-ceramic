@@ -15,7 +15,7 @@ use crate::{
 // before recomputing a range, but it will be used when we're processing large ranges we don't yet have.
 const INSERT_BATCH_SIZE: usize = 100;
 
-// Intiate Recon synchronization with a peer over a stream.
+// Initiate Recon synchronization with a peer over a stream.
 #[tracing::instrument(skip(recon, stream, ), ret(level = Level::DEBUG))]
 pub async fn initiate_synchronize<S, R>(
     remote_peer_id: PeerId,      // included for context only
