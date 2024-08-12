@@ -9,6 +9,10 @@ All notable changes to this project will be documented in this file.
 - Feature and experimental feature flags (#448)
 - Change default dir back to shared home location (#471)
 
+### ⚙️ Miscellaneous Tasks
+
+- Version v0.32.0 (#472)
+
 ## [0.31.0] - 2024-08-02
 
 ### 🚀 Features
