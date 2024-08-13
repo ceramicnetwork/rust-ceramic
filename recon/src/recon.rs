@@ -282,7 +282,7 @@ where
     }
 
     /// Insert keys into the key space.
-    pub async fn insert(&self, items: Vec<ReconItem<K>>) -> Result<InsertBatch<K>> {
+    pub async fn insert(&self, items: Vec<ReconItem<K>>) -> Result<InsertResult<K>> {
         let res = self.store.insert_many(&items).await?;
         Ok(res)
     }
@@ -465,7 +465,7 @@ impl<K: Key> PendingItem<K> {
 
 /// The result of an insert operation.
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
-pub struct InsertBatch<K>
+pub struct InsertResult<K>
 where
     K: Key,
 {
@@ -481,7 +481,7 @@ where
     pub pending: Vec<PendingItem<K>>,
 }
 
-impl<K> InsertBatch<K>
+impl<K> InsertResult<K>
 where
     K: Key,
 {
@@ -494,11 +494,11 @@ where
         }
     }
 
-    /// yah
+    /// Get the total count of items included whether added, pending or invalid
     pub fn item_count(&self) -> usize {
         self.new_cnt + self.invalid.len() + self.pending.len()
     }
-    /// yayayay
+    /// Create with invalid or pending items
     pub fn new_err(
         new_cnt: usize,
         invalid: Vec<InvalidItem<K>>,
@@ -533,7 +533,7 @@ pub trait Store {
     /// Insert new keys into the key space.
     /// Returns true for each key if it did not previously exist, in the
     /// same order as the input iterator.
-    async fn insert_many(&self, items: &[ReconItem<Self::Key>]) -> Result<InsertBatch<Self::Key>>;
+    async fn insert_many(&self, items: &[ReconItem<Self::Key>]) -> Result<InsertResult<Self::Key>>;
 
     /// Return the hash of all keys in the range between left_fencepost and right_fencepost.
     /// The upper range bound is exclusive.
@@ -641,7 +641,7 @@ where
     type Key = K;
     type Hash = H;
 
-    async fn insert_many(&self, items: &[ReconItem<Self::Key>]) -> Result<InsertBatch<Self::Key>> {
+    async fn insert_many(&self, items: &[ReconItem<Self::Key>]) -> Result<InsertResult<Self::Key>> {
         self.as_ref().insert_many(items).await
     }
 

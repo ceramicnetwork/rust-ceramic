@@ -49,22 +49,16 @@ impl<K: Key> PendingCache<K> {
     /// Returns a tuple of (items tracked, capacity remaining)
     pub fn track_pending(&mut self, items: &mut Vec<PendingItem<K>>) -> (usize, usize) {
         let mut tracked = 0;
-        let mut allowed = self.capacity();
-        if allowed > 0 {
-            while let Some(val) = items.pop() {
-                if !self.item_keys.contains(val.item.key.as_bytes()) {
-                    self.item_keys.insert(val.item.key.as_bytes().to_vec());
-                    self.by_needed_key
-                        .insert(val.required_key.as_bytes().to_vec(), val.item);
-                    allowed = allowed.saturating_sub(1);
-                    tracked += 1;
-                }
-                if allowed == 0 || items.is_empty() {
-                    break;
-                }
+        for val in items.drain(0..self.capacity().min(items.len())) {
+            if !self.item_keys.contains(val.item.key.as_bytes()) {
+                self.item_keys.insert(val.item.key.as_bytes().to_vec());
+                self.by_needed_key
+                    .insert(val.required_key.as_bytes().to_vec(), val.item);
+                tracked += 1;
             }
         }
-        (tracked, allowed)
+
+        (tracked, self.capacity())
     }
 }
 
@@ -109,15 +103,14 @@ mod test {
         assert_eq!(expected_remaining, items.len(), "{:?}", items);
 
         // we cache the vec as a stack so we need to use the original index from the list
-        let skip_offset = expected_items.len() - expected_cached;
-        for (i, v) in expected_items.into_iter().skip(skip_offset).enumerate() {
+        for (i, v) in expected_items.into_iter().take(expected_cached).enumerate() {
             assert!(
                 cache.is_tracking(&v.item),
                 "not tracking: {:?} {:?}",
                 v,
                 cache
             );
-            let req = required_item(i + skip_offset);
+            let req = required_item(i);
             let cached = cache.remove_by_needed(&req).unwrap_or_else(|| {
                 panic!("should have cached {:?} by {:?} cache={:?}", v, req, cache)
             });

@@ -253,7 +253,7 @@ where
     async fn insert_many(
         &self,
         items: &[ReconItem<Self::Key>],
-    ) -> ReconResult<recon::InsertBatch<Self::Key>> {
+    ) -> ReconResult<recon::InsertResult<Self::Key>> {
         let res = StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "insert_many",

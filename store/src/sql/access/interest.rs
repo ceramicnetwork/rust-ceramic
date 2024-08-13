@@ -5,7 +5,7 @@ use std::ops::Range;
 use anyhow::anyhow;
 
 use ceramic_core::Interest;
-use recon::{AssociativeHash, HashCount, InsertBatch, Key, Sha256a};
+use recon::{AssociativeHash, HashCount, InsertResult, Key, Sha256a};
 use sqlx::Row;
 
 use crate::{
@@ -67,9 +67,9 @@ impl CeramicOneInterest {
     pub async fn insert_many(
         pool: &SqlitePool,
         items: &[&Interest],
-    ) -> Result<InsertBatch<Interest>> {
+    ) -> Result<InsertResult<Interest>> {
         match items.len() {
-            0 => Ok(InsertBatch::new(0)),
+            0 => Ok(InsertResult::new(0)),
             _ => {
                 let mut results = 0;
                 let mut tx = pool.begin_tx().await.map_err(Error::from)?;
@@ -80,7 +80,7 @@ impl CeramicOneInterest {
                         .then(|| results += 1);
                 }
                 tx.commit().await.map_err(Error::from)?;
-                Ok(InsertBatch::new(results))
+                Ok(InsertResult::new(results))
             }
         }
     }

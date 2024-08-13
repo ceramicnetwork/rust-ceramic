@@ -5,7 +5,7 @@ use tracing::instrument;
 
 use crate::{
     recon::{AssociativeHash, Key, MaybeHashedKey, ReconItem, Store},
-    HashCount, InsertBatch, Result,
+    HashCount, InsertResult, Result,
 };
 
 #[derive(Clone, Debug)]
@@ -145,13 +145,13 @@ where
     type Hash = H;
 
     #[instrument(skip(self))]
-    async fn insert_many(&self, items: &[ReconItem<Self::Key>]) -> Result<InsertBatch<Self::Key>> {
+    async fn insert_many(&self, items: &[ReconItem<Self::Key>]) -> Result<InsertResult<Self::Key>> {
         tracing::trace!("inserting items: {}", items.len());
         let mut new = 0;
         for item in items.iter() {
             self.insert(item).await?.then(|| new += 1);
         }
-        Ok(InsertBatch::new(new))
+        Ok(InsertResult::new(new))
     }
 
     async fn hash_range(&self, range: Range<&Self::Key>) -> Result<HashCount<Self::Hash>> {

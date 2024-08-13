@@ -6,7 +6,7 @@ use ceramic_api::{ApiItem, EventStore};
 use cid::{Cid, CidGeneric};
 use expect_test::expect;
 use iroh_bitswap::Store;
-use recon::{InsertBatch, ReconItem, Sha256a};
+use recon::{InsertResult, ReconItem, Sha256a};
 
 use super::*;
 
@@ -134,7 +134,7 @@ where
     let actual = recon::Store::insert_many(&store, &[ReconItem::new(id.clone(), car1)])
         .await
         .unwrap();
-    assert_eq!(actual, InsertBatch::new(1));
+    assert_eq!(actual, InsertResult::new(1));
 
     match recon::Store::insert_many(&store, &[ReconItem::new(id.clone(), car2)]).await {
         Ok(_) => panic!("expected error"),

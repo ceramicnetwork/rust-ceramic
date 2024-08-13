@@ -1174,7 +1174,7 @@ mod tests {
     use futures::TryStreamExt;
     use rand::prelude::*;
     use rand_chacha::ChaCha8Rng;
-    use recon::{InsertBatch, RangeHash, ReconItem, Result as ReconResult, Sha256a, SyncState};
+    use recon::{InsertResult, RangeHash, ReconItem, Result as ReconResult, Sha256a, SyncState};
     use ssh_key::private::Ed25519Keypair;
 
     use libp2p::{identity::Keypair as Libp2pKeypair, kad::RecordKey};
@@ -1256,7 +1256,10 @@ mod tests {
         type Key = K;
         type Hash = Sha256a;
 
-        async fn insert(&self, _items: Vec<ReconItem<Self::Key>>) -> ReconResult<InsertBatch<K>> {
+        async fn insert(
+            &self,
+            _items: Vec<ReconItem<Self::Key>>,
+        ) -> ReconResult<InsertResult<Self::Key>> {
             unreachable!()
         }
 

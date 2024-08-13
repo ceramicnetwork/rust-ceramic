@@ -30,7 +30,7 @@ use crate::{
         ProtocolRun, ProtocolWriteLoop,
     },
     recon::{pending_cache::PendingCache, RangeHash, SyncState},
-    AssociativeHash, Client, InsertBatch, Key, ReconItem, Result as ReconResult,
+    AssociativeHash, Client, InsertResult, Key, ReconItem, Result as ReconResult,
 };
 
 // Limit to the number of pending range requests.
@@ -66,8 +66,8 @@ pub struct ProtocolConfig {
     /// As we descend the tree and find smaller ranges, this won't apply as we have to flush
     /// before recomputing a range, but it will be used when we're processing large ranges we don't yet have.
     pub insert_batch_size: usize,
-    /// The maximum number of items that can not be stored in memory before we begin to drop them.  
-    /// This is due to the event being dependent on another event we need to discover before it can be interpreted.
+    /// The maximum number of items that can be stored in memory before we begin to drop them.  
+    /// This happens when an event is dependent on another event we need to discover before it can be interpreted.
     pub max_pending_items: usize,
     #[allow(dead_code)]
     /// The ID of the peer we're syncing with.
@@ -832,8 +832,10 @@ pub trait Recon: Clone + Send + Sync + 'static {
     type Hash: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>;
 
     /// Insert new keys into the key space.
-    async fn insert(&self, items: Vec<ReconItem<Self::Key>>)
-        -> ReconResult<InsertBatch<Self::Key>>;
+    async fn insert(
+        &self,
+        items: Vec<ReconItem<Self::Key>>,
+    ) -> ReconResult<InsertResult<Self::Key>>;
 
     /// Get all keys in the specified range
     async fn range(
@@ -889,7 +891,7 @@ where
     type Key = K;
     type Hash = H;
 
-    async fn insert(&self, items: Vec<ReconItem<K>>) -> ReconResult<InsertBatch<K>> {
+    async fn insert(&self, items: Vec<ReconItem<K>>) -> ReconResult<InsertResult<K>> {
         Client::insert(self, items).await
     }
 

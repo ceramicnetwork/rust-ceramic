@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use ceramic_core::Interest;
 use ceramic_store::CeramicOneInterest;
-use recon::{HashCount, InsertBatch, ReconItem, Result as ReconResult, Sha256a};
+use recon::{HashCount, InsertResult, ReconItem, Result as ReconResult, Sha256a};
 use tracing::instrument;
 
 use crate::CeramicInterestService;
@@ -19,7 +19,7 @@ impl recon::Store for CeramicInterestService {
     async fn insert_many(
         &self,
         items: &[ReconItem<Self::Key>],
-    ) -> ReconResult<InsertBatch<Interest>> {
+    ) -> ReconResult<InsertResult<Interest>> {
         let keys = items.iter().map(|item| &item.key).collect::<Vec<_>>();
         Ok(CeramicOneInterest::insert_many(&self.pool, &keys).await?)
     }

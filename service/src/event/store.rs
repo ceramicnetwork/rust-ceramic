@@ -20,12 +20,12 @@ impl recon::Store for CeramicEventService {
     async fn insert_many(
         &self,
         items: &[ReconItem<Self::Key>],
-    ) -> ReconResult<recon::InsertBatch<EventId>> {
+    ) -> ReconResult<recon::InsertResult<EventId>> {
         let res = self
             .insert_events(items, DeliverableRequirement::Asap)
             .await?;
 
-        Ok(recon::InsertBatch::new(res.store_result.count_new_keys()))
+        Ok(recon::InsertResult::new(res.store_result.count_new_keys()))
     }
 
     /// Return the hash of all keys in the range between left_fencepost and right_fencepost.
