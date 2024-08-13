@@ -223,11 +223,29 @@ impl TryFrom<String> for IncludeEventData {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApiItem {
+    /// The recon event ID for the payload
+    pub key: EventId,
+    /// The event payload as a carfile
+    pub value: Arc<Vec<u8>>,
+}
+
+impl ApiItem {
+    /// Create a new item from an ID and carfile
+    pub fn new(key: EventId, value: Vec<u8>) -> Self {
+        Self {
+            key,
+            value: Arc::new(value),
+        }
+    }
+}
+
 /// Trait for accessing persistent storage of Events
 #[async_trait]
 pub trait EventStore: Send + Sync {
     /// Returns (new_key, new_value) where true if was newly inserted, false if it already existed.
-    async fn insert_many(&self, items: &[(EventId, Vec<u8>)]) -> Result<Vec<EventInsertResult>>;
+    async fn insert_many(&self, items: Vec<ApiItem>) -> Result<Vec<EventInsertResult>>;
     async fn range_with_values(
         &self,
         range: Range<EventId>,
@@ -262,7 +280,7 @@ pub trait EventStore: Send + Sync {
 
 #[async_trait::async_trait]
 impl<S: EventStore> EventStore for Arc<S> {
-    async fn insert_many(&self, items: &[(EventId, Vec<u8>)]) -> Result<Vec<EventInsertResult>> {
+    async fn insert_many(&self, items: Vec<ApiItem>) -> Result<Vec<EventInsertResult>> {
         self.as_ref().insert_many(items).await
     }
 
@@ -400,10 +418,10 @@ where
         let mut items = Vec::with_capacity(events.len());
         events.drain(..).for_each(|req: EventInsert| {
             oneshots.insert(req.id.to_bytes(), req.tx);
-            items.push((req.id, req.data));
+            items.push(ApiItem::new(req.id, req.data));
         });
         tracing::trace!("calling insert many with {} items.", items.len());
-        match event_store.insert_many(&items).await {
+        match event_store.insert_many(items).await {
             Ok(results) => {
                 tracing::debug!("insert many returned {} results.", results.len());
                 for result in results {

@@ -26,7 +26,7 @@ use uuid::Uuid;
 use crate::{
     metrics::{MessageLabels, MessageRecv, MessageSent, Metrics, ProtocolRun, ProtocolWriteLoop},
     recon::{RangeHash, SyncState},
-    AssociativeHash, Client, Key, Result as ReconResult,
+    AssociativeHash, Client, Key, ReconItem, Result as ReconResult,
 };
 
 // Limit to the number of pending range requests.
@@ -49,7 +49,11 @@ type RM<K, H> = ReconMessage<ResponderMessage<K, H>>;
 
 /// Intiate Recon synchronization with a peer over a stream.
 #[tracing::instrument(skip(recon, stream), ret(level = Level::DEBUG))]
-pub async fn initiate_synchronize<S, R, E>(recon: R, stream: S) -> Result<()>
+pub async fn initiate_synchronize<S, R, E>(
+    recon: R,
+    stream: S,
+    insert_batch_size: usize,
+) -> Result<()>
 where
     R: Recon,
     S: Stream<Item = Result<RM<R::Key, R::Hash>, E>>
@@ -60,12 +64,22 @@ where
 {
     let metrics = recon.metrics();
     let sync_id = Some(Uuid::new_v4().to_string());
-    protocol(sync_id, Initiator::new(recon), stream, metrics).await?;
+    protocol(
+        sync_id,
+        Initiator::new(recon, insert_batch_size),
+        stream,
+        metrics,
+    )
+    .await?;
     Ok(())
 }
 /// Respond to an initiated Recon synchronization with a peer over a stream.
 #[tracing::instrument(skip(recon, stream), ret(level = Level::DEBUG))]
-pub async fn respond_synchronize<S, R, E>(recon: R, stream: S) -> Result<()>
+pub async fn respond_synchronize<S, R, E>(
+    recon: R,
+    stream: S,
+    insert_batch_size: usize,
+) -> Result<()>
 where
     R: Recon,
     S: Stream<Item = std::result::Result<IM<R::Key, R::Hash>, E>>
@@ -75,7 +89,13 @@ where
     E: std::error::Error + Send + Sync + 'static,
 {
     let metrics = recon.metrics();
-    protocol(None, Responder::new(recon), stream, metrics).await?;
+    protocol(
+        None,
+        Responder::new(recon, insert_batch_size),
+        stream,
+        metrics,
+    )
+    .await?;
     Ok(())
 }
 
@@ -204,7 +224,7 @@ where
     //
     //  1. Initator Read determines there is no more work to do when there are no interests in
     //     common, or it reads the final [`ResponderMessage::RangeResponse`] from the Responder.
-    //  2. Initator Read sends [`ToWrite::Finish`] to the Initator Writer.
+    //  2. Initator Read sends [`ToWriter::Finish`] to the Initator Writer.
     //  3. Initiator Writer sends the [`InitiatorMessage::Finished`] to the Responder and
     //     completes.
     //  4. Responder Read receives the Finished message and completes, dropping the
@@ -417,9 +437,9 @@ impl<R> Initiator<R>
 where
     R: Recon,
 {
-    fn new(recon: R) -> Self {
+    fn new(recon: R, batch_size: usize) -> Self {
         Self {
-            common: Common { recon },
+            common: Common::new(recon, batch_size),
             pending_ranges: 0,
         }
     }
@@ -429,6 +449,7 @@ where
         to_writer: &mut ToWriterSender<InitiatorMessage<R::Key, R::Hash>>,
         remote_range: RangeHash<R::Key, R::Hash>,
     ) -> Result<()> {
+        self.common.persist_all().await?;
         let sync_state = self.common.recon.process_range(remote_range).await?;
         match sync_state {
             SyncState::Synchronized { .. } => {}
@@ -531,6 +552,7 @@ where
                 if self.pending_ranges == 0 {
                     // All work has completed, we no longer expect any messages from the remote
                     // responder.
+                    self.common.persist_all().await?;
                     to_writer
                         .send(ToWriter::Finish)
                         .await
@@ -561,9 +583,9 @@ impl<R> Responder<R>
 where
     R: Recon,
 {
-    fn new(recon: R) -> Self {
+    fn new(recon: R, batch_size: usize) -> Self {
         Self {
-            common: Common { recon },
+            common: Common::new(recon, batch_size),
         }
     }
 
@@ -572,6 +594,10 @@ where
         to_writer: &mut ToWriterSender<ResponderMessage<R::Key, R::Hash>>,
         range: RangeHash<R::Key, R::Hash>,
     ) -> Result<()> {
+        // We have to make sure to flush the pending writes before responding to a range so we have the same hash.
+        // There are optimizations we can make here (to the protocol or using in memory data), but for now we keep it simple
+        // and should still get some benefit as we were previously writing every value individually.
+        self.common.persist_all().await?;
         let sync_state = self.common.recon.process_range(range).await?;
         match sync_state {
             SyncState::Synchronized { range } => {
@@ -654,7 +680,10 @@ where
                 self.common.process_value_response(key, value).await?;
                 Ok(RemoteStatus::Active)
             }
-            InitiatorMessage::Finished => Ok(RemoteStatus::Finished),
+            InitiatorMessage::Finished => {
+                self.common.persist_all().await?;
+                Ok(RemoteStatus::Finished)
+            }
         }
     }
 }
@@ -662,17 +691,26 @@ where
 // Common implements common behaviors to both [`Initiator`] and [`Responder`].
 struct Common<R: Recon> {
     recon: R,
+    event_q: Vec<ReconItem<R::Key>>,
+    batch_size: usize,
 }
 
 impl<R> Common<R>
 where
     R: Recon,
 {
+    fn new(recon: R, batch_size: usize) -> Self {
+        Self {
+            recon,
+            event_q: Vec::with_capacity(batch_size.saturating_add(1)),
+            batch_size,
+        }
+    }
     async fn process_value_response(&mut self, key: R::Key, value: Vec<u8>) -> Result<()> {
-        self.recon
-            .insert(key, value)
-            .await
-            .context("process value response")?;
+        self.event_q.push(ReconItem::new(key, value));
+        if self.event_q.len() >= self.batch_size {
+            self.persist_all().await?;
+        }
         Ok(())
     }
     // The remote is missing all keys in the range send them over.
@@ -695,6 +733,14 @@ where
             }
         }
     }
+
+    async fn persist_all(&mut self) -> Result<()> {
+        let evs: Vec<_> = self.event_q.drain(..).collect();
+        if !evs.is_empty() {
+            self.recon.insert(evs).await?;
+        }
+        Ok(())
+    }
 }
 
 enum RemoteStatus {
@@ -712,8 +758,8 @@ pub trait Recon: Clone + Send + Sync + 'static {
     /// The type of Hash to compute over the keys.
     type Hash: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>;
 
-    /// Insert a new key into the key space.
-    async fn insert(&self, key: Self::Key, value: Vec<u8>) -> ReconResult<()>;
+    /// Insert new keys into the key space.
+    async fn insert(&self, items: Vec<ReconItem<Self::Key>>) -> ReconResult<()>;
 
     /// Get all keys in the specified range
     async fn range(
@@ -769,8 +815,8 @@ where
     type Key = K;
     type Hash = H;
 
-    async fn insert(&self, key: Self::Key, value: Vec<u8>) -> ReconResult<()> {
-        let _ = Client::insert(self, key, value).await?;
+    async fn insert(&self, items: Vec<ReconItem<K>>) -> ReconResult<()> {
+        let _ = Client::insert(self, items).await?;
         Ok(())
     }
 

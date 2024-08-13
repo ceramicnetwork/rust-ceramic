@@ -10,6 +10,7 @@ use ipld_core::{ipld, ipld::Ipld};
 use iroh_bitswap::Block;
 use multihash_codetable::{Code, MultihashDigest};
 use rand::{thread_rng, Rng};
+use recon::ReconItem;
 
 const CONTROLLER: &str = "did:key:z6Mkk3rtfoKDMMG4zyarNGwCQs44GSQ49pcYKQspHJPXSnVw";
 const SEP_KEY: &str = "model";
@@ -167,7 +168,7 @@ async fn data_event(
 async fn get_init_plus_n_events_with_model(
     model: &StreamId,
     number: usize,
-) -> Vec<(EventId, Vec<u8>)> {
+) -> Vec<ReconItem<EventId>> {
     let signer = Box::new(signer().await);
 
     let init = init_event(model, &signer).await;
@@ -180,7 +181,7 @@ async fn get_init_plus_n_events_with_model(
     let init_cid = event_id.cid().unwrap();
 
     let mut events = Vec::with_capacity(number);
-    events.push((event_id, car));
+    events.push(ReconItem::new(event_id, car));
     let mut prev = init_cid;
     for _ in 0..number {
         let data = gen_rand_bytes::<50>();
@@ -198,25 +199,25 @@ async fn get_init_plus_n_events_with_model(
             data.encode_car().await.unwrap(),
         );
         prev = data_id.cid().unwrap();
-        events.push((data_id, data_car));
+        events.push(ReconItem::new(data_id, data_car));
     }
     events
 }
 
-pub(crate) async fn get_events_return_model() -> (StreamId, Vec<(EventId, Vec<u8>)>) {
+pub(crate) async fn get_events_return_model() -> (StreamId, Vec<ReconItem<EventId>>) {
     let model = StreamId::document(random_cid());
     let events = get_init_plus_n_events_with_model(&model, 3).await;
     (model, events)
 }
 
 // builds init -> data -> data that are a stream (will be a different stream each call)
-pub(crate) async fn get_events() -> Vec<(EventId, Vec<u8>)> {
+pub(crate) async fn get_events() -> Vec<ReconItem<EventId>> {
     let model = StreamId::document(random_cid());
     get_init_plus_n_events_with_model(&model, 3).await
 }
 
 // Get N events with the same model (init + N-1 data events)
-pub(crate) async fn get_n_events(number: usize) -> Vec<(EventId, Vec<u8>)> {
+pub(crate) async fn get_n_events(number: usize) -> Vec<ReconItem<EventId>> {
     let model = &StreamId::document(random_cid());
     get_init_plus_n_events_with_model(model, number - 1).await
 }

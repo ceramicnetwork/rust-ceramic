@@ -522,10 +522,10 @@ async fn word_lists() {
         );
         for key in s.split_whitespace().map(|s| s.to_string()) {
             if !s.is_empty() {
-                r.insert(&ReconItem::new(
-                    &key.as_bytes().into(),
-                    key.to_uppercase().as_bytes(),
-                ))
+                r.insert(vec![ReconItem::new(
+                    key.as_bytes().into(),
+                    key.to_uppercase().as_bytes().to_vec(),
+                )])
                 .await
                 .unwrap();
             }
@@ -579,8 +579,9 @@ async fn word_lists() {
 
         // Spawn a task for each half to make things go quick, we do not care about determinism
         // here.
-        let local_handle = tokio::spawn(protocol::initiate_synchronize(local, local_channel));
-        let remote_handle = tokio::spawn(protocol::respond_synchronize(remote, remote_channel));
+        let local_handle = tokio::spawn(protocol::initiate_synchronize(local, local_channel, 100));
+        let remote_handle =
+            tokio::spawn(protocol::respond_synchronize(remote, remote_channel, 100));
         // Error if either synchronize method errors
         let (local, remote) = tokio::join!(local_handle, remote_handle);
         local.unwrap().unwrap();
@@ -1081,8 +1082,10 @@ where
     )
 }
 
-// Run the recon simulation
-async fn recon_do(recon: &str) -> Sequence<AlphaNumBytes, MemoryAHash> {
+async fn recon_do_batch_size(
+    recon: &str,
+    batch_size: usize,
+) -> Sequence<AlphaNumBytes, MemoryAHash> {
     async fn snapshot_state(
         client: Client<AlphaNumBytes, MemoryAHash>,
     ) -> Result<BTreeSet<AlphaNumBytes>> {
@@ -1145,8 +1148,8 @@ async fn recon_do(recon: &str) -> Sequence<AlphaNumBytes, MemoryAHash> {
         })
     };
 
-    let cat_fut = protocol::initiate_synchronize(cat.clone(), cat_channel);
-    let dog_fut = protocol::respond_synchronize(dog.clone(), dog_channel);
+    let cat_fut = protocol::initiate_synchronize(cat.clone(), cat_channel, batch_size);
+    let dog_fut = protocol::respond_synchronize(dog.clone(), dog_channel, batch_size);
     // Drive both synchronize futures on the same thread
     // This is to ensure a deterministic behavior.
     let (cat_ret, dog_ret) = tokio::join!(cat_fut, dog_fut);
@@ -1165,6 +1168,11 @@ async fn recon_do(recon: &str) -> Sequence<AlphaNumBytes, MemoryAHash> {
             dog: snapshot_state(dog).await.unwrap(),
         },
     }
+}
+
+// Run the recon simulation
+async fn recon_do(recon: &str) -> Sequence<AlphaNumBytes, MemoryAHash> {
+    recon_do_batch_size(recon, 0).await
 }
 
 // A recon test is composed of a single expect value.
@@ -1294,6 +1302,57 @@ async fn disjoint() {
         dog: [a, b, c, e, f, g]
     "#]])
     .await
+}
+
+#[test(tokio::test)]
+async fn disjoint_batch_size() {
+    // this sends the same messages as disjoint but they arrive in a slightly different order
+    let recon = expect![[r#"
+        cat: [a, b, c]
+        dog: [e, f, g]
+        -> interest_req((𝚨, 𝛀 ))
+            cat: [a, b, c]
+        <- interest_resp((𝚨, 𝛀 ))
+            dog: [e, f, g]
+        -> range_req({𝚨 h(a, b, c)#3 𝛀 })
+            cat: [a, b, c]
+        <- range_resp({𝚨 0 e}, {e h(e)#1 f}, {f h(f)#1 g}, {g h(g)#1 𝛀 })
+            dog: [e, f, g]
+        -> value(a: a)
+            cat: [a, b, c]
+        -> value(b: b)
+            cat: [a, b, c]
+        -> value(c: c)
+            cat: [a, b, c]
+        -> range_req({𝚨 h(a, b, c)#3 e})
+            cat: [a, b, c]
+        <- range_resp({𝚨 h(a, b, c)#3 e})
+            dog: [a, b, c, e, f, g]
+        -> range_req({e 0 f})
+            cat: [a, b, c]
+        -> range_req({f 0 g})
+            cat: [a, b, c]
+        <- value(e: e)
+            dog: [a, b, c, e, f, g]
+        -> range_req({g 0 𝛀 })
+            cat: [a, b, c]
+        <- range_resp({e h(e)#1 f})
+            dog: [a, b, c, e, f, g]
+        <- value(f: f)
+            dog: [a, b, c, e, f, g]
+        <- range_resp({f h(f)#1 g})
+            dog: [a, b, c, e, f, g]
+        <- value(g: g)
+            dog: [a, b, c, e, f, g]
+        <- range_resp({g h(g)#1 𝛀 })
+            dog: [a, b, c, e, f, g]
+        -> finished
+            cat: [a, b, c, e, f, g]
+        cat: [a, b, c, e, f, g]
+        dog: [a, b, c, e, f, g]
+    "#]];
+    let actual = format!("{}", recon_do_batch_size(recon.data(), 10).await);
+    recon.assert_eq(&actual)
 }
 
 #[test(tokio::test)]
@@ -1861,7 +1920,7 @@ async fn small_diff_zz() {
 
 #[test(tokio::test)]
 async fn dog_linear_download() {
-    recon_test(expect![[r#"
+    let recon = expect![[r#"
         cat: [a, b, c, d, e, f, g]
         dog: []
         -> interest_req((𝚨, 𝛀 ))
@@ -1894,12 +1953,15 @@ async fn dog_linear_download() {
             cat: [a, b, c, d, e, f, g]
         cat: [a, b, c, d, e, f, g]
         dog: [a, b, c, d, e, f, g]
-    "#]])
-    .await
+    "#]];
+    let actual = format!("{}", recon_do(recon.data()).await);
+    recon.assert_eq(&actual);
+    let batching = format!("{}", recon_do_batch_size(recon.data(), 100).await);
+    recon.assert_eq(&batching)
 }
 #[test(tokio::test)]
 async fn cat_linear_download() {
-    recon_test(expect![[r#"
+    let recon = expect![[r#"
         cat: []
         dog: [a, b, c, d, e, f, g]
         -> interest_req((𝚨, 𝛀 ))
@@ -1928,8 +1990,12 @@ async fn cat_linear_download() {
             cat: [a, b, c, d, e, f, g]
         cat: [a, b, c, d, e, f, g]
         dog: [a, b, c, d, e, f, g]
-    "#]])
-    .await
+    "#]];
+
+    let actual = format!("{}", recon_do(recon.data()).await);
+    recon.assert_eq(&actual);
+    let batching = format!("{}", recon_do_batch_size(recon.data(), 100).await);
+    recon.assert_eq(&batching)
 }
 #[test(tokio::test)]
 async fn subset_interest() {

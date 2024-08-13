@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use anyhow::Error;
 use bytes::Bytes;
-use ceramic_api::EventStore;
+use ceramic_api::{ApiItem, EventStore};
 use cid::{Cid, CidGeneric};
 use expect_test::expect;
 use iroh_bitswap::Store;
@@ -54,15 +54,15 @@ where
     S: recon::Store<Key = EventId, Hash = Sha256a>,
 {
     let (model, events) = get_events_return_model().await;
-    let (one_id, one_car) = (&events[0].0, &events[0].1);
-    let (two_id, two_car) = (&events[1].0, &events[1].1);
-    let init_cid = one_id.cid().unwrap();
+    let one = &events[0];
+    let two = &events[1];
+    let init_cid = one.key.cid().unwrap();
     let min_id = event_id_min(&init_cid, &model);
     let max_id = event_id_max(&init_cid, &model);
-    recon::Store::insert(&store, &ReconItem::new(one_id, one_car))
+    recon::Store::insert_many(&store, &[one.clone()])
         .await
         .unwrap();
-    recon::Store::insert(&store, &ReconItem::new(two_id, two_car))
+    recon::Store::insert_many(&store, &[two.clone()])
         .await
         .unwrap();
     let values: Vec<(EventId, Vec<u8>)> =
@@ -72,8 +72,8 @@ where
             .collect();
 
     let mut expected = vec![
-        (one_id.to_owned(), one_car.clone()),
-        (two_id.to_owned(), two_car.clone()),
+        (one.key.to_owned(), one.value.to_vec()),
+        (two.key.to_owned(), two.value.to_vec()),
     ];
     expected.sort();
     assert_eq!(expected, values);
@@ -95,26 +95,19 @@ where
     let TestEventInfo {
         event_id: id, car, ..
     } = build_event().await;
+    let item = &[ReconItem::new(id, car)];
 
     // first insert reports its a new key
-    expect![
-        r#"
-            Ok(
-                true,
-            )
-            "#
-    ]
-    .assert_debug_eq(&recon::Store::insert(&store, &ReconItem::new(&id, &car)).await);
+    assert!(recon::Store::insert_many(&store, item)
+        .await
+        .unwrap()
+        .included_new_key());
 
     // second insert of same key reports it already existed
-    expect![
-        r#"
-            Ok(
-                false,
-            )
-            "#
-    ]
-    .assert_debug_eq(&recon::Store::insert(&store, &ReconItem::new(&id, &car)).await);
+    assert!(!recon::Store::insert_many(&store, item)
+        .await
+        .unwrap()
+        .included_new_key());
 }
 
 test_with_dbs!(
@@ -136,17 +129,22 @@ where
         ..
     } = build_event().await;
     let TestEventInfo { car: car2, .. } = build_event().await;
+    let expected = hex::encode(&car1);
 
     expect![
         r#"
             Ok(
-                true,
+                InsertResult {
+                    keys: [
+                        true,
+                    ],
+                },
             )
             "#
     ]
-    .assert_debug_eq(&recon::Store::insert(&store, &ReconItem::new(&id, &car1)).await);
+    .assert_debug_eq(&recon::Store::insert_many(&store, &[ReconItem::new(id.clone(), car1)]).await);
 
-    match recon::Store::insert(&store, &ReconItem::new(&id, &car2)).await {
+    match recon::Store::insert_many(&store, &[ReconItem::new(id.clone(), car2)]).await {
         Ok(_) => panic!("expected error"),
         Err(recon::Error::Application { .. }) => {
             // Event ID does not match the root CID of the CAR file
@@ -155,7 +153,7 @@ where
     }
 
     assert_eq!(
-        hex::encode(&car1),
+        expected,
         hex::encode(
             recon::Store::value_for_key(&store, &id)
                 .await
@@ -183,14 +181,15 @@ where
         car: store_value,
         ..
     } = build_event().await;
-    recon::Store::insert(&store, &ReconItem::new(&key, store_value.as_slice()))
+    let expected = hex::encode(&store_value);
+    recon::Store::insert_many(&store, &[ReconItem::new(key.clone(), store_value)])
         .await
         .unwrap();
     let value = recon::Store::value_for_key(&store, &key)
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(hex::encode(store_value), hex::encode(value));
+    assert_eq!(expected, hex::encode(value));
 }
 
 test_with_dbs!(
@@ -212,14 +211,15 @@ where
         blocks,
         ..
     } = build_event().await;
-    recon::Store::insert(&store, &ReconItem::new(&key, store_value.as_slice()))
+    let expected = hex::encode(&store_value);
+    recon::Store::insert_many(&store, &[ReconItem::new(key.clone(), store_value)])
         .await
         .unwrap();
     let value = recon::Store::value_for_key(&store, &key)
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(hex::encode(store_value), hex::encode(value));
+    assert_eq!(expected, hex::encode(value));
 
     // Read each block from the CAR
     for block in blocks {
@@ -239,15 +239,15 @@ async fn prep_highwater_tests(store: &dyn EventStore) -> (Cid, Cid, Cid) {
             car: store_value,
             ..
         } = build_event().await;
-        keys.push((key, store_value));
+        keys.push(ceramic_api::ApiItem::new(key, store_value));
     }
-    store.insert_many(&keys[..]).await.unwrap();
-
-    (
-        keys[0].0.cid().unwrap(),
-        keys[1].0.cid().unwrap(),
-        keys[2].0.cid().unwrap(),
-    )
+    let res = (
+        keys[0].key.cid().unwrap(),
+        keys[1].key.cid().unwrap(),
+        keys[2].key.cid().unwrap(),
+    );
+    store.insert_many(keys).await.unwrap();
+    res
 }
 
 test_with_dbs!(
@@ -442,13 +442,11 @@ where
         car: store_value,
         ..
     } = build_event().await;
-    store
-        .insert_many(&[(key.to_owned(), store_value.clone())])
-        .await
-        .unwrap();
+    let item = ApiItem::new(key, store_value);
+    store.insert_many(vec![item.clone()]).await.unwrap();
 
-    let res = store.value_for_order_key(&key).await.unwrap().unwrap();
-    assert_eq!(res, store_value);
+    let res = store.value_for_order_key(&item.key).await.unwrap().unwrap();
+    assert_eq!(&res, item.value.as_ref());
 }
 
 test_with_dbs!(
@@ -470,18 +468,16 @@ where
         car: store_value,
         ..
     } = build_event().await;
+    let item = ApiItem::new(key, store_value);
 
-    store
-        .insert_many(&[(key.to_owned(), store_value.clone())])
-        .await
-        .unwrap();
+    store.insert_many(vec![item.clone()]).await.unwrap();
 
     let res = store
-        .value_for_cid(&key.cid().unwrap())
+        .value_for_cid(&item.key.cid().unwrap())
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(res, store_value);
+    assert_eq!(&res, item.value.as_ref());
 }
 
 test_with_dbs!(

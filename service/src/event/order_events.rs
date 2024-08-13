@@ -137,6 +137,7 @@ mod test {
     use ceramic_core::EventId;
     use rand::seq::SliceRandom;
     use rand::thread_rng;
+    use recon::ReconItem;
     use test_log::test;
 
     use super::*;
@@ -144,8 +145,8 @@ mod test {
     use crate::{tests::get_n_events, CeramicEventService};
 
     async fn get_2_streams() -> (
-        Vec<(EventId, Vec<u8>)>,
-        Vec<(EventId, Vec<u8>)>,
+        Vec<ReconItem<EventId>>,
+        Vec<ReconItem<EventId>>,
         Vec<(EventInsertable, EventMetadata)>,
     ) {
         let stream_2 = get_n_events(10).await;
@@ -153,8 +154,8 @@ mod test {
         let mut to_insert = Vec::with_capacity(10);
         for event in stream_1.iter().chain(stream_2.iter()) {
             let insertable = CeramicEventService::validate_discovered_event(
-                event.0.to_owned(),
-                event.1.as_slice(),
+                event.key.to_owned(),
+                event.value.as_slice(),
             )
             .await
             .unwrap();
@@ -165,15 +166,15 @@ mod test {
 
     /// Asserts the events are deliverable and returns IDs for events in stream_1 as the first value and things in stream_2 as the second
     fn split_deliverable_order_by_stream(
-        stream_1: &[(EventId, Vec<u8>)],
-        stream_2: &[(EventId, Vec<u8>)],
+        stream_1: &[ReconItem<EventId>],
+        stream_2: &[ReconItem<EventId>],
         events: &[(EventInsertable, EventMetadata)],
     ) -> (Vec<EventId>, Vec<EventId>) {
         let mut after_1 = Vec::with_capacity(stream_1.len());
         let mut after_2 = Vec::with_capacity(stream_2.len());
         for (event, _) in events {
             assert!(event.deliverable());
-            if stream_1.iter().any(|e| e.0 == event.order_key) {
+            if stream_1.iter().any(|e| e.key == event.order_key) {
                 after_1.push(event.order_key.clone());
             } else {
                 after_2.push(event.order_key.clone());
@@ -184,13 +185,13 @@ mod test {
     }
 
     async fn get_insertable_events(
-        events: &[(EventId, Vec<u8>)],
+        events: &[ReconItem<EventId>],
     ) -> Vec<(EventInsertable, EventMetadata)> {
         let mut insertable = Vec::with_capacity(events.len());
         for event in events {
             let new = CeramicEventService::validate_discovered_event(
-                event.0.to_owned(),
-                event.1.as_slice(),
+                event.key.to_owned(),
+                event.value.as_slice(),
             )
             .await
             .unwrap();
@@ -218,11 +219,11 @@ mod test {
             split_deliverable_order_by_stream(&stream_1, &stream_2, ordered.deliverable());
 
         assert_eq!(
-            stream_1.into_iter().map(|e| e.0).collect::<Vec<_>>(),
+            stream_1.into_iter().map(|e| e.key).collect::<Vec<_>>(),
             after_1
         );
         assert_eq!(
-            stream_2.into_iter().map(|e| e.0).collect::<Vec<_>>(),
+            stream_2.into_iter().map(|e| e.key).collect::<Vec<_>>(),
             after_2
         );
     }
@@ -246,9 +247,9 @@ mod test {
         let (after_1, after_2) =
             split_deliverable_order_by_stream(&stream_1, &stream_2, ordered.deliverable());
 
-        assert_eq!(vec![stream_1[0].0.clone()], after_1);
+        assert_eq!(vec![stream_1[0].key.clone()], after_1);
         assert_eq!(
-            stream_2.into_iter().map(|e| e.0).collect::<Vec<_>>(),
+            stream_2.into_iter().map(|e| e.key).collect::<Vec<_>>(),
             after_2
         );
     }
