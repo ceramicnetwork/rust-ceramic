@@ -751,7 +751,7 @@ where
         let new = ReconItem::new(key, value);
         if let Some(ok_now) = self.pending.remove_by_needed(&new) {
             self.event_q.push(new);
-            self.event_q.push(ok_now);
+            self.event_q.extend(ok_now);
         } else if !self.pending.is_tracking(&new) {
             self.event_q.push(new);
         }
