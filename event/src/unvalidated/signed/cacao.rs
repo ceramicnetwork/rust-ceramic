@@ -51,7 +51,7 @@ pub struct Payload {
     pub domain: String,
 
     /// Expiration time
-    #[serde(rename = "exp", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "exp", skip_serializing_if = "Option::is_none", default)]
     pub expiration: Option<CapabilityTime>,
 
     /// Issued at time
@@ -63,22 +63,22 @@ pub struct Payload {
     pub issuer: String,
 
     /// Not before time
-    #[serde(rename = "nbf", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "nbf", skip_serializing_if = "Option::is_none", default)]
     pub not_before: Option<CapabilityTime>,
 
     /// Nonce of payload
     pub nonce: String,
 
     /// Request ID
-    #[serde(rename = "requestId", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "requestId", skip_serializing_if = "Option::is_none", default)]
     pub request_id: Option<String>,
 
     /// Resources
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub resources: Option<Vec<String>>,
 
     /// Subject of payload
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub statement: Option<String>,
 
     /// Version of payload
@@ -148,7 +148,7 @@ pub struct SignatureMetadata {
     /// Key ID for signature
     pub kid: String,
     /// Other metadata
-    #[serde(flatten)]
+    #[serde(flatten, default)]
     pub rest: HashMap<String, MetadataValue>,
 }
 
@@ -156,8 +156,8 @@ pub struct SignatureMetadata {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Signature {
     /// Metadata for signature
-    #[serde(rename = "m")]
-    pub metadata: SignatureMetadata,
+    #[serde(rename = "m", skip_serializing_if = "Option::is_none", default)]
+    pub metadata: Option<SignatureMetadata>,
     /// Type of signature
     #[serde(rename = "t")]
     pub r#type: SignatureType,

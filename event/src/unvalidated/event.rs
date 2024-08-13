@@ -498,4 +498,22 @@ mod tests {
                 .unwrap();
         assert_eq!("model", init_payload.header().sep());
     }
+
+    #[tokio::test]
+    async fn decode_car_with_capabilities() {
+        let car = r#"uO6Jlcm9vdHOB2CpYJgABhQESIGI_e6H-eHsfWAiDpyDw-B54Vq1z96BpLDupmWOcpxhBZ3ZlcnNpb24B1wQBcRIgEDCYkQMawrzUQdicv7D2Ox28dULGU3sS412t4N2L3dejYWihYXRnZWlwNDM2MWFwqWNhdWR4OWRpZDprZXk6ekRuYWVpaHVpR2pjR2g2NlQ1SHN0TGpWakVmUUh6eUV6RGE1TUZNZEZjcnpLOUplZmNleHB4GDIwMjQtMDgtMjBUMTM6MDU6NDIuMTY0WmNpYXR4GDIwMjQtMDgtMTNUMTM6MDU6NDIuMTY0WmNpc3N4O2RpZDpwa2g6ZWlwMTU1OjE6MHgwNjgwMTE4NDMwNmI1ZWI4MTYyNDk3YjgwOTMzOTVjMWRmZDJlOGQ4ZW5vbmNlalF1YlpoYnRGOVVmZG9tYWluaWxvY2FsaG9zdGd2ZXJzaW9uYTFpcmVzb3VyY2VzgXhRY2VyYW1pYzovLyo_bW9kZWw9a2p6bDZodmZyYnc2Y2FkeWNpNWx2c2ZmNGp4bDFpZGZmcnAybGQzaTBrMXpuejBiM2s2N2Fia210ZjdwN3EzaXN0YXRlbWVudHg8R2l2ZSB0aGlzIGFwcGxpY2F0aW9uIGFjY2VzcyB0byBzb21lIG9mIHlvdXIgZGF0YSBvbiBDZXJhbWljYXOiYXN4hDB4OWVjNmU1Mjg0ZDJkNjNkNDZhYjQ3MWFjZWJhMmViMzEzMTU5NzIxZDdkYjFlMGVhZjBlYTE2ZjRlZDQ0ZTIzODcwODU3MjUwZWQ1OWE1MDE3NGY5NzAxMmJlYzY4Yjk1MWFmOWI0NmMyNjQ4NmFhZDFjZjRhMmE4MDkyM2UwMDMxYmF0ZmVpcDE5MdYBAXESIKmc8owjA6gJG1QGBkqpk2qQVpSF8Mr-3kPBjc4_JGu3omRkYXRhoWdtZXNzYWdlZHRlc3RmaGVhZGVypGNzZXBlbW9kZWxlbW9kZWxYKM4BAwGFARIg15_GqPH8fA2vsg5fbBX2T247F6zI8IzcFCyBgYaTRltmdW5pcXVlTNrHC97hU5KdFS5dg2tjb250cm9sbGVyc4F4OWRpZDprZXk6ekRuYWVpaHVpR2pjR2g2NlQ1SHN0TGpWakVmUUh6eUV6RGE1TUZNZEZjcnpLOUplZocDAYUBEiBiP3uh_nh7H1gIg6cg8PgeeFatc_egaSw7qZljnKcYQaJncGF5bG9hZFgkAXESIKmc8owjA6gJG1QGBkqpk2qQVpSF8Mr-3kPBjc4_JGu3anNpZ25hdHVyZXOBomlwcm90ZWN0ZWRYznsiYWxnIjoiRVMyNTYiLCJjYXAiOiJpcGZzOi8vYmFmeXJlaWFxZ2NtamNheTJ5azZuaXFveXRzNzNiNXIzZHc2aGtxd2drbjVyZnkyNXZ4cW4zYzY1MjQiLCJraWQiOiJkaWQ6a2V5OnpEbmFlaWh1aUdqY0doNjZUNUhzdExqVmpFZlFIenlFekRhNU1GTWRGY3J6SzlKZWYjekRuYWVpaHVpR2pjR2g2NlQ1SHN0TGpWakVmUUh6eUV6RGE1TUZNZEZjcnpLOUplZiJ9aXNpZ25hdHVyZVhARwbPRJN5c26a5z3F80uIpA7htEBtaCMeQ5gIkfOlywyDNrEllzGb1c-Xg3AUzNWTJryEgHhNWWQ4JxObduHjVQ"#;
+        let (_, car) = multibase::decode(car).unwrap();
+        let (_, ev) = Event::<Ipld>::decode_car(car.as_slice(), true)
+            .await
+            .unwrap();
+        let ev = match ev {
+            Event::Signed(ev) => ev,
+            _ => panic!("Expected a signed event"),
+        };
+        let payload = match ev.payload() {
+            payload::Payload::Init(payload) => payload,
+            _ => panic!("Expected a data payload"),
+        };
+        assert_eq!(payload.header().sep(), "model");
+    }
 }

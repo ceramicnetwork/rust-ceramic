@@ -120,14 +120,19 @@ impl<'a> Serialize for Sorted<'a> {
 }
 
 async fn verify_capability(cacao: &Capability) -> Result<(), String> {
-    let did = if let Some((did, _)) = cacao.signature.metadata.kid.split_once('#') {
+    let meta = if let Some(meta) = &cacao.signature.metadata {
+        meta
+    } else {
+        return Err("No metadata found".to_string());
+    };
+    let did = if let Some((did, _)) = meta.kid.split_once('#') {
         did
     } else {
-        &cacao.signature.metadata.kid
+        &meta.kid
     };
-    let meta = ResolutionInputMetadata::default();
-    let (meta, opt_doc, _opt_doc_meta) = DID_METHODS.resolve(did, &meta).await;
-    if let Some(s) = meta.error {
+    let resolution = ResolutionInputMetadata::default();
+    let (resolution, opt_doc, _opt_doc_meta) = DID_METHODS.resolve(did, &resolution).await;
+    if let Some(s) = resolution.error {
         return Err(s);
     }
     let doc = opt_doc.ok_or_else(|| format!("No document found for {did}"))?;
@@ -139,7 +144,7 @@ async fn verify_capability(cacao: &Capability) -> Result<(), String> {
             .map_err(|e| e.to_string())?
             .as_slice(),
     );
-    let header = Sorted::new(&cacao.signature.metadata);
+    let header = Sorted::new(meta);
     let header = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&header).map_err(|e| e.to_string())?);
     let input = format!("{header}.{payload}");
     let sig = URL_SAFE_NO_PAD
@@ -359,7 +364,7 @@ mod tests {
         let signed = signer.sign(signing_input.as_bytes()).unwrap();
         let signature = Signature {
             signature: URL_SAFE_NO_PAD.encode(&signed),
-            metadata,
+            metadata: Some(metadata),
             r#type: SignatureType::JWS,
         };
         Capability {
