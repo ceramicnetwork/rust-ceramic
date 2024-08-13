@@ -1,19 +1,28 @@
-use arrow_flight::{FlightClient, FlightDescriptor};
+use arrow_flight::{FlightClient, FlightDescriptor, FlightInfo, Ticket};
+use async_stream::try_stream;
 use bytes::Bytes;
 use ceramic_event::unvalidated;
 use cid::Cid;
 use datafusion::arrow::array::{Array as _, AsArray as _, BinaryArray, ListArray};
 use datafusion::arrow::buffer::OffsetBuffer;
-use datafusion::arrow::datatypes::{Field, FieldRef};
+use datafusion::arrow::datatypes::{Field, FieldRef, SchemaRef};
 use datafusion::arrow::{array::ArrayRef, datatypes::DataType};
 use datafusion::datasource::file_format::parquet::ParquetFormat;
 use datafusion::datasource::listing::ListingOptions;
+use datafusion::datasource::{TableProvider, TableType};
+use datafusion::execution::context::SessionState;
+use datafusion::execution::SendableRecordBatchStream;
+use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
+use datafusion::physical_plan::streaming::{PartitionStream, StreamingTableExec};
+use datafusion::physical_plan::ExecutionPlan;
 use datafusion::{error::Result, physical_plan::Accumulator};
 use datafusion::{logical_expr::Volatility, prelude::*, scalar::ScalarValue};
-use futures::TryStreamExt as _;
+use futures::{StreamExt as _, TryStreamExt as _};
 use json_patch::PatchOperation;
 use serde_json::Value;
+use std::any::Any;
 use std::sync::Arc;
+use tonic::async_trait;
 use tonic::transport::Channel;
 use tracing::{debug, warn};
 
@@ -270,6 +279,7 @@ struct Commit {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
+    let ctx = create_context().await?;
 
     let channel = Channel::from_static("http://localhost:5102")
         .connect()
@@ -286,7 +296,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Expect the server responded with 'Ho'
     assert_eq!(response, Bytes::from("Ho"));
-    let mut flight_info = client
+    let flight_info = client
         .get_flight_info(FlightDescriptor {
             r#type: 2,
             cmd: Bytes::from("dimensions.foo='y'"),
@@ -294,19 +304,9 @@ async fn main() -> anyhow::Result<()> {
         })
         .await
         .expect("error getting flight info");
-    debug!(?flight_info, "flight info");
-    let endpoint = flight_info.endpoint.pop().unwrap();
-    let mut data = client
-        .do_get(endpoint.ticket.unwrap())
-        .await
-        .expect("error doing get");
-    debug!(?data, "got data");
-    while let Some(batch) = data.try_next().await? {
-        debug!(?batch, "got batch");
-    }
-    debug!(?data, "data finished");
 
-    let ctx = create_context().await?;
+    let table = FlightTable::try_new(flight_info)?;
+    ctx.register_table("conclusion_event", Arc::new(table))?;
 
     // here is where we define the UDAF. We also declare its signature:
     let ceramic = create_udaf(
@@ -323,10 +323,96 @@ async fn main() -> anyhow::Result<()> {
     );
     ctx.register_udaf(ceramic.clone());
 
-    //let sql_df = ctx
-    //    .sql(" SELECT stream_id, ceramic(car) FROM my_table WHERE stream_id = X'7d45b61f' GROUP BY stream_id")
-    //    .await?;
-    //sql_df.show().await?;
+    let sql_df = ctx
+        .sql("SELECT stream_id, ceramic(car) FROM conclusion_event GROUP BY stream_id")
+        .await?;
+    sql_df.show().await?;
 
     Ok(())
+}
+
+struct FlightTable {
+    schema: SchemaRef,
+    ticket: Ticket,
+}
+
+impl FlightTable {
+    fn try_new(mut flight_info: FlightInfo) -> Result<Self> {
+        Ok(Self {
+            ticket: flight_info.endpoint.pop().unwrap().ticket.unwrap(),
+            schema: flight_info.try_decode_schema()?.into(),
+        })
+    }
+}
+
+#[async_trait]
+impl TableProvider for FlightTable {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn schema(&self) -> SchemaRef {
+        self.schema.clone()
+    }
+
+    fn table_type(&self) -> TableType {
+        TableType::View
+    }
+
+    async fn scan(
+        &self,
+        _state: &SessionState,
+        projection: Option<&Vec<usize>>,
+        filters: &[Expr],
+        limit: Option<usize>,
+    ) -> Result<Arc<dyn ExecutionPlan>> {
+        Ok(Arc::new(StreamingTableExec::try_new(
+            self.schema(),
+            vec![Arc::new(FlightPartitionStream::new(
+                self.schema(),
+                self.ticket.clone(),
+            ))],
+            projection,
+            vec![],
+            false,
+            limit,
+        )?))
+    }
+}
+
+struct FlightPartitionStream {
+    schema: SchemaRef,
+    ticket: Ticket,
+}
+
+impl FlightPartitionStream {
+    fn new(schema: SchemaRef, ticket: Ticket) -> Self {
+        Self { schema, ticket }
+    }
+}
+
+impl PartitionStream for FlightPartitionStream {
+    fn schema(&self) -> &SchemaRef {
+        &self.schema
+    }
+
+    fn execute(&self, ctx: Arc<datafusion::execution::TaskContext>) -> SendableRecordBatchStream {
+        let ticket = self.ticket.clone();
+        let stream = try_stream! {
+            let channel = Channel::from_static("http://localhost:5102")
+                .connect()
+                .await
+                .expect("error connecting");
+
+            let mut client = FlightClient::new(channel);
+            let mut data = client.do_get(ticket).await?;
+            while let Some(batch) = data.try_next().await? {
+                yield batch
+            }
+        }
+        .map_err(|err: anyhow::Error| {
+            datafusion::error::DataFusionError::Internal(err.to_string())
+        });
+        Box::pin(RecordBatchStreamAdapter::new(self.schema.clone(), stream))
+    }
 }

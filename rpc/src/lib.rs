@@ -136,6 +136,7 @@ impl<S: EventStore + 'static> FlightService for FlightServiceImpl<S> {
             .events_since_highwater_mark(0, 1000)
             .await
             .map_err(|err| Status::internal(err.to_string()))?;
+        debug!(?events);
         let batches = try_stream! {
             let order_keys = BinaryArray::from_iter_values(
                 events.iter().map(|(event_id, _car)| event_id.as_slice()),
@@ -167,7 +168,7 @@ impl<S: EventStore + 'static> FlightService for FlightServiceImpl<S> {
                 BinaryArray::from_iter_values(events.iter().map(|(_event_id, car)| car.as_slice()));
 
             debug!("yielding a batch");
-            yield RecordBatch::try_from_iter(vec![
+            yield dbg!(RecordBatch::try_from_iter(vec![
                 ("order_key", Arc::new(order_keys) as ArrayRef),
                 ("ahash_0", Arc::new(ahash_0) as ArrayRef),
                 ("ahash_1", Arc::new(ahash_1) as ArrayRef),
@@ -180,7 +181,7 @@ impl<S: EventStore + 'static> FlightService for FlightServiceImpl<S> {
                 ("stream_id", Arc::new(stream_ids) as ArrayRef),
                 ("cid", Arc::new(cids) as ArrayRef),
                 ("car", Arc::new(cars) as ArrayRef),
-            ])?;
+            ]))?;
             debug!("batches done");
         };
 

@@ -10,6 +10,7 @@ publish = false
 [dependencies]
 anyhow.workspace = true
 arrow-flight.workspace = true
+async-stream.workspace = true
 bytes.workspace = true
 ceramic-event.workspace = true
 cid.workspace = true
