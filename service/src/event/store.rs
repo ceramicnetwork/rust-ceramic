@@ -9,6 +9,27 @@ use recon::{HashCount, ReconItem, Result as ReconResult, Sha256a};
 
 use crate::event::{CeramicEventService, DeliverableRequirement};
 
+use super::service::{InsertResult, InvalidItem};
+
+impl From<InsertResult> for recon::InsertResult<EventId> {
+    fn from(value: InsertResult) -> Self {
+        let mut pending = Vec::new();
+        let mut invalid = Vec::new();
+        for ev in value.rejected {
+            match ev {
+                InvalidItem::InvalidFormat { key, .. } => {
+                    invalid.push(recon::InvalidItem::InvalidFormat { key })
+                }
+                InvalidItem::InvalidSignature { key, .. } => {
+                    invalid.push(recon::InvalidItem::InvalidFormat { key })
+                }
+                InvalidItem::RequiresHistory(item) => pending.push(item),
+            };
+        }
+        recon::InsertResult::new_err(value.store_result.count_new_keys(), invalid, pending)
+    }
+}
+
 #[async_trait::async_trait]
 impl recon::Store for CeramicEventService {
     type Key = EventId;
@@ -25,7 +46,7 @@ impl recon::Store for CeramicEventService {
             .insert_events(items, DeliverableRequirement::Asap)
             .await?;
 
-        Ok(recon::InsertResult::new(res.store_result.count_new_keys()))
+        Ok(res.into())
     }
 
     /// Return the hash of all keys in the range between left_fencepost and right_fencepost.
@@ -97,6 +118,32 @@ impl iroh_bitswap::Store for CeramicEventService {
     }
     async fn put(&self, block: &Block) -> anyhow::Result<bool> {
         Ok(CeramicOneBlock::put(&self.pool, block).await?)
+    }
+}
+
+impl From<InsertResult> for Vec<ceramic_api::EventInsertResult> {
+    fn from(res: InsertResult) -> Self {
+        let mut api_res = Vec::with_capacity(res.store_result.inserted.len() + res.rejected.len());
+        for ev in res.store_result.inserted {
+            api_res.push(ceramic_api::EventInsertResult::new_ok(ev.order_key));
+        }
+
+        for ev in res.rejected {
+            let (key, reason) = match ev {
+                InvalidItem::InvalidFormat { key, reason } => {
+                    (key, format!("Event data could not be parsed: {reason}"))
+                }
+                InvalidItem::InvalidSignature { key, reason } => {
+                    (key, format!("Event had invalid signature: {reason}"))
+                }
+                InvalidItem::RequiresHistory(item) => (
+                    item.key.to_owned(),
+                    "Failed to insert event as `prev` event was missing".to_owned(),
+                ),
+            };
+            api_res.push(ceramic_api::EventInsertResult::new_failed(key, reason));
+        }
+        api_res
     }
 }
 

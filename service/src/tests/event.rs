@@ -136,12 +136,16 @@ where
         .unwrap();
     assert_eq!(actual, InsertResult::new(1));
 
-    match recon::Store::insert_many(&store, &[ReconItem::new(id.clone(), car2)]).await {
-        Ok(_) => panic!("expected error"),
-        Err(recon::Error::Application { .. }) => {
-            // Event ID does not match the root CID of the CAR file
-        }
-        Err(e) => panic!("unexpected error: {}", e),
+    let res = recon::Store::insert_many(&store, &[ReconItem::new(id.clone(), car2)])
+        .await
+        .unwrap();
+
+    assert_eq!(1, res.invalid.len());
+    let invalid = res.invalid.first().unwrap();
+    match invalid {
+        // Event ID does not match the root CID of the CAR file
+        recon::InvalidItem::InvalidFormat { key } => assert_eq!(key, &id),
+        recon::InvalidItem::InvalidSignature { .. } => unreachable!("Should not happen"),
     }
 
     assert_eq!(

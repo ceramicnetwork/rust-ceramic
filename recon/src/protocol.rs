@@ -29,7 +29,7 @@ use crate::{
         InvalidEvents, MessageLabels, MessageRecv, MessageSent, Metrics, PendingEvents,
         ProtocolRun, ProtocolWriteLoop,
     },
-    recon::{pending_cache::PendingCache, RangeHash, SyncState},
+    recon::{RangeHash, SyncState},
     AssociativeHash, Client, InsertResult, Key, ReconItem, Result as ReconResult,
 };
 
@@ -79,7 +79,7 @@ impl ProtocolConfig {
     pub fn new(insert_batch_size: usize, max_pending_items: usize, peer_id: PeerId) -> Self {
         Self {
             insert_batch_size,
-            max_pending_items,
+            max_pending_items: max_pending_items.max(10), // don't allow less than 10 for now
             peer_id,
         }
     }
@@ -729,7 +729,7 @@ struct Common<R: Recon> {
     recon: R,
     event_q: Vec<ReconItem<R::Key>>,
     config: ProtocolConfig,
-    pending: PendingCache<R::Key>,
+    pending_q: Vec<ReconItem<R::Key>>,
 }
 
 impl<R> Common<R>
@@ -737,24 +737,19 @@ where
     R: Recon,
 {
     fn new(recon: R, config: ProtocolConfig) -> Self {
-        // allow at least 10 events to be pending
-        let pending = PendingCache::new(config.max_pending_items.max(10));
+        let pending = Vec::with_capacity(config.max_pending_items.max(10));
         Self {
             recon,
             event_q: Vec::with_capacity(config.insert_batch_size.saturating_add(1)),
             config,
-            pending,
+            pending_q: pending,
         }
     }
 
     async fn process_value_response(&mut self, key: R::Key, value: Vec<u8>) -> Result<()> {
         let new = ReconItem::new(key, value);
-        if let Some(ok_now) = self.pending.remove_by_needed(&new) {
-            self.event_q.push(new);
-            self.event_q.extend(ok_now);
-        } else if !self.pending.is_tracking(&new) {
-            self.event_q.push(new);
-        }
+        self.event_q.push(new);
+
         if self.event_q.len() >= self.config.insert_batch_size {
             self.persist_all().await?;
         }
@@ -782,12 +777,22 @@ where
         }
     }
 
+    /// We attempt to write data in batches to reduce lock contention. However, we need to persist everything in a few cases:
+    ///     - before we calculate a range response, we need to make sure our result (calculated from disk) is up to date
+    ///     - before we sign off on a conversation as either the initiator or responder
+    ///     - when our in memory list gets too large
     async fn persist_all(&mut self) -> Result<()> {
-        if self.event_q.is_empty() {
+        if self.event_q.is_empty() && self.pending_q.is_empty() {
             return Ok(());
         }
 
-        let evs: Vec<_> = self.event_q.drain(..).collect();
+        // we should get related items close together, so for now we don't do any fancy tracking of pending items
+        // and simply track them and retry them with every new batch.
+        let evs: Vec<_> = self
+            .event_q
+            .drain(..)
+            .chain(self.pending_q.drain(..))
+            .collect();
 
         let mut batch = self.recon.insert(evs).await.context("persisting all")?;
         if !batch.invalid.is_empty() {
@@ -795,20 +800,28 @@ where
                 self.recon.metrics().record(&InvalidEvents(cnt))
             }
             tracing::warn!(
-                "Recon discovered data it will never allow. Hanging up on peer {}",
-                self.config.peer_id
+                invalid_cnt=%batch.invalid.len(), peer_id=%self.config.peer_id,
+                "Recon discovered data it will never allow. Hanging up on peer",
             );
             bail!("Received unknown data from peer: {}", self.config.peer_id);
         }
 
         if !batch.pending.is_empty() {
-            let (added, remaining_capacity) = self.pending.track_pending(&mut batch.pending);
-            if let Ok(cnt) = added.try_into() {
+            let new_pending_cnt = batch.pending.len();
+            if let Ok(cnt) = new_pending_cnt.try_into() {
                 self.recon.metrics().record(&PendingEvents(cnt))
             }
-            if remaining_capacity < self.config.max_pending_items / 10 {
-                tracing::debug!(peer_id=%self.config.peer_id,
-                    capacity=%self.config.max_pending_items, %remaining_capacity, "Pending queue has less than 10% capacity remaining");
+            let capacity = self
+                .config
+                .max_pending_items
+                .saturating_sub(batch.pending.len());
+
+            let to_cache = batch.pending.drain(0..capacity.min(new_pending_cnt));
+            self.pending_q.extend(to_cache);
+
+            if !batch.pending.is_empty() {
+                tracing::info!(dropped=%batch.pending.len(), queue_size=%self.pending_q.len(),
+                 "In memory pending queue is full. Dropping items until a future sync.")
             }
         }
 

@@ -1,5 +1,4 @@
 pub mod btreestore;
-pub mod pending_cache;
 #[cfg(test)]
 pub mod tests;
 
@@ -443,26 +442,6 @@ pub enum InvalidItem<K: Key> {
     },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-/// Represents items the store may be able to persist in the future
-pub struct PendingItem<K>
-where
-    K: Key,
-{
-    /// The key this item needs in order to be processed.
-    pub required_key: K,
-    /// The item that could not be stored. Can be retried in the future if
-    /// the `required_key` is discovered.
-    pub item: ReconItem<K>,
-}
-
-impl<K: Key> PendingItem<K> {
-    /// Construct a pending item
-    pub fn new(required_key: K, item: ReconItem<K>) -> Self {
-        Self { required_key, item }
-    }
-}
-
 /// The result of an insert operation.
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct InsertResult<K>
@@ -478,7 +457,7 @@ where
     /// Items that may be processed in the future but require more information to be interpreted.
     /// For example, the store may need another item to interpret this event (e.g. `PendingItem::RequiresEvent`).
     /// In the context of Ceramic, the init event is needed to verify if a data event is valid.
-    pub pending: Vec<PendingItem<K>>,
+    pub pending: Vec<ReconItem<K>>,
 }
 
 impl<K> InsertResult<K>
@@ -502,7 +481,7 @@ where
     pub fn new_err(
         new_cnt: usize,
         invalid: Vec<InvalidItem<K>>,
-        pending: Vec<PendingItem<K>>,
+        pending: Vec<ReconItem<K>>,
     ) -> Self {
         Self {
             new_cnt,
