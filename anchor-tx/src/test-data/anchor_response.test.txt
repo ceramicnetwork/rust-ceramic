@@ -1,0 +1,22 @@
+Receipt {
+    proof: Proof {
+        chain_id: "eip155:11155111",
+        root: "Cid(bafyreicmmbibfikudglurxft6sijpbjloupdf4jhyfof4s4fhgcc576qte)",
+        tx_hash: "Cid(bagjqcgzaflvcfmukjqlips4oxxto6wq644by77dhe77d3gglvreh345qp4ka)",
+        tx_type: "f(bytes32)",
+    },
+    detached_time_event: DetachedTimeEvent {
+        path: "0/0/0/0/0/0/0/0",
+        proof: "Cid(bafyreifb3bcc6vsui6rfnu4tyb64u6gthgs4i5guwaybru7desf434kgsy)",
+    },
+    remote_merkle_nodes: [
+        "Cid(bafyreia6sy7tcncpmszw35jp5phdyjqgcpoljwgcmurppztvnhlzyhjhcy): [Some(Cid(bafyreibgqgypdn36laeszugztazesondjlgnqmnlbrm7hxp7vsz3uwj4gm)), Some(Cid(bafyreiha5fbi5jgikjn7lxoncfkuwbpg3wk65gbvanos3z3bzoowloesuu))]",
+        "Cid(bafyreibgqgypdn36laeszugztazesondjlgnqmnlbrm7hxp7vsz3uwj4gm): [Some(Cid(bafyreifaqgwe5uekogrissq6wwvrlkx7633qdm7jbebk2vjj2sfmg3dg6u)), Some(Cid(bafyreih3nkn3qwovpi7t6xk4n5dlipwxlogj32jgnitk6wiggouftiswue))]",
+        "Cid(bafyreicmmbibfikudglurxft6sijpbjloupdf4jhyfof4s4fhgcc576qte): [Some(Cid(bafyreia6sy7tcncpmszw35jp5phdyjqgcpoljwgcmurppztvnhlzyhjhcy)), Some(Cid(bafyreiaw76bxlihf5ajkcmeykuonecbamohsd3bkfhe5egmz5uloz2oahy))]",
+        "Cid(bafyreidbbnng2l5u7n7ilqdlj5wkwta5ezb67gtwim6p25kxwpoc2w5lvy): [Some(Cid(bafyreigay6frqlwu7dzhf4vch3oxeavkciyogkosbqrttljzgraghl3mo4)), Some(Cid(bafyreifkor6kzg5o4nz76u5zwztiqry7huctvp3xejegepo6tfgcih4hhi))]",
+        "Cid(bafyreidwwolyqonq76hhraezqrupo3i37gstiwyurpmsw2g23srbhmqggq): [Some(Cid(bafyreidbbnng2l5u7n7ilqdlj5wkwta5ezb67gtwim6p25kxwpoc2w5lvy)), Some(Cid(bafyreif5ikq5vhxrv6n3xjod4urwt7tcqznhwhqinabvrblth4weowtmaa))]",
+        "Cid(bafyreifaqgwe5uekogrissq6wwvrlkx7633qdm7jbebk2vjj2sfmg3dg6u): [Some(Cid(bafyreidwwolyqonq76hhraezqrupo3i37gstiwyurpmsw2g23srbhmqggq)), Some(Cid(bafyreibzea3nexvobucdsh7cvx7dhkbhjjwrlk4pe7q5dpvhdxg7shwtkq))]",
+        "Cid(bafyreigab6skaymtdwkpee4yzkhhglqzl7kbd2wrv24r2uqk3iol44gfga): [Some(Cid(bafyreia776z4jdg5zgycivcpr3q6lcu6llfowkrljkmq3bex2k5hkzat54)), Some(Cid(bagcqcera24qtqvh7yjbm72iqov56tmiubltdfn2rwjgcokkxjbovbih6x24q))]",
+        "Cid(bafyreigay6frqlwu7dzhf4vch3oxeavkciyogkosbqrttljzgraghl3mo4): [Some(Cid(bafyreigab6skaymtdwkpee4yzkhhglqzl7kbd2wrv24r2uqk3iol44gfga)), Some(Cid(bafyreid6fo2bz67eza23ulv3l6d7uwu4nd5rmsdx3clijnelebkqscdiqa))]",
+    ],
+}

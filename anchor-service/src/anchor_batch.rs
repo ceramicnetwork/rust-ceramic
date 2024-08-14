@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -14,7 +15,7 @@ use crate::{
 #[async_trait]
 pub trait Store: Send + Sync {
     /// Get a batch of AnchorRequests.
-    async fn get_anchor_requests(&self) -> Result<Vec<AnchorRequest>>;
+    async fn local_sourced_data_events(&self) -> Result<Vec<AnchorRequest>>;
     /// Store a batch of TimeEvents.
     async fn put_time_events(&self, batch: TimeEventBatch) -> Result<()>;
 }
@@ -23,12 +24,22 @@ pub trait Store: Send + Sync {
 /// the requests and the anchor proof.
 pub struct AnchorService {
     tx_manager: Arc<dyn TransactionManager>,
+    _event_service: Arc<dyn Store>,
+    _batch_linger_time: Duration,
 }
 
 impl AnchorService {
     /// Create a new AnchorService.
-    pub fn new(tx_manager: Arc<dyn TransactionManager>) -> Self {
-        Self { tx_manager }
+    pub fn new(
+        tx_manager: Arc<dyn TransactionManager>,
+        _event_service: Arc<dyn Store>,
+        _batch_linger_time: Duration,
+    ) -> Self {
+        Self {
+            tx_manager,
+            _event_service,
+            _batch_linger_time,
+        }
     }
 
     /// Anchor a batch of requests using a Transaction Manager:

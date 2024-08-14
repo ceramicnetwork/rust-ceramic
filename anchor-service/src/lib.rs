@@ -7,5 +7,6 @@ mod merkle_tree;
 mod time_event;
 mod transaction_manager;
 
+pub use anchor::{AnchorRequest, MerkleNode, MerkleNodes, TimeEventBatch};
 pub use anchor_batch::{AnchorService, Store};
 pub use transaction_manager::{DetachedTimeEvent, Receipt, TransactionManager};
