@@ -175,8 +175,8 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
         let payload: unvalidated::Payload<Ipld> = serde_ipld_dagcbor::from_slice(&payload_data)
             .context("decoding payload")
             .map_err(|err| {
-                if self.is_tile_doc(&payload_data) {
-                    anyhow!("found Tile Document, skipping")
+                if self.is_tile_doc_data(&payload_data) {
+                    anyhow!("found data Tile Document, skipping")
                 } else {
                     anyhow!("{err}")
                 }
@@ -219,16 +219,27 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
             .push(event_builder.build(&self.network, event).await?);
         Ok(())
     }
-    fn is_tile_doc(&self, data: &[u8]) -> bool {
+    fn is_tile_doc_init(&self, data: &[u8]) -> bool {
         // Attempt to decode the payload as a loose TileDocument.
-        // If we succeed produce a meaningful error message.
+        // An init event will always have a `header` field.
         #[allow(dead_code)]
         #[derive(Debug, Deserialize)]
-        struct TileDocPayload {
+        struct TileDocInitPayload {
+            header: Ipld,
+        }
+        serde_ipld_dagcbor::from_slice::<TileDocInitPayload>(data).is_ok()
+    }
+    fn is_tile_doc_data(&self, data: &[u8]) -> bool {
+        // Attempt to decode the payload as a loose TileDocument.
+        // A data event will always have a `data` field.
+        #[allow(dead_code)]
+        #[derive(Debug, Deserialize)]
+        struct TileDocDataPayload {
             data: Ipld,
         }
-        serde_ipld_dagcbor::from_slice::<TileDocPayload>(data).is_ok()
+        serde_ipld_dagcbor::from_slice::<TileDocDataPayload>(data).is_ok()
     }
+    #[instrument(skip(self), ret(level = Level::DEBUG))]
     async fn find_init_payload(&self, cid: &Cid) -> Result<unvalidated::init::Payload<Ipld>> {
         let init_data = self
             .load_block(cid)
@@ -251,8 +262,8 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
                 serde_ipld_dagcbor::from_slice(&init_payload_data)
                     .context("decoding init payload")
                     .map_err(|err| {
-                        if self.is_tile_doc(&init_payload_data) {
-                            anyhow!("found Tile Document, skipping")
+                        if self.is_tile_doc_init(&init_payload_data) {
+                            anyhow!("found init Tile Document, skipping")
                         } else {
                             anyhow!("{err}")
                         }
