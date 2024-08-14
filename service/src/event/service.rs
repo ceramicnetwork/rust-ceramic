@@ -115,29 +115,26 @@ impl CeramicEventService {
     /// Currently only verifies that the event parses into a valid ceramic event.
     /// In the future, we will need to do more event validation (verify all EventID pieces, hashes, signatures, etc).
     pub(crate) async fn parse_discovered_event(
-        event_id: ceramic_core::EventId,
-        carfile: &[u8],
+        item: &ReconItem<EventId>,
     ) -> Result<(EventInsertable, EventMetadata)> {
-        let event_cid = event_id.cid().ok_or_else(|| {
-            Error::new_app(anyhow::anyhow!("EventId missing CID. EventID={}", event_id))
-        })?;
+        let initial = IncomingEvent::initial(item);
+        let parsed = IncomingEvent::parsed(initial).await?;
 
-        let (cid, parsed_event) = unvalidated::Event::<Ipld>::decode_car(carfile, false)
-            .await
-            .map_err(Error::new_app)?;
+        let body = EventInsertableBody::try_from_carfile(
+            parsed
+                .raw
+                .key
+                .cid()
+                .expect("CID was already check and cannot be none"),
+            parsed.raw.value.as_slice(),
+        )
+        .await?;
+        let metadata = EventMetadata::from(parsed.inner);
 
-        if event_cid != cid {
-            return Err(Error::new_app(anyhow::anyhow!(
-                "EventId CID ({}) does not match the body CID ({})",
-                event_cid,
-                cid
-            )));
-        }
-
-        let metadata = EventMetadata::from(parsed_event);
-        let body = EventInsertableBody::try_from_carfile(cid, carfile).await?;
-
-        Ok((EventInsertable::try_new(event_id, body)?, metadata))
+        Ok((
+            EventInsertable::try_new(parsed.raw.key.to_owned(), body)?,
+            metadata,
+        ))
     }
 
     pub(crate) async fn insert_events(
@@ -148,7 +145,7 @@ impl CeramicEventService {
         let mut to_insert = Vec::new();
         let mut invalid = Vec::new();
         for event in items {
-            match Self::parse_discovered_event(event.key.to_owned(), &event.value).await {
+            match Self::parse_discovered_event(event).await {
                 Ok(insertable) => to_insert.push(insertable),
                 Err(err) => invalid.push(InvalidItem::InvalidFormat {
                     key: event.key.clone(),
@@ -165,11 +162,9 @@ impl CeramicEventService {
             DeliverableRequirement::Immediate => {
                 let to_insert = ordered.deliverable().iter().map(|(e, _)| e);
                 invalid.extend(ordered.missing_history().iter().map(|(e, _)| {
-                    // TODO: currently the API doesn't care about the value but recon does
-                    // need to clean this up so we don't have to go back/forth through the carfile
-                    // or iterate to find the value again. I think the next commit should be to clean up the
-                    // interface/types around validation so we can keep track of what we need throughout the process
-                    InvalidItem::RequiresHistory(ReconItem::new(e.order_key.clone(), vec![]))
+                    InvalidItem::RequiresHistory {
+                        key: e.order_key.clone(),
+                    }
                 }));
                 CeramicOneEvent::insert_many(&self.pool, to_insert).await?
             }
@@ -236,6 +231,51 @@ impl CeramicEventService {
     }
 }
 
+#[derive(Debug)]
+pub struct IncomingEvent;
+#[derive(Debug)]
+pub struct InitialIncomingEvent<'a> {
+    inner: &'a ReconItem<EventId>,
+}
+#[derive(Debug)]
+pub struct ParsedIncomingEvent<'a> {
+    inner: unvalidated::Event<Ipld>,
+    raw: &'a ReconItem<EventId>,
+}
+
+impl IncomingEvent {
+    pub fn initial(event: &ReconItem<EventId>) -> InitialIncomingEvent<'_> {
+        InitialIncomingEvent { inner: event }
+    }
+
+    pub async fn parsed(event: InitialIncomingEvent<'_>) -> Result<ParsedIncomingEvent<'_>> {
+        let event_cid = event.inner.key.cid().ok_or_else(|| {
+            Error::new_app(anyhow::anyhow!(
+                "EventId missing CID. EventID={}",
+                event.inner.key
+            ))
+        })?;
+
+        let (cid, parsed_event) =
+            unvalidated::Event::<Ipld>::decode_car(event.inner.value.as_slice(), false)
+                .await
+                .map_err(Error::new_app)?;
+
+        if event_cid != cid {
+            return Err(Error::new_app(anyhow::anyhow!(
+                "EventId CID ({}) does not match the body CID ({})",
+                event_cid,
+                cid
+            )));
+        }
+
+        Ok(ParsedIncomingEvent {
+            raw: event.inner,
+            inner: parsed_event,
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InvalidItem {
     InvalidFormat {
@@ -249,7 +289,9 @@ pub enum InvalidItem {
     },
     /// For recon, this is any event where we haven't found the init event
     /// For API, this is anything where we don't have prev locally
-    RequiresHistory(ReconItem<EventId>),
+    RequiresHistory {
+        key: EventId,
+    },
 }
 
 #[derive(Debug, PartialEq, Eq, Default)]

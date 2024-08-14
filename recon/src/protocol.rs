@@ -52,9 +52,6 @@ const PENDING_RANGES_LIMIT: usize = 20;
 // As we descend the tree and find smaller ranges, this won't apply as we have to flush
 // before recomputing a range, but it will be used when we're processing large ranges we don't yet have.
 const INSERT_BATCH_SIZE: usize = 100;
-/// The maxium number of items we're willing to persist in memory for a given conversation until we find the
-/// necessary history to understand the event. Given a size of about 1KB/event, this is about 1MB per conversation.
-const MAX_PENDING_EVENTS: usize = 1000;
 
 type IM<K, H> = ReconMessage<InitiatorMessage<K, H>>;
 type RM<K, H> = ReconMessage<ResponderMessage<K, H>>;
@@ -66,9 +63,6 @@ pub struct ProtocolConfig {
     /// As we descend the tree and find smaller ranges, this won't apply as we have to flush
     /// before recomputing a range, but it will be used when we're processing large ranges we don't yet have.
     pub insert_batch_size: usize,
-    /// The maximum number of items that can be stored in memory before we begin to drop them.  
-    /// This happens when an event is dependent on another event we need to discover before it can be interpreted.
-    pub max_pending_items: usize,
     #[allow(dead_code)]
     /// The ID of the peer we're syncing with.
     peer_id: PeerId,
@@ -76,10 +70,9 @@ pub struct ProtocolConfig {
 
 impl ProtocolConfig {
     /// Create an instance of the config
-    pub fn new(insert_batch_size: usize, max_pending_items: usize, peer_id: PeerId) -> Self {
+    pub fn new(insert_batch_size: usize, peer_id: PeerId) -> Self {
         Self {
             insert_batch_size,
-            max_pending_items: max_pending_items.max(10), // don't allow less than 10 for now
             peer_id,
         }
     }
@@ -88,7 +81,6 @@ impl ProtocolConfig {
     pub fn new_peer_id(peer_id: PeerId) -> Self {
         Self {
             insert_batch_size: INSERT_BATCH_SIZE,
-            max_pending_items: MAX_PENDING_EVENTS,
             peer_id,
         }
     }
@@ -729,7 +721,6 @@ struct Common<R: Recon> {
     recon: R,
     event_q: Vec<ReconItem<R::Key>>,
     config: ProtocolConfig,
-    pending_q: Vec<ReconItem<R::Key>>,
 }
 
 impl<R> Common<R>
@@ -737,12 +728,10 @@ where
     R: Recon,
 {
     fn new(recon: R, config: ProtocolConfig) -> Self {
-        let pending = Vec::with_capacity(config.max_pending_items.max(10));
         Self {
             recon,
             event_q: Vec::with_capacity(config.insert_batch_size.saturating_add(1)),
             config,
-            pending_q: pending,
         }
     }
 
@@ -782,19 +771,13 @@ where
     ///     - before we sign off on a conversation as either the initiator or responder
     ///     - when our in memory list gets too large
     async fn persist_all(&mut self) -> Result<()> {
-        if self.event_q.is_empty() && self.pending_q.is_empty() {
+        if self.event_q.is_empty() {
             return Ok(());
         }
 
-        // we should get related items close together, so for now we don't do any fancy tracking of pending items
-        // and simply track them and retry them with every new batch.
-        let evs: Vec<_> = self
-            .event_q
-            .drain(..)
-            .chain(self.pending_q.drain(..))
-            .collect();
+        let evs: Vec<_> = self.event_q.drain(..).collect();
 
-        let mut batch = self.recon.insert(evs).await.context("persisting all")?;
+        let batch = self.recon.insert(evs).await.context("persisting all")?;
         if !batch.invalid.is_empty() {
             if let Ok(cnt) = batch.invalid.len().try_into() {
                 self.recon.metrics().record(&InvalidEvents(cnt))
@@ -806,22 +789,13 @@ where
             bail!("Received unknown data from peer: {}", self.config.peer_id);
         }
 
-        if !batch.pending.is_empty() {
-            let new_pending_cnt = batch.pending.len();
-            if let Ok(cnt) = new_pending_cnt.try_into() {
+        // for now, we record the metrics from recon but the service is the one that will track and try to store them
+        // this may get more sophisticated as we want to tie reputation into this, or make recon more aware of the meaning of
+        // events and how to drive the conversation forward. it can cause some odd behavior currently as ranges won't match
+        // until events are persisted, but we expect the items to arrive at almost the same time with a well behaved peer.
+        if batch.pending_count() > 0 {
+            if let Ok(cnt) = batch.pending_count().try_into() {
                 self.recon.metrics().record(&PendingEvents(cnt))
-            }
-            let capacity = self
-                .config
-                .max_pending_items
-                .saturating_sub(batch.pending.len());
-
-            let to_cache = batch.pending.drain(0..capacity.min(new_pending_cnt));
-            self.pending_q.extend(to_cache);
-
-            if !batch.pending.is_empty() {
-                tracing::info!(dropped=%batch.pending.len(), queue_size=%self.pending_q.len(),
-                 "In memory pending queue is full. Dropping items until a future sync.")
             }
         }
 

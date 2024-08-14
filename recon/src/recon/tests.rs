@@ -584,12 +584,12 @@ async fn word_lists() {
         let local_handle = tokio::spawn(protocol::initiate_synchronize(
             local,
             local_channel,
-            ProtocolConfig::new(100, 0, PeerId::random()),
+            ProtocolConfig::new(100, PeerId::random()),
         ));
         let remote_handle = tokio::spawn(protocol::respond_synchronize(
             remote,
             remote_channel,
-            ProtocolConfig::new(100, 0, PeerId::random()),
+            ProtocolConfig::new(100, PeerId::random()),
         ));
         // Error if either synchronize method errors
         let (local, remote) = tokio::join!(local_handle, remote_handle);
@@ -1160,12 +1160,12 @@ async fn recon_do_batch_size(
     let cat_fut = protocol::initiate_synchronize(
         cat.clone(),
         cat_channel,
-        ProtocolConfig::new(batch_size, 0, PeerId::random()),
+        ProtocolConfig::new(batch_size, PeerId::random()),
     );
     let dog_fut = protocol::respond_synchronize(
         dog.clone(),
         dog_channel,
-        ProtocolConfig::new(batch_size, 0, PeerId::random()),
+        ProtocolConfig::new(batch_size, PeerId::random()),
     );
     // Drive both synchronize futures on the same thread
     // This is to ensure a deterministic behavior.

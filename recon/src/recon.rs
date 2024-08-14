@@ -450,14 +450,12 @@ where
 {
     /// The count of keys that were inserted in the batch.
     new_cnt: usize,
+    /// The count of keys that were in the batch that depend on a not yet discovered event.
+    pending_cnt: usize,
     /// The list of items that were considered invalid by the store.
     /// Typically these events are "garbage" and the conversation should be ended or the
     /// peer informed so they can clean up or stop sending the data.
     pub invalid: Vec<InvalidItem<K>>,
-    /// Items that may be processed in the future but require more information to be interpreted.
-    /// For example, the store may need another item to interpret this event (e.g. `PendingItem::RequiresEvent`).
-    /// In the context of Ceramic, the init event is needed to verify if a data event is valid.
-    pub pending: Vec<ReconItem<K>>,
 }
 
 impl<K> InsertResult<K>
@@ -469,24 +467,20 @@ where
         Self {
             new_cnt,
             invalid: Vec::new(),
-            pending: Vec::new(),
+            pending_cnt: 0,
         }
     }
 
     /// Get the total count of items included whether added, pending or invalid
     pub fn item_count(&self) -> usize {
-        self.new_cnt + self.invalid.len() + self.pending.len()
+        self.new_cnt + self.invalid.len()
     }
     /// Create with invalid or pending items
-    pub fn new_err(
-        new_cnt: usize,
-        invalid: Vec<InvalidItem<K>>,
-        pending: Vec<ReconItem<K>>,
-    ) -> Self {
+    pub fn new_err(new_cnt: usize, invalid: Vec<InvalidItem<K>>, pending_cnt: usize) -> Self {
         Self {
             new_cnt,
             invalid,
-            pending,
+            pending_cnt,
         }
     }
 
@@ -498,6 +492,12 @@ where
     /// The count of keys persisted in this batch
     pub fn count_inserted(&self) -> usize {
         self.new_cnt
+    }
+
+    /// The count of keys that were not inserted because they depend on discovering a
+    /// related event to be validated (i.e. the init event for the stream).
+    pub fn pending_count(&self) -> usize {
+        self.pending_cnt
     }
 }
 

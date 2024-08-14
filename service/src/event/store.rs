@@ -13,7 +13,7 @@ use super::service::{InsertResult, InvalidItem};
 
 impl From<InsertResult> for recon::InsertResult<EventId> {
     fn from(value: InsertResult) -> Self {
-        let mut pending = Vec::new();
+        let mut pending = 0;
         let mut invalid = Vec::new();
         for ev in value.rejected {
             match ev {
@@ -23,7 +23,9 @@ impl From<InsertResult> for recon::InsertResult<EventId> {
                 InvalidItem::InvalidSignature { key, .. } => {
                     invalid.push(recon::InvalidItem::InvalidFormat { key })
                 }
-                InvalidItem::RequiresHistory(item) => pending.push(item),
+                // once we implement enough validation to actually return these items,
+                // the service will need to track them and retry them when the required CIDs are discovered
+                InvalidItem::RequiresHistory { .. } => pending += 1,
             };
         }
         recon::InsertResult::new_err(value.store_result.count_new_keys(), invalid, pending)
@@ -136,8 +138,8 @@ impl From<InsertResult> for Vec<ceramic_api::EventInsertResult> {
                 InvalidItem::InvalidSignature { key, reason } => {
                     (key, format!("Event had invalid signature: {reason}"))
                 }
-                InvalidItem::RequiresHistory(item) => (
-                    item.key.to_owned(),
+                InvalidItem::RequiresHistory { key } => (
+                    key,
                     "Failed to insert event as `prev` event was missing".to_owned(),
                 ),
             };
