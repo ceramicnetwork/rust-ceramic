@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
 use anyhow::{anyhow, bail, Context as _, Result};
 use ceramic_core::{EventId, Network};
@@ -225,10 +225,20 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
         #[allow(dead_code)]
         #[derive(Debug, Deserialize)]
         struct TileDocPayload {
-            data: Ipld,
+            header: Option<HashMap<String, Ipld>>,
+            data: Option<Ipld>,
         }
-        serde_ipld_dagcbor::from_slice::<TileDocPayload>(data).is_ok()
+        if let Ok(doc) = serde_ipld_dagcbor::from_slice::<TileDocPayload>(data) {
+            if let Some(header) = doc.header {
+                header.contains_key("unique")
+            } else {
+                doc.data.is_some()
+            }
+        } else {
+            false
+        }
     }
+    #[instrument(skip(self), ret(level = Level::DEBUG))]
     async fn find_init_payload(&self, cid: &Cid) -> Result<unvalidated::init::Payload<Ipld>> {
         let init_data = self
             .load_block(cid)
