@@ -1,6 +1,9 @@
 //! # Ceramic Event
 //! Implementation of ceramic event protocol, with appropriate compatibilility with js-ceramic
 #![warn(missing_docs)]
+
+/// Anchor-related types
+pub mod anchor;
 mod bytes;
 /// Unvalidated event types
 pub mod unvalidated;

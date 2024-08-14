@@ -1024,6 +1024,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "ceramic-anchor-service"
+version = "0.32.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "ceramic-core",
+ "ceramic-event",
+ "cid 0.11.1",
+ "expect-test",
+ "indexmap 2.4.0",
+ "serde",
+ "serde_ipld_dagcbor",
+ "serde_ipld_dagjson",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "ceramic-api"
 version = "0.32.0"
 dependencies = [
@@ -1091,6 +1109,7 @@ dependencies = [
  "expect-test",
  "hex",
  "int-enum",
+ "ipld-core",
  "libp2p-identity",
  "minicbor",
  "multibase 0.9.1",
@@ -1119,6 +1138,7 @@ dependencies = [
  "ceramic-core",
  "cid 0.11.1",
  "expect-test",
+ "indexmap 2.4.0",
  "ipld-core",
  "iroh-car",
  "multibase 0.9.1",
@@ -3018,7 +3038,7 @@ dependencies = [
  "futures-sink",
  "futures-util",
  "http",
- "indexmap 2.2.6",
+ "indexmap 2.4.0",
  "slab",
  "tokio",
  "tokio-util",
@@ -3487,9 +3507,9 @@ dependencies = [
 
 [[package]]
 name = "indexmap"
-version = "2.2.6"
+version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "168fb715dda47215e360912c096649d23d58bf392ac62f73919e831745e40f26"
+checksum = "93ead53efc7ea8ed3cfb0c79fc8023fbb782a5432b52830b6518941cebe6505c"
 dependencies = [
  "equivalent",
  "hashbrown 0.14.5",
@@ -4015,7 +4035,7 @@ version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ee7893dab2e44ae5f9d0173f26ff4aa327c10b01b06a72b52dd9405b628640d"
 dependencies = [
- "indexmap 2.2.6",
+ "indexmap 2.4.0",
 ]
 
 [[package]]
@@ -5871,7 +5891,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4c5cc86750666a3ed20bdaf5ca2a0344f9c67674cae0515bec2da16fbaa47db"
 dependencies = [
  "fixedbitset",
- "indexmap 2.2.6",
+ "indexmap 2.4.0",
 ]
 
 [[package]]
@@ -7667,7 +7687,7 @@ dependencies = [
  "futures-util",
  "hashlink",
  "hex",
- "indexmap 2.2.6",
+ "indexmap 2.4.0",
  "log",
  "memchr",
  "once_cell",
@@ -8761,7 +8781,7 @@ version = "0.19.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1b5bb770da30e5cbfde35a2d7b9b8a2c4b8ef89548a7a6aeab5c9a576e3e7421"
 dependencies = [
- "indexmap 2.2.6",
+ "indexmap 2.4.0",
  "serde",
  "serde_spanned",
  "toml_datetime",

@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "api",
     "api-server",
+    "anchor-service",
     "core",
     "event",
     "kubo-rpc",
@@ -48,6 +49,7 @@ bs58 = "0.4"
 bytecheck = "0.6.7"
 bytes = "1.1"
 bytesize = "1.1"
+ceramic-anchor-service = { path = "./anchor-service" }
 ceramic-api = { path = "./api" }
 ceramic-api-server = { path = "./api-server" }
 ceramic-core = { path = "./core" }
@@ -90,6 +92,7 @@ http-serde = "1.1"
 humansize = "2"
 hyper = { version = "0.14", features = ["full"] }
 ignore = "0.4.18"
+indexmap = "2.3.0"
 indicatif = "0.17.1"
 integer-encoding = "3.0"
 ipld-core = "0.4"
@@ -100,6 +103,7 @@ iroh-p2p = { version = "0.2.0", path = "./beetle/iroh-p2p" }
 iroh-rpc-client = { path = "./beetle/iroh-rpc-client" }
 iroh-rpc-types = { path = "./beetle/iroh-rpc-types" }
 iroh-util = { path = "./beetle/iroh-util" }
+itertools = "0.13.0"
 keyed_priority_queue = "0.4.1"
 lazy_static = "1.4"
 libp2p = { version = "0.53", default-features = false }
@@ -213,6 +217,8 @@ authors = [
     "Danny Browning <dbrowning@3box.io>",
     "Nathaniel Cook <nvcook42@gmail.com>",
     "Aaron D Goldman <goldmanaaron@gmail.com>",
+    "Mohsin Zaidi <@smrz2001>",
+    "David Estes <@dav1do>"
 ]
 license = "Apache-2.0/MIT"
 repository = "https://github.com/3box/rust-ceramic"
