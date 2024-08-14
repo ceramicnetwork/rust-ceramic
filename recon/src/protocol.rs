@@ -14,10 +14,9 @@
 use anyhow::{anyhow, bail, Context, Result};
 use async_stream::try_stream;
 use async_trait::async_trait;
-use ceramic_core::RangeOpen;
+use ceramic_core::{NodeId, RangeOpen};
 use ceramic_metrics::Recorder;
 use futures::{pin_mut, stream::BoxStream, Sink, SinkExt, Stream, StreamExt, TryStreamExt};
-use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
 use tokio::{sync::mpsc, time::Instant};
 use tokio_stream::once;
@@ -63,25 +62,24 @@ pub struct ProtocolConfig {
     /// As we descend the tree and find smaller ranges, this won't apply as we have to flush
     /// before recomputing a range, but it will be used when we're processing large ranges we don't yet have.
     pub insert_batch_size: usize,
-    #[allow(dead_code)]
-    /// The ID of the peer we're syncing with.
-    peer_id: PeerId,
+    /// The ID of the node we're syncing with.
+    node_id: NodeId,
 }
 
 impl ProtocolConfig {
     /// Create an instance of the config
-    pub fn new(insert_batch_size: usize, peer_id: PeerId) -> Self {
+    pub fn new(insert_batch_size: usize, node_id: NodeId) -> Self {
         Self {
             insert_batch_size,
-            peer_id,
+            node_id,
         }
     }
 
     /// Uses the constant defaults defined for batch size (100) and max items (1000)
-    pub fn new_peer_id(peer_id: PeerId) -> Self {
+    pub fn new_node_id(node_id: NodeId) -> Self {
         Self {
             insert_batch_size: INSERT_BATCH_SIZE,
-            peer_id,
+            node_id,
         }
     }
 }
@@ -770,16 +768,23 @@ where
 
         let evs: Vec<_> = self.event_q.drain(..).collect();
 
-        let batch = self.recon.insert(evs).await.context("persisting all")?;
+        let batch = self
+            .recon
+            .insert(evs, self.config.node_id)
+            .await
+            .context("persisting all")?;
         if !batch.invalid.is_empty() {
             for invalid in &batch.invalid {
                 self.recon.metrics().record(invalid)
             }
             tracing::warn!(
-                invalid_cnt=%batch.invalid.len(), peer_id=%self.config.peer_id,
+                invalid_cnt=%batch.invalid.len(), peer_id=%self.config.node_id.peer_id(),
                 "Recon discovered data it will never allow. Hanging up on peer",
             );
-            bail!("Received unknown data from peer: {}", self.config.peer_id);
+            bail!(
+                "Received unknown data from peer: {}",
+                self.config.node_id.peer_id()
+            );
         }
 
         // for now, we record the metrics from recon but the service is the one that will track and try to store them
@@ -815,6 +820,7 @@ pub trait Recon: Clone + Send + Sync + 'static {
     async fn insert(
         &self,
         items: Vec<ReconItem<Self::Key>>,
+        informant: NodeId,
     ) -> ReconResult<InsertResult<Self::Key>>;
 
     /// Get all keys in the specified range

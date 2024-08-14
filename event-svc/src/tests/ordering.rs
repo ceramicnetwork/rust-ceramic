@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use ceramic_api::{EventDataResult, EventService as ApiEventService, IncludeEventData};
-use ceramic_core::EventId;
+use ceramic_core::{EventId, NodeId};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use recon::ReconItem;
@@ -21,13 +21,19 @@ async fn setup_service() -> EventService {
 
 async fn add_and_assert_new_recon_event(store: &EventService, item: ReconItem<EventId>) {
     tracing::trace!("inserted event: {}", item.key.cid().unwrap());
-    let new = recon::Store::insert_many(store, &[item]).await.unwrap();
+    let new = recon::Store::insert_many(store, &[item], NodeId::random().unwrap().0)
+        .await
+        .unwrap();
     assert!(new.included_new_key());
 }
 
 async fn add_and_assert_new_local_event(store: &EventService, item: ReconItem<EventId>) {
     let new = store
-        .insert_events(&[item], DeliverableRequirement::Immediate)
+        .insert_events(
+            &[item],
+            DeliverableRequirement::Immediate,
+            Some(NodeId::random().unwrap().0),
+        )
         .await
         .unwrap();
     let new = new.store_result.count_new_keys();
@@ -58,7 +64,11 @@ async fn test_missing_prev_history_required_not_inserted() {
     let data = &events[1];
 
     let new = store
-        .insert_events(&[data.to_owned()], DeliverableRequirement::Immediate)
+        .insert_events(
+            &[data.to_owned()],
+            DeliverableRequirement::Immediate,
+            Some(NodeId::random().unwrap().0),
+        )
         .await
         .unwrap();
     assert!(new.store_result.inserted.is_empty());
@@ -94,6 +104,7 @@ async fn test_prev_in_same_write_history_required() {
         .insert_events(
             &[init.to_owned(), data.to_owned()],
             DeliverableRequirement::Immediate,
+            Some(NodeId::random().unwrap().0),
         )
         .await
         .unwrap();

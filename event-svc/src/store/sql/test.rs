@@ -5,6 +5,7 @@ use ceramic_core::{
     EventId, Network,
 };
 use ceramic_event::unvalidated;
+use ceramic_event::unvalidated::init;
 use cid::Cid;
 use expect_test::expect;
 use ipld_core::codec::Codec;
@@ -47,9 +48,9 @@ fn random_events(num: usize) -> Vec<EventInsertable> {
             Code::Sha2_256.digest(&serde_ipld_dagcbor::to_vec(&payload).unwrap()),
         );
         let order_key = event_id_builder().with_event(&cid).build();
-        let event = unvalidated::Event::from(payload);
+        let event = Box::new(init::Event::new(payload)).into();
 
-        events.push(EventInsertable::new(order_key, cid, event, true).unwrap())
+        events.push(EventInsertable::new(order_key, cid, event, None, true).unwrap())
     }
 
     events

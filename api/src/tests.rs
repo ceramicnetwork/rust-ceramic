@@ -16,7 +16,7 @@ use ceramic_api_server::{
     InterestsPostResponse, InterestsSortKeySortValuePostResponse,
 };
 use ceramic_core::{Cid, Interest};
-use ceramic_core::{EventId, Network, PeerId, StreamId};
+use ceramic_core::{EventId, Network, NodeId, PeerId, StreamId};
 use expect_test::expect;
 use mockall::{mock, predicate};
 use multibase::Base;
@@ -111,7 +111,7 @@ mock! {
     pub EventStoreTest {}
     #[async_trait]
     impl EventService for EventStoreTest {
-        async fn insert_many(&self, items: Vec<ApiItem>) -> Result<Vec<EventInsertResult>>;
+        async fn insert_many(&self, items: Vec<ApiItem>, node_id: NodeId) -> Result<Vec<EventInsertResult>>;
         async fn range_with_values(
             &self,
             range: Range<EventId>,
@@ -168,7 +168,7 @@ pub fn mock_get_unsigned_init_event(mock_store: &mut MockEventStoreTest) {
 
 #[test(tokio::test)]
 async fn create_event() {
-    let peer_id = PeerId::random();
+    let node_id = NodeId::random().unwrap().0;
     let network = Network::Mainnet;
     let expected_event_id = EventId::try_from(hex::decode(DATA_EVENT_ID).unwrap()).unwrap();
 
@@ -187,15 +187,15 @@ async fn create_event() {
 
     mock_event_store
         .expect_insert_many()
-        .with(predicate::eq(args))
+        .with(predicate::eq(args), predicate::eq(node_id))
         .times(1)
-        .returning(|input| {
+        .returning(|input, _| {
             Ok(input
                 .into_iter()
                 .map(|v| EventInsertResult::new_ok(v.key.clone()))
                 .collect())
         });
-    let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_event_store));
+    let server = Server::new(node_id, network, mock_interest, Arc::new(mock_event_store));
     let resp = server
         .events_post(
             models::EventData {
@@ -209,7 +209,7 @@ async fn create_event() {
 }
 #[test(tokio::test)]
 async fn create_event_fails() {
-    let peer_id = PeerId::random();
+    let node_id = NodeId::random().unwrap().0;
     let network = Network::Mainnet;
     let expected_event_id = EventId::try_from(hex::decode(DATA_EVENT_ID).unwrap()).unwrap();
 
@@ -228,9 +228,9 @@ async fn create_event_fails() {
 
     mock_event_store
         .expect_insert_many()
-        .with(predicate::eq(args))
+        .with(predicate::eq(args), predicate::eq(node_id))
         .times(1)
-        .returning(|input| {
+        .returning(|input, _| {
             Ok(input
                 .iter()
                 .map(|i| {
@@ -241,7 +241,7 @@ async fn create_event_fails() {
                 })
                 .collect())
         });
-    let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_event_store));
+    let server = Server::new(node_id, network, mock_interest, Arc::new(mock_event_store));
     let resp = server
         .events_post(
             models::EventData {
@@ -256,7 +256,7 @@ async fn create_event_fails() {
 
 #[test(tokio::test)]
 async fn register_interest_sort_value() {
-    let peer_id = PeerId::random();
+    let node_id = NodeId::random().unwrap().0;
     let network = Network::InMemory;
     let model = "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9"; // cspell:disable-line
 
@@ -283,7 +283,7 @@ async fn register_interest_sort_value() {
         .with(predicate::eq(
             Interest::builder()
                 .with_sep_key("model")
-                .with_peer_id(&peer_id)
+                .with_peer_id(&node_id.peer_id())
                 .with_range((start.as_slice(), end.as_slice()))
                 .with_not_after(0)
                 .build(),
@@ -291,7 +291,7 @@ async fn register_interest_sort_value() {
         .times(1)
         .returning(|_| Ok(true));
     let mock_event_store = MockEventStoreTest::new();
-    let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_event_store));
+    let server = Server::new(node_id, network, mock_interest, Arc::new(mock_event_store));
     let interest = models::Interest {
         sep: "model".to_string(),
         sep_value: model.to_owned(),
@@ -305,7 +305,7 @@ async fn register_interest_sort_value() {
 #[test(tokio::test)]
 
 async fn register_interest_sort_value_bad_request() {
-    let peer_id = PeerId::random();
+    let node_id = NodeId::random().unwrap().0;
     let network = Network::InMemory;
 
     let model = "2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9"; //missing 'k' cspell:disable-line
@@ -313,7 +313,7 @@ async fn register_interest_sort_value_bad_request() {
     // Setup mock expectations
     let mock_interest = MockAccessInterestStoreTest::new();
     let mock_event_store = MockEventStoreTest::new();
-    let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_event_store));
+    let server = Server::new(node_id, network, mock_interest, Arc::new(mock_event_store));
     let interest = models::Interest {
         sep: "model".to_string(),
         sep_value: model.to_owned(),
@@ -327,7 +327,7 @@ async fn register_interest_sort_value_bad_request() {
 #[test(tokio::test)]
 
 async fn register_interest_sort_value_controller() {
-    let peer_id = PeerId::random();
+    let node_id = NodeId::random().unwrap().0;
     let network = Network::InMemory;
     let model = "z3KWHw5Efh2qLou2FEdz3wB8ZvLgURJP94HeijLVurxtF1Ntv6fkg2G"; // base58 encoded should work cspell:disable-line
                                                                            // we convert to base36 before storing
@@ -353,7 +353,7 @@ async fn register_interest_sort_value_controller() {
         .with(predicate::eq(
             Interest::builder()
                 .with_sep_key("model")
-                .with_peer_id(&peer_id)
+                .with_peer_id(&node_id.peer_id())
                 .with_range((start.as_slice(), end.as_slice()))
                 .with_not_after(0)
                 .build(),
@@ -361,7 +361,7 @@ async fn register_interest_sort_value_controller() {
         .times(1)
         .returning(|__| Ok(true));
     let mock_event_store = MockEventStoreTest::new();
-    let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_event_store));
+    let server = Server::new(node_id, network, mock_interest, Arc::new(mock_event_store));
     let resp = server
         .interests_sort_key_sort_value_post(
             "model".to_string(),
@@ -378,7 +378,7 @@ async fn register_interest_sort_value_controller() {
 #[test(tokio::test)]
 
 async fn register_interest_value_controller_stream() {
-    let peer_id = PeerId::random();
+    let node_id = NodeId::random().unwrap().0;
     let network = Network::InMemory;
     let model = "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9"; // cspell:disable-line
     let controller = "did:key:zGs1Det7LHNeu7DXT4nvoYrPfj3n6g7d6bj2K4AMXEvg1";
@@ -405,7 +405,7 @@ async fn register_interest_value_controller_stream() {
         .with(predicate::eq(
             Interest::builder()
                 .with_sep_key("model")
-                .with_peer_id(&peer_id)
+                .with_peer_id(&node_id.peer_id())
                 .with_range((start.as_slice(), end.as_slice()))
                 .with_not_after(0)
                 .build(),
@@ -413,7 +413,7 @@ async fn register_interest_value_controller_stream() {
         .times(1)
         .returning(|__| Ok(true));
     let mock_event_store = MockEventStoreTest::new();
-    let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_event_store));
+    let server = Server::new(node_id, network, mock_interest, Arc::new(mock_event_store));
     let resp = server
         .interests_sort_key_sort_value_post(
             "model".to_string(),
@@ -429,7 +429,10 @@ async fn register_interest_value_controller_stream() {
 
 #[test(tokio::test)]
 async fn get_interests() {
-    let peer_id = PeerId::from_str("1AaNXU5G2SJQSzCCP23V2TEDierSRBBGLA7aSCYScUTke9").unwrap();
+    let node_id = NodeId::try_from_peer_id(
+        &PeerId::from_str("12D3KooWRyGSRzzEBpHbHyRkGTgCpXuoRMQgYrqk7tFQzM3AFEWp").unwrap(),
+    )
+    .unwrap();
     let network = Network::InMemory;
     let model = "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9"; // cspell:disable-line
     let controller = "did:key:zGs1Det7LHNeu7DXT4nvoYrPfj3n6g7d6bj2K4AMXEvg1";
@@ -464,13 +467,13 @@ async fn get_interests() {
             Ok(vec![
                 Interest::builder()
                     .with_sep_key("model")
-                    .with_peer_id(&peer_id)
+                    .with_peer_id(&node_id.peer_id())
                     .with_range((start.as_slice(), end.as_slice()))
                     .with_not_after(0)
                     .build(),
                 Interest::builder()
                     .with_sep_key("model")
-                    .with_peer_id(&peer_id)
+                    .with_peer_id(&node_id.peer_id())
                     .with_range((start.as_slice(), end.as_slice()))
                     .with_not_after(1)
                     .build(),
@@ -478,7 +481,7 @@ async fn get_interests() {
         });
 
     let mock_event_store = MockEventStoreTest::new();
-    let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_event_store));
+    let server = Server::new(node_id, network, mock_interest, Arc::new(mock_event_store));
     let resp = server
         .experimental_interests_get(None, &Context)
         .await
@@ -488,10 +491,10 @@ async fn get_interests() {
             InterestsGet {
                 interests: [
                     InterestsGetInterestsInner {
-                        data: "zwZSodouDdQxpoGdqDjfm1n8r3v18Eoo4si4AFo1UbGArVey2XHwDBwDshSiPN36DDWaE7MprPpBmNrZkDhrFugryq9nnAVyP6M9oTns8fjB4RqR7oCNEX8HDBZAbVVrpXY2QcWHu5Dy",
+                        data: "z7A21giXcVHK1TYeLxyBRsC1t4PxUBZQVV5nEJAi6wnG1cjoKnLCY4rckApWeBQLumpP9f5Vw71gzid5a7ih2txqAoM4pLGvJa8m6sgQxDF812gLxoAakDP81oda6Aib9raNy9fKYJhYtpVaZm",
                     },
                     InterestsGetInterestsInner {
-                        data: "zwZSodouDdQxpoGdqDjfm1n8r3v18Eoo4si4AFo1UbGArVey2XHwDBwDshSiPN36DDWaE7MprPpBmNrZkDhrFugryq9nnAVyP6M9oTns8fjB4RqR7oCNEX8HDBZAbVVrpXY2QcWHu5Dz",
+                        data: "z7A21giXcVHK1TYeLxyBRsC1t4PxUBZQVV5nEJAi6wnG1cjoKnLCY4rckApWeBQLumpP9f5Vw71gzid5a7ih2txqAoM4pLGvJa8m6sgQxDF812gLxoAakDP81oda6Aib9raNy9fKYJhYtpVaZn",
                     },
                 ],
             },
@@ -500,8 +503,12 @@ async fn get_interests() {
 }
 #[test(tokio::test)]
 async fn get_interests_for_peer() {
-    let peer_id_a = PeerId::from_str("1AaNXU5G2SJQSzCCP23V2TEDierSRBBGLA7aSCYScUTke9").unwrap();
-    let peer_id_b = PeerId::from_str("1AcJjoLqKWAPBRQYsff8ZQPjwinCAFUdTEgZrAZgeZkCu7").unwrap();
+    let peer_id_a =
+        PeerId::from_str("12D3KooWRyGSRzzEBpHbHyRkGTgCpXuoRMQgYrqk7tFQzM3AFEWp").unwrap();
+    let node_id_b = NodeId::try_from_peer_id(
+        &PeerId::from_str("12D3KooWR1M8JiXyfdBKUhCLUmTJGhtNsgxnhvFVD4AU4EioDUwu").unwrap(),
+    )
+    .unwrap();
     let network = Network::InMemory;
     let model = "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9"; // cspell:disable-line
     let controller = "did:key:zGs1Det7LHNeu7DXT4nvoYrPfj3n6g7d6bj2K4AMXEvg1";
@@ -548,13 +555,13 @@ async fn get_interests_for_peer() {
                     .build(),
                 Interest::builder()
                     .with_sep_key("model")
-                    .with_peer_id(&peer_id_b)
+                    .with_peer_id(&node_id_b.peer_id())
                     .with_range((start.as_slice(), end.as_slice()))
                     .with_not_after(0)
                     .build(),
                 Interest::builder()
                     .with_sep_key("model")
-                    .with_peer_id(&peer_id_b)
+                    .with_peer_id(&node_id_b.peer_id())
                     .with_range((start.as_slice(), end.as_slice()))
                     .with_not_after(1)
                     .build(),
@@ -563,7 +570,7 @@ async fn get_interests_for_peer() {
 
     let mock_event_store = MockEventStoreTest::new();
     let server = Server::new(
-        peer_id_b,
+        node_id_b,
         network,
         mock_interest,
         Arc::new(mock_event_store),
@@ -577,10 +584,10 @@ async fn get_interests_for_peer() {
             InterestsGet {
                 interests: [
                     InterestsGetInterestsInner {
-                        data: "zwZSodouDdQxpoGdqDjfm1n8r3v18Eoo4si4AFo1UbGArVey2XHwDBwDshSiPN36DDWaE7MprPpBmNrZkDhrFugryq9nnAVyP6M9oTns8fjB4RqR7oCNEX8HDBZAbVVrpXY2QcWHu5Dy",
+                        data: "z7A21giXcVHK1TYeLxyBRsC1t4PxUBZQVV5nEJAi6wnG1cjoKnLCY4rckApWeBQLumpP9f5Vw71gzid5a7ih2txqAoM4pLGvJa8m6sgQxDF812gLxoAakDP81oda6Aib9raNy9fKYJhYtpVaZm",
                     },
                     InterestsGetInterestsInner {
-                        data: "zwZSodouDdQxpoGdqDjfm1n8r3v18Eoo4si4AFo1UbGArVey2XHwDBwDshSiPN36DDWaE7MprPpBmNrZkDhrFugryq9nnAVyP6M9oTns8fjB4RqR7oCNEX8HDBZAbVVrpXY2QcWHu5Dz",
+                        data: "z7A21giXcVHK1TYeLxyBRsC1t4PxUBZQVV5nEJAi6wnG1cjoKnLCY4rckApWeBQLumpP9f5Vw71gzid5a7ih2txqAoM4pLGvJa8m6sgQxDF812gLxoAakDP81oda6Aib9raNy9fKYJhYtpVaZn",
                     },
                 ],
             },
@@ -590,7 +597,7 @@ async fn get_interests_for_peer() {
 
 #[test(tokio::test)]
 async fn get_events_for_interest_range() {
-    let peer_id = PeerId::random();
+    let node_id = NodeId::random().unwrap().0;
     let network = Network::InMemory;
     let model = "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9"; // cspell:disable-line
     let controller = "did:key:zGs1Det7LHNeu7DXT4nvoYrPfj3n6g7d6bj2K4AMXEvg1";
@@ -628,7 +635,7 @@ async fn get_events_for_interest_range() {
         )
         .times(1)
         .returning(move |_, _, _| Ok(vec![(cid, vec![])]));
-    let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_event_store));
+    let server = Server::new(node_id, network, mock_interest, Arc::new(mock_event_store));
     let resp = server
         .experimental_events_sep_sep_value_get(
             "model".to_string(),
@@ -653,7 +660,7 @@ async fn get_events_for_interest_range() {
 
 #[test(tokio::test)]
 async fn test_events_event_id_get_by_event_id_success() {
-    let peer_id = PeerId::random();
+    let node_id = NodeId::random().unwrap().0;
     let network = Network::InMemory;
     let event_cid =
         Cid::from_str("baejbeicqtpe5si4qvbffs2s7vtbk5ccbsfg6owmpidfj3zeluqz4hlnz6m").unwrap(); // cspell:disable-line
@@ -677,7 +684,7 @@ async fn test_events_event_id_get_by_event_id_success() {
         .times(1)
         .returning(move |_| Ok(Some(event_data.clone())));
     let mock_interest = MockAccessInterestStoreTest::new();
-    let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_event_store));
+    let server = Server::new(node_id, network, mock_interest, Arc::new(mock_event_store));
     let result = server.events_event_id_get(event_id_str, &Context).await;
     let EventsEventIdGetResponse::Success(event) = result.unwrap() else {
         panic!("Expected EventsEventIdGetResponse::Success but got another variant");
@@ -692,7 +699,7 @@ async fn test_events_event_id_get_by_event_id_success() {
 #[test(tokio::test)]
 
 async fn test_events_event_id_get_by_cid_success() {
-    let peer_id = PeerId::random();
+    let node_id = NodeId::random().unwrap().0;
     let network = Network::InMemory;
     let event_cid =
         Cid::from_str("baejbeihyr3kf77etqdccjfoc33dmko2ijyugn6qk6yucfkioasjssz3bbu").unwrap(); // cspell:disable-line
@@ -705,7 +712,7 @@ async fn test_events_event_id_get_by_cid_success() {
         .times(1)
         .returning(move |_| Ok(Some(event_data.clone())));
     let mock_interest = MockAccessInterestStoreTest::new();
-    let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_event_store));
+    let server = Server::new(node_id, network, mock_interest, Arc::new(mock_event_store));
     let result = server
         .events_event_id_get(event_cid.to_string(), &Context)
         .await;

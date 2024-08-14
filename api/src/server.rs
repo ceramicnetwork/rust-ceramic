@@ -34,7 +34,7 @@ use ceramic_api_server::{
     ExperimentalInterestsGetResponse, FeedEventsGetResponse, FeedResumeTokenGetResponse,
     InterestsPostResponse,
 };
-use ceramic_core::{Cid, EventId, Interest, Network, PeerId, StreamId};
+use ceramic_core::{Cid, EventId, Interest, Network, NodeId, PeerId, StreamId};
 use futures::TryFutureExt;
 use recon::Key;
 use swagger::{ApiError, ByteArray};
@@ -245,7 +245,11 @@ impl ApiItem {
 #[async_trait]
 pub trait EventService: Send + Sync {
     /// Returns (new_key, new_value) where true if was newly inserted, false if it already existed.
-    async fn insert_many(&self, items: Vec<ApiItem>) -> Result<Vec<EventInsertResult>>;
+    async fn insert_many(
+        &self,
+        items: Vec<ApiItem>,
+        informant: NodeId,
+    ) -> Result<Vec<EventInsertResult>>;
     async fn range_with_values(
         &self,
         range: Range<EventId>,
@@ -280,8 +284,12 @@ pub trait EventService: Send + Sync {
 
 #[async_trait::async_trait]
 impl<S: EventService> EventService for Arc<S> {
-    async fn insert_many(&self, items: Vec<ApiItem>) -> Result<Vec<EventInsertResult>> {
-        self.as_ref().insert_many(items).await
+    async fn insert_many(
+        &self,
+        items: Vec<ApiItem>,
+        informant: NodeId,
+    ) -> Result<Vec<EventInsertResult>> {
+        self.as_ref().insert_many(items, informant).await
     }
 
     async fn range_with_values(
@@ -333,7 +341,7 @@ struct InsertTask {
 
 #[derive(Clone)]
 pub struct Server<C, I, M> {
-    peer_id: PeerId,
+    node_id: NodeId,
     network: Network,
     interest: I,
     model: Arc<M>,
@@ -349,17 +357,17 @@ where
     I: InterestService,
     M: EventService + 'static,
 {
-    pub fn new(peer_id: PeerId, network: Network, interest: I, model: Arc<M>) -> Self {
+    pub fn new(node_id: NodeId, network: Network, interest: I, model: Arc<M>) -> Self {
         let (tx, event_rx) = tokio::sync::mpsc::channel::<EventInsert>(1024);
         let event_store = model.clone();
 
-        let handle = Self::start_insert_task(event_store, event_rx);
+        let handle = Self::start_insert_task(event_store, event_rx, node_id);
         let insert_task = Arc::new(InsertTask {
             _handle: handle,
             tx,
         });
         Server {
-            peer_id,
+            node_id,
             network,
             interest,
             model,
@@ -377,6 +385,7 @@ where
     fn start_insert_task(
         event_store: Arc<M>,
         mut event_rx: tokio::sync::mpsc::Receiver<EventInsert>,
+        node_id: NodeId,
     ) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_millis(FLUSH_INTERVAL_MS));
@@ -389,7 +398,7 @@ where
                 let mut buf = Vec::with_capacity(EVENTS_TO_RECEIVE);
                 tokio::select! {
                     _ = interval.tick() => {
-                        Self::process_events(&mut events, &event_store).await;
+                        Self::process_events(&mut events, &event_store, node_id).await;
                     }
                     val = event_rx.recv_many(&mut buf, EVENTS_TO_RECEIVE) => {
                         if val > 0 {
@@ -400,7 +409,7 @@ where
                 let shutdown = event_rx.is_closed();
                 // make sure the events queue doesn't get too deep when we're under heavy load
                 if events.len() >= EVENT_INSERT_QUEUE_SIZE || shutdown {
-                    Self::process_events(&mut events, &event_store).await;
+                    Self::process_events(&mut events, &event_store, node_id).await;
                 }
                 if shutdown {
                     tracing::info!("Shutting down insert task.");
@@ -410,7 +419,7 @@ where
         })
     }
 
-    async fn process_events(events: &mut Vec<EventInsert>, event_store: &Arc<M>) {
+    async fn process_events(events: &mut Vec<EventInsert>, event_store: &Arc<M>, node_id: NodeId) {
         if events.is_empty() {
             return;
         }
@@ -421,7 +430,7 @@ where
             items.push(ApiItem::new(req.id, req.data));
         });
         tracing::trace!("calling insert many with {} items.", items.len());
-        match event_store.insert_many(items).await {
+        match event_store.insert_many(items, node_id).await {
             Ok(results) => {
                 tracing::debug!("insert many returned {} results.", results.len());
                 for result in results {
@@ -682,7 +691,7 @@ where
         // Update interest ranges to include this new subscription.
         let interest = Interest::builder()
             .with_sep_key(&interest.sep)
-            .with_peer_id(&self.peer_id)
+            .with_peer_id(&self.node_id.peer_id())
             .with_range((start.as_slice(), stop.as_slice()))
             .with_not_after(0)
             .build();

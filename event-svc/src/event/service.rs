@@ -6,7 +6,7 @@ use super::{
     ordering_task::{DeliverableTask, OrderingTask},
 };
 use async_trait::async_trait;
-use ceramic_core::{EventId, Network, SerializeExt};
+use ceramic_core::{EventId, Network, NodeId, SerializeExt};
 use ceramic_event::unvalidated;
 use ceramic_event::unvalidated::Event;
 use ceramic_flight::{ConclusionData, ConclusionEvent, ConclusionInit, ConclusionTime};
@@ -53,7 +53,7 @@ pub trait BlockStore {
     async fn block_data(&self, cid: &Cid) -> anyhow::Result<Option<Vec<u8>>>;
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeliverableRequirement {
     /// Must be ordered immediately and is rejected if not currently deliverable. The appropriate setting
     /// for API writes as we cannot create an event without its history.
@@ -146,6 +146,7 @@ impl EventService {
     /// In the future, we will need to do more event validation (verify all EventID pieces, hashes, signatures, etc).
     pub(crate) async fn parse_discovered_event(
         item: &ReconItem<EventId>,
+        informant: Option<NodeId>,
     ) -> Result<EventInsertable> {
         let (cid, parsed_event) =
             unvalidated::Event::<Ipld>::decode_car(item.value.as_slice(), false)
@@ -155,6 +156,7 @@ impl EventService {
             item.key.to_owned(),
             cid,
             parsed_event,
+            informant,
             false,
         )?)
     }
@@ -175,11 +177,12 @@ impl EventService {
 
     pub(crate) async fn validate_events(
         items: &[ReconItem<EventId>],
+        informant: Option<NodeId>,
     ) -> Result<(Vec<EventInsertable>, Vec<InvalidItem>)> {
         let mut parsed_events = Vec::with_capacity(items.len());
         let mut invalid_events = Vec::new();
         for event in items {
-            match Self::parse_discovered_event(event).await {
+            match Self::parse_discovered_event(event, informant).await {
                 Ok(insertable) => parsed_events.push(insertable),
                 Err(err) => invalid_events.push(InvalidItem::InvalidFormat {
                     key: event.key.clone(),
@@ -227,8 +230,9 @@ impl EventService {
         &self,
         items: &[ReconItem<EventId>],
         source: DeliverableRequirement,
+        informant: Option<NodeId>,
     ) -> Result<InsertResult> {
-        let (to_insert, mut invalid) = Self::validate_events(items).await?;
+        let (to_insert, mut invalid) = Self::validate_events(items, informant).await?;
 
         let ordered = OrderEvents::try_new(&self.pool, to_insert).await?;
 

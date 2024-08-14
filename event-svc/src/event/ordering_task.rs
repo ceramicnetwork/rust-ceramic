@@ -607,7 +607,9 @@ mod test {
         let mut res = Vec::with_capacity(n);
         let events = get_n_events(n).await;
         for event in events {
-            let event = EventService::parse_discovered_event(&event).await.unwrap();
+            let event = EventService::parse_discovered_event(&event, None)
+                .await
+                .unwrap();
             res.push(event);
         }
         res

@@ -5,6 +5,7 @@ use crate::EventService;
 use anyhow::Error;
 use bytes::Bytes;
 use ceramic_api::{ApiItem, EventService as ApiEventService};
+use ceramic_core::NodeId;
 use ceramic_flight::server::ConclusionFeed as _;
 use ceramic_flight::ConclusionEvent;
 use ceramic_sql::sqlite::SqlitePool;
@@ -65,10 +66,10 @@ where
     let init_cid = one.key.cid().unwrap();
     let min_id = event_id_min(&init_cid, &model);
     let max_id = event_id_max(&init_cid, &model);
-    recon::Store::insert_many(&store, &[one.clone()])
+    recon::Store::insert_many(&store, &[one.clone()], NodeId::random().unwrap().0)
         .await
         .unwrap();
-    recon::Store::insert_many(&store, &[two.clone()])
+    recon::Store::insert_many(&store, &[two.clone()], NodeId::random().unwrap().0)
         .await
         .unwrap();
     let values: Vec<(EventId, Vec<u8>)> =
@@ -104,16 +105,20 @@ where
     let item = &[ReconItem::new(id, car)];
 
     // first insert reports its a new key
-    assert!(recon::Store::insert_many(&store, item)
-        .await
-        .unwrap()
-        .included_new_key());
+    assert!(
+        recon::Store::insert_many(&store, item, NodeId::random().unwrap().0)
+            .await
+            .unwrap()
+            .included_new_key()
+    );
 
     // second insert of same key reports it already existed
-    assert!(!recon::Store::insert_many(&store, item)
-        .await
-        .unwrap()
-        .included_new_key());
+    assert!(
+        !recon::Store::insert_many(&store, item, NodeId::random().unwrap().0)
+            .await
+            .unwrap()
+            .included_new_key()
+    );
 }
 
 test_with_dbs!(
@@ -137,14 +142,22 @@ where
     let TestEventInfo { car: car2, .. } = build_event().await;
     let expected = hex::encode(&car1);
 
-    let actual = recon::Store::insert_many(&store, &[ReconItem::new(id.clone(), car1)])
-        .await
-        .unwrap();
+    let actual = recon::Store::insert_many(
+        &store,
+        &[ReconItem::new(id.clone(), car1)],
+        NodeId::random().unwrap().0,
+    )
+    .await
+    .unwrap();
     assert_eq!(actual, InsertResult::new(1));
 
-    let res = recon::Store::insert_many(&store, &[ReconItem::new(id.clone(), car2)])
-        .await
-        .unwrap();
+    let res = recon::Store::insert_many(
+        &store,
+        &[ReconItem::new(id.clone(), car2)],
+        NodeId::random().unwrap().0,
+    )
+    .await
+    .unwrap();
 
     assert_eq!(1, res.invalid.len());
     let invalid = res.invalid.first().unwrap();
@@ -184,9 +197,13 @@ where
         ..
     } = build_event().await;
     let expected = hex::encode(&store_value);
-    recon::Store::insert_many(&store, &[ReconItem::new(key.clone(), store_value)])
-        .await
-        .unwrap();
+    recon::Store::insert_many(
+        &store,
+        &[ReconItem::new(key.clone(), store_value)],
+        NodeId::random().unwrap().0,
+    )
+    .await
+    .unwrap();
     let value = recon::Store::value_for_key(&store, &key)
         .await
         .unwrap()
@@ -214,9 +231,13 @@ where
         ..
     } = build_event().await;
     let expected = hex::encode(&store_value);
-    recon::Store::insert_many(&store, &[ReconItem::new(key.clone(), store_value)])
-        .await
-        .unwrap();
+    recon::Store::insert_many(
+        &store,
+        &[ReconItem::new(key.clone(), store_value)],
+        NodeId::random().unwrap().0,
+    )
+    .await
+    .unwrap();
     let value = recon::Store::value_for_key(&store, &key)
         .await
         .unwrap()
@@ -248,7 +269,10 @@ async fn prep_highwater_tests(store: &dyn ApiEventService) -> (Cid, Cid, Cid) {
         keys[1].key.cid().unwrap(),
         keys[2].key.cid().unwrap(),
     );
-    store.insert_many(keys).await.unwrap();
+    store
+        .insert_many(keys, NodeId::random().unwrap().0)
+        .await
+        .unwrap();
     res
 }
 
@@ -445,7 +469,10 @@ where
         ..
     } = build_event().await;
     let item = ApiItem::new(key, store_value);
-    store.insert_many(vec![item.clone()]).await.unwrap();
+    store
+        .insert_many(vec![item.clone()], NodeId::random().unwrap().0)
+        .await
+        .unwrap();
 
     let res = store.value_for_order_key(&item.key).await.unwrap().unwrap();
     assert_eq!(&res, item.value.as_ref());
@@ -472,7 +499,10 @@ where
     } = build_event().await;
     let item = ApiItem::new(key, store_value);
 
-    store.insert_many(vec![item.clone()]).await.unwrap();
+    store
+        .insert_many(vec![item.clone()], NodeId::random().unwrap().0)
+        .await
+        .unwrap();
 
     let res = store
         .value_for_cid(&item.key.cid().unwrap())
@@ -589,7 +619,11 @@ async fn test_conclusion_events_since() -> Result<(), Box<dyn std::error::Error>
 
     for event in &test_events {
         service
-            .insert_events(&[event.clone()], DeliverableRequirement::Immediate)
+            .insert_events(
+                &[event.clone()],
+                DeliverableRequirement::Immediate,
+                Some(NodeId::random().unwrap().0),
+            )
             .await?;
     }
 

@@ -5,10 +5,11 @@ use libp2p::swarm::ConnectionId;
 use libp2p_identity::PeerId;
 use tracing::Level;
 
-use crate::protocol::ProtocolConfig;
+use ceramic_core::NodeId;
+
 use crate::{
     libp2p::stream_set::StreamSet,
-    protocol::{self, Recon},
+    protocol::{self, ProtocolConfig, Recon},
 };
 
 // Intiate Recon synchronization with a peer over a stream.
@@ -26,14 +27,15 @@ where
 {
     let codec = CborCodec::new();
     let stream = Framed::new(stream, codec);
-    protocol::initiate_synchronize(recon, stream, ProtocolConfig::new_peer_id(remote_peer_id))
+    let remote_node_id = NodeId::try_from_peer_id(&remote_peer_id)?;
+    protocol::initiate_synchronize(recon, stream, ProtocolConfig::new_node_id(remote_node_id))
         .await?;
     Ok(stream_set)
 }
 // Intiate Recon synchronization with a peer over a stream.
 #[tracing::instrument(skip(recon, stream, ), ret(level = Level::DEBUG))]
 pub async fn respond_synchronize<S, R>(
-    remote_peer_id: PeerId,
+    remote_peer_id: PeerId,      // included for context only
     connection_id: ConnectionId, // included for context only
     stream_set: StreamSet,
     recon: R,
@@ -45,7 +47,8 @@ where
 {
     let codec = CborCodec::new();
     let stream = Framed::new(stream, codec);
-    protocol::respond_synchronize(recon, stream, ProtocolConfig::new_peer_id(remote_peer_id))
+    let remote_node_id = NodeId::try_from_peer_id(&remote_peer_id)?;
+    protocol::respond_synchronize(recon, stream, ProtocolConfig::new_node_id(remote_node_id))
         .await?;
     Ok(stream_set)
 }

@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use ceramic_core::Interest;
+use ceramic_core::{Interest, NodeId};
 use recon::{HashCount, InsertResult, ReconItem, Result as ReconResult, Sha256a};
 use tracing::instrument;
 
@@ -20,6 +20,8 @@ impl recon::Store for InterestService {
     async fn insert_many(
         &self,
         items: &[ReconItem<Self::Key>],
+        // the recon::Store trait is shared between InterestService and EventService but only events track a source.
+        _informant: NodeId,
     ) -> ReconResult<InsertResult<Interest>> {
         let keys = items.iter().map(|item| &item.key).collect::<Vec<_>>();
         Ok(CeramicOneInterest::insert_many(&self.pool, &keys)

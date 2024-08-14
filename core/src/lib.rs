@@ -5,8 +5,8 @@ mod bytes;
 pub mod event_id;
 pub mod interest;
 mod jwk;
-mod key;
 mod network;
+mod node_id;
 mod range;
 mod serialize_ext;
 mod stream_id;
@@ -15,11 +15,8 @@ pub use bytes::Bytes;
 pub use event_id::EventId;
 pub use interest::{Interest, PeerId};
 pub use jwk::Jwk;
-pub use key::{
-    cid_from_ed25519_key_pair, did_from_peer_id, did_key_from_ed25519_key_pair,
-    ed25519_key_pair_from_secret, read_ed25519_key_from_dir,
-};
 pub use network::Network;
+pub use node_id::NodeId;
 pub use range::RangeOpen;
 pub use serialize_ext::SerializeExt;
 pub use stream_id::{StreamId, StreamIdType};

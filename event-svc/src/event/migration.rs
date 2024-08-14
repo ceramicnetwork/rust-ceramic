@@ -161,7 +161,8 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
                 payload.header().controllers()[0].clone(),
                 cid,
             );
-            let event = unvalidated::Event::from(payload);
+            let event = unvalidated::init::Event::new(payload);
+            let event: unvalidated::Event<Ipld> = unvalidated::Event::from(Box::new(event));
             self.batch
                 .push(event_builder.build(&self.network, event).await?);
             if self.batch.len() > 1000 {
@@ -173,7 +174,7 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
     }
     async fn write_batch(&mut self) -> Result<()> {
         self.service
-            .insert_events(&self.batch, DeliverableRequirement::Lazy)
+            .insert_events(&self.batch, DeliverableRequirement::Lazy, None)
             .await
             .map_err(Error::new_fatal)?;
         self.event_count += self.batch.len();
