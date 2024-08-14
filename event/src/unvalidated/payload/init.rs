@@ -1,4 +1,4 @@
-use crate::{bytes::Bytes, unvalidated::cid_from_dag_cbor};
+use crate::{bytes::Bytes, bytes_or_string::BytesOrString, unvalidated::cid_from_dag_cbor};
 use cid::Cid;
 use iroh_car::{CarHeader, CarWriter};
 use serde::{Deserialize, Serialize};
@@ -61,7 +61,7 @@ pub struct Header {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     should_index: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    unique: Option<Bytes>,
+    unique: Option<BytesOrString>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     context: Option<Bytes>,
 }
@@ -81,7 +81,7 @@ impl Header {
             sep: Some(sep),
             model: Bytes::from(model),
             should_index,
-            unique: unique.map(Bytes::from),
+            unique: unique.map(BytesOrString::from),
             context: context.map(Bytes::from),
         }
     }
@@ -111,7 +111,7 @@ impl Header {
 
     /// The unique value for the stream
     pub fn unique(&self) -> Option<&[u8]> {
-        self.unique.as_ref().map(Bytes::as_slice)
+        self.unique.as_ref().map(BytesOrString::as_slice)
     }
 
     /// The context value for the stream

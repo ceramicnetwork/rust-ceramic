@@ -534,4 +534,10 @@ mod tests {
         );
         assert_eq!(TIME_EVENT_CAR, event_car_str);
     }
+    #[test(tokio::test)]
+    async fn decode_init_payload() {
+        let (_,init_payload_data)=multibase::decode("moWZoZWFkZXKiZnVuaXF1ZXBpdTZPN1B0UEtQcS9CUWhEa2NvbnRyb2xsZXJzgXg4ZGlkOmtleTp6Nk1rb3lDY0FhcUJLdm9FaTNGdW1IWjFOdEpFd2NONzNBNnNqSGpGM1JNaEJoY2M").unwrap();
+        let _payload: unvalidated::init::Payload<Ipld> =
+            serde_ipld_dagcbor::from_slice(&init_payload_data).unwrap();
+    }
 }
