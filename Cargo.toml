@@ -7,6 +7,7 @@ members = [
     "event",
     "kubo-rpc",
     "kubo-rpc-server",
+    "macro-ipld-derive",
     "metadata",
     "metrics",
     "one",
@@ -105,6 +106,7 @@ lazy_static = "1.4"
 libp2p = { version = "0.53", default-features = false }
 libp2p-identity = { version = "0.2", features = ["peerid", "ed25519"] }
 lru = "0.10"
+macro_ipld_derive = { path = "./macro-ipld-derive" }
 mime = "0.3"
 mime_classifier = "0.0.1"
 mime_guess = "2.0.4"

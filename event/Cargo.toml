@@ -16,6 +16,7 @@ ceramic-core.workspace = true
 cid.workspace = true
 ipld-core.workspace = true
 iroh-car.workspace = true
+macro_ipld_derive.workspace = true
 multihash-codetable.workspace = true
 multibase.workspace = true
 serde.workspace = true
@@ -26,6 +27,7 @@ tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+hex.workspace = true
 multibase.workspace = true
 serde_ipld_dagjson.workspace = true
 tokio = { workspace = true, features = ["fs", "macros", "rt"] }
