@@ -20,7 +20,7 @@ async fn setup_service() -> EventService {
 
 async fn add_and_assert_new_recon_event(store: &EventService, item: ReconItem<EventId>) {
     tracing::trace!("inserted event: {}", item.key.cid().unwrap());
-    let new = recon::Store::insert_many(store, &[item], NodeId::random().unwrap().0)
+    let new = recon::Store::insert_many(store, &[item], NodeId::random().0)
         .await
         .unwrap();
     assert!(new.included_new_key());

@@ -312,7 +312,8 @@ impl EventService {
 
                 Ok(InsertResult::new_from_store(invalid, store_result))
             }
-        }
+        };
+        store_result
     }
 
     pub(crate) async fn transform_raw_events_to_conclusion_events(
@@ -445,6 +446,7 @@ impl EventService {
         }
     }
 }
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValidationError {
     InvalidFormat {

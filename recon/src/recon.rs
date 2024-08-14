@@ -11,7 +11,7 @@ use std::{
 
 use anyhow::anyhow;
 use async_trait::async_trait;
-use ceramic_core::{EventId, Interest, NodeId, PeerId, RangeOpen};
+use ceramic_core::{EventId, Interest, NodeId, RangeOpen};
 use serde::{Deserialize, Serialize};
 use tracing::{instrument, trace, Level};
 
@@ -830,7 +830,8 @@ where
     S: Store<Key = Interest, Hash = H> + Send + Sync,
 {
     /// Construct an [`InterestProvider`] from a Recon [`Client`] and a [`PeerId`].
-    pub fn new(peer_id: PeerId, store: S) -> Self {
+    pub fn new(node_id: NodeId, store: S) -> Self {
+        let peer_id = node_id.peer_id();
         let sort_key = "model";
         let start = Interest::builder()
             .with_sep_key(sort_key)

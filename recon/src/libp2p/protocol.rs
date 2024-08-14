@@ -28,8 +28,13 @@ where
     let codec = CborCodec::new();
     let stream = Framed::new(stream, codec);
     let remote_node_id = NodeId::try_from_peer_id(&remote_peer_id)?;
-    protocol::initiate_synchronize(recon, stream, ProtocolConfig::new_node_id(remote_node_id))
-        .await?;
+    protocol::initiate_synchronize(
+        recon,
+        stream,
+        ProtocolConfig::new_node_id(remote_node_id),
+        NodeId::try_from_peer_id(&remote_peer_id)?,
+    )
+    .await?;
     Ok(stream_set)
 }
 // Intiate Recon synchronization with a peer over a stream.
@@ -48,7 +53,12 @@ where
     let codec = CborCodec::new();
     let stream = Framed::new(stream, codec);
     let remote_node_id = NodeId::try_from_peer_id(&remote_peer_id)?;
-    protocol::respond_synchronize(recon, stream, ProtocolConfig::new_node_id(remote_node_id))
-        .await?;
+    protocol::respond_synchronize(
+        recon,
+        stream,
+        ProtocolConfig::new_node_id(remote_node_id),
+        NodeId::try_from_peer_id(&remote_peer_id)?,
+    )
+    .await?;
     Ok(stream_set)
 }

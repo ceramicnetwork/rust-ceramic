@@ -1,6 +1,8 @@
 use std::{path::PathBuf, time::Duration};
 
 use anyhow::{anyhow, Context, Result};
+use ceramic_anchor_remote::RemoteCas;
+use ceramic_anchor_service::AnchorService;
 use ceramic_core::NodeId;
 use ceramic_event_svc::EventService;
 use ceramic_interest_svc::InterestService;
@@ -178,6 +180,41 @@ pub struct DaemonOpts {
         requires = "experimental_features"
     )]
     flight_sql_bind_address: Option<String>,
+
+    /// Remote anchor service URL
+    #[arg(long, env = "CERAMIC_ONE_REMOTE_ANCHOR_SERVICE_URL")]
+    remote_anchor_service_url: Option<String>,
+
+    /// Ceramic One anchor interval in seconds
+    #[arg(long, default_value_t = 3600, env = "CERAMIC_ONE_ANCHOR_INTERVAL")]
+    anchor_interval: u64,
+
+    /// Ceramic One anchor batch size
+    #[arg(
+        long,
+        default_value_t = 1_000_000,
+        hide = true,
+        env = "CERAMIC_ONE_ANCHOR_BATCH_SIZE"
+    )]
+    anchor_batch_size: u64,
+
+    /// Ceramic One anchor polling interval in seconds
+    #[arg(
+        long,
+        default_value_t = 300,
+        hide = true,
+        env = "CERAMIC_ONE_ANCHOR_POLL_INTERVAL"
+    )]
+    anchor_poll_interval: u64,
+
+    /// Ceramic One anchor polling retry count
+    #[arg(
+        long,
+        default_value_t = 12,
+        hide = true,
+        env = "CERAMIC_ONE_ANCHOR_POLL_RETRY_COUNT"
+    )]
+    anchor_poll_retry_count: u64,
 }
 
 // Start the daemon process
@@ -285,8 +322,14 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
             "initializing p2p key: using p2p_key_dir={}",
             opts.p2p_key_dir.display()
         ))?;
-    let keypair = load_identity(&mut kc).await?;
-    let peer_id = keypair.public().to_peer_id();
+    let libp2p_keypair = load_identity(&mut kc).await?;
+    let peer_id = libp2p_keypair.public().to_peer_id();
+
+    // Load node ID from key directory. Libp2p has their own wrapper around ed25519 keys (╯°□°)╯︵ ┻━┻
+    // So, we need to load the key from the key directory for libp2p to use, and then again for evaluating the Node ID
+    // using a generic ed25519 processing library (ring). We'll assert that the keys are the same.
+    let (node_id, keypair) = NodeId::try_from_dir(opts.p2p_key_dir.clone())?;
+    assert_eq!(node_id.peer_id(), peer_id);
 
     // Register metrics for all components
     let recon_metrics = MetricsHandle::register(recon::Metrics::register);
@@ -331,7 +374,7 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
     let recon_model_svr = Recon::new(
         model_store.clone(),
         // Use recon interests as the InterestProvider for recon_model
-        ReconInterestProvider::new(peer_id, interest_store.clone()),
+        ReconInterestProvider::new(node_id, interest_store.clone()),
         recon_metrics,
     );
 
@@ -340,7 +383,13 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
         ceramic_metrics::MetricsHandle::register(ceramic_kubo_rpc::IpfsMetrics::register);
     let p2p_metrics = MetricsHandle::register(ceramic_p2p::Metrics::register);
     let ipfs = Ipfs::<EventService>::builder()
-        .with_p2p(p2p_config, keypair, recons, event_svc.clone(), p2p_metrics)
+        .with_p2p(
+            p2p_config,
+            libp2p_keypair,
+            recons,
+            event_svc.clone(),
+            p2p_metrics,
+        )
         .await?
         .build(event_svc.clone(), ipfs_metrics)
         .await
@@ -385,6 +434,43 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
     } else {
         None
     };
+
+    // Start anchoring if remote anchor service URL is provided
+    let anchor_service_handle =
+        if let Some(remote_anchor_service_url) = opts.remote_anchor_service_url {
+            info!(
+                node_did = node_id.did_key(),
+                url = remote_anchor_service_url,
+                poll_interval = opts.anchor_poll_interval,
+                "starting remote cas anchor service"
+            );
+            let remote_cas = RemoteCas::new(
+                node_id,
+                keypair,
+                remote_anchor_service_url,
+                Duration::from_secs(opts.anchor_poll_interval),
+                opts.anchor_poll_retry_count,
+            );
+            let mut anchor_service = AnchorService::new(
+                Arc::new(remote_cas),
+                event_svc.clone(),
+                sqlite_pool.clone(),
+                node_id,
+                Duration::from_secs(opts.anchor_interval),
+                opts.anchor_batch_size,
+            );
+
+            let mut shutdown_signal = shutdown_signal.resubscribe();
+            Some(tokio::spawn(async move {
+                anchor_service
+                    .run(async move {
+                        let _ = shutdown_signal.recv().await;
+                    })
+                    .await
+            }))
+        } else {
+            None
+        };
 
     // Build HTTP server
     let (node_id, _) = NodeId::try_from_dir(opts.p2p_key_dir.clone())?;
@@ -456,6 +542,10 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
 
     if let Some(flight_handle) = flight_handle {
         let _ = flight_handle.await;
+    }
+
+    if let Some(anchor_service_handle) = anchor_service_handle {
+        let _ = anchor_service_handle.await;
     }
 
     Ok(())

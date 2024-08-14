@@ -1,11 +1,18 @@
-use std::sync::Arc;
-use std::time::Duration;
-
 use anyhow::Result;
 use async_trait::async_trait;
+use ceramic_core::{Cid, NodeId};
+use ceramic_sql::sqlite::SqlitePool;
+use futures::future::{select, Either, FutureExt};
+use futures::pin_mut;
+use indexmap::IndexMap;
+use std::future::Future;
+use std::{sync::Arc, time::Duration};
+use tokio::time::interval;
+use tracing::{error, info};
 
+use crate::high_water_mark_store::HighWaterMarkStore;
 use crate::{
-    anchor::{AnchorRequest, TimeEventBatch},
+    anchor::{AnchorRequest, TimeEventBatch, TimeEventInsertable},
     merkle_tree::{build_merkle_tree, MerkleTree},
     time_event::build_time_events,
     transaction_manager::{RootTimeEvent, TransactionManager},
@@ -14,31 +21,121 @@ use crate::{
 /// ceramic_anchor_service::Store is responsible for fetching AnchorRequests and storing TimeEvents.
 #[async_trait]
 pub trait Store: Send + Sync {
-    /// Get a batch of AnchorRequests.
-    async fn local_sourced_data_events(&self) -> Result<Vec<AnchorRequest>>;
     /// Store a batch of TimeEvents.
-    async fn put_time_events(&self, batch: TimeEventBatch) -> Result<()>;
+    async fn insert_many(&self, items: Vec<TimeEventInsertable>, informant: NodeId) -> Result<()>;
+    /// Get a batch of AnchorRequests.
+    async fn events_since_high_water_mark(
+        &self,
+        informant: NodeId,
+        high_water_mark: i64,
+        limit: i64,
+    ) -> Result<Vec<AnchorRequest>>;
 }
 
 /// An AnchorService is responsible for anchoring batches of AnchorRequests and storing TimeEvents generated based on
 /// the requests and the anchor proof.
 pub struct AnchorService {
     tx_manager: Arc<dyn TransactionManager>,
-    _event_service: Arc<dyn Store>,
-    _batch_linger_time: Duration,
+    event_service: Arc<dyn Store>,
+    high_water_mark_store: HighWaterMarkStore,
+    node_id: NodeId,
+    anchor_interval: Duration,
+    anchor_batch_size: u64,
 }
 
 impl AnchorService {
     /// Create a new AnchorService.
     pub fn new(
         tx_manager: Arc<dyn TransactionManager>,
-        _event_service: Arc<dyn Store>,
-        _batch_linger_time: Duration,
+        event_service: Arc<dyn Store>,
+        pool: SqlitePool,
+        node_id: NodeId,
+        anchor_interval: Duration,
+        anchor_batch_size: u64,
     ) -> Self {
         Self {
             tx_manager,
-            _event_service,
-            _batch_linger_time,
+            event_service,
+            high_water_mark_store: HighWaterMarkStore::new(pool),
+            node_id,
+            anchor_interval,
+            anchor_batch_size,
+        }
+    }
+
+    /// Run the AnchorService:
+    /// - Get anchor requests from the AnchorClient
+    /// - Deduplicate the anchor requests
+    /// - Anchor the batch using a Transaction Manager
+    /// - Store the TimeEvents using the AnchorClient
+    ///
+    /// This function will run indefinitely, or until the process is shutdown.
+    pub async fn run(&mut self, shutdown_signal: impl Future<Output = ()>) {
+        let mut interval = interval(self.anchor_interval);
+        let shutdown_signal = shutdown_signal.fuse();
+        pin_mut!(shutdown_signal);
+
+        info!("anchor service started");
+
+        loop {
+            let tick_future = interval.tick().fuse();
+            pin_mut!(tick_future);
+
+            match select(tick_future, &mut shutdown_signal).await {
+                Either::Left((_, _)) => {
+                    // Interval tick occurred
+                    if let Err(e) = self.process_next_batch().await {
+                        error!("Error processing batch: {:?}", e);
+                    }
+                }
+                Either::Right((_, _)) => {
+                    break;
+                }
+            }
+        }
+        info!("anchor service stopped");
+    }
+
+    async fn process_next_batch(&mut self) -> Result<()> {
+        // Pass the anchor requests through a deduplication step to avoid anchoring multiple Data Events from the same
+        // Stream.
+        let high_water_mark = self
+            .high_water_mark_store
+            .high_water_mark()
+            .await
+            .expect("error getting high water mark from database");
+        // Get the next batch of anchor requests
+        let anchor_requests: Vec<AnchorRequest> = match self
+            .event_service
+            .events_since_high_water_mark(
+                self.node_id,
+                high_water_mark,
+                self.anchor_batch_size as i64,
+            )
+            .await
+        {
+            Ok(requests) => IndexMap::<Cid, AnchorRequest>::from_iter(
+                requests.into_iter().map(|request| (request.id, request)),
+            )
+            .into_values()
+            .collect(),
+            Err(e) => {
+                return Err(e);
+            }
+        };
+        if anchor_requests.is_empty() {
+            info!("no requests to anchor");
+            return Ok(());
+        }
+        // Anchor the batch to the CAS. This may block for a long time.
+        match self.anchor_batch(anchor_requests.as_slice()).await {
+            Ok(time_event_batch) => {
+                if let Err(e) = self.store_time_events(time_event_batch).await {
+                    error!("error writing time events: {:?}", e);
+                }
+                Ok(())
+            }
+            Err(e) => Err(e),
         }
     }
 
@@ -51,7 +148,7 @@ impl AnchorService {
     pub async fn anchor_batch(&self, anchor_requests: &[AnchorRequest]) -> Result<TimeEventBatch> {
         let MerkleTree {
             root_cid,
-            nodes,
+            nodes: local_merkle_nodes,
             count,
         } = build_merkle_tree(anchor_requests)?;
         let RootTimeEvent {
@@ -60,11 +157,34 @@ impl AnchorService {
             mut remote_merkle_nodes,
         } = self.tx_manager.anchor_root(root_cid).await?;
         let time_events = build_time_events(anchor_requests, &detached_time_event, count)?;
-        remote_merkle_nodes.extend(nodes);
+        remote_merkle_nodes.extend(local_merkle_nodes);
         Ok(TimeEventBatch {
             merkle_nodes: remote_merkle_nodes,
             proof,
-            time_events,
+            raw_time_events: time_events,
         })
+    }
+
+    async fn store_time_events(&self, time_event_batch: TimeEventBatch) -> Result<()> {
+        match time_event_batch.try_to_insertables() {
+            Ok(insertables) => {
+                self.event_service
+                    .insert_many(insertables, self.node_id)
+                    .await?;
+                // Update the high water mark
+                let new_high_water_mark = time_event_batch
+                    .raw_time_events
+                    .events
+                    .last()
+                    .expect("should have at least one event in the batch")
+                    .0
+                    .resume_token;
+                Ok(self
+                    .high_water_mark_store
+                    .insert_high_water_mark(new_high_water_mark)
+                    .await?)
+            }
+            Err(e) => Err(e),
+        }
     }
 }

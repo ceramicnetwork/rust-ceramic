@@ -67,7 +67,7 @@ pub struct RemoteCas {
     signing_key: Ed25519KeyPair,
     url: String,
     poll_interval: Duration,
-    poll_retry_count: u32,
+    poll_retry_count: u64,
     jws_header_b64: String,
     http_client: reqwest::Client,
 }
@@ -116,7 +116,7 @@ impl RemoteCas {
         keypair: Ed25519KeyPair,
         remote_anchor_service_url: String,
         anchor_poll_interval: Duration,
-        anchor_poll_retry_count: u32,
+        anchor_poll_retry_count: u64,
     ) -> Self {
         let controller = node_id.did_key();
         let jws_header = Header {
@@ -241,6 +241,7 @@ mod tests {
 
     use ceramic_anchor_service::{AnchorService, MockAnchorClient, Store, TransactionManager};
     use ceramic_core::Cid;
+    use ceramic_sql::sqlite::SqlitePool;
 
     fn node_id_and_private_key() -> (NodeId, Ed25519KeyPair) {
         NodeId::try_from_secret(
@@ -259,7 +260,10 @@ mod tests {
     #[ignore]
     async fn test_anchor_batch_with_cas() {
         let anchor_client = Arc::new(MockAnchorClient::new(10));
-        let anchor_requests = anchor_client.local_sourced_data_events().await.unwrap();
+        let anchor_requests = anchor_client
+            .events_since_high_water_mark(NodeId::random().0, 0, 0)
+            .await
+            .unwrap();
         let (node_id, keypair) = node_id_and_private_key();
         let remote_cas = Arc::new(RemoteCas::new(
             node_id,
@@ -268,7 +272,14 @@ mod tests {
             Duration::from_secs(1),
             1,
         ));
-        let anchor_service = AnchorService::new(remote_cas, anchor_client, Duration::from_secs(1));
+        let anchor_service = AnchorService::new(
+            remote_cas,
+            anchor_client,
+            SqlitePool::connect_in_memory().await.unwrap(),
+            NodeId::random().0,
+            Duration::from_secs(1),
+            10,
+        );
         let all_blocks = anchor_service
             .anchor_batch(anchor_requests.as_slice())
             .await

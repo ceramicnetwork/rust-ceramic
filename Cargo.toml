@@ -60,6 +60,7 @@ bytecheck = "0.6.7"
 bytes = "1.1"
 bytesize = "1.1"
 ceramic-anchor-service = { path = "./anchor-service" }
+ceramic-anchor-remote = { path = "./anchor-remote" }
 ceramic-api = { path = "./api" }
 ceramic-api-server = { path = "./api-server" }
 ceramic-arrow-test = { path = "./arrow-test" }

@@ -66,10 +66,10 @@ where
     let init_cid = one.key.cid().unwrap();
     let min_id = event_id_min(&init_cid, &model);
     let max_id = event_id_max(&init_cid, &model);
-    recon::Store::insert_many(&store, &[one.clone()], NodeId::random().unwrap().0)
+    recon::Store::insert_many(&store, &[one.clone()], NodeId::random().0)
         .await
         .unwrap();
-    recon::Store::insert_many(&store, &[two.clone()], NodeId::random().unwrap().0)
+    recon::Store::insert_many(&store, &[two.clone()], NodeId::random().0)
         .await
         .unwrap();
     let values: Vec<(EventId, Vec<u8>)> =
@@ -105,20 +105,16 @@ where
     let item = &[ReconItem::new(id, car)];
 
     // first insert reports its a new key
-    assert!(
-        recon::Store::insert_many(&store, item, NodeId::random().unwrap().0)
-            .await
-            .unwrap()
-            .included_new_key()
-    );
+    assert!(recon::Store::insert_many(&store, item, NodeId::random().0)
+        .await
+        .unwrap()
+        .included_new_key());
 
     // second insert of same key reports it already existed
-    assert!(
-        !recon::Store::insert_many(&store, item, NodeId::random().unwrap().0)
-            .await
-            .unwrap()
-            .included_new_key()
-    );
+    assert!(!recon::Store::insert_many(&store, item, NodeId::random().0)
+        .await
+        .unwrap()
+        .included_new_key());
 }
 
 test_with_dbs!(
@@ -145,7 +141,7 @@ where
     let actual = recon::Store::insert_many(
         &store,
         &[ReconItem::new(id.clone(), car1)],
-        NodeId::random().unwrap().0,
+        NodeId::random().0,
     )
     .await
     .unwrap();
@@ -154,7 +150,7 @@ where
     let res = recon::Store::insert_many(
         &store,
         &[ReconItem::new(id.clone(), car2)],
-        NodeId::random().unwrap().0,
+        NodeId::random().0,
     )
     .await
     .unwrap();
@@ -200,7 +196,7 @@ where
     recon::Store::insert_many(
         &store,
         &[ReconItem::new(key.clone(), store_value)],
-        NodeId::random().unwrap().0,
+        NodeId::random().0,
     )
     .await
     .unwrap();
@@ -234,7 +230,7 @@ where
     recon::Store::insert_many(
         &store,
         &[ReconItem::new(key.clone(), store_value)],
-        NodeId::random().unwrap().0,
+        NodeId::random().0,
     )
     .await
     .unwrap();
@@ -269,10 +265,7 @@ async fn prep_highwater_tests(store: &dyn ApiEventService) -> (Cid, Cid, Cid) {
         keys[1].key.cid().unwrap(),
         keys[2].key.cid().unwrap(),
     );
-    store
-        .insert_many(keys, NodeId::random().unwrap().0)
-        .await
-        .unwrap();
+    store.insert_many(keys, NodeId::random().0).await.unwrap();
     res
 }
 
@@ -470,7 +463,7 @@ where
     } = build_event().await;
     let item = ApiItem::new(key, store_value);
     store
-        .insert_many(vec![item.clone()], NodeId::random().unwrap().0)
+        .insert_many(vec![item.clone()], NodeId::random().0)
         .await
         .unwrap();
 
@@ -500,7 +493,7 @@ where
     let item = ApiItem::new(key, store_value);
 
     store
-        .insert_many(vec![item.clone()], NodeId::random().unwrap().0)
+        .insert_many(vec![item.clone()], NodeId::random().0)
         .await
         .unwrap();
 

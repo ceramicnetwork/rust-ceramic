@@ -57,7 +57,7 @@ pub struct EventInsertable {
 
 impl EventInsertable {
     /// EventInsertable constructor
-    pub fn new(
+    pub fn try_new(
         order_key: EventId,
         event_cid: Cid,
         deliverable: bool,

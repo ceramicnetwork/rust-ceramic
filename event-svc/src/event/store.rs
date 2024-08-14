@@ -1,14 +1,16 @@
 use std::ops::Range;
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Context, Result};
+use async_trait::async_trait;
 use ceramic_core::{EventId, NodeId};
+use ceramic_event::unvalidated::Event;
 use cid::Cid;
 use iroh_bitswap::Block;
 use recon::{HashCount, ReconItem, Result as ReconResult, Sha256a};
 use tracing::info;
 
 use crate::event::{DeliverableRequirement, EventService};
-use crate::store::{CeramicOneBlock, CeramicOneEvent};
+use crate::store::{CeramicOneBlock, CeramicOneEvent, EventInsertable};
 use crate::Error;
 
 use super::service::{InsertResult, ValidationError, ValidationRequirement};
@@ -262,5 +264,51 @@ impl ceramic_api::EventService for EventService {
     async fn get_block(&self, cid: &Cid) -> anyhow::Result<Option<Vec<u8>>> {
         let block = CeramicOneBlock::get(&self.pool, cid).await?;
         Ok(block.map(|b| b.data.to_vec()))
+    }
+}
+
+#[async_trait]
+impl ceramic_anchor_service::Store for EventService {
+    async fn insert_many(
+        &self,
+        items: Vec<ceramic_anchor_service::TimeEventInsertable>,
+        informant: NodeId,
+    ) -> Result<()> {
+        let items = items
+            .into_iter()
+            .map(|insertable| {
+                EventInsertable::try_new(
+                    insertable.event_id,
+                    insertable.cid,
+                    Event::Time(Box::new(insertable.event)),
+                    Some(informant),
+                    true,
+                )
+                .map_err(|e| anyhow!("could not create EventInsertable: {}", e))
+            })
+            .collect::<Result<Vec<EventInsertable>>>()?;
+        CeramicOneEvent::insert_many(&self.pool, items.iter())
+            .await
+            .context("anchoring insert_many failed")?;
+        Ok(())
+    }
+
+    async fn events_since_high_water_mark(
+        &self,
+        informant: NodeId,
+        high_water_mark: i64,
+        limit: i64,
+    ) -> Result<Vec<ceramic_anchor_service::AnchorRequest>> {
+        // Fetch event CIDs from the events table using the previous high water mark
+        Ok(
+            CeramicOneEvent::data_events_by_informant(
+                &self.pool,
+                informant,
+                high_water_mark,
+                limit,
+            )
+            .await
+            .map_err(|e| Error::new_app(anyhow!("could not fetch events by informant: {}", e)))?,
+        )
     }
 }
