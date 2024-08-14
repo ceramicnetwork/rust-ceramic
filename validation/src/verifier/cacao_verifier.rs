@@ -56,7 +56,7 @@ impl Verifier for Capability {
                     };
                     let did = meta
                         .kid
-                        .split_once("#")
+                        .split_once('#')
                         .map_or(meta.kid.as_str(), |(k, _)| k);
                     // TODO: use time here?
                     let signer_did = Jwk::resolve_did(did, &ResolutionInputMetadata::default())

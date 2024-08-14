@@ -6,29 +6,16 @@ pub mod signed;
 
 pub use builder::*;
 pub use event::*;
-use multihash_codetable::{Code, MultihashDigest};
 pub use payload::*;
-
-use cid::Cid;
-use ipld_core::{codec::Codec, ipld::Ipld};
-use serde_ipld_dagcbor::codec::DagCborCodec;
-
-fn cid_from_dag_cbor(data: &[u8]) -> Cid {
-    Cid::new_v1(
-        <DagCborCodec as Codec<Ipld>>::CODE,
-        Code::Sha2_256.digest(data),
-    )
-}
-
-fn cid_from_dag_jose(data: &[u8]) -> Cid {
-    Cid::new_v1(
-        0x85, // TODO use constant for DagJose codec
-        Code::Sha2_256.digest(data),
-    )
-}
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
+    use expect_test::expect;
+    use serde::{Deserialize, Serialize};
+
+    use ceramic_core::SerializeExt;
 
     pub const SIGNED_INIT_EVENT_CID: &str =
         "bagcqcerar2aga7747dm6fota3iipogz4q55gkaamcx2weebs6emvtvie2oha";
@@ -54,4 +41,42 @@ mod tests {
     pub const TIME_EVENT_CAR_MULTI_EVENT_BATCH: &str = "mOqJlcm9vdHOB2CpYJQABcRIgL4UtIONTCPoEwUqgviwfyYNUmHFm/2CX5zTiYjE1v35ndmVyc2lvbgHJAQFxEiAvhS0g41MI+gTBSqC+LB/Jg1SYcWb/YJfnNOJiMTW/fqRiaWTYKlgmAAGFARIgvH8vy3q0gSOzzGcK5p3qqUascjW3pNmumn3mvZUnToBkcGF0aHMwLzAvMC8wLzAvMC8wLzAvMC8wZHByZXbYKlgmAAGFARIgvH8vy3q0gSOzzGcK5p3qqUascjW3pNmumn3mvZUnToBlcHJvb2bYKlglAAFxEiBI8mz+1T/2/X8/intyZfWokF1bkIl092NtMxkdmFnE5K0BAXESIEjybP7VP/b9fz+Ke3Jl9aiQXVuQiXT3Y20zGR2YWcTkpGRyb2902CpYJQABcRIgGjFZMMNqYlLBV6Vlt/ypaSMPqozWlRclOBOKxXlIj2VmdHhIYXNo2CpYJQABABIgDMTDU9CHV07kv3IZKMXr8T5oDcZ/RB2Yywk01u71CxJmdHhUeXBlamYoYnl0ZXMzMilnY2hhaW5JZG9laXAxNTU6MTExNTUxMTFPAXESIBoxWTDDamJSwVelZbf8qWkjD6qM1pUXJTgTisV5SI9lgtgqWCUAAXESINjOTPkCIrSQB0AgMg5oF0obIeY3xu6Q9cHaE3h3wDJX9ncBcRIg2M5M+QIitJAHQCAyDmgXShsh5jfG7pD1wdoTeHfAMleC2CpYJQABcRIgVKc2BLeGYg1hnrpRZYOw7JBz+ZxrnSFn/32zAAuvNRvYKlglAAEAEiBJOxB7Fxf5KKqUhTiV8CwpZifLmMc6P6h0RultS4FbO08BcRIgVKc2BLeGYg1hnrpRZYOw7JBz+ZxrnSFn/32zAAuvNRuC2CpYJQABcRIgyMZsL6z6pL100RyxEJVUsYa3gXOrpxgVFnW5RQcgDYL2TwFxEiDIxmwvrPqkvXTRHLEQlVSxhreBc6unGBUWdblFByANgoLYKlglAAFxEiBkuXbdpR3FWu/GWyYRzWOXNNsxtKOQre6IhbBmG5SDb/ZPAXESIGS5dt2lHcVa78ZbJhHNY5c02zG0o5Ct7oiFsGYblINvgtgqWCUAAXESIAhQlsp/RGl5YjMifeWkIFQ2csfcZWZAxZfseaZIHHBz9ncBcRIgCFCWyn9EaXliMyJ95aQgVDZyx9xlZkDFl+x5pkgccHOC2CpYJQABcRIgmSjP3429NWJwGNLzPuTshsW8ctiLMrrCrfpgbGTCFzbYKlglAAEAEiAlPPre/NjFSlr/4ya1JjfeGGCKRV6IAy4ppj/NC2/ocXcBcRIgmSjP3429NWJwGNLzPuTshsW8ctiLMrrCrfpgbGTCFzaC2CpYJQABcRIgGLdpV60S9zCsfdgQwEfu+XTPtAlcY1HY/zuD8FnnglTYKlglAAEAEiAYou7Ha8Gu3yfyK0s67W5TYPwpQPqH2NCBdyO6fw/0hXcBcRIgGLdpV60S9zCsfdgQwEfu+XTPtAlcY1HY/zuD8FnnglSC2CpYJQABcRIgl8D99pasirZzSUiLhYIOtFxC6ly1FoTFPw2koWa39hPYKlglAAEAEiCAiaKs0l1CZmdKsmk1a+VQmvHHJK4RWEuu6Wc4yi0djHcBcRIgl8D99pasirZzSUiLhYIOtFxC6ly1FoTFPw2koWa39hOC2CpYJQABcRIgud0GzkB9pc99WOltHHDmEKam2T9uyK+nvVAm1EsNbKbYKlglAAEAEiC6ZS2N7A859jNo1M3LqcpnAuK7PTJz7n8QJoEwISiGJXgBcRIgud0GzkB9pc99WOltHHDmEKam2T9uyK+nvVAm1EsNbKaC2CpYJgABhQESILx/L8t6tIEjs8xnCuad6qlGrHI1t6TZrpp95r2VJ06A2CpYJQABABIgvNbmQYMKhUmrsA8r5GGzDpcPkI//HPsid9wCi0ZhUsM";
 
     pub const UNSIGNED_INIT_NO_SEP_CAR:&str="uOqJlcm9vdHOB2CpYJQABcRIgrY2L_wTWrzng7Mpf2kvh9Q9Uyz-Ei2CF7NfjzRD0illndmVyc2lvbgG5AwFxEiCtjYv_BNavOeDsyl_aS-H1D1TLP4SLYIXs1-PNEPSKWaJkZGF0YaZkZGF0YaNjdXJsYGVsYWJlbGdGYXN0aW5nbmNoaWxkcmVuSGlkZGVu9GR0eXBlbFF1ZXN0aW9uTm9kZWdjcmVhdGVkeBgyMDIzLTAyLTIwVDE1OjE5OjM2LjI3OVpocG9zaXRpb26iYXj7QKWDkiAAAABheftAtqeAAAAAAGlsYXRlcmFsSUR4JDY5YWFmMzdkLTU1OWItNGI5NS1hMTAwLTVlZTk4MThmYzVlZGlwcm9qZWN0SUR4P2tqemw2a2N5bTd3OHk1ZDY1Zjlva240cml5ZGF0OTJoM3M2dnZ6cHd3dTc1NDRpOTJmanlnYzU2N2x6aHJ2Y2ZoZWFkZXKjZW1vZGVsWCjOAQIBhQESIJbss9X3kzfag-eF6OFx0KDIOV6P5DxOi-cWAWnTN5FjZnVuaXF1ZUwq2_OJxYVaSoawmJtrY29udHJvbGxlcnOBeDtkaWQ6cGtoOmVpcDE1NToxOjB4Y2E1ZmY0YjM0NDJmY2FjMjdlMWFmNDQ1N2UwMmViNjI5YzcxMjk4Mw";
+
+    #[derive(Serialize, Deserialize)]
+    struct TestStruct {
+        a: u32,
+        b: String,
+        c: Vec<u8>,
+        d: Option<u32>,
+        e: Option<u32>,
+        f: bool,
+        g: BTreeMap<String, u32>,
+    }
+
+    #[test]
+    fn test_derive_serde_ipld() {
+        let test_struct = TestStruct {
+            a: 42,
+            b: "hello".to_string(),
+            c: vec![1, 2, 3],
+            d: Some(42),
+            e: None,
+            f: true,
+            g: BTreeMap::from([
+                ("a".to_owned(), 1),
+                ("b".to_owned(), 2),
+                ("c".to_owned(), 3),
+            ]),
+        };
+        expect![[
+            r#"{"a":42,"b":"hello","c":[1,2,3],"d":42,"e":null,"f":true,"g":{"a":1,"b":2,"c":3}}"#
+        ]]
+        .assert_eq(&test_struct.to_json().unwrap());
+        expect![
+            "a76161182a61626568656c6c6f6163830102036164182a6165f66166f56167a3616101616202616303"
+        ]
+        .assert_eq(&hex::encode(test_struct.to_cbor().unwrap()));
+        expect!["bafyreig5jqfc6u6rrotcohh42jvrcnyracgpasd6lnbkbjottvw4uwxs3e"]
+            .assert_eq(&test_struct.to_cid().unwrap().to_string());
+    }
 }
