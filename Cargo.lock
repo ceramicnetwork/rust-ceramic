@@ -1042,6 +1042,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "ceramic-anchor-tx"
+version = "0.32.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.21.7",
+ "ceramic-anchor-service",
+ "ceramic-core",
+ "ceramic-event",
+ "chrono",
+ "expect-test",
+ "futures",
+ "hex",
+ "iroh-car",
+ "multihash-codetable",
+ "reqwest",
+ "ring 0.17.8",
+ "serde",
+ "serde_ipld_dagcbor",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid 1.8.0",
+]
+
+[[package]]
 name = "ceramic-api"
 version = "0.32.0"
 dependencies = [
@@ -1117,10 +1143,12 @@ dependencies = [
  "multihash-derive 0.9.0",
  "once_cell",
  "regex",
+ "ring 0.17.8",
  "serde",
  "serde_bytes",
  "serde_ipld_dagcbor",
  "serde_json",
+ "ssh-key",
  "ssi",
  "test-log",
  "tokio",

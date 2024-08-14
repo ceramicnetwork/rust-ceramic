@@ -23,10 +23,12 @@ multihash-codetable.workspace = true
 multihash-derive.workspace = true
 once_cell.workspace = true
 regex.workspace = true
+ring.workspace = true
 serde.workspace = true
 serde_bytes.workspace = true
 serde_ipld_dagcbor.workspace = true
 serde_json.workspace = true
+ssh-key.workspace = true
 ssi.workspace = true
 unsigned-varint.workspace = true
 
