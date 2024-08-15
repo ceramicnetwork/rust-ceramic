@@ -49,17 +49,13 @@ impl OrderEvents {
         let mut deliverable = Vec::with_capacity(candidate_events.len());
         let mut remaining_candidates = Vec::with_capacity(candidate_events.len());
 
-        while !candidate_events.is_empty() {
-            let (e, h) = candidate_events.pop().unwrap();
+        for (e, h) in candidate_events {
             if e.deliverable() {
                 deliverable.push((e, h))
             } else {
                 remaining_candidates.push((e, h))
             }
         }
-        // Need to reverse the vectors because we popped events off of candidate_events from back to front
-        deliverable.reverse();
-        remaining_candidates.reverse();
 
         if remaining_candidates.is_empty() {
             return Ok(OrderEvents {
