@@ -66,6 +66,27 @@ impl EventInsertable {
         }
     }
 
+    /// Get the CID of the event
+    pub fn cid(&self) -> Cid {
+        self.cid
+    }
+
+    /// Underlying bytes that make up the event
+    pub fn blocks(&self) -> &Vec<EventBlockRaw> {
+        &self.blocks
+    }
+
+    /// Whether this event is deliverable currently
+    pub fn deliverable(&self) -> bool {
+        self.deliverable
+    }
+
+    /// Mark the event as deliverable.
+    /// This will be used when inserting the event to make sure the field is updated accordingly.
+    pub fn set_deliverable(&mut self, deliverable: bool) {
+        self.deliverable = deliverable;
+    }
+
     /// Try to build the EventInsertable struct from a carfile.
     pub async fn try_from_carfile(order_key: EventId, body: &[u8]) -> Result<Self> {
         let cid = order_key.cid().ok_or_else(|| {
@@ -105,26 +126,5 @@ impl EventInsertable {
             blocks,
             deliverable: false,
         })
-    }
-
-    /// Get the CID of the event
-    pub fn cid(&self) -> Cid {
-        self.cid
-    }
-
-    /// Whether this event is deliverable currently
-    pub fn deliverable(&self) -> bool {
-        self.deliverable
-    }
-
-    /// Underlying bytes that make up the event
-    pub fn blocks(&self) -> &Vec<EventBlockRaw> {
-        &self.blocks
-    }
-
-    /// Mark the event as deliverable.
-    /// This will be used when inserting the event to make sure the field is updated accordingly.
-    pub fn set_deliverable(&mut self, deliverable: bool) {
-        self.deliverable = deliverable;
     }
 }
