@@ -131,7 +131,7 @@ impl StreamEvent {
                 .await
                 .map_err(Error::new_app)?;
 
-            let metadata = EventMetadata::from(parsed);
+            let metadata = EventMetadata::from(&parsed);
 
             let known_prev = match &metadata {
                 EventMetadata::Init => {
@@ -541,7 +541,7 @@ impl OrderingState {
         let mut event_cnt = 0;
         let mut discovered_inits = Vec::new();
         for (cid, parsed_event) in event_data {
-            let metadata = EventMetadata::from(parsed_event);
+            let metadata = EventMetadata::from(&parsed_event);
 
             let (stream_cid, loaded) = match &metadata {
                 EventMetadata::Init => {
@@ -610,7 +610,7 @@ mod test {
         let mut res = Vec::with_capacity(n);
         let events = get_n_events(n).await;
         for event in events {
-            let (event, _) = CeramicEventService::parse_discovered_event(&event)
+            let event = CeramicEventService::parse_discovered_event(&event)
                 .await
                 .unwrap();
             res.push(event);

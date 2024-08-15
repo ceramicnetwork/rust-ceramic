@@ -1,14 +1,18 @@
 use std::str::FromStr;
 
+use crate::{CeramicOneEvent, EventInsertable, SqlitePool};
 use ceramic_core::{
     event_id::{Builder, WithInit},
     EventId, Network,
 };
+use ceramic_event::unvalidated;
 use cid::Cid;
 use expect_test::expect;
+use ipld_core::codec::Codec;
+use ipld_core::ipld::Ipld;
+use multihash_codetable::{Code, MultihashDigest};
+use serde_ipld_dagcbor::codec::DagCborCodec;
 use test_log::test;
-
-use crate::{CeramicOneEvent, EventInsertable, SqlitePool};
 
 const MODEL_ID: &str = "k2t6wz4yhfp1r5pwi52gw89nzjbu53qk7m32o5iguw42c6knsaj0feuf927agb";
 const CONTROLLER: &str = "did:key:z6Mkqtw7Pj5Lv9xc4PgUYAnwfaVoMC6FRneGWVr5ekTEfKVL";
@@ -24,20 +28,40 @@ fn event_id_builder() -> Builder<WithInit> {
         .with_init(&Cid::from_str(INIT_ID).unwrap())
 }
 
-fn random_event(cid: &str) -> EventInsertable {
-    let order_key = event_id_builder()
-        .with_event(&Cid::from_str(cid).unwrap())
-        .build();
-    EventInsertable::new(order_key, vec![], true)
+fn random_events(num: usize) -> Vec<EventInsertable> {
+    let mut events = Vec::with_capacity(num);
+
+    for i in 0..num {
+        let header = unvalidated::init::Header::new(
+            vec![format!("controller{}", i)],
+            "model".to_string(),
+            vec![],
+            None,
+            None,
+            None,
+        );
+        let payload = unvalidated::init::Payload::new(header, None);
+        let cid = Cid::new_v1(
+            <DagCborCodec as Codec<Ipld>>::CODE,
+            Code::Sha2_256.digest(&serde_ipld_dagcbor::to_vec(&payload).unwrap()),
+        );
+        let order_key = event_id_builder().with_event(&cid).build();
+        let event = unvalidated::Event::from(payload);
+
+        events.push(EventInsertable::new(order_key, cid, event, true).unwrap())
+    }
+
+    events
 }
 
 #[test(tokio::test)]
 async fn hash_range_query() {
     let pool = SqlitePool::connect_in_memory().await.unwrap();
-    let first = random_event("baeabeiazgwnti363jifhxaeaegbluw4ogcd2t5hsjaglo46wuwcgajqa5u");
-    let second = random_event("baeabeihyl35xdlfju3zrkvy2exmnl6wics3rc5ppz7hwg7l7g4brbtnpny");
+    let events = random_events(2);
+    let first = &events[0];
+    let second = &events[1];
 
-    let x = CeramicOneEvent::insert_many(&pool, [&first, &second].into_iter())
+    let x = CeramicOneEvent::insert_many(&pool, [first, second].into_iter())
         .await
         .unwrap();
 
@@ -49,16 +73,17 @@ async fn hash_range_query() {
     )
     .await
     .unwrap();
-    expect!["082F8D30F129E0E26C3136F7FE503E4D30EBDDB1EEFFF1EDEF853F2C96A0898E#2"]
+    expect!["71F104AFD1BCDBB85C1548F59DFF2A5FB50E21A23F1A65CCB2F38EF6D92FA659#2"]
         .assert_eq(&format!("{hash}"));
 }
 
 #[test(tokio::test)]
 async fn range_query() {
-    let first = random_event("baeabeichhhmbhsic4maraneqf5gkhekgzcawhtpj3fh6opjtglznapz524");
-    let second = random_event("baeabeibmek7v4ljsu575ohgjhovdxhcw6p6oivgb55hzkeap5po7ghzqty");
+    let events = random_events(2);
+    let first = &events[0];
+    let second = &events[1];
     let pool = SqlitePool::connect_in_memory().await.unwrap();
-    let x = CeramicOneEvent::insert_many(&pool, [&first, &second].into_iter())
+    let x = CeramicOneEvent::insert_many(&pool, [first, second].into_iter())
         .await
         .unwrap();
 
@@ -76,7 +101,7 @@ async fn range_query() {
     expect![[r#"
         [
             EventId {
-                bytes: "ce010502e320708396e92d964f16d8429ae87f86ead3ca3c010012202c22bf5e2d32a77fd71cc93baa3b9c56f3fce454c1ef4f95100febddf31f309e",
+                bytes: "ce010502e320708396e92d964f16d8429ae87f86ead3ca3c0171122073dbe85a09bf83ea51cb249576a2113ca991e77b387c014ec4d7861845c12466",
                 network_id: Some(
                     2,
                 ),
@@ -90,11 +115,11 @@ async fn range_query() {
                     "ead3ca3c",
                 ),
                 cid: Some(
-                    "baeabeibmek7v4ljsu575ohgjhovdxhcw6p6oivgb55hzkeap5po7ghzqty",
+                    "bafyreidt3pufucn7qpvfdszesv3keej4vgi6o6zypqau5rgxqymelqjemy",
                 ),
             },
             EventId {
-                bytes: "ce010502e320708396e92d964f16d8429ae87f86ead3ca3c010012204739d813c902e3011034902f4ca39146c88163cde9d94fe73d3332f2d03f3dd7",
+                bytes: "ce010502e320708396e92d964f16d8429ae87f86ead3ca3c01711220a0e20fa7c043f882d1bca32caeae1a3ba8996ad5b45e0b37b154aac5ea934d92",
                 network_id: Some(
                     2,
                 ),
@@ -108,7 +133,7 @@ async fn range_query() {
                     "ead3ca3c",
                 ),
                 cid: Some(
-                    "baeabeichhhmbhsic4maraneqf5gkhekgzcawhtpj3fh6opjtglznapz524",
+                    "bafyreifa4ih2pqcd7cbndpfdfsxk4gr3vcmwvvnulyftpmkuvlc6ve2nsi",
                 ),
             },
         ]

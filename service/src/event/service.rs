@@ -116,29 +116,18 @@ impl CeramicEventService {
     /// In the future, we will need to do more event validation (verify all EventID pieces, hashes, signatures, etc).
     pub(crate) async fn parse_discovered_event(
         item: &ReconItem<EventId>,
-    ) -> Result<(EventInsertable, EventMetadata)> {
-        let event_cid = item.key.cid().ok_or_else(|| {
-            Error::new_app(anyhow::anyhow!("EventId missing CID. EventID={}", item.key))
-        })?;
-
+    ) -> Result<EventInsertable> {
         let (cid, parsed_event) =
             unvalidated::Event::<Ipld>::decode_car(item.value.as_slice(), false)
                 .await
                 .map_err(Error::new_app)?;
 
-        if event_cid != cid {
-            return Err(Error::new_app(anyhow::anyhow!(
-                "EventId CID ({}) does not match the body CID ({})",
-                event_cid,
-                cid
-            )));
-        }
-
-        let event_insertable =
-            EventInsertable::try_from_carfile(item.key.to_owned(), item.value.as_slice()).await?;
-        let metadata = EventMetadata::from(parsed_event);
-
-        Ok((event_insertable, metadata))
+        Ok(EventInsertable::new(
+            item.key.to_owned(),
+            cid,
+            parsed_event,
+            false,
+        )?)
     }
 
     pub(crate) async fn insert_events(
@@ -164,8 +153,8 @@ impl CeramicEventService {
         // we can skip notifying the ordering task because it's impossible to be waiting on them
         let store_result = match source {
             DeliverableRequirement::Immediate => {
-                let to_insert = ordered.deliverable().iter().map(|(e, _)| e);
-                invalid.extend(ordered.missing_history().iter().map(|(e, _)| {
+                let to_insert = ordered.deliverable().iter();
+                invalid.extend(ordered.missing_history().iter().map(|e| {
                     InvalidItem::RequiresHistory {
                         key: e.order_key().clone(),
                     }
@@ -176,8 +165,7 @@ impl CeramicEventService {
                 let to_insert = ordered
                     .deliverable()
                     .iter()
-                    .map(|(e, _)| e)
-                    .chain(ordered.missing_history().iter().map(|(e, _)| e));
+                    .chain(ordered.missing_history().iter());
 
                 let store_result = CeramicOneEvent::insert_many(&self.pool, to_insert).await?;
 
@@ -206,11 +194,13 @@ impl CeramicEventService {
             .filter_map(|i| if i.new_key { i.order_key.cid() } else { None })
             .collect::<HashSet<_>>();
 
-        for (ev, metadata) in ordered
+        for ev in ordered
             .deliverable()
             .iter()
             .chain(ordered.missing_history().iter())
         {
+            let metadata = EventMetadata::from(ev.event());
+
             if new.contains(&ev.cid()) {
                 self.send_discovered_event(DiscoveredEvent {
                     cid: ev.cid(),
@@ -292,8 +282,9 @@ pub(crate) enum EventMetadata {
     },
 }
 
-impl From<unvalidated::Event<Ipld>> for EventMetadata {
-    fn from(value: unvalidated::Event<Ipld>) -> Self {
+impl From<&unvalidated::Event<Ipld>> for EventMetadata {
+    // TODO(AES-312): can we remove EventMetadata entirely?
+    fn from(value: &unvalidated::Event<Ipld>) -> Self {
         match value {
             unvalidated::Event::Time(t) => EventMetadata::Time {
                 stream_cid: t.id(),
@@ -308,15 +299,6 @@ impl From<unvalidated::Event<Ipld>> for EventMetadata {
                 unvalidated::Payload::Init(_init) => EventMetadata::Init,
             },
             unvalidated::Event::Unsigned(_init) => EventMetadata::Init,
-        }
-    }
-}
-
-impl EventMetadata {
-    pub(crate) fn prev(&self) -> Option<ceramic_core::Cid> {
-        match self {
-            EventMetadata::Init { .. } => None,
-            EventMetadata::Data { prev, .. } | EventMetadata::Time { prev, .. } => Some(*prev),
         }
     }
 }
