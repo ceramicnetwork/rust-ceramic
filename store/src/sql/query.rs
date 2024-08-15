@@ -190,18 +190,18 @@ impl ReconQuery {
                 );"
     }
 
-    /// Requires 10 parameters: the order_key, cid and the 8 hash values
+    /// Requires 14 parameters: the order_key, cid, 8 hash values, source node DID, Init Event CID, and anchored time
     pub fn insert_event() -> &'static str {
         "INSERT INTO ceramic_one_event (
             order_key, cid,
             ahash_0, ahash_1, ahash_2, ahash_3,
             ahash_4, ahash_5, ahash_6, ahash_7,
-            delivered
+            delivered, init_cid, source, anchored
         ) VALUES (
             $1, $2,
             $3, $4, $5, $6,
             $7, $8, $9, $10,
-            $11
+            $11, $12, $13, $14
         );"
     }
 

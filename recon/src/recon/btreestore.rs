@@ -123,7 +123,7 @@ where
         Ok(Box::new(keys.into_iter()))
     }
 
-    async fn insert(&self, item: &ReconItem<K>) -> Result<bool> {
+    async fn insert(&self, item: &ReconItem<K>, _source: String) -> Result<bool> {
         let mut inner = self.inner.lock().await;
         let new = inner
             .keys
@@ -145,11 +145,15 @@ where
     type Hash = H;
 
     #[instrument(skip(self))]
-    async fn insert_many(&self, items: &[ReconItem<Self::Key>]) -> Result<InsertResult<Self::Key>> {
+    async fn insert_many(
+        &self,
+        items: &[ReconItem<Self::Key>],
+        source: String,
+    ) -> Result<InsertResult<Self::Key>> {
         tracing::trace!("inserting items: {}", items.len());
         let mut new = 0;
         for item in items.iter() {
-            self.insert(item).await?.then(|| new += 1);
+            self.insert(item, source.clone()).await?.then(|| new += 1);
         }
         Ok(InsertResult::new(new))
     }

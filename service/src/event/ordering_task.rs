@@ -1,15 +1,16 @@
 use std::collections::{HashMap, VecDeque};
 
 use anyhow::anyhow;
-use ceramic_event::unvalidated;
-use ceramic_store::{CeramicOneEvent, SqlitePool};
 use cid::Cid;
 use ipld_core::ipld::Ipld;
 use tracing::{debug, error, info, trace, warn};
 
+use ceramic_event::unvalidated::{self, EventMetadata};
+use ceramic_store::{CeramicOneEvent, SqlitePool};
+
 use crate::{Error, Result};
 
-use super::service::{DiscoveredEvent, EventMetadata};
+use super::service::DiscoveredEvent;
 
 type StreamCid = Cid;
 type EventCid = Cid;
@@ -134,7 +135,7 @@ impl StreamEvent {
             let metadata = EventMetadata::from(parsed);
 
             let known_prev = match &metadata {
-                EventMetadata::Init => {
+                EventMetadata::Init { .. } => {
                     assert!(
                         deliverable,
                         "Init event must always be deliverable. Found undelivered CID: {}",
@@ -163,7 +164,7 @@ impl StreamEvent {
 impl From<DiscoveredEvent> for StreamEvent {
     fn from(ev: DiscoveredEvent) -> Self {
         match ev.metadata {
-            EventMetadata::Init => StreamEvent::InitEvent(ev.cid),
+            EventMetadata::Init { stream_cid } => StreamEvent::InitEvent(stream_cid),
             EventMetadata::Data { prev, .. } | EventMetadata::Time { prev, .. } => {
                 let meta = StreamEventMetadata::new(ev.cid, prev);
                 if ev.known_deliverable {
@@ -438,7 +439,7 @@ impl OrderingState {
     /// Relies on `add_stream_event` to handle updating the internal state.
     fn add_inserted_events(&mut self, events: Vec<DiscoveredEvent>) {
         for ev in events {
-            let stream_cid = ev.stream_cid();
+            let stream_cid = ev.metadata.stream_cid();
             let event = ev.into();
             self.add_stream_event(stream_cid, event);
         }
@@ -544,7 +545,7 @@ impl OrderingState {
             let metadata = EventMetadata::from(parsed_event);
 
             let (stream_cid, loaded) = match &metadata {
-                EventMetadata::Init => {
+                EventMetadata::Init { .. } => {
                     discovered_inits.push(cid);
                     continue;
                 }
@@ -610,7 +611,7 @@ mod test {
         let mut res = Vec::with_capacity(n);
         let events = get_n_events(n).await;
         for event in events {
-            let (event, _) = CeramicEventService::parse_discovered_event(&event)
+            let (event, _) = CeramicEventService::parse_discovered_event(&event, None)
                 .await
                 .unwrap();
             res.push(event);
@@ -630,7 +631,7 @@ mod test {
     async fn insert_10_with_9_undelivered(pool: &SqlitePool) {
         let insertable = get_n_insertable_events(10).await;
         let mut init = insertable.first().unwrap().to_owned();
-        init.body.set_deliverable(true);
+        init.body.deliverable = true;
         let undelivered = insertable.into_iter().skip(1).collect::<Vec<_>>();
 
         let new = CeramicOneEvent::insert_many(pool, undelivered.iter())

@@ -50,18 +50,23 @@ pub struct EventInsertable {
 
 impl EventInsertable {
     /// Try to build the EventInsertable struct from a carfile.
-    pub async fn try_from_carfile(order_key: EventId, body: &[u8]) -> Result<Self> {
+    pub async fn try_from_carfile(
+        stream_cid: Cid,
+        order_key: EventId,
+        body: &[u8],
+        source: Option<String>,
+    ) -> Result<Self> {
         let cid = order_key.cid().ok_or_else(|| {
             Error::new_invalid_arg(anyhow::anyhow!("EventID is missing a CID: {}", order_key))
         })?;
-        let body = EventInsertableBody::try_from_carfile(cid, body).await?;
+        let body = EventInsertableBody::try_from_carfile(stream_cid, cid, body, source).await?;
         Ok(Self { order_key, body })
     }
 
     /// Build the EventInsertable struct from an EventID and EventInsertableBody.
     /// Will error if the CID in the EventID doesn't match the CID in the EventInsertableBody.
     pub fn try_new(order_key: EventId, body: EventInsertableBody) -> Result<Self> {
-        if order_key.cid() != Some(body.cid()) {
+        if order_key.cid() != Some(body.cid) {
             return Err(Error::new_invalid_arg(anyhow!(
                 "EventID CID does not match the body CID"
             )));
@@ -83,22 +88,34 @@ impl EventInsertable {
 #[derive(Debug, Clone)]
 /// The type we use to insert events into the database
 pub struct EventInsertableBody {
+    /// The CID of init event of the stream
+    pub stream_cid: Cid,
     /// The event CID i.e. the root CID from the car file
-    cid: Cid,
+    pub cid: Cid,
     /// Whether the event is deliverable i.e. it's prev has been delivered and the chain is continuous to an init event
-    deliverable: bool,
+    pub deliverable: bool,
     /// The blocks of the event
     // could use a map but there aren't that many blocks per event (right?)
-    blocks: Vec<EventBlockRaw>,
+    pub blocks: Vec<EventBlockRaw>,
+    /// The DID of the node from which this event was received
+    pub source: Option<String>,
 }
 
 impl EventInsertableBody {
     /// Create a new EventInsertRaw struct. Deliverable is set to false by default.
-    pub fn new(cid: Cid, blocks: Vec<EventBlockRaw>, deliverable: bool) -> Self {
+    pub fn new(
+        stream_cid: Cid,
+        cid: Cid,
+        blocks: Vec<EventBlockRaw>,
+        deliverable: bool,
+        source: Option<String>,
+    ) -> Self {
         Self {
+            stream_cid,
             cid,
             deliverable,
             blocks,
+            source,
         }
     }
 
@@ -138,7 +155,12 @@ impl EventInsertableBody {
 
     /// Builds a new EventInsertRaw from a CAR file. Will error if the CID in the EventID doesn't match the
     /// first root of the carfile.
-    pub async fn try_from_carfile(event_cid: Cid, val: &[u8]) -> Result<Self> {
+    pub async fn try_from_carfile(
+        stream_cid: Cid,
+        event_cid: Cid,
+        val: &[u8],
+        source: Option<String>,
+    ) -> Result<Self> {
         if val.is_empty() {
             return Err(Error::new_app(anyhow!(
                 "CAR file is empty: cid={}",
@@ -169,6 +191,6 @@ impl EventInsertableBody {
             blocks.push(ebr);
             idx += 1;
         }
-        Ok(Self::new(event_cid, blocks, false))
+        Ok(Self::new(stream_cid, event_cid, blocks, false, source))
     }
 }

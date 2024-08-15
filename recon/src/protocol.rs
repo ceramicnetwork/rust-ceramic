@@ -92,6 +92,7 @@ pub async fn initiate_synchronize<S, R, E>(
     recon: R,
     stream: S,
     config: ProtocolConfig,
+    remote_node_did: String,
 ) -> Result<()>
 where
     R: Recon,
@@ -103,12 +104,23 @@ where
 {
     let metrics = recon.metrics();
     let sync_id = Some(Uuid::new_v4().to_string());
-    protocol(sync_id, Initiator::new(recon, config), stream, metrics).await?;
+    protocol(
+        sync_id,
+        Initiator::new(recon, config, remote_node_did),
+        stream,
+        metrics,
+    )
+    .await?;
     Ok(())
 }
 /// Respond to an initiated Recon synchronization with a peer over a stream.
 #[tracing::instrument(skip(recon, stream), ret(level = Level::DEBUG))]
-pub async fn respond_synchronize<S, R, E>(recon: R, stream: S, config: ProtocolConfig) -> Result<()>
+pub async fn respond_synchronize<S, R, E>(
+    recon: R,
+    stream: S,
+    config: ProtocolConfig,
+    remote_node_did: String,
+) -> Result<()>
 where
     R: Recon,
     S: Stream<Item = std::result::Result<IM<R::Key, R::Hash>, E>>
@@ -118,7 +130,13 @@ where
     E: std::error::Error + Send + Sync + 'static,
 {
     let metrics = recon.metrics();
-    protocol(None, Responder::new(recon, config), stream, metrics).await?;
+    protocol(
+        None,
+        Responder::new(recon, config, remote_node_did),
+        stream,
+        metrics,
+    )
+    .await?;
     Ok(())
 }
 
@@ -460,9 +478,9 @@ impl<R> Initiator<R>
 where
     R: Recon,
 {
-    fn new(recon: R, config: ProtocolConfig) -> Self {
+    fn new(recon: R, config: ProtocolConfig, remote_node_did: String) -> Self {
         Self {
-            common: Common::new(recon, config),
+            common: Common::new(recon, config, remote_node_did),
             pending_ranges: 0,
         }
     }
@@ -606,9 +624,9 @@ impl<R> Responder<R>
 where
     R: Recon,
 {
-    fn new(recon: R, config: ProtocolConfig) -> Self {
+    fn new(recon: R, config: ProtocolConfig, remote_node_did: String) -> Self {
         Self {
-            common: Common::new(recon, config),
+            common: Common::new(recon, config, remote_node_did),
         }
     }
 
@@ -721,17 +739,19 @@ struct Common<R: Recon> {
     recon: R,
     event_q: Vec<ReconItem<R::Key>>,
     config: ProtocolConfig,
+    remote_node_did: String,
 }
 
 impl<R> Common<R>
 where
     R: Recon,
 {
-    fn new(recon: R, config: ProtocolConfig) -> Self {
+    fn new(recon: R, config: ProtocolConfig, remote_node_did: String) -> Self {
         Self {
             recon,
             event_q: Vec::with_capacity(config.insert_batch_size.saturating_add(1)),
             config,
+            remote_node_did,
         }
     }
 
@@ -777,7 +797,11 @@ where
 
         let evs: Vec<_> = self.event_q.drain(..).collect();
 
-        let batch = self.recon.insert(evs).await.context("persisting all")?;
+        let batch = self
+            .recon
+            .insert(evs, self.remote_node_did.clone())
+            .await
+            .context("persisting all")?;
         if !batch.invalid.is_empty() {
             for invalid in &batch.invalid {
                 self.recon.metrics().record(invalid)
@@ -822,6 +846,7 @@ pub trait Recon: Clone + Send + Sync + 'static {
     async fn insert(
         &self,
         items: Vec<ReconItem<Self::Key>>,
+        source: String,
     ) -> ReconResult<InsertResult<Self::Key>>;
 
     /// Get all keys in the specified range
@@ -878,8 +903,12 @@ where
     type Key = K;
     type Hash = H;
 
-    async fn insert(&self, items: Vec<ReconItem<K>>) -> ReconResult<InsertResult<K>> {
-        Client::insert(self, items).await
+    async fn insert(
+        &self,
+        items: Vec<ReconItem<K>>,
+        source: String,
+    ) -> ReconResult<InsertResult<K>> {
+        Client::insert(self, items, source).await
     }
 
     async fn range(

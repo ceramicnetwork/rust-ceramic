@@ -281,8 +281,12 @@ where
     }
 
     /// Insert keys into the key space.
-    pub async fn insert(&self, items: Vec<ReconItem<K>>) -> Result<InsertResult<K>> {
-        let res = self.store.insert_many(&items).await?;
+    pub async fn insert(
+        &self,
+        items: Vec<ReconItem<K>>,
+        source: String,
+    ) -> Result<InsertResult<K>> {
+        let res = self.store.insert_many(&items, source).await?;
         Ok(res)
     }
 
@@ -512,7 +516,11 @@ pub trait Store {
     /// Insert new keys into the key space.
     /// Returns true for each key if it did not previously exist, in the
     /// same order as the input iterator.
-    async fn insert_many(&self, items: &[ReconItem<Self::Key>]) -> Result<InsertResult<Self::Key>>;
+    async fn insert_many(
+        &self,
+        items: &[ReconItem<Self::Key>],
+        source: String,
+    ) -> Result<InsertResult<Self::Key>>;
 
     /// Return the hash of all keys in the range between left_fencepost and right_fencepost.
     /// The upper range bound is exclusive.
@@ -620,8 +628,12 @@ where
     type Key = K;
     type Hash = H;
 
-    async fn insert_many(&self, items: &[ReconItem<Self::Key>]) -> Result<InsertResult<Self::Key>> {
-        self.as_ref().insert_many(items).await
+    async fn insert_many(
+        &self,
+        items: &[ReconItem<Self::Key>],
+        source: String,
+    ) -> Result<InsertResult<Self::Key>> {
+        self.as_ref().insert_many(items, source).await
     }
 
     async fn hash_range(&self, range: Range<&Self::Key>) -> Result<HashCount<Self::Hash>> {

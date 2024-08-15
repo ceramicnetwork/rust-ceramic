@@ -67,6 +67,7 @@ impl CeramicOneInterest {
     pub async fn insert_many(
         pool: &SqlitePool,
         items: &[&Interest],
+        _source: String,
     ) -> Result<InsertResult<Interest>> {
         match items.len() {
             0 => Ok(InsertResult::new(0)),

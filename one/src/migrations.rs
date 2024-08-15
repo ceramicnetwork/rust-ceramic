@@ -88,7 +88,7 @@ pub async fn migrate(cmd: EventsCommand) -> Result<()> {
 async fn from_ipfs(opts: FromIpfsOpts) -> Result<()> {
     let network = opts.network.to_network(&opts.local_network_id)?;
     let db_opts: DBOpts = (&opts).into();
-    let crate::Databases::Sqlite(db) = db_opts.get_database(false).await?;
+    let crate::Databases::Sqlite(db) = db_opts.get_database(None, false).await?;
     let blocks = FSBlockStore {
         input_ipfs_path: opts.input_ipfs_path,
     };

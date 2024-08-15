@@ -135,7 +135,8 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
                 payload.header().controllers()[0].clone(),
                 cid,
             );
-            let event = unvalidated::Event::from(payload);
+            let event = unvalidated::init::Event::new(cid, payload);
+            let event: unvalidated::Event<Ipld> = unvalidated::Event::from(event);
             self.batch
                 .push(event_builder.build(&self.network, event).await?);
             if self.batch.len() > 1000 {

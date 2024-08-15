@@ -17,7 +17,7 @@ macro_rules! test_with_sqlite {
             async fn [<$test_name _sqlite>]() {
 
                 let conn = ceramic_store::SqlitePool::connect_in_memory().await.unwrap();
-                let store = $crate::CeramicEventService::new(conn).await.unwrap();
+                let store = $crate::CeramicEventService::new(conn, None).await.unwrap();
                 store.process_all_undelivered_events().await.unwrap();
                 $(
                     for stmt in $sql_stmts {
@@ -59,10 +59,10 @@ where
     let init_cid = one.key.cid().unwrap();
     let min_id = event_id_min(&init_cid, &model);
     let max_id = event_id_max(&init_cid, &model);
-    recon::Store::insert_many(&store, &[one.clone()])
+    recon::Store::insert_many(&store, &[one.clone()], "".to_owned())
         .await
         .unwrap();
-    recon::Store::insert_many(&store, &[two.clone()])
+    recon::Store::insert_many(&store, &[two.clone()], "".to_owned())
         .await
         .unwrap();
     let values: Vec<(EventId, Vec<u8>)> =
@@ -98,13 +98,13 @@ where
     let item = &[ReconItem::new(id, car)];
 
     // first insert reports its a new key
-    assert!(recon::Store::insert_many(&store, item)
+    assert!(recon::Store::insert_many(&store, item, "".to_owned())
         .await
         .unwrap()
         .included_new_key());
 
     // second insert of same key reports it already existed
-    assert!(!recon::Store::insert_many(&store, item)
+    assert!(!recon::Store::insert_many(&store, item, "".to_owned())
         .await
         .unwrap()
         .included_new_key());
@@ -131,12 +131,13 @@ where
     let TestEventInfo { car: car2, .. } = build_event().await;
     let expected = hex::encode(&car1);
 
-    let actual = recon::Store::insert_many(&store, &[ReconItem::new(id.clone(), car1)])
-        .await
-        .unwrap();
+    let actual =
+        recon::Store::insert_many(&store, &[ReconItem::new(id.clone(), car1)], "".to_owned())
+            .await
+            .unwrap();
     assert_eq!(actual, InsertResult::new(1));
 
-    let res = recon::Store::insert_many(&store, &[ReconItem::new(id.clone(), car2)])
+    let res = recon::Store::insert_many(&store, &[ReconItem::new(id.clone(), car2)], "".to_owned())
         .await
         .unwrap();
 
@@ -178,9 +179,13 @@ where
         ..
     } = build_event().await;
     let expected = hex::encode(&store_value);
-    recon::Store::insert_many(&store, &[ReconItem::new(key.clone(), store_value)])
-        .await
-        .unwrap();
+    recon::Store::insert_many(
+        &store,
+        &[ReconItem::new(key.clone(), store_value)],
+        "".to_owned(),
+    )
+    .await
+    .unwrap();
     let value = recon::Store::value_for_key(&store, &key)
         .await
         .unwrap()
@@ -208,9 +213,13 @@ where
         ..
     } = build_event().await;
     let expected = hex::encode(&store_value);
-    recon::Store::insert_many(&store, &[ReconItem::new(key.clone(), store_value)])
-        .await
-        .unwrap();
+    recon::Store::insert_many(
+        &store,
+        &[ReconItem::new(key.clone(), store_value)],
+        "".to_owned(),
+    )
+    .await
+    .unwrap();
     let value = recon::Store::value_for_key(&store, &key)
         .await
         .unwrap()

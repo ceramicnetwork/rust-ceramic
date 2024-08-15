@@ -43,9 +43,10 @@ impl recon::Store for CeramicEventService {
     async fn insert_many(
         &self,
         items: &[ReconItem<Self::Key>],
+        source: String,
     ) -> ReconResult<recon::InsertResult<EventId>> {
         let res = self
-            .insert_events(items, DeliverableRequirement::Asap)
+            .insert_events(items, DeliverableRequirement::Asap(source))
             .await?;
 
         Ok(res.into())

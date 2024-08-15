@@ -51,8 +51,8 @@ where
                 }
             }
         }
-        unvalidated::Event::Unsigned(payload) => {
-            event_id_from_init_payload(event_cid, network, event_cid, &payload)
+        unvalidated::Event::Unsigned(init) => {
+            event_id_from_init_payload(event_cid, network, event_cid, init.payload())
         }
     }
 }

@@ -1,14 +1,15 @@
 use std::collections::HashSet;
 
 use async_trait::async_trait;
-use ceramic_core::{EventId, Network};
-use ceramic_event::unvalidated;
-use ceramic_store::{CeramicOneEvent, EventInsertable, EventInsertableBody, SqlitePool};
 use cid::Cid;
 use futures::stream::BoxStream;
 use ipld_core::ipld::Ipld;
 use recon::ReconItem;
 use tracing::{trace, warn};
+
+use ceramic_core::{EventId, Network};
+use ceramic_event::unvalidated::{self, EventMetadata};
+use ceramic_store::{CeramicOneEvent, EventInsertable, EventInsertableBody, SqlitePool};
 
 use super::{
     migration::Migrator,
@@ -36,6 +37,7 @@ const PENDING_EVENTS_CHANNEL_DEPTH: usize = 1_000_000;
 /// Implements the [`recon::Store`], [`iroh_bitswap::Store`], and [`ceramic_api::EventStore`] traits for [`ceramic_core::EventId`].
 pub struct CeramicEventService {
     pub(crate) pool: SqlitePool,
+    node_did: Option<String>,
     delivery_task: DeliverableTask,
 }
 /// An object that represents a set of blocks that can produce a stream of all blocks and lookup a
@@ -49,7 +51,7 @@ pub trait BlockStore {
     async fn block_data(&self, cid: &Cid) -> anyhow::Result<Option<Vec<u8>>>;
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeliverableRequirement {
     /// Must be ordered immediately and is rejected if not currently deliverable. The appropriate setting
     /// for API writes as we cannot create an event without its history.
@@ -57,7 +59,7 @@ pub enum DeliverableRequirement {
     /// This will be ordered as soon as its dependencies are discovered. Can be written in the meantime
     /// and will consume memory tracking the event until it can be ordered. The appropriate setting for recon
     /// discovered events.
-    Asap,
+    Asap(String),
     /// This currently means the event will be ordered on next system startup. An appropriate setting while
     /// migrating data from an IPFS datastore.
     Lazy,
@@ -65,13 +67,14 @@ pub enum DeliverableRequirement {
 
 impl CeramicEventService {
     /// Create a new CeramicEventStore
-    pub async fn new(pool: SqlitePool) -> Result<Self> {
+    pub async fn new(pool: SqlitePool, node_did: Option<String>) -> Result<Self> {
         CeramicOneEvent::init_delivered_order(&pool).await?;
 
         let delivery_task = OrderingTask::run(pool.clone(), PENDING_EVENTS_CHANNEL_DEPTH).await;
 
         Ok(Self {
             pool,
+            node_did,
             delivery_task,
         })
     }
@@ -116,6 +119,7 @@ impl CeramicEventService {
     /// In the future, we will need to do more event validation (verify all EventID pieces, hashes, signatures, etc).
     pub(crate) async fn parse_discovered_event(
         item: &ReconItem<EventId>,
+        source: Option<String>,
     ) -> Result<(EventInsertable, EventMetadata)> {
         let event_cid = item.key.cid().ok_or_else(|| {
             Error::new_app(anyhow::anyhow!("EventId missing CID. EventID={}", item.key))
@@ -134,8 +138,14 @@ impl CeramicEventService {
             )));
         }
 
-        let body = EventInsertableBody::try_from_carfile(cid, item.value.as_slice()).await?;
         let metadata = EventMetadata::from(parsed_event);
+        let body = EventInsertableBody::try_from_carfile(
+            metadata.stream_cid(),
+            cid,
+            item.value.as_slice(),
+            source,
+        )
+        .await?;
 
         Ok((
             EventInsertable::try_new(item.key.to_owned(), body)?,
@@ -148,10 +158,15 @@ impl CeramicEventService {
         items: &[recon::ReconItem<EventId>],
         source: DeliverableRequirement,
     ) -> Result<InsertResult> {
+        let source_node_did = match &source {
+            DeliverableRequirement::Immediate | DeliverableRequirement::Lazy => &self.node_did,
+            DeliverableRequirement::Asap(node_did) => &Some(node_did.to_owned()),
+        };
+
         let mut to_insert = Vec::new();
         let mut invalid = Vec::new();
         for event in items {
-            match Self::parse_discovered_event(event).await {
+            match Self::parse_discovered_event(event, source_node_did.clone()).await {
                 Ok(insertable) => to_insert.push(insertable),
                 Err(err) => invalid.push(InvalidItem::InvalidFormat {
                     key: event.key.clone(),
@@ -174,7 +189,7 @@ impl CeramicEventService {
                 }));
                 CeramicOneEvent::insert_many(&self.pool, to_insert).await?
             }
-            DeliverableRequirement::Lazy | DeliverableRequirement::Asap => {
+            DeliverableRequirement::Lazy | DeliverableRequirement::Asap(_) => {
                 let to_insert = ordered
                     .deliverable()
                     .iter()
@@ -183,7 +198,7 @@ impl CeramicEventService {
 
                 let store_result = CeramicOneEvent::insert_many(&self.pool, to_insert).await?;
 
-                if matches!(source, DeliverableRequirement::Asap) {
+                if matches!(source, DeliverableRequirement::Asap(_)) {
                     self.notify_ordering_task(&ordered, &store_result).await?;
                 }
 
@@ -213,10 +228,10 @@ impl CeramicEventService {
             .iter()
             .chain(ordered.missing_history().iter())
         {
-            if new.contains(&ev.cid()) {
+            if new.contains(&ev.body.cid) {
                 self.send_discovered_event(DiscoveredEvent {
-                    cid: ev.cid(),
-                    known_deliverable: ev.deliverable(),
+                    cid: ev.body.cid,
+                    known_deliverable: ev.body.deliverable,
                     metadata: metadata.to_owned(),
                 })
                 .await?;
@@ -262,63 +277,7 @@ pub struct InsertResult {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiscoveredEvent {
-    pub cid: ceramic_core::Cid,
+    pub cid: Cid,
     pub known_deliverable: bool,
     pub metadata: EventMetadata,
-}
-
-impl DiscoveredEvent {
-    pub(crate) fn stream_cid(&self) -> ceramic_core::Cid {
-        match self.metadata {
-            EventMetadata::Init => self.cid,
-            EventMetadata::Data { stream_cid, .. } | EventMetadata::Time { stream_cid, .. } => {
-                stream_cid
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-/// An event header wrapper for use in the store crate.
-/// TODO: replace this with something from the event crate
-pub(crate) enum EventMetadata {
-    /// The init CID and stream CID are the same
-    Init,
-    Data {
-        stream_cid: ceramic_core::Cid,
-        prev: ceramic_core::Cid,
-    },
-    Time {
-        stream_cid: ceramic_core::Cid,
-        prev: ceramic_core::Cid,
-    },
-}
-
-impl From<unvalidated::Event<Ipld>> for EventMetadata {
-    fn from(value: unvalidated::Event<Ipld>) -> Self {
-        match value {
-            unvalidated::Event::Time(t) => EventMetadata::Time {
-                stream_cid: t.id(),
-                prev: t.prev(),
-            },
-
-            unvalidated::Event::Signed(signed) => match signed.payload() {
-                unvalidated::Payload::Data(d) => EventMetadata::Data {
-                    stream_cid: *d.id(),
-                    prev: *d.prev(),
-                },
-                unvalidated::Payload::Init(_init) => EventMetadata::Init,
-            },
-            unvalidated::Event::Unsigned(_init) => EventMetadata::Init,
-        }
-    }
-}
-
-impl EventMetadata {
-    pub(crate) fn prev(&self) -> Option<ceramic_core::Cid> {
-        match self {
-            EventMetadata::Init { .. } => None,
-            EventMetadata::Data { prev, .. } | EventMetadata::Time { prev, .. } => Some(*prev),
-        }
-    }
 }

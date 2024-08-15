@@ -57,7 +57,7 @@ async fn test_migration(cars: Vec<Vec<u8>>) {
     let conn = ceramic_store::SqlitePool::connect_in_memory()
         .await
         .unwrap();
-    let service = CeramicEventService::new(conn).await.unwrap();
+    let service = CeramicEventService::new(conn, None).await.unwrap();
     service
         .migrate_from_ipfs(Network::Local(42), blocks)
         .await
@@ -163,7 +163,10 @@ fn cid_from_dag_cbor(data: &[u8]) -> Cid {
 async fn random_unsigned_init_time_event() -> Vec<unvalidated::Event<Ipld>> {
     let init = random_unsigned_init_event().await;
     let init_cid = init.encoded_cid().await.unwrap();
-    vec![init.into(), random_time_event(init_cid).await.into()]
+    vec![
+        unvalidated::init::Event::new(init_cid, init).into(),
+        random_time_event(init_cid).await.into(),
+    ]
 }
 // create random time event with a previous signed init event
 async fn random_signed_init_time_event() -> Vec<unvalidated::Event<Ipld>> {

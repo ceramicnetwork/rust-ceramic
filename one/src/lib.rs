@@ -11,12 +11,6 @@ mod network;
 use std::{env, path::PathBuf, time::Duration};
 
 use anyhow::{anyhow, Context, Result};
-use ceramic_api::{EventStore, InterestStore};
-use ceramic_core::{EventId, Interest};
-use ceramic_kubo_rpc::Multiaddr;
-use ceramic_metrics::{config::Config as MetricsConfig, MetricsHandle};
-use ceramic_p2p::{load_identity, DiskStorage, Keychain, Libp2pConfig};
-use ceramic_service::{CeramicEventService, CeramicInterestService, CeramicService};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use feature_flags::*;
 use futures::StreamExt;
@@ -31,6 +25,13 @@ use std::sync::Arc;
 use swagger::{auth::MakeAllowAllAuthenticator, EmptyContext};
 use tokio::{io::AsyncReadExt, sync::oneshot};
 use tracing::{debug, error, info, warn};
+
+use ceramic_api::{EventStore, InterestStore};
+use ceramic_core::{EventId, Interest};
+use ceramic_kubo_rpc::Multiaddr;
+use ceramic_metrics::{config::Config as MetricsConfig, MetricsHandle};
+use ceramic_p2p::{load_identity, DiskStorage, Keychain, Libp2pConfig};
+use ceramic_service::{CeramicEventService, CeramicInterestService, CeramicService};
 
 use crate::network::Ipfs;
 
@@ -303,7 +304,11 @@ type ModelInterest = ReconInterestProvider<Sha256a>;
 
 impl DBOpts {
     /// This function will create the database directory if it does not exist.
-    async fn get_database(&self, process_undelivered: bool) -> Result<Databases> {
+    async fn get_database(
+        &self,
+        node_did: Option<String>,
+        process_undelivered: bool,
+    ) -> Result<Databases> {
         match tokio::fs::create_dir_all(&self.store_dir).await {
             Ok(_) => {}
             Err(err) => match err.kind() {
@@ -318,13 +323,17 @@ impl DBOpts {
             },
         }
         let sql_db_path = self.store_dir.join("db.sqlite3").display().to_string();
-        Self::build_sqlite_dbs(&sql_db_path, process_undelivered).await
+        Self::build_sqlite_dbs(&sql_db_path, node_did, process_undelivered).await
     }
 
-    async fn build_sqlite_dbs(path: &str, process_undelivered: bool) -> Result<Databases> {
+    async fn build_sqlite_dbs(
+        path: &str,
+        node_did: Option<String>,
+        process_undelivered: bool,
+    ) -> Result<Databases> {
         let sql_pool =
             ceramic_store::SqlitePool::connect(path, ceramic_store::Migrations::Apply).await?;
-        let ceramic_service = CeramicService::try_new(sql_pool).await?;
+        let ceramic_service = CeramicService::try_new(sql_pool, node_did).await?;
         let interest_store = ceramic_service.interest_service().to_owned();
         let event_store = ceramic_service.event_service().to_owned();
         if process_undelivered {
@@ -382,7 +391,13 @@ impl Daemon {
             exe_hash = info.exe_hash,
         );
         debug!(?opts, "using daemon options");
-        let db = opts.db_opts.get_database(true).await?;
+
+        debug!(dir = %opts.p2p_key_dir.display(), "using p2p key directory");
+        let p2p_keypair = ceramic_core::read_ed25519_key_from_dir(opts.p2p_key_dir.clone()).await?;
+        let node_did = ceramic_core::did_key_from_ed25519_key_pair(&p2p_keypair);
+        info!("Local Node DID: {}", node_did);
+
+        let db = opts.db_opts.get_database(Some(node_did), true).await?;
 
         // we should be able to consolidate the Store traits now that they all rely on &self, but for now we use
         // static dispatch and require compile-time type information, so we pass all the types we need in, even

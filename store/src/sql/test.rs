@@ -31,7 +31,7 @@ fn random_event(cid: &str) -> EventInsertable {
     let cid = order_key.cid().unwrap();
     EventInsertable {
         order_key,
-        body: EventInsertableBody::new(cid, vec![], true),
+        body: EventInsertableBody::new(Cid::from_str(INIT_ID).unwrap(), cid, vec![], true, None),
     }
 }
 

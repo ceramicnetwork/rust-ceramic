@@ -75,10 +75,14 @@ where
     type Key = K;
     type Hash = H;
 
-    async fn insert_many(&self, items: &[ReconItem<K>]) -> ReconResult<InsertResult<Self::Key>> {
+    async fn insert_many(
+        &self,
+        items: &[ReconItem<K>],
+        source: String,
+    ) -> ReconResult<InsertResult<Self::Key>> {
         self.as_error()?;
 
-        self.inner.insert_many(items).await
+        self.inner.insert_many(items, source).await
     }
 
     async fn hash_range(&self, range: Range<&Self::Key>) -> ReconResult<HashCount<Self::Hash>> {

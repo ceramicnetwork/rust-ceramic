@@ -253,11 +253,12 @@ where
     async fn insert_many(
         &self,
         items: &[ReconItem<Self::Key>],
+        source: String,
     ) -> ReconResult<recon::InsertResult<Self::Key>> {
         let res = StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "insert_many",
-            self.store.insert_many(items),
+            self.store.insert_many(items, source),
         )
         .await?;
 

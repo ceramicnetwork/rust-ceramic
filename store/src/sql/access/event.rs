@@ -78,6 +78,8 @@ impl CeramicOneEvent {
     async fn insert_event(
         tx: &mut SqliteTransaction<'_>,
         key: &EventId,
+        stream_cid: &Cid,
+        source: &Option<String>,
         deliverable: bool,
     ) -> Result<bool> {
         let id = key.as_bytes();
@@ -104,6 +106,8 @@ impl CeramicOneEvent {
             .bind(hash.as_u32s()[6])
             .bind(hash.as_u32s()[7])
             .bind(delivered)
+            .bind(stream_cid.to_bytes())
+            .bind(source)
             .execute(&mut **tx.inner())
             .await;
 
@@ -169,21 +173,28 @@ impl CeramicOneEvent {
         let mut tx = pool.begin_tx().await.map_err(Error::from)?;
 
         for item in to_add {
-            let new_key = Self::insert_event(&mut tx, &item.order_key, item.deliverable()).await?;
+            let new_key = Self::insert_event(
+                &mut tx,
+                &item.order_key,
+                &item.body.stream_cid,
+                &item.body.source,
+                item.body.deliverable,
+            )
+            .await?;
             inserted.push(InsertedEvent::new(
                 item.order_key.clone(),
                 new_key,
-                item.deliverable(),
+                item.body.deliverable,
             ));
             if new_key {
-                for block in item.body.blocks().iter() {
+                for block in item.body.blocks.iter() {
                     CeramicOneBlock::insert(&mut tx, block.multihash.inner(), &block.bytes).await?;
                     CeramicOneEventBlock::insert(&mut tx, block).await?;
                 }
             }
             // the item already existed so we didn't mark it as deliverable on insert
-            if !new_key && item.deliverable() {
-                Self::mark_ready_to_deliver(&mut tx, &item.cid()).await?;
+            if !new_key && item.body.deliverable {
+                Self::mark_ready_to_deliver(&mut tx, &item.body.cid).await?;
             }
         }
         tx.commit().await.map_err(Error::from)?;

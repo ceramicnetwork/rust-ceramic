@@ -19,9 +19,10 @@ impl recon::Store for CeramicInterestService {
     async fn insert_many(
         &self,
         items: &[ReconItem<Self::Key>],
+        source: String,
     ) -> ReconResult<InsertResult<Interest>> {
         let keys = items.iter().map(|item| &item.key).collect::<Vec<_>>();
-        Ok(CeramicOneInterest::insert_many(&self.pool, &keys).await?)
+        Ok(CeramicOneInterest::insert_many(&self.pool, &keys, source).await?)
     }
 
     /// Return the hash of all keys in the range between left_fencepost and right_fencepost.

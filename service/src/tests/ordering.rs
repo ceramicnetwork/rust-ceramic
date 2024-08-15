@@ -18,12 +18,14 @@ async fn setup_service() -> CeramicEventService {
         .await
         .unwrap();
 
-    CeramicEventService::new(conn).await.unwrap()
+    CeramicEventService::new(conn, None).await.unwrap()
 }
 
 async fn add_and_assert_new_recon_event(store: &CeramicEventService, item: ReconItem<EventId>) {
     tracing::trace!("inserted event: {}", item.key.cid().unwrap());
-    let new = recon::Store::insert_many(store, &[item]).await.unwrap();
+    let new = recon::Store::insert_many(store, &[item], "".to_owned())
+        .await
+        .unwrap();
     assert!(new.included_new_key());
 }
 

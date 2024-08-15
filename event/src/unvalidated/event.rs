@@ -9,7 +9,7 @@ use std::{collections::HashMap, fmt::Debug};
 use tokio::io::AsyncRead;
 use tracing::debug;
 
-use super::{cid_from_dag_cbor, init, signed};
+use super::{cid_from_dag_cbor, init, signed, Payload};
 
 /// Materialized Ceramic Event where internal structure is accessible.
 #[derive(Debug)]
@@ -21,7 +21,7 @@ pub enum Event<D> {
     /// Signed event in a stream
     Signed(signed::Event<D>),
     /// Unsigned event in a stream
-    Unsigned(init::Payload<D>),
+    Unsigned(Box<init::Event<D>>),
 }
 
 impl<D> Event<D>
@@ -33,7 +33,7 @@ where
         match self {
             Event::Time(event) => event.encode_car().await,
             Event::Signed(event) => event.encode_car().await,
-            Event::Unsigned(event) => event.encode_car().await,
+            Event::Unsigned(event) => event.payload().encode_car().await,
         }
     }
 
@@ -179,7 +179,10 @@ where
                     )),
                 ))
             }
-            RawEvent::Unsigned(event) => Ok((event_cid, Event::Unsigned(event))),
+            RawEvent::Unsigned(event) => Ok((
+                event_cid,
+                Event::Unsigned(init::Event::new(event_cid, event).into()),
+            )),
         }
     }
 }
@@ -190,9 +193,9 @@ impl<D> From<Box<TimeEvent>> for Event<D> {
     }
 }
 
-impl<D> From<init::Payload<D>> for Event<D> {
-    fn from(value: init::Payload<D>) -> Self {
-        Self::Unsigned(value)
+impl<D> From<init::Event<D>> for Event<D> {
+    fn from(value: init::Event<D>) -> Self {
+        Self::Unsigned(value.into())
     }
 }
 
@@ -398,6 +401,74 @@ impl Proof {
 
 /// Proof edge TODO: rename witness node
 pub type ProofEdge = Vec<Ipld>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+/// An event header wrapper for use in the store crate.
+/// TODO: replace this with something from the event crate
+pub enum EventMetadata {
+    /// The init event
+    Init {
+        /// The CID of the init event of stream
+        stream_cid: Cid,
+    },
+    /// A data event
+    Data {
+        /// The CID of the init event of stream
+        stream_cid: Cid,
+        /// The CID of the previous event in the stream
+        prev: Cid,
+    },
+    /// A time event
+    Time {
+        /// The CID of the init event of stream
+        stream_cid: Cid,
+        /// The CID of the previous event in the stream
+        prev: Cid,
+    },
+}
+
+impl From<Event<Ipld>> for EventMetadata {
+    fn from(value: Event<Ipld>) -> Self {
+        match value {
+            Event::Time(t) => EventMetadata::Time {
+                stream_cid: t.id(),
+                prev: t.prev(),
+            },
+
+            Event::Signed(signed) => match signed.payload() {
+                Payload::Data(d) => EventMetadata::Data {
+                    stream_cid: *d.id(),
+                    prev: *d.prev(),
+                },
+                Payload::Init(_init) => EventMetadata::Init {
+                    stream_cid: signed.envelope_cid(),
+                },
+            },
+            Event::Unsigned(init) => EventMetadata::Init {
+                stream_cid: init.payload_cid(),
+            },
+        }
+    }
+}
+
+impl EventMetadata {
+    /// Get the CID of the previous event in the stream
+    pub fn prev(&self) -> Option<Cid> {
+        match self {
+            EventMetadata::Init { .. } => None,
+            EventMetadata::Data { prev, .. } | EventMetadata::Time { prev, .. } => Some(*prev),
+        }
+    }
+
+    /// Get the CID of init event of the stream to which this event belongs
+    pub fn stream_cid(&self) -> Cid {
+        match self {
+            EventMetadata::Init { stream_cid }
+            | EventMetadata::Data { stream_cid, .. }
+            | EventMetadata::Time { stream_cid, .. } => *stream_cid,
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {

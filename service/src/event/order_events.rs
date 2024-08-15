@@ -1,11 +1,10 @@
 use std::collections::{HashMap, VecDeque};
 
 use ceramic_core::Cid;
+use ceramic_event::unvalidated::EventMetadata;
 use ceramic_store::{CeramicOneEvent, EventInsertable, SqlitePool};
 
 use crate::Result;
-
-use super::service::EventMetadata;
 
 pub(crate) struct OrderEvents {
     deliverable: Vec<(EventInsertable, EventMetadata)>,
@@ -42,13 +41,13 @@ impl OrderEvents {
             HashMap::from_iter(candidate_events.iter_mut().map(|(e, meta)| {
                 // all init events are deliverable so we mark them as such before we do anything else
                 if matches!(meta, EventMetadata::Init { .. }) {
-                    e.body.set_deliverable(true);
+                    e.body.deliverable = true;
                 }
-                (e.cid(), e.deliverable())
+                (e.body.cid, e.body.deliverable)
             }));
         let mut deliverable = Vec::with_capacity(candidate_events.len());
         candidate_events.retain(|(e, h)| {
-            if e.deliverable() {
+            if e.body.deliverable {
                 deliverable.push((e.clone(), h.clone()));
                 false
             } else {
@@ -73,8 +72,8 @@ impl OrderEvents {
                 Some(prev) => {
                     if let Some(in_mem_is_deliverable) = new_cids.get(&prev) {
                         if *in_mem_is_deliverable {
-                            event.body.set_deliverable(true);
-                            *new_cids.get_mut(&event.cid()).expect("CID must exist") = true;
+                            event.body.deliverable = true;
+                            *new_cids.get_mut(&event.body.cid).expect("CID must exist") = true;
                             deliverable.push((event, header));
                         } else {
                             undelivered_prevs_in_memory.push_back((event, header));
@@ -83,8 +82,8 @@ impl OrderEvents {
                         let (_exists, prev_deliverable) =
                             CeramicOneEvent::deliverable_by_cid(pool, &prev).await?;
                         if prev_deliverable {
-                            event.body.set_deliverable(true);
-                            *new_cids.get_mut(&event.cid()).expect("CID must exist") = true;
+                            event.body.deliverable = true;
+                            *new_cids.get_mut(&event.body.cid).expect("CID must exist") = true;
                             deliverable.push((event, header));
                         } else {
                             missing_history.push((event, header));
@@ -109,8 +108,8 @@ impl OrderEvents {
                 }
                 Some(prev) => {
                     if new_cids.get(&prev).map_or(false, |v| *v) {
-                        *new_cids.get_mut(&event.cid()).expect("CID must exist") = true;
-                        event.body.set_deliverable(true);
+                        event.body.deliverable = true;
+                        *new_cids.get_mut(&event.body.cid).expect("CID must exist") = true;
                         deliverable.push((event, header));
                         // reset the iteration count since we made changes. once it doesn't change for a loop through the queue we're done
                         iteration = 0;
@@ -153,7 +152,7 @@ mod test {
         let stream_1 = get_n_events(10).await;
         let mut to_insert = Vec::with_capacity(10);
         for event in stream_1.iter().chain(stream_2.iter()) {
-            let insertable = CeramicEventService::parse_discovered_event(event)
+            let insertable = CeramicEventService::parse_discovered_event(event, None)
                 .await
                 .unwrap();
             to_insert.push(insertable);
@@ -186,7 +185,7 @@ mod test {
     ) -> Vec<(EventInsertable, EventMetadata)> {
         let mut insertable = Vec::with_capacity(events.len());
         for event in events {
-            let new = CeramicEventService::parse_discovered_event(event)
+            let new = CeramicEventService::parse_discovered_event(event, None)
                 .await
                 .unwrap();
             insertable.push(new);
@@ -290,7 +289,7 @@ mod test {
             .iter_mut()
             .take(3)
             .map(|(i, _)| {
-                i.body.set_deliverable(true);
+                i.body.deliverable = true;
                 i.clone()
             })
             .collect::<Vec<_>>();

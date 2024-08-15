@@ -1,7 +1,45 @@
-use crate::{bytes::Bytes, unvalidated::cid_from_dag_cbor};
+use std::fmt::Debug;
+
 use cid::Cid;
 use iroh_car::{CarHeader, CarWriter};
 use serde::{Deserialize, Serialize};
+
+use crate::{bytes::Bytes, unvalidated::cid_from_dag_cbor};
+
+/// Materialized unsigned Init Event.
+pub struct Event<D> {
+    payload_cid: Cid,
+    payload: Payload<D>,
+}
+
+impl<D: Debug> Debug for Event<D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Event")
+            .field("payload_cid", &self.payload_cid.to_string())
+            .field("payload", &self.payload)
+            .finish()
+    }
+}
+
+impl<D: serde::Serialize> Event<D> {
+    /// Factory for building an Event.
+    pub fn new(payload_cid: Cid, payload: Payload<D>) -> Self {
+        Self {
+            payload_cid,
+            payload,
+        }
+    }
+
+    /// Get the CID of the payload
+    pub fn payload_cid(&self) -> Cid {
+        self.payload_cid
+    }
+
+    /// Get the payload
+    pub fn payload(&self) -> &Payload<D> {
+        &self.payload
+    }
+}
 
 /// Payload of an init event
 #[derive(Debug, Serialize, Deserialize)]

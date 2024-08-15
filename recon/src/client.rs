@@ -26,9 +26,15 @@ where
     H: AssociativeHash,
 {
     /// Sends an insert request to the server and awaits the response.
-    pub async fn insert(&self, items: Vec<ReconItem<K>>) -> Result<InsertResult<K>> {
+    pub async fn insert(
+        &self,
+        items: Vec<ReconItem<K>>,
+        source: String,
+    ) -> Result<InsertResult<K>> {
         let (ret, rx) = oneshot::channel();
-        self.sender.send(Request::Insert { items, ret }).await?;
+        self.sender
+            .send(Request::Insert { items, source, ret })
+            .await?;
         rx.await?
     }
 
@@ -145,6 +151,7 @@ where
 {
     Insert {
         items: Vec<ReconItem<K>>,
+        source: String,
         ret: oneshot::Sender<Result<InsertResult<K>>>,
     },
     Len {
@@ -242,8 +249,8 @@ where
             let request = self.requests.recv().await;
             if let Some(request) = request {
                 match request {
-                    Request::Insert { items, ret } => {
-                        let val = self.recon.insert(items).await.map_err(Error::from);
+                    Request::Insert { items, source, ret } => {
+                        let val = self.recon.insert(items, source).await.map_err(Error::from);
                         send(ret, val);
                     }
                     Request::Len { ret } => {
