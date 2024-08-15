@@ -1,11 +1,11 @@
-// mod.rs
 
 use anyhow::Result;
-use ceramic_core::{DidDocument, EventId};
+use ceramic_core::{ssi, DidDocument, EventId};
 use cid::Cid;
+use ipld_core::ipld::Ipld;
 use serde::{Deserialize, Serialize};
 use ssi::jwk::Algorithm;
-use crate::unvalidated::{self, Payload, signed::Signer};
+use ceramic_event::unvalidated::{self, signed::cacao::Capability};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ValidatedEvent<D> {
@@ -16,22 +16,25 @@ pub enum ValidatedEvent<D> {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ValidatedInitEvent<D> {
-    pub event_id: EventId,
-    pub payload: Payload<D>,
-    pub signature: Vec<u8>,
+    pub envelope: Option<unvalidated::signed::Envelope>,
+    pub envelope_cid: Cid,
+    pub payload: Option<unvalidated::init::Payload<D>>,
+    pub payload_cid: Cid,
+    pub capability: Option<(Cid, Capability)>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ValidatedDataEvent<D> {
-    pub event_id: EventId,
-    pub payload: Payload<D>,
-    pub signature: Vec<u8>,
+    pub event_id: Option<EventId>,
+    pub payload: Option<unvalidated::data::Payload<D>>,
+    pub signature: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ValidatedTimeEvent<D> {
     pub event_id: EventId,
-    pub payload: Payload<D>,
+    // TODO : Fix this
+    pub payload: unvalidated::data::Payload<D>,
     pub signature: Vec<u8>,
 }
 
@@ -44,87 +47,60 @@ pub struct EventValidator {
     pub signer: DidDocument,
 }
 
-// pub struct EventQueue {
-//     tx: mpsc::Sender<unvalidated::Event<Ipld>>,
-//     rx: mpsc::Receiver<unvalidated::Event<Ipld>>,
-// }
-
-// impl EventQueue {
-//     pub fn new(buffer_size: usize) -> Self {
-//         let (tx, rx) = mpsc::channel(buffer_size);
-//         Self { tx, rx }
-//     }
-
-//     pub async fn add_event(&self, event: unvalidated::Event<Ipld>) -> Result<()> {
-//         self.tx.send(event).await?;
-//         Ok(())
-//     }
-
-//     pub async fn process_events(&mut self, batch_size: usize, interval_ms: u64) -> Result<()> {
-//         let mut interval = time::interval(Duration::from_millis(interval_ms));
-//         let mut buffer = Vec::with_capacity(batch_size);
-
-//         loop {
-//             tokio::select! {
-//                 _ = interval.tick() => {
-//                     // Process the batch if the interval elapses
-//                     if !buffer.is_empty() {
-//                         self.process_batch(&buffer).await?;
-//                         buffer.clear();
-//                     }
-//                 }
-//                 Some(event) = self.rx.recv() => {
-//                     // Add the event to the buffer
-//                     buffer.push(event);
-//                     // Process the batch if the buffer reaches the batch size
-//                     if buffer.len() >= batch_size {
-//                         self.process_batch(&buffer).await?;
-//                         buffer.clear();
-//                     }
-//                 }
-//                 else => break,
-//             }
-//         }
-
-//         // Process any remaining events
-//         if !buffer.is_empty() {
-//             self.process_batch(&buffer).await?;
-//         }
-
-//         Ok(())
-//     }
-
-//     async fn process_batch(&self, events: &[unvalidated::Event<Ipld>]) -> Result<()> {
-//         for event in events {
-//             match event {
-//                 unvalidated::Event::Signed(signed_event) => {
-//                     // Validate the signed event
-//                 }
-//                 unvalidated::Event::Time(time_event) => {
-//                     // Validate the time event
-//                 }
-//                 _ => {
-//                     // Handle other event types
-//                 }
-//             }
-//         }
-//         Ok(())
-//     }
-// }
 
 impl ValidateEvent for EventValidator {
     fn validate_event(&self, event: &unvalidated::Event<Ipld>) -> Result<ValidatedEvent<Ipld>> {
         match event {
             unvalidated::Event::Signed(signed_event) => {
-               validate_signed_event(signed_event)
+               validate_signed_event(signed_event).map(ValidatedEvent::Init)
             }
-            unvalidated::Event::Time(time_event) => {
-                validate_time_event(time_event)
-            }
+            // unvalidated::Event::Time(time_event) => {
+            //     // validate_time_event(time_event).map(ValidatedEvent::Time)
+            // }
             _ => Err(anyhow::anyhow!("Unsupported event type")),
         }
     }
 }
 
-// TODO: validate signed event
-// TODO: validate time event
+pub fn validate_signed_event(signed_event: &unvalidated::signed::Event<Ipld>) -> Result<ValidatedInitEvent<Ipld>> {
+    let envelope = signed_event.envelope();
+    let payload = signed_event.payload();
+    let envelope_cid = signed_event.envelope_cid();
+    let payload_cid = signed_event.payload_cid();
+    // let capability = signed_event.capability();
+
+    let signature_protected_header = signed_event.envelope().get_decoded_signature_protected_header();
+    println!("signature_protected_header: {:?}", signature_protected_header);
+
+    let (alg, kid) = if let Some(header) = signature_protected_header {
+        let alg = header.get("alg").and_then(|v| v.as_str()).map(String::from);
+        let kid = header.get("kid").and_then(|v| v.as_str()).map(String::from);
+        (alg, kid)
+    } else {
+        return Err(anyhow::anyhow!("No signature protected header found in the envelope"));
+    };
+
+    // TODO : return an error if any step of this verification fails
+    let public_key = get_public_key_from_did(&kid)?;
+    verify_signature(&signature, &signed_data, &public_key)?;
+
+    Ok(ValidatedInitEvent {
+        envelope: None,
+        envelope_cid,
+        payload: None,
+        payload_cid,
+        capability: None,
+    })
+}
+
+
+    pub fn get_public_key_from_did(kid: &str) -> Result<String> {
+        // TODO: Implement this
+        unimplemented!()
+    }
+
+    pub fn verify_signature(signature: &[u8], signed_data: &[u8], public_key: &String) -> Result<()> {
+        // TODO: Implement this
+        unimplemented!()
+    }
+

@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use async_trait::async_trait;
-use ceramic_core::{EventId, Network};
+use ceramic_core::{DidDocument, EventId, Network};
 use ceramic_event::unvalidated;
 use ceramic_store::{CeramicOneEvent, EventInsertable, EventInsertableBody, SqlitePool};
 use cid::Cid;
@@ -9,13 +9,15 @@ use futures::stream::BoxStream;
 use ipld_core::ipld::Ipld;
 use tracing::{trace, warn};
 
+
 use super::{
     migration::Migrator,
     order_events::OrderEvents,
-    ordering_task::{DeliverableTask, OrderingTask},
+    ordering_task::{DeliverableTask, OrderingTask}, validated::EventValidator,
 };
-
+use ceramic_event::unvalidated::Event;
 use crate::{Error, Result};
+use crate::event::validated::ValidateEvent; // Add this line
 
 /// How many events to select at once to see if they've become deliverable when we have downtime
 /// Used at startup and occasionally in case we ever dropped something
@@ -124,7 +126,19 @@ impl CeramicEventService {
         let (cid, parsed_event) = unvalidated::Event::<Ipld>::decode_car(carfile, false)
             .await
             .map_err(Error::new_app)?;
-
+        // println!("parsed_event: {:?}", parsed_event);
+        // println!("cid: {:?}", cid);
+        /// Event can be parsed ? Format is valid
+        /// 
+        /// Validate signature
+        /// 
+        println!("event_id: {:?}", event_id);
+        let validator = EventValidator {
+            signer: DidDocument::new("did:example:123"), // Replace with actual DidDocument
+        };
+        
+        let res = validator.validate_event(&parsed_event);
+        println!("res: {:?}", res);
         if event_cid != cid {
             return Err(Error::new_app(anyhow::anyhow!(
                 "EventId CID ({}) does not match the body CID ({})",
@@ -134,7 +148,7 @@ impl CeramicEventService {
         }
 
         // TODO: add an event to be validated to the queue
-        
+
         let metadata = EventMetadata::from(parsed_event);
         let body = EventInsertableBody::try_from_carfile(cid, carfile).await?;
 
@@ -325,4 +339,45 @@ impl EventMetadata {
             EventMetadata::Data { prev, .. } | EventMetadata::Time { prev, .. } => Some(*prev),
         }
     }
+}
+
+pub(crate) fn decode_multibase_data(value: &str) -> Result<Vec<u8>> {
+    Ok(multibase::decode(value)
+        .map_err(|err| {
+            Error::new_app(anyhow::anyhow!("Invalid event data: multibase error: {err}"))
+        })?
+        .1)
+}
+
+pub const SIGNED_INIT_EVENT_CAR: &str = "
+        uO6Jlcm9vdHOB2CpYJgABhQESII6AYH_8-NniumDaEPcbPId6ZQAMFfViEDLxGVnVBNOOZ3ZlcnNpb24
+        B0QEBcRIgEXCWI0EH1zQcSl57SUKRoo0WwhL6nMo8kLKfvgNaG0OiZGRhdGGhZXN0ZXBoGQFNZmhlYWR
+        lcqRjc2VwZW1vZGVsZW1vZGVsWCjOAQIBhQESIKDoMqM144vTQLQ6DwKZvzxRWg_DPeTNeRCkPouTHo1
+        YZnVuaXF1ZUxEpvE6skELu2qFaN5rY29udHJvbGxlcnOBeDhkaWQ6a2V5Ono2TWt0QnluQVBMckV5ZVM
+        3cFZ0aGJpeVNjbWZ1OG41Vjdib1hneHlvNXEzU1pSUroCAYUBEiCOgGB__PjZ4rpg2hD3GzyHemUADBX
+        1YhAy8RlZ1QTTjqJncGF5bG9hZFgkAXESIBFwliNBB9c0HEpee0lCkaKNFsIS-pzKPJCyn74DWhtDanN
+        pZ25hdHVyZXOBomlwcm90ZWN0ZWRYgXsiYWxnIjoiRWREU0EiLCJraWQiOiJkaWQ6a2V5Ono2TWt0Qnl
+        uQVBMckV5ZVM3cFZ0aGJpeVNjbWZ1OG41Vjdib1hneHlvNXEzU1pSUiN6Nk1rdEJ5bkFQTHJFeWVTN3B
+        WdGhiaXlTY21mdThuNVY3Ym9YZ3h5bzVxM1NaUlIifWlzaWduYXR1cmVYQCQDjlx8fT8rbTR4088HtOE
+        27LJMc38DSuf1_XtK14hDp1Q6vhHqnuiobqp5EqNOp0vNFCCzwgG-Dsjmes9jJww";
+
+pub const SIGNED_INIT_EVENT_CID: &str =
+        "bagcqcerar2aga7747dm6fota3iipogz4q55gkaamcx2weebs6emvtvie2oha";
+
+pub const DATA_EVENT_ID: &str =
+        "ce010500aa5773c7d75777e1deb6cb4af0e69eebd504d38e0185011220275d0719794a4d9eec8db4a735fd9032dfd238fa5af210d4aa9b337590882943";
+    
+#[tokio::test]
+async fn test_validate_discovery_event() {
+    let init_event = EventId::try_from(hex::decode(DATA_EVENT_ID).unwrap()).unwrap();
+    let event_data = SIGNED_INIT_EVENT_CAR
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect::<String>();
+
+    let decoded_data = decode_multibase_data(&event_data).unwrap();
+
+    println!("decoded_data: {:?}", decoded_data);
+    let res = CeramicEventService::validate_discovered_event(init_event, decoded_data.as_slice()).await;
+    println!("res: {:?}", res);
 }

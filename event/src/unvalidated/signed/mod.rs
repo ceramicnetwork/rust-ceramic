@@ -5,7 +5,7 @@ use std::fmt::Debug;
 
 use crate::bytes::Bytes;
 use crate::unvalidated::Payload;
-use base64::Engine;
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use ceramic_core::{DidDocument, Jwk};
 use cid::Cid;
 use ipld_core::ipld::Ipld;
@@ -13,6 +13,9 @@ use iroh_car::{CarHeader, CarWriter};
 use serde::{Deserialize, Serialize};
 use ssi::jwk::Algorithm;
 use std::{collections::BTreeMap, str::FromStr as _};
+use base64::{engine::general_purpose, Engine as _};
+use serde_json::Value;
+use anyhow::Result;
 
 use self::cacao::Capability;
 
@@ -45,7 +48,7 @@ impl<D: Debug> Debug for Event<D> {
     }
 }
 
-impl<D: serde::Serialize> Event<D> {
+impl<D: serde::Serialize + Debug> Event<D> {
     /// Factory for building an Event.
     pub fn new(
         envelope_cid: Cid,
@@ -66,6 +69,11 @@ impl<D: serde::Serialize> Event<D> {
     /// Get the Payload
     pub fn payload(&self) -> &Payload<D> {
         &self.payload
+    }
+
+    /// Get the Envelope
+    pub fn envelope(&self) -> &Envelope {
+        &self.envelope
     }
 
     /// Constructs a signed event by signing a given event payload.
@@ -190,6 +198,12 @@ impl Envelope {
                             .and_then(|cid| Cid::from_str(cid).ok())
                     })
                 })
+        })
+    }
+    /// Get the decoded payload as a byte string
+    pub fn get_decoded_signature_protected_header(&self) -> Option<Value> {
+        self.signatures[0].protected.as_ref().and_then(|protected| {
+            serde_json::from_slice::<Value>(protected.as_slice()).ok()
         })
     }
 }
