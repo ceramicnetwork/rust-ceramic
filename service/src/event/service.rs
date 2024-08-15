@@ -117,22 +117,28 @@ impl CeramicEventService {
     pub(crate) async fn parse_discovered_event(
         item: &ReconItem<EventId>,
     ) -> Result<(EventInsertable, EventMetadata)> {
-        let initial = IncomingEvent::initial(item);
-        let parsed = IncomingEvent::parsed(initial).await?;
+        let event_cid = item.key.cid().ok_or_else(|| {
+            Error::new_app(anyhow::anyhow!("EventId missing CID. EventID={}", item.key))
+        })?;
 
-        let body = EventInsertableBody::try_from_carfile(
-            parsed
-                .raw
-                .key
-                .cid()
-                .expect("CID was already check and cannot be none"),
-            parsed.raw.value.as_slice(),
-        )
-        .await?;
-        let metadata = EventMetadata::from(parsed.inner);
+        let (cid, parsed_event) =
+            unvalidated::Event::<Ipld>::decode_car(item.value.as_slice(), false)
+                .await
+                .map_err(Error::new_app)?;
+
+        if event_cid != cid {
+            return Err(Error::new_app(anyhow::anyhow!(
+                "EventId CID ({}) does not match the body CID ({})",
+                event_cid,
+                cid
+            )));
+        }
+
+        let body = EventInsertableBody::try_from_carfile(cid, item.value.as_slice()).await?;
+        let metadata = EventMetadata::from(parsed_event);
 
         Ok((
-            EventInsertable::try_new(parsed.raw.key.to_owned(), body)?,
+            EventInsertable::try_new(item.key.to_owned(), body)?,
             metadata,
         ))
     }
@@ -230,52 +236,6 @@ impl CeramicEventService {
         }
     }
 }
-
-#[derive(Debug)]
-pub struct IncomingEvent;
-#[derive(Debug)]
-pub struct InitialIncomingEvent<'a> {
-    inner: &'a ReconItem<EventId>,
-}
-#[derive(Debug)]
-pub struct ParsedIncomingEvent<'a> {
-    inner: unvalidated::Event<Ipld>,
-    raw: &'a ReconItem<EventId>,
-}
-
-impl IncomingEvent {
-    pub fn initial(event: &ReconItem<EventId>) -> InitialIncomingEvent<'_> {
-        InitialIncomingEvent { inner: event }
-    }
-
-    pub async fn parsed(event: InitialIncomingEvent<'_>) -> Result<ParsedIncomingEvent<'_>> {
-        let event_cid = event.inner.key.cid().ok_or_else(|| {
-            Error::new_app(anyhow::anyhow!(
-                "EventId missing CID. EventID={}",
-                event.inner.key
-            ))
-        })?;
-
-        let (cid, parsed_event) =
-            unvalidated::Event::<Ipld>::decode_car(event.inner.value.as_slice(), false)
-                .await
-                .map_err(Error::new_app)?;
-
-        if event_cid != cid {
-            return Err(Error::new_app(anyhow::anyhow!(
-                "EventId CID ({}) does not match the body CID ({})",
-                event_cid,
-                cid
-            )));
-        }
-
-        Ok(ParsedIncomingEvent {
-            raw: event.inner,
-            inner: parsed_event,
-        })
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InvalidItem {
     InvalidFormat {

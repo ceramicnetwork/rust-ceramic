@@ -473,7 +473,7 @@ where
 
     /// Get the total count of items included whether added, pending or invalid
     pub fn item_count(&self) -> usize {
-        self.new_cnt + self.invalid.len()
+        self.new_cnt + self.invalid.len() + self.pending_cnt
     }
     /// Create with invalid or pending items
     pub fn new_err(new_cnt: usize, invalid: Vec<InvalidItem<K>>, pending_cnt: usize) -> Self {
