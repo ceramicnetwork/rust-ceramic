@@ -13,7 +13,7 @@ use prometheus_client::{
 
 use crate::{
     protocol::{InitiatorMessage, ResponderMessage},
-    AssociativeHash, Key,
+    AssociativeHash, InvalidItem, Key,
 };
 
 /// Metrics for Recon P2P events
@@ -24,6 +24,9 @@ pub struct Metrics {
 
     protocol_write_loop_count: Counter,
     protocol_run_duration: Histogram,
+
+    protocol_pending_items: Counter,
+    protocol_invalid_items: Family<InvalidItemLabels, Counter>,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
@@ -97,11 +100,27 @@ impl Metrics {
             sub_registry
         );
 
+        register!(
+            protocol_pending_items,
+            "Number of items received that depend on undiscovered events",
+            Counter::default(),
+            sub_registry
+        );
+
+        register!(
+            protocol_invalid_items,
+            "Number of items received that were considered invalid",
+            Family::<InvalidItemLabels, Counter>::default(),
+            sub_registry
+        );
+
         Self {
             protocol_message_received_count,
             protocol_message_sent_count,
             protocol_write_loop_count,
             protocol_run_duration,
+            protocol_pending_items,
+            protocol_invalid_items,
         }
     }
 }
@@ -143,5 +162,37 @@ pub(crate) struct ProtocolRun(pub Duration);
 impl Recorder<ProtocolRun> for Metrics {
     fn record(&self, event: &ProtocolRun) {
         self.protocol_run_duration.observe(event.0.as_secs_f64());
+    }
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+pub(crate) struct InvalidItemLabels {
+    pub(crate) reason: &'static str,
+}
+
+impl<K: Key> Recorder<InvalidItem<K>> for Metrics {
+    fn record(&self, event: &InvalidItem<K>) {
+        let labels = event.into();
+        self.protocol_invalid_items.get_or_create(&labels).inc();
+    }
+}
+
+impl<K: Key> From<&InvalidItem<K>> for InvalidItemLabels {
+    fn from(value: &InvalidItem<K>) -> Self {
+        match value {
+            InvalidItem::InvalidFormat { .. } => InvalidItemLabels {
+                reason: "InvalidFormat",
+            },
+            InvalidItem::InvalidSignature { .. } => InvalidItemLabels {
+                reason: "InvalidSignature",
+            },
+        }
+    }
+}
+
+pub(crate) struct PendingEvents(pub u64);
+impl Recorder<PendingEvents> for Metrics {
+    fn record(&self, event: &PendingEvents) {
+        self.protocol_pending_items.inc_by(event.0);
     }
 }

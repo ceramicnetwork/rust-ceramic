@@ -11,12 +11,13 @@
 //! Encoding and framing of messages is outside the scope of this crate.
 //! However the message types do implement serde::Serialize and serde::Deserialize.
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use async_stream::try_stream;
 use async_trait::async_trait;
 use ceramic_core::RangeOpen;
 use ceramic_metrics::Recorder;
 use futures::{pin_mut, stream::BoxStream, Sink, SinkExt, Stream, StreamExt, TryStreamExt};
+use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
 use tokio::{sync::mpsc, time::Instant};
 use tokio_stream::once;
@@ -24,9 +25,12 @@ use tracing::{instrument, trace, Level};
 use uuid::Uuid;
 
 use crate::{
-    metrics::{MessageLabels, MessageRecv, MessageSent, Metrics, ProtocolRun, ProtocolWriteLoop},
+    metrics::{
+        MessageLabels, MessageRecv, MessageSent, Metrics, PendingEvents, ProtocolRun,
+        ProtocolWriteLoop,
+    },
     recon::{RangeHash, SyncState},
-    AssociativeHash, Client, Key, ReconItem, Result as ReconResult,
+    AssociativeHash, Client, InsertResult, Key, ReconItem, Result as ReconResult,
 };
 
 // Limit to the number of pending range requests.
@@ -44,15 +48,50 @@ use crate::{
 // Even a small limit will quickly mean that both peers have work to do.
 const PENDING_RANGES_LIMIT: usize = 20;
 
+// The max number of writes we'll batch up before flushing anything to disk.
+// As we descend the tree and find smaller ranges, this won't apply as we have to flush
+// before recomputing a range, but it will be used when we're processing large ranges we don't yet have.
+const INSERT_BATCH_SIZE: usize = 100;
+
 type IM<K, H> = ReconMessage<InitiatorMessage<K, H>>;
 type RM<K, H> = ReconMessage<ResponderMessage<K, H>>;
+
+#[derive(Clone, Debug)]
+/// Parameters for the protocol that can be used to track the conversation or adjust internal behavior
+pub struct ProtocolConfig {
+    /// The max number of writes we'll batch up before flushing anything to disk.
+    /// As we descend the tree and find smaller ranges, this won't apply as we have to flush
+    /// before recomputing a range, but it will be used when we're processing large ranges we don't yet have.
+    pub insert_batch_size: usize,
+    #[allow(dead_code)]
+    /// The ID of the peer we're syncing with.
+    peer_id: PeerId,
+}
+
+impl ProtocolConfig {
+    /// Create an instance of the config
+    pub fn new(insert_batch_size: usize, peer_id: PeerId) -> Self {
+        Self {
+            insert_batch_size,
+            peer_id,
+        }
+    }
+
+    /// Uses the constant defaults defined for batch size (100) and max items (1000)
+    pub fn new_peer_id(peer_id: PeerId) -> Self {
+        Self {
+            insert_batch_size: INSERT_BATCH_SIZE,
+            peer_id,
+        }
+    }
+}
 
 /// Intiate Recon synchronization with a peer over a stream.
 #[tracing::instrument(skip(recon, stream), ret(level = Level::DEBUG))]
 pub async fn initiate_synchronize<S, R, E>(
     recon: R,
     stream: S,
-    insert_batch_size: usize,
+    config: ProtocolConfig,
 ) -> Result<()>
 where
     R: Recon,
@@ -64,22 +103,12 @@ where
 {
     let metrics = recon.metrics();
     let sync_id = Some(Uuid::new_v4().to_string());
-    protocol(
-        sync_id,
-        Initiator::new(recon, insert_batch_size),
-        stream,
-        metrics,
-    )
-    .await?;
+    protocol(sync_id, Initiator::new(recon, config), stream, metrics).await?;
     Ok(())
 }
 /// Respond to an initiated Recon synchronization with a peer over a stream.
 #[tracing::instrument(skip(recon, stream), ret(level = Level::DEBUG))]
-pub async fn respond_synchronize<S, R, E>(
-    recon: R,
-    stream: S,
-    insert_batch_size: usize,
-) -> Result<()>
+pub async fn respond_synchronize<S, R, E>(recon: R, stream: S, config: ProtocolConfig) -> Result<()>
 where
     R: Recon,
     S: Stream<Item = std::result::Result<IM<R::Key, R::Hash>, E>>
@@ -89,13 +118,7 @@ where
     E: std::error::Error + Send + Sync + 'static,
 {
     let metrics = recon.metrics();
-    protocol(
-        None,
-        Responder::new(recon, insert_batch_size),
-        stream,
-        metrics,
-    )
-    .await?;
+    protocol(None, Responder::new(recon, config), stream, metrics).await?;
     Ok(())
 }
 
@@ -437,9 +460,9 @@ impl<R> Initiator<R>
 where
     R: Recon,
 {
-    fn new(recon: R, batch_size: usize) -> Self {
+    fn new(recon: R, config: ProtocolConfig) -> Self {
         Self {
-            common: Common::new(recon, batch_size),
+            common: Common::new(recon, config),
             pending_ranges: 0,
         }
     }
@@ -583,9 +606,9 @@ impl<R> Responder<R>
 where
     R: Recon,
 {
-    fn new(recon: R, batch_size: usize) -> Self {
+    fn new(recon: R, config: ProtocolConfig) -> Self {
         Self {
-            common: Common::new(recon, batch_size),
+            common: Common::new(recon, config),
         }
     }
 
@@ -598,7 +621,12 @@ where
         // There are optimizations we can make here (to the protocol or using in memory data), but for now we keep it simple
         // and should still get some benefit as we were previously writing every value individually.
         self.common.persist_all().await?;
-        let sync_state = self.common.recon.process_range(range).await?;
+        let sync_state = self
+            .common
+            .recon
+            .process_range(range)
+            .await
+            .context("responder process_range")?;
         match sync_state {
             SyncState::Synchronized { range } => {
                 // We are sync echo back the same range so that the remote learns we are in sync.
@@ -692,27 +720,31 @@ where
 struct Common<R: Recon> {
     recon: R,
     event_q: Vec<ReconItem<R::Key>>,
-    batch_size: usize,
+    config: ProtocolConfig,
 }
 
 impl<R> Common<R>
 where
     R: Recon,
 {
-    fn new(recon: R, batch_size: usize) -> Self {
+    fn new(recon: R, config: ProtocolConfig) -> Self {
         Self {
             recon,
-            event_q: Vec::with_capacity(batch_size.saturating_add(1)),
-            batch_size,
+            event_q: Vec::with_capacity(config.insert_batch_size.saturating_add(1)),
+            config,
         }
     }
+
     async fn process_value_response(&mut self, key: R::Key, value: Vec<u8>) -> Result<()> {
-        self.event_q.push(ReconItem::new(key, value));
-        if self.event_q.len() >= self.batch_size {
+        let new = ReconItem::new(key, value);
+        self.event_q.push(new);
+
+        if self.event_q.len() >= self.config.insert_batch_size {
             self.persist_all().await?;
         }
         Ok(())
     }
+
     // The remote is missing all keys in the range send them over.
     fn process_remote_missing_ranges(
         &mut self,
@@ -734,11 +766,39 @@ where
         }
     }
 
+    /// We attempt to write data in batches to reduce lock contention. However, we need to persist everything in a few cases:
+    ///     - before we calculate a range response, we need to make sure our result (calculated from disk) is up to date
+    ///     - before we sign off on a conversation as either the initiator or responder
+    ///     - when our in memory list gets too large
     async fn persist_all(&mut self) -> Result<()> {
-        let evs: Vec<_> = self.event_q.drain(..).collect();
-        if !evs.is_empty() {
-            self.recon.insert(evs).await?;
+        if self.event_q.is_empty() {
+            return Ok(());
         }
+
+        let evs: Vec<_> = self.event_q.drain(..).collect();
+
+        let batch = self.recon.insert(evs).await.context("persisting all")?;
+        if !batch.invalid.is_empty() {
+            for invalid in &batch.invalid {
+                self.recon.metrics().record(invalid)
+            }
+            tracing::warn!(
+                invalid_cnt=%batch.invalid.len(), peer_id=%self.config.peer_id,
+                "Recon discovered data it will never allow. Hanging up on peer",
+            );
+            bail!("Received unknown data from peer: {}", self.config.peer_id);
+        }
+
+        // for now, we record the metrics from recon but the service is the one that will track and try to store them
+        // this may get more sophisticated as we want to tie reputation into this, or make recon more aware of the meaning of
+        // events and how to drive the conversation forward. it can cause some odd behavior currently as ranges won't match
+        // until events are persisted, but we expect the items to arrive at almost the same time with a well behaved peer.
+        if batch.pending_count() > 0 {
+            if let Ok(cnt) = batch.pending_count().try_into() {
+                self.recon.metrics().record(&PendingEvents(cnt))
+            }
+        }
+
         Ok(())
     }
 }
@@ -759,7 +819,10 @@ pub trait Recon: Clone + Send + Sync + 'static {
     type Hash: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>;
 
     /// Insert new keys into the key space.
-    async fn insert(&self, items: Vec<ReconItem<Self::Key>>) -> ReconResult<()>;
+    async fn insert(
+        &self,
+        items: Vec<ReconItem<Self::Key>>,
+    ) -> ReconResult<InsertResult<Self::Key>>;
 
     /// Get all keys in the specified range
     async fn range(
@@ -815,9 +878,8 @@ where
     type Key = K;
     type Hash = H;
 
-    async fn insert(&self, items: Vec<ReconItem<K>>) -> ReconResult<()> {
-        let _ = Client::insert(self, items).await?;
-        Ok(())
+    async fn insert(&self, items: Vec<ReconItem<K>>) -> ReconResult<InsertResult<K>> {
+        Client::insert(self, items).await
     }
 
     async fn range(

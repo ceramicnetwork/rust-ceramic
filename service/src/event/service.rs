@@ -7,6 +7,7 @@ use ceramic_store::{CeramicOneEvent, EventInsertable, EventInsertableBody, Sqlit
 use cid::Cid;
 use futures::stream::BoxStream;
 use ipld_core::ipld::Ipld;
+use recon::ReconItem;
 use tracing::{trace, warn};
 
 use super::{
@@ -113,17 +114,17 @@ impl CeramicEventService {
 
     /// Currently only verifies that the event parses into a valid ceramic event.
     /// In the future, we will need to do more event validation (verify all EventID pieces, hashes, signatures, etc).
-    pub(crate) async fn validate_discovered_event(
-        event_id: ceramic_core::EventId,
-        carfile: &[u8],
+    pub(crate) async fn parse_discovered_event(
+        item: &ReconItem<EventId>,
     ) -> Result<(EventInsertable, EventMetadata)> {
-        let event_cid = event_id.cid().ok_or_else(|| {
-            Error::new_app(anyhow::anyhow!("EventId missing CID. EventID={}", event_id))
+        let event_cid = item.key.cid().ok_or_else(|| {
+            Error::new_app(anyhow::anyhow!("EventId missing CID. EventID={}", item.key))
         })?;
 
-        let (cid, parsed_event) = unvalidated::Event::<Ipld>::decode_car(carfile, false)
-            .await
-            .map_err(Error::new_app)?;
+        let (cid, parsed_event) =
+            unvalidated::Event::<Ipld>::decode_car(item.value.as_slice(), false)
+                .await
+                .map_err(Error::new_app)?;
 
         if event_cid != cid {
             return Err(Error::new_app(anyhow::anyhow!(
@@ -133,10 +134,13 @@ impl CeramicEventService {
             )));
         }
 
+        let body = EventInsertableBody::try_from_carfile(cid, item.value.as_slice()).await?;
         let metadata = EventMetadata::from(parsed_event);
-        let body = EventInsertableBody::try_from_carfile(cid, carfile).await?;
 
-        Ok((EventInsertable::try_new(event_id, body)?, metadata))
+        Ok((
+            EventInsertable::try_new(item.key.to_owned(), body)?,
+            metadata,
+        ))
     }
 
     pub(crate) async fn insert_events(
@@ -145,26 +149,29 @@ impl CeramicEventService {
         source: DeliverableRequirement,
     ) -> Result<InsertResult> {
         let mut to_insert = Vec::new();
-
+        let mut invalid = Vec::new();
         for event in items {
-            let insertable =
-                Self::validate_discovered_event(event.key.to_owned(), &event.value).await?;
-            to_insert.push(insertable);
+            match Self::parse_discovered_event(event).await {
+                Ok(insertable) => to_insert.push(insertable),
+                Err(err) => invalid.push(InvalidItem::InvalidFormat {
+                    key: event.key.clone(),
+                    reason: err.to_string(),
+                }),
+            }
         }
 
         let ordered = OrderEvents::try_new(&self.pool, to_insert).await?;
-
-        let missing_history = ordered
-            .missing_history()
-            .iter()
-            .map(|(e, _)| e.order_key.clone())
-            .collect();
 
         // api writes shouldn't have any missed history so we don't insert those events and
         // we can skip notifying the ordering task because it's impossible to be waiting on them
         let store_result = match source {
             DeliverableRequirement::Immediate => {
                 let to_insert = ordered.deliverable().iter().map(|(e, _)| e);
+                invalid.extend(ordered.missing_history().iter().map(|(e, _)| {
+                    InvalidItem::RequiresHistory {
+                        key: e.order_key.clone(),
+                    }
+                }));
                 CeramicOneEvent::insert_many(&self.pool, to_insert).await?
             }
             DeliverableRequirement::Lazy | DeliverableRequirement::Asap => {
@@ -186,7 +193,7 @@ impl CeramicEventService {
 
         Ok(InsertResult {
             store_result,
-            missing_history,
+            rejected: invalid,
         })
     }
 
@@ -229,28 +236,28 @@ impl CeramicEventService {
         }
     }
 }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InvalidItem {
+    InvalidFormat {
+        key: EventId,
+        reason: String,
+    },
+    #[allow(dead_code)]
+    InvalidSignature {
+        key: EventId,
+        reason: String,
+    },
+    /// For recon, this is any event where we haven't found the init event
+    /// For API, this is anything where we don't have prev locally
+    RequiresHistory {
+        key: EventId,
+    },
+}
 
 #[derive(Debug, PartialEq, Eq, Default)]
 pub struct InsertResult {
+    pub rejected: Vec<InvalidItem>,
     pub(crate) store_result: ceramic_store::InsertResult,
-    pub(crate) missing_history: Vec<EventId>,
-}
-
-impl From<InsertResult> for Vec<ceramic_api::EventInsertResult> {
-    fn from(res: InsertResult) -> Self {
-        let mut api_res =
-            Vec::with_capacity(res.store_result.inserted.len() + res.missing_history.len());
-        for ev in res.store_result.inserted {
-            api_res.push(ceramic_api::EventInsertResult::new_ok(ev.order_key));
-        }
-        for ev in res.missing_history {
-            api_res.push(ceramic_api::EventInsertResult::new_failed(
-                ev,
-                "Failed to insert event as `prev` event was missing".to_owned(),
-            ));
-        }
-        api_res
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

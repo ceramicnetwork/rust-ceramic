@@ -153,12 +153,9 @@ mod test {
         let stream_1 = get_n_events(10).await;
         let mut to_insert = Vec::with_capacity(10);
         for event in stream_1.iter().chain(stream_2.iter()) {
-            let insertable = CeramicEventService::validate_discovered_event(
-                event.key.to_owned(),
-                event.value.as_slice(),
-            )
-            .await
-            .unwrap();
+            let insertable = CeramicEventService::parse_discovered_event(event)
+                .await
+                .unwrap();
             to_insert.push(insertable);
         }
         (stream_1, stream_2, to_insert)
@@ -189,12 +186,9 @@ mod test {
     ) -> Vec<(EventInsertable, EventMetadata)> {
         let mut insertable = Vec::with_capacity(events.len());
         for event in events {
-            let new = CeramicEventService::validate_discovered_event(
-                event.key.to_owned(),
-                event.value.as_slice(),
-            )
-            .await
-            .unwrap();
+            let new = CeramicEventService::parse_discovered_event(event)
+                .await
+                .unwrap();
             insertable.push(new);
         }
 

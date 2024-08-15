@@ -145,11 +145,11 @@ where
     type Hash = H;
 
     #[instrument(skip(self))]
-    async fn insert_many(&self, items: &[ReconItem<Self::Key>]) -> Result<InsertResult> {
+    async fn insert_many(&self, items: &[ReconItem<Self::Key>]) -> Result<InsertResult<Self::Key>> {
         tracing::trace!("inserting items: {}", items.len());
-        let mut new = vec![false; items.len()];
-        for (idx, item) in items.iter().enumerate() {
-            new[idx] = self.insert(item).await?;
+        let mut new = 0;
+        for item in items.iter() {
+            self.insert(item).await?.then(|| new += 1);
         }
         Ok(InsertResult::new(new))
     }

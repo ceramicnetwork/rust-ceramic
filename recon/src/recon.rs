@@ -280,12 +280,10 @@ where
         self.store.value_for_key(&key).await
     }
 
-    /// Insert key into the key space.
-    /// Returns Ok if the result was accepted. It may be validated and stored
-    /// out of band, meaning it may not immediately return in range queries.
-    pub async fn insert(&self, items: Vec<ReconItem<K>>) -> Result<()> {
-        let _res = self.store.insert_many(&items).await?;
-        Ok(())
+    /// Insert keys into the key space.
+    pub async fn insert(&self, items: Vec<ReconItem<K>>) -> Result<InsertResult<K>> {
+        let res = self.store.insert_many(&items).await?;
+        Ok(res)
     }
 
     /// Reports total number of keys
@@ -405,7 +403,7 @@ where
 }
 
 /// A key value pair to store
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReconItem<K>
 where
     K: Key,
@@ -429,23 +427,77 @@ where
     }
 }
 
-/// The result of an insert operation.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Default)]
-pub struct InsertResult {
-    /// A true/false list indicating whether or not the key was new.
-    /// It is in the same order as the input list of keys.
-    pub keys: Vec<bool>,
+/// Represents reasons the store is unwilling to persist keys and values
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum InvalidItem<K: Key> {
+    /// The key or event data could not be parsed
+    InvalidFormat {
+        /// The key associated with the invalid data
+        key: K,
+    },
+    /// The data did not have a valid signature
+    InvalidSignature {
+        /// The key associated with the invalid data
+        key: K,
+    },
 }
 
-impl InsertResult {
+/// The result of an insert operation.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct InsertResult<K>
+where
+    K: Key,
+{
+    /// The count of keys that were inserted in the batch.
+    new_cnt: usize,
+    /// The count of keys that were in the batch that depend on a not yet discovered event.
+    pending_cnt: usize,
+    /// The list of items that were considered invalid by the store.
+    /// Typically these events are "garbage" and the conversation should be ended or the
+    /// peer informed so they can clean up or stop sending the data.
+    pub invalid: Vec<InvalidItem<K>>,
+}
+
+impl<K> InsertResult<K>
+where
+    K: Key,
+{
     /// Construct an insert result
-    pub fn new(new_keys: Vec<bool>) -> Self {
-        Self { keys: new_keys }
+    pub fn new(new_cnt: usize) -> Self {
+        Self {
+            new_cnt,
+            invalid: Vec::new(),
+            pending_cnt: 0,
+        }
+    }
+
+    /// Get the total count of items included whether added, pending or invalid
+    pub fn item_count(&self) -> usize {
+        self.new_cnt + self.invalid.len() + self.pending_cnt
+    }
+    /// Create with invalid or pending items
+    pub fn new_err(new_cnt: usize, invalid: Vec<InvalidItem<K>>, pending_cnt: usize) -> Self {
+        Self {
+            new_cnt,
+            invalid,
+            pending_cnt,
+        }
     }
 
     /// true if any key is new, false otherwise
     pub fn included_new_key(&self) -> bool {
-        self.keys.iter().any(|new| *new)
+        self.new_cnt > 0
+    }
+
+    /// The count of keys persisted in this batch
+    pub fn count_inserted(&self) -> usize {
+        self.new_cnt
+    }
+
+    /// The count of keys that were not inserted because they depend on discovering a
+    /// related event to be validated (i.e. the init event for the stream).
+    pub fn pending_count(&self) -> usize {
+        self.pending_cnt
     }
 }
 
@@ -460,7 +512,7 @@ pub trait Store {
     /// Insert new keys into the key space.
     /// Returns true for each key if it did not previously exist, in the
     /// same order as the input iterator.
-    async fn insert_many(&self, items: &[ReconItem<Self::Key>]) -> Result<InsertResult>;
+    async fn insert_many(&self, items: &[ReconItem<Self::Key>]) -> Result<InsertResult<Self::Key>>;
 
     /// Return the hash of all keys in the range between left_fencepost and right_fencepost.
     /// The upper range bound is exclusive.
@@ -568,7 +620,7 @@ where
     type Key = K;
     type Hash = H;
 
-    async fn insert_many(&self, items: &[ReconItem<Self::Key>]) -> Result<InsertResult> {
+    async fn insert_many(&self, items: &[ReconItem<Self::Key>]) -> Result<InsertResult<Self::Key>> {
         self.as_ref().insert_many(items).await
     }
 

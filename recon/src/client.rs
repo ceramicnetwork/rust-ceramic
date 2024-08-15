@@ -7,7 +7,7 @@ use tracing::warn;
 
 use crate::{
     recon::{RangeHash, ReconItem, SyncState},
-    AssociativeHash, Error, InterestProvider, Key, Metrics, Recon, Result, Store,
+    AssociativeHash, Error, InsertResult, InterestProvider, Key, Metrics, Recon, Result, Store,
 };
 
 /// Client to a [`Recon`] [`Server`].
@@ -26,7 +26,7 @@ where
     H: AssociativeHash,
 {
     /// Sends an insert request to the server and awaits the response.
-    pub async fn insert(&self, items: Vec<ReconItem<K>>) -> Result<()> {
+    pub async fn insert(&self, items: Vec<ReconItem<K>>) -> Result<InsertResult<K>> {
         let (ret, rx) = oneshot::channel();
         self.sender.send(Request::Insert { items, ret }).await?;
         rx.await?
@@ -145,7 +145,7 @@ where
 {
     Insert {
         items: Vec<ReconItem<K>>,
-        ret: oneshot::Sender<Result<()>>,
+        ret: oneshot::Sender<Result<InsertResult<K>>>,
     },
     Len {
         ret: oneshot::Sender<Result<usize>>,

@@ -9,6 +9,29 @@ use recon::{HashCount, ReconItem, Result as ReconResult, Sha256a};
 
 use crate::event::{CeramicEventService, DeliverableRequirement};
 
+use super::service::{InsertResult, InvalidItem};
+
+impl From<InsertResult> for recon::InsertResult<EventId> {
+    fn from(value: InsertResult) -> Self {
+        let mut pending = 0;
+        let mut invalid = Vec::new();
+        for ev in value.rejected {
+            match ev {
+                InvalidItem::InvalidFormat { key, .. } => {
+                    invalid.push(recon::InvalidItem::InvalidFormat { key })
+                }
+                InvalidItem::InvalidSignature { key, .. } => {
+                    invalid.push(recon::InvalidItem::InvalidFormat { key })
+                }
+                // once we implement enough validation to actually return these items,
+                // the service will need to track them and retry them when the required CIDs are discovered
+                InvalidItem::RequiresHistory { .. } => pending += 1,
+            };
+        }
+        recon::InsertResult::new_err(value.store_result.count_new_keys(), invalid, pending)
+    }
+}
+
 #[async_trait::async_trait]
 impl recon::Store for CeramicEventService {
     type Key = EventId;
@@ -20,22 +43,12 @@ impl recon::Store for CeramicEventService {
     async fn insert_many(
         &self,
         items: &[ReconItem<Self::Key>],
-    ) -> ReconResult<recon::InsertResult> {
+    ) -> ReconResult<recon::InsertResult<EventId>> {
         let res = self
             .insert_events(items, DeliverableRequirement::Asap)
             .await?;
-        let mut keys = vec![false; items.len()];
-        // we need to put things back in the right order that the recon trait expects, even though we don't really care about the result
-        for (i, item) in items.iter().enumerate() {
-            let new_key = res
-                .store_result
-                .inserted
-                .iter()
-                .find(|e| e.order_key == item.key)
-                .map_or(false, |e| e.new_key); // TODO: should we error if it's not in this set
-            keys[i] = new_key;
-        }
-        Ok(recon::InsertResult::new(keys))
+
+        Ok(res.into())
     }
 
     /// Return the hash of all keys in the range between left_fencepost and right_fencepost.
@@ -107,6 +120,32 @@ impl iroh_bitswap::Store for CeramicEventService {
     }
     async fn put(&self, block: &Block) -> anyhow::Result<bool> {
         Ok(CeramicOneBlock::put(&self.pool, block).await?)
+    }
+}
+
+impl From<InsertResult> for Vec<ceramic_api::EventInsertResult> {
+    fn from(res: InsertResult) -> Self {
+        let mut api_res = Vec::with_capacity(res.store_result.inserted.len() + res.rejected.len());
+        for ev in res.store_result.inserted {
+            api_res.push(ceramic_api::EventInsertResult::new_ok(ev.order_key));
+        }
+
+        for ev in res.rejected {
+            let (key, reason) = match ev {
+                InvalidItem::InvalidFormat { key, reason } => {
+                    (key, format!("Event data could not be parsed: {reason}"))
+                }
+                InvalidItem::InvalidSignature { key, reason } => {
+                    (key, format!("Event had invalid signature: {reason}"))
+                }
+                InvalidItem::RequiresHistory { key } => (
+                    key,
+                    "Failed to insert event as `prev` event was missing".to_owned(),
+                ),
+            };
+            api_res.push(ceramic_api::EventInsertResult::new_failed(key, reason));
+        }
+        api_res
     }
 }
 

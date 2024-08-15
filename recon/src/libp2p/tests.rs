@@ -75,7 +75,7 @@ where
     type Key = K;
     type Hash = H;
 
-    async fn insert_many(&self, items: &[ReconItem<K>]) -> ReconResult<InsertResult> {
+    async fn insert_many(&self, items: &[ReconItem<K>]) -> ReconResult<InsertResult<Self::Key>> {
         self.as_error()?;
 
         self.inner.insert_many(items).await

@@ -610,10 +610,9 @@ mod test {
         let mut res = Vec::with_capacity(n);
         let events = get_n_events(n).await;
         for event in events {
-            let (event, _) =
-                CeramicEventService::validate_discovered_event(event.key.to_owned(), &event.value)
-                    .await
-                    .unwrap();
+            let (event, _) = CeramicEventService::parse_discovered_event(&event)
+                .await
+                .unwrap();
             res.push(event);
         }
         res

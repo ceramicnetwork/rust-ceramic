@@ -64,7 +64,7 @@ async fn test_missing_prev_history_required_not_inserted() {
         .await
         .unwrap();
     assert!(new.store_result.inserted.is_empty());
-    assert_eq!(1, new.missing_history.len());
+    assert_eq!(1, new.rejected.len());
 }
 
 #[test(tokio::test)]
