@@ -176,7 +176,7 @@ impl CeramicOneEvent {
                 item.deliverable(),
             ));
             if new_key {
-                for block in item.body.blocks().iter() {
+                for block in item.blocks().iter() {
                     CeramicOneBlock::insert(&mut tx, block.multihash.inner(), &block.bytes).await?;
                     CeramicOneEventBlock::insert(&mut tx, block).await?;
                 }

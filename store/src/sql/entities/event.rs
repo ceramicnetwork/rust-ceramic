@@ -43,46 +43,7 @@ pub async fn rebuild_car(blocks: Vec<BlockRow>) -> Result<Option<Vec<u8>>> {
 /// The type we use to insert events into the database
 pub struct EventInsertable {
     /// The event order key (e.g. EventID)
-    pub order_key: EventId,
-    /// The data that makes up the event
-    pub body: EventInsertableBody,
-}
-
-impl EventInsertable {
-    /// Try to build the EventInsertable struct from a carfile.
-    pub async fn try_from_carfile(order_key: EventId, body: &[u8]) -> Result<Self> {
-        let cid = order_key.cid().ok_or_else(|| {
-            Error::new_invalid_arg(anyhow::anyhow!("EventID is missing a CID: {}", order_key))
-        })?;
-        let body = EventInsertableBody::try_from_carfile(cid, body).await?;
-        Ok(Self { order_key, body })
-    }
-
-    /// Build the EventInsertable struct from an EventID and EventInsertableBody.
-    /// Will error if the CID in the EventID doesn't match the CID in the EventInsertableBody.
-    pub fn try_new(order_key: EventId, body: EventInsertableBody) -> Result<Self> {
-        if order_key.cid() != Some(body.cid()) {
-            return Err(Error::new_invalid_arg(anyhow!(
-                "EventID CID does not match the body CID"
-            )));
-        }
-        Ok(Self { order_key, body })
-    }
-
-    /// Get the CID of the event
-    pub fn cid(&self) -> Cid {
-        self.body.cid
-    }
-
-    /// Whether this event is deliverable currently
-    pub fn deliverable(&self) -> bool {
-        self.body.deliverable()
-    }
-}
-
-#[derive(Debug, Clone)]
-/// The type we use to insert events into the database
-pub struct EventInsertableBody {
+    pub order_key: EventId, // todo make private
     /// The event CID i.e. the root CID from the car file
     cid: Cid,
     /// Whether the event is deliverable i.e. it's prev has been delivered and the chain is continuous to an init event
@@ -92,61 +53,30 @@ pub struct EventInsertableBody {
     blocks: Vec<EventBlockRaw>,
 }
 
-impl EventInsertableBody {
-    /// Create a new EventInsertRaw struct. Deliverable is set to false by default.
-    pub fn new(cid: Cid, blocks: Vec<EventBlockRaw>, deliverable: bool) -> Self {
+impl EventInsertable {
+    /// EventInsertable constructor
+    pub fn new(order_key: EventId, blocks: Vec<EventBlockRaw>, deliverable: bool) -> Self {
+        let cid = order_key.cid().unwrap();
+
         Self {
+            order_key,
             cid,
             deliverable,
             blocks,
         }
     }
 
-    /// Get the CID of the event
-    pub fn cid(&self) -> Cid {
-        self.cid
-    }
+    /// Try to build the EventInsertable struct from a carfile.
+    pub async fn try_from_carfile(order_key: EventId, body: &[u8]) -> Result<Self> {
+        let cid = order_key.cid().ok_or_else(|| {
+            Error::new_invalid_arg(anyhow::anyhow!("EventID is missing a CID: {}", order_key))
+        })?;
 
-    /// Whether this event is deliverable currently
-    pub fn blocks(&self) -> &Vec<EventBlockRaw> {
-        &self.blocks
-    }
-
-    /// Whether this event is deliverable currently
-    pub fn deliverable(&self) -> bool {
-        self.deliverable
-    }
-
-    /// Mark the event as deliverable.
-    /// This will be used when inserting the event to make sure the field is updated accordingly.
-    pub fn set_deliverable(&mut self, deliverable: bool) {
-        self.deliverable = deliverable;
-    }
-
-    /// Find a block from the carfile for a given CID if it's included
-    pub fn block_for_cid_opt(&self, cid: &Cid) -> Option<&EventBlockRaw> {
-        self.blocks
-            .iter()
-            .find(|b| Cid::new_v1(b.codec.try_into().unwrap(), *b.multihash.inner()) == *cid)
-    }
-
-    /// Find a block from the carfile for a given CID if it's included
-    pub fn block_for_cid(&self, cid: &Cid) -> Result<&EventBlockRaw> {
-        self.block_for_cid_opt(cid)
-            .ok_or_else(|| Error::new_app(anyhow!("Event data is missing data for CID {}", cid)))
-    }
-
-    /// Builds a new EventInsertRaw from a CAR file. Will error if the CID in the EventID doesn't match the
-    /// first root of the carfile.
-    pub async fn try_from_carfile(event_cid: Cid, val: &[u8]) -> Result<Self> {
-        if val.is_empty() {
-            return Err(Error::new_app(anyhow!(
-                "CAR file is empty: cid={}",
-                event_cid
-            )))?;
+        if body.is_empty() {
+            return Err(Error::new_app(anyhow!("CAR file is empty: cid={}", cid)))?;
         }
 
-        let mut reader = CarReader::new(val)
+        let mut reader = CarReader::new(body)
             .await
             .map_err(|e| Error::new_app(anyhow!(e)))?;
         let root_cid = reader
@@ -155,7 +85,7 @@ impl EventInsertableBody {
             .first()
             .ok_or_else(|| Error::new_app(anyhow!("car data should have at least one root")))?;
 
-        if event_cid != *root_cid {
+        if cid != *root_cid {
             return Err(Error::new_app(anyhow!(
                 "Event ID does not match the root CID of the CAR file"
             )));
@@ -164,11 +94,37 @@ impl EventInsertableBody {
         let mut idx = 0;
         let mut blocks = vec![];
         while let Some((cid, data)) = reader.next_block().await.map_err(Error::new_app)? {
-            let ebr = EventBlockRaw::try_new(&event_cid, idx, roots.contains(&cid), cid, data)
+            let ebr = EventBlockRaw::try_new(&cid, idx, roots.contains(&cid), cid, data)
                 .map_err(Error::from)?;
             blocks.push(ebr);
             idx += 1;
         }
-        Ok(Self::new(event_cid, blocks, false))
+        Ok(Self {
+            order_key,
+            cid,
+            blocks,
+            deliverable: false,
+        })
+    }
+
+    /// Get the CID of the event
+    pub fn cid(&self) -> Cid {
+        self.cid
+    }
+
+    /// Whether this event is deliverable currently
+    pub fn deliverable(&self) -> bool {
+        self.deliverable
+    }
+
+    /// Underlying bytes that make up the event
+    pub fn blocks(&self) -> &Vec<EventBlockRaw> {
+        &self.blocks
+    }
+
+    /// Mark the event as deliverable.
+    /// This will be used when inserting the event to make sure the field is updated accordingly.
+    pub fn set_deliverable(&mut self, deliverable: bool) {
+        self.deliverable = deliverable;
     }
 }

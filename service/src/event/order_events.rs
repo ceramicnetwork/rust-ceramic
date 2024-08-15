@@ -42,7 +42,7 @@ impl OrderEvents {
             HashMap::from_iter(candidate_events.iter_mut().map(|(e, meta)| {
                 // all init events are deliverable so we mark them as such before we do anything else
                 if matches!(meta, EventMetadata::Init { .. }) {
-                    e.body.set_deliverable(true);
+                    e.set_deliverable(true);
                 }
                 (e.cid(), e.deliverable())
             }));
@@ -73,7 +73,7 @@ impl OrderEvents {
                 Some(prev) => {
                     if let Some(in_mem_is_deliverable) = new_cids.get(&prev) {
                         if *in_mem_is_deliverable {
-                            event.body.set_deliverable(true);
+                            event.set_deliverable(true);
                             *new_cids.get_mut(&event.cid()).expect("CID must exist") = true;
                             deliverable.push((event, header));
                         } else {
@@ -83,7 +83,7 @@ impl OrderEvents {
                         let (_exists, prev_deliverable) =
                             CeramicOneEvent::deliverable_by_cid(pool, &prev).await?;
                         if prev_deliverable {
-                            event.body.set_deliverable(true);
+                            event.set_deliverable(true);
                             *new_cids.get_mut(&event.cid()).expect("CID must exist") = true;
                             deliverable.push((event, header));
                         } else {
@@ -110,7 +110,7 @@ impl OrderEvents {
                 Some(prev) => {
                     if new_cids.get(&prev).map_or(false, |v| *v) {
                         *new_cids.get_mut(&event.cid()).expect("CID must exist") = true;
-                        event.body.set_deliverable(true);
+                        event.set_deliverable(true);
                         deliverable.push((event, header));
                         // reset the iteration count since we made changes. once it doesn't change for a loop through the queue we're done
                         iteration = 0;
@@ -290,7 +290,7 @@ mod test {
             .iter_mut()
             .take(3)
             .map(|(i, _)| {
-                i.body.set_deliverable(true);
+                i.set_deliverable(true);
                 i.clone()
             })
             .collect::<Vec<_>>();
