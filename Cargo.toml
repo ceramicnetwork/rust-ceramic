@@ -222,6 +222,8 @@ authors = [
     "Danny Browning <dbrowning@3box.io>",
     "Nathaniel Cook <nvcook42@gmail.com>",
     "Aaron D Goldman <goldmanaaron@gmail.com>",
+    "Mohsin Zaidi <@smrz2001>",
+    "David Estes <@dav1do>"
 ]
 license = "Apache-2.0/MIT"
 repository = "https://github.com/3box/rust-ceramic"
