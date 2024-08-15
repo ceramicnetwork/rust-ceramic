@@ -9,7 +9,44 @@ use std::{collections::HashMap, fmt::Debug};
 use tokio::io::AsyncRead;
 use tracing::debug;
 
-use super::{cid_from_dag_cbor, init, signed};
+use super::{cid_from_dag_cbor, init, signed, Payload};
+
+/// Helper function for Event::decode_car for gathering all the Ipld blocks used by a time event
+/// witness proof.
+fn get_time_event_witness_blocks(
+    event: &RawTimeEvent,
+    proof: &Proof,
+    car_blocks: HashMap<Cid, Vec<u8>>,
+) -> anyhow::Result<Vec<Ipld>> {
+    let mut blocks_in_path = Vec::new();
+    if event.prev == proof.root && event.path.is_empty() {
+        return Ok(blocks_in_path);
+    }
+
+    let block_bytes = car_blocks
+        .get(&proof.root())
+        .ok_or_else(|| anyhow!("Time Event CAR data missing block for root",))?;
+    let mut block: Ipld = serde_ipld_dagcbor::from_slice(block_bytes)?;
+    blocks_in_path.push(block.clone());
+    let parts: Vec<_> = event.path().split('/').collect();
+    // Add blocks for all parts but the last as it is the prev.
+    for index in parts.iter().take(parts.len() - 1) {
+        let cid = block
+            .get(*index)?
+            .ok_or_else(|| anyhow!("Time Event path indexes missing data"))?;
+        let cid = match cid {
+            Ipld::Link(cid) => cid,
+            _ => bail!("Time Event path does not index to a CID"),
+        };
+        let block_bytes = car_blocks
+            .get(cid)
+            .ok_or_else(|| anyhow!("Time Event CAR data missing block for path index"))?;
+        blocks_in_path.push(block);
+        block = serde_ipld_dagcbor::from_slice(block_bytes)?;
+    }
+
+    Ok(blocks_in_path)
+}
 
 /// Materialized Ceramic Event where internal structure is accessible.
 #[derive(Debug)]
@@ -28,6 +65,30 @@ impl<D> Event<D>
 where
     D: serde::Serialize + for<'de> serde::Deserialize<'de>,
 {
+    /// Returns true if this Event is an init event, and false otherwise
+    pub fn is_init(&self) -> bool {
+        match self {
+            Event::Time(_) => false,
+            Event::Signed(event) => match event.payload() {
+                Payload::Data(_) => false,
+                Payload::Init(_) => true,
+            },
+            Event::Unsigned(_) => true,
+        }
+    }
+
+    /// Returns the prev CID (or None if the event is an init event)
+    pub fn prev(&self) -> Option<Cid> {
+        match self {
+            Event::Time(t) => Some(t.prev()),
+            Event::Signed(event) => match event.payload() {
+                Payload::Data(d) => Some(*d.prev()),
+                Payload::Init(_) => None,
+            },
+            Event::Unsigned(_) => None,
+        }
+    }
+
     /// Encode the event into a CAR bytes containing all blocks of the event.
     pub async fn encode_car(&self) -> anyhow::Result<Vec<u8>> {
         match self {
@@ -35,41 +96,6 @@ where
             Event::Signed(event) => event.encode_car().await,
             Event::Unsigned(event) => event.encode_car().await,
         }
-    }
-
-    fn get_time_event_witness_blocks(
-        event: &RawTimeEvent,
-        proof: &Proof,
-        car_blocks: HashMap<Cid, Vec<u8>>,
-    ) -> anyhow::Result<Vec<Ipld>> {
-        let mut blocks_in_path = Vec::new();
-        if event.prev == proof.root && event.path.is_empty() {
-            return Ok(blocks_in_path);
-        }
-
-        let block_bytes = car_blocks
-            .get(&proof.root())
-            .ok_or_else(|| anyhow!("Time Event CAR data missing block for root",))?;
-        let mut block: Ipld = serde_ipld_dagcbor::from_slice(block_bytes)?;
-        blocks_in_path.push(block.clone());
-        let parts: Vec<_> = event.path().split('/').collect();
-        // Add blocks for all parts but the last as it is the prev.
-        for index in parts.iter().take(parts.len() - 1) {
-            let cid = block
-                .get(*index)?
-                .ok_or_else(|| anyhow!("Time Event path indexes missing data"))?;
-            let cid = match cid {
-                Ipld::Link(cid) => cid,
-                _ => bail!("Time Event path does not index to a CID"),
-            };
-            let block_bytes = car_blocks
-                .get(cid)
-                .ok_or_else(|| anyhow!("Time Event CAR data missing block for path index"))?;
-            blocks_in_path.push(block);
-            block = serde_ipld_dagcbor::from_slice(block_bytes)?;
-        }
-
-        Ok(blocks_in_path)
     }
 
     /// Decode bytes into a materialized event.
@@ -117,8 +143,7 @@ where
                     .ok_or_else(|| anyhow!("Time Event CAR data missing block for proof"))?;
                 let proof: Proof =
                     serde_ipld_dagcbor::from_slice(proof_bytes).context("decoding proof")?;
-                let blocks_in_path =
-                    Self::get_time_event_witness_blocks(&event, &proof, car_blocks)?;
+                let blocks_in_path = get_time_event_witness_blocks(&event, &proof, car_blocks)?;
                 let blocks_in_path = blocks_in_path
                     .into_iter()
                     .map(|block| match block {

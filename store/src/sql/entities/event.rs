@@ -1,8 +1,9 @@
 use anyhow::anyhow;
 use ceramic_core::EventId;
+use ceramic_event::unvalidated;
 use cid::Cid;
+use ipld_core::ipld::Ipld;
 use iroh_car::{CarHeader, CarReader, CarWriter};
-
 use std::collections::BTreeSet;
 
 pub use crate::sql::entities::EventBlockRaw;
@@ -48,21 +49,20 @@ pub struct EventInsertable {
     cid: Cid,
     /// Whether the event is deliverable i.e. it's prev has been delivered and the chain is continuous to an init event
     deliverable: bool,
-    /// The blocks of the event
-    // could use a map but there aren't that many blocks per event (right?)
-    blocks: Vec<EventBlockRaw>,
+    /// The parsed structure containing the actual Event data.
+    event: unvalidated::Event<Ipld>,
 }
 
 impl EventInsertable {
     /// EventInsertable constructor
-    pub fn new(order_key: EventId, blocks: Vec<EventBlockRaw>, deliverable: bool) -> Self {
+    pub fn new(order_key: EventId, event: unvalidated::Event<Ipld>, deliverable: bool) -> Self {
         let cid = order_key.cid().unwrap();
 
         Self {
             order_key,
             cid,
             deliverable,
-            blocks,
+            event,
         }
     }
 
@@ -76,9 +76,9 @@ impl EventInsertable {
         self.cid
     }
 
-    /// Underlying bytes that make up the event
-    pub fn blocks(&self) -> &Vec<EventBlockRaw> {
-        &self.blocks
+    /// Get the parsed Event structure.
+    pub fn event(&self) -> &unvalidated::Event<Ipld> {
+        &self.event
     }
 
     /// Whether this event is deliverable currently
@@ -92,20 +92,11 @@ impl EventInsertable {
         self.deliverable = deliverable;
     }
 
-    /// Try to build the EventInsertable struct from a carfile.
-    pub async fn try_from_carfile(order_key: EventId, car_bytes: &[u8]) -> Result<Self> {
-        let event_cid = order_key.cid().ok_or_else(|| {
-            Error::new_invalid_arg(anyhow::anyhow!("EventID is missing a CID: {}", order_key))
-        })?;
+    /// Underlying bytes that make up the event
+    pub async fn get_raw_blocks(&self) -> Result<Vec<EventBlockRaw>> {
+        let car = self.event.encode_car().await.map_err(Error::new_app)?;
 
-        if car_bytes.is_empty() {
-            return Err(Error::new_app(anyhow!(
-                "CAR file is empty: cid={}",
-                event_cid
-            )))?;
-        }
-
-        let mut reader = CarReader::new(car_bytes)
+        let mut reader = CarReader::new(car.as_slice())
             .await
             .map_err(|e| Error::new_app(anyhow!(e)))?;
         let root_cid = reader
@@ -114,7 +105,7 @@ impl EventInsertable {
             .first()
             .ok_or_else(|| Error::new_app(anyhow!("car data should have at least one root")))?;
 
-        if event_cid != *root_cid {
+        if self.cid != *root_cid {
             return Err(Error::new_app(anyhow!(
                 "Event ID does not match the root CID of the CAR file"
             )));
@@ -123,16 +114,12 @@ impl EventInsertable {
         let mut idx = 0;
         let mut blocks = vec![];
         while let Some((cid, data)) = reader.next_block().await.map_err(Error::new_app)? {
-            let ebr = EventBlockRaw::try_new(&event_cid, idx, roots.contains(&cid), cid, data)
+            let ebr = EventBlockRaw::try_new(&self.cid, idx, roots.contains(&cid), cid, data)
                 .map_err(Error::from)?;
             blocks.push(ebr);
             idx += 1;
         }
-        Ok(Self {
-            order_key,
-            cid: event_cid,
-            blocks,
-            deliverable: false,
-        })
+
+        Ok(blocks)
     }
 }

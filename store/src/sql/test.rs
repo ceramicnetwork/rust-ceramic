@@ -1,14 +1,14 @@
 use std::str::FromStr;
 
+use crate::{CeramicOneEvent, EventInsertable, SqlitePool};
 use ceramic_core::{
     event_id::{Builder, WithInit},
     EventId, Network,
 };
+use ceramic_event::unvalidated;
 use cid::Cid;
 use expect_test::expect;
 use test_log::test;
-
-use crate::{CeramicOneEvent, EventInsertable, SqlitePool};
 
 const MODEL_ID: &str = "k2t6wz4yhfp1r5pwi52gw89nzjbu53qk7m32o5iguw42c6knsaj0feuf927agb";
 const CONTROLLER: &str = "did:key:z6Mkqtw7Pj5Lv9xc4PgUYAnwfaVoMC6FRneGWVr5ekTEfKVL";
@@ -28,7 +28,12 @@ fn random_event(cid: &str) -> EventInsertable {
     let order_key = event_id_builder()
         .with_event(&Cid::from_str(cid).unwrap())
         .build();
-    EventInsertable::new(order_key, vec![], true)
+
+    let header =
+        unvalidated::init::Header::new(vec![], "model".to_string(), vec![], None, None, None);
+    let payload = unvalidated::init::Payload::new(header, None);
+    let event = unvalidated::Event::from(payload);
+    EventInsertable::new(order_key, event, true)
 }
 
 #[test(tokio::test)]
