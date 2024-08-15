@@ -160,7 +160,7 @@ impl CeramicEventService {
 
     pub(crate) async fn insert_events(
         &self,
-        items: &[recon::ReconItem<EventId>],
+        items: &[ReconItem<EventId>],
         source: DeliverableRequirement,
     ) -> Result<InsertResult> {
         let source_node_did = match &source {

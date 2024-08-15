@@ -1,4 +1,6 @@
-use anyhow::{Context, Result};
+use std::time::Duration;
+
+use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use base64::{
     engine::general_purpose::{STANDARD_NO_PAD as b64_standard, URL_SAFE_NO_PAD as b64},
@@ -9,6 +11,7 @@ use iroh_car::CarReader;
 use multihash_codetable::{Code, MultihashDigest};
 use ring::signature::Ed25519KeyPair;
 use serde::{Deserialize, Serialize};
+use tokio::time::interval;
 use tracing::debug;
 use uuid::Uuid;
 
@@ -55,7 +58,8 @@ struct Claims {
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct AnchorResponse {
-    pub witness_car: String,
+    pub message: String,
+    pub witness_car: Option<String>,
 }
 
 fn cid_to_stream_id(cid: Cid) -> StreamId {
@@ -100,13 +104,38 @@ pub struct RemoteCas {
     cas_api_url: String,
 }
 
+enum CasResponseParseResult {
+    Anchored(Box<Receipt>),
+    Unauthorized,
+}
+
 #[async_trait]
 impl TransactionManager for RemoteCas {
     async fn make_proof(&self, root: Cid) -> Result<Receipt> {
-        let anchor_response = self.create_anchor_request(root).await?;
-        println!("{}", anchor_response);
-        // TODO: Poll the CAS asynchronously for the anchor request status
-        parse_anchor_response(anchor_response).await
+        let loop_count = 12;
+        let wait_duration_min = 5;
+        let mut interval = interval(Duration::from_secs(wait_duration_min * 60));
+        for _ in 0..loop_count {
+            let anchor_response = self.create_anchor_request(root).await?;
+            match parse_anchor_response(anchor_response).await {
+                Ok(CasResponseParseResult::Anchored(receipt)) => {
+                    return Ok(*receipt);
+                }
+                Ok(CasResponseParseResult::Unauthorized) => {
+                    return Err(anyhow!("remote CAS request unauthorized"));
+                }
+                Err(e) => {
+                    debug!("swallowing anchoring result: {}", e);
+                }
+            }
+            interval.tick().await;
+        }
+        Err(anyhow::anyhow!(
+            "{} not anchored after {} {} minute attempts",
+            root.to_string(),
+            loop_count,
+            wait_duration_min
+        ))
     }
 }
 
@@ -147,9 +176,20 @@ impl RemoteCas {
     }
 }
 
-async fn parse_anchor_response(anchor_response: String) -> Result<Receipt> {
-    let witness_car_b64 =
-        serde_json::from_str::<AnchorResponse>(anchor_response.as_str())?.witness_car;
+async fn parse_anchor_response(anchor_response: String) -> Result<CasResponseParseResult> {
+    // Return if we were unable to parse the anchor response
+    let anchor_response = serde_json::from_str::<AnchorResponse>(anchor_response.as_str())?;
+
+    // If the response does not contain a witness CAR file, the anchor request is either still pending or it failed
+    // because the request was unauthorized.
+    let Some(witness_car_b64) = anchor_response.witness_car else {
+        return match anchor_response.message.as_str() {
+            "Unauthorized" => Ok(CasResponseParseResult::Unauthorized),
+            message => {
+                return Err(anyhow!("message from remote CAS: {}", message));
+            }
+        };
+    };
     let witness_car_bytes = b64_standard.decode(witness_car_b64)?;
     let car_reader = CarReader::new(witness_car_bytes.as_ref()).await?;
     let mut remote_merkle_nodes = MerkleNodes::default();
@@ -174,11 +214,11 @@ async fn parse_anchor_response(anchor_response: String) -> Result<Receipt> {
     if detached_time_event.is_none() || proof.is_none() {
         return Err(anyhow::anyhow!("invalid anchor response"));
     }
-    Ok(Receipt {
+    Ok(CasResponseParseResult::Anchored(Box::new(Receipt {
         proof: proof.expect("proof should be present"),
         detached_time_event: detached_time_event.expect("detached time event should be present"),
         remote_merkle_nodes,
-    })
+    })))
 }
 
 // Tests to call the CAS request
@@ -245,7 +285,11 @@ mod tests {
     #[tokio::test]
     async fn test_anchor_response() {
         let anchor_response = include_str!("test-data/anchor_response.json").to_string();
-        let receipt = parse_anchor_response(anchor_response).await;
+        let CasResponseParseResult::Anchored(receipt) =
+            parse_anchor_response(anchor_response).await.unwrap()
+        else {
+            panic!("expected anchored receipt");
+        };
         expect_file!["./test-data/anchor_response.test.txt"].assert_debug_eq(&receipt);
     }
 

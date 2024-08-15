@@ -18,7 +18,6 @@ chrono.workspace = true
 expect-test.workspace = true
 futures.workspace = true
 hex.workspace = true
-indexmap.workspace = true
 iroh-car.workspace = true
 multihash-codetable.workspace = true
 reqwest.workspace = true

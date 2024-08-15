@@ -1056,7 +1056,6 @@ dependencies = [
  "expect-test",
  "futures",
  "hex",
- "indexmap 2.4.0",
  "iroh-car",
  "multihash-codetable",
  "reqwest",
