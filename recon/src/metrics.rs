@@ -13,7 +13,7 @@ use prometheus_client::{
 
 use crate::{
     protocol::{InitiatorMessage, ResponderMessage},
-    AssociativeHash, Key,
+    AssociativeHash, InvalidItem, Key,
 };
 
 /// Metrics for Recon P2P events
@@ -26,7 +26,7 @@ pub struct Metrics {
     protocol_run_duration: Histogram,
 
     protocol_pending_items: Counter,
-    protocol_invalid_items: Counter,
+    protocol_invalid_items: Family<InvalidItemLabels, Counter>,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
@@ -110,7 +110,7 @@ impl Metrics {
         register!(
             protocol_invalid_items,
             "Number of items received that were considered invalid",
-            Counter::default(),
+            Family::<InvalidItemLabels, Counter>::default(),
             sub_registry
         );
 
@@ -165,10 +165,28 @@ impl Recorder<ProtocolRun> for Metrics {
     }
 }
 
-pub(crate) struct InvalidEvents(pub u64);
-impl Recorder<InvalidEvents> for Metrics {
-    fn record(&self, event: &InvalidEvents) {
-        self.protocol_invalid_items.inc_by(event.0);
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+pub(crate) struct InvalidItemLabels {
+    pub(crate) reason: &'static str,
+}
+
+impl<K: Key> Recorder<InvalidItem<K>> for Metrics {
+    fn record(&self, event: &InvalidItem<K>) {
+        let labels = event.into();
+        self.protocol_invalid_items.get_or_create(&labels).inc();
+    }
+}
+
+impl<K: Key> From<&InvalidItem<K>> for InvalidItemLabels {
+    fn from(value: &InvalidItem<K>) -> Self {
+        match value {
+            InvalidItem::InvalidFormat { .. } => InvalidItemLabels {
+                reason: "InvalidFormat",
+            },
+            InvalidItem::InvalidSignature { .. } => InvalidItemLabels {
+                reason: "InvalidSignature",
+            },
+        }
     }
 }
 

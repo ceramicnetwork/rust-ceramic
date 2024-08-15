@@ -26,8 +26,8 @@ use uuid::Uuid;
 
 use crate::{
     metrics::{
-        InvalidEvents, MessageLabels, MessageRecv, MessageSent, Metrics, PendingEvents,
-        ProtocolRun, ProtocolWriteLoop,
+        MessageLabels, MessageRecv, MessageSent, Metrics, PendingEvents, ProtocolRun,
+        ProtocolWriteLoop,
     },
     recon::{RangeHash, SyncState},
     AssociativeHash, Client, InsertResult, Key, ReconItem, Result as ReconResult,
@@ -779,8 +779,8 @@ where
 
         let batch = self.recon.insert(evs).await.context("persisting all")?;
         if !batch.invalid.is_empty() {
-            if let Ok(cnt) = batch.invalid.len().try_into() {
-                self.recon.metrics().record(&InvalidEvents(cnt))
+            for invalid in &batch.invalid {
+                self.recon.metrics().record(invalid)
             }
             tracing::warn!(
                 invalid_cnt=%batch.invalid.len(), peer_id=%self.config.peer_id,
