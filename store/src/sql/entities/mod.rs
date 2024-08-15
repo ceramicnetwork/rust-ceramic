@@ -6,7 +6,7 @@ mod utils;
 mod version;
 
 pub use block::{BlockBytes, BlockRow};
-pub use event::{rebuild_car, EventInsertable, EventInsertableBody};
+pub use event::{rebuild_car, EventInsertable};
 pub use event_block::{EventBlockRaw, ReconEventBlockRaw};
 pub use hash::{BlockHash, ReconHash};
 pub use version::VersionRow;

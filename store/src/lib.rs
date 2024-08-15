@@ -9,7 +9,7 @@ mod sql;
 pub use error::Error;
 pub use metrics::{Metrics, StoreMetricsMiddleware};
 pub use sql::{
-    entities::{BlockHash, EventBlockRaw, EventInsertable, EventInsertableBody},
+    entities::{BlockHash, EventBlockRaw, EventInsertable},
     CeramicOneBlock, CeramicOneEvent, CeramicOneEventBlock, CeramicOneInterest, CeramicOneVersion,
     InsertResult, InsertedEvent, Migrations, SqlitePool, SqliteRootStore, SqliteTransaction,
 };

@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use async_trait::async_trait;
 use ceramic_core::{EventId, Network};
 use ceramic_event::unvalidated;
-use ceramic_store::{CeramicOneEvent, EventInsertable, EventInsertableBody, SqlitePool};
+use ceramic_store::{CeramicOneEvent, EventInsertable, SqlitePool};
 use cid::Cid;
 use futures::stream::BoxStream;
 use ipld_core::ipld::Ipld;
@@ -134,13 +134,11 @@ impl CeramicEventService {
             )));
         }
 
-        let body = EventInsertableBody::try_from_carfile(cid, item.value.as_slice()).await?;
+        let event_insertable =
+            EventInsertable::try_from_carfile(item.key.to_owned(), item.value.as_slice()).await?;
         let metadata = EventMetadata::from(parsed_event);
 
-        Ok((
-            EventInsertable::try_new(item.key.to_owned(), body)?,
-            metadata,
-        ))
+        Ok((event_insertable, metadata))
     }
 
     pub(crate) async fn insert_events(
@@ -169,7 +167,7 @@ impl CeramicEventService {
                 let to_insert = ordered.deliverable().iter().map(|(e, _)| e);
                 invalid.extend(ordered.missing_history().iter().map(|(e, _)| {
                     InvalidItem::RequiresHistory {
-                        key: e.order_key.clone(),
+                        key: e.order_key().clone(),
                     }
                 }));
                 CeramicOneEvent::insert_many(&self.pool, to_insert).await?
