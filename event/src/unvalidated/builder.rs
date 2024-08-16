@@ -1,9 +1,10 @@
 use crate::unvalidated;
 use anyhow::{anyhow, bail};
+use ceramic_core::SerdeIpld;
 use cid::Cid;
 use ipld_core::ipld::Ipld;
 
-use super::{cid_from_dag_cbor, ProofEdge};
+use super::ProofEdge;
 
 /// Builder for constructing events.
 pub struct Builder;
@@ -319,13 +320,11 @@ impl TimeBuilder<TimeBuilderWithPrev> {
             self.state.tx_hash,
             self.state.tx_type,
         );
-        let proof_bytes = serde_ipld_dagcbor::to_vec(&proof)?;
-        let proof_cid = cid_from_dag_cbor(&proof_bytes);
 
         let event = unvalidated::RawTimeEvent::new(
             self.state.id,
             self.state.prev,
-            proof_cid,
+            proof.to_cid()?,
             "".to_string(),
         );
         Ok(unvalidated::TimeEvent::new(event, proof, vec![]))
@@ -380,16 +379,12 @@ impl TimeBuilder<TimeBuilderWithRoot> {
             Ipld::Link(prev) => *prev,
             _ => bail!("leaf indexed value should always be a Cid"),
         };
-        let root_bytes = serde_ipld_dagcbor::to_vec(root)?;
-        let root_cid = cid_from_dag_cbor(&root_bytes);
         let proof = unvalidated::Proof::new(
             self.state.chain_id,
-            root_cid,
+            root.to_cid()?,
             self.state.tx_hash,
             self.state.tx_type,
         );
-        let proof_bytes = serde_ipld_dagcbor::to_vec(&proof)?;
-        let proof_cid = cid_from_dag_cbor(&proof_bytes);
         let blocks_in_path = self
             .state
             .witness_nodes
@@ -403,7 +398,7 @@ impl TimeBuilder<TimeBuilderWithRoot> {
             })
             .collect::<anyhow::Result<Vec<ProofEdge>>>()?;
 
-        let event = unvalidated::RawTimeEvent::new(self.state.id, prev, proof_cid, path);
+        let event = unvalidated::RawTimeEvent::new(self.state.id, prev, proof.to_cid()?, path);
         Ok(unvalidated::TimeEvent::new(event, proof, blocks_in_path))
     }
 }
@@ -442,10 +437,7 @@ mod tests {
             .with_data(data)
             .build();
 
-        let dagcbor_str = multibase::encode(
-            multibase::Base::Base64Url,
-            serde_ipld_dagcbor::to_vec(&event).unwrap(),
-        );
+        let dagcbor_str = multibase::encode(multibase::Base::Base64Url, event.to_cbor().unwrap());
         assert_eq!(SIGNED_INIT_EVENT_PAYLOAD, dagcbor_str);
     }
 
@@ -461,10 +453,7 @@ mod tests {
             .with_data(data)
             .build();
 
-        let dagcbor_str = multibase::encode(
-            multibase::Base::Base64Url,
-            serde_ipld_dagcbor::to_vec(&event).unwrap(),
-        );
+        let dagcbor_str = multibase::encode(multibase::Base::Base64Url, event.to_cbor().unwrap());
         assert_eq!(DATA_EVENT_PAYLOAD, dagcbor_str);
     }
 
@@ -507,6 +496,7 @@ mod tests {
         );
         assert_eq!(SIGNED_INIT_EVENT_CAR, event_car_str);
     }
+
     #[test(tokio::test)]
     async fn build_time_event() {
         let id = Cid::from_str(SIGNED_INIT_EVENT_CID).unwrap();

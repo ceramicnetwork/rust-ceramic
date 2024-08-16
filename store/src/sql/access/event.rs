@@ -420,8 +420,17 @@ impl CeramicOneEvent {
         Ok(exist.map_or((false, false), |row| (row.exists, row.delivered)))
     }
 
-    /// Fetch event CIDs from the events table that have a specified source and are still unanchored
-    pub async fn unanchored_events_by_source(
+    /// Inserts a new high water mark after a batch has been anchored
+    pub async fn insert_high_water_mark(pool: &SqlitePool, high_water_mark: i64) -> Result<()> {
+        sqlx::query(EventQuery::insert_anchoring_high_water_mark())
+            .bind(high_water_mark)
+            .execute(pool.writer())
+            .await?;
+        Ok(())
+    }
+
+    /// Fetch event CIDs from a specified source that are above the current anchoring high water mark
+    pub async fn unanchored_events_from_high_water_mark(
         pool: &SqlitePool,
         source: String,
         limit: i64,
@@ -429,36 +438,50 @@ impl CeramicOneEvent {
         let limit = limit.try_into().unwrap_or(100000);
 
         struct UnanchoredEventRow {
+            order_key: EventId,
             init_cid: Cid,
             cid: Cid,
+            row_id: i64,
         }
 
         use sqlx::Row as _;
 
         impl sqlx::FromRow<'_, sqlx::sqlite::SqliteRow> for UnanchoredEventRow {
             fn from_row(row: &sqlx::sqlite::SqliteRow) -> std::result::Result<Self, sqlx::Error> {
+                let order_key_bytes: Vec<u8> = row.try_get("order_key")?;
+                let order_key = EventId::try_from(order_key_bytes)
+                    .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
                 let init_cid: Vec<u8> = row.try_get("init_cid")?;
                 let init_cid = Cid::try_from(init_cid.as_slice())
                     .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
                 let cid: Vec<u8> = row.try_get("cid")?;
                 let cid =
                     Cid::try_from(cid.as_slice()).map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
-                Ok(Self { init_cid, cid })
+                let row_id = row.try_get("rowid")?;
+                Ok(Self {
+                    order_key,
+                    init_cid,
+                    cid,
+                    row_id,
+                })
             }
         }
 
-        let rows: Vec<UnanchoredEventRow> = sqlx::query_as(EventQuery::unanchored_by_source())
-            .bind(source)
-            .bind(limit)
-            .fetch_all(pool.reader())
-            .await
-            .map_err(Error::from)?;
+        let rows: Vec<UnanchoredEventRow> =
+            sqlx::query_as(EventQuery::unanchored_from_high_water_mark())
+                .bind(source)
+                .bind(limit)
+                .fetch_all(pool.reader())
+                .await
+                .map_err(Error::from)?;
         let rows = rows
             .into_iter()
-            .map(|k| {
+            .map(|row| {
                 Ok(AnchorRequest {
-                    id: k.init_cid,
-                    prev: k.cid,
+                    init: row.init_cid,
+                    prev: row.cid,
+                    order_key: row.order_key,
+                    row_id: row.row_id,
                 })
             })
             .collect::<Result<Vec<AnchorRequest>>>()?;

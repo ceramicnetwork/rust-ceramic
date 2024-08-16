@@ -12,7 +12,7 @@ use multihash_codetable::{Code, MultihashDigest};
 use ring::signature::Ed25519KeyPair;
 use serde::{Deserialize, Serialize};
 use tokio::time::interval;
-use tracing::debug;
+use tracing::{debug, warn};
 use uuid::Uuid;
 
 use ceramic_anchor_service::{DetachedTimeEvent, Receipt, TransactionManager};
@@ -99,9 +99,12 @@ async fn auth_jwt(
     Ok([message.clone(), sig_b64].join("."))
 }
 
+/// Remote CAS implementation
 pub struct RemoteCas {
     signing_key: Ed25519KeyPair,
-    cas_api_url: String,
+    url: String,
+    poll_interval: Duration,
+    poll_retry_count: u32,
 }
 
 enum CasResponseParseResult {
@@ -112,10 +115,8 @@ enum CasResponseParseResult {
 #[async_trait]
 impl TransactionManager for RemoteCas {
     async fn make_proof(&self, root: Cid) -> Result<Receipt> {
-        let loop_count = 12;
-        let wait_duration_min = 5;
-        let mut interval = interval(Duration::from_secs(wait_duration_min * 60));
-        for _ in 0..loop_count {
+        let mut interval = interval(self.poll_interval);
+        for _ in 0..self.poll_retry_count {
             let anchor_response = self.create_anchor_request(root).await?;
             match parse_anchor_response(anchor_response).await {
                 Ok(CasResponseParseResult::Anchored(receipt)) => {
@@ -131,24 +132,32 @@ impl TransactionManager for RemoteCas {
             interval.tick().await;
         }
         Err(anyhow::anyhow!(
-            "{} not anchored after {} {} minute attempts",
+            "{} not anchored after {} attempts {}s apart",
             root.to_string(),
-            loop_count,
-            wait_duration_min
+            self.poll_retry_count,
+            self.poll_interval.as_secs(),
         ))
     }
 }
 
 impl RemoteCas {
-    pub fn new(keypair: Ed25519KeyPair, cas_api_url: String) -> Self {
+    /// Create a new RemoteCas instance
+    pub fn new(
+        node_keypair: Ed25519KeyPair,
+        remote_anchor_service_url: String,
+        anchor_poll_interval: Duration,
+    ) -> Self {
         Self {
-            signing_key: keypair,
-            cas_api_url,
+            signing_key: node_keypair,
+            url: remote_anchor_service_url,
+            poll_interval: anchor_poll_interval,
+            poll_retry_count: 12,
         }
     }
 
+    /// Create an anchor request on the remote CAS
     pub async fn create_anchor_request(&self, root_cid: Cid) -> Result<String> {
-        let cas_create_request_url = format!("{}/api/v0/requests", self.cas_api_url);
+        let cas_create_request_url = format!("{}/api/v0/requests", self.url);
         let cas_request_body = serde_json::to_string(&CasAnchorRequest {
             stream_id: cid_to_stream_id(cid_from_ed25519_key_pair(&self.signing_key)),
             cid: root_cid.to_string(),
@@ -203,12 +212,17 @@ async fn parse_anchor_response(anchor_response: String) -> Result<CasResponsePar
     {
         if let Ok(block) = serde_ipld_dagcbor::from_slice::<DetachedTimeEvent>(&block) {
             detached_time_event = Some(block);
-        }
-        if let Ok(block) = serde_ipld_dagcbor::from_slice::<Proof>(&block) {
+        } else if let Ok(block) = serde_ipld_dagcbor::from_slice::<Proof>(&block) {
             proof = Some(block);
-        }
-        if let Ok(block) = serde_ipld_dagcbor::from_slice::<MerkleNode>(&block) {
+        } else if let Ok(block) = serde_ipld_dagcbor::from_slice::<MerkleNode>(&block) {
             remote_merkle_nodes.insert(cid, block);
+        } else {
+            warn!(
+                "unknown block type when processing witness CAR: {}, {}, {:?}",
+                cid,
+                hex::encode(block),
+                proof
+            );
         }
     }
     if detached_time_event.is_none() || proof.is_none() {
@@ -234,7 +248,7 @@ mod tests {
     use ring::signature::Ed25519KeyPair;
 
     use ceramic_anchor_service::{AnchorClient, AnchorService, TransactionManager};
-    use ceramic_core::{ed25519_key_pair_from_secret, Cid};
+    use ceramic_core::{ed25519_key_pair_from_secret, Cid, SerdeIpld};
 
     use crate::cas_mock::MockAnchorClient;
 
@@ -258,6 +272,7 @@ mod tests {
         let remote_cas = Arc::new(RemoteCas::new(
             node_private_key(),
             "https://cas-dev.3boxlabs.com".to_owned(),
+            Duration::from_secs(1),
         ));
         let anchor_service = AnchorService::new(anchor_client, remote_cas, Duration::from_secs(1));
         let all_blocks = anchor_service
@@ -277,6 +292,7 @@ mod tests {
         let remote_cas = RemoteCas::new(
             node_private_key(),
             "https://cas-dev.3boxlabs.com".to_owned(),
+            Duration::from_secs(1),
         );
         let receipt = remote_cas.make_proof(mock_root_cid).await;
         expect_file!["./test-data/create_anchor_request_on_cas.test.txt"].assert_debug_eq(&receipt);
@@ -295,7 +311,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_jwt() {
-        let mock_data = serde_ipld_dagcbor::to_vec(b"mock root").unwrap();
+        let mock_data = b"mock root".to_cbor().unwrap();
         let mock_hash = MultihashDigest::digest(&Code::Sha2_256, &mock_data);
         auth_jwt(
             "https://cas-dev.3boxlabs.com".to_owned(),

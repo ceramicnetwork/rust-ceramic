@@ -24,24 +24,24 @@ pub trait AnchorClient: Send + Sync {
 pub struct AnchorService {
     tx_manager: Arc<dyn TransactionManager>,
     anchor_client: Arc<dyn AnchorClient>,
-    batch_linger_time: Duration,
+    anchor_interval: Duration,
 }
 
 impl AnchorService {
     pub fn new(
         anchor_client: Arc<dyn AnchorClient>,
         tx_manager: Arc<dyn TransactionManager>,
-        batch_linger_time: Duration,
+        anchor_interval: Duration,
     ) -> Self {
         Self {
             anchor_client,
             tx_manager,
-            batch_linger_time,
+            anchor_interval,
         }
     }
 
     pub async fn run(&mut self) {
-        let mut interval = interval(self.batch_linger_time);
+        let mut interval = interval(self.anchor_interval);
         loop {
             interval.tick().await;
 
@@ -50,7 +50,7 @@ impl AnchorService {
             let anchor_requests: Vec<AnchorRequest> =
                 match self.anchor_client.get_anchor_requests().await {
                     Ok(requests) => IndexMap::<Cid, AnchorRequest>::from_iter(
-                        requests.into_iter().map(|request| (request.id, request)),
+                        requests.into_iter().map(|request| (request.init, request)),
                     )
                     .into_values()
                     .collect(),
@@ -80,7 +80,7 @@ impl AnchorService {
     pub async fn anchor_batch(&self, anchor_requests: &[AnchorRequest]) -> Result<TimeEventBatch> {
         let MerkleTree {
             root_cid,
-            nodes,
+            nodes: local_merkle_nodes,
             count,
         } = build_merkle_tree(anchor_requests)?;
         let Receipt {
@@ -89,7 +89,7 @@ impl AnchorService {
             mut remote_merkle_nodes,
         } = self.tx_manager.make_proof(root_cid).await?;
         let time_events = build_time_events(anchor_requests, &detached_time_event, count)?;
-        remote_merkle_nodes.extend(nodes);
+        remote_merkle_nodes.extend(local_merkle_nodes);
         Ok(TimeEventBatch {
             merkle_nodes: remote_merkle_nodes,
             proof,

@@ -6,16 +6,14 @@ use std::{
 
 use anyhow::Result;
 use async_trait::async_trait;
-use ceramic_core::{DidDocument, EventId, Network, StreamId};
+use ceramic_core::{DidDocument, EventId, Network, SerdeIpld, StreamId};
 use ceramic_event::unvalidated;
 use cid::Cid;
 use futures::{pin_mut, stream::BoxStream, StreamExt as _, TryStreamExt as _};
-use ipld_core::{codec::Codec, ipld, ipld::Ipld};
+use ipld_core::{ipld, ipld::Ipld};
 use iroh_car::CarReader;
-use multihash_codetable::{Code, MultihashDigest};
 use rand::{thread_rng, Rng, RngCore};
 use recon::Key;
-use serde_ipld_dagcbor::codec::DagCborCodec;
 use test_log::test;
 
 use crate::{event::BlockStore, CeramicEventService};
@@ -153,12 +151,6 @@ fn random_cid() -> cid::Cid {
     cid::Cid::new_v1(0x00, hash)
 }
 
-fn cid_from_dag_cbor(data: &[u8]) -> Cid {
-    Cid::new_v1(
-        <DagCborCodec as Codec<Ipld>>::CODE,
-        Code::Sha2_256.digest(data),
-    )
-}
 // create random time event with a previous unsigned init event
 async fn random_unsigned_init_time_event() -> Vec<unvalidated::Event<Ipld>> {
     let init = random_unsigned_init_event().await;
@@ -191,8 +183,7 @@ async fn random_time_event(prev: Cid) -> Box<unvalidated::TimeEvent> {
         } else {
             (1, ipld!([other, next]))
         };
-        let edge_bytes = serde_ipld_dagcbor::to_vec(&edge).unwrap();
-        next = cid_from_dag_cbor(&edge_bytes);
+        next = edge.to_cid().unwrap();
         witness_nodes.push((idx, edge));
     }
     let (root_idx, root_edge) = witness_nodes.pop().unwrap();

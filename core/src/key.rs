@@ -9,7 +9,7 @@ use ring::signature::{Ed25519KeyPair, KeyPair};
 /// Read an Ed25519 key from a directory and return a key pair
 pub async fn read_ed25519_key_from_dir(p2p_key_dir: PathBuf) -> Result<Ed25519KeyPair> {
     let key_path = p2p_key_dir.join("id_ed25519_0");
-    let content = fs::read_to_string(&key_path)?;
+    let content = fs::read_to_string(key_path)?;
     let seed = ssh_key::private::PrivateKey::from_str(&content)
         .map_err(|e| anyhow::anyhow!("failed to parse private key: {}", e))?
         .key_data()

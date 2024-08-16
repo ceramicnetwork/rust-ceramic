@@ -1,20 +1,22 @@
-use anyhow::anyhow;
 use std::collections::HashSet;
 
+use anyhow::{anyhow, Context};
 use async_trait::async_trait;
 use cid::Cid;
 use futures::stream::BoxStream;
 use ipld_core::ipld::Ipld;
 use recon::ReconItem;
-use tracing::{trace, warn};
+use tracing::{error, info, trace, warn};
 
 use ceramic_anchor_service::AnchorClient;
-use ceramic_core::{EventId, Network};
+use ceramic_core::{EventId, Network, SerdeIpld};
 use ceramic_event::{
-    anchor::{AnchorRequest, TimeEventBatch},
-    unvalidated::{self, EventMetadata},
+    anchor::{AnchorRequest, MerkleNodes, TimeEventBatch},
+    unvalidated::{self, EventMetadata, RawTimeEvent},
 };
-use ceramic_store::{CeramicOneEvent, EventInsertable, EventInsertableBody, SqlitePool};
+use ceramic_store::{
+    BlockHash, CeramicOneEvent, EventBlockRaw, EventInsertable, EventInsertableBody, SqlitePool,
+};
 
 use super::{
     migration::Migrator,
@@ -254,6 +256,114 @@ impl CeramicEventService {
             Ok(())
         }
     }
+
+    fn build_time_event_blocks(
+        &self,
+        path: &str,
+        time_event_cid: &Cid,
+        prev: &Cid,
+        root: &Cid,
+        merkle_nodes: &MerkleNodes,
+    ) -> anyhow::Result<Vec<EventBlockRaw>> {
+        let mut blocks = Vec::new();
+        let mut current_node_cid = *root;
+        let mut idx = 2;
+        for part in path.split('/') {
+            let merkle_node = merkle_nodes.nodes.get(&current_node_cid).ok_or_else(|| {
+                Error::new_app(anyhow!("missing merkle node for CID: {}", current_node_cid))
+            })?;
+            blocks.push(EventBlockRaw {
+                event_cid: time_event_cid.to_bytes(),
+                codec: 0x71,
+                root: false,
+                idx,
+                multihash: BlockHash::new(*current_node_cid.hash()),
+                bytes: merkle_node.to_cbor()?,
+            });
+            idx += 1;
+            current_node_cid = match part {
+                "0" => merkle_node[0].context("missing left node")?,
+                "1" => merkle_node[1].context("missing right node")?,
+                _ => return Err(anyhow!("invalid path part in time event path: {}", part)),
+            }
+        }
+        if current_node_cid != *prev {
+            return Err(anyhow!(
+                "last node in path does not match prev CID: {} != {}",
+                current_node_cid,
+                prev
+            ));
+        }
+        Ok(blocks)
+    }
+
+    fn build_time_event_insertable(
+        &self,
+        proof_cid: &Cid,
+        proof_bytes: &[u8],
+        root: &Cid,
+        time_event: &RawTimeEvent,
+        anchor_request: &AnchorRequest,
+        merkle_nodes: &MerkleNodes,
+    ) -> anyhow::Result<EventInsertable> {
+        let (time_event_cid, time_event_bytes) =
+            time_event.to_dag_cbor_block().context(format!(
+                "could not serialize time event for {} with batch proof {}",
+                time_event.prev, proof_cid,
+            ))?;
+        let time_event_order_key =
+            anchor_request
+                .order_key
+                .swap_cid(&time_event_cid)
+                .context(format!(
+                    "could not swap {} into {}",
+                    time_event_cid, anchor_request.order_key
+                ))?;
+        let merkle_tree_nodes = self
+            .build_time_event_blocks(
+                time_event.path.as_str(),
+                &time_event_cid,
+                &anchor_request.prev,
+                root,
+                merkle_nodes,
+            )
+            .context(format!(
+                "could not build time event {} blocks for {} with batch proof {}",
+                time_event_cid, time_event.prev, proof_cid,
+            ))?;
+        Ok(EventInsertable {
+            order_key: time_event_order_key,
+            body: EventInsertableBody {
+                stream_cid: time_event.id,
+                cid: time_event_cid,
+                deliverable: true, // TODO: But is it?
+                blocks: vec![
+                    // Time Event block
+                    EventBlockRaw {
+                        event_cid: time_event_cid.to_bytes(),
+                        codec: 0x71,
+                        root: true,
+                        idx: 0,
+                        multihash: BlockHash::new(*time_event_cid.hash()),
+                        bytes: time_event_bytes,
+                    },
+                    // Proof block
+                    EventBlockRaw {
+                        event_cid: time_event_cid.to_bytes(),
+                        codec: 0x71,
+                        root: false,
+                        idx: 1,
+                        multihash: BlockHash::new(*proof_cid.hash()),
+                        bytes: proof_bytes.to_vec(),
+                    },
+                ]
+                .into_iter()
+                .chain(merkle_tree_nodes)
+                .collect(),
+                source: self.node_did.clone(),
+            },
+        })
+    }
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InvalidItem {
@@ -282,16 +392,58 @@ impl AnchorClient for CeramicEventService {
             .clone()
             .ok_or_else(|| Error::new_app(anyhow!("node DID required to get anchor requests")))?;
 
-        // Fetch event CIDs from the events table that have a source == our node DID and are still unanchored
+        // Fetch event CIDs from the events table using the previous high water mark
         Ok(
-            CeramicOneEvent::unanchored_events_by_source(&self.pool, node_did, 10000)
-                .await
-                .map_err(|e| Error::new_app(anyhow!("could not fetch unanchored events: {}", e)))?,
+            CeramicOneEvent::unanchored_events_from_high_water_mark(
+                &self.pool, node_did, 1_000_000,
+            )
+            .await
+            .map_err(|e| Error::new_app(anyhow!("could not fetch unanchored events: {}", e)))?,
         )
     }
 
     async fn put_time_events(&self, batch: TimeEventBatch) -> anyhow::Result<()> {
-        warn!("time events: {:?}", batch);
+        let (proof_cid, proof_bytes) = batch.proof.to_dag_cbor_block()?;
+        info!(
+            "store anchor batch: proof={}, events={}",
+            proof_cid,
+            batch.time_events.events.len()
+        );
+        let events = batch
+            .time_events
+            .events
+            .iter()
+            .map(|(anchor_request, time_event)| {
+                self.build_time_event_insertable(
+                    &proof_cid,
+                    &proof_bytes,
+                    &batch.proof.root,
+                    time_event,
+                    anchor_request,
+                    &batch.merkle_nodes,
+                )
+            })
+            .filter_map(|r| match r {
+                Ok(e) => Some(e),
+                Err(e) => {
+                    error!("error processing time event: {}", e);
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        // TODO: We need to handle high water mark updates when there are errors here
+        CeramicOneEvent::insert_many(&self.pool, events.iter()).await?;
+        CeramicOneEvent::insert_high_water_mark(
+            &self.pool,
+            batch
+                .time_events
+                .events
+                .iter()
+                .map(|(anchor_request, _)| anchor_request.row_id)
+                .last()
+                .context("time events batch must have at least one time event")?,
+        )
+        .await?;
         Ok(())
     }
 }

@@ -152,17 +152,22 @@ impl EventQuery {
         "UPDATE ceramic_one_event SET delivered = $1 WHERE cid = $2 and delivered is NULL;"
     }
 
-    /// Fetch event CIDs hat have a specified source and are still unanchored
-    /// Requires 1 parameter:
-    ///    $1 = source (bytes)
-    pub fn unanchored_by_source() -> &'static str {
+    /// Inserts a new high water mark after a batch has been anchored
+    /// Requires 1 parameter1:
+    ///     $1 = new_high_water_mark (i64)
+    pub fn insert_anchoring_high_water_mark() -> &'static str {
+        r#"INSERT INTO ceramic_one_anchor_high_water_mark (high_water_mark) VALUES ($1);"#
+    }
+
+    /// Fetch event CIDs from a specified source that are above the current anchoring high water mark
+    pub fn unanchored_from_high_water_mark() -> &'static str {
         r#"SELECT
-                init_cid, cid
+                order_key, init_cid, cid, rowid
             FROM ceramic_one_event
             WHERE
                 source = $1
-                AND anchored IS NULL
-                ORDER BY discovered
+                AND ROWID > (SELECT MAX(high_water_mark) FROM ceramic_one_anchor_high_water_mark)
+                ORDER BY rowid
                 LIMIT $2;"#
     }
 }

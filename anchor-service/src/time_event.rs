@@ -17,16 +17,19 @@ pub fn build_time_events(
         .iter()
         .enumerate()
         .map(|(index, anchor_request)| {
-            build_time_event(
-                &anchor_request.id,
-                &anchor_request.prev,
-                &detached_time_event.proof,
-                detached_time_event.path.as_str(),
-                index.try_into()?,
-                count,
-            )
+            Ok((
+                anchor_request.clone(),
+                build_time_event(
+                    &anchor_request.init,
+                    &anchor_request.prev,
+                    &detached_time_event.proof,
+                    detached_time_event.path.as_str(),
+                    index.try_into()?,
+                    count,
+                )?,
+            ))
         })
-        .collect::<Result<Vec<_>>>()?;
+        .collect::<Result<Vec<(AnchorRequest, RawTimeEvent)>>>()?;
 
     Ok(TimeEvents { events })
 }
@@ -74,35 +77,50 @@ pub fn index_to_path(index: u64, count: u64) -> Result<String> {
         return Err(anyhow!("index({}) >= count({})", index, count));
     }
 
-    let mut path = String::new();
+    let mut path: Vec<_> = Vec::new();
     let mut length = count;
     let mut index = index;
 
-    while length != 0 {
-        let top_power_of_2 = 1 << (63 - length.leading_zeros());
+    // The purpose of this while loop is to figure out which subtree the index is in.
+    let mut top_power_of_2 = Default::default();
+    while length > 0 {
+        top_power_of_2 = 1 << (63 - length.leading_zeros());
+        if top_power_of_2 == length {
+            break;
+        }
         if index < top_power_of_2 {
             // the index is in the left tree
-            path += "0/";
+            path.push('0');
             break;
         } else {
             // the index is in the right tree
-            path += "1/";
+            path.push('1');
             length -= top_power_of_2;
             index -= top_power_of_2;
         }
     }
 
-    for bit in format!("{:b}", index).chars() {
-        path += &format!("{}/", bit);
-    }
-
-    Ok(path.trim_end_matches('/').to_string())
+    // The purpose of this for loop is to figure out the specified index's location in the subtree.
+    // Adding the top power of two forces the binary of the number to always start with 1. We can then subtract the
+    // top power of two to strip the leading 1. This leaves us with all the leading zeros.
+    path.append(
+        format!("{:b}", index + top_power_of_2)[1..]
+            .chars()
+            .collect::<Vec<_>>()
+            .as_mut(),
+    );
+    Ok(path
+        .iter()
+        .map(|c| c.to_string())
+        .collect::<Vec<_>>()
+        .join("/"))
 }
 
 /// Tests to ensure that the merge function is working as expected.
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ceramic_core::SerdeIpld;
     use expect_test::expect;
 
     #[tokio::test]
@@ -117,31 +135,40 @@ mod tests {
         let count = 999_999;
         let time_event = build_time_event(&id, &prev, &proof, "", index, count);
         expect![[r#"{"id":{"/":"baeabeifu7qd7bpy4z6vdo7jff6kg3uiwolqtofhut7nrhx6wuhpb2wqxtq"},"prev":{"/":"baeabeifu7qd7bpy4z6vdo7jff6kg3uiwolqtofhut7nrhx6wuhpb2wqxtq"},"proof":{"/":"bafyreidq247kfkizr3k6wlvx43lt7gro2dno7vzqepmnqt26agri4opzqu"},"path":"0/1/1/1/1/0/1/0/0/0/0/1/0/0/1/0/0/0/0/0"}"#]]
-            .assert_eq(&String::from_utf8(serde_ipld_dagjson::to_vec(&time_event.unwrap()).unwrap()).unwrap());
+            .assert_eq(&time_event.unwrap().to_json().unwrap());
     }
 
     #[tokio::test]
     async fn test_index_to_path() {
+        // index: 0, count: 1
+        expect![""].assert_eq(&index_to_path(0, 1).unwrap());
+
+        // index: 0 - 1, count: 2
+        expect!["0"].assert_eq(&index_to_path(0, 2).unwrap());
+        expect!["1"].assert_eq(&index_to_path(1, 2).unwrap());
+
+        // index: 0 - 2, count: 3
+        expect!["0/0"].assert_eq(&index_to_path(0, 3).unwrap());
+        expect!["0/1"].assert_eq(&index_to_path(1, 3).unwrap());
+        expect!["1"].assert_eq(&index_to_path(2, 3).unwrap());
+
+        // index 0 - 3, count: 4
+        expect!["0/0"].assert_eq(&index_to_path(0, 4).unwrap());
+        expect!["0/1"].assert_eq(&index_to_path(1, 4).unwrap());
+        expect!["1/0"].assert_eq(&index_to_path(2, 4).unwrap());
+        expect!["1/1"].assert_eq(&index_to_path(3, 4).unwrap());
+
         // '1/'  10 > 8, 14
         // '1/0/' 2 > 4, 6
         // '1/0/' 0b10
         // '1/0/1/0'
-        expect![[r#"
-            Ok(
-                "1/0/1/0",
-            )
-        "#]]
-        .assert_debug_eq(&index_to_path(10, 14));
+        expect!["1/0/1/0"].assert_eq(&index_to_path(10, 14).unwrap());
 
         // '0/' 500_000 < 524288, 1_000_000
         // '0/' 0b1111010000100100000
         // '0/1/1/1/1/0/1/0/0/0/0/1/0/0/1/0/0/0/0/0/'
-        expect![[r#"
-            Ok(
-                "0/1/1/1/1/0/1/0/0/0/0/1/0/0/1/0/0/0/0/0",
-            )
-        "#]]
-        .assert_debug_eq(&index_to_path(500_000, 1_000_000));
+        expect!["0/1/1/1/1/0/1/0/0/0/0/1/0/0/1/0/0/0/0/0"]
+            .assert_eq(&index_to_path(500_000, 1_000_000).unwrap());
 
         // '1/'        999_999 > 524288,  1_000_000
         // '1/1/'      475_711 > 262_144, 475_712
@@ -152,11 +179,10 @@ mod tests {
         // '1/1/1/1/1/1/0/' 63 !> 64,     64
         // '1/1/1/1/1/1/0/' 0b111111
         // '1/1/1/1/1/1/0/1/1/1/1/1/1/'
-        expect![[r#"
-        Ok(
-            "1/1/1/1/1/1/0/1/1/1/1/1/1",
-        )
-    "#]]
-        .assert_debug_eq(&index_to_path(999_999, 1_000_000));
+        expect!["1/1/1/1/1/1/1/1/1/1/1/1"].assert_eq(&index_to_path(999_999, 1_000_000).unwrap());
+        expect!["0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0"]
+            .assert_eq(&index_to_path(0, 1_000_000).unwrap());
+        expect!["0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/1"]
+            .assert_eq(&index_to_path(1, 1_000_000).unwrap());
     }
 }

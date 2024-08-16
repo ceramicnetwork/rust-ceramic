@@ -6,7 +6,7 @@ use std::fmt::Debug;
 use crate::bytes::Bytes;
 use crate::unvalidated::Payload;
 use base64::Engine;
-use ceramic_core::{DidDocument, Jwk};
+use ceramic_core::{DidDocument, Jwk, SerdeIpld};
 use cid::Cid;
 use ipld_core::ipld::Ipld;
 use iroh_car::{CarHeader, CarWriter};
@@ -14,9 +14,9 @@ use serde::{Deserialize, Serialize};
 use ssi::jwk::Algorithm;
 use std::{collections::BTreeMap, str::FromStr as _};
 
-use self::cacao::Capability;
+use super::cid_from_dag_jose;
 
-use super::{cid_from_dag_cbor, cid_from_dag_jose};
+use self::cacao::Capability;
 
 /// Materialized signed Event.
 pub struct Event<D> {
@@ -70,7 +70,7 @@ impl<D: serde::Serialize> Event<D> {
 
     /// Constructs a signed event by signing a given event payload.
     pub fn from_payload(payload: Payload<D>, signer: impl Signer) -> anyhow::Result<Self> {
-        let payload_cid = cid_from_dag_cbor(&serde_ipld_dagcbor::to_vec(&payload)?);
+        let payload_cid = payload.to_cid()?;
         let payload_cid_str =
             base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(payload_cid.to_bytes());
 
@@ -95,7 +95,7 @@ impl<D: serde::Serialize> Event<D> {
             }],
         };
 
-        let envelope_cid = cid_from_dag_jose(&serde_ipld_dagcbor::to_vec(&envelope)?);
+        let envelope_cid = cid_from_dag_jose(&envelope.to_cbor()?);
 
         Ok(Self {
             payload,
@@ -109,18 +109,18 @@ impl<D: serde::Serialize> Event<D> {
 
     /// Encodes the signature envelope as IPLD
     pub fn encode_envelope(&self) -> anyhow::Result<Vec<u8>> {
-        Ok(serde_ipld_dagcbor::to_vec(&self.envelope)?)
+        self.envelope.to_cbor()
     }
 
     /// Encodes the payload as IPLD
     pub fn encode_payload(&self) -> anyhow::Result<Vec<u8>> {
-        Ok(serde_ipld_dagcbor::to_vec(&self.payload)?)
+        self.payload.to_cbor()
     }
     /// Encodes the capability as IPLD if present
     pub fn encode_capability(&self) -> anyhow::Result<Option<(Cid, Vec<u8>)>> {
         self.capability
             .as_ref()
-            .map(|(cid, cacao)| Ok((*cid, serde_ipld_dagcbor::to_vec(cacao)?)))
+            .map(|(cid, cacao)| Ok((*cid, cacao.to_cbor()?)))
             .transpose()
     }
 

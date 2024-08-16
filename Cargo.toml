@@ -9,7 +9,6 @@ members = [
     "event",
     "kubo-rpc",
     "kubo-rpc-server",
-    "macro-ipld-derive",
     "metadata",
     "metrics",
     "one",
@@ -112,7 +111,6 @@ lazy_static = "1.4"
 libp2p = { version = "0.53", default-features = false }
 libp2p-identity = { version = "0.2", features = ["peerid", "ed25519"] }
 lru = "0.10"
-macro_ipld_derive = { path = "./macro-ipld-derive" }
 mime = "0.3"
 mime_classifier = "0.0.1"
 mime_guess = "2.0.4"
@@ -223,7 +221,8 @@ authors = [
     "Nathaniel Cook <nvcook42@gmail.com>",
     "Aaron D Goldman <goldmanaaron@gmail.com>",
     "Mohsin Zaidi <@smrz2001>",
-    "David Estes <@dav1do>"
+    "David Estes <@dav1do>",
+    "Spencer T Brody <@stbrody>"
 ]
 license = "Apache-2.0/MIT"
 repository = "https://github.com/3box/rust-ceramic"

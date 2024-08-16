@@ -2,23 +2,42 @@ use cid::Cid;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
+use ceramic_core::EventId;
+
 use crate::unvalidated::{Proof, RawTimeEvent};
 
 /// AnchorRequest for a Data Event on a Stream
+#[derive(Serialize, Deserialize, Clone)]
 pub struct AnchorRequest {
-    /// The CID of the stream
-    pub id: Cid,
+    /// The CID of the stream Init Event
+    pub init: Cid,
     /// The CID of the Event to be anchored
     pub prev: Cid,
+    /// The Event ordering key
+    pub order_key: EventId,
+    /// The row ID of the Event in the database
+    pub row_id: i64,
+}
+
+impl std::fmt::Debug for AnchorRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AnchorRequest")
+            .field("init", &format!("{:?}", self.init))
+            .field("prev", &format!("{:?}", self.prev))
+            .field("order_key", &format!("{:?}", self.order_key))
+            .finish()
+    }
 }
 
 /// Merkle tree node
-pub type MerkleNode = Vec<Cid>;
+pub type MerkleNode = Vec<Option<Cid>>;
 
 /// A collection of Merkle tree nodes.
 #[derive(Default)]
 pub struct MerkleNodes {
-    nodes: IndexMap<Cid, MerkleNode>,
+    /// The Merkle tree nodes
+    /// The keys are the CIDs of the Merkle nodes
+    pub nodes: IndexMap<Cid, MerkleNode>,
 }
 
 impl MerkleNodes {
@@ -55,8 +74,8 @@ impl std::fmt::Debug for MerkleNodes {
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TimeEvents {
-    /// The list of Time Events
-    pub events: Vec<RawTimeEvent>,
+    /// The list of Time Events along with their original anchor requests
+    pub events: Vec<(AnchorRequest, RawTimeEvent)>,
 }
 
 impl std::fmt::Debug for TimeEvents {

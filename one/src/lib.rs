@@ -189,6 +189,18 @@ struct DaemonOpts {
         env = "CERAMIC_ONE_FEATURE_FLAGS"
     )]
     feature_flags: Vec<FeatureFlags>,
+
+    /// Remote anchor service URL
+    #[arg(long, env = "CERAMIC_ONE_REMOTE_ANCHOR_SERVICE_URL")]
+    remote_anchor_service_url: Option<String>,
+
+    /// Ceramic One anchor interval in seconds
+    #[arg(long, default_value_t = 3600, env = "CERAMIC_ONE_ANCHOR_INTERVAL")]
+    anchor_interval: u64,
+
+    /// Ceramic One anchor polling interval in seconds
+    #[arg(long, default_value_t = 300, env = "CERAMIC_ONE_ANCHOR_POLL_INTERVAL")]
+    anchor_poll_interval: u64,
 }
 
 /// The default storage directory to use if none is provided. In order:
@@ -398,7 +410,10 @@ impl Daemon {
         let node_did = ceramic_core::did_key_from_ed25519_key_pair(&p2p_keypair);
         info!("Local Node DID: {}", node_did);
 
-        let db = opts.db_opts.get_database(Some(node_did), true).await?;
+        let db = opts
+            .db_opts
+            .get_database(Some(node_did.clone()), true)
+            .await?;
 
         // we should be able to consolidate the Store traits now that they all rely on &self, but for now we use
         // static dispatch and require compile-time type information, so we pass all the types we need in, even
@@ -414,12 +429,14 @@ impl Daemon {
                     db.event_store.clone(),
                     db.event_store,
                     metrics_handle,
+                    node_did,
                 )
                 .await
             }
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn run_internal<I1, I2, E1, E2, E3, AC>(
         opts: DaemonOpts,
         interest_api_store: Arc<I1>,
@@ -429,6 +446,7 @@ impl Daemon {
         bitswap_block_store: Arc<E3>,
         anchor_client: Arc<AC>,
         metrics_handle: MetricsHandle,
+        node_did: String,
     ) -> Result<()>
     where
         I1: InterestStore + Send + Sync + 'static,
@@ -621,18 +639,30 @@ impl Daemon {
         let recon_interest_handle = tokio::spawn(recon_interest_svr.run());
         let recon_model_handle = tokio::spawn(recon_model_svr.run());
 
-        // Start anchoring
-        // TODO: Take CAS API URL and anchor batch linger from config
-        let p2p_keypair = ceramic_core::read_ed25519_key_from_dir(opts.p2p_key_dir.clone()).await?;
-        tokio::spawn(async move {
-            let remote_cas = RemoteCas::new(p2p_keypair, "https://cas-qa.3boxlabs.com".to_string());
+        // Start anchoring if remote anchor service URL is provided
+        if let Some(remote_anchor_service_url) = opts.remote_anchor_service_url {
+            info!(
+                node_did = node_did,
+                url = remote_anchor_service_url,
+                poll_interval = opts.anchor_poll_interval,
+                "starting remote cas anchor service"
+            );
+            let p2p_keypair =
+                ceramic_core::read_ed25519_key_from_dir(opts.p2p_key_dir.clone()).await?;
+            let remote_cas = RemoteCas::new(
+                p2p_keypair,
+                remote_anchor_service_url,
+                Duration::from_secs(opts.anchor_poll_interval),
+            );
             let mut anchor_service = AnchorService::new(
                 anchor_client,
                 Arc::new(remote_cas),
-                Duration::from_secs(10), // 1 hour
+                Duration::from_secs(opts.anchor_interval),
             );
-            anchor_service.run().await;
-        });
+            tokio::spawn(async move {
+                anchor_service.run().await;
+            });
+        }
 
         // Start HTTP server with a graceful shutdown
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();

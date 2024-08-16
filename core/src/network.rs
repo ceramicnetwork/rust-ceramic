@@ -1,12 +1,14 @@
+use serde::{Deserialize, Serialize};
+
 /// Network values from https://cips.ceramic.network/tables/networkIds.csv
 /// Ceramic Pubsub Topic, Timestamp Authority
-#[derive(Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Network {
     /// Production network
     Mainnet,
     /// Test network
     TestnetClay,
-    /// Developement network
+    /// Development network
     DevUnstable,
     /// Local network with unique id
     Local(u32),

@@ -1,17 +1,16 @@
 //! Types of raw unvalidated Ceramic Events
+use std::{collections::HashMap, fmt::Debug};
 
 use anyhow::{anyhow, bail, Context};
+use ceramic_core::SerdeIpld;
 use cid::Cid;
 use ipld_core::ipld::Ipld;
 use iroh_car::{CarHeader, CarReader, CarWriter};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fmt::Debug};
 use tokio::io::AsyncRead;
 use tracing::debug;
 
-use macro_ipld_derive::SerdeIpld;
-
-use super::{cid_from_dag_cbor, init, signed, Payload};
+use super::{init, signed, Payload};
 
 /// Materialized Ceramic Event where internal structure is accessible.
 #[derive(Debug)]
@@ -104,7 +103,7 @@ where
         if deny_unexpected_fields {
             // Re-serialize the event and compare the bytes. This indirectly checks that there were no
             // unexpected fields in the event sent by the client.
-            let event_bytes_reserialized = serde_ipld_dagcbor::to_vec(&raw_event)?;
+            let event_bytes_reserialized = raw_event.to_cbor()?;
             if !event_bytes.eq(&event_bytes_reserialized) {
                 bail!(
                 "Event bytes do not round-trip. This most likely means the event contains unexpected fields."
@@ -145,7 +144,7 @@ where
                 let payload_bytes = car_blocks
                     .get(&payload_cid)
                     .ok_or_else(|| anyhow!("Signed Event CAR data missing block for payload"))?;
-                let payload =
+                let payload: Payload<_> =
                     serde_ipld_dagcbor::from_slice(payload_bytes).context("decoding payload")?;
                 let capability = envelope
                     .capability()
@@ -164,7 +163,7 @@ where
                 if deny_unexpected_fields {
                     // Re-serialize the payload and compare the bytes. This indirectly checks that there
                     // were no unexpected fields in the event sent by the client.
-                    let payload_bytes_reserialized = serde_ipld_dagcbor::to_vec(&payload)?;
+                    let payload_bytes_reserialized = payload.to_cbor()?;
                     if !payload_bytes.eq(&payload_bytes_reserialized) {
                         bail!("Signed event payload bytes do not round-trip. This most likely means the event contains unexpected fields.");
                     }
@@ -278,10 +277,9 @@ impl TimeEvent {
     }
     /// Encode the event into CAR bytes including all relevant blocks.
     pub async fn encode_car(&self) -> anyhow::Result<Vec<u8>> {
-        let event = serde_ipld_dagcbor::to_vec(&self.event)?;
-        let cid = cid_from_dag_cbor(&event);
+        let (cid, event) = self.event.to_dag_cbor_block()?;
 
-        let proof = serde_ipld_dagcbor::to_vec(&self.proof)?;
+        let proof = self.proof.to_cbor()?;
 
         let mut car = Vec::new();
         let roots: Vec<Cid> = vec![cid];
@@ -289,8 +287,7 @@ impl TimeEvent {
         writer.write(cid, event).await?;
         writer.write(self.event.proof, proof).await?;
         for block in &self.blocks_in_path {
-            let block_bytes = serde_ipld_dagcbor::to_vec(&block)?;
-            let block_cid = cid_from_dag_cbor(&block_bytes);
+            let (block_cid, block_bytes) = block.to_dag_cbor_block()?;
             writer.write(block_cid, block_bytes).await?;
         }
         writer.finish().await?;
@@ -353,7 +350,7 @@ impl RawTimeEvent {
     }
 }
 /// Proof data
-#[derive(Serialize, Deserialize, SerdeIpld)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Proof {
     /// eip-155 CHAIN_ID see https://chainid.network https://github.com/ethereum/EIPs/blob/master/EIPS/eip-155.md

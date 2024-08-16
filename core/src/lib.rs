@@ -1,7 +1,6 @@
 //! # Ceramic Core
 //! Core functionality for ceramic, including the StreamId, Cid, and Jws types.
 #![warn(missing_docs)]
-mod block;
 mod bytes;
 pub mod event_id;
 pub mod interest;
@@ -9,9 +8,9 @@ mod jwk;
 mod key;
 mod network;
 mod range;
+mod serde_ipld;
 mod stream_id;
 
-pub use block::DagCborIpfsBlock;
 pub use bytes::Bytes;
 pub use event_id::EventId;
 pub use interest::{Interest, PeerId};
@@ -22,6 +21,7 @@ pub use key::{
 };
 pub use network::Network;
 pub use range::RangeOpen;
+pub use serde_ipld::SerdeIpld;
 pub use stream_id::{StreamId, StreamIdType};
 
 pub use cid::Cid;
@@ -29,7 +29,6 @@ pub use ssi;
 pub use ssi::did::Document as DidDocument;
 
 use base64::Engine;
-use multibase::Base;
 use serde::{Deserialize, Serialize};
 
 macro_rules! impl_multi_base {
@@ -82,32 +81,6 @@ impl_multi_base!(MultiBase36String, multibase::Base::Base36Lower);
 impl_multi_base!(MultiBase58BtcString, multibase::Base::Base58Btc);
 impl_multi_base!(MultiBase64String, multibase::Base::Base64);
 impl_multi_base!(MultiBase64UrlString, multibase::Base::Base64Url);
-
-/// Newtype to encapsulate a value that is DagCbor encoded
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(transparent)]
-pub struct DagCborEncoded(Vec<u8>);
-
-impl AsRef<[u8]> for DagCborEncoded {
-    fn as_ref(&self) -> &[u8] {
-        self.0.as_ref()
-    }
-}
-
-impl DagCborEncoded {
-    /// Create a new DagCborEncoded from a value that can be serialized to DagCbor
-    pub fn new<T: Serialize>(value: &T) -> anyhow::Result<Self> {
-        let res = serde_ipld_dagcbor::to_vec(value)?;
-        Ok(Self(res))
-    }
-}
-
-impl std::fmt::Display for DagCborEncoded {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = multibase::encode(Base::Base64, &self.0);
-        write!(f, "{}", s)
-    }
-}
 
 /// A string that is encoded with base64
 #[derive(Clone, Debug, Deserialize, Serialize)]

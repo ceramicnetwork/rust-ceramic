@@ -9,16 +9,7 @@ pub use event::*;
 pub use payload::*;
 
 use cid::Cid;
-use ipld_core::{codec::Codec, ipld::Ipld};
 use multihash_codetable::{Code, MultihashDigest};
-use serde_ipld_dagcbor::codec::DagCborCodec;
-
-fn cid_from_dag_cbor(data: &[u8]) -> Cid {
-    Cid::new_v1(
-        <DagCborCodec as Codec<Ipld>>::CODE,
-        Code::Sha2_256.digest(data),
-    )
-}
 
 fn cid_from_dag_jose(data: &[u8]) -> Cid {
     Cid::new_v1(
@@ -34,9 +25,7 @@ mod tests {
     use expect_test::expect;
     use serde::{Deserialize, Serialize};
 
-    use ceramic_core::Cid;
-
-    use macro_ipld_derive::SerdeIpld;
+    use ceramic_core::SerdeIpld;
 
     pub const SIGNED_INIT_EVENT_CID: &str =
         "bagcqcerar2aga7747dm6fota3iipogz4q55gkaamcx2weebs6emvtvie2oha";
@@ -61,7 +50,7 @@ mod tests {
 
     pub const UNSIGNED_INIT_NO_SEP_CAR:&str="uOqJlcm9vdHOB2CpYJQABcRIgrY2L_wTWrzng7Mpf2kvh9Q9Uyz-Ei2CF7NfjzRD0illndmVyc2lvbgG5AwFxEiCtjYv_BNavOeDsyl_aS-H1D1TLP4SLYIXs1-PNEPSKWaJkZGF0YaZkZGF0YaNjdXJsYGVsYWJlbGdGYXN0aW5nbmNoaWxkcmVuSGlkZGVu9GR0eXBlbFF1ZXN0aW9uTm9kZWdjcmVhdGVkeBgyMDIzLTAyLTIwVDE1OjE5OjM2LjI3OVpocG9zaXRpb26iYXj7QKWDkiAAAABheftAtqeAAAAAAGlsYXRlcmFsSUR4JDY5YWFmMzdkLTU1OWItNGI5NS1hMTAwLTVlZTk4MThmYzVlZGlwcm9qZWN0SUR4P2tqemw2a2N5bTd3OHk1ZDY1Zjlva240cml5ZGF0OTJoM3M2dnZ6cHd3dTc1NDRpOTJmanlnYzU2N2x6aHJ2Y2ZoZWFkZXKjZW1vZGVsWCjOAQIBhQESIJbss9X3kzfag-eF6OFx0KDIOV6P5DxOi-cWAWnTN5FjZnVuaXF1ZUwq2_OJxYVaSoawmJtrY29udHJvbGxlcnOBeDtkaWQ6cGtoOmVpcDE1NToxOjB4Y2E1ZmY0YjM0NDJmY2FjMjdlMWFmNDQ1N2UwMmViNjI5YzcxMjk4Mw";
 
-    #[derive(Serialize, Deserialize, SerdeIpld)]
+    #[derive(Serialize, Deserialize)]
     struct TestStruct {
         a: u32,
         b: String,

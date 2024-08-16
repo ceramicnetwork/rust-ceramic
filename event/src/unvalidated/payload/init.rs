@@ -1,12 +1,10 @@
 use std::fmt::Debug;
 
-use cid::Cid;
+use ceramic_core::{Cid, SerdeIpld};
 use iroh_car::{CarHeader, CarWriter};
 use serde::{Deserialize, Serialize};
 
-use macro_ipld_derive::SerdeIpld;
-
-use crate::{bytes::Bytes, unvalidated::cid_from_dag_cbor};
+use crate::bytes::Bytes;
 
 /// Materialized unsigned Init Event.
 pub struct Event<D> {
@@ -70,13 +68,11 @@ impl<D> Payload<D> {
 impl<D: serde::Serialize> Payload<D> {
     /// Compute CID of encoded event.
     pub async fn encoded_cid(&self) -> Result<Cid, anyhow::Error> {
-        let event = serde_ipld_dagcbor::to_vec(self)?;
-        Ok(cid_from_dag_cbor(&event))
+        self.to_cid()
     }
     /// Encode the unsigned init event into CAR bytes.
     pub async fn encode_car(&self) -> Result<Vec<u8>, anyhow::Error> {
-        let event = serde_ipld_dagcbor::to_vec(self)?;
-        let cid = cid_from_dag_cbor(&event);
+        let (cid, event) = self.to_dag_cbor_block()?;
         let mut car = Vec::new();
         let roots: Vec<Cid> = vec![cid];
         let mut writer = CarWriter::new(CarHeader::V1(roots.into()), &mut car);
@@ -89,7 +85,7 @@ impl<D: serde::Serialize> Payload<D> {
 const DEFAULT_SEP: &str = "model";
 
 /// Headers for an init event
-#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize, SerdeIpld)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Header {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
