@@ -1,7 +1,10 @@
 [package]
-name = "iroh-car"
-authors = ["dignifiedquire <me@dignifiedquire.com>"]
-description = "Implementation the car files for iroh"
+name = "ceramic-car"
+authors = [
+    "dignifiedquire <me@dignifiedquire.com>",
+    "Nathaniel Cook <nvcook42@gmail.com>",
+]
+description = "Car V1 reading and writing API"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,8 +13,8 @@ publish = false
 
 [dependencies]
 cid.workspace = true
-futures.workspace = true
 integer-encoding = { workspace = true, features = ["tokio_async"] }
+futures.workspace = true
 serde_ipld_dagcbor.workspace = true
 serde.workspace = true
 thiserror.workspace = true
@@ -20,6 +23,7 @@ tokio = { workspace = true, features = ["io-util"] }
 [dev-dependencies]
 multihash.workspace = true
 multihash-codetable.workspace = true
+ipld-core.workspace = true
 tokio = { workspace = true, features = [
     "macros",
     "sync",
@@ -27,6 +31,3 @@ tokio = { workspace = true, features = [
     "fs",
     "io-util",
 ] }
-ipld-core.workspace = true
-
-[features]

@@ -1,22 +1,24 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, io::Cursor};
 
 use anyhow::{anyhow, bail, Context, Result};
+use ceramic_car::CarReader;
 use ceramic_core::{Cid, EventId, Network};
 use ceramic_event::unvalidated;
 use ipld_core::ipld::Ipld;
-use iroh_car::CarReader;
-use tokio::io::AsyncRead;
+use tokio::io::{AsyncRead, AsyncReadExt as _};
 use tracing::debug;
 
 use crate::EventStore;
 
 // Helper function to construct an event ID from CAR data of an event coming in via the HTTP api.
-pub async fn event_id_from_car<R, S>(network: Network, reader: R, store: &S) -> Result<EventId>
+pub async fn event_id_from_car<R, S>(network: Network, mut reader: R, store: &S) -> Result<EventId>
 where
     R: AsyncRead + Send + Unpin,
     S: EventStore,
 {
-    let (event_cid, event) = unvalidated::Event::decode_car(reader, true).await?;
+    let mut car_bytes = Vec::new();
+    reader.read_to_end(&mut car_bytes).await?;
+    let (event_cid, event) = unvalidated::Event::decode_car(Cursor::new(&car_bytes), true)?;
     event_id_for_event(event_cid, event, network, store).await
 }
 

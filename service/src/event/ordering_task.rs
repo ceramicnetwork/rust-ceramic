@@ -128,7 +128,6 @@ impl StreamEvent {
                     ))
                 })?;
             let (_cid, parsed) = unvalidated::Event::<Ipld>::decode_car(data.as_slice(), false)
-                .await
                 .map_err(Error::new_app)?;
 
             let metadata = EventMetadata::from(&parsed);

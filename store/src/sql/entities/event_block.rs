@@ -75,7 +75,6 @@ impl ReconEventBlockRaw {
         for (_, carfile) in parsed {
             let (cid, parsed_event) =
                 unvalidated::Event::<Ipld>::decode_car(carfile.as_slice(), false)
-                    .await
                     .map_err(Error::new_app)?;
             res.push((cid, parsed_event));
         }

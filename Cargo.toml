@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "api",
     "api-server",
+    "car",
     "core",
     "event",
     "kubo-rpc",
@@ -14,7 +15,6 @@ members = [
     "recon",
     "store",
     "beetle/iroh-bitswap",
-    "beetle/iroh-car",
     "beetle/iroh-rpc-client",
     "beetle/iroh-rpc-types",
     "beetle/iroh-util",
@@ -50,6 +50,7 @@ bytes = "1.1"
 bytesize = "1.1"
 ceramic-api = { path = "./api" }
 ceramic-api-server = { path = "./api-server" }
+ceramic-car = { path = "./car" }
 ceramic-core = { path = "./core" }
 ceramic-event = { path = "./event" }
 ceramic-kubo-rpc-server = { path = "./kubo-rpc-server" }
@@ -95,7 +96,6 @@ integer-encoding = "3.0"
 ipld-core = "0.4"
 ipld-dagpb = "0.2"
 iroh-bitswap = { path = "./beetle/iroh-bitswap" }
-iroh-car = { path = "./beetle/iroh-car" }
 iroh-p2p = { version = "0.2.0", path = "./beetle/iroh-p2p" }
 iroh-rpc-client = { path = "./beetle/iroh-rpc-client" }
 iroh-rpc-types = { path = "./beetle/iroh-rpc-types" }

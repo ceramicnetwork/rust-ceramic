@@ -119,7 +119,6 @@ impl CeramicEventService {
     ) -> Result<EventInsertable> {
         let (cid, parsed_event) =
             unvalidated::Event::<Ipld>::decode_car(item.value.as_slice(), false)
-                .await
                 .map_err(Error::new_app)?;
 
         Ok(EventInsertable::new(
