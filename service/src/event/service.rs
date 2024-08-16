@@ -126,6 +126,14 @@ impl CeramicEventService {
                 .await
                 .map_err(Error::new_app)?;
 
+        // TODO Remove this stuff
+        let tmp_new_car = parsed_event.encode_car().await.unwrap();
+        let new_car = tmp_new_car.as_slice();
+        let old_car = item.value.as_slice();
+        if new_car != old_car {
+            panic!("CAR files don't match!")
+        }
+
         if event_cid != cid {
             return Err(Error::new_app(anyhow::anyhow!(
                 "EventId CID ({}) does not match the root CID of the CAR file ({})",
