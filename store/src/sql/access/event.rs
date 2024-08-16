@@ -169,14 +169,14 @@ impl CeramicOneEvent {
         let mut tx = pool.begin_tx().await.map_err(Error::from)?;
 
         for item in to_add {
-            let new_key = Self::insert_event(&mut tx, &item.order_key, item.deliverable()).await?;
+            let new_key = Self::insert_event(&mut tx, item.order_key(), item.deliverable()).await?;
             inserted.push(InsertedEvent::new(
-                item.order_key.clone(),
+                item.order_key().clone(),
                 new_key,
                 item.deliverable(),
             ));
             if new_key {
-                for block in item.body.blocks().iter() {
+                for block in item.blocks().iter() {
                     CeramicOneBlock::insert(&mut tx, block.multihash.inner(), &block.bytes).await?;
                     CeramicOneEventBlock::insert(&mut tx, block).await?;
                 }

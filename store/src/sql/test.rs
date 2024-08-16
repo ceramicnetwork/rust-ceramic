@@ -8,7 +8,7 @@ use cid::Cid;
 use expect_test::expect;
 use test_log::test;
 
-use crate::{CeramicOneEvent, EventInsertable, EventInsertableBody, SqlitePool};
+use crate::{CeramicOneEvent, EventInsertable, SqlitePool};
 
 const MODEL_ID: &str = "k2t6wz4yhfp1r5pwi52gw89nzjbu53qk7m32o5iguw42c6knsaj0feuf927agb";
 const CONTROLLER: &str = "did:key:z6Mkqtw7Pj5Lv9xc4PgUYAnwfaVoMC6FRneGWVr5ekTEfKVL";
@@ -28,11 +28,7 @@ fn random_event(cid: &str) -> EventInsertable {
     let order_key = event_id_builder()
         .with_event(&Cid::from_str(cid).unwrap())
         .build();
-    let cid = order_key.cid().unwrap();
-    EventInsertable {
-        order_key,
-        body: EventInsertableBody::new(cid, vec![], true),
-    }
+    EventInsertable::new(order_key, vec![], true)
 }
 
 #[test(tokio::test)]

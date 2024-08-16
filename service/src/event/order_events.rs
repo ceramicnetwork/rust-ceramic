@@ -42,7 +42,7 @@ impl OrderEvents {
             HashMap::from_iter(candidate_events.iter_mut().map(|(e, meta)| {
                 // all init events are deliverable so we mark them as such before we do anything else
                 if matches!(meta, EventMetadata::Init { .. }) {
-                    e.body.set_deliverable(true);
+                    e.set_deliverable(true);
                 }
                 (e.cid(), e.deliverable())
             }));
@@ -73,7 +73,7 @@ impl OrderEvents {
                 Some(prev) => {
                     if let Some(in_mem_is_deliverable) = new_cids.get(&prev) {
                         if *in_mem_is_deliverable {
-                            event.body.set_deliverable(true);
+                            event.set_deliverable(true);
                             *new_cids.get_mut(&event.cid()).expect("CID must exist") = true;
                             deliverable.push((event, header));
                         } else {
@@ -83,7 +83,7 @@ impl OrderEvents {
                         let (_exists, prev_deliverable) =
                             CeramicOneEvent::deliverable_by_cid(pool, &prev).await?;
                         if prev_deliverable {
-                            event.body.set_deliverable(true);
+                            event.set_deliverable(true);
                             *new_cids.get_mut(&event.cid()).expect("CID must exist") = true;
                             deliverable.push((event, header));
                         } else {
@@ -110,7 +110,7 @@ impl OrderEvents {
                 Some(prev) => {
                     if new_cids.get(&prev).map_or(false, |v| *v) {
                         *new_cids.get_mut(&event.cid()).expect("CID must exist") = true;
-                        event.body.set_deliverable(true);
+                        event.set_deliverable(true);
                         deliverable.push((event, header));
                         // reset the iteration count since we made changes. once it doesn't change for a loop through the queue we're done
                         iteration = 0;
@@ -171,10 +171,10 @@ mod test {
         let mut after_2 = Vec::with_capacity(stream_2.len());
         for (event, _) in events {
             assert!(event.deliverable());
-            if stream_1.iter().any(|e| e.key == event.order_key) {
-                after_1.push(event.order_key.clone());
+            if stream_1.iter().any(|e| e.key == *event.order_key()) {
+                after_1.push(event.order_key().clone());
             } else {
-                after_2.push(event.order_key.clone());
+                after_2.push(event.order_key().clone());
             }
         }
 
@@ -290,7 +290,7 @@ mod test {
             .iter_mut()
             .take(3)
             .map(|(i, _)| {
-                i.body.set_deliverable(true);
+                i.set_deliverable(true);
                 i.clone()
             })
             .collect::<Vec<_>>();
@@ -301,7 +301,7 @@ mod test {
 
         let expected = remaining
             .iter()
-            .map(|(i, _)| i.order_key.clone())
+            .map(|(i, _)| i.order_key().clone())
             .collect::<Vec<_>>();
         remaining.shuffle(&mut thread_rng());
 
@@ -314,7 +314,7 @@ mod test {
         let after = ordered
             .deliverable
             .iter()
-            .map(|(e, _)| e.order_key.clone())
+            .map(|(e, _)| e.order_key().clone())
             .collect::<Vec<_>>();
         assert_eq!(expected, after);
     }
