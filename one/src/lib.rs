@@ -21,7 +21,7 @@ use multihash::Multihash;
 use multihash_codetable::Code;
 use multihash_derive::Hasher;
 use signal_hook_tokio::Signals;
-use tokio::{io::AsyncReadExt, sync::oneshot};
+use tokio::{io::AsyncReadExt, sync::broadcast};
 use tracing::{debug, error, info, warn};
 
 #[derive(Parser, Debug)]
@@ -176,7 +176,7 @@ impl DBOpts {
     }
 }
 
-async fn handle_signals(mut signals: Signals, shutdown: oneshot::Sender<()>) {
+async fn handle_signals(mut signals: Signals, shutdown: broadcast::Sender<()>) {
     let mut shutdown = Some(shutdown);
     while let Some(signal) = signals.next().await {
         debug!(?signal, "signal received");

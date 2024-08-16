@@ -1,0 +1,14 @@
+[package]
+name = "ceramic-arrow-test"
+description = "Utilities for testing APIs using Arrow datastructures"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+datafusion.workspace = true
+arrow.workspace = true
+cid.workspace = true

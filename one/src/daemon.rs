@@ -12,6 +12,7 @@ use signal_hook::consts::signal::*;
 use signal_hook_tokio::Signals;
 use std::sync::Arc;
 use swagger::{auth::MakeAllowAllAuthenticator, EmptyContext};
+use tokio::sync::broadcast;
 use tracing::{debug, info, warn};
 
 use crate::{
@@ -168,6 +169,14 @@ pub struct DaemonOpts {
         requires = "experimental_features"
     )]
     event_validation: bool,
+
+    /// Flight SQL bind address; Requires using the experimental-features flag
+    #[arg(
+        long,
+        env = "CERAMIC_ONE_FLIGHT_SQL_BIND_ADDRESS",
+        requires = "experimental_features"
+    )]
+    flight_sql_bind_address: Option<String>,
 }
 
 // Start the daemon process
@@ -356,6 +365,26 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
             )
         })?;
 
+    // Setup shutdown signal
+    let (shutdown_signal_tx, mut shutdown_signal) = broadcast::channel::<()>(1);
+    let signals = Signals::new([SIGHUP, SIGTERM, SIGINT, SIGQUIT])?;
+    let handle = signals.handle();
+
+    // Start Flight server
+    let flight_handle = if let Some(addr) = opts.flight_sql_bind_address {
+        let addr = addr.parse()?;
+        let feed = event_svc.clone();
+        let mut shutdown_signal = shutdown_signal.resubscribe();
+        Some(tokio::spawn(async move {
+            ceramic_flight::server::run(feed, addr, async move {
+                let _ = shutdown_signal.recv().await;
+            })
+            .await
+        }))
+    } else {
+        None
+    };
+
     // Build HTTP server
     let mut ceramic_server = ceramic_api::Server::new(
         peer_id,
@@ -388,21 +417,16 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
         ("/api/v0/".to_string(), kubo_rpc_service),
     );
 
-    // Start HTTP server with a graceful shutdown
-    let (tx, rx) = tokio::sync::oneshot::channel::<()>();
-    let signals = Signals::new([SIGHUP, SIGTERM, SIGINT, SIGQUIT])?;
-    let handle = signals.handle();
-
     debug!("starting signal handler task");
-    let signals_handle = tokio::spawn(handle_signals(signals, tx));
+    let signals_handle = tokio::spawn(handle_signals(signals, shutdown_signal_tx));
 
     // The server task blocks until we are ready to start shutdown
     info!("starting api server at address {}", opts.bind_address);
     hyper::server::Server::try_bind(&opts.bind_address.parse()?)
         .map_err(|e| anyhow!("Failed to bind address: {}. {}", opts.bind_address, e))?
         .serve(service)
-        .with_graceful_shutdown(async {
-            rx.await.ok();
+        .with_graceful_shutdown(async move {
+            let _ = shutdown_signal.recv().await;
         })
         .await?;
     debug!("api server finished, starting shutdown...");
@@ -427,6 +451,10 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
     handle.close();
     signals_handle.await?;
     debug!("signal handler stopped");
+
+    if let Some(flight_handle) = flight_handle {
+        let _ = flight_handle.await;
+    }
 
     Ok(())
 }

@@ -12,7 +12,7 @@ use ceramic_event::unvalidated::Event;
 use ceramic_flight::{ConclusionData, ConclusionEvent, ConclusionInit, ConclusionTime};
 use ceramic_sql::sqlite::SqlitePool;
 use cid::Cid;
-use futures::{future::try_join_all, stream::BoxStream};
+use futures::stream::BoxStream;
 use ipld_core::ipld::Ipld;
 use recon::ReconItem;
 use tokio::try_join;
@@ -266,18 +266,20 @@ impl EventService {
         })
     }
 
-    #[allow(dead_code)]
-    async fn transform_raw_events_to_conclusion_events(
+    pub(crate) async fn transform_raw_events_to_conclusion_events(
         &self,
-        event_cid: Cid,
-        raw_event: ceramic_event::unvalidated::Event<Ipld>,
-        delivered: i64,
+        event: EventRowDelivered,
     ) -> Result<ConclusionEvent> {
-        let stream_cid = raw_event.id();
+        let EventRowDelivered {
+            cid: event_cid,
+            event,
+            delivered,
+        } = event;
+        let stream_cid = event.id();
         let init_event = self.get_event_by_cid(stream_cid).await?;
         let init = ConclusionInit::try_from(init_event).unwrap();
 
-        match raw_event {
+        match event {
             ceramic_event::unvalidated::Event::Time(time_event) => {
                 Ok(ConclusionEvent::Time(ConclusionTime {
                     event_cid,
@@ -351,48 +353,7 @@ impl EventService {
         Ok(event)
     }
 
-    /// Fetches Conclusion Events that have occurred since a given highwater mark.
-    ///
-    /// This function retrieves events that have been processed after the specified highwater mark,
-    /// up to the specified limit. It transforms raw events into `ConclusionEvent` structures,
-    /// which provide a standardized format for event data.
-    ///
-    /// # Arguments
-    ///
-    /// * `highwater_mark` - An `i64` representing the starting point from which to fetch events.
-    ///   Events with a higher mark than this value will be returned.
-    /// * `limit` - An `i64` specifying the maximum number of events to return.
-    ///
-    /// # Returns
-    ///
-    /// Returns a `Result` containing a `Vec<ConclusionEvent>` if successful, or an `anyhow::Error` if an error occurs.
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if:
-    /// - There's a problem fetching events from the database
-    /// - There's an issue transforming raw events into `ConclusionEvent` structures
-    #[allow(dead_code)]
-    pub async fn conclusion_events_since(
-        &self,
-        highwater_mark: i64,
-        limit: i64,
-    ) -> anyhow::Result<Vec<ConclusionEvent>> {
-        let raw_events = self
-            .fetch_events_since_highwater_mark(highwater_mark, limit)
-            .await?;
-
-        let conclusion_events_futures = raw_events.into_iter().map(|row| {
-            self.transform_raw_events_to_conclusion_events(row.cid, row.event, row.delivered)
-        });
-
-        try_join_all(conclusion_events_futures)
-            .await
-            .map_err(Into::into)
-    }
-
-    #[allow(dead_code)]
-    async fn fetch_events_since_highwater_mark(
+    pub(crate) async fn fetch_events_since_highwater_mark(
         &self,
         highwater_mark: i64,
         limit: i64,

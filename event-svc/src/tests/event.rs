@@ -5,6 +5,7 @@ use crate::EventService;
 use anyhow::Error;
 use bytes::Bytes;
 use ceramic_api::{ApiItem, EventService as ApiEventService};
+use ceramic_flight::server::ConclusionFeed as _;
 use ceramic_flight::ConclusionEvent;
 use ceramic_sql::sqlite::SqlitePool;
 use cid::{Cid, CidGeneric};

@@ -9,19 +9,31 @@ repository.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-cid.workspace = true
-serde.workspace = true
-chrono = { version = "0.4", features = ["serde"] }
-arrow = { workspace = true, features = ["prettyprint"] }
-expect-test.workspace = true
+arrow.workspace = true
+arrow-array.workspace = true
+arrow-flight.workspace = true
+arrow-schema.workspace = true
+async-stream.workspace = true
+async-trait.workspace = true
 ceramic-event.workspace = true
+cid.workspace = true
+datafusion-flight-sql-server.workspace = true
+datafusion.workspace = true
+expect-test.workspace = true
+futures.workspace = true
 ipld-core.workspace = true
-
+serde.workspace = true
+tonic.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
+ceramic-arrow-test.workspace = true
+expect-test.workspace = true
 tokio = { workspace = true, features = ["macros", "rt"] }
 test-log.workspace = true
-datafusion.workspace = true
+http.workspace = true
+tokio-stream = { workspace = true, features = ["net"] }
+mockall.workspace = true
 
 [package.metadata.cargo-machete]
 ignored = [
