@@ -54,6 +54,8 @@ where
         let parts: Vec<_> = event.path().split('/').collect();
         // Add blocks for all parts but the last as it is the prev.
         for index in parts.iter().take(parts.len() - 1) {
+            // unwrap() is safe because .last() only returns None if the Vec is empty, and we know
+            // it has at least one element because we pushed a block before entering the loop.
             let cid = blocks_in_path
                 .last()
                 .unwrap()
