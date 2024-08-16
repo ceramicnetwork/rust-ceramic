@@ -1,3 +1,4 @@
+mod feed;
 mod migration;
 mod order_events;
 mod ordering_task;
