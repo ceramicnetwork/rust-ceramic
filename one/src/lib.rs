@@ -1,4 +1,5 @@
 //! Ceramic implements a single binary ceramic node.
+
 #![warn(missing_docs)]
 
 mod daemon;
@@ -12,11 +13,11 @@ mod network;
 use std::{env, path::PathBuf};
 
 use anyhow::{anyhow, Result};
+use ceramic_kubo_rpc::Multiaddr;
 use ceramic_metrics::config::Config as MetricsConfig;
 use ceramic_sql::sqlite::SqlitePool;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use futures::StreamExt;
-use libp2p::Multiaddr;
 use multibase::Base;
 use multihash::Multihash;
 use multihash_codetable::Code;

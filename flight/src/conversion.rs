@@ -8,28 +8,29 @@ use arrow::datatypes::{DataType, Field};
 use arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
+/// Construct a [`RecordBatch`] from an iterator of [`ConclusionEvent`]s.
 #[derive(Debug)]
 pub struct ConclusionEventBuilder {
+    index: UInt64Builder,
     event_type: UInt8Builder,
     stream_cid: BinaryBuilder,
-    event_cid: BinaryBuilder,
     controller: StringBuilder,
+    event_cid: BinaryBuilder,
     data: BinaryBuilder,
     previous: ListBuilder<BinaryBuilder>,
-    index: UInt64Builder,
 }
 
 impl Default for ConclusionEventBuilder {
     fn default() -> Self {
         Self {
+            index: UInt64Builder::new(),
             event_type: PrimitiveBuilder::new(),
             stream_cid: BinaryBuilder::new(),
-            event_cid: BinaryBuilder::new(),
             controller: StringBuilder::new(),
+            event_cid: BinaryBuilder::new(),
             data: BinaryBuilder::new(),
             previous: ListBuilder::new(BinaryBuilder::new())
                 .with_field(Field::new_list_field(DataType::Binary, false)),
-            index: UInt64Builder::new(),
         }
     }
 }
@@ -93,13 +94,13 @@ impl ConclusionEventBuilder {
         let index_field = Arc::new(Field::new("index", DataType::UInt64, false));
 
         StructArray::from(vec![
+            (index_field, index),
             (event_type_field, event_type),
             (stream_cid_field, stream_cid),
             (controller_field, controller),
             (event_cid_field, event_cid),
             (data_field, data),
             (previous_field, previous),
-            (index_field, index),
         ])
     }
 }
@@ -176,4 +177,126 @@ where
     let struct_array = builder.finish();
     let record_batch = RecordBatch::from(&struct_array);
     Ok(record_batch)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::str::FromStr;
+
+    use arrow::util::pretty::pretty_format_batches;
+    use ceramic_arrow_test::pretty_feed_from_batch;
+    use cid::Cid;
+    use expect_test::expect;
+
+    // Tests the conversion of ConclusionEvents to Arrow RecordBatch.
+    //
+    // This test creates mock ConclusionEvents (both Data and Time events),
+    // converts them to a RecordBatch using the conclusion_events_to_record_batch function,
+    // and then verifies that the resulting RecordBatch contains the expected data.
+    //
+    // The test checks:
+    // 1. The number of rows in the RecordBatch
+    // 2. The schema of the RecordBatch
+    // 3. The content of each column in the RecordBatch
+    #[tokio::test]
+    async fn test_conclusion_events_to_record_batch() {
+        // Create mock ConclusionEvents
+        let events = vec![
+            ConclusionEvent::Data(ConclusionData {
+                event_cid: Cid::from_str(
+                    "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
+                )
+                .unwrap(),
+                init: ConclusionInit {
+                    stream_cid: Cid::from_str(
+                        "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
+                    )
+                    .unwrap(),
+                    controller: "did:key:test1".to_string(),
+                    dimensions: vec![],
+                },
+                previous: vec![],
+                data: b"123".into(),
+                index: 0,
+            }),
+            ConclusionEvent::Data(ConclusionData {
+                event_cid: Cid::from_str(
+                    "baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q",
+                )
+                .unwrap(),
+                init: ConclusionInit {
+                    stream_cid: Cid::from_str(
+                        "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
+                    )
+                    .unwrap(),
+                    controller: "did:key:test1".to_string(),
+                    dimensions: vec![],
+                },
+                previous: vec![Cid::from_str(
+                    "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
+                )
+                .unwrap()],
+                data: b"456".into(),
+                index: 1,
+            }),
+            ConclusionEvent::Time(ConclusionTime {
+                event_cid: Cid::from_str(
+                    "baeabeidtub3bnbojbickf6d4pqscaw6xpt5ksgido7kcsg2jyftaj237di",
+                )
+                .unwrap(),
+                previous: vec![Cid::from_str(
+                    "baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q",
+                )
+                .unwrap()],
+                init: ConclusionInit {
+                    stream_cid: Cid::from_str(
+                        "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
+                    )
+                    .unwrap(),
+                    controller: "did:key:test1".to_string(),
+                    dimensions: vec![],
+                },
+                index: 2,
+            }),
+            ConclusionEvent::Data(ConclusionData {
+                event_cid: Cid::from_str(
+                    "baeabeiewqcj4bwhcssizv5kcyvsvm57bxghjpqshnbzkc6rijmwb4im4yq",
+                )
+                .unwrap(),
+                init: ConclusionInit {
+                    stream_cid: Cid::from_str(
+                        "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
+                    )
+                    .unwrap(),
+                    controller: "did:key:test1".to_string(),
+                    dimensions: vec![],
+                },
+                previous: vec![
+                    Cid::from_str("baeabeidtub3bnbojbickf6d4pqscaw6xpt5ksgido7kcsg2jyftaj237di")
+                        .unwrap(),
+                    Cid::from_str("baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q")
+                        .unwrap(),
+                ],
+                data: b"789".into(),
+                index: 3,
+            }),
+        ];
+        // Convert events to RecordBatch
+        let record_batch = conclusion_events_to_record_batch(&events).unwrap();
+        let record_batch = pretty_feed_from_batch(record_batch).await;
+        let formatted = pretty_format_batches(&record_batch).unwrap().to_string();
+
+        // Use expect_test to validate the output
+        expect![[r#"
+        +-------+------------+-------------------------------------------------------------+---------------+-------------------------------------------------------------+------+----------------------------------------------------------------------------------------------------------------------------+
+        | index | event_type | stream_cid                                                  | controller    | event_cid                                                   | data | previous                                                                                                                   |
+        +-------+------------+-------------------------------------------------------------+---------------+-------------------------------------------------------------+------+----------------------------------------------------------------------------------------------------------------------------+
+        | 0     | 0          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | did:key:test1 | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 123  | []                                                                                                                         |
+        | 1     | 0          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | did:key:test1 | baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q | 456  | [baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu]                                                              |
+        | 2     | 1          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | did:key:test1 | baeabeidtub3bnbojbickf6d4pqscaw6xpt5ksgido7kcsg2jyftaj237di |      | [baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q]                                                              |
+        | 3     | 0          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | did:key:test1 | baeabeiewqcj4bwhcssizv5kcyvsvm57bxghjpqshnbzkc6rijmwb4im4yq | 789  | [baeabeidtub3bnbojbickf6d4pqscaw6xpt5ksgido7kcsg2jyftaj237di, baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q] |
+        +-------+------------+-------------------------------------------------------------+---------------+-------------------------------------------------------------+------+----------------------------------------------------------------------------------------------------------------------------+"#]].assert_eq(&formatted);
+    }
 }

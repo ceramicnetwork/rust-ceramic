@@ -139,6 +139,10 @@ pub struct DaemonOpts {
         )]
     cors_allow_origins: Vec<String>,
 
+    /// Flight SQL bind address
+    #[arg(short, long, env = "CERAMIC_ONE_FLIGHT_SQL_BIND_ADDRESS")]
+    flight_sql_bind_address: Option<String>,
+
     /// Enable experimental feature flags
     #[arg(
         long,
@@ -350,6 +354,13 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
                 e
             )
         })?;
+
+    // Start Flight server
+    if let Some(addr) = opts.flight_sql_bind_address {
+        let addr = addr.parse()?;
+        let feed = event_svc.clone();
+        tokio::spawn(async move { ceramic_flight::server::run(feed, addr).await });
+    }
 
     // Build HTTP server
     let mut ceramic_server = ceramic_api::Server::new(

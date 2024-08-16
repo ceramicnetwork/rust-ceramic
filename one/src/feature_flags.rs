@@ -1,3 +1,5 @@
+//! Module that control feature flags
+
 use anyhow::{anyhow, Result};
 
 #[derive(Clone, Debug, PartialEq)]
