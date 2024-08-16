@@ -628,12 +628,11 @@ mod test {
     }
 
     async fn insert_10_with_9_undelivered(pool: &SqlitePool) {
-        let insertable = get_n_insertable_events(10).await;
-        let mut init = insertable.first().unwrap().to_owned();
+        let mut insertable = get_n_insertable_events(10).await;
+        let mut init = insertable.remove(0);
         init.set_deliverable(true);
-        let undelivered = insertable.into_iter().skip(1).collect::<Vec<_>>();
 
-        let new = CeramicOneEvent::insert_many(pool, undelivered.iter())
+        let new = CeramicOneEvent::insert_many(pool, insertable.iter())
             .await
             .unwrap();
 

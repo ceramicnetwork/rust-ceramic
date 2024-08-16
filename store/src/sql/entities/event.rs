@@ -39,7 +39,7 @@ pub async fn rebuild_car(blocks: Vec<BlockRow>) -> Result<Option<Vec<u8>>> {
     Ok(Some(car))
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 /// The type we use to insert events into the database
 pub struct EventInsertable {
     /// The event order key (e.g. EventID)
