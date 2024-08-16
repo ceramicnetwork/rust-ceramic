@@ -422,7 +422,7 @@ mod tests {
     use crate::unvalidated::signed::JwkSigner;
     use crate::unvalidated::tests::{
         DATA_EVENT_PAYLOAD, SIGNED_INIT_EVENT, SIGNED_INIT_EVENT_CAR, SIGNED_INIT_EVENT_CID,
-        SIGNED_INIT_EVENT_PAYLOAD, TIME_EVENT_CAR,
+        SIGNED_INIT_EVENT_PAYLOAD, TIME_EVENT_CAR_SINGLE_EVENT_BATCH,
     };
     use crate::DidDocument;
 
@@ -508,7 +508,7 @@ mod tests {
         assert_eq!(SIGNED_INIT_EVENT_CAR, event_car_str);
     }
     #[test(tokio::test)]
-    async fn build_time_event() {
+    async fn build_time_event_single_event_batch() {
         let id = Cid::from_str(SIGNED_INIT_EVENT_CID).unwrap();
         let prev =
             Cid::from_str("bagcqcerae5oqoglzjjgz53enwsttl7mqglp5eoh2llzbbvfktmzxleeiffbq").unwrap();
@@ -532,6 +532,6 @@ mod tests {
             multibase::Base::Base64Url,
             event.encode_car().await.unwrap(),
         );
-        assert_eq!(TIME_EVENT_CAR, event_car_str);
+        assert_eq!(TIME_EVENT_CAR_SINGLE_EVENT_BATCH, event_car_str);
     }
 }

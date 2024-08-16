@@ -50,12 +50,15 @@ where
         let block_bytes = car_blocks
             .get(&proof.root())
             .ok_or_else(|| anyhow!("Time Event CAR data missing block for root",))?;
-        let mut block: Ipld = serde_ipld_dagcbor::from_slice(block_bytes)?;
-        blocks_in_path.push(block.clone());
+        blocks_in_path.push(serde_ipld_dagcbor::from_slice(block_bytes)?);
         let parts: Vec<_> = event.path().split('/').collect();
         // Add blocks for all parts but the last as it is the prev.
         for index in parts.iter().take(parts.len() - 1) {
-            let cid = block
+            // unwrap() is safe because .last() only returns None if the Vec is empty, and we know
+            // it has at least one element because we pushed a block before entering the loop.
+            let cid = blocks_in_path
+                .last()
+                .unwrap()
                 .get(*index)?
                 .ok_or_else(|| anyhow!("Time Event path indexes missing data"))?;
             let cid = match cid {
@@ -65,8 +68,7 @@ where
             let block_bytes = car_blocks
                 .get(cid)
                 .ok_or_else(|| anyhow!("Time Event CAR data missing block for path index"))?;
-            blocks_in_path.push(block);
-            block = serde_ipld_dagcbor::from_slice(block_bytes)?;
+            blocks_in_path.push(serde_ipld_dagcbor::from_slice(block_bytes)?);
         }
 
         Ok(blocks_in_path)
@@ -407,12 +409,14 @@ mod tests {
     use ipld_core::ipld::Ipld;
     use test_log::test;
 
-    use crate::unvalidated::tests::{SIGNED_INIT_EVENT_CID, UNSIGNED_INIT_NO_SEP_CAR};
+    use crate::unvalidated::tests::{
+        SIGNED_INIT_EVENT_CID, TIME_EVENT_CAR_MULTI_EVENT_BATCH, UNSIGNED_INIT_NO_SEP_CAR,
+    };
     use crate::unvalidated::{
         payload,
         tests::{
             CACAO_SIGNED_DATA_EVENT_CAR, DATA_EVENT_CAR_UNSIGNED_INIT, SIGNED_DATA_EVENT_CAR,
-            SIGNED_INIT_EVENT_CAR, TIME_EVENT_CAR, UNSIGNED_INIT_EVENT_CAR,
+            SIGNED_INIT_EVENT_CAR, TIME_EVENT_CAR_SINGLE_EVENT_BATCH, UNSIGNED_INIT_EVENT_CAR,
         },
         Builder, Event,
     };
@@ -448,8 +452,12 @@ mod tests {
         round_trip(DATA_EVENT_CAR_UNSIGNED_INIT).await;
     }
     #[test(tokio::test)]
-    async fn round_trip_time_event() {
-        round_trip(TIME_EVENT_CAR).await;
+    async fn round_trip_time_event_single_event_batch() {
+        round_trip(TIME_EVENT_CAR_SINGLE_EVENT_BATCH).await;
+    }
+    #[test(tokio::test)]
+    async fn round_trip_time_event_multi_event_batch() {
+        round_trip(TIME_EVENT_CAR_MULTI_EVENT_BATCH).await;
     }
     #[test(tokio::test)]
     async fn round_trip_init_payload_with_no_sep() {
