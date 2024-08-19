@@ -90,6 +90,19 @@ where
         }
     }
 
+    /// Returns the 'id' field of the event, which is the Cid of the stream's init event.
+    /// If this event *is* the init event, then it doesn't know its own Cid and returns None.
+    pub fn id(&self) -> Option<&Cid> {
+        match self {
+            Event::Time(t) => Some(t.id()),
+            Event::Signed(event) => match event.payload() {
+                Payload::Data(d) => Some(d.id()),
+                Payload::Init(_) => None,
+            },
+            Event::Unsigned(_) => None,
+        }
+    }
+
     /// Encode the event into a CAR bytes containing all blocks of the event.
     pub fn encode_car(&self) -> anyhow::Result<Vec<u8>> {
         match self {

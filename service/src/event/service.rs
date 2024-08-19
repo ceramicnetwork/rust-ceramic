@@ -198,13 +198,12 @@ impl CeramicEventService {
             .iter()
             .chain(ordered.missing_history().iter())
         {
-            let metadata = EventMetadata::from(ev.event());
-
             if new.contains(ev.cid()) {
                 self.send_discovered_event(DiscoveredEvent {
                     cid: *ev.cid(),
+                    prev: ev.event().prev().copied(),
+                    id: ev.event().id().copied(),
                     known_deliverable: ev.deliverable(),
-                    metadata: metadata.to_owned(),
                 })
                 .await?;
             }
@@ -248,56 +247,22 @@ pub struct InsertResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DiscoveredEvent {
-    pub cid: ceramic_core::Cid,
-    pub known_deliverable: bool,
-    pub metadata: EventMetadata,
+pub(crate) struct DiscoveredEvent {
+    /// The Cid of this event.
+    pub(crate) cid: Cid,
+    /// The prev event that this event builds on.
+    pub(crate) prev: Option<Cid>,
+    /// The Cid of the init event that identifies the stream this event belongs to.
+    pub(crate) id: Option<Cid>,
+    /// Whether this event is known to already be deliverable.
+    pub(crate) known_deliverable: bool,
 }
 
 impl DiscoveredEvent {
-    pub(crate) fn stream_cid(&self) -> ceramic_core::Cid {
-        match self.metadata {
-            EventMetadata::Init => self.cid,
-            EventMetadata::Data { stream_cid, .. } | EventMetadata::Time { stream_cid, .. } => {
-                stream_cid
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-/// An event header wrapper for use in the store crate.
-/// TODO: replace this with something from the event crate
-pub(crate) enum EventMetadata {
-    /// The init CID and stream CID are the same
-    Init,
-    Data {
-        stream_cid: ceramic_core::Cid,
-        prev: ceramic_core::Cid,
-    },
-    Time {
-        stream_cid: ceramic_core::Cid,
-        prev: ceramic_core::Cid,
-    },
-}
-
-impl From<&unvalidated::Event<Ipld>> for EventMetadata {
-    // TODO(AES-312): can we remove EventMetadata entirely?
-    fn from(value: &unvalidated::Event<Ipld>) -> Self {
-        match value {
-            unvalidated::Event::Time(t) => EventMetadata::Time {
-                stream_cid: *t.id(),
-                prev: *t.prev(),
-            },
-
-            unvalidated::Event::Signed(signed) => match signed.payload() {
-                unvalidated::Payload::Data(d) => EventMetadata::Data {
-                    stream_cid: *d.id(),
-                    prev: *d.prev(),
-                },
-                unvalidated::Payload::Init(_init) => EventMetadata::Init,
-            },
-            unvalidated::Event::Unsigned(_init) => EventMetadata::Init,
+    pub(crate) fn stream_cid(&self) -> Cid {
+        match self.id {
+            None => self.cid, // init event
+            Some(id) => id,
         }
     }
 }

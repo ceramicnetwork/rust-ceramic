@@ -9,7 +9,7 @@ use tracing::{debug, error, info, trace, warn};
 
 use crate::{Error, Result};
 
-use super::service::{DiscoveredEvent, EventMetadata};
+use super::service::DiscoveredEvent;
 
 type StreamCid = Cid;
 type EventCid = Cid;
@@ -130,10 +130,8 @@ impl StreamEvent {
             let (_cid, parsed) = unvalidated::Event::<Ipld>::decode_car(data.as_slice(), false)
                 .map_err(Error::new_app)?;
 
-            let metadata = EventMetadata::from(&parsed);
-
-            let known_prev = match &metadata {
-                EventMetadata::Init => {
+            let known_prev = match parsed.prev() {
+                None => {
                     assert!(
                         deliverable,
                         "Init event must always be deliverable. Found undelivered CID: {}",
@@ -141,7 +139,7 @@ impl StreamEvent {
                     );
                     StreamEvent::InitEvent(cid)
                 }
-                EventMetadata::Data { prev, .. } | EventMetadata::Time { prev, .. } => {
+                Some(prev) => {
                     if deliverable {
                         trace!(%cid, "Found deliverable event in database");
                         StreamEvent::KnownDeliverable(StreamEventMetadata::new(cid, *prev))
@@ -161,9 +159,9 @@ impl StreamEvent {
 
 impl From<DiscoveredEvent> for StreamEvent {
     fn from(ev: DiscoveredEvent) -> Self {
-        match ev.metadata {
-            EventMetadata::Init => StreamEvent::InitEvent(ev.cid),
-            EventMetadata::Data { prev, .. } | EventMetadata::Time { prev, .. } => {
+        match ev.prev {
+            None => StreamEvent::InitEvent(ev.cid),
+            Some(prev) => {
                 let meta = StreamEventMetadata::new(ev.cid, prev);
                 if ev.known_deliverable {
                     StreamEvent::KnownDeliverable(meta)
@@ -540,22 +538,23 @@ impl OrderingState {
         let mut event_cnt = 0;
         let mut discovered_inits = Vec::new();
         for (cid, parsed_event) in event_data {
-            let metadata = EventMetadata::from(&parsed_event);
-
-            let (stream_cid, loaded) = match &metadata {
-                EventMetadata::Init => {
-                    discovered_inits.push(cid);
-                    continue;
-                }
-                EventMetadata::Data { stream_cid, prev }
-                | EventMetadata::Time { stream_cid, prev } => (
-                    stream_cid,
-                    StreamEvent::Undelivered(StreamEventMetadata::new(cid, *prev)),
-                ),
-            };
+            if parsed_event.is_init() {
+                discovered_inits.push(cid);
+                continue;
+            }
 
             event_cnt += 1;
-            self.add_stream_event(*stream_cid, loaded);
+            let stream_cid = parsed_event
+                .id()
+                .expect("id must exist for non-init events");
+            let prev = parsed_event
+                .id()
+                .expect("prev must exist for non-init events");
+
+            self.add_stream_event(
+                *stream_cid,
+                StreamEvent::Undelivered(StreamEventMetadata::new(cid, *prev)),
+            );
         }
         // while undelivered init events should be unreachable, we can fix the state if it happens so we won't panic in release mode
         // and simply correct things in the database. We could make this fatal in the future, but for now it's just a warning to
