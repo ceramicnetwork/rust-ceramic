@@ -73,6 +73,11 @@ impl<D: serde::Serialize> Event<D> {
         &self.envelope
     }
 
+    /// Get the capability
+    pub fn capability(&self) -> Option<&Capability> {
+        self.capability.as_ref().map(|(_, ref c)| c)
+    }
+
     /// Constructs a signed event by signing a given event payload.
     pub fn from_payload(payload: Payload<D>, signer: impl Signer) -> anyhow::Result<Self> {
         let payload_cid = cid_from_dag_cbor(&serde_ipld_dagcbor::to_vec(&payload)?);
@@ -199,17 +204,17 @@ impl Envelope {
     }
 
     /// Get the signature
-    pub fn get_signature(&self) -> &Bytes {
-        &self.signatures[0].signature
+    pub fn signature(&self) -> &[Signature] {
+        &self.signatures
     }
 
     /// Get the signed payload
-    pub fn get_payload(&self) -> &Bytes {
+    pub fn payload(&self) -> &Bytes {
         &self.payload
     }
 
     /// Construct the jws header from the signature protected bytes
-    pub fn get_header(&self) -> Result<ssi::jws::Header, anyhow::Error> {
+    pub fn jws_header(&self) -> Result<ssi::jws::Header, anyhow::Error> {
         let (protected, _signature) = match self.signatures.first() {
             Some(sig) => (
                 sig.protected

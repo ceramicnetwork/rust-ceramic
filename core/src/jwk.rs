@@ -73,17 +73,22 @@ impl Jwk {
     /// The DID Document contains the public key. For more info, see:
     /// https://www.w3.org/TR/did-core/#dfn-did-documents
     pub async fn resolve_did(did: &str) -> Option<DidDocument> {
-        let resolver = &did_method_key::DIDKey;
-        let input_metadata = ResolutionInputMetadata::default();
-        let base_did = match did.split('#').next() {
-            Some(base) => base,
-            None => did, //should never happen ?
-        };
-        if !base_did.starts_with("did:key:") {
+        if !did.starts_with("did:key:") && !did.starts_with("did:pkh:") {
             return None;
         }
-        let (_res, _did_document, _metadata) = resolver.resolve(base_did, &input_metadata).await;
-        _did_document
+        let input_metadata = ResolutionInputMetadata::default();
+        let base_did = did.split_once('#').map_or(did, |(b, _)| b);
+
+        let resolver: &dyn DIDResolver = if base_did.starts_with("did:key:") {
+            &did_method_key::DIDKey
+        } else if base_did.starts_with("did:pkh:") {
+            &did_pkh::DIDPKH
+        } else {
+            return None;
+        };
+
+        let (_res, did_document, _metadata) = resolver.resolve(base_did, &input_metadata).await;
+        did_document
     }
 }
 
