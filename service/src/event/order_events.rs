@@ -34,7 +34,7 @@ impl OrderEvents {
     /// *could* mark B deliverable and then C and D, but we DO NOT want to do this here to prevent API users from writing events that they haven't seen.
     pub async fn try_new(
         pool: &SqlitePool,
-        mut candidate_events: Vec<EventInsertable>,
+        candidate_events: Vec<EventInsertable>,
     ) -> Result<Self> {
         let mut deliverable = Vec::with_capacity(candidate_events.len());
         let mut remaining_candidates = Vec::with_capacity(candidate_events.len());
