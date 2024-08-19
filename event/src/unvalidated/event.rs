@@ -79,11 +79,11 @@ where
     }
 
     /// Returns the prev CID (or None if the event is an init event)
-    pub fn prev(&self) -> Option<Cid> {
+    pub fn prev(&self) -> Option<&Cid> {
         match self {
             Event::Time(t) => Some(t.prev()),
             Event::Signed(event) => match event.payload() {
-                Payload::Data(d) => Some(*d.prev()),
+                Payload::Data(d) => Some(d.prev()),
                 Payload::Init(_) => None,
             },
             Event::Unsigned(_) => None,
@@ -277,18 +277,18 @@ impl TimeEvent {
     }
 
     ///  Get the id
-    pub fn id(&self) -> Cid {
-        self.event.id
+    pub fn id(&self) -> &Cid {
+        &self.event.id
     }
 
     ///  Get the prev
-    pub fn prev(&self) -> Cid {
-        self.event.prev
+    pub fn prev(&self) -> &Cid {
+        &self.event.prev
     }
 
     ///  Get the proof
-    pub fn proof(&self) -> Cid {
-        self.event.proof
+    pub fn proof(&self) -> &Cid {
+        &self.event.proof
     }
 
     ///  Get the path

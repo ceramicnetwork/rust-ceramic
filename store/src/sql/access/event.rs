@@ -183,7 +183,7 @@ impl CeramicOneEvent {
             }
             // the item already existed so we didn't mark it as deliverable on insert
             if !new_key && item.deliverable() {
-                Self::mark_ready_to_deliver(&mut tx, &item.cid()).await?;
+                Self::mark_ready_to_deliver(&mut tx, item.cid()).await?;
             }
         }
         tx.commit().await.map_err(Error::from)?;

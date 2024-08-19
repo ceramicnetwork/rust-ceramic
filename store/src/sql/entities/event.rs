@@ -91,8 +91,8 @@ impl EventInsertable {
     }
 
     /// Get the CID of the event
-    pub fn cid(&self) -> Cid {
-        self.cid
+    pub fn cid(&self) -> &Cid {
+        &self.cid
     }
 
     /// Get the parsed Event structure.

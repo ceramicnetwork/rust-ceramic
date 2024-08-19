@@ -125,18 +125,18 @@ impl<D: serde::Serialize> Event<D> {
     }
 
     /// Get the CID of the signature envelope
-    pub fn envelope_cid(&self) -> Cid {
-        self.envelope_cid
+    pub fn envelope_cid(&self) -> &Cid {
+        &self.envelope_cid
     }
 
     /// Get the CID of the payload
-    pub fn payload_cid(&self) -> Cid {
-        self.payload_cid
+    pub fn payload_cid(&self) -> &Cid {
+        &self.payload_cid
     }
 
     /// Get the CID of the capability
-    pub fn capability_cid(&self) -> Option<Cid> {
-        self.capability.as_ref().map(|c| c.0)
+    pub fn capability_cid(&self) -> Option<&Cid> {
+        self.capability.as_ref().map(|c| &c.0)
     }
 
     /// Encodes the full signed event into a CAR file.

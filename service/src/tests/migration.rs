@@ -128,8 +128,8 @@ async fn random_signed_data_event() -> Vec<unvalidated::Event<Ipld>> {
     let init = random_signed_init_event().await;
     let data = ipld_core::ipld!({"key": thread_rng().gen::<u32>()});
     let payload = unvalidated::Builder::data()
-        .with_id(init.envelope_cid())
-        .with_prev(init.envelope_cid())
+        .with_id(*init.envelope_cid())
+        .with_prev(*init.envelope_cid())
         .with_data(data)
         .build();
     vec![
@@ -169,7 +169,7 @@ async fn random_unsigned_init_time_event() -> Vec<unvalidated::Event<Ipld>> {
 async fn random_signed_init_time_event() -> Vec<unvalidated::Event<Ipld>> {
     let init = random_signed_init_event().await;
 
-    let time_event = random_time_event(init.envelope_cid()).await.into();
+    let time_event = random_time_event(*init.envelope_cid()).await.into();
     vec![init.into(), time_event]
 }
 

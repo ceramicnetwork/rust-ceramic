@@ -200,9 +200,9 @@ impl CeramicEventService {
         {
             let metadata = EventMetadata::from(ev.event());
 
-            if new.contains(&ev.cid()) {
+            if new.contains(ev.cid()) {
                 self.send_discovered_event(DiscoveredEvent {
-                    cid: ev.cid(),
+                    cid: *ev.cid(),
                     known_deliverable: ev.deliverable(),
                     metadata: metadata.to_owned(),
                 })
@@ -286,8 +286,8 @@ impl From<&unvalidated::Event<Ipld>> for EventMetadata {
     fn from(value: &unvalidated::Event<Ipld>) -> Self {
         match value {
             unvalidated::Event::Time(t) => EventMetadata::Time {
-                stream_cid: t.id(),
-                prev: t.prev(),
+                stream_cid: *t.id(),
+                prev: *t.prev(),
             },
 
             unvalidated::Event::Signed(signed) => match signed.payload() {
