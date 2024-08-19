@@ -5,19 +5,17 @@ use ceramic_store::{CeramicOneEvent, EventInsertable, SqlitePool};
 
 use crate::Result;
 
-use super::service::EventMetadata;
-
 pub(crate) struct OrderEvents {
-    deliverable: Vec<(EventInsertable, EventMetadata)>,
-    missing_history: Vec<(EventInsertable, EventMetadata)>,
+    deliverable: Vec<EventInsertable>,
+    missing_history: Vec<EventInsertable>,
 }
 
 impl OrderEvents {
-    pub fn deliverable(&self) -> &[(EventInsertable, EventMetadata)] {
+    pub fn deliverable(&self) -> &[EventInsertable] {
         &self.deliverable
     }
 
-    pub fn missing_history(&self) -> &[(EventInsertable, EventMetadata)] {
+    pub fn missing_history(&self) -> &[EventInsertable] {
         &self.missing_history
     }
 }
@@ -36,12 +34,12 @@ impl OrderEvents {
     /// *could* mark B deliverable and then C and D, but we DO NOT want to do this here to prevent API users from writing events that they haven't seen.
     pub async fn try_new(
         pool: &SqlitePool,
-        mut candidate_events: Vec<(EventInsertable, EventMetadata)>,
+        mut candidate_events: Vec<EventInsertable>,
     ) -> Result<Self> {
         let mut new_cids: HashMap<Cid, bool> =
-            HashMap::from_iter(candidate_events.iter_mut().map(|(e, meta)| {
+            HashMap::from_iter(candidate_events.iter_mut().map(|e| {
                 // all init events are deliverable so we mark them as such before we do anything else
-                if matches!(meta, EventMetadata::Init { .. }) {
+                if e.event().is_init() {
                     e.set_deliverable(true);
                 }
                 (e.cid(), e.deliverable())
@@ -49,11 +47,11 @@ impl OrderEvents {
         let mut deliverable = Vec::with_capacity(candidate_events.len());
         let mut remaining_candidates = Vec::with_capacity(candidate_events.len());
 
-        for (e, h) in candidate_events {
+        for e in candidate_events {
             if e.deliverable() {
-                deliverable.push((e, h))
+                deliverable.push(e)
             } else {
-                remaining_candidates.push((e, h))
+                remaining_candidates.push(e)
             }
         }
 
@@ -67,8 +65,8 @@ impl OrderEvents {
         let mut undelivered_prevs_in_memory = VecDeque::with_capacity(remaining_candidates.len());
         let mut missing_history = Vec::with_capacity(remaining_candidates.len());
 
-        while let Some((mut event, header)) = remaining_candidates.pop() {
-            match header.prev() {
+        while let Some(mut event) = remaining_candidates.pop() {
+            match event.event().prev() {
                 None => {
                     unreachable!("Init events should have been filtered out since they're always deliverable");
                 }
@@ -77,9 +75,9 @@ impl OrderEvents {
                         if *in_mem_is_deliverable {
                             event.set_deliverable(true);
                             *new_cids.get_mut(&event.cid()).expect("CID must exist") = true;
-                            deliverable.push((event, header));
+                            deliverable.push(event);
                         } else {
-                            undelivered_prevs_in_memory.push_back((event, header));
+                            undelivered_prevs_in_memory.push_back(event);
                         }
                     } else {
                         let (_exists, prev_deliverable) =
@@ -87,9 +85,9 @@ impl OrderEvents {
                         if prev_deliverable {
                             event.set_deliverable(true);
                             *new_cids.get_mut(&event.cid()).expect("CID must exist") = true;
-                            deliverable.push((event, header));
+                            deliverable.push(event);
                         } else {
-                            missing_history.push((event, header));
+                            missing_history.push(event);
                         }
                     }
                 }
@@ -103,9 +101,9 @@ impl OrderEvents {
         // We can't quite get rid of this loop because we may have discovered our prev's prev from the database in the previous pass.
         let max_iterations = undelivered_prevs_in_memory.len();
         let mut iteration = 0;
-        while let Some((mut event, header)) = undelivered_prevs_in_memory.pop_front() {
+        while let Some(mut event) = undelivered_prevs_in_memory.pop_front() {
             iteration += 1;
-            match header.prev() {
+            match event.event().prev() {
                 None => {
                     unreachable!("Init events should have been filtered out of the in memory set");
                 }
@@ -113,11 +111,11 @@ impl OrderEvents {
                     if new_cids.get(&prev).map_or(false, |v| *v) {
                         *new_cids.get_mut(&event.cid()).expect("CID must exist") = true;
                         event.set_deliverable(true);
-                        deliverable.push((event, header));
+                        deliverable.push(event);
                         // reset the iteration count since we made changes. once it doesn't change for a loop through the queue we're done
                         iteration = 0;
                     } else {
-                        undelivered_prevs_in_memory.push_back((event, header));
+                        undelivered_prevs_in_memory.push_back(event);
                     }
                 }
             }
@@ -149,7 +147,7 @@ mod test {
     async fn get_2_streams() -> (
         Vec<ReconItem<EventId>>,
         Vec<ReconItem<EventId>>,
-        Vec<(EventInsertable, EventMetadata)>,
+        Vec<EventInsertable>,
     ) {
         let stream_2 = get_n_events(10).await;
         let stream_1 = get_n_events(10).await;
@@ -167,11 +165,11 @@ mod test {
     fn split_deliverable_order_by_stream(
         stream_1: &[ReconItem<EventId>],
         stream_2: &[ReconItem<EventId>],
-        events: &[(EventInsertable, EventMetadata)],
+        events: &[EventInsertable],
     ) -> (Vec<EventId>, Vec<EventId>) {
         let mut after_1 = Vec::with_capacity(stream_1.len());
         let mut after_2 = Vec::with_capacity(stream_2.len());
-        for (event, _) in events {
+        for event in events {
             assert!(event.deliverable());
             if stream_1.iter().any(|e| e.key == *event.order_key()) {
                 after_1.push(event.order_key().clone());
@@ -187,10 +185,7 @@ mod test {
     async fn get_insertable_events(
         events: &[ReconItem<EventId>],
         first_vec_count: usize,
-    ) -> (
-        Vec<(EventInsertable, EventMetadata)>,
-        Vec<(EventInsertable, EventMetadata)>,
-    ) {
+    ) -> (Vec<EventInsertable>, Vec<EventInsertable>) {
         let mut insertable = Vec::with_capacity(first_vec_count);
         let mut remaining = Vec::with_capacity(events.len() - first_vec_count);
         let mut i = 0;
@@ -271,7 +266,7 @@ mod test {
 
         let stream_1 = get_n_events(10).await;
         let (to_insert, mut remaining) = get_insertable_events(&stream_1, 3).await;
-        CeramicOneEvent::insert_many(&pool, to_insert.iter().map(|(i, _)| i))
+        CeramicOneEvent::insert_many(&pool, to_insert.iter())
             .await
             .unwrap();
 
@@ -295,16 +290,16 @@ mod test {
         let stream_1 = get_n_events(10).await;
         let (mut to_insert, mut remaining) = get_insertable_events(&stream_1, 3).await;
         for item in to_insert.as_mut_slice() {
-            item.0.set_deliverable(true)
+            item.set_deliverable(true)
         }
 
-        CeramicOneEvent::insert_many(&pool, to_insert.iter().map(|(ei, _)| ei))
+        CeramicOneEvent::insert_many(&pool, to_insert.iter())
             .await
             .unwrap();
 
         let expected = remaining
             .iter()
-            .map(|(i, _)| i.order_key().clone())
+            .map(|i| i.order_key().clone())
             .collect::<Vec<_>>();
         remaining.shuffle(&mut thread_rng());
 
@@ -317,7 +312,7 @@ mod test {
         let after = ordered
             .deliverable
             .iter()
-            .map(|(e, _)| e.order_key().clone())
+            .map(|e| e.order_key().clone())
             .collect::<Vec<_>>();
         assert_eq!(expected, after);
     }
