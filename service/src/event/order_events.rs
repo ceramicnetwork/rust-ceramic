@@ -36,24 +36,23 @@ impl OrderEvents {
         pool: &SqlitePool,
         mut candidate_events: Vec<EventInsertable>,
     ) -> Result<Self> {
-        let mut new_cids: HashMap<Cid, bool> =
-            HashMap::from_iter(candidate_events.iter_mut().map(|e| {
-                // all init events are deliverable so we mark them as such before we do anything else
-                if e.event().is_init() {
-                    e.set_deliverable(true);
-                }
-                (e.cid(), e.deliverable())
-            }));
         let mut deliverable = Vec::with_capacity(candidate_events.len());
         let mut remaining_candidates = Vec::with_capacity(candidate_events.len());
 
-        for e in candidate_events {
-            if e.deliverable() {
-                deliverable.push(e)
-            } else {
-                remaining_candidates.push(e)
-            }
-        }
+        let mut new_cids: HashMap<Cid, bool> =
+            HashMap::from_iter(candidate_events.into_iter().map(|mut e| {
+                // all init events are deliverable so we mark them as such before we do anything else
+                let cid = e.cid();
+                let deliverable = if e.event().is_init() {
+                    e.set_deliverable(true);
+                    deliverable.push(e);
+                    true
+                } else {
+                    remaining_candidates.push(e);
+                    false
+                };
+                (cid, deliverable)
+            }));
 
         if remaining_candidates.is_empty() {
             return Ok(OrderEvents {
