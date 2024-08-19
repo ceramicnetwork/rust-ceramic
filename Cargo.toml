@@ -19,6 +19,7 @@ members = [
     "beetle/iroh-rpc-types",
     "beetle/iroh-util",
     "service",
+    "olap",
 ]
 
 [workspace.dependencies]
@@ -33,7 +34,7 @@ members = [
 #   e.g. anyhow's backtrace feature.
 
 ahash = "0.8"
-anyhow = { version = "1", features = ["backtrace"] }
+anyhow = { version = "1" }
 async-broadcast = "0.4.1"
 async-channel = "1.7.1"
 async-recursion = "1"
@@ -69,6 +70,7 @@ criterion2 = "0.7.0"
 crossterm = "0.25"
 ctrlc = "3.2.2"
 dag-jose = "0.2"
+datafusion = "41.0.0"
 deadqueue = "0.2.3"
 derivative = "2.2"
 derive_more = "0.99.17"
