@@ -89,11 +89,11 @@ async fn build_event_fixed_model(model: StreamId) -> TestEventInfo {
         blocks: vec![
             Block::new(
                 signed.encode_envelope().unwrap().into(),
-                signed.envelope_cid(),
+                *signed.envelope_cid(),
             ),
             Block::new(
                 signed.encode_payload().unwrap().into(),
-                signed.payload_cid(),
+                *signed.payload_cid(),
             ),
         ],
         car,

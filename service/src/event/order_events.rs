@@ -42,7 +42,7 @@ impl OrderEvents {
         let mut new_cids: HashMap<Cid, bool> =
             HashMap::from_iter(candidate_events.into_iter().map(|mut e| {
                 // all init events are deliverable so we mark them as such before we do anything else
-                let cid = e.cid();
+                let cid = *e.cid();
                 let deliverable = if e.event().is_init() {
                     e.set_deliverable(true);
                     deliverable.push(e);
@@ -70,20 +70,20 @@ impl OrderEvents {
                     unreachable!("Init events should have been filtered out since they're always deliverable");
                 }
                 Some(prev) => {
-                    if let Some(in_mem_is_deliverable) = new_cids.get(&prev) {
+                    if let Some(in_mem_is_deliverable) = new_cids.get(prev) {
                         if *in_mem_is_deliverable {
                             event.set_deliverable(true);
-                            *new_cids.get_mut(&event.cid()).expect("CID must exist") = true;
+                            *new_cids.get_mut(event.cid()).expect("CID must exist") = true;
                             deliverable.push(event);
                         } else {
                             undelivered_prevs_in_memory.push_back(event);
                         }
                     } else {
                         let (_exists, prev_deliverable) =
-                            CeramicOneEvent::deliverable_by_cid(pool, &prev).await?;
+                            CeramicOneEvent::deliverable_by_cid(pool, prev).await?;
                         if prev_deliverable {
                             event.set_deliverable(true);
-                            *new_cids.get_mut(&event.cid()).expect("CID must exist") = true;
+                            *new_cids.get_mut(event.cid()).expect("CID must exist") = true;
                             deliverable.push(event);
                         } else {
                             missing_history.push(event);
@@ -107,8 +107,8 @@ impl OrderEvents {
                     unreachable!("Init events should have been filtered out of the in memory set");
                 }
                 Some(prev) => {
-                    if new_cids.get(&prev).map_or(false, |v| *v) {
-                        *new_cids.get_mut(&event.cid()).expect("CID must exist") = true;
+                    if new_cids.get(prev).map_or(false, |v| *v) {
+                        *new_cids.get_mut(event.cid()).expect("CID must exist") = true;
                         event.set_deliverable(true);
                         deliverable.push(event);
                         // reset the iteration count since we made changes. once it doesn't change for a loop through the queue we're done

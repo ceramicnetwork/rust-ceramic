@@ -33,36 +33,36 @@ where
 {
     match event {
         unvalidated::Event::Time(time_event) => {
-            let init_payload = get_init_event_payload_from_store(&time_event.id(), store).await?;
-            event_id_from_init_payload(event_cid, network, time_event.id(), &init_payload)
+            let init_payload = get_init_event_payload_from_store(time_event.id(), store).await?;
+            event_id_from_init_payload(&event_cid, network, time_event.id(), &init_payload)
         }
         unvalidated::Event::Signed(signed_event) => {
             let payload = signed_event.payload();
 
             match payload {
                 unvalidated::Payload::Init(init_payload) => event_id_from_init_payload(
-                    event_cid,
+                    &event_cid,
                     network,
                     signed_event.envelope_cid(),
                     init_payload,
                 ),
                 unvalidated::Payload::Data(payload) => {
-                    let init_cid = *payload.id();
-                    let init_payload = get_init_event_payload_from_store(&init_cid, store).await?;
-                    event_id_from_init_payload(event_cid, network, init_cid, &init_payload)
+                    let init_cid = payload.id();
+                    let init_payload = get_init_event_payload_from_store(init_cid, store).await?;
+                    event_id_from_init_payload(&event_cid, network, init_cid, &init_payload)
                 }
             }
         }
         unvalidated::Event::Unsigned(payload) => {
-            event_id_from_init_payload(event_cid, network, event_cid, &payload)
+            event_id_from_init_payload(&event_cid, network, &event_cid, &payload)
         }
     }
 }
 
 fn event_id_from_init_payload(
-    event_cid: Cid,
+    event_cid: &Cid,
     network: Network,
-    init_cid: Cid,
+    init_cid: &Cid,
     init_payload: &unvalidated::init::Payload<Ipld>,
 ) -> Result<EventId> {
     let controller = init_payload
@@ -76,8 +76,8 @@ fn event_id_from_init_payload(
         init_payload.header().sep(),
         init_payload.header().model(),
         controller,
-        &init_cid,
-        &event_cid,
+        init_cid,
+        event_cid,
     ))
 }
 
