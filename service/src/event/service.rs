@@ -14,6 +14,7 @@ use cid::Cid;
 use futures::stream::BoxStream;
 use ipld_core::ipld::Ipld;
 use recon::ReconItem;
+use tokio::try_join;
 use tracing::{trace, warn};
 
 use crate::{Error, Result};
@@ -146,7 +147,7 @@ impl CeramicEventService {
     pub(crate) async fn validate_events(
         items: &[ReconItem<EventId>],
     ) -> Result<(Vec<EventInsertable>, Vec<InvalidItem>)> {
-        let mut parsed_events = Vec::new();
+        let mut parsed_events = Vec::with_capacity(items.len());
         let mut invalid_events = Vec::new();
         for event in items {
             match Self::parse_discovered_event(event).await {
@@ -159,9 +160,9 @@ impl CeramicEventService {
         }
 
         // Group events by their type
-        let mut valid_events = Vec::new();
-        let mut signed_events = Vec::new();
-        let mut time_events = Vec::new();
+        let mut valid_events = Vec::with_capacity(parsed_events.len());
+        let mut signed_events = Vec::with_capacity(parsed_events.len());
+        let mut time_events = Vec::with_capacity(parsed_events.len());
         for event in parsed_events {
             match event.event() {
                 Event::Time(_) => {
@@ -177,13 +178,18 @@ impl CeramicEventService {
             }
         }
 
-        let (valid_signed, invalid_signed) = Self::validate_signed_events(signed_events).await?;
-        let (valid_time, invalid_time) = Self::validate_time_events(time_events).await?;
+        let (
+            (valid_signed_events, invalid_signed_events),
+            (valid_time_events, invalid_time_events),
+        ) = try_join!(
+            Self::validate_signed_events(signed_events),
+            Self::validate_time_events(time_events)
+        )?;
 
-        valid_events.extend(valid_signed);
-        valid_events.extend(valid_time);
-        invalid_events.extend(invalid_signed);
-        invalid_events.extend(invalid_time);
+        valid_events.extend(valid_signed_events);
+        valid_events.extend(valid_time_events);
+        invalid_events.extend(invalid_signed_events);
+        invalid_events.extend(invalid_time_events);
 
         Ok((valid_events, invalid_events))
     }
