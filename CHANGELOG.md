@@ -2,12 +2,42 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.33.0] - 2024-08-19
+
+### 🚀 Features
+
+- Recon event insert batching (#470)
+- Modify recon store to support event validation concepts (#473)
+- Add noop ceramic-olap binary (#482)
+
+### 🐛 Bug Fixes
+
+- Add better TileDocument detection (#475)
+- Fix bug in TimeEvent witness blocks parsing logic (#486)
+
+### 🚜 Refactor
+
+- Create sync car crate (#485)
+
+### ⚙️ Miscellaneous Tasks
+
+- Flatten EventInsertable type (#480)
+- Remove Clone from EventInsertable (#481)
+- Change EventInsertable to store the parsed Event object instead of its raw blocks (#487)
+- Remove an iteration pass in OrderEvents::try_new (#489)
+- Add TODO comment (#491)
+- Remove EventMetadata type (#490)
+
 ## [0.32.0] - 2024-08-07
 
 ### 🚀 Features
 
 - Feature and experimental feature flags (#448)
 - Change default dir back to shared home location (#471)
+
+### ⚙️ Miscellaneous Tasks
+
+- Version v0.32.0 (#472)
 
 ## [0.31.0] - 2024-08-02
 
