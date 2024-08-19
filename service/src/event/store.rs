@@ -221,7 +221,7 @@ impl ceramic_api::EventStore for CeramicEventService {
                 for (cid, value) in data {
                     res.push(ceramic_api::EventDataResult::new(
                         cid,
-                        Some(value.encode_car().await?),
+                        Some(value.encode_car()?),
                     ));
                 }
                 (hw, res)

@@ -12,10 +12,10 @@ publish = false
 [dependencies]
 anyhow.workspace = true
 base64.workspace = true
+ceramic-car.workspace = true
 ceramic-core.workspace = true
 cid.workspace = true
 ipld-core.workspace = true
-iroh-car.workspace = true
 multihash-codetable.workspace = true
 multibase.workspace = true
 serde.workspace = true

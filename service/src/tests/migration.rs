@@ -6,12 +6,12 @@ use std::{
 
 use anyhow::Result;
 use async_trait::async_trait;
+use ceramic_car::CarReader;
 use ceramic_core::{DidDocument, EventId, Network, StreamId};
 use ceramic_event::unvalidated;
 use cid::Cid;
 use futures::{pin_mut, stream::BoxStream, StreamExt as _, TryStreamExt as _};
 use ipld_core::{codec::Codec, ipld, ipld::Ipld};
-use iroh_car::CarReader;
 use multihash_codetable::{Code, MultihashDigest};
 use rand::{thread_rng, Rng, RngCore};
 use recon::Key;
@@ -213,46 +213,28 @@ async fn unsigned_init_event() {
     test_migration(vec![random_unsigned_init_event()
         .await
         .encode_car()
-        .await
         .unwrap()])
     .await;
 }
 #[test(tokio::test)]
 async fn many_unsigned_init_events() {
     test_migration(vec![
-        random_unsigned_init_event()
-            .await
-            .encode_car()
-            .await
-            .unwrap(),
-        random_unsigned_init_event()
-            .await
-            .encode_car()
-            .await
-            .unwrap(),
-        random_unsigned_init_event()
-            .await
-            .encode_car()
-            .await
-            .unwrap(),
+        random_unsigned_init_event().await.encode_car().unwrap(),
+        random_unsigned_init_event().await.encode_car().unwrap(),
+        random_unsigned_init_event().await.encode_car().unwrap(),
     ])
     .await;
 }
 #[test(tokio::test)]
 async fn signed_init_event() {
-    test_migration(vec![random_signed_init_event()
-        .await
-        .encode_car()
-        .await
-        .unwrap()])
-    .await;
+    test_migration(vec![random_signed_init_event().await.encode_car().unwrap()]).await;
 }
 #[test(tokio::test)]
 async fn many_signed_init_events() {
     test_migration(vec![
-        random_signed_init_event().await.encode_car().await.unwrap(),
-        random_signed_init_event().await.encode_car().await.unwrap(),
-        random_signed_init_event().await.encode_car().await.unwrap(),
+        random_signed_init_event().await.encode_car().unwrap(),
+        random_signed_init_event().await.encode_car().unwrap(),
+        random_signed_init_event().await.encode_car().unwrap(),
     ])
     .await;
 }
@@ -260,7 +242,7 @@ async fn many_signed_init_events() {
 async fn signed_data_event() {
     let mut cars = Vec::new();
     for event in random_signed_data_event().await {
-        cars.push(event.encode_car().await.unwrap());
+        cars.push(event.encode_car().unwrap());
     }
     test_migration(cars).await;
 }
@@ -269,7 +251,7 @@ async fn many_signed_data_events() {
     let mut cars = Vec::new();
     for _ in 0..3 {
         for event in random_signed_data_event().await {
-            cars.push(event.encode_car().await.unwrap());
+            cars.push(event.encode_car().unwrap());
         }
     }
     test_migration(cars).await;
@@ -282,7 +264,7 @@ async fn cacao_signed_data_event() {
 async fn unsigned_time_event() {
     let mut cars = Vec::new();
     for event in random_unsigned_init_time_event().await {
-        cars.push(event.encode_car().await.unwrap());
+        cars.push(event.encode_car().unwrap());
     }
     test_migration(cars).await;
 }
@@ -290,7 +272,7 @@ async fn unsigned_time_event() {
 async fn signed_init_time_event() {
     let mut cars = Vec::new();
     for event in random_signed_init_time_event().await {
-        cars.push(event.encode_car().await.unwrap());
+        cars.push(event.encode_car().unwrap());
     }
 
     test_migration(cars).await;
@@ -300,12 +282,12 @@ async fn many_time_events() {
     let mut cars = Vec::new();
     for _ in 0..3 {
         for event in random_unsigned_init_time_event().await {
-            cars.push(event.encode_car().await.unwrap());
+            cars.push(event.encode_car().unwrap());
         }
     }
     for _ in 0..3 {
         for event in random_signed_init_time_event().await {
-            cars.push(event.encode_car().await.unwrap());
+            cars.push(event.encode_car().unwrap());
         }
     }
     test_migration(cars).await;
@@ -317,30 +299,24 @@ async fn all_events() {
     cars.push(new_cacao_signed_data_event());
 
     for _ in 0..3 {
-        cars.push(
-            random_unsigned_init_event()
-                .await
-                .encode_car()
-                .await
-                .unwrap(),
-        );
+        cars.push(random_unsigned_init_event().await.encode_car().unwrap());
     }
     for _ in 0..3 {
-        cars.push(random_signed_init_event().await.encode_car().await.unwrap());
+        cars.push(random_signed_init_event().await.encode_car().unwrap());
     }
     for _ in 0..3 {
         for event in random_signed_data_event().await {
-            cars.push(event.encode_car().await.unwrap());
+            cars.push(event.encode_car().unwrap());
         }
     }
     for _ in 0..3 {
         for event in random_unsigned_init_time_event().await {
-            cars.push(event.encode_car().await.unwrap());
+            cars.push(event.encode_car().unwrap());
         }
     }
     for _ in 0..3 {
         for event in random_signed_init_time_event().await {
-            cars.push(event.encode_car().await.unwrap());
+            cars.push(event.encode_car().unwrap());
         }
     }
     test_migration(cars).await;

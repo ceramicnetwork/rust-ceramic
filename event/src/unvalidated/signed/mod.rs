@@ -6,10 +6,10 @@ use std::fmt::Debug;
 use crate::bytes::Bytes;
 use crate::unvalidated::Payload;
 use base64::Engine;
+use ceramic_car::sync::{CarHeader, CarWriter};
 use ceramic_core::{DidDocument, Jwk};
 use cid::Cid;
 use ipld_core::ipld::Ipld;
-use iroh_car::{CarHeader, CarWriter};
 use serde::{Deserialize, Serialize};
 use ssi::jwk::Algorithm;
 use std::{collections::BTreeMap, str::FromStr as _};
@@ -140,7 +140,7 @@ impl<D: serde::Serialize> Event<D> {
     }
 
     /// Encodes the full signed event into a CAR file.
-    pub async fn encode_car(&self) -> anyhow::Result<Vec<u8>> {
+    pub fn encode_car(&self) -> anyhow::Result<Vec<u8>> {
         let envelope_bytes = self.encode_envelope()?;
         let payload_bytes = self.encode_payload()?;
         let capability_bytes = self.encode_capability()?;
@@ -149,11 +149,11 @@ impl<D: serde::Serialize> Event<D> {
         let roots: Vec<Cid> = vec![self.envelope_cid];
         let mut writer = CarWriter::new(CarHeader::V1(roots.into()), &mut car);
         if let Some((cid, bytes)) = capability_bytes {
-            writer.write(cid, &bytes).await?;
+            writer.write(cid, &bytes)?;
         }
-        writer.write(self.payload_cid, payload_bytes).await?;
-        writer.write(self.envelope_cid, envelope_bytes).await?;
-        writer.finish().await?;
+        writer.write(self.payload_cid, payload_bytes)?;
+        writer.write(self.envelope_cid, envelope_bytes)?;
+        writer.finish()?;
 
         Ok(car)
     }

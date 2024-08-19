@@ -360,7 +360,7 @@ impl EventBuilder {
             .with_event(&self.event_cid)
             .build();
 
-        let body = event.encode_car().await?;
+        let body = event.encode_car()?;
         Ok(ReconItem::new(event_id, body))
     }
 }

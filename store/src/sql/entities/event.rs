@@ -1,10 +1,11 @@
+use std::collections::BTreeSet;
+
 use anyhow::anyhow;
+use ceramic_car::{CarHeader, CarReader, CarWriter};
 use ceramic_core::EventId;
 use ceramic_event::unvalidated;
 use cid::Cid;
 use ipld_core::ipld::Ipld;
-use iroh_car::{CarHeader, CarReader, CarWriter};
-use std::collections::BTreeSet;
 
 pub use crate::sql::entities::EventBlockRaw;
 
@@ -114,7 +115,7 @@ impl EventInsertable {
     pub async fn get_raw_blocks(&self) -> Result<Vec<EventBlockRaw>> {
         // TODO(AES-311): Turn the Event into its raw blocks in a single pass, instead of first
         // turning it into a CAR file and then turning the CAR file into the raw blocks.
-        let car = self.event.encode_car().await.map_err(Error::new_app)?;
+        let car = self.event.encode_car().map_err(Error::new_app)?;
 
         let mut reader = CarReader::new(car.as_slice())
             .await

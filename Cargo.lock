@@ -1320,6 +1320,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "ceramic-api-server",
+ "ceramic-car",
  "ceramic-core",
  "ceramic-event",
  "ceramic-metadata",
@@ -1327,7 +1328,6 @@ dependencies = [
  "futures",
  "hex",
  "ipld-core",
- "iroh-car",
  "jemalloc_pprof",
  "mockall",
  "multibase 0.9.1",
@@ -1370,6 +1370,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "ceramic-car"
+version = "0.32.0"
+dependencies = [
+ "cid 0.11.1",
+ "futures",
+ "integer-encoding",
+ "ipld-core",
+ "multihash 0.19.1",
+ "multihash-codetable",
+ "serde",
+ "serde_ipld_dagcbor",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "ceramic-core"
 version = "0.32.0"
 dependencies = [
@@ -1406,11 +1422,11 @@ version = "0.32.0"
 dependencies = [
  "anyhow",
  "base64 0.21.7",
+ "ceramic-car",
  "ceramic-core",
  "cid 0.11.1",
  "expect-test",
  "ipld-core",
- "iroh-car",
  "multibase 0.9.1",
  "multihash-codetable",
  "serde",
@@ -1637,6 +1653,7 @@ dependencies = [
  "async-trait",
  "bytes 1.6.0",
  "ceramic-api",
+ "ceramic-car",
  "ceramic-core",
  "ceramic-event",
  "ceramic-store",
@@ -1646,7 +1663,6 @@ dependencies = [
  "hex",
  "ipld-core",
  "iroh-bitswap",
- "iroh-car",
  "multibase 0.9.1",
  "multihash-codetable",
  "multihash-derive 0.9.0",
@@ -1671,6 +1687,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "ceramic-api",
+ "ceramic-car",
  "ceramic-core",
  "ceramic-event",
  "ceramic-metrics",
@@ -1681,7 +1698,6 @@ dependencies = [
  "hex",
  "ipld-core",
  "iroh-bitswap",
- "iroh-car",
  "itertools 0.12.1",
  "multibase 0.9.1",
  "multihash 0.19.1",
@@ -4421,22 +4437,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "unsigned-varint 0.8.0",
-]
-
-[[package]]
-name = "iroh-car"
-version = "0.32.0"
-dependencies = [
- "cid 0.11.1",
- "futures",
- "integer-encoding",
- "ipld-core",
- "multihash 0.19.1",
- "multihash-codetable",
- "serde",
- "serde_ipld_dagcbor",
- "thiserror",
- "tokio",
 ]
 
 [[package]]

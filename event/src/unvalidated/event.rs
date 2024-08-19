@@ -1,12 +1,11 @@
 //! Types of raw unvalidated Ceramic Events
 
 use anyhow::{anyhow, bail, Context};
+use ceramic_car::sync::{CarHeader, CarReader, CarWriter};
 use cid::Cid;
 use ipld_core::ipld::Ipld;
-use iroh_car::{CarHeader, CarReader, CarWriter};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fmt::Debug};
-use tokio::io::AsyncRead;
+use std::{collections::HashMap, fmt::Debug, io::Read};
 use tracing::debug;
 
 use super::{cid_from_dag_cbor, init, signed, Payload};
@@ -92,23 +91,20 @@ where
     }
 
     /// Encode the event into a CAR bytes containing all blocks of the event.
-    pub async fn encode_car(&self) -> anyhow::Result<Vec<u8>> {
+    pub fn encode_car(&self) -> anyhow::Result<Vec<u8>> {
         match self {
-            Event::Time(event) => event.encode_car().await,
-            Event::Signed(event) => event.encode_car().await,
-            Event::Unsigned(event) => event.encode_car().await,
+            Event::Time(event) => event.encode_car(),
+            Event::Signed(event) => event.encode_car(),
+            Event::Unsigned(event) => event.encode_car(),
         }
     }
 
     /// Decode bytes into a materialized event.
-    pub async fn decode_car<R>(
-        reader: R,
-        deny_unexpected_fields: bool,
-    ) -> anyhow::Result<(Cid, Self)>
+    pub fn decode_car<R>(reader: R, deny_unexpected_fields: bool) -> anyhow::Result<(Cid, Self)>
     where
-        R: AsyncRead + Send + Unpin,
+        R: Read + Send + Unpin,
     {
-        let mut car = CarReader::new(reader).await?;
+        let car = CarReader::new(reader)?;
         let event_cid = *car
             .header()
             .roots()
@@ -118,7 +114,8 @@ where
         debug!(%event_cid, "first root cid");
 
         let mut car_blocks = HashMap::new();
-        while let Some((cid, bytes)) = car.next_block().await? {
+        for block in car {
+            let (cid, bytes) = block?;
             car_blocks.insert(cid, bytes);
         }
         let event_bytes = car_blocks
@@ -299,7 +296,7 @@ impl TimeEvent {
         self.event.path.as_ref()
     }
     /// Encode the event into CAR bytes including all relevant blocks.
-    pub async fn encode_car(&self) -> anyhow::Result<Vec<u8>> {
+    pub fn encode_car(&self) -> anyhow::Result<Vec<u8>> {
         let event = serde_ipld_dagcbor::to_vec(&self.event)?;
         let cid = cid_from_dag_cbor(&event);
 
@@ -308,14 +305,14 @@ impl TimeEvent {
         let mut car = Vec::new();
         let roots: Vec<Cid> = vec![cid];
         let mut writer = CarWriter::new(CarHeader::V1(roots.into()), &mut car);
-        writer.write(cid, event).await?;
-        writer.write(self.event.proof, proof).await?;
+        writer.write(cid, event)?;
+        writer.write(self.event.proof, proof)?;
         for block in &self.blocks_in_path {
             let block_bytes = serde_ipld_dagcbor::to_vec(&block)?;
             let block_cid = cid_from_dag_cbor(&block_bytes);
-            writer.write(block_cid, block_bytes).await?;
+            writer.write(block_cid, block_bytes)?;
         }
-        writer.finish().await?;
+        writer.finish()?;
         Ok(car)
     }
 }
@@ -446,51 +443,46 @@ mod tests {
         Builder, Event,
     };
 
-    async fn round_trip(car: &str) {
+    fn round_trip(car: &str) {
         let (base, data) = multibase::decode(car).unwrap();
-        let (_cid, event) = Event::<Ipld>::decode_car(data.as_slice(), true)
-            .await
-            .unwrap();
-        assert_eq!(
-            car,
-            multibase::encode(base, event.encode_car().await.unwrap())
-        );
+        let (_cid, event) = Event::<Ipld>::decode_car(data.as_slice(), true).unwrap();
+        assert_eq!(car, multibase::encode(base, event.encode_car().unwrap()));
     }
-    #[test(tokio::test)]
-    async fn round_trip_signed_init_event() {
-        round_trip(SIGNED_INIT_EVENT_CAR).await;
+    #[test]
+    fn round_trip_signed_init_event() {
+        round_trip(SIGNED_INIT_EVENT_CAR);
     }
-    #[test(tokio::test)]
-    async fn round_trip_unsigned_init_event() {
-        round_trip(UNSIGNED_INIT_EVENT_CAR).await;
+    #[test]
+    fn round_trip_unsigned_init_event() {
+        round_trip(UNSIGNED_INIT_EVENT_CAR);
     }
-    #[test(tokio::test)]
-    async fn round_trip_signed_data_event() {
-        round_trip(SIGNED_DATA_EVENT_CAR).await;
+    #[test]
+    fn round_trip_signed_data_event() {
+        round_trip(SIGNED_DATA_EVENT_CAR);
     }
-    #[test(tokio::test)]
-    async fn round_trip_cacao_signed_data_event() {
-        round_trip(CACAO_SIGNED_DATA_EVENT_CAR).await;
+    #[test]
+    fn round_trip_cacao_signed_data_event() {
+        round_trip(CACAO_SIGNED_DATA_EVENT_CAR);
     }
-    #[test(tokio::test)]
-    async fn round_trip_data_event_unsigned_init() {
-        round_trip(DATA_EVENT_CAR_UNSIGNED_INIT).await;
+    #[test]
+    fn round_trip_data_event_unsigned_init() {
+        round_trip(DATA_EVENT_CAR_UNSIGNED_INIT);
     }
     #[test(tokio::test)]
     async fn round_trip_time_event_single_event_batch() {
-        round_trip(TIME_EVENT_CAR_SINGLE_EVENT_BATCH).await;
+        round_trip(TIME_EVENT_CAR_SINGLE_EVENT_BATCH);
     }
     #[test(tokio::test)]
     async fn round_trip_time_event_multi_event_batch() {
-        round_trip(TIME_EVENT_CAR_MULTI_EVENT_BATCH).await;
+        round_trip(TIME_EVENT_CAR_MULTI_EVENT_BATCH);
     }
-    #[test(tokio::test)]
-    async fn round_trip_init_payload_with_no_sep() {
-        round_trip(UNSIGNED_INIT_NO_SEP_CAR).await;
+    #[test]
+    fn round_trip_init_payload_with_no_sep() {
+        round_trip(UNSIGNED_INIT_NO_SEP_CAR);
     }
 
-    #[test(tokio::test)]
-    async fn decode_time_event_with_no_tree() {
+    #[test]
+    fn decode_time_event_with_no_tree() {
         let id = Cid::from_str(SIGNED_INIT_EVENT_CID).unwrap();
         let prev =
             Cid::from_str("bagcqcerae5oqoglzjjgz53enwsttl7mqglp5eoh2llzbbvfktmzxleeiffbq").unwrap();
@@ -508,10 +500,8 @@ mod tests {
             .build()
             .unwrap();
 
-        let event_car = event.encode_car().await.unwrap();
-        let (_cid, parsed_event) = Event::<Ipld>::decode_car(event_car.as_slice(), true)
-            .await
-            .unwrap();
+        let event_car = event.encode_car().unwrap();
+        let (_cid, parsed_event) = Event::<Ipld>::decode_car(event_car.as_slice(), true).unwrap();
 
         let Event::Time(parsed_event) = parsed_event else {
             panic!("Event must be a time event")
@@ -521,8 +511,8 @@ mod tests {
         assert_eq!(prev, parsed_event.proof.root);
         assert_eq!("", parsed_event.event.path);
     }
-    #[test(tokio::test)]
-    async fn decode_event_with_no_sep() {
+    #[test]
+    fn decode_event_with_no_sep() {
         // Tests that decoding an init payload that does not have the `sep` field defaults to
         // `model`.
         const INIT_PAYLOAD_NO_SEP:&str="uomRkYXRhpmRkYXRho2N1cmxgZWxhYmVsZ0Zhc3RpbmduY2hpbGRyZW5IaWRkZW70ZHR5cGVsUXVlc3Rpb25Ob2RlZ2NyZWF0ZWR4GDIwMjMtMDItMjBUMTU6MTk6MzYuMjc5Wmhwb3NpdGlvbqJhePtApYOSIAAAAGF5-0C2p4AAAAAAaWxhdGVyYWxJRHgkNjlhYWYzN2QtNTU5Yi00Yjk1LWExMDAtNWVlOTgxOGZjNWVkaXByb2plY3RJRHg_a2p6bDZrY3ltN3c4eTVkNjVmOW9rbjRyaXlkYXQ5MmgzczZ2dnpwd3d1NzU0NGk5MmZqeWdjNTY3bHpocnZjZmhlYWRlcqNlbW9kZWxYKM4BAgGFARIgluyz1feTN9qD54Xo4XHQoMg5Xo_kPE6L5xYBadM3kWNmdW5pcXVlTCrb84nFhVpKhrCYm2tjb250cm9sbGVyc4F4O2RpZDpwa2g6ZWlwMTU1OjE6MHhjYTVmZjRiMzQ0MmZjYWMyN2UxYWY0NDU3ZTAyZWI2MjljNzEyOTgz";

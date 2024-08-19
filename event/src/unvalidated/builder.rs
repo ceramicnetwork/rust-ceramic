@@ -503,7 +503,7 @@ mod tests {
 
         let event_car_str = multibase::encode(
             multibase::Base::Base64Url,
-            signed_event.encode_car().await.unwrap(),
+            signed_event.encode_car().unwrap(),
         );
         assert_eq!(SIGNED_INIT_EVENT_CAR, event_car_str);
     }
@@ -528,10 +528,8 @@ mod tests {
             .build()
             .unwrap();
 
-        let event_car_str = multibase::encode(
-            multibase::Base::Base64Url,
-            event.encode_car().await.unwrap(),
-        );
+        let event_car_str =
+            multibase::encode(multibase::Base::Base64Url, event.encode_car().unwrap());
         assert_eq!(TIME_EVENT_CAR_SINGLE_EVENT_BATCH, event_car_str);
     }
 }
