@@ -70,6 +70,8 @@ impl ReconEventBlockRaw {
     pub async fn into_events(
         all_blocks: Vec<Self>,
     ) -> Result<Vec<(cid::Cid, unvalidated::Event<Ipld>)>> {
+        // TODO(AES-311): Turn the blocks into Events in a single pass, instead of first
+        // turning them into a CAR file and then turning the CAR file into the Event.
         let parsed = Self::into_carfiles(all_blocks).await?;
         let mut res = Vec::with_capacity(parsed.len());
         for (_, carfile) in parsed {
