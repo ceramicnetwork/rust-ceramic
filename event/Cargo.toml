@@ -25,7 +25,6 @@ ssi.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 chrono = "0.4"
-hex = "0.4.3"
 
 [dev-dependencies]
 multibase.workspace = true

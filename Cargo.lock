@@ -1427,7 +1427,6 @@ dependencies = [
  "chrono",
  "cid 0.11.1",
  "expect-test",
- "hex",
  "ipld-core",
  "multibase 0.9.1",
  "multihash-codetable",
