@@ -5,7 +5,7 @@ use std::fmt::Debug;
 
 use crate::bytes::Bytes;
 use crate::unvalidated::Payload;
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use base64::Engine;
 use ceramic_core::{DidDocument, Jwk};
 use cid::Cid;
 use ipld_core::ipld::Ipld;
@@ -13,8 +13,6 @@ use iroh_car::{CarHeader, CarWriter};
 use serde::{Deserialize, Serialize};
 use ssi::jwk::Algorithm;
 use std::{collections::BTreeMap, str::FromStr as _};
-use base64::{engine::general_purpose, Engine as _};
-use serde_json::Value;
 use anyhow::Result;
 
 use self::cacao::Capability;
@@ -200,11 +198,33 @@ impl Envelope {
                 })
         })
     }
-    /// Get the decoded payload as a byte string
-    pub fn get_decoded_signature_protected_header(&self) -> Option<Value> {
-        self.signatures[0].protected.as_ref().and_then(|protected| {
-            serde_json::from_slice::<Value>(protected.as_slice()).ok()
-        })
+
+    /// Get the signature
+    pub fn get_signature(&self) -> &Bytes {
+        &self.signatures[0].signature
+    }
+
+    /// Get the signed payload
+    pub fn get_payload(&self) -> &Bytes {
+        &self.payload
+    }
+
+    /// Construct the jws header from the signature protected bytes
+    pub fn get_header(&self) -> Result<ssi::jws::Header, anyhow::Error> {
+        let (protected, signature) = match self.signatures.first() {
+            Some(sig) => (
+                sig.protected
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("Missing protected field"))?
+                    .as_slice(),
+                sig.signature.as_ref(),
+            ),
+            None => {
+                anyhow::bail!("signature is missing")
+            }
+        };
+        let header: ssi::jws::Header = serde_json::from_slice(protected)?;
+        Ok(header)
     }
 }
 

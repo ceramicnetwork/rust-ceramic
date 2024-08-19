@@ -26,7 +26,7 @@ pub enum Event<D> {
 
 impl<D> Event<D>
 where
-    D: serde::Serialize + for<'de> serde::Deserialize<'de>,
+    D: serde::Serialize + for<'de> serde::Deserialize<'de> + std::fmt::Debug,
 {
     /// Encode the event into a CAR bytes containing all blocks of the event.
     pub async fn encode_car(&self) -> anyhow::Result<Vec<u8>> {

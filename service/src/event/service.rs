@@ -15,9 +15,8 @@ use super::{
     order_events::OrderEvents,
     ordering_task::{DeliverableTask, OrderingTask}, validated::EventValidator,
 };
-use ceramic_event::unvalidated::Event;
 use crate::{Error, Result};
-use crate::event::validated::ValidateEvent; // Add this line
+use crate::event::validated::ValidateEvent;
 
 /// How many events to select at once to see if they've become deliverable when we have downtime
 /// Used at startup and occasionally in case we ever dropped something
@@ -126,18 +125,12 @@ impl CeramicEventService {
         let (cid, parsed_event) = unvalidated::Event::<Ipld>::decode_car(carfile, false)
             .await
             .map_err(Error::new_app)?;
-        // println!("parsed_event: {:?}", parsed_event);
-        // println!("cid: {:?}", cid);
-        /// Event can be parsed ? Format is valid
-        /// 
-        /// Validate signature
-        /// 
         println!("event_id: {:?}", event_id);
         let validator = EventValidator {
             signer: DidDocument::new("did:example:123"), // Replace with actual DidDocument
         };
         
-        let res = validator.validate_event(&parsed_event);
+        let res = validator.validate_event(&parsed_event).await;
         println!("res: {:?}", res);
         if event_cid != cid {
             return Err(Error::new_app(anyhow::anyhow!(
@@ -368,16 +361,34 @@ pub const DATA_EVENT_ID: &str =
         "ce010500aa5773c7d75777e1deb6cb4af0e69eebd504d38e0185011220275d0719794a4d9eec8db4a735fd9032dfd238fa5af210d4aa9b337590882943";
     
 #[tokio::test]
-async fn test_validate_discovery_event() {
-    let init_event = EventId::try_from(hex::decode(DATA_EVENT_ID).unwrap()).unwrap();
+async fn test_validate_signed_init_event_no_cacao() {
     let event_data = SIGNED_INIT_EVENT_CAR
         .chars()
         .filter(|c| !c.is_whitespace())
         .collect::<String>();
+   
 
     let decoded_data = decode_multibase_data(&event_data).unwrap();
 
-    println!("decoded_data: {:?}", decoded_data);
-    let res = CeramicEventService::validate_discovered_event(init_event, decoded_data.as_slice()).await;
-    println!("res: {:?}", res);
+    let (cid, parsed_event) = unvalidated::Event::<Ipld>::decode_car(decoded_data.as_slice(), false)
+        .await
+        .unwrap();
+
+    let validator = EventValidator {
+        signer: DidDocument::new("did:example:123"), // Replace with actual DidDocument
+    };
+
+    let res = validator.validate_event(&parsed_event).await;
+    // Assert that the result is Ok
+    assert!(res.is_ok(), "Validation should succeed");
+
+    // Extract the event ID based on the ValidatedEvent variant
+    let validated_event_id = match res.unwrap() {
+        ValidatedEvent::Init(init_event) => init_event.event.envelope_cid(),
+        _ => panic!("Invalid event type"),
+    };
+
+    // Assert that the validated event ID matches the original CID
+    assert_eq!(validated_event_id, cid, "Validated event ID should match the original CID");
+    println!("res: {:?}", validated_event_id);
 }

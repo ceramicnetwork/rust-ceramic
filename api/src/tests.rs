@@ -15,13 +15,17 @@ use ceramic_api_server::{
 };
 use ceramic_core::{Cid, Interest};
 use ceramic_core::{EventId, Network, PeerId, StreamId};
+use ceramic_event::unvalidated;
 use expect_test::expect;
+use ipld_core::ipld::Ipld;
 use mockall::{mock, predicate};
 use multibase::Base;
 use recon::Key;
 use test_log::test;
 
 struct Context;
+
+pub const CACAO_SIGNED_DATA_EVENT_CAR:&str="mO6Jlcm9vdHOB2CpYJgABhQESIN12WhnV8Y3aMRxZYqUSpaO4mSQnbGxEpeC8jMsldwv6Z3ZlcnNpb24BigQBcRIgtP3Gc62zs2I/pu98uctnwBAYUUrgyLjnPaxYwOnBytajYWihYXRnZWlwNDM2MWFwqWNhdWR4OGRpZDprZXk6ejZNa3I0YTNaM0ZGYUpGOFlxV25XblZIcWQ1ZURqWk45YkRTVDZ3VlpDMWhKODFQY2V4cHgYMjAyNC0wNi0xOVQyMDowNDo0Mi40NjRaY2lhdHgYMjAyNC0wNi0xMlQyMDowNDo0Mi40NjRaY2lzc3g7ZGlkOnBraDplaXAxNTU6MToweDM3OTRkNGYwNzdjMDhkOTI1ZmY4ZmY4MjAwMDZiNzM1MzI5OWIyMDBlbm9uY2Vqd1BpQ09jcGtsbGZkb21haW5kdGVzdGd2ZXJzaW9uYTFpcmVzb3VyY2VzgWtjZXJhbWljOi8vKmlzdGF0ZW1lbnR4PEdpdmUgdGhpcyBhcHBsaWNhdGlvbiBhY2Nlc3MgdG8gc29tZSBvZiB5b3VyIGRhdGEgb24gQ2VyYW1pY2FzomFzeIQweGIyNjY5OTkyNjM0NDZkZGI5YmY1ODg4MjVlOWFjMDhiNTQ1ZTY1NWY2MDc3ZThkODU3OWE4ZDY2MzljMTE2N2M1NmY3ZGFlN2FjNzBmN2ZhZWQ4YzE0MWFmOWUxMjRhN2ViNGY3NzQyM2E1NzJiMzYxNDRhZGE4ZWYyMjA2Y2RhMWNhdGZlaXAxOTHTAQFxEiB0pJYyJOf2PmUMzjHeHCaX9ETIA0AKnHWwb1l0CfEy/KJkZGF0YaFkc3RlcBkCWGZoZWFkZXKkY3NlcGVtb2RlbGVtb2RlbFgozgECAYUBEiAGE66nrxdaqHUZ5oBVN6FulPnXix/we9MdpVKJHSR4uGZ1bmlxdWVMxwa2TBHgC66/1V9xa2NvbnRyb2xsZXJzgXg7ZGlkOnBraDplaXAxNTU6MToweDM3OTRkNGYwNzdjMDhkOTI1ZmY4ZmY4MjAwMDZiNzM1MzI5OWIyMDCFAwGFARIg3XZaGdXxjdoxHFlipRKlo7iZJCdsbESl4LyMyyV3C/qiZ3BheWxvYWRYJAFxEiB0pJYyJOf2PmUMzjHeHCaX9ETIA0AKnHWwb1l0CfEy/GpzaWduYXR1cmVzgaJpcHJvdGVjdGVkWMx7ImFsZyI6IkVkRFNBIiwiY2FwIjoiaXBmczovL2JhZnlyZWlmdTd4ZGhobG50d25yZDdqeHBwczQ0d3o2YWNhbWZjc3hhemM0b29wbm1sZGFvdHFvazJ5Iiwia2lkIjoiZGlkOmtleTp6Nk1rcjRhM1ozRkZhSkY4WXFXblduVkhxZDVlRGpaTjliRFNUNndWWkMxaEo4MVAjejZNa3I0YTNaM0ZGYUpGOFlxV25XblZIcWQ1ZURqWk45YkRTVDZ3VlpDMWhKODFQIn1pc2lnbmF0dXJlWEB19qFT2VTY3D/LT8MYvVi0fK4tfVCgB3tMZ18ZPG+Tc4CSxm+R+Q6u57MEUWXUf1dBzBU0l1Un3lxurDlSueID";
 
 pub const SIGNED_INIT_EVENT_CID: &str =
     "bagcqcerar2aga7747dm6fota3iipogz4q55gkaamcx2weebs6emvtvie2oha";
@@ -78,7 +82,13 @@ pub const DATA_EVENT_CAR_UNSIGNED_INIT: &str = "
 
 pub const TIME_EVENT_CAR:&str="uOqJlcm9vdHOB2CpYJQABcRIgcmqgb7eHSgQ32hS1NGVKZruLJGcKDI1f4lqOyNYn3eVndmVyc2lvbgG3AQFxEiByaqBvt4dKBDfaFLU0ZUpmu4skZwoMjV_iWo7I1ifd5aRiaWTYKlgmAAGFARIgjoBgf_z42eK6YNoQ9xs8h3plAAwV9WIQMvEZWdUE045kcGF0aGEwZHByZXbYKlgmAAGFARIgJ10HGXlKTZ7sjbSnNf2QMt_SOPpa8hDUqpszdZCIKUNlcHJvb2bYKlglAAFxEiAFKLx3fi7-yD1aPNyqnblI_r_5XllReVz55jBMvMxs9q4BAXESIAUovHd-Lv7IPVo83KqduUj-v_leWVF5XPnmMEy8zGz2pGRyb2902CpYJQABcRIgfWtbF-FQN6GN6ZL8OtHvp2YrGlmLbZwkOl6UY-3AUNFmdHhIYXNo2CpYJgABkwEbIBv-WU6fLnsyo5_lDSTC_T-xUlW95brOAUDByGHJzbCRZnR4VHlwZWpmKGJ5dGVzMzIpZ2NoYWluSWRvZWlwMTU1OjExMTU1MTExeQFxEiB9a1sX4VA3oY3pkvw60e-nZisaWYttnCQ6XpRj7cBQ0YPYKlgmAAGFARIgJ10HGXlKTZ7sjbSnNf2QMt_SOPpa8hDUqpszdZCIKUP22CpYJQABcRIgqVOMo-IVjo08Mk0cim3Z8flNyHY7c9g7uGMqeS0PFHA";
 
-/// multibase-decodes a string after stripping all whitespace characters.
+// TODO : ????
+pub const INIT_EVENT_CAR: &str = "uOqJlcm9vdHOB2CpYJQABcRIgCkMGCgfs8ht9NWnDxnqenauyk-FwopBeHTefuwaqvmZndmVyc2lvbgHDAQFxEiAKQwYKB-zyG301acPGep6dq7KT4XCikF4dN5-7Bqq-ZqJkZGF0YfZmaGVhZGVypGNzZXBlbW9kZWxlbW9kZWxYKM4BAgGFARIghHTHRYxxeQXgc9Q6LUJVelzW5bnrw9TWgoBJlBIOVtdmdW5pcXVlR2Zvb3xiYXJrY29udHJvbGxlcnOBeDhkaWQ6a2V5Ono2TWt0Q0ZSY3dMUkZRQTlXYmVEUk03VzdrYkJkWlRIUTJ4blBneXhaTHExZ0NwSw";
+
+
+
+/// pub const SOLANA_SIGNED_CAR ? 
+/// pub const Other signed shit? ---> All through JWS?
 pub fn decode_multibase_str(encoded: &str) -> Vec<u8> {
     let (_, bytes) = multibase::decode(
         encoded
@@ -205,6 +215,66 @@ async fn create_event() {
         .unwrap();
     assert!(matches!(resp, EventsPostResponse::Success));
 }
+
+#[test(tokio::test)]
+async fn create_signed_init_event() {
+    let peer_id = PeerId::random();
+    let network: Network = Network::Mainnet;
+    let expected_event_id = EventId::try_from(hex::decode(DATA_EVENT_ID).unwrap()).unwrap();
+
+    // Remove whitespace from signed init event CAR file
+    let event_data = SIGNED_INIT_EVENT_CAR
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect::<String>();
+    let mock_interest = MockAccessInterestStoreTest::new();
+    let mut mock_event_store = MockEventStoreTest::new();
+    mock_get_init_event(&mut mock_event_store);
+    let args = vec![(
+        expected_event_id,
+        decode_multibase_data(&event_data).unwrap(),
+    )];
+
+    mock_event_store
+        .expect_insert_many()
+        .with(predicate::eq(args))
+        .times(1)
+        .returning(|input| {
+            Ok(input
+                .iter()
+                .map(|(id, _)| EventInsertResult::new_ok(id.clone()))
+                .collect())
+        });
+    let server = Server::new(peer_id, network, mock_interest, Arc::new(mock_event_store));
+    let resp = server
+        .events_post(
+            models::EventData {
+                data: event_data.to_string(),
+            },
+            &Context,
+        )
+        .await
+        .unwrap();
+    assert!(matches!(resp, EventsPostResponse::Success));
+}
+
+// #[tokio::test]
+// async fn test_decode_init_event_car_file() {
+//     // let event_data = CACAO_SIGNED_DATA_EVENT_CAR
+//     //     .chars()
+//     //     .filter(|c| !c.is_whitespace())
+//     //     .collect::<String>();
+
+//     // let decoded_data = decode_multibase_data(&event_data).unwrap();
+//     // let (cid, parsed_event) = unvalidated::Event::<Ipld>::decode_car(&*decoded_data, false)
+//     //     .await
+//     //     .expect("Failed to decode CAR file");
+
+//     // let res = validate_discovery_event(SIGNED_INIT_EVENT_CAR);
+
+//     println!("res: {:?}", res);
+// }
+
 #[test(tokio::test)]
 async fn create_event_fails() {
     let peer_id = PeerId::random();

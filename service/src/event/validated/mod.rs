@@ -1,31 +1,27 @@
 
 use anyhow::Result;
-use ceramic_core::{ssi, DidDocument, EventId};
+use base64::Engine;
+use ceramic_core::{ssi, DidDocument, EventId, Jwk};
 use cid::Cid;
 use ipld_core::ipld::Ipld;
 use serde::{Deserialize, Serialize};
-use ssi::jwk::Algorithm;
 use ceramic_event::unvalidated::{self, signed::cacao::Capability};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub enum ValidatedEvent<D> {
     Init(ValidatedInitEvent<D>),
     Data(ValidatedDataEvent<D>),
     Time(ValidatedTimeEvent<D>),
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct ValidatedInitEvent<D> {
-    pub envelope: Option<unvalidated::signed::Envelope>,
-    pub envelope_cid: Cid,
-    pub payload: Option<unvalidated::init::Payload<D>>,
-    pub payload_cid: Cid,
-    pub capability: Option<(Cid, Capability)>,
+    pub event: unvalidated::signed::Event<D>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ValidatedDataEvent<D> {
-    pub event_id: Option<EventId>,
+    pub event_id: EventId,
     pub payload: Option<unvalidated::data::Payload<D>>,
     pub signature: Option<Vec<u8>>,
 }
@@ -39,68 +35,62 @@ pub struct ValidatedTimeEvent<D> {
 }
 
 pub trait ValidateEvent {
-    fn validate_event(&self, event: &unvalidated::Event<Ipld>) -> Result<ValidatedEvent<Ipld>>;
+    async fn validate_event(&self, event: &unvalidated::Event<Ipld>) -> Result<ValidatedEvent<Ipld>>;
 }
 
 pub struct EventValidator {
-    // pub did_document: DidDocument,
+    // TODO : Add signer information in the struct before using it?
     pub signer: DidDocument,
 }
 
 
 impl ValidateEvent for EventValidator {
-    fn validate_event(&self, event: &unvalidated::Event<Ipld>) -> Result<ValidatedEvent<Ipld>> {
+    async fn validate_event(&self, event: &unvalidated::Event<Ipld>) -> Result<ValidatedEvent<Ipld>> {
         match event {
             unvalidated::Event::Signed(signed_event) => {
-               validate_signed_event(signed_event).map(ValidatedEvent::Init)
+                verify_event(signed_event).await.map(ValidatedEvent::Init)
             }
-            // unvalidated::Event::Time(time_event) => {
-            //     // validate_time_event(time_event).map(ValidatedEvent::Time)
-            // }
             _ => Err(anyhow::anyhow!("Unsupported event type")),
         }
     }
 }
-
-pub fn validate_signed_event(signed_event: &unvalidated::signed::Event<Ipld>) -> Result<ValidatedInitEvent<Ipld>> {
-    let envelope = signed_event.envelope();
-    let payload = signed_event.payload();
-    let envelope_cid = signed_event.envelope_cid();
-    let payload_cid = signed_event.payload_cid();
-    // let capability = signed_event.capability();
-
-    let signature_protected_header = signed_event.envelope().get_decoded_signature_protected_header();
-    println!("signature_protected_header: {:?}", signature_protected_header);
-
-    let (alg, kid) = if let Some(header) = signature_protected_header {
-        let alg = header.get("alg").and_then(|v| v.as_str()).map(String::from);
-        let kid = header.get("kid").and_then(|v| v.as_str()).map(String::from);
-        (alg, kid)
-    } else {
-        return Err(anyhow::anyhow!("No signature protected header found in the envelope"));
+// return OK() 
+async fn verify_event(s: &unvalidated::signed::Event<Ipld>) -> anyhow::Result<ValidatedInitEvent<Ipld>> {
+    let (protected, signature) = match s.envelope.signatures.first() {
+        Some(sig) => (
+            sig.protected
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("Missing protected field"))?
+                .as_slice(),
+            sig.signature.as_ref(),
+        ),
+        None => {
+            anyhow::bail!("signature is missing")
+        }
     };
+    let header: ssi::jws::Header = serde_json::from_slice(protected)?;
+    let kid = header
+        .key_id
+        .ok_or_else(|| anyhow::anyhow!("Missing jws kid"))?;
+    let kid = kid.split_once("#").map(|(did, _)| did).unwrap_or(&kid);
 
-    // TODO : return an error if any step of this verification fails
-    let public_key = get_public_key_from_did(&kid)?;
-    verify_signature(&signature, &signed_data, &public_key)?;
+    let jwk = get_public_key_from_did(kid).await.unwrap();
 
+    let header_str = base64::engine::general_purpose::STANDARD_NO_PAD.encode(protected);
+    let payload_cid =
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(s.envelope.payload.as_slice());
+    let digest = format!("{}.{}", header_str, payload_cid);
+
+    ssi::jws::verify_bytes(header.algorithm, digest.as_bytes(), &jwk, signature)?;
+    // TODO : lifetimes? Easy : take a move , take a borrow ? 
     Ok(ValidatedInitEvent {
-        envelope: None,
-        envelope_cid,
-        payload: None,
-        payload_cid,
-        capability: None,
+        event: s.clone(),
     })
 }
 
 
-    pub fn get_public_key_from_did(kid: &str) -> Result<String> {
-        // TODO: Implement this
-        unimplemented!()
-    }
-
-    pub fn verify_signature(signature: &[u8], signed_data: &[u8], public_key: &String) -> Result<()> {
-        // TODO: Implement this
-        unimplemented!()
-    }
-
+async fn get_public_key_from_did(kid: &str) -> Result<Jwk> {
+    let did_document = Jwk::resolve_did(kid).await.unwrap();
+    let keys = Jwk::new(&did_document).await.unwrap();
+    return Ok(keys);
+}
