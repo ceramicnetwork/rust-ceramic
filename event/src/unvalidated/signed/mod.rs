@@ -237,11 +237,11 @@ impl Envelope {
 pub struct Signature {
     /// The optional unprotected header.
     #[serde(skip_serializing_if = "Option::is_none")]
-    header: Option<BTreeMap<String, Ipld>>,
+    pub header: Option<BTreeMap<String, Ipld>>,
     /// The protected header as a JSON object
-    protected: Option<Bytes>,
+    pub protected: Option<Bytes>,
     /// The web signature
-    signature: Bytes,
+    pub signature: Bytes,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
