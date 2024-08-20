@@ -68,6 +68,16 @@ impl<D: serde::Serialize> Event<D> {
         &self.payload
     }
 
+    /// Get the Envelope
+    pub fn envelope(&self) -> &Envelope {
+        &self.envelope
+    }
+
+    /// Get the capability
+    pub fn capability(&self) -> Option<&Capability> {
+        self.capability.as_ref().map(|(_, ref c)| c)
+    }
+
     /// Constructs a signed event by signing a given event payload.
     pub fn from_payload(payload: Payload<D>, signer: impl Signer) -> anyhow::Result<Self> {
         let payload_cid = cid_from_dag_cbor(&serde_ipld_dagcbor::to_vec(&payload)?);
@@ -191,6 +201,34 @@ impl Envelope {
                     })
                 })
         })
+    }
+
+    /// Get the signature
+    pub fn signature(&self) -> &[Signature] {
+        &self.signatures
+    }
+
+    /// Get the signed payload
+    pub fn payload(&self) -> &Bytes {
+        &self.payload
+    }
+
+    /// Construct the jws header from the signature protected bytes
+    pub fn jws_header(&self) -> Result<ssi::jws::Header, anyhow::Error> {
+        let (protected, _signature) = match self.signatures.first() {
+            Some(sig) => (
+                sig.protected
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("Missing protected field"))?
+                    .as_slice(),
+                sig.signature.as_ref(),
+            ),
+            None => {
+                anyhow::bail!("signature is missing")
+            }
+        };
+        let header: ssi::jws::Header = serde_json::from_slice(protected)?;
+        Ok(header)
     }
 }
 

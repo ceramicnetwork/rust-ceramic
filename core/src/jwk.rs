@@ -2,7 +2,9 @@ use crate::DidDocument;
 use cid::multibase;
 use once_cell::sync::Lazy;
 use ssi::did::{Resource, VerificationMethod};
-use ssi::did_resolve::{dereference, Content, DIDResolver, DereferencingInputMetadata};
+use ssi::did_resolve::{
+    dereference, Content, DIDResolver, DereferencingInputMetadata, ResolutionInputMetadata,
+};
 use ssi::jwk::{Base64urlUInt, OctetParams, Params, JWK};
 use std::ops::Deref;
 
@@ -64,6 +66,29 @@ impl Jwk {
         let mut jwk = JWK::from(params);
         jwk.key_id.clone_from(&self.key_id);
         Ok(Self(jwk))
+    }
+
+    /// Resolve a DID and return the DIDDocument
+    ///
+    /// The DID Document contains the public key. For more info, see:
+    /// https://www.w3.org/TR/did-core/#dfn-did-documents
+    pub async fn resolve_did(did: &str) -> Option<DidDocument> {
+        if !did.starts_with("did:key:") && !did.starts_with("did:pkh:") {
+            return None;
+        }
+        let input_metadata = ResolutionInputMetadata::default();
+        let base_did = did.split_once('#').map_or(did, |(b, _)| b);
+
+        let resolver: &dyn DIDResolver = if base_did.starts_with("did:key:") {
+            &did_method_key::DIDKey
+        } else if base_did.starts_with("did:pkh:") {
+            &did_pkh::DIDPKH
+        } else {
+            return None;
+        };
+
+        let (_res, did_document, _metadata) = resolver.resolve(base_did, &input_metadata).await;
+        did_document
     }
 }
 
