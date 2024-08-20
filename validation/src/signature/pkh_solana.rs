@@ -50,26 +50,28 @@ mod test {
     use test_log::test;
 
     use crate::{
-        cacao_verifier::VerifyOpts,
         test::{get_test_event, verify_event_cacao},
+        VerifyOpts,
     };
 
-    #[test]
-    fn sol_pkh_valid_init() {
+    #[test(tokio::test)]
+    async fn sol_pkh_valid_init() {
         verify_event_cacao(
             crate::test::SigningType::Solana,
             crate::test::TestEventType::SignedInit,
             &VerifyOpts::default(),
-        );
+        )
+        .await;
     }
 
-    #[test]
-    fn sol_pkh_valid_data() {
+    #[test(tokio::test)]
+    async fn sol_pkh_valid_data() {
         verify_event_cacao(
             crate::test::SigningType::Solana,
             crate::test::TestEventType::SignedData,
             &VerifyOpts::default(),
-        );
+        )
+        .await;
     }
 
     #[test]

@@ -9,7 +9,10 @@ use ceramic_car::{
 };
 use ipld_core::ipld::Ipld;
 
-use crate::cacao_verifier::{Verifier as _, VerifyOpts};
+use crate::{
+    cacao_verifier::Verifier as _, event_verifier::Verifier as _, key_verifier::Verifier as _,
+    VerifyOpts,
+};
 
 #[allow(dead_code)]
 /// A signed init event encoded as a carfile
@@ -70,7 +73,30 @@ fn parse_test_data(data: &[u8]) -> ParsedSampleData {
     ParsedSampleData { meta, blocks }
 }
 
-pub fn verify_event_cacao(signing_type: SigningType, event_type: TestEventType, opts: &VerifyOpts) {
+pub async fn verify_event(signing_type: SigningType, event_type: TestEventType, opts: &VerifyOpts) {
+    let (_cid, event) = get_test_event(signing_type, event_type);
+    let event = match event {
+        unvalidated::Event::Time(_) => unreachable!("not a time event"),
+        unvalidated::Event::Signed(s) => s,
+        unvalidated::Event::Unsigned(_) => unreachable!("not unsigned"),
+    };
+
+    match event.verify_signature(opts).await {
+        Ok(_) => {}
+        Err(e) => {
+            panic!(
+                "{:?} for {:?} failed: {:?}: {:#}",
+                event_type, signing_type, event, e
+            )
+        }
+    }
+}
+
+pub async fn verify_event_cacao(
+    signing_type: SigningType,
+    event_type: TestEventType,
+    opts: &VerifyOpts,
+) {
     let (_cid, event) = get_test_event(signing_type, event_type);
     let event = match event {
         unvalidated::Event::Time(_) => unreachable!("not a time event"),
@@ -78,10 +104,26 @@ pub fn verify_event_cacao(signing_type: SigningType, event_type: TestEventType, 
         unvalidated::Event::Unsigned(_) => unreachable!("not unsigned"),
     };
     let cap = event.capability().unwrap();
-    match cap.verify(opts) {
+    match cap.verify_signature(opts).await {
         Ok(_) => {}
         Err(e) => {
             panic!("{:?}: {:#}", cap, e)
+        }
+    }
+}
+
+pub async fn verify_event_envelope(signing_type: SigningType, event_type: TestEventType) {
+    let (_cid, event) = get_test_event(signing_type, event_type);
+    let event = match event {
+        unvalidated::Event::Time(_) => unreachable!("not a time event"),
+        unvalidated::Event::Signed(s) => s,
+        unvalidated::Event::Unsigned(_) => unreachable!("not unsigned"),
+    };
+    let envelope = event.envelope();
+    match envelope.verify_signature(None).await {
+        Ok(_) => {}
+        Err(e) => {
+            panic!("{:?}: {:#}", envelope, e)
         }
     }
 }

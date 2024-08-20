@@ -3,7 +3,7 @@ mod test {
 
     use test_log::test;
 
-    use crate::test::get_test_event;
+    use crate::test::{get_test_event, verify_event_envelope};
 
     #[test]
     fn deterministic_generates() {
@@ -13,19 +13,21 @@ mod test {
         );
     }
 
-    #[test]
-    fn data_generates() {
-        let (_cid, _event) = get_test_event(
+    #[test(tokio::test)]
+    async fn data_validates() {
+        verify_event_envelope(
             crate::test::SigningType::Ed2559,
             crate::test::TestEventType::SignedData,
-        );
+        )
+        .await;
     }
 
-    #[test]
-    fn init_generates() {
-        let (_cid, _event) = get_test_event(
+    #[test(tokio::test)]
+    async fn init_validates() {
+        verify_event_envelope(
             crate::test::SigningType::Ed2559,
             crate::test::TestEventType::SignedInit,
-        );
+        )
+        .await;
     }
 }
