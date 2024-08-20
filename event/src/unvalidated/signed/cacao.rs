@@ -1,6 +1,6 @@
 //! Structures for encoding and decoding CACAO capability objects.
 
-use serde::{Deserialize, Serialize};
+use serde::{ser::SerializeMap as _, Deserialize, Serialize};
 use ssi::jwk::Algorithm;
 use std::collections::HashMap;
 
@@ -215,4 +215,46 @@ pub struct Signature {
     /// Signature bytes
     #[serde(rename = "s")]
     pub signature: String,
+}
+
+#[derive(Debug)]
+/// A sorted version of the metadata that can be used when verifying signatures
+pub struct SortedMetadata<'a> {
+    /// The header data
+    pub header_data: Vec<(&'a str, &'a MetadataValue)>,
+    /// The algorithm used
+    pub alg: MetadataValue,
+    /// The key ID used
+    pub kid: MetadataValue,
+}
+
+impl<'a> From<&'a SignatureMetadata> for SortedMetadata<'a> {
+    fn from(metadata: &'a SignatureMetadata) -> Self {
+        let header_data: Vec<_> = metadata.rest.iter().map(|(k, v)| (k.as_str(), v)).collect();
+        Self {
+            header_data,
+            alg: MetadataValue::String(metadata.alg.clone()),
+            kid: MetadataValue::String(metadata.kid.clone()),
+        }
+    }
+}
+
+impl<'a> Serialize for SortedMetadata<'a> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::ser::Serializer,
+    {
+        let mut header_data: Vec<_> = self
+            .header_data
+            .iter()
+            .map(|(k, v)| (*k, *v))
+            .chain(vec![("alg", &self.alg), ("kid", &self.kid)])
+            .collect();
+        header_data.sort_by(|a, b| a.0.cmp(b.0));
+        let mut s = serializer.serialize_map(Some(header_data.len()))?;
+        for (k, v) in &header_data {
+            s.serialize_entry(k, v)?;
+        }
+        s.end()
+    }
 }
