@@ -82,7 +82,7 @@ async fn build_event_fixed_model(model: StreamId) -> TestEventInfo {
             .unwrap();
     let init_cid = signed.envelope_cid();
 
-    let event_id = build_event_id(&init_cid, &init_cid, &model);
+    let event_id = build_event_id(init_cid, init_cid, &model);
     let car = signed.encode_car().unwrap();
     TestEventInfo {
         event_id,
@@ -174,7 +174,7 @@ async fn get_init_plus_n_events_with_model(
     let init = init_event(model, &signer).await;
     let init_cid = init.envelope_cid();
     let (event_id, car) = (
-        build_event_id(&init_cid, &init_cid, model),
+        build_event_id(init_cid, init_cid, model),
         init.encode_car().unwrap(),
     );
 
@@ -195,7 +195,7 @@ async fn get_init_plus_n_events_with_model(
 
         let data = data_event(init_cid, prev, data, &signer).await;
         let (data_id, data_car) = (
-            build_event_id(&data.envelope_cid(), &init_cid, model),
+            build_event_id(data.envelope_cid(), &init_cid, model),
             data.encode_car().unwrap(),
         );
         prev = data_id.cid().unwrap();
