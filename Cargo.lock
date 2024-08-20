@@ -1722,6 +1722,7 @@ name = "ceramic-validation"
 version = "0.33.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "base64 0.21.7",
  "ceramic-car",
  "ceramic-core",
@@ -1734,9 +1735,11 @@ dependencies = [
  "multibase 0.9.1",
  "serde",
  "serde_ipld_dagcbor",
+ "serde_json",
  "sha3",
  "ssi",
  "test-log",
+ "tokio",
  "tracing",
 ]
 

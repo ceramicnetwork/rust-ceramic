@@ -11,17 +11,21 @@ publish = false
 
 [dependencies]
 anyhow.workspace = true
+async-trait.workspace = true
 base64.workspace = true
 ceramic-core.workspace = true
 ceramic-event.workspace = true
 chrono.workspace = true
-ipld-core.workspace = true
-hex.workspace = true
-multibase.workspace = true
-ssi.workspace = true
-k256.workspace = true
-sha3.workspace = true
 ed25519-dalek.workspace = true
+hex.workspace = true
+ipld-core.workspace = true
+k256.workspace = true
+multibase.workspace = true
+serde_json.workspace = true
+sha3.workspace = true
+ssi.workspace = true
+tokio.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
 ceramic-car.workspace = true
