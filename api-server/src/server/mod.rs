@@ -396,7 +396,56 @@ where
                                         .expect("Unable to create Bad Request response for invalid percent decode"))
                 };
 
-                    let result = api_impl.events_event_id_get(param_event_id, &context).await;
+                    // Header parameters
+                    let param_authorization = headers.get(HeaderName::from_static("authorization"));
+
+                    let param_authorization = match param_authorization {
+                        Some(v) => {
+                            match header::IntoHeaderValue::<String>::try_from((*v).clone()) {
+                                Ok(result) => Some(result.0),
+                                Err(err) => {
+                                    return Ok(Response::builder()
+                                        .status(StatusCode::BAD_REQUEST)
+                                        .body(Body::from(format!("Invalid header Authorization - {}", err)))
+                                        .expect("Unable to create Bad Request response for invalid header Authorization"));
+                                }
+                            }
+                        }
+                        None => None,
+                    };
+
+                    // Query parameters (note that non-required or collection query parameters will ignore garbage values, rather than causing a 400 response)
+                    let query_params =
+                        form_urlencoded::parse(uri.query().unwrap_or_default().as_bytes())
+                            .collect::<Vec<_>>();
+                    let param_resource = query_params
+                        .iter()
+                        .filter(|e| e.0 == "resource")
+                        .map(|e| e.1.clone())
+                        .next();
+                    let param_resource = match param_resource {
+                        Some(param_resource) => {
+                            let param_resource =
+                                <String as std::str::FromStr>::from_str(&param_resource);
+                            match param_resource {
+                            Ok(param_resource) => Some(param_resource),
+                            Err(e) => return Ok(Response::builder()
+                                .status(StatusCode::BAD_REQUEST)
+                                .body(Body::from(format!("Couldn't parse query parameter resource - doesn't match schema: {}", e)))
+                                .expect("Unable to create Bad Request response for invalid query parameter resource")),
+                        }
+                        }
+                        None => None,
+                    };
+
+                    let result = api_impl
+                        .events_event_id_get(
+                            param_event_id,
+                            param_authorization,
+                            param_resource,
+                            &context,
+                        )
+                        .await;
                     let mut response = Response::new(Body::empty());
                     response.headers_mut().insert(
                         HeaderName::from_static("x-span-id"),
@@ -433,6 +482,10 @@ where
                                 let body_content = serde_json::to_string(&body)
                                     .expect("impossible to fail to serialize");
                                 *response.body_mut() = Body::from(body_content);
+                            }
+                            EventsEventIdGetResponse::Unauthorized => {
+                                *response.status_mut() = StatusCode::from_u16(401)
+                                    .expect("Unable to turn 401 into a StatusCode");
                             }
                             EventsEventIdGetResponse::EventNotFound(body) => {
                                 *response.status_mut() = StatusCode::from_u16(404)
@@ -1074,10 +1127,47 @@ where
 
                 // FeedEventsGet - GET /feed/events
                 hyper::Method::GET if path.matched(paths::ID_FEED_EVENTS) => {
+                    // Header parameters
+                    let param_authorization = headers.get(HeaderName::from_static("authorization"));
+
+                    let param_authorization = match param_authorization {
+                        Some(v) => {
+                            match header::IntoHeaderValue::<String>::try_from((*v).clone()) {
+                                Ok(result) => Some(result.0),
+                                Err(err) => {
+                                    return Ok(Response::builder()
+                                        .status(StatusCode::BAD_REQUEST)
+                                        .body(Body::from(format!("Invalid header Authorization - {}", err)))
+                                        .expect("Unable to create Bad Request response for invalid header Authorization"));
+                                }
+                            }
+                        }
+                        None => None,
+                    };
+
                     // Query parameters (note that non-required or collection query parameters will ignore garbage values, rather than causing a 400 response)
                     let query_params =
                         form_urlencoded::parse(uri.query().unwrap_or_default().as_bytes())
                             .collect::<Vec<_>>();
+                    let param_resource = query_params
+                        .iter()
+                        .filter(|e| e.0 == "resource")
+                        .map(|e| e.1.clone())
+                        .next();
+                    let param_resource = match param_resource {
+                        Some(param_resource) => {
+                            let param_resource =
+                                <String as std::str::FromStr>::from_str(&param_resource);
+                            match param_resource {
+                            Ok(param_resource) => Some(param_resource),
+                            Err(e) => return Ok(Response::builder()
+                                .status(StatusCode::BAD_REQUEST)
+                                .body(Body::from(format!("Couldn't parse query parameter resource - doesn't match schema: {}", e)))
+                                .expect("Unable to create Bad Request response for invalid query parameter resource")),
+                        }
+                        }
+                        None => None,
+                    };
                     let param_resume_at = query_params
                         .iter()
                         .filter(|e| e.0 == "resumeAt")
@@ -1136,7 +1226,14 @@ where
                     };
 
                     let result = api_impl
-                        .feed_events_get(param_resume_at, param_limit, param_include_data, &context)
+                        .feed_events_get(
+                            param_authorization,
+                            param_resource,
+                            param_resume_at,
+                            param_limit,
+                            param_include_data,
+                            &context,
+                        )
                         .await;
                     let mut response = Response::new(Body::empty());
                     response.headers_mut().insert(
@@ -1174,6 +1271,10 @@ where
                                 let body_content = serde_json::to_string(&body)
                                     .expect("impossible to fail to serialize");
                                 *response.body_mut() = Body::from(body_content);
+                            }
+                            FeedEventsGetResponse::Unauthorized => {
+                                *response.status_mut() = StatusCode::from_u16(401)
+                                    .expect("Unable to turn 401 into a StatusCode");
                             }
                             FeedEventsGetResponse::InternalServerError(body) => {
                                 *response.status_mut() = StatusCode::from_u16(500)

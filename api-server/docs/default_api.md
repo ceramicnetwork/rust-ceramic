@@ -120,7 +120,7 @@ No authorization required
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
 # ****
-> models::Event (event_id)
+> models::Event (event_id, optional)
 Get event data
 
 ### Required Parameters
@@ -128,6 +128,16 @@ Get event data
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
   **event_id** | **String**| CID of the root block of the event, used to identify of the event | 
+ **optional** | **map[string]interface{}** | optional parameters | nil if no parameters
+
+### Optional Parameters
+Optional parameters are passed through a map[string]interface{}.
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **event_id** | **String**| CID of the root block of the event, used to identify of the event | 
+ **authorization** | **String**| Bearer token | 
+ **resource** | **String**| URI to filter events against, such as ceramic://_* or ceramic://_*?model=base64url | 
 
 ### Return type
 
@@ -360,6 +370,8 @@ Optional parameters are passed through a map[string]interface{}.
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
+ **authorization** | **String**| Bearer token | 
+ **resource** | **String**| URI to filter events against, such as ceramic://_* or ceramic://_*?model=base64url | 
  **resume_at** | **String**| token that designates the point to resume from, that is find keys added after this point | 
  **limit** | **i32**| The maximum number of events to return, default is 100. The max with data is 10000. | 
  **include_data** | **String**| Whether to include the event data (carfile) in the response. In the future, only the payload or other options may be supported:   * `none` - Empty, only the event ID is returned   * `full` - The entire event carfile (including the envelope and payload)  | 

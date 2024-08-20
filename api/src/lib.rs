@@ -8,5 +8,6 @@ pub use server::{
     Server,
 };
 
+mod auth;
 #[cfg(test)]
 mod tests;

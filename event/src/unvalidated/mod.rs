@@ -13,7 +13,8 @@ use cid::Cid;
 use ipld_core::{codec::Codec, ipld::Ipld};
 use serde_ipld_dagcbor::codec::DagCborCodec;
 
-fn cid_from_dag_cbor(data: &[u8]) -> Cid {
+/// Create a CID from a DAG-CBOR encoded data
+pub fn cid_from_dag_cbor(data: &[u8]) -> Cid {
     Cid::new_v1(
         <DagCborCodec as Codec<Ipld>>::CODE,
         Code::Sha2_256.digest(data),
