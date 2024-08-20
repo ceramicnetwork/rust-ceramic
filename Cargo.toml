@@ -62,6 +62,7 @@ ceramic-one = { path = "./one" }
 ceramic-p2p = { path = "./p2p" }
 ceramic-service = { path = "./service" }
 ceramic-store = { path = "./store" }
+ceramic-validation = { path = "./validation" }
 chrono = "0.4.31"
 cid = { version = "0.11", features = ["serde-codec"] }
 clap = { version = "4", features = ["derive", "env", "string"] }
