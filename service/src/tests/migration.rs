@@ -162,7 +162,7 @@ fn cid_from_dag_cbor(data: &[u8]) -> Cid {
 // create random time event with a previous unsigned init event
 async fn random_unsigned_init_time_event() -> Vec<unvalidated::Event<Ipld>> {
     let init = random_unsigned_init_event().await;
-    let init_cid = init.encoded_cid().await.unwrap();
+    let init_cid = init.encoded_cid().unwrap();
     vec![init.into(), random_time_event(init_cid).await.into()]
 }
 // create random time event with a previous signed init event
