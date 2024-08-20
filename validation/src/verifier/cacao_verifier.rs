@@ -38,7 +38,6 @@ impl Verifier for Capability {
         // is that something that is ever expected?
         self.verify_time_checks(opts)?;
 
-        // TODO: move tests to this and remove time_check from pkh impls
         match self.header.r#type {
             HeaderType::EIP4361 => PkhEthereum::verify(self),
             HeaderType::CAIP122 => match self.signature.r#type {

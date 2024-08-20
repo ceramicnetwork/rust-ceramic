@@ -11,9 +11,6 @@ use crate::{cacao::Capability, siwx_message::SiwxMessage};
 
 const ETH_CHAIN: &str = "Ethereum";
 
-// 2022-09-20 in milliseconds
-// static LEGACY_CHAIN_ID_REORG_DATE = chrono::DateTime::from_timestamp_millis(1663632000000).unwrap();
-
 #[derive(Debug)]
 pub struct PkhEthereum {}
 
@@ -44,6 +41,7 @@ impl PkhEthereum {
             }
         }
 
+        // 2022-09-20 in milliseconds
         // TODO: use lazy static/const for LEGACY_CHAIN_ID_REORG_DATE
         if recovered != issuer
             && cacao.payload.issued_at

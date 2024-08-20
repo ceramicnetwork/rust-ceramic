@@ -61,7 +61,7 @@ mod tests {
 
     use super::*;
 
-    fn ld_write<'a, W>(writer: &mut W, bytes: &[u8]) -> Result<(), Error>
+    fn ld_write<W>(writer: &mut W, bytes: &[u8]) -> Result<(), Error>
     where
         W: Write + Send + Unpin,
     {
