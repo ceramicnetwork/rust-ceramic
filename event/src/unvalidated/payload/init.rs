@@ -29,7 +29,7 @@ impl<D> Payload<D> {
 
 impl<D: serde::Serialize> Payload<D> {
     /// Compute CID of encoded event.
-    pub async fn encoded_cid(&self) -> Result<Cid, anyhow::Error> {
+    pub fn encoded_cid(&self) -> Result<Cid, anyhow::Error> {
         let event = serde_ipld_dagcbor::to_vec(self)?;
         Ok(cid_from_dag_cbor(&event))
     }
