@@ -11,12 +11,10 @@ use std::sync::Arc;
 /// which is a columnar data structure that can be efficiently processed and stored.
 ///
 /// The resulting RecordBatch has the following schema:
-/// - event_type: Utf8, non-nullable
+/// - event_type: UInt8, non-nullable
 /// - stream_id: Binary, non-nullable
-/// - stream_type: Utf8, non-nullable
+/// - stream_type: UInt8, non-nullable
 /// - controllers: Utf8, non-nullable (comma-separated list for Data events)
-/// - before: Timestamp(Nanosecond), nullable
-/// - after: Timestamp(Nanosecond), nullable
 /// - data: Binary, non-nullable
 ///
 /// # Arguments
