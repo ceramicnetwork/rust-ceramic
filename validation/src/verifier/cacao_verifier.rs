@@ -4,7 +4,10 @@ use ceramic_event::unvalidated::signed::cacao::{
     Capability, HeaderType, SignatureType, SortedMetadata,
 };
 
-use super::{key_verifier::verify_did_jws, opts::VerifyOpts};
+use super::{
+    key_verifier::{verify_did_jws, VerifyDidJwsInput, VerifyJwsInput},
+    opts::VerifyOpts,
+};
 
 use crate::signature::{pkh_ethereum::PkhEthereum, pkh_solana::PkhSolana};
 
@@ -50,14 +53,15 @@ impl Verifier for Capability {
                     let sig = base64::prelude::BASE64_URL_SAFE_NO_PAD
                         .decode(self.signature.signature.as_bytes())
                         .map_err(|e| anyhow::anyhow!("invalid signature: {}", e))?;
-                    verify_did_jws(
-                        did,
-                        header.as_slice(),
-                        payload.as_slice(),
-                        self.signature.r#type.algorithm(),
-                        &sig,
-                        None,
-                    )
+                    verify_did_jws(VerifyDidJwsInput::Standard {
+                        input: VerifyJwsInput {
+                            did,
+                            header: header.as_slice(),
+                            payload: payload.as_slice(),
+                            alg: self.signature.r#type.algorithm(),
+                            signature: &sig,
+                        },
+                    })
                     .await
                 }
             },
