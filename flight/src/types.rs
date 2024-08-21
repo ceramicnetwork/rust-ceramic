@@ -31,5 +31,9 @@ pub type Ipld = ByteBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TimeEvent {
-    // Define the structure for TimeEvent if needed
+    // WIP : Need clearer structure for time events
+    pub before: Option<CeramicTime>,
+    pub after: Option<CeramicTime>,
+    pub data: ByteBuf,
+    pub id: Cid,
 }

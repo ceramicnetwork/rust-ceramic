@@ -58,9 +58,6 @@ pub fn conclusion_events_to_record_batch(
         Field::new("data", DataType::Binary, false),
     ]));
 
-    println!("---------------------------------");
-    println!("Schema: {:?}", schema);
-    println!("---------------------------------");
     let mut event_types = Vec::new();
     let mut stream_ids = Vec::new();
     let mut stream_types = Vec::new();
