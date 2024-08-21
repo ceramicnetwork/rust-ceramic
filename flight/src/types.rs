@@ -10,7 +10,7 @@ pub enum ConclusionEvent {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConclusionInit {
-    pub stream_type: StreamType,
+    pub stream_type: String,
     pub controllers: String,
     pub dimensions: Vec<(String, ByteBuf)>,
 }
@@ -19,16 +19,15 @@ pub struct ConclusionInit {
 pub struct ConclusionData {
     pub id: Cid,
     pub init: ConclusionInit,
+    // TODO : rethink this, add a checkpoint to make it work in datafusion query
     pub previous: Vec<Cid>,
     pub before: Option<CeramicTime>,
     pub after: Option<CeramicTime>,
-    pub data: Ipld,
+    pub data: ByteBuf,
 }
 
-// You'll need to define these types:
-pub type StreamType = String; // Or use a more specific type if needed
-pub type CeramicTime = u64; // Or use a more appropriate time representation
-pub type Ipld = serde_json::Value; // Or use a proper IPLD type if available
+pub type CeramicTime = chrono::DateTime<chrono::Utc>;
+pub type Ipld = ByteBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TimeEvent {

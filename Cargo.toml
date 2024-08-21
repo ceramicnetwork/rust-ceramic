@@ -21,6 +21,7 @@ members = [
     "service",
     "olap",
     "validation",
+    "flight",
 ]
 
 [workspace.dependencies]
