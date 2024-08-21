@@ -212,6 +212,30 @@ checksum = "96d30a06541fbafbc7f82ed10c06164cfbd2c401138f6addd8404629c4b16711"
 
 [[package]]
 name = "arrow"
+version = "9.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9864ca2fdcd3d4883259495b4517879877c5991d9928cc9713794d8076d3e78b"
+dependencies = [
+ "bitflags 1.3.2",
+ "chrono",
+ "csv",
+ "flatbuffers 2.0.0",
+ "half 1.8.3",
+ "hex",
+ "indexmap 1.9.3",
+ "lazy_static",
+ "lexical-core",
+ "multiversion",
+ "num",
+ "rand 0.8.5",
+ "regex",
+ "serde",
+ "serde_derive",
+ "serde_json",
+]
+
+[[package]]
+name = "arrow"
 version = "52.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "05048a8932648b63f21c37d88b552ccc8a65afb6dfe9fc9f30ce79174c2e7a85"
@@ -337,7 +361,7 @@ dependencies = [
  "arrow-cast",
  "arrow-data",
  "arrow-schema",
- "flatbuffers",
+ "flatbuffers 24.3.25",
  "lz4_flex",
 ]
 
@@ -2462,7 +2486,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e4fd4a99fc70d40ef7e52b243b4a399c3f8d353a40d5ecb200deee05e49c61bb"
 dependencies = [
  "ahash 0.8.11",
- "arrow",
+ "arrow 52.2.0",
  "arrow-array",
  "arrow-ipc",
  "arrow-schema",
@@ -2532,7 +2556,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "44fdbc877e3e40dcf88cc8f283d9f5c8851f0a3aa07fee657b1b75ac1ad49b9c"
 dependencies = [
  "ahash 0.8.11",
- "arrow",
+ "arrow 52.2.0",
  "arrow-array",
  "arrow-buffer",
  "arrow-schema",
@@ -2562,7 +2586,7 @@ version = "41.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "799e70968c815b611116951e3dd876aef04bf217da31b72eec01ee6a959336a1"
 dependencies = [
- "arrow",
+ "arrow 52.2.0",
  "chrono",
  "dashmap",
  "datafusion-common",
@@ -2584,7 +2608,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c1841c409d9518c17971d15c9bae62e629eb937e6fb6c68cd32e9186f8b30d2"
 dependencies = [
  "ahash 0.8.11",
- "arrow",
+ "arrow 52.2.0",
  "arrow-array",
  "arrow-buffer",
  "chrono",
@@ -2602,7 +2626,7 @@ version = "41.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8e481cf34d2a444bd8fa09b65945f0ce83dc92df8665b761505b3d9f351bebb"
 dependencies = [
- "arrow",
+ "arrow 52.2.0",
  "arrow-buffer",
  "base64 0.22.1",
  "blake2",
@@ -2630,7 +2654,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b4ece19f73c02727e5e8654d79cd5652de371352c1df3c4ac3e419ecd6943fb"
 dependencies = [
  "ahash 0.8.11",
- "arrow",
+ "arrow 52.2.0",
  "arrow-schema",
  "datafusion-common",
  "datafusion-execution",
@@ -2647,7 +2671,7 @@ version = "41.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a1474552cc824e8c9c88177d454db5781d4b66757d4aca75719306b8343a5e8d"
 dependencies = [
- "arrow",
+ "arrow 52.2.0",
  "arrow-array",
  "arrow-buffer",
  "arrow-ord",
@@ -2669,7 +2693,7 @@ version = "41.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "791ff56f55608bc542d1ea7a68a64bdc86a9413f5a381d06a39fd49c2a3ab906"
 dependencies = [
- "arrow",
+ "arrow 52.2.0",
  "async-trait",
  "chrono",
  "datafusion-common",
@@ -2690,7 +2714,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a223962b3041304a3e20ed07a21d5de3d88d7e4e71ca192135db6d24e3365a4"
 dependencies = [
  "ahash 0.8.11",
- "arrow",
+ "arrow 52.2.0",
  "arrow-array",
  "arrow-buffer",
  "arrow-ord",
@@ -2720,7 +2744,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "db5e7d8532a1601cd916881db87a70b0a599900d23f3db2897d389032da53bc6"
 dependencies = [
  "ahash 0.8.11",
- "arrow",
+ "arrow 52.2.0",
  "datafusion-common",
  "datafusion-expr",
  "hashbrown 0.14.5",
@@ -2746,7 +2770,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d1116949432eb2d30f6362707e2846d942e491052a206f2ddcb42d08aea1ffe"
 dependencies = [
  "ahash 0.8.11",
- "arrow",
+ "arrow 52.2.0",
  "arrow-array",
  "arrow-buffer",
  "arrow-ord",
@@ -2779,7 +2803,7 @@ version = "41.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b45d0180711165fe94015d7c4123eb3e1cf5fb60b1506453200b8d1ce666bef0"
 dependencies = [
- "arrow",
+ "arrow 52.2.0",
  "arrow-array",
  "arrow-schema",
  "datafusion-common",
@@ -3374,6 +3398,17 @@ checksum = "0ce7134b9999ecaf8bcd65542e436736ef32ddca1b3e06094cb6ec5755203b80"
 
 [[package]]
 name = "flatbuffers"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef4c5738bcd7fad10315029c50026f83c9da5e4a21f8ed66826f43e0e2bde5f6"
+dependencies = [
+ "bitflags 1.3.2",
+ "smallvec",
+ "thiserror",
+]
+
+[[package]]
+name = "flatbuffers"
 version = "24.3.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8add37afff2d4ffa83bc748a70b4b1370984f6980768554182424ef71447c35f"
@@ -3390,6 +3425,20 @@ checksum = "5f54427cfd1c7829e2a139fcefea601bf088ebca651d2bf53ebc600eac295dae"
 dependencies = [
  "crc32fast",
  "miniz_oxide",
+]
+
+[[package]]
+name = "flight"
+version = "0.33.0"
+dependencies = [
+ "anyhow",
+ "arrow 9.1.0",
+ "chrono",
+ "cid 0.11.1",
+ "serde",
+ "serde_bytes",
+ "test-log",
+ "tokio",
 ]
 
 [[package]]
@@ -6036,6 +6085,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "multiversion"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "025c962a3dd3cc5e0e520aa9c612201d127dcdf28616974961a649dca64f5373"
+dependencies = [
+ "multiversion-macros",
+]
+
+[[package]]
+name = "multiversion-macros"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a8a3e2bde382ebf960c1f3e79689fa5941625fe9bf694a1cb64af3e85faff3af"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
 name = "names"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8139,6 +8208,7 @@ version = "1.0.117"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "455182ea6142b14f93f4bc5320a2b31c1f266b66a4a5c858b013302a5d8cbfc3"
 dependencies = [
+ "indexmap 2.2.6",
  "itoa",
  "ryu",
  "serde",
