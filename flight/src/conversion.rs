@@ -1,4 +1,5 @@
 use crate::types::*;
+use anyhow::Result;
 use arrow::array::{BinaryArray, StringArray, TimestampMillisecondArray};
 use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 use arrow::record_batch::RecordBatch;
@@ -28,7 +29,7 @@ use std::sync::Arc;
 /// # Example
 ///
 /// ```
-/// use your_crate::{ConclusionEvent, conclusion_events_to_record_batch};
+/// use flight::{ConclusionEvent, conclusion_events_to_record_batch};
 ///
 /// let events: Vec<ConclusionEvent> = vec![/* ... */];
 /// match conclusion_events_to_record_batch(&events) {
@@ -36,10 +37,7 @@ use std::sync::Arc;
 ///     Err(e) => eprintln!("Error creating RecordBatch: {}", e),
 /// }
 /// ```
-pub fn conclusion_events_to_record_batch(
-    events: &[ConclusionEvent],
-) -> Result<RecordBatch, Box<dyn std::error::Error>> {
-    println!("Converting {} events to a record batch", events.len());
+pub fn conclusion_events_to_record_batch(events: &[ConclusionEvent]) -> Result<RecordBatch> {
     let schema = Arc::new(Schema::new(vec![
         Field::new("event_type", DataType::Utf8, false),
         Field::new("stream_id", DataType::Binary, false),
