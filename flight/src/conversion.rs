@@ -1,7 +1,7 @@
 use crate::types::*;
 use anyhow::Result;
-use arrow::array::{BinaryArray, StringArray, TimestampMillisecondArray};
-use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
+use arrow::array::{BinaryBuilder, ListBuilder, StringBuilder, UInt8Builder};
+use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
@@ -39,51 +39,47 @@ use std::sync::Arc;
 /// ```
 pub fn conclusion_events_to_record_batch(events: &[ConclusionEvent]) -> Result<RecordBatch> {
     let schema = Arc::new(Schema::new(vec![
-        Field::new("event_type", DataType::Utf8, false),
+        Field::new("event_type", DataType::UInt8, false),
         Field::new("stream_id", DataType::Binary, false),
-        Field::new("stream_type", DataType::Utf8, false),
-        Field::new("controllers", DataType::Utf8, false),
-        Field::new(
-            "before",
-            DataType::Timestamp(TimeUnit::Millisecond, None),
-            true,
-        ),
-        Field::new(
-            "after",
-            DataType::Timestamp(TimeUnit::Millisecond, None),
-            true,
-        ),
+        Field::new("stream_type", DataType::UInt8, false),
+        Field::new("controller", DataType::Utf8, false),
         Field::new("data", DataType::Binary, false),
+        // TODO: We should be able to set nullable as false in the field. But doing so breaks the ListBuilder :(
+        Field::new(
+            "previous",
+            DataType::List(Box::new(Field::new("item", DataType::Binary, true))),
+            true,
+        ),
     ]));
 
-    let mut event_types = Vec::new();
-    let mut stream_ids = Vec::new();
-    let mut stream_types = Vec::new();
-    let mut controllers = Vec::new();
-    let mut befores = Vec::new();
-    let mut afters = Vec::new();
-    let mut data = Vec::new();
+    let mut event_type_builder = UInt8Builder::new(events.len());
+    let mut stream_id_builder = BinaryBuilder::new(events.len());
+    let mut stream_type_builder = UInt8Builder::new(events.len());
+    let mut controller_builder = StringBuilder::new(events.len());
+    let mut data_builder = BinaryBuilder::new(events.len());
+    let mut previous_builder = ListBuilder::new(BinaryBuilder::new(events.len()));
 
     for event in events {
         match event {
             ConclusionEvent::Data(data_event) => {
-                event_types.push("Data");
-                stream_ids.push(data_event.id.to_bytes());
-                stream_types.push(data_event.init.stream_type.clone());
-                controllers.push(data_event.init.controllers.clone());
-                befores.push(data_event.before);
-                afters.push(data_event.after);
-                data.push(data_event.data.as_ref().to_vec());
+                event_type_builder.append_value(0)?;
+                stream_id_builder.append_value(data_event.id.to_bytes())?;
+                stream_type_builder.append_value(data_event.init.stream_type.as_u8())?;
+                controller_builder.append_value(&data_event.init.controller)?;
+                data_builder.append_value(data_event.data.as_ref())?;
+                for cid in &data_event.previous {
+                    previous_builder.values().append_value(cid.to_bytes())?;
+                }
+                previous_builder.append(true)?;
             }
             ConclusionEvent::Time(_) => {
-                todo!("implement time event once we know what it's structure looks like");
-                // event_types.push("Time");
-                // stream_ids.push(Vec::new());
-                // stream_types.push(String::new());
-                // controllers.push(String::new());
-                // befores.push(None);
-                // afters.push(None);
-                // data.push(Vec::new());
+                todo!("implement time event once we know what its structure looks like");
+                // event_type_builder.append_value(1)?;
+                // stream_id_builder.append_null()?;
+                // stream_type_builder.append_null()?;
+                // controller_builder.append_null()?;
+                // data_builder.append_null()?;
+                // previous_builder.append_null()?;
             }
         }
     }
@@ -91,29 +87,16 @@ pub fn conclusion_events_to_record_batch(events: &[ConclusionEvent]) -> Result<R
     let record_batch = RecordBatch::try_new(
         schema,
         vec![
-            Arc::new(StringArray::from(event_types)),
-            Arc::new(BinaryArray::from_iter(
-                stream_ids.iter().map(|v| Some(v.as_slice())),
-            )),
-            Arc::new(StringArray::from(stream_types)),
-            Arc::new(StringArray::from(controllers)),
-            Arc::new(TimestampMillisecondArray::from(
-                befores
-                    .iter()
-                    .map(|v| v.map(|t| t.timestamp_millis()))
-                    .collect::<Vec<_>>(),
-            )),
-            Arc::new(TimestampMillisecondArray::from(
-                afters
-                    .iter()
-                    .map(|v| v.map(|t| t.timestamp_millis()))
-                    .collect::<Vec<_>>(),
-            )),
-            Arc::new(BinaryArray::from_iter(
-                data.iter().map(|v| Some(v.as_slice())),
-            )),
+            Arc::new(event_type_builder.finish()),
+            Arc::new(stream_id_builder.finish()),
+            Arc::new(stream_type_builder.finish()),
+            Arc::new(controller_builder.finish()),
+            Arc::new(data_builder.finish()),
+            Arc::new(previous_builder.finish()),
         ],
     )?;
 
+    // TODO: Remove this println
+    println!("{:?}", record_batch);
     Ok(record_batch)
 }
