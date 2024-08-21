@@ -1,7 +1,8 @@
 use std::str::FromStr;
 
 use anyhow::{Context, Result};
-use ssi::{caip10::BlockchainAccountId, caip2::ChainId};
+use chrono::{DateTime, Utc};
+use ssi::caip10::BlockchainAccountId;
 
 // use ssi_caips::{caip10::BlockchainAccountId, caip2::ChainId};
 use crate::cacao::Capability;
@@ -10,12 +11,20 @@ use crate::cacao::Capability;
 pub struct SiwxMessage<'a> {
     ///RFC 4501 dns authority that is requesting the signing.
     domain: &'a str,
-    /// Address performing the signing conformant to capitalization
+    /// The Account ID as specified by CAIP-10.
+    /// This is used to display the `Address` and `ChainID` fields to the user.
+    ///
+    /// The `Address` is the address performing the signing conformant to capitalization
     /// encoded checksum specified in EIP-55 where applicable if Ethereum.
-    address: String,
+    /// which is the `acccount_address` field from the `BlockchainAccountId`.
+    ///
+    /// The `ChainID` is the Chain ID (CAIP-2) to which the session is bound, and the
+    /// network where Contract Accounts must be resolved (e.g. EIP-155). Presented as
+    /// the `reference` portion of the chain ID.
+    account: BlockchainAccountId,
     /// Human-readable ASCII assertion that the user will sign, and it must not
     /// contain `\n`.
-    statement: Option<String>,
+    statement: Option<&'a str>,
     /// RFC 3986 URI referring to the resource that is the subject of the signing
     /// (as in the __subject__ of a claim).
     uri: &'a str,
@@ -25,64 +34,48 @@ pub struct SiwxMessage<'a> {
     /// characters.
     nonce: &'a str,
     /// ISO 8601 datetime String of the current time.
-    issued_at: String,
-    /// ISO 8601 datetime String that, if present, indicates when the signed
-    /// authentication message is no longer valid.
-    expiration_time: Option<String>,
-    /// ISO 8601 datetime String that, if present, indicates when the signed
-    /// authentication message will become valid.
-    not_before: Option<String>,
+    issued_at: &'a DateTime<Utc>,
+    /// Presented to the user as an ISO 8601 datetime String that, if present,
+    /// indicates when the signed authentication message is no longer valid.
+    expiration_time: Option<&'a DateTime<Utc>>,
+    /// Presented to the user as a ISO 8601 datetime String that, if present,
+    /// indicates when the signed authentication message will become valid.
+    not_before: Option<&'a DateTime<Utc>>,
     /// System-specific identifier that may be used to uniquely refer to the
     /// sign-in request.
-    request_id: Option<String>,
-    /// EIP-155 Chain ID to which the session is bound, and the network where
-    /// Contract Accounts must be resolved.
-    chain_id: Option<ChainId>,
+    request_id: Option<&'a str>,
     /// List of information or references to information the user wishes to have
     /// resolved as part of authentication by the relying party. They are
     /// expressed as RFC 3986 URIs separated by `\n- `.
-    resources: Option<Vec<String>>,
+    resources: Option<&'a [String]>,
     /// Signature of the message signed by the wallet.
-    signature: Option<String>,
+    signature: Option<&'a str>,
 }
 
 impl<'a> SiwxMessage<'a> {
     pub fn from_cacao(cacao: &'a Capability) -> Result<Self> {
-        // fix
         let account = cacao.payload.issuer.replace("did:pkh:", "");
         let account =
             BlockchainAccountId::from_str(account.as_str()).context("cacao had invalid account")?;
-        let address = account.account_address;
-        let chain_id = Some(account.chain_id);
 
         Ok(Self {
             domain: &cacao.payload.domain,
-            address,
-            statement: cacao.payload.statement.clone(),
+            account,
+            statement: cacao.payload.statement.as_deref(),
             uri: &cacao.payload.audience,
             version: &cacao.payload.version,
             nonce: &cacao.payload.nonce,
-            issued_at: cacao
-                .payload
-                .issued_at
-                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
-            expiration_time: cacao
-                .payload
-                .expiration
-                .map(|s| s.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)),
-            not_before: cacao
-                .payload
-                .not_before
-                .map(|s| s.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)),
-            request_id: cacao.payload.request_id.clone(),
-            chain_id,
-            resources: cacao.payload.resources.clone(),
-            signature: Some(cacao.signature.signature.clone()),
+            issued_at: &cacao.payload.issued_at,
+            expiration_time: cacao.payload.expiration.as_ref(),
+            not_before: cacao.payload.not_before.as_ref(),
+            request_id: cacao.payload.request_id.as_deref(),
+            resources: cacao.payload.resources.as_deref(),
+            signature: Some(cacao.signature.signature.as_ref()),
         })
     }
 
     pub fn as_legacy_chain_id_message(&self, chain: &str) -> String {
-        let mut msg = MessageBuilder::new(self, chain, &self.address);
+        let mut msg = MessageBuilder::new(self, chain, &self.account.account_address);
         msg.add_uri_field();
         msg.add_version_field();
         msg.add_nonce_field();
@@ -111,7 +104,7 @@ impl<'a> SiwxMessage<'a> {
     }
 
     pub fn as_message(&self, chain: &str) -> String {
-        self.as_message_with_address(chain, &self.address)
+        self.as_message_with_address(chain, &self.account.account_address)
     }
 }
 
@@ -145,8 +138,12 @@ impl<'a> MessageBuilder<'a> {
     }
 
     fn add_iat_field(&mut self) {
-        self.suffix
-            .push(format!("Issued At: {}", self.msg.issued_at))
+        self.suffix.push(format!(
+            "Issued At: {}",
+            self.msg
+                .issued_at
+                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+        ))
     }
 
     fn add_version_field(&mut self) {
@@ -154,9 +151,9 @@ impl<'a> MessageBuilder<'a> {
     }
 
     fn add_chain_id_field(&mut self) {
-        if let Some(chain) = &self.msg.chain_id {
-            self.suffix.push(format!("Chain ID: {}", chain.reference))
-        }
+        // we use the chain ID namespace in the prefix message and the reference in this field
+        self.suffix
+            .push(format!("Chain ID: {}", self.msg.account.chain_id.reference))
     }
     fn add_nonce_field(&mut self) {
         self.suffix.push(format!("Nonce: {}", self.msg.nonce))
@@ -179,13 +176,19 @@ impl<'a> MessageBuilder<'a> {
 
     fn add_exp_field_opt(&mut self) {
         if let Some(exp) = &self.msg.expiration_time {
-            self.suffix.push(format!("Expiration Time: {}", exp));
+            self.suffix.push(format!(
+                "Expiration Time: {}",
+                exp.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+            ));
         }
     }
 
     fn add_nbf_field_opt(&mut self) {
         if let Some(nbf) = &self.msg.not_before {
-            self.suffix.push(format!("Not Before: {}", nbf))
+            self.suffix.push(format!(
+                "Not Before: {}",
+                nbf.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+            ))
         }
     }
 
@@ -196,11 +199,12 @@ impl<'a> MessageBuilder<'a> {
     }
 
     fn build(&self) -> String {
-        let prefix = if let Some(ref statement) = self.msg.statement {
-            // &String doesn't impl<'a> Borrow<str> for &'a String so you get
-            // "method cannot be called on `[&String; 2]` due to unsatisfied trait bounds" without `as_str()`
-            // rust-lang issue 82910
-            &[self.prefix.as_str(), statement.as_str()].join("\n\n")
+        let prefix = if let Some(statement) = self.msg.statement {
+            // with one &str you only need a borrow, but with both &String references you get
+            // &String doesn't impl<'a> Borrow<str> for &'a String
+            // "method cannot be called on `[&String; 2]` due to unsatisfied trait bounds"
+            // rust-lang issue 82910 -> use `.as_str()` instead of borrowing
+            &[&self.prefix, statement].join("\n\n")
         } else {
             &self.prefix
         };

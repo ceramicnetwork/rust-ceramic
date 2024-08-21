@@ -1732,6 +1732,7 @@ dependencies = [
  "ipld-core",
  "k256 0.13.3",
  "multibase 0.9.1",
+ "once_cell",
  "serde",
  "serde_ipld_dagcbor",
  "sha3",

@@ -1,8 +1,10 @@
 use std::str::FromStr;
 
 use anyhow::{bail, Result};
+use chrono::Utc;
 use k256::ecdsa::RecoveryId;
 use k256::ecdsa::{Signature, VerifyingKey};
+use once_cell::sync::Lazy;
 use sha3::Digest;
 use ssi::caip10::BlockchainAccountId;
 use ssi::keccak;
@@ -10,6 +12,11 @@ use ssi::keccak;
 use crate::{cacao::Capability, siwx_message::SiwxMessage};
 
 const ETH_CHAIN: &str = "Ethereum";
+
+static LEGACY_CHAIN_ID_REORG_DATE: Lazy<chrono::DateTime<Utc>> = Lazy::new(|| {
+    chrono::DateTime::from_timestamp_millis(1663632000000)
+        .expect("2022-09-20 is a valid timestamp in milliseconds")
+});
 
 #[derive(Debug)]
 pub struct PkhEthereum {}
@@ -41,12 +48,7 @@ impl PkhEthereum {
             }
         }
 
-        // 2022-09-20 in milliseconds
-        // TODO: use lazy static/const for LEGACY_CHAIN_ID_REORG_DATE
-        if recovered != issuer
-            && cacao.payload.issued_at
-                < chrono::DateTime::from_timestamp_millis(1663632000000).unwrap()
-        {
+        if recovered != issuer && cacao.payload.issued_at < *LEGACY_CHAIN_ID_REORG_DATE {
             // might be an old CACAOv1 format
             recovered = Self::verify_message(
                 &siwx.as_legacy_chain_id_message(ETH_CHAIN),
@@ -64,6 +66,12 @@ impl PkhEthereum {
         // Create the prefixed message as per the Ethereum standard
         let digest = keccak::hash_personal_message(msg);
         let signature_bytes = hex::decode(signature.strip_prefix("0x").unwrap_or(signature))?;
+        if signature_bytes.len() != 65 {
+            bail!(
+                "Ethereum signature should be 65 bytes not {}",
+                signature_bytes.len()
+            );
+        }
 
         // eth offsets the 0-1 recovery ID by 27 and doesn't use 2 or 3
         let mut v = signature_bytes[64];
