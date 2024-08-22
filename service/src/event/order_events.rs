@@ -187,8 +187,7 @@ mod test {
     ) -> (Vec<EventInsertable>, Vec<EventInsertable>) {
         let mut insertable = Vec::with_capacity(first_vec_count);
         let mut remaining = Vec::with_capacity(events.len() - first_vec_count);
-        let mut i = 0;
-        for event in events {
+        for (i, event) in events.iter().enumerate() {
             let new = CeramicEventService::parse_discovered_event(event)
                 .await
                 .unwrap();
@@ -197,7 +196,6 @@ mod test {
             } else {
                 remaining.push(new)
             }
-            i += 1
         }
 
         (insertable, remaining)

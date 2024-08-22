@@ -1,0 +1,35 @@
+[package]
+name = "ceramic-validation"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow.workspace = true
+base64.workspace = true
+ceramic-core.workspace = true
+ceramic-event.workspace = true
+chrono.workspace = true
+ipld-core.workspace = true
+hex.workspace = true
+multibase.workspace = true
+once_cell.workspace = true
+ssi.workspace = true
+k256.workspace = true
+sha3.workspace = true
+ed25519-dalek.workspace = true
+
+[dev-dependencies]
+ceramic-car.workspace = true
+serde.workspace = true
+serde_ipld_dagcbor.workspace = true
+tracing.workspace = true
+test-log.workspace = true
+# did-pkh = "0.2.1"
+# did-method-key = "0.2.2"
+# ssi-dids = "0.1.1"
