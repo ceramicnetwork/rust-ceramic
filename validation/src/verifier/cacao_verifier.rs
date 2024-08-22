@@ -128,3 +128,73 @@ impl Verifier for Capability {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod test {
+    use std::str::FromStr;
+
+    use test_log::test;
+
+    use super::*;
+
+    const CACAO_STAR_RESOURCES: &str = r#"{"h":{"t":"eip4361"},"p":{"aud":"did:key:z6Mkr4a3Z3FFaJF8YqWnWnVHqd5eDjZN9bDST6wVZC1hJ81P","domain":"test","exp":"2024-06-19T20:04:42.464Z","iat":"2024-06-12T20:04:42.464Z","iss":"did:pkh:eip155:1:0x3794d4f077c08d925ff8ff820006b7353299b200","nonce":"wPiCOcpkll","resources":["ceramic://*"],"statement":"Give this application access to some of your data on Ceramic","version":"1"},"s":{"s":"0xb266999263446ddb9bf588825e9ac08b545e655f6077e8d8579a8d6639c1167c56f7dae7ac70f7faed8c141af9e124a7eb4f77423a572b36144ada8ef2206cda1c","t":"eip191"}}"#;
+    const CACAO_STREAM_RESOURCES: &str = r#"{"h":{"t":"eip4361"},"p":{"aud":"did:key:z6Mkr4a3Z3FFaJF8YqWnWnVHqd5eDjZN9bDST6wVZC1hJ81P","domain":"test","exp":"2024-06-19T20:04:42.464Z","iat":"2024-06-12T20:04:42.464Z","iss":"did:pkh:eip155:1:0x3794d4f077c08d925ff8ff820006b7353299b200","nonce":"wPiCOcpkll","resources":["ceramic://k2t6wz4ylx0qs435j9oi1s6469uekyk6qkxfcb21ikm5ag2g1cook14ole90aw"],"statement":"Give this application access to some of your data on Ceramic","version":"1"},"s":{"s":"0xb266999263446ddb9bf588825e9ac08b545e655f6077e8d8579a8d6639c1167c56f7dae7ac70f7faed8c141af9e124a7eb4f77423a572b36144ada8ef2206cda1c","t":"eip191"}}"#;
+    const CACAO_NO_RESOURCES: &str = r#"{"h":{"t":"eip4361"},"p":{"aud":"did:key:z6Mkr4a3Z3FFaJF8YqWnWnVHqd5eDjZN9bDST6wVZC1hJ81P","domain":"test","exp":"2024-06-19T20:04:42.464Z","iat":"2024-06-12T20:04:42.464Z","iss":"did:pkh:eip155:1:0x3794d4f077c08d925ff8ff820006b7353299b200","nonce":"wPiCOcpkll","resources":[],"statement":"Give this application access to some of your data on Ceramic","version":"1"},"s":{"s":"0xb266999263446ddb9bf588825e9ac08b545e655f6077e8d8579a8d6639c1167c56f7dae7ac70f7faed8c141af9e124a7eb4f77423a572b36144ada8ef2206cda1c","t":"eip191"}}"#;
+
+    #[test]
+    fn valid_cacao_star_resources() {
+        let model =
+            StreamId::from_str("kjzl6hvfrbw6c90uwoyz8j519gxma787qbsfjtrarkr1huq1g1s224k7hopvsyg") // cspell:disable-line
+                .unwrap();
+        let stream =
+            StreamId::from_str("k2t6wz4ylx0qs435j9oi1s6469uekyk6qkxfcb21ikm5ag2g1cook14ole90aw") // cspell:disable-line
+                .unwrap();
+        let cid =
+            Cid::from_str("baejbeicqtpe5si4qvbffs2s7vtbk5ccbsfg6owmpidfj3zeluqz4hlnz6m").unwrap(); // cspell:disable-line
+        let cacao = serde_json::from_str::<Capability>(CACAO_STAR_RESOURCES).unwrap();
+        cacao.verify_access(cid, &stream, &model).unwrap();
+    }
+
+    #[test]
+    fn valid_cacao_stream_resources() {
+        let model =
+            StreamId::from_str("kjzl6hvfrbw6c90uwoyz8j519gxma787qbsfjtrarkr1huq1g1s224k7hopvsyg") // cspell:disable-line
+                .unwrap();
+        let stream =
+            StreamId::from_str("k2t6wz4ylx0qs435j9oi1s6469uekyk6qkxfcb21ikm5ag2g1cook14ole90aw") // cspell:disable-line
+                .unwrap();
+        let cid =
+            Cid::from_str("baejbeicqtpe5si4qvbffs2s7vtbk5ccbsfg6owmpidfj3zeluqz4hlnz6m").unwrap(); // cspell:disable-line
+        let cacao = serde_json::from_str::<Capability>(CACAO_STREAM_RESOURCES).unwrap();
+        cacao.verify_access(cid, &stream, &model).unwrap();
+    }
+
+    #[test]
+    fn invalid_cacao_resources() {
+        let model =
+            StreamId::from_str("kjzl6hvfrbw6c90uwoyz8j519gxma787qbsfjtrarkr1huq1g1s224k7hopvsyg") // cspell:disable-line
+                .unwrap();
+        let cid =
+            Cid::from_str("baejbeicqtpe5si4qvbffs2s7vtbk5ccbsfg6owmpidfj3zeluqz4hlnz6m").unwrap(); // cspell:disable-line
+        let cacao = serde_json::from_str::<Capability>(CACAO_STREAM_RESOURCES).unwrap();
+        if cacao.verify_access(cid, &model, &model).is_ok() {
+            panic!("should not have had access to stream")
+        }
+    }
+
+    #[test]
+    fn cacao_without_resources() {
+        let model =
+            StreamId::from_str("kjzl6hvfrbw6c90uwoyz8j519gxma787qbsfjtrarkr1huq1g1s224k7hopvsyg") // cspell:disable-line
+                .unwrap();
+        let stream =
+            StreamId::from_str("k2t6wz4ylx0qs435j9oi1s6469uekyk6qkxfcb21ikm5ag2g1cook14ole90aw") // cspell:disable-line
+                .unwrap();
+        let cid =
+            Cid::from_str("baejbeicqtpe5si4qvbffs2s7vtbk5ccbsfg6owmpidfj3zeluqz4hlnz6m").unwrap(); // cspell:disable-line
+        let cacao = serde_json::from_str::<Capability>(CACAO_NO_RESOURCES).unwrap();
+        if cacao.verify_access(cid, &stream, &model).is_ok() {
+            panic!("should not have had access to stream")
+        }
+    }
+}
