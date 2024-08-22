@@ -12,13 +12,16 @@ use datafusion::{
     dataframe::{DataFrame, DataFrameWriteOptions},
     datasource::{file_format::parquet::ParquetFormat, listing::ListingOptions},
     execution::{context::SessionContext, options::ParquetReadOptions},
+    functions_array::extract::array_element,
     logical_expr::{
         col,
         expr::{ScalarFunction, WindowFunction},
         Expr, ExprFunctionExt as _, WindowFunctionDefinition,
     },
+    scalar::ScalarValue,
     sql::TableReference,
 };
+use tracing::debug;
 
 pub async fn run(_shutdown_signal: impl Future<Output = ()>) -> Result<()> {
     // Create datafusion context
@@ -62,8 +65,13 @@ pub async fn run(_shutdown_signal: impl Future<Output = ()>) -> Result<()> {
         .with_column_renamed("commit.previous", "previous")?
         .with_column_renamed("commit.data", "data")?;
 
-    let conclusion_feed = conclusion_feed.cache().await?;
+    debug!("cache");
+    let conclusion_feed = conclusion_feed
+        .cache()
+        .await
+        .context("computing conclusion feed")?;
 
+    debug!("write");
     conclusion_feed
         .clone()
         .write_parquet(
@@ -74,6 +82,7 @@ pub async fn run(_shutdown_signal: impl Future<Output = ()>) -> Result<()> {
         .await
         .context("writing conclusion feed")?;
 
+    debug!("process_feed_batch");
     // TODO call this in a loop
     process_feed_batch(ctx, conclusion_feed).await?;
 
@@ -97,6 +106,15 @@ async fn process_feed_batch(ctx: SessionContext, conclusion_feed: DataFrame) -> 
             .select_columns(&["stream_cid", "event_cid", "state"])?;
 
     conclusion_feed
+        // MID only ever use the first previous, so we can optimize the join by selecting the
+        // first element of the previous array.
+        .select(vec![
+            col("stream_cid"),
+            col("event_cid"),
+            array_element(col("previous"), Expr::Literal(ScalarValue::Int8(Some(0))))
+                .alias("previous"),
+            col("data"),
+        ])?
         .join_on(
             doc_state,
             JoinType::Left,

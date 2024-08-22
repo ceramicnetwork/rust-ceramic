@@ -1,7 +1,9 @@
 use std::{any::Any, sync::Arc};
 
 use arrow::{
-    array::{Array as _, BinaryBuilder, BooleanBufferBuilder, StringBuilder, StructArray},
+    array::{
+        Array as _, BinaryBuilder, BooleanBufferBuilder, ListBuilder, StringBuilder, StructArray,
+    },
     datatypes::{DataType, Field, Fields},
 };
 use ceramic_event::unvalidated;
@@ -30,7 +32,11 @@ impl CeramicCar {
             return_fields: vec![
                 Field::new("stream_cid", DataType::Binary, false),
                 Field::new("event_cid", DataType::Binary, false),
-                Field::new("previous", DataType::Binary, true),
+                Field::new(
+                    "previous",
+                    DataType::List(Field::new_list_field(DataType::Binary, true).into()),
+                    true,
+                ),
                 Field::new("data", DataType::Utf8, true),
             ]
             .into(),
@@ -41,29 +47,29 @@ impl CeramicCar {
         let (cid, event) = unvalidated::Event::<Value>::decode_car(car, false)?;
         match event {
             unvalidated::Event::Time(time) => Ok(Commit {
-                stream_cid: time.id(),
+                stream_cid: *time.id(),
                 cid,
-                previous: (Some(time.prev())),
+                previous: vec![*time.prev()],
                 data: None,
             }),
             unvalidated::Event::Signed(signed) => match signed.payload() {
                 unvalidated::Payload::Data(data) => Ok(Commit {
                     stream_cid: *data.id(),
                     cid,
-                    previous: (Some(*data.prev())),
+                    previous: vec![*data.prev()],
                     data: Some(data.data().clone()),
                 }),
                 unvalidated::Payload::Init(init) => Ok(Commit {
                     stream_cid: cid,
                     cid,
-                    previous: None,
+                    previous: vec![],
                     data: init.data().cloned(),
                 }),
             },
             unvalidated::Event::Unsigned(init) => Ok(Commit {
                 stream_cid: cid,
                 cid,
-                previous: None,
+                previous: vec![],
                 data: init.data().cloned(),
             }),
         }
@@ -88,7 +94,7 @@ impl ScalarUDFImpl for CeramicCar {
         let cars = as_binary_array(&args[0])?;
         let mut stream_cids = BinaryBuilder::new();
         let mut event_cids = BinaryBuilder::new();
-        let mut prevs = BinaryBuilder::new();
+        let mut prevs = ListBuilder::new(BinaryBuilder::new());
         let mut datas = StringBuilder::new();
         let mut nulls = BooleanBufferBuilder::new(cars.len());
         debug!(len = cars.len(), "extracting cars");
@@ -103,11 +109,10 @@ impl ScalarUDFImpl for CeramicCar {
                     .map_err(|err| exec_datafusion_err!("Error extracting event: {err}"))?;
                 stream_cids.append_value(stream_cid.to_bytes());
                 event_cids.append_value(cid.to_bytes());
-                if let Some(prev) = previous {
-                    prevs.append_value(prev.to_bytes())
-                } else {
-                    prevs.append_null()
-                };
+                for prev in &previous {
+                    prevs.values().append_value(prev.to_bytes())
+                }
+                prevs.append(!previous.is_empty());
                 if let Some(data) = data {
                     datas.append_value(
                         serde_json::to_string(&data)
@@ -138,6 +143,6 @@ impl ScalarUDFImpl for CeramicCar {
 struct Commit {
     stream_cid: Cid,
     cid: Cid,
-    previous: Option<Cid>,
+    previous: Vec<Cid>,
     data: Option<Value>,
 }
