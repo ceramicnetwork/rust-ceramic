@@ -1,6 +1,6 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use base64::Engine as _;
-use ceramic_core::Jwk;
+use ceramic_core::{Cid, Jwk, StreamId};
 use ceramic_event::unvalidated::signed::cacao::{
     Capability, HeaderType, SignatureType, SortedMetadata,
 };
@@ -19,6 +19,9 @@ pub trait Verifier {
     async fn verify_signature(&self, opts: &VerifyCacaoOpts) -> Result<()>;
     /// Verify the time checks for the CACAO using the `VerifyOpts`
     fn verify_time_checks(&self, opts: &VerifyCacaoOpts) -> Result<()>;
+    /// Verify this CACAO grants access to the requested resources
+    fn verify_access(&self, payload_cid: Cid, stream_id: &StreamId, model: &StreamId)
+        -> Result<()>;
 }
 
 #[async_trait::async_trait]
@@ -97,6 +100,29 @@ impl Verifier for Capability {
                     anyhow::bail!("CACAO has expired")
                 }
             }
+        }
+
+        Ok(())
+    }
+
+    fn verify_access(
+        &self,
+        payload_cid: Cid,
+        stream_id: &StreamId,
+        model: &StreamId,
+    ) -> Result<()> {
+        let resources = self
+            .payload
+            .resources
+            .as_ref()
+            .ok_or_else(|| anyhow!("capability is missing resources"))?;
+
+        if !resources.contains(&"ceramic://*".to_owned())
+            && !resources.contains(&format!("ceramic://{stream_id}"))
+            && !resources.contains(&format!("ceramic://{stream_id}?payload={payload_cid}"))
+            && !(resources.contains(&format!("ceramic://*?model=${model}")))
+        {
+            bail!("capability does not have appropriate permissions to update this stream");
         }
 
         Ok(())
