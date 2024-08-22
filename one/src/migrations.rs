@@ -10,6 +10,7 @@ use cid::Cid;
 use clap::{Args, Subcommand};
 use futures::{stream::BoxStream, StreamExt};
 use multihash_codetable::{Code, Multihash, MultihashDigest};
+use tokio::io::AsyncBufReadExt;
 use tracing::{debug, info, trace};
 
 use crate::{default_directory, DBOpts, Info, LogOpts};
@@ -38,7 +39,7 @@ pub struct FromIpfsOpts {
     #[clap(
         long,
         short,
-        default_value=default_directory().into_os_string(),
+        default_value = default_directory().into_os_string(),
         env = "CERAMIC_ONE_OUTPUT_STORE_PATH"
     )]
     output_store_path: PathBuf,
@@ -62,6 +63,23 @@ pub struct FromIpfsOpts {
 
     #[command(flatten)]
     log_opts: LogOpts,
+
+    /// Path of list of files to migrate
+    #[clap(long, short = 'f', env = "CERAMIC_ONE_INPUT_FILE_LIST_PATH")]
+    input_file_list_path: Option<PathBuf>,
+
+    /// Offset within the input files to start from
+    #[clap(
+        long,
+        short = 's',
+        default_value = "0",
+        env = "CERAMIC_ONE_MIGRATION_OFFSET"
+    )]
+    offset: u64,
+
+    /// Number of files to process
+    #[clap(long, short = 'l', env = "CERAMIC_ONE_MIGRATION_LIMIT")]
+    limit: Option<u64>,
 }
 
 impl From<&FromIpfsOpts> for DBOpts {
@@ -103,6 +121,9 @@ async fn from_ipfs(opts: FromIpfsOpts) -> Result<()> {
     let blocks = FSBlockStore {
         input_ipfs_path: opts.input_ipfs_path,
         sharded_paths: !opts.non_sharded_paths,
+        input_file_list_path: opts.input_file_list_path,
+        file_offset: opts.offset,
+        file_limit: opts.limit,
     };
     event_svc
         .migrate_from_ipfs(network, blocks, opts.log_tile_docs)
@@ -113,6 +134,9 @@ async fn from_ipfs(opts: FromIpfsOpts) -> Result<()> {
 struct FSBlockStore {
     input_ipfs_path: PathBuf,
     sharded_paths: bool,
+    input_file_list_path: Option<PathBuf>,
+    file_offset: u64,
+    file_limit: Option<u64>,
 }
 
 impl FSBlockStore {
@@ -145,6 +169,29 @@ impl FSBlockStore {
 #[async_trait]
 impl BlockStore for FSBlockStore {
     fn blocks(&self) -> BoxStream<'static, anyhow::Result<(Cid, Vec<u8>)>> {
+        match &self.input_file_list_path {
+            Some(_) => self.blocks_from_list(),
+            None => self.blocks_from_dir(),
+        }
+    }
+
+    async fn block_data(&self, cid: &Cid) -> Result<Option<Vec<u8>>> {
+        let path = if self.sharded_paths {
+            self.sharded_block_path(cid)?
+        } else {
+            self.non_sharded_block_path(cid)?
+        };
+
+        if tokio::fs::try_exists(&path).await? {
+            Ok(Some(tokio::fs::read(&path).await?))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+impl FSBlockStore {
+    fn blocks_from_dir(&self) -> BoxStream<'static, anyhow::Result<(Cid, Vec<u8>)>> {
         // the block store is split in to 1024 directories and then the blocks stored as files.
         // the dir structure is the penultimate two characters as dir then the b32 sha256 multihash of the block
         // The leading "B" for the b32 sha256 multihash is left off
@@ -160,29 +207,48 @@ impl BlockStore for FSBlockStore {
                 while let Some(entry) = entries.next_entry().await? {
                     if entry.metadata().await?.is_dir() {
                         dirs.push(entry.path())
-                    } else if let Ok(Some(block)) = block_from_path(entry.path()).await{
+                    } else if let Some(block) = block_from_path(entry.path()).await?{
                         yield block
-                    } else {
-                        trace!(path = entry.path().display().to_string(), "skipping non-block file");
-                        continue;
                     }
                 }
             }
         }
-        .boxed()
     }
-    async fn block_data(&self, cid: &Cid) -> Result<Option<Vec<u8>>> {
-        let path = if self.sharded_paths {
-            self.sharded_block_path(cid)?
-        } else {
-            self.non_sharded_block_path(cid)?
-        };
 
-        if tokio::fs::try_exists(&path).await? {
-            Ok(Some(tokio::fs::read(&path).await?))
-        } else {
-            Ok(None)
-        }
+    fn blocks_from_list(&self) -> BoxStream<'static, anyhow::Result<(Cid, Vec<u8>)>> {
+        let input_file_list_path = self
+            .input_file_list_path
+            .clone()
+            .expect("input_file_list_path should have been checked before calling this function");
+        info!(path = %input_file_list_path.display(), "reading IPFS file list");
+
+        let offset = self.file_offset;
+        let limit = self.file_limit;
+        (try_stream! {
+            let file = tokio::fs::File::open(input_file_list_path).await?;
+            let mut lines = tokio::io::BufReader::new(file).lines();
+            let mut i = 0;
+            while let Some(line) = lines.next_line().await? {
+                i += 1;
+                if let Some(limit) = limit {
+                    if i > offset + limit {
+                        return;
+                    }
+                }
+                if i <= offset {
+                    continue;
+                }
+                let path = PathBuf::from(line);
+                match block_from_path(path.clone()).await {
+                    Ok(Some(block)) => yield block,
+                    Ok(None) => {},
+                    Err(e) => {
+                        debug!(path = %path.display(), "error reading block: {:#}", e);
+                    },
+                }
+            }
+        })
+        .boxed()
     }
 }
 
@@ -204,7 +270,9 @@ async fn block_from_path(block_path: PathBuf) -> Result<Option<(Cid, Vec<u8>)>> 
     let blob = tokio::fs::read(&block_path).await?;
     let blob_hash = match hash.code() {
         0x12 => Code::Sha2_256.digest(&blob),
-        code => return Err(anyhow!("unsupported hash {code}")),
+        code => {
+            return Err(anyhow!("unsupported hash {code}"));
+        }
     };
     if blob_hash != hash {
         return Err(anyhow!(

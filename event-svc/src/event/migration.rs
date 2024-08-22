@@ -98,6 +98,7 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
     #[instrument(skip(self), ret(level = Level::DEBUG))]
     pub async fn migrate(mut self) -> anyhow::Result<()> {
         const PROGRESS_COUNT: usize = 1_000;
+        let start_time = std::time::Instant::now();
 
         let mut all_blocks = self.blocks.blocks();
         let mut count = 0;
@@ -107,7 +108,10 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
                 self.handle_error(cid, &err)
             }
             if self.batch.len() > 1000 {
-                self.write_batch().await?
+                if let Err(err) = self.write_batch().await {
+                    self.error_count += 1;
+                    error!(err = format!("{err:#}"), "error writing batch");
+                }
             }
             count += 1;
             if count % PROGRESS_COUNT == 0 {
@@ -121,14 +125,25 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
                 );
             }
         }
-        self.write_batch().await?;
 
-        self.process_unreferenced_init_payloads().await?;
+        if let Err(err) = self.write_batch().await {
+            self.error_count += 1;
+            error!(err = format!("{err:#}"), "error writing batch");
+        }
+
+        if let Err(err) = self.process_unreferenced_init_payloads().await {
+            self.error_count += 1;
+            error!(
+                err = format!("{err:#}"),
+                "error processing unreferenced init payloads"
+            );
+        }
 
         info!(
             event_count = self.event_count,
             error_count = self.error_count,
             tile_doc_count = self.tile_doc_count,
+            elapsed = ?start_time.elapsed(),
             "migration finished"
         );
         if !self.model_error_counts.is_empty() {
