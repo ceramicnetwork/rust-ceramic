@@ -33,3 +33,5 @@ tracing.workspace = true
 
 [dev-dependencies]
 test-log.workspace = true
+ceramic-flight.workspace = true
+expect-test.workspace = true

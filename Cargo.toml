@@ -56,6 +56,7 @@ ceramic-api-server = { path = "./api-server" }
 ceramic-car = { path = "./car" }
 ceramic-core = { path = "./core" }
 ceramic-event = { path = "./event" }
+ceramic-flight = { path = "./flight" }
 ceramic-kubo-rpc-server = { path = "./kubo-rpc-server" }
 ceramic-metadata = { path = "./metadata" }
 ceramic-metrics = { path = "./metrics" }

@@ -34,7 +34,7 @@ impl CeramicCar {
                 Field::new("event_cid", DataType::Binary, false),
                 Field::new(
                     "previous",
-                    DataType::List(Field::new_list_field(DataType::Binary, true).into()),
+                    DataType::List(Field::new_list_field(DataType::Binary, false).into()),
                     true,
                 ),
                 Field::new("data", DataType::Utf8, true),
@@ -94,7 +94,8 @@ impl ScalarUDFImpl for CeramicCar {
         let cars = as_binary_array(&args[0])?;
         let mut stream_cids = BinaryBuilder::new();
         let mut event_cids = BinaryBuilder::new();
-        let mut prevs = ListBuilder::new(BinaryBuilder::new());
+        let mut prevs = ListBuilder::new(BinaryBuilder::new())
+            .with_field(Field::new_list_field(DataType::Binary, false));
         let mut datas = StringBuilder::new();
         let mut nulls = BooleanBufferBuilder::new(cars.len());
         debug!(len = cars.len(), "extracting cars");
