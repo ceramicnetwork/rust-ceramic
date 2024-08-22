@@ -105,7 +105,7 @@ mod test {
     use crate::{
         cacao_verifier::Verifier,
         test::{get_test_event, verify_event_cacao, CACAO_SIGNED_DATA_EVENT_CAR},
-        VerifyOpts,
+        VerifyCacaoOpts,
     };
 
     #[test(tokio::test)]
@@ -113,7 +113,7 @@ mod test {
         verify_event_cacao(
             crate::test::SigningType::Ethereum,
             crate::test::TestEventType::SignedInit,
-            &VerifyOpts::default(),
+            &VerifyCacaoOpts::default(),
         )
         .await;
     }
@@ -123,7 +123,7 @@ mod test {
         verify_event_cacao(
             crate::test::SigningType::Ethereum,
             crate::test::TestEventType::SignedData,
-            &VerifyOpts::default(),
+            &VerifyCacaoOpts::default(),
         )
         .await;
     }
@@ -148,7 +148,7 @@ mod test {
 
                 // valid without expired check
                 match cap
-                    .verify_signature(&VerifyOpts {
+                    .verify_signature(&VerifyCacaoOpts {
                         check_exp: false,
                         ..Default::default()
                     })
@@ -162,7 +162,7 @@ mod test {
 
                 // invalid with expired check
                 match cap
-                    .verify_signature(&VerifyOpts {
+                    .verify_signature(&VerifyCacaoOpts {
                         check_exp: true,
                         ..Default::default()
                     })
@@ -180,7 +180,7 @@ mod test {
                 // "exp": "2024-06-19T20:04:42.464Z"
                 // valid with at_time check
                 match cap
-                    .verify_signature(&VerifyOpts {
+                    .verify_signature(&VerifyCacaoOpts {
                         at_time: Some(
                             chrono::DateTime::parse_from_rfc3339("2024-06-15T20:04:42.464Z")
                                 .unwrap()
@@ -197,7 +197,7 @@ mod test {
                 }
                 // valid 1 min before iat with at_time and clock skew check
                 match cap
-                    .verify_signature(&VerifyOpts {
+                    .verify_signature(&VerifyCacaoOpts {
                         at_time: Some(
                             chrono::DateTime::parse_from_rfc3339("2024-06-12T20:03:42.464Z")
                                 .unwrap()
@@ -218,7 +218,7 @@ mod test {
 
                 // valid 1 min after exp with at_time and clock skew check
                 match cap
-                    .verify_signature(&VerifyOpts {
+                    .verify_signature(&VerifyCacaoOpts {
                         at_time: Some(
                             chrono::DateTime::parse_from_rfc3339("2024-06-19T20:05:42.464Z")
                                 .unwrap()
@@ -239,7 +239,7 @@ mod test {
 
                 // invalid 10 min after exp with at_time w/o recovation seconds
                 match cap
-                    .verify_signature(&VerifyOpts {
+                    .verify_signature(&VerifyCacaoOpts {
                         at_time: Some(
                             chrono::DateTime::parse_from_rfc3339("2024-06-19T20:14:42.464Z")
                                 .unwrap()
@@ -261,7 +261,7 @@ mod test {
 
                 // valid 10 min after exp with at_time with recovation seconds
                 match cap
-                    .verify_signature(&VerifyOpts {
+                    .verify_signature(&VerifyCacaoOpts {
                         at_time: Some(
                             chrono::DateTime::parse_from_rfc3339("2024-06-19T20:14:42.464Z")
                                 .unwrap()

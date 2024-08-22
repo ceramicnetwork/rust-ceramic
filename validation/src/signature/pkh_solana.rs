@@ -51,7 +51,7 @@ mod test {
 
     use crate::{
         test::{get_test_event, verify_event_cacao},
-        VerifyOpts,
+        VerifyCacaoOpts,
     };
 
     #[test(tokio::test)]
@@ -59,7 +59,7 @@ mod test {
         verify_event_cacao(
             crate::test::SigningType::Solana,
             crate::test::TestEventType::SignedInit,
-            &VerifyOpts::default(),
+            &VerifyCacaoOpts::default(),
         )
         .await;
     }
@@ -69,7 +69,7 @@ mod test {
         verify_event_cacao(
             crate::test::SigningType::Solana,
             crate::test::TestEventType::SignedData,
-            &VerifyOpts::default(),
+            &VerifyCacaoOpts::default(),
         )
         .await;
     }

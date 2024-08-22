@@ -73,8 +73,10 @@ impl Jwk {
     ///
     /// The DID Document contains the public key. For more info, see:
     /// https://www.w3.org/TR/did-core/#dfn-did-documents
-    pub async fn resolve_did(did: &str) -> anyhow::Result<DidDocument> {
-        let input_metadata = ResolutionInputMetadata::default();
+    pub async fn resolve_did(
+        did: &str,
+        metadata: &ResolutionInputMetadata,
+    ) -> anyhow::Result<DidDocument> {
         let base_did = did.split_once('#').map_or(did, |(b, _)| b);
 
         let resolver: &dyn DIDResolver = if base_did.starts_with("did:key:") {
@@ -85,7 +87,7 @@ impl Jwk {
             bail!("unknown DID method not 'key' or 'pkh'");
         };
 
-        let (res, did_document, _metadata) = resolver.resolve(base_did, &input_metadata).await;
+        let (res, did_document, _metadata) = resolver.resolve(base_did, metadata).await;
         if let Some(err) = res.error {
             bail!("error resolving did: {}", err)
         }

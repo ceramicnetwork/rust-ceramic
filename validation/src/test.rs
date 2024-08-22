@@ -10,8 +10,8 @@ use ceramic_car::{
 use ipld_core::ipld::Ipld;
 
 use crate::{
-    cacao_verifier::Verifier as _, event_verifier::Verifier as _, key_verifier::Verifier as _,
-    VerifyOpts,
+    cacao_verifier::Verifier as _, event_verifier::Verifier as _, verifier::opts::VerifyJwsOpts,
+    VerifyCacaoOpts,
 };
 
 #[allow(dead_code)]
@@ -73,29 +73,68 @@ fn parse_test_data(data: &[u8]) -> ParsedSampleData {
     ParsedSampleData { meta, blocks }
 }
 
-pub async fn verify_event(signing_type: SigningType, event_type: TestEventType, opts: &VerifyOpts) {
-    let (_cid, event) = get_test_event(signing_type, event_type);
-    let event = match event {
+fn extract_init_controller(event: &unvalidated::Event<Ipld>) -> String {
+    match event {
         unvalidated::Event::Time(_) => unreachable!("not a time event"),
-        unvalidated::Event::Signed(s) => s,
-        unvalidated::Event::Unsigned(_) => unreachable!("not unsigned"),
+        unvalidated::Event::Signed(s) => match s.payload() {
+            unvalidated::Payload::Data(_) => {
+                unreachable!("should not have data event: {:?}", event)
+            }
+            unvalidated::Payload::Init(init) => {
+                init.header().controllers().first().cloned().unwrap()
+            }
+        },
+        unvalidated::Event::Unsigned(_) => unreachable!("not unsigned event"),
+    }
+}
+
+pub async fn verify_event(
+    signing_type: SigningType,
+    event_type: TestEventType,
+    opts: &VerifyJwsOpts,
+) {
+    let (_cid, event) = get_test_event(signing_type, event_type);
+    let controller = match event_type {
+        TestEventType::DeterministicInit => unreachable!("nothing to verify"),
+        TestEventType::SignedInit => extract_init_controller(&event),
+        TestEventType::SignedData => {
+            // get init event controller
+            let (_cid, init) = get_test_event(signing_type, TestEventType::SignedInit);
+            extract_init_controller(&init)
+        }
     };
 
-    match event.verify_signature(opts).await {
-        Ok(_) => {}
-        Err(e) => {
-            panic!(
-                "{:?} for {:?} failed: {:?}: {:#}",
-                event_type, signing_type, event, e
-            )
+    match event {
+        unvalidated::Event::Time(_) => unreachable!("not a time event"),
+        unvalidated::Event::Signed(s) => {
+            // should verify against init controller and self contained
+            match s.verify_signature(Some(&controller), opts).await {
+                Ok(_) => {}
+                Err(e) => {
+                    panic!(
+                        "{:?} for {:?} failed with controller {controller}: {:?}: {:#}",
+                        event_type, signing_type, s, e,
+                    )
+                }
+            }
+            match s.verify_signature(None, opts).await {
+                Ok(_) => {}
+                Err(e) => {
+                    panic!(
+                        "{:?} for {:?} failed: {:?}: {:#}",
+                        event_type, signing_type, s, e
+                    )
+                }
+            }
         }
-    }
+        unvalidated::Event::Unsigned(_) => unreachable!("not unsigned"),
+    };
 }
 
 pub async fn verify_event_cacao(
     signing_type: SigningType,
     event_type: TestEventType,
-    opts: &VerifyOpts,
+    opts: &VerifyCacaoOpts,
 ) {
     let (_cid, event) = get_test_event(signing_type, event_type);
     let event = match event {
@@ -108,22 +147,6 @@ pub async fn verify_event_cacao(
         Ok(_) => {}
         Err(e) => {
             panic!("{:?}: {:#}", cap, e)
-        }
-    }
-}
-
-pub async fn verify_event_envelope(signing_type: SigningType, event_type: TestEventType) {
-    let (_cid, event) = get_test_event(signing_type, event_type);
-    let event = match event {
-        unvalidated::Event::Time(_) => unreachable!("not a time event"),
-        unvalidated::Event::Signed(s) => s,
-        unvalidated::Event::Unsigned(_) => unreachable!("not unsigned"),
-    };
-    let envelope = event.envelope();
-    match envelope.verify_signature(None).await {
-        Ok(_) => {}
-        Err(e) => {
-            panic!("{:?}: {:#}", envelope, e)
         }
     }
 }
@@ -154,12 +177,12 @@ pub fn get_test_event(
     let (envelope_cid, payload_cid) = match event_type {
         TestEventType::DeterministicInit => (parsed.meta.valid_deterministic_event, None),
         TestEventType::SignedInit => (
-            parsed.meta.valid_data_event,
-            Some(parsed.meta.valid_data_payload),
-        ),
-        TestEventType::SignedData => (
             parsed.meta.valid_init_event,
             Some(parsed.meta.valid_init_payload),
+        ),
+        TestEventType::SignedData => (
+            parsed.meta.valid_data_event,
+            Some(parsed.meta.valid_data_payload),
         ),
     };
     let envelope = parsed.blocks.get(&envelope_cid).unwrap();
