@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, sync::Arc};
 
 use anyhow::anyhow;
 use ceramic_car::{CarHeader, CarReader, CarWriter};
@@ -51,7 +51,7 @@ pub struct EventInsertable {
     /// Whether the event is deliverable i.e. it's prev has been delivered and the chain is continuous to an init event
     deliverable: bool,
     /// The parsed structure containing the actual Event data.
-    event: unvalidated::Event<Ipld>,
+    event: Arc<unvalidated::Event<Ipld>>,
 }
 
 impl EventInsertable {
@@ -81,7 +81,7 @@ impl EventInsertable {
             order_key,
             cid,
             deliverable,
-            event,
+            event: Arc::new(event),
         })
     }
 
@@ -96,7 +96,7 @@ impl EventInsertable {
     }
 
     /// Get the parsed Event structure.
-    pub fn event(&self) -> &unvalidated::Event<Ipld> {
+    pub fn event(&self) -> &Arc<unvalidated::Event<Ipld>> {
         &self.event
     }
 

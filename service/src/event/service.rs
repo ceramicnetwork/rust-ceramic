@@ -164,7 +164,7 @@ impl CeramicEventService {
         let mut signed_events = Vec::with_capacity(parsed_events.len());
         let mut time_events = Vec::with_capacity(parsed_events.len());
         for event in parsed_events {
-            match event.event() {
+            match event.event().as_ref() {
                 Event::Time(_) => {
                     time_events.push(event);
                 }
