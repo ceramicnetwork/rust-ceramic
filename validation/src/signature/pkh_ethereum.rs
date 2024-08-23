@@ -48,7 +48,7 @@ impl PkhEthereum {
             }
         }
 
-        if recovered != issuer && cacao.payload.issued_at < *LEGACY_CHAIN_ID_REORG_DATE {
+        if recovered != issuer && cacao.payload.issued_at()? < *LEGACY_CHAIN_ID_REORG_DATE {
             // might be an old CACAOv1 format
             recovered = Self::verify_message(
                 &siwx.as_legacy_chain_id_message(ETH_CHAIN),
