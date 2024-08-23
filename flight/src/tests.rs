@@ -60,6 +60,8 @@ fn test_conclusion_events_to_record_batch() {
         .as_any()
         .downcast_ref::<UInt8Array>()
         .unwrap();
+    // Value 0 is for data event type, value 1 is for time event type.
+    // Both events are data events in this test.
     assert_eq!(event_types.value(0), 0);
     assert_eq!(event_types.value(1), 0);
 

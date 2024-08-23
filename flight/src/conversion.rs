@@ -69,7 +69,6 @@ impl ConclusionEventBuilder {
         let data_field = Arc::new(Field::new("data", DataType::Binary, false));
 
         let previous = Arc::new(self.previous.finish()) as ArrayRef;
-        // TODO : Fix previous, we need to add a column why
         let previous_field = Arc::new(Field::new(
             "previous",
             DataType::List(Arc::new(Field::new_list_field(DataType::Binary, false))),
@@ -115,7 +114,7 @@ impl<'a> Extend<&'a ConclusionEvent> for ConclusionEventBuilder {
 ///
 /// ```
 /// use anyhow::Result;
-/// use ceramic_flight::{ConclusionEvent, ConclusionData, StreamType,};
+/// use ceramic_flight::{ConclusionEvent, ConclusionData, ConclusionInit};
 /// use ceramic_flight::conclusion_events_to_record_batch;
 /// use cid::Cid;
 ///
