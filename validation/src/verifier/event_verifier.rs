@@ -130,12 +130,16 @@ fn issuer_equals(did_a: &str, did_b: &str) -> bool {
 
 #[cfg(test)]
 mod test {
+    use ceramic_event::unvalidated;
     use test_log::test;
 
     use super::*;
 
     use crate::{
-        test::{verify_event, SigningType, TestEventType},
+        test::{
+            assert_invalid_event, verify_event, SigningType, TestEventType, SIGNED_DATA_EVENT_CAR,
+            SIGNED_INIT_EVENT_CAR,
+        },
         verifier::opts::VerifyJwsOpts,
     };
 
@@ -184,6 +188,98 @@ mod test {
             SigningType::EcdsaP256,
         ] {
             verify_event(e_type, TestEventType::SignedData, &VerifyJwsOpts::default()).await;
+        }
+    }
+
+    #[test(tokio::test)]
+    async fn invalid_init_signatures() {
+        for e_type in [
+            SigningType::Solana,
+            SigningType::Ethereum,
+            SigningType::Ed2559,
+            SigningType::EcdsaP256,
+        ] {
+            assert_invalid_event(
+                e_type,
+                TestEventType::InvalidSignedInit,
+                &VerifyJwsOpts::default(),
+            )
+            .await;
+        }
+    }
+
+    #[test(tokio::test)]
+    async fn invalid_data_signatures() {
+        for e_type in [
+            SigningType::Solana,
+            SigningType::Ethereum,
+            SigningType::Ed2559,
+            SigningType::EcdsaP256,
+        ] {
+            assert_invalid_event(
+                e_type,
+                TestEventType::InvalidSignedData,
+                &VerifyJwsOpts::default(),
+            )
+            .await;
+        }
+    }
+
+    #[test(tokio::test)]
+    async fn local_car_init_event() {
+        let (_, bytes) = multibase::decode(
+            SIGNED_INIT_EVENT_CAR
+                .chars()
+                .filter(|c| !c.is_whitespace())
+                .collect::<String>(),
+        )
+        .unwrap();
+        let (_cid, event) =
+            unvalidated::Event::<Ipld>::decode_car(std::io::Cursor::new(bytes), false).unwrap();
+
+        match event {
+            unvalidated::Event::Time(_) => unreachable!("not time"),
+            unvalidated::Event::Signed(s) => s
+                .verify_signature(
+                    None,
+                    &VerifyJwsOpts {
+                        at_time: AtTime::SkipTimeChecks,
+                        ..Default::default()
+                    },
+                )
+                .await
+                .expect("should be valid"),
+
+            unvalidated::Event::Unsigned(_) => unreachable!("not unsigned"),
+        }
+    }
+
+    #[test(tokio::test)]
+    async fn local_car_data_event() {
+        let (_, bytes) = multibase::decode(
+            SIGNED_DATA_EVENT_CAR
+                .chars()
+                .filter(|c| !c.is_whitespace())
+                .collect::<String>(),
+        )
+        .unwrap();
+        let (_cid, event) =
+            unvalidated::Event::<Ipld>::decode_car(std::io::Cursor::new(bytes), false).unwrap();
+
+        match event {
+            unvalidated::Event::Time(_) => unreachable!("not time"),
+            unvalidated::Event::Signed(s) => s
+                .verify_signature(
+                    None,
+                    &VerifyJwsOpts {
+                        at_time: AtTime::SkipTimeChecks,
+                        ..Default::default()
+                    },
+                )
+                .await
+                .expect("should be valid"),
+
+            unvalidated::Event::Unsigned(_) => unreachable!("not unsigned"),
         }
     }
 }

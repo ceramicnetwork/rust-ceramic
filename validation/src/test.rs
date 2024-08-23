@@ -14,10 +14,8 @@ use crate::{
     VerifyCacaoOpts,
 };
 
-#[allow(dead_code)]
 /// A signed init event encoded as a carfile
 pub const SIGNED_INIT_EVENT_CAR: &str = "uO6Jlcm9vdHOB2CpYJgABhQESII6AYH_8-NniumDaEPcbPId6ZQAMFfViEDLxGVnVBNOOZ3ZlcnNpb24B0QEBcRIgEXCWI0EH1zQcSl57SUKRoo0WwhL6nMo8kLKfvgNaG0OiZGRhdGGhZXN0ZXBoGQFNZmhlYWRlcqRjc2VwZW1vZGVsZW1vZGVsWCjOAQIBhQESIKDoMqM144vTQLQ6DwKZvzxRWg_DPeTNeRCkPouTHo1YZnVuaXF1ZUxEpvE6skELu2qFaN5rY29udHJvbGxlcnOBeDhkaWQ6a2V5Ono2TWt0QnluQVBMckV5ZVM3cFZ0aGJpeVNjbWZ1OG41Vjdib1hneHlvNXEzU1pSUroCAYUBEiCOgGB__PjZ4rpg2hD3GzyHemUADBX1YhAy8RlZ1QTTjqJncGF5bG9hZFgkAXESIBFwliNBB9c0HEpee0lCkaKNFsIS-pzKPJCyn74DWhtDanNpZ25hdHVyZXOBomlwcm90ZWN0ZWRYgXsiYWxnIjoiRWREU0EiLCJraWQiOiJkaWQ6a2V5Ono2TWt0QnluQVBMckV5ZVM3cFZ0aGJpeVNjbWZ1OG41Vjdib1hneHlvNXEzU1pSUiN6Nk1rdEJ5bkFQTHJFeWVTN3BWdGhiaXlTY21mdThuNVY3Ym9YZ3h5bzVxM1NaUlIifWlzaWduYXR1cmVYQCQDjlx8fT8rbTR4088HtOE27LJMc38DSuf1_XtK14hDp1Q6vhHqnuiobqp5EqNOp0vNFCCzwgG-Dsjmes9jJww";
-#[allow(dead_code)]
 /// Data Event for a stream with a signed init event
 pub const SIGNED_DATA_EVENT_CAR: &str = "uO6Jlcm9vdHOB2CpYJgABhQESICddBxl5Sk2e7I20pzX9kDLf0jj6WvIQ1KqbM3WQiClDZ3ZlcnNpb24BqAEBcRIgdtssXEgR7sXQQQA1doBpxUpTn4pcAaVFZfQjyo-03SGjYmlk2CpYJgABhQESII6AYH_8-NniumDaEPcbPId6ZQAMFfViEDLxGVnVBNOOZGRhdGGBo2JvcGdyZXBsYWNlZHBhdGhmL3N0ZXBoZXZhbHVlGQFOZHByZXbYKlgmAAGFARIgjoBgf_z42eK6YNoQ9xs8h3plAAwV9WIQMvEZWdUE0466AgGFARIgJ10HGXlKTZ7sjbSnNf2QMt_SOPpa8hDUqpszdZCIKUOiZ3BheWxvYWRYJAFxEiB22yxcSBHuxdBBADV2gGnFSlOfilwBpUVl9CPKj7TdIWpzaWduYXR1cmVzgaJpcHJvdGVjdGVkWIF7ImFsZyI6IkVkRFNBIiwia2lkIjoiZGlkOmtleTp6Nk1rdEJ5bkFQTHJFeWVTN3BWdGhiaXlTY21mdThuNVY3Ym9YZ3h5bzVxM1NaUlIjejZNa3RCeW5BUExyRXllUzdwVnRoYml5U2NtZnU4bjVWN2JvWGd4eW81cTNTWlJSIn1pc2lnbmF0dXJlWECym-Kwb5ti-T5dCygt4zf8Lr6MescAbkk_DILoy3fFjYG8fZVUCGKDQiTTHbNbzOk1yze7-2hA3AKdBfzJY1kA";
 /// Data event signed with a CACAO
@@ -47,6 +45,8 @@ pub enum TestEventType {
     DeterministicInit,
     SignedInit,
     SignedData,
+    InvalidSignedInit,
+    InvalidSignedData,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -73,7 +73,7 @@ fn parse_test_data(data: &[u8]) -> ParsedSampleData {
     ParsedSampleData { meta, blocks }
 }
 
-fn extract_init_controller(event: &unvalidated::Event<Ipld>) -> String {
+fn extract_controller(event: &unvalidated::Event<Ipld>) -> String {
     match event {
         unvalidated::Event::Time(_) => unreachable!("not a time event"),
         unvalidated::Event::Signed(s) => match s.payload() {
@@ -88,22 +88,62 @@ fn extract_init_controller(event: &unvalidated::Event<Ipld>) -> String {
     }
 }
 
+fn extract_init_controller(
+    signing_type: SigningType,
+    event_type: TestEventType,
+    event: &unvalidated::Event<Ipld>,
+) -> String {
+    match event_type {
+        TestEventType::DeterministicInit => unreachable!("nothing to verify"),
+        TestEventType::SignedInit | TestEventType::InvalidSignedInit => extract_controller(event),
+        TestEventType::SignedData | TestEventType::InvalidSignedData => {
+            // get init event controller
+            let (_cid, init) = get_test_event(signing_type, TestEventType::SignedInit);
+            extract_controller(&init)
+        }
+    }
+}
+
+pub async fn assert_invalid_event(
+    signing_type: SigningType,
+    event_type: TestEventType,
+    opts: &VerifyJwsOpts,
+) {
+    let (_cid, event) = get_test_event(signing_type, event_type);
+    let controller = extract_init_controller(signing_type, event_type, &event);
+    match event {
+        unvalidated::Event::Time(_) => unreachable!("not a time event"),
+        unvalidated::Event::Signed(s) => {
+            // should verify against init controller and self contained
+            match s.verify_signature(Some(&controller), opts).await {
+                Ok(_) => {
+                    panic!("should have been invalid")
+                }
+                Err(e) => {
+                    tracing::debug!("failed as expected: {:#}", e);
+                }
+            }
+            match s.verify_signature(None, opts).await {
+                Ok(_) => {
+                    panic!("should have been invalid")
+                }
+                Err(e) => {
+                    tracing::debug!("failed as expected: {:#}", e);
+                }
+            }
+        }
+        unvalidated::Event::Unsigned(_) => unreachable!("not unsigned"),
+    };
+}
+
 pub async fn verify_event(
     signing_type: SigningType,
     event_type: TestEventType,
     opts: &VerifyJwsOpts,
 ) {
     let (_cid, event) = get_test_event(signing_type, event_type);
-    let controller = match event_type {
-        TestEventType::DeterministicInit => unreachable!("nothing to verify"),
-        TestEventType::SignedInit => extract_init_controller(&event),
-        TestEventType::SignedData => {
-            // get init event controller
-            let (_cid, init) = get_test_event(signing_type, TestEventType::SignedInit);
-            extract_init_controller(&init)
-        }
-    };
 
+    let controller = extract_init_controller(signing_type, event_type, &event);
     match event {
         unvalidated::Event::Time(_) => unreachable!("not a time event"),
         unvalidated::Event::Signed(s) => {
@@ -182,6 +222,14 @@ pub fn get_test_event(
         ),
         TestEventType::SignedData => (
             parsed.meta.valid_data_event,
+            Some(parsed.meta.valid_data_payload),
+        ),
+        TestEventType::InvalidSignedInit => (
+            parsed.meta.invalid_init_event_signature,
+            Some(parsed.meta.valid_init_payload),
+        ),
+        TestEventType::InvalidSignedData => (
+            parsed.meta.invalid_data_event_signature,
             Some(parsed.meta.valid_data_payload),
         ),
     };
