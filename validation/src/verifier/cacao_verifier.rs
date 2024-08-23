@@ -61,16 +61,16 @@ impl Verifier for Capability {
     fn verify_time_checks(&self, opts: &VerifyOpts) -> anyhow::Result<()> {
         let at_time = opts.at_time.unwrap_or_else(chrono::Utc::now);
 
-        if self.payload.issued_at > at_time + opts.clock_skew
+        if self.payload.issued_at()? > at_time + opts.clock_skew
             || self
                 .payload
-                .not_before
+                .not_before()?
                 .map_or(false, |nb| nb > at_time + opts.clock_skew)
         {
             anyhow::bail!("CACAO is not valid yet")
         }
         if opts.check_exp {
-            if let Some(exp) = self.payload.expiration {
+            if let Some(exp) = self.payload.expiration()? {
                 if exp + opts.revocation_phaseout_secs + opts.clock_skew < at_time {
                     anyhow::bail!("CACAO has expired")
                 }

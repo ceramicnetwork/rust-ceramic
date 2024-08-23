@@ -37,9 +37,6 @@ pub struct Header {
     pub r#type: HeaderType,
 }
 
-/// Time format for capability
-pub type CapabilityTime = chrono::DateTime<chrono::Utc>;
-
 /// Payload for a CACAO
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Payload {
@@ -51,20 +48,29 @@ pub struct Payload {
     pub domain: String,
 
     /// Expiration time
+    /// Not using a chrono::DateTime because we need to round trip the exact
+    /// value we receive without modifying precision and changning the CID.
+    /// The new CAIP proposes using ints but most of our cacaos still use ISO 8601 values.
     #[serde(rename = "exp", skip_serializing_if = "Option::is_none")]
-    pub expiration: Option<CapabilityTime>,
+    pub expiration: Option<String>,
 
-    /// Issued at time
+    /// Issued at time.
+    /// Not using a chrono::DateTime because we need to round trip the exact
+    /// value we receive without modifying precision and changning the CID.
+    /// The new CAIP proposes using ints but most of our cacaos still use ISO 8601 values.
     #[serde(rename = "iat")]
-    pub issued_at: CapabilityTime,
+    pub issued_at: String,
 
     /// Issuer for payload. For capability will be DID in URI format
     #[serde(rename = "iss")]
     pub issuer: String,
 
-    /// Not before time
+    /// Not before time.
+    /// Not using a chrono::DateTime because we need to round trip the exact
+    /// value we receive without modifying precision and changning the CID.
+    /// The new CAIP proposes using ints but most of our cacaos still use ISO 8601 values.
     #[serde(rename = "nbf", skip_serializing_if = "Option::is_none")]
-    pub not_before: Option<CapabilityTime>,
+    pub not_before: Option<String>,
 
     /// Nonce of payload
     pub nonce: String,
@@ -83,6 +89,51 @@ pub struct Payload {
 
     /// Version of payload
     pub version: String,
+}
+
+impl Payload {
+    /// Parse the iat field as a chrono DateTime
+    pub fn issued_at(&self) -> anyhow::Result<chrono::DateTime<chrono::Utc>> {
+        let ts = Self::parse_timestamp(&self.issued_at)
+            .map_err(|e| anyhow::anyhow!("invalid issued_at format: {}", e))?;
+        Ok(ts.to_utc())
+    }
+
+    /// Parse the nbf field as a chrono DateTime
+    pub fn not_before(&self) -> anyhow::Result<Option<chrono::DateTime<chrono::Utc>>> {
+        let ts = self
+            .not_before
+            .as_ref()
+            .map(|nbf| Self::parse_timestamp(nbf))
+            .transpose()
+            .map_err(|e| anyhow::anyhow!("invalid not_before format: {}", e))?;
+        Ok(ts.map(|ts| ts.to_utc()))
+    }
+
+    /// Parse the exp field as a chrono DateTime
+    pub fn expiration(&self) -> anyhow::Result<Option<chrono::DateTime<chrono::Utc>>> {
+        let ts = self
+            .expiration
+            .as_ref()
+            .map(|exp| Self::parse_timestamp(exp))
+            .transpose()
+            .map_err(|e| anyhow::anyhow!("invalid expiration format: {}", e))?;
+        Ok(ts.map(|ts| ts.to_utc()))
+    }
+
+    fn parse_timestamp(input: &str) -> anyhow::Result<chrono::DateTime<chrono::Utc>> {
+        if let Ok(val) =
+            chrono::DateTime::parse_from_rfc3339(input).map(|dt| dt.with_timezone(&chrono::Utc))
+        {
+            Ok(val)
+        } else if let Ok(unix_timestamp) = input.parse::<i64>() {
+            let naive = chrono::DateTime::from_timestamp(unix_timestamp, 0)
+                .ok_or_else(|| anyhow::anyhow!("failed to parse unix timestamp"))?;
+            Ok(naive)
+        } else {
+            anyhow::bail!(format!("failed to parse timestamp: {input}"))
+        }
+    }
 }
 
 /// Type of Signature

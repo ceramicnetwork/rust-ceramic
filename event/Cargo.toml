@@ -14,6 +14,7 @@ anyhow.workspace = true
 base64.workspace = true
 ceramic-car.workspace = true
 ceramic-core.workspace = true
+chrono.workspace = true
 cid.workspace = true
 ipld-core.workspace = true
 multihash-codetable.workspace = true
@@ -24,7 +25,6 @@ serde_json.workspace = true
 ssi.workspace = true
 tokio.workspace = true
 tracing.workspace = true
-chrono = "0.4"
 
 [dev-dependencies]
 multibase.workspace = true

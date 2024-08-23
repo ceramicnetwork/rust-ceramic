@@ -34,13 +34,13 @@ pub struct SiwxMessage<'a> {
     /// characters.
     nonce: &'a str,
     /// ISO 8601 datetime String of the current time.
-    issued_at: &'a DateTime<Utc>,
+    issued_at: DateTime<Utc>,
     /// Presented to the user as an ISO 8601 datetime String that, if present,
     /// indicates when the signed authentication message is no longer valid.
-    expiration_time: Option<&'a DateTime<Utc>>,
+    expiration_time: Option<DateTime<Utc>>,
     /// Presented to the user as a ISO 8601 datetime String that, if present,
     /// indicates when the signed authentication message will become valid.
-    not_before: Option<&'a DateTime<Utc>>,
+    not_before: Option<DateTime<Utc>>,
     /// System-specific identifier that may be used to uniquely refer to the
     /// sign-in request.
     request_id: Option<&'a str>,
@@ -65,9 +65,9 @@ impl<'a> SiwxMessage<'a> {
             uri: &cacao.payload.audience,
             version: &cacao.payload.version,
             nonce: &cacao.payload.nonce,
-            issued_at: &cacao.payload.issued_at,
-            expiration_time: cacao.payload.expiration.as_ref(),
-            not_before: cacao.payload.not_before.as_ref(),
+            issued_at: cacao.payload.issued_at()?,
+            expiration_time: cacao.payload.expiration()?,
+            not_before: cacao.payload.not_before()?,
             request_id: cacao.payload.request_id.as_deref(),
             resources: cacao.payload.resources.as_deref(),
             signature: Some(cacao.signature.signature.as_ref()),
