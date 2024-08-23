@@ -20,8 +20,12 @@ pub trait Verifier {
     /// Verify the time checks for the CACAO using the `VerifyOpts`
     fn verify_time_checks(&self, opts: &VerifyCacaoOpts) -> Result<()>;
     /// Verify this CACAO grants access to the requested resources
-    fn verify_access(&self, payload_cid: Cid, stream_id: &StreamId, model: &StreamId)
-        -> Result<()>;
+    fn verify_access(
+        &self,
+        stream_id: &StreamId,
+        payload_cid: Option<Cid>,
+        model: Option<&StreamId>,
+    ) -> Result<()>;
 }
 
 #[async_trait::async_trait]
@@ -35,14 +39,14 @@ impl Verifier for Capability {
             HeaderType::EIP4361 => PkhEthereum::verify(self),
             HeaderType::CAIP122 => match self.signature.r#type {
                 SignatureType::EIP191 => PkhEthereum::verify(self),
-                SignatureType::EIP1271 => bail!("EIP1271 signature validation is unimplmented"),
+                SignatureType::EIP1271 => bail!("EIP1271 signature validation is unimplemented"),
                 SignatureType::SolanaED25519 => PkhSolana::verify(self),
-                SignatureType::TezosED25519 => bail!("Tezos signature validation is unimplmented"),
+                SignatureType::TezosED25519 => bail!("Tezos signature validation is unimplemented"),
                 SignatureType::StacksSECP256K1 => {
-                    bail!("Stacks signature validation is unimplmented")
+                    bail!("Stacks signature validation is unimplemented")
                 }
                 SignatureType::WebAuthNP256 => {
-                    bail!("WebAuthN signature validation is unimplmented")
+                    bail!("WebAuthN signature validation is unimplemented")
                 }
                 SignatureType::JWS => {
                     let meta = if let Some(meta) = &self.signature.metadata {
@@ -107,9 +111,9 @@ impl Verifier for Capability {
 
     fn verify_access(
         &self,
-        payload_cid: Cid,
         stream_id: &StreamId,
-        model: &StreamId,
+        payload_cid: Option<Cid>,
+        model: Option<&StreamId>,
     ) -> Result<()> {
         let resources = self
             .payload
@@ -117,15 +121,19 @@ impl Verifier for Capability {
             .as_ref()
             .ok_or_else(|| anyhow!("capability is missing resources"))?;
 
-        if !resources.contains(&"ceramic://*".to_owned())
-            && !resources.contains(&format!("ceramic://{stream_id}"))
-            && !resources.contains(&format!("ceramic://{stream_id}?payload={payload_cid}"))
-            && !(resources.contains(&format!("ceramic://*?model=${model}")))
+        if resources.contains(&"ceramic://*".to_owned())
+            || resources.contains(&format!("ceramic://{stream_id}"))
+            || payload_cid.map_or(false, |payload_cid| {
+                resources.contains(&format!("ceramic://{stream_id}?payload={payload_cid}"))
+            })
+            || model.map_or(false, |model| {
+                resources.contains(&format!("ceramic://*?model=${model}"))
+            })
         {
+            Ok(())
+        } else {
             bail!("capability does not have appropriate permissions to update this stream");
         }
-
-        Ok(())
     }
 }
 
@@ -152,7 +160,10 @@ mod test {
         let cid =
             Cid::from_str("baejbeicqtpe5si4qvbffs2s7vtbk5ccbsfg6owmpidfj3zeluqz4hlnz6m").unwrap(); // cspell:disable-line
         let cacao = serde_json::from_str::<Capability>(CACAO_STAR_RESOURCES).unwrap();
-        cacao.verify_access(cid, &stream, &model).unwrap();
+        cacao
+            .verify_access(&stream, Some(cid), Some(&model))
+            .unwrap();
+        cacao.verify_access(&model, None, None).unwrap(); // wrong stream okay with *
     }
 
     #[test]
@@ -166,7 +177,9 @@ mod test {
         let cid =
             Cid::from_str("baejbeicqtpe5si4qvbffs2s7vtbk5ccbsfg6owmpidfj3zeluqz4hlnz6m").unwrap(); // cspell:disable-line
         let cacao = serde_json::from_str::<Capability>(CACAO_STREAM_RESOURCES).unwrap();
-        cacao.verify_access(cid, &stream, &model).unwrap();
+        cacao
+            .verify_access(&stream, Some(cid), Some(&model))
+            .unwrap();
     }
 
     #[test]
@@ -177,7 +190,7 @@ mod test {
         let cid =
             Cid::from_str("baejbeicqtpe5si4qvbffs2s7vtbk5ccbsfg6owmpidfj3zeluqz4hlnz6m").unwrap(); // cspell:disable-line
         let cacao = serde_json::from_str::<Capability>(CACAO_STREAM_RESOURCES).unwrap();
-        if cacao.verify_access(cid, &model, &model).is_ok() {
+        if cacao.verify_access(&model, Some(cid), Some(&model)).is_ok() {
             panic!("should not have had access to stream")
         }
     }
@@ -193,7 +206,10 @@ mod test {
         let cid =
             Cid::from_str("baejbeicqtpe5si4qvbffs2s7vtbk5ccbsfg6owmpidfj3zeluqz4hlnz6m").unwrap(); // cspell:disable-line
         let cacao = serde_json::from_str::<Capability>(CACAO_NO_RESOURCES).unwrap();
-        if cacao.verify_access(cid, &stream, &model).is_ok() {
+        if cacao
+            .verify_access(&stream, Some(cid), Some(&model))
+            .is_ok()
+        {
             panic!("should not have had access to stream")
         }
     }
