@@ -1,18 +1,19 @@
 [package]
-name = "flight"
+name = "ceramic-flight"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
 
+
 [dependencies]
 anyhow.workspace = true
 cid.workspace = true
 serde.workspace = true
 serde_bytes.workspace = true
-arrow = "9.0.0"
 chrono = { version = "0.4", features = ["serde"] }
+arrow.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }

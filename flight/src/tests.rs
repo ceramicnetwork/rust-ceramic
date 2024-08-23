@@ -1,9 +1,7 @@
 use super::*;
-use crate::types::StreamType;
 use crate::types::{ConclusionData, ConclusionEvent, ConclusionInit};
 use arrow::array::{Array, BinaryArray, ListArray, StringArray, UInt8Array};
 use cid::Cid;
-use serde_bytes::ByteBuf;
 
 /// Tests the conversion of ConclusionEvents to Arrow RecordBatch.
 ///
@@ -22,25 +20,24 @@ fn test_conclusion_events_to_record_batch() {
         ConclusionEvent::Data(ConclusionData {
             id: Cid::default(),
             init: ConclusionInit {
-                stream_type: StreamType::Tile,
+                stream_type: 0,
                 controller: "did:key:test1".to_string(),
                 dimensions: vec![],
             },
             previous: vec![],
-            data: ByteBuf::from(vec![1, 2, 3]),
+            data: vec![1, 2, 3],
         }),
         ConclusionEvent::Data(ConclusionData {
             id: Cid::default(),
             init: ConclusionInit {
-                stream_type: StreamType::Model,
+                stream_type: 2,
                 controller: "did:key:test2".to_string(),
                 dimensions: vec![],
             },
             previous: vec![Cid::default()],
-            data: ByteBuf::from(vec![4, 5, 6]),
+            data: vec![4, 5, 6],
         }),
     ];
-
     // Convert events to RecordBatch
     let record_batch = conclusion_events_to_record_batch(&events).unwrap();
 
@@ -71,8 +68,8 @@ fn test_conclusion_events_to_record_batch() {
         .as_any()
         .downcast_ref::<UInt8Array>()
         .unwrap();
-    assert_eq!(stream_types.value(0), StreamType::Tile.as_u8());
-    assert_eq!(stream_types.value(1), StreamType::Model.as_u8());
+    assert_eq!(stream_types.value(0), 0);
+    assert_eq!(stream_types.value(1), 2);
 
     let controllers = record_batch
         .column(3)
