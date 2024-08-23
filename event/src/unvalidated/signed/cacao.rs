@@ -37,6 +37,46 @@ pub struct Header {
     pub r#type: HeaderType,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(transparent)]
+/// A wrapper around the a time value to hide the internal representation (which is currently a string).
+/// Use `From<chrono::DateTime<chrono::Utc>>` to construct if needed.
+pub struct CapabilityTime(String);
+
+impl From<chrono::DateTime<chrono::Utc>> for CapabilityTime {
+    fn from(time: chrono::DateTime<chrono::Utc>) -> Self {
+        Self(time.to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true))
+    }
+}
+
+impl CapabilityTime {
+    /// Returns the time as a UTC DateTime
+    pub fn as_utc_dt(&self) -> anyhow::Result<chrono::DateTime<chrono::Utc>> {
+        let ts = Self::parse_timestamp(&self.0)
+            .map_err(|e| anyhow::anyhow!("invalid time format for '{}': {}", self.0, e))?;
+        Ok(ts.to_utc())
+    }
+
+    /// Returns a string representation of the time
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    fn parse_timestamp(input: &str) -> anyhow::Result<chrono::DateTime<chrono::Utc>> {
+        if let Ok(val) =
+            chrono::DateTime::parse_from_rfc3339(input).map(|dt| dt.with_timezone(&chrono::Utc))
+        {
+            Ok(val)
+        } else if let Ok(unix_timestamp) = input.parse::<i64>() {
+            let naive = chrono::DateTime::from_timestamp(unix_timestamp, 0)
+                .ok_or_else(|| anyhow::anyhow!("failed to parse unix timestamp"))?;
+            Ok(naive)
+        } else {
+            anyhow::bail!(format!("failed to parse timestamp: {input}"))
+        }
+    }
+}
+
 /// Payload for a CACAO
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Payload {
@@ -52,14 +92,14 @@ pub struct Payload {
     /// value we receive without modifying precision and changning the CID.
     /// The new CAIP proposes using ints but most of our cacaos still use ISO 8601 values.
     #[serde(rename = "exp", skip_serializing_if = "Option::is_none")]
-    pub expiration: Option<String>,
+    pub expiration: Option<CapabilityTime>,
 
     /// Issued at time.
     /// Not using a chrono::DateTime because we need to round trip the exact
     /// value we receive without modifying precision and changning the CID.
     /// The new CAIP proposes using ints but most of our cacaos still use ISO 8601 values.
     #[serde(rename = "iat")]
-    pub issued_at: String,
+    pub issued_at: CapabilityTime,
 
     /// Issuer for payload. For capability will be DID in URI format
     #[serde(rename = "iss")]
@@ -70,7 +110,7 @@ pub struct Payload {
     /// value we receive without modifying precision and changning the CID.
     /// The new CAIP proposes using ints but most of our cacaos still use ISO 8601 values.
     #[serde(rename = "nbf", skip_serializing_if = "Option::is_none")]
-    pub not_before: Option<String>,
+    pub not_before: Option<CapabilityTime>,
 
     /// Nonce of payload
     pub nonce: String,
@@ -94,7 +134,9 @@ pub struct Payload {
 impl Payload {
     /// Parse the iat field as a chrono DateTime
     pub fn issued_at(&self) -> anyhow::Result<chrono::DateTime<chrono::Utc>> {
-        let ts = Self::parse_timestamp(&self.issued_at)
+        let ts = self
+            .issued_at
+            .as_utc_dt()
             .map_err(|e| anyhow::anyhow!("invalid issued_at format: {}", e))?;
         Ok(ts.to_utc())
     }
@@ -104,7 +146,7 @@ impl Payload {
         let ts = self
             .not_before
             .as_ref()
-            .map(|nbf| Self::parse_timestamp(nbf))
+            .map(|nbf| nbf.as_utc_dt())
             .transpose()
             .map_err(|e| anyhow::anyhow!("invalid not_before format: {}", e))?;
         Ok(ts.map(|ts| ts.to_utc()))
@@ -115,24 +157,10 @@ impl Payload {
         let ts = self
             .expiration
             .as_ref()
-            .map(|exp| Self::parse_timestamp(exp))
+            .map(|exp| exp.as_utc_dt())
             .transpose()
             .map_err(|e| anyhow::anyhow!("invalid expiration format: {}", e))?;
         Ok(ts.map(|ts| ts.to_utc()))
-    }
-
-    fn parse_timestamp(input: &str) -> anyhow::Result<chrono::DateTime<chrono::Utc>> {
-        if let Ok(val) =
-            chrono::DateTime::parse_from_rfc3339(input).map(|dt| dt.with_timezone(&chrono::Utc))
-        {
-            Ok(val)
-        } else if let Ok(unix_timestamp) = input.parse::<i64>() {
-            let naive = chrono::DateTime::from_timestamp(unix_timestamp, 0)
-                .ok_or_else(|| anyhow::anyhow!("failed to parse unix timestamp"))?;
-            Ok(naive)
-        } else {
-            anyhow::bail!(format!("failed to parse timestamp: {input}"))
-        }
     }
 }
 
