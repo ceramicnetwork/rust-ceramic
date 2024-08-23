@@ -49,31 +49,28 @@ impl From<chrono::DateTime<chrono::Utc>> for CapabilityTime {
     }
 }
 
-impl CapabilityTime {
-    /// Returns the time as a UTC DateTime
-    pub fn as_utc_dt(&self) -> anyhow::Result<chrono::DateTime<chrono::Utc>> {
-        let ts = Self::parse_timestamp(&self.0)
-            .map_err(|e| anyhow::anyhow!("invalid time format for '{}': {}", self.0, e))?;
-        Ok(ts.to_utc())
-    }
+impl TryFrom<&CapabilityTime> for chrono::DateTime<chrono::Utc> {
+    type Error = anyhow::Error;
 
+    fn try_from(input: &CapabilityTime) -> Result<Self, Self::Error> {
+        if let Ok(val) =
+            chrono::DateTime::parse_from_rfc3339(&input.0).map(|dt| dt.with_timezone(&chrono::Utc))
+        {
+            Ok(val)
+        } else if let Ok(unix_timestamp) = input.0.parse::<i64>() {
+            let naive = chrono::DateTime::from_timestamp(unix_timestamp, 0)
+                .ok_or_else(|| anyhow::anyhow!("failed to parse as unix timestamp: {}", input.0))?;
+            Ok(naive)
+        } else {
+            anyhow::bail!(format!("failed to parse timestamp: {}", input.0))
+        }
+    }
+}
+
+impl CapabilityTime {
     /// Returns a string representation of the time
     pub fn as_str(&self) -> &str {
         &self.0
-    }
-
-    fn parse_timestamp(input: &str) -> anyhow::Result<chrono::DateTime<chrono::Utc>> {
-        if let Ok(val) =
-            chrono::DateTime::parse_from_rfc3339(input).map(|dt| dt.with_timezone(&chrono::Utc))
-        {
-            Ok(val)
-        } else if let Ok(unix_timestamp) = input.parse::<i64>() {
-            let naive = chrono::DateTime::from_timestamp(unix_timestamp, 0)
-                .ok_or_else(|| anyhow::anyhow!("failed to parse unix timestamp"))?;
-            Ok(naive)
-        } else {
-            anyhow::bail!(format!("failed to parse timestamp: {input}"))
-        }
     }
 }
 
@@ -134,33 +131,27 @@ pub struct Payload {
 impl Payload {
     /// Parse the iat field as a chrono DateTime
     pub fn issued_at(&self) -> anyhow::Result<chrono::DateTime<chrono::Utc>> {
-        let ts = self
-            .issued_at
-            .as_utc_dt()
-            .map_err(|e| anyhow::anyhow!("invalid issued_at format: {}", e))?;
-        Ok(ts.to_utc())
+        (&self.issued_at)
+            .try_into()
+            .map_err(|e| anyhow::anyhow!("invalid issued_at format: {}", e))
     }
 
     /// Parse the nbf field as a chrono DateTime
     pub fn not_before(&self) -> anyhow::Result<Option<chrono::DateTime<chrono::Utc>>> {
-        let ts = self
-            .not_before
+        self.not_before
             .as_ref()
-            .map(|nbf| nbf.as_utc_dt())
+            .map(|nbf| nbf.try_into())
             .transpose()
-            .map_err(|e| anyhow::anyhow!("invalid not_before format: {}", e))?;
-        Ok(ts.map(|ts| ts.to_utc()))
+            .map_err(|e| anyhow::anyhow!("invalid not_before format: {}", e))
     }
 
     /// Parse the exp field as a chrono DateTime
     pub fn expiration(&self) -> anyhow::Result<Option<chrono::DateTime<chrono::Utc>>> {
-        let ts = self
-            .expiration
+        self.expiration
             .as_ref()
-            .map(|exp| exp.as_utc_dt())
+            .map(|exp| exp.try_into())
             .transpose()
-            .map_err(|e| anyhow::anyhow!("invalid expiration format: {}", e))?;
-        Ok(ts.map(|ts| ts.to_utc()))
+            .map_err(|e| anyhow::anyhow!("invalid expiration format: {}", e))
     }
 }
 
