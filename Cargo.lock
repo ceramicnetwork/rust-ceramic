@@ -1541,7 +1541,6 @@ dependencies = [
  "chrono",
  "cid 0.11.1",
  "serde",
- "serde_bytes",
  "test-log",
  "tokio",
 ]
