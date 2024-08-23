@@ -1,6 +1,7 @@
 use super::*;
 use crate::types::{ConclusionData, ConclusionEvent, ConclusionInit};
 use arrow::array::{Array, BinaryArray, ListArray, StringArray, UInt8Array};
+use ceramic_core::StreamIdType;
 use cid::Cid;
 
 /// Tests the conversion of ConclusionEvents to Arrow RecordBatch.
@@ -20,7 +21,7 @@ fn test_conclusion_events_to_record_batch() {
         ConclusionEvent::Data(ConclusionData {
             id: Cid::default(),
             init: ConclusionInit {
-                stream_type: 0,
+                stream_type: StreamIdType::Model as u8,
                 controller: "did:key:test1".to_string(),
                 dimensions: vec![],
             },
@@ -30,7 +31,7 @@ fn test_conclusion_events_to_record_batch() {
         ConclusionEvent::Data(ConclusionData {
             id: Cid::default(),
             init: ConclusionInit {
-                stream_type: 2,
+                stream_type: StreamIdType::Model as u8,
                 controller: "did:key:test2".to_string(),
                 dimensions: vec![],
             },
@@ -70,7 +71,7 @@ fn test_conclusion_events_to_record_batch() {
         .as_any()
         .downcast_ref::<UInt8Array>()
         .unwrap();
-    assert_eq!(stream_types.value(0), 0);
+    assert_eq!(stream_types.value(0), 2);
     assert_eq!(stream_types.value(1), 2);
 
     let controllers = record_batch

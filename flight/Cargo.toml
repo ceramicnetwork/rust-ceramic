@@ -13,6 +13,7 @@ cid.workspace = true
 serde.workspace = true
 chrono = { version = "0.4", features = ["serde"] }
 arrow.workspace = true
+ceramic-core = { path = "../core" }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }

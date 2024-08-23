@@ -1538,6 +1538,7 @@ version = "0.34.0"
 dependencies = [
  "anyhow",
  "arrow",
+ "ceramic-core",
  "chrono",
  "cid 0.11.1",
  "serde",
