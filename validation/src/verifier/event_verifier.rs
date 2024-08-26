@@ -33,9 +33,10 @@ impl Verifier for signed::Event<Ipld> {
             .context("event envelope is not a jws")?;
 
         let protected = signature
-            .protected
-            .as_ref()
+            .protected()
             .ok_or_else(|| anyhow!("missing protected field"))?;
+
+        let signature = signature.signature();
 
         let did = &jws_header
             .key_id
@@ -83,7 +84,7 @@ impl Verifier for signed::Event<Ipld> {
             header: protected.as_slice(),
             payload: self.envelope().payload().as_slice(),
             alg: jws_header.algorithm,
-            signature: signature.signature.as_slice(),
+            signature: signature.as_slice(),
         })
         .await?;
 
