@@ -244,6 +244,21 @@ pub struct Signature {
     signature: Bytes,
 }
 
+impl Signature {
+    /// Get additional header data
+    pub fn header(&self) -> Option<&BTreeMap<String, Ipld>> {
+        self.header.as_ref()
+    }
+    /// Get the protected data if any
+    pub fn protected(&self) -> Option<&Bytes> {
+        self.protected.as_ref()
+    }
+    /// Get the signature data
+    pub fn signature(&self) -> &Bytes {
+        &self.signature
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 struct Protected {
     // There are more field in this struct be we only care about cap so far.

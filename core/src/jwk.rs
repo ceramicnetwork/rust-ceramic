@@ -1,4 +1,5 @@
 use crate::DidDocument;
+use anyhow::bail;
 use cid::multibase;
 use once_cell::sync::Lazy;
 use ssi::did::{Resource, VerificationMethod};
@@ -72,11 +73,10 @@ impl Jwk {
     ///
     /// The DID Document contains the public key. For more info, see:
     /// https://www.w3.org/TR/did-core/#dfn-did-documents
-    pub async fn resolve_did(did: &str) -> Option<DidDocument> {
-        if !did.starts_with("did:key:") && !did.starts_with("did:pkh:") {
-            return None;
-        }
-        let input_metadata = ResolutionInputMetadata::default();
+    pub async fn resolve_did(
+        did: &str,
+        metadata: &ResolutionInputMetadata,
+    ) -> anyhow::Result<DidDocument> {
         let base_did = did.split_once('#').map_or(did, |(b, _)| b);
 
         let resolver: &dyn DIDResolver = if base_did.starts_with("did:key:") {
@@ -84,11 +84,14 @@ impl Jwk {
         } else if base_did.starts_with("did:pkh:") {
             &did_pkh::DIDPKH
         } else {
-            return None;
+            bail!("unknown DID method not 'key' or 'pkh'");
         };
 
-        let (_res, did_document, _metadata) = resolver.resolve(base_did, &input_metadata).await;
-        did_document
+        let (res, did_document, _metadata) = resolver.resolve(base_did, metadata).await;
+        if let Some(err) = res.error {
+            bail!("error resolving did: {}", err)
+        }
+        did_document.ok_or_else(|| anyhow::anyhow!("no did document found"))
     }
 }
 

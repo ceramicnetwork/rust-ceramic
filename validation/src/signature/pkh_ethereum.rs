@@ -103,38 +103,41 @@ mod test {
     use test_log::test;
 
     use crate::{
-        cacao_verifier::{Verifier, VerifyOpts},
+        cacao_verifier::Verifier,
         test::{get_test_event, verify_event_cacao, CACAO_SIGNED_DATA_EVENT_CAR},
+        VerifyCacaoOpts,
     };
 
-    #[test]
-    fn eth_pkh_valid_init() {
+    #[test(tokio::test)]
+    async fn eth_pkh_valid_init() {
         verify_event_cacao(
             crate::test::SigningType::Ethereum,
             crate::test::TestEventType::SignedInit,
-            &VerifyOpts::default(),
-        );
+            &VerifyCacaoOpts::default(),
+        )
+        .await;
     }
 
-    #[test]
-    fn eth_pkh_valid_data() {
+    #[test(tokio::test)]
+    async fn eth_pkh_valid_data() {
         verify_event_cacao(
             crate::test::SigningType::Ethereum,
             crate::test::TestEventType::SignedData,
-            &VerifyOpts::default(),
-        );
+            &VerifyCacaoOpts::default(),
+        )
+        .await;
     }
 
-    #[test]
-    fn eth_pkh_deterministic_generates() {
+    #[test(tokio::test)]
+    async fn eth_pkh_deterministic_generates() {
         let (_cid, _event) = get_test_event(
             crate::test::SigningType::Ethereum,
             crate::test::TestEventType::DeterministicInit,
         );
     }
 
-    #[test]
-    fn eth_pkh_valid_data_expired_time_checks() {
+    #[test(tokio::test)]
+    async fn eth_pkh_valid_data_expired_time_checks() {
         let (_base, data) = multibase::decode(CACAO_SIGNED_DATA_EVENT_CAR).unwrap();
         let (_, event) = unvalidated::Event::<Ipld>::decode_car(data.as_slice(), false).unwrap();
         let expired_message = "CACAO has expired";
@@ -144,10 +147,13 @@ mod test {
                 let cap = s.capability().unwrap();
 
                 // valid without expired check
-                match cap.verify(&VerifyOpts {
-                    check_exp: false,
-                    ..Default::default()
-                }) {
+                match cap
+                    .verify_signature(&VerifyCacaoOpts {
+                        check_exp: false,
+                        ..Default::default()
+                    })
+                    .await
+                {
                     Ok(_) => {}
                     Err(e) => {
                         panic!("{:#}", e)
@@ -155,10 +161,13 @@ mod test {
                 }
 
                 // invalid with expired check
-                match cap.verify(&VerifyOpts {
-                    check_exp: true,
-                    ..Default::default()
-                }) {
+                match cap
+                    .verify_signature(&VerifyCacaoOpts {
+                        check_exp: true,
+                        ..Default::default()
+                    })
+                    .await
+                {
                     Ok(_) => {
                         panic!("Should have been expired")
                     }
@@ -170,28 +179,34 @@ mod test {
                 // "iat": "2024-06-12T20:04:42.464Z"
                 // "exp": "2024-06-19T20:04:42.464Z"
                 // valid with at_time check
-                match cap.verify(&VerifyOpts {
-                    at_time: Some(
-                        chrono::DateTime::parse_from_rfc3339("2024-06-15T20:04:42.464Z")
-                            .unwrap()
-                            .to_utc(),
-                    ),
-                    ..Default::default()
-                }) {
+                match cap
+                    .verify_signature(&VerifyCacaoOpts {
+                        at_time: Some(
+                            chrono::DateTime::parse_from_rfc3339("2024-06-15T20:04:42.464Z")
+                                .unwrap()
+                                .to_utc(),
+                        ),
+                        ..Default::default()
+                    })
+                    .await
+                {
                     Ok(_) => {}
                     Err(e) => {
                         panic!("should not have been expired using at_time: {}", e);
                     }
                 }
                 // valid 1 min before iat with at_time and clock skew check
-                match cap.verify(&VerifyOpts {
-                    at_time: Some(
-                        chrono::DateTime::parse_from_rfc3339("2024-06-12T20:03:42.464Z")
-                            .unwrap()
-                            .to_utc(),
-                    ),
-                    ..Default::default()
-                }) {
+                match cap
+                    .verify_signature(&VerifyCacaoOpts {
+                        at_time: Some(
+                            chrono::DateTime::parse_from_rfc3339("2024-06-12T20:03:42.464Z")
+                                .unwrap()
+                                .to_utc(),
+                        ),
+                        ..Default::default()
+                    })
+                    .await
+                {
                     Ok(_) => {}
                     Err(e) => {
                         panic!(
@@ -202,14 +217,17 @@ mod test {
                 }
 
                 // valid 1 min after exp with at_time and clock skew check
-                match cap.verify(&VerifyOpts {
-                    at_time: Some(
-                        chrono::DateTime::parse_from_rfc3339("2024-06-19T20:05:42.464Z")
-                            .unwrap()
-                            .to_utc(),
-                    ),
-                    ..Default::default()
-                }) {
+                match cap
+                    .verify_signature(&VerifyCacaoOpts {
+                        at_time: Some(
+                            chrono::DateTime::parse_from_rfc3339("2024-06-19T20:05:42.464Z")
+                                .unwrap()
+                                .to_utc(),
+                        ),
+                        ..Default::default()
+                    })
+                    .await
+                {
                     Ok(_) => {}
                     Err(e) => {
                         panic!(
@@ -220,14 +238,17 @@ mod test {
                 }
 
                 // invalid 10 min after exp with at_time w/o recovation seconds
-                match cap.verify(&VerifyOpts {
-                    at_time: Some(
-                        chrono::DateTime::parse_from_rfc3339("2024-06-19T20:14:42.464Z")
-                            .unwrap()
-                            .to_utc(),
-                    ),
-                    ..Default::default()
-                }) {
+                match cap
+                    .verify_signature(&VerifyCacaoOpts {
+                        at_time: Some(
+                            chrono::DateTime::parse_from_rfc3339("2024-06-19T20:14:42.464Z")
+                                .unwrap()
+                                .to_utc(),
+                        ),
+                        ..Default::default()
+                    })
+                    .await
+                {
                     Ok(_) => {
                         panic!(
                             "should have been expired using at_time after exp + skew w/o recovation",
@@ -239,19 +260,22 @@ mod test {
                 }
 
                 // valid 10 min after exp with at_time with recovation seconds
-                match cap.verify(&VerifyOpts {
-                    at_time: Some(
-                        chrono::DateTime::parse_from_rfc3339("2024-06-19T20:14:42.464Z")
-                            .unwrap()
-                            .to_utc(),
-                    ),
-                    revocation_phaseout_secs: chrono::TimeDelta::from_std(
-                        std::time::Duration::from_secs(60 * 5),
-                    )
-                    .unwrap(),
+                match cap
+                    .verify_signature(&VerifyCacaoOpts {
+                        at_time: Some(
+                            chrono::DateTime::parse_from_rfc3339("2024-06-19T20:14:42.464Z")
+                                .unwrap()
+                                .to_utc(),
+                        ),
+                        revocation_phaseout_secs: chrono::TimeDelta::from_std(
+                            std::time::Duration::from_secs(60 * 5),
+                        )
+                        .unwrap(),
 
-                    ..Default::default()
-                }) {
+                        ..Default::default()
+                    })
+                    .await
+                {
                     Ok(_) => {}
                     Err(e) => {
                         panic!(

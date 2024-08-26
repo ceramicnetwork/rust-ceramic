@@ -1,45 +1,29 @@
-use anyhow::Result;
-use ceramic_event::unvalidated::signed::cacao::{Capability, HeaderType, SignatureType};
-use once_cell::sync::Lazy;
+use anyhow::{bail, Context, Result};
+use base64::Engine as _;
+use ceramic_core::Jwk;
+use ceramic_event::unvalidated::signed::cacao::{
+    Capability, HeaderType, SignatureType, SortedMetadata,
+};
+use ssi::did_resolve::ResolutionInputMetadata;
+
+use super::{
+    jws::{verify_jws, VerifyJwsInput},
+    opts::VerifyCacaoOpts,
+};
 
 use crate::signature::{pkh_ethereum::PkhEthereum, pkh_solana::PkhSolana};
 
-static DEFAULT_REVOCATION_PHASEOUT_SECS: Lazy<chrono::Duration> =
-    Lazy::new(|| chrono::Duration::new(0, 0).expect("0 is a valid duration"));
-static DEFAULT_CLOCK_SKEW: Lazy<chrono::Duration> =
-    Lazy::new(|| chrono::Duration::new(5 * 60, 0).expect("5 minutes is a valid duration"));
-
-#[derive(Clone, Debug)]
-pub struct VerifyOpts {
-    /// The point in time at which the capability must be valid, defaults to `now`.
-    pub at_time: Option<chrono::DateTime<chrono::Utc>>,
-    /// How long the capability stays valid for after it was expired.
-    pub revocation_phaseout_secs: chrono::Duration,
-    /// The clock tolerance when verifying iat, nbf, and exp.
-    pub clock_skew: chrono::Duration,
-    /// Do not verify expiration time when false.
-    pub check_exp: bool,
-}
-
-impl Default for VerifyOpts {
-    fn default() -> Self {
-        Self {
-            at_time: None,
-            revocation_phaseout_secs: *DEFAULT_REVOCATION_PHASEOUT_SECS,
-            clock_skew: *DEFAULT_CLOCK_SKEW,
-            check_exp: true,
-        }
-    }
-}
-
+#[async_trait::async_trait]
 pub trait Verifier {
-    #[allow(dead_code)]
-    fn verify(&self, opts: &VerifyOpts) -> Result<()>;
-    fn verify_time_checks(&self, opts: &VerifyOpts) -> anyhow::Result<()>;
+    /// Verify the signature of the CACAO and ensure it is valid.
+    async fn verify_signature(&self, opts: &VerifyCacaoOpts) -> Result<()>;
+    /// Verify the time checks for the CACAO using the `VerifyOpts`
+    fn verify_time_checks(&self, opts: &VerifyCacaoOpts) -> Result<()>;
 }
 
+#[async_trait::async_trait]
 impl Verifier for Capability {
-    fn verify(&self, opts: &VerifyOpts) -> anyhow::Result<()> {
+    async fn verify_signature(&self, opts: &VerifyCacaoOpts) -> anyhow::Result<()> {
         // verify signed from js-did is not required as it won't deserialize without a signature
         // is that something that is ever expected?
         self.verify_time_checks(opts)?;
@@ -48,17 +32,55 @@ impl Verifier for Capability {
             HeaderType::EIP4361 => PkhEthereum::verify(self),
             HeaderType::CAIP122 => match self.signature.r#type {
                 SignatureType::EIP191 => PkhEthereum::verify(self),
-                SignatureType::EIP1271 => todo!(),
+                SignatureType::EIP1271 => bail!("EIP1271 signature validation is unimplmented"),
                 SignatureType::SolanaED25519 => PkhSolana::verify(self),
-                SignatureType::TezosED25519 => todo!(),
-                SignatureType::StacksSECP256K1 => todo!(),
-                SignatureType::WebAuthNP256 => todo!(),
-                SignatureType::JWS => todo!(),
+                SignatureType::TezosED25519 => bail!("Tezos signature validation is unimplmented"),
+                SignatureType::StacksSECP256K1 => {
+                    bail!("Stacks signature validation is unimplmented")
+                }
+                SignatureType::WebAuthNP256 => {
+                    bail!("WebAuthN signature validation is unimplmented")
+                }
+                SignatureType::JWS => {
+                    let meta = if let Some(meta) = &self.signature.metadata {
+                        meta
+                    } else {
+                        anyhow::bail!("no metadata found for jws");
+                    };
+                    let did = meta
+                        .kid
+                        .split_once("#")
+                        .map_or(meta.kid.as_str(), |(k, _)| k);
+                    // TODO: use time here?
+                    let signer_did = Jwk::resolve_did(did, &ResolutionInputMetadata::default())
+                        .await
+                        .context("failed to resolve did")?;
+
+                    let jwk = Jwk::new(&signer_did)
+                        .await
+                        .map_err(|e| anyhow::anyhow!("failed to generate jwk for did: {}", e))?;
+
+                    let payload =
+                        serde_json::to_vec(&self.payload).context("failed to serialize payload")?;
+                    let header = serde_json::to_vec(&SortedMetadata::from(meta))
+                        .context("failed to seralize metadata")?;
+                    let sig = base64::prelude::BASE64_URL_SAFE_NO_PAD
+                        .decode(self.signature.signature.as_bytes())
+                        .map_err(|e| anyhow::anyhow!("invalid signature: {}", e))?;
+                    verify_jws(VerifyJwsInput {
+                        jwk: &jwk,
+                        header: header.as_slice(),
+                        payload: payload.as_slice(),
+                        alg: self.signature.r#type.algorithm(),
+                        signature: &sig,
+                    })
+                    .await
+                }
             },
         }
     }
 
-    fn verify_time_checks(&self, opts: &VerifyOpts) -> anyhow::Result<()> {
+    fn verify_time_checks(&self, opts: &VerifyCacaoOpts) -> anyhow::Result<()> {
         let at_time = opts.at_time.unwrap_or_else(chrono::Utc::now);
 
         if self.payload.issued_at()? > at_time + opts.clock_skew
