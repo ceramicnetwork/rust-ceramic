@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use ceramic_core::{DidDocument, EventId, Network, StreamId};
+use ceramic_core::{Cid, DidDocument, EventId, Network, StreamId};
 use ceramic_event::unvalidated::{
     self,
     signed::{self, Signer},
@@ -8,6 +8,7 @@ use ceramic_event::unvalidated::{
 };
 use ceramic_store::{CeramicOneEvent, EventInsertable, SqlitePool};
 use criterion2::{criterion_group, criterion_main, BatchSize, Criterion};
+use ipld_core::ipld::Ipld;
 use itertools::Itertools;
 use rand::RngCore;
 
@@ -27,7 +28,7 @@ async fn generate_init_event(
     model: &StreamId,
     data: &[u8],
     signer: impl Signer,
-) -> (EventId, Vec<u8>) {
+) -> (EventId, Cid, unvalidated::Event<Ipld>) {
     let data = ipld_core::ipld!({
         "raw": data,
     });
@@ -38,16 +39,16 @@ async fn generate_init_event(
         .build();
     let signed = signed::Event::from_payload(unvalidated::Payload::Init(init), signer).unwrap();
     let cid = signed.envelope_cid();
-    let data = signed.encode_car().await.unwrap();
     let id = EventId::new(
         &Network::DevUnstable,
         "model",
         &model.to_vec(),
         "did:key:z6MkgSV3tAuw7gUWqKCUY7ae6uWNxqYgdwPhUJbJhF9EFXm9",
-        &cid,
-        &cid,
+        cid,
+        cid,
     );
-    (id, data)
+
+    (id, *cid, unvalidated::Event::from(signed))
 }
 
 const INSERTION_COUNT: usize = 10_000;
@@ -74,12 +75,8 @@ async fn model_setup(tpe: ModelType, cnt: usize) -> ModelSetup {
         };
         rand::thread_rng().fill_bytes(&mut data);
 
-        let init = generate_init_event(&model, &data, signer.clone()).await;
-        events.push(
-            EventInsertable::try_from_carfile(init.0, &init.1)
-                .await
-                .unwrap(),
-        );
+        let (order_key, cid, event) = generate_init_event(&model, &data, signer.clone()).await;
+        events.push(EventInsertable::new(order_key, cid, event, true).unwrap());
     }
 
     let pool = SqlitePool::connect_in_memory().await.unwrap();
