@@ -138,8 +138,9 @@ impl<'a> Extend<&'a ConclusionEvent> for ConclusionEventBuilder {
 /// fn main() -> Result<()> {
 ///     let events = vec![
 ///         ConclusionEvent::Data(ConclusionData {
-///             id: Cid::default(),
+///             event_cid: Cid::default(),
 ///             init: ConclusionInit {
+///                 stream_cid: Cid::default(),
 ///                 stream_type: 0,
 ///                 controller: "did:key:test1".to_string(),
 ///                 dimensions: vec![],
@@ -148,10 +149,11 @@ impl<'a> Extend<&'a ConclusionEvent> for ConclusionEventBuilder {
 ///             data: vec![1, 2, 3],
 ///         }),
 ///         ConclusionEvent::Data(ConclusionData {
-///         id: Cid::default(),
-///         init: ConclusionInit {
-///             stream_type: 2,
-///             controller: "did:key:test2".to_string(),
+///             event_cid: Cid::default(),
+///             init: ConclusionInit {
+///                 stream_cid: Cid::default(),
+///                 stream_type: 2,
+///                 controller: "did:key:test2".to_string(),
 ///                 dimensions: vec![],
 ///             },
 ///             previous: vec![Cid::default()],
