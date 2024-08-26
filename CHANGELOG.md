@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.34.0] - 2024-08-26
+
+### 🚀 Features
+
+- Eth and sol pkh cacao validation (#496)
+- Jws signature validation (#498)
+- Check cacao resources against stream information (#502)
+
+### 🐛 Bug Fixes
+
+- Use cacao timestamp strings and parse (#504)
+
+### ⚙️ Miscellaneous Tasks
+
+- Add logic to dispatch validation based on event type (#493)
+- Modify cacao, unvalidated module, jwk to add functionality needed for event validation (#492)
+
 ## [0.33.0] - 2024-08-19
 
 ### 🚀 Features
@@ -27,6 +44,7 @@ All notable changes to this project will be documented in this file.
 - Remove an iteration pass in OrderEvents::try_new (#489)
 - Add TODO comment (#491)
 - Remove EventMetadata type (#490)
+- Version v0.33.0 (#494)
 
 ## [0.32.0] - 2024-08-07
 

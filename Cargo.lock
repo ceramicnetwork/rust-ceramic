@@ -1315,7 +1315,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-api"
-version = "0.33.0"
+version = "0.34.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1343,7 +1343,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-api-server"
-version = "0.33.0"
+version = "0.34.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1371,7 +1371,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-car"
-version = "0.33.0"
+version = "0.34.0"
 dependencies = [
  "cid 0.11.1",
  "futures",
@@ -1387,7 +1387,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-core"
-version = "0.33.0"
+version = "0.34.0"
 dependencies = [
  "anyhow",
  "base64 0.21.7",
@@ -1418,7 +1418,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-event"
-version = "0.33.0"
+version = "0.34.0"
 dependencies = [
  "anyhow",
  "base64 0.21.7",
@@ -1443,7 +1443,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-kubo-rpc"
-version = "0.33.0"
+version = "0.34.0"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1480,7 +1480,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-kubo-rpc-server"
-version = "0.33.0"
+version = "0.34.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1507,7 +1507,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-metadata"
-version = "0.33.0"
+version = "0.34.0"
 dependencies = [
  "built",
  "project-root",
@@ -1516,7 +1516,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-metrics"
-version = "0.33.0"
+version = "0.34.0"
 dependencies = [
  "console-subscriber",
  "lazy_static",
@@ -1537,7 +1537,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-olap"
-version = "0.33.0"
+version = "0.34.0"
 dependencies = [
  "anyhow",
  "ceramic-metrics",
@@ -1560,7 +1560,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-one"
-version = "0.33.0"
+version = "0.34.0"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1608,7 +1608,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-p2p"
-version = "0.33.0"
+version = "0.34.0"
 dependencies = [
  "ahash 0.8.11",
  "anyhow",
@@ -1648,7 +1648,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-service"
-version = "0.33.0"
+version = "0.34.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1683,7 +1683,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-store"
-version = "0.33.0"
+version = "0.34.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1719,7 +1719,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-validation"
-version = "0.33.0"
+version = "0.34.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4429,7 +4429,7 @@ dependencies = [
 
 [[package]]
 name = "iroh-bitswap"
-version = "0.33.0"
+version = "0.34.0"
 dependencies = [
  "ahash 0.8.11",
  "anyhow",
@@ -4469,7 +4469,7 @@ dependencies = [
 
 [[package]]
 name = "iroh-rpc-client"
-version = "0.33.0"
+version = "0.34.0"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -4487,7 +4487,7 @@ dependencies = [
 
 [[package]]
 name = "iroh-rpc-types"
-version = "0.33.0"
+version = "0.34.0"
 dependencies = [
  "anyhow",
  "bytes 1.6.0",
@@ -4502,7 +4502,7 @@ dependencies = [
 
 [[package]]
 name = "iroh-util"
-version = "0.33.0"
+version = "0.34.0"
 dependencies = [
  "cid 0.11.1",
  "multihash-codetable",
@@ -7522,7 +7522,7 @@ dependencies = [
 
 [[package]]
 name = "recon"
-version = "0.33.0"
+version = "0.34.0"
 dependencies = [
  "anyhow",
  "async-stream",
