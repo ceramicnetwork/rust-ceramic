@@ -303,7 +303,11 @@ type ModelInterest = ReconInterestProvider<Sha256a>;
 
 impl DBOpts {
     /// This function will create the database directory if it does not exist.
-    async fn get_database(&self, process_undelivered: bool) -> Result<Databases> {
+    async fn get_database(
+        &self,
+        process_undelivered: bool,
+        validate_events: bool,
+    ) -> Result<Databases> {
         match tokio::fs::create_dir_all(&self.store_dir).await {
             Ok(_) => {}
             Err(err) => match err.kind() {
@@ -318,13 +322,17 @@ impl DBOpts {
             },
         }
         let sql_db_path = self.store_dir.join("db.sqlite3").display().to_string();
-        Self::build_sqlite_dbs(&sql_db_path, process_undelivered).await
+        Self::build_sqlite_dbs(&sql_db_path, process_undelivered, validate_events).await
     }
 
-    async fn build_sqlite_dbs(path: &str, process_undelivered: bool) -> Result<Databases> {
+    async fn build_sqlite_dbs(
+        path: &str,
+        process_undelivered: bool,
+        validate_events: bool,
+    ) -> Result<Databases> {
         let sql_pool =
             ceramic_store::SqlitePool::connect(path, ceramic_store::Migrations::Apply).await?;
-        let ceramic_service = CeramicService::try_new(sql_pool).await?;
+        let ceramic_service = CeramicService::try_new(sql_pool, validate_events).await?;
         let interest_store = ceramic_service.interest_service().to_owned();
         let event_store = ceramic_service.event_service().to_owned();
         if process_undelivered {
@@ -382,7 +390,14 @@ impl Daemon {
             exe_hash = info.exe_hash,
         );
         debug!(?opts, "using daemon options");
-        let db = opts.db_opts.get_database(true).await?;
+        let db = opts
+            .db_opts
+            .get_database(
+                true,
+                opts.experimental_feature_flags
+                    .contains(&ExperimentalFeatureFlags::EventValidation),
+            )
+            .await?;
 
         // we should be able to consolidate the Store traits now that they all rely on &self, but for now we use
         // static dispatch and require compile-time type information, so we pass all the types we need in, even

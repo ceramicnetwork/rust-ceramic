@@ -37,6 +37,7 @@ const PENDING_EVENTS_CHANNEL_DEPTH: usize = 1_000_000;
 /// Implements the [`recon::Store`], [`iroh_bitswap::Store`], and [`ceramic_api::EventStore`] traits for [`ceramic_core::EventId`].
 pub struct CeramicEventService {
     pub(crate) pool: SqlitePool,
+    _validate_events: bool,
     delivery_task: DeliverableTask,
 }
 /// An object that represents a set of blocks that can produce a stream of all blocks and lookup a
@@ -66,15 +67,24 @@ pub enum DeliverableRequirement {
 
 impl CeramicEventService {
     /// Create a new CeramicEventStore
-    pub async fn new(pool: SqlitePool) -> Result<Self> {
+    pub async fn new(pool: SqlitePool, _validate_events: bool) -> Result<Self> {
         CeramicOneEvent::init_delivered_order(&pool).await?;
 
         let delivery_task = OrderingTask::run(pool.clone(), PENDING_EVENTS_CHANNEL_DEPTH).await;
 
         Ok(Self {
             pool,
+            _validate_events,
             delivery_task,
         })
+    }
+
+    /// Create a new CeramicEventStore with event validation enabled
+    /// This is likely temporary and only used in tests to avoid adding the bool now and then deleting it
+    /// in the next pass.. but it's basically same same but different.
+    #[allow(dead_code)]
+    pub(crate) async fn new_with_event_validation(pool: SqlitePool) -> Result<Self> {
+        Self::new(pool, true).await
     }
 
     /// Returns the number of undelivered events that were updated

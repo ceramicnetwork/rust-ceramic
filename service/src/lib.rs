@@ -24,11 +24,11 @@ pub struct CeramicService {
 
 impl CeramicService {
     /// Create a new CeramicService and process undelivered events if requested
-    pub async fn try_new(pool: SqlitePool) -> Result<Self> {
+    pub async fn try_new(pool: SqlitePool, enable_event_validation: bool) -> Result<Self> {
         // In the future, we may need to check the previous version to make sure we're not downgrading and risking data loss
         CeramicOneVersion::insert_current(&pool).await?;
         let interest = Arc::new(CeramicInterestService::new(pool.clone()));
-        let event = Arc::new(CeramicEventService::new(pool).await?);
+        let event = Arc::new(CeramicEventService::new(pool, enable_event_validation).await?);
         Ok(Self { interest, event })
     }
 

@@ -4,6 +4,7 @@ use anyhow::{anyhow, Result};
 pub(crate) enum ExperimentalFeatureFlags {
     None,
     Authentication,
+    EventValidation,
 }
 
 impl std::str::FromStr for ExperimentalFeatureFlags {
@@ -13,6 +14,7 @@ impl std::str::FromStr for ExperimentalFeatureFlags {
         match value.to_ascii_lowercase().as_str() {
             "none" => Ok(ExperimentalFeatureFlags::None),
             "authentication" => Ok(ExperimentalFeatureFlags::Authentication),
+            "event-validation" => Ok(ExperimentalFeatureFlags::EventValidation),
             _ => Err(anyhow!("invalid value")),
         }
     }
@@ -23,6 +25,7 @@ impl std::fmt::Display for ExperimentalFeatureFlags {
         match self {
             ExperimentalFeatureFlags::None => write!(f, "none"),
             ExperimentalFeatureFlags::Authentication => write!(f, "authentication"),
+            ExperimentalFeatureFlags::EventValidation => write!(f, "event-validation"),
         }
     }
 }
