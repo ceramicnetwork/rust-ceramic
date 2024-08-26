@@ -19,8 +19,9 @@ fn test_conclusion_events_to_record_batch() {
     // Create mock ConclusionEvents
     let events = vec![
         ConclusionEvent::Data(ConclusionData {
-            id: Cid::default(),
+            event_cid: Cid::default(),
             init: ConclusionInit {
+                stream_cid: Cid::default(),
                 stream_type: StreamIdType::Model as u8,
                 controller: "did:key:test1".to_string(),
                 dimensions: vec![],
@@ -29,8 +30,9 @@ fn test_conclusion_events_to_record_batch() {
             data: vec![1, 2, 3],
         }),
         ConclusionEvent::Data(ConclusionData {
-            id: Cid::default(),
+            event_cid: Cid::default(),
             init: ConclusionInit {
+                stream_cid: Cid::default(),
                 stream_type: StreamIdType::Model as u8,
                 controller: "did:key:test2".to_string(),
                 dimensions: vec![],
@@ -47,15 +49,15 @@ fn test_conclusion_events_to_record_batch() {
 
     // Assert the schema
     let schema = record_batch.schema();
-    assert_eq!(schema.fields().len(), 6);
+    assert_eq!(schema.fields().len(), 7);
     assert_eq!(schema.field(0).name(), "event_type");
-    assert_eq!(schema.field(1).name(), "stream_id");
+    assert_eq!(schema.field(1).name(), "stream_cid");
     assert_eq!(schema.field(2).name(), "stream_type");
     assert_eq!(schema.field(3).name(), "controller");
-    assert_eq!(schema.field(4).name(), "data");
-    assert_eq!(schema.field(5).name(), "previous");
+    assert_eq!(schema.field(4).name(), "event_cid");
+    assert_eq!(schema.field(5).name(), "data");
+    assert_eq!(schema.field(6).name(), "previous");
 
-    // Assert the data in each column
     let event_types = record_batch
         .column(0)
         .as_any()
@@ -65,6 +67,15 @@ fn test_conclusion_events_to_record_batch() {
     // Both events are data events in this test.
     assert_eq!(event_types.value(0), 0);
     assert_eq!(event_types.value(1), 0);
+
+    let stream_ids = record_batch
+        .column(1)
+        .as_any()
+        .downcast_ref::<BinaryArray>()
+        .unwrap();
+
+    assert_eq!(stream_ids.value(0), Cid::default().to_bytes());
+    assert_eq!(stream_ids.value(1), Cid::default().to_bytes());
 
     let stream_types = record_batch
         .column(2)
@@ -82,8 +93,16 @@ fn test_conclusion_events_to_record_batch() {
     assert_eq!(controllers.value(0), "did:key:test1");
     assert_eq!(controllers.value(1), "did:key:test2");
 
-    let data = record_batch
+    let event_cids = record_batch
         .column(4)
+        .as_any()
+        .downcast_ref::<BinaryArray>()
+        .unwrap();
+    assert_eq!(event_cids.value(0), Cid::default().to_bytes());
+    assert_eq!(event_cids.value(1), Cid::default().to_bytes());
+
+    let data = record_batch
+        .column(5)
         .as_any()
         .downcast_ref::<BinaryArray>()
         .unwrap();
@@ -91,7 +110,7 @@ fn test_conclusion_events_to_record_batch() {
     assert_eq!(data.value(1), &[4, 5, 6]);
 
     let previous = record_batch
-        .column(5)
+        .column(6)
         .as_any()
         .downcast_ref::<ListArray>()
         .unwrap();
