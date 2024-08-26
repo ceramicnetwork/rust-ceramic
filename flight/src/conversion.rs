@@ -55,7 +55,8 @@ impl ConclusionEventBuilder {
                     .append_value(time_event.init.stream_cid.to_bytes());
                 self.stream_type.append_value(time_event.init.stream_type);
                 self.controller.append_value(&time_event.init.controller);
-                self.previous.append_null();
+                self.event_cid.append_value(time_event.event_cid.to_bytes());
+                self.data.append_null();
                 for cid in &time_event.previous {
                     self.previous.values().append_value(cid.to_bytes());
                 }

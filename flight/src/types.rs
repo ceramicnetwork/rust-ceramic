@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ConclusionEvent {
     Data(ConclusionData),
-    Time(ConclisionTime),
+    Time(ConclusionTime),
 }
 
 impl AsRef<ConclusionEvent> for ConclusionEvent {
@@ -43,7 +43,7 @@ pub struct ConclusionData {
 pub type CeramicTime = chrono::DateTime<chrono::Utc>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConclisionTime {
+pub struct ConclusionTime {
     // WIP : Need clearer structure for time events
     pub event_cid: Cid,
     pub init: ConclusionInit,
