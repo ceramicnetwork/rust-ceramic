@@ -1542,6 +1542,7 @@ dependencies = [
  "chrono",
  "cid 0.11.1",
  "expect-test",
+ "hex",
  "serde",
  "test-log",
  "tokio",

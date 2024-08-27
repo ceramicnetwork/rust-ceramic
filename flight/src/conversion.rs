@@ -48,7 +48,7 @@ impl ConclusionEventBuilder {
                 for cid in &data_event.previous {
                     self.previous.values().append_value(cid.to_bytes());
                 }
-                self.previous.append(true);
+                self.previous.append(!data_event.previous.is_empty());
             }
             ConclusionEvent::Time(time_event) => {
                 self.stream_cid
@@ -60,7 +60,7 @@ impl ConclusionEventBuilder {
                 for cid in &time_event.previous {
                     self.previous.values().append_value(cid.to_bytes());
                 }
-                self.previous.append(false);
+                self.previous.append(!time_event.previous.is_empty());
             }
         }
     }
