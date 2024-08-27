@@ -1,8 +1,7 @@
 use crate::types::*;
 use anyhow::Result;
 use arrow::array::{
-    ArrayRef, BinaryBuilder, ListBuilder, PrimitiveBuilder, StringBuilder, StructArray,
-    UInt8Builder,
+    ArrayRef, BinaryBuilder, ListBuilder, PrimitiveBuilder, StringBuilder, StructArray, UInt64Builder, UInt8Builder
 };
 use arrow::datatypes::{DataType, Field};
 use arrow::record_batch::RecordBatch;
@@ -17,6 +16,7 @@ pub struct ConclusionEventBuilder {
     controller: StringBuilder,
     data: BinaryBuilder,
     previous: ListBuilder<BinaryBuilder>,
+    index: UInt64Builder
 }
 
 impl Default for ConclusionEventBuilder {
@@ -30,6 +30,7 @@ impl Default for ConclusionEventBuilder {
             data: BinaryBuilder::new(),
             previous: ListBuilder::new(BinaryBuilder::new())
                 .with_field(Field::new_list_field(DataType::Binary, false)),
+            index: UInt64Builder::new()
         }
     }
 }
@@ -49,6 +50,7 @@ impl ConclusionEventBuilder {
                     self.previous.values().append_value(cid.to_bytes());
                 }
                 self.previous.append(!data_event.previous.is_empty());
+                self.index.append_value(data_event.index);
             }
             ConclusionEvent::Time(time_event) => {
                 self.stream_cid
@@ -61,6 +63,7 @@ impl ConclusionEventBuilder {
                     self.previous.values().append_value(cid.to_bytes());
                 }
                 self.previous.append(!time_event.previous.is_empty());
+                self.index.append_value(time_event.index);
             }
         }
     }
@@ -92,6 +95,9 @@ impl ConclusionEventBuilder {
             true,
         ));
 
+        let index = Arc::new(self.index.finish()) as ArrayRef;
+        let index_field = Arc::new(Field::new("index", DataType::UInt64, false));
+
         StructArray::from(vec![
             (event_type_field, event_type),
             (stream_cid_field, stream_cid),
@@ -100,6 +106,7 @@ impl ConclusionEventBuilder {
             (event_cid_field, event_cid),
             (data_field, data),
             (previous_field, previous),
+            (index_field, index)
         ])
     }
 }
@@ -139,6 +146,7 @@ impl<'a> Extend<&'a ConclusionEvent> for ConclusionEventBuilder {
 /// fn main() -> Result<()> {
 ///     let events = vec![
 ///         ConclusionEvent::Data(ConclusionData {
+///             index: 0,
 ///             event_cid: Cid::default(),
 ///             init: ConclusionInit {
 ///                 stream_cid: Cid::default(),
@@ -150,6 +158,7 @@ impl<'a> Extend<&'a ConclusionEvent> for ConclusionEventBuilder {
 ///             data: vec![1, 2, 3],
 ///         }),
 ///         ConclusionEvent::Data(ConclusionData {
+///             index: 1,
 ///             event_cid: Cid::default(),
 ///             init: ConclusionInit {
 ///                 stream_cid: Cid::default(),

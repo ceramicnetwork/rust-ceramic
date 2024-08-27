@@ -21,6 +21,7 @@ hex.workspace = true
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }
 test-log.workspace = true
+datafusion.workspace = true
 
 [package.metadata.cargo-machete]
 ignored = [
