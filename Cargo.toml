@@ -67,7 +67,7 @@ cid = { version = "0.11", features = ["serde-codec"] }
 clap = { version = "4", features = ["derive", "env", "string"] }
 clap_mangen = "0.2.2"
 console = { version = "0.15", default-features = false }
-console-subscriber = "0.2"
+console-subscriber = "0.4"
 criterion2 = "0.7.0"
 crossterm = "0.25"
 ctrlc = "3.2.2"
@@ -227,7 +227,3 @@ repository = "https://github.com/3box/rust-ceramic"
 inherits = "release"
 debug = true
 strip = "none"
-
-[patch.crates-io]
-# to get fix for https://github.com/tokio-rs/console/pull/501. can be removed on 0.2.1 release
-console-subscriber = { git = "https://github.com/tokio-rs/console.git", branch = "main" }
