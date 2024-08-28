@@ -155,11 +155,6 @@ async fn test_conclusion_events_to_record_batch() {
     // Convert events to RecordBatch
     let record_batch = conclusion_events_to_record_batch(&events).unwrap();
 
-    // Convert RecordBatch to string
-    // let formatted = pretty_format_batches(&[record_batch.clone()])
-    //     .unwrap();
-    // let formatted = convert_cids_to_string(&record_batch);
-
     let ctx = SessionContext::new();
     ctx.register_batch("conclusion_feed", record_batch).unwrap();
 
