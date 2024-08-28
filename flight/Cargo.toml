@@ -1,0 +1,27 @@
+[package]
+name = "ceramic-flight"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+
+[dependencies]
+anyhow.workspace = true
+cid.workspace = true
+serde.workspace = true
+chrono = { version = "0.4", features = ["serde"] }
+arrow = { workspace = true, features = ["prettyprint"] }
+ceramic-core.workspace = true
+expect-test.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+test-log.workspace = true
+datafusion.workspace = true
+
+[package.metadata.cargo-machete]
+ignored = [
+    # Used in a macro invocation to serialize a type
+]
