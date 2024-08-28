@@ -15,8 +15,6 @@ chrono = { version = "0.4", features = ["serde"] }
 arrow = { workspace = true, features = ["prettyprint"] }
 ceramic-core.workspace = true
 expect-test.workspace = true
-hex.workspace = true
-
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }

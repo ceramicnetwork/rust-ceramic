@@ -1,7 +1,8 @@
 use crate::types::*;
 use anyhow::Result;
 use arrow::array::{
-    ArrayRef, BinaryBuilder, ListBuilder, PrimitiveBuilder, StringBuilder, StructArray, UInt64Builder, UInt8Builder
+    ArrayRef, BinaryBuilder, ListBuilder, PrimitiveBuilder, StringBuilder, StructArray,
+    UInt64Builder, UInt8Builder,
 };
 use arrow::datatypes::{DataType, Field};
 use arrow::record_batch::RecordBatch;
@@ -16,7 +17,7 @@ pub struct ConclusionEventBuilder {
     controller: StringBuilder,
     data: BinaryBuilder,
     previous: ListBuilder<BinaryBuilder>,
-    index: UInt64Builder
+    index: UInt64Builder,
 }
 
 impl Default for ConclusionEventBuilder {
@@ -30,7 +31,7 @@ impl Default for ConclusionEventBuilder {
             data: BinaryBuilder::new(),
             previous: ListBuilder::new(BinaryBuilder::new())
                 .with_field(Field::new_list_field(DataType::Binary, false)),
-            index: UInt64Builder::new()
+            index: UInt64Builder::new(),
         }
     }
 }
@@ -106,7 +107,7 @@ impl ConclusionEventBuilder {
             (event_cid_field, event_cid),
             (data_field, data),
             (previous_field, previous),
-            (index_field, index)
+            (index_field, index),
         ])
     }
 }

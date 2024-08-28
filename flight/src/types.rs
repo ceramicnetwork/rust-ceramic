@@ -38,7 +38,7 @@ pub struct ConclusionData {
     // TODO : rethink this, add a checkpoint to make it work in datafusion query
     pub previous: Vec<Cid>,
     pub data: Vec<u8>,
-    pub index: u64
+    pub index: u64,
 }
 
 pub type CeramicTime = chrono::DateTime<chrono::Utc>;
@@ -49,5 +49,5 @@ pub struct ConclusionTime {
     pub event_cid: Cid,
     pub init: ConclusionInit,
     pub previous: Vec<Cid>,
-    pub index: u64
+    pub index: u64,
 }

@@ -1,10 +1,6 @@
 use super::*;
 use crate::types::{ConclusionData, ConclusionEvent, ConclusionInit};
-use arrow::{
-    array::{Array, BinaryArray, RecordBatch, StringBuilder},
-    datatypes::DataType,
-    util::pretty::pretty_format_batches,
-};
+use arrow::{array::StringBuilder, datatypes::DataType, util::pretty::pretty_format_batches};
 use ceramic_core::StreamIdType;
 use cid::Cid;
 use datafusion::{
@@ -17,7 +13,6 @@ use datafusion::{
     },
 };
 use expect_test::expect;
-use hex;
 use std::{any::Any, str::FromStr, sync::Arc};
 
 #[derive(Debug)]
@@ -133,7 +128,7 @@ async fn test_conclusion_events_to_record_batch() {
                 controller: "did:key:test1".to_string(),
                 dimensions: vec![],
             },
-            index: 2
+            index: 2,
         }),
         ConclusionEvent::Data(ConclusionData {
             event_cid: Cid::from_str("baeabeiewqcj4bwhcssizv5kcyvsvm57bxghjpqshnbzkc6rijmwb4im4yq")
@@ -154,7 +149,7 @@ async fn test_conclusion_events_to_record_batch() {
                     .unwrap(),
             ],
             data: vec![7, 8, 9],
-            index: 3
+            index: 3,
         }),
     ];
     // Convert events to RecordBatch

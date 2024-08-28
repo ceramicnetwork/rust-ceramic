@@ -1543,7 +1543,6 @@ dependencies = [
  "cid 0.11.1",
  "datafusion",
  "expect-test",
- "hex",
  "serde",
  "test-log",
  "tokio",
@@ -7540,7 +7539,7 @@ dependencies = [
  "itertools 0.13.0",
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
