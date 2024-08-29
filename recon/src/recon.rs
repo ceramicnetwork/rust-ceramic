@@ -284,14 +284,13 @@ where
             // The first range will trigger the remote to send the key and its value. The second
             // range will ensure we are synchronized.
             if range.first.is_fencepost() || calculated_hash.count == 0 {
-                let ranges = vec![RangeHash {
-                    first: range.first,
-                    hash: calculated_hash,
-                    last: range.last,
-                }];
                 Ok(SyncState::RemoteMissing {
-                    ranges: ranges.clone(),
-                    reply_with: ranges,
+                    ranges: vec![RangeHash {
+                        first: range.first,
+                        hash: calculated_hash,
+                        last: range.last,
+                    }],
+                    reply_with: Vec::new(),
                 })
             } else {
                 // Get the first key in the range, should always exist since we checked the count

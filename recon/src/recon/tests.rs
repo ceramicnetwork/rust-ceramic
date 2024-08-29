@@ -1262,16 +1262,12 @@ async fn disjoint() {
             cat: [a, b, c]
         -> value(c: c)
             cat: [a, b, c]
-        -> range_req({𝚨 h(a, b, c)#3 e})
-            cat: [a, b, c]
         -> range_req({e 0 f})
             cat: [a, b, c]
         -> range_req({f 0 g})
             cat: [a, b, c]
         -> range_req({g 0 𝛀 })
             cat: [a, b, c]
-        <- range_resp({𝚨 h(a, b, c)#3 e})
-            dog: [a, b, c, e, f, g]
         <- value(e: e)
             dog: [a, b, c, e, f, g]
         <- range_resp()
@@ -1312,28 +1308,24 @@ async fn disjoint_batch_size() {
             cat: [a, b, c]
         -> value(c: c)
             cat: [a, b, c]
-        -> range_req({𝚨 h(a, b, c)#3 e})
-            cat: [a, b, c]
         -> range_req({e 0 f})
             cat: [a, b, c]
         -> range_req({f 0 g})
             cat: [a, b, c]
         -> range_req({g 0 𝛀 })
             cat: [a, b, c]
-        <- range_resp({𝚨 h(a, b, c)#3 e})
-            dog: [a, b, c, e, f, g]
         <- value(e: e)
-            dog: [a, b, c, e, f, g]
+            dog: [e, f, g]
         <- range_resp()
-            dog: [a, b, c, e, f, g]
+            dog: [e, f, g]
         <- value(f: f)
-            dog: [a, b, c, e, f, g]
+            dog: [e, f, g]
         <- range_resp()
-            dog: [a, b, c, e, f, g]
+            dog: [e, f, g]
         <- value(g: g)
-            dog: [a, b, c, e, f, g]
+            dog: [e, f, g]
         <- range_resp()
-            dog: [a, b, c, e, f, g]
+            dog: [e, f, g]
         -> finished
             cat: [a, b, c, e, f, g]
         cat: [a, b, c, e, f, g]
@@ -1359,10 +1351,6 @@ async fn one_cat() {
             dog: []
         -> value(a: a)
             cat: [a]
-        -> range_req({𝚨 h(a)#1 𝛀 })
-            cat: [a]
-        <- range_resp({𝚨 h(a)#1 𝛀 })
-            dog: [a]
         -> finished
             cat: [a]
         cat: [a]
@@ -1384,7 +1372,7 @@ async fn one_dog() {
             cat: []
         <- value(a: a)
             dog: [a]
-        <- range_resp({𝚨 h(a)#1 𝛀 })
+        <- range_resp()
             dog: [a]
         -> finished
             cat: [a]
@@ -1853,10 +1841,6 @@ async fn dog_linear_download() {
             cat: [a, b, c, d, e, f, g]
         -> value(g: g)
             cat: [a, b, c, d, e, f, g]
-        -> range_req({𝚨 h(a, b, c, d, e, f, g)#7 𝛀 })
-            cat: [a, b, c, d, e, f, g]
-        <- range_resp({𝚨 h(a, b, c, d, e, f, g)#7 𝛀 })
-            dog: [a, b, c, d, e, f, g]
         -> finished
             cat: [a, b, c, d, e, f, g]
         cat: [a, b, c, d, e, f, g]
@@ -1892,7 +1876,7 @@ async fn cat_linear_download() {
             dog: [a, b, c, d, e, f, g]
         <- value(g: g)
             dog: [a, b, c, d, e, f, g]
-        <- range_resp({𝚨 h(a, b, c, d, e, f, g)#7 𝛀 })
+        <- range_resp()
             dog: [a, b, c, d, e, f, g]
         -> finished
             cat: [a, b, c, d, e, f, g]

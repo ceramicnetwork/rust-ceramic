@@ -472,7 +472,6 @@ where
         to_writer: &mut ToWriterSender<InitiatorMessage<R::Key, R::Hash>>,
         remote_range: RangeHash<R::Key, R::Hash>,
     ) -> Result<()> {
-        self.common.persist_all().await?;
         let sync_state = self.common.recon.process_range(remote_range).await?;
         match sync_state {
             SyncState::Synchronized { .. } => {}
@@ -618,10 +617,6 @@ where
         to_writer: &mut ToWriterSender<ResponderMessage<R::Key, R::Hash>>,
         range: RangeHash<R::Key, R::Hash>,
     ) -> Result<()> {
-        // We have to make sure to flush the pending writes before responding to a range so we have the same hash.
-        // There are optimizations we can make here (to the protocol or using in memory data), but for now we keep it simple
-        // and should still get some benefit as we were previously writing every value individually.
-        self.common.persist_all().await?;
         let sync_state = self
             .common
             .recon
@@ -771,6 +766,7 @@ where
     ///     - before we sign off on a conversation as either the initiator or responder
     ///     - when our in memory list gets too large
     async fn persist_all(&mut self) -> Result<()> {
+        tracing::info!("calling persist all: {}", self.event_q.len());
         if self.event_q.is_empty() {
             return Ok(());
         }
