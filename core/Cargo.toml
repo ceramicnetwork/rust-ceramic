@@ -25,6 +25,7 @@ regex.workspace = true
 serde.workspace = true
 serde_bytes.workspace = true
 serde_ipld_dagcbor.workspace = true
+serde_ipld_dagjson.workspace = true
 serde_json.workspace = true
 ssi.workspace = true
 unsigned-varint.workspace = true

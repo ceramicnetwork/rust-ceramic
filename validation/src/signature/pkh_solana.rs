@@ -27,7 +27,7 @@ impl PkhSolana {
             BlockchainAccountId::from_str(cacao.payload.issuer.replace("did:pkh:", "").as_str())?
                 .account_address;
         let issuer_bytes = multibase::Base::Base58Btc
-            .decode(&issuer)
+            .decode(issuer)
             .context("failed to decode issuer")?;
 
         let issuer_bytes: &[u8; PUBLIC_KEY_LENGTH] = &issuer_bytes[0..PUBLIC_KEY_LENGTH]
