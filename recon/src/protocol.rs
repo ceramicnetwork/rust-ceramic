@@ -476,7 +476,7 @@ where
         let sync_state = self.common.recon.process_range(remote_range).await?;
         match sync_state {
             SyncState::Synchronized { .. } => {}
-            SyncState::RemoteMissing { ranges } => {
+            SyncState::RemoteMissing { ranges, reply_with } => {
                 to_writer
                     .send(ToWriter::SendAll(
                         self.common
@@ -487,7 +487,8 @@ where
                     .await
                     .map_err(|err| anyhow!("{err}"))
                     .context("sending missing values for ranges")?;
-                self.send_ranges(ranges.into_iter(), to_writer).await?;
+
+                self.send_ranges(reply_with.into_iter(), to_writer).await?;
             }
             SyncState::Unsynchronized { ranges } => {
                 self.send_ranges(ranges.into_iter(), to_writer).await?;
@@ -638,15 +639,14 @@ where
                     .map_err(|err| anyhow!("{err}"))
                     .context("sending range response synchronized")?;
             }
-            SyncState::RemoteMissing { ranges } => {
+            SyncState::RemoteMissing { ranges, reply_with } => {
                 to_writer
                     .send(ToWriter::SendAll(
                         self.common
                             .process_remote_missing_ranges(ranges.clone())
                             .map(move |value| value.map(ResponderMessage::Value))
-                            // Send the range hash after we have sent all keys so the remote learns we are in
-                            // sync.
-                            .chain(once(Ok(ResponderMessage::RangeResponse(ranges))))
+                            // Send only the necessary ranges to discover the values we're missing (i.e. bounding keys)
+                            .chain(once(Ok(ResponderMessage::RangeResponse(reply_with))))
                             .boxed(),
                     ))
                     .await

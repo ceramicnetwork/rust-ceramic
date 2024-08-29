@@ -284,12 +284,14 @@ where
             // The first range will trigger the remote to send the key and its value. The second
             // range will ensure we are synchronized.
             if range.first.is_fencepost() || calculated_hash.count == 0 {
+                let ranges = vec![RangeHash {
+                    first: range.first,
+                    hash: calculated_hash,
+                    last: range.last,
+                }];
                 Ok(SyncState::RemoteMissing {
-                    ranges: vec![RangeHash {
-                        first: range.first,
-                        hash: calculated_hash,
-                        last: range.last,
-                    }],
+                    ranges: ranges.clone(),
+                    reply_with: ranges,
                 })
             } else {
                 // Get the first key in the range, should always exist since we checked the count
@@ -312,17 +314,19 @@ where
                             hash: calculated_hash,
                             last: range.last,
                         }],
+                        reply_with: Vec::new(),
                     })
                 } else {
                     // We do not have the bounding key...
+                    // Send range indicating we are missing the bounding key
+                    let needed = RangeHash {
+                        first: range.first.clone(),
+                        hash: HashCount::default(),
+                        last: split_key.clone(),
+                    };
                     Ok(SyncState::RemoteMissing {
                         ranges: vec![
-                            // Send range indicating we are missing the bounding key
-                            RangeHash {
-                                first: range.first,
-                                hash: HashCount::default(),
-                                last: split_key.clone(),
-                            },
+                            needed.clone(),
                             // Send range of everything else past the bounding key
                             RangeHash {
                                 first: split_key.clone(),
@@ -330,6 +334,7 @@ where
                                 last: range.last,
                             },
                         ],
+                        reply_with: vec![needed],
                     })
                 }
             }
@@ -935,6 +940,11 @@ pub enum SyncState<K, H> {
         /// Often, as an optmization, this is split into two ranges one including only the first
         /// key in the range and then another for the remaining keys.
         ranges: Vec<RangeHash<K, H>>,
+        /// The ranges to reply with. In order to allow a peer to stream their writes (i.e. not
+        /// need to hash a range they were missing in the same conversation), we send only the ranges
+        /// we need to discover the first/bounding key or an empty range to indicate we're done.
+        /// We still send a reply so the peer knows we're done and can end the conversation.
+        reply_with: Vec<RangeHash<K, H>>,
     },
     /// The local is out of sync with the remote.
     Unsynchronized {
