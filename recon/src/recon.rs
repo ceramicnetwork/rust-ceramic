@@ -15,7 +15,7 @@ use ceramic_core::{EventId, Interest, PeerId, RangeOpen};
 use serde::{Deserialize, Serialize};
 use tracing::{instrument, trace, Level};
 
-use crate::{Client, Error, Metrics, Result, Sha256a};
+use crate::{Error, Metrics, Result, Sha256a};
 
 /// Recon is a protocol for set reconciliation via a message passing paradigm.
 /// An initial message can be created and then messages are exchanged between two Recon instances
@@ -28,7 +28,7 @@ use crate::{Client, Error, Metrics, Result, Sha256a};
 ///
 /// Recon is generic over its Key, Hash and Store implementations.
 /// This type provides the core protocol implementation.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Recon<K, H, S, I>
 where
     K: Key,
@@ -58,11 +58,168 @@ where
         }
     }
 
-    /// Compute the intersection of the remote interests with the local interests.
-    pub async fn process_interests(
+    #[instrument(skip(self), fields(range, count), ret(level = Level::DEBUG))]
+    async fn compute_splits(
         &self,
-        remote_interests: &[RangeOpen<K>],
-    ) -> Result<Vec<RangeOpen<K>>> {
+        range: RangeHash<K, H>,
+        count: u64,
+    ) -> Result<Vec<RangeHash<K, H>>> {
+        // If the number of keys in a range is <= SPLIT_THRESHOLD then directly send all the keys.
+        // TODO: Remove threshold and just use a large N-ary split for all cases
+        const SPLIT_THRESHOLD: u64 = 4;
+
+        if count <= SPLIT_THRESHOLD {
+            trace!(count, ?range, "small split sending all keys");
+            // We have only a few keys in the range. Let's short circuit the roundtrips and
+            // send the keys directly.
+            let keys: Vec<K> = self
+                .store
+                .range(&range.first..&range.last, 0, usize::MAX)
+                .await?
+                .collect();
+
+            let mut ranges = Vec::with_capacity(keys.len() + 1);
+            let mut prev: Option<K> = None;
+            for key in keys {
+                if let Some(prev) = prev {
+                    // Push range for each intermediate key.
+                    let hash = if !prev.is_fencepost() {
+                        HashCount::new(H::digest(&prev), 1)
+                    } else {
+                        HashCount::default()
+                    };
+                    ranges.push(RangeHash {
+                        first: prev,
+                        hash,
+                        last: key.clone(),
+                    });
+                } else if range.first != key {
+                    // respond with initial fencepost to first key range is empty
+                    ranges.push(RangeHash {
+                        first: range.first.clone(),
+                        hash: HashCount::default(),
+                        last: key.clone(),
+                    })
+                }
+                prev = Some(key);
+            }
+            if let Some(prev) = prev {
+                // Push last key in range.
+                let hash = if !prev.is_fencepost() {
+                    HashCount::new(H::digest(&prev), 1)
+                } else {
+                    HashCount::default()
+                };
+                ranges.push(RangeHash {
+                    first: prev,
+                    hash,
+                    last: range.last,
+                });
+            }
+            Ok(ranges)
+        } else {
+            // Split the range in two
+            let mid_key = self.store.middle(&range.first..&range.last).await?;
+            trace!(?mid_key, "splitting on key");
+            if let Some(mid_key) = mid_key {
+                let first_half = self.store.hash_range(&range.first..&mid_key).await?;
+                let last_half = self.store.hash_range(&mid_key..&range.last).await?;
+                Ok(vec![
+                    RangeHash {
+                        first: range.first,
+                        hash: first_half,
+                        last: mid_key.clone(),
+                    },
+                    RangeHash {
+                        first: mid_key,
+                        hash: last_half,
+                        last: range.last,
+                    },
+                ])
+            } else {
+                Err(Error::new_app(anyhow!("unable to find a split key")))
+            }
+        }
+    }
+
+    /// Reports if the set is empty
+    pub async fn is_empty(&self) -> Result<bool> {
+        self.store.is_empty().await
+    }
+
+    /// Return all keys and values in the range between left_fencepost and right_fencepost.
+    /// The upper range bound is exclusive.
+    ///
+    /// Offset and limit values are applied within the range of keys.
+    pub async fn range_with_values(
+        &self,
+        left_fencepost: &K,
+        right_fencepost: &K,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Box<dyn Iterator<Item = (K, Vec<u8>)> + Send + 'static>> {
+        self.store
+            .range_with_values(left_fencepost..right_fencepost, offset, limit)
+            .await
+    }
+
+    /// Return all keys.
+    pub async fn full_range(&self) -> Result<Box<dyn Iterator<Item = K> + Send + 'static>> {
+        self.store.full_range().await
+    }
+}
+
+#[async_trait]
+impl<K, H, S, I> crate::protocol::Recon for Recon<K, H, S, I>
+where
+    K: Key + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>,
+    H: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>,
+    S: crate::Store<Key = K, Hash = H> + Send + Sync + Clone + 'static,
+    I: crate::InterestProvider<Key = K> + Send + Sync + Clone + 'static,
+{
+    type Key = K;
+    type Hash = H;
+
+    /// Insert keys into the key space.
+    async fn insert(&self, items: Vec<ReconItem<K>>) -> Result<InsertResult<K>> {
+        self.store.insert_many(&items).await
+    }
+
+    /// Return all keys in the range between left_fencepost and right_fencepost.
+    /// The upper range bound is exclusive.
+    ///
+    /// Offset and limit values are applied within the range of keys.
+    async fn range(
+        &self,
+        left_fencepost: Self::Key,
+        right_fencepost: Self::Key,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Vec<Self::Key>> {
+        Ok(self
+            .store
+            .range(&left_fencepost..&right_fencepost, offset, limit)
+            .await?
+            .collect())
+    }
+
+    async fn len(&self) -> Result<usize> {
+        self.store.len().await
+    }
+
+    async fn value_for_key(&self, key: Self::Key) -> Result<Option<Vec<u8>>> {
+        self.store.value_for_key(&key).await
+    }
+
+    async fn interests(&self) -> Result<Vec<RangeOpen<Self::Key>>> {
+        self.interests.interests().await
+    }
+
+    /// Compute the intersection of the remote interests with the local interests.
+    async fn process_interests(
+        &self,
+        remote_interests: Vec<RangeOpen<Self::Key>>,
+    ) -> Result<Vec<RangeOpen<Self::Key>>> {
         // Find the intersection of interests.
         // Then reply with a message per intersection.
         //
@@ -72,7 +229,7 @@ where
         // to quickly find intersections.
         let mut intersections = Vec::with_capacity(remote_interests.len() * 2);
         for local_range in self.interests().await? {
-            for remote_range in remote_interests {
+            for remote_range in &remote_interests {
                 if let Some(intersection) = local_range.intersect(remote_range) {
                     intersections.push(intersection)
                 }
@@ -80,8 +237,9 @@ where
         }
         Ok(intersections)
     }
+
     /// Compute the hash of the keys within the range.
-    pub async fn initial_range(&mut self, interest: RangeOpen<K>) -> Result<RangeHash<K, H>> {
+    async fn initial_range(&self, interest: RangeOpen<K>) -> Result<RangeHash<K, H>> {
         let hash = self
             .store
             .hash_range(&interest.start..&interest.end)
@@ -92,12 +250,13 @@ where
             last: interest.end,
         })
     }
+
     /// Processes a range from a remote.
     ///
     /// Reports any new keys and what the range indicates about how the local and remote node are
     /// synchronized.
     #[instrument(skip(self), ret(level = Level::DEBUG))]
-    pub async fn process_range(&mut self, range: RangeHash<K, H>) -> Result<SyncState<K, H>> {
+    async fn process_range(&self, range: RangeHash<K, H>) -> Result<SyncState<K, H>> {
         let calculated_hash = self.store.hash_range(&range.first..&range.last).await?;
         if calculated_hash == range.hash {
             Ok(SyncState::Synchronized { range })
@@ -191,151 +350,8 @@ where
         }
     }
 
-    #[instrument(skip(self), fields(range, count), ret(level = Level::DEBUG))]
-    async fn compute_splits(
-        &mut self,
-        range: RangeHash<K, H>,
-        count: u64,
-    ) -> Result<Vec<RangeHash<K, H>>> {
-        // If the number of keys in a range is <= SPLIT_THRESHOLD then directly send all the keys.
-        // TODO: Remove threshold and just use a large N-ary split for all cases
-        const SPLIT_THRESHOLD: u64 = 4;
-
-        if count <= SPLIT_THRESHOLD {
-            trace!(count, ?range, "small split sending all keys");
-            // We have only a few keys in the range. Let's short circuit the roundtrips and
-            // send the keys directly.
-            let keys: Vec<K> = self
-                .store
-                .range(&range.first..&range.last, 0, usize::MAX)
-                .await?
-                .collect();
-
-            let mut ranges = Vec::with_capacity(keys.len() + 1);
-            let mut prev: Option<K> = None;
-            for key in keys {
-                if let Some(prev) = prev {
-                    // Push range for each intermediate key.
-                    let hash = if !prev.is_fencepost() {
-                        HashCount::new(H::digest(&prev), 1)
-                    } else {
-                        HashCount::default()
-                    };
-                    ranges.push(RangeHash {
-                        first: prev,
-                        hash,
-                        last: key.clone(),
-                    });
-                } else if range.first != key {
-                    // respond with initial fencepost to first key range is empty
-                    ranges.push(RangeHash {
-                        first: range.first.clone(),
-                        hash: HashCount::default(),
-                        last: key.clone(),
-                    })
-                }
-                prev = Some(key);
-            }
-            if let Some(prev) = prev {
-                // Push last key in range.
-                let hash = if !prev.is_fencepost() {
-                    HashCount::new(H::digest(&prev), 1)
-                } else {
-                    HashCount::default()
-                };
-                ranges.push(RangeHash {
-                    first: prev,
-                    hash,
-                    last: range.last,
-                });
-            }
-            Ok(ranges)
-        } else {
-            // Split the range in two
-            let mid_key = self.store.middle(&range.first..&range.last).await?;
-            trace!(?mid_key, "splitting on key");
-            if let Some(mid_key) = mid_key {
-                let first_half = self.store.hash_range(&range.first..&mid_key).await?;
-                let last_half = self.store.hash_range(&mid_key..&range.last).await?;
-                Ok(vec![
-                    RangeHash {
-                        first: range.first,
-                        hash: first_half,
-                        last: mid_key.clone(),
-                    },
-                    RangeHash {
-                        first: mid_key,
-                        hash: last_half,
-                        last: range.last,
-                    },
-                ])
-            } else {
-                Err(Error::new_app(anyhow!("unable to find a split key")))
-            }
-        }
-    }
-
-    /// Retrieve a value associated with a recon key
-    pub async fn value_for_key(&self, key: K) -> Result<Option<Vec<u8>>> {
-        self.store.value_for_key(&key).await
-    }
-
-    /// Insert keys into the key space.
-    pub async fn insert(&self, items: Vec<ReconItem<K>>) -> Result<InsertResult<K>> {
-        let res = self.store.insert_many(&items).await?;
-        Ok(res)
-    }
-
-    /// Reports total number of keys
-    pub async fn len(&self) -> Result<usize> {
-        self.store.len().await
-    }
-
-    /// Reports if the set is empty
-    pub async fn is_empty(&self) -> Result<bool> {
-        self.store.is_empty().await
-    }
-
-    /// Return all keys in the range between left_fencepost and right_fencepost.
-    /// The upper range bound is exclusive.
-    ///
-    /// Offset and limit values are applied within the range of keys.
-    pub async fn range(
-        &self,
-        left_fencepost: &K,
-        right_fencepost: &K,
-        offset: usize,
-        limit: usize,
-    ) -> Result<Box<dyn Iterator<Item = K> + Send + 'static>> {
-        self.store
-            .range(left_fencepost..right_fencepost, offset, limit)
-            .await
-    }
-
-    /// Return all keys and values in the range between left_fencepost and right_fencepost.
-    /// The upper range bound is exclusive.
-    ///
-    /// Offset and limit values are applied within the range of keys.
-    pub async fn range_with_values(
-        &self,
-        left_fencepost: &K,
-        right_fencepost: &K,
-        offset: usize,
-        limit: usize,
-    ) -> Result<Box<dyn Iterator<Item = (K, Vec<u8>)> + Send + 'static>> {
-        self.store
-            .range_with_values(left_fencepost..right_fencepost, offset, limit)
-            .await
-    }
-
-    /// Return all keys.
-    pub async fn full_range(&self) -> Result<Box<dyn Iterator<Item = K> + Send + 'static>> {
-        self.store.full_range().await
-    }
-
-    /// Return the interests
-    pub async fn interests(&self) -> Result<Vec<RangeOpen<K>>> {
-        self.interests.interests().await
+    fn metrics(&self) -> Metrics {
+        self.metrics.clone()
     }
 }
 
@@ -767,7 +783,7 @@ pub trait InterestProvider {
 }
 
 /// InterestProvider that is interested in everything.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FullInterests<K>(PhantomData<K>);
 
 impl<K> Default for FullInterests<K> {
@@ -786,22 +802,24 @@ impl<K: Key> InterestProvider for FullInterests<K> {
 }
 
 /// An implementation of [`InterestProvider`] backed by a Recon instance.
-#[derive(Debug)]
-pub struct ReconInterestProvider<H = Sha256a>
+#[derive(Debug, Clone)]
+pub struct ReconInterestProvider<S, H = Sha256a>
 where
     H: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>,
+    S: Store<Key = Interest, Hash = H> + Send + Sync,
 {
     start: Interest,
     end: Interest,
-    recon: Client<Interest, H>,
+    store: S,
 }
 
-impl<H> ReconInterestProvider<H>
+impl<S, H> ReconInterestProvider<S, H>
 where
     H: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>,
+    S: Store<Key = Interest, Hash = H> + Send + Sync,
 {
     /// Construct an [`InterestProvider`] from a Recon [`Client`] and a [`PeerId`].
-    pub fn new(peer_id: PeerId, recon: Client<Interest, H>) -> Self {
+    pub fn new(peer_id: PeerId, store: S) -> Self {
         let sort_key = "model";
         let start = Interest::builder()
             .with_sep_key(sort_key)
@@ -814,21 +832,22 @@ where
             .with_max_range()
             .build_fencepost();
 
-        Self { start, end, recon }
+        Self { start, end, store }
     }
 }
 
 // Implement InterestProvider for a Recon of interests.
 #[async_trait]
-impl<H> InterestProvider for ReconInterestProvider<H>
+impl<S, H> InterestProvider for ReconInterestProvider<S, H>
 where
     H: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>,
+    S: Store<Key = Interest, Hash = H> + Send + Sync,
 {
     type Key = EventId;
 
     async fn interests(&self) -> Result<Vec<RangeOpen<EventId>>> {
-        self.recon
-            .range(self.start.clone(), self.end.clone(), 0, usize::MAX)
+        self.store
+            .range(&self.start..&self.end, 0, usize::MAX)
             .await?
             .map(|interest| {
                 if let Some(RangeOpen { start, end }) = interest.range() {

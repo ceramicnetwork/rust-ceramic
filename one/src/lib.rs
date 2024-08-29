@@ -24,7 +24,7 @@ use multibase::Base;
 use multihash::Multihash;
 use multihash_codetable::Code;
 use multihash_derive::Hasher;
-use recon::{FullInterests, Recon, ReconInterestProvider, Server, Sha256a};
+use recon::{FullInterests, Recon, ReconInterestProvider, Sha256a};
 use signal_hook::consts::signal::*;
 use signal_hook_tokio::Signals;
 use std::sync::Arc;
@@ -299,7 +299,6 @@ pub async fn run() -> Result<()> {
 }
 
 type InterestInterest = FullInterests<Interest>;
-type ModelInterest = ReconInterestProvider<Sha256a>;
 
 impl DBOpts {
     /// This function will create the database directory if it does not exist.
@@ -511,21 +510,21 @@ impl Daemon {
             ceramic_store::StoreMetricsMiddleware::new(model_api_store, store_metrics);
 
         // Construct a recon implementation for interests.
-        let mut recon_interest_svr = Server::new(Recon::new(
+        let recon_interest_svr = Recon::new(
             interest_store.clone(),
             InterestInterest::default(),
             recon_metrics.clone(),
-        ));
+        );
 
         // Construct a recon implementation for models.
-        let mut recon_model_svr = Server::new(Recon::new(
+        let recon_model_svr = Recon::new(
             model_store.clone(),
             // Use recon interests as the InterestProvider for recon_model
-            ModelInterest::new(peer_id, recon_interest_svr.client()),
+            ReconInterestProvider::new(peer_id, interest_store.clone()),
             recon_metrics,
-        ));
+        );
 
-        let recons = Some((recon_interest_svr.client(), recon_model_svr.client()));
+        let recons = Some((recon_interest_svr, recon_model_svr));
         let ipfs_metrics =
             ceramic_metrics::MetricsHandle::register(ceramic_kubo_rpc::IpfsMetrics::register);
         let p2p_metrics = MetricsHandle::register(ceramic_p2p::Metrics::register);
@@ -600,9 +599,6 @@ impl Daemon {
             ("/api/v0/".to_string(), kubo_rpc_service),
         );
 
-        let recon_interest_handle = tokio::spawn(recon_interest_svr.run());
-        let recon_model_handle = tokio::spawn(recon_model_svr.run());
-
         // Start HTTP server with a graceful shutdown
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
         let signals = Signals::new([SIGHUP, SIGTERM, SIGINT, SIGQUIT])?;
@@ -627,16 +623,6 @@ impl Daemon {
             warn!(%err,"ipfs task error");
         }
         debug!("ipfs stopped");
-
-        // Drop recon_model first as it contains a client into recon_interest.
-        if let Err(err) = recon_model_handle.await {
-            warn!(%err, "recon models task error");
-        }
-        debug!("recon models server stopped");
-        if let Err(err) = recon_interest_handle.await {
-            warn!(%err, "recon interest task error");
-        }
-        debug!("recon interests server stopped");
 
         // Shutdown metrics server and collection handler
         tx_metrics_server_shutdown
