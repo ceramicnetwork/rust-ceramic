@@ -221,6 +221,19 @@ where
             RawEvent::Unsigned(event) => Ok((event_cid, Event::Unsigned(event))),
         }
     }
+
+    pub fn get_controller(&self) -> anyhow::Result<String> {
+        // todo!("Get the controller of an event");
+        // TODO_discuss : does this already exist? For each event type? I see a way of doing this for init
+        match self {
+            Event::Time(_) => ,
+            Event::Signed(event) => match event.payload() {
+                Payload::Data(_) => false,
+                Payload::Init(_) => true,
+            },
+            Event::Unsigned(_) => true,
+        }
+    }
 }
 
 impl<D> From<Box<TimeEvent>> for Event<D> {
