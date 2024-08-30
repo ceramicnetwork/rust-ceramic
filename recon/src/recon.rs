@@ -290,7 +290,6 @@ where
                         hash: calculated_hash,
                         last: range.last,
                     }],
-                    reply_with: Vec::new(),
                 })
             } else {
                 // Get the first key in the range, should always exist since we checked the count
@@ -313,27 +312,26 @@ where
                             hash: calculated_hash,
                             last: range.last,
                         }],
-                        reply_with: Vec::new(),
                     })
                 } else {
                     // We do not have the bounding key...
-                    // Send range indicating we are missing the bounding key
-                    let needed = RangeHash {
-                        first: range.first.clone(),
-                        hash: HashCount::default(),
-                        last: split_key.clone(),
-                    };
-                    Ok(SyncState::RemoteMissing {
+                    // We use Unsynchronized because remote missing indicates that locally we have
+                    // all data in the range, however locally we are missing the bounding key.
+                    Ok(SyncState::Unsynchronized {
                         ranges: vec![
-                            needed.clone(),
-                            // Send range of everything else past the bounding key
+                            RangeHash {
+                                first: range.first.clone(),
+                                hash: HashCount::default(),
+                                last: split_key.clone(),
+                            },
+                            // Send range of everything else past the bounding key.
+                            // We will likey discover the remote is missing this range.
                             RangeHash {
                                 first: split_key.clone(),
                                 hash: self.store.hash_range(&split_key..&range.last).await?,
                                 last: range.last,
                             },
                         ],
-                        reply_with: vec![needed],
                     })
                 }
             }
@@ -934,16 +932,10 @@ pub enum SyncState<K, H> {
         range: RangeHash<K, H>,
     },
     /// The remote range is missing all data in the range.
+    /// Locally we have all data in the range including the bounding key.
     RemoteMissing {
         /// The ranges of the local data.
-        /// Often, as an optmization, this is split into two ranges one including only the first
-        /// key in the range and then another for the remaining keys.
         ranges: Vec<RangeHash<K, H>>,
-        /// The ranges to reply with. In order to allow a peer to stream their writes (i.e. not
-        /// need to hash a range they were missing in the same conversation), we send only the ranges
-        /// we need to discover the first/bounding key or an empty range to indicate we're done.
-        /// We still send a reply so the peer knows we're done and can end the conversation.
-        reply_with: Vec<RangeHash<K, H>>,
     },
     /// The local is out of sync with the remote.
     Unsynchronized {
