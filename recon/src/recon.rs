@@ -320,7 +320,7 @@ where
                     Ok(SyncState::Unsynchronized {
                         ranges: vec![
                             RangeHash {
-                                first: range.first.clone(),
+                                first: range.first,
                                 hash: HashCount::default(),
                                 last: split_key.clone(),
                             },

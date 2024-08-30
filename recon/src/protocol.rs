@@ -638,7 +638,7 @@ where
                         self.common
                             .process_remote_missing_ranges(ranges.clone())
                             .map(move |value| value.map(ResponderMessage::Value))
-                            // Send only the necessary ranges to discover the values we're missing (i.e. bounding keys)
+                            // Send an empty range so the initiator knows we're done
                             .chain(once(Ok(ResponderMessage::RangeResponse(vec![]))))
                             .boxed(),
                     ))
