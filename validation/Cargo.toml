@@ -22,19 +22,21 @@ ipld-core.workspace = true
 k256.workspace = true
 lru.workspace = true
 multibase.workspace = true
+multihash-codetable.workspace = true
 once_cell.workspace = true
+p256.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+serde_ipld_dagcbor.workspace = true
 sha3.workspace = true
 ssi.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+unsigned-varint.workspace = true
 
 [dev-dependencies]
 ceramic-car.workspace = true
-serde.workspace = true
-serde_ipld_dagcbor.workspace = true
 tracing.workspace = true
 test-log.workspace = true
 # did-pkh = "0.2.1"

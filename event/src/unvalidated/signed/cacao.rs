@@ -1,6 +1,6 @@
 //! Structures for encoding and decoding CACAO capability objects.
 
-use serde::{ser::SerializeMap as _, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssi::jwk::Algorithm;
 use std::collections::HashMap;
 
@@ -212,7 +212,7 @@ pub enum MetadataValue {
 
 /// Metadata for signature
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct SignatureMetadata {
+pub struct JwsSignatureMetadata {
     /// Algorithm for signature
     pub alg: String,
     /// Key ID for signature
@@ -220,6 +220,34 @@ pub struct SignatureMetadata {
     /// Other metadata
     #[serde(flatten)]
     pub rest: HashMap<String, MetadataValue>,
+}
+
+/// Variants for signature metadata
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum SignatureMetadata {
+    /// The metadata for a JWS signature
+    Jws(JwsSignatureMetadata),
+    /// Ipld encoded metadata, used for WebAuthN authorization
+    Ipld(ipld_core::ipld::Ipld),
+}
+
+impl SignatureMetadata {
+    /// Returns the metadata if it's a JWS signature, else error
+    pub fn try_as_jws(&self) -> anyhow::Result<&JwsSignatureMetadata> {
+        match self {
+            SignatureMetadata::Jws(jws) => Ok(jws),
+            SignatureMetadata::Ipld(_) => anyhow::bail!("expected JWS signature, found IPLD"),
+        }
+    }
+
+    /// Returns the metadata if it's a AdditionalAuthenticatorData, else error
+    pub fn try_as_ipld(&self) -> anyhow::Result<&ipld_core::ipld::Ipld> {
+        match self {
+            SignatureMetadata::Jws(_) => anyhow::bail!("Expected IPLD metadata, found JWS"),
+            SignatureMetadata::Ipld(ipld) => Ok(ipld),
+        }
+    }
 }
 
 /// Signature of a CACAO
@@ -234,46 +262,4 @@ pub struct Signature {
     /// Signature bytes
     #[serde(rename = "s")]
     pub signature: String,
-}
-
-#[derive(Debug)]
-/// A sorted version of the metadata that can be used when verifying signatures
-pub struct SortedMetadata<'a> {
-    /// The header data
-    pub header_data: Vec<(&'a str, &'a MetadataValue)>,
-    /// The algorithm used
-    pub alg: MetadataValue,
-    /// The key ID used
-    pub kid: MetadataValue,
-}
-
-impl<'a> From<&'a SignatureMetadata> for SortedMetadata<'a> {
-    fn from(metadata: &'a SignatureMetadata) -> Self {
-        let header_data: Vec<_> = metadata.rest.iter().map(|(k, v)| (k.as_str(), v)).collect();
-        Self {
-            header_data,
-            alg: MetadataValue::String(metadata.alg.clone()),
-            kid: MetadataValue::String(metadata.kid.clone()),
-        }
-    }
-}
-
-impl<'a> Serialize for SortedMetadata<'a> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::ser::Serializer,
-    {
-        let mut header_data: Vec<_> = self
-            .header_data
-            .iter()
-            .map(|(k, v)| (*k, *v))
-            .chain(vec![("alg", &self.alg), ("kid", &self.kid)])
-            .collect();
-        header_data.sort_by(|a, b| a.0.cmp(b.0));
-        let mut s = serializer.serialize_map(Some(header_data.len()))?;
-        for (k, v) in &header_data {
-            s.serialize_entry(k, v)?;
-        }
-        s.end()
-    }
 }

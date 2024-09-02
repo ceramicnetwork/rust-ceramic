@@ -55,6 +55,7 @@ pub enum SigningType {
     Solana,
     EcdsaP256,
     Ed2559,
+    WebAuthN,
 }
 
 #[derive(Debug)]
@@ -210,6 +211,10 @@ pub fn get_test_event(
         }
         SigningType::Ed2559 => {
             let data = include_bytes!("../test-vectors/key-ed25519.car");
+            parse_test_data(data.as_slice())
+        }
+        SigningType::WebAuthN => {
+            let data = include_bytes!("../test-vectors/key-webauthn.car");
             parse_test_data(data.as_slice())
         }
     };

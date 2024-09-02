@@ -1,17 +1,15 @@
 use anyhow::{anyhow, bail, Context, Result};
 use base64::Engine as _;
 use ceramic_core::{Cid, Jwk, StreamId};
-use ceramic_event::unvalidated::signed::cacao::{
-    Capability, HeaderType, SignatureType, SortedMetadata,
-};
+use ceramic_event::unvalidated::signed::cacao::{Capability, HeaderType, SignatureType};
 use ssi::did_resolve::ResolutionInputMetadata;
 
 use super::{
-    jws::{verify_jws, VerifyJwsInput},
+    jws::{verify_jws, SortedJwsMetadata, VerifyJwsInput},
     opts::VerifyCacaoOpts,
 };
 
-use crate::signature::{pkh_ethereum::PkhEthereum, pkh_solana::PkhSolana};
+use crate::signature::{key_webauthn::WebAuthN, pkh_ethereum::PkhEthereum, pkh_solana::PkhSolana};
 
 #[async_trait::async_trait]
 pub trait Verifier {
@@ -45,12 +43,10 @@ impl Verifier for Capability {
                 SignatureType::StacksSECP256K1 => {
                     bail!("Stacks signature validation is unimplemented")
                 }
-                SignatureType::WebAuthNP256 => {
-                    bail!("WebAuthN signature validation is unimplemented")
-                }
+                SignatureType::WebAuthNP256 => WebAuthN::verify(self),
                 SignatureType::JWS => {
                     let meta = if let Some(meta) = &self.signature.metadata {
-                        meta
+                        meta.try_as_jws()?
                     } else {
                         anyhow::bail!("no metadata found for jws");
                     };
@@ -69,7 +65,7 @@ impl Verifier for Capability {
 
                     let payload =
                         serde_json::to_vec(&self.payload).context("failed to serialize payload")?;
-                    let header = serde_json::to_vec(&SortedMetadata::from(meta))
+                    let header = serde_json::to_vec(&SortedJwsMetadata::from(meta))
                         .context("failed to seralize metadata")?;
                     let sig = base64::prelude::BASE64_URL_SAFE_NO_PAD
                         .decode(self.signature.signature.as_bytes())
