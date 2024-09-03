@@ -5,6 +5,53 @@ use ceramic_core::{Cid, SerializeExt};
 
 use crate::Bytes;
 
+/// Represents an event with a payload and its corresponding CID
+#[derive(Debug)]
+pub struct Event<D> {
+    payload: Payload<D>,
+    cid: Cid,
+}
+
+impl<D> Event<D> {
+    /// Get a reference to the payload
+    pub fn payload(&self) -> &Payload<D> {
+        &self.payload
+    }
+
+    /// Get the CID of the event
+    pub fn cid(&self) -> &Cid {
+        &self.cid
+    }
+
+    /// Create init Event with cid and payload
+    pub(crate) fn new_with_cid(cid: Cid, payload: Payload<D>) -> Self {
+        Self { cid, payload }
+    }
+}
+
+impl<D: serde::Serialize> Event<D> {
+    /// Create a new init Event
+    pub(crate) fn new(payload: Payload<D>) -> Self {
+        Self {
+            cid: payload
+                .to_cid()
+                .expect("payload should always serialize to cid"),
+            payload,
+        }
+    }
+
+    /// Encode the unsigned init event into CAR bytes.
+    pub fn encode_car(&self) -> Result<Vec<u8>, anyhow::Error> {
+        let event = self.payload.to_cbor()?;
+        let mut car = Vec::new();
+        let roots: Vec<Cid> = vec![self.cid];
+        let mut writer = CarWriter::new(CarHeader::V1(roots.into()), &mut car);
+        writer.write(self.cid, event)?;
+        writer.finish()?;
+        Ok(car)
+    }
+}
+
 /// Payload of an init event
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Payload<D> {

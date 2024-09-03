@@ -1,4 +1,7 @@
+use anyhow::{anyhow, Result};
+use ceramic_event::unvalidated;
 use cid::Cid;
+use ipld_core::ipld::Ipld;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,11 +25,11 @@ impl ConclusionEvent {
     }
 }
 
+//TODO : Add Stream Type here
 // Dimension is a tuple of (name, value) : way to identify a stream
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConclusionInit {
     pub stream_cid: Cid,
-    pub stream_type: u8,
     pub controller: String,
     pub dimensions: Vec<(String, Vec<u8>)>,
 }
@@ -50,4 +53,24 @@ pub struct ConclusionTime {
     pub init: ConclusionInit,
     pub previous: Vec<Cid>,
     pub index: u64,
+}
+
+impl TryFrom<unvalidated::Event<Ipld>> for ConclusionInit {
+    type Error = anyhow::Error;
+
+    fn try_from(event: unvalidated::Event<Ipld>) -> Result<Self> {
+        let init_payload = event
+            .init_payload()
+            .ok_or_else(|| anyhow!("no init payload found"))?;
+        Ok(ConclusionInit {
+            stream_cid: *event.id(),
+            controller: init_payload
+                .header()
+                .controllers()
+                .first()
+                .ok_or_else(|| anyhow!("no controller found"))?
+                .to_string(),
+            dimensions: vec![],
+        })
+    }
 }

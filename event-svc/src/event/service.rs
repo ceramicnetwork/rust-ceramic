@@ -1,4 +1,4 @@
-use std::{collections::HashSet, io::Cursor};
+use std::collections::HashSet;
 
 use super::{
     migration::Migrator,
@@ -6,20 +6,17 @@ use super::{
     ordering_task::{DeliverableTask, OrderingTask},
 };
 use async_trait::async_trait;
-use bytes::buf::Limit;
-use ceramic_api::EventStore;
-use ceramic_core::{EventId, Network};
+use ceramic_core::{EventId, Network, SerializeExt};
 use ceramic_event::unvalidated;
 use ceramic_event::unvalidated::Event;
 use ceramic_flight::{ConclusionData, ConclusionEvent, ConclusionInit, ConclusionTime};
 use ceramic_sql::sqlite::SqlitePool;
 use cid::Cid;
-use futures::stream::BoxStream;
+use futures::{future::try_join_all, stream::BoxStream};
 use ipld_core::ipld::Ipld;
 use recon::ReconItem;
 use tokio::try_join;
 use tracing::{trace, warn};
-use tracing_subscriber::fmt::init;
 
 use crate::store::{CeramicOneEvent, EventInsertable};
 use crate::{Error, Result};
@@ -269,138 +266,70 @@ impl EventService {
         })
     }
 
-    // We map over this to get a vec of conclusion events
-    fn transform_raw_events_to_conclusion_events(
+    #[allow(dead_code)]
+    async fn transform_raw_events_to_conclusion_events(
         &self,
-        raw_event: ceramic_api::EventDataResult,
+        raw_event: ceramic_event::unvalidated::Event<Ipld>,
+        delivered: i64,
     ) -> Result<ConclusionEvent> {
-        let event = match raw_event.data {
-            Some(car_data) => {
-                let (cid, event) = ceramic_event::unvalidated::Event::<Ipld>::decode_car(
-                    Cursor::new(&car_data),
-                    false,
-                )
-                .map_err(|e| Error::new_app(anyhow::anyhow!("Failed to decode CAR data: {}", e)))?;
+        let stream_cid = raw_event.id();
+        let init_event = self.get_event_by_cid(stream_cid).await?;
+        let init = ConclusionInit::try_from(init_event).unwrap();
+        let event_cid = *raw_event.id();
 
-                if cid != raw_event.id {
-                    return Err(Error::new_app(anyhow::anyhow!(
-                        "CID mismatch: expected {}, got {}",
-                        raw_event.id,
-                        cid
-                    )));
-                }
-
-                event
-            }
-            None => {
-                return Err(Error::new_app(anyhow::anyhow!(
-                    "No CAR data provided for event {}",
-                    raw_event.id
-                )))
-            }
-        };
-
-        match event {
+        match raw_event {
             ceramic_event::unvalidated::Event::Time(time_event) => {
-                let mut current_event: Event<Ipld> = event;
-                let mut stream_id = current_event.id();
-                let mut init_event: Option<Event<Ipld>> = None;
-                // Traverse the chain of events until we find the init event
-                while let Some(prev_cid) = current_event.prev() {
-                    let prev_event = self.get_event_by_cid(prev_cid)?;
-                    if prev_event.is_init() {
-                        init_event = Some(prev_event);
-                        break;
-                    }
-                    current_event = prev_event;
-                }
-
                 Ok(ConclusionEvent::Time(ConclusionTime {
-                    event_cid: raw_event.id,
-                    init: ConclusionInit {
-                        stream_cid: *init_event.unwrap().id().unwrap(),
-                        stream_type: 0, // You may need to determine the correct stream type
-                        controller: event.get_controller().unwrap(),
-                        dimensions: vec![], // You may need to populate this if needed
-                    },
-                    // TODO_Discuss: How can this ever have more than one value? prev return a single cid
-                    // Soln_proposed : ?
+                    event_cid,
+                    init,
                     previous: vec![*time_event.prev()],
-                    //TODO_Discuss: How to determine an ever incrementing index.
-                    //Soln_proposed : We have to store this on disk and increment with every event seen ?
-                    //Define purpose of this counter and how it can be used
-                    index: 0,
+                    index: delivered as u64, // TODO: Implement proper indexing
                 }))
             }
-
-            //TODO: We dont need to track the entire chain, we can just get the init for a data event. Check how this is done
-            //TODO_Discuss: How do we get the init just with an event?
             ceramic_event::unvalidated::Event::Signed(signed_event) => {
                 match signed_event.payload() {
                     ceramic_event::unvalidated::Payload::Data(data) => {
-                        let mut current_event: Event<Ipld> = event;
-                        let mut stream_id = current_event.id();
-                        let mut init_event: Option<Event<Ipld>> = None;
-                        // Traverse the chain of events until we find the init event
-                        while let Some(prev_cid) = current_event.prev() {
-                            let prev_event = self.get_event_by_cid(prev_cid)?;
-                            if prev_event.is_init() {
-                                init_event = Some(prev_event);
-                                break;
-                            }
-                            current_event = prev_event;
-                        }
                         Ok(ConclusionEvent::Data(ConclusionData {
-                            event_cid: raw_event.id,
-                            init: ConclusionInit {
-                                stream_cid: *init_event.unwrap().id().unwrap(),
-                                stream_type: 2, // TODO_Discuss: may need to determine the correct stream type ? 
-                                controller: signed_event.payload().,
-                                dimensions: vec![], // You may need to populate this if needed
-                            },
-                            previous: data.prev().iter().copied().collect(),
-                            data: data.content().to_vec(),
-                            index: 0, 
+                            event_cid,
+                            init,
+                            previous: vec![*data.prev()],
+                            data: data.data().to_json_bytes().map_err(|e| {
+                                Error::new_app(anyhow::anyhow!(
+                                    "Failed to serialize IPLD data: {}",
+                                    e
+                                ))
+                            })?,
+                            index: delivered as u64, // TODO: Implement proper indexing
                         }))
                     }
-                    ceramic_event::unvalidated::Payload::Init(init) => {
+                    ceramic_event::unvalidated::Payload::Init(init_event) => {
                         Ok(ConclusionEvent::Data(ConclusionData {
-                            event_cid: raw_event.id,
-                            init: ConclusionInit {
-                                stream_cid: raw_event.id, // For init events, the event CID is the stream CID
-                                stream_type: init.header().stream_type() as u8,
-                                controller: init
-                                    .header()
-                                    .controllers()
-                                    .first()
-                                    .unwrap()
-                                    .to_string(),
-                                dimensions: vec![], //TODO_Discuss: You may need to populate this if needed
-                            },
+                            event_cid,
+                            init,
                             previous: vec![],
-                            data: init.content().to_vec(),
-                            index: 0,
+                            data: init_event.data().to_json_bytes().map_err(|e| {
+                                Error::new_app(anyhow::anyhow!(
+                                    "Failed to serialize IPLD data: {}",
+                                    e
+                                ))
+                            })?,
+                            index: delivered as u64, // TODO: Implement proper indexing
                         }))
                     }
                 }
             }
-
             ceramic_event::unvalidated::Event::Unsigned(unsigned_event) => {
                 Ok(ConclusionEvent::Data(ConclusionData {
-                    event_cid: raw_event.id,
-                    init: ConclusionInit {
-                        stream_cid: raw_event.id, // For unsigned events, the event CID is the stream CID
-                        stream_type: unsigned_event.header().stream_type() as u8,
-                        controller: unsigned_event
-                            .header()
-                            .controllers()
-                            .first()
-                            .unwrap()
-                            .to_string(),
-                        dimensions: vec![], // You may need to populate this if needed
-                    },
+                    event_cid,
+                    init,
                     previous: vec![],
-                    data: unsigned_event.content().to_vec(),
+                    data: unsigned_event
+                        .payload()
+                        .data()
+                        .to_json_bytes()
+                        .map_err(|e| {
+                            Error::new_app(anyhow::anyhow!("Failed to serialize IPLD data: {}", e))
+                        })?,
                     index: 0,
                 }))
             }
@@ -408,27 +337,53 @@ impl EventService {
     }
 
     // Helper method to get an event by its CID
-    fn get_event_by_cid(&self, cid: &Cid) -> Result<ceramic_event::unvalidated::Event<Ipld>> {
-        // Implement this method to fetch the event from your storage
-        unimplemented!("Implement get_event_by_cid method")
+    async fn get_event_by_cid(&self, cid: &Cid) -> Result<ceramic_event::unvalidated::Event<Ipld>> {
+        let data_bytes = CeramicOneEvent::value_by_cid(&self.pool, cid)
+            .await?
+            .ok_or_else(|| Error::new_fatal(anyhow::anyhow!("Event not found for CID: {}", cid)))?;
+
+        let (_, event) = ceramic_event::unvalidated::Event::<Ipld>::decode_car(
+            std::io::Cursor::new(data_bytes),
+            false,
+        )
+        .map_err(|e| Error::new_fatal(anyhow::anyhow!("Failed to decode CAR data: {}", e)))?;
+
+        Ok(event)
     }
 
+    #[allow(dead_code)]
     async fn conclusion_events_since(
         &self,
         highwater_mark: i64,
         limit: i64,
-        include_data: ceramic_api::IncludeEventData,
     ) -> anyhow::Result<Vec<ConclusionEvent>> {
-        let raw_events = ceramic_api::EventStore::events_since_highwater_mark(
-            self,
-            highwater_mark,
-            limit,
-            include_data,
-        );
-        let conclusion_events = self
-            .transform_raw_events_to_conclusion_events(raw_events)
+        let raw_events = self
+            .fetch_events_since_highwater_mark(highwater_mark, limit)
             .await?;
-        Ok(conclusion_events)
+
+        let conclusion_events_futures = raw_events.into_iter().map(|(event, delivered)| {
+            self.transform_raw_events_to_conclusion_events(event, delivered)
+        });
+
+        try_join_all(conclusion_events_futures)
+            .await
+            .map_err(Into::into)
+    }
+
+    #[allow(dead_code)]
+    async fn fetch_events_since_highwater_mark(
+        &self,
+        highwater_mark: i64,
+        limit: i64,
+    ) -> Result<Vec<(unvalidated::Event<Ipld>, i64)>> {
+        let (_, data) =
+            CeramicOneEvent::new_events_since_value_with_data(&self.pool, highwater_mark, limit)
+                .await?;
+        let events = data
+            .into_iter()
+            .map(|(_, event, delivered)| (event, delivered))
+            .collect();
+        Ok(events)
     }
 
     async fn notify_ordering_task(
@@ -441,7 +396,7 @@ impl EventService {
             .iter()
             .filter_map(|i| if i.new_key { i.order_key.cid() } else { None })
             .collect::<HashSet<_>>();
-
+        // TODO : Update discovered event to not have cid as an optional field
         for ev in ordered
             .deliverable()
             .iter()
@@ -451,7 +406,7 @@ impl EventService {
                 self.send_discovered_event(DiscoveredEvent {
                     cid: *ev.cid(),
                     prev: ev.event().prev().copied(),
-                    id: ev.event().id().copied(),
+                    id: Some(*ev.event().id()),
                     known_deliverable: ev.deliverable(),
                 })
                 .await?;

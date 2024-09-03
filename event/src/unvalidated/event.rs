@@ -61,7 +61,7 @@ pub enum Event<D> {
     /// Signed event in a stream
     Signed(signed::Event<D>),
     /// Unsigned event in a stream
-    Unsigned(init::Payload<D>),
+    Unsigned(Box<init::Event<D>>),
 }
 
 impl<D> Event<D>
@@ -80,6 +80,21 @@ where
         }
     }
 
+    /// Returns the init payload if the event is an init event, otherwise returns None.
+    pub fn init_payload(&self) -> Option<&init::Payload<D>> {
+        match self {
+            Event::Unsigned(event) => Some(event.payload()),
+            Event::Signed(signed_event) => {
+                if let Payload::Init(init_payload) = signed_event.payload() {
+                    Some(init_payload)
+                } else {
+                    None
+                }
+            }
+            Event::Time(_) => None,
+        }
+    }
+
     /// Returns the prev CID (or None if the event is an init event)
     pub fn prev(&self) -> Option<&Cid> {
         match self {
@@ -92,16 +107,17 @@ where
         }
     }
 
+    // TODO : Returns the cid no option, update the comment
     /// Returns the 'id' field of the event, which is the Cid of the stream's init event.
     /// If this event *is* the init event, then it doesn't know its own Cid and returns None.
-    pub fn id(&self) -> Option<&Cid> {
+    pub fn id(&self) -> &Cid {
         match self {
-            Event::Time(t) => Some(t.id()),
+            Event::Time(t) => t.id(),
             Event::Signed(event) => match event.payload() {
-                Payload::Data(d) => Some(d.id()),
-                Payload::Init(_) => None,
+                Payload::Data(d) => d.id(),
+                Payload::Init(_) => event.envelope_cid(),
             },
-            Event::Unsigned(_) => None,
+            Event::Unsigned(init) => init.cid(),
         }
     }
 
@@ -218,20 +234,10 @@ where
                     )),
                 ))
             }
-            RawEvent::Unsigned(event) => Ok((event_cid, Event::Unsigned(event))),
-        }
-    }
-
-    pub fn get_controller(&self) -> anyhow::Result<String> {
-        // todo!("Get the controller of an event");
-        // TODO_discuss : does this already exist? For each event type? I see a way of doing this for init
-        match self {
-            Event::Time(_) => ,
-            Event::Signed(event) => match event.payload() {
-                Payload::Data(_) => false,
-                Payload::Init(_) => true,
-            },
-            Event::Unsigned(_) => true,
+            RawEvent::Unsigned(payload) => Ok((
+                event_cid,
+                Event::Unsigned(Box::new(init::Event::new_with_cid(event_cid, payload))),
+            )),
         }
     }
 }
@@ -242,9 +248,11 @@ impl<D> From<Box<TimeEvent>> for Event<D> {
     }
 }
 
-impl<D> From<init::Payload<D>> for Event<D> {
-    fn from(value: init::Payload<D>) -> Self {
-        Self::Unsigned(value)
+// TODO : Delete this? then delete all
+// Delete event with new
+impl<D: serde::Serialize> From<init::Payload<D>> for Event<D> {
+    fn from(payload: init::Payload<D>) -> Self {
+        Self::Unsigned(Box::new(init::Event::new(payload)))
     }
 }
 

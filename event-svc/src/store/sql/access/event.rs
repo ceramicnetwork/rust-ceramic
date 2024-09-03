@@ -292,15 +292,17 @@ impl CeramicOneEvent {
         Ok((max, rows))
     }
 
-    /// Returns the root CIDs and the data of all the events found after the given delivered value.
+    /// Returns the root CIDs and values of all the events found after the given delivered value.
     pub async fn new_events_since_value_with_data(
         pool: &SqlitePool,
-        delivered: i64,
+        highwater: i64,
         limit: i64,
-    ) -> Result<(i64, Vec<(Cid, unvalidated::Event<Ipld>)>)> {
+    ) -> Result<(i64, Vec<(Cid, unvalidated::Event<Ipld>, i64)>)> {
+        #[derive(Debug, Clone)]
         struct DeliveredEventBlockRow {
             block: ReconEventBlockRaw,
             new_highwater_mark: i64,
+            delivered: i64,
         }
 
         use sqlx::Row as _;
@@ -308,32 +310,39 @@ impl CeramicOneEvent {
         impl sqlx::FromRow<'_, sqlx::sqlite::SqliteRow> for DeliveredEventBlockRow {
             fn from_row(row: &sqlx::sqlite::SqliteRow) -> std::result::Result<Self, sqlx::Error> {
                 let new_highwater_mark = row.try_get("new_highwater_mark")?;
+                let delivered = row.try_get("delivered")?;
 
                 let block = ReconEventBlockRaw::from_row(row)?;
                 Ok(Self {
                     block,
                     new_highwater_mark,
+                    delivered,
                 })
             }
         }
 
         let mut all_blocks: Vec<DeliveredEventBlockRow> =
             sqlx::query_as(EventQuery::new_delivered_events_with_data())
-                .bind(delivered)
+                .bind(highwater)
                 .bind(limit)
                 .fetch_all(pool.reader())
                 .await?;
 
-        // default to the passed in value if there are no new events to avoid the client going back to 0
         let max_highwater = all_blocks
             .iter()
             .map(|row| row.new_highwater_mark + 1)
             .max()
-            .unwrap_or(delivered);
+            .unwrap_or(highwater);
         all_blocks.sort_by(|a, b| a.new_highwater_mark.cmp(&b.new_highwater_mark));
-        let blocks = all_blocks.into_iter().map(|b| b.block).collect();
+
+        let blocks = all_blocks.clone().into_iter().map(|b| b.block).collect();
         let values = ReconEventBlockRaw::into_events(blocks).await?;
-        Ok((max_highwater, values))
+        let result = values
+            .into_iter()
+            .zip(all_blocks.iter())
+            .map(|((cid, event), block)| (cid, event, block.delivered))
+            .collect();
+        Ok((max_highwater, result))
     }
 
     /// Find events that haven't been delivered to the client and may be ready.
