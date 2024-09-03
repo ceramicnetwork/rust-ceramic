@@ -1,9 +1,9 @@
-use std::ops::Range;
+use std::{ops::Range, sync::Arc};
 
 use crate::{
     libp2p::{stream_set::StreamSet, PeerEvent, PeerStatus},
-    AssociativeHash, BTreeStore, Error, FullInterests, HashCount, InsertResult, InterestProvider,
-    Key, Metrics, Recon, ReconItem, Result as ReconResult, Server, Store,
+    AssociativeHash, BTreeStore, Error, FullInterests, HashCount, InsertResult, Key, Metrics,
+    Recon, ReconItem, Result as ReconResult,
 };
 
 use async_trait::async_trait;
@@ -12,34 +12,21 @@ use libp2p_swarm_test::SwarmExt;
 use test_log::test;
 use tracing::info;
 
-fn start_recon<K, H, S, I>(recon: Recon<K, H, S, I>) -> crate::Client<K, H>
-where
-    K: Key,
-    H: AssociativeHash,
-    S: Store<Key = K, Hash = H> + Send + Sync + 'static,
-    I: InterestProvider<Key = K> + Send + Sync + 'static,
-{
-    let mut server = Server::new(recon);
-    let client = server.client();
-    tokio::spawn(server.run());
-    client
-}
-
 /// An implementation of a Store that stores keys in an in-memory BTree and throws errors if desired.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BTreeStoreErrors<K, H> {
-    error: Option<Error>,
+    error: Option<Arc<Error>>,
     inner: BTreeStore<K, H>,
 }
 
 impl<K, H> BTreeStoreErrors<K, H> {
     fn set_error(&mut self, error: Error) {
-        self.error = Some(error);
+        self.error = Some(Arc::new(error));
     }
 
     fn as_error(&self) -> Result<(), Error> {
         if let Some(err) = &self.error {
-            match err {
+            match err.as_ref() {
                 Error::Application { error } => Err(Error::Application {
                     error: anyhow::anyhow!(error.to_string()),
                 }),
@@ -117,49 +104,36 @@ where
 
 // use a hackro to avoid setting all the generic types we'd need if using functions
 macro_rules! setup_test {
-    ($alice_store: expr, $alice_interests: expr, $bob_store: expr, $bob_interest: expr,) => {{
+    ($alice_store: expr, $alice_interest: expr, $bob_store: expr, $bob_interest: expr,) => {{
         let alice = Recon::new(
             $alice_store,
             FullInterests::default(),
             Metrics::register(&mut Registry::default()),
         );
-        let alice_client = start_recon(alice);
 
-        let alice_interests = Recon::new(
-            $alice_interests,
+        let alice_interest = Recon::new(
+            $alice_interest,
             FullInterests::default(),
             Metrics::register(&mut Registry::default()),
         );
 
-        let alice_interests_client = start_recon(alice_interests);
-
-        let bob_interest = Recon::new(
+        let bob_interests = Recon::new(
             $bob_interest,
             FullInterests::default(),
             Metrics::register(&mut Registry::default()),
         );
-        let bob_interest_client = start_recon(bob_interest);
 
         let bob = Recon::new(
             $bob_store,
             FullInterests::default(),
             Metrics::register(&mut Registry::default()),
         );
-        let bob_client = start_recon(bob);
 
         let swarm1 = Swarm::new_ephemeral(|_| {
-            crate::libp2p::Behaviour::new(
-                alice_interests_client,
-                alice_client,
-                crate::libp2p::Config::default(),
-            )
+            crate::libp2p::Behaviour::new(alice_interest, alice, crate::libp2p::Config::default())
         });
         let swarm2 = Swarm::new_ephemeral(|_| {
-            crate::libp2p::Behaviour::new(
-                bob_interest_client,
-                bob_client,
-                crate::libp2p::Config::default(),
-            )
+            crate::libp2p::Behaviour::new(bob_interests, bob, crate::libp2p::Config::default())
         });
 
         (swarm1, swarm2)

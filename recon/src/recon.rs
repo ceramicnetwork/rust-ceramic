@@ -15,7 +15,7 @@ use ceramic_core::{EventId, Interest, PeerId, RangeOpen};
 use serde::{Deserialize, Serialize};
 use tracing::{instrument, trace, Level};
 
-use crate::{Client, Error, Metrics, Result, Sha256a};
+use crate::{Error, Metrics, Result, Sha256a};
 
 /// Recon is a protocol for set reconciliation via a message passing paradigm.
 /// An initial message can be created and then messages are exchanged between two Recon instances
@@ -28,7 +28,7 @@ use crate::{Client, Error, Metrics, Result, Sha256a};
 ///
 /// Recon is generic over its Key, Hash and Store implementations.
 /// This type provides the core protocol implementation.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Recon<K, H, S, I>
 where
     K: Key,
@@ -58,142 +58,9 @@ where
         }
     }
 
-    /// Compute the intersection of the remote interests with the local interests.
-    pub async fn process_interests(
-        &self,
-        remote_interests: &[RangeOpen<K>],
-    ) -> Result<Vec<RangeOpen<K>>> {
-        // Find the intersection of interests.
-        // Then reply with a message per intersection.
-        //
-        // TODO: This is O(n^2) over the number of interests.
-        // We should make this more efficient in the future.
-        // Potentially we could use a variant of https://en.wikipedia.org/wiki/Bounding_volume_hierarchy
-        // to quickly find intersections.
-        let mut intersections = Vec::with_capacity(remote_interests.len() * 2);
-        for local_range in self.interests().await? {
-            for remote_range in remote_interests {
-                if let Some(intersection) = local_range.intersect(remote_range) {
-                    intersections.push(intersection)
-                }
-            }
-        }
-        Ok(intersections)
-    }
-    /// Compute the hash of the keys within the range.
-    pub async fn initial_range(&mut self, interest: RangeOpen<K>) -> Result<RangeHash<K, H>> {
-        let hash = self
-            .store
-            .hash_range(&interest.start..&interest.end)
-            .await?;
-        Ok(RangeHash {
-            first: interest.start,
-            hash,
-            last: interest.end,
-        })
-    }
-    /// Processes a range from a remote.
-    ///
-    /// Reports any new keys and what the range indicates about how the local and remote node are
-    /// synchronized.
-    #[instrument(skip(self), ret(level = Level::DEBUG))]
-    pub async fn process_range(&mut self, range: RangeHash<K, H>) -> Result<SyncState<K, H>> {
-        let calculated_hash = self.store.hash_range(&range.first..&range.last).await?;
-        if calculated_hash == range.hash {
-            Ok(SyncState::Synchronized { range })
-        } else if calculated_hash.hash.is_zero() {
-            Ok(SyncState::Unsynchronized {
-                ranges: vec![RangeHash {
-                    first: range.first,
-                    hash: HashCount::default(),
-                    last: range.last,
-                }],
-            })
-        } else if range.hash.hash.is_zero()
-            || (!range.first.is_fencepost() && range.hash.count == 1)
-        {
-            // Remote does not have any data (except for possibly the first key) in the range.
-
-            // Its also possible that locally we do not have the first key in the range.
-            // As an optmization return two ranges if the first bound in the range is not a
-            // fencepost and is not a key we have. The ranges are:
-            //
-            //      1. A range containing only the first key, will be zero since we do not have the
-            //         key.
-            //      2. A range containing the rest of the keys
-            //
-            // The first range will trigger the remote to send the key and its value. The second
-            // range will ensure we are synchronized.
-            if range.first.is_fencepost() || calculated_hash.count == 0 {
-                Ok(SyncState::RemoteMissing {
-                    ranges: vec![RangeHash {
-                        first: range.first,
-                        hash: calculated_hash,
-                        last: range.last,
-                    }],
-                })
-            } else {
-                // Get the first key in the range, should always exist since we checked the count
-                // in the range already.
-                let split_key = self
-                    .store
-                    .range(&range.first..&range.last, 0, 1)
-                    .await?
-                    .next()
-                    .ok_or_else(|| {
-                        Error::new_fatal(anyhow!(
-                            "unreachable, at least one key should exist in range given the conditional guard above"
-                        ))
-                    })?;
-                if split_key == range.first {
-                    // We already have the bounding key no need to split
-                    Ok(SyncState::RemoteMissing {
-                        ranges: vec![RangeHash {
-                            first: range.first,
-                            hash: calculated_hash,
-                            last: range.last,
-                        }],
-                    })
-                } else {
-                    // We do not have the bounding key...
-                    Ok(SyncState::RemoteMissing {
-                        ranges: vec![
-                            // Send range indicating we are missing the bounding key
-                            RangeHash {
-                                first: range.first,
-                                hash: HashCount::default(),
-                                last: split_key.clone(),
-                            },
-                            // Send range of everything else past the bounding key
-                            RangeHash {
-                                first: split_key.clone(),
-                                hash: self.store.hash_range(&split_key..&range.last).await?,
-                                last: range.last,
-                            },
-                        ],
-                    })
-                }
-            }
-        } else {
-            // We disagree on the hash for range.
-            // Split the range.
-            trace!(
-                ?range.first,
-                ?range.last,
-                ?range.hash,
-                ?calculated_hash,
-                "splitting",
-            );
-
-            Ok(SyncState::Unsynchronized {
-                ranges: self.compute_splits(range, calculated_hash.count).await?,
-            })
-        }
-    }
-
     #[instrument(skip(self), fields(range, count), ret(level = Level::DEBUG))]
     async fn compute_splits(
-        &mut self,
+        &self,
         range: RangeHash<K, H>,
         count: u64,
     ) -> Result<Vec<RangeHash<K, H>>> {
@@ -275,41 +142,9 @@ where
         }
     }
 
-    /// Retrieve a value associated with a recon key
-    pub async fn value_for_key(&self, key: K) -> Result<Option<Vec<u8>>> {
-        self.store.value_for_key(&key).await
-    }
-
-    /// Insert keys into the key space.
-    pub async fn insert(&self, items: Vec<ReconItem<K>>) -> Result<InsertResult<K>> {
-        let res = self.store.insert_many(&items).await?;
-        Ok(res)
-    }
-
-    /// Reports total number of keys
-    pub async fn len(&self) -> Result<usize> {
-        self.store.len().await
-    }
-
     /// Reports if the set is empty
     pub async fn is_empty(&self) -> Result<bool> {
         self.store.is_empty().await
-    }
-
-    /// Return all keys in the range between left_fencepost and right_fencepost.
-    /// The upper range bound is exclusive.
-    ///
-    /// Offset and limit values are applied within the range of keys.
-    pub async fn range(
-        &self,
-        left_fencepost: &K,
-        right_fencepost: &K,
-        offset: usize,
-        limit: usize,
-    ) -> Result<Box<dyn Iterator<Item = K> + Send + 'static>> {
-        self.store
-            .range(left_fencepost..right_fencepost, offset, limit)
-            .await
     }
 
     /// Return all keys and values in the range between left_fencepost and right_fencepost.
@@ -332,10 +167,193 @@ where
     pub async fn full_range(&self) -> Result<Box<dyn Iterator<Item = K> + Send + 'static>> {
         self.store.full_range().await
     }
+}
 
-    /// Return the interests
-    pub async fn interests(&self) -> Result<Vec<RangeOpen<K>>> {
+#[async_trait]
+impl<K, H, S, I> crate::protocol::Recon for Recon<K, H, S, I>
+where
+    K: Key + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>,
+    H: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>,
+    S: crate::Store<Key = K, Hash = H> + Send + Sync + Clone + 'static,
+    I: crate::InterestProvider<Key = K> + Send + Sync + Clone + 'static,
+{
+    type Key = K;
+    type Hash = H;
+
+    /// Insert keys into the key space.
+    async fn insert(&self, items: Vec<ReconItem<K>>) -> Result<InsertResult<K>> {
+        self.store.insert_many(&items).await
+    }
+
+    /// Return all keys in the range between left_fencepost and right_fencepost.
+    /// The upper range bound is exclusive.
+    ///
+    /// Offset and limit values are applied within the range of keys.
+    async fn range(
+        &self,
+        left_fencepost: Self::Key,
+        right_fencepost: Self::Key,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Vec<Self::Key>> {
+        Ok(self
+            .store
+            .range(&left_fencepost..&right_fencepost, offset, limit)
+            .await?
+            .collect())
+    }
+
+    async fn len(&self) -> Result<usize> {
+        self.store.len().await
+    }
+
+    async fn value_for_key(&self, key: Self::Key) -> Result<Option<Vec<u8>>> {
+        self.store.value_for_key(&key).await
+    }
+
+    async fn interests(&self) -> Result<Vec<RangeOpen<Self::Key>>> {
         self.interests.interests().await
+    }
+
+    /// Compute the intersection of the remote interests with the local interests.
+    async fn process_interests(
+        &self,
+        remote_interests: Vec<RangeOpen<Self::Key>>,
+    ) -> Result<Vec<RangeOpen<Self::Key>>> {
+        // Find the intersection of interests.
+        // Then reply with a message per intersection.
+        //
+        // TODO: This is O(n^2) over the number of interests.
+        // We should make this more efficient in the future.
+        // Potentially we could use a variant of https://en.wikipedia.org/wiki/Bounding_volume_hierarchy
+        // to quickly find intersections.
+        let mut intersections = Vec::with_capacity(remote_interests.len() * 2);
+        for local_range in self.interests().await? {
+            for remote_range in &remote_interests {
+                if let Some(intersection) = local_range.intersect(remote_range) {
+                    intersections.push(intersection)
+                }
+            }
+        }
+        Ok(intersections)
+    }
+
+    /// Compute the hash of the keys within the range.
+    async fn initial_range(&self, interest: RangeOpen<K>) -> Result<RangeHash<K, H>> {
+        let hash = self
+            .store
+            .hash_range(&interest.start..&interest.end)
+            .await?;
+        Ok(RangeHash {
+            first: interest.start,
+            hash,
+            last: interest.end,
+        })
+    }
+
+    /// Processes a range from a remote.
+    ///
+    /// Reports any new keys and what the range indicates about how the local and remote node are
+    /// synchronized.
+    #[instrument(skip(self), ret(level = Level::DEBUG))]
+    async fn process_range(&self, range: RangeHash<K, H>) -> Result<SyncState<K, H>> {
+        let calculated_hash = self.store.hash_range(&range.first..&range.last).await?;
+        if calculated_hash == range.hash {
+            Ok(SyncState::Synchronized { range })
+        } else if calculated_hash.hash.is_zero() {
+            Ok(SyncState::Unsynchronized {
+                ranges: vec![RangeHash {
+                    first: range.first,
+                    hash: HashCount::default(),
+                    last: range.last,
+                }],
+            })
+        } else if range.hash.hash.is_zero()
+            || (!range.first.is_fencepost() && range.hash.count == 1)
+        {
+            // Remote does not have any data (except for possibly the first key) in the range.
+
+            // Its also possible that locally we do not have the first key in the range.
+            // As an optmization return two ranges if the first bound in the range is not a
+            // fencepost and is not a key we have. The ranges are:
+            //
+            //      1. A range containing only the first key, will be zero since we do not have the
+            //         key.
+            //      2. A range containing the rest of the keys
+            //
+            // The first range will trigger the remote to send the key and its value. The second
+            // range will ensure we are synchronized.
+            if range.first.is_fencepost() || calculated_hash.count == 0 {
+                Ok(SyncState::RemoteMissing {
+                    ranges: vec![RangeHash {
+                        first: range.first,
+                        hash: calculated_hash,
+                        last: range.last,
+                    }],
+                })
+            } else {
+                // Get the first key in the range, should always exist since we checked the count
+                // in the range already.
+                let split_key = self
+                    .store
+                    .range(&range.first..&range.last, 0, 1)
+                    .await?
+                    .next()
+                    .ok_or_else(|| {
+                        Error::new_fatal(anyhow!(
+                            "unreachable, at least one key should exist in range given the conditional guard above"
+                        ))
+                    })?;
+                if split_key == range.first {
+                    // We already have the bounding key no need to split
+                    Ok(SyncState::RemoteMissing {
+                        ranges: vec![RangeHash {
+                            first: range.first,
+                            hash: calculated_hash,
+                            last: range.last,
+                        }],
+                    })
+                } else {
+                    // We do not have the bounding key...
+                    // We use Unsynchronized because remote missing indicates that locally we have
+                    // all data in the range, however locally we are missing the bounding key.
+                    Ok(SyncState::Unsynchronized {
+                        ranges: vec![
+                            RangeHash {
+                                first: range.first,
+                                hash: HashCount::default(),
+                                last: split_key.clone(),
+                            },
+                            // Send range of everything else past the bounding key.
+                            // We will likey discover the remote is missing this range.
+                            RangeHash {
+                                first: split_key.clone(),
+                                hash: self.store.hash_range(&split_key..&range.last).await?,
+                                last: range.last,
+                            },
+                        ],
+                    })
+                }
+            }
+        } else {
+            // We disagree on the hash for range.
+            // Split the range.
+            trace!(
+                ?range.first,
+                ?range.last,
+                ?range.hash,
+                ?calculated_hash,
+                "splitting",
+            );
+
+            Ok(SyncState::Unsynchronized {
+                ranges: self.compute_splits(range, calculated_hash.count).await?,
+            })
+        }
+    }
+
+    fn metrics(&self) -> Metrics {
+        self.metrics.clone()
     }
 }
 
@@ -767,7 +785,7 @@ pub trait InterestProvider {
 }
 
 /// InterestProvider that is interested in everything.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FullInterests<K>(PhantomData<K>);
 
 impl<K> Default for FullInterests<K> {
@@ -786,22 +804,24 @@ impl<K: Key> InterestProvider for FullInterests<K> {
 }
 
 /// An implementation of [`InterestProvider`] backed by a Recon instance.
-#[derive(Debug)]
-pub struct ReconInterestProvider<H = Sha256a>
+#[derive(Debug, Clone)]
+pub struct ReconInterestProvider<S, H = Sha256a>
 where
     H: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>,
+    S: Store<Key = Interest, Hash = H> + Send + Sync,
 {
     start: Interest,
     end: Interest,
-    recon: Client<Interest, H>,
+    store: S,
 }
 
-impl<H> ReconInterestProvider<H>
+impl<S, H> ReconInterestProvider<S, H>
 where
     H: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>,
+    S: Store<Key = Interest, Hash = H> + Send + Sync,
 {
     /// Construct an [`InterestProvider`] from a Recon [`Client`] and a [`PeerId`].
-    pub fn new(peer_id: PeerId, recon: Client<Interest, H>) -> Self {
+    pub fn new(peer_id: PeerId, store: S) -> Self {
         let sort_key = "model";
         let start = Interest::builder()
             .with_sep_key(sort_key)
@@ -814,21 +834,22 @@ where
             .with_max_range()
             .build_fencepost();
 
-        Self { start, end, recon }
+        Self { start, end, store }
     }
 }
 
 // Implement InterestProvider for a Recon of interests.
 #[async_trait]
-impl<H> InterestProvider for ReconInterestProvider<H>
+impl<S, H> InterestProvider for ReconInterestProvider<S, H>
 where
     H: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>,
+    S: Store<Key = Interest, Hash = H> + Send + Sync,
 {
     type Key = EventId;
 
     async fn interests(&self) -> Result<Vec<RangeOpen<EventId>>> {
-        self.recon
-            .range(self.start.clone(), self.end.clone(), 0, usize::MAX)
+        self.store
+            .range(&self.start..&self.end, 0, usize::MAX)
             .await?
             .map(|interest| {
                 if let Some(RangeOpen { start, end }) = interest.range() {
@@ -911,10 +932,9 @@ pub enum SyncState<K, H> {
         range: RangeHash<K, H>,
     },
     /// The remote range is missing all data in the range.
+    /// Locally we have all data in the range including the bounding key.
     RemoteMissing {
         /// The ranges of the local data.
-        /// Often, as an optmization, this is split into two ranges one including only the first
-        /// key in the range and then another for the remaining keys.
         ranges: Vec<RangeHash<K, H>>,
     },
     /// The local is out of sync with the remote.

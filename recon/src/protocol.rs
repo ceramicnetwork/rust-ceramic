@@ -30,7 +30,7 @@ use crate::{
         ProtocolWriteLoop,
     },
     recon::{RangeHash, SyncState},
-    AssociativeHash, Client, InsertResult, Key, ReconItem, Result as ReconResult,
+    AssociativeHash, InsertResult, Key, ReconItem, Result as ReconResult,
 };
 
 // Limit to the number of pending range requests.
@@ -472,7 +472,6 @@ where
         to_writer: &mut ToWriterSender<InitiatorMessage<R::Key, R::Hash>>,
         remote_range: RangeHash<R::Key, R::Hash>,
     ) -> Result<()> {
-        self.common.persist_all().await?;
         let sync_state = self.common.recon.process_range(remote_range).await?;
         match sync_state {
             SyncState::Synchronized { .. } => {}
@@ -487,7 +486,6 @@ where
                     .await
                     .map_err(|err| anyhow!("{err}"))
                     .context("sending missing values for ranges")?;
-                self.send_ranges(ranges.into_iter(), to_writer).await?;
             }
             SyncState::Unsynchronized { ranges } => {
                 self.send_ranges(ranges.into_iter(), to_writer).await?;
@@ -617,10 +615,6 @@ where
         to_writer: &mut ToWriterSender<ResponderMessage<R::Key, R::Hash>>,
         range: RangeHash<R::Key, R::Hash>,
     ) -> Result<()> {
-        // We have to make sure to flush the pending writes before responding to a range so we have the same hash.
-        // There are optimizations we can make here (to the protocol or using in memory data), but for now we keep it simple
-        // and should still get some benefit as we were previously writing every value individually.
-        self.common.persist_all().await?;
         let sync_state = self
             .common
             .recon
@@ -644,9 +638,8 @@ where
                         self.common
                             .process_remote_missing_ranges(ranges.clone())
                             .map(move |value| value.map(ResponderMessage::Value))
-                            // Send the range hash after we have sent all keys so the remote learns we are in
-                            // sync.
-                            .chain(once(Ok(ResponderMessage::RangeResponse(ranges))))
+                            // Send an empty range so the initiator knows we're done
+                            .chain(once(Ok(ResponderMessage::RangeResponse(vec![]))))
                             .boxed(),
                     ))
                     .await
@@ -771,6 +764,7 @@ where
     ///     - before we sign off on a conversation as either the initiator or responder
     ///     - when our in memory list gets too large
     async fn persist_all(&mut self) -> Result<()> {
+        tracing::info!("calling persist all: {}", self.event_q.len());
         if self.event_q.is_empty() {
             return Ok(());
         }
@@ -868,69 +862,6 @@ pub trait Recon: Clone + Send + Sync + 'static {
     /// Create a handle to the metrics
     fn metrics(&self) -> Metrics;
 }
-
-#[async_trait]
-impl<K, H> Recon for Client<K, H>
-where
-    K: Key + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>,
-    H: AssociativeHash + std::fmt::Debug + Serialize + for<'de> Deserialize<'de>,
-{
-    type Key = K;
-    type Hash = H;
-
-    async fn insert(&self, items: Vec<ReconItem<K>>) -> ReconResult<InsertResult<K>> {
-        Client::insert(self, items).await
-    }
-
-    async fn range(
-        &self,
-        left_fencepost: Self::Key,
-        right_fencepost: Self::Key,
-        offset: usize,
-        limit: usize,
-    ) -> ReconResult<Vec<Self::Key>> {
-        Ok(
-            Client::range(self, left_fencepost, right_fencepost, offset, limit)
-                .await?
-                .collect(),
-        )
-    }
-
-    async fn len(&self) -> ReconResult<usize> {
-        Client::len(self).await
-    }
-
-    async fn value_for_key(&self, key: Self::Key) -> ReconResult<Option<Vec<u8>>> {
-        Client::value_for_key(self, key).await
-    }
-    async fn interests(&self) -> ReconResult<Vec<RangeOpen<Self::Key>>> {
-        Client::interests(self).await
-    }
-    async fn process_interests(
-        &self,
-        interests: Vec<RangeOpen<Self::Key>>,
-    ) -> ReconResult<Vec<RangeOpen<Self::Key>>> {
-        Client::process_interests(self, interests).await
-    }
-
-    async fn initial_range(
-        &self,
-        interest: RangeOpen<Self::Key>,
-    ) -> ReconResult<RangeHash<Self::Key, Self::Hash>> {
-        Client::initial_range(self, interest).await
-    }
-
-    async fn process_range(
-        &self,
-        range: RangeHash<Self::Key, Self::Hash>,
-    ) -> ReconResult<SyncState<Self::Key, Self::Hash>> {
-        Client::process_range(self, range).await
-    }
-    fn metrics(&self) -> Metrics {
-        Client::metrics(self)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use expect_test::expect;
