@@ -17,9 +17,16 @@ impl std::str::FromStr for ExperimentalFeatureFlags {
         }
 
         match parts[0].to_ascii_lowercase().as_str() {
-            "none" => Ok(ExperimentalFeatureFlags::None),
-            "authentication" => Ok(ExperimentalFeatureFlags::Authentication),
-            "event-validation" => Ok(ExperimentalFeatureFlags::EventValidation),
+            "authentication" => match parts[1].trim().to_ascii_lowercase().as_str() {
+                "true" => Ok(ExperimentalFeatureFlags::Authentication),
+                "false" => Ok(ExperimentalFeatureFlags::None),
+                _ => Err(anyhow!("invalid value for the 'authentication' flag, should be 'true' or 'false'")),
+            },
+            "event-validation" => match parts[1].trim().to_ascii_lowercase().as_str() {
+                "true" => Ok(ExperimentalFeatureFlags::EventValidation),
+                "false" => Ok(ExperimentalFeatureFlags::None),
+                _ => Err(anyhow!("invalid value for the 'event-validation' flag, should be 'true' or 'false'")),
+            },
             _ => Err(anyhow!("invalid value")),
         }
     }
