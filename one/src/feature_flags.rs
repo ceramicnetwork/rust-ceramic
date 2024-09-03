@@ -10,8 +10,13 @@ pub(crate) enum ExperimentalFeatureFlags {
 impl std::str::FromStr for ExperimentalFeatureFlags {
     type Err = anyhow::Error;
 
-    fn from_str(value: &str) -> Result<Self> {
-        match value.to_ascii_lowercase().as_str() {
+    fn from_str(s: &str) -> Result<Self> {
+        let parts: Vec<&str> = s.splitn(2, '=').collect();
+        if parts.len() != 2 {
+            return Err(anyhow!("Invalid key=value format: '{}'", s));
+        }
+
+        match parts[0].to_ascii_lowercase().as_str() {
             "none" => Ok(ExperimentalFeatureFlags::None),
             "authentication" => Ok(ExperimentalFeatureFlags::Authentication),
             "event-validation" => Ok(ExperimentalFeatureFlags::EventValidation),
