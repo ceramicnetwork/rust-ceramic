@@ -11,7 +11,7 @@ use sqlx::Row;
 use crate::store::{
     sql::{
         entities::ReconHash,
-        query::{ReconQuery, ReconType, SqlBackend},
+        query::{ReconQuery, SqlBackend},
         sqlite::SqliteTransaction,
     },
     Error, Result, SqlitePool,
@@ -94,15 +94,12 @@ impl CeramicOneInterest {
             return Ok(HashCount::new(Sha256a::identity(), 0));
         }
 
-        let res: ReconHash = sqlx::query_as(ReconQuery::hash_range(
-            ReconType::Interest,
-            SqlBackend::Sqlite,
-        ))
-        .bind(range.start.as_bytes())
-        .bind(range.end.as_bytes())
-        .fetch_one(pool.reader())
-        .await
-        .map_err(Error::from)?;
+        let res: ReconHash = sqlx::query_as(ReconQuery::hash_range(SqlBackend::Sqlite))
+            .bind(range.start.as_bytes())
+            .bind(range.end.as_bytes())
+            .fetch_one(pool.reader())
+            .await
+            .map_err(Error::from)?;
         let bytes = res.hash();
         Ok(HashCount::new(Sha256a::from(bytes), res.count()))
     }
@@ -114,7 +111,7 @@ impl CeramicOneInterest {
         offset: usize,
         limit: usize,
     ) -> Result<Vec<Interest>> {
-        let query = sqlx::query(ReconQuery::range(ReconType::Interest));
+        let query = sqlx::query(ReconQuery::range());
         let rows = query
             .bind(range.start.as_bytes())
             .bind(range.end.as_bytes())
@@ -135,7 +132,7 @@ impl CeramicOneInterest {
 
     /// Count the number of keys in a given range
     pub async fn count(pool: &SqlitePool, range: Range<&Interest>) -> Result<usize> {
-        let row = sqlx::query(ReconQuery::count(ReconType::Interest, SqlBackend::Sqlite))
+        let row = sqlx::query(ReconQuery::count(SqlBackend::Sqlite))
             .bind(range.start.as_bytes())
             .bind(range.end.as_bytes())
             .fetch_one(pool.reader())

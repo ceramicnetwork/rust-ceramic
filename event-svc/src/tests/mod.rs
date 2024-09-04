@@ -1,5 +1,4 @@
 mod event;
-mod interest;
 mod migration;
 mod ordering;
 

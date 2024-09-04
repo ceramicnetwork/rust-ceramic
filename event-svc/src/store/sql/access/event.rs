@@ -16,7 +16,7 @@ use crate::store::{
             rebuild_car, BlockRow, CountRow, EventInsertable, OrderKey, ReconEventBlockRaw,
             ReconHash,
         },
-        query::{EventQuery, ReconQuery, ReconType, SqlBackend},
+        query::{EventQuery, ReconQuery, SqlBackend},
         sqlite::SqliteTransaction,
     },
     CeramicOneBlock, CeramicOneEventBlock, Error, Result, SqlitePool,
@@ -197,13 +197,12 @@ impl CeramicOneEvent {
         pool: &SqlitePool,
         range: Range<&EventId>,
     ) -> ReconResult<HashCount<Sha256a>> {
-        let row: ReconHash =
-            sqlx::query_as(ReconQuery::hash_range(ReconType::Event, SqlBackend::Sqlite))
-                .bind(range.start.as_bytes())
-                .bind(range.end.as_bytes())
-                .fetch_one(pool.reader())
-                .await
-                .map_err(Error::from)?;
+        let row: ReconHash = sqlx::query_as(ReconQuery::hash_range(SqlBackend::Sqlite))
+            .bind(range.start.as_bytes())
+            .bind(range.end.as_bytes())
+            .fetch_one(pool.reader())
+            .await
+            .map_err(Error::from)?;
         Ok(HashCount::new(Sha256a::from(row.hash()), row.count()))
     }
 
@@ -218,7 +217,7 @@ impl CeramicOneEvent {
             Error::new_app(anyhow!("Offset too large to fit into i64"))
         })?;
         let limit = limit.try_into().unwrap_or(100000); // 100k is still a huge limit
-        let rows: Vec<OrderKey> = sqlx::query_as(ReconQuery::range(ReconType::Event))
+        let rows: Vec<OrderKey> = sqlx::query_as(ReconQuery::range())
             .bind(range.start.as_bytes())
             .bind(range.end.as_bytes())
             .bind(limit)
@@ -258,7 +257,7 @@ impl CeramicOneEvent {
 
     /// Count the number of events in a range
     pub async fn count(pool: &SqlitePool, range: Range<&EventId>) -> ReconResult<usize> {
-        let row: CountRow = sqlx::query_as(ReconQuery::count(ReconType::Event, SqlBackend::Sqlite))
+        let row: CountRow = sqlx::query_as(ReconQuery::count(SqlBackend::Sqlite))
             .bind(range.start.as_bytes())
             .bind(range.end.as_bytes())
             .fetch_one(pool.reader())

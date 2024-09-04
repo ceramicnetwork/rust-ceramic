@@ -1,5 +1,5 @@
 [package]
-name = "ceramic-service"
+name = "ceramic-interest-svc"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -49,7 +49,3 @@ tmpdir.workspace = true
 tokio.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true
-
-[[bench]]
-name = "sqlite_store"
-harness = false

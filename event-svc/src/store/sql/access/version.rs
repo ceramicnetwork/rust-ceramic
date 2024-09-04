@@ -82,7 +82,7 @@ impl CeramicOneVersion {
 mod test {
     use super::*;
 
-    use crate::SqlitePool;
+    use crate::store::SqlitePool;
 
     #[tokio::test]
     async fn insert_version() {

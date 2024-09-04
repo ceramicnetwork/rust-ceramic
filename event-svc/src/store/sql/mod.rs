@@ -7,8 +7,8 @@ mod sqlite;
 mod test;
 
 pub use access::{
-    CeramicOneBlock, CeramicOneEvent, CeramicOneEventBlock, CeramicOneInterest, CeramicOneVersion,
-    InsertResult, InsertedEvent,
+    CeramicOneBlock, CeramicOneEvent, CeramicOneEventBlock, CeramicOneVersion, InsertResult,
+    InsertedEvent,
 };
 pub use root::SqliteRootStore;
 pub use sqlite::{SqlitePool, SqliteTransaction};

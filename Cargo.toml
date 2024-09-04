@@ -6,21 +6,22 @@ members = [
     "car",
     "core",
     "event",
+    "event-svc",
+    "flight",
+    "interest-svc",
     "kubo-rpc",
     "kubo-rpc-server",
     "metadata",
     "metrics",
+    "olap",
     "one",
     "p2p",
     "recon",
+    "validation",
     "beetle/iroh-bitswap",
     "beetle/iroh-rpc-client",
     "beetle/iroh-rpc-types",
     "beetle/iroh-util",
-    "service",
-    "olap",
-    "validation",
-    "flight",
 ]
 
 [workspace.dependencies]
@@ -62,7 +63,8 @@ ceramic-metadata = { path = "./metadata" }
 ceramic-metrics = { path = "./metrics" }
 ceramic-one = { path = "./one" }
 ceramic-p2p = { path = "./p2p" }
-ceramic-service = { path = "./service" }
+ceramic-event-svc = { path = "./event-svc" }
+ceramic-interest-svc = { path = "./interest-svc" }
 ceramic-validation = { path = "./validation" }
 chrono = "0.4.31"
 cid = { version = "0.11", features = ["serde-codec"] }
