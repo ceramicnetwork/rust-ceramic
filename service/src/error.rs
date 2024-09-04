@@ -89,13 +89,13 @@ impl From<Error> for recon::Error {
     }
 }
 
-impl From<ceramic_store::Error> for Error {
-    fn from(value: ceramic_store::Error) -> Self {
+impl From<crate::store::Error> for Error {
+    fn from(value: crate::store::Error) -> Self {
         match value {
-            ceramic_store::Error::Application { error } => Error::Application { error },
-            ceramic_store::Error::Fatal { error } => Error::Fatal { error },
-            ceramic_store::Error::Transient { error } => Error::Transient { error },
-            ceramic_store::Error::InvalidArgument { error } => Error::InvalidArgument { error },
+            crate::store::Error::Application { error } => Error::Application { error },
+            crate::store::Error::Fatal { error } => Error::Fatal { error },
+            crate::store::Error::Transient { error } => Error::Transient { error },
+            crate::store::Error::InvalidArgument { error } => Error::InvalidArgument { error },
         }
     }
 }

@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use anyhow::anyhow;
 
-use crate::{
+use crate::store::{
     sql::{entities::VersionRow, SqlitePool},
     Error, Result,
 };

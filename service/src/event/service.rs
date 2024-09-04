@@ -9,7 +9,6 @@ use async_trait::async_trait;
 use ceramic_core::{EventId, Network};
 use ceramic_event::unvalidated;
 use ceramic_event::unvalidated::Event;
-use ceramic_store::{CeramicOneEvent, EventInsertable, SqlitePool};
 use cid::Cid;
 use futures::stream::BoxStream;
 use ipld_core::ipld::Ipld;
@@ -17,6 +16,7 @@ use recon::ReconItem;
 use tokio::try_join;
 use tracing::{trace, warn};
 
+use crate::store::{CeramicOneEvent, EventInsertable, SqlitePool};
 use crate::{Error, Result};
 
 /// How many events to select at once to see if they've become deliverable when we have downtime
@@ -97,6 +97,7 @@ impl CeramicEventService {
         .await
     }
 
+    /// Migrate a collection of blocks into the event service.
     pub async fn migrate_from_ipfs(
         &self,
         network: Network,
@@ -255,7 +256,7 @@ impl CeramicEventService {
     async fn notify_ordering_task(
         &self,
         ordered: &OrderEvents,
-        store_result: &ceramic_store::InsertResult,
+        store_result: &crate::store::InsertResult,
     ) -> Result<()> {
         let new = store_result
             .inserted
@@ -313,7 +314,7 @@ pub enum InvalidItem {
 #[derive(Debug, PartialEq, Eq, Default)]
 pub struct InsertResult {
     pub rejected: Vec<InvalidItem>,
-    pub(crate) store_result: ceramic_store::InsertResult,
+    pub(crate) store_result: crate::store::InsertResult,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

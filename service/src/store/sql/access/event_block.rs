@@ -1,4 +1,4 @@
-use crate::{
+use crate::store::{
     sql::{entities::EventBlockRaw, query::EventBlockQuery, sqlite::SqliteTransaction},
     Result,
 };

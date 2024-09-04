@@ -8,7 +8,7 @@ use ceramic_core::Interest;
 use recon::{AssociativeHash, HashCount, InsertResult, Key, Sha256a};
 use sqlx::Row;
 
-use crate::{
+use crate::store::{
     sql::{
         entities::ReconHash,
         query::{ReconQuery, ReconType, SqlBackend},

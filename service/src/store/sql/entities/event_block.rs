@@ -9,7 +9,7 @@ use itertools::{process_results, Itertools};
 use multihash_codetable::{Code, MultihashDigest};
 use sqlx::{sqlite::SqliteRow, Row as _};
 
-use crate::{
+use crate::store::{
     sql::entities::{rebuild_car, BlockHash, BlockRow},
     Error, Result,
 };

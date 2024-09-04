@@ -117,11 +117,11 @@ fn gen_rand_bytes<const SIZE: usize>() -> [u8; SIZE] {
 }
 
 pub(crate) async fn check_deliverable(
-    pool: &ceramic_store::SqlitePool,
+    pool: &crate::store::SqlitePool,
     cid: &Cid,
     deliverable: bool,
 ) {
-    let (exists, delivered) = ceramic_store::CeramicOneEvent::deliverable_by_cid(pool, cid)
+    let (exists, delivered) = crate::store::CeramicOneEvent::deliverable_by_cid(pool, cid)
         .await
         .unwrap();
     assert!(exists);

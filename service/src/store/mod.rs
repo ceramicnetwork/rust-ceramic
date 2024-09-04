@@ -1,6 +1,4 @@
-//! A unified implementation of both the [`recon::Store`] and [`iroh_bitswap::Store`] traits.
-//! This unified implementation allows for exposing Recon values as IPFS blocks
-#![warn(missing_docs)]
+//! An implementation of store for event.
 
 mod error;
 mod metrics;

@@ -5,7 +5,7 @@ use sqlx::{
     Sqlite, Transaction,
 };
 
-use crate::{Migrations, Result};
+use crate::store::{Migrations, Result};
 
 #[derive(Clone, Debug)]
 /// The sqlite pool is split into a writer and a reader pool.

@@ -14,23 +14,29 @@ ceramic-api.workspace = true
 ceramic-car.workspace = true
 ceramic-core.workspace = true
 ceramic-event.workspace = true
-ceramic-store.workspace = true
+ceramic-metrics.workspace = true
 cid.workspace = true
 futures.workspace = true
 hex.workspace = true
 ipld-core.workspace = true
 iroh-bitswap.workspace = true
+itertools.workspace = true
 multibase.workspace = true
 multihash-codetable.workspace = true
 multihash-derive.workspace = true
+multihash.workspace = true
+prometheus-client.workspace = true
 recon.workspace = true
 serde.workspace = true
 serde_ipld_dagcbor.workspace = true
+sqlx.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+ceramic-event.workspace = true
+criterion2 = { workspace = true, features = ["async", "async_tokio"] }
 expect-test.workspace = true
 ipld-core.workspace = true
 multibase.workspace = true
@@ -43,3 +49,7 @@ tmpdir.workspace = true
 tokio.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true
+
+[[bench]]
+name = "sqlite_store"
+harness = false

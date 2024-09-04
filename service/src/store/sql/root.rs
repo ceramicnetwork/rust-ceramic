@@ -1,7 +1,7 @@
 use anyhow::Result;
 use sqlx::Row;
 
-use crate::SqlitePool;
+use crate::store::SqlitePool;
 
 /// We use the RootStore as a local cache of the EthereumRootStore
 ///

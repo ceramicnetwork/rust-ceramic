@@ -1,8 +1,8 @@
 use std::collections::{HashMap, VecDeque};
 
 use ceramic_core::Cid;
-use ceramic_store::{CeramicOneEvent, EventInsertable, SqlitePool};
 
+use crate::store::{CeramicOneEvent, EventInsertable, SqlitePool};
 use crate::Result;
 
 pub(crate) struct OrderEvents {

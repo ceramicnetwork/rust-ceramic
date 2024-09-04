@@ -16,7 +16,7 @@ macro_rules! test_with_sqlite {
             #[test_log::test(tokio::test)]
             async fn [<$test_name _sqlite>]() {
 
-                let conn = ceramic_store::SqlitePool::connect_in_memory().await.unwrap();
+                let conn = $crate::store::SqlitePool::connect_in_memory().await.unwrap();
                 let store = $crate::CeramicEventService::new_with_event_validation(conn).await.unwrap();
                 store.process_all_undelivered_events().await.unwrap();
                 $(

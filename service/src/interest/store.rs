@@ -1,10 +1,10 @@
 use std::ops::Range;
 
 use ceramic_core::Interest;
-use ceramic_store::CeramicOneInterest;
 use recon::{HashCount, InsertResult, ReconItem, Result as ReconResult, Sha256a};
 use tracing::instrument;
 
+use crate::store::CeramicOneInterest;
 use crate::CeramicInterestService;
 
 #[async_trait::async_trait]

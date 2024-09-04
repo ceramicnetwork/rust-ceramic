@@ -21,7 +21,6 @@ ceramic-kubo-rpc-server.workspace = true
 ceramic-metrics.workspace = true
 ceramic-p2p.workspace = true
 ceramic-service.workspace = true
-ceramic-store.workspace = true
 cid.workspace = true
 clap.workspace = true
 futures.workspace = true

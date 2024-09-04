@@ -5,7 +5,7 @@ use cid::Cid;
 use multihash_codetable::Multihash;
 use sqlx::{sqlite::SqliteRow, FromRow, Row};
 
-use crate::Error;
+use crate::store::Error;
 
 use super::EventBlockRaw;
 

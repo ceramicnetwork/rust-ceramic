@@ -1,6 +1,6 @@
 use sqlx::types::chrono;
 
-use crate::{Result, SqlitePool};
+use crate::store::{Result, SqlitePool};
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 // We want to retrieve these fields for logging but we don't refer to them directly

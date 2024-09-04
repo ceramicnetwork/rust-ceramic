@@ -13,7 +13,6 @@ members = [
     "one",
     "p2p",
     "recon",
-    "store",
     "beetle/iroh-bitswap",
     "beetle/iroh-rpc-client",
     "beetle/iroh-rpc-types",
@@ -64,7 +63,6 @@ ceramic-metrics = { path = "./metrics" }
 ceramic-one = { path = "./one" }
 ceramic-p2p = { path = "./p2p" }
 ceramic-service = { path = "./service" }
-ceramic-store = { path = "./store" }
 ceramic-validation = { path = "./validation" }
 chrono = "0.4.31"
 cid = { version = "0.11", features = ["serde-codec"] }
@@ -108,6 +106,7 @@ iroh-p2p = { version = "0.2.0", path = "./beetle/iroh-p2p" }
 iroh-rpc-client = { path = "./beetle/iroh-rpc-client" }
 iroh-rpc-types = { path = "./beetle/iroh-rpc-types" }
 iroh-util = { path = "./beetle/iroh-util" }
+itertools = "0.12.0"
 k256 = "0.13"
 keyed_priority_queue = "0.4.1"
 lazy_static = "1.4"

@@ -1,7 +1,7 @@
 use cid::Cid;
 use multihash_codetable::Multihash;
 
-use crate::{
+use crate::store::{
     sql::{
         entities::{BlockBytes, CountRow},
         query::BlockQuery,

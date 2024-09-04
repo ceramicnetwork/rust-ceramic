@@ -329,8 +329,11 @@ impl DBOpts {
         process_undelivered: bool,
         validate_events: bool,
     ) -> Result<Databases> {
-        let sql_pool =
-            ceramic_store::SqlitePool::connect(path, ceramic_store::Migrations::Apply).await?;
+        let sql_pool = ceramic_service::store::SqlitePool::connect(
+            path,
+            ceramic_service::store::Migrations::Apply,
+        )
+        .await?;
         let ceramic_service = CeramicService::try_new(sql_pool, validate_events).await?;
         let interest_store = ceramic_service.interest_service().to_owned();
         let event_store = ceramic_service.event_service().to_owned();
@@ -501,28 +504,30 @@ impl Daemon {
 
         // Register metrics for all components
         let recon_metrics = MetricsHandle::register(recon::Metrics::register);
-        let store_metrics = MetricsHandle::register(ceramic_store::Metrics::register);
+        let store_metrics = MetricsHandle::register(ceramic_service::store::Metrics::register);
         let http_metrics = Arc::new(ceramic_metrics::MetricsHandle::register(
             http_metrics::Metrics::register,
         ));
 
         // Create recon store for interests.
-        let interest_store = ceramic_store::StoreMetricsMiddleware::new(
+        let interest_store = ceramic_service::store::StoreMetricsMiddleware::new(
             interest_recon_store.clone(),
             store_metrics.clone(),
         );
 
-        let interest_api_store =
-            ceramic_store::StoreMetricsMiddleware::new(interest_api_store, store_metrics.clone());
+        let interest_api_store = ceramic_service::store::StoreMetricsMiddleware::new(
+            interest_api_store,
+            store_metrics.clone(),
+        );
 
         // Create second recon store for models.
-        let model_store = ceramic_store::StoreMetricsMiddleware::new(
+        let model_store = ceramic_service::store::StoreMetricsMiddleware::new(
             model_recon_store.clone(),
             store_metrics.clone(),
         );
 
         let model_api_store =
-            ceramic_store::StoreMetricsMiddleware::new(model_api_store, store_metrics);
+            ceramic_service::store::StoreMetricsMiddleware::new(model_api_store, store_metrics);
 
         // Construct a recon implementation for interests.
         let recon_interest_svr = Recon::new(

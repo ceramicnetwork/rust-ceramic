@@ -7,9 +7,9 @@ use ceramic_event::unvalidated;
 use cid::Cid;
 use ipld_core::ipld::Ipld;
 
-pub use crate::sql::entities::EventBlockRaw;
+pub use crate::store::sql::entities::EventBlockRaw;
 
-use crate::{sql::entities::BlockRow, Error, Result};
+use crate::store::{sql::entities::BlockRow, Error, Result};
 
 pub async fn rebuild_car(blocks: Vec<BlockRow>) -> Result<Option<Vec<u8>>> {
     if blocks.is_empty() {

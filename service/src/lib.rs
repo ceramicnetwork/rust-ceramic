@@ -1,16 +1,20 @@
+//! The Event Service provides an API for ingesting and querying Ceramic Events.
+#![warn(missing_docs)]
+
 mod error;
 mod event;
 mod interest;
-
+pub mod store;
 #[cfg(test)]
 mod tests;
 
-use std::sync::Arc;
-
-use ceramic_store::{CeramicOneVersion, SqlitePool};
 pub use error::Error;
 pub use event::{BlockStore, CeramicEventService};
 pub use interest::CeramicInterestService;
+
+use std::sync::Arc;
+
+use store::{CeramicOneVersion, SqlitePool};
 
 pub(crate) type Result<T> = std::result::Result<T, Error>;
 

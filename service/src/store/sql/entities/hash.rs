@@ -2,7 +2,7 @@ use multihash::Multihash;
 
 use sqlx::{sqlite::SqliteRow, Row as _};
 
-use crate::{Error, Result};
+use crate::store::{Error, Result};
 
 // TODO: make type private
 #[allow(missing_docs)]

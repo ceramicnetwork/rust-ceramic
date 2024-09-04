@@ -10,7 +10,7 @@ use ceramic_event::unvalidated;
 use ipld_core::ipld::Ipld;
 use recon::{AssociativeHash, HashCount, Key, Result as ReconResult, Sha256a};
 
-use crate::{
+use crate::store::{
     sql::{
         entities::{
             rebuild_car, BlockRow, CountRow, EventInsertable, OrderKey, ReconEventBlockRaw,

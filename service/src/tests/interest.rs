@@ -19,7 +19,7 @@ macro_rules! test_with_sqlite {
             #[test(tokio::test)]
             async fn [<$test_name _sqlite>]() {
 
-                let conn = ceramic_store::SqlitePool::connect_in_memory().await.unwrap();
+                let conn = $crate::store::SqlitePool::connect_in_memory().await.unwrap();
                 let store = $crate::CeramicInterestService::new(conn);
                 $(
                     for stmt in $sql_stmts {

@@ -2,11 +2,11 @@ use std::collections::{HashMap, VecDeque};
 
 use anyhow::anyhow;
 use ceramic_event::unvalidated;
-use ceramic_store::{CeramicOneEvent, SqlitePool};
 use cid::Cid;
 use ipld_core::ipld::Ipld;
 use tracing::{debug, error, info, trace, warn};
 
+use crate::store::{CeramicOneEvent, SqlitePool};
 use crate::{Error, Result};
 
 use super::service::DiscoveredEvent;
@@ -597,7 +597,7 @@ impl OrderingState {
 
 #[cfg(test)]
 mod test {
-    use ceramic_store::EventInsertable;
+    use crate::store::EventInsertable;
     use test_log::test;
 
     use crate::{tests::get_n_events, CeramicEventService};

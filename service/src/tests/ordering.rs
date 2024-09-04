@@ -14,7 +14,7 @@ use crate::{
 };
 
 async fn setup_service() -> CeramicEventService {
-    let conn = ceramic_store::SqlitePool::connect_in_memory()
+    let conn = crate::store::SqlitePool::connect_in_memory()
         .await
         .unwrap();
 
@@ -317,7 +317,7 @@ async fn recon_lots_of_streams() {
     // first just make sure they were all inserted (not delivered yet)
     for (i, cid) in all_cids.iter().enumerate() {
         let (exists, _delivered) =
-            ceramic_store::CeramicOneEvent::deliverable_by_cid(&store.pool, cid)
+            crate::store::CeramicOneEvent::deliverable_by_cid(&store.pool, cid)
                 .await
                 .unwrap();
         assert!(exists, "idx: {}. missing cid: {}", i, cid);

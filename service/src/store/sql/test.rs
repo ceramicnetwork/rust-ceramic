@@ -1,6 +1,5 @@
 use std::str::FromStr;
 
-use crate::{CeramicOneEvent, EventInsertable, SqlitePool};
 use ceramic_core::{
     event_id::{Builder, WithInit},
     EventId, Network,
@@ -13,6 +12,8 @@ use ipld_core::ipld::Ipld;
 use multihash_codetable::{Code, MultihashDigest};
 use serde_ipld_dagcbor::codec::DagCborCodec;
 use test_log::test;
+
+use crate::store::{CeramicOneEvent, EventInsertable, SqlitePool};
 
 const MODEL_ID: &str = "k2t6wz4yhfp1r5pwi52gw89nzjbu53qk7m32o5iguw42c6knsaj0feuf927agb";
 const CONTROLLER: &str = "did:key:z6Mkqtw7Pj5Lv9xc4PgUYAnwfaVoMC6FRneGWVr5ekTEfKVL";

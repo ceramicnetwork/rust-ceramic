@@ -2,12 +2,12 @@ use std::ops::Range;
 
 use anyhow::anyhow;
 use ceramic_core::EventId;
-use ceramic_store::{CeramicOneBlock, CeramicOneEvent};
 use cid::Cid;
 use iroh_bitswap::Block;
 use recon::{HashCount, ReconItem, Result as ReconResult, Sha256a};
 
 use crate::event::{CeramicEventService, DeliverableRequirement};
+use crate::store::{CeramicOneBlock, CeramicOneEvent};
 
 use super::service::{InsertResult, InvalidItem};
 

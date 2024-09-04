@@ -6,11 +6,12 @@ use ceramic_event::unvalidated::{
     signed::{self, Signer},
     Builder,
 };
-use ceramic_store::{CeramicOneEvent, EventInsertable, SqlitePool};
 use criterion2::{criterion_group, criterion_main, BatchSize, Criterion};
 use ipld_core::ipld::Ipld;
 use itertools::Itertools;
 use rand::RngCore;
+
+use crate::store::{CeramicOneEvent, EventInsertable, SqlitePool};
 
 const INSERT_BATCH_SIZE: usize = 10;
 
@@ -95,7 +96,8 @@ async fn model_routine(input: ModelSetup) {
 
 fn small_model_inserts(c: &mut Criterion) {
     let exec = tokio::runtime::Runtime::new().unwrap();
-    let dir = exec.block_on(async move { tmpdir::TmpDir::new("ceramic_store").await.unwrap() });
+    let dir =
+        exec.block_on(async move { tmpdir::TmpDir::new("event_service_store").await.unwrap() });
     let mut group = c.benchmark_group("small model inserts");
     group.bench_function("sqlite store", move |b| {
         b.to_async(&exec).iter_batched_async_setup(
@@ -117,7 +119,9 @@ fn small_model_inserts(c: &mut Criterion) {
 
 fn large_model_inserts(c: &mut Criterion) {
     let exec = tokio::runtime::Runtime::new().unwrap();
-    let dir = exec.block_on(tmpdir::TmpDir::new("ceramic_store")).unwrap();
+    let dir = exec
+        .block_on(tmpdir::TmpDir::new("event_service_store"))
+        .unwrap();
     let mut group = c.benchmark_group("large model inserts");
     group.bench_function("sqlite store", |b| {
         b.to_async(&exec).iter_batched_async_setup(
