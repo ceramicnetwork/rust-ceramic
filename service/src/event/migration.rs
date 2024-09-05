@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use anyhow::{anyhow, bail, Context as _, Result};
+use anyhow::{anyhow, Context as _};
 use ceramic_core::{EventId, Network};
 use ceramic_event::unvalidated::{self, signed::cacao::Capability};
 use cid::Cid;
@@ -21,6 +21,7 @@ pub struct Migrator<'a, S> {
     network: Network,
     blocks: S,
     batch: Vec<ReconItem<EventId>>,
+    ignore_tile_docs: bool,
 
     // All unsigned init payloads we have found.
     unsigned_init_payloads: BTreeSet<Cid>,
@@ -32,6 +33,7 @@ pub struct Migrator<'a, S> {
     referenced_unsigned_init_payloads: BTreeSet<Cid>,
 
     error_count: usize,
+    tile_doc_count: usize,
     event_count: usize,
 }
 
@@ -40,15 +42,18 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
         service: &'a CeramicEventService,
         network: Network,
         blocks: S,
-    ) -> Result<Self> {
+        ignore_tile_docs: bool,
+    ) -> anyhow::Result<Self> {
         Ok(Self {
             network,
             service,
             blocks,
+            ignore_tile_docs,
             batch: Default::default(),
             unsigned_init_payloads: Default::default(),
             referenced_unsigned_init_payloads: Default::default(),
             error_count: 0,
+            tile_doc_count: 0,
             event_count: 0,
         })
     }
@@ -57,12 +62,12 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
         if let Some(block) = self.blocks.block_data(cid).await? {
             Ok(block)
         } else {
-            Err(AnalyzeError::MissingBlock(*cid).into())
+            Err(Error::MissingBlock(*cid).into())
         }
     }
 
     #[instrument(skip(self), ret(level = Level::DEBUG))]
-    pub async fn migrate(mut self) -> Result<()> {
+    pub async fn migrate(mut self) -> anyhow::Result<()> {
         const PROGRESS_COUNT: usize = 1_000;
 
         let mut all_blocks = self.blocks.blocks();
@@ -70,15 +75,33 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
         while let Some((cid, data)) = all_blocks.try_next().await? {
             let ret = self.process_block(cid, &data).await;
             if let Err(err) = ret {
-                self.error_count += 1;
-                error!(%cid, err=format!("{err:#}"), "error processing block");
+                let log = match err {
+                    Error::FoundInitTileDoc(_) | Error::FoundDataTileDoc(_) => {
+                        self.tile_doc_count += 1;
+                        !self.ignore_tile_docs
+                    }
+                    Error::MissingBlock(_) | Error::Fatal(_) => {
+                        self.error_count += 1;
+                        true
+                    }
+                };
+                if log {
+                    error!(%cid, err=format!("{err:#}"), "error processing block");
+                }
             }
             if self.batch.len() > 1000 {
                 self.write_batch().await?
             }
             count += 1;
             if count % PROGRESS_COUNT == 0 {
-                info!(last_block=%cid, count, error_count = self.error_count, "migrated blocks");
+                info!(
+                    last_block=%cid,
+                    block_count = count,
+                    event_count = self.event_count,
+                    error_count = self.error_count,
+                    tile_doc_count = self.tile_doc_count,
+                    "migrated blocks"
+                );
             }
         }
         self.write_batch().await?;
@@ -88,6 +111,7 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
         info!(
             event_count = self.event_count,
             error_count = self.error_count,
+            tile_doc_count = self.tile_doc_count,
             "migration finished"
         );
         Ok(())
@@ -96,7 +120,8 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
     // event.
     #[instrument(skip(self, data), ret(level = Level::DEBUG))]
     async fn process_block(&mut self, cid: Cid, data: &[u8]) -> Result<()> {
-        let event: Result<unvalidated::RawEvent<Ipld>, _> = serde_ipld_dagcbor::from_slice(data);
+        let event: Result<unvalidated::RawEvent<Ipld>> =
+            serde_ipld_dagcbor::from_slice(data).map_err(Error::new_fatal);
         match event {
             Ok(unvalidated::RawEvent::Unsigned(_)) => {
                 self.unsigned_init_payloads.insert(cid);
@@ -128,7 +153,8 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
                 .load_block(&cid)
                 .await
                 .context("finding init event block")?;
-            let payload: unvalidated::init::Payload<Ipld> = serde_ipld_dagcbor::from_slice(&data)?;
+            let payload: unvalidated::init::Payload<Ipld> =
+                serde_ipld_dagcbor::from_slice(&data).map_err(Error::new_fatal)?;
             let event_builder = EventBuilder::new(
                 cid,
                 payload.header().model().to_vec(),
@@ -148,7 +174,8 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
     async fn write_batch(&mut self) -> Result<()> {
         self.service
             .insert_events(&self.batch, DeliverableRequirement::Lazy)
-            .await?;
+            .await
+            .map_err(Error::new_fatal)?;
         self.event_count += self.batch.len();
         self.batch.truncate(0);
         Ok(())
@@ -172,9 +199,11 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
             .context("decoding payload")
             .map_err(|err| {
                 if self.is_tile_doc_data(&payload_data) {
-                    anyhow!("found data Tile Document, skipping")
+                    Error::FoundDataTileDoc(cid)
+                } else if self.is_tile_doc_init(&payload_data) {
+                    Error::FoundInitTileDoc(cid)
                 } else {
-                    anyhow!("{err}")
+                    Error::new_fatal(err)
                 }
             })?;
         let event_builder = match &payload {
@@ -205,7 +234,8 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
                 .await
                 .context("finding capability block")?;
             // Parse capability to ensure it is valid
-            let cap: Capability = serde_ipld_dagcbor::from_slice(&data)?;
+            let cap: Capability =
+                serde_ipld_dagcbor::from_slice(&data).map_err(Error::new_fatal)?;
             debug!(%capability_cid, ?cap, "capability");
             capability = Some((capability_cid, cap));
         }
@@ -241,10 +271,21 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
             .load_block(cid)
             .await
             .context("finding init payload block")?;
-        let init: unvalidated::RawEvent<Ipld> =
-            serde_ipld_dagcbor::from_slice(&init_data).context("decoding init envelope")?;
+        let init: unvalidated::RawEvent<Ipld> = serde_ipld_dagcbor::from_slice(&init_data)
+            .context("decoding init envelope")
+            .map_err(|err| {
+                if self.is_tile_doc_init(&init_data) {
+                    Error::FoundInitTileDoc(*cid)
+                } else {
+                    Error::new_fatal(err)
+                }
+            })?;
         match init {
-            unvalidated::RawEvent::Time(_) => bail!("init event must not be a time event"),
+            unvalidated::RawEvent::Time(_) => {
+                return Err(Error::new_fatal(anyhow!(
+                    "init event must not be a time event"
+                )))
+            }
             unvalidated::RawEvent::Signed(init) => {
                 let init_payload_data = self
                     .load_block(
@@ -259,9 +300,9 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
                     .context("decoding init payload")
                     .map_err(|err| {
                         if self.is_tile_doc_init(&init_payload_data) {
-                            anyhow!("found init Tile Document, skipping")
+                            Error::FoundInitTileDoc(*cid)
                         } else {
-                            anyhow!("{err}")
+                            Error::new_fatal(err)
                         }
                     })
             }
@@ -288,7 +329,8 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
             .load_block(&proof_id)
             .await
             .context("finding proof block")?;
-        let proof: unvalidated::Proof = serde_ipld_dagcbor::from_slice(&data)?;
+        let proof: unvalidated::Proof =
+            serde_ipld_dagcbor::from_slice(&data).map_err(Error::new_fatal)?;
         let mut curr = proof.root();
         let mut proof_edges = Vec::new();
         for index in event.path().split('/') {
@@ -324,10 +366,23 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
     }
 }
 
+type Result<T> = std::result::Result<T, Error>;
+
 #[derive(Error, Debug)]
-enum AnalyzeError {
+enum Error {
     #[error("missing linked block from event {0}")]
     MissingBlock(Cid),
+    #[error("block is an init tile document: {0}")]
+    FoundInitTileDoc(Cid),
+    #[error("block is a data tile document: {0}")]
+    FoundDataTileDoc(Cid),
+    #[error("fatal error: {0:#}")]
+    Fatal(#[from] anyhow::Error),
+}
+impl Error {
+    fn new_fatal(err: impl Into<anyhow::Error>) -> Self {
+        Self::from(err.into())
+    }
 }
 
 struct EventBuilder {

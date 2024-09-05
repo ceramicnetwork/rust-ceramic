@@ -97,8 +97,13 @@ impl CeramicEventService {
         .await
     }
 
-    pub async fn migrate_from_ipfs(&self, network: Network, blocks: impl BlockStore) -> Result<()> {
-        let migrator = Migrator::new(self, network, blocks)
+    pub async fn migrate_from_ipfs(
+        &self,
+        network: Network,
+        blocks: impl BlockStore,
+        ignore_tile_docs: bool,
+    ) -> Result<()> {
+        let migrator = Migrator::new(self, network, blocks, ignore_tile_docs)
             .await
             .map_err(Error::new_fatal)?;
         migrator.migrate().await.map_err(Error::new_fatal)?;
