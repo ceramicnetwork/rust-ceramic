@@ -101,9 +101,9 @@ impl CeramicEventService {
         &self,
         network: Network,
         blocks: impl BlockStore,
-        ignore_tile_docs: bool,
+        log_tile_docs: bool,
     ) -> Result<()> {
-        let migrator = Migrator::new(self, network, blocks, ignore_tile_docs)
+        let migrator = Migrator::new(self, network, blocks, log_tile_docs)
             .await
             .map_err(Error::new_fatal)?;
         migrator.migrate().await.map_err(Error::new_fatal)?;

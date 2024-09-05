@@ -21,7 +21,7 @@ pub struct Migrator<'a, S> {
     network: Network,
     blocks: S,
     batch: Vec<ReconItem<EventId>>,
-    ignore_tile_docs: bool,
+    log_tile_docs: bool,
 
     // All unsigned init payloads we have found.
     unsigned_init_payloads: BTreeSet<Cid>,
@@ -42,13 +42,13 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
         service: &'a CeramicEventService,
         network: Network,
         blocks: S,
-        ignore_tile_docs: bool,
+        log_tile_docs: bool,
     ) -> anyhow::Result<Self> {
         Ok(Self {
             network,
             service,
             blocks,
-            ignore_tile_docs,
+            log_tile_docs,
             batch: Default::default(),
             unsigned_init_payloads: Default::default(),
             referenced_unsigned_init_payloads: Default::default(),
@@ -78,7 +78,7 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
                 let log = match err {
                     Error::FoundInitTileDoc(_) | Error::FoundDataTileDoc(_) => {
                         self.tile_doc_count += 1;
-                        !self.ignore_tile_docs
+                        self.log_tile_docs
                     }
                     Error::MissingBlock(_) | Error::Fatal(_) => {
                         self.error_count += 1;
