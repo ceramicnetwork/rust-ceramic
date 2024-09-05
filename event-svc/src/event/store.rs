@@ -8,6 +8,7 @@ use recon::{HashCount, ReconItem, Result as ReconResult, Sha256a};
 
 use crate::event::{CeramicEventService, DeliverableRequirement};
 use crate::store::{CeramicOneBlock, CeramicOneEvent};
+use crate::Error;
 
 use super::service::{InsertResult, InvalidItem};
 
@@ -55,7 +56,9 @@ impl recon::Store for CeramicEventService {
     /// Both range bounds are exclusive.
     /// Returns ReconResult<(Hash, count), Err>
     async fn hash_range(&self, range: Range<&Self::Key>) -> ReconResult<HashCount<Self::Hash>> {
-        let res = CeramicOneEvent::hash_range(&self.pool, range).await?;
+        let res = CeramicOneEvent::hash_range(&self.pool, range)
+            .await
+            .map_err(Error::from)?;
         Ok(res)
     }
 
@@ -71,7 +74,8 @@ impl recon::Store for CeramicEventService {
     ) -> ReconResult<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
         Ok(Box::new(
             CeramicOneEvent::range(&self.pool, range, offset, limit)
-                .await?
+                .await
+                .map_err(Error::from)?
                 .into_iter(),
         ))
     }
@@ -88,13 +92,16 @@ impl recon::Store for CeramicEventService {
     ) -> ReconResult<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>> {
         Ok(Box::new(
             CeramicOneEvent::range_with_values(&self.pool, range, offset, limit)
-                .await?
+                .await
+                .map_err(Error::from)?
                 .into_iter(),
         ))
     }
     /// Return the number of keys within the range.
     async fn count(&self, range: Range<&Self::Key>) -> ReconResult<usize> {
-        Ok(CeramicOneEvent::count(&self.pool, range).await?)
+        Ok(CeramicOneEvent::count(&self.pool, range)
+            .await
+            .map_err(Error::from)?)
     }
 
     /// value_for_key returns
@@ -102,7 +109,9 @@ impl recon::Store for CeramicEventService {
     /// Ok(None) if not stored, and
     /// Err(e) if retrieving failed.
     async fn value_for_key(&self, key: &Self::Key) -> ReconResult<Option<Vec<u8>>> {
-        Ok(CeramicOneEvent::value_by_order_key(&self.pool, key).await?)
+        Ok(CeramicOneEvent::value_by_order_key(&self.pool, key)
+            .await
+            .map_err(Error::from)?)
     }
 }
 

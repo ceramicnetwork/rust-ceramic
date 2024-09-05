@@ -2,11 +2,12 @@ use std::collections::{HashMap, VecDeque};
 
 use anyhow::anyhow;
 use ceramic_event::unvalidated;
+use ceramic_sql::sqlite::SqlitePool;
 use cid::Cid;
 use ipld_core::ipld::Ipld;
 use tracing::{debug, error, info, trace, warn};
 
-use crate::store::{CeramicOneEvent, SqlitePool};
+use crate::store::CeramicOneEvent;
 use crate::{Error, Result};
 
 use super::service::DiscoveredEvent;

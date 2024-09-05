@@ -1,6 +1,5 @@
-/// Holds the SQL queries than can be shared between interests, events, and across DB types
+/// Holds the SQL queries for accessing interests across DB types
 pub struct ReconQuery {}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SqlBackend {
     Sqlite,

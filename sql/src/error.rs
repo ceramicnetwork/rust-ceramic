@@ -124,14 +124,3 @@ impl From<sqlx::Error> for Error {
         }
     }
 }
-
-impl From<Error> for recon::Error {
-    fn from(value: Error) -> Self {
-        match value {
-            Error::Application { error } => recon::Error::Application { error },
-            Error::Fatal { error } => recon::Error::Fatal { error },
-            Error::Transient { error } => recon::Error::Transient { error },
-            Error::InvalidArgument { error } => recon::Error::Application { error },
-        }
-    }
-}

@@ -13,10 +13,11 @@ use std::{env, path::PathBuf, time::Duration};
 use anyhow::{anyhow, Context, Result};
 use ceramic_api::{EventStore, InterestStore};
 use ceramic_core::{EventId, Interest};
+use ceramic_event_svc::CeramicEventService;
+use ceramic_interest_svc::CeramicInterestService;
 use ceramic_kubo_rpc::Multiaddr;
 use ceramic_metrics::{config::Config as MetricsConfig, MetricsHandle};
 use ceramic_p2p::{load_identity, DiskStorage, Keychain, Libp2pConfig};
-use ceramic_service::{CeramicEventService, CeramicInterestService, CeramicService};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use feature_flags::*;
 use futures::StreamExt;
@@ -329,22 +330,19 @@ impl DBOpts {
         process_undelivered: bool,
         validate_events: bool,
     ) -> Result<Databases> {
-        let sql_pool = ceramic_service::store::SqlitePool::connect(
-            path,
-            ceramic_service::store::Migrations::Apply,
-        )
-        .await?;
-        let ceramic_service = CeramicService::try_new(sql_pool, validate_events).await?;
-        let interest_store = ceramic_service.interest_service().to_owned();
-        let event_store = ceramic_service.event_service().to_owned();
+        let sql_pool =
+            ceramic_sql::sqlite::SqlitePool::connect(path, ceramic_sql::sqlite::Migrations::Apply)
+                .await?;
+        let interest_svc = CeramicInterestService::new(sql_pool.clone());
+        let event_svc = CeramicEventService::try_new(sql_pool, validate_events).await?;
         if process_undelivered {
-            event_store.process_all_undelivered_events().await?;
+            event_svc.process_all_undelivered_events().await?;
         }
         info!(path, "connected to sqlite db");
 
         Ok(Databases::Sqlite(SqliteBackend {
-            event_store,
-            interest_store,
+            event_svc: event_svc.into(),
+            interest_svc: interest_svc.into(),
         }))
     }
 }
@@ -353,8 +351,8 @@ enum Databases {
     Sqlite(SqliteBackend),
 }
 struct SqliteBackend {
-    interest_store: Arc<CeramicInterestService>,
-    event_store: Arc<CeramicEventService>,
+    interest_svc: Arc<CeramicInterestService>,
+    event_svc: Arc<CeramicEventService>,
 }
 
 struct Daemon;
@@ -408,11 +406,11 @@ impl Daemon {
             Databases::Sqlite(db) => {
                 Daemon::run_internal(
                     opts,
-                    db.interest_store.clone(),
-                    db.interest_store,
-                    db.event_store.clone(),
-                    db.event_store.clone(),
-                    db.event_store,
+                    db.interest_svc.clone(),
+                    db.interest_svc,
+                    db.event_svc.clone(),
+                    db.event_svc.clone(),
+                    db.event_svc,
                     metrics_handle,
                 )
                 .await
@@ -504,30 +502,35 @@ impl Daemon {
 
         // Register metrics for all components
         let recon_metrics = MetricsHandle::register(recon::Metrics::register);
-        let store_metrics = MetricsHandle::register(ceramic_service::store::Metrics::register);
+        let interest_svc_store_metrics =
+            MetricsHandle::register(ceramic_interest_svc::store::Metrics::register);
+        let event_svc_store_metrics =
+            MetricsHandle::register(ceramic_event_svc::store::Metrics::register);
         let http_metrics = Arc::new(ceramic_metrics::MetricsHandle::register(
             http_metrics::Metrics::register,
         ));
 
         // Create recon store for interests.
-        let interest_store = ceramic_service::store::StoreMetricsMiddleware::new(
+        let interest_store = ceramic_interest_svc::store::StoreMetricsMiddleware::new(
             interest_recon_store.clone(),
-            store_metrics.clone(),
+            interest_svc_store_metrics.clone(),
         );
 
-        let interest_api_store = ceramic_service::store::StoreMetricsMiddleware::new(
+        let interest_api_store = ceramic_interest_svc::store::StoreMetricsMiddleware::new(
             interest_api_store,
-            store_metrics.clone(),
+            interest_svc_store_metrics.clone(),
         );
 
         // Create second recon store for models.
-        let model_store = ceramic_service::store::StoreMetricsMiddleware::new(
+        let model_store = ceramic_event_svc::store::StoreMetricsMiddleware::new(
             model_recon_store.clone(),
-            store_metrics.clone(),
+            event_svc_store_metrics.clone(),
         );
 
-        let model_api_store =
-            ceramic_service::store::StoreMetricsMiddleware::new(model_api_store, store_metrics);
+        let model_api_store = ceramic_event_svc::store::StoreMetricsMiddleware::new(
+            model_api_store,
+            event_svc_store_metrics,
+        );
 
         // Construct a recon implementation for interests.
         let recon_interest_svr = Recon::new(

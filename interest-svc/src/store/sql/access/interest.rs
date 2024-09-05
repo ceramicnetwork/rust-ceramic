@@ -12,7 +12,7 @@ use crate::store::{
     sql::{
         entities::ReconHash,
         query::{ReconQuery, SqlBackend},
-        sqlite::SqliteTransaction,
+        SqliteTransaction,
     },
     Error, Result, SqlitePool,
 };

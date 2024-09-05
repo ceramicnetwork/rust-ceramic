@@ -4,8 +4,8 @@ use anyhow::{anyhow, Result};
 use async_stream::try_stream;
 use async_trait::async_trait;
 use ceramic_event::unvalidated;
+use ceramic_event_svc::BlockStore;
 use ceramic_metrics::config::Config as MetricsConfig;
-use ceramic_service::BlockStore;
 use cid::Cid;
 use clap::{Args, Subcommand};
 use futures::{stream::BoxStream, StreamExt};
@@ -97,7 +97,7 @@ async fn from_ipfs(opts: FromIpfsOpts) -> Result<()> {
     let blocks = FSBlockStore {
         input_ipfs_path: opts.input_ipfs_path,
     };
-    db.event_store
+    db.event_svc
         .migrate_from_ipfs(network, blocks, opts.log_tile_docs)
         .await?;
     Ok(())

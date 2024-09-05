@@ -16,8 +16,6 @@ async-trait.workspace = true
 backoff.workspace = true
 ceramic-core.workspace = true
 ceramic-metrics.workspace = true
-ceramic-event-svc.workspace = true
-ceramic-interest-svc.workspace = true
 cid.workspace = true
 futures-util.workspace = true
 futures.workspace = true
@@ -71,6 +69,7 @@ features = [
 ]
 
 [dev-dependencies]
+ceramic-event-svc.workspace = true
 criterion2.workspace = true
 rand_chacha.workspace = true
 test-log.workspace = true

@@ -1,5 +1,7 @@
+use ceramic_sql::sqlite::SqliteTransaction;
+
 use crate::store::{
-    sql::{entities::EventBlockRaw, query::EventBlockQuery, sqlite::SqliteTransaction},
+    sql::{entities::EventBlockRaw, query::EventBlockQuery},
     Result,
 };
 

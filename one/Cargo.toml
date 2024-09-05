@@ -22,6 +22,7 @@ ceramic-metrics.workspace = true
 ceramic-p2p.workspace = true
 ceramic-event-svc.workspace = true
 ceramic-interest-svc.workspace = true
+ceramic-sql.workspace = true
 cid.workspace = true
 clap.workspace = true
 futures.workspace = true

@@ -2,10 +2,7 @@ use std::str::FromStr;
 
 use anyhow::anyhow;
 
-use crate::store::{
-    sql::{entities::VersionRow, SqlitePool},
-    Error, Result,
-};
+use crate::store::sql::{entities::VersionRow, Error, Result, SqlitePool};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// It's kind of pointless to roundtrip CARGO_PKG_VERSION through this struct,
@@ -80,9 +77,9 @@ impl CeramicOneVersion {
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use ceramic_sql::sqlite::SqlitePool;
 
-    use crate::store::SqlitePool;
+    use super::*;
 
     #[tokio::test]
     async fn insert_version() {

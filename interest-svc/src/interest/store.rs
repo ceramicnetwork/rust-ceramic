@@ -6,6 +6,7 @@ use tracing::instrument;
 
 use crate::store::CeramicOneInterest;
 use crate::CeramicInterestService;
+use crate::Error;
 
 #[async_trait::async_trait]
 impl recon::Store for CeramicInterestService {
@@ -21,7 +22,9 @@ impl recon::Store for CeramicInterestService {
         items: &[ReconItem<Self::Key>],
     ) -> ReconResult<InsertResult<Interest>> {
         let keys = items.iter().map(|item| &item.key).collect::<Vec<_>>();
-        Ok(CeramicOneInterest::insert_many(&self.pool, &keys).await?)
+        Ok(CeramicOneInterest::insert_many(&self.pool, &keys)
+            .await
+            .map_err(Error::from)?)
     }
 
     /// Return the hash of all keys in the range between left_fencepost and right_fencepost.
@@ -29,7 +32,9 @@ impl recon::Store for CeramicInterestService {
     /// Returns ReconResult<(Hash, count), Err>
     #[instrument(skip(self))]
     async fn hash_range(&self, range: Range<&Self::Key>) -> ReconResult<HashCount<Self::Hash>> {
-        Ok(CeramicOneInterest::hash_range(&self.pool, range).await?)
+        Ok(CeramicOneInterest::hash_range(&self.pool, range)
+            .await
+            .map_err(Error::from)?)
     }
 
     /// Return all keys in the range between left_fencepost and right_fencepost.
@@ -46,7 +51,8 @@ impl recon::Store for CeramicInterestService {
     ) -> ReconResult<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
         Ok(Box::new(
             CeramicOneInterest::range(&self.pool, range, offset, limit)
-                .await?
+                .await
+                .map_err(Error::from)?
                 .into_iter(),
         ))
     }
@@ -62,13 +68,17 @@ impl recon::Store for CeramicInterestService {
         offset: usize,
         limit: usize,
     ) -> ReconResult<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>> {
-        let res = CeramicOneInterest::range(&self.pool, range, offset, limit).await?;
+        let res = CeramicOneInterest::range(&self.pool, range, offset, limit)
+            .await
+            .map_err(Error::from)?;
         Ok(Box::new(res.into_iter().map(|key| (key, vec![]))))
     }
     /// Return the number of keys within the range.
     #[instrument(skip(self))]
     async fn count(&self, range: Range<&Self::Key>) -> ReconResult<usize> {
-        Ok(CeramicOneInterest::count(&self.pool, range).await?)
+        Ok(CeramicOneInterest::count(&self.pool, range)
+            .await
+            .map_err(Error::from)?)
     }
 
     /// value_for_key returns

@@ -1,3 +1,4 @@
+use ceramic_sql::sqlite::{SqlitePool, SqliteTransaction};
 use cid::Cid;
 use multihash_codetable::Multihash;
 
@@ -5,9 +6,8 @@ use crate::store::{
     sql::{
         entities::{BlockBytes, CountRow},
         query::BlockQuery,
-        sqlite::SqliteTransaction,
     },
-    Result, SqlitePool,
+    Result,
 };
 
 /// Access to the block table and related logic

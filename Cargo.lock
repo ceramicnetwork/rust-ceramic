@@ -1546,6 +1546,7 @@ dependencies = [
  "ceramic-core",
  "ceramic-event",
  "ceramic-metrics",
+ "ceramic-sql",
  "cid 0.11.1",
  "criterion2",
  "expect-test",
@@ -1596,24 +1597,16 @@ version = "0.34.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "bytes 1.7.1",
  "ceramic-api",
- "ceramic-car",
  "ceramic-core",
  "ceramic-event",
  "ceramic-metrics",
- "cid 0.11.1",
+ "ceramic-sql",
  "criterion2",
  "expect-test",
  "futures",
- "hex",
  "ipld-core",
- "iroh-bitswap",
- "itertools 0.12.1",
  "multibase 0.9.1",
- "multihash 0.19.1",
- "multihash-codetable",
- "multihash-derive 0.9.0",
  "paste",
  "prometheus-client",
  "rand 0.8.5",
@@ -1764,6 +1757,7 @@ dependencies = [
  "ceramic-kubo-rpc-server",
  "ceramic-metrics",
  "ceramic-p2p",
+ "ceramic-sql",
  "cid 0.11.1",
  "clap 4.5.16",
  "expect-test",
@@ -1806,7 +1800,6 @@ dependencies = [
  "backoff",
  "ceramic-core",
  "ceramic-event-svc",
- "ceramic-interest-svc",
  "ceramic-metrics",
  "cid 0.11.1",
  "criterion2",
@@ -1833,6 +1826,15 @@ dependencies = [
  "tracing-subscriber",
  "void",
  "zeroize",
+]
+
+[[package]]
+name = "ceramic-sql"
+version = "0.34.0"
+dependencies = [
+ "anyhow",
+ "sqlx",
+ "thiserror",
 ]
 
 [[package]]

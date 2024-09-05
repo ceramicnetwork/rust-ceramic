@@ -5,7 +5,17 @@ use sqlx::{
     Sqlite, Transaction,
 };
 
-use crate::store::{Migrations, Result};
+use crate::Result;
+
+/// How to handle outstanding database migrations.
+/// Intend to add a `Check` variant to verify the database is up to date and return an error if it is not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Migrations {
+    /// Apply migrations after opening connection
+    Apply,
+    /// Do nothing
+    Skip,
+}
 
 #[derive(Clone, Debug)]
 /// The sqlite pool is split into a writer and a reader pool.
@@ -91,12 +101,12 @@ impl SqlitePool {
 
     /// Get a reference to the writer database pool. The writer pool has only one connection.
     /// If you are going to do multiple writes in a row, instead use `tx` and `commit`.
-    pub(crate) fn writer(&self) -> &sqlx::SqlitePool {
+    pub fn writer(&self) -> &sqlx::SqlitePool {
         &self.writer
     }
 
     /// Get a reference to the reader database pool. The reader pool has many connections.
-    pub(crate) fn reader(&self) -> &sqlx::SqlitePool {
+    pub fn reader(&self) -> &sqlx::SqlitePool {
         &self.reader
     }
 
@@ -126,7 +136,7 @@ impl<'a> SqliteTransaction<'a> {
         Ok(())
     }
 
-    pub(crate) fn inner(&mut self) -> &mut Transaction<'a, Sqlite> {
+    pub fn inner(&mut self) -> &mut Transaction<'a, Sqlite> {
         &mut self.tx
     }
 }

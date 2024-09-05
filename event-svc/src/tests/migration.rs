@@ -53,9 +53,7 @@ async fn test_migration(cars: Vec<Vec<u8>>) {
         .map(|car| multibase::encode(multibase::Base::Base64Url, car))
         .collect();
     let blocks = blocks_from_cars(cars).await;
-    let conn = crate::store::SqlitePool::connect_in_memory()
-        .await
-        .unwrap();
+    let conn = crate::store::SqlitePool::connect_in_memory().await.unwrap();
     let service = CeramicEventService::new_with_event_validation(conn)
         .await
         .unwrap();

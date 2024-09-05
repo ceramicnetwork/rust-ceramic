@@ -15,6 +15,7 @@ ceramic-car.workspace = true
 ceramic-core.workspace = true
 ceramic-event.workspace = true
 ceramic-metrics.workspace = true
+ceramic-sql.workspace = true
 cid.workspace = true
 futures.workspace = true
 hex.workspace = true

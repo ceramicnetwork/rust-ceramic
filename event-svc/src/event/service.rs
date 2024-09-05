@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use ceramic_core::{EventId, Network};
 use ceramic_event::unvalidated;
 use ceramic_event::unvalidated::Event;
+use ceramic_sql::sqlite::SqlitePool;
 use cid::Cid;
 use futures::stream::BoxStream;
 use ipld_core::ipld::Ipld;
@@ -16,7 +17,7 @@ use recon::ReconItem;
 use tokio::try_join;
 use tracing::{trace, warn};
 
-use crate::store::{CeramicOneEvent, EventInsertable, SqlitePool};
+use crate::store::{CeramicOneEvent, EventInsertable};
 use crate::{Error, Result};
 
 /// How many events to select at once to see if they've become deliverable when we have downtime
@@ -67,7 +68,7 @@ pub enum DeliverableRequirement {
 
 impl CeramicEventService {
     /// Create a new CeramicEventStore
-    pub async fn new(pool: SqlitePool, _validate_events: bool) -> Result<Self> {
+    pub async fn try_new(pool: SqlitePool, _validate_events: bool) -> Result<Self> {
         CeramicOneEvent::init_delivered_order(&pool).await?;
 
         let delivery_task = OrderingTask::run(pool.clone(), PENDING_EVENTS_CHANNEL_DEPTH).await;
@@ -84,7 +85,7 @@ impl CeramicEventService {
     /// in the next pass.. but it's basically same same but different.
     #[allow(dead_code)]
     pub(crate) async fn new_with_event_validation(pool: SqlitePool) -> Result<Self> {
-        Self::new(pool, true).await
+        Self::try_new(pool, true).await
     }
 
     /// Returns the number of undelivered events that were updated

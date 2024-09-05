@@ -14,9 +14,7 @@ use crate::{
 };
 
 async fn setup_service() -> CeramicEventService {
-    let conn = crate::store::SqlitePool::connect_in_memory()
-        .await
-        .unwrap();
+    let conn = crate::store::SqlitePool::connect_in_memory().await.unwrap();
 
     CeramicEventService::new_with_event_validation(conn)
         .await

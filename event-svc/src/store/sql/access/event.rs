@@ -7,8 +7,9 @@ use std::{
 use anyhow::anyhow;
 use ceramic_core::{event_id::InvalidEventId, Cid, EventId};
 use ceramic_event::unvalidated;
+use ceramic_sql::sqlite::{SqlitePool, SqliteTransaction};
 use ipld_core::ipld::Ipld;
-use recon::{AssociativeHash, HashCount, Key, Result as ReconResult, Sha256a};
+use recon::{AssociativeHash, HashCount, Key, Sha256a};
 
 use crate::store::{
     sql::{
@@ -17,9 +18,8 @@ use crate::store::{
             ReconHash,
         },
         query::{EventQuery, ReconQuery, SqlBackend},
-        sqlite::SqliteTransaction,
     },
-    CeramicOneBlock, CeramicOneEventBlock, Error, Result, SqlitePool,
+    CeramicOneBlock, CeramicOneEventBlock, Error, Result,
 };
 
 static GLOBAL_COUNTER: AtomicI64 = AtomicI64::new(0);
@@ -196,13 +196,12 @@ impl CeramicOneEvent {
     pub async fn hash_range(
         pool: &SqlitePool,
         range: Range<&EventId>,
-    ) -> ReconResult<HashCount<Sha256a>> {
+    ) -> Result<HashCount<Sha256a>> {
         let row: ReconHash = sqlx::query_as(ReconQuery::hash_range(SqlBackend::Sqlite))
             .bind(range.start.as_bytes())
             .bind(range.end.as_bytes())
             .fetch_one(pool.reader())
-            .await
-            .map_err(Error::from)?;
+            .await?;
         Ok(HashCount::new(Sha256a::from(row.hash()), row.count()))
     }
 
@@ -256,13 +255,12 @@ impl CeramicOneEvent {
     }
 
     /// Count the number of events in a range
-    pub async fn count(pool: &SqlitePool, range: Range<&EventId>) -> ReconResult<usize> {
+    pub async fn count(pool: &SqlitePool, range: Range<&EventId>) -> Result<usize> {
         let row: CountRow = sqlx::query_as(ReconQuery::count(SqlBackend::Sqlite))
             .bind(range.start.as_bytes())
             .bind(range.end.as_bytes())
             .fetch_one(pool.reader())
-            .await
-            .map_err(Error::from)?;
+            .await?;
         Ok(row.res as usize)
     }
 
