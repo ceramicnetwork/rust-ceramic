@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use ceramic_api::{EventDataResult, EventService, IncludeEventData};
+use ceramic_api::{EventDataResult, EventService as ApiEventService, IncludeEventData};
 use ceramic_core::EventId;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
