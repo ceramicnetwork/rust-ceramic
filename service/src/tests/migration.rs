@@ -60,7 +60,7 @@ async fn test_migration(cars: Vec<Vec<u8>>) {
         .await
         .unwrap();
     service
-        .migrate_from_ipfs(Network::Local(42), blocks)
+        .migrate_from_ipfs(Network::Local(42), blocks, false)
         .await
         .unwrap();
     let actual_events: BTreeSet<_> = recon::Store::range_with_values(

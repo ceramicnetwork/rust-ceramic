@@ -62,7 +62,7 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
         if let Some(block) = self.blocks.block_data(cid).await? {
             Ok(block)
         } else {
-            Err(Error::MissingBlock(*cid).into())
+            Err(Error::MissingBlock(*cid))
         }
     }
 
