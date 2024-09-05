@@ -107,9 +107,8 @@ where
         }
     }
 
-    // TODO : Returns the cid no option, update the comment
     /// Returns the 'id' field of the event, which is the Cid of the stream's init event.
-    /// If this event *is* the init event, then it doesn't know its own Cid and returns None.
+    /// Always return the CID because the init event knows it's CID.
     pub fn id(&self) -> &Cid {
         match self {
             Event::Time(t) => t.id(),
@@ -248,8 +247,6 @@ impl<D> From<Box<TimeEvent>> for Event<D> {
     }
 }
 
-// TODO : Delete this? then delete all
-// Delete event with new
 impl<D: serde::Serialize> From<init::Payload<D>> for Event<D> {
     fn from(payload: init::Payload<D>) -> Self {
         Self::Unsigned(Box::new(init::Event::new(payload)))

@@ -293,6 +293,23 @@ impl CeramicOneEvent {
     }
 
     /// Returns the root CIDs and values of all the events found after the given delivered value.
+    ///
+    /// # Returns
+    ///
+    /// Returns a tuple containing:
+    ///
+    /// - `i64`: The new highwater mark, representing the highest delivered value processed.
+    ///   This can be used as input for subsequent calls to get newer events.
+    ///
+    /// - `Vec<EventRow : id, unvalidated::Event<Ipld>, i64>`: A vector of EventRow structs, each containing:
+    ///   - `cid`: The root CID of the event as a byte vector
+    ///   - `event`: The event data as a byte vector (CAR encoded)
+    ///   - `delivered`: The delivered value for this event
+    ///
+    /// # Note
+    ///
+    /// The events are returned in order of their delivered value. The number of events
+    /// returned is limited by the `limit` parameter passed to the function.
     pub async fn new_events_since_value_with_data(
         pool: &SqlitePool,
         highwater: i64,
@@ -328,6 +345,7 @@ impl CeramicOneEvent {
                 .fetch_all(pool.reader())
                 .await?;
 
+        // default to the passed in value if there are no new events to avoid the client going back to 0
         let max_highwater = all_blocks
             .iter()
             .map(|row| row.new_highwater_mark + 1)

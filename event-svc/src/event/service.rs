@@ -269,13 +269,13 @@ impl EventService {
     #[allow(dead_code)]
     async fn transform_raw_events_to_conclusion_events(
         &self,
+        event_cid: Cid,
         raw_event: ceramic_event::unvalidated::Event<Ipld>,
         delivered: i64,
     ) -> Result<ConclusionEvent> {
         let stream_cid = raw_event.id();
         let init_event = self.get_event_by_cid(stream_cid).await?;
         let init = ConclusionInit::try_from(init_event).unwrap();
-        let event_cid = *raw_event.id();
 
         match raw_event {
             ceramic_event::unvalidated::Event::Time(time_event) => {
@@ -283,7 +283,7 @@ impl EventService {
                     event_cid,
                     init,
                     previous: vec![*time_event.prev()],
-                    index: delivered as u64, // TODO: Implement proper indexing
+                    index: delivered as u64,
                 }))
             }
             ceramic_event::unvalidated::Event::Signed(signed_event) => {
@@ -299,7 +299,7 @@ impl EventService {
                                     e
                                 ))
                             })?,
-                            index: delivered as u64, // TODO: Implement proper indexing
+                            index: delivered as u64,
                         }))
                     }
                     ceramic_event::unvalidated::Payload::Init(init_event) => {
@@ -313,7 +313,7 @@ impl EventService {
                                     e
                                 ))
                             })?,
-                            index: delivered as u64, // TODO: Implement proper indexing
+                            index: delivered as u64,
                         }))
                     }
                 }
@@ -361,9 +361,10 @@ impl EventService {
             .fetch_events_since_highwater_mark(highwater_mark, limit)
             .await?;
 
-        let conclusion_events_futures = raw_events.into_iter().map(|(event, delivered)| {
-            self.transform_raw_events_to_conclusion_events(event, delivered)
-        });
+        let conclusion_events_futures =
+            raw_events.into_iter().map(|(event_cid, event, delivered)| {
+                self.transform_raw_events_to_conclusion_events(event_cid, event, delivered)
+            });
 
         try_join_all(conclusion_events_futures)
             .await
@@ -375,13 +376,13 @@ impl EventService {
         &self,
         highwater_mark: i64,
         limit: i64,
-    ) -> Result<Vec<(unvalidated::Event<Ipld>, i64)>> {
+    ) -> Result<Vec<(Cid, unvalidated::Event<Ipld>, i64)>> {
         let (_, data) =
             CeramicOneEvent::new_events_since_value_with_data(&self.pool, highwater_mark, limit)
                 .await?;
         let events = data
             .into_iter()
-            .map(|(_, event, delivered)| (event, delivered))
+            .map(|(cid, event, delivered)| (cid, event, delivered))
             .collect();
         Ok(events)
     }
