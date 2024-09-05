@@ -601,7 +601,7 @@ mod test {
     use crate::store::EventInsertable;
     use test_log::test;
 
-    use crate::{tests::get_n_events, CeramicEventService};
+    use crate::{tests::get_n_events, EventService};
 
     use super::*;
 
@@ -609,9 +609,7 @@ mod test {
         let mut res = Vec::with_capacity(n);
         let events = get_n_events(n).await;
         for event in events {
-            let event = CeramicEventService::parse_discovered_event(&event)
-                .await
-                .unwrap();
+            let event = EventService::parse_discovered_event(&event).await.unwrap();
             res.push(event);
         }
         res

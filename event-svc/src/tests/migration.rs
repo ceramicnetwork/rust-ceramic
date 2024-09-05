@@ -17,7 +17,7 @@ use ceramic_car::CarReader;
 use ceramic_core::{DidDocument, EventId, Network, SerializeExt, StreamId};
 use ceramic_event::unvalidated;
 
-use crate::{event::BlockStore, CeramicEventService};
+use crate::{event::BlockStore, EventService};
 
 struct InMemBlockStore {
     blocks: BTreeMap<Cid, Vec<u8>>,
@@ -54,9 +54,7 @@ async fn test_migration(cars: Vec<Vec<u8>>) {
         .collect();
     let blocks = blocks_from_cars(cars).await;
     let conn = crate::store::SqlitePool::connect_in_memory().await.unwrap();
-    let service = CeramicEventService::new_with_event_validation(conn)
-        .await
-        .unwrap();
+    let service = EventService::new_with_event_validation(conn).await.unwrap();
     service
         .migrate_from_ipfs(Network::Local(42), blocks, false)
         .await

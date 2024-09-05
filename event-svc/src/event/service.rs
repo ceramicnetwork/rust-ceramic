@@ -36,7 +36,7 @@ const PENDING_EVENTS_CHANNEL_DEPTH: usize = 1_000_000;
 #[derive(Debug)]
 /// A database store that verifies the bytes it stores are valid Ceramic events.
 /// Implements the [`recon::Store`], [`iroh_bitswap::Store`], and [`ceramic_api::EventStore`] traits for [`ceramic_core::EventId`].
-pub struct CeramicEventService {
+pub struct EventService {
     pub(crate) pool: SqlitePool,
     _validate_events: bool,
     delivery_task: DeliverableTask,
@@ -66,7 +66,7 @@ pub enum DeliverableRequirement {
     Lazy,
 }
 
-impl CeramicEventService {
+impl EventService {
     /// Create a new CeramicEventStore
     pub async fn try_new(pool: SqlitePool, _validate_events: bool) -> Result<Self> {
         CeramicOneEvent::init_delivered_order(&pool).await?;

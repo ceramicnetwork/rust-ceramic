@@ -8,4 +8,4 @@ pub mod store;
 mod tests;
 
 pub use error::Error;
-pub use interest::CeramicInterestService;
+pub use interest::InterestService;

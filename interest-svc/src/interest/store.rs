@@ -5,11 +5,11 @@ use recon::{HashCount, InsertResult, ReconItem, Result as ReconResult, Sha256a};
 use tracing::instrument;
 
 use crate::store::CeramicOneInterest;
-use crate::CeramicInterestService;
 use crate::Error;
+use crate::InterestService;
 
 #[async_trait::async_trait]
-impl recon::Store for CeramicInterestService {
+impl recon::Store for InterestService {
     type Key = Interest;
     type Hash = Sha256a;
 
@@ -92,7 +92,7 @@ impl recon::Store for CeramicInterestService {
 }
 
 #[async_trait::async_trait]
-impl ceramic_api::InterestStore for CeramicInterestService {
+impl ceramic_api::InterestService for InterestService {
     async fn insert(&self, key: Interest) -> anyhow::Result<bool> {
         Ok(CeramicOneInterest::insert(&self.pool, &key).await?)
     }

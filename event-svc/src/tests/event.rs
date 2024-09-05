@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use anyhow::Error;
 use bytes::Bytes;
-use ceramic_api::{ApiItem, EventStore};
+use ceramic_api::{ApiItem, EventService};
 use cid::{Cid, CidGeneric};
 use expect_test::expect;
 use iroh_bitswap::Store;
@@ -227,7 +227,7 @@ where
 // stores 3 keys with 3,5,10 block long CAR files
 // each one takes n+1 blocks as it needs to store the root and all blocks so we expect 3+5+10+3=21 blocks
 // but we use a delivered integer per event, so we expect it to increment by 1 for each event
-async fn prep_highwater_tests(store: &dyn EventStore) -> (Cid, Cid, Cid) {
+async fn prep_highwater_tests(store: &dyn EventService) -> (Cid, Cid, Cid) {
     let mut keys = Vec::with_capacity(3);
     for _ in 0..3 {
         let TestEventInfo {
@@ -257,7 +257,7 @@ test_with_dbs!(
 );
 async fn events_since_highwater_mark_all_global_counter_with_data<S>(store: S)
 where
-    S: EventStore,
+    S: EventService,
 {
     events_since_highwater_mark_all_global_counter(store, true).await;
 }
@@ -273,13 +273,13 @@ test_with_dbs!(
 );
 async fn events_since_highwater_mark_all_global_counter_no_data<S>(store: S)
 where
-    S: EventStore,
+    S: EventService,
 {
     events_since_highwater_mark_all_global_counter(store, false).await;
 }
 
 async fn events_since_highwater_mark_all_global_counter(
-    store: impl EventStore,
+    store: impl EventService,
     include_data: bool,
 ) {
     let include_data = if include_data {
@@ -311,7 +311,7 @@ test_with_dbs!(
 );
 async fn events_since_highwater_mark_limit_1_with_data<S>(store: S)
 where
-    S: EventStore,
+    S: EventService,
 {
     events_since_highwater_mark_limit_1(store, true).await;
 }
@@ -327,14 +327,14 @@ test_with_dbs!(
 );
 async fn events_since_highwater_mark_limit_1_no_data<S>(store: S)
 where
-    S: EventStore,
+    S: EventService,
 {
     events_since_highwater_mark_limit_1(store, false).await;
 }
 
 async fn events_since_highwater_mark_limit_1<S>(store: S, include_data: bool)
 where
-    S: EventStore,
+    S: EventService,
 {
     let include_data = if include_data {
         ceramic_api::IncludeEventData::Full
@@ -367,7 +367,7 @@ test_with_dbs!(
         "delete from ceramic_one_block",
     ]
 );
-async fn events_since_highwater_mark_middle_start_with_data(store: impl EventStore) {
+async fn events_since_highwater_mark_middle_start_with_data(store: impl EventService) {
     events_since_highwater_mark_middle_start(store, true).await;
 }
 
@@ -380,11 +380,11 @@ test_with_dbs!(
         "delete from ceramic_one_block",
     ]
 );
-async fn events_since_highwater_mark_middle_start_no_data(store: impl EventStore) {
+async fn events_since_highwater_mark_middle_start_no_data(store: impl EventService) {
     events_since_highwater_mark_middle_start(store, false).await;
 }
 
-async fn events_since_highwater_mark_middle_start(store: impl EventStore, include_data: bool) {
+async fn events_since_highwater_mark_middle_start(store: impl EventService, include_data: bool) {
     let include_data = if include_data {
         ceramic_api::IncludeEventData::Full
     } else {
@@ -431,7 +431,7 @@ test_with_dbs!(
 
 async fn get_event_by_event_id<S>(store: S)
 where
-    S: EventStore,
+    S: EventService,
 {
     let TestEventInfo {
         event_id: key,
@@ -457,7 +457,7 @@ test_with_dbs!(
 
 async fn get_event_by_cid<S>(store: S)
 where
-    S: EventStore,
+    S: EventService,
 {
     let TestEventInfo {
         event_id: key,

@@ -13,11 +13,11 @@ use tracing::{debug, error, info, instrument, Level};
 
 use crate::{
     event::{BlockStore, DeliverableRequirement},
-    CeramicEventService,
+    EventService,
 };
 
 pub struct Migrator<'a, S> {
-    service: &'a CeramicEventService,
+    service: &'a EventService,
     network: Network,
     blocks: S,
     batch: Vec<ReconItem<EventId>>,
@@ -39,11 +39,11 @@ pub struct Migrator<'a, S> {
 
 impl<'a, S: BlockStore> Migrator<'a, S> {
     pub async fn new(
-        service: &'a CeramicEventService,
+        service: &'a EventService,
         network: Network,
         blocks: S,
         log_tile_docs: bool,
-    ) -> anyhow::Result<Self> {
+    ) -> Result<Self> {
         Ok(Self {
             network,
             service,

@@ -123,9 +123,9 @@ impl<S: Send + Sync> StoreMetricsMiddleware<S> {
 }
 
 #[async_trait]
-impl<S> ceramic_api::InterestStore for StoreMetricsMiddleware<S>
+impl<S> ceramic_api::InterestService for StoreMetricsMiddleware<S>
 where
-    S: ceramic_api::InterestStore,
+    S: ceramic_api::InterestService,
 {
     async fn insert(&self, key: Interest) -> anyhow::Result<bool> {
         let new = StoreMetricsMiddleware::<S>::record(
@@ -154,9 +154,9 @@ where
 }
 
 #[async_trait]
-impl<S> ceramic_api::EventStore for StoreMetricsMiddleware<S>
+impl<S> ceramic_api::EventService for StoreMetricsMiddleware<S>
 where
-    S: ceramic_api::EventStore,
+    S: ceramic_api::EventService,
 {
     async fn insert_many(
         &self,

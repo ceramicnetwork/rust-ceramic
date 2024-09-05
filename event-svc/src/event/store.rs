@@ -6,7 +6,7 @@ use cid::Cid;
 use iroh_bitswap::Block;
 use recon::{HashCount, ReconItem, Result as ReconResult, Sha256a};
 
-use crate::event::{CeramicEventService, DeliverableRequirement};
+use crate::event::{DeliverableRequirement, EventService};
 use crate::store::{CeramicOneBlock, CeramicOneEvent};
 use crate::Error;
 
@@ -34,7 +34,7 @@ impl From<InsertResult> for recon::InsertResult<EventId> {
 }
 
 #[async_trait::async_trait]
-impl recon::Store for CeramicEventService {
+impl recon::Store for EventService {
     type Key = EventId;
     type Hash = Sha256a;
 
@@ -116,7 +116,7 @@ impl recon::Store for CeramicEventService {
 }
 
 #[async_trait::async_trait]
-impl iroh_bitswap::Store for CeramicEventService {
+impl iroh_bitswap::Store for EventService {
     async fn get_size(&self, cid: &Cid) -> anyhow::Result<usize> {
         Ok(CeramicOneBlock::get_size(&self.pool, cid).await?)
     }
@@ -159,7 +159,7 @@ impl From<InsertResult> for Vec<ceramic_api::EventInsertResult> {
 }
 
 #[async_trait::async_trait]
-impl ceramic_api::EventStore for CeramicEventService {
+impl ceramic_api::EventService for EventService {
     async fn insert_many(
         &self,
         items: Vec<ceramic_api::ApiItem>,

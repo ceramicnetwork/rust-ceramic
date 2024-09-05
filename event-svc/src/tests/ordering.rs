@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use ceramic_api::{EventDataResult, EventStore, IncludeEventData};
+use ceramic_api::{EventDataResult, EventService, IncludeEventData};
 use ceramic_core::EventId;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
@@ -10,24 +10,22 @@ use test_log::test;
 use crate::{
     event::DeliverableRequirement,
     tests::{check_deliverable, get_events},
-    CeramicEventService,
+    EventService,
 };
 
-async fn setup_service() -> CeramicEventService {
+async fn setup_service() -> EventService {
     let conn = crate::store::SqlitePool::connect_in_memory().await.unwrap();
 
-    CeramicEventService::new_with_event_validation(conn)
-        .await
-        .unwrap()
+    EventService::new_with_event_validation(conn).await.unwrap()
 }
 
-async fn add_and_assert_new_recon_event(store: &CeramicEventService, item: ReconItem<EventId>) {
+async fn add_and_assert_new_recon_event(store: &EventService, item: ReconItem<EventId>) {
     tracing::trace!("inserted event: {}", item.key.cid().unwrap());
     let new = recon::Store::insert_many(store, &[item]).await.unwrap();
     assert!(new.included_new_key());
 }
 
-async fn add_and_assert_new_local_event(store: &CeramicEventService, item: ReconItem<EventId>) {
+async fn add_and_assert_new_local_event(store: &EventService, item: ReconItem<EventId>) {
     let new = store
         .insert_events(&[item], DeliverableRequirement::Immediate)
         .await
@@ -36,7 +34,7 @@ async fn add_and_assert_new_local_event(store: &CeramicEventService, item: Recon
     assert_eq!(1, new);
 }
 
-async fn get_delivered_cids(store: &CeramicEventService) -> Vec<ceramic_core::Cid> {
+async fn get_delivered_cids(store: &EventService) -> Vec<ceramic_core::Cid> {
     let (_, delivered) = store
         .events_since_highwater_mark(0, i64::MAX, IncludeEventData::Full)
         .await
@@ -239,7 +237,7 @@ async fn multiple_streams_missing_prev_recon_should_deliver_without_stream_updat
     assert_eq!(expected, delivered);
 }
 
-async fn validate_all_delivered(store: &CeramicEventService, expected_delivered: usize) {
+async fn validate_all_delivered(store: &EventService, expected_delivered: usize) {
     loop {
         let (_, delivered) = store
             .events_since_highwater_mark(0, i64::MAX, IncludeEventData::None)

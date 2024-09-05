@@ -11,10 +11,10 @@ mod network;
 use std::{env, path::PathBuf, time::Duration};
 
 use anyhow::{anyhow, Context, Result};
-use ceramic_api::{EventStore, InterestStore};
+use ceramic_api::{EventService as ApiEventService, InterestService as ApiInterestService};
 use ceramic_core::{EventId, Interest};
-use ceramic_event_svc::CeramicEventService;
-use ceramic_interest_svc::CeramicInterestService;
+use ceramic_event_svc::EventService;
+use ceramic_interest_svc::InterestService;
 use ceramic_kubo_rpc::Multiaddr;
 use ceramic_metrics::{config::Config as MetricsConfig, MetricsHandle};
 use ceramic_p2p::{load_identity, DiskStorage, Keychain, Libp2pConfig};
@@ -333,8 +333,8 @@ impl DBOpts {
         let sql_pool =
             ceramic_sql::sqlite::SqlitePool::connect(path, ceramic_sql::sqlite::Migrations::Apply)
                 .await?;
-        let interest_svc = CeramicInterestService::new(sql_pool.clone());
-        let event_svc = CeramicEventService::try_new(sql_pool, validate_events).await?;
+        let interest_svc = InterestService::new(sql_pool.clone());
+        let event_svc = EventService::try_new(sql_pool, validate_events).await?;
         if process_undelivered {
             event_svc.process_all_undelivered_events().await?;
         }
@@ -351,8 +351,8 @@ enum Databases {
     Sqlite(SqliteBackend),
 }
 struct SqliteBackend {
-    interest_svc: Arc<CeramicInterestService>,
-    event_svc: Arc<CeramicEventService>,
+    interest_svc: Arc<InterestService>,
+    event_svc: Arc<EventService>,
 }
 
 struct Daemon;
@@ -428,9 +428,9 @@ impl Daemon {
         metrics_handle: MetricsHandle,
     ) -> Result<()>
     where
-        I1: InterestStore + Send + Sync + 'static,
+        I1: ApiInterestService + Send + Sync + 'static,
         I2: recon::Store<Key = Interest, Hash = Sha256a> + Send + Sync + 'static,
-        E1: EventStore + Send + Sync + 'static,
+        E1: ApiEventService + Send + Sync + 'static,
         E2: recon::Store<Key = EventId, Hash = Sha256a> + Send + Sync + 'static,
         E3: iroh_bitswap::Store + Send + Sync + 'static,
     {

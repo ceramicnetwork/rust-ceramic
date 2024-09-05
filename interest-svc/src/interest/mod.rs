@@ -1,4 +1,4 @@
 mod service;
 mod store;
 
-pub use service::CeramicInterestService;
+pub use service::InterestService;

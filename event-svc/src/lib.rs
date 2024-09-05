@@ -8,6 +8,6 @@ pub mod store;
 mod tests;
 
 pub use error::Error;
-pub use event::{BlockStore, CeramicEventService};
+pub use event::{BlockStore, EventService};
 
 pub(crate) type Result<T> = std::result::Result<T, Error>;
