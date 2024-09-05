@@ -20,6 +20,8 @@ pub type MerkleNode = Vec<Option<Cid>>;
 #[derive(Default)]
 pub struct MerkleNodes {
     /// This is a map from CIDs to Merkle Tree nodes that have those CIDs.
+    /// We are using an IndexMap to keep the block in insert order.
+    /// This keeps the remote and local block together for easier debugging.
     nodes: IndexMap<Cid, MerkleNode>,
 }
 

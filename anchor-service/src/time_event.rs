@@ -36,7 +36,8 @@ pub fn index_to_path(index: u64, count: u64) -> Result<String> {
     // we want to find the path to the index in a tree length.
     // first find the sub-tree then append the path in the sub-tree
     //
-    // e.g. 5, 6
+    // e.g. index_to_path(index: 10, count: 14) => Ok("1/0/1/0")
+    //
     // 14 = 0b1110
     // 10 = 0b1010
     //               [root]
