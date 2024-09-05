@@ -25,7 +25,6 @@ impl ConclusionEvent {
     }
 }
 
-//TODO : Add Stream Type here
 // Dimension is a tuple of (name, value) : way to identify a stream
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConclusionInit {

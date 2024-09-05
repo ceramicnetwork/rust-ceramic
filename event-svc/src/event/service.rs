@@ -380,11 +380,7 @@ impl EventService {
         let (_, data) =
             CeramicOneEvent::new_events_since_value_with_data(&self.pool, highwater_mark, limit)
                 .await?;
-        let events = data
-            .into_iter()
-            .map(|(cid, event, delivered)| (cid, event, delivered))
-            .collect();
-        Ok(events)
+        Ok(data)
     }
 
     async fn notify_ordering_task(
