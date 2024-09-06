@@ -1535,6 +1535,47 @@ dependencies = [
 ]
 
 [[package]]
+name = "ceramic-event-svc"
+version = "0.34.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bytes 1.7.1",
+ "ceramic-api",
+ "ceramic-car",
+ "ceramic-core",
+ "ceramic-event",
+ "ceramic-metrics",
+ "ceramic-sql",
+ "cid 0.11.1",
+ "criterion2",
+ "expect-test",
+ "futures",
+ "hex",
+ "ipld-core",
+ "iroh-bitswap",
+ "itertools 0.12.1",
+ "multibase 0.9.1",
+ "multihash 0.19.1",
+ "multihash-codetable",
+ "multihash-derive 0.9.0",
+ "paste",
+ "prometheus-client",
+ "rand 0.8.5",
+ "recon",
+ "serde",
+ "serde_ipld_dagcbor",
+ "sqlx",
+ "test-log",
+ "thiserror",
+ "tmpdir",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid 1.10.0",
+]
+
+[[package]]
 name = "ceramic-flight"
 version = "0.34.0"
 dependencies = [
@@ -1548,6 +1589,38 @@ dependencies = [
  "serde",
  "test-log",
  "tokio",
+]
+
+[[package]]
+name = "ceramic-interest-svc"
+version = "0.34.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "ceramic-api",
+ "ceramic-core",
+ "ceramic-event",
+ "ceramic-metrics",
+ "ceramic-sql",
+ "criterion2",
+ "expect-test",
+ "futures",
+ "ipld-core",
+ "multibase 0.9.1",
+ "paste",
+ "prometheus-client",
+ "rand 0.8.5",
+ "recon",
+ "serde",
+ "serde_ipld_dagcbor",
+ "sqlx",
+ "test-log",
+ "thiserror",
+ "tmpdir",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid 1.10.0",
 ]
 
 [[package]]
@@ -1678,12 +1751,13 @@ dependencies = [
  "ceramic-api-server",
  "ceramic-core",
  "ceramic-event",
+ "ceramic-event-svc",
+ "ceramic-interest-svc",
  "ceramic-kubo-rpc",
  "ceramic-kubo-rpc-server",
  "ceramic-metrics",
  "ceramic-p2p",
- "ceramic-service",
- "ceramic-store",
+ "ceramic-sql",
  "cid 0.11.1",
  "clap 4.5.16",
  "expect-test",
@@ -1725,9 +1799,8 @@ dependencies = [
  "async-trait",
  "backoff",
  "ceramic-core",
+ "ceramic-event-svc",
  "ceramic-metrics",
- "ceramic-service",
- "ceramic-store",
  "cid 0.11.1",
  "criterion2",
  "futures",
@@ -1756,74 +1829,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "ceramic-service"
+name = "ceramic-sql"
 version = "0.34.0"
 dependencies = [
  "anyhow",
- "async-trait",
- "bytes 1.7.1",
- "ceramic-api",
- "ceramic-car",
- "ceramic-core",
- "ceramic-event",
- "ceramic-store",
- "cid 0.11.1",
- "expect-test",
- "futures",
- "hex",
- "ipld-core",
- "iroh-bitswap",
- "multibase 0.9.1",
- "multihash-codetable",
- "multihash-derive 0.9.0",
- "paste",
- "rand 0.8.5",
- "recon",
- "serde",
- "serde_ipld_dagcbor",
- "test-log",
- "thiserror",
- "tmpdir",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid 1.10.0",
-]
-
-[[package]]
-name = "ceramic-store"
-version = "0.34.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "ceramic-api",
- "ceramic-car",
- "ceramic-core",
- "ceramic-event",
- "ceramic-metrics",
- "cid 0.11.1",
- "criterion2",
- "expect-test",
- "futures",
- "hex",
- "ipld-core",
- "iroh-bitswap",
- "itertools 0.12.1",
- "multibase 0.9.1",
- "multihash 0.19.1",
- "multihash-codetable",
- "paste",
- "prometheus-client",
- "rand 0.8.5",
- "recon",
- "serde_ipld_dagcbor",
  "sqlx",
- "test-log",
  "thiserror",
- "tmpdir",
- "tokio",
- "tracing-subscriber",
- "uuid 1.10.0",
 ]
 
 [[package]]

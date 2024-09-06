@@ -1,0 +1,12 @@
+[package]
+name = "ceramic-sql"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true

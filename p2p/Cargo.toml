@@ -16,14 +16,14 @@ async-trait.workspace = true
 backoff.workspace = true
 ceramic-core.workspace = true
 ceramic-metrics.workspace = true
-ceramic-service.workspace = true
-ceramic-store.workspace = true
 cid.workspace = true
 futures-util.workspace = true
 futures.workspace = true
 # temporary to address lack of error for invalid resolv.conf (missing nameservers)
 # and libp2p not exposing enough types to actually build a dns resolver
-hickory-resolver = { version = "0.24.1", default-features = false, features = ["system-config"] }
+hickory-resolver = { version = "0.24.1", default-features = false, features = [
+    "system-config",
+] }
 iroh-bitswap.workspace = true
 iroh-rpc-client.workspace = true
 iroh-rpc-types.workspace = true
@@ -69,10 +69,10 @@ features = [
 ]
 
 [dev-dependencies]
+ceramic-event-svc.workspace = true
 criterion2.workspace = true
 rand_chacha.workspace = true
 test-log.workspace = true
-ceramic-store.workspace = true
 
 [[bench]]
 name = "lru_cache"

@@ -4,7 +4,7 @@ use std::{ops::Range, str::FromStr, sync::Arc};
 
 use crate::server::{decode_multibase_data, BuildResponse, Server};
 use crate::{
-    ApiItem, EventDataResult, EventInsertResult, EventStore, IncludeEventData, InterestStore,
+    ApiItem, EventDataResult, EventInsertResult, EventService, IncludeEventData, InterestService,
 };
 
 use anyhow::Result;
@@ -95,7 +95,7 @@ pub fn decode_multibase_str(encoded: &str) -> Vec<u8> {
 mock! {
     pub AccessInterestStoreTest {}
     #[async_trait]
-    impl InterestStore for AccessInterestStoreTest {
+    impl InterestService for AccessInterestStoreTest {
         async fn insert(&self, key: Interest) -> Result<bool>;
         async fn range(
             &self,
@@ -110,7 +110,7 @@ mock! {
 mock! {
     pub EventStoreTest {}
     #[async_trait]
-    impl EventStore for EventStoreTest {
+    impl EventService for EventStoreTest {
         async fn insert_many(&self, items: Vec<ApiItem>) -> Result<Vec<EventInsertResult>>;
         async fn range_with_values(
             &self,

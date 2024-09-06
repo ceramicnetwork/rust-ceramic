@@ -1,0 +1,38 @@
+[package]
+name = "ceramic-interest-svc"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+ceramic-api.workspace = true
+ceramic-core.workspace = true
+ceramic-metrics.workspace = true
+ceramic-sql.workspace = true
+futures.workspace = true
+prometheus-client.workspace = true
+recon.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+ceramic-event.workspace = true
+criterion2 = { workspace = true, features = ["async", "async_tokio"] }
+expect-test.workspace = true
+ipld-core.workspace = true
+multibase.workspace = true
+paste = "1.0"
+rand.workspace = true
+serde.workspace = true
+serde_ipld_dagcbor.workspace = true
+test-log.workspace = true
+tmpdir.workspace = true
+tokio.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true

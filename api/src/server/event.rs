@@ -8,13 +8,13 @@ use ipld_core::ipld::Ipld;
 use tokio::io::{AsyncRead, AsyncReadExt as _};
 use tracing::debug;
 
-use crate::EventStore;
+use crate::EventService;
 
 // Helper function to construct an event ID from CAR data of an event coming in via the HTTP api.
 pub async fn event_id_from_car<R, S>(network: Network, mut reader: R, store: &S) -> Result<EventId>
 where
     R: AsyncRead + Send + Unpin,
-    S: EventStore,
+    S: EventService,
 {
     let mut car_bytes = Vec::new();
     reader.read_to_end(&mut car_bytes).await?;
@@ -29,7 +29,7 @@ async fn event_id_for_event<S>(
     store: &S,
 ) -> Result<EventId>
 where
-    S: EventStore,
+    S: EventService,
 {
     match event {
         unvalidated::Event::Time(time_event) => {
@@ -83,7 +83,7 @@ fn event_id_from_init_payload(
 
 async fn get_init_event_payload_from_store(
     init_cid: &Cid,
-    store: &impl EventStore,
+    store: &impl EventService,
 ) -> Result<unvalidated::init::Payload<Ipld>> {
     let init_bytes = store
         .get_block(init_cid)
