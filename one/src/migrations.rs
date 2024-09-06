@@ -1,10 +1,10 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use async_stream::try_stream;
 use async_trait::async_trait;
 use ceramic_event::unvalidated;
-use ceramic_event_svc::BlockStore;
+use ceramic_event_svc::{BlockStore, EventService};
 use ceramic_metrics::config::Config as MetricsConfig;
 use cid::Cid;
 use clap::{Args, Subcommand};
@@ -92,12 +92,13 @@ pub async fn migrate(cmd: EventsCommand) -> Result<()> {
 async fn from_ipfs(opts: FromIpfsOpts) -> Result<()> {
     let network = opts.network.to_network(&opts.local_network_id)?;
     let db_opts: DBOpts = (&opts).into();
+    let sqlite_pool = db_opts.get_sqlite_pool().await?;
     // TODO: feature flags here? or just remove this entirely when enabling
-    let crate::Databases::Sqlite(db) = db_opts.get_database(false, false).await?;
+    let event_svc = Arc::new(EventService::try_new(sqlite_pool, false, false).await?);
     let blocks = FSBlockStore {
         input_ipfs_path: opts.input_ipfs_path,
     };
-    db.event_svc
+    event_svc
         .migrate_from_ipfs(network, blocks, opts.log_tile_docs)
         .await?;
     Ok(())
