@@ -67,17 +67,28 @@ pub enum DeliverableRequirement {
 }
 
 impl EventService {
-    /// Create a new CeramicEventStore
-    pub async fn try_new(pool: SqlitePool, _validate_events: bool) -> Result<Self> {
+    /// Create a new CeramicEventStore.
+    ///
+    /// When process_undelivered_events is true this blocks until all undelivered events have been
+    /// processed.
+    pub async fn try_new(
+        pool: SqlitePool,
+        process_undelivered_events: bool,
+        _validate_events: bool,
+    ) -> Result<Self> {
         CeramicOneEvent::init_delivered_order(&pool).await?;
 
         let delivery_task = OrderingTask::run(pool.clone(), PENDING_EVENTS_CHANNEL_DEPTH).await;
 
-        Ok(Self {
+        let svc = Self {
             pool,
             _validate_events,
             delivery_task,
-        })
+        };
+        if process_undelivered_events {
+            svc.process_all_undelivered_events().await?;
+        }
+        Ok(svc)
     }
 
     /// Create a new CeramicEventStore with event validation enabled
@@ -85,11 +96,11 @@ impl EventService {
     /// in the next pass.. but it's basically same same but different.
     #[allow(dead_code)]
     pub(crate) async fn new_with_event_validation(pool: SqlitePool) -> Result<Self> {
-        Self::try_new(pool, true).await
+        Self::try_new(pool, false, true).await
     }
 
     /// Returns the number of undelivered events that were updated
-    pub async fn process_all_undelivered_events(&self) -> Result<usize> {
+    async fn process_all_undelivered_events(&self) -> Result<usize> {
         OrderingTask::process_all_undelivered_events(
             &self.pool,
             MAX_ITERATIONS,

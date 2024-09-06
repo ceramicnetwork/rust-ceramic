@@ -17,8 +17,7 @@ macro_rules! test_with_sqlite {
             async fn [<$test_name _sqlite>]() {
 
                 let conn = $crate::store::SqlitePool::connect_in_memory().await.unwrap();
-                let store = $crate::EventService::new_with_event_validation(conn).await.unwrap();
-                store.process_all_undelivered_events().await.unwrap();
+                let store = $crate::EventService::try_new(conn, true, true).await.unwrap();
                 $(
                     for stmt in $sql_stmts {
                         store.pool.run_statement(stmt).await.unwrap();
