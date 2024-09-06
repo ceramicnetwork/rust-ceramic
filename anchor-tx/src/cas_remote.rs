@@ -254,6 +254,7 @@ mod tests {
     fn node_private_key() -> Ed25519KeyPair {
         ed25519_key_pair_from_secret(
             std::env::var("NODE_PRIVATE_KEY")
+                // The following secret is NOT authenticated with CAS, it is only used for testing.
                 .unwrap_or(
                     "f80264c02abf947a7bd4f24fc799168a21cdea5b9d3a8ce8f63801785a4dff7299af4"
                         .to_string(),
@@ -284,7 +285,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore]
-    async fn test_create_anchor_request_on_cas() {
+    async fn test_create_anchor_request_with_cas() {
         let mock_root_cid =
             Cid::from_str("bafyreia776z4jdg5zgycivcpr3q6lcu6llfowkrljkmq3bex2k5hkzat54").unwrap();
 
