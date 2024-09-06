@@ -51,6 +51,10 @@ pub struct FromIpfsOpts {
     #[arg(long, env = "CERAMIC_ONE_LOCAL_NETWORK_ID")]
     local_network_id: Option<u32>,
 
+    /// Log information about tile documents found during the migration.
+    #[arg(long, env = "CERAMIC_ONE_LOG_TILE_DOCS", default_value_t = false)]
+    log_tile_docs: bool,
+
     #[command(flatten)]
     log_opts: LogOpts,
 }
@@ -93,7 +97,9 @@ async fn from_ipfs(opts: FromIpfsOpts) -> Result<()> {
     let blocks = FSBlockStore {
         input_ipfs_path: opts.input_ipfs_path,
     };
-    db.event_store.migrate_from_ipfs(network, blocks).await?;
+    db.event_store
+        .migrate_from_ipfs(network, blocks, opts.log_tile_docs)
+        .await?;
     Ok(())
 }
 
