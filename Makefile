@@ -25,7 +25,7 @@ MANUAL_DEPLOY ?= false
 TEST_SELECTOR ?= .
 
 .PHONY: all
-all: build check-fmt check-clippy check-deps test
+all: check-deps check-fmt check-clippy build test
 
 .PHONY: build
 build:
