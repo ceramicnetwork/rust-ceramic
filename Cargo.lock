@@ -1417,7 +1417,6 @@ dependencies = [
  "ceramic-event",
  "chrono",
  "expect-test",
- "futures",
  "hex",
  "multihash-codetable",
  "reqwest",
