@@ -332,9 +332,13 @@ impl TimeEvent {
 /// Raw Time Event as it is encoded in the protocol.
 #[derive(Serialize, Deserialize)]
 pub struct RawTimeEvent {
+    /// The CID of the init event of the stream
     id: Cid,
+    /// The CID of the Data event that is being anchored in the chain
     prev: Cid,
+    /// The CID of the proof block that tells us how to query the chain
     proof: Cid,
+    /// path from the root in the proof block to the prev in the merkle tree
     path: String,
 }
 

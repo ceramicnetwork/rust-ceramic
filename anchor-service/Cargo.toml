@@ -1,0 +1,23 @@
+[package]
+name = "ceramic-anchor-service"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+ceramic-core.workspace = true
+ceramic-event.workspace = true
+cid.workspace = true
+expect-test.workspace = true
+indexmap.workspace = true
+serde.workspace = true
+serde_ipld_dagjson.workspace = true
+tokio.workspace = true
+
+[features]
+test-network = []

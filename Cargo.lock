@@ -1405,6 +1405,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "ceramic-anchor-service"
+version = "0.34.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "ceramic-core",
+ "ceramic-event",
+ "cid 0.11.1",
+ "expect-test",
+ "indexmap 2.4.0",
+ "serde",
+ "serde_ipld_dagjson",
+ "tokio",
+]
+
+[[package]]
 name = "ceramic-api"
 version = "0.34.0"
 dependencies = [
@@ -1554,7 +1570,7 @@ dependencies = [
  "hex",
  "ipld-core",
  "iroh-bitswap",
- "itertools 0.12.1",
+ "itertools 0.13.0",
  "multibase 0.9.1",
  "multihash 0.19.1",
  "multihash-codetable",
