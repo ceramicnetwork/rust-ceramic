@@ -1,7 +1,7 @@
 use std::{ops::Range, time::Duration};
 
 use async_trait::async_trait;
-use ceramic_core::{Cid, EventId, Interest};
+use ceramic_core::Interest;
 use ceramic_metrics::{register, Recorder};
 use futures::Future;
 use prometheus_client::{
@@ -148,93 +148,6 @@ where
             &self.metrics,
             "api_interest_range",
             self.store.range(start, end, offset, limit),
-        )
-        .await
-    }
-}
-
-#[async_trait]
-impl<S> ceramic_api::EventService for StoreMetricsMiddleware<S>
-where
-    S: ceramic_api::EventService,
-{
-    async fn insert_many(
-        &self,
-        items: Vec<ceramic_api::ApiItem>,
-    ) -> anyhow::Result<Vec<ceramic_api::EventInsertResult>> {
-        let new_keys = StoreMetricsMiddleware::<S>::record(
-            &self.metrics,
-            "api_insert_many",
-            self.store.insert_many(items),
-        )
-        .await?;
-
-        let key_cnt = new_keys.iter().filter(|k| k.success()).count();
-
-        self.metrics.record(&InsertEvent {
-            cnt: key_cnt as u64,
-        });
-        Ok(new_keys)
-    }
-    async fn range_with_values(
-        &self,
-        range: Range<EventId>,
-        offset: usize,
-        limit: usize,
-    ) -> anyhow::Result<Vec<(Cid, Vec<u8>)>> {
-        StoreMetricsMiddleware::<S>::record(
-            &self.metrics,
-            "api_range_with_values",
-            self.store.range_with_values(range, offset, limit),
-        )
-        .await
-    }
-
-    async fn value_for_order_key(&self, key: &EventId) -> anyhow::Result<Option<Vec<u8>>> {
-        StoreMetricsMiddleware::<S>::record(
-            &self.metrics,
-            "api_value_for_order_key",
-            self.store.value_for_order_key(key),
-        )
-        .await
-    }
-
-    async fn value_for_cid(&self, key: &Cid) -> anyhow::Result<Option<Vec<u8>>> {
-        StoreMetricsMiddleware::<S>::record(
-            &self.metrics,
-            "api_value_for_cid",
-            self.store.value_for_cid(key),
-        )
-        .await
-    }
-
-    async fn events_since_highwater_mark(
-        &self,
-        highwater: i64,
-        limit: i64,
-        include_data: ceramic_api::IncludeEventData,
-    ) -> anyhow::Result<(i64, Vec<ceramic_api::EventDataResult>)> {
-        StoreMetricsMiddleware::<S>::record(
-            &self.metrics,
-            "api_events_since_highwater_mark",
-            self.store
-                .events_since_highwater_mark(highwater, limit, include_data),
-        )
-        .await
-    }
-    async fn highwater_mark(&self) -> anyhow::Result<i64> {
-        StoreMetricsMiddleware::<S>::record(
-            &self.metrics,
-            "api_highwater_mark",
-            self.store.highwater_mark(),
-        )
-        .await
-    }
-    async fn get_block(&self, cid: &Cid) -> anyhow::Result<Option<Vec<u8>>> {
-        StoreMetricsMiddleware::<S>::record(
-            &self.metrics,
-            "model_get_block",
-            self.store.get_block(cid),
         )
         .await
     }

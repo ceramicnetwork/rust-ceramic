@@ -1,7 +1,7 @@
 use std::{ops::Range, time::Duration};
 
 use async_trait::async_trait;
-use ceramic_core::{Cid, EventId, Interest};
+use ceramic_core::{Cid, EventId};
 use ceramic_metrics::{register, Recorder};
 use futures::Future;
 use prometheus_client::{
@@ -113,43 +113,6 @@ impl<S: Send + Sync> StoreMetricsMiddleware<S> {
         let event = StorageQuery { name, duration };
         metrics.record(&event);
         ret
-    }
-
-    fn record_key_insert(&self, new_key: bool) {
-        if new_key {
-            self.metrics.record(&InsertEvent { cnt: 1 });
-        }
-    }
-}
-
-#[async_trait]
-impl<S> ceramic_api::InterestService for StoreMetricsMiddleware<S>
-where
-    S: ceramic_api::InterestService,
-{
-    async fn insert(&self, key: Interest) -> anyhow::Result<bool> {
-        let new = StoreMetricsMiddleware::<S>::record(
-            &self.metrics,
-            "api_interest_insert",
-            self.store.insert(key),
-        )
-        .await?;
-        self.record_key_insert(new);
-        Ok(new)
-    }
-    async fn range(
-        &self,
-        start: &Interest,
-        end: &Interest,
-        offset: usize,
-        limit: usize,
-    ) -> anyhow::Result<Vec<Interest>> {
-        StoreMetricsMiddleware::<S>::record(
-            &self.metrics,
-            "api_interest_range",
-            self.store.range(start, end, offset, limit),
-        )
-        .await
     }
 }
 
