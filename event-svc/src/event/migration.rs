@@ -369,7 +369,7 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
 type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Error, Debug)]
-enum Error {
+pub enum Error {
     #[error("missing linked block from event {0}")]
     MissingBlock(Cid),
     #[error("block is an init tile document: {0}")]
