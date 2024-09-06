@@ -1405,6 +1405,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "ceramic-anchor-remote"
+version = "0.34.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.21.7",
+ "ceramic-anchor-service",
+ "ceramic-car",
+ "ceramic-core",
+ "ceramic-event",
+ "chrono",
+ "expect-test",
+ "hex",
+ "multihash-codetable",
+ "reqwest",
+ "ring 0.17.8",
+ "serde",
+ "serde_ipld_dagcbor",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid 1.10.0",
+]
+
+[[package]]
 name = "ceramic-anchor-service"
 version = "0.34.0"
 dependencies = [
@@ -1415,6 +1440,7 @@ dependencies = [
  "cid 0.11.1",
  "expect-test",
  "indexmap 2.4.0",
+ "multihash-codetable",
  "serde",
  "serde_ipld_dagjson",
  "tokio",
@@ -1511,11 +1537,13 @@ dependencies = [
  "multihash-derive 0.9.0",
  "once_cell",
  "regex",
+ "ring 0.17.8",
  "serde",
  "serde_bytes",
  "serde_ipld_dagcbor",
  "serde_ipld_dagjson",
  "serde_json",
+ "ssh-key",
  "ssi",
  "test-log",
  "tokio",

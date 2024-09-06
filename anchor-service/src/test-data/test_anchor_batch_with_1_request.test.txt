@@ -1,0 +1,17 @@
+TimeEventBatch {
+    merkle_nodes: {},
+    proof: Proof {
+        chain_id: "mock chain id",
+        root: "Cid(baeabeifpkvyplimbbn5ppdfpjpdquzqpbx2r4qv27eou3znsgkg6b2b57q)",
+        tx_hash: "Cid(baeabeifpkvyplimbbn5ppdfpjpdquzqpbx2r4qv27eou3znsgkg6b2b57q)",
+        tx_type: "mock tx type",
+    },
+    time_events: [
+        RawTimeEvent {
+            id: "Cid(baeabeifpkvyplimbbn5ppdfpjpdquzqpbx2r4qv27eou3znsgkg6b2b57q)",
+            prev: "Cid(baeabeifpkvyplimbbn5ppdfpjpdquzqpbx2r4qv27eou3znsgkg6b2b57q)",
+            proof: "Cid(bafyreic73ihcidvfhqdqeys677ml2hco3y6k4kaycrgeobcnhzg63a65cu)",
+            path: "",
+        },
+    ],
+}

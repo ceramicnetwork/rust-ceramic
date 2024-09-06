@@ -27,6 +27,9 @@ TEST_SELECTOR ?= .
 .PHONY: all
 all: check-deps check-fmt check-clippy build test
 
+.PHONY: check
+check: check-deps check-fmt
+
 .PHONY: build
 build:
 	# Build with default features
