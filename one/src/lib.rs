@@ -170,15 +170,6 @@ struct DaemonOpts {
         )]
     cors_allow_origins: Vec<String>,
 
-    /// Enable experimental feature flags
-    #[arg(
-        long,
-        use_value_delimiter = true,
-        value_delimiter = ',',
-        env = "CERAMIC_ONE_EXPERIMENTAL_FEATURE_FLAGS"
-    )]
-    experimental_feature_flags: Vec<ExperimentalFeatureFlags>,
-
     /// Enable feature flags
     #[arg(
         long,
@@ -394,8 +385,8 @@ impl Daemon {
             .db_opts
             .get_database(
                 true,
-                opts.experimental_feature_flags
-                    .contains(&ExperimentalFeatureFlags::EventValidation),
+                opts.feature_flags
+                    .contains(&FeatureFlags::EventValidation(true)),
             )
             .await?;
 
@@ -585,8 +576,8 @@ impl Daemon {
             Arc::new(model_api_store),
         );
         if opts
-            .experimental_feature_flags
-            .contains(&ExperimentalFeatureFlags::Authentication)
+            .feature_flags
+            .contains(&FeatureFlags::Authentication(true))
         {
             ceramic_server.with_authentication(true);
         }
