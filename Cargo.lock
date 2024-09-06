@@ -1405,23 +1405,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "ceramic-anchor-service"
-version = "0.34.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "ceramic-core",
- "ceramic-event",
- "cid 0.11.1",
- "expect-test",
- "indexmap 2.4.0",
- "serde",
- "serde_ipld_dagjson",
- "tokio",
-]
-
-[[package]]
-name = "ceramic-anchor-tx"
+name = "ceramic-anchor-remote"
 version = "0.34.0"
 dependencies = [
  "anyhow",
@@ -1444,6 +1428,23 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid 1.10.0",
+]
+
+[[package]]
+name = "ceramic-anchor-service"
+version = "0.34.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "ceramic-core",
+ "ceramic-event",
+ "cid 0.11.1",
+ "expect-test",
+ "indexmap 2.4.0",
+ "multihash-codetable",
+ "serde",
+ "serde_ipld_dagjson",
+ "tokio",
 ]
 
 [[package]]

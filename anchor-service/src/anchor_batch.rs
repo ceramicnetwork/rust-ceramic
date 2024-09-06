@@ -8,7 +8,7 @@ use crate::{
     anchor::{AnchorRequest, TimeEventBatch},
     merkle_tree::{build_merkle_tree, MerkleTree},
     time_event::build_time_events,
-    transaction_manager::{Receipt, TransactionManager},
+    transaction_manager::{RootTimeEvent, TransactionManager},
 };
 
 /// ceramic_anchor_service::Store is responsible for fetching AnchorRequests and storing TimeEvents.
@@ -54,11 +54,11 @@ impl AnchorService {
             nodes,
             count,
         } = build_merkle_tree(anchor_requests)?;
-        let Receipt {
+        let RootTimeEvent {
             proof,
             detached_time_event,
             mut remote_merkle_nodes,
-        } = self.tx_manager.make_proof(root_cid).await?;
+        } = self.tx_manager.anchor_root(root_cid).await?;
         let time_events = build_time_events(anchor_requests, &detached_time_event, count)?;
         remote_merkle_nodes.extend(nodes);
         Ok(TimeEventBatch {

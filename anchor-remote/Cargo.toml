@@ -1,5 +1,5 @@
 [package]
-name = "ceramic-anchor-tx"
+name = "ceramic-anchor-remote"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

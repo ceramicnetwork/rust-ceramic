@@ -15,6 +15,7 @@ ceramic-event.workspace = true
 cid.workspace = true
 expect-test.workspace = true
 indexmap.workspace = true
+multihash-codetable.workspace = true
 serde.workspace = true
 serde_ipld_dagjson.workspace = true
 tokio.workspace = true

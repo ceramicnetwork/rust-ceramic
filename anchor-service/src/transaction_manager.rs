@@ -7,10 +7,10 @@ use ceramic_event::unvalidated::Proof;
 
 use crate::anchor::MerkleNodes;
 
-/// A receipt containing a blockchain proof CID, the path prefix to the CID in the anchored Merkle tree and the
+/// A struct containing a blockchain proof CID, the path prefix to the CID in the anchored Merkle tree and the
 /// corresponding Merkle tree nodes.
-pub struct Receipt {
-    /// the proof for block from the remote anchoring service
+pub struct RootTimeEvent {
+    /// the proof data from the remote anchoring service
     pub proof: Proof,
     /// the path through the remote Merkle tree
     pub detached_time_event: DetachedTimeEvent,
@@ -18,7 +18,7 @@ pub struct Receipt {
     pub remote_merkle_nodes: MerkleNodes,
 }
 
-impl std::fmt::Debug for Receipt {
+impl std::fmt::Debug for RootTimeEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut merkle_tree_nodes: Vec<_> = self
             .remote_merkle_nodes
@@ -54,9 +54,9 @@ impl std::fmt::Debug for DetachedTimeEvent {
     }
 }
 
-/// Interface for the transaction manager that accepts a root CID and returns a proof.
+/// Interface for the transaction manager that anchors a root CID and returns a corresponding detached time event.
 #[async_trait]
 pub trait TransactionManager: Send + Sync {
-    /// Accepts a root CID and returns a proof.
-    async fn make_proof(&self, root: Cid) -> Result<Receipt>;
+    /// Anchors a root CID and returns a corresponding detached time event.
+    async fn anchor_root(&self, root: Cid) -> Result<RootTimeEvent>;
 }

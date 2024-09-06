@@ -389,13 +389,13 @@ impl RawTimeEvent {
 #[serde(rename_all = "camelCase")]
 pub struct Proof {
     /// eip-155 CHAIN_ID see https://chainid.network https://github.com/ethereum/EIPs/blob/master/EIPS/eip-155.md
-    pub chain_id: String,
+    chain_id: String,
     /// the root node of the merkle tree
-    pub root: Cid,
+    root: Cid,
     /// the transaction hash for looking up the transaction in the chain
-    pub tx_hash: Cid,
+    tx_hash: Cid,
     /// the type of the transaction so we know how to extract the root from the transaction
-    pub tx_type: String,
+    tx_type: String,
 }
 
 impl Debug for Proof {

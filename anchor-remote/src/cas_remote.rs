@@ -6,16 +6,15 @@ use base64::{
     engine::general_purpose::{STANDARD_NO_PAD as b64_standard, URL_SAFE_NO_PAD as b64},
     Engine as _,
 };
-use futures::TryStreamExt;
 use multihash_codetable::{Code, MultihashDigest};
 use ring::signature::Ed25519KeyPair;
 use serde::{Deserialize, Serialize};
 use tokio::time::interval;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use ceramic_anchor_service::{
-    DetachedTimeEvent, MerkleNode, MerkleNodes, Receipt, TransactionManager,
+    DetachedTimeEvent, MerkleNode, MerkleNodes, RootTimeEvent, TransactionManager,
 };
 use ceramic_car::CarReader;
 use ceramic_core::{
@@ -57,8 +56,10 @@ struct Claims {
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-struct AnchorResponse {
+struct CasAnchorResponse {
     pub message: String,
+    pub status: Option<String>,
+    /// This field contains the Base64 Standard encoding of the witness CAR file
     pub witness_car: Option<String>,
 }
 
@@ -82,13 +83,14 @@ pub struct RemoteCas {
 }
 
 enum CasResponseParseResult {
-    Anchored(Box<Receipt>),
+    Anchored(Box<RootTimeEvent>),
+    Pending,
     Unauthorized,
 }
 
 #[async_trait]
 impl TransactionManager for RemoteCas {
-    async fn make_proof(&self, root: Cid) -> Result<Receipt> {
+    async fn anchor_root(&self, root: Cid) -> Result<RootTimeEvent> {
         let mut interval = interval(self.poll_interval);
         for _ in 0..self.poll_retry_count {
             let anchor_response = self.create_anchor_request(root).await?;
@@ -99,8 +101,11 @@ impl TransactionManager for RemoteCas {
                 Ok(CasResponseParseResult::Unauthorized) => {
                     return Err(anyhow!("remote CAS request unauthorized"));
                 }
+                Ok(CasResponseParseResult::Pending) => {
+                    debug!("anchor request still pending for {}", root);
+                }
                 Err(e) => {
-                    debug!("swallowing anchoring result: {}", e);
+                    info!("swallowing anchoring result: {}", e);
                 }
             }
             interval.tick().await;
@@ -120,6 +125,7 @@ impl RemoteCas {
         keypair: Ed25519KeyPair,
         remote_anchor_service_url: String,
         anchor_poll_interval: Duration,
+        anchor_poll_retry_count: u32,
     ) -> Self {
         let controller = did_key_from_ed25519_key_pair(&keypair);
         let jws_header = Header {
@@ -138,9 +144,9 @@ impl RemoteCas {
         let node_stream_id = cid_to_stream_id(cid_from_ed25519_key_pair(&keypair));
         Self {
             signing_key: keypair,
-            url: format!("{}/api/v0/anchor", remote_anchor_service_url),
+            url: format!("{}/api/v0/requests", remote_anchor_service_url),
             poll_interval: anchor_poll_interval,
-            poll_retry_count: 12,
+            poll_retry_count: anchor_poll_retry_count,
             jws_header_b64,
             http_client: reqwest::Client::new(),
             node_stream_id,
@@ -186,29 +192,26 @@ impl RemoteCas {
 
 async fn parse_anchor_response(anchor_response: String) -> Result<CasResponseParseResult> {
     // Return if we were unable to parse the anchor response
-    let anchor_response = serde_json::from_str::<AnchorResponse>(anchor_response.as_str())?;
+    let anchor_response = serde_json::from_str::<CasAnchorResponse>(anchor_response.as_str())?;
 
     // If the response does not contain a witness CAR file, the anchor request is either still pending or it failed
     // because the request was unauthorized.
     let Some(witness_car_b64) = anchor_response.witness_car else {
-        return match anchor_response.message.as_str() {
-            "Unauthorized" => Ok(CasResponseParseResult::Unauthorized),
-            message => {
-                return Err(anyhow!("message from remote CAS: {}", message));
+        return if let Some("PENDING") = anchor_response.status.as_deref() {
+            Ok(CasResponseParseResult::Pending)
+        } else {
+            match anchor_response.message.as_str() {
+                "Unauthorized" => Ok(CasResponseParseResult::Unauthorized),
+                message => Err(anyhow!("message from remote CAS: {}", message)),
             }
         };
     };
     let witness_car_bytes = b64_standard.decode(witness_car_b64)?;
-    let car_reader = CarReader::new(witness_car_bytes.as_ref()).await?;
+    let mut car_reader = CarReader::new(witness_car_bytes.as_ref()).await?;
     let mut remote_merkle_nodes = MerkleNodes::default();
     let mut detached_time_event: Option<DetachedTimeEvent> = None;
     let mut proof: Option<Proof> = None;
-    for (cid, block) in car_reader
-        .stream()
-        .into_stream()
-        .try_collect::<Vec<(_, _)>>()
-        .await?
-    {
+    while let Some((cid, block)) = car_reader.next_block().await? {
         if let Ok(block) = serde_ipld_dagcbor::from_slice::<DetachedTimeEvent>(&block) {
             detached_time_event = Some(block);
         } else if let Ok(block) = serde_ipld_dagcbor::from_slice::<Proof>(&block) {
@@ -227,7 +230,7 @@ async fn parse_anchor_response(anchor_response: String) -> Result<CasResponsePar
     if detached_time_event.is_none() || proof.is_none() {
         return Err(anyhow::anyhow!("invalid anchor response"));
     }
-    Ok(CasResponseParseResult::Anchored(Box::new(Receipt {
+    Ok(CasResponseParseResult::Anchored(Box::new(RootTimeEvent {
         proof: proof.expect("proof should be present"),
         detached_time_event: detached_time_event.expect("detached time event should be present"),
         remote_merkle_nodes,
@@ -246,10 +249,8 @@ mod tests {
     use multihash_codetable::{Code, MultihashDigest};
     use ring::signature::Ed25519KeyPair;
 
-    use ceramic_anchor_service::{AnchorService, Store, TransactionManager};
+    use ceramic_anchor_service::{AnchorService, MockAnchorClient, Store, TransactionManager};
     use ceramic_core::{ed25519_key_pair_from_secret, Cid};
-
-    use crate::cas_mock::MockAnchorClient;
 
     fn node_private_key() -> Ed25519KeyPair {
         ed25519_key_pair_from_secret(
@@ -273,6 +274,7 @@ mod tests {
             node_private_key(),
             "https://cas-dev.3boxlabs.com".to_owned(),
             Duration::from_secs(1),
+            1,
         ));
         let anchor_service = AnchorService::new(remote_cas, anchor_client, Duration::from_secs(1));
         let all_blocks = anchor_service
@@ -293,8 +295,9 @@ mod tests {
             node_private_key(),
             "https://cas-dev.3boxlabs.com".to_owned(),
             Duration::from_secs(1),
+            1,
         );
-        let receipt = remote_cas.make_proof(mock_root_cid).await;
+        let receipt = remote_cas.anchor_root(mock_root_cid).await;
         expect_file!["./test-data/create_anchor_request_on_cas.test.txt"].assert_debug_eq(&receipt);
     }
 
@@ -317,6 +320,7 @@ mod tests {
             node_private_key(),
             "https://cas-dev.3boxlabs.com".to_owned(),
             Duration::from_secs(1),
+            1,
         ));
         remote_cas
             .auth_jwt(hex::encode(mock_hash.digest()))

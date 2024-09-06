@@ -4,7 +4,7 @@ members = [
     "api",
     "api-server",
     "anchor-service",
-    "anchor-tx",
+    "anchor-remote",
     "car",
     "core",
     "event",
