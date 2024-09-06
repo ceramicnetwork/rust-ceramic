@@ -1386,8 +1386,7 @@ mod tests {
             let sql_pool = SqlitePool::connect_in_memory().await.unwrap();
 
             let metrics = Metrics::register(&mut prometheus_client::registry::Registry::default());
-            let store = Arc::new(EventService::try_new(sql_pool, true).await?);
-            store.process_all_undelivered_events().await?;
+            let store = Arc::new(EventService::try_new(sql_pool, true, true).await?);
             let mut p2p = Node::new(
                 network_config,
                 rpc_server_addr,
