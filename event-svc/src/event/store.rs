@@ -227,10 +227,10 @@ impl ceramic_api::EventService for EventService {
                     CeramicOneEvent::new_events_since_value_with_data(&self.pool, highwater, limit)
                         .await?;
                 let mut res = Vec::with_capacity(data.len());
-                for (cid, value, _) in data {
+                for row in data {
                     res.push(ceramic_api::EventDataResult::new(
-                        cid,
-                        Some(value.encode_car()?),
+                        row.cid,
+                        Some(row.event.encode_car()?),
                     ));
                 }
                 (hw, res)

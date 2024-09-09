@@ -10,7 +10,7 @@ use ceramic_core::{EventId, Network, SerializeExt};
 use ceramic_event::unvalidated;
 use ceramic_event::unvalidated::Event;
 use ceramic_flight::{ConclusionData, ConclusionEvent, ConclusionInit, ConclusionTime};
-use ceramic_sql::sqlite::SqlitePool;
+use ceramic_store::{CeramicOneEvent, EventInsertable, EventRowDelivered, SqlitePool};
 use cid::Cid;
 use futures::{future::try_join_all, stream::BoxStream};
 use ipld_core::ipld::Ipld;
@@ -361,10 +361,9 @@ impl EventService {
             .fetch_events_since_highwater_mark(highwater_mark, limit)
             .await?;
 
-        let conclusion_events_futures =
-            raw_events.into_iter().map(|(event_cid, event, delivered)| {
-                self.transform_raw_events_to_conclusion_events(event_cid, event, delivered)
-            });
+        let conclusion_events_futures = raw_events.into_iter().map(|row| {
+            self.transform_raw_events_to_conclusion_events(row.cid, row.event, row.delivered)
+        });
 
         try_join_all(conclusion_events_futures)
             .await
@@ -376,7 +375,7 @@ impl EventService {
         &self,
         highwater_mark: i64,
         limit: i64,
-    ) -> Result<Vec<(Cid, unvalidated::Event<Ipld>, i64)>> {
+    ) -> Result<Vec<EventRowDelivered>> {
         let (_, data) =
             CeramicOneEvent::new_events_since_value_with_data(&self.pool, highwater_mark, limit)
                 .await?;

@@ -66,6 +66,16 @@ impl InsertResult {
     }
 }
 
+/// A row of event data with delivered field
+pub struct EventRowDelivered {
+    /// The CID of the event
+    pub cid: Cid,
+    /// The event data
+    pub event: unvalidated::Event<Ipld>,
+    /// The delivered value of the event which is an incremental value to used for ordering events
+    pub delivered: i64,
+}
+
 /// Access to the ceramic event table and related logic
 pub struct CeramicOneEvent {}
 
@@ -301,7 +311,7 @@ impl CeramicOneEvent {
     /// - `i64`: The new highwater mark, representing the highest delivered value processed.
     ///   This can be used as input for subsequent calls to get newer events.
     ///
-    /// - `Vec<EventRow : id, unvalidated::Event<Ipld>, i64>`: A vector of EventRow structs, each containing:
+    /// - `Vec<EventRowDelivered> : id, unvalidated::Event<Ipld>, i64>`: A vector of EventRow structs, each containing:
     ///   - `cid`: The root CID of the event as a byte vector
     ///   - `event`: The event data as a byte vector (CAR encoded)
     ///   - `delivered`: The delivered value for this event
@@ -314,7 +324,7 @@ impl CeramicOneEvent {
         pool: &SqlitePool,
         highwater: i64,
         limit: i64,
-    ) -> Result<(i64, Vec<(Cid, unvalidated::Event<Ipld>, i64)>)> {
+    ) -> Result<(i64, Vec<EventRowDelivered>)> {
         #[derive(Debug, Clone)]
         struct DeliveredEventBlockRow {
             block: ReconEventBlockRaw,
@@ -353,14 +363,29 @@ impl CeramicOneEvent {
             .unwrap_or(highwater);
         all_blocks.sort_by(|a, b| a.new_highwater_mark.cmp(&b.new_highwater_mark));
 
-        let blocks = all_blocks.clone().into_iter().map(|b| b.block).collect();
-        let values = ReconEventBlockRaw::into_events(blocks).await?;
-        let result = values
+        let parsed = ReconEventBlockRaw::into_carfiles(
+            all_blocks.iter().map(|row| row.block.clone()).collect(),
+        )
+        .await?;
+        let result: Result<Vec<EventRowDelivered>> = parsed
             .into_iter()
             .zip(all_blocks.iter())
-            .map(|((cid, event), block)| (cid, event, block.delivered))
+            .map(|((_, carfile), block)| {
+                let (cid, event) =
+                    unvalidated::Event::<Ipld>::decode_car(carfile.as_slice(), false)
+                        .map_err(|_| Error::new_fatal(anyhow!("Error parsing event row")))?;
+                Ok(EventRowDelivered {
+                    cid,
+                    event,
+                    delivered: block.delivered,
+                })
+            })
             .collect();
-        Ok((max_highwater, result))
+
+        Ok((
+            max_highwater,
+            result.map_err(|_| Error::new_fatal(anyhow!("Error parsing events")))?,
+        ))
     }
 
     /// Find events that haven't been delivered to the client and may be ready.
