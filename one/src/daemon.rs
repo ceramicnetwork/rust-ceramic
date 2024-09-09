@@ -15,8 +15,8 @@ use swagger::{auth::MakeAllowAllAuthenticator, EmptyContext};
 use tracing::{debug, info, warn};
 
 use crate::{
-    default_directory, feature_flags::*, handle_signals, http, http_metrics, metrics,
-    network::Ipfs, DBOpts, Info, LogOpts, Network,
+    default_directory, handle_signals, http, http_metrics, metrics, network::Ipfs, DBOpts, Info,
+    LogOpts, Network,
 };
 
 #[derive(Args, Debug)]
@@ -139,23 +139,35 @@ pub struct DaemonOpts {
         )]
     cors_allow_origins: Vec<String>,
 
-    /// Enable experimental feature flags
+    /// Allow experimental features
     #[arg(
         long,
-        use_value_delimiter = true,
-        value_delimiter = ',',
-        env = "CERAMIC_ONE_EXPERIMENTAL_FEATURE_FLAGS"
+        default_value_t = false,
+        env = "CERAMIC_ONE_EXPERIMENTAL_FEATURES"
     )]
-    experimental_feature_flags: Vec<ExperimentalFeatureFlags>,
+    experimental_features: bool,
 
-    /// Enable feature flags
+    /// Allow deprecated features
+    #[arg(long, default_value_t = false, env = "CERAMIC_ONE_DEPRECATED_FEATURES")]
+    deprecated_features: bool,
+
+    /// Enable authentication; Requires using the experimental-features flag
     #[arg(
         long,
-        use_value_delimiter = true,
-        value_delimiter = ',',
-        env = "CERAMIC_ONE_FEATURE_FLAGS"
+        default_value_t = false,
+        env = "CERAMIC_ONE_AUTHENTICATION",
+        requires = "experimental_features"
     )]
-    feature_flags: Vec<FeatureFlags>,
+    authentication: bool,
+
+    /// Enable event validation; Requires using the experimental-features flag
+    #[arg(
+        long,
+        default_value_t = false,
+        env = "CERAMIC_ONE_EVENT_VALIDATION",
+        requires = "experimental_features"
+    )]
+    event_validation: bool,
 }
 
 // Start the daemon process
@@ -201,15 +213,8 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
 
     // Construct services from pool
     let interest_svc = Arc::new(InterestService::new(sqlite_pool.clone()));
-    let event_svc = Arc::new(
-        EventService::try_new(
-            sqlite_pool.clone(),
-            true,
-            opts.experimental_feature_flags
-                .contains(&ExperimentalFeatureFlags::EventValidation),
-        )
-        .await?,
-    );
+    let event_svc =
+        Arc::new(EventService::try_new(sqlite_pool.clone(), true, opts.event_validation).await?);
 
     let network = opts.network.to_network(&opts.local_network_id)?;
 
@@ -358,10 +363,7 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
         interest_api_store,
         Arc::new(model_api_store),
     );
-    if opts
-        .experimental_feature_flags
-        .contains(&ExperimentalFeatureFlags::Authentication)
-    {
+    if opts.authentication {
         ceramic_server.with_authentication(true);
     }
     let ceramic_service = ceramic_api_server::server::MakeService::new(ceramic_server);
