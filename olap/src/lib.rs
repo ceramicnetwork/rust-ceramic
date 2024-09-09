@@ -1,3 +1,4 @@
+#![warn(missing_docs)]
 mod aggregator;
 mod metrics;
 
@@ -32,7 +33,7 @@ struct DaemonOpts {
     #[arg(
         short,
         long,
-        default_value = "127.0.0.1:9464",
+        default_value = "127.0.0.1:9465",
         env = "CERAMIC_OLAP_METRICS_BIND_ADDRESS"
     )]
     metrics_bind_address: String,
