@@ -26,7 +26,7 @@ impl Builder {
         }
     }
 
-    /// Create builder for data events
+    /// Create builder for time events
     pub fn time() -> TimeBuilder<TimeBuilderEmpty> {
         TimeBuilder {
             state: TimeBuilderEmpty,

@@ -1,19 +1,18 @@
 use std::str::FromStr;
 
+use crate::event::DeliverableRequirement;
+use crate::EventService;
 use anyhow::Error;
 use bytes::Bytes;
 use ceramic_api::{ApiItem, EventService as ApiEventService};
+use ceramic_flight::ConclusionEvent;
 use ceramic_sql::sqlite::SqlitePool;
 use cid::{Cid, CidGeneric};
 use expect_test::expect;
-use ipld_core::codec::Codec;
 use iroh_bitswap::Store;
+use prettytable::{Cell, Row, Table};
 use recon::Sha256a;
 use recon::{InsertResult, ReconItem};
-use serde_ipld_dagcbor::codec::DagCborCodec;
-
-use crate::event::DeliverableRequirement;
-use crate::EventService;
 
 use super::*;
 
@@ -585,13 +584,7 @@ where
 async fn test_conclusion_events_since() -> Result<(), Box<dyn std::error::Error>> {
     let pool = SqlitePool::connect_in_memory().await?;
     let service = EventService::try_new(pool, false, false).await?;
-
-    // Insert some test events
-    let test_events = vec![
-        create_test_event(1, "event1"),
-        create_test_event(2, "event2"),
-        create_test_event(3, "event3"),
-    ];
+    let test_events = generate_chained_events().await;
 
     for event in &test_events {
         service
@@ -600,50 +593,69 @@ async fn test_conclusion_events_since() -> Result<(), Box<dyn std::error::Error>
     }
 
     // Fetch conclusion events
-    let conclusion_events = service.conclusion_events_since(0, 10).await?;
+    let conclusion_events = service.conclusion_events_since(0, 5).await?;
+    assert_eq!(conclusion_events.len(), 5);
 
-    // Assert that we got the correct number of events
-    assert_eq!(conclusion_events.len(), 3);
+    // Create a table
+    let mut table = Table::new();
+    table.add_row(Row::new(vec![
+        Cell::new("index"),
+        Cell::new("event_type"),
+        Cell::new("stream_cid"),
+        Cell::new("controller"),
+        Cell::new("event_cid"),
+        Cell::new("data"),
+        Cell::new("previous"),
+    ]));
 
-    println!("{:?}", conclusion_events);
+    for (index, event) in conclusion_events.iter().enumerate() {
+        let (event_type, stream_cid, controller, event_cid, data, previous) = match event {
+            ConclusionEvent::Data(data_event) => (
+                "Data",
+                data_event.init.stream_cid.to_string(),
+                data_event.init.controller.clone(),
+                data_event.event_cid.to_string(),
+                hex::encode(&data_event.data),
+                format!("{:?}", data_event.previous),
+            ),
+            ConclusionEvent::Time(time_event) => (
+                "Time",
+                time_event.init.stream_cid.to_string(),
+                time_event.init.controller.clone(),
+                time_event.event_cid.to_string(),
+                String::new(), // Time events don't have data
+                format!("{:?}", time_event.previous),
+            ),
+        };
 
-    // TODO : Assert that the events are in correct order and have the correct data?
+        table.add_row(Row::new(vec![
+            Cell::new(&index.to_string()),
+            Cell::new(event_type),
+            Cell::new(&stream_cid),
+            Cell::new(&controller),
+            Cell::new(&event_cid),
+            Cell::new(&data),
+            Cell::new(&previous),
+        ]));
+    }
+
+    let table_string = table.to_string();
+
+    expect![[r#"
+        +-------+------------+---------------------------------------------------------------+------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
+        | index | event_type | stream_cid                                                    | controller | event_cid                                                     | data                                       | previous                                                             |
+        +-------+------------+---------------------------------------------------------------+------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
+        | 0     | Data       | bagcqcerae7lp4dvyioxrqhavwvvlxp54hqcw6e3gel2knkqqbrmz4ayxnzia | controller | bagcqcerae7lp4dvyioxrqhavwvvlxp54hqcw6e3gel2knkqqbrmz4ayxnzia | 6e756c6c                                   | []                                                                   |
+        +-------+------------+---------------------------------------------------------------+------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
+        | 1     | Data       | bagcqcerae7lp4dvyioxrqhavwvvlxp54hqcw6e3gel2knkqqbrmz4ayxnzia | controller | bagcqcera7usbqvzp3x2rgpocl4ej3uw3esmum25m5vwhccpv7tgho4zehrca | 7b2273747265616d5f31223a22646174615f31227d | [Cid(bagcqcerae7lp4dvyioxrqhavwvvlxp54hqcw6e3gel2knkqqbrmz4ayxnzia)] |
+        +-------+------------+---------------------------------------------------------------+------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
+        | 2     | Data       | bagcqcerae7lp4dvyioxrqhavwvvlxp54hqcw6e3gel2knkqqbrmz4ayxnzia | controller | bagcqceraqkkoncfpknug7uqcxav7fl2zubwxvxct4oss72hiufvpcatvuwtq | 7b2273747265616d5f31223a22646174615f32227d | [Cid(bagcqcera7usbqvzp3x2rgpocl4ej3uw3esmum25m5vwhccpv7tgho4zehrca)] |
+        +-------+------------+---------------------------------------------------------------+------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
+        | 3     | Data       | bagcqcera3iltk26mjivyyg4dc3jny6xtldg4rm3mibywbhabgwa3t2zhoqka | controller | bagcqcera3iltk26mjivyyg4dc3jny6xtldg4rm3mibywbhabgwa3t2zhoqka | 6e756c6c                                   | []                                                                   |
+        +-------+------------+---------------------------------------------------------------+------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
+        | 4     | Data       | bagcqcera3iltk26mjivyyg4dc3jny6xtldg4rm3mibywbhabgwa3t2zhoqka | controller | bagcqceraicaacdulnltggyi2gse7do44me2myloplpe25wzegon2p2mzptca | 7b2273747265616d32223a22646174615f31227d   | [Cid(bagcqcera3iltk26mjivyyg4dc3jny6xtldg4rm3mibywbhabgwa3t2zhoqka)] |
+        +-------+------------+---------------------------------------------------------------+------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
+    "#]].assert_eq(&table_string);
+
     Ok(())
-}
-
-// Helper function to create test events
-fn create_test_event(_index: u64, data: &str) -> ReconItem<EventId> {
-    let sep_key = "model".to_string();
-    let separator = "kh4q0ozorrgaq2mezktnrmdwleo1d".to_string();
-    let controller = "did:key:z6MkgSV3tAuw7gUWqKCUY7ae6uWNxqYgdwPhUJbJhF9EFXm9".to_string();
-    let init =
-        Cid::from_str("bagcqceraplay4erv6l32qrki522uhiz7rf46xccwniw7ypmvs3cvu2b3oulq").unwrap();
-
-    let header = unvalidated::init::Header::new(
-        vec![controller.clone()],
-        sep_key.clone(),
-        vec![],
-        None,
-        None,
-        None,
-    );
-    let payload = unvalidated::init::Payload::new(header, Some(data.to_string()));
-    let cid = Cid::new_v1(
-        <DagCborCodec as Codec<Ipld>>::CODE,
-        Code::Sha2_256.digest(&serde_ipld_dagcbor::to_vec(&payload).unwrap()),
-    );
-
-    let event_id = EventId::new(
-        &Network::Mainnet,
-        &sep_key,
-        &multibase::decode(&separator).unwrap().1,
-        &controller,
-        &init,
-        &cid,
-    );
-
-    let event = unvalidated::Event::from(payload);
-    let car = event.encode_car().unwrap();
-
-    ReconItem::new(event_id, car)
 }

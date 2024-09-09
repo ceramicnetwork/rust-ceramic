@@ -43,6 +43,7 @@ expect-test.workspace = true
 ipld-core.workspace = true
 multibase.workspace = true
 paste = "1.0"
+prettytable-rs = "^0.10"
 rand.workspace = true
 serde.workspace = true
 serde_ipld_dagcbor.workspace = true
