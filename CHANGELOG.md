@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.35.0] - 2024-09-09
+
+### 🚀 Features
+
+- Aes 287 create conclusion event type (#499)
+- Trait for generating cbor bytes and cids (#477)
+- Groundwork for event validation and some clean up (#505)
+- Anchor service (part 2) (#476)
+- Remote anchor transaction manager (part 3) (#478)
+
+### 🐛 Bug Fixes
+
+- Updates detection of tile docs and doesn't log them by default (#514)
+- Start up ordering task bug (#516)
+
+### 🚜 Refactor
+
+- Remove recon client/server and send empty ranges when we don't need anything (#509)
+- Create explicit event and interest services with separate stores. (#513)
+- Simplify daemon logic (#515)
+
+### ⚙️ Miscellaneous Tasks
+
+- Update console-subscriber package version (#507)
+
 ## [0.34.0] - 2024-08-26
 
 ### 🚀 Features
@@ -18,6 +43,7 @@ All notable changes to this project will be documented in this file.
 
 - Add logic to dispatch validation based on event type (#493)
 - Modify cacao, unvalidated module, jwk to add functionality needed for event validation (#492)
+- Version v0.34.0 (#506)
 
 ## [0.33.0] - 2024-08-19
 

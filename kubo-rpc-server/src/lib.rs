@@ -21,7 +21,7 @@ use swagger::{ApiError, ContextWrapper};
 type ServiceError = Box<dyn Error + Send + Sync + 'static>;
 
 pub const BASE_PATH: &str = "/api/v0";
-pub const API_VERSION: &str = "0.34.0";
+pub const API_VERSION: &str = "0.35.0";
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[must_use]
