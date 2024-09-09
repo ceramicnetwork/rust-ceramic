@@ -764,7 +764,6 @@ where
     ///     - before we sign off on a conversation as either the initiator or responder
     ///     - when our in memory list gets too large
     async fn persist_all(&mut self) -> Result<()> {
-        tracing::info!("calling persist all: {}", self.event_q.len());
         if self.event_q.is_empty() {
             return Ok(());
         }
