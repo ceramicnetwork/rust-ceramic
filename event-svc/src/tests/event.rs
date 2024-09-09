@@ -3,6 +3,7 @@ use std::str::FromStr;
 use anyhow::Error;
 use bytes::Bytes;
 use ceramic_api::{ApiItem, EventService as ApiEventService};
+use ceramic_sql::sqlite::SqlitePool;
 use cid::{Cid, CidGeneric};
 use expect_test::expect;
 use ipld_core::codec::Codec;
@@ -12,7 +13,7 @@ use recon::{InsertResult, ReconItem};
 use serde_ipld_dagcbor::codec::DagCborCodec;
 
 use crate::event::DeliverableRequirement;
-use crate::CeramicEventService;
+use crate::EventService;
 
 use super::*;
 
@@ -583,7 +584,7 @@ where
 #[tokio::test]
 async fn test_conclusion_events_since() -> Result<(), Box<dyn std::error::Error>> {
     let pool = SqlitePool::connect_in_memory().await?;
-    let service = CeramicEventService::new(pool).await?;
+    let service = EventService::try_new(pool, false, false).await?;
 
     // Insert some test events
     let test_events = vec![

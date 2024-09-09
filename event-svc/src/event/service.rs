@@ -10,7 +10,7 @@ use ceramic_core::{EventId, Network, SerializeExt};
 use ceramic_event::unvalidated;
 use ceramic_event::unvalidated::Event;
 use ceramic_flight::{ConclusionData, ConclusionEvent, ConclusionInit, ConclusionTime};
-use ceramic_store::{CeramicOneEvent, EventInsertable, EventRowDelivered, SqlitePool};
+use ceramic_sql::sqlite::SqlitePool;
 use cid::Cid;
 use futures::{future::try_join_all, stream::BoxStream};
 use ipld_core::ipld::Ipld;
@@ -18,7 +18,7 @@ use recon::ReconItem;
 use tokio::try_join;
 use tracing::{trace, warn};
 
-use crate::store::{CeramicOneEvent, EventInsertable};
+use crate::store::{CeramicOneEvent, EventInsertable, EventRowDelivered};
 use crate::{Error, Result};
 
 /// How many events to select at once to see if they've become deliverable when we have downtime
@@ -351,6 +351,7 @@ impl EventService {
         Ok(event)
     }
 
+    /// Fetch Conclusion Events since a given highwater mark
     #[allow(dead_code)]
     pub async fn conclusion_events_since(
         &self,
