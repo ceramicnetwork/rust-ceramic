@@ -5,8 +5,14 @@ use bytes::Bytes;
 use ceramic_api::{ApiItem, EventService as ApiEventService};
 use cid::{Cid, CidGeneric};
 use expect_test::expect;
+use ipld_core::codec::Codec;
 use iroh_bitswap::Store;
-use recon::{InsertResult, ReconItem, Sha256a};
+use recon::Sha256a;
+use recon::{InsertResult, ReconItem};
+use serde_ipld_dagcbor::codec::DagCborCodec;
+
+use crate::event::DeliverableRequirement;
+use crate::CeramicEventService;
 
 use super::*;
 
@@ -572,4 +578,71 @@ where
         "{}",
         err
     );
+}
+
+#[tokio::test]
+async fn test_conclusion_events_since() -> Result<(), Box<dyn std::error::Error>> {
+    let pool = SqlitePool::connect_in_memory().await?;
+    let service = CeramicEventService::new(pool).await?;
+
+    // Insert some test events
+    let test_events = vec![
+        create_test_event(1, "event1"),
+        create_test_event(2, "event2"),
+        create_test_event(3, "event3"),
+    ];
+
+    for event in &test_events {
+        service
+            .insert_events(&[event.clone()], DeliverableRequirement::Immediate)
+            .await?;
+    }
+
+    // Fetch conclusion events
+    let conclusion_events = service.conclusion_events_since(0, 10).await?;
+
+    // Assert that we got the correct number of events
+    assert_eq!(conclusion_events.len(), 3);
+
+    println!("{:?}", conclusion_events);
+
+    // TODO : Assert that the events are in correct order and have the correct data?
+    Ok(())
+}
+
+// Helper function to create test events
+fn create_test_event(_index: u64, data: &str) -> ReconItem<EventId> {
+    let sep_key = "model".to_string();
+    let separator = "kh4q0ozorrgaq2mezktnrmdwleo1d".to_string();
+    let controller = "did:key:z6MkgSV3tAuw7gUWqKCUY7ae6uWNxqYgdwPhUJbJhF9EFXm9".to_string();
+    let init =
+        Cid::from_str("bagcqceraplay4erv6l32qrki522uhiz7rf46xccwniw7ypmvs3cvu2b3oulq").unwrap();
+
+    let header = unvalidated::init::Header::new(
+        vec![controller.clone()],
+        sep_key.clone(),
+        vec![],
+        None,
+        None,
+        None,
+    );
+    let payload = unvalidated::init::Payload::new(header, Some(data.to_string()));
+    let cid = Cid::new_v1(
+        <DagCborCodec as Codec<Ipld>>::CODE,
+        Code::Sha2_256.digest(&serde_ipld_dagcbor::to_vec(&payload).unwrap()),
+    );
+
+    let event_id = EventId::new(
+        &Network::Mainnet,
+        &sep_key,
+        &multibase::decode(&separator).unwrap().1,
+        &controller,
+        &init,
+        &cid,
+    );
+
+    let event = unvalidated::Event::from(payload);
+    let car = event.encode_car().unwrap();
+
+    ReconItem::new(event_id, car)
 }

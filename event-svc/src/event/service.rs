@@ -352,7 +352,7 @@ impl EventService {
     }
 
     #[allow(dead_code)]
-    async fn conclusion_events_since(
+    pub async fn conclusion_events_since(
         &self,
         highwater_mark: i64,
         limit: i64,
