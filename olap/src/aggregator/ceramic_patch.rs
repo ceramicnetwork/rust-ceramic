@@ -137,6 +137,7 @@ impl PartitionEvaluator for CeramicPatchEvaluator {
                     }
                 } else {
                     // Unreachable when data is well formed.
+                    // Appending null means well formed documents can continue to be aggregated.
                     new_states.append_null();
                 }
             } else {

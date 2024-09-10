@@ -97,6 +97,8 @@ impl<T> FeedTable<T> {
                 Field::new("stream_type", DataType::UInt8, false),
                 Field::new("controller", DataType::Utf8, false),
                 Field::new(
+                    // NOTE: The entire dimensions map may be null or values for a given key may
+                    // be null. No other aspect of dimensions may be null.
                     "dimensions",
                     DataType::Map(
                         Field::new(
@@ -110,7 +112,7 @@ impl<T> FeedTable<T> {
                                             Box::new(DataType::Int32),
                                             Box::new(DataType::Binary),
                                         ),
-                                        false,
+                                        true,
                                     ),
                                 ]
                                 .into(),

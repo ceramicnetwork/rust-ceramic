@@ -35,7 +35,7 @@ struct DaemonOpts {
     #[arg(
         short,
         long,
-        default_value = "127.0.0.1:5102",
+        default_value = "http://127.0.0.1:5102",
         env = "CERAMIC_OLAP_FLIGHT_SQL_ENDPOINT"
     )]
     flight_sql_endpoint: String,
@@ -56,6 +56,21 @@ struct DaemonOpts {
     /// When true traces will be exported
     #[arg(long, default_value_t = false, env = "CERAMIC_OLAP_TRACING")]
     tracing: bool,
+
+    /// AWS S3 bucket name.
+    /// When configured the aggregator will support storing data in S3 compatible object stores.
+    ///
+    /// Credentials are read from the environment:
+    ///
+    ///     AWS_ACCESS_KEY_ID -> access_key_id
+    ///     AWS_SECRET_ACCESS_KEY -> secret_access_key
+    ///     AWS_DEFAULT_REGION -> region
+    ///     AWS_ENDPOINT -> endpoint
+    ///     AWS_SESSION_TOKEN -> token
+    ///     AWS_ALLOW_HTTP -> set to “true” to permit HTTP connections without TLS
+    ///
+    #[arg(long, env = "CERAMIC_OLAP_AWS_BUCKET")]
+    aws_bucket: String,
 
     #[command(flatten)]
     log_opts: LogOpts,
@@ -94,6 +109,7 @@ impl From<&DaemonOpts> for aggregator::Config {
     fn from(value: &DaemonOpts) -> Self {
         Self {
             flight_sql_endpoint: value.flight_sql_endpoint.clone(),
+            aws_bucket: value.aws_bucket.clone(),
         }
     }
 }

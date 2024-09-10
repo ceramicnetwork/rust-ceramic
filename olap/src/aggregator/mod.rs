@@ -12,7 +12,7 @@ use arrow_flight::sql::client::FlightSqlServiceClient;
 use ceramic_patch::CeramicPatch;
 use datafusion::{
     catalog::{CatalogProvider, SchemaProvider},
-    common::{Column, JoinType},
+    common::JoinType,
     dataframe::{DataFrame, DataFrameWriteOptions},
     datasource::{file_format::parquet::ParquetFormat, listing::ListingOptions},
     error::DataFusionError,
@@ -25,10 +25,13 @@ use datafusion::{
 };
 use datafusion_federation::sql::{SQLFederationProvider, SQLSchemaProvider};
 use datafusion_flight_sql_table_provider::FlightSQLExecutor;
+use object_store::aws::AmazonS3Builder;
 use tonic::transport::Endpoint;
+use url::Url;
 
 pub struct Config {
     pub flight_sql_endpoint: String,
+    pub aws_bucket: String,
 }
 
 pub async fn run(
@@ -36,6 +39,7 @@ pub async fn run(
     shutdown_signal: impl Future<Output = ()>,
 ) -> Result<()> {
     let config = config.into();
+
     // Create federated datafusion state
     let state = datafusion_federation::default_session_state();
     let client = new_client(config.flight_sql_endpoint.clone()).await?;
@@ -48,6 +52,14 @@ pub async fn run(
     // Create datafusion context
     let ctx = SessionContext::new_with_state(state);
 
+    // Register s3 object store
+    let s3 = AmazonS3Builder::from_env()
+        .with_bucket_name(&config.aws_bucket)
+        .build()?;
+    let mut url = Url::parse("s3://")?;
+    url.set_host(Some(&config.aws_bucket))?;
+    ctx.register_object_store(&url, Arc::new(s3));
+
     // Register federated catalog
     ctx.register_catalog("ceramic", Arc::new(SQLCatalog { schema_provider }));
 
@@ -56,10 +68,11 @@ pub async fn run(
     let listing_options =
         ListingOptions::new(Arc::new(file_format)).with_file_extension(".parquet");
 
-    // TODO place this table in object store, see AES-284
+    // Set the path within the bucket for the doc_state table
+    url.set_path("/ceramic/v0/doc_state/");
     ctx.register_listing_table(
         "doc_state",
-        "./db/doc_state",
+        url.to_string(),
         listing_options,
         Some(Arc::new(
             SchemaBuilder::from(&Fields::from([
@@ -94,7 +107,7 @@ pub async fn run(
                     true,
                 )),
                 Arc::new(Field::new("event_cid", DataType::Binary, false)),
-                Arc::new(Field::new("state", DataType::Utf8, false)),
+                Arc::new(Field::new("state", DataType::Utf8, true)),
             ]))
             .finish(),
         )),
@@ -104,16 +117,7 @@ pub async fn run(
 
     let conclusion_feed = ctx
         .table(TableReference::full("ceramic", "v0", "conclusion_feed"))
-        .await?
-        .select(vec![
-            col("index"),
-            col("event_type"),
-            col("stream_cid"),
-            col("controller"),
-            col("event_cid"),
-            Expr::Cast(Cast::new(Box::new(col("data")), DataType::Utf8)).alias("data"),
-            col("previous"),
-        ])?;
+        .await?;
 
     // TODO call this in a loop, see AES-291
     process_feed_batch(ctx, conclusion_feed).await?;
@@ -144,14 +148,11 @@ fn tx_error_to_df(err: tonic::transport::Error) -> DataFusionError {
 //  current conclusion_feed batch,
 //  * be valid JSON patch data documents.
 async fn process_feed_batch(ctx: SessionContext, conclusion_feed: DataFrame) -> Result<()> {
-    let doc_state = ctx.table("doc_state").await?.select_columns(&[
-        "stream_cid",
-        "index",
-        "event_type",
-        "controller",
-        "event_cid",
-        "state",
-    ])?;
+    let doc_state = ctx
+        .table("doc_state")
+        .await?
+        .select_columns(&["stream_cid", "event_cid", "state"])
+        .context("reading doc_state")?;
 
     conclusion_feed
         // MID only ever use the first previous, so we can optimize the join by selecting the
@@ -173,36 +174,12 @@ async fn process_feed_batch(ctx: SessionContext, conclusion_feed: DataFrame) -> 
         )?
         // Project joined columns to just the ones we need
         .select(vec![
-            col(Column {
-                relation: Some(TableReference::from("?table?")),
-                name: "index".to_string(),
-            })
-            .alias("index"),
-            col(Column {
-                relation: Some(TableReference::from("?table?")),
-                name: "event_type".to_string(),
-            })
-            .alias("event_type"),
-            col(Column {
-                relation: Some(TableReference::from("?table?")),
-                name: "stream_cid".to_string(),
-            })
-            .alias("stream_cid"),
-            col(Column {
-                relation: Some(TableReference::from("?table?")),
-                name: "controller".to_string(),
-            })
-            .alias("controller"),
-            col(Column {
-                relation: Some(TableReference::from("?table?")),
-                name: "dimensions".to_string(),
-            })
-            .alias("dimensions"),
-            col(Column {
-                relation: Some(TableReference::from("?table?")),
-                name: "event_cid".to_string(),
-            })
-            .alias("event_cid"),
+            col("conclusion_feed.index").alias("index"),
+            col("conclusion_feed.event_type").alias("event_type"),
+            col("conclusion_feed.stream_cid").alias("stream_cid"),
+            col("conclusion_feed.controller").alias("controller"),
+            col("conclusion_feed.dimensions").alias("dimensions"),
+            col("conclusion_feed.event_cid").alias("event_cid"),
             col("previous"),
             col("doc_state.state").alias("previous_state"),
             col("data"),
