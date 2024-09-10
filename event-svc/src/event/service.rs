@@ -6,18 +6,19 @@ use super::{
     ordering_task::{DeliverableTask, OrderingTask},
 };
 use async_trait::async_trait;
-use ceramic_core::{EventId, Network};
+use ceramic_core::{EventId, Network, SerializeExt};
 use ceramic_event::unvalidated;
 use ceramic_event::unvalidated::Event;
+use ceramic_flight::{ConclusionData, ConclusionEvent, ConclusionInit, ConclusionTime};
 use ceramic_sql::sqlite::SqlitePool;
 use cid::Cid;
-use futures::stream::BoxStream;
+use futures::{future::try_join_all, stream::BoxStream};
 use ipld_core::ipld::Ipld;
 use recon::ReconItem;
 use tokio::try_join;
 use tracing::{trace, warn};
 
-use crate::store::{CeramicOneEvent, EventInsertable};
+use crate::store::{CeramicOneEvent, EventInsertable, EventRowDelivered};
 use crate::{Error, Result};
 
 /// How many events to select at once to see if they've become deliverable when we have downtime
@@ -265,6 +266,143 @@ impl EventService {
         })
     }
 
+    #[allow(dead_code)]
+    async fn transform_raw_events_to_conclusion_events(
+        &self,
+        event_cid: Cid,
+        raw_event: ceramic_event::unvalidated::Event<Ipld>,
+        delivered: i64,
+    ) -> Result<ConclusionEvent> {
+        let stream_cid = raw_event.id();
+        let init_event = self.get_event_by_cid(stream_cid).await?;
+        let init = ConclusionInit::try_from(init_event).unwrap();
+
+        match raw_event {
+            ceramic_event::unvalidated::Event::Time(time_event) => {
+                Ok(ConclusionEvent::Time(ConclusionTime {
+                    event_cid,
+                    init,
+                    previous: vec![*time_event.prev()],
+                    index: delivered as u64,
+                }))
+            }
+            ceramic_event::unvalidated::Event::Signed(signed_event) => {
+                match signed_event.payload() {
+                    ceramic_event::unvalidated::Payload::Data(data) => {
+                        Ok(ConclusionEvent::Data(ConclusionData {
+                            event_cid,
+                            init,
+                            previous: vec![*data.prev()],
+                            data: data.data().to_json_bytes().map_err(|e| {
+                                Error::new_app(anyhow::anyhow!(
+                                    "Failed to serialize IPLD data: {}",
+                                    e
+                                ))
+                            })?,
+                            index: delivered as u64,
+                        }))
+                    }
+                    ceramic_event::unvalidated::Payload::Init(init_event) => {
+                        Ok(ConclusionEvent::Data(ConclusionData {
+                            event_cid,
+                            init,
+                            previous: vec![],
+                            data: init_event.data().to_json_bytes().map_err(|e| {
+                                Error::new_app(anyhow::anyhow!(
+                                    "Failed to serialize IPLD data: {}",
+                                    e
+                                ))
+                            })?,
+                            index: delivered as u64,
+                        }))
+                    }
+                }
+            }
+            ceramic_event::unvalidated::Event::Unsigned(unsigned_event) => {
+                Ok(ConclusionEvent::Data(ConclusionData {
+                    event_cid,
+                    init,
+                    previous: vec![],
+                    data: unsigned_event
+                        .payload()
+                        .data()
+                        .to_json_bytes()
+                        .map_err(|e| {
+                            Error::new_app(anyhow::anyhow!("Failed to serialize IPLD data: {}", e))
+                        })?,
+                    index: 0,
+                }))
+            }
+        }
+    }
+
+    // Helper method to get an event by its CID
+    async fn get_event_by_cid(&self, cid: &Cid) -> Result<ceramic_event::unvalidated::Event<Ipld>> {
+        let data_bytes = CeramicOneEvent::value_by_cid(&self.pool, cid)
+            .await?
+            .ok_or_else(|| Error::new_fatal(anyhow::anyhow!("Event not found for CID: {}", cid)))?;
+
+        let (_, event) = ceramic_event::unvalidated::Event::<Ipld>::decode_car(
+            std::io::Cursor::new(data_bytes),
+            false,
+        )
+        .map_err(|e| Error::new_fatal(anyhow::anyhow!("Failed to decode CAR data: {}", e)))?;
+
+        Ok(event)
+    }
+
+    /// Fetches Conclusion Events that have occurred since a given highwater mark.
+    ///
+    /// This function retrieves events that have been processed after the specified highwater mark,
+    /// up to the specified limit. It transforms raw events into `ConclusionEvent` structures,
+    /// which provide a standardized format for event data.
+    ///
+    /// # Arguments
+    ///
+    /// * `highwater_mark` - An `i64` representing the starting point from which to fetch events.
+    ///   Events with a higher mark than this value will be returned.
+    /// * `limit` - An `i64` specifying the maximum number of events to return.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `Result` containing a `Vec<ConclusionEvent>` if successful, or an `anyhow::Error` if an error occurs.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if:
+    /// - There's a problem fetching events from the database
+    /// - There's an issue transforming raw events into `ConclusionEvent` structures
+    #[allow(dead_code)]
+    pub async fn conclusion_events_since(
+        &self,
+        highwater_mark: i64,
+        limit: i64,
+    ) -> anyhow::Result<Vec<ConclusionEvent>> {
+        let raw_events = self
+            .fetch_events_since_highwater_mark(highwater_mark, limit)
+            .await?;
+
+        let conclusion_events_futures = raw_events.into_iter().map(|row| {
+            self.transform_raw_events_to_conclusion_events(row.cid, row.event, row.delivered)
+        });
+
+        try_join_all(conclusion_events_futures)
+            .await
+            .map_err(Into::into)
+    }
+
+    #[allow(dead_code)]
+    async fn fetch_events_since_highwater_mark(
+        &self,
+        highwater_mark: i64,
+        limit: i64,
+    ) -> Result<Vec<EventRowDelivered>> {
+        let (_, data) =
+            CeramicOneEvent::new_events_since_value_with_data(&self.pool, highwater_mark, limit)
+                .await?;
+        Ok(data)
+    }
+
     async fn notify_ordering_task(
         &self,
         ordered: &OrderEvents,
@@ -275,7 +413,7 @@ impl EventService {
             .iter()
             .filter_map(|i| if i.new_key { i.order_key.cid() } else { None })
             .collect::<HashSet<_>>();
-
+        // TODO : Update discovered event to not have cid as an optional field
         for ev in ordered
             .deliverable()
             .iter()
@@ -285,7 +423,7 @@ impl EventService {
                 self.send_discovered_event(DiscoveredEvent {
                     cid: *ev.cid(),
                     prev: ev.event().prev().copied(),
-                    id: ev.event().id().copied(),
+                    id: Some(*ev.event().id()),
                     known_deliverable: ev.deliverable(),
                 })
                 .await?;

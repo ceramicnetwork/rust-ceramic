@@ -1,12 +1,18 @@
 use std::str::FromStr;
 
+use crate::event::DeliverableRequirement;
+use crate::EventService;
 use anyhow::Error;
 use bytes::Bytes;
 use ceramic_api::{ApiItem, EventService as ApiEventService};
+use ceramic_flight::ConclusionEvent;
+use ceramic_sql::sqlite::SqlitePool;
 use cid::{Cid, CidGeneric};
 use expect_test::expect;
 use iroh_bitswap::Store;
-use recon::{InsertResult, ReconItem, Sha256a};
+use prettytable::{Cell, Row, Table};
+use recon::Sha256a;
+use recon::{InsertResult, ReconItem};
 
 use super::*;
 
@@ -572,4 +578,84 @@ where
         "{}",
         err
     );
+}
+
+#[tokio::test]
+async fn test_conclusion_events_since() -> Result<(), Box<dyn std::error::Error>> {
+    let pool = SqlitePool::connect_in_memory().await?;
+    let service = EventService::try_new(pool, false, false).await?;
+    let test_events = generate_chained_events().await;
+
+    for event in &test_events {
+        service
+            .insert_events(&[event.clone()], DeliverableRequirement::Immediate)
+            .await?;
+    }
+
+    // Fetch conclusion events
+    let conclusion_events = service.conclusion_events_since(0, 5).await?;
+    assert_eq!(conclusion_events.len(), 5);
+
+    // Create a table
+    let mut table = Table::new();
+    table.add_row(Row::new(vec![
+        Cell::new("index"),
+        Cell::new("event_type"),
+        Cell::new("stream_cid"),
+        Cell::new("controller"),
+        Cell::new("event_cid"),
+        Cell::new("data"),
+        Cell::new("previous"),
+    ]));
+
+    for (index, event) in conclusion_events.iter().enumerate() {
+        let (event_type, stream_cid, controller, event_cid, data, previous) = match event {
+            ConclusionEvent::Data(data_event) => (
+                "Data",
+                data_event.init.stream_cid.to_string(),
+                data_event.init.controller.clone(),
+                data_event.event_cid.to_string(),
+                hex::encode(&data_event.data),
+                format!("{:?}", data_event.previous),
+            ),
+            ConclusionEvent::Time(time_event) => (
+                "Time",
+                time_event.init.stream_cid.to_string(),
+                time_event.init.controller.clone(),
+                time_event.event_cid.to_string(),
+                String::new(), // Time events don't have data
+                format!("{:?}", time_event.previous),
+            ),
+        };
+
+        table.add_row(Row::new(vec![
+            Cell::new(&index.to_string()),
+            Cell::new(event_type),
+            Cell::new(&stream_cid),
+            Cell::new(&controller),
+            Cell::new(&event_cid),
+            Cell::new(&data),
+            Cell::new(&previous),
+        ]));
+    }
+
+    let table_string = table.to_string();
+
+    expect![[r#"
+        +-------+------------+---------------------------------------------------------------+------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
+        | index | event_type | stream_cid                                                    | controller | event_cid                                                     | data                                       | previous                                                             |
+        +-------+------------+---------------------------------------------------------------+------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
+        | 0     | Data       | bagcqcerae7lp4dvyioxrqhavwvvlxp54hqcw6e3gel2knkqqbrmz4ayxnzia | controller | bagcqcerae7lp4dvyioxrqhavwvvlxp54hqcw6e3gel2knkqqbrmz4ayxnzia | 6e756c6c                                   | []                                                                   |
+        +-------+------------+---------------------------------------------------------------+------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
+        | 1     | Data       | bagcqcerae7lp4dvyioxrqhavwvvlxp54hqcw6e3gel2knkqqbrmz4ayxnzia | controller | bagcqcera7usbqvzp3x2rgpocl4ej3uw3esmum25m5vwhccpv7tgho4zehrca | 7b2273747265616d5f31223a22646174615f31227d | [Cid(bagcqcerae7lp4dvyioxrqhavwvvlxp54hqcw6e3gel2knkqqbrmz4ayxnzia)] |
+        +-------+------------+---------------------------------------------------------------+------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
+        | 2     | Data       | bagcqcerae7lp4dvyioxrqhavwvvlxp54hqcw6e3gel2knkqqbrmz4ayxnzia | controller | bagcqceraqkkoncfpknug7uqcxav7fl2zubwxvxct4oss72hiufvpcatvuwtq | 7b2273747265616d5f31223a22646174615f32227d | [Cid(bagcqcera7usbqvzp3x2rgpocl4ej3uw3esmum25m5vwhccpv7tgho4zehrca)] |
+        +-------+------------+---------------------------------------------------------------+------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
+        | 3     | Data       | bagcqcera3iltk26mjivyyg4dc3jny6xtldg4rm3mibywbhabgwa3t2zhoqka | controller | bagcqcera3iltk26mjivyyg4dc3jny6xtldg4rm3mibywbhabgwa3t2zhoqka | 6e756c6c                                   | []                                                                   |
+        +-------+------------+---------------------------------------------------------------+------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
+        | 4     | Data       | bagcqcera3iltk26mjivyyg4dc3jny6xtldg4rm3mibywbhabgwa3t2zhoqka | controller | bagcqceraicaacdulnltggyi2gse7do44me2myloplpe25wzegon2p2mzptca | 7b2273747265616d32223a22646174615f31227d   | [Cid(bagcqcera3iltk26mjivyyg4dc3jny6xtldg4rm3mibywbhabgwa3t2zhoqka)] |
+        +-------+------------+---------------------------------------------------------------+------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
+    "#]].assert_eq(&table_string);
+
+    Ok(())
 }

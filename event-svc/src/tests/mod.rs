@@ -220,3 +220,120 @@ pub(crate) async fn get_n_events(number: usize) -> Vec<ReconItem<EventId>> {
     let model = &StreamId::document(random_cid());
     get_init_plus_n_events_with_model(model, number - 1).await
 }
+
+/// Generates a sequence of chained events across two different streams.
+///
+/// This function creates a series of events that are linked together in a specific order,
+/// simulating a chain of events across two separate streams. It's useful for testing or
+/// simulating complex event sequences.
+///
+/// # Returns
+///
+/// A `Vec<ReconItem<EventId>>` containing 5 events:
+/// - 3 events for the first stream (1 init event and 2 data events)
+/// - 2 events for the second stream (1 init event and 1 data event)
+///
+/// # Example
+///
+/// ```rust
+/// let chained_events = generate_chained_events().await;
+/// assert_eq!(chained_events.len(), 5);
+/// ```
+pub(crate) async fn generate_chained_events() -> Vec<ReconItem<EventId>> {
+    let mut events: Vec<ReconItem<EventId>> = Vec::with_capacity(5);
+
+    let signer = Box::new(signer().await);
+    let stream_id_1 = create_deterministic_stream_id(&[0x01]);
+    let stream_id_2 = create_deterministic_stream_id(&[0x02]);
+    let init_1 = init_event(&stream_id_1, &signer).await;
+    let init_1_cid = init_1.envelope_cid();
+    let (event_id_1, car_1) = (
+        build_event_id(init_1_cid, init_1_cid, &stream_id_1),
+        init_1.encode_car().unwrap(),
+    );
+    let init_1_cid = event_id_1.cid().unwrap();
+
+    let data_1 = data_event(
+        init_1_cid,
+        init_1_cid,
+        ipld!({
+            "stream_1" : "data_1"
+        }),
+        &signer,
+    )
+    .await;
+    let (data_1_id, data_1_car) = (
+        build_event_id(data_1.envelope_cid(), &init_1_cid, &stream_id_1),
+        data_1.encode_car().unwrap(),
+    );
+
+    let data_2 = data_event(
+        init_1_cid,
+        data_1_id.cid().unwrap(),
+        ipld!({
+            "stream_1" : "data_2"
+        }),
+        &signer,
+    )
+    .await;
+
+    let (data_2_id, data_2_car) = (
+        build_event_id(data_2.envelope_cid(), &init_1_cid, &stream_id_1),
+        data_2.encode_car().unwrap(),
+    );
+
+    let init_2 = init_event(&stream_id_2, &signer).await;
+    let init_2_cid = init_2.envelope_cid();
+    let (event_id_2, car_2) = (
+        build_event_id(init_2_cid, init_2_cid, &stream_id_2),
+        init_2.encode_car().unwrap(),
+    );
+    let init_2_cid = event_id_2.cid().unwrap();
+
+    let data_3 = data_event(
+        init_2_cid,
+        init_2_cid,
+        ipld!({
+            "stream2" : "data_1"
+        }),
+        &signer,
+    )
+    .await;
+    let (data_3_id, data_3_car) = (
+        build_event_id(data_3.envelope_cid(), &init_2_cid, &stream_id_2),
+        data_3.encode_car().unwrap(),
+    );
+
+    // push the events in the order they should be inserted
+    events.push(ReconItem::new(event_id_1, car_1));
+    events.push(ReconItem::new(data_1_id, data_1_car));
+    events.push(ReconItem::new(data_2_id, data_2_car));
+    events.push(ReconItem::new(event_id_2, car_2));
+    events.push(ReconItem::new(data_3_id, data_3_car));
+
+    return events;
+}
+
+/// Creates a deterministic StreamId based on the provided initial data.
+///
+/// This function generates a reproducible StreamId by hashing the input data
+/// using SHA-256 and creating a CID (Content Identifier) from the resulting digest.
+///
+/// # Arguments
+///
+/// * `initial_data` - A byte slice containing the data to be used for generating the StreamId.
+///
+/// # Returns
+///
+/// A `StreamId` that is deterministically generated from the input data.
+///
+/// # Example
+///
+/// ```rust
+/// let stream_id = create_deterministic_stream_id(&[0x01]);
+/// ```
+fn create_deterministic_stream_id(initial_data: &[u8]) -> StreamId {
+    let digest = Code::Sha2_256.digest(initial_data);
+    let cid = Cid::new_v1(0x55, digest);
+    StreamId::document(cid)
+}

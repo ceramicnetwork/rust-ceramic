@@ -4,10 +4,15 @@ use std::collections::TryReserveError;
 
 /// SerializeExt is a trait for serialization, deserialization, CID calculation assuming dag-cbor.
 pub trait SerializeExt: Serialize {
-    /// Serialize to dag-json
+    /// Serialize to dag-json string
     fn to_json(&self) -> Result<String, serde_ipld_dagjson::EncodeError> {
-        let json_bytes = serde_ipld_dagjson::to_vec(self)?;
+        let json_bytes = self.to_json_bytes()?;
         Ok(String::from_utf8(json_bytes).expect("serde_ipld_dagjson::to_vec returns valid UTF-8"))
+    }
+
+    /// Serialize to dag-json bytes
+    fn to_json_bytes(&self) -> Result<Vec<u8>, serde_ipld_dagjson::EncodeError> {
+        serde_ipld_dagjson::to_vec(self)
     }
 
     /// serde serialize to dag-cbor

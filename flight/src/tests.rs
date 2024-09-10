@@ -1,7 +1,6 @@
 use super::*;
 use crate::types::{ConclusionData, ConclusionEvent, ConclusionInit};
 use arrow::{array::StringBuilder, datatypes::DataType, util::pretty::pretty_format_batches};
-use ceramic_core::StreamIdType;
 use cid::Cid;
 use datafusion::{
     common::{cast::as_binary_array, exec_datafusion_err},
@@ -85,7 +84,6 @@ async fn test_conclusion_events_to_record_batch() {
                     "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
                 )
                 .unwrap(),
-                stream_type: StreamIdType::Model as u8,
                 controller: "did:key:test1".to_string(),
                 dimensions: vec![],
             },
@@ -101,7 +99,6 @@ async fn test_conclusion_events_to_record_batch() {
                     "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
                 )
                 .unwrap(),
-                stream_type: StreamIdType::Model as u8,
                 controller: "did:key:test1".to_string(),
                 dimensions: vec![],
             },
@@ -124,7 +121,6 @@ async fn test_conclusion_events_to_record_batch() {
                     "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
                 )
                 .unwrap(),
-                stream_type: StreamIdType::Model as u8,
                 controller: "did:key:test1".to_string(),
                 dimensions: vec![],
             },
@@ -138,7 +134,6 @@ async fn test_conclusion_events_to_record_batch() {
                     "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
                 )
                 .unwrap(),
-                stream_type: StreamIdType::Model as u8,
                 controller: "did:key:test1".to_string(),
                 dimensions: vec![],
             },
@@ -174,7 +169,6 @@ async fn test_conclusion_events_to_record_batch() {
                 vec![col("stream_cid")],
             ))
             .alias("stream_cid"),
-            col("stream_type"),
             col("controller"),
             Expr::ScalarFunction(ScalarFunction::new_udf(
                 cid_string.clone(),
@@ -191,7 +185,6 @@ async fn test_conclusion_events_to_record_batch() {
                 col("index"),
                 col("event_type"),
                 col("stream_cid"),
-                col("stream_type"),
                 col("controller"),
                 col("event_cid"),
                 col("data"),
@@ -209,12 +202,12 @@ async fn test_conclusion_events_to_record_batch() {
 
     // Use expect_test to validate the output
     expect![[r#"
-        +-------+------------+-------------------------------------------------------------+-------------+---------------+-------------------------------------------------------------+--------+----------------------------------------------------------------------------------------------------------------------------+
-        | index | event_type | stream_cid                                                  | stream_type | controller    | event_cid                                                   | data   | previous                                                                                                                   |
-        +-------+------------+-------------------------------------------------------------+-------------+---------------+-------------------------------------------------------------+--------+----------------------------------------------------------------------------------------------------------------------------+
-        | 0     | 0          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 010203 | []                                                                                                                         |
-        | 1     | 0          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q | 040506 | [baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu]                                                              |
-        | 2     | 1          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | baeabeidtub3bnbojbickf6d4pqscaw6xpt5ksgido7kcsg2jyftaj237di |        | [baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q]                                                              |
-        | 3     | 0          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | baeabeiewqcj4bwhcssizv5kcyvsvm57bxghjpqshnbzkc6rijmwb4im4yq | 070809 | [baeabeidtub3bnbojbickf6d4pqscaw6xpt5ksgido7kcsg2jyftaj237di, baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q] |
-        +-------+------------+-------------------------------------------------------------+-------------+---------------+-------------------------------------------------------------+--------+----------------------------------------------------------------------------------------------------------------------------+"#]].assert_eq(&formatted);
+        +-------+------------+-------------------------------------------------------------+---------------+-------------------------------------------------------------+--------+----------------------------------------------------------------------------------------------------------------------------+
+        | index | event_type | stream_cid                                                  | controller    | event_cid                                                   | data   | previous                                                                                                                   |
+        +-------+------------+-------------------------------------------------------------+---------------+-------------------------------------------------------------+--------+----------------------------------------------------------------------------------------------------------------------------+
+        | 0     | 0          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | did:key:test1 | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 010203 | []                                                                                                                         |
+        | 1     | 0          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | did:key:test1 | baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q | 040506 | [baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu]                                                              |
+        | 2     | 1          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | did:key:test1 | baeabeidtub3bnbojbickf6d4pqscaw6xpt5ksgido7kcsg2jyftaj237di |        | [baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q]                                                              |
+        | 3     | 0          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | did:key:test1 | baeabeiewqcj4bwhcssizv5kcyvsvm57bxghjpqshnbzkc6rijmwb4im4yq | 070809 | [baeabeidtub3bnbojbickf6d4pqscaw6xpt5ksgido7kcsg2jyftaj237di, baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q] |
+        +-------+------------+-------------------------------------------------------------+---------------+-------------------------------------------------------------+--------+----------------------------------------------------------------------------------------------------------------------------+"#]].assert_eq(&formatted);
 }

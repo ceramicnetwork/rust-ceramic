@@ -66,6 +66,16 @@ impl InsertResult {
     }
 }
 
+/// A row of event data with delivered field
+pub struct EventRowDelivered {
+    /// The CID of the event
+    pub cid: Cid,
+    /// The event data
+    pub event: unvalidated::Event<Ipld>,
+    /// The delivered value of the event which is an incremental value to used for ordering events
+    pub delivered: i64,
+}
+
 /// Access to the ceramic event table and related logic
 pub struct CeramicOneEvent {}
 
@@ -292,15 +302,34 @@ impl CeramicOneEvent {
         Ok((max, rows))
     }
 
-    /// Returns the root CIDs and the data of all the events found after the given delivered value.
+    /// Returns the root CIDs and values of all the events found after the given delivered value.
+    ///
+    /// # Returns
+    ///
+    /// Returns a tuple containing:
+    ///
+    /// - `i64`: The new highwater mark, representing the highest delivered value processed.
+    ///   This can be used as input for subsequent calls to get newer events.
+    ///
+    /// - `Vec<EventRowDelivered> : id, unvalidated::Event<Ipld>, i64>`: A vector of EventRow structs, each containing:
+    ///   - `cid`: The root CID of the event as a byte vector
+    ///   - `event`: The event data as a byte vector (CAR encoded)
+    ///   - `delivered`: The delivered value for this event
+    ///
+    /// # Note
+    ///
+    /// The events are returned in order of their delivered value. The number of events
+    /// returned is limited by the `limit` parameter passed to the function.
     pub async fn new_events_since_value_with_data(
         pool: &SqlitePool,
-        delivered: i64,
+        highwater: i64,
         limit: i64,
-    ) -> Result<(i64, Vec<(Cid, unvalidated::Event<Ipld>)>)> {
+    ) -> Result<(i64, Vec<EventRowDelivered>)> {
+        #[derive(Debug, Clone)]
         struct DeliveredEventBlockRow {
             block: ReconEventBlockRaw,
             new_highwater_mark: i64,
+            delivered: i64,
         }
 
         use sqlx::Row as _;
@@ -308,18 +337,20 @@ impl CeramicOneEvent {
         impl sqlx::FromRow<'_, sqlx::sqlite::SqliteRow> for DeliveredEventBlockRow {
             fn from_row(row: &sqlx::sqlite::SqliteRow) -> std::result::Result<Self, sqlx::Error> {
                 let new_highwater_mark = row.try_get("new_highwater_mark")?;
+                let delivered = row.try_get("delivered")?;
 
                 let block = ReconEventBlockRaw::from_row(row)?;
                 Ok(Self {
                     block,
                     new_highwater_mark,
+                    delivered,
                 })
             }
         }
 
         let mut all_blocks: Vec<DeliveredEventBlockRow> =
             sqlx::query_as(EventQuery::new_delivered_events_with_data())
-                .bind(delivered)
+                .bind(highwater)
                 .bind(limit)
                 .fetch_all(pool.reader())
                 .await?;
@@ -329,11 +360,32 @@ impl CeramicOneEvent {
             .iter()
             .map(|row| row.new_highwater_mark + 1)
             .max()
-            .unwrap_or(delivered);
+            .unwrap_or(highwater);
         all_blocks.sort_by(|a, b| a.new_highwater_mark.cmp(&b.new_highwater_mark));
-        let blocks = all_blocks.into_iter().map(|b| b.block).collect();
-        let values = ReconEventBlockRaw::into_events(blocks).await?;
-        Ok((max_highwater, values))
+
+        let parsed = ReconEventBlockRaw::into_carfiles(
+            all_blocks.iter().map(|row| row.block.clone()).collect(),
+        )
+        .await?;
+        let result: Result<Vec<EventRowDelivered>> = parsed
+            .into_iter()
+            .zip(all_blocks.iter())
+            .map(|((_, carfile), block)| {
+                let (cid, event) =
+                    unvalidated::Event::<Ipld>::decode_car(carfile.as_slice(), false)
+                        .map_err(|_| Error::new_fatal(anyhow!("Error parsing event row")))?;
+                Ok(EventRowDelivered {
+                    cid,
+                    event,
+                    delivered: block.delivered,
+                })
+            })
+            .collect();
+
+        Ok((
+            max_highwater,
+            result.map_err(|_| Error::new_fatal(anyhow!("Error parsing events")))?,
+        ))
     }
 
     /// Find events that haven't been delivered to the client and may be ready.
