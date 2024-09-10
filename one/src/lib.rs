@@ -2,7 +2,6 @@
 #![warn(missing_docs)]
 
 mod daemon;
-mod feature_flags;
 mod http;
 mod http_metrics;
 mod metrics;
