@@ -14,6 +14,8 @@ pub struct ConclusionEventBuilder {
     index: UInt64Builder,
     event_type: UInt8Builder,
     stream_cid: BinaryBuilder,
+    stream_type: UInt8Builder,
+    event_cid: BinaryBuilder,
     controller: StringBuilder,
     event_cid: BinaryBuilder,
     data: BinaryBuilder,
@@ -26,6 +28,8 @@ impl Default for ConclusionEventBuilder {
             index: UInt64Builder::new(),
             event_type: PrimitiveBuilder::new(),
             stream_cid: BinaryBuilder::new(),
+            stream_type: PrimitiveBuilder::new(),
+            event_cid: BinaryBuilder::new(),
             controller: StringBuilder::new(),
             event_cid: BinaryBuilder::new(),
             data: BinaryBuilder::new(),
@@ -42,6 +46,7 @@ impl ConclusionEventBuilder {
             ConclusionEvent::Data(data_event) => {
                 self.stream_cid
                     .append_value(data_event.init.stream_cid.to_bytes());
+                self.stream_type.append_value(data_event.init.stream_type);
                 self.event_cid.append_value(data_event.event_cid.to_bytes());
                 self.controller.append_value(&data_event.init.controller);
                 self.data.append_value(&data_event.data);
@@ -54,6 +59,7 @@ impl ConclusionEventBuilder {
             ConclusionEvent::Time(time_event) => {
                 self.stream_cid
                     .append_value(time_event.init.stream_cid.to_bytes());
+                self.stream_type.append_value(time_event.init.stream_type);
                 self.controller.append_value(&time_event.init.controller);
                 self.event_cid.append_value(time_event.event_cid.to_bytes());
                 self.data.append_null();
@@ -72,6 +78,9 @@ impl ConclusionEventBuilder {
 
         let stream_cid = Arc::new(self.stream_cid.finish()) as ArrayRef;
         let stream_cid_field = Arc::new(Field::new("stream_cid", DataType::Binary, false));
+
+        let stream_type = Arc::new(self.stream_type.finish()) as ArrayRef;
+        let stream_type_field = Arc::new(Field::new("stream_type", DataType::UInt8, false));
 
         let controller = Arc::new(self.controller.finish()) as ArrayRef;
         let controller_field = Arc::new(Field::new("controller", DataType::Utf8, false));
@@ -97,6 +106,7 @@ impl ConclusionEventBuilder {
             (index_field, index),
             (event_type_field, event_type),
             (stream_cid_field, stream_cid),
+            (stream_type_field, stream_type),
             (controller_field, controller),
             (event_cid_field, event_cid),
             (data_field, data),
@@ -144,6 +154,7 @@ impl<'a> Extend<&'a ConclusionEvent> for ConclusionEventBuilder {
 ///             event_cid: Cid::default(),
 ///             init: ConclusionInit {
 ///                 stream_cid: Cid::default(),
+///                 stream_type: 0,
 ///                 controller: "did:key:test1".to_string(),
 ///                 dimensions: vec![],
 ///             },
@@ -155,6 +166,7 @@ impl<'a> Extend<&'a ConclusionEvent> for ConclusionEventBuilder {
 ///             event_cid: Cid::default(),
 ///             init: ConclusionInit {
 ///                 stream_cid: Cid::default(),
+///                stream_type: 2,
 ///                 controller: "did:key:test2".to_string(),
 ///                 dimensions: vec![],
 ///             },

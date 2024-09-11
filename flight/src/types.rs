@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Result};
-use ceramic_event::unvalidated;
+use ceramic_event::{unvalidated, StreamId};
 use cid::Cid;
+use int_enum::IntEnum;
 use ipld_core::ipld::Ipld;
 use serde::{Deserialize, Serialize};
 
@@ -39,6 +40,8 @@ pub struct ConclusionInit {
     /// The CID of the init event of the stream. Can be used as a unique identifier for the stream.
     /// This is not the StreamId as it does not contain the StreamType.
     pub stream_cid: Cid,
+    /// The type of the stream.
+    pub stream_type: u8,
     /// DID controller of the stream.
     pub controller: String,
     /// Order set of key value pairs that annotate the stream.
@@ -84,9 +87,19 @@ impl TryFrom<unvalidated::Event<Ipld>> for ConclusionInit {
     fn try_from(event: unvalidated::Event<Ipld>) -> Result<Self> {
         let init_payload = event
             .init_payload()
-            .ok_or_else(|| anyhow!("no init payload found"))?;
+            .ok_or_else(|| anyhow!("malformed event: no init payload found"))?;
+        let model = init_payload.header().model();
+        let stream_type = StreamId::try_from(model)
+            .map_err(|e| {
+                anyhow!(
+                    "malformed event: failed to convert payload's model to StreamId: {}",
+                    e
+                )
+            })?
+            .r#type;
         Ok(ConclusionInit {
             stream_cid: *event.id(),
+            stream_type: stream_type.int_value() as u8,
             controller: init_payload
                 .header()
                 .controllers()

@@ -243,8 +243,8 @@ pub(crate) async fn generate_chained_events() -> Vec<ReconItem<EventId>> {
     let mut events: Vec<ReconItem<EventId>> = Vec::with_capacity(5);
 
     let signer = Box::new(signer().await);
-    let stream_id_1 = create_deterministic_stream_id(&[0x01]);
-    let stream_id_2 = create_deterministic_stream_id(&[0x02]);
+    let stream_id_1 = create_deterministic_stream_id_document(&[0x01]);
+    let stream_id_2 = create_deterministic_stream_id_model(&[0x02]);
     let init_1 = init_event(&stream_id_1, &signer).await;
     let init_1_cid = init_1.envelope_cid();
     let (event_id_1, car_1) = (
@@ -314,7 +314,7 @@ pub(crate) async fn generate_chained_events() -> Vec<ReconItem<EventId>> {
     return events;
 }
 
-/// Creates a deterministic StreamId based on the provided initial data.
+/// Creates a deterministic StreamId of type Model Instance Document based on the provided initial data.
 ///
 /// This function generates a reproducible StreamId by hashing the input data
 /// using SHA-256 and creating a CID (Content Identifier) from the resulting digest.
@@ -330,10 +330,34 @@ pub(crate) async fn generate_chained_events() -> Vec<ReconItem<EventId>> {
 /// # Example
 ///
 /// ```rust
-/// let stream_id = create_deterministic_stream_id(&[0x01]);
+/// let stream_id = create_deterministic_stream_id_document(&[0x01]);
 /// ```
-fn create_deterministic_stream_id(initial_data: &[u8]) -> StreamId {
+fn create_deterministic_stream_id_document(initial_data: &[u8]) -> StreamId {
     let digest = Code::Sha2_256.digest(initial_data);
     let cid = Cid::new_v1(0x55, digest);
     StreamId::document(cid)
+}
+
+/// Creates a deterministic StreamId of type Model based on the provided initial data.
+///
+/// This function generates a reproducible StreamId by hashing the input data
+/// using SHA-256 and creating a CID (Content Identifier) from the resulting digest.
+///
+/// # Arguments
+///
+/// * `initial_data` - A byte slice containing the data to be used for generating the StreamId.
+///
+/// # Returns
+///
+/// A `StreamId` that is deterministically generated from the input data.
+///
+/// # Example
+///
+/// ```rust
+/// let stream_id = create_deterministic_stream_id_model(&[0x01]);
+/// ```
+fn create_deterministic_stream_id_model(initial_data: &[u8]) -> StreamId {
+    let digest = Code::Sha2_256.digest(initial_data);
+    let cid = Cid::new_v1(0x55, digest);
+    StreamId::model(cid)
 }
