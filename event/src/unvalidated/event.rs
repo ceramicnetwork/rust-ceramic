@@ -48,6 +48,31 @@ fn get_time_event_witness_blocks(
         blocks_in_path.push(serde_ipld_dagcbor::from_slice(block_bytes)?);
     }
 
+    // make sure the last item truly does point to prev
+    match blocks_in_path
+        .last()
+        .expect("blocks_in_path is not empty")
+        .get(
+            *parts
+                .last()
+                .ok_or_else(|| anyhow!("Time Event path must have at least one item"))?,
+        )?
+        .ok_or_else(|| anyhow!("Time Event path failed to resolve last element"))?
+    {
+        Ipld::Link(cid) => {
+            if *cid != event.prev() {
+                bail!(
+                    "the anchor commit proof {} with path {} points to invalid 'prev' commit. Expected prev='{}' but found '{}'",
+                    event.proof,
+                    event.path,
+                    event.prev(),
+                    cid,
+                )
+            }
+        }
+        _ => bail!("Time Event path does not index to a CID"),
+    }
+
     Ok(blocks_in_path)
 }
 

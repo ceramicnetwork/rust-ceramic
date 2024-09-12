@@ -17,12 +17,15 @@ const BLOCK_CACHE_SIZE: usize = 50;
 static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(reqwest::Client::new);
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+/// A blockchain transaction
 pub struct ChainTransaction {
     /// Transaction hash
     pub hash: String,
     /// Transaction contract input
     pub input: String,
-    pub block: Option<BlockResponse>,
+    /// Information about the block in which this transaction was mined.
+    /// If None, the transaction exists but has not been mined yet.
+    pub block: Option<ChainBlock>,
 }
 
 impl ChainTransaction {
@@ -44,9 +47,12 @@ impl ChainTransaction {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-pub struct BlockResponse {
+/// A blockchain block
+pub struct ChainBlock {
     pub hash: String,
+    /// the block number
     pub number: i64,
+    /// the unix epoch timestamp
     pub timestamp: i64,
 }
 
@@ -66,29 +72,33 @@ pub struct RpcResponse<T> {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "camelCase")]
-/// A contract transaction. Expects fields (e.g. input) to exist that aren't required for all transactions.
-pub struct EthTransaction {
+/// The expected payload for eth_getTransactionByHash. It's a contract transaction
+/// and expects fields (e.g. input) to exist that aren't required for all transactions.
+struct EthTransaction {
     /// Block hash if mined
     block_hash: Option<String>,
     /// Transaction hash
     hash: String,
-    /// contract input data
+    /// Contract input data
     input: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+/// The block information returned by eth_getBlockByHash
 #[serde(rename_all = "camelCase")]
-pub struct EthBlock {
+struct EthBlock {
     hash: String,
+    /// hexadecimal block number
     number: String,
+    /// hexademical representing unix epoch time
     timestamp: String,
 }
 
-impl TryFrom<EthBlock> for BlockResponse {
+impl TryFrom<EthBlock> for ChainBlock {
     type Error = anyhow::Error;
 
     fn try_from(value: EthBlock) -> std::result::Result<Self, Self::Error> {
-        Ok(BlockResponse {
+        Ok(ChainBlock {
             hash: value.hash,
             number: i64_from_hex(&value.number).context("invalid block number")?,
             timestamp: i64_from_hex(&value.timestamp).context("invalid block timestamp")?,
@@ -148,28 +158,6 @@ impl HttpEthRpc {
             .await?;
         resp.result
             .ok_or_else(|| anyhow!("failed to retrieve chain ID"))
-    }
-
-    /// Get the latest block number
-    ///
-    /// curl https://mainnet.infura.io/v3/{api_token} \
-    /// -X POST \
-    /// -H "Content-Type: application/json" \
-    /// -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params": [],"id":1}'
-    /// >> {"jsonrpc": "2.0", "id": 1, "result": "0x127cc18"}
-    async fn _eth_block_number(&self) -> Result<RpcResponse<String>> {
-        Ok(HTTP_CLIENT
-            .post(self.url.clone())
-            .json(&serde_json::json!({
-                "jsonrpc": "2.0",
-                "method": "eth_blockNumber",
-                "params": [],
-                "id": 1,
-            }))
-            .send()
-            .await?
-            .json()
-            .await?)
     }
 
     /// Get a block by its hash
