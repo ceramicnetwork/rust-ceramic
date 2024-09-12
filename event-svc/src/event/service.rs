@@ -437,7 +437,7 @@ impl EventService {
                 self.send_discovered_event(DiscoveredEvent {
                     cid: *ev.cid(),
                     prev: ev.event().prev().copied(),
-                    id: Some(*ev.event().id()),
+                    id: *ev.event().id(),
                     known_deliverable: ev.deliverable(),
                 })
                 .await?;
@@ -488,18 +488,9 @@ pub(crate) struct DiscoveredEvent {
     /// The prev event that this event builds on.
     pub(crate) prev: Option<Cid>,
     /// The Cid of the init event that identifies the stream this event belongs to.
-    pub(crate) id: Option<Cid>,
+    pub(crate) id: Cid,
     /// Whether this event is known to already be deliverable.
     pub(crate) known_deliverable: bool,
-}
-
-impl DiscoveredEvent {
-    pub(crate) fn stream_cid(&self) -> Cid {
-        match self.id {
-            None => self.cid, // init event
-            Some(id) => id,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

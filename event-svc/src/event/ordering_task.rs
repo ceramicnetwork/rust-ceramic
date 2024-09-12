@@ -436,7 +436,7 @@ impl OrderingState {
     /// Relies on `add_stream_event` to handle updating the internal state.
     fn add_inserted_events(&mut self, events: Vec<DiscoveredEvent>) {
         for ev in events {
-            let stream_cid = ev.stream_cid();
+            let stream_cid = ev.id;
             let event = ev.into();
             self.add_stream_event(stream_cid, event);
         }
