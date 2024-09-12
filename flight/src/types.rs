@@ -1,9 +1,13 @@
+use std::str::FromStr;
+
 use anyhow::{anyhow, Result};
-use ceramic_event::{unvalidated, StreamId};
+use ceramic_event::{unvalidated, StreamId, StreamIdType};
 use cid::Cid;
 use int_enum::IntEnum;
 use ipld_core::ipld::Ipld;
 use serde::{Deserialize, Serialize};
+
+const METAMODEL_STREAM_ID: &str = "kh4q0ozorrgaq2mezktnrmdwleo1d";
 
 /// A Ceramic event annotated with conclusions about the event.
 ///
@@ -85,18 +89,31 @@ impl TryFrom<unvalidated::Event<Ipld>> for ConclusionInit {
     type Error = anyhow::Error;
 
     fn try_from(event: unvalidated::Event<Ipld>) -> Result<Self> {
+        // Extract the init payload from the event
         let init_payload = event
             .init_payload()
             .ok_or_else(|| anyhow!("malformed event: no init payload found"))?;
+
+        // Get the model from the init header
+        // The model indicates the creator of the stream
         let model = init_payload.header().model();
-        let stream_type = StreamId::try_from(model)
-            .map_err(|e| {
-                anyhow!(
-                    "malformed event: failed to convert payload's model to StreamId: {}",
-                    e
-                )
-            })?
-            .r#type;
+
+        // Define the metamodel stream ID
+        let meta_model_stream_id = StreamId::from_str(METAMODEL_STREAM_ID)?;
+
+        // Convert the model to a StreamId
+        let stream_id = StreamId::try_from(model)?;
+
+        // Determine the stream type:
+        // If the stream_id matches the metamodel, it's a Model stream
+        // Otherwise, it's a ModelInstanceDocument stream
+        let stream_type = if stream_id == meta_model_stream_id {
+            StreamIdType::Model
+        } else {
+            StreamIdType::ModelInstanceDocument
+        };
+
+        // Construct and return the ConclusionInit
         Ok(ConclusionInit {
             stream_cid: *event.id(),
             stream_type: stream_type.int_value() as u8,
