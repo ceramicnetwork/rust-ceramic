@@ -11,7 +11,7 @@ use std::{
 
 use anyhow::anyhow;
 use async_trait::async_trait;
-use ceramic_core::{EventId, Interest, PeerId, RangeOpen};
+use ceramic_core::{EventId, Interest, NodeId, PeerId, RangeOpen};
 use serde::{Deserialize, Serialize};
 use tracing::{instrument, trace, Level};
 
@@ -181,8 +181,8 @@ where
     type Hash = H;
 
     /// Insert keys into the key space.
-    async fn insert(&self, items: Vec<ReconItem<K>>) -> Result<InsertResult<K>> {
-        self.store.insert_many(&items).await
+    async fn insert(&self, items: Vec<ReconItem<K>>, informant: NodeId) -> Result<InsertResult<K>> {
+        self.store.insert_many(&items, informant).await
     }
 
     /// Return all keys in the range between left_fencepost and right_fencepost.
@@ -530,7 +530,11 @@ pub trait Store {
     /// Insert new keys into the key space.
     /// Returns true for each key if it did not previously exist, in the
     /// same order as the input iterator.
-    async fn insert_many(&self, items: &[ReconItem<Self::Key>]) -> Result<InsertResult<Self::Key>>;
+    async fn insert_many(
+        &self,
+        items: &[ReconItem<Self::Key>],
+        informant: NodeId,
+    ) -> Result<InsertResult<Self::Key>>;
 
     /// Return the hash of all keys in the range between left_fencepost and right_fencepost.
     /// The upper range bound is exclusive.
@@ -638,8 +642,12 @@ where
     type Key = K;
     type Hash = H;
 
-    async fn insert_many(&self, items: &[ReconItem<Self::Key>]) -> Result<InsertResult<Self::Key>> {
-        self.as_ref().insert_many(items).await
+    async fn insert_many(
+        &self,
+        items: &[ReconItem<Self::Key>],
+        informant: NodeId,
+    ) -> Result<InsertResult<Self::Key>> {
+        self.as_ref().insert_many(items, informant).await
     }
 
     async fn hash_range(&self, range: Range<&Self::Key>) -> Result<HashCount<Self::Hash>> {

@@ -1,9 +1,11 @@
+use cid::Cid;
 use serde::{Deserialize, Serialize};
+use std::fmt::Debug;
 
 use ceramic_car::sync::{CarHeader, CarWriter};
-use ceramic_core::{Cid, SerializeExt};
+use ceramic_core::SerializeExt;
 
-use crate::Bytes;
+use crate::bytes::Bytes;
 
 /// Represents an event with a payload and its corresponding CID
 #[derive(Debug)]
@@ -31,7 +33,7 @@ impl<D> Event<D> {
 
 impl<D: serde::Serialize> Event<D> {
     /// Create a new init Event
-    pub(crate) fn new(payload: Payload<D>) -> Self {
+    pub fn new(payload: Payload<D>) -> Self {
         Self {
             cid: payload
                 .to_cid()
@@ -78,7 +80,7 @@ impl<D> Payload<D> {
 
 impl<D: serde::Serialize> Payload<D> {
     /// Encode the unsigned init event into CAR bytes.
-    pub fn encode_car(&self) -> Result<Vec<u8>, anyhow::Error> {
+    pub fn encode_car(&self) -> anyhow::Result<Vec<u8>> {
         let (cid, event) = self.to_dag_cbor_block()?;
         let mut car = Vec::new();
         let roots: Vec<Cid> = vec![cid];

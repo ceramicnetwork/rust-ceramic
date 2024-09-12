@@ -7,6 +7,7 @@ use crate::{
 };
 
 use async_trait::async_trait;
+use ceramic_core::NodeId;
 use libp2p::{metrics::Registry, PeerId, Swarm};
 use libp2p_swarm_test::SwarmExt;
 use test_log::test;
@@ -62,10 +63,14 @@ where
     type Key = K;
     type Hash = H;
 
-    async fn insert_many(&self, items: &[ReconItem<K>]) -> ReconResult<InsertResult<Self::Key>> {
+    async fn insert_many(
+        &self,
+        items: &[ReconItem<K>],
+        informant: NodeId,
+    ) -> ReconResult<InsertResult<Self::Key>> {
         self.as_error()?;
 
-        self.inner.insert_many(items).await
+        self.inner.insert_many(items, informant).await
     }
 
     async fn hash_range(&self, range: Range<&Self::Key>) -> ReconResult<HashCount<Self::Hash>> {

@@ -1,7 +1,7 @@
 use std::{ops::Range, time::Duration};
 
 use async_trait::async_trait;
-use ceramic_core::Interest;
+use ceramic_core::{Interest, NodeId};
 use ceramic_metrics::{register, Recorder};
 use futures::Future;
 use prometheus_client::{
@@ -166,11 +166,12 @@ where
     async fn insert_many(
         &self,
         items: &[ReconItem<Self::Key>],
+        informant: NodeId,
     ) -> ReconResult<recon::InsertResult<Self::Key>> {
         let res = StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "insert_many",
-            self.store.insert_many(items),
+            self.store.insert_many(items, informant),
         )
         .await?;
 

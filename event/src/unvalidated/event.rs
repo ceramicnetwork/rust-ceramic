@@ -247,9 +247,9 @@ impl<D> From<Box<TimeEvent>> for Event<D> {
     }
 }
 
-impl<D: serde::Serialize> From<init::Payload<D>> for Event<D> {
-    fn from(payload: init::Payload<D>) -> Self {
-        Self::Unsigned(Box::new(init::Event::new(payload)))
+impl<D> From<Box<init::Event<D>>> for Event<D> {
+    fn from(value: Box<init::Event<D>>) -> Self {
+        Self::Unsigned(value)
     }
 }
 

@@ -21,6 +21,7 @@ multibase.workspace = true
 multihash-codetable.workspace = true
 multihash-derive.workspace = true
 once_cell.workspace = true
+rand.workspace = true
 regex.workspace = true
 ring.workspace = true
 serde.workspace = true

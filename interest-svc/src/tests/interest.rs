@@ -3,7 +3,7 @@ use std::{collections::BTreeSet, str::FromStr};
 use ceramic_api::InterestService;
 use ceramic_core::{
     interest::{Builder, WithPeerId},
-    Interest, PeerId,
+    Interest, NodeId, PeerId,
 };
 use expect_test::expect;
 use rand::{thread_rng, Rng};
@@ -116,6 +116,7 @@ where
             random_interest(Some((&[0], &[1])), Some(42)),
             vec![],
         )],
+        NodeId::random().unwrap().0,
     )
     .await
     .unwrap();
@@ -126,6 +127,7 @@ where
             random_interest(Some((&[0], &[1])), Some(24)),
             vec![],
         )],
+        NodeId::random().unwrap().0,
     )
     .await
     .unwrap();
@@ -150,12 +152,20 @@ where
     let interest_0 = random_interest(None, None);
     let interest_1 = random_interest(None, None);
 
-    recon::Store::insert_many(&store, &[ReconItem::new(interest_0.clone(), Vec::new())])
-        .await
-        .unwrap();
-    recon::Store::insert_many(&store, &[ReconItem::new(interest_1.clone(), Vec::new())])
-        .await
-        .unwrap();
+    recon::Store::insert_many(
+        &store,
+        &[ReconItem::new(interest_0.clone(), Vec::new())],
+        NodeId::random().unwrap().0,
+    )
+    .await
+    .unwrap();
+    recon::Store::insert_many(
+        &store,
+        &[ReconItem::new(interest_1.clone(), Vec::new())],
+        NodeId::random().unwrap().0,
+    )
+    .await
+    .unwrap();
     let ids = recon::Store::range(
         &store,
         &random_interest_min()..&random_interest_max(),
@@ -182,11 +192,17 @@ where
     let interest_1 = random_interest(None, None);
 
     store
-        .insert_many(&[ReconItem::new(interest_0.clone(), Vec::new())])
+        .insert_many(
+            &[ReconItem::new(interest_0.clone(), Vec::new())],
+            NodeId::random().unwrap().0,
+        )
         .await
         .unwrap();
     store
-        .insert_many(&[ReconItem::new(interest_1.clone(), Vec::new())])
+        .insert_many(
+            &[ReconItem::new(interest_1.clone(), Vec::new())],
+            NodeId::random().unwrap().0,
+        )
         .await
         .unwrap();
     let ids = store
@@ -216,20 +232,24 @@ where
 {
     let interest = random_interest(None, None);
     // do take the first one
-    assert!(
-        &recon::Store::insert_many(&store, &[ReconItem::new(interest.clone(), Vec::new())])
-            .await
-            .unwrap()
-            .included_new_key(),
-    );
+    assert!(&recon::Store::insert_many(
+        &store,
+        &[ReconItem::new(interest.clone(), Vec::new())],
+        NodeId::random().unwrap().0,
+    )
+    .await
+    .unwrap()
+    .included_new_key(),);
 
     // reject the second insert of same key
-    assert!(
-        !recon::Store::insert_many(&store, &[ReconItem::new(interest.clone(), Vec::new())],)
-            .await
-            .unwrap()
-            .included_new_key()
-    );
+    assert!(!recon::Store::insert_many(
+        &store,
+        &[ReconItem::new(interest.clone(), Vec::new())],
+        NodeId::random().unwrap().0,
+    )
+    .await
+    .unwrap()
+    .included_new_key());
 }
 
 test_with_dbs!(
@@ -243,9 +263,13 @@ where
     S: recon::Store<Key = Interest, Hash = Sha256a>,
 {
     let key = random_interest(None, None);
-    recon::Store::insert_many(&store, &[ReconItem::new(key.clone(), Vec::new())])
-        .await
-        .unwrap();
+    recon::Store::insert_many(
+        &store,
+        &[ReconItem::new(key.clone(), Vec::new())],
+        NodeId::random().unwrap().0,
+    )
+    .await
+    .unwrap();
     let value = store.value_for_key(&key).await.unwrap();
     let val = value.unwrap();
     let empty: Vec<u8> = vec![];

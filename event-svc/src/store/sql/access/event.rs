@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::anyhow;
-use ceramic_core::{event_id::InvalidEventId, Cid, EventId};
+use ceramic_core::{event_id::InvalidEventId, Cid, EventId, NodeId};
 use ceramic_event::unvalidated;
 use ceramic_sql::sqlite::{SqlitePool, SqliteTransaction};
 use ipld_core::ipld::Ipld;
@@ -88,6 +88,8 @@ impl CeramicOneEvent {
     async fn insert_event(
         tx: &mut SqliteTransaction<'_>,
         key: &EventId,
+        stream_cid: &Cid,
+        informant: &Option<NodeId>,
         deliverable: bool,
     ) -> Result<bool> {
         let id = key.as_bytes();
@@ -114,6 +116,8 @@ impl CeramicOneEvent {
             .bind(hash.as_u32s()[6])
             .bind(hash.as_u32s()[7])
             .bind(delivered)
+            .bind(stream_cid.to_bytes())
+            .bind(informant.as_ref().map(|n| n.did_key()))
             .execute(&mut **tx.inner())
             .await;
 
@@ -179,7 +183,14 @@ impl CeramicOneEvent {
         let mut tx = pool.begin_tx().await.map_err(Error::from)?;
 
         for item in to_add {
-            let new_key = Self::insert_event(&mut tx, item.order_key(), item.deliverable()).await?;
+            let new_key = Self::insert_event(
+                &mut tx,
+                item.order_key(),
+                item.stream_cid(),
+                item.informant(),
+                item.deliverable(),
+            )
+            .await?;
             inserted.push(InsertedEvent::new(
                 item.order_key().clone(),
                 new_key,

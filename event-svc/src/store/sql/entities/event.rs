@@ -2,7 +2,7 @@ use std::{collections::BTreeSet, sync::Arc};
 
 use anyhow::anyhow;
 use ceramic_car::{CarHeader, CarReader, CarWriter};
-use ceramic_core::EventId;
+use ceramic_core::{EventId, NodeId};
 use ceramic_event::unvalidated;
 use cid::Cid;
 use ipld_core::ipld::Ipld;
@@ -51,6 +51,8 @@ pub struct EventInsertable {
     deliverable: bool,
     /// The parsed structure containing the actual Event data.
     event: Arc<unvalidated::Event<Ipld>>,
+    /// The ID of the Node that informed us about this event
+    informant: Option<NodeId>,
 }
 
 impl EventInsertable {
@@ -59,6 +61,7 @@ impl EventInsertable {
         order_key: EventId,
         event_cid: Cid,
         event: unvalidated::Event<Ipld>,
+        informant: Option<NodeId>,
         deliverable: bool,
     ) -> Result<Self> {
         let cid = order_key.cid().ok_or_else(|| {
@@ -81,12 +84,17 @@ impl EventInsertable {
             cid,
             deliverable,
             event: Arc::new(event),
+            informant,
         })
     }
-
     /// Get the Recon order key (EventId) of the event.
     pub fn order_key(&self) -> &EventId {
         &self.order_key
+    }
+
+    /// Get the CID of the init event of the stream
+    pub fn stream_cid(&self) -> &Cid {
+        self.event.id()
     }
 
     /// Get the CID of the event
@@ -97,6 +105,11 @@ impl EventInsertable {
     /// Get the parsed Event structure.
     pub fn event(&self) -> &Arc<unvalidated::Event<Ipld>> {
         &self.event
+    }
+
+    /// Get the Event source.
+    pub fn informant(&self) -> &Option<NodeId> {
+        &self.informant
     }
 
     /// Whether this event is deliverable currently

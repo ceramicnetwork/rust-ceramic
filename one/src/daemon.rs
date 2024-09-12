@@ -1,6 +1,7 @@
 use std::{path::PathBuf, time::Duration};
 
 use anyhow::{anyhow, Context, Result};
+use ceramic_core::NodeId;
 use ceramic_event_svc::EventService;
 use ceramic_interest_svc::InterestService;
 use ceramic_kubo_rpc::Multiaddr;
@@ -386,8 +387,9 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
     };
 
     // Build HTTP server
+    let (node_id, _) = NodeId::try_from_dir(opts.p2p_key_dir.clone())?;
     let mut ceramic_server = ceramic_api::Server::new(
-        peer_id,
+        node_id,
         network,
         interest_api_store,
         Arc::new(model_api_store),

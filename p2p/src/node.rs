@@ -1168,7 +1168,7 @@ mod tests {
     use crate::keys::Keypair;
 
     use async_trait::async_trait;
-    use ceramic_core::RangeOpen;
+    use ceramic_core::{NodeId, RangeOpen};
     use ceramic_event_svc::{store::SqlitePool, EventService};
     use futures::TryStreamExt;
     use rand::prelude::*;
@@ -1258,6 +1258,7 @@ mod tests {
         async fn insert(
             &self,
             _items: Vec<ReconItem<Self::Key>>,
+            _informant: NodeId,
         ) -> ReconResult<InsertResult<Self::Key>> {
             unreachable!()
         }

@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use ceramic_core::NodeId;
 use std::{collections::BTreeMap, ops::Range, sync::Arc};
 use tokio::sync::Mutex;
 use tracing::instrument;
@@ -123,7 +124,7 @@ where
         Ok(Box::new(keys.into_iter()))
     }
 
-    async fn insert(&self, item: &ReconItem<K>) -> Result<bool> {
+    async fn insert(&self, item: &ReconItem<K>, _informant: NodeId) -> Result<bool> {
         let mut inner = self.inner.lock().await;
         let new = inner
             .keys
@@ -145,11 +146,15 @@ where
     type Hash = H;
 
     #[instrument(skip(self))]
-    async fn insert_many(&self, items: &[ReconItem<Self::Key>]) -> Result<InsertResult<Self::Key>> {
+    async fn insert_many(
+        &self,
+        items: &[ReconItem<Self::Key>],
+        informant: NodeId,
+    ) -> Result<InsertResult<Self::Key>> {
         tracing::trace!("inserting items: {}", items.len());
         let mut new = 0;
         for item in items.iter() {
-            self.insert(item).await?.then(|| new += 1);
+            self.insert(item, informant).await?.then(|| new += 1);
         }
         Ok(InsertResult::new(new))
     }

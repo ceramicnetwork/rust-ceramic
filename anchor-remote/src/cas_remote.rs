@@ -17,9 +17,7 @@ use ceramic_anchor_service::{
     DetachedTimeEvent, MerkleNode, MerkleNodes, RootTimeEvent, TransactionManager,
 };
 use ceramic_car::CarReader;
-use ceramic_core::{
-    cid_from_ed25519_key_pair, did_key_from_ed25519_key_pair, Cid, StreamId, StreamIdType,
-};
+use ceramic_core::{Cid, NodeId, StreamId};
 use ceramic_event::unvalidated::Proof;
 
 pub const AGENT_VERSION: &str = concat!("ceramic-one/", env!("CARGO_PKG_VERSION"));
@@ -63,23 +61,15 @@ struct CasAnchorResponse {
     pub witness_car: Option<String>,
 }
 
-fn cid_to_stream_id(cid: Cid) -> StreamId {
-    StreamId {
-        r#type: StreamIdType::Unloadable,
-        cid,
-    }
-}
-
 /// Remote CAS transaction manager
 pub struct RemoteCas {
+    node_id: NodeId,
     signing_key: Ed25519KeyPair,
     url: String,
     poll_interval: Duration,
     poll_retry_count: u32,
     jws_header_b64: String,
     http_client: reqwest::Client,
-    /// The did:key of the node represented as a StreamId
-    node_stream_id: StreamId,
 }
 
 enum CasResponseParseResult {
@@ -122,12 +112,13 @@ impl TransactionManager for RemoteCas {
 impl RemoteCas {
     /// Create a new RemoteCas instance
     pub fn new(
+        node_id: NodeId,
         keypair: Ed25519KeyPair,
         remote_anchor_service_url: String,
         anchor_poll_interval: Duration,
         anchor_poll_retry_count: u32,
     ) -> Self {
-        let controller = did_key_from_ed25519_key_pair(&keypair);
+        let controller = node_id.did_key();
         let jws_header = Header {
             kid: format!(
                 "{}#{}",
@@ -141,22 +132,21 @@ impl RemoteCas {
         };
         let jws_header_b64 =
             b64.encode(serde_json::to_vec(&jws_header).expect("invalid jws header"));
-        let node_stream_id = cid_to_stream_id(cid_from_ed25519_key_pair(&keypair));
         Self {
+            node_id,
             signing_key: keypair,
             url: format!("{}/api/v0/requests", remote_anchor_service_url),
             poll_interval: anchor_poll_interval,
             poll_retry_count: anchor_poll_retry_count,
             jws_header_b64,
             http_client: reqwest::Client::new(),
-            node_stream_id,
         }
     }
 
     /// Create an anchor request on the remote CAS
     pub async fn create_anchor_request(&self, root_cid: Cid) -> Result<String> {
         let cas_request_body = serde_json::to_string(&CasAnchorRequest {
-            stream_id: self.node_stream_id.clone(),
+            stream_id: self.node_id.stream_id(),
             cid: root_cid.to_string(),
             timestamp: chrono::Utc::now().to_rfc3339(),
             ceramic_one_version: AGENT_VERSION.to_owned(),
@@ -250,10 +240,10 @@ mod tests {
     use ring::signature::Ed25519KeyPair;
 
     use ceramic_anchor_service::{AnchorService, MockAnchorClient, Store, TransactionManager};
-    use ceramic_core::{ed25519_key_pair_from_secret, Cid};
+    use ceramic_core::Cid;
 
-    fn node_private_key() -> Ed25519KeyPair {
-        ed25519_key_pair_from_secret(
+    fn node_id_and_private_key() -> (NodeId, Ed25519KeyPair) {
+        NodeId::try_from_secret(
             std::env::var("NODE_PRIVATE_KEY")
                 // The following secret is NOT authenticated with CAS, it is only used for testing.
                 .unwrap_or(
@@ -270,8 +260,10 @@ mod tests {
     async fn test_anchor_batch_with_cas() {
         let anchor_client = Arc::new(MockAnchorClient::new(10));
         let anchor_requests = anchor_client.local_sourced_data_events().await.unwrap();
+        let (node_id, keypair) = node_id_and_private_key();
         let remote_cas = Arc::new(RemoteCas::new(
-            node_private_key(),
+            node_id,
+            keypair,
             "https://cas-dev.3boxlabs.com".to_owned(),
             Duration::from_secs(1),
             1,
@@ -290,9 +282,11 @@ mod tests {
     async fn test_create_anchor_request_with_cas() {
         let mock_root_cid =
             Cid::from_str("bafyreia776z4jdg5zgycivcpr3q6lcu6llfowkrljkmq3bex2k5hkzat54").unwrap();
+        let (node_id, keypair) = node_id_and_private_key();
 
         let remote_cas = RemoteCas::new(
-            node_private_key(),
+            node_id,
+            keypair,
             "https://cas-dev.3boxlabs.com".to_owned(),
             Duration::from_secs(1),
             1,
@@ -316,8 +310,10 @@ mod tests {
     async fn test_jwt() {
         let mock_data = serde_ipld_dagcbor::to_vec(b"mock root").unwrap();
         let mock_hash = MultihashDigest::digest(&Code::Sha2_256, &mock_data);
+        let (node_id, keypair) = node_id_and_private_key();
         let remote_cas = Arc::new(RemoteCas::new(
-            node_private_key(),
+            node_id,
+            keypair,
             "https://cas-dev.3boxlabs.com".to_owned(),
             Duration::from_secs(1),
             1,

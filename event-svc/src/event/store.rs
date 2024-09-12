@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use anyhow::anyhow;
-use ceramic_core::EventId;
+use ceramic_core::{EventId, NodeId};
 use cid::Cid;
 use iroh_bitswap::Block;
 use recon::{HashCount, ReconItem, Result as ReconResult, Sha256a};
@@ -44,9 +44,10 @@ impl recon::Store for EventService {
     async fn insert_many(
         &self,
         items: &[ReconItem<Self::Key>],
+        informant: NodeId,
     ) -> ReconResult<recon::InsertResult<EventId>> {
         let res = self
-            .insert_events(items, DeliverableRequirement::Asap)
+            .insert_events(items, DeliverableRequirement::Asap, Some(informant))
             .await?;
 
         Ok(res.into())
@@ -163,6 +164,7 @@ impl ceramic_api::EventService for EventService {
     async fn insert_many(
         &self,
         items: Vec<ceramic_api::ApiItem>,
+        informant: NodeId,
     ) -> anyhow::Result<Vec<ceramic_api::EventInsertResult>> {
         let items = items
             .into_iter()
@@ -172,7 +174,7 @@ impl ceramic_api::EventService for EventService {
             })
             .collect::<Vec<_>>();
         let res = self
-            .insert_events(&items, DeliverableRequirement::Immediate)
+            .insert_events(&items, DeliverableRequirement::Immediate, Some(informant))
             .await?;
 
         Ok(res.into())
