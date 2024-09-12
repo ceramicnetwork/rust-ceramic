@@ -98,6 +98,7 @@ pub async fn pretty_feed(conclusion_feed: DataFrame) -> Vec<RecordBatch> {
                 vec![col("stream_cid")],
             ))
             .alias("stream_cid"),
+            col("stream_type"),
             col("controller"),
             Expr::ScalarFunction(ScalarFunction::new_udf(
                 cid_string.clone(),
@@ -114,6 +115,7 @@ pub async fn pretty_feed(conclusion_feed: DataFrame) -> Vec<RecordBatch> {
                 col("index"),
                 col("event_type"),
                 col("stream_cid"),
+                col("stream_type"),
                 col("controller"),
                 col("event_cid"),
                 col("data"),

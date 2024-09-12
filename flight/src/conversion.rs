@@ -17,7 +17,6 @@ pub struct ConclusionEventBuilder {
     stream_type: UInt8Builder,
     event_cid: BinaryBuilder,
     controller: StringBuilder,
-    event_cid: BinaryBuilder,
     data: BinaryBuilder,
     previous: ListBuilder<BinaryBuilder>,
 }
@@ -31,7 +30,6 @@ impl Default for ConclusionEventBuilder {
             stream_type: PrimitiveBuilder::new(),
             event_cid: BinaryBuilder::new(),
             controller: StringBuilder::new(),
-            event_cid: BinaryBuilder::new(),
             data: BinaryBuilder::new(),
             previous: ListBuilder::new(BinaryBuilder::new())
                 .with_field(Field::new_list_field(DataType::Binary, false)),
@@ -199,6 +197,7 @@ mod tests {
 
     use arrow::util::pretty::pretty_format_batches;
     use ceramic_arrow_test::pretty_feed_from_batch;
+    use ceramic_event::StreamIdType;
     use cid::Cid;
     use expect_test::expect;
 
@@ -226,6 +225,7 @@ mod tests {
                         "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
                     )
                     .unwrap(),
+                    stream_type: StreamIdType::Model as u8,
                     controller: "did:key:test1".to_string(),
                     dimensions: vec![],
                 },
@@ -243,6 +243,7 @@ mod tests {
                         "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
                     )
                     .unwrap(),
+                    stream_type: StreamIdType::Model as u8,
                     controller: "did:key:test1".to_string(),
                     dimensions: vec![],
                 },
@@ -267,6 +268,7 @@ mod tests {
                         "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
                     )
                     .unwrap(),
+                    stream_type: StreamIdType::Model as u8,
                     controller: "did:key:test1".to_string(),
                     dimensions: vec![],
                 },
@@ -282,6 +284,7 @@ mod tests {
                         "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
                     )
                     .unwrap(),
+                    stream_type: StreamIdType::Model as u8,
                     controller: "did:key:test1".to_string(),
                     dimensions: vec![],
                 },
@@ -302,13 +305,13 @@ mod tests {
 
         // Use expect_test to validate the output
         expect![[r#"
-        +-------+------------+-------------------------------------------------------------+---------------+-------------------------------------------------------------+------+----------------------------------------------------------------------------------------------------------------------------+
-        | index | event_type | stream_cid                                                  | controller    | event_cid                                                   | data | previous                                                                                                                   |
-        +-------+------------+-------------------------------------------------------------+---------------+-------------------------------------------------------------+------+----------------------------------------------------------------------------------------------------------------------------+
-        | 0     | 0          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | did:key:test1 | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 123  | []                                                                                                                         |
-        | 1     | 0          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | did:key:test1 | baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q | 456  | [baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu]                                                              |
-        | 2     | 1          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | did:key:test1 | baeabeidtub3bnbojbickf6d4pqscaw6xpt5ksgido7kcsg2jyftaj237di |      | [baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q]                                                              |
-        | 3     | 0          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | did:key:test1 | baeabeiewqcj4bwhcssizv5kcyvsvm57bxghjpqshnbzkc6rijmwb4im4yq | 789  | [baeabeidtub3bnbojbickf6d4pqscaw6xpt5ksgido7kcsg2jyftaj237di, baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q] |
-        +-------+------------+-------------------------------------------------------------+---------------+-------------------------------------------------------------+------+----------------------------------------------------------------------------------------------------------------------------+"#]].assert_eq(&formatted);
+            +-------+------------+-------------------------------------------------------------+-------------+---------------+-------------------------------------------------------------+------+----------------------------------------------------------------------------------------------------------------------------+
+            | index | event_type | stream_cid                                                  | stream_type | controller    | event_cid                                                   | data | previous                                                                                                                   |
+            +-------+------------+-------------------------------------------------------------+-------------+---------------+-------------------------------------------------------------+------+----------------------------------------------------------------------------------------------------------------------------+
+            | 0     | 0          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 123  | []                                                                                                                         |
+            | 1     | 0          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q | 456  | [baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu]                                                              |
+            | 2     | 1          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | baeabeidtub3bnbojbickf6d4pqscaw6xpt5ksgido7kcsg2jyftaj237di |      | [baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q]                                                              |
+            | 3     | 0          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | baeabeiewqcj4bwhcssizv5kcyvsvm57bxghjpqshnbzkc6rijmwb4im4yq | 789  | [baeabeidtub3bnbojbickf6d4pqscaw6xpt5ksgido7kcsg2jyftaj237di, baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q] |
+            +-------+------------+-------------------------------------------------------------+-------------+---------------+-------------------------------------------------------------+------+----------------------------------------------------------------------------------------------------------------------------+"#]].assert_eq(&formatted);
     }
 }
