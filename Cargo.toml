@@ -1,11 +1,11 @@
 [workspace]
 resolver = "2"
 members = [
+    "anchor-remote",
+    "anchor-service",
     "api",
     "api-server",
-    "anchor-service",
-    "anchor-remote",
-    "car",
+    "arrow-test",
     "core",
     "event",
     "event-svc",
@@ -40,7 +40,11 @@ members = [
 
 ahash = "0.8"
 anyhow = { version = "1" }
-arrow = "52.2.0"
+arrow = { version = "52.0.0", features = ["prettyprint"] }
+arrow-array = "52.2.0"
+arrow-flight = { version = "52.2.0", features = ["flight-sql-experimental"] }
+arrow-ipc = "52.2.0"
+arrow-schema = "52.2.0"
 async-broadcast = "0.4.1"
 async-channel = "1.7.1"
 async-recursion = "1"
@@ -59,6 +63,7 @@ ceramic-anchor-service = { path = "./anchor-service" }
 ceramic-anchor-tx = { path = "./anchor-tx" }
 ceramic-api = { path = "./api" }
 ceramic-api-server = { path = "./api-server" }
+ceramic-arrow-test = { path = "./arrow-test" }
 ceramic-car = { path = "./car" }
 ceramic-core = { path = "./core" }
 ceramic-event = { path = "./event" }
@@ -83,6 +88,7 @@ crossterm = "0.25"
 ctrlc = "3.2.2"
 dag-jose = "0.2"
 datafusion = "41.0.0"
+datafusion-flight-sql-server = "0.2"
 deadqueue = "0.2.3"
 derivative = "2.2"
 derive_more = "0.99.17"
@@ -203,6 +209,7 @@ tokio-stream = "0.1.11"
 tokio-test = "0.4.2"
 tokio-util = { version = "0.7.10", features = ["compat", "rt"] }
 toml = "0.5.9"
+tonic = { version = "0.11", features = ["tls"] }
 tower = "0.4"
 tower-http = "0.3"
 tower-layer = "0.3"
@@ -234,7 +241,7 @@ authors = [
     "Aaron D Goldman <goldmanaaron@gmail.com>",
     "Mohsin Zaidi <@smrz2001>",
     "David Estes <@dav1do>",
-    "Spencer T Brody <@stbrody>"
+    "Spencer T Brody <@stbrody>",
 ]
 license = "Apache-2.0/MIT"
 repository = "https://github.com/3box/rust-ceramic"

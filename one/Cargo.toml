@@ -16,6 +16,7 @@ ceramic-api-server.workspace = true
 ceramic-api.workspace = true
 ceramic-core.workspace = true
 ceramic-event.workspace = true
+ceramic-flight.workspace = true
 ceramic-kubo-rpc = { path = "../kubo-rpc", features = ["http"] }
 ceramic-kubo-rpc-server.workspace = true
 ceramic-metrics.workspace = true
