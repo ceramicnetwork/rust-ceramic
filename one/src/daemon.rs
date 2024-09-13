@@ -219,6 +219,15 @@ pub struct DaemonOpts {
         env = "CERAMIC_ONE_ANCHOR_POLL_RETRY_COUNT"
     )]
     anchor_poll_retry_count: u64,
+
+    /// Ethereum RPC URLs used for time events validation. Required when connecting to mainnet and uses fallback URLs if not specified for other networks.
+    #[arg(
+        long,
+        use_value_delimiter = true,
+        value_delimiter = ',',
+        env = "CERAMIC_ONE_ETHEREUM_RPC_URLS"
+    )]
+    ethereum_rpc_urls: Vec<String>,
 }
 
 // Start the daemon process
@@ -264,10 +273,28 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
 
     // Construct services from pool
     let interest_svc = Arc::new(InterestService::new(sqlite_pool.clone()));
-    let event_svc =
-        Arc::new(EventService::try_new(sqlite_pool.clone(), true, opts.event_validation).await?);
-
     let network = opts.network.to_network(&opts.local_network_id)?;
+    let rpc_urls = if opts.ethereum_rpc_urls.is_empty() {
+        match network {
+            ceramic_core::Network::Local(_) => {
+                info!("using default Ethereum RPC URL for Local network: http://localhost:7545");
+                // Default Ganache port
+                vec!["http://localhost:7545".to_string()]
+            }
+            ceramic_core::Network::Mainnet => {
+                anyhow::bail!("no Ethereum RPC URLs specified for Mainnet")
+            }
+            _ => {
+                info!("no Ethereum RPC URLs specified");
+                opts.ethereum_rpc_urls
+            }
+        }
+    } else {
+        opts.ethereum_rpc_urls
+    };
+    let event_svc = Arc::new(
+        EventService::try_new(sqlite_pool.clone(), true, opts.event_validation, rpc_urls).await?,
+    );
 
     // Setup tokio-metrics
     MetricsHandle::register(|registry| {

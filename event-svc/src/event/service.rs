@@ -52,6 +52,7 @@ pub struct EventService {
     delivery_task: DeliverableTask,
     event_validator: EventValidator,
     pending_writes: Arc<Mutex<HashMap<Cid, Vec<UnvalidatedEvent>>>>,
+    _ethereum_rpc_urls: Vec<String>,
 }
 /// An object that represents a set of blocks that can produce a stream of all blocks and lookup a
 /// block based on CID.
@@ -87,6 +88,7 @@ impl EventService {
         pool: SqlitePool,
         process_undelivered_events: bool,
         validate_events: bool,
+        _ethereum_rpc_urls: Vec<String>,
     ) -> Result<Self> {
         CeramicOneEvent::init_delivered_order(&pool).await?;
 
@@ -99,6 +101,7 @@ impl EventService {
             event_validator,
             delivery_task,
             pending_writes: Arc::new(Mutex::new(HashMap::default())),
+            _ethereum_rpc_urls,
         };
         if process_undelivered_events {
             svc.process_all_undelivered_events().await?;
@@ -111,7 +114,7 @@ impl EventService {
     /// in the next pass.. but it's basically same same but different.
     #[allow(dead_code)]
     pub(crate) async fn new_with_event_validation(pool: SqlitePool) -> Result<Self> {
-        Self::try_new(pool, false, true).await
+        Self::try_new(pool, false, true, vec![]).await
     }
 
     /// Currently, we track events when the [`ValidationRequirement`] allows. Right now, this applies to
