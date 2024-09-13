@@ -1,6 +1,7 @@
 use crate::Bytes;
 use cid::multibase::{self, Base};
 pub use cid::Cid;
+use multihash_codetable::Multihash;
 use std::fmt::Formatter;
 use std::io::Write;
 
@@ -53,6 +54,51 @@ pub struct StreamId {
 }
 
 const STREAMID_CODEC: u64 = 206;
+
+/// Known [`StreamId`] to which all model streams belong.
+pub const METAMODEL_STREAM_ID: StreamId = {
+    // Original typescript code that generates the stream id:
+    //
+    // ```js
+    // import { CID } from 'multiformats/cid'
+    // import { create } from 'multiformats/hashes/digest'
+    // import { code, encode } from '@ipld/dag-cbor'
+    // import { identity } from 'multiformats/hashes/identity'
+    //
+    //  static readonly MODEL: StreamID = (function () {
+    //    const data = encode('model-v1')
+    //    const multihash = identity.digest(data)
+    //    const digest = create(code, multihash.bytes)
+    //    const cid = CID.createV1(code, digest)
+    //    return new StreamID('UNLOADABLE', cid)
+    //  })()
+    // ```
+    //
+    // Hash is the identity hash of the dab-cbor encoding of the string `model-v1`.
+    let hash = [
+        0x00, 0x09, 0x68, // cbor string header
+        'm' as u8, 'o' as u8, 'd' as u8, 'e' as u8, 'l' as u8, '-' as u8, 'v' as u8, '1' as u8,
+    ];
+    // The above typescript code has a bug that we must reproduce here.
+    // The hash is the identity hash, which should use the code 0x00, however the code was set to
+    // 0x71 (a.k.a dag-cbor).
+    // Therefore we use the dag-cbor code for both the multihash and the cid.
+    const DAG_CBOR_CODEC: u64 = 0x71;
+    let multihash = const_unwrap(Multihash::wrap(DAG_CBOR_CODEC, &hash));
+    StreamId {
+        r#type: StreamIdType::Unloadable,
+        cid: cid::Cid::new_v1(DAG_CBOR_CODEC, multihash),
+    }
+};
+
+const fn const_unwrap<T: Copy, E>(r: Result<T, E>) -> T {
+    let v = match r {
+        Ok(r) => r,
+        Err(_) => panic!(),
+    };
+    std::mem::forget(r);
+    v
+}
 
 impl StreamId {
     /// Create a new stream id for a model type
@@ -208,6 +254,7 @@ impl<'de> serde::de::Visitor<'de> for StreamIdVisitor {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
     use std::str::FromStr;
 
@@ -218,5 +265,12 @@ mod tests {
         assert_eq!(stream.r#type, StreamIdType::ModelInstanceDocument);
         let s = stream.to_string();
         assert_eq!(&s, orig);
+    }
+    #[test]
+    fn metamodel_stream_id_to_string() {
+        assert_eq!(
+            "kh4q0ozorrgaq2mezktnrmdwleo1d",
+            &METAMODEL_STREAM_ID.to_string()
+        );
     }
 }
