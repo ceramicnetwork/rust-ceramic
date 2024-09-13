@@ -1,13 +1,10 @@
-use std::str::FromStr;
-
 use anyhow::{anyhow, Result};
+use ceramic_core::METAMODEL_STREAM_ID;
 use ceramic_event::{unvalidated, StreamId, StreamIdType};
 use cid::Cid;
 use int_enum::IntEnum;
 use ipld_core::ipld::Ipld;
 use serde::{Deserialize, Serialize};
-
-const METAMODEL_STREAM_ID: &str = "kh4q0ozorrgaq2mezktnrmdwleo1d";
 
 /// A Ceramic event annotated with conclusions about the event.
 ///
@@ -98,16 +95,13 @@ impl TryFrom<unvalidated::Event<Ipld>> for ConclusionInit {
         // The model indicates the creator of the stream
         let model = init_payload.header().model();
 
-        // Define the metamodel stream ID
-        let meta_model_stream_id = StreamId::from_str(METAMODEL_STREAM_ID)?;
-
         // Convert the model to a StreamId
         let stream_id = StreamId::try_from(model)?;
 
         // Determine the stream type:
         // If the stream_id matches the metamodel, it's a Model stream
         // Otherwise, it's a ModelInstanceDocument stream
-        let stream_type = if stream_id == meta_model_stream_id {
+        let stream_type = if stream_id == METAMODEL_STREAM_ID {
             StreamIdType::Model
         } else {
             StreamIdType::ModelInstanceDocument
