@@ -77,7 +77,7 @@ pub const METAMODEL_STREAM_ID: StreamId = {
     // Hash is the identity hash of the dab-cbor encoding of the string `model-v1`.
     let hash = [
         0x00, 0x09, 0x68, // cbor string header
-        'm' as u8, 'o' as u8, 'd' as u8, 'e' as u8, 'l' as u8, '-' as u8, 'v' as u8, '1' as u8,
+        b'm', b'o', b'd', b'e', b'l', b'-', b'v', b'1',
     ];
     // The above typescript code has a bug that we must reproduce here.
     // The hash is the identity hash, which should use the code 0x00, however the code was set to
