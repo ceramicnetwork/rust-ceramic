@@ -19,7 +19,7 @@ pub use network::Network;
 pub use node_id::NodeId;
 pub use range::RangeOpen;
 pub use serialize_ext::SerializeExt;
-pub use stream_id::{StreamId, StreamIdType};
+pub use stream_id::{StreamId, StreamIdType, METAMODEL_STREAM_ID};
 
 pub use cid::Cid;
 pub use ssi;
