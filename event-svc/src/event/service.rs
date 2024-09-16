@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, MutexGuard},
 };
 
 use super::{
@@ -38,7 +38,7 @@ const PENDING_EVENTS_CHANNEL_DEPTH: usize = 1_000_000;
 /// The max number of events that can be waiting on a previous event before we can validate them
 /// that are allowed to live in memory. This is possible during recon conversations where we discover things out of order,
 /// but we don't expect the queue to get very deep as we should discover events close together.
-/// At 1 KB/event, this would be around 10 MB. If the queue does fill up, the current behavior is to drop the events and
+/// At 1 KB/event, this would be around 100 MB. If the queue does fill up, the current behavior is to drop the events and
 /// they may or may not be discovered in a future conversation.
 const PENDING_VALIDATION_QUEUE_DEPTH: usize = 100_000;
 
@@ -137,11 +137,11 @@ impl EventService {
     /// Given the incoming events, see if any of them are the init event that events were
     /// 'pending on' and return all previously pending events that can now be validated.  
     fn remove_unblocked_from_pending_q(&self, new: &[UnvalidatedEvent]) -> Vec<UnvalidatedEvent> {
-        let new_init_cids: Vec<Cid> = new
+        let new_init_cids = new
             .iter()
-            .flat_map(|e| if e.event.is_init() { Some(e.cid) } else { None })
-            .collect();
-        let mut map = self.pending_writes.lock().unwrap();
+            .flat_map(|e| if e.event.is_init() { Some(e.cid) } else { None });
+        let mut map: MutexGuard<'_, HashMap<Cid, Vec<UnvalidatedEvent>>> =
+            self.pending_writes.lock().unwrap();
         let mut to_add = Vec::new(); // no clue on capacity
         for new_cid in new_init_cids {
             if let Some(unblocked) = map.remove(&new_cid) {
@@ -204,7 +204,7 @@ impl EventService {
         for event in items {
             match UnvalidatedEvent::try_from(event) {
                 Ok(insertable) => parsed_events.push(insertable),
-                Err(err) => invalid_events.push(InvalidItem::InvalidFormat {
+                Err(err) => invalid_events.push(ValidationError::InvalidFormat {
                     key: event.key.clone(),
                     reason: err.to_string(),
                 }),
@@ -223,7 +223,7 @@ impl EventService {
 
         let ValidatedEvents {
             valid,
-            pending,
+            unvalidated: pending,
             invalid,
         } = EventValidator::validate_events(&self.pool, validation_requirement, to_validate)
             .await?;
@@ -231,7 +231,7 @@ impl EventService {
 
         Ok(ValidatedEvents {
             valid,
-            pending,
+            unvalidated: pending,
             invalid: invalid_events,
         })
     }
@@ -245,7 +245,7 @@ impl EventService {
     ) -> Result<InsertResult> {
         let ValidatedEvents {
             valid,
-            pending,
+            unvalidated: pending,
             mut invalid,
         } = self.validate_events(items, validation_req).await?;
 
@@ -270,7 +270,7 @@ impl EventService {
         to_insert: Vec<EventInsertable>,
         deliverable_req: DeliverableRequirement,
         pending: Vec<UnvalidatedEvent>,
-        invalid: &mut Vec<InvalidItem>,
+        invalid: &mut Vec<ValidationError>,
     ) -> Result<crate::store::InsertResult> {
         let ordered = OrderEvents::try_new(&self.pool, to_insert).await?;
 
@@ -278,7 +278,7 @@ impl EventService {
         // for recon, it's okay and we'll track them below and try to find events we need in the future,
         // but if this is API (Immediate), we won't track them because they shouldn't exist yet.
         pending.iter().for_each(|p| {
-            invalid.push(InvalidItem::RequiresHistory {
+            invalid.push(ValidationError::RequiresHistory {
                 key: p.order_key().to_owned(),
             })
         });
@@ -289,7 +289,7 @@ impl EventService {
             DeliverableRequirement::Immediate => {
                 let to_insert = ordered.deliverable().iter();
                 invalid.extend(ordered.missing_history().iter().map(|e| {
-                    InvalidItem::RequiresHistory {
+                    ValidationError::RequiresHistory {
                         key: e.order_key().clone(),
                     }
                 }));
@@ -458,7 +458,7 @@ impl EventService {
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum InvalidItem {
+pub enum ValidationError {
     InvalidFormat {
         key: EventId,
         reason: String,
@@ -477,7 +477,7 @@ pub enum InvalidItem {
 
 #[derive(Debug, PartialEq, Eq, Default)]
 pub struct InsertResult {
-    pub rejected: Vec<InvalidItem>,
+    pub rejected: Vec<ValidationError>,
     pub(crate) store_result: crate::store::InsertResult,
 }
 

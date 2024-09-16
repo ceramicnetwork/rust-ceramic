@@ -11,7 +11,7 @@ use crate::event::{DeliverableRequirement, EventService};
 use crate::store::{CeramicOneBlock, CeramicOneEvent};
 use crate::Error;
 
-use super::service::{InsertResult, InvalidItem, ValidationRequirement};
+use super::service::{InsertResult, ValidationError, ValidationRequirement};
 
 impl From<InsertResult> for recon::InsertResult<EventId> {
     fn from(value: InsertResult) -> Self {
@@ -19,17 +19,17 @@ impl From<InsertResult> for recon::InsertResult<EventId> {
         let mut invalid = Vec::new();
         for ev in value.rejected {
             match ev {
-                InvalidItem::InvalidFormat { key, reason } => {
+                ValidationError::InvalidFormat { key, reason } => {
                     info!(key=%key, %reason, "invalid format for recon event");
                     invalid.push(recon::InvalidItem::InvalidFormat { key })
                 }
-                InvalidItem::InvalidSignature { key, reason } => {
+                ValidationError::InvalidSignature { key, reason } => {
                     info!(key=%key, %reason, "invalid signature for recon event");
                     invalid.push(recon::InvalidItem::InvalidSignature { key })
                 }
                 // once we implement enough validation to actually return these items,
                 // the service will need to track them and retry them when the required CIDs are discovered
-                InvalidItem::RequiresHistory { .. } => pending += 1,
+                ValidationError::RequiresHistory { .. } => pending += 1,
             };
         }
         recon::InsertResult::new_err(value.store_result.count_new_keys(), invalid, pending)
@@ -150,13 +150,13 @@ impl From<InsertResult> for Vec<ceramic_api::EventInsertResult> {
 
         for ev in res.rejected {
             let (key, reason) = match ev {
-                InvalidItem::InvalidFormat { key, reason } => {
+                ValidationError::InvalidFormat { key, reason } => {
                     (key, format!("Event data could not be parsed: {reason}"))
                 }
-                InvalidItem::InvalidSignature { key, reason } => {
+                ValidationError::InvalidSignature { key, reason } => {
                     (key, format!("Event had invalid signature: {reason}"))
                 }
-                InvalidItem::RequiresHistory { key } => (
+                ValidationError::RequiresHistory { key } => (
                     key,
                     "Failed to insert event as `prev` event was missing".to_owned(),
                 ),

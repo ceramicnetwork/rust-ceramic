@@ -611,7 +611,9 @@ mod test {
         let events = get_n_events(n).await;
         for event in events {
             let event = ValidatedEvent::into_insertable(
-                UnvalidatedEvent::try_from(&event).unwrap().into(),
+                ValidatedEvent::from_unvalidated_unchecked(
+                    UnvalidatedEvent::try_from(&event).unwrap(),
+                ),
                 None,
             );
             res.push(event);

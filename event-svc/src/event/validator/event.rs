@@ -6,7 +6,7 @@ use ipld_core::ipld::Ipld;
 use recon::ReconItem;
 
 use crate::{
-    event::service::{InvalidItem, ValidationRequirement},
+    event::service::{ValidationError, ValidationRequirement},
     store::{EventInsertable, SqlitePool},
     Result,
 };
@@ -17,9 +17,9 @@ pub struct ValidatedEvents {
     pub valid: Vec<ValidatedEvent>,
     /// We don't have enough information to validate these events yet.
     /// e.g. The init event is required and the node has not yet discovered it.
-    pub pending: Vec<UnvalidatedEvent>,
+    pub unvalidated: Vec<UnvalidatedEvent>,
     /// Events that failed validation
-    pub invalid: Vec<InvalidItem>,
+    pub invalid: Vec<ValidationError>,
 }
 
 #[derive(Debug)]
@@ -38,17 +38,15 @@ impl ValidatedEvent {
         EventInsertable::new(value.key, value.cid, value.event, informant, false)
             .expect("validated events must be insertable")
     }
-}
 
-// TODO: should this impl from or have a private method?
-// it's not supposed public outside the crate and it currently allows us to
-// skip validation for the cases we're not doing it
-impl From<UnvalidatedEvent> for ValidatedEvent {
-    fn from(value: UnvalidatedEvent) -> Self {
+    /// Skip the validation process. `unchecked` has a "memory unsafety" implication typically, but
+    /// this is safe code, however, doing this is not protocol safe. Mainly used in tests and by anything
+    /// that skips the validation process (e.g. an ipfs -> ceramic-one migration).
+    pub(crate) fn from_unvalidated_unchecked(event: UnvalidatedEvent) -> Self {
         Self {
-            key: value.key,
-            cid: value.cid,
-            event: value.event,
+            key: event.key,
+            cid: event.cid,
+            event: event.event,
         }
     }
 }
@@ -98,7 +96,7 @@ impl ValidatedEvents {
         // sort of arbitrary sizes, not betting on invalid events
         Self {
             valid: Vec::with_capacity(valid),
-            pending: Vec::with_capacity(valid / 4),
+            unvalidated: Vec::with_capacity(valid / 4),
             invalid: Vec::new(),
         }
     }
@@ -106,7 +104,7 @@ impl ValidatedEvents {
     pub fn extend_with(&mut self, other: Self) {
         self.valid.extend(other.valid);
         self.invalid.extend(other.invalid);
-        self.pending.extend(other.pending);
+        self.unvalidated.extend(other.unvalidated);
     }
 }
 
@@ -129,8 +127,11 @@ impl<'a> EventValidator<'a> {
         // let _validator = Self::new(pool, validation_req);
         // TODO: IMPLEMENT THIS
         Ok(ValidatedEvents {
-            valid: parsed_events.into_iter().map(|t| t.into()).collect(),
-            pending: Vec::new(),
+            valid: parsed_events
+                .into_iter()
+                .map(ValidatedEvent::from_unvalidated_unchecked)
+                .collect(),
+            unvalidated: Vec::new(),
             invalid: Vec::new(),
         })
     }

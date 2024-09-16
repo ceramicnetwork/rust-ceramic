@@ -157,7 +157,9 @@ mod test {
         let mut to_insert = Vec::with_capacity(10);
         for event in stream_1.iter().chain(stream_2.iter()) {
             let insertable = ValidatedEvent::into_insertable(
-                UnvalidatedEvent::try_from(event).unwrap().into(),
+                ValidatedEvent::from_unvalidated_unchecked(
+                    UnvalidatedEvent::try_from(event).unwrap(),
+                ),
                 None,
             );
             to_insert.push(insertable);
@@ -194,7 +196,9 @@ mod test {
         let mut remaining = Vec::with_capacity(events.len() - first_vec_count);
         for (i, event) in events.iter().enumerate() {
             let new = ValidatedEvent::into_insertable(
-                UnvalidatedEvent::try_from(event).unwrap().into(),
+                ValidatedEvent::from_unvalidated_unchecked(
+                    UnvalidatedEvent::try_from(event).unwrap(),
+                ),
                 None,
             );
             if i < first_vec_count {
