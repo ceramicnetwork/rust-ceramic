@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, sync::Arc};
 
 use super::{
     migration::Migrator,
@@ -155,7 +155,7 @@ impl EventService {
         Ok(EventInsertable::new(
             item.key.to_owned(),
             cid,
-            parsed_event,
+            Arc::new(parsed_event),
             informant,
             false,
         )?)

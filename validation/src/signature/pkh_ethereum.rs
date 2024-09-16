@@ -144,7 +144,7 @@ mod test {
         match event {
             unvalidated::Event::Time(_) => unreachable!("not a time event"),
             unvalidated::Event::Signed(s) => {
-                let cap = s.capability().unwrap();
+                let cap = &s.capability().unwrap().1;
 
                 // valid without expired check
                 match cap

@@ -83,7 +83,7 @@ mock! {
 fn events(start_index: u64) -> Vec<ConclusionEvent> {
     vec![
         ConclusionEvent::Data(ConclusionData {
-            index: start_index + 0,
+            index: start_index,
             event_cid: Cid::from_str("baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi")
                 .unwrap(),
             init: ConclusionInit {

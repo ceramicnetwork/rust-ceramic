@@ -64,15 +64,9 @@ pub(crate) struct TestEventInfo {
 }
 
 async fn build_event_fixed_model(model: StreamId) -> TestEventInfo {
-    let controller = thread_rng()
-        .sample_iter(&rand::distributions::Alphanumeric)
-        .take(32)
-        .map(char::from)
-        .collect::<String>();
-
     let unique = gen_rand_bytes::<12>();
     let init = ceramic_event::unvalidated::Builder::init()
-        .with_controller(controller)
+        .with_controller(CONTROLLER.to_owned())
         .with_sep("model".to_string(), model.to_vec())
         .with_unique(unique.to_vec())
         .with_data(ipld!({"radius": 1, "red": 2, "green": 3, "blue": 4}))
@@ -145,7 +139,7 @@ pub(crate) async fn signer() -> signed::JwkSigner {
 
 async fn init_event(model: &StreamId, signer: &signed::JwkSigner) -> signed::Event<Ipld> {
     let init = unvalidated::Builder::init()
-        .with_controller("controller".to_string())
+        .with_controller(CONTROLLER.to_string())
         .with_sep("model".to_string(), model.to_vec())
         .build();
     signed::Event::from_payload(unvalidated::Payload::Init(init), signer.to_owned()).unwrap()
@@ -314,7 +308,7 @@ pub(crate) async fn generate_chained_events() -> Vec<ReconItem<EventId>> {
     events.push(ReconItem::new(event_id_2, car_2));
     events.push(ReconItem::new(data_3_id, data_3_car));
 
-    return events;
+    events
 }
 
 /// Creates a deterministic StreamId of type Model based on the provided initial data.

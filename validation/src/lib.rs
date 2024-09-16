@@ -7,4 +7,7 @@ mod verifier;
 
 pub use blockchain::eth_rpc;
 pub use ceramic_event::unvalidated::signed::cacao;
-pub use verifier::{cacao_verifier, event_verifier, opts::VerifyCacaoOpts};
+pub use verifier::{
+    cacao_verifier, event_verifier,
+    opts::{AtTime, VerifyCacaoOpts, VerifyJwsOpts},
+};

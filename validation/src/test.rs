@@ -182,7 +182,7 @@ pub async fn verify_event_cacao(
         unvalidated::Event::Signed(s) => s,
         unvalidated::Event::Unsigned(_) => unreachable!("not unsigned"),
     };
-    let cap = event.capability().unwrap();
+    let cap = &event.capability().unwrap().1;
     match cap.verify_signature(opts).await {
         Ok(_) => {}
         Err(e) => {

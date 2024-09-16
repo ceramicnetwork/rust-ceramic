@@ -60,7 +60,7 @@ impl EventInsertable {
     pub fn new(
         order_key: EventId,
         event_cid: Cid,
-        event: unvalidated::Event<Ipld>,
+        event: Arc<unvalidated::Event<Ipld>>,
         informant: Option<NodeId>,
         deliverable: bool,
     ) -> Result<Self> {
@@ -83,7 +83,7 @@ impl EventInsertable {
             order_key,
             cid,
             deliverable,
-            event: Arc::new(event),
+            event,
             informant,
         })
     }

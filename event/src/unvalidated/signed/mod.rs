@@ -73,9 +73,9 @@ impl<D: serde::Serialize> Event<D> {
         &self.envelope
     }
 
-    /// Get the capability
-    pub fn capability(&self) -> Option<&Capability> {
-        self.capability.as_ref().map(|(_, ref c)| c)
+    /// Get the capability and its CID
+    pub fn capability(&self) -> Option<&(Cid, Capability)> {
+        self.capability.as_ref()
     }
 
     /// Constructs a signed event by signing a given event payload.
@@ -143,11 +143,6 @@ impl<D: serde::Serialize> Event<D> {
     /// Get the CID of the payload
     pub fn payload_cid(&self) -> &Cid {
         &self.payload_cid
-    }
-
-    /// Get the CID of the capability
-    pub fn capability_cid(&self) -> Option<&Cid> {
-        self.capability.as_ref().map(|c| &c.0)
     }
 
     /// Encodes the full signed event into a CAR file.

@@ -61,7 +61,7 @@ impl Verifier for Capability {
                     // TODO: use time here?
                     let signer_did = Jwk::resolve_did(did, &ResolutionInputMetadata::default())
                         .await
-                        .context("failed to resolve did")?;
+                        .context(format!("failed to resolve did: {did}"))?;
 
                     let jwk = Jwk::new(&signer_did)
                         .await
