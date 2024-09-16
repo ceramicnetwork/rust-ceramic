@@ -142,7 +142,10 @@ mod test {
 
     use super::*;
 
-    use crate::{tests::get_n_events, EventService};
+    use crate::{
+        event::validator::{UnvalidatedEvent, ValidatedEvent},
+        tests::get_n_events,
+    };
 
     async fn get_2_streams() -> (
         Vec<ReconItem<EventId>>,
@@ -153,9 +156,10 @@ mod test {
         let stream_1 = get_n_events(10).await;
         let mut to_insert = Vec::with_capacity(10);
         for event in stream_1.iter().chain(stream_2.iter()) {
-            let insertable = EventService::parse_discovered_event(event, None)
-                .await
-                .unwrap();
+            let insertable = ValidatedEvent::into_insertable(
+                UnvalidatedEvent::try_from(event).unwrap().into(),
+                None,
+            );
             to_insert.push(insertable);
         }
         (stream_1, stream_2, to_insert)
@@ -189,9 +193,10 @@ mod test {
         let mut insertable = Vec::with_capacity(first_vec_count);
         let mut remaining = Vec::with_capacity(events.len() - first_vec_count);
         for (i, event) in events.iter().enumerate() {
-            let new = EventService::parse_discovered_event(event, None)
-                .await
-                .unwrap();
+            let new = ValidatedEvent::into_insertable(
+                UnvalidatedEvent::try_from(event).unwrap().into(),
+                None,
+            );
             if i < first_vec_count {
                 insertable.push(new);
             } else {

@@ -1,21 +1,19 @@
-use std::{collections::HashSet, sync::Arc};
+use std::collections::HashSet;
 
 use super::{
     migration::Migrator,
     order_events::OrderEvents,
     ordering_task::{DeliverableTask, OrderingTask},
+    validator::{EventValidator, UnvalidatedEvent, ValidatedEvent, ValidatedEvents},
 };
 use async_trait::async_trait;
 use ceramic_core::{EventId, Network, NodeId, SerializeExt};
-use ceramic_event::unvalidated;
-use ceramic_event::unvalidated::Event;
 use ceramic_flight::{ConclusionData, ConclusionEvent, ConclusionInit, ConclusionTime};
 use ceramic_sql::sqlite::SqlitePool;
 use cid::Cid;
 use futures::stream::BoxStream;
 use ipld_core::ipld::Ipld;
 use recon::ReconItem;
-use tokio::try_join;
 use tracing::{trace, warn};
 
 use crate::store::{CeramicOneEvent, EventInsertable, EventRowDelivered};
@@ -39,7 +37,7 @@ const PENDING_EVENTS_CHANNEL_DEPTH: usize = 1_000_000;
 /// Implements the [`recon::Store`], [`iroh_bitswap::Store`], and [`ceramic_api::EventStore`] traits for [`ceramic_core::EventId`].
 pub struct EventService {
     pub(crate) pool: SqlitePool,
-    _validate_events: bool,
+    validate_events: bool,
     delivery_task: DeliverableTask,
 }
 /// An object that represents a set of blocks that can produce a stream of all blocks and lookup a
@@ -53,7 +51,7 @@ pub trait BlockStore {
     async fn block_data(&self, cid: &Cid) -> anyhow::Result<Option<Vec<u8>>>;
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeliverableRequirement {
     /// Must be ordered immediately and is rejected if not currently deliverable. The appropriate setting
     /// for API writes as we cannot create an event without its history.
@@ -75,7 +73,7 @@ impl EventService {
     pub async fn try_new(
         pool: SqlitePool,
         process_undelivered_events: bool,
-        _validate_events: bool,
+        validate_events: bool,
     ) -> Result<Self> {
         CeramicOneEvent::init_delivered_order(&pool).await?;
 
@@ -83,7 +81,7 @@ impl EventService {
 
         let svc = Self {
             pool,
-            _validate_events,
+            validate_events,
             delivery_task,
         };
         if process_undelivered_events {
@@ -142,47 +140,15 @@ impl EventService {
         Ok(())
     }
 
-    /// Currently only verifies that the event parses into a valid ceramic event.
-    /// In the future, we will need to do more event validation (verify all EventID pieces, hashes, signatures, etc).
-    pub(crate) async fn parse_discovered_event(
-        item: &ReconItem<EventId>,
-        informant: Option<NodeId>,
-    ) -> Result<EventInsertable> {
-        let (cid, parsed_event) =
-            unvalidated::Event::<Ipld>::decode_car(item.value.as_slice(), false)
-                .map_err(Error::new_app)?;
-
-        Ok(EventInsertable::new(
-            item.key.to_owned(),
-            cid,
-            Arc::new(parsed_event),
-            informant,
-            false,
-        )?)
-    }
-
-    async fn validate_signed_events(
-        events: Vec<EventInsertable>,
-    ) -> Result<(Vec<EventInsertable>, Vec<InvalidItem>)> {
-        // TODO: IMPLEMENT THIS
-        Ok((events, Vec::new()))
-    }
-
-    async fn validate_time_events(
-        events: Vec<EventInsertable>,
-    ) -> Result<(Vec<EventInsertable>, Vec<InvalidItem>)> {
-        // TODO: IMPLEMENT THIS
-        Ok((events, Vec::new()))
-    }
-
-    pub(crate) async fn validate_events(
+    async fn validate_events(
+        &self,
         items: &[ReconItem<EventId>],
-        informant: Option<NodeId>,
-    ) -> Result<(Vec<EventInsertable>, Vec<InvalidItem>)> {
+        validation_req: Option<ValidationRequirement>,
+    ) -> Result<ValidatedEvents> {
         let mut parsed_events = Vec::with_capacity(items.len());
-        let mut invalid_events = Vec::new();
+        let mut invalid_events = Vec::with_capacity(items.len() / 4); // assume most of the events are valid
         for event in items {
-            match Self::parse_discovered_event(event, informant).await {
+            match UnvalidatedEvent::try_from(event) {
                 Ok(insertable) => parsed_events.push(insertable),
                 Err(err) => invalid_events.push(InvalidItem::InvalidFormat {
                     key: event.key.clone(),
@@ -191,54 +157,80 @@ impl EventService {
             }
         }
 
-        // Group events by their type
-        let mut valid_events = Vec::with_capacity(parsed_events.len());
-        let mut signed_events = Vec::with_capacity(parsed_events.len());
-        let mut time_events = Vec::with_capacity(parsed_events.len());
-        for event in parsed_events {
-            match event.event().as_ref() {
-                Event::Time(_) => {
-                    time_events.push(event);
-                }
-                Event::Signed(_) => {
-                    signed_events.push(event);
-                }
-                Event::Unsigned(_) => {
-                    // Unsigned events need no extra validation.
-                    valid_events.push(event);
-                }
-            }
-        }
+        let to_validate = parsed_events;
 
-        let (
-            (valid_signed_events, invalid_signed_events),
-            (valid_time_events, invalid_time_events),
-        ) = try_join!(
-            Self::validate_signed_events(signed_events),
-            Self::validate_time_events(time_events)
-        )?;
+        // use the requested validation or None if it's disabled
+        let validation_requirement = if self.validate_events {
+            validation_req
+        } else {
+            None
+        };
 
-        valid_events.extend(valid_signed_events);
-        valid_events.extend(valid_time_events);
-        invalid_events.extend(invalid_signed_events);
-        invalid_events.extend(invalid_time_events);
+        let ValidatedEvents {
+            valid,
+            pending,
+            invalid,
+        } = EventValidator::validate_events(&self.pool, validation_requirement, to_validate)
+            .await?;
+        invalid_events.extend(invalid);
 
-        Ok((valid_events, invalid_events))
+        Ok(ValidatedEvents {
+            valid,
+            pending,
+            invalid: invalid_events,
+        })
     }
 
     pub(crate) async fn insert_events(
         &self,
         items: &[ReconItem<EventId>],
-        source: DeliverableRequirement,
+        deliverable_req: DeliverableRequirement,
         informant: Option<NodeId>,
+        validation_req: Option<ValidationRequirement>,
     ) -> Result<InsertResult> {
-        let (to_insert, mut invalid) = Self::validate_events(items, informant).await?;
+        let ValidatedEvents {
+            valid,
+            pending,
+            mut invalid,
+        } = self.validate_events(items, validation_req).await?;
 
+        let to_insert: Vec<EventInsertable> = valid
+            .into_iter()
+            .map(|e| ValidatedEvent::into_insertable(e, informant))
+            .collect();
+
+        let store_result = self
+            .persist_events(to_insert, deliverable_req, pending, &mut invalid)
+            .await?;
+
+        Ok(InsertResult {
+            store_result,
+            rejected: invalid,
+        })
+    }
+
+    /// Persists events to disk, tracks 'pending' events and notifies the background ordering task when appropriate
+    async fn persist_events(
+        &self,
+        to_insert: Vec<EventInsertable>,
+        deliverable_req: DeliverableRequirement,
+        pending: Vec<UnvalidatedEvent>,
+        invalid: &mut Vec<InvalidItem>,
+    ) -> Result<crate::store::InsertResult> {
         let ordered = OrderEvents::try_new(&self.pool, to_insert).await?;
+
+        // we consider pending "invalid" to tell the caller what happened.
+        // for recon, it's okay and we'll track them below and try to find events we need in the future,
+        // but if this is API (Immediate), we won't track them because they shouldn't exist yet.
+        pending.iter().for_each(|p| {
+            invalid.push(InvalidItem::RequiresHistory {
+                key: p.order_key().to_owned(),
+            })
+        });
 
         // api writes shouldn't have any missed history so we don't insert those events and
         // we can skip notifying the ordering task because it's impossible to be waiting on them
-        let store_result = match source {
+        match deliverable_req {
             DeliverableRequirement::Immediate => {
                 let to_insert = ordered.deliverable().iter();
                 invalid.extend(ordered.missing_history().iter().map(|e| {
@@ -246,7 +238,7 @@ impl EventService {
                         key: e.order_key().clone(),
                     }
                 }));
-                CeramicOneEvent::insert_many(&self.pool, to_insert).await?
+                Ok(CeramicOneEvent::insert_many(&self.pool, to_insert).await?)
             }
             DeliverableRequirement::Lazy | DeliverableRequirement::Asap => {
                 let to_insert = ordered
@@ -256,18 +248,13 @@ impl EventService {
 
                 let store_result = CeramicOneEvent::insert_many(&self.pool, to_insert).await?;
 
-                if matches!(source, DeliverableRequirement::Asap) {
+                if matches!(deliverable_req, DeliverableRequirement::Asap) {
                     self.notify_ordering_task(&ordered, &store_result).await?;
                 }
 
-                store_result
+                Ok(store_result)
             }
-        };
-
-        Ok(InsertResult {
-            store_result,
-            rejected: invalid,
-        })
+        }
     }
 
     pub(crate) async fn transform_raw_events_to_conclusion_events(

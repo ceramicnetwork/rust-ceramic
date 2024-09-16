@@ -1,6 +1,5 @@
 use std::str::FromStr;
 
-use crate::event::DeliverableRequirement;
 use crate::EventService;
 use anyhow::Error;
 use bytes::Bytes;
@@ -618,13 +617,7 @@ async fn test_conclusion_events_since() -> Result<(), Box<dyn std::error::Error>
     let test_events = generate_chained_events().await;
 
     for event in &test_events {
-        service
-            .insert_events(
-                &[event.clone()],
-                DeliverableRequirement::Immediate,
-                Some(NodeId::random().unwrap().0),
-            )
-            .await?;
+        recon::Store::insert_many(&service, &[event.clone()], NodeId::random().unwrap().0).await?;
     }
 
     // Fetch conclusion events

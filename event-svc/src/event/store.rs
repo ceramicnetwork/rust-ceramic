@@ -5,12 +5,13 @@ use ceramic_core::{EventId, NodeId};
 use cid::Cid;
 use iroh_bitswap::Block;
 use recon::{HashCount, ReconItem, Result as ReconResult, Sha256a};
+use tracing::info;
 
 use crate::event::{DeliverableRequirement, EventService};
 use crate::store::{CeramicOneBlock, CeramicOneEvent};
 use crate::Error;
 
-use super::service::{InsertResult, InvalidItem};
+use super::service::{InsertResult, InvalidItem, ValidationRequirement};
 
 impl From<InsertResult> for recon::InsertResult<EventId> {
     fn from(value: InsertResult) -> Self {
@@ -18,11 +19,13 @@ impl From<InsertResult> for recon::InsertResult<EventId> {
         let mut invalid = Vec::new();
         for ev in value.rejected {
             match ev {
-                InvalidItem::InvalidFormat { key, .. } => {
+                InvalidItem::InvalidFormat { key, reason } => {
+                    info!(key=%key, %reason, "invalid format for recon event");
                     invalid.push(recon::InvalidItem::InvalidFormat { key })
                 }
-                InvalidItem::InvalidSignature { key, .. } => {
-                    invalid.push(recon::InvalidItem::InvalidFormat { key })
+                InvalidItem::InvalidSignature { key, reason } => {
+                    info!(key=%key, %reason, "invalid signature for recon event");
+                    invalid.push(recon::InvalidItem::InvalidSignature { key })
                 }
                 // once we implement enough validation to actually return these items,
                 // the service will need to track them and retry them when the required CIDs are discovered
@@ -47,7 +50,12 @@ impl recon::Store for EventService {
         informant: NodeId,
     ) -> ReconResult<recon::InsertResult<EventId>> {
         let res = self
-            .insert_events(items, DeliverableRequirement::Asap, Some(informant))
+            .insert_events(
+                items,
+                DeliverableRequirement::Asap,
+                Some(informant),
+                Some(ValidationRequirement::new_recon()),
+            )
             .await?;
 
         Ok(res.into())
@@ -174,7 +182,12 @@ impl ceramic_api::EventService for EventService {
             })
             .collect::<Vec<_>>();
         let res = self
-            .insert_events(&items, DeliverableRequirement::Immediate, Some(informant))
+            .insert_events(
+                &items,
+                DeliverableRequirement::Immediate,
+                Some(informant),
+                Some(ValidationRequirement::new_local()),
+            )
             .await?;
 
         Ok(res.into())

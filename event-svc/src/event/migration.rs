@@ -174,7 +174,7 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
     }
     async fn write_batch(&mut self) -> Result<()> {
         self.service
-            .insert_events(&self.batch, DeliverableRequirement::Lazy, None)
+            .insert_events(&self.batch, DeliverableRequirement::Lazy, None, None)
             .await
             .map_err(Error::new_fatal)?;
         self.event_count += self.batch.len();

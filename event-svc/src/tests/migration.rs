@@ -155,7 +155,7 @@ async fn random_unsigned_init_time_event() -> Vec<unvalidated::Event<Ipld>> {
     let init = random_unsigned_init_event().await;
     let init_cid = init.to_cid().unwrap();
     vec![
-        unvalidated::Event::Unsigned(Box::new(unvalidated::init::Event::new(init.into()))),
+        unvalidated::Event::Unsigned(Box::new(unvalidated::init::Event::new(init))),
         random_time_event(init_cid).await.into(),
     ]
 }
