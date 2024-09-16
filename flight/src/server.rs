@@ -96,6 +96,20 @@ impl<T> FeedTable<T> {
                 Field::new("stream_cid", DataType::Binary, false),
                 Field::new("stream_type", DataType::UInt8, false),
                 Field::new("controller", DataType::Utf8, false),
+                Field::new(
+                    "dimensions",
+                    DataType::new_list(
+                        DataType::Struct(
+                            vec![
+                                Field::new("key", DataType::Utf8, false),
+                                Field::new("value", DataType::Binary, false),
+                            ]
+                            .into(),
+                        ),
+                        false,
+                    ),
+                    true,
+                ),
                 Field::new("event_cid", DataType::Binary, false),
                 Field::new("data", DataType::Binary, true),
                 Field::new(

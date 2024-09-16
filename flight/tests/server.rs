@@ -15,6 +15,7 @@ use expect_test::expect;
 use futures::TryStreamExt as _;
 use http::Uri;
 use mockall::{mock, predicate};
+use test_log::test;
 use tokio::net::TcpListener;
 use tonic::{async_trait, transport::Channel};
 
@@ -93,7 +94,10 @@ fn events(start_index: u64) -> Vec<ConclusionEvent> {
                 .unwrap(),
                 stream_type: 3,
                 controller: "did:key:bob".to_string(),
-                dimensions: vec![],
+                dimensions: vec![
+                    ("controller".to_string(), b"did:key:bob".to_vec()),
+                    ("model".to_string(), b"model".to_vec()),
+                ],
             },
             previous: vec![],
             data: r#"{"a":0}"#.bytes().collect(),
@@ -109,7 +113,10 @@ fn events(start_index: u64) -> Vec<ConclusionEvent> {
                 .unwrap(),
                 stream_type: 3,
                 controller: "did:key:bob".to_string(),
-                dimensions: vec![],
+                dimensions: vec![
+                    ("controller".to_string(), b"did:key:bob".to_vec()),
+                    ("model".to_string(), b"model".to_vec()),
+                ],
             },
             previous: vec![Cid::from_str(
                 "baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi",
@@ -127,7 +134,10 @@ fn events(start_index: u64) -> Vec<ConclusionEvent> {
                 .unwrap(),
                 stream_type: 3,
                 controller: "did:key:bob".to_string(),
-                dimensions: vec![],
+                dimensions: vec![
+                    ("controller".to_string(), b"did:key:bob".to_vec()),
+                    ("model".to_string(), b"model".to_vec()),
+                ],
             },
             previous: vec![
                 Cid::from_str("baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq")
@@ -140,7 +150,7 @@ fn events(start_index: u64) -> Vec<ConclusionEvent> {
     ]
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_simple() -> Result<()> {
     let mut feed = MockFeed::new();
     feed.expect_conclusion_events_since()
@@ -155,17 +165,17 @@ async fn test_simple() -> Result<()> {
     let batches = pretty_feed_from_batch(batch).await;
     let formatted = pretty_format_batches(&batches).unwrap().to_string();
     expect![[r#"
-        +-------+------------+-------------------------------------------------------------+-------------+-------------+-------------------------------------------------------------+---------------------------------------------+----------------------------------------------------------------------------------------------------------------------------+
-        | index | event_type | stream_cid                                                  | stream_type | controller  | event_cid                                                   | data                                        | previous                                                                                                                   |
-        +-------+------------+-------------------------------------------------------------+-------------+-------------+-------------------------------------------------------------+---------------------------------------------+----------------------------------------------------------------------------------------------------------------------------+
-        | 0     | 0          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 3           | did:key:bob | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | {"a":0}                                     | []                                                                                                                         |
-        | 1     | 1          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 3           | did:key:bob | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq |                                             | [baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi]                                                              |
-        | 2     | 0          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 3           | did:key:bob | baeabeifwi4ddwafoqe6htkx3g5gtjz5adapj366w6mraut4imk2ljwu3du | [{"op":"replace", "path": "/a", "value":1}] | [baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq, baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi] |
-        +-------+------------+-------------------------------------------------------------+-------------+-------------+-------------------------------------------------------------+---------------------------------------------+----------------------------------------------------------------------------------------------------------------------------+"#]].assert_eq(&formatted);
+        +-------+------------+-------------------------------------------------------------+-------------+-------------+-------------------------------------------------------------------------------------+-------------------------------------------------------------+---------------------------------------------+----------------------------------------------------------------------------------------------------------------------------+
+        | index | event_type | stream_cid                                                  | stream_type | controller  | dimensions                                                                          | event_cid                                                   | data                                        | previous                                                                                                                   |
+        +-------+------------+-------------------------------------------------------------+-------------+-------------+-------------------------------------------------------------------------------------+-------------------------------------------------------------+---------------------------------------------+----------------------------------------------------------------------------------------------------------------------------+
+        | 0     | 0          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 3           | did:key:bob | [{key: controller, value: 6469643a6b65793a626f62}, {key: model, value: 6d6f64656c}] | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | {"a":0}                                     | []                                                                                                                         |
+        | 1     | 1          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 3           | did:key:bob | [{key: controller, value: 6469643a6b65793a626f62}, {key: model, value: 6d6f64656c}] | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq |                                             | [baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi]                                                              |
+        | 2     | 0          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 3           | did:key:bob | [{key: controller, value: 6469643a6b65793a626f62}, {key: model, value: 6d6f64656c}] | baeabeifwi4ddwafoqe6htkx3g5gtjz5adapj366w6mraut4imk2ljwu3du | [{"op":"replace", "path": "/a", "value":1}] | [baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq, baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi] |
+        +-------+------------+-------------------------------------------------------------+-------------+-------------+-------------------------------------------------------------------------------------+-------------------------------------------------------------+---------------------------------------------+----------------------------------------------------------------------------------------------------------------------------+"#]].assert_eq(&formatted);
     Ok(())
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_push_down_predicate() -> Result<()> {
     let mut feed = MockFeed::new();
     feed.expect_conclusion_events_since()
@@ -184,11 +194,11 @@ async fn test_push_down_predicate() -> Result<()> {
     let batches = pretty_feed_from_batch(batch).await;
     let formatted = pretty_format_batches(&batches).unwrap().to_string();
     expect![[r#"
-        +-------+------------+-------------------------------------------------------------+-------------+-------------+-------------------------------------------------------------+---------+---------------------------------------------------------------+
-        | index | event_type | stream_cid                                                  | stream_type | controller  | event_cid                                                   | data    | previous                                                      |
-        +-------+------------+-------------------------------------------------------------+-------------+-------------+-------------------------------------------------------------+---------+---------------------------------------------------------------+
-        | 42    | 0          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 3           | did:key:bob | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | {"a":0} | []                                                            |
-        | 43    | 1          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 3           | did:key:bob | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq |         | [baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi] |
-        +-------+------------+-------------------------------------------------------------+-------------+-------------+-------------------------------------------------------------+---------+---------------------------------------------------------------+"#]].assert_eq(&formatted);
+        +-------+------------+-------------------------------------------------------------+-------------+-------------+-------------------------------------------------------------------------------------+-------------------------------------------------------------+---------+---------------------------------------------------------------+
+        | index | event_type | stream_cid                                                  | stream_type | controller  | dimensions                                                                          | event_cid                                                   | data    | previous                                                      |
+        +-------+------------+-------------------------------------------------------------+-------------+-------------+-------------------------------------------------------------------------------------+-------------------------------------------------------------+---------+---------------------------------------------------------------+
+        | 42    | 0          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 3           | did:key:bob | [{key: controller, value: 6469643a6b65793a626f62}, {key: model, value: 6d6f64656c}] | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | {"a":0} | []                                                            |
+        | 43    | 1          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 3           | did:key:bob | [{key: controller, value: 6469643a6b65793a626f62}, {key: model, value: 6d6f64656c}] | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq |         | [baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi] |
+        +-------+------------+-------------------------------------------------------------+-------------+-------------+-------------------------------------------------------------------------------------+-------------------------------------------------------------+---------+---------------------------------------------------------------+"#]].assert_eq(&formatted);
     Ok(())
 }

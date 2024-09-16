@@ -11,6 +11,7 @@ use ceramic_sql::sqlite::SqlitePool;
 use cid::{Cid, CidGeneric};
 use expect_test::expect;
 use iroh_bitswap::Store;
+use itertools::Itertools;
 use prettytable::{Cell, Row, Table};
 use recon::Sha256a;
 use recon::{InsertResult, ReconItem};
@@ -632,41 +633,59 @@ async fn test_conclusion_events_since() -> Result<(), Box<dyn std::error::Error>
         Cell::new("stream_cid"),
         Cell::new("stream_type"),
         Cell::new("controller"),
+        Cell::new("dimensions"),
         Cell::new("event_cid"),
         Cell::new("data"),
         Cell::new("previous"),
     ]));
 
     for (index, event) in conclusion_events.iter().enumerate() {
-        let (event_type, stream_cid, stream_type, controller, event_cid, data, previous) =
-            match event {
-                ConclusionEvent::Data(data_event) => (
-                    "Data",
-                    data_event.init.stream_cid.to_string(),
-                    data_event.init.stream_type.to_string(),
-                    data_event.init.controller.clone(),
-                    data_event.event_cid.to_string(),
-                    hex::encode(&data_event.data),
-                    format!("{:?}", data_event.previous),
-                ),
-                ConclusionEvent::Time(time_event) => (
-                    "Time",
-                    time_event.init.stream_cid.to_string(),
-                    time_event.init.stream_type.to_string(),
-                    time_event.init.controller.clone(),
-                    time_event.event_cid.to_string(),
-                    String::new(), // Time events don't have data
-                    format!("{:?}", time_event.previous),
-                ),
-            };
+        let (
+            event_type,
+            stream_cid,
+            stream_type,
+            controller,
+            dimensions,
+            event_cid,
+            data,
+            previous,
+        ) = match event {
+            ConclusionEvent::Data(data_event) => (
+                "Data",
+                &data_event.init.stream_cid,
+                &data_event.init.stream_type,
+                &data_event.init.controller,
+                &data_event.init.dimensions,
+                &data_event.event_cid,
+                hex::encode(&data_event.data),
+                format!("{:?}", data_event.previous),
+            ),
+            ConclusionEvent::Time(time_event) => (
+                "Time",
+                &time_event.init.stream_cid,
+                &time_event.init.stream_type,
+                &time_event.init.controller,
+                &time_event.init.dimensions,
+                &time_event.event_cid,
+                String::new(), // Time events don't have data
+                format!("{:?}", time_event.previous),
+            ),
+        };
 
         table.add_row(Row::new(vec![
             Cell::new(&index.to_string()),
             Cell::new(event_type),
-            Cell::new(&stream_cid),
-            Cell::new(&stream_type),
-            Cell::new(&controller),
-            Cell::new(&event_cid),
+            Cell::new(&stream_cid.to_string()),
+            Cell::new(&stream_type.to_string()),
+            Cell::new(controller),
+            Cell::new(&format!(
+                "[{}]",
+                dimensions
+                    .iter()
+                    .map(|(key, value)| format!("{key}: \"{}\"", hex::encode(value)))
+                    .join(", ")
+            )),
+            Cell::new(&event_cid.to_string()),
             Cell::new(&data),
             Cell::new(&previous),
         ]));
@@ -675,19 +694,19 @@ async fn test_conclusion_events_since() -> Result<(), Box<dyn std::error::Error>
     let table_string = table.to_string();
 
     expect![[r#"
-        +-------+------------+---------------------------------------------------------------+-------------+----------------------------------------------------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
-        | index | event_type | stream_cid                                                    | stream_type | controller                                               | event_cid                                                     | data                                       | previous                                                             |
-        +-------+------------+---------------------------------------------------------------+-------------+----------------------------------------------------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
-        | 0     | Data       | bagcqcerahx5i27vqxigdq3xulceu5qv6yzdvxzamfueubsyxam5kmjcpp45q | 3           | did:key:z6Mkk3rtfoKDMMG4zyarNGwCQs44GSQ49pcYKQspHJPXSnVw | bagcqcerahx5i27vqxigdq3xulceu5qv6yzdvxzamfueubsyxam5kmjcpp45q | 6e756c6c                                   | []                                                                   |
-        +-------+------------+---------------------------------------------------------------+-------------+----------------------------------------------------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
-        | 1     | Data       | bagcqcerahx5i27vqxigdq3xulceu5qv6yzdvxzamfueubsyxam5kmjcpp45q | 3           | did:key:z6Mkk3rtfoKDMMG4zyarNGwCQs44GSQ49pcYKQspHJPXSnVw | bagcqcerakug4jvwbhisuo4zlhzkinwfca2dbcv63ea7jan27zlwhzpxyrleq | 7b2273747265616d5f31223a22646174615f31227d | [Cid(bagcqcerahx5i27vqxigdq3xulceu5qv6yzdvxzamfueubsyxam5kmjcpp45q)] |
-        +-------+------------+---------------------------------------------------------------+-------------+----------------------------------------------------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
-        | 2     | Data       | bagcqcerahx5i27vqxigdq3xulceu5qv6yzdvxzamfueubsyxam5kmjcpp45q | 3           | did:key:z6Mkk3rtfoKDMMG4zyarNGwCQs44GSQ49pcYKQspHJPXSnVw | bagcqceraccgbaicjznz45ov4wgc3wnr62zqwba24sxzreqerlzdklidysfdq | 7b2273747265616d5f31223a22646174615f32227d | [Cid(bagcqcerakug4jvwbhisuo4zlhzkinwfca2dbcv63ea7jan27zlwhzpxyrleq)] |
-        +-------+------------+---------------------------------------------------------------+-------------+----------------------------------------------------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
-        | 3     | Data       | bagcqcerazudkhl4sectilrixkvshfutjbkbeqbnh754hh5oerst6txpviuca | 2           | did:key:z6Mkk3rtfoKDMMG4zyarNGwCQs44GSQ49pcYKQspHJPXSnVw | bagcqcerazudkhl4sectilrixkvshfutjbkbeqbnh754hh5oerst6txpviuca | 6e756c6c                                   | []                                                                   |
-        +-------+------------+---------------------------------------------------------------+-------------+----------------------------------------------------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
-        | 4     | Data       | bagcqcerazudkhl4sectilrixkvshfutjbkbeqbnh754hh5oerst6txpviuca | 2           | did:key:z6Mkk3rtfoKDMMG4zyarNGwCQs44GSQ49pcYKQspHJPXSnVw | bagcqceramv66jowkwdtxay44fppdcez5bhqfwa7hzystd3lofemuoetd64ra | 7b2273747265616d32223a22646174615f31227d   | [Cid(bagcqcerazudkhl4sectilrixkvshfutjbkbeqbnh754hh5oerst6txpviuca)] |
-        +-------+------------+---------------------------------------------------------------+-------------+----------------------------------------------------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
+        +-------+------------+---------------------------------------------------------------+-------------+----------------------------------------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
+        | index | event_type | stream_cid                                                    | stream_type | controller                                               | dimensions                                                                                                                                                                                                                                                            | event_cid                                                     | data                                       | previous                                                             |
+        +-------+------------+---------------------------------------------------------------+-------------+----------------------------------------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
+        | 0     | Data       | bagcqcerahx5i27vqxigdq3xulceu5qv6yzdvxzamfueubsyxam5kmjcpp45q | 3           | did:key:z6Mkk3rtfoKDMMG4zyarNGwCQs44GSQ49pcYKQspHJPXSnVw | [controller: "6469643a6b65793a7a364d6b6b337274666f4b444d4d47347a7961724e4777435173343447535134397063594b517370484a5058536e5677", sep: "6d6f64656c", model: "ce0102015512204bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a", unique: "", context: ""] | bagcqcerahx5i27vqxigdq3xulceu5qv6yzdvxzamfueubsyxam5kmjcpp45q | 6e756c6c                                   | []                                                                   |
+        +-------+------------+---------------------------------------------------------------+-------------+----------------------------------------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
+        | 1     | Data       | bagcqcerahx5i27vqxigdq3xulceu5qv6yzdvxzamfueubsyxam5kmjcpp45q | 3           | did:key:z6Mkk3rtfoKDMMG4zyarNGwCQs44GSQ49pcYKQspHJPXSnVw | [controller: "6469643a6b65793a7a364d6b6b337274666f4b444d4d47347a7961724e4777435173343447535134397063594b517370484a5058536e5677", sep: "6d6f64656c", model: "ce0102015512204bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a", unique: "", context: ""] | bagcqcerakug4jvwbhisuo4zlhzkinwfca2dbcv63ea7jan27zlwhzpxyrleq | 7b2273747265616d5f31223a22646174615f31227d | [Cid(bagcqcerahx5i27vqxigdq3xulceu5qv6yzdvxzamfueubsyxam5kmjcpp45q)] |
+        +-------+------------+---------------------------------------------------------------+-------------+----------------------------------------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
+        | 2     | Data       | bagcqcerahx5i27vqxigdq3xulceu5qv6yzdvxzamfueubsyxam5kmjcpp45q | 3           | did:key:z6Mkk3rtfoKDMMG4zyarNGwCQs44GSQ49pcYKQspHJPXSnVw | [controller: "6469643a6b65793a7a364d6b6b337274666f4b444d4d47347a7961724e4777435173343447535134397063594b517370484a5058536e5677", sep: "6d6f64656c", model: "ce0102015512204bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a", unique: "", context: ""] | bagcqceraccgbaicjznz45ov4wgc3wnr62zqwba24sxzreqerlzdklidysfdq | 7b2273747265616d5f31223a22646174615f32227d | [Cid(bagcqcerakug4jvwbhisuo4zlhzkinwfca2dbcv63ea7jan27zlwhzpxyrleq)] |
+        +-------+------------+---------------------------------------------------------------+-------------+----------------------------------------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
+        | 3     | Data       | bagcqcerazudkhl4sectilrixkvshfutjbkbeqbnh754hh5oerst6txpviuca | 2           | did:key:z6Mkk3rtfoKDMMG4zyarNGwCQs44GSQ49pcYKQspHJPXSnVw | [controller: "6469643a6b65793a7a364d6b6b337274666f4b444d4d47347a7961724e4777435173343447535134397063594b517370484a5058536e5677", sep: "6d6f64656c", model: "ce01040171710b0009686d6f64656c2d7631", unique: "", context: ""]                                           | bagcqcerazudkhl4sectilrixkvshfutjbkbeqbnh754hh5oerst6txpviuca | 6e756c6c                                   | []                                                                   |
+        +-------+------------+---------------------------------------------------------------+-------------+----------------------------------------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
+        | 4     | Data       | bagcqcerazudkhl4sectilrixkvshfutjbkbeqbnh754hh5oerst6txpviuca | 2           | did:key:z6Mkk3rtfoKDMMG4zyarNGwCQs44GSQ49pcYKQspHJPXSnVw | [controller: "6469643a6b65793a7a364d6b6b337274666f4b444d4d47347a7961724e4777435173343447535134397063594b517370484a5058536e5677", sep: "6d6f64656c", model: "ce01040171710b0009686d6f64656c2d7631", unique: "", context: ""]                                           | bagcqceramv66jowkwdtxay44fppdcez5bhqfwa7hzystd3lofemuoetd64ra | 7b2273747265616d32223a22646174615f31227d   | [Cid(bagcqcerazudkhl4sectilrixkvshfutjbkbeqbnh754hh5oerst6txpviuca)] |
+        +-------+------------+---------------------------------------------------------------+-------------+----------------------------------------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
     "#]].assert_eq(&table_string);
 
     Ok(())

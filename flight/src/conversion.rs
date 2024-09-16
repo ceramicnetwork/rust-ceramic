@@ -2,7 +2,7 @@ use crate::types::*;
 use anyhow::Result;
 use arrow::array::{
     ArrayRef, BinaryBuilder, ListBuilder, PrimitiveBuilder, StringBuilder, StructArray,
-    UInt64Builder, UInt8Builder,
+    StructBuilder, UInt64Builder, UInt8Builder,
 };
 use arrow::datatypes::{DataType, Field};
 use arrow::record_batch::RecordBatch;
@@ -15,21 +15,38 @@ pub struct ConclusionEventBuilder {
     event_type: UInt8Builder,
     stream_cid: BinaryBuilder,
     stream_type: UInt8Builder,
-    event_cid: BinaryBuilder,
     controller: StringBuilder,
+    dimensions: ListBuilder<StructBuilder>,
+    event_cid: BinaryBuilder,
     data: BinaryBuilder,
     previous: ListBuilder<BinaryBuilder>,
 }
 
 impl Default for ConclusionEventBuilder {
     fn default() -> Self {
+        let key_value_fields = vec![
+            Field::new("key", DataType::Utf8, false),
+            Field::new("value", DataType::Binary, false),
+        ];
+
         Self {
             index: UInt64Builder::new(),
             event_type: PrimitiveBuilder::new(),
             stream_cid: BinaryBuilder::new(),
             stream_type: PrimitiveBuilder::new(),
-            event_cid: BinaryBuilder::new(),
             controller: StringBuilder::new(),
+            dimensions: ListBuilder::new(StructBuilder::new(
+                key_value_fields.clone(),
+                vec![
+                    Box::new(StringBuilder::new()),
+                    Box::new(BinaryBuilder::new()),
+                ],
+            ))
+            .with_field(Field::new_list_field(
+                DataType::Struct(key_value_fields.into()),
+                false,
+            )),
+            event_cid: BinaryBuilder::new(),
             data: BinaryBuilder::new(),
             previous: ListBuilder::new(BinaryBuilder::new())
                 .with_field(Field::new_list_field(DataType::Binary, false)),
@@ -40,25 +57,18 @@ impl Default for ConclusionEventBuilder {
 impl ConclusionEventBuilder {
     fn append(&mut self, event: &ConclusionEvent) {
         self.event_type.append_value(event.event_type_as_int());
-        match event {
+        let init = match event {
             ConclusionEvent::Data(data_event) => {
-                self.stream_cid
-                    .append_value(data_event.init.stream_cid.to_bytes());
-                self.stream_type.append_value(data_event.init.stream_type);
                 self.event_cid.append_value(data_event.event_cid.to_bytes());
-                self.controller.append_value(&data_event.init.controller);
                 self.data.append_value(&data_event.data);
                 for cid in &data_event.previous {
                     self.previous.values().append_value(cid.to_bytes());
                 }
                 self.previous.append(!data_event.previous.is_empty());
                 self.index.append_value(data_event.index);
+                &data_event.init
             }
             ConclusionEvent::Time(time_event) => {
-                self.stream_cid
-                    .append_value(time_event.init.stream_cid.to_bytes());
-                self.stream_type.append_value(time_event.init.stream_type);
-                self.controller.append_value(&time_event.init.controller);
                 self.event_cid.append_value(time_event.event_cid.to_bytes());
                 self.data.append_null();
                 for cid in &time_event.previous {
@@ -66,50 +76,44 @@ impl ConclusionEventBuilder {
                 }
                 self.previous.append(!time_event.previous.is_empty());
                 self.index.append_value(time_event.index);
+                &time_event.init
             }
+        };
+        self.stream_cid.append_value(init.stream_cid.to_bytes());
+        self.controller.append_value(&init.controller);
+        self.stream_type.append_value(init.stream_type);
+        for (k, v) in &init.dimensions {
+            self.dimensions
+                .values()
+                .field_builder::<StringBuilder>(0)
+                .unwrap()
+                .append_value(k);
+            self.dimensions
+                .values()
+                .field_builder::<BinaryBuilder>(1)
+                .unwrap()
+                .append_value(v);
+            self.dimensions.values().append(true);
         }
+        self.dimensions.append(!init.dimensions.is_empty());
     }
 
     fn finish(&mut self) -> StructArray {
-        let event_type = Arc::new(self.event_type.finish()) as ArrayRef;
-        let event_type_field = Arc::new(Field::new("event_type", DataType::UInt8, false));
-
-        let stream_cid = Arc::new(self.stream_cid.finish()) as ArrayRef;
-        let stream_cid_field = Arc::new(Field::new("stream_cid", DataType::Binary, false));
-
-        let stream_type = Arc::new(self.stream_type.finish()) as ArrayRef;
-        let stream_type_field = Arc::new(Field::new("stream_type", DataType::UInt8, false));
-
-        let controller = Arc::new(self.controller.finish()) as ArrayRef;
-        let controller_field = Arc::new(Field::new("controller", DataType::Utf8, false));
-
-        let event_cid = Arc::new(self.event_cid.finish()) as ArrayRef;
-        let event_cid_field = Arc::new(Field::new("event_cid", DataType::Binary, false));
-
-        // Data can be empty for ConclusionTime
-        let data = Arc::new(self.data.finish()) as ArrayRef;
-        let data_field = Arc::new(Field::new("data", DataType::Binary, true));
-
-        let previous = Arc::new(self.previous.finish()) as ArrayRef;
-        let previous_field = Arc::new(Field::new(
-            "previous",
-            DataType::List(Arc::new(Field::new_list_field(DataType::Binary, false))),
-            true,
-        ));
-
-        let index = Arc::new(self.index.finish()) as ArrayRef;
-        let index_field = Arc::new(Field::new("index", DataType::UInt64, false));
-
-        StructArray::from(vec![
-            (index_field, index),
-            (event_type_field, event_type),
-            (stream_cid_field, stream_cid),
-            (stream_type_field, stream_type),
-            (controller_field, controller),
-            (event_cid_field, event_cid),
-            (data_field, data),
-            (previous_field, previous),
+        StructArray::try_from(vec![
+            ("index", Arc::new(self.index.finish()) as ArrayRef),
+            ("event_type", Arc::new(self.event_type.finish()) as ArrayRef),
+            ("stream_cid", Arc::new(self.stream_cid.finish()) as ArrayRef),
+            (
+                "stream_type",
+                Arc::new(self.stream_type.finish()) as ArrayRef,
+            ),
+            ("controller", Arc::new(self.controller.finish()) as ArrayRef),
+            ("dimensions", Arc::new(self.dimensions.finish()) as ArrayRef),
+            ("event_cid", Arc::new(self.event_cid.finish()) as ArrayRef),
+            ("data", Arc::new(self.data.finish()) as ArrayRef),
+            ("previous", Arc::new(self.previous.finish()) as ArrayRef),
         ])
+        .expect("unreachable, we should always construct a well formed struct array")
     }
 }
 
@@ -200,6 +204,7 @@ mod tests {
     use ceramic_event::StreamIdType;
     use cid::Cid;
     use expect_test::expect;
+    use test_log::test;
 
     // Tests the conversion of ConclusionEvents to Arrow RecordBatch.
     //
@@ -211,7 +216,7 @@ mod tests {
     // 1. The number of rows in the RecordBatch
     // 2. The schema of the RecordBatch
     // 3. The content of each column in the RecordBatch
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_conclusion_events_to_record_batch() {
         // Create mock ConclusionEvents
         let events = vec![
@@ -227,7 +232,10 @@ mod tests {
                     .unwrap(),
                     stream_type: StreamIdType::Model as u8,
                     controller: "did:key:test1".to_string(),
-                    dimensions: vec![],
+                    dimensions: vec![
+                        ("controller".to_string(), b"did:key:test1".to_vec()),
+                        ("model".to_string(), b"model".to_vec()),
+                    ],
                 },
                 previous: vec![],
                 data: b"123".into(),
@@ -245,7 +253,10 @@ mod tests {
                     .unwrap(),
                     stream_type: StreamIdType::Model as u8,
                     controller: "did:key:test1".to_string(),
-                    dimensions: vec![],
+                    dimensions: vec![
+                        ("controller".to_string(), b"did:key:test1".to_vec()),
+                        ("model".to_string(), b"model".to_vec()),
+                    ],
                 },
                 previous: vec![Cid::from_str(
                     "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
@@ -270,7 +281,10 @@ mod tests {
                     .unwrap(),
                     stream_type: StreamIdType::Model as u8,
                     controller: "did:key:test1".to_string(),
-                    dimensions: vec![],
+                    dimensions: vec![
+                        ("controller".to_string(), b"did:key:test1".to_vec()),
+                        ("model".to_string(), b"model".to_vec()),
+                    ],
                 },
                 index: 2,
             }),
@@ -286,7 +300,10 @@ mod tests {
                     .unwrap(),
                     stream_type: StreamIdType::Model as u8,
                     controller: "did:key:test1".to_string(),
-                    dimensions: vec![],
+                    dimensions: vec![
+                        ("controller".to_string(), b"did:key:test1".to_vec()),
+                        ("model".to_string(), b"model".to_vec()),
+                    ],
                 },
                 previous: vec![
                     Cid::from_str("baeabeidtub3bnbojbickf6d4pqscaw6xpt5ksgido7kcsg2jyftaj237di")
@@ -305,13 +322,13 @@ mod tests {
 
         // Use expect_test to validate the output
         expect![[r#"
-            +-------+------------+-------------------------------------------------------------+-------------+---------------+-------------------------------------------------------------+------+----------------------------------------------------------------------------------------------------------------------------+
-            | index | event_type | stream_cid                                                  | stream_type | controller    | event_cid                                                   | data | previous                                                                                                                   |
-            +-------+------------+-------------------------------------------------------------+-------------+---------------+-------------------------------------------------------------+------+----------------------------------------------------------------------------------------------------------------------------+
-            | 0     | 0          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 123  | []                                                                                                                         |
-            | 1     | 0          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q | 456  | [baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu]                                                              |
-            | 2     | 1          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | baeabeidtub3bnbojbickf6d4pqscaw6xpt5ksgido7kcsg2jyftaj237di |      | [baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q]                                                              |
-            | 3     | 0          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | baeabeiewqcj4bwhcssizv5kcyvsvm57bxghjpqshnbzkc6rijmwb4im4yq | 789  | [baeabeidtub3bnbojbickf6d4pqscaw6xpt5ksgido7kcsg2jyftaj237di, baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q] |
-            +-------+------------+-------------------------------------------------------------+-------------+---------------+-------------------------------------------------------------+------+----------------------------------------------------------------------------------------------------------------------------+"#]].assert_eq(&formatted);
+            +-------+------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------+-------------------------------------------------------------+------+----------------------------------------------------------------------------------------------------------------------------+
+            | index | event_type | stream_cid                                                  | stream_type | controller    | dimensions                                                                              | event_cid                                                   | data | previous                                                                                                                   |
+            +-------+------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------+-------------------------------------------------------------+------+----------------------------------------------------------------------------------------------------------------------------+
+            | 0     | 0          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | [{key: controller, value: 6469643a6b65793a7465737431}, {key: model, value: 6d6f64656c}] | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 123  | []                                                                                                                         |
+            | 1     | 0          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | [{key: controller, value: 6469643a6b65793a7465737431}, {key: model, value: 6d6f64656c}] | baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q | 456  | [baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu]                                                              |
+            | 2     | 1          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | [{key: controller, value: 6469643a6b65793a7465737431}, {key: model, value: 6d6f64656c}] | baeabeidtub3bnbojbickf6d4pqscaw6xpt5ksgido7kcsg2jyftaj237di |      | [baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q]                                                              |
+            | 3     | 0          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | [{key: controller, value: 6469643a6b65793a7465737431}, {key: model, value: 6d6f64656c}] | baeabeiewqcj4bwhcssizv5kcyvsvm57bxghjpqshnbzkc6rijmwb4im4yq | 789  | [baeabeidtub3bnbojbickf6d4pqscaw6xpt5ksgido7kcsg2jyftaj237di, baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q] |
+            +-------+------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------+-------------------------------------------------------------+------+----------------------------------------------------------------------------------------------------------------------------+"#]].assert_eq(&formatted);
     }
 }
