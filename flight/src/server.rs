@@ -94,6 +94,7 @@ impl<T> FeedTable<T> {
                 Field::new("index", DataType::UInt64, false),
                 Field::new("event_type", DataType::UInt8, false),
                 Field::new("stream_cid", DataType::Binary, false),
+                Field::new("stream_type", DataType::UInt8, false),
                 Field::new("controller", DataType::Utf8, false),
                 Field::new("event_cid", DataType::Binary, false),
                 Field::new("data", DataType::Binary, true),

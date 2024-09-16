@@ -1,6 +1,8 @@
 use anyhow::{anyhow, Result};
-use ceramic_event::unvalidated;
+use ceramic_core::METAMODEL_STREAM_ID;
+use ceramic_event::{unvalidated, StreamId, StreamIdType};
 use cid::Cid;
+use int_enum::IntEnum;
 use ipld_core::ipld::Ipld;
 use serde::{Deserialize, Serialize};
 
@@ -39,6 +41,8 @@ pub struct ConclusionInit {
     /// The CID of the init event of the stream. Can be used as a unique identifier for the stream.
     /// This is not the StreamId as it does not contain the StreamType.
     pub stream_cid: Cid,
+    /// The type of the stream.
+    pub stream_type: u8,
     /// DID controller of the stream.
     pub controller: String,
     /// Order set of key value pairs that annotate the stream.
@@ -82,11 +86,31 @@ impl TryFrom<unvalidated::Event<Ipld>> for ConclusionInit {
     type Error = anyhow::Error;
 
     fn try_from(event: unvalidated::Event<Ipld>) -> Result<Self> {
+        // Extract the init payload from the event
         let init_payload = event
             .init_payload()
-            .ok_or_else(|| anyhow!("no init payload found"))?;
+            .ok_or_else(|| anyhow!("malformed event: no init payload found"))?;
+
+        // Get the model from the init header
+        // The model indicates the creator of the stream
+        let model = init_payload.header().model();
+
+        // Convert the model to a StreamId
+        let stream_id = StreamId::try_from(model)?;
+
+        // Determine the stream type:
+        // If the stream_id matches the metamodel, it's a Model stream
+        // Otherwise, it's a ModelInstanceDocument stream
+        let stream_type = if stream_id == METAMODEL_STREAM_ID {
+            StreamIdType::Model
+        } else {
+            StreamIdType::ModelInstanceDocument
+        };
+
+        // Construct and return the ConclusionInit
         Ok(ConclusionInit {
             stream_cid: *event.id(),
+            stream_type: stream_type.int_value() as u8,
             controller: init_payload
                 .header()
                 .controllers()

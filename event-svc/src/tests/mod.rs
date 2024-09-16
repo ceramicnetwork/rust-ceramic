@@ -2,6 +2,8 @@ mod event;
 mod migration;
 mod ordering;
 
+use std::str::FromStr;
+
 use ceramic_core::{DidDocument, EventId, Network, StreamId};
 use ceramic_event::unvalidated::{self, signed};
 use cid::Cid;
@@ -13,6 +15,7 @@ use recon::ReconItem;
 
 const CONTROLLER: &str = "did:key:z6Mkk3rtfoKDMMG4zyarNGwCQs44GSQ49pcYKQspHJPXSnVw";
 const SEP_KEY: &str = "model";
+const METAMODEL_STREAM_ID: &str = "kh4q0ozorrgaq2mezktnrmdwleo1d";
 
 // Generate an event (sep key and controller are fixed)
 pub(crate) fn build_event_id(cid: &Cid, init: &Cid, model: &StreamId) -> EventId {
@@ -243,8 +246,8 @@ pub(crate) async fn generate_chained_events() -> Vec<ReconItem<EventId>> {
     let mut events: Vec<ReconItem<EventId>> = Vec::with_capacity(5);
 
     let signer = Box::new(signer().await);
-    let stream_id_1 = create_deterministic_stream_id(&[0x01]);
-    let stream_id_2 = create_deterministic_stream_id(&[0x02]);
+    let stream_id_1 = create_deterministic_stream_id_model(&[0x01]);
+    let stream_id_2 = create_meta_model_stream_id();
     let init_1 = init_event(&stream_id_1, &signer).await;
     let init_1_cid = init_1.envelope_cid();
     let (event_id_1, car_1) = (
@@ -314,7 +317,7 @@ pub(crate) async fn generate_chained_events() -> Vec<ReconItem<EventId>> {
     return events;
 }
 
-/// Creates a deterministic StreamId based on the provided initial data.
+/// Creates a deterministic StreamId of type Model based on the provided initial data.
 ///
 /// This function generates a reproducible StreamId by hashing the input data
 /// using SHA-256 and creating a CID (Content Identifier) from the resulting digest.
@@ -330,10 +333,29 @@ pub(crate) async fn generate_chained_events() -> Vec<ReconItem<EventId>> {
 /// # Example
 ///
 /// ```rust
-/// let stream_id = create_deterministic_stream_id(&[0x01]);
+/// let stream_id = create_deterministic_stream_id_model(&[0x01]);
 /// ```
-fn create_deterministic_stream_id(initial_data: &[u8]) -> StreamId {
+fn create_deterministic_stream_id_model(initial_data: &[u8]) -> StreamId {
     let digest = Code::Sha2_256.digest(initial_data);
     let cid = Cid::new_v1(0x55, digest);
-    StreamId::document(cid)
+    StreamId::model(cid)
+}
+
+/// Creates a StreamId for the metamodel stream.
+///
+/// This function returns a predefined StreamId that represents the metamodel stream.
+/// The StreamId is created from a constant string defined elsewhere in the code.
+///
+/// # Returns
+///
+/// A `StreamId` representing the metamodel stream.
+///
+/// # Example
+///
+/// ```rust
+/// let stream_id = create_meta_model_stream_id();
+/// assert_eq!(stream_id.to_string(), "kh4q0ozorrgaq2mezktnrmdwleo1d");
+/// ```
+fn create_meta_model_stream_id() -> StreamId {
+    StreamId::from_str(METAMODEL_STREAM_ID).unwrap()
 }

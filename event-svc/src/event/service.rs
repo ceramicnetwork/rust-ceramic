@@ -281,7 +281,12 @@ impl EventService {
         } = event;
         let stream_cid = event.id();
         let init_event = self.get_event_by_cid(stream_cid).await?;
-        let init = ConclusionInit::try_from(init_event).unwrap();
+        let init = ConclusionInit::try_from(init_event).map_err(|e| {
+            Error::new_app(anyhow::anyhow!(
+                "Malformed event found in the database: {}",
+                e
+            ))
+        })?;
 
         match event {
             ceramic_event::unvalidated::Event::Time(time_event) => {
