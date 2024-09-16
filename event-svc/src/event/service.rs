@@ -1,4 +1,7 @@
-use std::collections::HashSet;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{Arc, Mutex},
+};
 
 use super::{
     migration::Migrator,
@@ -32,6 +35,13 @@ const MAX_ITERATIONS: usize = 100_000_000;
 /// This is currently 304 bytes per event, so this is 3 MB of data
 const PENDING_EVENTS_CHANNEL_DEPTH: usize = 1_000_000;
 
+/// The max number of events that can be waiting on a previous event before we can validate them
+/// that are allowed to live in memory. This is possible during recon conversations where we discover things out of order,
+/// but we don't expect the queue to get very deep as we should discover events close together.
+/// At 1 KB/event, this would be around 10 MB. If the queue does fill up, the current behavior is to drop the events and
+/// they may or may not be discovered in a future conversation.
+const PENDING_VALIDATION_QUEUE_DEPTH: usize = 100_000;
+
 #[derive(Debug)]
 /// A database store that verifies the bytes it stores are valid Ceramic events.
 /// Implements the [`recon::Store`], [`iroh_bitswap::Store`], and [`ceramic_api::EventStore`] traits for [`ceramic_core::EventId`].
@@ -39,6 +49,7 @@ pub struct EventService {
     pub(crate) pool: SqlitePool,
     validate_events: bool,
     delivery_task: DeliverableTask,
+    pending_writes: Arc<Mutex<HashMap<Cid, Vec<UnvalidatedEvent>>>>,
 }
 /// An object that represents a set of blocks that can produce a stream of all blocks and lookup a
 /// block based on CID.
@@ -83,6 +94,7 @@ impl EventService {
             pool,
             validate_events,
             delivery_task,
+            pending_writes: Arc::new(Mutex::new(HashMap::default())),
         };
         if process_undelivered_events {
             svc.process_all_undelivered_events().await?;
@@ -96,6 +108,48 @@ impl EventService {
     #[allow(dead_code)]
     pub(crate) async fn new_with_event_validation(pool: SqlitePool) -> Result<Self> {
         Self::try_new(pool, false, true).await
+    }
+
+    /// Currently, we track events that were ASAP deliverable but we don't know the init event.
+    /// Immediately deliverable require the init event existing so don't need tracking.
+    /// Lazy deliverable don't require the init event to exist for validation so don't need tracking.
+    fn track_pending(&self, pending: Vec<UnvalidatedEvent>) {
+        let mut map = self.pending_writes.lock().unwrap();
+        if map.len() + pending.len() >= PENDING_VALIDATION_QUEUE_DEPTH {
+            // We don't free the memory but we drop all the events and start filling things up again.
+            // We will discover them again in the future, or we won't which is fine since we didn't
+            // know what to do with them anyway. It's possible we drop things an in progress conversation
+            // could have found, but again, we'll find them in the future and they should be closer together.
+            map.clear();
+        }
+        for ev in pending {
+            match map.entry(*ev.event.id()) {
+                std::collections::hash_map::Entry::Occupied(mut entry) => {
+                    entry.get_mut().push(ev);
+                }
+                std::collections::hash_map::Entry::Vacant(vacant) => {
+                    vacant.insert(vec![ev]);
+                }
+            }
+        }
+    }
+
+    /// Given the incoming events, see if any of them are the init event that events were
+    /// 'pending on' and return all previously pending events that can now be validated.  
+    fn remove_unblocked_from_pending_q(&self, new: &[UnvalidatedEvent]) -> Vec<UnvalidatedEvent> {
+        let new_init_cids: Vec<Cid> = new
+            .iter()
+            .flat_map(|e| if e.event.is_init() { Some(e.cid) } else { None })
+            .collect();
+        let mut map = self.pending_writes.lock().unwrap();
+        let mut to_add = Vec::new(); // no clue on capacity
+        for new_cid in new_init_cids {
+            if let Some(unblocked) = map.remove(&new_cid) {
+                to_add.extend(unblocked)
+            }
+        }
+
+        to_add
     }
 
     /// Returns the number of undelivered events that were updated
@@ -157,7 +211,8 @@ impl EventService {
             }
         }
 
-        let to_validate = parsed_events;
+        let pending_to_insert = self.remove_unblocked_from_pending_q(&parsed_events);
+        let to_validate = parsed_events.into_iter().chain(pending_to_insert).collect();
 
         // use the requested validation or None if it's disabled
         let validation_requirement = if self.validate_events {
@@ -241,6 +296,8 @@ impl EventService {
                 Ok(CeramicOneEvent::insert_many(&self.pool, to_insert).await?)
             }
             DeliverableRequirement::Lazy | DeliverableRequirement::Asap => {
+                self.track_pending(pending);
+
                 let to_insert = ordered
                     .deliverable()
                     .iter()
