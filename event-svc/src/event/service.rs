@@ -457,3 +457,30 @@ impl DiscoveredEvent {
         }
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ValidationRequirement {
+    /// Whether we should check the signature is currently valid or simply whether it was once valid
+    check_exp: bool,
+    /// If true: the init event must be currently known to the node or it's invalid.
+    /// If false, it may be "pended" until the init event is discovered and the signature can be validated.
+    require_local_init: bool,
+}
+
+impl ValidationRequirement {
+    /// Creates the expected validation requirements for a local write
+    pub fn new_local() -> Self {
+        Self {
+            check_exp: true,
+            require_local_init: true,
+        }
+    }
+
+    /// Creates the expected validation requirements for a recon write
+    pub fn new_recon() -> Self {
+        Self {
+            check_exp: false,
+            require_local_init: false,
+        }
+    }
+}
