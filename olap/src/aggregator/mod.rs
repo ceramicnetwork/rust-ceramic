@@ -232,6 +232,7 @@ mod tests {
 
     use arrow::{array::RecordBatch, util::pretty::pretty_format_batches};
     use ceramic_arrow_test::CidString;
+    use ceramic_core::StreamIdType;
     use ceramic_flight::{
         conclusion_events_to_record_batch, ConclusionData, ConclusionEvent, ConclusionInit,
         ConclusionTime,
@@ -321,6 +322,7 @@ mod tests {
                     stream_cid: Cid::from_str(
                         "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
                     )?,
+                    stream_type: StreamIdType::Model as u8,
                     controller: "did:key:bob".to_string(),
                     dimensions: vec![],
                 },
@@ -349,6 +351,7 @@ mod tests {
                     stream_cid: Cid::from_str(
                         "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
                     )?,
+                    stream_type: StreamIdType::Model as u8,
                     controller: "did:key:bob".to_string(),
                     dimensions: vec![],
                 },
@@ -364,6 +367,7 @@ mod tests {
                     stream_cid: Cid::from_str(
                         "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
                     )?,
+                    stream_type: StreamIdType::Model as u8,
                     controller: "did:key:bob".to_string(),
                     dimensions: vec![],
                 },
@@ -395,6 +399,7 @@ mod tests {
                     stream_cid: Cid::from_str(
                         "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
                     )?,
+                    stream_type: StreamIdType::Model as u8,
                     controller: "did:key:bob".to_string(),
                     dimensions: vec![],
                 },
@@ -410,6 +415,7 @@ mod tests {
                     stream_cid: Cid::from_str(
                         "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
                     )?,
+                    stream_type: StreamIdType::Model as u8,
                     controller: "did:key:bob".to_string(),
                     dimensions: vec![],
                 },
@@ -426,6 +432,7 @@ mod tests {
                     stream_cid: Cid::from_str(
                         "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
                     )?,
+                    stream_type: StreamIdType::Model as u8,
                     controller: "did:key:bob".to_string(),
                     dimensions: vec![],
                 },
@@ -463,6 +470,7 @@ mod tests {
                     stream_cid: Cid::from_str(
                         "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
                     )?,
+                    stream_type: StreamIdType::Model as u8,
                     controller: "did:key:bob".to_string(),
                     dimensions: vec![],
                 },
@@ -488,6 +496,7 @@ mod tests {
                     stream_cid: Cid::from_str(
                         "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
                     )?,
+                    stream_type: StreamIdType::Model as u8,
                     controller: "did:key:bob".to_string(),
                     dimensions: vec![],
                 },
@@ -515,6 +524,7 @@ mod tests {
                     stream_cid: Cid::from_str(
                         "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
                     )?,
+                    stream_type: StreamIdType::Model as u8,
                     controller: "did:key:bob".to_string(),
                     dimensions: vec![],
                 },
@@ -549,6 +559,7 @@ mod tests {
                     stream_cid: Cid::from_str(
                         "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
                     )?,
+                    stream_type: StreamIdType::Model as u8,
                     controller: "did:key:bob".to_string(),
                     dimensions: vec![],
                 },
@@ -575,6 +586,7 @@ mod tests {
                         stream_cid: Cid::from_str(
                             "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
                         )?,
+                        stream_type: StreamIdType::Model as u8,
                         controller: "did:key:bob".to_string(),
                         dimensions: vec![],
                     },
@@ -591,6 +603,7 @@ mod tests {
                         stream_cid: Cid::from_str(
                             "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
                         )?,
+                        stream_type: StreamIdType::Model as u8,
                         controller: "did:key:bob".to_string(),
                         dimensions: vec![],
                     },

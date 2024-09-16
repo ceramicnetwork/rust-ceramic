@@ -1791,6 +1791,7 @@ dependencies = [
  "arrow",
  "arrow-flight",
  "ceramic-arrow-test",
+ "ceramic-core",
  "ceramic-flight",
  "ceramic-metrics",
  "cid 0.11.1",

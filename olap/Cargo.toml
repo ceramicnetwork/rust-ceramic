@@ -39,3 +39,4 @@ tracing.workspace = true
 test-log.workspace = true
 ceramic-flight.workspace = true
 expect-test.workspace = true
+ceramic-core.workspace = true
