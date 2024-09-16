@@ -34,7 +34,7 @@ async fn add_and_assert_new_recon_event_not_inserted_yet(
     let new = recon::Store::insert_many(store, &[item], NodeId::random().unwrap().0)
         .await
         .unwrap();
-    assert!(new.included_new_key()); // should be !new.included_new_key() once pending validation is tracked
+    assert!(!new.included_new_key());
 }
 
 // insert a recon event without checking whether its persisted (could be pending or stored)

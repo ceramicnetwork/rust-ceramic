@@ -197,7 +197,7 @@ impl EventService {
     async fn validate_events(
         &self,
         items: &[ReconItem<EventId>],
-        validation_req: Option<ValidationRequirement>,
+        validation_req: Option<&ValidationRequirement>,
     ) -> Result<ValidatedEvents> {
         let mut parsed_events = Vec::with_capacity(items.len());
         let mut invalid_events = Vec::with_capacity(items.len() / 4); // assume most of the events are valid
@@ -245,17 +245,31 @@ impl EventService {
     ) -> Result<InsertResult> {
         let ValidatedEvents {
             valid,
-            unvalidated: pending,
+            unvalidated,
             mut invalid,
-        } = self.validate_events(items, validation_req).await?;
+        } = self.validate_events(items, validation_req.as_ref()).await?;
 
         let to_insert: Vec<EventInsertable> = valid
             .into_iter()
             .map(|e| ValidatedEvent::into_insertable(e, informant))
             .collect();
 
+        // we consider these "invalid" to tell the caller what happened.
+        // it may be okay and we'll track them below and try to find events we need in the future,
+        // but if this isn't allowed, we won't track them and just error
+        unvalidated.iter().for_each(|p| {
+            invalid.push(ValidationError::RequiresHistory {
+                key: p.order_key().to_owned(),
+            })
+        });
+
+        // if we're not validating, there's no need to pend anything
+        if validation_req.map_or(false, |v| v.allow_pending) {
+            self.track_pending(unvalidated);
+        }
+
         let store_result = self
-            .persist_events(to_insert, deliverable_req, pending, &mut invalid)
+            .persist_events(to_insert, deliverable_req, &mut invalid)
             .await?;
 
         Ok(InsertResult {
@@ -264,27 +278,15 @@ impl EventService {
         })
     }
 
-    /// Persists events to disk, tracks 'pending' events and notifies the background ordering task when appropriate
+    /// Persists events to disk and notifies the background ordering task when appropriate
     async fn persist_events(
         &self,
         to_insert: Vec<EventInsertable>,
         deliverable_req: DeliverableRequirement,
-        pending: Vec<UnvalidatedEvent>,
         invalid: &mut Vec<ValidationError>,
     ) -> Result<crate::store::InsertResult> {
         let ordered = OrderEvents::try_new(&self.pool, to_insert).await?;
 
-        // we consider pending "invalid" to tell the caller what happened.
-        // for recon, it's okay and we'll track them below and try to find events we need in the future,
-        // but if this is API (Immediate), we won't track them because they shouldn't exist yet.
-        pending.iter().for_each(|p| {
-            invalid.push(ValidationError::RequiresHistory {
-                key: p.order_key().to_owned(),
-            })
-        });
-
-        // api writes shouldn't have any missed history so we don't insert those events and
-        // we can skip notifying the ordering task because it's impossible to be waiting on them
         match deliverable_req {
             DeliverableRequirement::Immediate => {
                 let to_insert = ordered.deliverable().iter();
@@ -296,8 +298,6 @@ impl EventService {
                 Ok(CeramicOneEvent::insert_many(&self.pool, to_insert).await?)
             }
             DeliverableRequirement::Lazy | DeliverableRequirement::Asap => {
-                self.track_pending(pending);
-
                 let to_insert = ordered
                     .deliverable()
                     .iter()
@@ -496,10 +496,11 @@ pub(crate) struct DiscoveredEvent {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ValidationRequirement {
     /// Whether we should check the signature is currently valid or simply whether it was once valid
-    check_exp: bool,
-    /// If true: the init event must be currently known to the node or it's invalid.
-    /// If false, it may be "pended" until the init event is discovered and the signature can be validated.
-    require_local_init: bool,
+    pub check_exp: bool,
+    /// Whether validation must succeed or events can be "pended" until init events are discovered.
+    /// If true: the init event may not yet be known to the node and we'll store it in memory until we discover it.
+    /// If false, we fail validation if we can't find the init event to validate the signature.
+    pub allow_pending: bool,
 }
 
 impl ValidationRequirement {
@@ -507,7 +508,7 @@ impl ValidationRequirement {
     pub fn new_local() -> Self {
         Self {
             check_exp: true,
-            require_local_init: true,
+            allow_pending: false,
         }
     }
 
@@ -515,7 +516,7 @@ impl ValidationRequirement {
     pub fn new_recon() -> Self {
         Self {
             check_exp: false,
-            require_local_init: false,
+            allow_pending: true,
         }
     }
 }
