@@ -88,9 +88,9 @@ struct EthTransaction {
 #[serde(rename_all = "camelCase")]
 struct EthBlock {
     hash: String,
-    /// hexadecimal block number
+    /// 0x prefixed hexadecimal block number
     number: String,
-    /// hexademical representing unix epoch time
+    /// 0x prefixed hexademical representing unix epoch time
     timestamp: String,
 }
 
@@ -274,7 +274,7 @@ impl EthRpc for HttpEthRpc {
     }
 }
 
-/// Get an i64 integer from a hex string
+/// Get an i64 integer from a 0x prefixed hex string
 fn i64_from_hex(val: &str) -> Result<i64> {
     val.strip_prefix("0x")
         .map(|v| i64::from_str_radix(v, 16))
