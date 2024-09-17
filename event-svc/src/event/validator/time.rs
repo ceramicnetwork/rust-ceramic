@@ -220,13 +220,11 @@ impl<'a> BlockchainVerifier for EventTimestamper<'a> {
 #[cfg(test)]
 mod test {
     use ceramic_event::unvalidated;
+    use ipld_core::ipld::Ipld;
     use mockall::{mock, predicate};
     use test_log::test;
 
     use super::*;
-
-    pub const TIME_EVENT_CAR_SINGLE_EVENT_BATCH: &str = "uOqJlcm9vdHOB2CpYJQABcRIgcmqgb7eHSgQ32hS1NGVKZruLJGcKDI1f4lqOyNYn3eVndmVyc2lvbgG3AQFxEiByaqBvt4dKBDfaFLU0ZUpmu4skZwoMjV_iWo7I1ifd5aRiaWTYKlgmAAGFARIgjoBgf_z42eK6YNoQ9xs8h3plAAwV9WIQMvEZWdUE045kcGF0aGEwZHByZXbYKlgmAAGFARIgJ10HGXlKTZ7sjbSnNf2QMt_SOPpa8hDUqpszdZCIKUNlcHJvb2bYKlglAAFxEiAFKLx3fi7-yD1aPNyqnblI_r_5XllReVz55jBMvMxs9q4BAXESIAUovHd-Lv7IPVo83KqduUj-v_leWVF5XPnmMEy8zGz2pGRyb2902CpYJQABcRIgfWtbF-FQN6GN6ZL8OtHvp2YrGlmLbZwkOl6UY-3AUNFmdHhIYXNo2CpYJgABkwEbIBv-WU6fLnsyo5_lDSTC_T-xUlW95brOAUDByGHJzbCRZnR4VHlwZWpmKGJ5dGVzMzIpZ2NoYWluSWRvZWlwMTU1OjExMTU1MTExeQFxEiB9a1sX4VA3oY3pkvw60e-nZisaWYttnCQ6XpRj7cBQ0YPYKlgmAAGFARIgJ10HGXlKTZ7sjbSnNf2QMt_SOPpa8hDUqpszdZCIKUP22CpYJQABcRIgqVOMo-IVjo08Mk0cim3Z8flNyHY7c9g7uGMqeS0PFHA";
-    pub const TIME_EVENT_CAR_MULTI_EVENT_BATCH: &str = "mOqJlcm9vdHOB2CpYJQABcRIgL4UtIONTCPoEwUqgviwfyYNUmHFm/2CX5zTiYjE1v35ndmVyc2lvbgHJAQFxEiAvhS0g41MI+gTBSqC+LB/Jg1SYcWb/YJfnNOJiMTW/fqRiaWTYKlgmAAGFARIgvH8vy3q0gSOzzGcK5p3qqUascjW3pNmumn3mvZUnToBkcGF0aHMwLzAvMC8wLzAvMC8wLzAvMC8wZHByZXbYKlgmAAGFARIgvH8vy3q0gSOzzGcK5p3qqUascjW3pNmumn3mvZUnToBlcHJvb2bYKlglAAFxEiBI8mz+1T/2/X8/intyZfWokF1bkIl092NtMxkdmFnE5K0BAXESIEjybP7VP/b9fz+Ke3Jl9aiQXVuQiXT3Y20zGR2YWcTkpGRyb2902CpYJQABcRIgGjFZMMNqYlLBV6Vlt/ypaSMPqozWlRclOBOKxXlIj2VmdHhIYXNo2CpYJQABABIgDMTDU9CHV07kv3IZKMXr8T5oDcZ/RB2Yywk01u71CxJmdHhUeXBlamYoYnl0ZXMzMilnY2hhaW5JZG9laXAxNTU6MTExNTUxMTFPAXESIBoxWTDDamJSwVelZbf8qWkjD6qM1pUXJTgTisV5SI9lgtgqWCUAAXESINjOTPkCIrSQB0AgMg5oF0obIeY3xu6Q9cHaE3h3wDJX9ncBcRIg2M5M+QIitJAHQCAyDmgXShsh5jfG7pD1wdoTeHfAMleC2CpYJQABcRIgVKc2BLeGYg1hnrpRZYOw7JBz+ZxrnSFn/32zAAuvNRvYKlglAAEAEiBJOxB7Fxf5KKqUhTiV8CwpZifLmMc6P6h0RultS4FbO08BcRIgVKc2BLeGYg1hnrpRZYOw7JBz+ZxrnSFn/32zAAuvNRuC2CpYJQABcRIgyMZsL6z6pL100RyxEJVUsYa3gXOrpxgVFnW5RQcgDYL2TwFxEiDIxmwvrPqkvXTRHLEQlVSxhreBc6unGBUWdblFByANgoLYKlglAAFxEiBkuXbdpR3FWu/GWyYRzWOXNNsxtKOQre6IhbBmG5SDb/ZPAXESIGS5dt2lHcVa78ZbJhHNY5c02zG0o5Ct7oiFsGYblINvgtgqWCUAAXESIAhQlsp/RGl5YjMifeWkIFQ2csfcZWZAxZfseaZIHHBz9ncBcRIgCFCWyn9EaXliMyJ95aQgVDZyx9xlZkDFl+x5pkgccHOC2CpYJQABcRIgmSjP3429NWJwGNLzPuTshsW8ctiLMrrCrfpgbGTCFzbYKlglAAEAEiAlPPre/NjFSlr/4ya1JjfeGGCKRV6IAy4ppj/NC2/ocXcBcRIgmSjP3429NWJwGNLzPuTshsW8ctiLMrrCrfpgbGTCFzaC2CpYJQABcRIgGLdpV60S9zCsfdgQwEfu+XTPtAlcY1HY/zuD8FnnglTYKlglAAEAEiAYou7Ha8Gu3yfyK0s67W5TYPwpQPqH2NCBdyO6fw/0hXcBcRIgGLdpV60S9zCsfdgQwEfu+XTPtAlcY1HY/zuD8FnnglSC2CpYJQABcRIgl8D99pasirZzSUiLhYIOtFxC6ly1FoTFPw2koWa39hPYKlglAAEAEiCAiaKs0l1CZmdKsmk1a+VQmvHHJK4RWEuu6Wc4yi0djHcBcRIgl8D99pasirZzSUiLhYIOtFxC6ly1FoTFPw2koWa39hOC2CpYJQABcRIgud0GzkB9pc99WOltHHDmEKam2T9uyK+nvVAm1EsNbKbYKlglAAEAEiC6ZS2N7A859jNo1M3LqcpnAuK7PTJz7n8QJoEwISiGJXgBcRIgud0GzkB9pc99WOltHHDmEKam2T9uyK+nvVAm1EsNbKaC2CpYJgABhQESILx/L8t6tIEjs8xnCuad6qlGrHI1t6TZrpp95r2VJ06A2CpYJQABABIgvNbmQYMKhUmrsA8r5GGzDpcPkI//HPsid9wCi0ZhUsM";
 
     const BLOCK_TIMESTAMP: i64 = 1725913338;
     const SINGLE_TX_HASH: &str =
@@ -238,6 +236,125 @@ mod test {
         "0x97ad09eb7d6b5b17e15037a18de992fc3ad1efa7662b1a598b6d9c243a5e9463edc050d1";
     const MULTI_TX_HASH_INPUT: &str =
         "0x97ad09eb1a315930c36a6252c157a565b7fca969230faa8cd695172538138ac579488f65";
+
+    fn time_event_single_event_batch() -> unvalidated::TimeEvent {
+        unvalidated::Builder::time()
+            .with_id(
+                Cid::from_str("bagcqcerar2aga7747dm6fota3iipogz4q55gkaamcx2weebs6emvtvie2oha")
+                    .unwrap(),
+            )
+            .with_tx(
+                "eip155:11155111".into(),
+                Cid::from_str("bagjqcgzadp7fstu7fz5tfi474ugsjqx5h6yvevn54w5m4akayhegdsonwciq")
+                    .unwrap(),
+                "f(bytes32)".into(),
+            )
+            .with_root(0, ipld_core::ipld! {[Cid::from_str("bagcqcerae5oqoglzjjgz53enwsttl7mqglp5eoh2llzbbvfktmzxleeiffbq").unwrap(), Ipld::Null, Cid::from_str("bafyreifjkogkhyqvr2gtymsndsfg3wpr7fg4q5r3opmdxoddfj4s2dyuoa").unwrap()]})
+            .build()
+            .expect("should be valid time event")
+    }
+
+    fn time_event_multi_event_batch() -> unvalidated::TimeEvent {
+        unvalidated::Builder::time()
+            .with_id(
+                Cid::from_str("bagcqceraxr7s7s32wsashm6mm4fonhpkvfdky4rvw6sntlu2pxtl3fjhj2aa")
+                    .unwrap(),
+            )
+            .with_tx(
+                "eip155:11155111".into(),
+                Cid::from_str("baeabeiamytbvhuehk5hojp3sdeuml27rhzua3rt7iqozrsyjgtlo55ilci")
+                    .unwrap(),
+                "f(bytes32)".into(),
+            )
+            .with_root(
+                0,
+                ipld_core::ipld!([
+                    Cid::from_str("bafyreigyzzgpsarcwsiaoqbagihgqf2kdmq6mn6g52iplqo2cn4hpqbsk4")
+                        .unwrap(),
+                    Ipld::Null,
+                ]),
+            )
+            .with_witness_node(
+                0,
+                ipld_core::ipld!([
+                    Cid::from_str("bafyreicuu43ajn4gmigwdhv2kfsyhmhmsbz7thdltuqwp735wmaaxlzvdm")
+                        .unwrap(),
+                    Cid::from_str("baeabeicjhmihwfyx7eukvfefhck7albjmyt4xgghhi72q5cg5fwuxak3hm")
+                        .unwrap(),
+                ]),
+            )
+            .with_witness_node(
+                0,
+                ipld_core::ipld!([
+                    Cid::from_str("bafyreigiyzwc7lh2us6xjui4weijkvfrq23yc45lu4mbkftvxfcqoianqi")
+                        .unwrap(),
+                    Ipld::Null,
+                ]),
+            )
+            .with_witness_node(
+                0,
+                ipld_core::ipld!([
+                    Cid::from_str("bafyreidexf3n3ji5yvno7rs3eyi42y4xgtntdnfdscw65cefwbtbxfedn4")
+                        .unwrap(),
+                    Ipld::Null,
+                ]),
+            )
+            .with_witness_node(
+                0,
+                ipld_core::ipld!([
+                    Cid::from_str("bafyreiaikclmu72enf4wemzcpxs2iicugzzmpxdfmzamlf7mpgteqhdqom")
+                        .unwrap(),
+                    Ipld::Null,
+                ]),
+            )
+            .with_witness_node(
+                0,
+                ipld_core::ipld!([
+                    Cid::from_str("bafyreiezfdh57dn5gvrhaggs6m7oj3egyw6hfwelgk5mflp2mbwgjqqxgy")
+                        .unwrap(),
+                    Cid::from_str("baeabeibfht5n57gyyvffv77de22smn66dbqiurk6rabs4kngh7gqw37ioe")
+                        .unwrap(),
+                ]),
+            )
+            .with_witness_node(
+                0,
+                ipld_core::ipld!([
+                    Cid::from_str("bafyreiayw5uvplis64yky7oycdaep3xzoth3ick4mni5r7z3qpyftz4ckq")
+                        .unwrap(),
+                    Cid::from_str("baeabeiayulxmo26bv3psp4rljm5o23stmd6csqh2q7mnbalxeo5h6d7uqu")
+                        .unwrap(),
+                ]),
+            )
+            .with_witness_node(
+                0,
+                ipld_core::ipld!([
+                    Cid::from_str("bafyreiexyd67nfvmrk3hgskirocyedvulrbouxfvc2cmkpynusqwnn7wcm")
+                        .unwrap(),
+                    Cid::from_str("baeabeieargrkzus5ijtgosvsne2wxzkqtly4ojfocfmexlxjm44muli5rq")
+                        .unwrap(),
+                ]),
+            )
+            .with_witness_node(
+                0,
+                ipld_core::ipld!([
+                    Cid::from_str("bafyreifz3udm4qd5uxhx2whjnuohbzqqu2tnsp3ozcx2ppkqe3kewdlmuy")
+                        .unwrap(),
+                    Cid::from_str("baeabeif2muwy33aphh3dg2guzxf2tsthalrlwpjsopxh6ebgqeycckegeu")
+                        .unwrap(),
+                ]),
+            )
+            .with_witness_node(
+                0,
+                ipld_core::ipld!([
+                    Cid::from_str("bagcqceraxr7s7s32wsashm6mm4fonhpkvfdky4rvw6sntlu2pxtl3fjhj2aa")
+                        .unwrap(),
+                    Cid::from_str("baeabeif423tedaykqve2xmapfpsgdmyos4hzbd77dt5se564akfumyksym")
+                        .unwrap(),
+                ]),
+            )
+            .build()
+            .expect("should be valid time event")
+    }
 
     mock! {
         pub EthRpcProviderTest {}
@@ -280,9 +397,7 @@ mod test {
 
     #[test(tokio::test)]
     async fn valid_proof_single() {
-        let (_base, data) = multibase::decode(TIME_EVENT_CAR_SINGLE_EVENT_BATCH).unwrap();
-        let (_cid, event) =
-            unvalidated::Event::<ipld_core::ipld::Ipld>::decode_car(data.as_slice(), true).unwrap();
+        let event = time_event_single_event_batch();
         let pool = SqlitePool::connect_in_memory().await.unwrap();
 
         let verifier = get_mock_provider(
@@ -291,24 +406,18 @@ mod test {
             SINGLE_TX_HASH_INPUT.into(),
         )
         .await;
-        match event {
-            unvalidated::Event::Time(t) => match verifier.validate_chain_inclusion(&t).await {
-                Ok(ts) => {
-                    let ts = ts.expect("should have timestamp");
-                    assert_eq!(ts.as_unix_ts(), BLOCK_TIMESTAMP);
-                }
-                Err(e) => panic!("should have passed: {:#}", e),
-            },
-            unvalidated::Event::Signed(_) => unreachable!("not signed"),
-            unvalidated::Event::Unsigned(_) => unreachable!("not unsigned"),
+        match verifier.validate_chain_inclusion(&event).await {
+            Ok(ts) => {
+                let ts = ts.expect("should have timestamp");
+                assert_eq!(ts.as_unix_ts(), BLOCK_TIMESTAMP);
+            }
+            Err(e) => panic!("should have passed: {:#}", e),
         }
     }
 
     #[test(tokio::test)]
     async fn invalid_proof_single() {
-        let (_base, data) = multibase::decode(TIME_EVENT_CAR_SINGLE_EVENT_BATCH).unwrap();
-        let (_cid, event) =
-            unvalidated::Event::<ipld_core::ipld::Ipld>::decode_car(data.as_slice(), true).unwrap();
+        let event = time_event_single_event_batch();
         let pool = SqlitePool::connect_in_memory().await.unwrap();
 
         let verifier = get_mock_provider(
@@ -317,28 +426,22 @@ mod test {
             MULTI_TX_HASH_INPUT.to_string(),
         )
         .await;
-        match event {
-            unvalidated::Event::Time(t) => match verifier.validate_chain_inclusion(&t).await {
-                Ok(v) => {
-                    panic!("should have failed: {:?}", v)
-                }
-                Err(e) => assert!(
-                    e.to_string()
-                        .contains("the root CID is not in the transaction"),
-                    "{:#}",
-                    e
-                ),
-            },
-            unvalidated::Event::Signed(_) => unreachable!("not signed"),
-            unvalidated::Event::Unsigned(_) => unreachable!("not unsigned"),
+        match verifier.validate_chain_inclusion(&event).await {
+            Ok(v) => {
+                panic!("should have failed: {:?}", v)
+            }
+            Err(e) => assert!(
+                e.to_string()
+                    .contains("the root CID is not in the transaction"),
+                "{:#}",
+                e
+            ),
         }
     }
 
     #[test(tokio::test)]
     async fn valid_proof_multi() {
-        let (_base, data) = multibase::decode(TIME_EVENT_CAR_MULTI_EVENT_BATCH).unwrap();
-        let (_cid, event) =
-            unvalidated::Event::<ipld_core::ipld::Ipld>::decode_car(data.as_slice(), true).unwrap();
+        let event = time_event_multi_event_batch();
         let pool = SqlitePool::connect_in_memory().await.unwrap();
 
         let verifier = get_mock_provider(
@@ -347,24 +450,18 @@ mod test {
             MULTI_TX_HASH_INPUT.to_string(),
         )
         .await;
-        match event {
-            unvalidated::Event::Time(t) => match verifier.validate_chain_inclusion(&t).await {
-                Ok(ts) => {
-                    let ts = ts.expect("should have timestamp");
-                    assert_eq!(ts.as_unix_ts(), BLOCK_TIMESTAMP);
-                }
-                Err(e) => panic!("should have passed: {:#}", e),
-            },
-            unvalidated::Event::Signed(_) => unreachable!("not signed"),
-            unvalidated::Event::Unsigned(_) => unreachable!("not unsigned"),
+        match verifier.validate_chain_inclusion(&event).await {
+            Ok(ts) => {
+                let ts = ts.expect("should have timestamp");
+                assert_eq!(ts.as_unix_ts(), BLOCK_TIMESTAMP);
+            }
+            Err(e) => panic!("should have passed: {:#}", e),
         }
     }
 
     #[test(tokio::test)]
     async fn invalid_root_tx_proof_cid_multi() {
-        let (_base, data) = multibase::decode(TIME_EVENT_CAR_MULTI_EVENT_BATCH).unwrap();
-        let (_cid, event) =
-            unvalidated::Event::<ipld_core::ipld::Ipld>::decode_car(data.as_slice(), true).unwrap();
+        let event = time_event_multi_event_batch();
         let pool = SqlitePool::connect_in_memory().await.unwrap();
 
         let verifier = get_mock_provider(
@@ -373,20 +470,16 @@ mod test {
             SINGLE_TX_HASH_INPUT.to_string(),
         )
         .await;
-        match event {
-            unvalidated::Event::Time(t) => match verifier.validate_chain_inclusion(&t).await {
-                Ok(v) => {
-                    panic!("should have failed: {:?}", v)
-                }
-                Err(e) => assert!(
-                    e.to_string()
-                        .contains("the root CID is not in the transaction"),
-                    "{:#}",
-                    e
-                ),
-            },
-            unvalidated::Event::Signed(_) => unreachable!("not signed"),
-            unvalidated::Event::Unsigned(_) => unreachable!("not unsigned"),
+        match verifier.validate_chain_inclusion(&event).await {
+            Ok(v) => {
+                panic!("should have failed: {:?}", v)
+            }
+            Err(e) => assert!(
+                e.to_string()
+                    .contains("the root CID is not in the transaction"),
+                "{:#}",
+                e
+            ),
         }
     }
 
