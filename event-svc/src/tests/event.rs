@@ -617,8 +617,9 @@ async fn test_conclusion_events_since() -> Result<(), Box<dyn std::error::Error>
     let service = EventService::try_new(pool, false, false).await?;
     let test_events = generate_chained_events().await;
 
-    for event in &test_events {
-        recon::Store::insert_many(&service, &[event.clone()], NodeId::random().unwrap().0).await?;
+    for event in test_events {
+        ceramic_api::EventService::insert_many(&service, vec![event], NodeId::random().unwrap().0)
+            .await?;
     }
 
     // Fetch conclusion events
