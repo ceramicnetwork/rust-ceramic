@@ -110,9 +110,9 @@ impl EventService {
         Self::try_new(pool, false, true).await
     }
 
-    /// Currently, we track events that were ASAP deliverable but we don't know the init event.
-    /// Immediately deliverable require the init event existing so don't need tracking.
-    /// Lazy deliverable don't require the init event to exist for validation so don't need tracking.
+    /// Currently, we track events when the [`ValidationRequirement`] allows. Right now, this applies to
+    /// recon discovered events when the init event isn't yet known to the node due to out of order sync
+    /// but might apply to other cases in the future.
     fn track_pending(&self, pending: Vec<UnvalidatedEvent>) {
         let mut map = self.pending_writes.lock().unwrap();
         if map.len() + pending.len() >= PENDING_VALIDATION_QUEUE_DEPTH {
