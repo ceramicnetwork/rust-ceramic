@@ -38,8 +38,14 @@ pub struct ValidatedEvent {
 impl ValidatedEvent {
     /// Convert this ValidatedEvent into an EventInsertable
     pub fn into_insertable(value: Self, informant: Option<NodeId>) -> EventInsertable {
-        EventInsertable::new(value.key, value.cid, value.event, informant, false)
-            .expect("validated events must be insertable")
+        EventInsertable::new(
+            value.key,
+            value.cid,
+            value.event.is_init(),
+            value.event,
+            informant,
+        )
+        .expect("validated events must be insertable")
     }
 
     /// The way to convert into a validated event. Normally `unchecked` has a "memory unsafety" implication typically,
