@@ -109,18 +109,17 @@ where
 {
     let keypair = keypair.clone();
     let config = config.clone();
-    tokio::task::block_in_place(|| {
-        let handle = tokio::runtime::Handle::current();
-        handle.block_on(async move {
-            NodeBehaviour::new(
-                &keypair,
-                &config,
-                relay_client,
-                recons,
-                block_store,
-                metrics,
-            )
-            .await
-        })
+    let handle = tokio::runtime::Handle::current();
+    std::thread::spawn(move || {
+        handle.block_on(NodeBehaviour::new(
+            &keypair,
+            &config,
+            relay_client,
+            recons,
+            block_store,
+            metrics,
+        ))
     })
+    .join()
+    .unwrap()
 }
