@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     sync::{Arc, Mutex, MutexGuard},
 };
 
@@ -16,6 +16,7 @@ use ceramic_sql::sqlite::SqlitePool;
 use cid::Cid;
 use futures::stream::BoxStream;
 use ipld_core::ipld::Ipld;
+use itertools::Itertools;
 use recon::ReconItem;
 use tracing::{trace, warn};
 
@@ -268,14 +269,8 @@ impl EventService {
             self.track_pending(unvalidated);
         }
 
-        let store_result = self
-            .persist_events(to_insert, deliverable_req, &mut invalid)
-            .await?;
-
-        Ok(InsertResult {
-            store_result,
-            rejected: invalid,
-        })
+        self.persist_events(to_insert, deliverable_req, invalid)
+            .await
     }
 
     /// Persists events to disk and notifies the background ordering task when appropriate
@@ -283,8 +278,8 @@ impl EventService {
         &self,
         to_insert: Vec<EventInsertable>,
         deliverable_req: DeliverableRequirement,
-        invalid: &mut Vec<ValidationError>,
-    ) -> Result<crate::store::InsertResult> {
+        mut invalid: Vec<ValidationError>,
+    ) -> Result<InsertResult> {
         match deliverable_req {
             DeliverableRequirement::Immediate => {
                 let ordered =
@@ -295,7 +290,8 @@ impl EventService {
                         key: e.order_key().clone(),
                     }
                 }));
-                Ok(CeramicOneEvent::insert_many(&self.pool, to_insert).await?)
+                let store_result = CeramicOneEvent::insert_many(&self.pool, to_insert).await?;
+                Ok(InsertResult::new_from_store(invalid, store_result))
             }
             DeliverableRequirement::Asap => {
                 let ordered = OrderEvents::find_deliverable_in_memory(to_insert).await?;
@@ -306,15 +302,15 @@ impl EventService {
 
                 let store_result = CeramicOneEvent::insert_many(&self.pool, to_insert).await?;
 
-                self.notify_ordering_task(&ordered, &store_result).await?;
+                self.notify_ordering_task(&store_result).await?;
 
-                Ok(store_result)
+                Ok(InsertResult::new_from_store(invalid, store_result))
             }
             DeliverableRequirement::Lazy => {
                 let store_result =
                     CeramicOneEvent::insert_many(&self.pool, to_insert.iter()).await?;
 
-                Ok(store_result)
+                Ok(InsertResult::new_from_store(invalid, store_result))
             }
         }
     }
@@ -424,29 +420,16 @@ impl EventService {
 
     async fn notify_ordering_task(
         &self,
-        ordered: &OrderEvents,
-        store_result: &crate::store::InsertResult,
+        store_result: &crate::store::InsertResult<'_>,
     ) -> Result<()> {
-        let new = store_result
-            .inserted
-            .iter()
-            .filter_map(|i| if i.new_key { i.order_key.cid() } else { None })
-            .collect::<HashSet<_>>();
-        // TODO : Update discovered event to not have cid as an optional field
-        for ev in ordered
-            .deliverable()
-            .iter()
-            .chain(ordered.missing_history().iter())
-        {
-            if new.contains(ev.cid()) {
-                self.send_discovered_event(DiscoveredEvent {
-                    cid: *ev.cid(),
-                    prev: ev.event().prev().copied(),
-                    id: *ev.event().id(),
-                    known_deliverable: ev.deliverable(),
-                })
-                .await?;
-            }
+        for ev in store_result.inserted.iter() {
+            self.send_discovered_event(DiscoveredEvent {
+                cid: *ev.inserted.cid(),
+                prev: ev.inserted.event().prev().copied(),
+                id: *ev.inserted.event().id(),
+                known_deliverable: ev.inserted.deliverable(),
+            })
+            .await?;
         }
 
         Ok(())
@@ -480,10 +463,31 @@ pub enum ValidationError {
     },
 }
 
-#[derive(Debug, PartialEq, Eq, Default)]
+#[derive(Debug, PartialEq, Default)]
 pub struct InsertResult {
     pub rejected: Vec<ValidationError>,
-    pub(crate) store_result: crate::store::InsertResult,
+    pub new: Vec<EventId>,
+    pub existed: Vec<EventId>,
+}
+
+impl InsertResult {
+    pub fn new_from_store(
+        rejected: Vec<ValidationError>,
+        store: crate::store::InsertResult,
+    ) -> Self {
+        let (new, existed) = store.inserted.into_iter().partition_map(|e| {
+            if e.new_key {
+                itertools::Either::Left(e.order_key.clone())
+            } else {
+                itertools::Either::Right(e.order_key.clone())
+            }
+        });
+        Self {
+            rejected,
+            new,
+            existed,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
