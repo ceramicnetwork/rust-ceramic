@@ -15,7 +15,7 @@ use crate::{
     Result,
 };
 
-use super::grouped::{GroupedEvents, SignedEvents, Time, Unsigned};
+use super::grouped::{GroupedEvents, SignedValidationBatch, TimeValidationBatch};
 
 #[derive(Debug)]
 pub struct ValidatedEvents {
@@ -152,8 +152,8 @@ impl<'a> EventValidator<'a> {
         let grouped = GroupedEvents::from(parsed_events);
 
         let (validated_signed, validated_time) = try_join!(
-            validator.validate_signed_events(grouped.signed, grouped.unsigned),
-            validator.validate_time_events(grouped.time)
+            validator.validate_signed_events(grouped.signed_batch),
+            validator.validate_time_events(grouped.time_batch)
         )?;
         validated.extend_with(validated_signed);
         validated.extend_with(validated_time);
@@ -166,8 +166,7 @@ impl<'a> EventValidator<'a> {
 
     async fn validate_signed_events(
         &self,
-        events: SignedEvents,
-        unsigned: Vec<Unsigned>,
+        events: SignedValidationBatch,
     ) -> Result<ValidatedEvents> {
         let opts = if self.check_exp {
             ceramic_validation::VerifyJwsOpts::default()
@@ -177,13 +176,13 @@ impl<'a> EventValidator<'a> {
                 ..Default::default()
             }
         };
-        SignedValidator::validate_events(self.pool, &opts, events, unsigned).await
+        SignedValidator::validate_events(self.pool, &opts, events).await
     }
 
-    async fn validate_time_events(&self, events: Vec<Time>) -> Result<ValidatedEvents> {
+    async fn validate_time_events(&self, events: TimeValidationBatch) -> Result<ValidatedEvents> {
         // TODO: IMPLEMENT THIS
         Ok(ValidatedEvents {
-            valid: events.into_iter().map(ValidatedEvent::from).collect(),
+            valid: events.0.into_iter().map(ValidatedEvent::from).collect(),
             unvalidated: Vec::new(),
             invalid: Vec::new(),
         })

@@ -95,15 +95,20 @@ as_signed!(SignedInit);
 
 #[derive(Debug)]
 pub struct GroupedEvents {
-    pub time: Vec<Time>,
-    pub unsigned: Vec<Unsigned>,
-    pub signed: SignedEvents,
+    pub time_batch: TimeValidationBatch,
+    pub signed_batch: SignedValidationBatch,
 }
 
 #[derive(Debug)]
-pub struct SignedEvents {
+pub struct TimeValidationBatch(pub(crate) Vec<Time>);
+
+#[derive(Debug)]
+pub struct SignedValidationBatch {
     pub data: Vec<SignedData>,
     pub init: Vec<SignedInit>,
+    /// Possibly needed to verify data event controllers as these
+    /// don't yet exist on disk, but the signatures aren't checked.
+    pub unsigned: Vec<Unsigned>,
 }
 
 impl From<Vec<UnvalidatedEvent>> for GroupedEvents {
@@ -120,21 +125,21 @@ impl From<Vec<UnvalidatedEvent>> for GroupedEvents {
 impl GroupedEvents {
     fn new(capacity: usize) -> Self {
         Self {
-            time: Vec::with_capacity(capacity),
-            unsigned: Vec::with_capacity(capacity),
-            signed: SignedEvents {
+            time_batch: TimeValidationBatch(Vec::with_capacity(capacity)),
+            signed_batch: SignedValidationBatch {
                 data: Vec::with_capacity(capacity),
                 init: Vec::with_capacity(capacity),
+                unsigned: Vec::with_capacity(capacity),
             },
         }
     }
 
     fn add(&mut self, new: ValidationNeeded) {
         match new {
-            ValidationNeeded::SignedInit(v) => self.signed.init.push(v),
-            ValidationNeeded::SignedData(v) => self.signed.data.push(v),
-            ValidationNeeded::Time(v) => self.time.push(v),
-            ValidationNeeded::None(v) => self.unsigned.push(v),
+            ValidationNeeded::SignedInit(v) => self.signed_batch.init.push(v),
+            ValidationNeeded::SignedData(v) => self.signed_batch.data.push(v),
+            ValidationNeeded::Time(v) => self.time_batch.0.push(v),
+            ValidationNeeded::None(v) => self.signed_batch.unsigned.push(v),
         }
     }
 }

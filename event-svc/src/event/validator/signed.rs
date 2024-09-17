@@ -18,7 +18,7 @@ use crate::{
 
 use super::{
     event::{ValidatedEvent, ValidatedEvents},
-    grouped::{SignedEvents, Unsigned},
+    grouped::SignedValidationBatch,
     UnvalidatedEvent,
 };
 
@@ -81,16 +81,16 @@ impl SignedValidator {
     pub async fn validate_events(
         pool: &SqlitePool,
         opts: &VerifyJwsOpts,
-        events: SignedEvents,
-        unsigned: Vec<Unsigned>,
+        events: SignedValidationBatch,
     ) -> Result<ValidatedEvents> {
-        let mut validator = Self::new(events.init.len() + unsigned.len(), events.data.len());
+        let mut validator = Self::new(events.init.len() + events.unsigned.len(), events.data.len());
         validator.init_map.extend(
-            unsigned
+            events
+                .unsigned
                 .iter()
                 .map(|i| (i.as_inner().cid, i.as_inner().event.to_owned())),
         );
-        validator.add_valid_iter(unsigned.into_iter().map(|i| i.into()));
+        validator.add_valid_iter(events.unsigned.into_iter().map(|i| i.into()));
 
         for event in events.init {
             let status = validator
