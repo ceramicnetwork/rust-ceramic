@@ -18,6 +18,7 @@ ceramic-event.workspace = true
 ceramic-metrics.workspace = true
 ceramic-sql.workspace = true
 ceramic-flight.workspace = true
+ceramic-validation.workspace = true
 cid.workspace = true
 futures.workspace = true
 hex.workspace = true
