@@ -297,7 +297,7 @@ impl EventService {
                 }));
                 Ok(CeramicOneEvent::insert_many(&self.pool, to_insert).await?)
             }
-            DeliverableRequirement::Lazy | DeliverableRequirement::Asap => {
+            DeliverableRequirement::Asap => {
                 let ordered = OrderEvents::find_deliverable_in_memory(to_insert).await?;
                 let to_insert = ordered
                     .deliverable()
@@ -306,9 +306,13 @@ impl EventService {
 
                 let store_result = CeramicOneEvent::insert_many(&self.pool, to_insert).await?;
 
-                if matches!(deliverable_req, DeliverableRequirement::Asap) {
-                    self.notify_ordering_task(&ordered, &store_result).await?;
-                }
+                self.notify_ordering_task(&ordered, &store_result).await?;
+
+                Ok(store_result)
+            }
+            DeliverableRequirement::Lazy => {
+                let store_result =
+                    CeramicOneEvent::insert_many(&self.pool, to_insert.iter()).await?;
 
                 Ok(store_result)
             }
