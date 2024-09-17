@@ -285,10 +285,10 @@ impl EventService {
         deliverable_req: DeliverableRequirement,
         invalid: &mut Vec<ValidationError>,
     ) -> Result<crate::store::InsertResult> {
-        let ordered = OrderEvents::try_new(&self.pool, to_insert).await?;
-
         match deliverable_req {
             DeliverableRequirement::Immediate => {
+                let ordered =
+                    OrderEvents::find_currently_deliverable(&self.pool, to_insert).await?;
                 let to_insert = ordered.deliverable().iter();
                 invalid.extend(ordered.missing_history().iter().map(|e| {
                     ValidationError::RequiresHistory {
@@ -298,6 +298,7 @@ impl EventService {
                 Ok(CeramicOneEvent::insert_many(&self.pool, to_insert).await?)
             }
             DeliverableRequirement::Lazy | DeliverableRequirement::Asap => {
+                let ordered = OrderEvents::find_deliverable_in_memory(to_insert).await?;
                 let to_insert = ordered
                     .deliverable()
                     .iter()

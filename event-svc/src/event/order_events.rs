@@ -6,6 +6,17 @@ use ceramic_sql::sqlite::SqlitePool;
 use crate::store::{CeramicOneEvent, EventInsertable};
 use crate::Result;
 
+/// Groups the events into lists of those with a delivered prev and those without. This can be used to return an error if the event is required to have history.
+/// The events will be marked as deliverable so that they can be passed directly to the store to be persisted. It assumes init events have already been marked deliverable.
+///
+/// The job of this function is different than the `ordering_task` module. That module recurses indefinitely attempting to build history. This
+/// will only traverse a single prev outside of the initial set of events (that is, to the database). This is important because we don't want to
+/// allow API users to write an event they haven't yet seen the prev for, and for recon we can allow the other task to sort it out.
+///
+/// The `missing_history` set means that the prev is not deliverable or in the `candidate_events` vec with a deliverable prev. For example,
+/// with new events [C, D] (in any order), if D.prev = C, C.prev = B, then C and D are deliverable if B is in the database as deliverable.
+/// Given the same situation, where B is not yet deliverable, but B.prev = A and A is deliverable (shouldn't happen, but as an example), we
+/// *could* mark B deliverable and then C and D, but we DO NOT want to do this here to prevent API users from writing events that they haven't seen.
 pub(crate) struct OrderEvents {
     deliverable: Vec<EventInsertable>,
     missing_history: Vec<EventInsertable>,
@@ -22,38 +33,37 @@ impl OrderEvents {
 }
 
 impl OrderEvents {
-    /// Groups the events into lists of those with a delivered prev and those without. This can be used to return an error if the event is required to have history.
-    /// The events will be marked as deliverable so that they can be passed directly to the store to be persisted.
-    ///
-    /// The job of this function is different than the `ordering_task` module. That module recurses indefinitely attempting to build history. This
-    /// will only traverse a single prev outside of the initial set of events (that is, to the database). This is important because we don't want to
-    /// allow API users to write an event they haven't yet seen the prev for, and for recon we can allow the other task to sort it out.
-    ///
-    /// The `missing_history` set means that the prev is not deliverable or in the `candidate_events` vec with a deliverable prev. For example,
-    /// with new events [C, D] (in any order), if D.prev = C, C.prev = B, then C and D are deliverable if B is in the database as deliverable.
-    /// Given the same situation, where B is not yet deliverable, but B.prev = A and A is deliverable (shouldn't happen, but as an example), we
-    /// *could* mark B deliverable and then C and D, but we DO NOT want to do this here to prevent API users from writing events that they haven't seen.
-    pub async fn try_new(
+    /// Finds only those deliverable compared to the in memory set
+    pub async fn find_deliverable_in_memory(
+        candidate_events: Vec<EventInsertable>,
+    ) -> Result<Self> {
+        Self::find_deliverable_internal(None, candidate_events).await
+    }
+
+    /// Uses the in memory set and the database to try to follow prev chains and mark deliverable
+    pub async fn find_currently_deliverable(
         pool: &SqlitePool,
         candidate_events: Vec<EventInsertable>,
     ) -> Result<Self> {
-        let mut deliverable = Vec::with_capacity(candidate_events.len());
-        let mut remaining_candidates = Vec::with_capacity(candidate_events.len());
+        Self::find_deliverable_internal(Some(pool), candidate_events).await
+    }
 
-        let mut new_cids: HashMap<Cid, bool> =
-            HashMap::from_iter(candidate_events.into_iter().map(|mut e| {
-                // all init events are deliverable so we mark them as such before we do anything else
-                let cid = *e.cid();
-                let deliverable = if e.event().is_init() {
-                    e.set_deliverable(true);
-                    deliverable.push(e);
-                    true
-                } else {
-                    remaining_candidates.push(e);
-                    false
-                };
-                (cid, deliverable)
-            }));
+    /// Builds deliverable events, using the db pool if provided
+    async fn find_deliverable_internal(
+        pool: Option<&SqlitePool>,
+        candidate_events: Vec<EventInsertable>,
+    ) -> Result<Self> {
+        let mut new_cids: HashMap<Cid, bool> = HashMap::with_capacity(candidate_events.len());
+
+        let (mut deliverable, mut remaining_candidates): (Vec<_>, Vec<_>) =
+            candidate_events.into_iter().partition(|e| {
+                // all init events are deliverable and should already be marked as such
+                if e.event().is_init() {
+                    debug_assert!(e.deliverable())
+                }
+                new_cids.insert(*e.cid(), e.deliverable());
+                e.deliverable()
+            });
 
         if remaining_candidates.is_empty() {
             return Ok(OrderEvents {
@@ -79,7 +89,7 @@ impl OrderEvents {
                         } else {
                             undelivered_prevs_in_memory.push_back(event);
                         }
-                    } else {
+                    } else if let Some(pool) = pool {
                         let (_exists, prev_deliverable) =
                             CeramicOneEvent::deliverable_by_cid(pool, prev).await?;
                         if prev_deliverable {
@@ -89,6 +99,8 @@ impl OrderEvents {
                         } else {
                             missing_history.push(event);
                         }
+                    } else {
+                        missing_history.push(event);
                     }
                 }
             }
@@ -218,7 +230,9 @@ mod test {
         let (stream_1, stream_2, mut to_insert) = get_2_streams().await;
         to_insert.shuffle(&mut thread_rng());
 
-        let ordered = OrderEvents::try_new(&pool, to_insert).await.unwrap();
+        let ordered = OrderEvents::find_currently_deliverable(&pool, to_insert)
+            .await
+            .unwrap();
         assert!(
             ordered.missing_history.is_empty(),
             "Missing history: len={} {:?}",
@@ -247,7 +261,9 @@ mod test {
         to_insert.remove(1);
         to_insert.shuffle(&mut thread_rng());
 
-        let ordered = OrderEvents::try_new(&pool, to_insert).await.unwrap();
+        let ordered = OrderEvents::find_currently_deliverable(&pool, to_insert)
+            .await
+            .unwrap();
         assert_eq!(
             8,
             ordered.missing_history.len(),
@@ -279,7 +295,9 @@ mod test {
 
         remaining.shuffle(&mut thread_rng());
 
-        let ordered = OrderEvents::try_new(&pool, remaining).await.unwrap();
+        let ordered = OrderEvents::find_currently_deliverable(&pool, remaining)
+            .await
+            .unwrap();
         assert_eq!(
             7,
             ordered.missing_history.len(),
@@ -310,7 +328,9 @@ mod test {
             .collect::<Vec<_>>();
         remaining.shuffle(&mut thread_rng());
 
-        let ordered = OrderEvents::try_new(&pool, remaining).await.unwrap();
+        let ordered = OrderEvents::find_currently_deliverable(&pool, remaining)
+            .await
+            .unwrap();
         assert!(
             ordered.missing_history.is_empty(),
             "Missing history: {:?}",
