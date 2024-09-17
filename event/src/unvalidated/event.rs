@@ -345,8 +345,8 @@ impl TimeEvent {
     }
 
     ///  Get the proof
-    pub fn proof(&self) -> &Cid {
-        &self.event.proof
+    pub fn proof(&self) -> &Proof {
+        &self.proof
     }
 
     ///  Get the path
