@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use ceramic_api::{EventDataResult, EventService as ApiEventService, IncludeEventData};
+use ceramic_api::{ApiItem, EventDataResult, EventService as ApiEventService, IncludeEventData};
 use ceramic_core::{EventId, NodeId};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
@@ -8,7 +8,6 @@ use recon::ReconItem;
 use test_log::test;
 
 use crate::{
-    event::DeliverableRequirement,
     tests::{check_deliverable, get_events},
     EventService,
 };
@@ -27,16 +26,35 @@ async fn add_and_assert_new_recon_event(store: &EventService, item: ReconItem<Ev
     assert!(new.included_new_key());
 }
 
-async fn add_and_assert_new_local_event(store: &EventService, item: ReconItem<EventId>) {
-    let new = store
-        .insert_events(
-            &[item],
-            DeliverableRequirement::Immediate,
-            Some(NodeId::random().unwrap().0),
-        )
+async fn add_and_assert_new_recon_event_not_inserted_yet(
+    store: &EventService,
+    item: ReconItem<EventId>,
+) {
+    tracing::trace!("inserted event: {}", item.key.cid().unwrap());
+    let new = recon::Store::insert_many(store, &[item], NodeId::random().unwrap().0)
         .await
         .unwrap();
-    let new = new.store_result.count_new_keys();
+    assert!(new.included_new_key()); // should be !new.included_new_key() once pending validation is tracked
+}
+
+// insert a recon event without checking whether its persisted (could be pending or stored)
+async fn add_new_recon_event(store: &EventService, item: ReconItem<EventId>) {
+    tracing::trace!("inserted event: {}", item.key.cid().unwrap());
+    let new = recon::Store::insert_many(store, &[item], NodeId::random().unwrap().0)
+        .await
+        .unwrap();
+    // TODO
+    // this is awkward.. we count all the new keys inserted right now, which was everything
+    // previously pending so it's double counted
+    assert!(new.item_count() >= 1);
+}
+
+async fn add_and_assert_new_local_event(store: &EventService, item: ApiItem) {
+    let new =
+        ceramic_api::EventService::insert_many(store, vec![item], NodeId::random().unwrap().0)
+            .await
+            .unwrap();
+    let new = new.iter().filter(|e| e.success()).count();
     assert_eq!(1, new);
 }
 
@@ -53,7 +71,11 @@ async fn test_init_event_delivered() {
     let store = setup_service().await;
     let events = get_events().await;
     let init = &events[0];
-    add_and_assert_new_local_event(&store, init.to_owned()).await;
+    add_and_assert_new_local_event(
+        &store,
+        ApiItem::new_arced(init.key.to_owned(), init.value.to_owned()),
+    )
+    .await;
     check_deliverable(&store.pool, &init.key.cid().unwrap(), true).await;
 }
 
@@ -62,17 +84,14 @@ async fn test_missing_prev_history_required_not_inserted() {
     let store = setup_service().await;
     let events = get_events().await;
     let data = &events[1];
+    let data = ApiItem::new_arced(data.key.clone(), data.value.clone());
 
-    let new = store
-        .insert_events(
-            &[data.to_owned()],
-            DeliverableRequirement::Immediate,
-            Some(NodeId::random().unwrap().0),
-        )
-        .await
-        .unwrap();
-    assert!(new.store_result.inserted.is_empty());
-    assert_eq!(1, new.rejected.len());
+    let new =
+        ceramic_api::EventService::insert_many(&store, vec![data], NodeId::random().unwrap().0)
+            .await
+            .unwrap();
+    assert_eq!(0, new.iter().filter(|e| e.success()).count());
+    assert_eq!(1, new.iter().filter(|e| !e.success()).count());
 }
 
 #[test(tokio::test)]
@@ -81,10 +100,19 @@ async fn test_prev_exists_history_required() {
     let events = get_events().await;
     let init = &events[0];
     let data = &events[1];
-    add_and_assert_new_local_event(&store, init.clone()).await;
+
+    add_and_assert_new_local_event(
+        &store,
+        ApiItem::new_arced(init.key.clone(), init.value.clone()),
+    )
+    .await;
     check_deliverable(&store.pool, &init.key.cid().unwrap(), true).await;
 
-    add_and_assert_new_local_event(&store, data.clone()).await;
+    add_and_assert_new_local_event(
+        &store,
+        ApiItem::new_arced(data.key.clone(), data.value.clone()),
+    )
+    .await;
     check_deliverable(&store.pool, &data.key.cid().unwrap(), true).await;
 
     let delivered = get_delivered_cids(&store).await;
@@ -100,15 +128,17 @@ async fn test_prev_in_same_write_history_required() {
     let events = get_events().await;
     let init = &events[0];
     let data = &events[1];
-    let new = store
-        .insert_events(
-            &[init.to_owned(), data.to_owned()],
-            DeliverableRequirement::Immediate,
-            Some(NodeId::random().unwrap().0),
-        )
-        .await
-        .unwrap();
-    let new = new.store_result.count_new_keys();
+    let new = ceramic_api::EventService::insert_many(
+        &store,
+        vec![
+            ApiItem::new_arced(init.key.to_owned(), init.value.clone()),
+            ApiItem::new_arced(data.key.to_owned(), data.value.clone()),
+        ],
+        NodeId::random().unwrap().0,
+    )
+    .await
+    .unwrap();
+    let new = new.iter().filter(|v| v.success()).count();
     assert_eq!(2, new);
     check_deliverable(&store.pool, &init.key.cid().unwrap(), true).await;
     check_deliverable(&store.pool, &data.key.cid().unwrap(), true).await;
@@ -125,16 +155,13 @@ async fn test_missing_prev_pending_recon() {
     let store = setup_service().await;
     let events = get_events().await;
     let data = &events[1];
-    add_and_assert_new_recon_event(&store, data.to_owned()).await;
-    check_deliverable(&store.pool, &data.key.cid().unwrap(), false).await;
+    add_and_assert_new_recon_event_not_inserted_yet(&store, data.to_owned()).await;
 
     let delivered = get_delivered_cids(&store).await;
     assert_eq!(0, delivered.len());
 
     let data = &events[2];
-    add_and_assert_new_recon_event(&store, data.to_owned()).await;
-
-    check_deliverable(&store.pool, &data.key.cid().unwrap(), false).await;
+    add_and_assert_new_recon_event_not_inserted_yet(&store, data.to_owned()).await;
 
     let delivered = get_delivered_cids(&store).await;
 
@@ -306,10 +333,10 @@ async fn recon_lots_of_streams() {
         while let Some(event) = stream.pop() {
             if stream.len() > per_stream / 2 {
                 total_added += 1;
-                add_and_assert_new_recon_event(&store, event.to_owned()).await;
+                add_new_recon_event(&store, event.to_owned()).await;
             } else {
                 total_added += 1;
-                add_and_assert_new_recon_event(&store, event.to_owned()).await;
+                add_new_recon_event(&store, event.to_owned()).await;
                 break;
             }
         }
@@ -318,7 +345,7 @@ async fn recon_lots_of_streams() {
     for stream in streams.iter_mut() {
         while let Some(event) = stream.pop() {
             total_added += 1;
-            add_and_assert_new_recon_event(&store, event.to_owned()).await;
+            add_new_recon_event(&store, event.to_owned()).await;
         }
     }
     // first just make sure they were all inserted (not delivered yet)

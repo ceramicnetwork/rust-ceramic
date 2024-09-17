@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{str::FromStr, sync::Arc};
 
 use ceramic_core::{
     event_id::{Builder, WithInit},
@@ -50,7 +50,7 @@ fn random_events(num: usize) -> Vec<EventInsertable> {
         let order_key = event_id_builder().with_event(&cid).build();
         let event = Box::new(init::Event::new(payload)).into();
 
-        events.push(EventInsertable::new(order_key, cid, event, None, true).unwrap())
+        events.push(EventInsertable::new(order_key, cid, Arc::new(event), None, true).unwrap())
     }
 
     events

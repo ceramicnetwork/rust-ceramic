@@ -60,7 +60,7 @@ mod tests {
         };
         expect!["bafyreib2ompyhdp4gpbqcfjmbktgyramh3kquc4lwcrgc722fo3r7rq2di"]
             .assert_eq(&test.to_cid().unwrap().to_string());
-        expect!["a26161186461626568656c6c6f"].assert_eq(&hex::encode(&test.to_cbor().unwrap()));
+        expect!["a26161186461626568656c6c6f"].assert_eq(&hex::encode(test.to_cbor().unwrap()));
         expect![[r#"{"a":100,"b":"hello"}"#]].assert_eq(&test.to_json().unwrap());
 
         let (t_cid, t_cbor) = test.to_dag_cbor_block().unwrap();

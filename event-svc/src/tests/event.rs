@@ -1,6 +1,5 @@
 use std::str::FromStr;
 
-use crate::event::DeliverableRequirement;
 use crate::EventService;
 use anyhow::Error;
 use bytes::Bytes;
@@ -618,13 +617,7 @@ async fn test_conclusion_events_since() -> Result<(), Box<dyn std::error::Error>
     let test_events = generate_chained_events().await;
 
     for event in &test_events {
-        service
-            .insert_events(
-                &[event.clone()],
-                DeliverableRequirement::Immediate,
-                Some(NodeId::random().unwrap().0),
-            )
-            .await?;
+        recon::Store::insert_many(&service, &[event.clone()], NodeId::random().unwrap().0).await?;
     }
 
     // Fetch conclusion events
@@ -682,19 +675,19 @@ async fn test_conclusion_events_since() -> Result<(), Box<dyn std::error::Error>
     let table_string = table.to_string();
 
     expect![[r#"
-        +-------+------------+---------------------------------------------------------------+-------------+------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
-        | index | event_type | stream_cid                                                    | stream_type | controller | event_cid                                                     | data                                       | previous                                                             |
-        +-------+------------+---------------------------------------------------------------+-------------+------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
-        | 0     | Data       | bagcqcerasbkvs7qgtklirqa3ogp5u6mqciomd2that3czm7thmadyhjff3nq | 3           | controller | bagcqcerasbkvs7qgtklirqa3ogp5u6mqciomd2that3czm7thmadyhjff3nq | 6e756c6c                                   | []                                                                   |
-        +-------+------------+---------------------------------------------------------------+-------------+------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
-        | 1     | Data       | bagcqcerasbkvs7qgtklirqa3ogp5u6mqciomd2that3czm7thmadyhjff3nq | 3           | controller | bagcqceraktgcxjx6gvppgve7n2zbg5imzz7j2vbvqkssoqngqi43wsjrlxwq | 7b2273747265616d5f31223a22646174615f31227d | [Cid(bagcqcerasbkvs7qgtklirqa3ogp5u6mqciomd2that3czm7thmadyhjff3nq)] |
-        +-------+------------+---------------------------------------------------------------+-------------+------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
-        | 2     | Data       | bagcqcerasbkvs7qgtklirqa3ogp5u6mqciomd2that3czm7thmadyhjff3nq | 3           | controller | bagcqcerarobts27p5vn7p5edqmuuxjm53zzx722bqwfoqc2ww55gmrno4eua | 7b2273747265616d5f31223a22646174615f32227d | [Cid(bagcqceraktgcxjx6gvppgve7n2zbg5imzz7j2vbvqkssoqngqi43wsjrlxwq)] |
-        +-------+------------+---------------------------------------------------------------+-------------+------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
-        | 3     | Data       | bagcqceraiib7wraedklvjit47ojjuukswmauv4k53nfojwzkgsgntpghtora | 2           | controller | bagcqceraiib7wraedklvjit47ojjuukswmauv4k53nfojwzkgsgntpghtora | 6e756c6c                                   | []                                                                   |
-        +-------+------------+---------------------------------------------------------------+-------------+------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
-        | 4     | Data       | bagcqceraiib7wraedklvjit47ojjuukswmauv4k53nfojwzkgsgntpghtora | 2           | controller | bagcqcerajplvs6tl3o4ppsd47qgbzuse76msb2f2rucoev3fuy4nojtppsxq | 7b2273747265616d32223a22646174615f31227d   | [Cid(bagcqceraiib7wraedklvjit47ojjuukswmauv4k53nfojwzkgsgntpghtora)] |
-        +-------+------------+---------------------------------------------------------------+-------------+------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
+        +-------+------------+---------------------------------------------------------------+-------------+----------------------------------------------------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
+        | index | event_type | stream_cid                                                    | stream_type | controller                                               | event_cid                                                     | data                                       | previous                                                             |
+        +-------+------------+---------------------------------------------------------------+-------------+----------------------------------------------------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
+        | 0     | Data       | bagcqcerahx5i27vqxigdq3xulceu5qv6yzdvxzamfueubsyxam5kmjcpp45q | 3           | did:key:z6Mkk3rtfoKDMMG4zyarNGwCQs44GSQ49pcYKQspHJPXSnVw | bagcqcerahx5i27vqxigdq3xulceu5qv6yzdvxzamfueubsyxam5kmjcpp45q | 6e756c6c                                   | []                                                                   |
+        +-------+------------+---------------------------------------------------------------+-------------+----------------------------------------------------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
+        | 1     | Data       | bagcqcerahx5i27vqxigdq3xulceu5qv6yzdvxzamfueubsyxam5kmjcpp45q | 3           | did:key:z6Mkk3rtfoKDMMG4zyarNGwCQs44GSQ49pcYKQspHJPXSnVw | bagcqcerakug4jvwbhisuo4zlhzkinwfca2dbcv63ea7jan27zlwhzpxyrleq | 7b2273747265616d5f31223a22646174615f31227d | [Cid(bagcqcerahx5i27vqxigdq3xulceu5qv6yzdvxzamfueubsyxam5kmjcpp45q)] |
+        +-------+------------+---------------------------------------------------------------+-------------+----------------------------------------------------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
+        | 2     | Data       | bagcqcerahx5i27vqxigdq3xulceu5qv6yzdvxzamfueubsyxam5kmjcpp45q | 3           | did:key:z6Mkk3rtfoKDMMG4zyarNGwCQs44GSQ49pcYKQspHJPXSnVw | bagcqceraccgbaicjznz45ov4wgc3wnr62zqwba24sxzreqerlzdklidysfdq | 7b2273747265616d5f31223a22646174615f32227d | [Cid(bagcqcerakug4jvwbhisuo4zlhzkinwfca2dbcv63ea7jan27zlwhzpxyrleq)] |
+        +-------+------------+---------------------------------------------------------------+-------------+----------------------------------------------------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
+        | 3     | Data       | bagcqcerazudkhl4sectilrixkvshfutjbkbeqbnh754hh5oerst6txpviuca | 2           | did:key:z6Mkk3rtfoKDMMG4zyarNGwCQs44GSQ49pcYKQspHJPXSnVw | bagcqcerazudkhl4sectilrixkvshfutjbkbeqbnh754hh5oerst6txpviuca | 6e756c6c                                   | []                                                                   |
+        +-------+------------+---------------------------------------------------------------+-------------+----------------------------------------------------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
+        | 4     | Data       | bagcqcerazudkhl4sectilrixkvshfutjbkbeqbnh754hh5oerst6txpviuca | 2           | did:key:z6Mkk3rtfoKDMMG4zyarNGwCQs44GSQ49pcYKQspHJPXSnVw | bagcqceramv66jowkwdtxay44fppdcez5bhqfwa7hzystd3lofemuoetd64ra | 7b2273747265616d32223a22646174615f31227d   | [Cid(bagcqcerazudkhl4sectilrixkvshfutjbkbeqbnh754hh5oerst6txpviuca)] |
+        +-------+------------+---------------------------------------------------------------+-------------+----------------------------------------------------------+---------------------------------------------------------------+--------------------------------------------+----------------------------------------------------------------------+
     "#]].assert_eq(&table_string);
 
     Ok(())

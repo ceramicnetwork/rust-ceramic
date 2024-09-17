@@ -466,7 +466,7 @@ pub struct InsertResult<K>
 where
     K: Key,
 {
-    /// The count of keys that were inserted in the batch.
+    /// The count of keys that were inserted as a result of this batch.
     new_cnt: usize,
     /// The count of keys that were in the batch that depend on a not yet discovered event.
     pending_cnt: usize,
@@ -490,6 +490,7 @@ where
     }
 
     /// Get the total count of items included whether added, pending or invalid
+    /// May be greater than the size of the batch if "pending" items were unblocked.
     pub fn item_count(&self) -> usize {
         self.new_cnt + self.invalid.len() + self.pending_cnt
     }

@@ -52,7 +52,7 @@ impl Verifier for signed::Event<Ipld> {
 
         let signer_did = &signer_did.id;
 
-        if let Some(cacao) = self.capability() {
+        if let Some(cacao) = self.capability().map(|(_, ref c)| c) {
             if cacao.payload.audience != *signer_did {
                 bail!("signer '{signer_did}' was not granted permission by capability")
             }
@@ -103,11 +103,11 @@ async fn resolve_did_verify_delegated(issuer: &str, delegated: &str, time: &AtTi
             );
             Jwk::resolve_did(issuer, &meta)
                 .await
-                .context("failed to resolve issuer did with time")?
+                .context(format!("failed to resolve issuer did with time: {issuer}"))?
         }
         AtTime::SkipTimeChecks => Jwk::resolve_did(issuer, &meta)
             .await
-            .context("failed to resolve issuer did")?,
+            .context(format!("failed to resolve issuer did: {issuer}"))?,
     };
     if controller_did
         .controller
@@ -145,26 +145,25 @@ mod test {
     };
 
     const TEST_DID: &str = "did:key:z6MkgSV3tAuw7gUWqKCUY7ae6uWNxqYgdwPhUJbJhF9EFXm9";
+    const TEST_DID2: &str = "did:key:z6Mkk3rtfoKDMMG4zyarNGwCQs44GSQ49pcYKQspHJPXSnVw";
 
     #[test(tokio::test)]
     async fn resolve_dids_not_delegated() {
-        match resolve_did_verify_delegated(TEST_DID, TEST_DID, &AtTime::SkipTimeChecks).await {
-            Ok(_) => panic!("should have errored"),
-            Err(e) => assert!(e.to_string().starts_with("invalid_jws:"), "{}", e),
-        }
-        match resolve_did_verify_delegated(
-            TEST_DID,
-            TEST_DID,
-            &AtTime::At(Some(chrono::Utc::now())),
-        )
-        .await
-        {
-            Ok(_) => panic!("should have errored"),
-            Err(e) => assert!(e.to_string().starts_with("invalid_jws:"), "{}", e),
-        }
-        match resolve_did_verify_delegated(TEST_DID, TEST_DID, &AtTime::At(None)).await {
-            Ok(_) => panic!("should have errored"),
-            Err(e) => assert!(e.to_string().starts_with("invalid_jws:"), "{}", e),
+        for did in [TEST_DID, TEST_DID2] {
+            match resolve_did_verify_delegated(did, did, &AtTime::SkipTimeChecks).await {
+                Ok(_) => panic!("should have errored: {did}"),
+                Err(e) => assert!(e.to_string().starts_with("invalid_jws:"), "{did} {:#}", e),
+            }
+            match resolve_did_verify_delegated(did, did, &AtTime::At(Some(chrono::Utc::now())))
+                .await
+            {
+                Ok(_) => panic!("should have errored: {did}"),
+                Err(e) => assert!(e.to_string().starts_with("invalid_jws:"), "{did} {:#}", e),
+            }
+            match resolve_did_verify_delegated(did, did, &AtTime::At(None)).await {
+                Ok(_) => panic!("should have errored: {did}"),
+                Err(e) => assert!(e.to_string().starts_with("invalid_jws:"), "{did} {:#}", e),
+            }
         }
     }
 

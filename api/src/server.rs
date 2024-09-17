@@ -239,6 +239,11 @@ impl ApiItem {
             value: Arc::new(value),
         }
     }
+
+    /// Create a new item from an ID and an Arc of a carfile
+    pub fn new_arced(key: EventId, value: Arc<Vec<u8>>) -> Self {
+        Self { key, value }
+    }
 }
 
 /// Trait for accessing persistent storage of Events

@@ -599,7 +599,10 @@ mod test {
     use crate::store::EventInsertable;
     use test_log::test;
 
-    use crate::{tests::get_n_events, EventService};
+    use crate::{
+        event::validator::{UnvalidatedEvent, ValidatedEvent},
+        tests::get_n_events,
+    };
 
     use super::*;
 
@@ -607,9 +610,12 @@ mod test {
         let mut res = Vec::with_capacity(n);
         let events = get_n_events(n).await;
         for event in events {
-            let event = EventService::parse_discovered_event(&event, None)
-                .await
-                .unwrap();
+            let event = ValidatedEvent::into_insertable(
+                ValidatedEvent::from_unvalidated_unchecked(
+                    UnvalidatedEvent::try_from(&event).unwrap(),
+                ),
+                None,
+            );
             res.push(event);
         }
         res

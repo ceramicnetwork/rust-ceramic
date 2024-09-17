@@ -234,7 +234,7 @@ mod test {
         match event {
             unvalidated::Event::Time(_) => unreachable!("not a time event"),
             unvalidated::Event::Signed(s) => {
-                let cap = s.capability().unwrap();
+                let cap = &s.capability().unwrap().1;
                 let siwx = SiwxMessage::from_cacao(cap).unwrap();
                 let expected_base64 = r#"dGVzdCB3YW50cyB5b3UgdG8gc2lnbiBpbiB3aXRoIHlvdXIgRXRoZXJldW0gYWNjb3VudDoKMHgzNzk0ZDRmMDc3YzA4ZDkyNWZmOGZmODIwMDA2YjczNTMyOTliMjAwCgpHaXZlIHRoaXMgYXBwbGljYXRpb24gYWNjZXNzIHRvIHNvbWUgb2YgeW91ciBkYXRhIG9uIENlcmFtaWMKClVSSTogZGlkOmtleTp6Nk1rcjRhM1ozRkZhSkY4WXFXblduVkhxZDVlRGpaTjliRFNUNndWWkMxaEo4MVAKVmVyc2lvbjogMQpDaGFpbiBJRDogMQpOb25jZTogd1BpQ09jcGtsbApJc3N1ZWQgQXQ6IDIwMjQtMDYtMTJUMjA6MDQ6NDIuNDY0WgpFeHBpcmF0aW9uIFRpbWU6IDIwMjQtMDYtMTlUMjA6MDQ6NDIuNDY0WgpSZXNvdXJjZXM6Ci0gY2VyYW1pYzovLyo="#;
                 let expected = String::from_utf8(
