@@ -50,6 +50,7 @@ pub struct EventService {
     pub(crate) pool: SqlitePool,
     validate_events: bool,
     delivery_task: DeliverableTask,
+    event_validator: EventValidator,
     pending_writes: Arc<Mutex<HashMap<Cid, Vec<UnvalidatedEvent>>>>,
 }
 /// An object that represents a set of blocks that can produce a stream of all blocks and lookup a
@@ -91,9 +92,11 @@ impl EventService {
 
         let delivery_task = OrderingTask::run(pool.clone(), PENDING_EVENTS_CHANNEL_DEPTH).await;
 
+        let event_validator = EventValidator::new(pool.clone());
         let svc = Self {
             pool,
             validate_events,
+            event_validator,
             delivery_task,
             pending_writes: Arc::new(Mutex::new(HashMap::default())),
         };
@@ -226,7 +229,9 @@ impl EventService {
             valid,
             unvalidated,
             invalid,
-        } = EventValidator::validate_events(&self.pool, validation_requirement, to_validate)
+        } = self
+            .event_validator
+            .validate_events(validation_requirement, to_validate)
             .await?;
         invalid_events.extend(invalid);
 
