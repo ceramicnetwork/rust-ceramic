@@ -476,10 +476,11 @@ impl InsertResult {
         store: crate::store::InsertResult,
     ) -> Self {
         let (new, existed) = store.inserted.into_iter().partition_map(|e| {
+            let key = e.inserted.order_key().clone();
             if e.new_key {
-                itertools::Either::Left(e.order_key.clone())
+                itertools::Either::Left(key)
             } else {
-                itertools::Either::Right(e.order_key.clone())
+                itertools::Either::Right(key)
             }
         });
         Self {

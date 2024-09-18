@@ -27,8 +27,6 @@ static GLOBAL_COUNTER: AtomicI64 = AtomicI64::new(0);
 #[derive(Debug)]
 /// An event that was inserted into the database
 pub struct InsertedEvent<'a> {
-    /// The event order key that was inserted
-    pub order_key: &'a EventId,
     /// The event that was inserted
     pub inserted: &'a EventInsertable,
     /// Whether the event was a new key
@@ -37,12 +35,8 @@ pub struct InsertedEvent<'a> {
 
 impl<'a> InsertedEvent<'a> {
     /// Create a new delivered event
-    fn new(order_key: &'a EventId, new_key: bool, inserted: &'a EventInsertable) -> Self {
-        Self {
-            order_key,
-            inserted,
-            new_key,
-        }
+    fn new(new_key: bool, inserted: &'a EventInsertable) -> Self {
+        Self { inserted, new_key }
     }
 }
 
@@ -189,7 +183,7 @@ impl CeramicOneEvent {
                 item.deliverable(),
             )
             .await?;
-            inserted.push(InsertedEvent::new(item.order_key(), new_key, item));
+            inserted.push(InsertedEvent::new(new_key, item));
             if new_key {
                 for block in item.get_raw_blocks().await?.iter() {
                     CeramicOneBlock::insert(&mut tx, block.multihash.inner(), &block.bytes).await?;
