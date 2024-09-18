@@ -463,7 +463,7 @@ pub enum ValidationError {
     },
 }
 
-#[derive(Debug, PartialEq, Default)]
+#[derive(Debug, PartialEq, Eq, Default)]
 pub struct InsertResult {
     pub rejected: Vec<ValidationError>,
     pub new: Vec<EventId>,
