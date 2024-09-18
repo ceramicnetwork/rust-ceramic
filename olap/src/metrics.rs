@@ -1,3 +1,4 @@
+//! Metrics server
 use std::{convert::Infallible, net::SocketAddr};
 
 use anyhow::Result;

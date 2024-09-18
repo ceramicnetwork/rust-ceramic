@@ -39,7 +39,7 @@ pub fn new_server(
     feed: Arc<impl ConclusionFeed + std::fmt::Debug + 'static>,
 ) -> anyhow::Result<Router> {
     let ctx = SessionContext::new_with_config(
-        SessionConfig::new().with_default_catalog_and_schema("flight_sql", "ceramic"),
+        SessionConfig::new().with_default_catalog_and_schema("ceramic", "v0"),
     );
     ctx.register_table("conclusion_feed", Arc::new(FeedTable::new(feed)))?;
     let svc = FlightServiceServer::new(FlightSqlService::new(ctx.state()));

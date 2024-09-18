@@ -1791,21 +1791,34 @@ name = "ceramic-olap"
 version = "0.35.0"
 dependencies = [
  "anyhow",
+ "arrow",
+ "arrow-flight",
+ "ceramic-arrow-test",
+ "ceramic-core",
+ "ceramic-flight",
  "ceramic-metrics",
+ "cid 0.11.1",
  "clap 4.5.4",
  "datafusion",
+ "datafusion-federation",
+ "datafusion-flight-sql-table-provider",
+ "expect-test",
  "futures",
  "git-version",
  "hyper 0.14.28",
+ "json-patch",
  "multibase 0.9.1",
  "multihash 0.19.1",
  "multihash-codetable",
  "multihash-derive 0.9.0",
  "names",
  "prometheus-client",
+ "serde_json",
  "signal-hook",
  "signal-hook-tokio",
+ "test-log",
  "tokio",
+ "tonic 0.11.0",
  "tracing",
 ]
 
@@ -2850,6 +2863,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "datafusion-flight-sql-table-provider"
+version = "0.2.1"
+source = "git+https://github.com/datafusion-contrib/datafusion-federation.git?branch=main#c79097031341f4109bec1cdbf893c239e5bcf928"
+dependencies = [
+ "arrow",
+ "arrow-flight",
+ "async-trait",
+ "datafusion",
+ "datafusion-federation",
+ "futures",
+ "tonic 0.11.0",
+]
+
+[[package]]
 name = "datafusion-functions"
 version = "41.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3682,6 +3709,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "98de4bbd547a563b716d8dfa9aad1cb19bfab00f4fa09a6a4ed21dbcf44ce9c4"
 dependencies = [
  "num-traits",
+]
+
+[[package]]
+name = "fluent-uri"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "17c704e9dbe1ddd863da1e6ff3567795087b1eb201ce80d8fa81162e1516500d"
+dependencies = [
+ "bitflags 1.3.2",
 ]
 
 [[package]]
@@ -5118,6 +5154,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "json-patch"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5b1fb8864823fad91877e6caea0baca82e49e8db50f8e5c9f9a453e27d3330fc"
+dependencies = [
+ "jsonptr",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "json-syntax"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5134,6 +5182,17 @@ dependencies = [
  "serde",
  "smallstr",
  "smallvec",
+]
+
+[[package]]
+name = "jsonptr"
+version = "0.4.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c6e529149475ca0b2820835d3dce8fcc41c6b943ca608d32f35b449255e4627"
+dependencies = [
+ "fluent-uri",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

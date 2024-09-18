@@ -1,3 +1,6 @@
+//! OLAP Aggregator process for aggregating Ceramic Model Instance Document streams.
+#![warn(missing_docs)]
+
 mod aggregator;
 mod metrics;
 
@@ -28,11 +31,20 @@ enum Command {
 
 #[derive(Args, Debug)]
 struct DaemonOpts {
+    /// Endpoint of a Flight SQL server for the conclusion feed.
+    #[arg(
+        short,
+        long,
+        default_value = "127.0.0.1:5102",
+        env = "CERAMIC_OLAP_FLIGHT_SQL_ENDPOINT"
+    )]
+    flight_sql_endpoint: String,
+
     /// Bind address of the metrics endpoint.
     #[arg(
         short,
         long,
-        default_value = "127.0.0.1:9464",
+        default_value = "127.0.0.1:9465",
         env = "CERAMIC_OLAP_METRICS_BIND_ADDRESS"
     )]
     metrics_bind_address: String,
@@ -76,6 +88,14 @@ enum LogFormat {
     /// Format log events newline delimited JSON objects.
     /// No ANSI colors are used.
     Json,
+}
+
+impl From<&DaemonOpts> for aggregator::Config {
+    fn from(value: &DaemonOpts) -> Self {
+        Self {
+            flight_sql_endpoint: value.flight_sql_endpoint.clone(),
+        }
+    }
 }
 
 /// Run the ceramic one binary process
@@ -130,7 +150,7 @@ async fn daemon(opts: DaemonOpts) -> Result<()> {
     let signals_handle = tokio::spawn(handle_signals(signals, tx));
 
     // Start aggregator
-    aggregator::run(async move {
+    aggregator::run(&opts, async move {
         let _ = rx.await;
     })
     .await?;
