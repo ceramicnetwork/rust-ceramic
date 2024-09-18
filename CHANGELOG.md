@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.36.0] - 2024-09-18
+
+### 🚀 Features
+
+- Make feature flags top level with experimental features requiring the experimental-features flag to be set (#521)
+- Api to transform events to conclusion events (#508)
+- Add flight sql server to expose conclusion feed. (#523)
+- Anchor service (#484)
+- Add metamodel stream id constant (#529)
+- Infer stream type from raw event model and add it to conclusion event + tests (#525)
+- Rpc client for eth blockchains (#520)
+- Verify time event proofs from eth rpc client and calculate time (#522)
+
+### 🐛 Bug Fixes
+
+- Disable debian repo release workflow (#519)
+- Use build.rs to rebuild sql crate on migrations change (#531)
+
+### 🚜 Refactor
+
+- More prep for signed event validation (#526)
+
 ## [0.35.0] - 2024-09-09
 
 ### 🚀 Features
@@ -26,6 +48,7 @@ All notable changes to this project will be documented in this file.
 ### ⚙️ Miscellaneous Tasks
 
 - Update console-subscriber package version (#507)
+- Version v0.35.0 (#517)
 
 ## [0.34.0] - 2024-08-26
 
