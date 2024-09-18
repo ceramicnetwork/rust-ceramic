@@ -223,7 +223,7 @@ impl EventService {
 
         let ValidatedEvents {
             valid,
-            unvalidated: pending,
+            unvalidated,
             invalid,
         } = EventValidator::validate_events(&self.pool, validation_requirement, to_validate)
             .await?;
@@ -231,7 +231,7 @@ impl EventService {
 
         Ok(ValidatedEvents {
             valid,
-            unvalidated: pending,
+            unvalidated,
             invalid: invalid_events,
         })
     }

@@ -127,6 +127,8 @@ impl<'a> EventValidator<'a> {
         }
     }
 
+    /// Validates the events with the given validation requirement
+    /// If the [`ValidationRequirement`] is None, it just returns every event as valid
     pub(crate) async fn validate_events(
         pool: &'a SqlitePool,
         validation_req: Option<&ValidationRequirement>,
@@ -186,5 +188,93 @@ impl<'a> EventValidator<'a> {
             unvalidated: Vec::new(),
             invalid: Vec::new(),
         })
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use test_log::test;
+
+    use crate::tests::{build_recon_item_with_controller, get_n_events};
+
+    use super::*;
+
+    /// returns 10 valid, 9 pending, 1 invalid event
+    async fn get_validation_events() -> Vec<UnvalidatedEvent> {
+        let valid = get_n_events(10).await;
+        // without the init event the rest can't be validated
+        let pending: Vec<_> = get_n_events(10).await.into_iter().skip(1).collect();
+        // the controller isn't a real did so it won't validate
+        let invalid = build_recon_item_with_controller("did:notvalid:abcdefg".into()).await;
+
+        let events = valid
+            .iter()
+            .chain(&[invalid])
+            .chain(&pending)
+            .map(|e| UnvalidatedEvent::try_from(e).unwrap())
+            .collect();
+        events
+    }
+
+    #[test(tokio::test)]
+    async fn valid_invalid_pending_recon() {
+        let pool = SqlitePool::connect_in_memory().await.unwrap();
+        let events = get_validation_events().await;
+
+        let validated = EventValidator::validate_events(
+            &pool,
+            Some(&ValidationRequirement::new_recon()),
+            events,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(10, validated.valid.len());
+        assert_eq!(9, validated.unvalidated.len());
+        assert_eq!(1, validated.invalid.len());
+
+        let err = validated.invalid.first().unwrap();
+        assert!(
+            matches!(err, ValidationError::InvalidSignature { .. }),
+            "{:?}",
+            err
+        );
+    }
+
+    #[test(tokio::test)]
+    async fn valid_invalid_pending_local() {
+        let pool = SqlitePool::connect_in_memory().await.unwrap();
+        let events = get_validation_events().await;
+
+        let validated = EventValidator::validate_events(
+            &pool,
+            Some(&ValidationRequirement::new_local()),
+            events,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(10, validated.valid.len());
+        assert_eq!(9, validated.unvalidated.len());
+        assert_eq!(1, validated.invalid.len());
+
+        let err = validated.invalid.first().unwrap();
+        assert!(
+            matches!(err, ValidationError::InvalidSignature { .. }),
+            "{:?}",
+            err
+        );
+    }
+
+    #[test(tokio::test)]
+    async fn always_valid_when_none() {
+        let pool = SqlitePool::connect_in_memory().await.unwrap();
+        let events = get_validation_events().await;
+
+        let validated = EventValidator::validate_events(&pool, None, events)
+            .await
+            .unwrap();
+
+        assert_eq!(20, validated.valid.len(), "{:?}", validated);
     }
 }
