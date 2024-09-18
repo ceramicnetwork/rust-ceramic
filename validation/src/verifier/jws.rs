@@ -1,6 +1,8 @@
 use anyhow::{anyhow, Result};
 use base64::engine::{self, Engine as _};
 use ceramic_core::Jwk;
+use ceramic_event::unvalidated::signed::cacao::{JwsSignatureMetadata, MetadataValue};
+use serde::{ser::SerializeMap as _, Serialize};
 use tracing::warn;
 
 pub struct VerifyJwsInput<'a> {
@@ -37,4 +39,46 @@ pub async fn verify_jws(params: VerifyJwsInput<'_>) -> Result<()> {
         warn!(?warnings, "warnings while verifying jws");
     }
     Ok(())
+}
+
+#[derive(Debug)]
+/// A sorted version of the metadata that can be used when verifying signatures
+pub struct SortedJwsMetadata<'a> {
+    /// The header data
+    pub header_data: Vec<(&'a str, &'a MetadataValue)>,
+    /// The algorithm used
+    pub alg: MetadataValue,
+    /// The key ID used
+    pub kid: MetadataValue,
+}
+
+impl<'a> From<&'a JwsSignatureMetadata> for SortedJwsMetadata<'a> {
+    fn from(metadata: &'a JwsSignatureMetadata) -> Self {
+        let header_data: Vec<_> = metadata.rest.iter().map(|(k, v)| (k.as_str(), v)).collect();
+        Self {
+            header_data,
+            alg: MetadataValue::String(metadata.alg.clone()),
+            kid: MetadataValue::String(metadata.alg.clone()),
+        }
+    }
+}
+
+impl<'a> Serialize for SortedJwsMetadata<'a> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::ser::Serializer,
+    {
+        let mut header_data: Vec<_> = self
+            .header_data
+            .iter()
+            .map(|(k, v)| (*k, *v))
+            .chain(vec![("alg", &self.alg), ("kid", &self.kid)])
+            .collect();
+        header_data.sort_by(|a, b| a.0.cmp(b.0));
+        let mut s = serializer.serialize_map(Some(header_data.len()))?;
+        for (k, v) in &header_data {
+            s.serialize_entry(k, v)?;
+        }
+        s.end()
+    }
 }

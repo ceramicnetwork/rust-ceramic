@@ -1937,7 +1937,9 @@ dependencies = [
  "k256 0.13.3",
  "lru 0.10.1",
  "multibase 0.9.1",
+ "multihash-codetable",
  "once_cell",
+ "p256 0.13.2",
  "reqwest",
  "serde",
  "serde_ipld_dagcbor",
@@ -1947,6 +1949,7 @@ dependencies = [
  "test-log",
  "tokio",
  "tracing",
+ "unsigned-varint 0.8.0",
 ]
 
 [[package]]

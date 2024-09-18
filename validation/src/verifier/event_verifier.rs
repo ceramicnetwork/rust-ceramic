@@ -174,6 +174,7 @@ mod test {
             SigningType::Ethereum,
             SigningType::Ed2559,
             SigningType::EcdsaP256,
+            SigningType::WebAuthN,
         ] {
             verify_event(e_type, TestEventType::SignedInit, &VerifyJwsOpts::default()).await;
         }
@@ -186,6 +187,7 @@ mod test {
             SigningType::Ethereum,
             SigningType::Ed2559,
             SigningType::EcdsaP256,
+            SigningType::WebAuthN,
         ] {
             verify_event(e_type, TestEventType::SignedData, &VerifyJwsOpts::default()).await;
         }
@@ -198,6 +200,7 @@ mod test {
             SigningType::Ethereum,
             SigningType::Ed2559,
             SigningType::EcdsaP256,
+            SigningType::WebAuthN,
         ] {
             assert_invalid_event(
                 e_type,
@@ -215,6 +218,7 @@ mod test {
             SigningType::Ethereum,
             SigningType::Ed2559,
             SigningType::EcdsaP256,
+            SigningType::WebAuthN,
         ] {
             assert_invalid_event(
                 e_type,
