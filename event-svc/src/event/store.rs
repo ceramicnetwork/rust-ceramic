@@ -18,7 +18,6 @@ use super::service::{InsertResult, ValidationError, ValidationRequirement};
 
 impl From<InsertResult> for recon::InsertResult<EventId> {
     fn from(value: InsertResult) -> Self {
-        let mut pending = 0;
         let mut invalid = Vec::new();
         for ev in value.rejected {
             match ev {
@@ -30,12 +29,12 @@ impl From<InsertResult> for recon::InsertResult<EventId> {
                     info!(key=%key, %reason, "invalid signature for recon event");
                     invalid.push(recon::InvalidItem::InvalidSignature { key })
                 }
-                // once we implement enough validation to actually return these items,
-                // the service will need to track them and retry them when the required CIDs are discovered
-                ValidationError::RequiresHistory { .. } => pending += 1,
+                ValidationError::RequiresHistory { key } => {
+                    unreachable!("recon items should never require history: {:?}", key)
+                }
             };
         }
-        recon::InsertResult::new_err(value.new.len(), invalid, pending)
+        recon::InsertResult::new_err(value.new.len(), invalid, value.pending_count)
     }
 }
 
