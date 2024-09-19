@@ -40,11 +40,11 @@ members = [
 
 ahash = "0.8"
 anyhow = { version = "1" }
-arrow = { version = "52.0.0", features = ["prettyprint"] }
-arrow-array = "52.2.0"
-arrow-flight = { version = "52.2.0", features = ["flight-sql-experimental"] }
-arrow-ipc = "52.2.0"
-arrow-schema = "52.2.0"
+arrow = { version = "53", features = ["prettyprint"] }
+arrow-array = "53"
+arrow-flight = { version = "53", features = ["flight-sql-experimental"] }
+arrow-ipc = "53"
+arrow-schema = "53"
 async-broadcast = "0.4.1"
 async-channel = "1.7.1"
 async-recursion = "1"
@@ -86,9 +86,12 @@ criterion2 = "0.7.0"
 crossterm = "0.25"
 ctrlc = "3.2.2"
 dag-jose = "0.2"
-datafusion = "41.0.0"
-datafusion-federation = "0.2"
-datafusion-flight-sql-server = "0.2"
+datafusion = "42"
+#datafusion-federation = "0.2"
+#datafusion-flight-sql-server = "0.2"
+#datafusion-flight-sql-table-provider = { git = "https://github.com/datafusion-contrib/datafusion-federation.git", branch = "main" }
+datafusion-federation = { git = "https://github.com/datafusion-contrib/datafusion-federation.git", branch = "main" }
+datafusion-flight-sql-server = { git = "https://github.com/datafusion-contrib/datafusion-federation.git", branch = "main" }
 datafusion-flight-sql-table-provider = { git = "https://github.com/datafusion-contrib/datafusion-federation.git", branch = "main" }
 deadqueue = "0.2.3"
 derivative = "2.2"
@@ -106,7 +109,7 @@ handlebars = "4"
 headers = "0.3.7"
 hex = "0.4.3"
 hex-literal = "0.3.4"
-http = "0.2"
+http = "1"
 http-body = "0.4.5"
 http-serde = "1.1"
 humansize = "2"
@@ -153,9 +156,8 @@ paste = "1.0.9"
 phf = "0.11"
 prometheus-client = "0.22"
 proptest = "1"
-#TODO upgrade to 0.12
-prost = "0.11"
-prost-build = "0.11.1"
+prost = "0.13"
+prost-build = "0.13"
 quic-rpc = { version = "0.3.2", default-features = false }
 rand = "0.8.5"
 rand_chacha = "0.3.1"
@@ -213,7 +215,7 @@ tokio-stream = "0.1.11"
 tokio-test = "0.4.2"
 tokio-util = { version = "0.7.10", features = ["compat", "rt"] }
 toml = "0.5.9"
-tonic = { version = "0.11", features = ["tls"] }
+tonic = { version = "0.12", features = ["tls"] }
 tower = "0.4"
 tower-http = "0.3"
 tower-layer = "0.3"
