@@ -104,7 +104,14 @@ impl<T> FeedTable<T> {
                             DataType::Struct(
                                 vec![
                                     Field::new("key", DataType::Utf8, false),
-                                    Field::new("value", DataType::Binary, false),
+                                    Field::new(
+                                        "value",
+                                        DataType::Dictionary(
+                                            Box::new(DataType::Int8),
+                                            Box::new(DataType::Binary),
+                                        ),
+                                        false,
+                                    ),
                                 ]
                                 .into(),
                             ),

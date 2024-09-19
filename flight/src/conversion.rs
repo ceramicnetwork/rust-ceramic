@@ -1,22 +1,23 @@
 use crate::types::*;
 use anyhow::Result;
 use arrow::array::{
-    ArrayRef, BinaryBuilder, ListBuilder, MapBuilder, MapFieldNames, PrimitiveBuilder,
-    StringBuilder, StructArray, UInt64Builder, UInt8Builder,
+    ArrayRef, BinaryBuilder, BinaryDictionaryBuilder, ListBuilder, MapBuilder, MapFieldNames,
+    PrimitiveBuilder, StringBuilder, StructArray, UInt64Builder, UInt8Builder,
 };
-use arrow::datatypes::{DataType, Field};
+use arrow::datatypes::{DataType, Field, Int8Type};
 use arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
 /// Construct a [`RecordBatch`] from an iterator of [`ConclusionEvent`]s.
-#[derive(Debug)]
 pub struct ConclusionEventBuilder {
     index: UInt64Builder,
     event_type: UInt8Builder,
     stream_cid: BinaryBuilder,
     stream_type: UInt8Builder,
     controller: StringBuilder,
-    dimensions: MapBuilder<StringBuilder, BinaryBuilder>,
+    // NOTE: Using int8 as the dictionary key type means a maximum of 256 dimensions.
+    // TODO: Specify there is a limit on dimensions in the spec.
+    dimensions: MapBuilder<StringBuilder, BinaryDictionaryBuilder<Int8Type>>,
     event_cid: BinaryBuilder,
     data: BinaryBuilder,
     previous: ListBuilder<BinaryBuilder>,
@@ -37,9 +38,10 @@ impl Default for ConclusionEventBuilder {
                     value: "value".to_string(),
                 }),
                 StringBuilder::new(),
-                BinaryBuilder::new(),
-            )
-            .with_values_field(Field::new("value", DataType::Binary, false)),
+                // Use dictionary builder as we expect low cardinality values across multiple
+                // conclusion events.
+                BinaryDictionaryBuilder::new(),
+            ),
             event_cid: BinaryBuilder::new(),
             data: BinaryBuilder::new(),
             previous: ListBuilder::new(BinaryBuilder::new())

@@ -67,6 +67,32 @@ pub async fn run(
                 Arc::new(Field::new("stream_cid", DataType::Binary, false)),
                 Arc::new(Field::new("event_type", DataType::UInt8, false)),
                 Arc::new(Field::new("controller", DataType::Utf8, false)),
+                Arc::new(Field::new(
+                    "dimensions",
+                    DataType::Map(
+                        Field::new(
+                            "entries",
+                            DataType::Struct(
+                                vec![
+                                    Field::new("key", DataType::Utf8, false),
+                                    Field::new(
+                                        "value",
+                                        DataType::Dictionary(
+                                            Box::new(DataType::Int8),
+                                            Box::new(DataType::Binary),
+                                        ),
+                                        true,
+                                    ),
+                                ]
+                                .into(),
+                            ),
+                            false,
+                        )
+                        .into(),
+                        false,
+                    ),
+                    true,
+                )),
                 Arc::new(Field::new("event_cid", DataType::Binary, false)),
                 Arc::new(Field::new("state", DataType::Utf8, false)),
             ]))
@@ -279,7 +305,14 @@ mod tests {
                                         DataType::Struct(
                                             vec![
                                                 Field::new("key", DataType::Utf8, false),
-                                                Field::new("value", DataType::Binary, false),
+                                                Field::new(
+                                                    "value",
+                                                    DataType::Dictionary(
+                                                        Box::new(DataType::Int8),
+                                                        Box::new(DataType::Binary),
+                                                    ),
+                                                    true,
+                                                ),
                                             ]
                                             .into(),
                                         ),
