@@ -118,6 +118,7 @@ impl TryFrom<unvalidated::Event<Ipld>> for ConclusionInit {
                 .ok_or_else(|| anyhow!("no controller found"))?
                 .to_string(),
             dimensions: vec![
+                ("model".to_string(), init_payload.header().model().to_vec()),
                 (
                     "controller".to_string(),
                     init_payload
@@ -127,19 +128,6 @@ impl TryFrom<unvalidated::Event<Ipld>> for ConclusionInit {
                         .cloned()
                         .unwrap_or_default()
                         .into_bytes(),
-                ),
-                (
-                    "sep".to_string(),
-                    init_payload.header().sep().to_string().into_bytes(),
-                ),
-                ("model".to_string(), init_payload.header().model().to_vec()),
-                (
-                    "unique".to_string(),
-                    init_payload
-                        .header()
-                        .unique()
-                        .map(|unique| unique.to_vec())
-                        .unwrap_or_default(),
                 ),
                 (
                     "context".to_string(),

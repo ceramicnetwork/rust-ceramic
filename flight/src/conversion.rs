@@ -1,8 +1,8 @@
 use crate::types::*;
 use anyhow::Result;
 use arrow::array::{
-    ArrayRef, BinaryBuilder, ListBuilder, PrimitiveBuilder, StringBuilder, StructArray,
-    StructBuilder, UInt64Builder, UInt8Builder,
+    ArrayRef, BinaryBuilder, ListBuilder, MapBuilder, MapFieldNames, PrimitiveBuilder,
+    StringBuilder, StructArray, UInt64Builder, UInt8Builder,
 };
 use arrow::datatypes::{DataType, Field};
 use arrow::record_batch::RecordBatch;
@@ -16,7 +16,7 @@ pub struct ConclusionEventBuilder {
     stream_cid: BinaryBuilder,
     stream_type: UInt8Builder,
     controller: StringBuilder,
-    dimensions: ListBuilder<StructBuilder>,
+    dimensions: MapBuilder<StringBuilder, BinaryBuilder>,
     event_cid: BinaryBuilder,
     data: BinaryBuilder,
     previous: ListBuilder<BinaryBuilder>,
@@ -24,28 +24,22 @@ pub struct ConclusionEventBuilder {
 
 impl Default for ConclusionEventBuilder {
     fn default() -> Self {
-        let key_value_fields = vec![
-            Field::new("key", DataType::Utf8, false),
-            Field::new("value", DataType::Binary, false),
-        ];
-
         Self {
             index: UInt64Builder::new(),
             event_type: PrimitiveBuilder::new(),
             stream_cid: BinaryBuilder::new(),
             stream_type: PrimitiveBuilder::new(),
             controller: StringBuilder::new(),
-            dimensions: ListBuilder::new(StructBuilder::new(
-                key_value_fields.clone(),
-                vec![
-                    Box::new(StringBuilder::new()),
-                    Box::new(BinaryBuilder::new()),
-                ],
-            ))
-            .with_field(Field::new_list_field(
-                DataType::Struct(key_value_fields.into()),
-                false,
-            )),
+            dimensions: MapBuilder::new(
+                Some(MapFieldNames {
+                    entry: "entries".to_string(),
+                    key: "key".to_string(),
+                    value: "value".to_string(),
+                }),
+                StringBuilder::new(),
+                BinaryBuilder::new(),
+            )
+            .with_values_field(Field::new("value", DataType::Binary, false)),
             event_cid: BinaryBuilder::new(),
             data: BinaryBuilder::new(),
             previous: ListBuilder::new(BinaryBuilder::new())
@@ -83,19 +77,10 @@ impl ConclusionEventBuilder {
         self.controller.append_value(&init.controller);
         self.stream_type.append_value(init.stream_type);
         for (k, v) in &init.dimensions {
-            self.dimensions
-                .values()
-                .field_builder::<StringBuilder>(0)
-                .unwrap()
-                .append_value(k);
-            self.dimensions
-                .values()
-                .field_builder::<BinaryBuilder>(1)
-                .unwrap()
-                .append_value(v);
-            self.dimensions.values().append(true);
+            self.dimensions.keys().append_value(k);
+            self.dimensions.values().append_value(v);
         }
-        self.dimensions.append(!init.dimensions.is_empty());
+        let _ = self.dimensions.append(!init.dimensions.is_empty());
     }
 
     fn finish(&mut self) -> StructArray {
@@ -322,13 +307,13 @@ mod tests {
 
         // Use expect_test to validate the output
         expect![[r#"
-            +-------+------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------+-------------------------------------------------------------+------+----------------------------------------------------------------------------------------------------------------------------+
-            | index | event_type | stream_cid                                                  | stream_type | controller    | dimensions                                                                              | event_cid                                                   | data | previous                                                                                                                   |
-            +-------+------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------+-------------------------------------------------------------+------+----------------------------------------------------------------------------------------------------------------------------+
-            | 0     | 0          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | [{key: controller, value: 6469643a6b65793a7465737431}, {key: model, value: 6d6f64656c}] | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 123  | []                                                                                                                         |
-            | 1     | 0          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | [{key: controller, value: 6469643a6b65793a7465737431}, {key: model, value: 6d6f64656c}] | baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q | 456  | [baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu]                                                              |
-            | 2     | 1          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | [{key: controller, value: 6469643a6b65793a7465737431}, {key: model, value: 6d6f64656c}] | baeabeidtub3bnbojbickf6d4pqscaw6xpt5ksgido7kcsg2jyftaj237di |      | [baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q]                                                              |
-            | 3     | 0          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | [{key: controller, value: 6469643a6b65793a7465737431}, {key: model, value: 6d6f64656c}] | baeabeiewqcj4bwhcssizv5kcyvsvm57bxghjpqshnbzkc6rijmwb4im4yq | 789  | [baeabeidtub3bnbojbickf6d4pqscaw6xpt5ksgido7kcsg2jyftaj237di, baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q] |
-            +-------+------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------+-------------------------------------------------------------+------+----------------------------------------------------------------------------------------------------------------------------+"#]].assert_eq(&formatted);
+            +-------+------------+-------------------------------------------------------------+-------------+---------------+-------------------------------------------------------------+-------------------------------------------------------------+------+----------------------------------------------------------------------------------------------------------------------------+
+            | index | event_type | stream_cid                                                  | stream_type | controller    | dimensions                                                  | event_cid                                                   | data | previous                                                                                                                   |
+            +-------+------------+-------------------------------------------------------------+-------------+---------------+-------------------------------------------------------------+-------------------------------------------------------------+------+----------------------------------------------------------------------------------------------------------------------------+
+            | 0     | 0          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | {controller: 6469643a6b65793a7465737431, model: 6d6f64656c} | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 123  |                                                                                                                            |
+            | 1     | 0          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | {controller: 6469643a6b65793a7465737431, model: 6d6f64656c} | baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q | 456  | [baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu]                                                              |
+            | 2     | 1          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | {controller: 6469643a6b65793a7465737431, model: 6d6f64656c} | baeabeidtub3bnbojbickf6d4pqscaw6xpt5ksgido7kcsg2jyftaj237di |      | [baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q]                                                              |
+            | 3     | 0          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | {controller: 6469643a6b65793a7465737431, model: 6d6f64656c} | baeabeiewqcj4bwhcssizv5kcyvsvm57bxghjpqshnbzkc6rijmwb4im4yq | 789  | [baeabeidtub3bnbojbickf6d4pqscaw6xpt5ksgido7kcsg2jyftaj237di, baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q] |
+            +-------+------------+-------------------------------------------------------------+-------------+---------------+-------------------------------------------------------------+-------------------------------------------------------------+------+----------------------------------------------------------------------------------------------------------------------------+"#]].assert_eq(&formatted);
     }
 }

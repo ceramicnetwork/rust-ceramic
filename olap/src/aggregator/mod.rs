@@ -19,9 +19,8 @@ use datafusion::{
     execution::context::SessionContext,
     functions_array::extract::array_element,
     logical_expr::{
-        col, expr::WindowFunction, Cast, Expr, ExprFunctionExt as _, WindowFunctionDefinition,
+        col, expr::WindowFunction, lit, Cast, Expr, ExprFunctionExt as _, WindowFunctionDefinition,
     },
-    scalar::ScalarValue,
     sql::TableReference,
 };
 use datafusion_federation::sql::{SQLFederationProvider, SQLSchemaProvider};
@@ -124,7 +123,6 @@ async fn process_feed_batch(ctx: SessionContext, conclusion_feed: DataFrame) -> 
         "index",
         "event_type",
         "controller",
-        "dimensions",
         "event_cid",
         "state",
     ])?;
@@ -140,8 +138,7 @@ async fn process_feed_batch(ctx: SessionContext, conclusion_feed: DataFrame) -> 
             col("dimensions"),
             col("event_cid"),
             Expr::Cast(Cast::new(Box::new(col("data")), DataType::Utf8)).alias("data"),
-            array_element(col("previous"), Expr::Literal(ScalarValue::Int8(Some(1))))
-                .alias("previous"),
+            array_element(col("previous"), lit(1)).alias("previous"),
         ])?
         .join_on(
             doc_state,
@@ -276,14 +273,19 @@ mod tests {
                             Arc::new(Field::new("controller", DataType::Utf8, false)),
                             Arc::new(Field::new(
                                 "dimensions",
-                                DataType::new_list(
-                                    DataType::Struct(
-                                        vec![
-                                            Field::new("key", DataType::Utf8, false),
-                                            Field::new("value", DataType::Binary, false),
-                                        ]
-                                        .into(),
-                                    ),
+                                DataType::Map(
+                                    Field::new(
+                                        "entries",
+                                        DataType::Struct(
+                                            vec![
+                                                Field::new("key", DataType::Utf8, false),
+                                                Field::new("value", DataType::Binary, false),
+                                            ]
+                                            .into(),
+                                        ),
+                                        false,
+                                    )
+                                    .into(),
                                     false,
                                 ),
                                 true,
@@ -359,11 +361,11 @@ mod tests {
         ])?)
         .await?;
         expect![[r#"
-            +-------+-------------------------------------------------------------+------------+-------------+-------------------------------------------------------------------------------------+-------------------------------------------------------------+---------+
-            | index | stream_cid                                                  | event_type | controller  | dimensions                                                                          | event_cid                                                   | state   |
-            +-------+-------------------------------------------------------------+------------+-------------+-------------------------------------------------------------------------------------+-------------------------------------------------------------+---------+
-            | 0     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | [{key: controller, value: 6469643a6b65793a626f62}, {key: model, value: 6d6f64656c}] | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | {"a":0} |
-            +-------+-------------------------------------------------------------+------------+-------------+-------------------------------------------------------------------------------------+-------------------------------------------------------------+---------+"#]].assert_eq(&doc_state.to_string());
+            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+---------+
+            | index | stream_cid                                                  | event_type | controller  | dimensions                                              | event_cid                                                   | state   |
+            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+---------+
+            | 0     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | {"a":0} |
+            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+---------+"#]].assert_eq(&doc_state.to_string());
         Ok(())
     }
     #[test(tokio::test)]
@@ -412,12 +414,12 @@ mod tests {
         ])?)
         .await?;
         expect![[r#"
-            +-------+-------------------------------------------------------------+------------+-------------+-------------------------------------------------------------------------------------+-------------------------------------------------------------+---------+
-            | index | stream_cid                                                  | event_type | controller  | dimensions                                                                          | event_cid                                                   | state   |
-            +-------+-------------------------------------------------------------+------------+-------------+-------------------------------------------------------------------------------------+-------------------------------------------------------------+---------+
-            | 1     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | [{key: controller, value: 6469643a6b65793a626f62}, {key: model, value: 6d6f64656c}] | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | {"a":0} |
-            | 2     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | [{key: controller, value: 6469643a6b65793a626f62}, {key: model, value: 6d6f64656c}] | baeabeifwi4ddwafoqe6htkx3g5gtjz5adapj366w6mraut4imk2ljwu3du | {"a":1} |
-            +-------+-------------------------------------------------------------+------------+-------------+-------------------------------------------------------------------------------------+-------------------------------------------------------------+---------+"#]].assert_eq(&doc_state.to_string());
+            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+---------+
+            | index | stream_cid                                                  | event_type | controller  | dimensions                                              | event_cid                                                   | state   |
+            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+---------+
+            | 1     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | {"a":0} |
+            | 2     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeifwi4ddwafoqe6htkx3g5gtjz5adapj366w6mraut4imk2ljwu3du | {"a":1} |
+            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+---------+"#]].assert_eq(&doc_state.to_string());
         Ok(())
     }
     #[test(tokio::test)]
@@ -486,13 +488,13 @@ mod tests {
         ])?)
         .await?;
         expect![[r#"
-            +-------+-------------------------------------------------------------+------------+-------------+-------------------------------------------------------------------------------------+-------------------------------------------------------------+---------+
-            | index | stream_cid                                                  | event_type | controller  | dimensions                                                                          | event_cid                                                   | state   |
-            +-------+-------------------------------------------------------------+------------+-------------+-------------------------------------------------------------------------------------+-------------------------------------------------------------+---------+
-            | 0     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | [{key: controller, value: 6469643a6b65793a626f62}, {key: model, value: 6d6f64656c}] | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | {"a":0} |
-            | 1     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 1          | did:key:bob | [{key: controller, value: 6469643a6b65793a626f62}, {key: model, value: 6d6f64656c}] | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | {"a":0} |
-            | 2     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | [{key: controller, value: 6469643a6b65793a626f62}, {key: model, value: 6d6f64656c}] | baeabeifwi4ddwafoqe6htkx3g5gtjz5adapj366w6mraut4imk2ljwu3du | {"a":1} |
-            +-------+-------------------------------------------------------------+------------+-------------+-------------------------------------------------------------------------------------+-------------------------------------------------------------+---------+"#]].assert_eq(&doc_state.to_string());
+            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+---------+
+            | index | stream_cid                                                  | event_type | controller  | dimensions                                              | event_cid                                                   | state   |
+            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+---------+
+            | 0     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | {"a":0} |
+            | 1     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 1          | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | {"a":0} |
+            | 2     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeifwi4ddwafoqe6htkx3g5gtjz5adapj366w6mraut4imk2ljwu3du | {"a":1} |
+            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+---------+"#]].assert_eq(&doc_state.to_string());
         Ok(())
     }
 
@@ -525,11 +527,11 @@ mod tests {
         )
         .await?;
         expect![[r#"
-            +-------+-------------------------------------------------------------+------------+-------------+-------------------------------------------------------------------------------------+-------------------------------------------------------------+---------+
-            | index | stream_cid                                                  | event_type | controller  | dimensions                                                                          | event_cid                                                   | state   |
-            +-------+-------------------------------------------------------------+------------+-------------+-------------------------------------------------------------------------------------+-------------------------------------------------------------+---------+
-            | 0     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | [{key: controller, value: 6469643a6b65793a626f62}, {key: model, value: 6d6f64656c}] | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | {"a":0} |
-            +-------+-------------------------------------------------------------+------------+-------------+-------------------------------------------------------------------------------------+-------------------------------------------------------------+---------+"#]].assert_eq(&doc_state.to_string());
+            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+---------+
+            | index | stream_cid                                                  | event_type | controller  | dimensions                                              | event_cid                                                   | state   |
+            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+---------+
+            | 0     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | {"a":0} |
+            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+---------+"#]].assert_eq(&doc_state.to_string());
         let doc_state = do_pass(
             ctx.clone(),
             conclusion_events_to_record_batch(&[ConclusionEvent::Time(ConclusionTime {
@@ -555,12 +557,12 @@ mod tests {
         )
         .await?;
         expect![[r#"
-            +-------+-------------------------------------------------------------+------------+-------------+-------------------------------------------------------------------------------------+-------------------------------------------------------------+---------+
-            | index | stream_cid                                                  | event_type | controller  | dimensions                                                                          | event_cid                                                   | state   |
-            +-------+-------------------------------------------------------------+------------+-------------+-------------------------------------------------------------------------------------+-------------------------------------------------------------+---------+
-            | 0     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | [{key: controller, value: 6469643a6b65793a626f62}, {key: model, value: 6d6f64656c}] | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | {"a":0} |
-            | 1     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 1          | did:key:bob | [{key: controller, value: 6469643a6b65793a626f62}, {key: model, value: 6d6f64656c}] | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | {"a":0} |
-            +-------+-------------------------------------------------------------+------------+-------------+-------------------------------------------------------------------------------------+-------------------------------------------------------------+---------+"#]].assert_eq(&doc_state.to_string());
+            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+---------+
+            | index | stream_cid                                                  | event_type | controller  | dimensions                                              | event_cid                                                   | state   |
+            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+---------+
+            | 0     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | {"a":0} |
+            | 1     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 1          | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | {"a":0} |
+            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+---------+"#]].assert_eq(&doc_state.to_string());
         let doc_state = do_pass(
             ctx,
             conclusion_events_to_record_batch(&[ConclusionEvent::Data(ConclusionData {
@@ -587,13 +589,13 @@ mod tests {
         )
         .await?;
         expect![[r#"
-            +-------+-------------------------------------------------------------+------------+-------------+-------------------------------------------------------------------------------------+-------------------------------------------------------------+---------+
-            | index | stream_cid                                                  | event_type | controller  | dimensions                                                                          | event_cid                                                   | state   |
-            +-------+-------------------------------------------------------------+------------+-------------+-------------------------------------------------------------------------------------+-------------------------------------------------------------+---------+
-            | 0     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | [{key: controller, value: 6469643a6b65793a626f62}, {key: model, value: 6d6f64656c}] | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | {"a":0} |
-            | 1     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 1          | did:key:bob | [{key: controller, value: 6469643a6b65793a626f62}, {key: model, value: 6d6f64656c}] | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | {"a":0} |
-            | 2     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | [{key: controller, value: 6469643a6b65793a626f62}, {key: model, value: 6d6f64656c}] | baeabeifwi4ddwafoqe6htkx3g5gtjz5adapj366w6mraut4imk2ljwu3du | {"a":1} |
-            +-------+-------------------------------------------------------------+------------+-------------+-------------------------------------------------------------------------------------+-------------------------------------------------------------+---------+"#]].assert_eq(&doc_state.to_string());
+            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+---------+
+            | index | stream_cid                                                  | event_type | controller  | dimensions                                              | event_cid                                                   | state   |
+            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+---------+
+            | 0     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | {"a":0} |
+            | 1     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 1          | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | {"a":0} |
+            | 2     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeifwi4ddwafoqe6htkx3g5gtjz5adapj366w6mraut4imk2ljwu3du | {"a":1} |
+            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+---------+"#]].assert_eq(&doc_state.to_string());
         Ok(())
     }
     #[test(tokio::test)]
@@ -623,11 +625,11 @@ mod tests {
         )
         .await?;
         expect![[r#"
-            +-------+-------------------------------------------------------------+------------+-------------+-------------------------------------------------------------------------------------+-------------------------------------------------------------+---------+
-            | index | stream_cid                                                  | event_type | controller  | dimensions                                                                          | event_cid                                                   | state   |
-            +-------+-------------------------------------------------------------+------------+-------------+-------------------------------------------------------------------------------------+-------------------------------------------------------------+---------+
-            | 0     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | [{key: controller, value: 6469643a6b65793a626f62}, {key: model, value: 6d6f64656c}] | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | {"a":0} |
-            +-------+-------------------------------------------------------------+------------+-------------+-------------------------------------------------------------------------------------+-------------------------------------------------------------+---------+"#]].assert_eq(&doc_state.to_string());
+            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+---------+
+            | index | stream_cid                                                  | event_type | controller  | dimensions                                              | event_cid                                                   | state   |
+            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+---------+
+            | 0     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | {"a":0} |
+            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+---------+"#]].assert_eq(&doc_state.to_string());
         let doc_state = do_pass(
             ctx.clone(),
             conclusion_events_to_record_batch(&[
@@ -676,13 +678,13 @@ mod tests {
         )
         .await?;
         expect![[r#"
-            +-------+-------------------------------------------------------------+------------+-------------+-------------------------------------------------------------------------------------+-------------------------------------------------------------+---------+
-            | index | stream_cid                                                  | event_type | controller  | dimensions                                                                          | event_cid                                                   | state   |
-            +-------+-------------------------------------------------------------+------------+-------------+-------------------------------------------------------------------------------------+-------------------------------------------------------------+---------+
-            | 0     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | [{key: controller, value: 6469643a6b65793a626f62}, {key: model, value: 6d6f64656c}] | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | {"a":0} |
-            | 1     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 1          | did:key:bob | [{key: controller, value: 6469643a6b65793a626f62}, {key: model, value: 6d6f64656c}] | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | {"a":0} |
-            | 2     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | [{key: controller, value: 6469643a6b65793a626f62}, {key: model, value: 6d6f64656c}] | baeabeifwi4ddwafoqe6htkx3g5gtjz5adapj366w6mraut4imk2ljwu3du | {"a":1} |
-            +-------+-------------------------------------------------------------+------------+-------------+-------------------------------------------------------------------------------------+-------------------------------------------------------------+---------+"#]].assert_eq(&doc_state.to_string());
+            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+---------+
+            | index | stream_cid                                                  | event_type | controller  | dimensions                                              | event_cid                                                   | state   |
+            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+---------+
+            | 0     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | {"a":0} |
+            | 1     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 1          | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | {"a":0} |
+            | 2     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeifwi4ddwafoqe6htkx3g5gtjz5adapj366w6mraut4imk2ljwu3du | {"a":1} |
+            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+---------+"#]].assert_eq(&doc_state.to_string());
         Ok(())
     }
 }

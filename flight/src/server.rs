@@ -98,14 +98,19 @@ impl<T> FeedTable<T> {
                 Field::new("controller", DataType::Utf8, false),
                 Field::new(
                     "dimensions",
-                    DataType::new_list(
-                        DataType::Struct(
-                            vec![
-                                Field::new("key", DataType::Utf8, false),
-                                Field::new("value", DataType::Binary, false),
-                            ]
-                            .into(),
-                        ),
+                    DataType::Map(
+                        Field::new(
+                            "entries",
+                            DataType::Struct(
+                                vec![
+                                    Field::new("key", DataType::Utf8, false),
+                                    Field::new("value", DataType::Binary, false),
+                                ]
+                                .into(),
+                            ),
+                            false,
+                        )
+                        .into(),
                         false,
                     ),
                     true,
