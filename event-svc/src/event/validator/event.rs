@@ -9,7 +9,7 @@ use tokio::try_join;
 use crate::{
     event::{
         service::{ValidationError, ValidationRequirement},
-        validator::signed::SignedValidator,
+        validator::signed::SignedEventValidator,
     },
     store::{EventInsertable, SqlitePool},
     Result,
@@ -178,7 +178,7 @@ impl<'a> EventValidator<'a> {
                 ..Default::default()
             }
         };
-        SignedValidator::validate_events(self.pool, &opts, events).await
+        SignedEventValidator::validate_events(self.pool, &opts, events).await
     }
 
     async fn validate_time_events(&self, events: TimeValidationBatch) -> Result<ValidatedEvents> {

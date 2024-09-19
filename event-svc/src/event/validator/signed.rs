@@ -26,7 +26,7 @@ use super::{
 /// A signed validator is expected to be constructed to validate a batch of events and then be dropped.
 /// It will cache init events for the batch to use at different stages of validation and then drop everything
 /// when it finishes.
-pub struct SignedValidator {
+pub struct SignedEventValidator {
     /// The init events needed to validate this batch of events.
     init_map: HashMap<Cid, Arc<unvalidated::Event<Ipld>>>,
     /// The set of invalid init CIDs that can be used to reject any events that depend on them without even looking at them.
@@ -44,7 +44,7 @@ enum ValidationStatus {
     Pending,
 }
 
-impl SignedValidator {
+impl SignedEventValidator {
     fn new(init_cnt: usize, data_cnt: usize) -> Self {
         Self {
             init_map: HashMap::with_capacity(init_cnt),
