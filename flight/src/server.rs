@@ -107,7 +107,7 @@ impl<T> FeedTable<T> {
                                     Field::new(
                                         "value",
                                         DataType::Dictionary(
-                                            Box::new(DataType::Int8),
+                                            Box::new(DataType::Int32),
                                             Box::new(DataType::Binary),
                                         ),
                                         false,

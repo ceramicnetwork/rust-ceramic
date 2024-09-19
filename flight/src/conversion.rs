@@ -4,7 +4,7 @@ use arrow::array::{
     ArrayRef, BinaryBuilder, BinaryDictionaryBuilder, ListBuilder, MapBuilder, MapFieldNames,
     PrimitiveBuilder, StringBuilder, StructArray, UInt64Builder, UInt8Builder,
 };
-use arrow::datatypes::{DataType, Field, Int8Type};
+use arrow::datatypes::{DataType, Field, Int32Type};
 use arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
@@ -15,9 +15,13 @@ pub struct ConclusionEventBuilder {
     stream_cid: BinaryBuilder,
     stream_type: UInt8Builder,
     controller: StringBuilder,
-    // NOTE: Using int8 as the dictionary key type means a maximum of 256 dimensions.
     // TODO: Specify there is a limit on dimensions in the spec.
-    dimensions: MapBuilder<StringBuilder, BinaryDictionaryBuilder<Int8Type>>,
+    //
+    // We need a large enough key type to handle all unique dimension values which will be a
+    // product of the numner of dimensions on the stream and the total number of streams.
+    // Given a small limit (i.e. <100) on the total number of dimensions per stream starting with i32 (for about 4B unique values) should be
+    // sufficient.
+    dimensions: MapBuilder<StringBuilder, BinaryDictionaryBuilder<Int32Type>>,
     event_cid: BinaryBuilder,
     data: BinaryBuilder,
     previous: ListBuilder<BinaryBuilder>,
