@@ -545,7 +545,7 @@ impl OrderingState {
             }
 
             event_cnt += 1;
-            let stream_cid = parsed_event.id();
+            let stream_cid = parsed_event.stream_cid();
             let prev = parsed_event
                 .prev()
                 .expect("prev must exist for non-init events");

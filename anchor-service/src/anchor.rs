@@ -27,7 +27,7 @@ impl Debug for AnchorRequest {
         f.debug_struct("AnchorRequest")
             .field("id", &format!("{:?}", &self.id))
             .field("prev", &format!("{:?}", &self.prev))
-            .field("order_key", &format!("{:?}", &self.event_id))
+            .field("event_id", &format!("{:?}", &self.event_id))
             .field("resume_token", &self.resume_token)
             .finish()
     }

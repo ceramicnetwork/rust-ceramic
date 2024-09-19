@@ -32,7 +32,6 @@ where
         recon,
         stream,
         ProtocolConfig::new_node_id(remote_node_id),
-        NodeId::try_from_peer_id(&remote_peer_id)?,
     )
     .await?;
     Ok(stream_set)
@@ -57,7 +56,6 @@ where
         recon,
         stream,
         ProtocolConfig::new_node_id(remote_node_id),
-        NodeId::try_from_peer_id(&remote_peer_id)?,
     )
     .await?;
     Ok(stream_set)

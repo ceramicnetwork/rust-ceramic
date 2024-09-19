@@ -132,19 +132,6 @@ where
         }
     }
 
-    /// Returns the 'id' field of the event, which is the Cid of the stream's init event.
-    /// Always return the CID because the init event knows it's CID.
-    pub fn id(&self) -> &Cid {
-        match self {
-            Event::Time(t) => t.id(),
-            Event::Signed(event) => match event.payload() {
-                Payload::Data(d) => d.id(),
-                Payload::Init(_) => event.envelope_cid(),
-            },
-            Event::Unsigned(init) => init.cid(),
-        }
-    }
-
     /// Encode the event into a CAR bytes containing all blocks of the event.
     pub fn encode_car(&self) -> anyhow::Result<Vec<u8>> {
         match self {

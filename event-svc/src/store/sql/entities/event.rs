@@ -94,7 +94,7 @@ impl EventInsertable {
 
     /// Get the CID of the init event of the stream
     pub fn stream_cid(&self) -> &Cid {
-        self.event.id()
+        self.event.stream_cid()
     }
 
     /// Get the CID of the event

@@ -90,7 +90,6 @@ pub async fn initiate_synchronize<S, R, E>(
     recon: R,
     stream: S,
     config: ProtocolConfig,
-    informant: NodeId,
 ) -> Result<()>
 where
     R: Recon,
@@ -111,7 +110,6 @@ pub async fn respond_synchronize<S, R, E>(
     recon: R,
     stream: S,
     config: ProtocolConfig,
-    informant: NodeId,
 ) -> Result<()>
 where
     R: Recon,

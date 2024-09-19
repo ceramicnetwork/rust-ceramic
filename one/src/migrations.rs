@@ -10,7 +10,7 @@ use cid::Cid;
 use clap::{Args, Subcommand};
 use futures::{stream::BoxStream, StreamExt};
 use multihash_codetable::{Code, Multihash, MultihashDigest};
-use tracing::{debug, info};
+use tracing::{debug, info, trace};
 
 use crate::{default_directory, DBOpts, Info, LogOpts};
 
@@ -126,8 +126,11 @@ impl BlockStore for FSBlockStore {
                 while let Some(entry) = entries.next_entry().await? {
                     if entry.metadata().await?.is_dir() {
                         dirs.push(entry.path())
-                    } else if let Some(block) = block_from_path(entry.path()).await?{
+                    } else if let Ok(Some(block)) = block_from_path(entry.path()).await{
                         yield block
+                    } else {
+                        trace!(path = entry.path().display().to_string(), "skipping non-block file");
+                        continue;
                     }
                 }
             }

@@ -325,7 +325,7 @@ impl EventService {
             event,
             delivered,
         } = event;
-        let stream_cid = event.id();
+        let stream_cid = event.stream_cid();
         let init_event = self.get_event_by_cid(stream_cid).await?;
         let init = ConclusionInit::try_from(init_event).map_err(|e| {
             Error::new_app(anyhow::anyhow!(
