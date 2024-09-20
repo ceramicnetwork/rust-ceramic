@@ -11,7 +11,7 @@ TimeEventBatch {
             AnchorRequest {
                 id: "Cid(baeabeifpkvyplimbbn5ppdfpjpdquzqpbx2r4qv27eou3znsgkg6b2b57q)",
                 prev: "Cid(baeabeifpkvyplimbbn5ppdfpjpdquzqpbx2r4qv27eou3znsgkg6b2b57q)",
-                order_key: "CE010500BA25076D730241E745CC7C072FF729EA683B751701711220F4EF7EC208944D257025408BB647949E6B72930520BC80F34D8BFBAFD2643D86",
+                event_id: "CE010500BA25076D730241E745CC7C072FF729EA683B751701711220F4EF7EC208944D257025408BB647949E6B72930520BC80F34D8BFBAFD2643D86",
                 resume_token: 0,
             },
             RawTimeEvent {
