@@ -166,19 +166,21 @@ impl AnchorService {
     }
 
     async fn store_time_events(&self, time_event_batch: TimeEventBatch) -> Result<()> {
+        let new_high_water_mark = time_event_batch
+            .raw_time_events
+            .events
+            .last()
+            .expect("should have at least one event in the batch")
+            .0
+            .resume_token;
+
         match time_event_batch.try_to_insertables() {
             Ok(insertables) => {
+                // Update the high water mark
                 self.event_service
                     .insert_many(insertables, self.node_id)
                     .await?;
-                // Update the high water mark
-                let new_high_water_mark = time_event_batch
-                    .raw_time_events
-                    .events
-                    .last()
-                    .expect("should have at least one event in the batch")
-                    .0
-                    .resume_token;
+
                 Ok(self
                     .high_water_mark_store
                     .insert_high_water_mark(new_high_water_mark)
@@ -195,11 +197,10 @@ mod tests {
 
     use ceramic_core::NodeId;
     use ceramic_sql::sqlite::SqlitePool;
-    use expect_test::expect_file;
     use tokio::sync::broadcast;
 
     use super::AnchorService;
-    use crate::{MockAnchorClient, MockCas, Store};
+    use crate::{MockAnchorClient, MockCas};
 
     #[tokio::test]
     async fn test_anchor_service_run() {

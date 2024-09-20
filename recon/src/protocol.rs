@@ -106,11 +106,7 @@ where
 }
 /// Respond to an initiated Recon synchronization with a peer over a stream.
 #[tracing::instrument(skip(recon, stream), ret(level = Level::DEBUG))]
-pub async fn respond_synchronize<S, R, E>(
-    recon: R,
-    stream: S,
-    config: ProtocolConfig,
-) -> Result<()>
+pub async fn respond_synchronize<S, R, E>(recon: R, stream: S, config: ProtocolConfig) -> Result<()>
 where
     R: Recon,
     S: Stream<Item = std::result::Result<IM<R::Key, R::Hash>, E>>

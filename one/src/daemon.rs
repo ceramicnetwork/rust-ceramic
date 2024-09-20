@@ -186,6 +186,8 @@ pub struct DaemonOpts {
     remote_anchor_service_url: Option<String>,
 
     /// Ceramic One anchor interval in seconds
+    ///
+    /// The interval between building a tree for all unanchored events and sending to a CAS
     #[arg(long, default_value_t = 3600, env = "CERAMIC_ONE_ANCHOR_INTERVAL")]
     anchor_interval: u64,
 
@@ -199,6 +201,8 @@ pub struct DaemonOpts {
     anchor_batch_size: u64,
 
     /// Ceramic One anchor polling interval in seconds
+    ///
+    /// The interval between requests to cas to determine if the chain transaction is completed.
     #[arg(
         long,
         default_value_t = 300,

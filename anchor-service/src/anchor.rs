@@ -115,18 +115,22 @@ impl std::fmt::Debug for TimeEventBatch {
 
 impl TimeEventBatch {
     /// Try to convert the TimeEventBatch into a list of TimeEventInsertables
-    pub fn try_to_insertables(&self) -> Result<Vec<TimeEventInsertable>> {
+    pub fn try_to_insertables(self) -> Result<Vec<TimeEventInsertable>> {
         info!(
             "store anchor batch: proof={}, events={}",
             self.proof.to_cid()?,
             self.raw_time_events.events.len()
         );
-        let events = self
-            .raw_time_events
+        let TimeEventBatch {
+            merkle_nodes,
+            proof,
+            raw_time_events,
+        } = self;
+        let events = raw_time_events
             .events
-            .iter()
+            .into_iter()
             .map(|(anchor_request, time_event)| {
-                self.build_time_event_insertable(time_event, anchor_request)
+                Self::build_time_event_insertable(&proof, &merkle_nodes, time_event, anchor_request)
             })
             .collect::<Result<Vec<_>>>()?;
         Ok(events)
@@ -134,36 +138,36 @@ impl TimeEventBatch {
 
     /// Build a TimeEventInsertable from a RawTimeEvent and AnchorRequest
     fn build_time_event_insertable(
-        &self,
-        time_event: &RawTimeEvent,
-        anchor_request: &AnchorRequest,
+        proof: &Proof,
+        merkle_nodes: &MerkleNodes,
+        time_event: RawTimeEvent,
+        anchor_request: AnchorRequest,
     ) -> Result<TimeEventInsertable> {
         let time_event_cid = time_event.to_cid().context(format!(
             "could not serialize time event for {} with batch proof {}",
             time_event.prev(),
             time_event.proof(),
         ))?;
-        let blocks_in_path: Vec<ProofEdge> = self
-            .find_tree_blocks_along_path(
-                time_event.path(),
-                &anchor_request.prev,
-                &self.proof.root(),
-                &self.merkle_nodes,
-            )
-            .context(format!(
-                "could not build time event {} blocks for {} with batch proof {}",
-                time_event_cid,
-                (time_event.prev()),
-                time_event.proof(),
-            ))?
-            // MerkleNodes to vec of IPLD nodes
-            .into_iter()
-            .map(|m: MerkleNode| -> ProofEdge {
-                m.into_iter()
-                    .map(|c: Option<Cid>| c.map_or(Ipld::Null, Ipld::Link))
-                    .collect()
-            })
-            .collect();
+        let blocks_in_path: Vec<ProofEdge> = Self::find_tree_blocks_along_path(
+            time_event.path(),
+            &anchor_request.prev,
+            &proof.root(),
+            merkle_nodes,
+        )
+        .context(format!(
+            "could not build time event {} blocks for {} with batch proof {}",
+            time_event_cid,
+            (time_event.prev()),
+            time_event.proof(),
+        ))?
+        // MerkleNodes to vec of IPLD nodes
+        .into_iter()
+        .map(|m: MerkleNode| -> ProofEdge {
+            m.into_iter()
+                .map(|c: Option<Cid>| c.map_or(Ipld::Null, Ipld::Link))
+                .collect()
+        })
+        .collect();
 
         // RawTimeEvent to event
         Ok(TimeEventInsertable {
@@ -175,12 +179,11 @@ impl TimeEventBatch {
                     time_event_cid, anchor_request.event_id
                 ))?,
             cid: time_event_cid,
-            event: TimeEvent::new((*time_event).clone(), self.proof.clone(), blocks_in_path),
+            event: TimeEvent::new(time_event.clone(), proof.clone(), blocks_in_path),
         })
     }
 
     fn find_tree_blocks_along_path(
-        &self,
         path: &str,
         prev: &Cid,
         root: &Cid,

@@ -1,8 +1,6 @@
-use serde::{Deserialize, Serialize};
-
 /// Network values from https://cips.ceramic.network/tables/networkIds.csv
 /// Ceramic Pubsub Topic, Timestamp Authority
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub enum Network {
     /// Production network
     Mainnet,
