@@ -25,7 +25,7 @@ struct InMemBlockStore {
 
 #[async_trait]
 impl BlockStore for InMemBlockStore {
-    fn blocks_from_dir(&self) -> BoxStream<'static, Result<(Cid, Vec<u8>)>> {
+    fn blocks(&self) -> BoxStream<'static, Result<(Cid, Vec<u8>)>> {
         let blocks = self.blocks.clone();
         futures::stream::iter(blocks.into_iter().map(Result::Ok)).boxed()
     }
