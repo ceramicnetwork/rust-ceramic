@@ -64,7 +64,7 @@ pub struct FromIpfsOpts {
     #[command(flatten)]
     log_opts: LogOpts,
 
-    /// Path of list of files to migrate
+    /// Path of file containing list of newline-delimited absolute file paths to migrate
     #[clap(long, short = 'f', env = "CERAMIC_ONE_INPUT_FILE_LIST_PATH")]
     input_file_list_path: Option<PathBuf>,
 
@@ -113,6 +113,12 @@ pub async fn migrate(cmd: EventsCommand) -> Result<()> {
 }
 
 async fn from_ipfs(opts: FromIpfsOpts) -> Result<()> {
+    // Limit and offset are only used when reading from a file list
+    if (opts.limit.is_some() || opts.offset > 0) && opts.input_file_list_path.is_none() {
+        return Err(anyhow!(
+            "File list path is required when using limit or offset"
+        ));
+    }
     let network = opts.network.to_network(&opts.local_network_id)?;
     let db_opts: DBOpts = (&opts).into();
     let sqlite_pool = db_opts.get_sqlite_pool().await?;
@@ -226,18 +232,10 @@ impl FSBlockStore {
         let limit = self.file_limit;
         (try_stream! {
             let file = tokio::fs::File::open(input_file_list_path).await?;
-            let mut lines = tokio::io::BufReader::new(file).lines();
-            let mut i = 0;
-            while let Some(line) = lines.next_line().await? {
-                i += 1;
-                if let Some(limit) = limit {
-                    if i > offset + limit {
-                        return;
-                    }
-                }
-                if i <= offset {
-                    continue;
-                }
+            let lines = tokio::io::BufReader::new(file).lines();
+            let lines = tokio_stream::wrappers::LinesStream::new(lines);
+            let mut lines = lines.skip(offset as usize).take(limit.unwrap_or(u64::MAX) as usize);
+            while let Some(line) = lines.next().await.transpose()? {
                 let path = PathBuf::from(line);
                 match block_from_path(path.clone()).await {
                     Ok(Some(block)) => yield block,

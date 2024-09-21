@@ -2552,6 +2552,7 @@ dependencies = [
  "tokio",
  "tokio-metrics",
  "tokio-prometheus-client",
+ "tokio-stream",
  "tracing",
 ]
 
