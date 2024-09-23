@@ -124,7 +124,7 @@ impl EventService {
             map.clear();
         }
         for ev in pending {
-            match map.entry(*ev.event.id()) {
+            match map.entry(*ev.event.stream_cid()) {
                 std::collections::hash_map::Entry::Occupied(mut entry) => {
                     entry.get_mut().push(ev);
                 }

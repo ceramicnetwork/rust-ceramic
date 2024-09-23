@@ -1,4 +1,5 @@
 use std::ops::Range;
+use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
@@ -280,7 +281,7 @@ impl ceramic_anchor_service::Store for EventService {
                 EventInsertable::try_new(
                     insertable.event_id,
                     insertable.cid,
-                    Event::Time(Box::new(insertable.event)),
+                    Arc::new(Event::Time(Box::new(insertable.event))),
                     Some(informant),
                     true,
                 )
