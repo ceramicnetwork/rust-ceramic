@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.37.0] - 2024-09-23
+
+### 🚀 Features
+
+- Add webauthn signature validation (#511)
+- Support dimensions in conclusion feed (#535)
+
+### 🐛 Bug Fixes
+
+- Spawn std task instead of tokio to avoid blocking runtime (#532)
+
+### 🚜 Refactor
+
+- Small logic change for readability (#534)
+
 ## [0.36.0] - 2024-09-18
 
 ### 🚀 Features
@@ -14,6 +29,7 @@ All notable changes to this project will be documented in this file.
 - Infer stream type from raw event model and add it to conclusion event + tests (#525)
 - Rpc client for eth blockchains (#520)
 - Verify time event proofs from eth rpc client and calculate time (#522)
+- Add olap aggregation function (#527)
 
 ### 🐛 Bug Fixes
 
@@ -23,6 +39,10 @@ All notable changes to this project will be documented in this file.
 ### 🚜 Refactor
 
 - More prep for signed event validation (#526)
+
+### ⚙️ Miscellaneous Tasks
+
+- Version v0.36.0 (#533)
 
 ## [0.35.0] - 2024-09-09
 
