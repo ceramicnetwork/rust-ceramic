@@ -9,13 +9,15 @@ use tokio::try_join;
 use crate::{
     event::{
         service::{ValidationError, ValidationRequirement},
-        validator::signed::SignedEventValidator,
+        validator::{
+            grouped::{GroupedEvents, SignedValidationBatch, TimeValidationBatch},
+            signed::SignedEventValidator,
+            time::TimeEventValidator,
+        },
     },
     store::{EventInsertable, SqlitePool},
-    Result,
+    Error, Result,
 };
-
-use super::grouped::{GroupedEvents, SignedValidationBatch, TimeValidationBatch};
 
 #[derive(Debug)]
 pub struct ValidatedEvents {
@@ -115,12 +117,30 @@ impl ValidatedEvents {
 #[derive(Debug)]
 pub struct EventValidator {
     pool: SqlitePool,
+    /// The validator to use for time events if enabled.
+    /// It contains the ethereum RPC providers and lives for the live of the [`EventValidator`].
+    /// The [`SignedEventValidator`] is currently constructed on a per validation request basis
+    /// as it caches and drops events per batch.
+    time_event_verifier: Option<TimeEventValidator>,
 }
 
 impl EventValidator {
     /// Create a new event validator
-    pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+    pub async fn try_new(pool: SqlitePool, ethereum_rpc_urls: Option<&[String]>) -> Result<Self> {
+        let time_event_verifier = if let Some(eth_urls) = ethereum_rpc_urls {
+            Some(
+                TimeEventValidator::try_new(eth_urls)
+                    .await
+                    .map_err(Error::new_fatal)?,
+            )
+        } else {
+            None
+        };
+
+        Ok(Self {
+            pool,
+            time_event_verifier,
+        })
     }
 
     /// Validates the events with the given validation requirement
@@ -224,7 +244,9 @@ mod test {
         let pool = SqlitePool::connect_in_memory().await.unwrap();
         let events = get_validation_events().await;
 
-        let validated = EventValidator::new(pool)
+        let validated = EventValidator::try_new(pool, None)
+            .await
+            .unwrap()
             .validate_events(Some(&ValidationRequirement::new_recon()), events)
             .await
             .unwrap();
@@ -246,7 +268,9 @@ mod test {
         let pool = SqlitePool::connect_in_memory().await.unwrap();
         let events = get_validation_events().await;
 
-        let validated = EventValidator::new(pool)
+        let validated = EventValidator::try_new(pool, None)
+            .await
+            .unwrap()
             .validate_events(Some(&ValidationRequirement::new_local()), events)
             .await
             .unwrap();
@@ -268,7 +292,9 @@ mod test {
         let pool = SqlitePool::connect_in_memory().await.unwrap();
         let events = get_validation_events().await;
 
-        let validated = EventValidator::new(pool)
+        let validated = EventValidator::try_new(pool, None)
+            .await
+            .unwrap()
             .validate_events(None, events)
             .await
             .unwrap();

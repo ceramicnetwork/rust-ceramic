@@ -264,8 +264,9 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
 
     // Construct services from pool
     let interest_svc = Arc::new(InterestService::new(sqlite_pool.clone()));
-    let event_svc =
-        Arc::new(EventService::try_new(sqlite_pool.clone(), true, opts.event_validation).await?);
+    let event_svc = Arc::new(
+        EventService::try_new(sqlite_pool.clone(), true, opts.event_validation, None).await?,
+    );
 
     let network = opts.network.to_network(&opts.local_network_id)?;
 
