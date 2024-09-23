@@ -6,7 +6,7 @@ mod ceramic_patch;
 
 use std::{any::Any, future::Future, sync::Arc};
 
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Error, Result};
 use arrow::datatypes::{DataType, Field, Fields, SchemaBuilder};
 use arrow_flight::sql::client::FlightSqlServiceClient;
 use ceramic_patch::CeramicPatch;
@@ -115,10 +115,68 @@ pub async fn run(
             col("previous"),
         ])?;
 
-    // TODO call this in a loop, see AES-291
-    process_feed_batch(ctx, conclusion_feed).await?;
+    run_continuous_queries(ctx, conclusion_feed, shutdown_signal).await?;
 
-    shutdown_signal.await;
+    Ok(())
+}
+
+/// Continuously runs queries on the conclusion feed.
+/// This function implements the loop approach for continuous query execution,
+/// as suggested in AES-291. It processes feed batches at regular intervals,
+/// handles errors, and can be interrupted by a shutdown signal.
+///
+/// The function uses tokio::select! to concurrently wait for the following:
+/// 1. The completion of a feed batch processing
+/// 2. A 60-second interval between iterations
+/// 3. A shutdown signal
+///
+/// This approach allows for better control over processing intervals and error handling
+/// compared to DataFusion's streaming queries, which are more suited for continuous data streams.
+async fn run_continuous_queries(
+    ctx: SessionContext,
+    conclusion_feed: DataFrame,
+    shutdown_signal: impl Future<Output = ()>,
+) -> Result<()> {
+    let mut interval = tokio::time::interval(Duration::from_secs(60));
+
+    loop {
+        tokio::select! {
+            _ = interval.tick() => {
+                let stream = conclusion_feed.clone().execute_stream().await?;
+                let result = process_feed_stream(ctx.clone(), stream).await;
+                if let Err(e) = result {
+                    match e {
+                        Error::Application { error } => {
+                            error!("Encountered application error: {:?}", error);
+                        }
+                        Error::Fatal { error } => {
+                            error!("Encountered fatal error: {:?}", error);
+                            return Err(anyhow::anyhow!("Fatal error: {:?}", error));
+                        }
+                        Error::Transient { error } | Error::InvalidArgument { error } => {
+                            error!("Encountered error: {:?}", error);
+                        }
+                    }
+                }
+            }
+            _ = shutdown_signal => {
+                info!("Shutdown signal received, stopping continuous queries");
+                break;
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn process_feed_stream(
+    ctx: SessionContext,
+    mut stream: SendableRecordBatchStream,
+) -> Result<()> {
+    while let Some(batch) = stream.next().await {
+        let batch = batch?;
+        let df = ctx.read_batch(batch)?;
+        process_feed_batch(ctx.clone(), df).await?;
+    }
     Ok(())
 }
 
