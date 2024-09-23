@@ -4,9 +4,9 @@
 //! event in the stream.
 mod ceramic_patch;
 
-use std::{any::Any, future::Future, sync::Arc};
+use std::{any::Any, future::Future, pin::Pin, sync::Arc, thread::sleep, time::Duration};
 
-use anyhow::{Context as _, Error, Result};
+use anyhow::{Context as _, Result};
 use arrow::datatypes::{DataType, Field, Fields, SchemaBuilder};
 use arrow_flight::sql::client::FlightSqlServiceClient;
 use ceramic_patch::CeramicPatch;
@@ -16,7 +16,7 @@ use datafusion::{
     dataframe::{DataFrame, DataFrameWriteOptions},
     datasource::{file_format::parquet::ParquetFormat, listing::ListingOptions},
     error::DataFusionError,
-    execution::context::SessionContext,
+    execution::{context::SessionContext, RecordBatchStream},
     functions_array::extract::array_element,
     logical_expr::{
         col, expr::WindowFunction, lit, Cast, Expr, ExprFunctionExt as _, WindowFunctionDefinition,
@@ -25,7 +25,11 @@ use datafusion::{
 };
 use datafusion_federation::sql::{SQLFederationProvider, SQLSchemaProvider};
 use datafusion_flight_sql_table_provider::FlightSQLExecutor;
+use futures::StreamExt;
+use tokio::select;
 use tonic::transport::Endpoint;
+use tracing::debug;
+use tracing::error;
 
 pub struct Config {
     pub flight_sql_endpoint: String,
@@ -102,81 +106,110 @@ pub async fn run(
     )
     .await?;
 
-    let conclusion_feed = ctx
-        .table(TableReference::full("ceramic", "v0", "conclusion_feed"))
-        .await?
-        .select(vec![
-            col("index"),
-            col("event_type"),
-            col("stream_cid"),
-            col("controller"),
-            col("event_cid"),
-            Expr::Cast(Cast::new(Box::new(col("data")), DataType::Utf8)).alias("data"),
-            col("previous"),
-        ])?;
-
-    run_continuous_queries(ctx, conclusion_feed, shutdown_signal).await?;
+    run_continuous_stream(ctx, shutdown_signal).await?;
 
     Ok(())
 }
 
-/// Continuously runs queries on the conclusion feed.
-/// This function implements the loop approach for continuous query execution,
-/// as suggested in AES-291. It processes feed batches at regular intervals,
-/// handles errors, and can be interrupted by a shutdown signal.
-///
-/// The function uses tokio::select! to concurrently wait for the following:
-/// 1. The completion of a feed batch processing
-/// 2. A 60-second interval between iterations
-/// 3. A shutdown signal
-///
-/// This approach allows for better control over processing intervals and error handling
-/// compared to DataFusion's streaming queries, which are more suited for continuous data streams.
-async fn run_continuous_queries(
+/// Represents a processor for continuous stream processing of conclusion feed data.
+struct ContinuousStreamProcessor {
     ctx: SessionContext,
-    conclusion_feed: DataFrame,
-    shutdown_signal: impl Future<Output = ()>,
-) -> Result<()> {
-    let mut interval = tokio::time::interval(Duration::from_secs(60));
+    conclusion_feed_stream: Pin<Box<dyn RecordBatchStream>>,
+}
 
-    loop {
-        tokio::select! {
-            _ = interval.tick() => {
-                let stream = conclusion_feed.clone().execute_stream().await?;
-                let result = process_feed_stream(ctx.clone(), stream).await;
-                if let Err(e) = result {
-                    match e {
-                        Error::Application { error } => {
-                            error!("Encountered application error: {:?}", error);
-                        }
-                        Error::Fatal { error } => {
-                            error!("Encountered fatal error: {:?}", error);
-                            return Err(anyhow::anyhow!("Fatal error: {:?}", error));
-                        }
-                        Error::Transient { error } | Error::InvalidArgument { error } => {
-                            error!("Encountered error: {:?}", error);
+impl ContinuousStreamProcessor {
+    /// Creates a new ContinuousStreamProcessor instance.
+    ///
+    /// This function initializes the processor by setting up the conclusion feed stream
+    /// from the "ceramic.v0.conclusion_feed" table and selecting relevant columns.
+    async fn new(ctx: SessionContext) -> Result<Self> {
+        // Query the conclusion feed table and select required columns
+        let conclusion_feed = ctx
+            .table(TableReference::full("ceramic", "v0", "conclusion_feed"))
+            .await?
+            .select(vec![
+                col("index"),
+                col("event_type"),
+                col("stream_cid"),
+                col("controller"),
+                col("event_cid"),
+                Expr::Cast(Cast::new(Box::new(col("data")), DataType::Utf8)).alias("data"),
+                col("previous"),
+            ])?;
+
+        // Execute the query and get the stream
+        let conclusion_feed_stream = conclusion_feed.execute_stream().await?;
+
+        Ok(Self {
+            ctx,
+            conclusion_feed_stream,
+        })
+    }
+
+    /// Runs the continuous stream processing loop.
+    ///
+    /// This function continuously processes batches from the conclusion feed stream,
+    /// handling any errors that occur during processing.
+    async fn run(&mut self) -> Result<()> {
+        while let Some(batch_result) = self.conclusion_feed_stream.next().await {
+            match batch_result {
+                Ok(batch) => {
+                    // Process the batch
+                    let df = self.ctx.read_batch(batch)?;
+                    match process_feed_batch(self.ctx.clone(), df).await {
+                        Ok(()) => debug!("Batch processed successfully"),
+                        Err(e) => {
+                            let df_error = DataFusionError::Execution(format!(
+                                "Error processing batch: {:?}",
+                                e
+                            ));
+                            error!("{}", df_error);
+                            // TODO: Implement proper error handling. Consider retrying after a delay.
+                            continue;
                         }
                     }
                 }
-            }
-            _ = shutdown_signal => {
-                info!("Shutdown signal received, stopping continuous queries");
-                break;
+                Err(e) => {
+                    let df_error = DataFusionError::Execution(format!(
+                        "Error fetching batch from stream: {:?}",
+                        e
+                    ));
+                    error!("{}", df_error);
+                    // TODO: Implement proper error handling. Consider retrying after a delay.
+                    sleep(Duration::from_secs(5));
+                }
             }
         }
+        Ok(())
     }
-    Ok(())
 }
 
-async fn process_feed_stream(
+/// Runs the continuous stream processing with a shutdown signal.
+///
+/// This function initializes the ContinuousStreamProcessor and runs it until completion
+/// or until a shutdown signal is received.
+async fn run_continuous_stream(
     ctx: SessionContext,
-    mut stream: SendableRecordBatchStream,
+    shutdown_signal: impl Future<Output = ()>,
 ) -> Result<()> {
-    while let Some(batch) = stream.next().await {
-        let batch = batch?;
-        let df = ctx.read_batch(batch)?;
-        process_feed_batch(ctx.clone(), df).await?;
+    let mut processor = ContinuousStreamProcessor::new(ctx).await?;
+    
+    // Use tokio's select! macro to handle both the processor run and shutdown signal
+    select! {
+        result = processor.run() => {
+            match result {
+                Ok(()) => println!("Stream processing completed successfully"),
+                Err(e) => {
+                    eprintln!("Fatal error in stream processing: {:?}", e);
+                    return Err(e.into());
+                }
+            }
+        }
+        _ = shutdown_signal => {
+            println!("Received shutdown signal, stopping stream processing");
+        }
     }
+
     Ok(())
 }
 
