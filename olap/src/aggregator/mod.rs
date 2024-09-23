@@ -4,10 +4,12 @@
 //! event in the stream.
 mod ceramic_patch;
 
-use std::{any::Any, future::Future, pin::Pin, sync::Arc, thread::sleep, time::Duration};
-
-use anyhow::{Context as _, Result};
-use arrow::datatypes::{DataType, Field, Fields, SchemaBuilder};
+use crate::Result;
+use anyhow::Context;
+use arrow::{
+    array::UInt64Array,
+    datatypes::{DataType, Field, Fields, SchemaBuilder},
+};
 use arrow_flight::sql::client::FlightSqlServiceClient;
 use ceramic_patch::CeramicPatch;
 use datafusion::{
@@ -16,7 +18,8 @@ use datafusion::{
     dataframe::{DataFrame, DataFrameWriteOptions},
     datasource::{file_format::parquet::ParquetFormat, listing::ListingOptions},
     error::DataFusionError,
-    execution::{context::SessionContext, RecordBatchStream},
+    execution::context::SessionContext,
+    functions_aggregate::min_max::max,
     functions_array::extract::array_element,
     logical_expr::{
         col, expr::WindowFunction, lit, Cast, Expr, ExprFunctionExt as _, WindowFunctionDefinition,
@@ -24,9 +27,10 @@ use datafusion::{
     sql::TableReference,
 };
 use datafusion_federation::sql::{SQLFederationProvider, SQLSchemaProvider};
+use std::{any::Any, cell::Cell};
+use std::{future::Future, sync::Arc};
+
 use datafusion_flight_sql_table_provider::FlightSQLExecutor;
-use futures::StreamExt;
-use tokio::select;
 use tonic::transport::Endpoint;
 use tracing::debug;
 use tracing::error;
@@ -111,20 +115,60 @@ pub async fn run(
     Ok(())
 }
 
+async fn run_continuous_stream(
+    ctx: SessionContext,
+    shutdown_signal: impl Future<Output = ()>,
+) -> Result<()> {
+    let processor = ContinuousStreamProcessor::new(ctx).await?;
+    let mut shutdown_signal = Box::pin(shutdown_signal);
+
+    loop {
+        tokio::select! {
+        _ = &mut shutdown_signal => {
+            debug!("Received shutdown signal, stopping continuous stream processing");
+            break;
+        }
+        result = processor.process_batch() => {
+            match result {
+                Ok(true) => {
+                    // Batch processed successfully, continue to next iteration
+                    continue;
+                }
+                Ok(false) => {
+                    // No more batches to process
+                    debug!("No more batches to process, continuous stream processing complete");
+                    break;
+                }
+                Err(e) => {
+                    error!("Error processing batch: {:?}", e);
+                    return Err(e);
+                }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Represents a processor for continuous stream processing of conclusion feed data.
 struct ContinuousStreamProcessor {
     ctx: SessionContext,
-    conclusion_feed_stream: Pin<Box<dyn RecordBatchStream>>,
+    last_processed_index: Cell<u64>,
 }
 
 impl ContinuousStreamProcessor {
-    /// Creates a new ContinuousStreamProcessor instance.
-    ///
-    /// This function initializes the processor by setting up the conclusion feed stream
-    /// from the "ceramic.v0.conclusion_feed" table and selecting relevant columns.
     async fn new(ctx: SessionContext) -> Result<Self> {
-        // Query the conclusion feed table and select required columns
-        let conclusion_feed = ctx
+        Ok(Self {
+            ctx,
+            last_processed_index: 0.into(),
+        })
+    }
+
+    async fn process_batch(&self) -> Result<bool> {
+        // Fetch the conclusion feed DataFrame
+        // TODO : Is there a benefit to caching the DataFrame if it is fetched lazily? Shou;d we cache the query plan till the point of the filter instead of cachign the entire data frame?
+        let conclusion_feed = self
+            .ctx
             .table(TableReference::full("ceramic", "v0", "conclusion_feed"))
             .await?
             .select(vec![
@@ -136,81 +180,31 @@ impl ContinuousStreamProcessor {
                 Expr::Cast(Cast::new(Box::new(col("data")), DataType::Utf8)).alias("data"),
                 col("previous"),
             ])?;
+        let batch = conclusion_feed
+            .filter(col("index").gt(lit(self.last_processed_index.get())))?
+            .limit(0, Some(100))?;
 
-        // Execute the query and get the stream
-        let conclusion_feed_stream = conclusion_feed.execute_stream().await?;
+        let df = batch.cache().await?;
+        let df_clone = df.clone();
+        process_feed_batch(self.ctx.clone(), df_clone).await?;
 
-        Ok(Self {
-            ctx,
-            conclusion_feed_stream,
-        })
-    }
+        // Fetch the highest index from the cached DataFrame
+        let highest_index = df
+            .select_columns(&["index"])?
+            .aggregate(vec![], vec![max(col("index"))])?
+            .collect()
+            .await?;
 
-    /// Runs the continuous stream processing loop.
-    ///
-    /// This function continuously processes batches from the conclusion feed stream,
-    /// handling any errors that occur during processing.
-    async fn run(&mut self) -> Result<()> {
-        while let Some(batch_result) = self.conclusion_feed_stream.next().await {
-            match batch_result {
-                Ok(batch) => {
-                    // Process the batch
-                    let df = self.ctx.read_batch(batch)?;
-                    match process_feed_batch(self.ctx.clone(), df).await {
-                        Ok(()) => debug!("Batch processed successfully"),
-                        Err(e) => {
-                            let df_error = DataFusionError::Execution(format!(
-                                "Error processing batch: {:?}",
-                                e
-                            ));
-                            error!("{}", df_error);
-                            // TODO: Implement proper error handling. Consider retrying after a delay.
-                            continue;
-                        }
-                    }
-                }
-                Err(e) => {
-                    let df_error = DataFusionError::Execution(format!(
-                        "Error fetching batch from stream: {:?}",
-                        e
-                    ));
-                    error!("{}", df_error);
-                    // TODO: Implement proper error handling. Consider retrying after a delay.
-                    sleep(Duration::from_secs(5));
+        if let Some(batch) = highest_index.first() {
+            if let Some(max_index) = batch.column(0).as_any().downcast_ref::<UInt64Array>() {
+                if let Some(max_value) = max_index.iter().next().flatten() {
+                    self.last_processed_index.set(max_value);
                 }
             }
         }
-        Ok(())
-    }
-}
 
-/// Runs the continuous stream processing with a shutdown signal.
-///
-/// This function initializes the ContinuousStreamProcessor and runs it until completion
-/// or until a shutdown signal is received.
-async fn run_continuous_stream(
-    ctx: SessionContext,
-    shutdown_signal: impl Future<Output = ()>,
-) -> Result<()> {
-    let mut processor = ContinuousStreamProcessor::new(ctx).await?;
-    
-    // Use tokio's select! macro to handle both the processor run and shutdown signal
-    select! {
-        result = processor.run() => {
-            match result {
-                Ok(()) => println!("Stream processing completed successfully"),
-                Err(e) => {
-                    eprintln!("Fatal error in stream processing: {:?}", e);
-                    return Err(e.into());
-                }
-            }
-        }
-        _ = shutdown_signal => {
-            println!("Received shutdown signal, stopping stream processing");
-        }
+        Ok(true)
     }
-
-    Ok(())
 }
 
 /// Creates a new [FlightSqlServiceClient] for the passed endpoint. Completes the relevant auth configurations
@@ -460,7 +454,38 @@ mod tests {
         Ok(pretty_format_batches(&doc_state)?)
     }
 
-    #[test(tokio::test)]
+    // TODO : Create a test that checks how many times quereies run. They should run continuously in a loop.
+    // #[tokio::test]
+    // async fn test_continuous_stream_processing() -> Result<()> {
+    //     let ctx = init_ctx().await?;
+    //     let mut processor = ContinuousStreamProcessor::new(ctx.clone()).await?;
+
+    //     // Mock the select method to return true 2000 times and then false
+    //     let mock_data = Arc::new(AtomicUsize::new(0));
+    //     processor.select = Box::new(move |_| {
+    //         let count = mock_data.fetch_add(1, Ordering::SeqCst);
+    //         Ok(count < 2000)
+    //     });
+
+    //     // Mock the process_feed_batch function
+    //     let process_count = Arc::new(AtomicUsize::new(0));
+    //     let process_count_clone = process_count.clone();
+    //     processor.process_feed_batch = Box::new(move |_, _| {
+    //         process_count_clone.fetch_add(1, Ordering::SeqCst);
+    //         Ok(())
+    //     });
+
+    //     // Run the continuous stream processing
+    //     run_continuous_stream(processor, future::pending()).await?;
+
+    //     // Assert that the process_feed_batch was called 2000 times
+    //     assert_eq!(process_count.load(Ordering::SeqCst), 2000);
+
+    //     Ok(())
+    // }
+    // }
+
+    #[tokio::test]
     async fn single_init_event() -> anyhow::Result<()> {
         let doc_state = do_test(conclusion_events_to_record_batch(&[
             ConclusionEvent::Data(ConclusionData {
