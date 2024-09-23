@@ -53,6 +53,7 @@ pub struct Timestamp(i64);
 
 impl Timestamp {
     /// A unix epoch timestamp
+    #[allow(dead_code)]
     pub fn as_unix_ts(&self) -> i64 {
         self.0
     }
@@ -114,7 +115,7 @@ impl TimeEventValidator {
     }
 
     /// Get the CAIP2 Chain IDs that we can validate
-    pub fn supported_chains(&self) -> Vec<caip2::ChainId> {
+    fn _supported_chains(&self) -> Vec<caip2::ChainId> {
         self.chain_providers.keys().cloned().collect()
     }
 
