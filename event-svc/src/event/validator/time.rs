@@ -26,6 +26,28 @@ static BLOCK_THRESHHOLDS: Lazy<HashMap<&str, i64>> = Lazy::new(|| {
     ])
 });
 
+#[derive(Debug)]
+pub enum ChainInclusionError {
+    /// Transaction hash not found
+    TxNotFound {
+        chain_id: caip2::ChainId,
+        tx_hash: String,
+    },
+    /// The transaction exists but has not been mined yet
+    TxNotMined {
+        chain_id: caip2::ChainId,
+        tx_hash: String,
+    },
+    /// The proof was invalid for the given reason
+    InvalidProof(String),
+    /// No chain provider configured for the event, whether that's an error is up to the caller
+    NoChainProvider(caip2::ChainId),
+    /// The transaction was invalid or could not be verified for some reason
+    /// This includes transient errors that need to be split out in the future.
+    /// Plan to handle than after switching to alloy as the eth RPC client.
+    Error(anyhow::Error),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Timestamp(i64);
 
@@ -101,14 +123,14 @@ impl TimeEventValidator {
         &self,
         _pool: &SqlitePool,
         event: &unvalidated::TimeEvent,
-    ) -> Result<Option<Timestamp>> {
-        let chain_id =
-            caip2::ChainId::from_str(event.proof().chain_id()).context("invalid proof chain ID")?;
+    ) -> Result<Timestamp, ChainInclusionError> {
+        let chain_id = caip2::ChainId::from_str(event.proof().chain_id())
+            .map_err(|e| ChainInclusionError::Error(anyhow!("invalid chain ID: {}", e)))?;
 
         let provider = self
             .chain_providers
             .get(&chain_id)
-            .ok_or_else(|| anyhow!("missing rpc verifier for chain ID"))?;
+            .ok_or_else(|| ChainInclusionError::NoChainProvider(chain_id.clone()))?;
         let tx_hash = Self::expected_tx_hash(event.proof().tx_hash());
 
         // TODO: check db or lru cache for transaction.
@@ -116,32 +138,34 @@ impl TimeEventValidator {
         //     else if new => query it
         //     else if we've tried before and it's been "long enough" => query it
         // for now, we just use the rpc endpoint again which has a small internal LRU cache
-        let (root_cid, block) = match self.get_block(provider, &tx_hash, event.proof()).await? {
+        let (root_cid, block) = match self
+            .get_block(provider, &tx_hash, event.proof())
+            .await
+            .map_err(ChainInclusionError::Error)?
+        {
             Some(v) => match v.1 {
                 Some(block) => (v.0, block),
-                None => return Ok(None), // block has not been mined yet so time information can't be determined
+                None => return Err(ChainInclusionError::TxNotMined { chain_id, tx_hash }), // block has not been mined yet so time information can't be determined
             },
-            None => {
-                bail!("transaction {tx_hash} not found");
-            }
+            None => return Err(ChainInclusionError::TxNotFound { chain_id, tx_hash }),
         };
 
         if root_cid != event.proof().root() {
-            bail!(
+            return Err(ChainInclusionError::InvalidProof(format!(
                 "the root CID is not in the transaction (root={})",
                 event.proof().root()
-            )
+            )));
         }
 
         if let Some(threshold) = BLOCK_THRESHHOLDS.get(event.proof().chain_id()) {
             if block.number < *threshold {
-                return Ok(Some(Timestamp(block.timestamp)));
+                return Ok(Timestamp(block.timestamp));
             } else if event.proof().tx_type() != V1_PROOF_TYPE {
-                bail!("Any anchor proofs created after block {threshold} for chain {} must include the txType field={V1_PROOF_TYPE}. Anchor txn blockNumber: {}", event.proof().chain_id(), block.number);
+                return Err(ChainInclusionError::InvalidProof(format!("Any anchor proofs created after block {threshold} for chain {} must include the txType field={V1_PROOF_TYPE}. Anchor txn blockNumber: {}", event.proof().chain_id(), block.number)));
             }
         }
 
-        Ok(Some(Timestamp(block.timestamp)))
+        Ok(Timestamp(block.timestamp))
     }
 
     /// Input is the data input to the contract for the transaction
@@ -395,10 +419,9 @@ mod test {
             get_mock_provider(SINGLE_TX_HASH.to_string(), SINGLE_TX_HASH_INPUT.into()).await;
         match verifier.validate_chain_inclusion(&pool, &event).await {
             Ok(ts) => {
-                let ts = ts.expect("should have timestamp");
                 assert_eq!(ts.as_unix_ts(), BLOCK_TIMESTAMP);
             }
-            Err(e) => panic!("should have passed: {:#}", e),
+            Err(e) => panic!("should have passed: {:?}", e),
         }
     }
 
@@ -413,12 +436,14 @@ mod test {
             Ok(v) => {
                 panic!("should have failed: {:?}", v)
             }
-            Err(e) => assert!(
-                e.to_string()
-                    .contains("the root CID is not in the transaction"),
-                "{:#}",
-                e
-            ),
+            Err(e) => match e {
+                ChainInclusionError::InvalidProof(e) => assert!(
+                    e.contains("the root CID is not in the transaction"),
+                    "{:#}",
+                    e
+                ),
+                err => panic!("got wrong error: {:?}", err),
+            },
         }
     }
 
@@ -431,10 +456,9 @@ mod test {
             get_mock_provider(MULTI_TX_HASH.to_string(), MULTI_TX_HASH_INPUT.to_string()).await;
         match verifier.validate_chain_inclusion(&pool, &event).await {
             Ok(ts) => {
-                let ts = ts.expect("should have timestamp");
                 assert_eq!(ts.as_unix_ts(), BLOCK_TIMESTAMP);
             }
-            Err(e) => panic!("should have passed: {:#}", e),
+            Err(e) => panic!("should have passed: {:?}", e),
         }
     }
 
@@ -449,12 +473,14 @@ mod test {
             Ok(v) => {
                 panic!("should have failed: {:?}", v)
             }
-            Err(e) => assert!(
-                e.to_string()
-                    .contains("the root CID is not in the transaction"),
-                "{:#}",
-                e
-            ),
+            Err(e) => match e {
+                ChainInclusionError::InvalidProof(e) => assert!(
+                    e.contains("the root CID is not in the transaction"),
+                    "{:#}",
+                    e
+                ),
+                err => panic!("got wrong error: {:?}", err),
+            },
         }
     }
 
