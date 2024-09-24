@@ -63,10 +63,10 @@ pub(crate) struct TestEventInfo {
     pub(crate) blocks: Vec<Block>,
 }
 
-async fn build_event_fixed_model(model: StreamId) -> TestEventInfo {
+async fn build_event_fixed_model(model: StreamId, controller: String) -> TestEventInfo {
     let unique = gen_rand_bytes::<12>();
     let init = ceramic_event::unvalidated::Builder::init()
-        .with_controller(CONTROLLER.to_owned())
+        .with_controller(controller)
         .with_sep("model".to_string(), model.to_vec())
         .with_unique(unique.to_vec())
         .with_data(ipld!({"radius": 1, "red": 2, "green": 3, "blue": 4}))
@@ -96,10 +96,16 @@ async fn build_event_fixed_model(model: StreamId) -> TestEventInfo {
     }
 }
 
+pub(crate) async fn build_recon_item_with_controller(controller: String) -> ReconItem<EventId> {
+    let model = StreamId::document(random_cid());
+    let e = build_event_fixed_model(model, controller).await;
+    ReconItem::new(e.event_id, e.car)
+}
+
 /// returns (event ID, array of block CIDs, car bytes)
 pub(crate) async fn build_event() -> TestEventInfo {
     let model = StreamId::document(random_cid());
-    build_event_fixed_model(model).await
+    build_event_fixed_model(model, CONTROLLER.to_owned()).await
 }
 
 fn gen_rand_bytes<const SIZE: usize>() -> [u8; SIZE] {
