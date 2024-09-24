@@ -24,44 +24,36 @@ use crate::store::{
 
 static GLOBAL_COUNTER: AtomicI64 = AtomicI64::new(0);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 /// An event that was inserted into the database
-pub struct InsertedEvent {
-    /// The event order key that was inserted
-    pub order_key: EventId,
-    /// Whether the event was marked as deliverable
-    pub deliverable: bool,
+pub struct InsertedEvent<'a> {
+    /// The event that was inserted
+    pub inserted: &'a EventInsertable,
     /// Whether the event was a new key
     pub new_key: bool,
 }
 
-impl InsertedEvent {
+impl<'a> InsertedEvent<'a> {
     /// Create a new delivered event
-    fn new(order_key: EventId, new_key: bool, deliverable: bool) -> Self {
-        Self {
-            order_key,
-            deliverable,
-            new_key,
-        }
+    fn new(new_key: bool, inserted: &'a EventInsertable) -> Self {
+        Self { inserted, new_key }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Default)]
 /// The result of inserting events into the database
-pub struct InsertResult {
+pub struct InsertResult<'a> {
     /// The events that were marked as delivered in this batch
-    pub inserted: Vec<InsertedEvent>,
+    pub inserted: Vec<InsertedEvent<'a>>,
 }
 
-impl InsertResult {
+impl<'a> InsertResult<'a> {
     /// The count of new keys added in this batch
     pub fn count_new_keys(&self) -> usize {
         self.inserted.iter().filter(|e| e.new_key).count()
     }
-}
 
-impl InsertResult {
-    fn new(inserted: Vec<InsertedEvent>) -> Self {
+    fn new(inserted: Vec<InsertedEvent<'a>>) -> Self {
         Self { inserted }
     }
 }
@@ -175,7 +167,7 @@ impl CeramicOneEvent {
     ///     That is, events will be processed in the order they are given so earlier events are given a lower global ordering
     ///     and will be returned earlier in the feed. Events can be intereaved with different streams, but if two events
     ///     depend on each other, the `prev` must come first in the list to ensure the correct order for indexers and consumers.
-    pub async fn insert_many<'a, I>(pool: &SqlitePool, to_add: I) -> Result<InsertResult>
+    pub async fn insert_many<'a, I>(pool: &SqlitePool, to_add: I) -> Result<InsertResult<'a>>
     where
         I: Iterator<Item = &'a EventInsertable>,
     {
@@ -191,11 +183,7 @@ impl CeramicOneEvent {
                 item.deliverable(),
             )
             .await?;
-            inserted.push(InsertedEvent::new(
-                item.order_key().clone(),
-                new_key,
-                item.deliverable(),
-            ));
+            inserted.push(InsertedEvent::new(new_key, item));
             if new_key {
                 for block in item.get_raw_blocks().await?.iter() {
                     CeramicOneBlock::insert(&mut tx, block.multihash.inner(), &block.bytes).await?;

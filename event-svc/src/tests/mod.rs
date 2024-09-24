@@ -4,6 +4,7 @@ mod ordering;
 
 use std::str::FromStr;
 
+use ceramic_api::ApiItem;
 use ceramic_core::{DidDocument, EventId, Network, StreamId};
 use ceramic_event::unvalidated::{self, signed};
 use cid::Cid;
@@ -242,8 +243,8 @@ pub(crate) async fn get_n_events(number: usize) -> Vec<ReconItem<EventId>> {
 /// let chained_events = generate_chained_events().await;
 /// assert_eq!(chained_events.len(), 5);
 /// ```
-pub(crate) async fn generate_chained_events() -> Vec<ReconItem<EventId>> {
-    let mut events: Vec<ReconItem<EventId>> = Vec::with_capacity(5);
+pub(crate) async fn generate_chained_events() -> Vec<ApiItem> {
+    let mut events: Vec<ApiItem> = Vec::with_capacity(5);
 
     let signer = Box::new(signer().await);
     let stream_id_1 = create_deterministic_stream_id_model(&[0x01]);
@@ -308,11 +309,11 @@ pub(crate) async fn generate_chained_events() -> Vec<ReconItem<EventId>> {
     );
 
     // push the events in the order they should be inserted
-    events.push(ReconItem::new(event_id_1, car_1));
-    events.push(ReconItem::new(data_1_id, data_1_car));
-    events.push(ReconItem::new(data_2_id, data_2_car));
-    events.push(ReconItem::new(event_id_2, car_2));
-    events.push(ReconItem::new(data_3_id, data_3_car));
+    events.push(ApiItem::new(event_id_1, car_1));
+    events.push(ApiItem::new(data_1_id, data_1_car));
+    events.push(ApiItem::new(data_2_id, data_2_car));
+    events.push(ApiItem::new(event_id_2, car_2));
+    events.push(ApiItem::new(data_3_id, data_3_car));
 
     events
 }

@@ -60,9 +60,9 @@ impl EventInsertable {
     pub fn new(
         order_key: EventId,
         event_cid: Cid,
+        deliverable: bool,
         event: Arc<unvalidated::Event<Ipld>>,
         informant: Option<NodeId>,
-        deliverable: bool,
     ) -> Result<Self> {
         let cid = order_key.cid().ok_or_else(|| {
             Error::new_app(anyhow::anyhow!(

@@ -32,7 +32,7 @@ impl From<InsertResult> for recon::InsertResult<EventId> {
                 ValidationError::RequiresHistory { .. } => pending += 1,
             };
         }
-        recon::InsertResult::new_err(value.store_result.count_new_keys(), invalid, pending)
+        recon::InsertResult::new_err(value.new.len(), invalid, pending)
     }
 }
 
@@ -143,9 +143,9 @@ impl iroh_bitswap::Store for EventService {
 
 impl From<InsertResult> for Vec<ceramic_api::EventInsertResult> {
     fn from(res: InsertResult) -> Self {
-        let mut api_res = Vec::with_capacity(res.store_result.inserted.len() + res.rejected.len());
-        for ev in res.store_result.inserted {
-            api_res.push(ceramic_api::EventInsertResult::new_ok(ev.order_key));
+        let mut api_res = Vec::with_capacity(res.new.len() + res.rejected.len());
+        for ev in res.new.into_iter().chain(res.existed.into_iter()) {
+            api_res.push(ceramic_api::EventInsertResult::new_ok(ev));
         }
 
         for ev in res.rejected {

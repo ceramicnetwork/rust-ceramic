@@ -640,13 +640,25 @@ mod test {
             .unwrap();
 
         assert_eq!(9, new.inserted.len());
-        assert_eq!(0, new.inserted.iter().filter(|e| e.deliverable).count());
+        assert_eq!(
+            0,
+            new.inserted
+                .iter()
+                .filter(|e| e.inserted.deliverable())
+                .count()
+        );
 
         let new = CeramicOneEvent::insert_many(pool, [&init].into_iter())
             .await
             .unwrap();
         assert_eq!(1, new.inserted.len());
-        assert_eq!(1, new.inserted.iter().filter(|e| e.deliverable).count());
+        assert_eq!(
+            1,
+            new.inserted
+                .iter()
+                .filter(|e| e.inserted.deliverable())
+                .count()
+        );
         insertable
     }
 
