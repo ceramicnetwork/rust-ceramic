@@ -197,18 +197,19 @@ mod tests {
 
     use ceramic_core::NodeId;
     use ceramic_sql::sqlite::SqlitePool;
-    use tokio::sync::broadcast;
+    use expect_test::expect_file;
+    use tokio::{sync::broadcast, time::sleep};
 
     use super::AnchorService;
-    use crate::{MockAnchorClient, MockCas};
+    use crate::{MockAnchorEventService, MockCas};
 
     #[tokio::test]
     async fn test_anchor_service_run() {
         let tx_manager = Arc::new(MockCas);
-        let event_service = Arc::new(MockAnchorClient::new(10));
+        let event_service = Arc::new(MockAnchorEventService::new(10));
         let pool = SqlitePool::connect_in_memory().await.unwrap();
         let node_id = NodeId::random().0;
-        let anchor_interval = Duration::from_secs(1);
+        let anchor_interval = Duration::from_millis(1);
         let anchor_batch_size = 1000000;
         let mut anchor_service = AnchorService::new(
             tx_manager,
@@ -227,17 +228,10 @@ mod tests {
                 })
                 .await
         }));
-        // let batch = anchor_service
-        //     .clone()
-        //     .anchor_batch(
-        //         &event_service
-        //             .events_since_high_water_mark(node_id, 0, 1000000)
-        //             .await
-        //             .unwrap(),
-        //     )
-        //     .await
-        //     .unwrap();
-        // expect_file!["./test-data/test_anchor_service_run.txt"].assert_debug_eq(&batch);
+        while event_service.events.lock().unwrap().is_empty() {
+            sleep(Duration::from_millis(1)).await;
+        }
+        expect_file!["./test-data/test_anchor_service_run.txt"].assert_debug_eq(&event_service.events.lock().unwrap());
         shutdown_signal_tx.send(()).unwrap();
     }
 }

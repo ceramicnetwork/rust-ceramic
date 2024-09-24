@@ -239,7 +239,7 @@ mod tests {
     use multihash_codetable::{Code, MultihashDigest};
     use ring::signature::Ed25519KeyPair;
 
-    use ceramic_anchor_service::{AnchorService, MockAnchorClient, Store, TransactionManager};
+    use ceramic_anchor_service::{AnchorService, MockAnchorEventService, Store, TransactionManager};
     use ceramic_core::Cid;
     use ceramic_sql::sqlite::SqlitePool;
 
@@ -259,7 +259,7 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_anchor_batch_with_cas() {
-        let anchor_client = Arc::new(MockAnchorClient::new(10));
+        let anchor_client = Arc::new(MockAnchorEventService::new(10));
         let anchor_requests = anchor_client
             .events_since_high_water_mark(NodeId::random().0, 0, 0)
             .await

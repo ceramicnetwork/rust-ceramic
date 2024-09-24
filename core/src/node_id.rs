@@ -192,6 +192,11 @@ impl NodeId {
         })
     }
     /// Create a NodeId using a random Ed25519 key pair
+    /// 
+    /// Returns (NodeId, secret:public_key) 
+    /// e.g. secret:public_key
+    ///   z3u2WLX8jeyN6sfbDowLGudoZHudxgVkNJfrw2TDTVx4tijd:z6MkueF19qChpGQJBJXcXjfoM1MYCwC167RMwUiNWXXvEm1M
+    ///   In this example, the DID will be did:key:z6MkueF19qChpGQJBJXcXjfoM1MYCwC167RMwUiNWXXvEm1M.
     pub fn random() -> (Self, String) {
         // Generate random secret key and corresponding keypair
         let random_secret = rand::thread_rng().gen::<[u8; 32]>();

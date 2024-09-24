@@ -11,5 +11,5 @@ mod transaction_manager;
 
 pub use anchor::{AnchorRequest, MerkleNode, MerkleNodes, TimeEventBatch, TimeEventInsertable};
 pub use anchor_batch::{AnchorService, Store};
-pub use cas_mock::{MockAnchorClient, MockCas};
+pub use cas_mock::{MockAnchorEventService, MockCas};
 pub use transaction_manager::{DetachedTimeEvent, RootTimeEvent, TransactionManager};

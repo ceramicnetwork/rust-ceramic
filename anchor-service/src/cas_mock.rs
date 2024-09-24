@@ -1,3 +1,5 @@
+use std::sync::Mutex;
+
 use anyhow::Result;
 use async_trait::async_trait;
 use multihash_codetable::{Code, MultihashDigest};
@@ -36,16 +38,18 @@ impl TransactionManager for MockCas {
 
 /// MockAnchorClient is a mock implementation of a Store.
 #[derive(Debug)]
-pub struct MockAnchorClient {
+pub struct MockAnchorEventService {
     /// Number of anchor requests to generate
     pub anchor_req_count: u64,
+    /// the events that have been sent to the mock
+    pub events: Mutex<Vec<TimeEventInsertable>>,
 }
 
-impl MockAnchorClient {
+impl MockAnchorEventService {
     // #[allow(dead_code)]
     /// Create a new MockAnchorClient with the given number of anchor requests.
     pub fn new(anchor_req_count: u64) -> Self {
-        Self { anchor_req_count }
+        Self { anchor_req_count, events: Default::default() }
     }
 
     fn int64_cid(&self, i: u64) -> Cid {
@@ -56,23 +60,24 @@ impl MockAnchorClient {
 }
 
 #[async_trait]
-impl Store for MockAnchorClient {
+impl Store for MockAnchorEventService {
     async fn insert_many(
         &self,
-        _items: Vec<TimeEventInsertable>,
+        items: Vec<TimeEventInsertable>,
         _informant: NodeId,
     ) -> Result<()> {
+        self.events.lock().unwrap().extend(items);
         Ok(())
     }
     /// Get a batch of AnchorRequests.
     async fn events_since_high_water_mark(
         &self,
         _informant: NodeId,
-        _highwater: i64,
-        _limit: i64,
+        highwater: i64,
+        limit: i64,
     ) -> Result<Vec<AnchorRequest>> {
-        Ok((0..self.anchor_req_count)
-            .map(|n| AnchorRequest {
+        let ints = ((highwater as u64)..self.anchor_req_count).take(limit as usize);
+        Ok(ints.map(|n| AnchorRequest {
                 id: self.int64_cid(n),
                 prev: self.int64_cid(n),
                 event_id: EventId::try_from(
@@ -96,7 +101,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_anchor_batch_with_10_requests() {
-        let anchor_client = Arc::new(MockAnchorClient::new(10));
+        let anchor_client = Arc::new(MockAnchorEventService::new(10));
         let anchor_requests = anchor_client
             .events_since_high_water_mark(NodeId::random().0, 0, 0)
             .await
@@ -119,7 +124,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_anchor_batch_with_pow2_requests() {
-        let anchor_client = Arc::new(MockAnchorClient::new(16));
+        let anchor_client = Arc::new(MockAnchorEventService::new(16));
         let anchor_requests = anchor_client
             .events_since_high_water_mark(NodeId::random().0, 0, 0)
             .await
@@ -142,7 +147,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_anchor_batch_with_more_than_pow2_requests() {
-        let anchor_client = Arc::new(MockAnchorClient::new(18));
+        let anchor_client = Arc::new(MockAnchorEventService::new(18));
         let anchor_requests = anchor_client
             .events_since_high_water_mark(NodeId::random().0, 0, 0)
             .await
@@ -165,7 +170,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_anchor_batch_with_less_than_pow2_requests() {
-        let anchor_client = Arc::new(MockAnchorClient::new(15));
+        let anchor_client = Arc::new(MockAnchorEventService::new(15));
         let anchor_requests = anchor_client
             .events_since_high_water_mark(NodeId::random().0, 0, 0)
             .await
@@ -188,7 +193,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_anchor_batch_with_0_requests() {
-        let anchor_client = Arc::new(MockAnchorClient::new(0));
+        let anchor_client = Arc::new(MockAnchorEventService::new(0));
         let anchor_requests = anchor_client
             .events_since_high_water_mark(NodeId::random().0, 0, 0)
             .await
@@ -210,7 +215,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_anchor_batch_with_1_request() {
-        let anchor_client = Arc::new(MockAnchorClient::new(1));
+        let anchor_client = Arc::new(MockAnchorEventService::new(1));
         let anchor_requests = anchor_client
             .events_since_high_water_mark(NodeId::random().0, 0, 0)
             .await

@@ -213,7 +213,6 @@ impl TimeEventBatch {
     }
 }
 
-#[derive(Debug)]
 /// The type we use to insert time events into the database
 pub struct TimeEventInsertable {
     /// The event ID
@@ -222,4 +221,14 @@ pub struct TimeEventInsertable {
     pub cid: Cid,
     /// The parsed structure containing the Time Event
     pub event: TimeEvent,
+}
+
+impl std::fmt::Debug for TimeEventInsertable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TimeEventInsertable")
+            .field("event_id", &self.event_id.to_string())
+            .field("cid", &self.cid.to_string())
+            .field("event", &self.event)
+            .finish()
+    }
 }
