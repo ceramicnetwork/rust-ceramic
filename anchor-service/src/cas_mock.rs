@@ -49,7 +49,10 @@ impl MockAnchorEventService {
     // #[allow(dead_code)]
     /// Create a new MockAnchorClient with the given number of anchor requests.
     pub fn new(anchor_req_count: u64) -> Self {
-        Self { anchor_req_count, events: Default::default() }
+        Self {
+            anchor_req_count,
+            events: Default::default(),
+        }
     }
 
     fn int64_cid(&self, i: u64) -> Cid {
@@ -61,11 +64,7 @@ impl MockAnchorEventService {
 
 #[async_trait]
 impl Store for MockAnchorEventService {
-    async fn insert_many(
-        &self,
-        items: Vec<TimeEventInsertable>,
-        _informant: NodeId,
-    ) -> Result<()> {
+    async fn insert_many(&self, items: Vec<TimeEventInsertable>, _informant: NodeId) -> Result<()> {
         self.events.lock().unwrap().extend(items);
         Ok(())
     }
@@ -103,7 +102,7 @@ pub mod tests {
     async fn test_anchor_batch_with_10_requests() {
         let anchor_client = Arc::new(MockAnchorEventService::new(10));
         let anchor_requests = anchor_client
-            .events_since_high_water_mark(NodeId::random().0, 0, 0)
+            .events_since_high_water_mark(NodeId::random().0, 0, 1_000_000)
             .await
             .unwrap();
         let anchor_service = AnchorService::new(
@@ -126,7 +125,7 @@ pub mod tests {
     async fn test_anchor_batch_with_pow2_requests() {
         let anchor_client = Arc::new(MockAnchorEventService::new(16));
         let anchor_requests = anchor_client
-            .events_since_high_water_mark(NodeId::random().0, 0, 0)
+            .events_since_high_water_mark(NodeId::random().0, 0, 1_000_000)
             .await
             .unwrap();
         let anchor_service = AnchorService::new(
@@ -149,7 +148,7 @@ pub mod tests {
     async fn test_anchor_batch_with_more_than_pow2_requests() {
         let anchor_client = Arc::new(MockAnchorEventService::new(18));
         let anchor_requests = anchor_client
-            .events_since_high_water_mark(NodeId::random().0, 0, 0)
+            .events_since_high_water_mark(NodeId::random().0, 0, 1_000_000)
             .await
             .unwrap();
         let anchor_service = AnchorService::new(
@@ -172,7 +171,7 @@ pub mod tests {
     async fn test_anchor_batch_with_less_than_pow2_requests() {
         let anchor_client = Arc::new(MockAnchorEventService::new(15));
         let anchor_requests = anchor_client
-            .events_since_high_water_mark(NodeId::random().0, 0, 0)
+            .events_since_high_water_mark(NodeId::random().0, 0, 1_000_000)
             .await
             .unwrap();
         let anchor_service = AnchorService::new(
@@ -195,7 +194,7 @@ pub mod tests {
     async fn test_anchor_batch_with_0_requests() {
         let anchor_client = Arc::new(MockAnchorEventService::new(0));
         let anchor_requests = anchor_client
-            .events_since_high_water_mark(NodeId::random().0, 0, 0)
+            .events_since_high_water_mark(NodeId::random().0, 0, 1_000_000)
             .await
             .unwrap();
         let anchor_service = AnchorService::new(
@@ -217,7 +216,7 @@ pub mod tests {
     async fn test_anchor_batch_with_1_request() {
         let anchor_client = Arc::new(MockAnchorEventService::new(1));
         let anchor_requests = anchor_client
-            .events_since_high_water_mark(NodeId::random().0, 0, 0)
+            .events_since_high_water_mark(NodeId::random().0, 0, 1_000_000)
             .await
             .unwrap();
         let anchor_service = AnchorService::new(

@@ -231,7 +231,8 @@ mod tests {
         while event_service.events.lock().unwrap().is_empty() {
             sleep(Duration::from_millis(1)).await;
         }
-        expect_file!["./test-data/test_anchor_service_run.txt"].assert_debug_eq(&event_service.events.lock().unwrap());
+        expect_file!["./test-data/test_anchor_service_run.txt"]
+            .assert_debug_eq(&event_service.events.lock().unwrap());
         shutdown_signal_tx.send(()).unwrap();
     }
 }
