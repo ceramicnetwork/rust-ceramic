@@ -78,7 +78,8 @@ async fn model_setup(tpe: ModelType, cnt: usize) -> ModelSetup {
         rand::thread_rng().fill_bytes(&mut data);
 
         let (order_key, cid, event) = generate_init_event(&model, &data, signer.clone()).await;
-        events.push(EventInsertable::try_new(order_key, cid, event, informant, true).unwrap());
+        events
+            .push(EventInsertable::try_new(order_key, cid, true, event, Some(informant)).unwrap());
     }
 
     let pool = SqlitePool::connect_in_memory().await.unwrap();

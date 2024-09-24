@@ -312,8 +312,7 @@ impl EventService {
 
                 Ok(InsertResult::new_from_store(invalid, store_result))
             }
-        };
-        store_result
+        }
     }
 
     pub(crate) async fn transform_raw_events_to_conclusion_events(
@@ -427,7 +426,7 @@ impl EventService {
             self.send_discovered_event(DiscoveredEvent {
                 cid: *ev.inserted.cid(),
                 prev: ev.inserted.event().prev().copied(),
-                id: *ev.inserted.event().id(),
+                id: *ev.inserted.event().stream_cid(),
                 known_deliverable: ev.inserted.deliverable(),
             })
             .await?;

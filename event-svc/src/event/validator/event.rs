@@ -38,7 +38,7 @@ pub struct ValidatedEvent {
 impl ValidatedEvent {
     /// Convert this ValidatedEvent into an EventInsertable
     pub fn into_insertable(value: Self, informant: Option<NodeId>) -> EventInsertable {
-        EventInsertable::new(
+        EventInsertable::try_new(
             value.key,
             value.cid,
             value.event.is_init(),

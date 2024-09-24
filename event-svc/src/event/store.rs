@@ -281,9 +281,9 @@ impl ceramic_anchor_service::Store for EventService {
                 EventInsertable::try_new(
                     insertable.event_id,
                     insertable.cid,
+                    true,
                     Arc::new(Event::Time(Box::new(insertable.event))),
                     Some(informant),
-                    true,
                 )
                 .map_err(|e| anyhow!("could not create EventInsertable: {}", e))
             })
