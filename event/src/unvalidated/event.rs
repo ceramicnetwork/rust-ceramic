@@ -132,19 +132,6 @@ where
         }
     }
 
-    /// Returns the 'id' field of the event, which is the Cid of the stream's init event.
-    /// Always return the CID because the init event knows it's CID.
-    pub fn id(&self) -> &Cid {
-        match self {
-            Event::Time(t) => t.id(),
-            Event::Signed(event) => match event.payload() {
-                Payload::Data(d) => d.id(),
-                Payload::Init(_) => event.envelope_cid(),
-            },
-            Event::Unsigned(init) => init.cid(),
-        }
-    }
-
     /// Encode the event into a CAR bytes containing all blocks of the event.
     pub fn encode_car(&self) -> anyhow::Result<Vec<u8>> {
         match self {
@@ -264,6 +251,23 @@ where
             )),
         }
     }
+
+    /// Get the CID of the init event of the stream for this event
+    pub fn stream_cid(&self) -> &Cid {
+        match self {
+            Event::Time(event) => event.id(),
+            Event::Signed(event) => match event.payload() {
+                Payload::Data(d) => d.id(),
+                Payload::Init(_) => event.envelope_cid(),
+            },
+            Event::Unsigned(event) => event.cid(),
+        }
+    }
+
+    /// Returns true if this Event is a time event, and false otherwise
+    pub fn is_time_event(&self) -> bool {
+        matches!(self, Event::Time(_))
+    }
 }
 
 impl<D> From<Box<TimeEvent>> for Event<D> {
@@ -372,8 +376,9 @@ impl TimeEvent {
         Ok(car)
     }
 }
+
 /// Raw Time Event as it is encoded in the protocol.
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct RawTimeEvent {
     /// The CID of the init event of the stream
     id: Cid,
@@ -428,7 +433,7 @@ impl RawTimeEvent {
     }
 }
 /// Proof data
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Proof {
     /// eip-155 CHAIN_ID see https://chainid.network https://github.com/ethereum/EIPs/blob/master/EIPS/eip-155.md

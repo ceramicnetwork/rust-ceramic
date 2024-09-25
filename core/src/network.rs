@@ -6,7 +6,7 @@ pub enum Network {
     Mainnet,
     /// Test network
     TestnetClay,
-    /// Developement network
+    /// Development network
     DevUnstable,
     /// Local network with unique id
     Local(u32),

@@ -1,7 +1,7 @@
-use crate::anchor::{AnchorRequest, MerkleNode, MerkleNodes};
 use anyhow::{anyhow, Result};
-use ceramic_core::SerializeExt;
-use cid::Cid;
+use ceramic_core::{Cid, SerializeExt};
+
+use crate::{AnchorRequest, MerkleNode, MerkleNodes};
 
 pub struct MerkleTree {
     pub root_cid: Cid,
@@ -68,7 +68,6 @@ pub fn build_merkle_tree(anchor_requests: &[AnchorRequest]) -> Result<MerkleTree
         (right_cid, merged_node) = merge_nodes(left_cid, right_cid)?;
         nodes.insert(right_cid, merged_node);
     }
-
     Ok(MerkleTree {
         root_cid: right_cid,
         count: anchor_requests.len() as u64,

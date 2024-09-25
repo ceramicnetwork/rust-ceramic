@@ -1,10 +1,9 @@
 use std::collections::{HashMap, VecDeque};
 
-use ceramic_core::Cid;
-use ceramic_sql::sqlite::SqlitePool;
-
 use crate::store::{CeramicOneEvent, EventInsertable};
 use crate::Result;
+use ceramic_core::Cid;
+use ceramic_sql::sqlite::SqlitePool;
 
 /// Groups the events into lists of those with a delivered prev and those without. This can be used to return an error if the event is required to have history.
 /// The events will be marked as deliverable so that they can be passed directly to the store to be persisted. It assumes init events have already been marked deliverable.

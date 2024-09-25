@@ -151,6 +151,23 @@ impl EventQuery {
     pub fn mark_ready_to_deliver() -> &'static str {
         "UPDATE ceramic_one_event SET delivered = $1 WHERE cid = $2 and delivered is NULL;"
     }
+
+    /// Fetch data event CIDs from a specified source that are above the current high water mark.
+    /// Requires 3 parameters:
+    ///    $1 = informant (Ceramic node DID Key)
+    ///    $2 = high water mark (i64)
+    ///    $3 = limit (i64)
+    pub fn data_events_by_informant() -> &'static str {
+        r#"SELECT
+               order_key, init_cid, cid, rowid
+           FROM ceramic_one_event
+           WHERE
+               informant = $1
+               AND ROWID > $2
+               AND is_time_event = false
+               ORDER BY rowid
+           LIMIT $3;"#
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -171,18 +188,19 @@ pub enum SqlBackend {
 }
 
 impl ReconQuery {
-    /// Requires 13 parameters: the order_key, cid, 8 hash values, delivered flag, init_cid, and informant
+    /// Requires 14 parameters: the order_key, cid, 8 hash values, delivered flag, init_cid, informant,
+    /// whether this is a time event
     pub fn insert_event() -> &'static str {
         "INSERT INTO ceramic_one_event (
             order_key, cid,
             ahash_0, ahash_1, ahash_2, ahash_3,
             ahash_4, ahash_5, ahash_6, ahash_7,
-            delivered, init_cid, informant
+            delivered, init_cid, informant, is_time_event
         ) VALUES (
             $1, $2,
             $3, $4, $5, $6,
             $7, $8, $9, $10,
-            $11, $12, $13
+            $11, $12, $13, $14
         );"
     }
 

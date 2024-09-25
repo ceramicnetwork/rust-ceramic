@@ -1,12 +1,14 @@
+use std::sync::Mutex;
+
 use anyhow::Result;
 use async_trait::async_trait;
 use multihash_codetable::{Code, MultihashDigest};
 
-use ceramic_core::{Cid, SerializeExt};
+use ceramic_core::{Cid, EventId, NodeId, SerializeExt};
 use ceramic_event::unvalidated::Proof;
 
 use crate::{
-    AnchorRequest, DetachedTimeEvent, RootTimeEvent, Store, TimeEventBatch, TransactionManager,
+    AnchorRequest, DetachedTimeEvent, RootTimeEvent, Store, TimeEventInsertable, TransactionManager,
 };
 
 /// MockCas is a mock implementation of the Ceramic Anchor Service (CAS).
@@ -36,16 +38,21 @@ impl TransactionManager for MockCas {
 
 /// MockAnchorClient is a mock implementation of a Store.
 #[derive(Debug)]
-pub struct MockAnchorClient {
+pub struct MockAnchorEventService {
     /// Number of anchor requests to generate
     pub anchor_req_count: u64,
+    /// the events that have been sent to the mock
+    pub events: Mutex<Vec<TimeEventInsertable>>,
 }
 
-impl MockAnchorClient {
+impl MockAnchorEventService {
     // #[allow(dead_code)]
     /// Create a new MockAnchorClient with the given number of anchor requests.
     pub fn new(anchor_req_count: u64) -> Self {
-        Self { anchor_req_count }
+        Self {
+            anchor_req_count,
+            events: Default::default(),
+        }
     }
 
     fn int64_cid(&self, i: u64) -> Cid {
@@ -56,24 +63,35 @@ impl MockAnchorClient {
 }
 
 #[async_trait]
-impl Store for MockAnchorClient {
-    async fn local_sourced_data_events(&self) -> Result<Vec<AnchorRequest>> {
-        Ok((0..self.anchor_req_count)
-            .map(|n| AnchorRequest {
+impl Store for MockAnchorEventService {
+    async fn insert_many(&self, items: Vec<TimeEventInsertable>, _informant: NodeId) -> Result<()> {
+        self.events.lock().unwrap().extend(items);
+        Ok(())
+    }
+    /// Get a batch of AnchorRequests.
+    async fn events_since_high_water_mark(
+        &self,
+        _informant: NodeId,
+        highwater: i64,
+        limit: i64,
+    ) -> Result<Vec<AnchorRequest>> {
+        let ints = ((highwater as u64)..self.anchor_req_count).take(limit as usize);
+        Ok(ints.map(|n| AnchorRequest {
                 id: self.int64_cid(n),
                 prev: self.int64_cid(n),
+                event_id: EventId::try_from(
+                    hex::decode("ce010500ba25076d730241e745cc7c072ff729ea683b751701711220f4ef7ec208944d257025408bb647949e6b72930520bc80f34d8bfbafd2643d86").unwrap()).unwrap(),
+                resume_token: n as i64,
             })
             .collect())
-    }
-
-    async fn put_time_events(&self, _batch: TimeEventBatch) -> Result<()> {
-        Ok(())
     }
 }
 
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use ceramic_core::NodeId;
+    use ceramic_sql::sqlite::SqlitePool;
     use expect_test::expect_file;
     use std::sync::Arc;
     use std::time::Duration;
@@ -82,10 +100,19 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_anchor_batch_with_10_requests() {
-        let anchor_client = Arc::new(MockAnchorClient::new(10));
-        let anchor_requests = anchor_client.local_sourced_data_events().await.unwrap();
-        let anchor_service =
-            AnchorService::new(Arc::new(MockCas), anchor_client, Duration::from_secs(1));
+        let anchor_client = Arc::new(MockAnchorEventService::new(10));
+        let anchor_requests = anchor_client
+            .events_since_high_water_mark(NodeId::random().0, 0, 1_000_000)
+            .await
+            .unwrap();
+        let anchor_service = AnchorService::new(
+            Arc::new(MockCas),
+            anchor_client,
+            SqlitePool::connect_in_memory().await.unwrap(),
+            NodeId::random().0,
+            Duration::from_secs(1),
+            10,
+        );
         let all_blocks = anchor_service
             .anchor_batch(anchor_requests.as_slice())
             .await
@@ -96,10 +123,19 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_anchor_batch_with_pow2_requests() {
-        let anchor_client = Arc::new(MockAnchorClient::new(16));
-        let anchor_requests = anchor_client.local_sourced_data_events().await.unwrap();
-        let anchor_service =
-            AnchorService::new(Arc::new(MockCas), anchor_client, Duration::from_secs(1));
+        let anchor_client = Arc::new(MockAnchorEventService::new(16));
+        let anchor_requests = anchor_client
+            .events_since_high_water_mark(NodeId::random().0, 0, 1_000_000)
+            .await
+            .unwrap();
+        let anchor_service = AnchorService::new(
+            Arc::new(MockCas),
+            anchor_client,
+            SqlitePool::connect_in_memory().await.unwrap(),
+            NodeId::random().0,
+            Duration::from_secs(1),
+            16,
+        );
         let all_blocks = anchor_service
             .anchor_batch(anchor_requests.as_slice())
             .await
@@ -110,10 +146,19 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_anchor_batch_with_more_than_pow2_requests() {
-        let anchor_client = Arc::new(MockAnchorClient::new(18));
-        let anchor_requests = anchor_client.local_sourced_data_events().await.unwrap();
-        let anchor_service =
-            AnchorService::new(Arc::new(MockCas), anchor_client, Duration::from_secs(1));
+        let anchor_client = Arc::new(MockAnchorEventService::new(18));
+        let anchor_requests = anchor_client
+            .events_since_high_water_mark(NodeId::random().0, 0, 1_000_000)
+            .await
+            .unwrap();
+        let anchor_service = AnchorService::new(
+            Arc::new(MockCas),
+            anchor_client,
+            SqlitePool::connect_in_memory().await.unwrap(),
+            NodeId::random().0,
+            Duration::from_secs(1),
+            18,
+        );
         let all_blocks = anchor_service
             .anchor_batch(anchor_requests.as_slice())
             .await
@@ -124,10 +169,19 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_anchor_batch_with_less_than_pow2_requests() {
-        let anchor_client = Arc::new(MockAnchorClient::new(15));
-        let anchor_requests = anchor_client.local_sourced_data_events().await.unwrap();
-        let anchor_service =
-            AnchorService::new(Arc::new(MockCas), anchor_client, Duration::from_secs(1));
+        let anchor_client = Arc::new(MockAnchorEventService::new(15));
+        let anchor_requests = anchor_client
+            .events_since_high_water_mark(NodeId::random().0, 0, 1_000_000)
+            .await
+            .unwrap();
+        let anchor_service = AnchorService::new(
+            Arc::new(MockCas),
+            anchor_client,
+            SqlitePool::connect_in_memory().await.unwrap(),
+            NodeId::random().0,
+            Duration::from_secs(1),
+            15,
+        );
         let all_blocks = anchor_service
             .anchor_batch(anchor_requests.as_slice())
             .await
@@ -138,10 +192,19 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_anchor_batch_with_0_requests() {
-        let anchor_client = Arc::new(MockAnchorClient::new(0));
-        let anchor_requests = anchor_client.local_sourced_data_events().await.unwrap();
-        let anchor_service =
-            AnchorService::new(Arc::new(MockCas), anchor_client, Duration::from_secs(1));
+        let anchor_client = Arc::new(MockAnchorEventService::new(0));
+        let anchor_requests = anchor_client
+            .events_since_high_water_mark(NodeId::random().0, 0, 1_000_000)
+            .await
+            .unwrap();
+        let anchor_service = AnchorService::new(
+            Arc::new(MockCas),
+            anchor_client,
+            SqlitePool::connect_in_memory().await.unwrap(),
+            NodeId::random().0,
+            Duration::from_secs(1),
+            1,
+        );
         let all_blocks = anchor_service
             .anchor_batch(anchor_requests.as_slice())
             .await;
@@ -151,10 +214,19 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_anchor_batch_with_1_request() {
-        let anchor_client = Arc::new(MockAnchorClient::new(1));
-        let anchor_requests = anchor_client.local_sourced_data_events().await.unwrap();
-        let anchor_service =
-            AnchorService::new(Arc::new(MockCas), anchor_client, Duration::from_secs(1));
+        let anchor_client = Arc::new(MockAnchorEventService::new(1));
+        let anchor_requests = anchor_client
+            .events_since_high_water_mark(NodeId::random().0, 0, 1_000_000)
+            .await
+            .unwrap();
+        let anchor_service = AnchorService::new(
+            Arc::new(MockCas),
+            anchor_client,
+            SqlitePool::connect_in_memory().await.unwrap(),
+            NodeId::random().0,
+            Duration::from_secs(1),
+            1,
+        );
         let all_blocks = anchor_service
             .anchor_batch(anchor_requests.as_slice())
             .await

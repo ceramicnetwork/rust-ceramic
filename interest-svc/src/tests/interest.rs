@@ -116,7 +116,7 @@ where
             random_interest(Some((&[0], &[1])), Some(42)),
             vec![],
         )],
-        NodeId::random().unwrap().0,
+        NodeId::random().0,
     )
     .await
     .unwrap();
@@ -127,7 +127,7 @@ where
             random_interest(Some((&[0], &[1])), Some(24)),
             vec![],
         )],
-        NodeId::random().unwrap().0,
+        NodeId::random().0,
     )
     .await
     .unwrap();
@@ -155,14 +155,14 @@ where
     recon::Store::insert_many(
         &store,
         &[ReconItem::new(interest_0.clone(), Vec::new())],
-        NodeId::random().unwrap().0,
+        NodeId::random().0,
     )
     .await
     .unwrap();
     recon::Store::insert_many(
         &store,
         &[ReconItem::new(interest_1.clone(), Vec::new())],
-        NodeId::random().unwrap().0,
+        NodeId::random().0,
     )
     .await
     .unwrap();
@@ -194,14 +194,14 @@ where
     store
         .insert_many(
             &[ReconItem::new(interest_0.clone(), Vec::new())],
-            NodeId::random().unwrap().0,
+            NodeId::random().0,
         )
         .await
         .unwrap();
     store
         .insert_many(
             &[ReconItem::new(interest_1.clone(), Vec::new())],
-            NodeId::random().unwrap().0,
+            NodeId::random().0,
         )
         .await
         .unwrap();
@@ -235,17 +235,17 @@ where
     assert!(&recon::Store::insert_many(
         &store,
         &[ReconItem::new(interest.clone(), Vec::new())],
-        NodeId::random().unwrap().0,
+        NodeId::random().0,
     )
     .await
     .unwrap()
-    .included_new_key(),);
+    .included_new_key());
 
     // reject the second insert of same key
     assert!(!recon::Store::insert_many(
         &store,
         &[ReconItem::new(interest.clone(), Vec::new())],
-        NodeId::random().unwrap().0,
+        NodeId::random().0,
     )
     .await
     .unwrap()
@@ -266,7 +266,7 @@ where
     recon::Store::insert_many(
         &store,
         &[ReconItem::new(key.clone(), Vec::new())],
-        NodeId::random().unwrap().0,
+        NodeId::random().0,
     )
     .await
     .unwrap();

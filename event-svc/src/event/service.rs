@@ -124,7 +124,7 @@ impl EventService {
             map.clear();
         }
         for ev in pending {
-            match map.entry(*ev.event.id()) {
+            match map.entry(*ev.event.stream_cid()) {
                 std::collections::hash_map::Entry::Occupied(mut entry) => {
                     entry.get_mut().push(ev);
                 }
@@ -324,7 +324,7 @@ impl EventService {
             event,
             delivered,
         } = event;
-        let stream_cid = event.id();
+        let stream_cid = event.stream_cid();
         let init_event = self.get_event_by_cid(stream_cid).await?;
         let init = ConclusionInit::try_from(init_event).map_err(|e| {
             Error::new_app(anyhow::anyhow!(
@@ -426,7 +426,7 @@ impl EventService {
             self.send_discovered_event(DiscoveredEvent {
                 cid: *ev.inserted.cid(),
                 prev: ev.inserted.event().prev().copied(),
-                id: *ev.inserted.event().id(),
+                id: *ev.inserted.event().stream_cid(),
                 known_deliverable: ev.inserted.deliverable(),
             })
             .await?;
@@ -445,6 +445,7 @@ impl EventService {
         }
     }
 }
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValidationError {
     InvalidFormat {
