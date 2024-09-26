@@ -4,10 +4,14 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use anyhow::{anyhow, Context, Result};
+use alloy::{
+    primitives::{BlockHash, TxHash},
+    providers::{Provider, ProviderBuilder, RootProvider},
+    rpc::types::{Block, BlockTransactionsKind, Transaction},
+    transports::http::{Client, Http},
+};
+use anyhow::{Context, Result};
 use lru::LruCache;
-use once_cell::sync::Lazy;
-use serde::{Deserialize, Serialize};
 use ssi::caip2;
 use tracing::trace;
 
@@ -16,58 +20,13 @@ use super::{ChainBlock, ChainTransaction, EthRpc};
 const TRANSACTION_CACHE_SIZE: usize = 50;
 const BLOCK_CACHE_SIZE: usize = 50;
 
-static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(reqwest::Client::new);
-
-#[derive(Debug, Serialize, Deserialize)]
-struct RpcResponse<T> {
-    jsonrpc: String,
-    id: i32,
-    result: Option<T>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "camelCase")]
-/// The expected payload for eth_getTransactionByHash. It's a contract transaction
-/// and expects fields (e.g. input) to exist that aren't required for all transactions.
-struct EthTransaction {
-    /// Block hash if mined
-    block_hash: Option<String>,
-    /// Transaction hash
-    hash: String,
-    /// Contract input data
-    input: String,
-}
-
-impl EthTransaction {
-    fn into_chain_block(self) -> ChainTransaction {
-        ChainTransaction {
-            hash: self.hash,
-            input: self.input,
-            block: None,
+impl From<&Block> for ChainBlock {
+    fn from(value: &Block) -> Self {
+        ChainBlock {
+            hash: value.header.hash.to_string(),
+            number: value.header.number,
+            timestamp: value.header.timestamp,
         }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-/// The block information returned by eth_getBlockByHash
-#[serde(rename_all = "camelCase")]
-struct EthBlock {
-    hash: String,
-    /// 0x prefixed hexadecimal block number
-    number: String,
-    /// 0x prefixed hexademical representing unix epoch time
-    timestamp: String,
-}
-
-impl TryFrom<EthBlock> for ChainBlock {
-    type Error = anyhow::Error;
-
-    fn try_from(value: EthBlock) -> std::result::Result<Self, Self::Error> {
-        Ok(ChainBlock {
-            hash: value.hash,
-            number: u64_from_hex(&value.number).context("invalid block number")?,
-            timestamp: u64_from_hex(&value.timestamp).context("invalid block timestamp")?,
-        })
     }
 }
 
@@ -75,17 +34,22 @@ impl TryFrom<EthBlock> for ChainBlock {
 /// Http client to interact with EIP chains
 pub struct HttpEthRpc {
     chain_id: caip2::ChainId,
-    url: reqwest::Url,
-    tx_cache: Arc<Mutex<LruCache<String, EthTransaction>>>,
-    block_cache: Arc<Mutex<LruCache<String, EthBlock>>>,
+    tx_cache: Arc<Mutex<LruCache<TxHash, Transaction>>>,
+    block_cache: Arc<Mutex<LruCache<BlockHash, ChainBlock>>>,
+    provider: RootProvider<Http<Client>>,
 }
 
 impl HttpEthRpc {
     /// Create a new ethereum VM compatible HTTP client
     pub async fn try_new(url: &str) -> Result<Self> {
         let url = reqwest::Url::parse(url).context("invalid url")?;
-        let chain_id = Self::eth_chain_id(url.clone()).await?;
-        let chain_decimal = u64_from_hex(&chain_id)?;
+        let provider = ProviderBuilder::new().on_http(url);
+        let chain_decimal = provider
+            .get_chain_id()
+            .await
+            .context("failed to retrieve chain ID")?;
+
+        // assume we only support eip155 chain IDs for now
         let chain_id = caip2::ChainId::from_str(&format!("eip155:{chain_decimal}"))?;
         let tx_cache = Arc::new(Mutex::new(LruCache::new(
             NonZero::new(TRANSACTION_CACHE_SIZE).expect("transaction cache size must be non zero"),
@@ -94,68 +58,36 @@ impl HttpEthRpc {
             NonZero::new(BLOCK_CACHE_SIZE).expect("block cache size must be non zero"),
         )));
         Ok(Self {
-            url,
             chain_id,
             tx_cache,
             block_cache,
+            provider,
         })
     }
 
-    /// Retrieve the caip2 Chain ID
-    ///
-    /// ❯ curl https://cloudflare-eth.com/v1/mainnet -X POST --data '{"jsonrpc":"2.0","method":"eth_chainId","params":[],"id":0}'
-    ///    {"jsonrpc":"2.0","result":"0x1","id":0}
-    ///
-    /// ❯ curl https://rpc.ankr.com/filecoin -X POST --data '{"jsonrpc":"2.0","method":"eth_chainId","params":[],"id":0}'
-    /// >>  {"id":0,"jsonrpc":"2.0","result":"0x13a"}
-    async fn eth_chain_id(url: reqwest::Url) -> Result<String> {
-        let resp: RpcResponse<String> = HTTP_CLIENT
-            .post(url.clone())
-            .json(&serde_json::json!({
-                "jsonrpc": "2.0",
-                "method": "eth_chainId",
-                "params": [],
-                "id": 0,
-            }))
-            .send()
-            .await?
-            .json()
-            .await?;
-        resp.result
-            .ok_or_else(|| anyhow!("failed to retrieve chain ID"))
-    }
-
-    /// Get a block by its hash
+    /// Get a block by its hash. For now, we return and cache a [`ChainBlock`] as it's much smaller than
+    /// the actual Block returned from the RPC endpoint and we don't need most of the information.
     ///
     /// curl https://mainnet.infura.io/v3/{api_token} \
     ///     -X POST \
     ///     -H "Content-Type: application/json" \
     ///     -d '{"jsonrpc":"2.0","method":"eth_getBlockByHash","params": ["0x{block_hash}",false],"id":1}'
     /// >> {"jsonrpc": "2.0", "id": 1, "result": {"number": "0x105f34f", "timestamp": "0x644fe98b"}}
-    async fn eth_block_by_hash(&self, block_hash: &str) -> Result<Option<EthBlock>> {
-        if let Some(blk) = self.block_cache.lock().unwrap().get(block_hash) {
+    async fn eth_block_by_hash(&self, block_hash: BlockHash) -> Result<Option<ChainBlock>> {
+        if let Some(blk) = self.block_cache.lock().unwrap().get(&block_hash) {
             return Ok(Some(blk.to_owned()));
         }
-        let resp: RpcResponse<EthBlock> = HTTP_CLIENT
-            .post(self.url.clone())
-            .json(&serde_json::json!({
-                "jsonrpc": "2.0",
-                "method": "eth_getBlockByHash",
-                "params": [block_hash, false],
-                "id": 1,
-            }))
-            .send()
-            .await?
-            .json()
+        let block = self
+            .provider
+            .get_block_by_hash(block_hash, BlockTransactionsKind::Hashes)
             .await?;
-        let block = match resp.result {
-            Some(blk) => blk,
-            None => return Ok(None),
-        };
+        let block = block.as_ref().map(ChainBlock::from);
+        if let Some(blk) = &block {
+            let mut cache = self.block_cache.lock().unwrap();
+            cache.put(block_hash, blk.clone());
+        }
 
-        let mut cache = self.block_cache.lock().unwrap();
-        cache.put(block_hash.to_string(), block.clone());
-        Ok(Some(block))
+        Ok(block)
     }
 
     /// Get the block_hash and input from the transaction
@@ -172,30 +104,22 @@ impl HttpEthRpc {
     /// >>  }}
     async fn eth_transaction_by_hash(
         &self,
-        transaction_hash: &str,
-    ) -> Result<Option<EthTransaction>> {
-        if let Some(tx) = self.tx_cache.lock().unwrap().get(transaction_hash) {
+        transaction_hash: TxHash,
+    ) -> Result<Option<Transaction>> {
+        if let Some(tx) = self.tx_cache.lock().unwrap().get(&transaction_hash) {
             return Ok(Some(tx.to_owned()));
         }
-        let resp: RpcResponse<EthTransaction> = HTTP_CLIENT
-            .post(self.url.clone())
-            .json(&serde_json::json!({
-                "jsonrpc": "2.0",
-                "method": "eth_getTransactionByHash",
-                "params": [transaction_hash],
-                "id": 1,
-            }))
-            .send()
-            .await?
-            .json()
-            .await?;
-        let tx = match resp.result {
-            Some(tx) => tx,
-            None => return Ok(None),
-        };
-        let mut cache = self.tx_cache.lock().unwrap();
-        cache.put(transaction_hash.to_string(), tx.clone());
-        Ok(Some(tx))
+        let tx = self
+            .provider
+            .get_transaction_by_hash(transaction_hash)
+            .await
+            .context("failed to get transaction by hash")?;
+
+        if let Some(tx) = &tx {
+            let mut cache = self.tx_cache.lock().unwrap();
+            cache.put(transaction_hash, tx.clone());
+        }
+        Ok(tx)
     }
 }
 
@@ -211,43 +135,33 @@ impl EthRpc for HttpEthRpc {
 
     async fn get_block_timestamp(&self, tx_hash: &str) -> Result<Option<ChainTransaction>> {
         // transaction to blockHash, blockNumber, input
+        let tx_hash = TxHash::from_str(tx_hash).context("invalid transaction hash")?;
         let tx_hash_res = match self.eth_transaction_by_hash(tx_hash).await? {
             Some(tx) => tx,
             None => return Ok(None),
         };
         trace!(?tx_hash_res, "txByHash response");
 
-        let blk_hash = if let Some(hash) = &tx_hash_res.block_hash {
-            hash
+        if let Some(block_hash) = &tx_hash_res.block_hash {
+            // for now we ignore how old the block is i.e. we don't care if it's more than 3
+            // it's left up to the implementer in
+            // https://chainagnostic.org/CAIPs/caip-168 and https://namespaces.chainagnostic.org/eip155/caip168
+            // this means nodes may have a slightly different answer to the exact time an event happened
+
+            let blk_hash_res = self.eth_block_by_hash(*block_hash).await?;
+            trace!(?blk_hash_res, "blockByHash response");
+            let block = blk_hash_res.map(ChainBlock::from);
+            Ok(Some(ChainTransaction {
+                hash: tx_hash_res.hash.to_string(),
+                input: tx_hash_res.input.to_string(),
+                block,
+            }))
         } else {
-            return Ok(Some(EthTransaction::into_chain_block(tx_hash_res)));
-        };
-
-        // for now we ignore how old the block is i.e. we don't care if it's more than 3
-        // it's left up to the implementer in
-        // https://chainagnostic.org/CAIPs/caip-168 and https://namespaces.chainagnostic.org/eip155/caip168
-        // this means nodes may have a slightly different answer to the exact time an event happened
-
-        let blk_hash_res = self.eth_block_by_hash(blk_hash).await?;
-        trace!(?blk_hash_res, "blockByHash response");
-
-        let block = match blk_hash_res {
-            Some(blk) => blk,
-            None => return Ok(Some(EthTransaction::into_chain_block(tx_hash_res))),
-        };
-
-        Ok(Some(ChainTransaction {
-            hash: tx_hash_res.hash,
-            input: tx_hash_res.input,
-            block: Some(block.try_into()?),
-        }))
+            Ok(Some(ChainTransaction {
+                hash: tx_hash_res.hash.to_string(),
+                input: tx_hash_res.input.to_string(),
+                block: None,
+            }))
+        }
     }
-}
-
-/// Get an u64 integer from a 0x prefixed hex string
-fn u64_from_hex(val: &str) -> Result<u64> {
-    val.strip_prefix("0x")
-        .map(|v| u64::from_str_radix(v, 16))
-        .transpose()?
-        .ok_or_else(|| anyhow!("string is not valid hex: {}", val))
 }

@@ -34,6 +34,8 @@ ssi.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 unsigned-varint.workspace = true
+# will probably need contract and signer-local features for self anchoring
+alloy = { version = "0.4", features = ["k256", "provider-http", "rpc-types"] }
 
 [dev-dependencies]
 ceramic-car.workspace = true
