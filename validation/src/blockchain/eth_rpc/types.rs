@@ -63,7 +63,7 @@ pub struct ChainBlock {
 pub trait EthRpc {
     /// Get the CAIP2 chain ID supported by this RPC provider
     fn chain_id(&self) -> &caip2::ChainId;
-    
+
     /// The RPC url used by the provider
     fn url(&self) -> String;
 

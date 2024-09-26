@@ -232,14 +232,13 @@ mod tests {
             anchor_batch_size,
         );
         let (shutdown_signal_tx, mut shutdown_signal) = broadcast::channel::<()>(1);
-        // let mut shutdown_signal = shutdown_signal_rx.resubscribe();
-        Some(tokio::spawn(async move {
+        tokio::spawn(async move {
             anchor_service
                 .run(async move {
                     let _ = shutdown_signal.recv().await;
                 })
                 .await
-        }));
+        });
         while event_service.events.lock().unwrap().is_empty() {
             sleep(Duration::from_millis(1)).await;
         }
