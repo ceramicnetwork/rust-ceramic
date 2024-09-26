@@ -11,62 +11,15 @@ use serde::{Deserialize, Serialize};
 use ssi::caip2;
 use tracing::trace;
 
+use super::{ChainBlock, ChainTransaction, EthRpc};
+
 const TRANSACTION_CACHE_SIZE: usize = 50;
 const BLOCK_CACHE_SIZE: usize = 50;
 
 static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(reqwest::Client::new);
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-/// A blockchain transaction
-pub struct ChainTransaction {
-    /// Transaction hash
-    pub hash: String,
-    /// Transaction contract input
-    pub input: String,
-    /// Information about the block in which this transaction was mined.
-    /// If None, the transaction exists but has not been mined yet.
-    pub block: Option<ChainBlock>,
-}
-
-impl ChainTransaction {
-    fn new_from_tx(tx: EthTransaction) -> Self {
-        ChainTransaction {
-            hash: tx.hash,
-            input: tx.input,
-            block: None,
-        }
-    }
-
-    fn try_new_with_block(tx: EthTransaction, block: EthBlock) -> Result<Self> {
-        Ok(ChainTransaction {
-            hash: tx.hash,
-            input: tx.input,
-            block: Some(block.try_into()?),
-        })
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-/// A blockchain block
-pub struct ChainBlock {
-    pub hash: String,
-    /// the block number
-    pub number: i64,
-    /// the unix epoch timestamp
-    pub timestamp: i64,
-}
-
-#[async_trait::async_trait]
-pub trait EthRpc {
-    fn chain_id(&self) -> &caip2::ChainId;
-
-    fn url(&self) -> String;
-
-    async fn get_block_timestamp(&self, tx_hash: &str) -> Result<Option<ChainTransaction>>;
-}
-
 #[derive(Debug, Serialize, Deserialize)]
-pub struct RpcResponse<T> {
+struct RpcResponse<T> {
     jsonrpc: String,
     id: i32,
     result: Option<T>,
@@ -83,6 +36,16 @@ struct EthTransaction {
     hash: String,
     /// Contract input data
     input: String,
+}
+
+impl EthTransaction {
+    fn into_chain_block(self) -> ChainTransaction {
+        ChainTransaction {
+            hash: self.hash,
+            input: self.input,
+            block: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -102,8 +65,8 @@ impl TryFrom<EthBlock> for ChainBlock {
     fn try_from(value: EthBlock) -> std::result::Result<Self, Self::Error> {
         Ok(ChainBlock {
             hash: value.hash,
-            number: i64_from_hex(&value.number).context("invalid block number")?,
-            timestamp: i64_from_hex(&value.timestamp).context("invalid block timestamp")?,
+            number: u64_from_hex(&value.number).context("invalid block number")?,
+            timestamp: u64_from_hex(&value.timestamp).context("invalid block timestamp")?,
         })
     }
 }
@@ -122,7 +85,7 @@ impl HttpEthRpc {
     pub async fn try_new(url: &str) -> Result<Self> {
         let url = reqwest::Url::parse(url).context("invalid url")?;
         let chain_id = Self::eth_chain_id(url.clone()).await?;
-        let chain_decimal = i64_from_hex(&chain_id)?;
+        let chain_decimal = u64_from_hex(&chain_id)?;
         let chain_id = caip2::ChainId::from_str(&format!("eip155:{chain_decimal}"))?;
         let tx_cache = Arc::new(Mutex::new(LruCache::new(
             NonZero::new(TRANSACTION_CACHE_SIZE).expect("transaction cache size must be non zero"),
@@ -257,7 +220,7 @@ impl EthRpc for HttpEthRpc {
         let blk_hash = if let Some(hash) = &tx_hash_res.block_hash {
             hash
         } else {
-            return Ok(Some(ChainTransaction::new_from_tx(tx_hash_res)));
+            return Ok(Some(EthTransaction::into_chain_block(tx_hash_res)));
         };
 
         // for now we ignore how old the block is i.e. we don't care if it's more than 3
@@ -270,20 +233,21 @@ impl EthRpc for HttpEthRpc {
 
         let block = match blk_hash_res {
             Some(blk) => blk,
-            None => return Ok(Some(ChainTransaction::new_from_tx(tx_hash_res))),
+            None => return Ok(Some(EthTransaction::into_chain_block(tx_hash_res))),
         };
 
-        Ok(Some(ChainTransaction::try_new_with_block(
-            tx_hash_res,
-            block,
-        )?))
+        Ok(Some(ChainTransaction {
+            hash: tx_hash_res.hash,
+            input: tx_hash_res.input,
+            block: Some(block.try_into()?),
+        }))
     }
 }
 
-/// Get an i64 integer from a 0x prefixed hex string
-fn i64_from_hex(val: &str) -> Result<i64> {
+/// Get an u64 integer from a 0x prefixed hex string
+fn u64_from_hex(val: &str) -> Result<u64> {
     val.strip_prefix("0x")
-        .map(|v| i64::from_str_radix(v, 16))
+        .map(|v| u64::from_str_radix(v, 16))
         .transpose()?
         .ok_or_else(|| anyhow!("string is not valid hex: {}", val))
 }

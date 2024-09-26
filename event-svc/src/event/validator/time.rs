@@ -15,7 +15,7 @@ const V0_PROOF_TYPE: &str = "raw";
 const V1_PROOF_TYPE: &str = "f(bytes32)"; // See: https://namespaces.chainagnostic.org/eip155/caip168
 const DAG_CBOR_CODEC: u64 = 0x71;
 
-static BLOCK_THRESHHOLDS: Lazy<HashMap<&str, i64>> = Lazy::new(|| {
+static BLOCK_THRESHHOLDS: Lazy<HashMap<&str, u64>> = Lazy::new(|| {
     HashMap::from_iter(vec![
         ("eip155:1", 16688195),       //mainnet
         ("eip155:3", 1000000000),     //ropsten
@@ -49,12 +49,12 @@ pub enum ChainInclusionError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Timestamp(i64);
+pub struct Timestamp(u64);
 
 impl Timestamp {
     /// A unix epoch timestamp
     #[allow(dead_code)]
-    pub fn as_unix_ts(&self) -> i64 {
+    pub fn as_unix_ts(&self) -> u64 {
         self.0
     }
 }
@@ -240,7 +240,7 @@ mod test {
 
     use super::*;
 
-    const BLOCK_TIMESTAMP: i64 = 1725913338;
+    const BLOCK_TIMESTAMP: u64 = 1725913338;
     const SINGLE_TX_HASH: &str =
         "0x1bfe594e9f2e7b32a39fe50d24c2fd3fb15255bde5bace0140c1c861c9cdb091";
     const MULTI_TX_HASH: &str =
