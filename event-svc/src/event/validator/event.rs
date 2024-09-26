@@ -256,16 +256,13 @@ impl EventValidator {
     ) -> std::result::Result<(), ValidationError> {
         match err {
             ChainInclusionError::TxNotFound { chain_id, tx_hash } => {
-                if require_inclusion_proof {
-                    Err(ValidationError::InvalidTimeProof {
-                        key: order_key.to_owned(),
-                        reason: format!(
-                            "Transaction on chain '{chain_id}' with hash '{tx_hash}' not found."
-                        ),
-                    })
-                } else {
-                    Ok(())
-                }
+                // we have an RPC provider so the transaction missing means it's invalid/unproveable
+                Err(ValidationError::InvalidTimeProof {
+                    key: order_key.to_owned(),
+                    reason: format!(
+                        "Transaction on chain '{chain_id}' with hash '{tx_hash}' not found."
+                    ),
+                })
             }
             ChainInclusionError::TxNotMined { chain_id, tx_hash } => {
                 if require_inclusion_proof {
@@ -274,6 +271,7 @@ impl EventValidator {
                         reason: format!("Transaction on chain '{chain_id}' with hash '{tx_hash}' has not been mined in a block yet."),
                     })
                 } else {
+                    // we may be able to validate it in the future when the block is mined
                     Ok(())
                 }
             }
@@ -290,6 +288,7 @@ impl EventValidator {
                     reason: format!("No RPC provider for chain '{chain_id}'. Transaction for event cannot be verified."),
                 })
                 } else {
+                    // someone with an RPC provider could validate this event so we'll allow it
                     Ok(())
                 }
             }
