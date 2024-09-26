@@ -3551,7 +3551,7 @@ dependencies = [
 [[package]]
 name = "datafusion-federation"
 version = "0.3.0"
-source = "git+https://github.com/datafusion-contrib/datafusion-federation.git?branch=main#d3d4f42f47746b2d3853f90d5bef2e134d16e2c0"
+source = "git+https://github.com/datafusion-contrib/datafusion-federation.git?branch=main#e1084a92f7bc75a07cb1a9840429bca3842bd593"
 dependencies = [
  "arrow-json",
  "async-stream",
@@ -3562,11 +3562,12 @@ dependencies = [
 
 [[package]]
 name = "datafusion-flight-sql-server"
-version = "0.3.0"
-source = "git+https://github.com/datafusion-contrib/datafusion-federation.git?branch=main#d3d4f42f47746b2d3853f90d5bef2e134d16e2c0"
+version = "0.4.0"
+source = "git+https://github.com/datafusion-contrib/datafusion-federation.git?branch=main#e1084a92f7bc75a07cb1a9840429bca3842bd593"
 dependencies = [
  "arrow",
  "arrow-flight",
+ "async-trait",
  "datafusion",
  "datafusion-federation",
  "datafusion-substrait",
@@ -3580,7 +3581,7 @@ dependencies = [
 [[package]]
 name = "datafusion-flight-sql-table-provider"
 version = "0.3.0"
-source = "git+https://github.com/datafusion-contrib/datafusion-federation.git?branch=main#d3d4f42f47746b2d3853f90d5bef2e134d16e2c0"
+source = "git+https://github.com/datafusion-contrib/datafusion-federation.git?branch=main#e1084a92f7bc75a07cb1a9840429bca3842bd593"
 dependencies = [
  "arrow",
  "arrow-flight",
