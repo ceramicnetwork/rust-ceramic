@@ -10,15 +10,16 @@ use alloy::{
     rpc::types::{Block, BlockTransactionsKind, Transaction},
     transports::http::{Client, Http},
 };
-use anyhow::{Context, Result};
 use lru::LruCache;
 use ssi::caip2;
 use tracing::trace;
 
-use super::{ChainBlock, ChainTransaction, EthRpc};
+use crate::eth_rpc::{ChainBlock, ChainTransaction, Error, EthRpc};
 
 const TRANSACTION_CACHE_SIZE: usize = 50;
 const BLOCK_CACHE_SIZE: usize = 50;
+
+type Result<T> = std::result::Result<T, Error>;
 
 impl From<&Block> for ChainBlock {
     fn from(value: &Block) -> Self {
@@ -34,6 +35,7 @@ impl From<&Block> for ChainBlock {
 /// Http client to interact with EIP chains
 pub struct HttpEthRpc {
     chain_id: caip2::ChainId,
+    url: reqwest::Url,
     tx_cache: Arc<Mutex<LruCache<TxHash, Transaction>>>,
     block_cache: Arc<Mutex<LruCache<BlockHash, ChainBlock>>>,
     provider: RootProvider<Http<Client>>,
@@ -42,15 +44,17 @@ pub struct HttpEthRpc {
 impl HttpEthRpc {
     /// Create a new ethereum VM compatible HTTP client
     pub async fn try_new(url: &str) -> Result<Self> {
-        let url = reqwest::Url::parse(url).context("invalid url")?;
-        let provider = ProviderBuilder::new().on_http(url);
+        let url = reqwest::Url::parse(url)
+            .map_err(|e| Error::InvalidArgument(format!("invalid url: {}", e)))?;
+        let provider = ProviderBuilder::new().on_http(url.clone());
         let chain_decimal = provider
             .get_chain_id()
             .await
-            .context("failed to retrieve chain ID")?;
+            .map_err(|e| Error::InvalidArgument(format!("failed to retrieve chain ID: {}", e)))?;
 
         // assume we only support eip155 chain IDs for now
-        let chain_id = caip2::ChainId::from_str(&format!("eip155:{chain_decimal}"))?;
+        let chain_id = caip2::ChainId::from_str(&format!("eip155:{chain_decimal}"))
+            .map_err(|e| Error::InvalidArgument(format!("invalid chain ID: {}", e)))?;
         let tx_cache = Arc::new(Mutex::new(LruCache::new(
             NonZero::new(TRANSACTION_CACHE_SIZE).expect("transaction cache size must be non zero"),
         )));
@@ -59,6 +63,7 @@ impl HttpEthRpc {
         )));
         Ok(Self {
             chain_id,
+            url,
             tx_cache,
             block_cache,
             provider,
@@ -112,8 +117,7 @@ impl HttpEthRpc {
         let tx = self
             .provider
             .get_transaction_by_hash(transaction_hash)
-            .await
-            .context("failed to get transaction by hash")?;
+            .await?;
 
         if let Some(tx) = &tx {
             let mut cache = self.tx_cache.lock().unwrap();
@@ -135,7 +139,8 @@ impl EthRpc for HttpEthRpc {
 
     async fn get_block_timestamp(&self, tx_hash: &str) -> Result<Option<ChainTransaction>> {
         // transaction to blockHash, blockNumber, input
-        let tx_hash = TxHash::from_str(tx_hash).context("invalid transaction hash")?;
+        let tx_hash = TxHash::from_str(tx_hash)
+            .map_err(|e| Error::InvalidArgument(format!("invalid transaction hash: {}", e)))?;
         let tx_hash_res = match self.eth_transaction_by_hash(tx_hash).await? {
             Some(tx) => tx,
             None => return Ok(None),

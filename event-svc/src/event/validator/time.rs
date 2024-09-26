@@ -9,7 +9,7 @@ use multihash::Multihash;
 use once_cell::sync::Lazy;
 use tracing::warn;
 
-use ceramic_validation::eth_rpc::{ChainBlock, EthRpc, HttpEthRpc};
+use ceramic_validation::eth_rpc::{self, ChainBlock, EthRpc, HttpEthRpc};
 
 const V0_PROOF_TYPE: &str = "raw";
 const V1_PROOF_TYPE: &str = "f(bytes32)"; // See: https://namespaces.chainagnostic.org/eip155/caip168
@@ -95,7 +95,7 @@ impl TimeEventValidator {
                         .or_insert_with(|| provider);
                 }
                 Err(err) => {
-                    warn!("failed to create RCP client with url: '{url}': {err}");
+                    warn!(?err, "failed to create RCP client with url: '{url}'");
                 }
             }
         }
@@ -209,8 +209,8 @@ impl TimeEventValidator {
         tx_hash: &str,
         proof: &unvalidated::Proof,
     ) -> Result<Option<(Cid, Option<ChainBlock>)>> {
-        match provider.get_block_timestamp(tx_hash).await? {
-            Some(tx) => {
+        match provider.get_block_timestamp(tx_hash).await {
+            Ok(Some(tx)) => {
                 let root_cid = Self::get_root_cid_from_input(&tx.input, proof.tx_type())?;
 
                 // TODO: persist transaction and block information somewhere (lru cache, database)
@@ -218,10 +218,18 @@ impl TimeEventValidator {
                 Ok(Some((root_cid, tx.block)))
             }
 
-            None => {
+            Ok(None) => {
                 // no transaction will be turned into an error at the next level.
                 // we should probably persist something so we know that it's bad and we don't keep trying
                 Ok(None)
+            }
+            Err(eth_rpc::Error::Application(error)) => bail!(error),
+            Err(eth_rpc::Error::InvalidArgument(reason)) => {
+                bail!(format!("Invalid ethereum rpc argument: {reason}"))
+            }
+            Err(eth_rpc::Error::Transient(error)) => {
+                // TODO: actually retry something
+                bail!(error);
             }
         }
     }
@@ -377,7 +385,7 @@ mod test {
         impl EthRpc for EthRpcProviderTest {
             fn chain_id(&self) -> &caip2::ChainId;
             fn url(&self) -> String;
-            async fn get_block_timestamp(&self, tx_hash: &str) -> Result<Option<ceramic_validation::eth_rpc::ChainTransaction>>;
+            async fn get_block_timestamp(&self, tx_hash: &str) -> Result<Option<ceramic_validation::eth_rpc::ChainTransaction>, eth_rpc::Error>;
         }
     }
 
