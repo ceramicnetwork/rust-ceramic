@@ -62,12 +62,12 @@ struct DaemonOpts {
     ///
     /// Credentials are read from the environment:
     ///
-    ///     AWS_ACCESS_KEY_ID -> access_key_id
-    ///     AWS_SECRET_ACCESS_KEY -> secret_access_key
-    ///     AWS_DEFAULT_REGION -> region
-    ///     AWS_ENDPOINT -> endpoint
-    ///     AWS_SESSION_TOKEN -> token
-    ///     AWS_ALLOW_HTTP -> set to “true” to permit HTTP connections without TLS
+    ///   * AWS_ACCESS_KEY_ID -> access_key_id
+    ///   * AWS_SECRET_ACCESS_KEY -> secret_access_key
+    ///   * AWS_DEFAULT_REGION -> region
+    ///   * AWS_ENDPOINT -> endpoint
+    ///   * AWS_SESSION_TOKEN -> token
+    ///   * AWS_ALLOW_HTTP -> set to "true" to permit HTTP connections without TLS
     ///
     #[arg(long, env = "CERAMIC_OLAP_AWS_BUCKET")]
     aws_bucket: String,

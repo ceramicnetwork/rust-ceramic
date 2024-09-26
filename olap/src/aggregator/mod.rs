@@ -147,6 +147,7 @@ fn tx_error_to_df(err: tonic::transport::Error) -> DataFusionError {
 //  * have previous CIDs that either already exist in `doc_state` or be contained within the
 //  current conclusion_feed batch,
 //  * be valid JSON patch data documents.
+//  * use a qualified table name of `conclusion_feed`.
 async fn process_feed_batch(ctx: SessionContext, conclusion_feed: DataFrame) -> Result<()> {
     let doc_state = ctx
         .table("doc_state")
@@ -249,9 +250,10 @@ mod tests {
     use cid::Cid;
     use datafusion::{
         common::Constraints,
+        datasource::{provider_as_source, MemTable},
         logical_expr::{
             expr::ScalarFunction, CreateMemoryTable, DdlStatement, EmptyRelation, LogicalPlan,
-            ScalarUDF,
+            LogicalPlanBuilder, ScalarUDF,
         },
     };
     use expect_test::expect;
@@ -321,7 +323,17 @@ mod tests {
         ctx: SessionContext,
         conclusion_feed: RecordBatch,
     ) -> anyhow::Result<impl std::fmt::Display> {
-        let conclusion_feed = ctx.read_batch(conclusion_feed)?;
+        // Setup conclusion_feed table from RecordBatch
+        let provider = MemTable::try_new(conclusion_feed.schema(), vec![vec![conclusion_feed]])?;
+        let conclusion_feed = DataFrame::new(
+            ctx.state(),
+            LogicalPlanBuilder::scan(
+                "conclusion_feed",
+                provider_as_source(Arc::new(provider)),
+                None,
+            )?
+            .build()?,
+        );
         process_feed_batch(ctx.clone(), conclusion_feed).await?;
         let cid_string = Arc::new(ScalarUDF::from(CidString::new()));
         let doc_state = ctx
