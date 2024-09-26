@@ -234,6 +234,7 @@ impl TimeEventValidator {
 #[cfg(test)]
 mod test {
     use ceramic_event::unvalidated;
+    use ceramic_validation::eth_rpc::TxHash;
     use ipld_core::ipld::Ipld;
     use mockall::{mock, predicate};
     use test_log::test;
@@ -381,6 +382,7 @@ mod test {
     }
 
     async fn get_mock_provider(tx_hash: String, tx_input: String) -> TimeEventValidator {
+        let tx_hash_bytes = TxHash::from_str(&tx_hash).expect("invalid tx hash");
         let mut mock_provider = MockEthRpcProviderTest::new();
         let chain =
             caip2::ChainId::from_str("eip155:11155111").expect("eip155:11155111 is a valid chain");
@@ -392,11 +394,13 @@ mod test {
             .with(predicate::eq(tx_hash.clone()))
             .return_once(move |_| {
                 Ok(Some(ceramic_validation::eth_rpc::ChainTransaction {
-                    hash: tx_hash,
+                    hash: tx_hash_bytes,
                     input: tx_input,
                     block: Some(ChainBlock {
-                        hash: "0x783cd5a6febe13d08ac0d59fa7e666483d5e476542b29688a6f0bec3d15febd4"
-                            .into(),
+                        hash: TxHash::from_str(
+                            "0x783cd5a6febe13d08ac0d59fa7e666483d5e476542b29688a6f0bec3d15febd4",
+                        )
+                        .unwrap(),
                         number: 5558585,
                         timestamp: BLOCK_TIMESTAMP,
                     }),

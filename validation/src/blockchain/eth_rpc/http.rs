@@ -23,7 +23,7 @@ const BLOCK_CACHE_SIZE: usize = 50;
 impl From<&Block> for ChainBlock {
     fn from(value: &Block) -> Self {
         ChainBlock {
-            hash: value.header.hash.to_string(),
+            hash: value.header.hash,
             number: value.header.number,
             timestamp: value.header.timestamp,
         }
@@ -152,13 +152,13 @@ impl EthRpc for HttpEthRpc {
             trace!(?blk_hash_res, "blockByHash response");
             let block = blk_hash_res.map(ChainBlock::from);
             Ok(Some(ChainTransaction {
-                hash: tx_hash_res.hash.to_string(),
+                hash: tx_hash_res.hash,
                 input: tx_hash_res.input.to_string(),
                 block,
             }))
         } else {
             Ok(Some(ChainTransaction {
-                hash: tx_hash_res.hash.to_string(),
+                hash: tx_hash_res.hash,
                 input: tx_hash_res.input.to_string(),
                 block: None,
             }))

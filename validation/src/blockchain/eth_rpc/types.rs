@@ -1,11 +1,16 @@
 use serde::{Deserialize, Serialize};
 use ssi::caip2;
 
+pub use alloy::primitives::{BlockHash, TxHash};
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 /// A blockchain transaction
 pub struct ChainTransaction {
-    /// Transaction hash
-    pub hash: String,
+    /// Transaction hash. While a 32 byte hash is not universal, it is for bitcoin and the EVM,
+    /// so we use that for now to make things easier. We could use a String encoded representation,
+    /// but this covers our current state and lets the caller decide how to encode the bytes for
+    ///  their needs (e.g. persistence), and avoids any changes to Display (e.g. 0x prefixed) breaking things.
+    pub hash: TxHash,
     /// Transaction contract input
     pub input: String,
     /// Information about the block in which this transaction was mined.
@@ -16,7 +21,7 @@ pub struct ChainTransaction {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 /// A blockchain block
 pub struct ChainBlock {
-    pub hash: String,
+    pub hash: BlockHash,
     /// the block number
     pub number: u64,
     /// the unix epoch timestamp
