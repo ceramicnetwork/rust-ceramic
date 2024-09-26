@@ -17,7 +17,6 @@ ceramic-core.workspace = true
 ceramic-event.workspace = true
 chrono.workspace = true
 ed25519-dalek.workspace = true
-hex.workspace = true
 ipld-core.workspace = true
 k256.workspace = true
 lru.workspace = true
@@ -41,6 +40,3 @@ alloy = { version = "0.4", features = ["k256", "provider-http", "rpc-types"] }
 ceramic-car.workspace = true
 tracing.workspace = true
 test-log.workspace = true
-# did-pkh = "0.2.1"
-# did-method-key = "0.2.2"
-# ssi-dids = "0.1.1"
