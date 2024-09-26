@@ -51,6 +51,11 @@ pub struct FromIpfsOpts {
     #[arg(long, env = "CERAMIC_ONE_LOCAL_NETWORK_ID")]
     local_network_id: Option<u32>,
 
+    /// Expect non sharded paths to blocks.
+    /// Sharded paths are organized into a two character prefix directories.
+    #[arg(long, env = "CERAMIC_ONE_NON_SHARDED_PATHS", default_value_t = false)]
+    non_sharded_paths: bool,
+
     /// Log information about tile documents found during the migration.
     #[arg(long, env = "CERAMIC_ONE_LOG_TILE_DOCS", default_value_t = false)]
     log_tile_docs: bool,
@@ -97,6 +102,7 @@ async fn from_ipfs(opts: FromIpfsOpts) -> Result<()> {
     let event_svc = Arc::new(EventService::try_new(sqlite_pool, false, false).await?);
     let blocks = FSBlockStore {
         input_ipfs_path: opts.input_ipfs_path,
+        sharded_paths: !opts.non_sharded_paths,
     };
     event_svc
         .migrate_from_ipfs(network, blocks, opts.log_tile_docs)
@@ -106,6 +112,34 @@ async fn from_ipfs(opts: FromIpfsOpts) -> Result<()> {
 
 struct FSBlockStore {
     input_ipfs_path: PathBuf,
+    sharded_paths: bool,
+}
+
+impl FSBlockStore {
+    fn sharded_block_path(&self, cid: &Cid) -> Result<PathBuf> {
+        let path = self.input_ipfs_path.clone();
+        // 1. Create v0 CID throwing away the codec
+        let v0 = Cid::new_v0(*cid.hash())?;
+        // 2. Determine the base32 encoding of the v0 CID bytes
+        let base32_string = multibase::encode(multibase::Base::Base32Upper, v0.to_bytes());
+        // 3. Get the two characters prefix for this CID
+        let len = base32_string.len();
+        let prefix = &base32_string[len - 3..len - 1];
+        // 4. Construct a path as `{ROOT}/{PREFIX}/{base32 without B}.data`
+        Ok(path
+            .join(prefix)
+            .join(base32_string.trim_start_matches('B'))
+            .with_extension("data"))
+    }
+    fn non_sharded_block_path(&self, cid: &Cid) -> Result<PathBuf> {
+        let path = self.input_ipfs_path.clone();
+        // 1. Create v0 CID throwing away the codec
+        let v0 = Cid::new_v0(*cid.hash())?;
+        // 2. Determine the base32 encoding of the v0 CID bytes
+        let base32_string = multibase::encode(multibase::Base::Base32Upper, v0.to_bytes());
+        // 3. Construct a path as `{ROOT}/{base32 without B}`
+        Ok(path.join(base32_string.trim_start_matches('B')))
+    }
 }
 
 #[async_trait]
@@ -138,21 +172,12 @@ impl BlockStore for FSBlockStore {
         .boxed()
     }
     async fn block_data(&self, cid: &Cid) -> Result<Option<Vec<u8>>> {
-        let path = self.input_ipfs_path.clone();
-        // Determine the path on disk for this CID
+        let path = if self.sharded_paths {
+            self.sharded_block_path(cid)?
+        } else {
+            self.non_sharded_block_path(cid)?
+        };
 
-        // 1.Create v0 CID throwing away the
-        let v0 = Cid::new_v0(*cid.hash())?;
-        // 2. Determine the base32 encoding of the v0 CID bytes
-        let base32_string = multibase::encode(multibase::Base::Base32Upper, v0.to_bytes());
-        // 3. Get the two characters prefix for this CID
-        let len = base32_string.len();
-        let prefix = &base32_string[len - 3..len - 1];
-        // Construct a path as `{ROOT}/{PREFIX}/{base32 without B}.data`
-        let path = path
-            .join(prefix)
-            .join(base32_string.trim_start_matches('B'))
-            .with_extension("data");
         if tokio::fs::try_exists(&path).await? {
             Ok(Some(tokio::fs::read(&path).await?))
         } else {
