@@ -6,6 +6,7 @@ use ssi::caip2;
 pub use alloy::primitives::{BlockHash, TxHash};
 
 #[derive(Debug)]
+/// The error variants expected from an Ethereum RPC request
 pub enum Error {
     /// Invalid input with reason for rejection
     InvalidArgument(String),
