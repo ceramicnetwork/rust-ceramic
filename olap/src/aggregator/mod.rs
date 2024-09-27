@@ -69,7 +69,8 @@ pub async fn run(
         ListingOptions::new(Arc::new(file_format)).with_file_extension(".parquet");
 
     // Set the path within the bucket for the doc_state table
-    url.set_path("/ceramic/v0/doc_state/");
+    const DOC_STATE_OBJECT_STORE_PATH: &str = "/ceramic/v0/doc_state/";
+    url.set_path(DOC_STATE_OBJECT_STORE_PATH);
     ctx.register_listing_table(
         "doc_state",
         url.to_string(),
