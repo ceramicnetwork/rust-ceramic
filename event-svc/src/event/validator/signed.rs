@@ -33,6 +33,8 @@ pub struct SignedEventValidator {
     invalid_init: HashSet<Cid>,
     /// The result of this validation batch that is updated as we go.
     validated: ValidatedEvents,
+    /// Whether events without their init event should be considered invalid or simply ignored for now
+    require_init_event: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,11 +47,12 @@ enum ValidationStatus {
 }
 
 impl SignedEventValidator {
-    fn new(init_cnt: usize, data_cnt: usize) -> Self {
+    fn new(init_cnt: usize, data_cnt: usize, require_init_event: bool) -> Self {
         Self {
             init_map: HashMap::with_capacity(init_cnt),
             invalid_init: HashSet::new(),
             validated: ValidatedEvents::new_with_expected_valid(init_cnt + data_cnt),
+            require_init_event,
         }
     }
 
@@ -82,8 +85,13 @@ impl SignedEventValidator {
         pool: &SqlitePool,
         opts: &VerifyJwsOpts,
         events: SignedValidationBatch,
+        require_init_event: bool,
     ) -> Result<ValidatedEvents> {
-        let mut validator = Self::new(events.init.len() + events.unsigned.len(), events.data.len());
+        let mut validator = Self::new(
+            events.init.len() + events.unsigned.len(),
+            events.data.len(),
+            require_init_event,
+        );
         validator.init_map.extend(
             events
                 .unsigned
@@ -131,7 +139,13 @@ impl SignedEventValidator {
                     reason,
                 })
             }
-            ValidationStatus::Pending => self.add_pending(event),
+            ValidationStatus::Pending => {
+                if self.require_init_event {
+                    self.add_invalid(ValidationError::RequiresHistory { key: event.key });
+                } else {
+                    self.add_pending(event)
+                }
+            }
         }
     }
 

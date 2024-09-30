@@ -68,12 +68,6 @@ pub struct UnvalidatedEvent {
     pub event: Arc<unvalidated::Event<Ipld>>,
 }
 
-impl UnvalidatedEvent {
-    pub fn order_key(&self) -> &EventId {
-        &self.key
-    }
-}
-
 impl TryFrom<&ReconItem<EventId>> for UnvalidatedEvent {
     type Error = crate::Error;
 
@@ -119,24 +113,20 @@ impl ValidatedEvents {
 }
 
 #[derive(Debug)]
-pub struct EventValidator<'a> {
-    pool: &'a SqlitePool,
-    /// Whether we should check the signature is currently valid or simply whether it was once valid
-    check_exp: bool,
+pub struct EventValidator {
+    pool: SqlitePool,
 }
 
-impl<'a> EventValidator<'a> {
-    fn new(pool: &'a SqlitePool, requirement: &ValidationRequirement) -> Self {
-        Self {
-            pool,
-            check_exp: requirement.check_exp,
-        }
+impl EventValidator {
+    /// Create a new event validator
+    pub fn new(pool: SqlitePool) -> Self {
+        Self { pool }
     }
 
     /// Validates the events with the given validation requirement
     /// If the [`ValidationRequirement`] is None, it just returns every event as valid
     pub(crate) async fn validate_events(
-        pool: &'a SqlitePool,
+        &self,
         validation_req: Option<&ValidationRequirement>,
         parsed_events: Vec<UnvalidatedEvent>,
     ) -> Result<ValidatedEvents> {
@@ -153,15 +143,14 @@ impl<'a> EventValidator<'a> {
                 invalid: Vec::new(),
             });
         };
-        let validator = Self::new(pool, validation_req);
 
         let mut validated = ValidatedEvents::new_with_expected_valid(parsed_events.len());
         // partition the events by type of validation needed and delegate to validators
         let grouped = GroupedEvents::from(parsed_events);
 
         let (validated_signed, validated_time) = try_join!(
-            validator.validate_signed_events(grouped.signed_batch),
-            validator.validate_time_events(grouped.time_batch)
+            self.validate_signed_events(grouped.signed_batch, validation_req),
+            self.validate_time_events(grouped.time_batch)
         )?;
         validated.extend_with(validated_signed);
         validated.extend_with(validated_time);
@@ -169,14 +158,16 @@ impl<'a> EventValidator<'a> {
         if !validated.invalid.is_empty() {
             tracing::warn!(count=%validated.invalid.len(), "invalid events discovered");
         }
+
         Ok(validated)
     }
 
     async fn validate_signed_events(
         &self,
         events: SignedValidationBatch,
+        validation_req: &ValidationRequirement,
     ) -> Result<ValidatedEvents> {
-        let opts = if self.check_exp {
+        let opts = if validation_req.check_exp {
             ceramic_validation::VerifyJwsOpts::default()
         } else {
             ceramic_validation::VerifyJwsOpts {
@@ -184,7 +175,13 @@ impl<'a> EventValidator<'a> {
                 ..Default::default()
             }
         };
-        SignedEventValidator::validate_events(self.pool, &opts, events).await
+        SignedEventValidator::validate_events(
+            &self.pool,
+            &opts,
+            events,
+            validation_req.require_local_init,
+        )
+        .await
     }
 
     async fn validate_time_events(&self, events: TimeValidationBatch) -> Result<ValidatedEvents> {
@@ -227,13 +224,10 @@ mod test {
         let pool = SqlitePool::connect_in_memory().await.unwrap();
         let events = get_validation_events().await;
 
-        let validated = EventValidator::validate_events(
-            &pool,
-            Some(&ValidationRequirement::new_recon()),
-            events,
-        )
-        .await
-        .unwrap();
+        let validated = EventValidator::new(pool)
+            .validate_events(Some(&ValidationRequirement::new_recon()), events)
+            .await
+            .unwrap();
 
         assert_eq!(10, validated.valid.len());
         assert_eq!(9, validated.unvalidated.len());
@@ -252,17 +246,14 @@ mod test {
         let pool = SqlitePool::connect_in_memory().await.unwrap();
         let events = get_validation_events().await;
 
-        let validated = EventValidator::validate_events(
-            &pool,
-            Some(&ValidationRequirement::new_local()),
-            events,
-        )
-        .await
-        .unwrap();
+        let validated = EventValidator::new(pool)
+            .validate_events(Some(&ValidationRequirement::new_local()), events)
+            .await
+            .unwrap();
 
         assert_eq!(10, validated.valid.len());
-        assert_eq!(9, validated.unvalidated.len());
-        assert_eq!(1, validated.invalid.len());
+        assert_eq!(0, validated.unvalidated.len());
+        assert_eq!(10, validated.invalid.len()); // 1 + 9 pending
 
         let err = validated.invalid.first().unwrap();
         assert!(
@@ -277,7 +268,8 @@ mod test {
         let pool = SqlitePool::connect_in_memory().await.unwrap();
         let events = get_validation_events().await;
 
-        let validated = EventValidator::validate_events(&pool, None, events)
+        let validated = EventValidator::new(pool)
+            .validate_events(None, events)
             .await
             .unwrap();
 

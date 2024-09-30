@@ -50,6 +50,7 @@ pub struct EventService {
     pub(crate) pool: SqlitePool,
     validate_events: bool,
     delivery_task: DeliverableTask,
+    event_validator: EventValidator,
     pending_writes: Arc<Mutex<HashMap<Cid, Vec<UnvalidatedEvent>>>>,
 }
 /// An object that represents a set of blocks that can produce a stream of all blocks and lookup a
@@ -91,9 +92,11 @@ impl EventService {
 
         let delivery_task = OrderingTask::run(pool.clone(), PENDING_EVENTS_CHANNEL_DEPTH).await;
 
+        let event_validator = EventValidator::new(pool.clone());
         let svc = Self {
             pool,
             validate_events,
+            event_validator,
             delivery_task,
             pending_writes: Arc::new(Mutex::new(HashMap::default())),
         };
@@ -226,7 +229,9 @@ impl EventService {
             valid,
             unvalidated,
             invalid,
-        } = EventValidator::validate_events(&self.pool, validation_requirement, to_validate)
+        } = self
+            .event_validator
+            .validate_events(validation_requirement, to_validate)
             .await?;
         invalid_events.extend(invalid);
 
@@ -255,31 +260,28 @@ impl EventService {
             .map(|e| ValidatedEvent::into_insertable(e, informant))
             .collect();
 
-        // we consider these "invalid" to tell the caller what happened.
-        // it may be okay and we'll track them below and try to find events we need in the future,
-        // but if this isn't allowed, we won't track them and just error
-        unvalidated.iter().for_each(|p| {
-            invalid.push(ValidationError::RequiresHistory {
-                key: p.order_key().to_owned(),
-            })
-        });
-
-        // if we're not validating, there's no need to pend anything
-        if validation_req.map_or(false, |v| v.allow_pending) {
+        let pending_count = unvalidated.len();
+        // validation should have converted things to errors/unvalidated appropriately
+        // so we can always track pending if anything was returned
+        if !unvalidated.is_empty() {
             self.track_pending(unvalidated);
         }
 
-        self.persist_events(to_insert, deliverable_req, invalid)
-            .await
+        let (new, existed) = self
+            .persist_events(to_insert, deliverable_req, &mut invalid)
+            .await?;
+
+        Ok(InsertResult::new(new, existed, invalid, pending_count))
     }
 
     /// Persists events to disk and notifies the background ordering task when appropriate
+    /// Returns two vectors of Event IDs representing (new, existed)
     async fn persist_events(
         &self,
         to_insert: Vec<EventInsertable>,
         deliverable_req: DeliverableRequirement,
-        mut invalid: Vec<ValidationError>,
-    ) -> Result<InsertResult> {
+        invalid: &mut Vec<ValidationError>,
+    ) -> Result<(Vec<EventId>, Vec<EventId>)> {
         match deliverable_req {
             DeliverableRequirement::Immediate => {
                 let ordered =
@@ -291,7 +293,7 @@ impl EventService {
                     }
                 }));
                 let store_result = CeramicOneEvent::insert_many(&self.pool, to_insert).await?;
-                Ok(InsertResult::new_from_store(invalid, store_result))
+                Ok(Self::partition_store_result(store_result))
             }
             DeliverableRequirement::Asap => {
                 let ordered = OrderEvents::find_deliverable_in_memory(to_insert).await?;
@@ -304,15 +306,27 @@ impl EventService {
 
                 self.notify_ordering_task(&store_result).await?;
 
-                Ok(InsertResult::new_from_store(invalid, store_result))
+                Ok(Self::partition_store_result(store_result))
             }
             DeliverableRequirement::Lazy => {
                 let store_result =
                     CeramicOneEvent::insert_many(&self.pool, to_insert.iter()).await?;
 
-                Ok(InsertResult::new_from_store(invalid, store_result))
+                Ok(Self::partition_store_result(store_result))
             }
         }
+    }
+
+    /// Returns two vectors of Event IDs representing (new, existed)
+    fn partition_store_result(store: crate::store::InsertResult) -> (Vec<EventId>, Vec<EventId>) {
+        store.inserted.into_iter().partition_map(|e| {
+            let key = e.inserted.order_key().clone();
+            if e.new_key {
+                itertools::Either::Left(key)
+            } else {
+                itertools::Either::Right(key)
+            }
+        })
     }
 
     pub(crate) async fn transform_raw_events_to_conclusion_events(
@@ -469,25 +483,21 @@ pub struct InsertResult {
     pub rejected: Vec<ValidationError>,
     pub new: Vec<EventId>,
     pub existed: Vec<EventId>,
+    pub pending_count: usize,
 }
 
 impl InsertResult {
-    pub fn new_from_store(
+    pub fn new(
+        new: Vec<EventId>,
+        existed: Vec<EventId>,
         rejected: Vec<ValidationError>,
-        store: crate::store::InsertResult,
+        pending_count: usize,
     ) -> Self {
-        let (new, existed) = store.inserted.into_iter().partition_map(|e| {
-            let key = e.inserted.order_key().clone();
-            if e.new_key {
-                itertools::Either::Left(key)
-            } else {
-                itertools::Either::Right(key)
-            }
-        });
         Self {
             rejected,
             new,
             existed,
+            pending_count,
         }
     }
 }
@@ -508,10 +518,10 @@ pub(crate) struct DiscoveredEvent {
 pub struct ValidationRequirement {
     /// Whether we should check the signature is currently valid or simply whether it was once valid
     pub check_exp: bool,
-    /// Whether validation must succeed or events can be "pended" until init events are discovered.
-    /// If true: the init event may not yet be known to the node and we'll store it in memory until we discover it.
-    /// If false, we fail validation if we can't find the init event to validate the signature.
-    pub allow_pending: bool,
+    /// Whether events without a known init event should be considered invalid or may be "pended" until init events are discovered.
+    /// If true, we fail validation if we can't find the init event to validate the signature.
+    /// If false: the init event may not yet be known to the node and we'll store it in memory until we discover it.
+    pub require_local_init: bool,
 }
 
 impl ValidationRequirement {
@@ -519,7 +529,7 @@ impl ValidationRequirement {
     pub fn new_local() -> Self {
         Self {
             check_exp: true,
-            allow_pending: false,
+            require_local_init: true,
         }
     }
 
@@ -527,7 +537,7 @@ impl ValidationRequirement {
     pub fn new_recon() -> Self {
         Self {
             check_exp: false,
-            allow_pending: true,
+            require_local_init: false,
         }
     }
 }
