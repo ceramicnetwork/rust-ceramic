@@ -7,6 +7,7 @@ mod http_metrics;
 mod metrics;
 mod migrations;
 mod network;
+mod query;
 
 use std::{env, path::PathBuf};
 
@@ -38,6 +39,8 @@ enum Command {
     /// Perform various migrations
     #[command(subcommand)]
     Migrations(migrations::EventsCommand),
+    /// Run an interactive SQL REPL to inspect local data.
+    Query,
 }
 
 #[derive(ValueEnum, Debug, Clone)]
@@ -148,6 +151,7 @@ pub async fn run() -> Result<()> {
     match args.command {
         Command::Daemon(opts) => daemon::run(*opts).await,
         Command::Migrations(opts) => migrations::migrate(opts).await,
+        Command::Query => query::run().await,
     }
 }
 
