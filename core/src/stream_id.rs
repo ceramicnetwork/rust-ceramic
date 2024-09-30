@@ -13,7 +13,7 @@ use unsigned_varint::{decode, encode};
 /// Defined here:
 /// https://cips.ceramic.network/tables/streamtypes.csv
 #[repr(u64)]
-#[derive(Copy, Clone, Debug, Eq, IntEnum, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, IntEnum, PartialEq, Hash)]
 pub enum StreamIdType {
     /// A stream type representing a json document
     /// https://cips.ceramic.network/CIPs/cip-8
@@ -45,7 +45,7 @@ impl Serialize for StreamIdType {
 }
 
 /// A stream id, which is a cid with a type
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct StreamId {
     /// The type of the stream
     pub r#type: StreamIdType,
