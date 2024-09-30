@@ -114,6 +114,34 @@ impl<S: Send + Sync> StoreMetricsMiddleware<S> {
         metrics.record(&event);
         ret
     }
+
+    /// Record metrics for the duration of given a given API endpoint
+    /// and then record a second entry with the duration for an individual item.
+    async fn record_per_item<T>(
+        metrics: &Metrics,
+        name: &'static str,
+        name_per_item: &'static str,
+        count: u64,
+        fut: impl Future<Output = T>,
+    ) -> T {
+        let start = Instant::now();
+        let ret = fut.await;
+        let duration = start.elapsed();
+        // we should be able to fit like 584 years in this time, so if it overflows we're in real trouble
+        // but we may as well use the original value to see how bananas it is
+        let item_duration = (duration.as_nanos() / count as u128)
+            .try_into()
+            .map(Duration::from_nanos)
+            .unwrap_or(duration);
+        let event = StorageQuery { name, duration };
+        let item_event = StorageQuery {
+            name: name_per_item,
+            duration: item_duration,
+        };
+        metrics.record(&event);
+        metrics.record(&item_event);
+        ret
+    }
 }
 
 #[async_trait]
@@ -126,9 +154,11 @@ where
         items: Vec<ceramic_api::ApiItem>,
         informant: NodeId,
     ) -> anyhow::Result<Vec<ceramic_api::EventInsertResult>> {
-        let new_keys = StoreMetricsMiddleware::<S>::record(
+        let new_keys = StoreMetricsMiddleware::<S>::record_per_item(
             &self.metrics,
             "api_insert_many",
+            "api_insert_many_each",
+            items.len() as u64,
             self.store.insert_many(items, informant),
         )
         .await?;
@@ -219,9 +249,11 @@ where
         items: &[ReconItem<Self::Key>],
         informant: NodeId,
     ) -> ReconResult<recon::InsertResult<Self::Key>> {
-        let res = StoreMetricsMiddleware::<S>::record(
+        let res = StoreMetricsMiddleware::<S>::record_per_item(
             &self.metrics,
             "insert_many",
+            "insert_many_each",
+            items.len() as u64,
             self.store.insert_many(items, informant),
         )
         .await?;
