@@ -53,6 +53,9 @@ tokio-prometheus-client = "0.1"
 tokio-stream = { workspace = true, features = ["io-util"] }
 tokio.workspace = true
 tracing.workspace = true
+datafusion-cli = "42.0.0"
+datafusion.workspace = true
+datafusion-functions-json = "0.42.0"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator.workspace = true
