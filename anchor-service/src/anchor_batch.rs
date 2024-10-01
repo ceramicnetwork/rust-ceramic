@@ -2,15 +2,13 @@ use anyhow::Result;
 use async_trait::async_trait;
 use ceramic_core::{Cid, NodeId};
 use ceramic_sql::sqlite::SqlitePool;
+use chrono::DurationRound;
 use chrono::{Duration as ChronoDuration, TimeDelta, Utc};
-use chrono::{DurationRound, Timelike};
 use futures::future::{select, Either, FutureExt};
 use futures::pin_mut;
 use indexmap::IndexMap;
 use std::future::Future;
-use std::pin;
 use std::{sync::Arc, time::Duration};
-use tokio::time::{interval, interval_at, Instant};
 use tracing::{error, info};
 
 use crate::high_water_mark_store::HighWaterMarkStore;
@@ -85,7 +83,7 @@ impl AnchorService {
                 .duration_trunc(TimeDelta::from_std(self.anchor_interval).unwrap())
                 .unwrap()
                 + TimeDelta::from_std(self.anchor_interval).unwrap()
-                - ChronoDuration::minutes(3);
+                - ChronoDuration::minutes(5);
 
             let delay = next_tick - now;
             // durations in rust are always positive.
