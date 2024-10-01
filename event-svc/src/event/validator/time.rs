@@ -1,6 +1,6 @@
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 
-use anyhow::{anyhow, bail, Context as _, Result};
+use anyhow::{anyhow, bail, Result};
 use ceramic_core::ssi::caip2;
 use ceramic_core::Cid;
 use ceramic_event::unvalidated;
@@ -160,7 +160,7 @@ impl TimeEventValidator {
 
         if let Some(threshold) = BLOCK_THRESHHOLDS.get(event.proof().chain_id()) {
             if block.number < *threshold {
-                return Ok(Timestamp(block.timestamp));
+                return Err(ChainInclusionError::InvalidProof("V0 anchor proofs are not supported. Please report this error on the forum: https://forum.ceramic.network/".into()));
             } else if event.proof().tx_type() != V1_PROOF_TYPE {
                 return Err(ChainInclusionError::InvalidProof(format!("Any anchor proofs created after block {threshold} for chain {} must include the txType field={V1_PROOF_TYPE}. Anchor txn blockNumber: {}", event.proof().chain_id(), block.number)));
             }
@@ -174,15 +174,7 @@ impl TimeEventValidator {
         let input = input.strip_prefix("0x").unwrap_or(input);
         match tx_type {
             V0_PROOF_TYPE => {
-                // A hex-encoded CID. The data value is a byte-friendly string.
-                // If its length is odd, a single '0' may be prepended to make its length even
-                let root_bytes = if input.as_bytes().len() % 2 != 0 {
-                    hex::decode([&[0_u8], input.as_bytes()].concat())?
-                } else {
-                    hex::decode(input.as_bytes())?
-                };
-
-                Ok(Cid::read_bytes(root_bytes.as_slice()).context("invalid v0 proof CID")?)
+                bail!("V0 anchor proofs are not supported. Tx input={input} Please report this error on the forum: https://forum.ceramic.network/");
             }
             V1_PROOF_TYPE => {
                 /*
@@ -498,14 +490,11 @@ mod test {
     }
 
     #[test]
-    fn parse_tx_input_data_v0() {
-        assert_eq!(
-            Cid::from_str("bafyreigs2yqh2olnwzrsykyt6gvgsabk7hu5e7gtmjrkobq25af5x3y7be").unwrap(),
-            TimeEventValidator::get_root_cid_from_input(
-                "0x01711220d2d6207d396db6632c2b13f1aa69002af9e9d27cd36262a7061ae80bdbef1f09",
-                V0_PROOF_TYPE,
-            )
-            .unwrap()
-        );
+    fn parse_tx_input_data_v0_error() {
+        assert!(TimeEventValidator::get_root_cid_from_input(
+            "0x01711220d2d6207d396db6632c2b13f1aa69002af9e9d27cd36262a7061ae80bdbef1f09",
+            V0_PROOF_TYPE,
+        )
+        .is_err());
     }
 }
