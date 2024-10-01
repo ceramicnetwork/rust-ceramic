@@ -182,13 +182,22 @@ pub struct DaemonOpts {
     flight_sql_bind_address: Option<String>,
 
     /// Remote anchor service URL
-    #[arg(long, env = "CERAMIC_ONE_REMOTE_ANCHOR_SERVICE_URL")]
+    #[arg(
+        long,
+        env = "CERAMIC_ONE_REMOTE_ANCHOR_SERVICE_URL",
+        requires = "experimental_features"
+    )]
     remote_anchor_service_url: Option<String>,
 
     /// Ceramic One anchor interval in seconds
     ///
     /// The interval between building a tree for all unanchored events and sending to a CAS
-    #[arg(long, default_value_t = 3600, env = "CERAMIC_ONE_ANCHOR_INTERVAL")]
+    #[arg(
+        long,
+        default_value_t = 3600,
+        env = "CERAMIC_ONE_ANCHOR_INTERVAL",
+        requires = "experimental_features"
+    )]
     anchor_interval: u64,
 
     /// Ceramic One anchor batch size
@@ -196,7 +205,8 @@ pub struct DaemonOpts {
         long,
         default_value_t = 1_000_000,
         hide = true,
-        env = "CERAMIC_ONE_ANCHOR_BATCH_SIZE"
+        env = "CERAMIC_ONE_ANCHOR_BATCH_SIZE",
+        requires = "experimental_features"
     )]
     anchor_batch_size: u64,
 
@@ -207,7 +217,8 @@ pub struct DaemonOpts {
         long,
         default_value_t = 300,
         hide = true,
-        env = "CERAMIC_ONE_ANCHOR_POLL_INTERVAL"
+        env = "CERAMIC_ONE_ANCHOR_POLL_INTERVAL",
+        requires = "experimental_features"
     )]
     anchor_poll_interval: u64,
 
@@ -216,7 +227,8 @@ pub struct DaemonOpts {
         long,
         default_value_t = 12,
         hide = true,
-        env = "CERAMIC_ONE_ANCHOR_POLL_RETRY_COUNT"
+        env = "CERAMIC_ONE_ANCHOR_POLL_RETRY_COUNT",
+        requires = "experimental_features"
     )]
     anchor_poll_retry_count: u64,
 }
