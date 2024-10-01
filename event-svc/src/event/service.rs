@@ -529,9 +529,6 @@ pub struct ValidationRequirement {
     /// If true, we fail validation if we can't find the init event to validate the signature.
     /// If false: the init event may not yet be known to the node and we'll store it in memory until we discover it.
     pub require_local_init: bool,
-    /// Whether a time event must have a valid inclusion proof to be allowed. For example, we allow storing and syncing
-    /// events discovered over recon even if we don't have a RPC provider for the chain yet.
-    pub require_inclusion_proof: bool,
 }
 
 impl ValidationRequirement {
@@ -540,7 +537,6 @@ impl ValidationRequirement {
         Self {
             check_exp: true,
             require_local_init: true,
-            require_inclusion_proof: true,
         }
     }
 
@@ -549,7 +545,6 @@ impl ValidationRequirement {
         Self {
             check_exp: false,
             require_local_init: false,
-            require_inclusion_proof: false,
         }
     }
 }

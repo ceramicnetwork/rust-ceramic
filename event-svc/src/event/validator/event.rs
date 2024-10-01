@@ -170,7 +170,7 @@ impl EventValidator {
 
         let (validated_signed, validated_time) = try_join!(
             self.validate_signed_events(grouped.signed_batch, validation_req),
-            self.validate_time_events(grouped.time_batch, validation_req)
+            self.validate_time_events(grouped.time_batch)
         )?;
         validated.extend_with(validated_signed);
         validated.extend_with(validated_time);
@@ -204,11 +204,7 @@ impl EventValidator {
         .await
     }
 
-    async fn validate_time_events(
-        &self,
-        events: TimeValidationBatch,
-        validation_req: &ValidationRequirement,
-    ) -> Result<ValidatedEvents> {
+    async fn validate_time_events(&self, events: TimeValidationBatch) -> Result<ValidatedEvents> {
         if let Some(verifier) = &self.time_event_verifier {
             let mut validated_events = ValidatedEvents::new_with_expected_valid(events.0.len());
             for time_event in events.0 {
@@ -218,22 +214,14 @@ impl EventValidator {
                     .await
                 {
                     Ok(_t) => {
-                        // Someday, we may use `t.as_unix_ts()` and care about the actual timestamp, but for now we just consider it valid
+                        // TODO(AES-345): Someday, we will use `t.as_unix_ts()` and care about the actual timestamp, but for now we just consider it valid
                         validated_events.valid.push(time_event.into());
                     }
                     Err(err) => {
-                        match Self::inspect_inclusion_error(
+                        validated_events.invalid.push(Self::convert_inclusion_error(
                             err,
                             &time_event.as_inner().key,
-                            validation_req.require_inclusion_proof,
-                        ) {
-                            Ok(()) => {
-                                validated_events.valid.push(time_event.into());
-                            }
-                            Err(invalid) => {
-                                validated_events.invalid.push(invalid);
-                            }
-                        }
+                        ));
                     }
                 }
             }
@@ -248,54 +236,38 @@ impl EventValidator {
         }
     }
 
-    /// Returns okay if the error is viable for the current requirements or an error if it should be considered invalid
-    fn inspect_inclusion_error(
-        err: ChainInclusionError,
-        order_key: &EventId,
-        require_inclusion_proof: bool,
-    ) -> std::result::Result<(), ValidationError> {
+    /// Transforms the [`ChainInclusionError`] into a [`ValidationError`] with an appropriate message
+    fn convert_inclusion_error(err: ChainInclusionError, order_key: &EventId) -> ValidationError {
         match err {
             ChainInclusionError::TxNotFound { chain_id, tx_hash } => {
                 // we have an RPC provider so the transaction missing means it's invalid/unproveable
-                Err(ValidationError::InvalidTimeProof {
+                ValidationError::InvalidTimeProof {
                     key: order_key.to_owned(),
                     reason: format!(
                         "Transaction on chain '{chain_id}' with hash '{tx_hash}' not found."
                     ),
-                })
+                }
             }
             ChainInclusionError::TxNotMined { chain_id, tx_hash } => {
-                if require_inclusion_proof {
-                    Err(ValidationError::InvalidTimeProof {
+                    ValidationError::InvalidTimeProof {
                         key: order_key.to_owned(),
                         reason: format!("Transaction on chain '{chain_id}' with hash '{tx_hash}' has not been mined in a block yet."),
-                    })
-                } else {
-                    // we may be able to validate it in the future when the block is mined
-                    Ok(())
-                }
+                    }
             }
-            ChainInclusionError::InvalidProof(reason) => Err(ValidationError::InvalidTimeProof {
+            ChainInclusionError::InvalidProof(reason) => ValidationError::InvalidTimeProof {
                 key: order_key.to_owned(),
                 reason,
-            }),
-
+            },
             ChainInclusionError::NoChainProvider(chain_id) => {
-                if require_inclusion_proof {
-                    Err(ValidationError::InvalidTimeProof {
+                    ValidationError::InvalidTimeProof {
                         key: order_key.to_owned(),
-
                     reason: format!("No RPC provider for chain '{chain_id}'. Transaction for event cannot be verified."),
-                })
-                } else {
-                    // someone with an RPC provider could validate this event so we'll allow it
-                    Ok(())
                 }
             }
-            ChainInclusionError::Error(error) => Err(ValidationError::InvalidTimeProof {
+            ChainInclusionError::Error(error) => ValidationError::InvalidTimeProof {
                 key: order_key.to_owned(),
                 reason: error.to_string(),
-            }),
+            },
         }
     }
 }
