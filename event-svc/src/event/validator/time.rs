@@ -95,7 +95,7 @@ impl TimeEventValidator {
                         .or_insert_with(|| provider);
                 }
                 Err(err) => {
-                    warn!(?err, "failed to create RCP client with url: '{url}'");
+                    warn!(?err, "failed to create RPC client with url: '{url}'");
                 }
             }
         }
