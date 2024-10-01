@@ -87,12 +87,14 @@ impl EventService {
         pool: SqlitePool,
         process_undelivered_events: bool,
         validate_events: bool,
+        ethereum_rpc_urls: Option<&[String]>,
     ) -> Result<Self> {
         CeramicOneEvent::init_delivered_order(&pool).await?;
 
         let delivery_task = OrderingTask::run(pool.clone(), PENDING_EVENTS_CHANNEL_DEPTH).await;
 
-        let event_validator = EventValidator::new(pool.clone());
+        let event_validator = EventValidator::try_new(pool.clone(), ethereum_rpc_urls).await?;
+
         let svc = Self {
             pool,
             validate_events,
@@ -111,7 +113,7 @@ impl EventService {
     /// in the next pass.. but it's basically same same but different.
     #[allow(dead_code)]
     pub(crate) async fn new_with_event_validation(pool: SqlitePool) -> Result<Self> {
-        Self::try_new(pool, false, true).await
+        Self::try_new(pool, false, true, None).await
     }
 
     /// Currently, we track events when the [`ValidationRequirement`] allows. Right now, this applies to
@@ -475,6 +477,11 @@ pub enum ValidationError {
     /// For API, this is anything where we don't have prev locally
     RequiresHistory {
         key: EventId,
+    },
+    /// A time event proof was invalid for some reason
+    InvalidTimeProof {
+        key: EventId,
+        reason: String,
     },
 }
 

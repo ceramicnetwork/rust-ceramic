@@ -32,6 +32,10 @@ impl From<InsertResult> for recon::InsertResult<EventId> {
                 ValidationError::RequiresHistory { key } => {
                     unreachable!("recon items should never require history: {:?}", key)
                 }
+                ValidationError::InvalidTimeProof { key, reason } => {
+                    info!(key=%key, %reason, "invalid time proof for recon event");
+                    invalid.push(recon::InvalidItem::InvalidSignature { key })
+                }
             };
         }
         recon::InsertResult::new_err(value.new.len(), invalid, value.pending_count)
@@ -161,6 +165,10 @@ impl From<InsertResult> for Vec<ceramic_api::EventInsertResult> {
                 ValidationError::RequiresHistory { key } => (
                     key,
                     "Failed to insert event as `prev` event was missing".to_owned(),
+                ),
+                ValidationError::InvalidTimeProof { key, reason } => (
+                    key,
+                    format!("Failed to validate time event inclusion proof: {reason}"),
                 ),
             };
             api_res.push(ceramic_api::EventInsertResult::new_failed(key, reason));

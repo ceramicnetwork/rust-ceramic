@@ -9,13 +9,15 @@ use tokio::try_join;
 use crate::{
     event::{
         service::{ValidationError, ValidationRequirement},
-        validator::signed::SignedEventValidator,
+        validator::{
+            grouped::{GroupedEvents, SignedValidationBatch, TimeValidationBatch},
+            signed::SignedEventValidator,
+            time::{ChainInclusionError, TimeEventValidator},
+        },
     },
     store::{EventInsertable, SqlitePool},
-    Result,
+    Error, Result,
 };
-
-use super::grouped::{GroupedEvents, SignedValidationBatch, TimeValidationBatch};
 
 #[derive(Debug)]
 pub struct ValidatedEvents {
@@ -115,12 +117,30 @@ impl ValidatedEvents {
 #[derive(Debug)]
 pub struct EventValidator {
     pool: SqlitePool,
+    /// The validator to use for time events if enabled.
+    /// It contains the ethereum RPC providers and lives for the live of the [`EventValidator`].
+    /// The [`SignedEventValidator`] is currently constructed on a per validation request basis
+    /// as it caches and drops events per batch.
+    time_event_verifier: Option<TimeEventValidator>,
 }
 
 impl EventValidator {
     /// Create a new event validator
-    pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+    pub async fn try_new(pool: SqlitePool, ethereum_rpc_urls: Option<&[String]>) -> Result<Self> {
+        let time_event_verifier = if let Some(eth_urls) = ethereum_rpc_urls {
+            Some(
+                TimeEventValidator::try_new(eth_urls)
+                    .await
+                    .map_err(Error::new_fatal)?,
+            )
+        } else {
+            None
+        };
+
+        Ok(Self {
+            pool,
+            time_event_verifier,
+        })
     }
 
     /// Validates the events with the given validation requirement
@@ -185,12 +205,70 @@ impl EventValidator {
     }
 
     async fn validate_time_events(&self, events: TimeValidationBatch) -> Result<ValidatedEvents> {
-        // TODO: IMPLEMENT THIS
-        Ok(ValidatedEvents {
-            valid: events.0.into_iter().map(ValidatedEvent::from).collect(),
-            unvalidated: Vec::new(),
-            invalid: Vec::new(),
-        })
+        if let Some(verifier) = &self.time_event_verifier {
+            let mut validated_events = ValidatedEvents::new_with_expected_valid(events.0.len());
+            for time_event in events.0 {
+                // TODO: better transient error handling from RPC client
+                match verifier
+                    .validate_chain_inclusion(&self.pool, time_event.as_time())
+                    .await
+                {
+                    Ok(_t) => {
+                        // TODO(AES-345): Someday, we will use `t.as_unix_ts()` and care about the actual timestamp, but for now we just consider it valid
+                        validated_events.valid.push(time_event.into());
+                    }
+                    Err(err) => {
+                        validated_events.invalid.push(Self::convert_inclusion_error(
+                            err,
+                            &time_event.as_inner().key,
+                        ));
+                    }
+                }
+            }
+            Ok(validated_events)
+        } else {
+            // we don't verify inclusion proofs if we don't have any RPC providers
+            Ok(ValidatedEvents {
+                valid: events.0.into_iter().map(ValidatedEvent::from).collect(),
+                unvalidated: Vec::new(),
+                invalid: Vec::new(),
+            })
+        }
+    }
+
+    /// Transforms the [`ChainInclusionError`] into a [`ValidationError`] with an appropriate message
+    fn convert_inclusion_error(err: ChainInclusionError, order_key: &EventId) -> ValidationError {
+        match err {
+            ChainInclusionError::TxNotFound { chain_id, tx_hash } => {
+                // we have an RPC provider so the transaction missing means it's invalid/unproveable
+                ValidationError::InvalidTimeProof {
+                    key: order_key.to_owned(),
+                    reason: format!(
+                        "Transaction on chain '{chain_id}' with hash '{tx_hash}' not found."
+                    ),
+                }
+            }
+            ChainInclusionError::TxNotMined { chain_id, tx_hash } => {
+                    ValidationError::InvalidTimeProof {
+                        key: order_key.to_owned(),
+                        reason: format!("Transaction on chain '{chain_id}' with hash '{tx_hash}' has not been mined in a block yet."),
+                    }
+            }
+            ChainInclusionError::InvalidProof(reason) => ValidationError::InvalidTimeProof {
+                key: order_key.to_owned(),
+                reason,
+            },
+            ChainInclusionError::NoChainProvider(chain_id) => {
+                    ValidationError::InvalidTimeProof {
+                        key: order_key.to_owned(),
+                    reason: format!("No RPC provider for chain '{chain_id}'. Transaction for event cannot be verified."),
+                }
+            }
+            ChainInclusionError::Error(error) => ValidationError::InvalidTimeProof {
+                key: order_key.to_owned(),
+                reason: error.to_string(),
+            },
+        }
     }
 }
 
@@ -224,7 +302,9 @@ mod test {
         let pool = SqlitePool::connect_in_memory().await.unwrap();
         let events = get_validation_events().await;
 
-        let validated = EventValidator::new(pool)
+        let validated = EventValidator::try_new(pool, None)
+            .await
+            .unwrap()
             .validate_events(Some(&ValidationRequirement::new_recon()), events)
             .await
             .unwrap();
@@ -246,7 +326,9 @@ mod test {
         let pool = SqlitePool::connect_in_memory().await.unwrap();
         let events = get_validation_events().await;
 
-        let validated = EventValidator::new(pool)
+        let validated = EventValidator::try_new(pool, None)
+            .await
+            .unwrap()
             .validate_events(Some(&ValidationRequirement::new_local()), events)
             .await
             .unwrap();
@@ -268,7 +350,9 @@ mod test {
         let pool = SqlitePool::connect_in_memory().await.unwrap();
         let events = get_validation_events().await;
 
-        let validated = EventValidator::new(pool)
+        let validated = EventValidator::try_new(pool, None)
+            .await
+            .unwrap()
             .validate_events(None, events)
             .await
             .unwrap();
