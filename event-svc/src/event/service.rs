@@ -20,6 +20,7 @@ use itertools::Itertools;
 use recon::ReconItem;
 use tracing::{trace, warn};
 
+use crate::event::validator::EthRpcProvider;
 use crate::store::{CeramicOneEvent, EventInsertable, EventRowDelivered};
 use crate::{Error, Result};
 
@@ -87,13 +88,13 @@ impl EventService {
         pool: SqlitePool,
         process_undelivered_events: bool,
         validate_events: bool,
-        ethereum_rpc_urls: Option<&[String]>,
+        ethereum_rpc_providers: Vec<EthRpcProvider>,
     ) -> Result<Self> {
         CeramicOneEvent::init_delivered_order(&pool).await?;
 
         let delivery_task = OrderingTask::run(pool.clone(), PENDING_EVENTS_CHANNEL_DEPTH).await;
 
-        let event_validator = EventValidator::try_new(pool.clone(), ethereum_rpc_urls).await?;
+        let event_validator = EventValidator::try_new(pool.clone(), ethereum_rpc_providers).await?;
 
         let svc = Self {
             pool,
@@ -113,7 +114,7 @@ impl EventService {
     /// in the next pass.. but it's basically same same but different.
     #[allow(dead_code)]
     pub(crate) async fn new_with_event_validation(pool: SqlitePool) -> Result<Self> {
-        Self::try_new(pool, false, true, None).await
+        Self::try_new(pool, false, true, vec![]).await
     }
 
     /// Currently, we track events when the [`ValidationRequirement`] allows. Right now, this applies to

@@ -59,6 +59,7 @@ impl Timestamp {
     }
 }
 
+/// Provider for a remote Ethereum RPC endpoint.
 pub type EthRpcProvider = Arc<dyn EthRpc + Send + Sync>;
 
 pub struct TimeEventValidator {
@@ -80,6 +81,7 @@ impl std::fmt::Debug for TimeEventValidator {
 
 impl TimeEventValidator {
     /// Try to construct the validator by looking building the etherum rpc providers from the given URLsƒsw
+    #[allow(dead_code)]
     pub async fn try_new(rpc_urls: &[String]) -> Result<Self> {
         let mut chain_providers = HashMap::with_capacity(rpc_urls.len());
         for url in rpc_urls {
@@ -105,7 +107,6 @@ impl TimeEventValidator {
 
     /// Create from known providers (e.g. inject mocks)
     /// Currently used in tests, may switch to this from service if we want to share RPC with anchoring.
-    #[allow(dead_code)]
     pub fn new_with_providers(providers: Vec<EthRpcProvider>) -> Self {
         Self {
             chain_providers: HashMap::from_iter(
@@ -374,6 +375,7 @@ mod test {
         #[async_trait::async_trait]
         impl EthRpc for EthRpcProviderTest {
             fn chain_id(&self) -> &caip2::ChainId;
+            fn url(&self) -> String;
             async fn get_block_timestamp(&self, tx_hash: &str) -> Result<Option<ceramic_validation::eth_rpc::ChainTransaction>>;
         }
     }
