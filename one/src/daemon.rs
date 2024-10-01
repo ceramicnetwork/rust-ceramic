@@ -256,8 +256,6 @@ async fn get_rpc_providers(
     for url in ethereum_rpc_urls {
         match HttpEthRpc::try_new(&url).await {
             Ok(provider) => {
-                // use the first valid rpc client we find rather than replace one
-                // could support an array of clients for a chain if desired
                 let provider: EthRpcProvider = Arc::new(provider);
                 let provider_chain = provider.chain_id();
                 if network
