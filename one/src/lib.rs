@@ -116,7 +116,7 @@ impl Network {
                 "using default Ganache Ethereum RPC URL for Local network: http://localhost:7545"
             );
                 // Default Ganache port
-                Ok(vec!["http://localhost:7545".to_string()])
+                Ok(vec!["http://localhost:8545".to_string()])
             }
             Network::InMemory => {
                 info!("no Ethereum RPC URLs specified");
