@@ -1434,6 +1434,7 @@ dependencies = [
  "ceramic-core",
  "ceramic-event",
  "ceramic-sql",
+ "chrono",
  "cid 0.11.1",
  "expect-test",
  "futures",

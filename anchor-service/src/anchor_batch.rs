@@ -2,12 +2,13 @@ use anyhow::Result;
 use async_trait::async_trait;
 use ceramic_core::{Cid, NodeId};
 use ceramic_sql::sqlite::SqlitePool;
+use chrono::DurationRound;
+use chrono::{Duration as ChronoDuration, TimeDelta, Utc};
 use futures::future::{select, Either, FutureExt};
 use futures::pin_mut;
 use indexmap::IndexMap;
 use std::future::Future;
 use std::{sync::Arc, time::Duration};
-use tokio::time::interval;
 use tracing::{error, info};
 
 use crate::high_water_mark_store::HighWaterMarkStore;
@@ -71,20 +72,31 @@ impl AnchorService {
     ///
     /// This function will run indefinitely, or until the process is shutdown.
     pub async fn run(&mut self, shutdown_signal: impl Future<Output = ()>) {
-        let mut interval = interval(self.anchor_interval);
         let shutdown_signal = shutdown_signal.fuse();
         pin_mut!(shutdown_signal);
 
         info!("anchor service started");
 
         loop {
-            let tick_future = interval.tick().fuse();
-            pin_mut!(tick_future);
+            let now = Utc::now();
+            let next_tick = now
+                .duration_trunc(TimeDelta::from_std(self.anchor_interval).unwrap())
+                .unwrap()
+                + TimeDelta::from_std(self.anchor_interval).unwrap()
+                - ChronoDuration::minutes(5);
 
-            match select(tick_future, &mut shutdown_signal).await {
-                Either::Left((_, _)) => {
-                    // Interval tick occurred
-                    if let Err(e) = self.process_next_batch().await {
+            let delay = next_tick - now;
+            // durations in rust are always positive.
+            // If the delay is negative, it means the next tick is in the past, therefore
+            // we should process the next batch immediately.
+            if let Ok(delay) = delay.to_std() {
+                tokio::time::sleep(delay).await;
+            }
+            let process_next_batch = self.process_next_batch();
+            pin_mut!(process_next_batch);
+            match select(process_next_batch, &mut shutdown_signal).await {
+                Either::Left((result, _)) => {
+                    if let Err(e) = result {
                         error!("Error processing batch: {:?}", e);
                     }
                 }
