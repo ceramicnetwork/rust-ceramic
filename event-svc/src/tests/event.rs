@@ -25,7 +25,7 @@ macro_rules! test_with_sqlite {
             async fn [<$test_name _sqlite>]() {
 
                 let conn = $crate::store::SqlitePool::connect_in_memory().await.unwrap();
-                let store = $crate::EventService::try_new(conn, true, true, None).await.unwrap();
+                let store = $crate::EventService::try_new(conn, true, true, vec![]).await.unwrap();
                 $(
                     for stmt in $sql_stmts {
                         store.pool.run_statement(stmt).await.unwrap();
@@ -607,7 +607,7 @@ where
 #[tokio::test]
 async fn test_conclusion_events_since() -> Result<(), Box<dyn std::error::Error>> {
     let pool = SqlitePool::connect_in_memory().await?;
-    let service = EventService::try_new(pool, false, false, None).await?;
+    let service = EventService::try_new(pool, false, false, vec![]).await?;
     let test_events = generate_chained_events().await;
 
     for event in test_events {

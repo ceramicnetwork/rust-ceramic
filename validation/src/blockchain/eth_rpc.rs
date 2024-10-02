@@ -60,6 +60,8 @@ pub struct ChainBlock {
 pub trait EthRpc {
     fn chain_id(&self) -> &caip2::ChainId;
 
+    fn url(&self) -> String;
+
     async fn get_block_timestamp(&self, tx_hash: &str) -> Result<Option<ChainTransaction>>;
 }
 
@@ -238,6 +240,10 @@ impl HttpEthRpc {
 impl EthRpc for HttpEthRpc {
     fn chain_id(&self) -> &caip2::ChainId {
         &self.chain_id
+    }
+
+    fn url(&self) -> String {
+        self.url.to_string()
     }
 
     async fn get_block_timestamp(&self, tx_hash: &str) -> Result<Option<ChainTransaction>> {

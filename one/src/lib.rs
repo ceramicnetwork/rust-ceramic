@@ -8,9 +8,8 @@ mod metrics;
 mod migrations;
 mod network;
 
-use std::{env, path::PathBuf};
-
 use anyhow::{anyhow, Result};
+use ceramic_core::ssi::caip2::ChainId;
 use ceramic_metrics::config::Config as MetricsConfig;
 use ceramic_sql::sqlite::SqlitePool;
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -21,6 +20,8 @@ use multihash::Multihash;
 use multihash_codetable::Code;
 use multihash_derive::Hasher;
 use signal_hook_tokio::Signals;
+use std::str::FromStr;
+use std::{env, path::PathBuf};
 use tokio::{io::AsyncReadExt, sync::broadcast};
 use tracing::{debug, error, info, warn};
 
@@ -92,6 +93,53 @@ impl Network {
         .map(|addr| addr.parse())
         .collect::<Result<Vec<Multiaddr>, multiaddr::Error>>()
         .expect("hard coded bootstrap addresses should parse")
+    }
+
+    /// Return the default ethereum rpc providers for each network.
+    pub fn default_rpc_urls(&self) -> Result<Vec<String>> {
+        match self {
+            Network::Mainnet => {
+                anyhow::bail!("no Ethereum RPC URLs specified for Mainnet")
+            }
+            Network::TestnetClay => {
+                info!("no Ethereum RPC URLs specified for Clay Testnet, defaulting to https://gnosis-rpc.publicnode.com");
+                Ok(vec!["https://gnosis-rpc.publicnode.com".to_string()])
+            }
+            Network::DevUnstable => {
+                info!("no Ethereum RPC URLs specified for dev-unstable network, defaulting to https://ethereum-sepolia-rpc.publicnode.com");
+                Ok(vec![
+                    "https://ethereum-sepolia-rpc.publicnode.com".to_string()
+                ])
+            }
+            Network::Local => {
+                info!(
+                "using default Ganache Ethereum RPC URL for Local network: http://localhost:7545"
+            );
+                // Default Ganache port
+                Ok(vec!["http://localhost:8545".to_string()])
+            }
+            Network::InMemory => {
+                info!("no Ethereum RPC URLs specified");
+                Ok(vec![])
+            }
+        }
+    }
+
+    /// return the allowed chain ids for this network. or None for any
+    pub fn supported_chain_ids(&self) -> Option<Vec<ChainId>> {
+        match self {
+            Network::Mainnet => Some(vec![
+                ChainId::from_str("eip155:1").expect("eip155:1 is a valid chain")
+            ]), // Ethereum mainnet
+            Network::TestnetClay => Some(vec![
+                ChainId::from_str("eip155:100").expect("eip155:100 is a valid chain")
+            ]), // Gnosis
+            Network::DevUnstable => Some(vec![
+                ChainId::from_str("eip155:11155111").expect("eip155:11155111 is a valid chain")
+            ]), // Sepolia
+            Network::Local => None,
+            Network::InMemory => None,
+        }
     }
 }
 

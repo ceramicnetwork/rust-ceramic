@@ -1,10 +1,15 @@
 use std::{path::PathBuf, time::Duration};
 
-use anyhow::{anyhow, Context, Result};
+use crate::{
+    default_directory, handle_signals, http, http_metrics, metrics, network::Ipfs, DBOpts, Info,
+    LogOpts, Network,
+};
+use anyhow::{anyhow, bail, Context, Result};
 use ceramic_anchor_remote::RemoteCas;
 use ceramic_anchor_service::AnchorService;
 use ceramic_core::NodeId;
-use ceramic_event_svc::EventService;
+use ceramic_event_svc::eth_rpc::HttpEthRpc;
+use ceramic_event_svc::{EthRpcProvider, EventService};
 use ceramic_interest_svc::InterestService;
 use ceramic_kubo_rpc::Multiaddr;
 use ceramic_metrics::{config::Config as MetricsConfig, MetricsHandle};
@@ -17,11 +22,6 @@ use std::sync::Arc;
 use swagger::{auth::MakeAllowAllAuthenticator, EmptyContext};
 use tokio::sync::broadcast;
 use tracing::{debug, info, warn};
-
-use crate::{
-    default_directory, handle_signals, http, http_metrics, metrics, network::Ipfs, DBOpts, Info,
-    LogOpts, Network,
-};
 
 #[derive(Args, Debug)]
 pub struct DaemonOpts {
@@ -231,6 +231,53 @@ pub struct DaemonOpts {
         requires = "experimental_features"
     )]
     anchor_poll_retry_count: u64,
+
+    /// Ethereum RPC URLs used for time events validation. Required when connecting to mainnet and uses fallback URLs if not specified for other networks.
+    #[arg(
+        long,
+        use_value_delimiter = true,
+        value_delimiter = ',',
+        env = "CERAMIC_ONE_ETHEREUM_RPC_URLS"
+    )]
+    ethereum_rpc_urls: Vec<String>,
+}
+
+async fn get_rpc_providers(
+    ethereum_rpc_urls: Vec<String>,
+    network: &Network,
+) -> Result<Vec<EthRpcProvider>> {
+    let ethereum_rpc_urls = if ethereum_rpc_urls.is_empty() {
+        network.default_rpc_urls()?
+    } else {
+        ethereum_rpc_urls
+    };
+
+    let mut providers = Vec::new();
+    for url in ethereum_rpc_urls {
+        match HttpEthRpc::try_new(&url).await {
+            Ok(provider) => {
+                let provider: EthRpcProvider = Arc::new(provider);
+                let provider_chain = provider.chain_id();
+                if network
+                    .supported_chain_ids()
+                    .map_or(true, |ids| ids.contains(provider_chain))
+                {
+                    providers.push(provider);
+                } else {
+                    warn!("Eth RPC provider {} uses chainid {} which isn't supported by Ceramic network {:?}", url, provider_chain,network);
+                }
+            }
+            Err(err) => {
+                warn!("failed to create RCP client with url: '{url}': {err}");
+            }
+        }
+    }
+
+    if providers.is_empty() {
+        bail!("No usable ethereum RPC configured");
+    }
+
+    Ok(providers)
 }
 
 // Start the daemon process
@@ -274,10 +321,26 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
     // Construct sqlite_pool
     let sqlite_pool = opts.db_opts.get_sqlite_pool().await?;
 
+    let rpc_providers = get_rpc_providers(opts.ethereum_rpc_urls, &opts.network).await?;
+
+    info!(
+        "Using ethereum rpc providers: {:?}",
+        rpc_providers
+            .iter()
+            .map(|provider| provider.url())
+            .collect::<Vec<_>>()
+    );
+
     // Construct services from pool
     let interest_svc = Arc::new(InterestService::new(sqlite_pool.clone()));
     let event_svc = Arc::new(
-        EventService::try_new(sqlite_pool.clone(), true, opts.event_validation, None).await?,
+        EventService::try_new(
+            sqlite_pool.clone(),
+            true,
+            opts.event_validation,
+            rpc_providers,
+        )
+        .await?,
     );
 
     let network = opts.network.to_network(&opts.local_network_id)?;
