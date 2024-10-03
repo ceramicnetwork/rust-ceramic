@@ -13,11 +13,15 @@ COPY . .
 # To clear the cache use:
 #   docker builder prune --filter type=exec.cachemount
 RUN --mount=type=cache,target=/home/builder/.cargo \
-	--mount=type=cache,target=/home/builder/rust-ceramic/target \
-    make $BUILD_MODE && \
-    cp ./target/$BUILD_MODE/ceramic-one ./
+  --mount=type=cache,target=/home/builder/rust-ceramic/target \
+  make $BUILD_MODE && \
+  cp ./target/$BUILD_MODE/ceramic-one ./
 
 FROM debian:bookworm-slim
+
+RUN apt-get update \
+  && apt-get install ca-certificates -y \
+  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /home/builder/rust-ceramic/ceramic-one /usr/bin
 
