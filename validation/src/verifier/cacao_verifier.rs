@@ -12,6 +12,7 @@ use super::{
 use crate::signature::{key_webauthn::WebAuthN, pkh_ethereum::PkhEthereum, pkh_solana::PkhSolana};
 
 #[async_trait::async_trait]
+/// Represents the different ways to validate a CACAO
 pub trait Verifier {
     /// Verify the signature of the CACAO and ensure it is valid.
     async fn verify_signature(&self, opts: &VerifyCacaoOpts) -> Result<()>;

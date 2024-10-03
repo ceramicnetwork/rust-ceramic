@@ -120,11 +120,11 @@ mod tests {
         };
         let order_key = EventId::new(
             &Network::Mainnet,
-            &"model",
-            &multibase::decode("kh4q0ozorrgaq2mezktnrmdwleo1d".to_string())
+            "model",
+            &multibase::decode("kh4q0ozorrgaq2mezktnrmdwleo1d")
                 .unwrap()
                 .1,
-            &"did:key:z6MkgSV3tAuw7gUWqKCUY7ae6uWNxqYgdwPhUJbJhF9EFXm9".to_string(),
+            "did:key:z6MkgSV3tAuw7gUWqKCUY7ae6uWNxqYgdwPhUJbJhF9EFXm9",
             &id,
             &prev,
         );
@@ -137,7 +137,7 @@ mod tests {
         }];
         let time_event = build_time_events(&anchor_requests, &detached_time_event, 1);
         expect![[r#"{"events":[[{"id":{"/":"baeabeifu7qd7bpy4z6vdo7jff6kg3uiwolqtofhut7nrhx6wuhpb2wqxtq"},"prev":{"/":"baeabeifu7qd7bpy4z6vdo7jff6kg3uiwolqtofhut7nrhx6wuhpb2wqxtq"},"event_id":{"/":{"bytes":"zgEFALolB21zAkHnRcx8By/3KeodWhecAQASILT8B/C/HM+qN30lL5Rt0RZy4TcU9J/bE9/Wod4dWhec"}},"resume_token":0},{"id":{"/":"baeabeifu7qd7bpy4z6vdo7jff6kg3uiwolqtofhut7nrhx6wuhpb2wqxtq"},"prev":{"/":"baeabeifu7qd7bpy4z6vdo7jff6kg3uiwolqtofhut7nrhx6wuhpb2wqxtq"},"proof":{"/":"bafyreidq247kfkizr3k6wlvx43lt7gro2dno7vzqepmnqt26agri4opzqu"},"path":""}]]}"#]]
-            .assert_eq(&String::from_utf8(time_event.unwrap().to_json().unwrap().as_bytes().to_vec()).unwrap());
+            .assert_eq(core::str::from_utf8(time_event.unwrap().to_json().unwrap().as_bytes()).unwrap());
     }
 
     #[tokio::test]

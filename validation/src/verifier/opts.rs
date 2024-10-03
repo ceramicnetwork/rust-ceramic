@@ -6,6 +6,7 @@ static DEFAULT_CLOCK_SKEW: Lazy<chrono::Duration> =
     Lazy::new(|| chrono::Duration::new(5 * 60, 0).expect("5 minutes is a valid duration"));
 
 #[derive(Clone, Debug)]
+/// The options supported when verifying a CACAO
 pub struct VerifyCacaoOpts {
     /// The point in time at which the capability must be valid, defaults to `now`.
     pub at_time: Option<chrono::DateTime<chrono::Utc>>,
@@ -29,13 +30,16 @@ impl Default for VerifyCacaoOpts {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+/// An enum to represent time with the ability to specify a time or default to now
 pub enum AtTime {
     /// None means now
     At(Option<chrono::DateTime<chrono::Utc>>),
+    /// Time checks should be ignored
     SkipTimeChecks,
 }
 
 #[derive(Clone, Debug)]
+/// The options supported when verifying a JWS
 pub struct VerifyJwsOpts {
     /// The point in time at which the capability must be valid, defaults to `now`.
     pub at_time: AtTime,

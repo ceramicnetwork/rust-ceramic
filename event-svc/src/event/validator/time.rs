@@ -9,13 +9,13 @@ use multihash::Multihash;
 use once_cell::sync::Lazy;
 use tracing::warn;
 
-use ceramic_validation::eth_rpc::{ChainBlock, EthRpc, HttpEthRpc};
+use ceramic_validation::eth_rpc::{self, ChainBlock, EthRpc, HttpEthRpc};
 
 const V0_PROOF_TYPE: &str = "raw";
 const V1_PROOF_TYPE: &str = "f(bytes32)"; // See: https://namespaces.chainagnostic.org/eip155/caip168
 const DAG_CBOR_CODEC: u64 = 0x71;
 
-static BLOCK_THRESHHOLDS: Lazy<HashMap<&str, i64>> = Lazy::new(|| {
+static BLOCK_THRESHHOLDS: Lazy<HashMap<&str, u64>> = Lazy::new(|| {
     HashMap::from_iter(vec![
         ("eip155:1", 16688195),       //mainnet
         ("eip155:3", 1000000000),     //ropsten
@@ -49,12 +49,12 @@ pub enum ChainInclusionError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Timestamp(i64);
+pub struct Timestamp(u64);
 
 impl Timestamp {
     /// A unix epoch timestamp
     #[allow(dead_code)]
-    pub fn as_unix_ts(&self) -> i64 {
+    pub fn as_unix_ts(&self) -> u64 {
         self.0
     }
 }
@@ -95,7 +95,7 @@ impl TimeEventValidator {
                         .or_insert_with(|| provider);
                 }
                 Err(err) => {
-                    warn!("failed to create RCP client with url: '{url}': {err}");
+                    warn!(?err, "failed to create RPC client with url: '{url}'");
                 }
             }
         }
@@ -209,8 +209,8 @@ impl TimeEventValidator {
         tx_hash: &str,
         proof: &unvalidated::Proof,
     ) -> Result<Option<(Cid, Option<ChainBlock>)>> {
-        match provider.get_block_timestamp(tx_hash).await? {
-            Some(tx) => {
+        match provider.get_block_timestamp(tx_hash).await {
+            Ok(Some(tx)) => {
                 let root_cid = Self::get_root_cid_from_input(&tx.input, proof.tx_type())?;
 
                 // TODO: persist transaction and block information somewhere (lru cache, database)
@@ -218,10 +218,18 @@ impl TimeEventValidator {
                 Ok(Some((root_cid, tx.block)))
             }
 
-            None => {
+            Ok(None) => {
                 // no transaction will be turned into an error at the next level.
                 // we should probably persist something so we know that it's bad and we don't keep trying
                 Ok(None)
+            }
+            Err(eth_rpc::Error::Application(error)) => bail!(error),
+            Err(eth_rpc::Error::InvalidArgument(reason)) => {
+                bail!(format!("Invalid ethereum rpc argument: {reason}"))
+            }
+            Err(eth_rpc::Error::Transient(error)) => {
+                // TODO: actually retry something
+                bail!(error);
             }
         }
     }
@@ -234,13 +242,14 @@ impl TimeEventValidator {
 #[cfg(test)]
 mod test {
     use ceramic_event::unvalidated;
+    use ceramic_validation::eth_rpc::TxHash;
     use ipld_core::ipld::Ipld;
     use mockall::{mock, predicate};
     use test_log::test;
 
     use super::*;
 
-    const BLOCK_TIMESTAMP: i64 = 1725913338;
+    const BLOCK_TIMESTAMP: u64 = 1725913338;
     const SINGLE_TX_HASH: &str =
         "0x1bfe594e9f2e7b32a39fe50d24c2fd3fb15255bde5bace0140c1c861c9cdb091";
     const MULTI_TX_HASH: &str =
@@ -376,11 +385,12 @@ mod test {
         impl EthRpc for EthRpcProviderTest {
             fn chain_id(&self) -> &caip2::ChainId;
             fn url(&self) -> String;
-            async fn get_block_timestamp(&self, tx_hash: &str) -> Result<Option<ceramic_validation::eth_rpc::ChainTransaction>>;
+            async fn get_block_timestamp(&self, tx_hash: &str) -> Result<Option<ceramic_validation::eth_rpc::ChainTransaction>, eth_rpc::Error>;
         }
     }
 
     async fn get_mock_provider(tx_hash: String, tx_input: String) -> TimeEventValidator {
+        let tx_hash_bytes = TxHash::from_str(&tx_hash).expect("invalid tx hash");
         let mut mock_provider = MockEthRpcProviderTest::new();
         let chain =
             caip2::ChainId::from_str("eip155:11155111").expect("eip155:11155111 is a valid chain");
@@ -392,11 +402,13 @@ mod test {
             .with(predicate::eq(tx_hash.clone()))
             .return_once(move |_| {
                 Ok(Some(ceramic_validation::eth_rpc::ChainTransaction {
-                    hash: tx_hash,
+                    hash: tx_hash_bytes,
                     input: tx_input,
                     block: Some(ChainBlock {
-                        hash: "0x783cd5a6febe13d08ac0d59fa7e666483d5e476542b29688a6f0bec3d15febd4"
-                            .into(),
+                        hash: TxHash::from_str(
+                            "0x783cd5a6febe13d08ac0d59fa7e666483d5e476542b29688a6f0bec3d15febd4",
+                        )
+                        .unwrap(),
                         number: 5558585,
                         timestamp: BLOCK_TIMESTAMP,
                     }),

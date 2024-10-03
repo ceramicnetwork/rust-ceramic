@@ -10,7 +10,7 @@ use ceramic_car::{
 use ipld_core::ipld::Ipld;
 
 use crate::{
-    cacao_verifier::Verifier as _, event_verifier::Verifier as _, verifier::opts::VerifyJwsOpts,
+    cacao_verifier::Verifier as _, event_verifier::Verifier as _, verifier::VerifyJwsOpts,
     VerifyCacaoOpts,
 };
 

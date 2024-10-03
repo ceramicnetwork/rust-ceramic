@@ -268,7 +268,7 @@ async fn get_rpc_providers(
                 }
             }
             Err(err) => {
-                warn!("failed to create RCP client with url: '{url}': {err}");
+                warn!("failed to create RPC client with url: '{url}': {:?}", err);
             }
         }
     }
