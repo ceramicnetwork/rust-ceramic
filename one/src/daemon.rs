@@ -15,6 +15,7 @@ use ceramic_kubo_rpc::Multiaddr;
 use ceramic_metrics::{config::Config as MetricsConfig, MetricsHandle};
 use ceramic_p2p::{load_identity, DiskStorage, Keychain, Libp2pConfig};
 use clap::Args;
+use hoku_provider::json_rpc::JsonRpcProvider;
 use recon::{FullInterests, Recon, ReconInterestProvider};
 use signal_hook::consts::signal::*;
 use signal_hook_tokio::Signals;
@@ -321,11 +322,13 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
     // Construct sqlite_pool
     let sqlite_pool = opts.db_opts.get_sqlite_pool().await?;
 
-    let rpc_providers = get_rpc_providers(opts.ethereum_rpc_urls, &opts.network).await?;
+    let eth_rpc_providers = get_rpc_providers(opts.ethereum_rpc_urls, &opts.network).await?;
+    let hoku_rpc_provider =
+        JsonRpcProvider::new_http("http://localhost:26657".parse()?, None, None)?;
 
     info!(
         "Using ethereum rpc providers: {:?}",
-        rpc_providers
+        eth_rpc_providers
             .iter()
             .map(|provider| provider.url())
             .collect::<Vec<_>>()
@@ -338,7 +341,8 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
             sqlite_pool.clone(),
             true,
             opts.event_validation,
-            rpc_providers,
+            eth_rpc_providers,
+            vec![hoku_rpc_provider],
         )
         .await?,
     );
