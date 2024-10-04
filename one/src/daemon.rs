@@ -242,7 +242,7 @@ pub struct DaemonOpts {
     ethereum_rpc_urls: Vec<String>,
 }
 
-async fn get_rpc_providers(
+async fn get_eth_rpc_providers(
     ethereum_rpc_urls: Vec<String>,
     network: &Network,
 ) -> Result<Vec<EthRpcProvider>> {
@@ -256,12 +256,17 @@ async fn get_rpc_providers(
     for url in ethereum_rpc_urls {
         match HttpEthRpc::try_new(&url).await {
             Ok(provider) => {
-                let provider: EthRpcProvider = Arc::new(provider);
                 let provider_chain = provider.chain_id();
                 if network
                     .supported_chain_ids()
                     .map_or(true, |ids| ids.contains(provider_chain))
                 {
+                    info!(
+                        "Using ethereum rpc provider for chain: {} with url: {}",
+                        provider.chain_id(),
+                        provider.url()
+                    );
+                    let provider: EthRpcProvider = Arc::new(provider);
                     providers.push(provider);
                 } else {
                     warn!("Eth RPC provider {} uses chainid {} which isn't supported by Ceramic network {:?}", url, provider_chain,network);
@@ -321,15 +326,7 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
     // Construct sqlite_pool
     let sqlite_pool = opts.db_opts.get_sqlite_pool().await?;
 
-    let rpc_providers = get_rpc_providers(opts.ethereum_rpc_urls, &opts.network).await?;
-
-    info!(
-        "Using ethereum rpc providers: {:?}",
-        rpc_providers
-            .iter()
-            .map(|provider| provider.url())
-            .collect::<Vec<_>>()
-    );
+    let rpc_providers = get_eth_rpc_providers(opts.ethereum_rpc_urls, &opts.network).await?;
 
     // Construct services from pool
     let interest_svc = Arc::new(InterestService::new(sqlite_pool.clone()));

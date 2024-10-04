@@ -1,6 +1,8 @@
+use std::str::FromStr;
+
 use alloy::transports::{RpcError, TransportErrorKind};
 use anyhow::anyhow;
-use serde::{Deserialize, Serialize};
+use ceramic_core::Cid;
 use ssi::caip2;
 
 pub use alloy::primitives::{BlockHash, TxHash};
@@ -10,6 +12,31 @@ pub use alloy::primitives::{BlockHash, TxHash};
 pub enum Error {
     /// Invalid input with reason for rejection
     InvalidArgument(String),
+    /// Transaction hash not found
+    TxNotFound {
+        /// The chain ID
+        chain_id: caip2::ChainId,
+        /// The transaction hash we tried to find
+        tx_hash: String,
+    },
+    /// The transaction exists but has not been mined yet
+    TxNotMined {
+        /// The chain ID
+        chain_id: caip2::ChainId,
+        /// The transaction hash we found but didn't find a corresponding block
+        tx_hash: String,
+    },
+    /// The block was included on the transaction but could not be found
+    BlockNotFound {
+        /// The chain ID
+        chain_id: caip2::ChainId,
+        /// The block hash we tried to find
+        block_hash: String,
+    },
+    /// The proof was invalid for the given reason
+    InvalidProof(String),
+    /// No chain provider configured for the event, whether that's an error is up to the caller
+    NoChainProvider(caip2::ChainId),
     /// This is a transient error related to the transport and may be retried
     Transient(anyhow::Error),
     /// This is a standard application error (e.g. server 500) and should not be retried.
@@ -31,44 +58,79 @@ impl From<RpcError<TransportErrorKind>> for Error {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-/// A blockchain transaction
-pub struct ChainTransaction {
-    /// Transaction hash. While a 32 byte hash is not universal, it is for bitcoin and the EVM,
-    /// so we use that for now to make things easier. We could use a String encoded representation,
-    /// but this covers our current state and lets the caller decide how to encode the bytes for
-    ///  their needs (e.g. persistence), and avoids any changes to Display (e.g. 0x prefixed) breaking things.
-    pub hash: TxHash,
-    /// 0x prefixed hex encoded string representation of transaction contract input.
-    pub input: String,
-    /// Information about the block in which this transaction was mined.
-    /// If None, the transaction exists but has not been mined yet.
-    pub block: Option<ChainBlock>,
+#[derive(Clone, Debug, PartialEq, Eq)]
+/// Input for an ethereum transaction proof for time events
+pub struct EthTxProofInput {
+    /// The transaction hash as a string (0x prefixed or not)
+    pub tx_hash: Cid,
+    /// The time event proof type
+    pub tx_type: EthProofType,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-/// A blockchain block
-pub struct ChainBlock {
-    /// The 32 byte block hash
-    pub hash: BlockHash,
-    /// The block number
-    pub number: u64,
-    /// The unix epoch timestamp of the block
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// The format of the ethereum time event proof
+pub enum EthProofType {
+    /// raw
+    V0,
+    /// f(bytes32)
+    V1,
+}
+
+impl std::fmt::Display for EthProofType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EthProofType::V0 => write!(f, "{}", V0_PROOF_TYPE),
+            EthProofType::V1 => write!(f, "{}", V1_PROOF_TYPE),
+        }
+    }
+}
+
+pub(crate) const V0_PROOF_TYPE: &str = "raw";
+pub(crate) const V1_PROOF_TYPE: &str = "f(bytes32)"; // See: https://namespaces.chainagnostic.org/eip155/caip168
+
+impl FromStr for EthProofType {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            V0_PROOF_TYPE => Ok(Self::V0),
+            V1_PROOF_TYPE => Ok(Self::V1),
+            v => anyhow::bail!("Unknown proof type: {}", v),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+/// A proof of time on the blockchain
+pub struct TimeProof {
+    /// The timestamp the proof was recorded
     pub timestamp: u64,
+    /// The root CID of the proof
+    pub root_cid: Cid,
 }
 
+/*
+    Planning to implemented this trait for Hoku using something like:
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct HokuTxProof {
+        cid: Cid,
+        index: u64,
+    }
+*/
 #[async_trait::async_trait]
 /// Ethereum RPC provider methods. This is a higher level type than the actual RPC calls neeed and
 /// may wrap a multiple calls into a logical behavior of getting necessary information.
-pub trait EthRpc {
+pub trait ChainInclusion {
+    /// The input format needed to do the inclusion proof
+    type InclusionInput;
+
     /// Get the CAIP2 chain ID supported by this RPC provider
     fn chain_id(&self) -> &caip2::ChainId;
 
-    /// The RPC url used by the provider
-    fn url(&self) -> String;
-
     /// Get the block chain transaction if it exists with the block timestamp information
-    async fn get_block_timestamp(&self, tx_hash: &str) -> Result<Option<ChainTransaction>, Error>;
+    async fn chain_inclusion_proof(&self, input: &Self::InclusionInput)
+        -> Result<TimeProof, Error>;
 }
 
 #[cfg(test)]
