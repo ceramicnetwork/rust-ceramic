@@ -5,8 +5,13 @@ use ceramic_core::ssi::caip2;
 use ceramic_core::Cid;
 use ceramic_event::unvalidated;
 use ceramic_sql::sqlite::SqlitePool;
+use fendermint_vm_message::query::FvmQueryHeight;
+use fvm_shared::address::Address;
+use hoku_provider::json_rpc::JsonRpcProvider;
+use hoku_sdk::machine::{accumulator::Accumulator, Machine};
 use multihash::Multihash;
 use once_cell::sync::Lazy;
+use tendermint_rpc::Url;
 use tracing::warn;
 
 use ceramic_validation::eth_rpc::{self, ChainBlock, EthRpc, HttpEthRpc};
@@ -66,6 +71,8 @@ pub struct TimeEventValidator {
     /// we could support multiple providers for each chain (to get around rate limits)
     /// but we'll just force people to run a light client if they really need the throughput
     chain_providers: HashMap<caip2::ChainId, EthRpcProvider>,
+    // map of hoku chains to their rpc providers
+    hoku_providers: HashMap<caip2::ChainId, JsonRpcProvider>,
 }
 
 impl std::fmt::Debug for TimeEventValidator {
@@ -82,9 +89,9 @@ impl std::fmt::Debug for TimeEventValidator {
 impl TimeEventValidator {
     /// Try to construct the validator by looking building the etherum rpc providers from the given URLsƒsw
     #[allow(dead_code)]
-    pub async fn try_new(rpc_urls: &[String]) -> Result<Self> {
-        let mut chain_providers = HashMap::with_capacity(rpc_urls.len());
-        for url in rpc_urls {
+    pub async fn try_new(eth_rpc_urls: &[String], hoku_rpc_urls: &[&str]) -> Result<Self> {
+        let mut chain_providers = HashMap::with_capacity(eth_rpc_urls.len());
+        for url in eth_rpc_urls {
             match HttpEthRpc::try_new(url).await {
                 Ok(provider) => {
                     // use the first valid rpc client we find rather than replace one
@@ -99,10 +106,33 @@ impl TimeEventValidator {
                 }
             }
         }
+        let mut hoku_providers = HashMap::with_capacity(hoku_rpc_urls.len());
+
+        for url in hoku_rpc_urls {
+            match JsonRpcProvider::new_http(url.parse()?, None, None) {
+                Ok(provider) => {
+                    // use the first valid rpc client we find rather than replace one
+                    // could support an array of clients for a chain if desired
+                    hoku_providers
+                        .entry("hoku:mainnet".parse()?)
+                        .or_insert_with(|| provider);
+                }
+                Err(err) => {
+                    warn!(?err, "failed to create RPC client with url: '{url}'");
+                }
+            }
+        }
+
         if chain_providers.is_empty() {
             bail!("failed to instantiate any RPC chain providers");
         }
-        Ok(Self { chain_providers })
+        if hoku_providers.is_empty() {
+            bail!("failed to instantiate any RPC hoku providers");
+        }
+        Ok(Self {
+            chain_providers,
+            hoku_providers,
+        })
     }
 
     /// Create from known providers (e.g. inject mocks)
@@ -112,6 +142,7 @@ impl TimeEventValidator {
             chain_providers: HashMap::from_iter(
                 providers.into_iter().map(|p| (p.chain_id().to_owned(), p)),
             ),
+            hoku_providers: HashMap::new(),
         }
     }
 
@@ -120,8 +151,63 @@ impl TimeEventValidator {
         self.chain_providers.keys().cloned().collect()
     }
 
-    /// Validate the chain inclusion proof for a time event, returning the block timestamp if found
     pub async fn validate_chain_inclusion(
+        &self,
+        _pool: &SqlitePool,
+        event: &unvalidated::TimeEvent,
+    ) -> Result<Timestamp, ChainInclusionError> {
+        match event.proof().chain_id() {
+            "hoku:mainnet" => self.validate_hoku(_pool, event).await,
+            _ => self.validate_eth(_pool, event).await,
+        }
+    }
+
+    /// Validate the chain inclusion proof for a time event, returning the block timestamp if found
+    /// {
+    //   "chainId": "hoku:mainnet:",
+    //   "root": {"/": "bafyreicbwzaiyg2l4uaw6zjds3xupqeyfq3nlb36xodusgn24ou3qvgy4e"},
+    //   "txHash": {"/": "t2xplsbor65en7jome74tk73e5gcgqazuwm5qqamy:42"},
+    //   "txType": "hoku(address:index)"
+    // }
+    pub async fn validate_hoku(
+        &self,
+        _pool: &SqlitePool,
+        event: &unvalidated::TimeEvent,
+    ) -> Result<Timestamp, ChainInclusionError> {
+        let chain_id = caip2::ChainId::from_str(event.proof().chain_id())
+            .map_err(|e| ChainInclusionError::Error(anyhow!("invalid chain ID: {}", e)))?;
+
+        let provider = self
+            .hoku_providers
+            .get(&chain_id)
+            .ok_or_else(|| ChainInclusionError::NoChainProvider(chain_id.clone()))?;
+
+        let tx_hash = Self::expected_tx_hash(event.proof().root());
+        let (accumulator_address, leaf_index) = Self::parse_hoku_tx_hash(&tx_hash)?;
+
+        let machine = Accumulator::attach(accumulator_address)
+            .await
+            .map_err(|e| {
+                ChainInclusionError::Error(anyhow!("Failed to attach to accumulator: {}", e))
+            })?;
+
+        // Fetch the leaf at the given index
+        let leaf = machine
+            .leaf(&provider, leaf_index, FvmQueryHeight::Committed)
+            .await?;
+
+        if leaf != event.proof().root().to_bytes() {
+            return Err(ChainInclusionError::InvalidProof(
+                "The root CID does not match the leaf in the accumulator".into(),
+            ));
+        }
+
+        // Fetch the block timestamp
+        Ok(Some(Timestamp(BLOCK_TIMESTAMP)))
+    }
+
+    /// Validate the chain inclusion proof for a time event, returning the block timestamp if found
+    pub async fn validate_eth(
         &self,
         _pool: &SqlitePool,
         event: &unvalidated::TimeEvent,
@@ -232,6 +318,42 @@ impl TimeEventValidator {
                 bail!(error);
             }
         }
+    }
+
+    fn parse_hoku_tx_hash(tx_hash: &str) -> Result<(Address, u64), ChainInclusionError> {
+        let parts: Vec<&str> = tx_hash.split(':').collect();
+        if parts.len() != 2 {
+            return Err(ChainInclusionError::Error(anyhow!(
+                "Invalid Hoku tx_hash format"
+            )));
+        }
+
+        let address = Address::from_str(parts[0]).map_err(|e| {
+            ChainInclusionError::Error(anyhow!("Invalid accumulator address: {}", e))
+        })?;
+        let index = parts[1]
+            .parse::<u64>()
+            .map_err(|e| ChainInclusionError::InvalidLeafIndex(e.to_string()))?;
+
+        Ok((address, index))
+    }
+
+    fn parse_hoku_tx_hash(tx_hash: &str) -> Result<(Address, u64), ChainInclusionError> {
+        let parts: Vec<&str> = tx_hash.split(':').collect();
+        if parts.len() != 2 {
+            return Err(ChainInclusionError::Error(anyhow!(
+                "Invalid Hoku tx_hash format"
+            )));
+        }
+
+        let address = Address::from_str(parts[0]).map_err(|e| {
+            ChainInclusionError::Error(anyhow!("Invalid accumulator address: {}", e))
+        })?;
+        let index = parts[1]
+            .parse::<u64>()
+            .map_err(|e| ChainInclusionError::InvalidLeafIndex(e.to_string()))?;
+
+        Ok((address, index))
     }
 
     fn expected_tx_hash(cid: Cid) -> String {

@@ -132,6 +132,17 @@ impl EventValidator {
         ethereum_rpc_providers: Vec<EthRpcProvider>,
     ) -> Result<Self> {
         let time_event_verifier = TimeEventValidator::new_with_providers(ethereum_rpc_providers);
+    pub async fn try_new(pool: SqlitePool, ethereum_rpc_urls: Option<&[String]>) -> Result<Self> {
+        let hoku_urls = &["http://localhost:26657"];
+        let time_event_verifier = if let Some(eth_urls) = ethereum_rpc_urls {
+            Some(
+                TimeEventValidator::try_new(eth_urls, hoku_urls)
+                    .await
+                    .map_err(Error::new_fatal)?,
+            )
+        } else {
+            None
+        };
 
         Ok(Self {
             pool,

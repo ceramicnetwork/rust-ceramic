@@ -38,6 +38,15 @@ sqlx.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+# This is a private repo. In order to pull it start cargo with cli with this env var:
+# CARGO_NET_GIT_FETCH_WITH_CLI=true cargo fetch
+hoku_sdk = {git="https://github.com/hokunet/rust-hoku", branch="main"}
+hoku_provider = {git="https://github.com/hokunet/rust-hoku", branch="main"}
+tendermint-rpc = { version = "0.39.1", features = [
+    "http-client",
+] }
+fvm_shared = "4.1.0"
+fendermint_vm_message = { git = "ssh://git@github.com/hokunet/ipc.git", branch="main" }
 
 [dev-dependencies]
 ceramic-event.workspace = true
@@ -54,6 +63,7 @@ tmpdir.workspace = true
 tokio.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true
+
 
 [[bench]]
 name = "sqlite_store"
