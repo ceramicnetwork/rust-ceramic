@@ -6,8 +6,9 @@ use ceramic_event::unvalidated;
 use ceramic_sql::sqlite::SqlitePool;
 use tracing::warn;
 
-use ceramic_validation::eth_rpc::{
-    self, ChainInclusion, EthProofType, EthTxProofInput, HttpEthRpc,
+use ceramic_validation::{
+    blockchain,
+    eth_rpc::{EthProofType, EthTxProofInput, HttpEthRpc},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -22,7 +23,7 @@ impl Timestamp {
 }
 
 /// Provider for a remote Ethereum RPC endpoint.
-pub type EthRpcProvider = Arc<dyn ChainInclusion<InclusionInput = EthTxProofInput> + Send + Sync>;
+pub type EthRpcProvider = Arc<dyn blockchain::ChainInclusion<InclusionInput = EthTxProofInput> + Send + Sync>;
 
 pub struct TimeEventValidator {
     /// we could support multiple providers for each chain (to get around rate limits)
@@ -87,24 +88,24 @@ impl TimeEventValidator {
         &self,
         _pool: &SqlitePool,
         event: &unvalidated::TimeEvent,
-    ) -> Result<Timestamp, eth_rpc::Error> {
+    ) -> Result<Timestamp, blockchain::Error> {
         let chain_id = caip2::ChainId::from_str(event.proof().chain_id())
-            .map_err(|e| eth_rpc::Error::InvalidArgument(format!("invalid chain ID: {}", e)))?;
+            .map_err(|e| blockchain::Error::InvalidArgument(format!("invalid chain ID: {}", e)))?;
 
         let provider = self
             .chain_providers
             .get(&chain_id)
-            .ok_or_else(|| eth_rpc::Error::NoChainProvider(chain_id.clone()))?;
+            .ok_or_else(|| blockchain::Error::NoChainProvider(chain_id.clone()))?;
 
         let input = EthTxProofInput {
             tx_hash: event.proof().tx_hash(),
             tx_type: EthProofType::from_str(event.proof().tx_type())
-                .map_err(|e| eth_rpc::Error::InvalidProof(e.to_string()))?,
+                .map_err(|e| blockchain::Error::InvalidProof(e.to_string()))?,
         };
         let proof = provider.chain_inclusion_proof(&input).await?;
 
         if proof.root_cid != event.proof().root() {
-            return Err(eth_rpc::Error::InvalidProof(format!(
+            return Err(blockchain::Error::InvalidProof(format!(
                 "the root CID is not in the transaction (root={})",
                 event.proof().root()
             )));
@@ -117,7 +118,7 @@ impl TimeEventValidator {
 #[cfg(test)]
 mod test {
     use ceramic_event::unvalidated;
-    use ceramic_validation::eth_rpc;
+    use ceramic_validation::{blockchain, eth_rpc};
     use cid::Cid;
     use ipld_core::ipld::Ipld;
     use mockall::{mock, predicate};
@@ -249,11 +250,11 @@ mod test {
     mock! {
         pub EthRpcProviderTest {}
         #[async_trait::async_trait]
-        impl ChainInclusion for EthRpcProviderTest {
+        impl blockchain::ChainInclusion for EthRpcProviderTest {
             type InclusionInput = EthTxProofInput;
 
             fn chain_id(&self) -> &caip2::ChainId;
-            async fn chain_inclusion_proof(&self, input: &EthTxProofInput) -> Result<eth_rpc::TimeProof, eth_rpc::Error>;
+            async fn chain_inclusion_proof(&self, input: &EthTxProofInput) -> Result<blockchain::TimeProof, blockchain::Error>;
         }
     }
 
@@ -271,7 +272,7 @@ mod test {
             .once()
             .with(predicate::eq(input))
             .return_once(move |_| {
-                Ok(eth_rpc::TimeProof {
+                Ok(blockchain::TimeProof {
                     timestamp: BLOCK_TIMESTAMP,
                     root_cid,
                 })
@@ -314,7 +315,7 @@ mod test {
                 panic!("should have failed: {:?}", v)
             }
             Err(e) => match e {
-                eth_rpc::Error::InvalidProof(e) => assert!(
+                blockchain::Error::InvalidProof(e) => assert!(
                     e.contains("the root CID is not in the transaction"),
                     "{:#}",
                     e
@@ -362,7 +363,7 @@ mod test {
                 panic!("should have failed: {:?}", v)
             }
             Err(e) => match e {
-                eth_rpc::Error::InvalidProof(e) => assert!(
+                blockchain::Error::InvalidProof(e) => assert!(
                     e.contains("the root CID is not in the transaction"),
                     "{:#}",
                     e

@@ -2,7 +2,8 @@
 //! as well as interacting with blockchains for time event validation.
 #![warn(missing_docs)]
 
-mod blockchain;
+/// Types and traits to interact with blockchains used for time event validation
+pub mod blockchain;
 mod signature;
 mod siwx_message;
 #[cfg(test)]
