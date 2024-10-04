@@ -61,7 +61,7 @@ impl From<RpcError<TransportErrorKind>> for Error {
 #[derive(Clone, Debug, PartialEq, Eq)]
 /// Input for an ethereum transaction proof for time events
 pub struct EthTxProofInput {
-    /// The transaction hash as a string (0x prefixed or not)
+    /// The transaction hash as a CID from the time event
     pub tx_hash: Cid,
     /// The time event proof type
     pub tx_type: EthProofType,
@@ -109,15 +109,6 @@ pub struct TimeProof {
     pub root_cid: Cid,
 }
 
-/*
-    Planning to implemented this trait for Hoku using something like:
-
-    #[derive(Clone, Debug, PartialEq, Eq)]
-    pub struct HokuTxProof {
-        cid: Cid,
-        index: u64,
-    }
-*/
 #[async_trait::async_trait]
 /// Ethereum RPC provider methods. This is a higher level type than the actual RPC calls neeed and
 /// may wrap a multiple calls into a logical behavior of getting necessary information.
