@@ -2643,7 +2643,6 @@ dependencies = [
  "multihash 0.19.1",
  "multihash-codetable",
  "multihash-derive 0.9.0",
- "once_cell",
  "paste",
  "prettytable-rs",
  "prometheus-client",
@@ -3735,9 +3734,9 @@ dependencies = [
 
 [[package]]
 name = "dary_heap"
-version = "0.3.6"
+version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7762d17f1241643615821a8455a0b2c3e803784b058693d990b11f2dce25a0ca"
+checksum = "04d2cd9c18b9f454ed67da600630b021a8a80bf33f8c95896ab33aaf1c26b728"
 
 [[package]]
 name = "dashmap"
