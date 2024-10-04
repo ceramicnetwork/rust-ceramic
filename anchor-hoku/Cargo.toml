@@ -1,0 +1,47 @@
+[package]
+name = "ceramic-anchor-hoku"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+base64.workspace = true
+bytes.workspace = true
+ceramic-anchor-service.workspace = true
+ceramic-car.workspace = true
+ceramic-core.workspace = true
+ceramic-event.workspace = true
+ceramic-sql.workspace = true
+chrono.workspace = true
+expect-test.workspace = true
+#fendermint_crypto = { git = "https://github.com/hokunet/ipc.git", branch = "develop" }
+#fendermint_vm_message = { git = "https://github.com/hokunet/ipc.git", branch = "develop" }
+#fendermint_actor_accumulator = { git = "https://github.com/hokunet/ipc.git", branch = "develop" }
+fvm_shared = "4.1.0"
+hex.workspace = true
+#hoku_provider = { git = "https://github.com/hokunet/rust-hoku.git", branch = "main" }
+#hoku_sdk = { git = "https://github.com/hokunet/rust-hoku.git", branch = "main" }
+#hoku_signer = { git = "https://github.com/hokunet/rust-hoku.git", branch = "main" }
+hoku_provider = { path = "../../hoku/rust-hoku/provider" }
+hoku_sdk = { path = "../../hoku/rust-hoku/sdk" }
+hoku_signer = { path = "../../hoku/rust-hoku/signer" }
+multihash-codetable.workspace = true
+reqwest.workspace = true
+ring.workspace = true
+serde.workspace = true
+serde_ipld_dagcbor.workspace = true
+serde_json.workspace = true
+tendermint-rpc = { version = "0.39.1", features = [
+    "http-client",
+] }
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+
+[features]
+test-network = []

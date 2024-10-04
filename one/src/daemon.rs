@@ -5,6 +5,7 @@ use crate::{
     LogOpts, Network,
 };
 use anyhow::{anyhow, bail, Context, Result};
+use ceramic_anchor_hoku::HokuRpc;
 use ceramic_anchor_remote::RemoteCas;
 use ceramic_anchor_service::AnchorService;
 use ceramic_core::NodeId;
@@ -182,6 +183,16 @@ pub struct DaemonOpts {
     )]
     flight_sql_bind_address: Option<String>,
 
+    /// Path to anchoring private key directory
+    #[arg(
+        short,
+        long,
+        default_value=default_directory().into_os_string(),
+        env = "CERAMIC_ONE_ANCHORING_KEY_DIR",
+        requires = "experimental_features"
+    )]
+    anchoring_key_dir: PathBuf,
+
     /// Remote anchor service URL
     #[arg(
         long,
@@ -189,6 +200,31 @@ pub struct DaemonOpts {
         requires = "experimental_features"
     )]
     remote_anchor_service_url: Option<String>,
+
+    /// Hoku RPC URL
+    #[arg(
+        long,
+        env = "CERAMIC_ONE_HOKU_RPC_URL",
+        requires = "experimental_features"
+    )]
+    hoku_rpc_url: Option<String>,
+
+    /// Hoku RPC URL
+    #[arg(
+        long,
+        default_value = "test",
+        env = "CERAMIC_ONE_HOKU_SUBNET",
+        requires = "experimental_features"
+    )]
+    hoku_subnet: Option<String>,
+
+    /// Hoku Timehub address
+    #[arg(
+        long,
+        env = "CERAMIC_ONE_HOKU_TIMEHUB_ADDRESS",
+        requires = "experimental_features"
+    )]
+    hoku_timehub_address: Option<String>,
 
     /// Ceramic One anchor interval in seconds
     ///
@@ -412,7 +448,7 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
     // Load node ID from key directory. Libp2p has their own wrapper around ed25519 keys (╯°□°)╯︵ ┻━┻
     // So, we need to load the key from the key directory for libp2p to use, and then again for evaluating the Node ID
     // using a generic ed25519 processing library (ring). We'll assert that the keys are the same.
-    let (node_id, keypair) = NodeId::try_from_dir(opts.p2p_key_dir.clone())?;
+    let (node_id, _) = NodeId::try_from_dir(opts.p2p_key_dir.clone())?;
     assert_eq!(node_id.peer_id(), peer_id);
 
     // Register metrics for all components
@@ -522,6 +558,7 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
     // Start anchoring if remote anchor service URL is provided
     let anchor_service_handle =
         if let Some(remote_anchor_service_url) = opts.remote_anchor_service_url {
+            let (node_id, keypair) = NodeId::try_from_dir(opts.p2p_key_dir.clone())?;
             info!(
                 node_did = node_id.did_key(),
                 url = remote_anchor_service_url,
@@ -531,12 +568,47 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
             let remote_cas = RemoteCas::new(
                 node_id,
                 keypair,
-                remote_anchor_service_url,
+                &remote_anchor_service_url,
                 Duration::from_secs(opts.anchor_poll_interval),
                 opts.anchor_poll_retry_count,
             );
             let mut anchor_service = AnchorService::new(
                 Arc::new(remote_cas),
+                event_svc.clone(),
+                sqlite_pool.clone(),
+                node_id,
+                Duration::from_secs(opts.anchor_interval),
+                opts.anchor_batch_size,
+            );
+
+            let mut shutdown_signal = shutdown_signal.resubscribe();
+            Some(tokio::spawn(async move {
+                anchor_service
+                    .run(async move {
+                        let _ = shutdown_signal.recv().await;
+                    })
+                    .await
+            }))
+        } else if let Some(hoku_rpc_url) = opts.hoku_rpc_url {
+            info!(
+                url = hoku_rpc_url,
+                poll_interval = opts.anchor_poll_interval,
+                "starting hoku rpc service"
+            );
+            let private_key = tokio::fs::read_to_string(opts.anchoring_key_dir)
+                .await
+                .context("reading anchoring private key")?;
+            let hoku_rpc = HokuRpc::new(
+                private_key.as_str(),
+                hoku_rpc_url.as_str(),
+                opts.hoku_timehub_address.unwrap().as_str(),
+                opts.hoku_subnet.as_deref().unwrap_or("test"),
+                Duration::from_secs(opts.anchor_poll_interval),
+                opts.anchor_poll_retry_count,
+            )
+            .await?;
+            let mut anchor_service = AnchorService::new(
+                Arc::new(hoku_rpc),
                 event_svc.clone(),
                 sqlite_pool.clone(),
                 node_id,

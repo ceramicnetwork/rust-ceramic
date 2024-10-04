@@ -114,7 +114,7 @@ impl RemoteCas {
     pub fn new(
         node_id: NodeId,
         keypair: Ed25519KeyPair,
-        remote_anchor_service_url: String,
+        remote_anchor_service_url: &str,
         anchor_poll_interval: Duration,
         anchor_poll_retry_count: u64,
     ) -> Self {
@@ -270,7 +270,7 @@ mod tests {
         let remote_cas = Arc::new(RemoteCas::new(
             node_id,
             keypair,
-            "https://cas-dev.3boxlabs.com".to_owned(),
+            "https://cas-dev.3boxlabs.com",
             Duration::from_secs(1),
             1,
         ));
@@ -300,7 +300,7 @@ mod tests {
         let remote_cas = RemoteCas::new(
             node_id,
             keypair,
-            "https://cas-dev.3boxlabs.com".to_owned(),
+            "https://cas-dev.3boxlabs.com",
             Duration::from_secs(1),
             1,
         );
@@ -327,7 +327,7 @@ mod tests {
         let remote_cas = Arc::new(RemoteCas::new(
             node_id,
             keypair,
-            "https://cas-dev.3boxlabs.com".to_owned(),
+            "https://cas-dev.3boxlabs.com",
             Duration::from_secs(1),
             1,
         ));

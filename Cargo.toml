@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "anchor-hoku",
     "anchor-remote",
     "anchor-service",
     "api",
@@ -59,6 +60,7 @@ bs58 = "0.4"
 bytecheck = "0.6.7"
 bytes = "1.1"
 bytesize = "1.1"
+ceramic-anchor-hoku = { path = "./anchor-hoku" }
 ceramic-anchor-service = { path = "./anchor-service" }
 ceramic-anchor-remote = { path = "./anchor-remote" }
 ceramic-api = { path = "./api" }
@@ -96,7 +98,7 @@ datafusion-flight-sql-server = { git = "https://github.com/datafusion-contrib/da
 datafusion-flight-sql-table-provider = { git = "https://github.com/datafusion-contrib/datafusion-federation.git", branch = "main" }
 deadqueue = "0.2.3"
 derivative = "2.2"
-derive_more = "0.99.17"
+derive_more = "1.0.0"
 dirs-next = "2"
 ed25519-dalek = "2.1"
 expect-test = "1.4.1"
@@ -206,7 +208,7 @@ tikv-jemallocator = { version = "0.5", features = [
 tikv-jemalloc-ctl = "0.5"
 time = "0.3.9"
 tmpdir = "1.0.0"
-tokio = { version = "1", default-features = false, features = [
+tokio = { version = "1.40.0", default-features = false, features = [
     "rt",
     "macros",
     "sync",
