@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use ceramic_core::{Cid, EventId, NodeId};
 use ceramic_event::unvalidated;
+use hoku_provider::json_rpc::JsonRpcProvider;
 use ipld_core::ipld::Ipld;
 use recon::ReconItem;
 use tokio::try_join;
@@ -127,23 +128,16 @@ pub struct EventValidator {
 
 impl EventValidator {
     /// Create a new event validator
+    ///
+    ///
     pub async fn try_new(
         pool: SqlitePool,
         ethereum_rpc_providers: Vec<EthRpcProvider>,
+        hoku_rpc_providers: Vec<JsonRpcProvider>,
     ) -> Result<Self> {
-        let time_event_verifier = TimeEventValidator::new_with_providers(ethereum_rpc_providers);
-    pub async fn try_new(pool: SqlitePool, ethereum_rpc_urls: Option<&[String]>) -> Result<Self> {
-        let hoku_urls = &["http://localhost:26657"];
-        let time_event_verifier = if let Some(eth_urls) = ethereum_rpc_urls {
-            Some(
-                TimeEventValidator::try_new(eth_urls, hoku_urls)
-                    .await
-                    .map_err(Error::new_fatal)?,
-            )
-        } else {
-            None
-        };
-
+        let time_event_verifier =
+            TimeEventValidator::new_with_providers(ethereum_rpc_providers, hoku_rpc_providers);
+        // let hoku_urls = &["http://localhost:26657"];
         Ok(Self {
             pool,
             time_event_verifier,
@@ -301,7 +295,7 @@ mod test {
         let pool = SqlitePool::connect_in_memory().await.unwrap();
         let events = get_validation_events().await;
 
-        let validated = EventValidator::try_new(pool, vec![])
+        let validated = EventValidator::try_new(pool, vec![], vec![])
             .await
             .unwrap()
             .validate_events(Some(&ValidationRequirement::new_recon()), events)
@@ -325,7 +319,7 @@ mod test {
         let pool = SqlitePool::connect_in_memory().await.unwrap();
         let events = get_validation_events().await;
 
-        let validated = EventValidator::try_new(pool, vec![])
+        let validated = EventValidator::try_new(pool, vec![], vec![])
             .await
             .unwrap()
             .validate_events(Some(&ValidationRequirement::new_local()), events)
@@ -349,7 +343,7 @@ mod test {
         let pool = SqlitePool::connect_in_memory().await.unwrap();
         let events = get_validation_events().await;
 
-        let validated = EventValidator::try_new(pool, vec![])
+        let validated = EventValidator::try_new(pool, vec![], vec![])
             .await
             .unwrap()
             .validate_events(None, events)

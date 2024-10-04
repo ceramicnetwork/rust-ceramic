@@ -6,6 +6,7 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false
+derive_more = "1.0.0"
 
 [dependencies]
 anyhow.workspace = true
@@ -40,13 +41,11 @@ tokio.workspace = true
 tracing.workspace = true
 # This is a private repo. In order to pull it start cargo with cli with this env var:
 # CARGO_NET_GIT_FETCH_WITH_CLI=true cargo fetch
-hoku_sdk = {git="https://github.com/hokunet/rust-hoku", branch="main"}
-hoku_provider = {git="https://github.com/hokunet/rust-hoku", branch="main"}
-tendermint-rpc = { version = "0.39.1", features = [
-    "http-client",
-] }
+# hoku_sdk = {git="https://github.com/hokunet/rust-hoku", branch="main"}
+hoku_sdk = {path = "../../../../hoku/rust-hoku/sdk"}
+hoku_provider = {path = "../../../../hoku/rust-hoku/provider"}
 fvm_shared = "4.1.0"
-fendermint_vm_message = { git = "ssh://git@github.com/hokunet/ipc.git", branch="main" }
+# fendermint_vm_message = { git = "ssh://git@github.com/hokunet/ipc.git", branch="develop"}
 
 [dev-dependencies]
 ceramic-event.workspace = true

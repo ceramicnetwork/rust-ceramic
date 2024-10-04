@@ -15,6 +15,7 @@ use ceramic_flight::{ConclusionData, ConclusionEvent, ConclusionInit, Conclusion
 use ceramic_sql::sqlite::SqlitePool;
 use cid::Cid;
 use futures::stream::BoxStream;
+use hoku_provider::json_rpc::JsonRpcProvider;
 use ipld_core::ipld::Ipld;
 use itertools::Itertools;
 use recon::ReconItem;
@@ -89,12 +90,14 @@ impl EventService {
         process_undelivered_events: bool,
         validate_events: bool,
         ethereum_rpc_providers: Vec<EthRpcProvider>,
+        hoku_rpc_providers: Vec<JsonRpcProvider>,
     ) -> Result<Self> {
         CeramicOneEvent::init_delivered_order(&pool).await?;
 
         let delivery_task = OrderingTask::run(pool.clone(), PENDING_EVENTS_CHANNEL_DEPTH).await;
-
-        let event_validator = EventValidator::try_new(pool.clone(), ethereum_rpc_providers).await?;
+        let event_validator =
+            EventValidator::try_new(pool.clone(), ethereum_rpc_providers, hoku_rpc_providers)
+                .await?;
 
         let svc = Self {
             pool,
@@ -114,7 +117,7 @@ impl EventService {
     /// in the next pass.. but it's basically same same but different.
     #[allow(dead_code)]
     pub(crate) async fn new_with_event_validation(pool: SqlitePool) -> Result<Self> {
-        Self::try_new(pool, false, true, vec![]).await
+        Self::try_new(pool, false, true, vec![], vec![]).await
     }
 
     /// Currently, we track events when the [`ValidationRequirement`] allows. Right now, this applies to

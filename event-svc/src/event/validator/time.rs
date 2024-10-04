@@ -5,13 +5,14 @@ use ceramic_core::ssi::caip2;
 use ceramic_core::Cid;
 use ceramic_event::unvalidated;
 use ceramic_sql::sqlite::SqlitePool;
-use fendermint_vm_message::query::FvmQueryHeight;
+// use fendermint_vm_message::query::FvmQueryHeight;
 use fvm_shared::address::Address;
 use hoku_provider::json_rpc::JsonRpcProvider;
+use hoku_provider::json_rpc::{HttpClient, Url};
+use hoku_sdk::machine::accumulator::FvmQueryHeight;
 use hoku_sdk::machine::{accumulator::Accumulator, Machine};
 use multihash::Multihash;
 use once_cell::sync::Lazy;
-use tendermint_rpc::Url;
 use tracing::warn;
 
 use ceramic_validation::eth_rpc::{self, ChainBlock, EthRpc, HttpEthRpc};
@@ -72,7 +73,7 @@ pub struct TimeEventValidator {
     /// but we'll just force people to run a light client if they really need the throughput
     chain_providers: HashMap<caip2::ChainId, EthRpcProvider>,
     // map of hoku chains to their rpc providers
-    hoku_providers: HashMap<caip2::ChainId, JsonRpcProvider>,
+    hoku_providers: HashMap<caip2::ChainId, JsonRpcProvider<HttpClient>>,
 }
 
 impl std::fmt::Debug for TimeEventValidator {
@@ -106,7 +107,8 @@ impl TimeEventValidator {
                 }
             }
         }
-        let mut hoku_providers = HashMap::with_capacity(hoku_rpc_urls.len());
+        let mut hoku_providers: HashMap<_, JsonRpcProvider<HttpClient>> =
+            HashMap::with_capacity(hoku_rpc_urls.len());
 
         for url in hoku_rpc_urls {
             match JsonRpcProvider::new_http(url.parse()?, None, None) {
@@ -137,12 +139,21 @@ impl TimeEventValidator {
 
     /// Create from known providers (e.g. inject mocks)
     /// Currently used in tests, may switch to this from service if we want to share RPC with anchoring.
-    pub fn new_with_providers(providers: Vec<EthRpcProvider>) -> Self {
+    pub fn new_with_providers(
+        eth_providers: Vec<EthRpcProvider>,
+        hoku_providers: Vec<JsonRpcProvider<HttpClient>>,
+    ) -> Self {
         Self {
             chain_providers: HashMap::from_iter(
-                providers.into_iter().map(|p| (p.chain_id().to_owned(), p)),
+                eth_providers
+                    .into_iter()
+                    .map(|p| (p.chain_id().to_owned(), p)),
             ),
-            hoku_providers: HashMap::new(),
+            hoku_providers: HashMap::from_iter(
+                hoku_providers
+                    .into_iter()
+                    .map(|p| ("hoku:mainnet".parse().unwrap(), p)),
+            ),
         }
     }
 
@@ -174,6 +185,7 @@ impl TimeEventValidator {
         _pool: &SqlitePool,
         event: &unvalidated::TimeEvent,
     ) -> Result<Timestamp, ChainInclusionError> {
+        // todo!("hoku validation not implemented yet");
         let chain_id = caip2::ChainId::from_str(event.proof().chain_id())
             .map_err(|e| ChainInclusionError::Error(anyhow!("invalid chain ID: {}", e)))?;
 
@@ -181,9 +193,7 @@ impl TimeEventValidator {
             .hoku_providers
             .get(&chain_id)
             .ok_or_else(|| ChainInclusionError::NoChainProvider(chain_id.clone()))?;
-
-        let tx_hash = Self::expected_tx_hash(event.proof().root());
-        let (accumulator_address, leaf_index) = Self::parse_hoku_tx_hash(&tx_hash)?;
+        let (accumulator_address, leaf_index) = Self::parse_hoku_tx_type(event.proof().tx_type())?;
 
         let machine = Accumulator::attach(accumulator_address)
             .await
@@ -192,18 +202,17 @@ impl TimeEventValidator {
             })?;
 
         // Fetch the leaf at the given index
-        let leaf = machine
-            .leaf(&provider, leaf_index, FvmQueryHeight::Committed)
-            .await?;
+        let (timestamp, leaf) = machine
+            .leaf(provider, leaf_index, FvmQueryHeight::Committed)
+            .await
+            .unwrap();
 
         if leaf != event.proof().root().to_bytes() {
             return Err(ChainInclusionError::InvalidProof(
                 "The root CID does not match the leaf in the accumulator".into(),
             ));
         }
-
-        // Fetch the block timestamp
-        Ok(Some(Timestamp(BLOCK_TIMESTAMP)))
+        return Ok(Timestamp(timestamp));
     }
 
     /// Validate the chain inclusion proof for a time event, returning the block timestamp if found
@@ -320,39 +329,27 @@ impl TimeEventValidator {
         }
     }
 
-    fn parse_hoku_tx_hash(tx_hash: &str) -> Result<(Address, u64), ChainInclusionError> {
-        let parts: Vec<&str> = tx_hash.split(':').collect();
+    /// Validate the chain inclusion proof for a time event, returning the block timestamp if found
+    /// {
+    //   "chainId": "hoku:mainnet:",
+    //   "root": {"/": "bafyreicbwzaiyg2l4uaw6zjds3xupqeyfq3nlb36xodusgn24ou3qvgy4e"},
+    //   "txHash": {"/": "t2xplsbor65en7jome74tk73e5gcgqazuwm5qqamy:42"},
+    //   "txType": "hoku(address:index)"
+    // }
+    fn parse_hoku_tx_type(tx_type: &str) -> Result<(Address, u64), ChainInclusionError> {
+        let tx_type = tx_type.strip_prefix("hoku(").unwrap_or(tx_type);
+        let tx_type = tx_type.strip_suffix(")").unwrap_or(tx_type);
+        let parts: Vec<&str> = tx_type.split(':').collect();
         if parts.len() != 2 {
             return Err(ChainInclusionError::Error(anyhow!(
-                "Invalid Hoku tx_hash format"
+                "Invalid Hoku tx_type format"
             )));
         }
 
         let address = Address::from_str(parts[0]).map_err(|e| {
             ChainInclusionError::Error(anyhow!("Invalid accumulator address: {}", e))
         })?;
-        let index = parts[1]
-            .parse::<u64>()
-            .map_err(|e| ChainInclusionError::InvalidLeafIndex(e.to_string()))?;
-
-        Ok((address, index))
-    }
-
-    fn parse_hoku_tx_hash(tx_hash: &str) -> Result<(Address, u64), ChainInclusionError> {
-        let parts: Vec<&str> = tx_hash.split(':').collect();
-        if parts.len() != 2 {
-            return Err(ChainInclusionError::Error(anyhow!(
-                "Invalid Hoku tx_hash format"
-            )));
-        }
-
-        let address = Address::from_str(parts[0]).map_err(|e| {
-            ChainInclusionError::Error(anyhow!("Invalid accumulator address: {}", e))
-        })?;
-        let index = parts[1]
-            .parse::<u64>()
-            .map_err(|e| ChainInclusionError::InvalidLeafIndex(e.to_string()))?;
-
+        let index = parts[1].parse::<u64>().unwrap();
         Ok((address, index))
     }
 
