@@ -250,7 +250,7 @@ where
     /// Starts the libp2p service networking stack. This Future resolves when shutdown occurs.
     #[instrument(skip_all)]
     pub async fn run(&mut self) -> Result<()> {
-        info!("Listen addrs: {:?}", self.listen_addrs());
+        info!("P2P listen addrs: {:?}", self.listen_addrs());
         info!("Local Peer ID: {}", self.local_peer_id());
 
         let mut nice_interval = self.use_dht.then(|| tokio::time::interval(NICE_INTERVAL));

@@ -312,7 +312,7 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
         instance_id = info.instance_id,
         exe_hash = info.exe_hash,
     );
-    debug!(?opts, "using daemon options");
+    info!(?opts, "Starting ceramic-one daemon with options");
 
     let store_dir = &opts.db_opts.store_dir;
     debug!(dir = %store_dir.display(), "using store directory");
