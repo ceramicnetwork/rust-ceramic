@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.38.0] - 2024-10-07
+
+### 🚀 Features
+
+- Validate signed events (#503)
+- Self-anchoring (part 5) (#488)
+- Support non sharded IPFS block paths (#541)
+- Store doc_state table in object storage (#540)
+- Add logic to migration to count errors by model (#542)
+- Validate time event chain inclusion proofs (#539)
+- Process batches on the interval (#548)
+- Ethereum RPC provider configuration (#547)
+
+### 🐛 Bug Fixes
+
+- Make self-anchoring config experimental (#546)
+
+### 🚜 Refactor
+
+- Return reference to inserted item from event store and reduce unnecessary ordering work  (#530)
+- Teach event validator some more and store a copy on the service (#536)
+- Use alloy as ethereum RPC provider (#543)
+
+### ⚙️ Miscellaneous Tasks
+
+- Update ca-certificates so eth rpc connections (#549)
+
 ## [0.37.0] - 2024-09-23
 
 ### 🚀 Features
@@ -16,6 +43,10 @@ All notable changes to this project will be documented in this file.
 ### 🚜 Refactor
 
 - Small logic change for readability (#534)
+
+### ⚙️ Miscellaneous Tasks
+
+- Version v0.37.0 (#537)
 
 ## [0.36.0] - 2024-09-18
 
