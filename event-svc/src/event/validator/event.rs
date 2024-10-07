@@ -21,6 +21,8 @@ use crate::{
     Result,
 };
 
+use super::time::HokuRpcProvider;
+
 #[derive(Debug)]
 pub struct ValidatedEvents {
     /// These events are valid
@@ -131,8 +133,10 @@ impl EventValidator {
     pub async fn try_new(
         pool: SqlitePool,
         ethereum_rpc_providers: Vec<EthRpcProvider>,
+        hoku_rpc_providers: Vec<HokuRpcProvider>,
     ) -> Result<Self> {
-        let time_event_verifier = TimeEventValidator::new_with_providers(ethereum_rpc_providers);
+        let time_event_verifier =
+            TimeEventValidator::new_with_providers(ethereum_rpc_providers, hoku_rpc_providers);
 
         Ok(Self {
             pool,
@@ -303,7 +307,7 @@ mod test {
         let pool = SqlitePool::connect_in_memory().await.unwrap();
         let events = get_validation_events().await;
 
-        let validated = EventValidator::try_new(pool, vec![])
+        let validated = EventValidator::try_new(pool, vec![], vec![])
             .await
             .unwrap()
             .validate_events(Some(&ValidationRequirement::new_recon()), events)
@@ -327,7 +331,7 @@ mod test {
         let pool = SqlitePool::connect_in_memory().await.unwrap();
         let events = get_validation_events().await;
 
-        let validated = EventValidator::try_new(pool, vec![])
+        let validated = EventValidator::try_new(pool, vec![], vec![])
             .await
             .unwrap()
             .validate_events(Some(&ValidationRequirement::new_local()), events)
@@ -351,7 +355,7 @@ mod test {
         let pool = SqlitePool::connect_in_memory().await.unwrap();
         let events = get_validation_events().await;
 
-        let validated = EventValidator::try_new(pool, vec![])
+        let validated = EventValidator::try_new(pool, vec![], vec![])
             .await
             .unwrap()
             .validate_events(None, events)

@@ -33,6 +33,12 @@ ssi.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 unsigned-varint.workspace = true
+# TODO: workspace 
+# hoku_provider = { git = "https://github.com/hokunet/rust-hoku.git", branch = "main" }
+# hoku_sdk = { git = "https://github.com/hokunet/rust-hoku.git", branch = "main" }
+hoku_provider = { path = "../../hoku/rust-hoku/provider" }
+hoku_sdk = { path = "../../hoku/rust-hoku/sdk" }
+hoku_signer = { git = "https://github.com/hokunet/rust-hoku.git", branch = "main" }
 # will probably need contract and signer-local features for self anchoring
 alloy = { version = "0.4", features = ["k256", "provider-http", "rpc-types"] }
 

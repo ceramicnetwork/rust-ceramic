@@ -20,7 +20,7 @@ use itertools::Itertools;
 use recon::ReconItem;
 use tracing::{trace, warn};
 
-use crate::event::validator::EthRpcProvider;
+use crate::event::validator::{EthRpcProvider, HokuRpcProvider};
 use crate::store::{CeramicOneEvent, EventInsertable, EventRowDelivered};
 use crate::{Error, Result};
 
@@ -89,12 +89,15 @@ impl EventService {
         process_undelivered_events: bool,
         validate_events: bool,
         ethereum_rpc_providers: Vec<EthRpcProvider>,
+        hoku_rpc_providers: Vec<HokuRpcProvider>,
     ) -> Result<Self> {
         CeramicOneEvent::init_delivered_order(&pool).await?;
 
         let delivery_task = OrderingTask::run(pool.clone(), PENDING_EVENTS_CHANNEL_DEPTH).await;
 
-        let event_validator = EventValidator::try_new(pool.clone(), ethereum_rpc_providers).await?;
+        let event_validator =
+            EventValidator::try_new(pool.clone(), ethereum_rpc_providers, hoku_rpc_providers)
+                .await?;
 
         let svc = Self {
             pool,
@@ -109,12 +112,12 @@ impl EventService {
         Ok(svc)
     }
 
-    /// Create a new CeramicEventStore with event validation enabled
+    /// Create a new CeramicEventStore with event signature validation enabled (but not time event RPC providers/validation).
     /// This is likely temporary and only used in tests to avoid adding the bool now and then deleting it
     /// in the next pass.. but it's basically same same but different.
     #[allow(dead_code)]
     pub(crate) async fn new_with_event_validation(pool: SqlitePool) -> Result<Self> {
-        Self::try_new(pool, false, true, vec![]).await
+        Self::try_new(pool, false, true, vec![], vec![]).await
     }
 
     /// Currently, we track events when the [`ValidationRequirement`] allows. Right now, this applies to

@@ -37,7 +37,6 @@ pub enum Error {
     Application(anyhow::Error),
 }
 
-
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 /// A proof of time on the blockchain
 pub struct TimeProof {

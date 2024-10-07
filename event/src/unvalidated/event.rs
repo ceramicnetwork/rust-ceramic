@@ -487,6 +487,12 @@ impl Proof {
     pub fn tx_type(&self) -> &str {
         self.tx_type.as_ref()
     }
+
+    /// Not defined in spec yet
+    pub fn accumulator(&self) -> &str {
+        // TODO
+        "address:index"
+    }
 }
 
 /// Proof edge TODO: rename witness node

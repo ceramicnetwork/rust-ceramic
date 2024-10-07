@@ -1,14 +1,13 @@
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 use ceramic_core::ssi::caip2;
 use ceramic_event::unvalidated;
 use ceramic_sql::sqlite::SqlitePool;
-use tracing::warn;
-
 use ceramic_validation::{
     blockchain,
-    eth_rpc::{EthProofType, EthTxProofInput, HttpEthRpc},
+    eth_rpc::{EthProofType, EthTxProofInput},
+    hoku::HokuTxInput,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -23,64 +22,64 @@ impl Timestamp {
 }
 
 /// Provider for a remote Ethereum RPC endpoint.
-pub type EthRpcProvider = Arc<dyn blockchain::ChainInclusion<InclusionInput = EthTxProofInput> + Send + Sync>;
+pub type EthRpcProvider =
+    Arc<dyn blockchain::ChainInclusion<InclusionInput = EthTxProofInput> + Send + Sync>;
+
+/// Provider for a remote Hoku RPC endpoint.
+pub type HokuRpcProvider =
+    Arc<dyn blockchain::ChainInclusion<InclusionInput = HokuTxInput> + Send + Sync>;
 
 pub struct TimeEventValidator {
     /// we could support multiple providers for each chain (to get around rate limits)
     /// but we'll just force people to run a light client if they really need the throughput
-    chain_providers: HashMap<caip2::ChainId, EthRpcProvider>,
+    eth_providers: HashMap<caip2::ChainId, EthRpcProvider>,
+    hoku_providers: HashMap<caip2::ChainId, HokuRpcProvider>,
 }
 
 impl std::fmt::Debug for TimeEventValidator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("EventTimestamper")
             .field(
-                "chain_providers",
-                &format!("{:?}", &self.chain_providers.keys()),
+                "eth_providers",
+                &format!("{:?}", &self.eth_providers.keys()),
+            )
+            .field(
+                "hoku_providers",
+                &format!("{:?}", &self.hoku_providers.keys()),
             )
             .finish()
     }
 }
 
 impl TimeEventValidator {
-    /// Try to construct the validator by looking building the etherum rpc providers from the given URLsƒsw
-    #[allow(dead_code)]
-    pub async fn try_new(rpc_urls: &[String]) -> Result<Self> {
-        let mut chain_providers = HashMap::with_capacity(rpc_urls.len());
-        for url in rpc_urls {
-            match HttpEthRpc::try_new(url).await {
-                Ok(provider) => {
-                    // use the first valid rpc client we find rather than replace one
-                    // could support an array of clients for a chain if desired
-                    let provider: EthRpcProvider = Arc::new(provider);
-                    chain_providers
-                        .entry(provider.chain_id().to_owned())
-                        .or_insert_with(|| provider);
-                }
-                Err(err) => {
-                    warn!(?err, "failed to create RPC client with url: '{url}'");
-                }
-            }
-        }
-        if chain_providers.is_empty() {
-            bail!("failed to instantiate any RPC chain providers");
-        }
-        Ok(Self { chain_providers })
-    }
-
     /// Create from known providers (e.g. inject mocks)
     /// Currently used in tests, may switch to this from service if we want to share RPC with anchoring.
-    pub fn new_with_providers(providers: Vec<EthRpcProvider>) -> Self {
+    pub fn new_with_providers(
+        eth_providers: Vec<EthRpcProvider>,
+        hoku_providers: Vec<HokuRpcProvider>,
+    ) -> Self {
         Self {
-            chain_providers: HashMap::from_iter(
-                providers.into_iter().map(|p| (p.chain_id().to_owned(), p)),
+            eth_providers: HashMap::from_iter(
+                eth_providers
+                    .into_iter()
+                    .map(|p| (p.chain_id().to_owned(), p)),
+            ),
+            hoku_providers: HashMap::from_iter(
+                hoku_providers
+                    .into_iter()
+                    .map(|p| (p.chain_id().to_owned(), p)),
             ),
         }
     }
 
     /// Get the CAIP2 Chain IDs that we can validate
     fn _supported_chains(&self) -> Vec<caip2::ChainId> {
-        self.chain_providers.keys().cloned().collect()
+        self.eth_providers
+            .keys()
+            .into_iter()
+            .chain(self.hoku_providers.keys())
+            .cloned()
+            .collect()
     }
 
     /// Validate the chain inclusion proof for a time event, returning the block timestamp if found
@@ -92,21 +91,40 @@ impl TimeEventValidator {
         let chain_id = caip2::ChainId::from_str(event.proof().chain_id())
             .map_err(|e| blockchain::Error::InvalidArgument(format!("invalid chain ID: {}", e)))?;
 
-        let provider = self
-            .chain_providers
-            .get(&chain_id)
-            .ok_or_else(|| blockchain::Error::NoChainProvider(chain_id.clone()))?;
+        let proof = match chain_id.namespace.as_str() {
+            "eip155" => {
+                let provider = self
+                    .eth_providers
+                    .get(&chain_id)
+                    .ok_or_else(|| blockchain::Error::NoChainProvider(chain_id.clone()))?;
 
-        let input = EthTxProofInput {
-            tx_hash: event.proof().tx_hash(),
-            tx_type: EthProofType::from_str(event.proof().tx_type())
-                .map_err(|e| blockchain::Error::InvalidProof(e.to_string()))?,
+                let input = EthTxProofInput {
+                    tx_hash: event.proof().tx_hash(),
+                    tx_type: EthProofType::from_str(event.proof().tx_type())
+                        .map_err(|e| blockchain::Error::InvalidProof(e.to_string()))?,
+                };
+                provider.chain_inclusion_proof(&input).await?
+            }
+            // TODO: this is just a hack example.. need real chain namespace info to determine this
+            "hoku" => {
+                let provider = self
+                    .hoku_providers
+                    .get(&chain_id)
+                    .ok_or_else(|| blockchain::Error::NoChainProvider(chain_id.clone()))?;
+
+                let input = event.proof().try_into()?;
+                provider.chain_inclusion_proof(&input).await?
+            }
+            v => {
+                return Err(blockchain::Error::InvalidArgument(format!(
+                    "Unknown chain type: {v}"
+                )));
+            }
         };
-        let proof = provider.chain_inclusion_proof(&input).await?;
 
         if proof.root_cid != event.proof().root() {
             return Err(blockchain::Error::InvalidProof(format!(
-                "the root CID is not in the transaction (root={})",
+                "The root CID is not in the transaction (root={})",
                 event.proof().root()
             )));
         }
@@ -277,7 +295,7 @@ mod test {
                     root_cid,
                 })
             });
-        TimeEventValidator::new_with_providers(vec![Arc::new(mock_provider)])
+        TimeEventValidator::new_with_providers(vec![Arc::new(mock_provider)], Vec::new())
     }
 
     #[test(tokio::test)]

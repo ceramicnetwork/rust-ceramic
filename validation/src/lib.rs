@@ -10,6 +10,6 @@ mod siwx_message;
 mod test;
 mod verifier;
 
-pub use blockchain::eth_rpc;
+pub use blockchain::{eth_rpc, hoku};
 pub use ceramic_event::unvalidated::signed::cacao;
 pub use verifier::{cacao_verifier, event_verifier, AtTime, VerifyCacaoOpts, VerifyJwsOpts};
