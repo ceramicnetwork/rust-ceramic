@@ -274,7 +274,14 @@ async fn get_rpc_providers(
     }
 
     if providers.is_empty() {
-        bail!("No usable ethereum RPC configured");
+        if *network == Network::Local || *network == Network::InMemory {
+            warn!("No usable ethereum RPC provided for network {}. All TimeEvent validation will fail", network.name());
+        } else {
+            bail!(
+                "No usable ethereum RPC configured for network {}",
+                network.name()
+            );
+        }
     }
 
     Ok(providers)
