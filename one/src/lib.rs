@@ -41,7 +41,7 @@ enum Command {
     Migrations(migrations::EventsCommand),
 }
 
-#[derive(ValueEnum, Debug, Clone)]
+#[derive(ValueEnum, Debug, Clone, PartialEq, Eq)]
 enum Network {
     /// Production network
     Mainnet,
@@ -139,6 +139,17 @@ impl Network {
             ]), // Sepolia
             Network::Local => None,
             Network::InMemory => None,
+        }
+    }
+
+    /// Get the network as a unique name.
+    pub fn name(&self) -> String {
+        match self {
+            Network::Mainnet => "mainnet".to_owned(),
+            Network::TestnetClay => "testnet-clay".to_owned(),
+            Network::DevUnstable => "dev-unstable".to_owned(),
+            Network::Local => "local".to_owned(),
+            Network::InMemory => "inmemory".to_owned(),
         }
     }
 }
