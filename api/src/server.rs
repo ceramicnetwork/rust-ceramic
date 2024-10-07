@@ -407,16 +407,10 @@ where
             // rely on the channel depth for backpressure. the goal is to keep the queue close to empty
             // without processing one at a time. when we stop parsing the carfile in the store
             // i.e. validate before sending here and this is just an insert, we may want to process more at once.
-            let (mut shutdown, mut process_early) = (false, false);
+            let mut shutdown = false;
             loop {
-                // process events at the interval or when we're under heavy load.
-                // we do it outside the select! to avoid any cancel safety issues
-                // even though we should be okay since we're using tokio channels/intervals
-                if events.len() >= EVENT_INSERT_QUEUE_SIZE || process_early {
-                    Self::process_events(&mut events, &event_store, node_id).await;
-                }
-
                 let mut buf = Vec::with_capacity(EVENTS_TO_RECEIVE);
+                let mut process_early = false;
                 tokio::select! {
                     _ = interval.tick() => {
                         process_early = true;
@@ -445,6 +439,12 @@ where
 
                     Self::process_events(&mut events, &event_store, node_id).await;
                     return;
+                }
+                // process events at the interval or when we're under heavy load.
+                // we do it outside the select! to avoid any cancel safety issues
+                // even though we should be okay since we're using tokio channels/intervals
+                if events.len() >= EVENT_INSERT_QUEUE_SIZE || process_early {
+                    Self::process_events(&mut events, &event_store, node_id).await;
                 }
             }
         })
