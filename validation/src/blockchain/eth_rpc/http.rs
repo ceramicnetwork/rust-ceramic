@@ -20,7 +20,7 @@ use once_cell::sync::Lazy;
 use ssi::caip2;
 use tracing::trace;
 
-use crate::eth_rpc::{ChainInclusion, Error, EthTxProofInput, TimeProof};
+use crate::blockchain::{eth_rpc::EthTxProofInput, ChainInclusion, Error, TimeProof};
 
 use super::EthProofType;
 

@@ -336,6 +336,7 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
             true,
             opts.event_validation,
             rpc_providers,
+            Vec::new(), // TODO: pass in hoku RPC providers via CLI
         )
         .await?,
     );
