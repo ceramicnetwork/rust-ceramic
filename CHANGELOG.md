@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.39.0] - 2024-10-07
+
+### 🐛 Bug Fixes
+
+- Allow local and inmemory networks to start up without an eth rpc url (#555)
+
+### ⚙️ Miscellaneous Tasks
+
+- Always log options at startup (#554)
+
 ## [0.38.0] - 2024-10-07
 
 ### 🚀 Features
@@ -28,6 +38,7 @@ All notable changes to this project will be documented in this file.
 ### ⚙️ Miscellaneous Tasks
 
 - Update ca-certificates so eth rpc connections (#549)
+- Version v0.38.0 (#552)
 
 ## [0.37.0] - 2024-09-23
 
