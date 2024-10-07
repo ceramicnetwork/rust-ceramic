@@ -559,6 +559,7 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
         network,
         interest_api_store,
         Arc::new(model_api_store),
+        shutdown_signal.resubscribe(),
     );
     if opts.authentication {
         ceramic_server.with_authentication(true);

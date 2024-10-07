@@ -40,6 +40,7 @@ use recon::Key;
 use swagger::{ApiError, ByteArray};
 #[cfg(not(target_env = "msvc"))]
 use tikv_jemalloc_ctl::epoch;
+use tokio::sync::broadcast;
 use tracing::{instrument, Level};
 
 use crate::server::event::event_id_from_car;
@@ -362,11 +363,17 @@ where
     I: InterestService,
     M: EventService + 'static,
 {
-    pub fn new(node_id: NodeId, network: Network, interest: I, model: Arc<M>) -> Self {
+    pub fn new(
+        node_id: NodeId,
+        network: Network,
+        interest: I,
+        model: Arc<M>,
+        shutdown_signal: broadcast::Receiver<()>,
+    ) -> Self {
         let (tx, event_rx) = tokio::sync::mpsc::channel::<EventInsert>(1024);
         let event_store = model.clone();
 
-        let handle = Self::start_insert_task(event_store, event_rx, node_id);
+        let handle = Self::start_insert_task(event_store, event_rx, node_id, shutdown_signal);
         let insert_task = Arc::new(InsertTask {
             _handle: handle,
             tx,
@@ -391,6 +398,7 @@ where
         event_store: Arc<M>,
         mut event_rx: tokio::sync::mpsc::Receiver<EventInsert>,
         node_id: NodeId,
+        mut shutdown_signal: broadcast::Receiver<()>,
     ) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_millis(FLUSH_INTERVAL_MS));
@@ -399,7 +407,17 @@ where
             // rely on the channel depth for backpressure. the goal is to keep the queue close to empty
             // without processing one at a time. when we stop parsing the carfile in the store
             // i.e. validate before sending here and this is just an insert, we may want to process more at once.
+            let mut shutdown = false;
             loop {
+                let should_exit = shutdown || event_rx.is_closed();
+                // make sure the events queue doesn't get too deep when we're under heavy load
+                if events.len() >= EVENT_INSERT_QUEUE_SIZE || should_exit {
+                    Self::process_events(&mut events, &event_store, node_id).await;
+                }
+                if should_exit {
+                    tracing::info!("Shutting down insert task.");
+                    return;
+                }
                 let mut buf = Vec::with_capacity(EVENTS_TO_RECEIVE);
                 tokio::select! {
                     _ = interval.tick() => {
@@ -410,16 +428,11 @@ where
                             events.extend(buf);
                         }
                     }
-                }
-                let shutdown = event_rx.is_closed();
-                // make sure the events queue doesn't get too deep when we're under heavy load
-                if events.len() >= EVENT_INSERT_QUEUE_SIZE || shutdown {
-                    Self::process_events(&mut events, &event_store, node_id).await;
-                }
-                if shutdown {
-                    tracing::info!("Shutting down insert task.");
-                    return;
-                }
+                    _ = shutdown_signal.recv() => {
+                        tracing::debug!("Insert many task got shutdown signal");
+                        shutdown = true;
+                    }
+                };
             }
         })
     }
