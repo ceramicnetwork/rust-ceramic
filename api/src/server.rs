@@ -407,21 +407,19 @@ where
             // rely on the channel depth for backpressure. the goal is to keep the queue close to empty
             // without processing one at a time. when we stop parsing the carfile in the store
             // i.e. validate before sending here and this is just an insert, we may want to process more at once.
-            let mut shutdown = false;
+            let (mut shutdown, mut process_early) = (false, false);
             loop {
-                let should_exit = shutdown || event_rx.is_closed();
-                // make sure the events queue doesn't get too deep when we're under heavy load
-                if events.len() >= EVENT_INSERT_QUEUE_SIZE || should_exit {
+                // process events at the interval or when we're under heavy load.
+                // we do it outside the select! to avoid any cancel safety issues
+                // even though we should be okay since we're using tokio channels/intervals
+                if events.len() >= EVENT_INSERT_QUEUE_SIZE || process_early {
                     Self::process_events(&mut events, &event_store, node_id).await;
                 }
-                if should_exit {
-                    tracing::info!("Shutting down insert task.");
-                    return;
-                }
+
                 let mut buf = Vec::with_capacity(EVENTS_TO_RECEIVE);
                 tokio::select! {
                     _ = interval.tick() => {
-                        Self::process_events(&mut events, &event_store, node_id).await;
+                        process_early = true;
                     }
                     val = event_rx.recv_many(&mut buf, EVENTS_TO_RECEIVE) => {
                         if val > 0 {
@@ -433,6 +431,21 @@ where
                         shutdown = true;
                     }
                 };
+                if shutdown {
+                    tracing::info!("Shutting down insert task after processing current batch");
+                    if !event_rx.is_empty() {
+                        let remaining_event_cnt = event_rx.len();
+                        let mut buf = Vec::with_capacity(remaining_event_cnt);
+                        tracing::info!(
+                            "Receiving {remaining_event_cnt} remaining events for insert task before exiting"
+                        );
+                        event_rx.recv_many(&mut buf, event_rx.len()).await;
+                        events.extend(buf);
+                    }
+
+                    Self::process_events(&mut events, &event_store, node_id).await;
+                    return;
+                }
             }
         })
     }
