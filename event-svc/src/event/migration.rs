@@ -131,16 +131,18 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
             tile_doc_count = self.tile_doc_count,
             "migration finished"
         );
-        // Write out model error counts
-        const CSV_FILE_PATH: &str = "model_error_counts.csv";
-        let mut model_csv = File::create(CSV_FILE_PATH).await?;
-        model_csv.write_all(b"model,count\n").await?;
-        for (model, count) in self.model_error_counts {
-            model_csv
-                .write_all(format!("{model},{count}\n").as_bytes())
-                .await?;
+        if !self.model_error_counts.is_empty() {
+            // Write out model error counts
+            const CSV_FILE_PATH: &str = "model_error_counts.csv";
+            let mut model_csv = File::create(CSV_FILE_PATH).await?;
+            model_csv.write_all(b"model,count\n").await?;
+            for (model, count) in self.model_error_counts {
+                model_csv
+                    .write_all(format!("{model},{count}\n").as_bytes())
+                    .await?;
+            }
+            info!(path = CSV_FILE_PATH, "wrote error counts by model");
         }
-        info!(path = CSV_FILE_PATH, "wrote error counts by model");
         Ok(())
     }
     // Decodes the block and if it is a Ceramic event, it and related blocks are constructed into an
