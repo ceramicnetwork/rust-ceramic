@@ -144,9 +144,12 @@ where
     /// Decode bytes into a materialized event.
     pub fn decode_car<R>(reader: R, deny_unexpected_fields: bool) -> anyhow::Result<(Cid, Self)>
     where
-        R: Read + Send + Unpin,
+        R: Read + Send + Unpin + Clone,
     {
-        let car = CarReader::new(reader)?;
+        let mut car_bytes = Vec::new();
+        let mut r = reader.clone();
+        r.read_to_end(&mut car_bytes).unwrap();
+        let car = CarReader::new(std::io::Cursor::new(car_bytes.clone()))?;
         let event_cid = *car
             .header()
             .roots()
@@ -233,17 +236,11 @@ where
                         bail!("Signed event payload bytes do not round-trip. This most likely means the event contains unexpected fields.");
                     }
                 }
+                let signed =
+                    signed::Event::new(event_cid, envelope, payload_cid, payload, capability)
+                        .with_car_bytes(car_bytes);
 
-                Ok((
-                    event_cid,
-                    Event::Signed(signed::Event::new(
-                        event_cid,
-                        envelope,
-                        payload_cid,
-                        payload,
-                        capability,
-                    )),
-                ))
+                Ok((event_cid, Event::Signed(signed)))
             }
             RawEvent::Unsigned(payload) => Ok((
                 event_cid,

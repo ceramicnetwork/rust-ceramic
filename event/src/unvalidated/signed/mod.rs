@@ -25,6 +25,7 @@ pub struct Event<D> {
     payload: Payload<D>,
     payload_cid: Cid,
     capability: Option<(Cid, Capability)>,
+    car_bytes: Option<Vec<u8>>,
 }
 
 impl<D: Debug> Debug for Event<D> {
@@ -60,6 +61,14 @@ impl<D: serde::Serialize> Event<D> {
             payload_cid,
             payload,
             capability,
+            car_bytes: None,
+        }
+    }
+
+    pub(crate) fn with_car_bytes(self, car_bytes: Vec<u8>) -> Self {
+        Self {
+            car_bytes: Some(car_bytes),
+            ..self
         }
     }
 
@@ -115,6 +124,7 @@ impl<D: serde::Serialize> Event<D> {
             payload_cid,
             //TODO: Implement CACAO signing
             capability: None,
+            car_bytes: None,
         })
     }
 
@@ -147,21 +157,25 @@ impl<D: serde::Serialize> Event<D> {
 
     /// Encodes the full signed event into a CAR file.
     pub fn encode_car(&self) -> anyhow::Result<Vec<u8>> {
-        let envelope_bytes = self.encode_envelope()?;
-        let payload_bytes = self.encode_payload()?;
-        let capability_bytes = self.encode_capability()?;
+        if let Some(bytes) = &self.car_bytes {
+            Ok(bytes.to_owned())
+        } else {
+            let envelope_bytes = self.encode_envelope()?;
+            let payload_bytes = self.encode_payload()?;
+            let capability_bytes = self.encode_capability()?;
 
-        let mut car = Vec::new();
-        let roots: Vec<Cid> = vec![self.envelope_cid];
-        let mut writer = CarWriter::new(CarHeader::V1(roots.into()), &mut car);
-        if let Some((cid, bytes)) = capability_bytes {
-            writer.write(cid, &bytes)?;
+            let mut car = Vec::new();
+            let roots: Vec<Cid> = vec![self.envelope_cid];
+            let mut writer = CarWriter::new(CarHeader::V1(roots.into()), &mut car);
+            if let Some((cid, bytes)) = capability_bytes {
+                writer.write(cid, &bytes)?;
+            }
+            writer.write(self.payload_cid, payload_bytes)?;
+            writer.write(self.envelope_cid, envelope_bytes)?;
+            writer.finish()?;
+
+            Ok(car)
         }
-        writer.write(self.payload_cid, payload_bytes)?;
-        writer.write(self.envelope_cid, envelope_bytes)?;
-        writer.finish()?;
-
-        Ok(car)
     }
 
     /// Accessor for the envelope and payload.
