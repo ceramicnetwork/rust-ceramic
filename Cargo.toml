@@ -239,7 +239,8 @@ wasm-timer = "0.2.5"
 which = "4.3.0"
 xtaskops = "0.3"
 zeroize = "1.4"
-
+hoku_sdk = {path = "../../../hoku/rust-hoku/sdk"}
+hoku_provider = {path = "../../../hoku/rust-hoku/provider"}
 
 [workspace.package]
 version = "0.37.0"

@@ -20,6 +20,7 @@ use crate::{
     store::{EventInsertable, SqlitePool},
     Result,
 };
+use tracing::instrument;
 
 #[derive(Debug)]
 pub struct ValidatedEvents {
@@ -168,7 +169,6 @@ impl EventValidator {
         let mut validated = ValidatedEvents::new_with_expected_valid(parsed_events.len());
         // partition the events by type of validation needed and delegate to validators
         let grouped = GroupedEvents::from(parsed_events);
-
         let (validated_signed, validated_time) = try_join!(
             self.validate_signed_events(grouped.signed_batch, validation_req),
             self.validate_time_events(grouped.time_batch)
@@ -207,6 +207,7 @@ impl EventValidator {
 
     async fn validate_time_events(&self, events: TimeValidationBatch) -> Result<ValidatedEvents> {
         let mut validated_events = ValidatedEvents::new_with_expected_valid(events.0.len());
+        println!("In validate_time_events : validating time events");
         for time_event in events.0 {
             // TODO: better transient error handling from RPC client
             match self

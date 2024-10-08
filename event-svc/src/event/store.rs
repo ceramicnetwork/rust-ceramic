@@ -8,7 +8,7 @@ use ceramic_event::unvalidated::Event;
 use cid::Cid;
 use iroh_bitswap::Block;
 use recon::{HashCount, ReconItem, Result as ReconResult, Sha256a};
-use tracing::info;
+use tracing::{info, instrument};
 
 use crate::event::{DeliverableRequirement, EventService};
 use crate::store::{CeramicOneBlock, CeramicOneEvent, EventInsertable};
@@ -184,6 +184,7 @@ impl ceramic_api::EventService for EventService {
         items: Vec<ceramic_api::ApiItem>,
         informant: NodeId,
     ) -> anyhow::Result<Vec<ceramic_api::EventInsertResult>> {
+        println!("insert_many in API");
         let items = items
             .into_iter()
             .map(|i| ReconItem {

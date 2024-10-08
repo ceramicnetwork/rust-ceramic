@@ -556,77 +556,78 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
     };
 
     // Start anchoring if remote anchor service URL is provided
-    let anchor_service_handle =
-        if let Some(remote_anchor_service_url) = opts.remote_anchor_service_url {
-            let (node_id, keypair) = NodeId::try_from_dir(opts.p2p_key_dir.clone())?;
-            info!(
-                node_did = node_id.did_key(),
-                url = remote_anchor_service_url,
-                poll_interval = opts.anchor_poll_interval,
-                "starting remote cas anchor service"
-            );
-            let remote_cas = RemoteCas::new(
-                node_id,
-                keypair,
-                &remote_anchor_service_url,
-                Duration::from_secs(opts.anchor_poll_interval),
-                opts.anchor_poll_retry_count,
-            );
-            let mut anchor_service = AnchorService::new(
-                Arc::new(remote_cas),
-                event_svc.clone(),
-                sqlite_pool.clone(),
-                node_id,
-                Duration::from_secs(opts.anchor_interval),
-                opts.anchor_batch_size,
-            );
+    let anchor_service_handle = if let Some(remote_anchor_service_url) =
+        opts.remote_anchor_service_url
+    {
+        let (node_id, keypair) = NodeId::try_from_dir(opts.p2p_key_dir.clone())?;
+        info!(
+            node_did = node_id.did_key(),
+            url = remote_anchor_service_url,
+            poll_interval = opts.anchor_poll_interval,
+            "starting remote cas anchor service"
+        );
+        let remote_cas = RemoteCas::new(
+            node_id,
+            keypair,
+            &remote_anchor_service_url,
+            Duration::from_secs(opts.anchor_poll_interval),
+            opts.anchor_poll_retry_count,
+        );
+        let mut anchor_service = AnchorService::new(
+            Arc::new(remote_cas),
+            event_svc.clone(),
+            sqlite_pool.clone(),
+            node_id,
+            Duration::from_secs(opts.anchor_interval),
+            opts.anchor_batch_size,
+        );
 
-            let mut shutdown_signal = shutdown_signal.resubscribe();
-            Some(tokio::spawn(async move {
-                anchor_service
-                    .run(async move {
-                        let _ = shutdown_signal.recv().await;
-                    })
-                    .await
-            }))
-        } else if let Some(hoku_rpc_url) = opts.hoku_rpc_url {
-            info!(
-                url = hoku_rpc_url,
-                poll_interval = opts.anchor_poll_interval,
-                "starting hoku rpc service"
-            );
-            let private_key = tokio::fs::read_to_string(opts.anchoring_key_dir)
+        let mut shutdown_signal = shutdown_signal.resubscribe();
+        Some(tokio::spawn(async move {
+            anchor_service
+                .run(async move {
+                    let _ = shutdown_signal.recv().await;
+                })
                 .await
-                .context("reading anchoring private key")?;
-            let hoku_rpc = HokuRpc::new(
-                private_key.as_str(),
-                hoku_rpc_url.as_str(),
-                opts.hoku_timehub_address.unwrap().as_str(),
-                opts.hoku_subnet.as_deref().unwrap_or("test"),
-                Duration::from_secs(opts.anchor_poll_interval),
-                opts.anchor_poll_retry_count,
-            )
-            .await?;
-            let mut anchor_service = AnchorService::new(
-                Arc::new(hoku_rpc),
-                event_svc.clone(),
-                sqlite_pool.clone(),
-                node_id,
-                Duration::from_secs(opts.anchor_interval),
-                opts.anchor_batch_size,
-            );
+        }))
+    } else if let Some(hoku_rpc_url) = opts.hoku_rpc_url {
+        info!(
+            url = hoku_rpc_url,
+            poll_interval = opts.anchor_poll_interval,
+            "starting hoku rpc service"
+        );
+        let private_key = tokio::fs::read_to_string(opts.anchoring_key_dir.join("id_ed25519_0"))
+            .await
+            .context("reading anchoring private key")?;
+        let hoku_rpc = HokuRpc::new(
+            private_key.as_str(),
+            hoku_rpc_url.as_str(),
+            opts.hoku_timehub_address.unwrap().as_str(),
+            opts.hoku_subnet.as_deref().unwrap_or("test"),
+            Duration::from_secs(opts.anchor_poll_interval),
+            opts.anchor_poll_retry_count,
+        )
+        .await?;
+        let mut anchor_service = AnchorService::new(
+            Arc::new(hoku_rpc),
+            event_svc.clone(),
+            sqlite_pool.clone(),
+            node_id,
+            Duration::from_secs(opts.anchor_interval),
+            opts.anchor_batch_size,
+        );
 
-            let mut shutdown_signal = shutdown_signal.resubscribe();
-            Some(tokio::spawn(async move {
-                anchor_service
-                    .run(async move {
-                        let _ = shutdown_signal.recv().await;
-                    })
-                    .await
-            }))
-        } else {
-            None
-        };
+        let mut shutdown_signal = shutdown_signal.resubscribe();
+        Some(tokio::spawn(async move {
+            anchor_service
+                .run(async move {
+                    let _ = shutdown_signal.recv().await;
+                })
+                .await
+        }))
+    } else {
+        None
+    };
 
     // Build HTTP server
     let (node_id, _) = NodeId::try_from_dir(opts.p2p_key_dir.clone())?;

@@ -148,6 +148,10 @@ impl TimeEventBatch {
             time_event.prev(),
             time_event.proof(),
         ))?;
+        println!(
+            "build_time_event_insertable: Time event CID: {:?}",
+            time_event_cid
+        );
         let blocks_in_path: Vec<ProofEdge> = Self::find_tree_blocks_along_path(
             time_event.path(),
             &anchor_request.prev,
@@ -192,6 +196,11 @@ impl TimeEventBatch {
         let mut blocks = Vec::new();
         let mut current_node_cid = *root;
         for part in path.split('/') {
+            // todo_{self-anchoring-project:??} : write a test which checks this code path
+            // todo_{self-anchoring-project:??} : time events created by self anchoring need to be validated before inserting in db
+            if part.is_empty() {
+                break;
+            }
             let merkle_node = merkle_nodes
                 .get(&current_node_cid)
                 .ok_or_else(|| anyhow!("missing merkle node for CID: {}", current_node_cid))?;

@@ -19,7 +19,7 @@ use hoku_provider::json_rpc::JsonRpcProvider;
 use ipld_core::ipld::Ipld;
 use itertools::Itertools;
 use recon::ReconItem;
-use tracing::{trace, warn};
+use tracing::{instrument, trace, warn};
 
 use crate::event::validator::EthRpcProvider;
 use crate::store::{CeramicOneEvent, EventInsertable, EventRowDelivered};
@@ -98,7 +98,6 @@ impl EventService {
         let event_validator =
             EventValidator::try_new(pool.clone(), ethereum_rpc_providers, hoku_rpc_providers)
                 .await?;
-
         let svc = Self {
             pool,
             validate_events,
@@ -223,7 +222,6 @@ impl EventService {
 
         let pending_to_insert = self.remove_unblocked_from_pending_q(&parsed_events);
         let to_validate = parsed_events.into_iter().chain(pending_to_insert).collect();
-
         // use the requested validation or None if it's disabled
         let validation_requirement = if self.validate_events {
             validation_req

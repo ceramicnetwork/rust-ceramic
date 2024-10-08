@@ -27,9 +27,9 @@ hex.workspace = true
 #hoku_provider = { git = "https://github.com/hokunet/rust-hoku.git", branch = "main" }
 #hoku_sdk = { git = "https://github.com/hokunet/rust-hoku.git", branch = "main" }
 #hoku_signer = { git = "https://github.com/hokunet/rust-hoku.git", branch = "main" }
-hoku_provider = { path = "../../hoku/rust-hoku/provider" }
-hoku_sdk = { path = "../../hoku/rust-hoku/sdk" }
-hoku_signer = { path = "../../hoku/rust-hoku/signer" }
+hoku_sdk.workspace = true
+hoku_provider.workspace = true
+hoku_signer = { path = "../../../../hoku/rust-hoku/signer" }
 multihash-codetable.workspace = true
 reqwest.workspace = true
 ring.workspace = true

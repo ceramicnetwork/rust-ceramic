@@ -4,7 +4,7 @@ use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use base64::{engine::general_purpose::STANDARD_NO_PAD as b64_standard, Engine as _};
 use bytes::Bytes;
-use fvm_shared::address::Address;
+use fvm_shared::address::{set_current_network, Address, Network};
 use hoku_provider::json_rpc::JsonRpcProvider;
 use hoku_provider::tx::TxReceipt;
 use hoku_sdk::machine::accumulator::{Accumulator, PushReturn};
@@ -43,6 +43,7 @@ impl TransactionManager for HokuRpc {
             ),
         );
         let proof_cid = proof.to_cid()?;
+        println!("Proof CID: {:?}", proof_cid);
         return Ok(RootTimeEvent {
             proof,
             detached_time_event: DetachedTimeEvent {
@@ -64,14 +65,16 @@ impl HokuRpc {
         anchor_poll_interval: Duration,
         anchor_poll_retry_count: u64,
     ) -> Result<Self> {
-        let secret_key = parse_ed25519_private_key(private_key)?;
-        let secret_key = parse_secret_key(secret_key.as_str())?;
+        // let secret_key = parse_ed25519_private_key(private_key)?;
+        let secret_key =
+            parse_secret_key("1c323d494d1d069fe4c891350a1ec691c4216c17418a0cb3c7533b143bd2b812")?;
         let provider = JsonRpcProvider::new_http(hoku_rpc_url.parse()?, None, None)?;
         let subnet_id = hoku_subnet.parse()?;
+        println!("Hoku timehub address: {:?}", hoku_timehub_address);
+        set_current_network(Network::Testnet);
         Ok(Self {
             secret_key,
-            time_hub: Accumulator::attach(Address::from_bytes(hoku_timehub_address.as_ref())?)
-                .await?,
+            time_hub: Accumulator::attach(dbg!(hoku_timehub_address.parse())?).await?,
             provider,
             subnet_id,
             poll_interval: anchor_poll_interval,

@@ -53,7 +53,7 @@ tokio-metrics = { version = "0.3.1", features = ["rt"] }
 tokio-prometheus-client = "0.1"
 tokio.workspace = true
 tracing.workspace = true
-hoku_provider = {git="https://github.com/hokunet/rust-hoku", branch="main"}
+hoku_provider.workspace = true
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator.workspace = true

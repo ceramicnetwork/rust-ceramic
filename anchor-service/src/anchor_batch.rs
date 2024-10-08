@@ -4,6 +4,7 @@ use ceramic_core::{Cid, NodeId};
 use ceramic_sql::sqlite::SqlitePool;
 use chrono::DurationRound;
 use chrono::{Duration as ChronoDuration, TimeDelta, Utc};
+use core::time;
 use futures::future::{select, Either, FutureExt};
 use futures::pin_mut;
 use indexmap::IndexMap;
@@ -76,14 +77,15 @@ impl AnchorService {
         pin_mut!(shutdown_signal);
 
         info!("anchor service started");
+        self.anchor_interval = Duration::from_secs(10);
 
         loop {
             let now = Utc::now();
             let next_tick = now
                 .duration_trunc(TimeDelta::from_std(self.anchor_interval).unwrap())
                 .unwrap()
-                + TimeDelta::from_std(self.anchor_interval).unwrap()
-                - ChronoDuration::minutes(5);
+                + TimeDelta::from_std(self.anchor_interval).unwrap();
+            // - ChronoDuration::minutes(5);
 
             let delay = next_tick - now;
             // durations in rust are always positive.
@@ -104,6 +106,8 @@ impl AnchorService {
                     break;
                 }
             }
+
+            //
         }
         info!("anchor service stopped");
     }
@@ -185,7 +189,7 @@ impl AnchorService {
             .expect("should have at least one event in the batch")
             .0
             .resume_token;
-
+        println!("Time event batch: {:?}", time_event_batch);
         match time_event_batch.try_to_insertables() {
             Ok(insertables) => {
                 // Update the high water mark

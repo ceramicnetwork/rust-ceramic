@@ -13,7 +13,7 @@ use hoku_sdk::machine::accumulator::FvmQueryHeight;
 use hoku_sdk::machine::{accumulator::Accumulator, Machine};
 use multihash::Multihash;
 use once_cell::sync::Lazy;
-use tracing::warn;
+use tracing::{instrument, warn};
 
 use ceramic_validation::eth_rpc::{self, ChainBlock, EthRpc, HttpEthRpc};
 
@@ -82,6 +82,10 @@ impl std::fmt::Debug for TimeEventValidator {
             .field(
                 "chain_providers",
                 &format!("{:?}", &self.chain_providers.keys()),
+            )
+            .field(
+                "hoku_providers",
+                &format!("{:?}", &self.hoku_providers.keys()),
             )
             .finish()
     }
@@ -167,10 +171,13 @@ impl TimeEventValidator {
         _pool: &SqlitePool,
         event: &unvalidated::TimeEvent,
     ) -> Result<Timestamp, ChainInclusionError> {
-        match event.proof().chain_id() {
+        let result = match event.proof().chain_id() {
             "hoku:mainnet" => self.validate_hoku(_pool, event).await,
             _ => self.validate_eth(_pool, event).await,
-        }
+        };
+        println!("Validating time event: {:?}", event);
+        println!("Validation result: {:?}", result);
+        result
     }
 
     /// Validate the chain inclusion proof for a time event, returning the block timestamp if found

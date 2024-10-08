@@ -459,6 +459,8 @@ impl Debug for Proof {
 
 impl Proof {
     /// Create a proof from its parts.
+    /// hoku(adress:index) is the format of the tx_type
+    /// transaction hash is the value in the format of the tx_type
     pub fn new(chain_id: String, root: Cid, tx_hash: Cid, tx_type: String) -> Self {
         Self {
             chain_id,
