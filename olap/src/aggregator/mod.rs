@@ -169,7 +169,7 @@ async fn run_continuous_stream(
 /// Represents a processor for continuous stream processing of conclusion feed data.
 struct ContinuousStreamProcessor {
     ctx: SessionContext,
-    last_processed_index: u64,
+    last_processed_index: Option<u64>,
 }
 
 impl ContinuousStreamProcessor {
@@ -182,26 +182,25 @@ impl ContinuousStreamProcessor {
             .collect()
             .await?;
 
-        let last_processed_index = if let Some(batch) = max_index.first() {
-            if let Some(max_index_array) = batch.column(0).as_any().downcast_ref::<UInt64Array>() {
-                max_index_array.iter().next().flatten().unwrap_or(0)
-            } else {
-                0
-            }
-        } else {
-            0
-        };
+        if max_index.is_empty() {
+            return Ok(Self {
+                ctx,
+                last_processed_index: None,
+            });
+        }
 
-        println!("Last processed index: {:?}", last_processed_index);
         Ok(Self {
             ctx,
-            last_processed_index,
+            last_processed_index: max_index
+                .first()
+                .and_then(|batch| batch.column(0).as_any().downcast_ref::<UInt64Array>())
+                .and_then(|index| index.iter().next().flatten()),
         })
     }
 
     async fn process_batch(&mut self, limit: usize) -> Result<()> {
         // Fetch the conclusion feed DataFrame
-        let conclusion_feed = self
+        let mut conclusion_feed = self
             .ctx
             .table(TableReference::full("ceramic", "v0", "conclusion_feed"))
             .await?
@@ -215,9 +214,10 @@ impl ContinuousStreamProcessor {
                 Expr::Cast(Cast::new(Box::new(col("data")), DataType::Utf8)).alias("data"),
                 col("previous"),
             ])?;
-        let batch = conclusion_feed
-            .filter(col("index").gt(lit(self.last_processed_index)))?
-            .limit(0, Some(limit))?;
+        if let Some(last_index) = self.last_processed_index {
+            conclusion_feed = conclusion_feed.filter(col("index").gt(lit(last_index)))?;
+        }
+        let batch = conclusion_feed.limit(0, Some(limit))?;
 
         // Caching the data frame to use it to caluclate the max index
         // We need to cache it because we do 2 passes over the data frame, once for process feed batch and once for calculating the max index
@@ -247,7 +247,7 @@ impl ContinuousStreamProcessor {
         if let Some(batch) = highest_index.first() {
             if let Some(max_index) = batch.column(0).as_any().downcast_ref::<UInt64Array>() {
                 if let Some(max_value) = max_index.iter().next().flatten() {
-                    self.last_processed_index = max_value;
+                    self.last_processed_index = Some(max_value);
                 }
             }
         }
