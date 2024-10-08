@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use ceramic_core::{Cid, EventId, NodeId};
 use ceramic_event::unvalidated;
+use ceramic_validation::blockchain;
 use ipld_core::ipld::Ipld;
 use recon::ReconItem;
 use tokio::try_join;
@@ -13,7 +14,7 @@ use crate::{
         validator::{
             grouped::{GroupedEvents, SignedValidationBatch, TimeValidationBatch},
             signed::SignedEventValidator,
-            time::{ChainInclusionError, TimeEventValidator},
+            time::TimeEventValidator,
         },
     },
     store::{EventInsertable, SqlitePool},
@@ -225,9 +226,9 @@ impl EventValidator {
     }
 
     /// Transforms the [`ChainInclusionError`] into a [`ValidationError`] with an appropriate message
-    fn convert_inclusion_error(err: ChainInclusionError, order_key: &EventId) -> ValidationError {
+    fn convert_inclusion_error(err: blockchain::Error, order_key: &EventId) -> ValidationError {
         match err {
-            ChainInclusionError::TxNotFound { chain_id, tx_hash } => {
+            blockchain::Error::TxNotFound { chain_id, tx_hash } => {
                 // we have an RPC provider so the transaction missing means it's invalid/unproveable
                 ValidationError::InvalidTimeProof {
                     key: order_key.to_owned(),
@@ -235,27 +236,39 @@ impl EventValidator {
                         "Transaction on chain '{chain_id}' with hash '{tx_hash}' not found."
                     ),
                 }
-            }
-            ChainInclusionError::TxNotMined { chain_id, tx_hash } => {
+            },
+           blockchain::Error::TxNotMined { chain_id, tx_hash } => {
                     ValidationError::InvalidTimeProof {
                         key: order_key.to_owned(),
                         reason: format!("Transaction on chain '{chain_id}' with hash '{tx_hash}' has not been mined in a block yet."),
                     }
-            }
-            ChainInclusionError::InvalidProof(reason) => ValidationError::InvalidTimeProof {
+            },
+            blockchain::Error::InvalidProof(reason) => ValidationError::InvalidTimeProof {
                 key: order_key.to_owned(),
                 reason,
             },
-            ChainInclusionError::NoChainProvider(chain_id) => {
+            blockchain::Error::NoChainProvider(chain_id) => {
                     ValidationError::InvalidTimeProof {
                         key: order_key.to_owned(),
                     reason: format!("No RPC provider for chain '{chain_id}'. Transaction for event cannot be verified."),
                 }
-            }
-            ChainInclusionError::Error(error) => ValidationError::InvalidTimeProof {
-                key: order_key.to_owned(),
-                reason: error.to_string(),
             },
+            blockchain::Error::InvalidArgument(e) =>  ValidationError::InvalidTimeProof {
+                key: order_key.to_owned(),
+            reason: format!("Invalid argument: {}", e),
+            },
+            blockchain::Error::BlockNotFound { chain_id, block_hash } => ValidationError::InvalidTimeProof {
+                key: order_key.to_owned(),
+            reason: format!("Block not found  on chain {} with hash: {}", chain_id, block_hash)
+            },
+            blockchain::Error::Transient(error) => ValidationError::InvalidTimeProof {
+                key: order_key.to_owned(),
+            reason: format!("transient error encountered talking to eth rpc: {error}")
+            },
+            blockchain::Error::Application(error) => ValidationError::InvalidTimeProof {
+                key: order_key.to_owned(),
+            reason: format!("application error encountered: {error}")
+            }
         }
     }
 }

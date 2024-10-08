@@ -1,20 +1,12 @@
+use std::str::FromStr;
+
 use alloy::transports::{RpcError, TransportErrorKind};
 use anyhow::anyhow;
-use serde::{Deserialize, Serialize};
-use ssi::caip2;
+use ceramic_core::Cid;
 
 pub use alloy::primitives::{BlockHash, TxHash};
 
-#[derive(Debug)]
-/// The error variants expected from an Ethereum RPC request
-pub enum Error {
-    /// Invalid input with reason for rejection
-    InvalidArgument(String),
-    /// This is a transient error related to the transport and may be retried
-    Transient(anyhow::Error),
-    /// This is a standard application error (e.g. server 500) and should not be retried.
-    Application(anyhow::Error),
-}
+use crate::blockchain::Error;
 
 impl From<RpcError<TransportErrorKind>> for Error {
     fn from(value: RpcError<TransportErrorKind>) -> Self {
@@ -31,44 +23,46 @@ impl From<RpcError<TransportErrorKind>> for Error {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-/// A blockchain transaction
-pub struct ChainTransaction {
-    /// Transaction hash. While a 32 byte hash is not universal, it is for bitcoin and the EVM,
-    /// so we use that for now to make things easier. We could use a String encoded representation,
-    /// but this covers our current state and lets the caller decide how to encode the bytes for
-    ///  their needs (e.g. persistence), and avoids any changes to Display (e.g. 0x prefixed) breaking things.
-    pub hash: TxHash,
-    /// 0x prefixed hex encoded string representation of transaction contract input.
-    pub input: String,
-    /// Information about the block in which this transaction was mined.
-    /// If None, the transaction exists but has not been mined yet.
-    pub block: Option<ChainBlock>,
+#[derive(Clone, Debug, PartialEq, Eq)]
+/// Input for an ethereum transaction proof for time events
+pub struct EthTxProofInput {
+    /// The transaction hash as a CID from the time event
+    pub tx_hash: Cid,
+    /// The time event proof type
+    pub tx_type: EthProofType,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-/// A blockchain block
-pub struct ChainBlock {
-    /// The 32 byte block hash
-    pub hash: BlockHash,
-    /// The block number
-    pub number: u64,
-    /// The unix epoch timestamp of the block
-    pub timestamp: u64,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// The format of the ethereum time event proof
+pub enum EthProofType {
+    /// raw
+    V0,
+    /// f(bytes32)
+    V1,
 }
 
-#[async_trait::async_trait]
-/// Ethereum RPC provider methods. This is a higher level type than the actual RPC calls neeed and
-/// may wrap a multiple calls into a logical behavior of getting necessary information.
-pub trait EthRpc {
-    /// Get the CAIP2 chain ID supported by this RPC provider
-    fn chain_id(&self) -> &caip2::ChainId;
+impl std::fmt::Display for EthProofType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EthProofType::V0 => write!(f, "{}", V0_PROOF_TYPE),
+            EthProofType::V1 => write!(f, "{}", V1_PROOF_TYPE),
+        }
+    }
+}
 
-    /// The RPC url used by the provider
-    fn url(&self) -> String;
+pub(crate) const V0_PROOF_TYPE: &str = "raw";
+pub(crate) const V1_PROOF_TYPE: &str = "f(bytes32)"; // See: https://namespaces.chainagnostic.org/eip155/caip168
 
-    /// Get the block chain transaction if it exists with the block timestamp information
-    async fn get_block_timestamp(&self, tx_hash: &str) -> Result<Option<ChainTransaction>, Error>;
+impl FromStr for EthProofType {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            V0_PROOF_TYPE => Ok(Self::V0),
+            V1_PROOF_TYPE => Ok(Self::V1),
+            v => anyhow::bail!("Unknown proof type: {}", v),
+        }
+    }
 }
 
 #[cfg(test)]
