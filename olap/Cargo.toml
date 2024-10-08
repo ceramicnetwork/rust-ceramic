@@ -30,6 +30,7 @@ names.workspace = true
 object_store = { version = "0.11", features = ["aws"] }
 prometheus-client.workspace = true
 serde_json.workspace = true
+serde.workspace = true
 signal-hook = "0.3.17"
 signal-hook-tokio = { version = "0.3.1", features = ["futures-v0_3"] }
 tokio = { workspace = true, features = ["fs", "rt-multi-thread"] }

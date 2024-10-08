@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     sync::{Arc, Mutex, MutexGuard},
 };
 
@@ -11,6 +11,7 @@ use super::{
 };
 use async_trait::async_trait;
 use ceramic_core::{EventId, Network, NodeId, SerializeExt};
+use ceramic_event::unvalidated::data::SHOULD_INDEX_DEFAULT;
 use ceramic_flight::{ConclusionData, ConclusionEvent, ConclusionInit, ConclusionTime};
 use ceramic_sql::sqlite::SqlitePool;
 use cid::Cid;
@@ -142,7 +143,7 @@ impl EventService {
     }
 
     /// Given the incoming events, see if any of them are the init event that events were
-    /// 'pending on' and return all previously pending events that can now be validated.  
+    /// 'pending on' and return all previously pending events that can now be validated.
     fn remove_unblocked_from_pending_q(&self, new: &[UnvalidatedEvent]) -> Vec<UnvalidatedEvent> {
         let new_init_cids = new
             .iter()
@@ -343,12 +344,30 @@ impl EventService {
         } = event;
         let stream_cid = event.stream_cid();
         let init_event = self.get_event_by_cid(stream_cid).await?;
-        let init = ConclusionInit::try_from(init_event).map_err(|e| {
+        let init = ConclusionInit::try_from(&init_event).map_err(|e| {
             Error::new_app(anyhow::anyhow!(
                 "Malformed event found in the database: {}",
                 e
             ))
         })?;
+
+        // Small wrapper container around the data field to hold other mutable metadata for the
+        // event.
+        #[derive(Debug, serde::Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct DataContainer<'a> {
+            metadata: BTreeMap<String, Ipld>,
+            data: Option<&'a Ipld>,
+        }
+
+        impl<'a> DataContainer<'a> {
+            fn new_with_should_index(should_index: bool, data: Option<&'a Ipld>) -> Self {
+                Self {
+                    metadata: BTreeMap::from([("shouldIndex".to_string(), should_index.into())]),
+                    data,
+                }
+            }
+        }
 
         match event {
             ceramic_event::unvalidated::Event::Time(time_event) => {
@@ -366,7 +385,14 @@ impl EventService {
                             event_cid,
                             init,
                             previous: vec![*data.prev()],
-                            data: data.data().to_json_bytes().map_err(|e| {
+                            data: DataContainer::new_with_should_index(
+                                data.header()
+                                    .map(|header| header.should_index())
+                                    .unwrap_or(SHOULD_INDEX_DEFAULT),
+                                Some(data.data()),
+                            )
+                            .to_json_bytes()
+                            .map_err(|e| {
                                 Error::new_app(anyhow::anyhow!(
                                     "Failed to serialize IPLD data: {}",
                                     e
@@ -380,7 +406,12 @@ impl EventService {
                             event_cid,
                             init,
                             previous: vec![],
-                            data: init_event.data().to_json_bytes().map_err(|e| {
+                            data: DataContainer::new_with_should_index(
+                                init_event.header().should_index(),
+                                init_event.data(),
+                            )
+                            .to_json_bytes()
+                            .map_err(|e| {
                                 Error::new_app(anyhow::anyhow!(
                                     "Failed to serialize IPLD data: {}",
                                     e
@@ -396,13 +427,14 @@ impl EventService {
                     event_cid,
                     init,
                     previous: vec![],
-                    data: unsigned_event
-                        .payload()
-                        .data()
-                        .to_json_bytes()
-                        .map_err(|e| {
-                            Error::new_app(anyhow::anyhow!("Failed to serialize IPLD data: {}", e))
-                        })?,
+                    data: DataContainer::new_with_should_index(
+                        unsigned_event.payload().header().should_index(),
+                        unsigned_event.payload().data(),
+                    )
+                    .to_json_bytes()
+                    .map_err(|e| {
+                        Error::new_app(anyhow::anyhow!("Failed to serialize IPLD data: {}", e))
+                    })?,
                     index: 0,
                 }))
             }
