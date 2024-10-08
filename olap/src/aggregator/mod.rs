@@ -151,14 +151,9 @@ async fn run_continuous_stream(
         }
         result = processor.process_batch(limit) => {
             match result {
-                Ok(true) => {
+                Ok(()) => {
                     // Batch processed successfully, continue to next iteration
                     continue;
-                }
-                Ok(false) => {
-                    // No more batches to process
-                    debug!("No more batches to process, continuous stream processing complete");
-                    break;
                 }
                 Err(e) => {
                     error!("Error processing batch: {:?}", e);
@@ -204,7 +199,7 @@ impl ContinuousStreamProcessor {
         })
     }
 
-    async fn process_batch(&mut self, limit: usize) -> Result<bool> {
+    async fn process_batch(&mut self, limit: usize) -> Result<()> {
         // Fetch the conclusion feed DataFrame
         let conclusion_feed = self
             .ctx
@@ -223,7 +218,10 @@ impl ContinuousStreamProcessor {
         let batch = conclusion_feed
             .filter(col("index").gt(lit(self.last_processed_index)))?
             .limit(0, Some(limit))?;
+
         // Caching the data frame to use it to caluclate the max index
+        // We need to cache it because we do 2 passes over the data frame, once for process feed batch and once for calculating the max index
+        // We are not using batch.cache() because this loses table name information
         let batch_plan = batch.clone().create_physical_plan().await?;
         let task_ctx = Arc::new(batch.task_ctx());
         let partitions = collect_partitioned(batch_plan.clone(), task_ctx).await?;
@@ -237,8 +235,7 @@ impl ContinuousStreamProcessor {
             )?
             .build()?,
         );
-        let df_clone = df.clone();
-        process_feed_batch(self.ctx.clone(), df_clone).await?;
+        process_feed_batch(self.ctx.clone(), df.clone()).await?;
 
         // Fetch the highest index from the cached DataFrame
         let highest_index = df
@@ -255,7 +252,7 @@ impl ContinuousStreamProcessor {
             }
         }
 
-        Ok(true)
+        Ok(())
     }
 }
 
