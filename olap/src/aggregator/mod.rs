@@ -12,6 +12,7 @@ use arrow::{
 };
 use arrow_flight::sql::client::FlightSqlServiceClient;
 use ceramic_patch::CeramicPatch;
+use datafusion::datasource::MemTable;
 use datafusion::{
     catalog::{CatalogProvider, SchemaProvider},
     common::JoinType,
@@ -30,10 +31,8 @@ use datafusion::{
     physical_plan::collect_partitioned,
     sql::TableReference,
 };
-use datafusion::{catalog_common::MemoryCatalogProvider, physical_plan::limit};
-use datafusion::{catalog_common::MemorySchemaProvider, datasource::MemTable};
 use datafusion_federation::sql::{SQLFederationProvider, SQLSchemaProvider};
-use std::{any::Any, cell::Cell};
+use std::any::Any;
 use std::{future::Future, sync::Arc};
 
 use datafusion_flight_sql_table_provider::FlightSQLExecutor;
@@ -141,7 +140,7 @@ async fn run_continuous_stream(
     shutdown_signal: impl Future<Output = ()>,
     limit: usize,
 ) -> Result<()> {
-    let processor = ContinuousStreamProcessor::new(ctx).await?;
+    let mut processor = ContinuousStreamProcessor::new(ctx).await?;
     let mut shutdown_signal = Box::pin(shutdown_signal);
 
     loop {
@@ -175,7 +174,7 @@ async fn run_continuous_stream(
 /// Represents a processor for continuous stream processing of conclusion feed data.
 struct ContinuousStreamProcessor {
     ctx: SessionContext,
-    last_processed_index: Cell<u64>,
+    last_processed_index: u64,
 }
 
 impl ContinuousStreamProcessor {
@@ -201,11 +200,11 @@ impl ContinuousStreamProcessor {
         println!("Last processed index: {:?}", last_processed_index);
         Ok(Self {
             ctx,
-            last_processed_index: Cell::new(last_processed_index),
+            last_processed_index,
         })
     }
 
-    async fn process_batch(&self, limit: usize) -> Result<bool> {
+    async fn process_batch(&mut self, limit: usize) -> Result<bool> {
         // Fetch the conclusion feed DataFrame
         let conclusion_feed = self
             .ctx
@@ -222,7 +221,7 @@ impl ContinuousStreamProcessor {
                 col("previous"),
             ])?;
         let batch = conclusion_feed
-            .filter(col("index").gt(lit(self.last_processed_index.get())))?
+            .filter(col("index").gt(lit(self.last_processed_index)))?
             .limit(0, Some(limit))?;
         // Caching the data frame to use it to caluclate the max index
         let batch_plan = batch.clone().create_physical_plan().await?;
@@ -251,7 +250,7 @@ impl ContinuousStreamProcessor {
         if let Some(batch) = highest_index.first() {
             if let Some(max_index) = batch.column(0).as_any().downcast_ref::<UInt64Array>() {
                 if let Some(max_value) = max_index.iter().next().flatten() {
-                    self.last_processed_index.set(max_value)
+                    self.last_processed_index = max_value;
                 }
             }
         }
@@ -382,6 +381,7 @@ mod tests {
     };
     use cid::Cid;
     use datafusion::{
+        catalog_common::{MemoryCatalogProvider, MemorySchemaProvider},
         common::Constraints,
         datasource::{provider_as_source, MemTable},
         logical_expr::{
@@ -569,7 +569,7 @@ mod tests {
         conclusion_feed: RecordBatch,
     ) -> anyhow::Result<impl std::fmt::Display> {
         let ctx = init_ctx_cont(conclusion_feed).await?;
-        let shutdown_signal = tokio::time::sleep(tokio::time::Duration::from_secs(30));
+        let shutdown_signal = tokio::time::sleep(tokio::time::Duration::from_millis(100));
         run_continuous_stream(ctx.clone(), shutdown_signal, 1).await?;
         let cid_string = Arc::new(ScalarUDF::from(CidString::new()));
         let doc_state = ctx
