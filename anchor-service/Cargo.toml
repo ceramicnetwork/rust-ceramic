@@ -12,13 +12,20 @@ anyhow.workspace = true
 async-trait.workspace = true
 ceramic-core.workspace = true
 ceramic-event.workspace = true
+ceramic-sql.workspace = true
 cid.workspace = true
 expect-test.workspace = true
+futures.workspace = true
 indexmap.workspace = true
+ipld-core.workspace = true
 multihash-codetable.workspace = true
+multibase.workspace = true
 serde.workspace = true
-serde_ipld_dagjson.workspace = true
+sqlx.workspace = true
 tokio.workspace = true
+tracing.workspace = true
+hex.workspace = true
+chrono.workspace = true
 
 [features]
 test-network = []

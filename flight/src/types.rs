@@ -109,7 +109,7 @@ impl TryFrom<unvalidated::Event<Ipld>> for ConclusionInit {
 
         // Construct and return the ConclusionInit
         Ok(ConclusionInit {
-            stream_cid: *event.id(),
+            stream_cid: *event.stream_cid(),
             stream_type: stream_type.int_value() as u8,
             controller: init_payload
                 .header()

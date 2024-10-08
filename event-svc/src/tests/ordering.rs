@@ -20,7 +20,7 @@ async fn setup_service() -> EventService {
 
 async fn add_and_assert_new_recon_event(store: &EventService, item: ReconItem<EventId>) {
     tracing::trace!("inserted event: {}", item.key.cid().unwrap());
-    let new = recon::Store::insert_many(store, &[item], NodeId::random().unwrap().0)
+    let new = recon::Store::insert_many(store, &[item], NodeId::random().0)
         .await
         .unwrap();
     assert!(new.included_new_key());
@@ -31,16 +31,16 @@ async fn add_and_assert_new_recon_event_not_inserted_yet(
     item: ReconItem<EventId>,
 ) {
     tracing::trace!("inserted event: {}", item.key.cid().unwrap());
-    let new = recon::Store::insert_many(store, &[item], NodeId::random().unwrap().0)
+    let new = recon::Store::insert_many(store, &[item], NodeId::random().0)
         .await
         .unwrap();
-    assert!(new.included_new_key()); // should be !new.included_new_key() once pending validation is tracked
+    assert!(!new.included_new_key());
 }
 
 // insert a recon event without checking whether its persisted (could be pending or stored)
 async fn add_new_recon_event(store: &EventService, item: ReconItem<EventId>) {
     tracing::trace!("inserted event: {}", item.key.cid().unwrap());
-    let new = recon::Store::insert_many(store, &[item], NodeId::random().unwrap().0)
+    let new = recon::Store::insert_many(store, &[item], NodeId::random().0)
         .await
         .unwrap();
     // TODO
@@ -50,10 +50,9 @@ async fn add_new_recon_event(store: &EventService, item: ReconItem<EventId>) {
 }
 
 async fn add_and_assert_new_local_event(store: &EventService, item: ApiItem) {
-    let new =
-        ceramic_api::EventService::insert_many(store, vec![item], NodeId::random().unwrap().0)
-            .await
-            .unwrap();
+    let new = ceramic_api::EventService::insert_many(store, vec![item], NodeId::random().0)
+        .await
+        .unwrap();
     let new = new.iter().filter(|e| e.success()).count();
     assert_eq!(1, new);
 }
@@ -86,10 +85,9 @@ async fn test_missing_prev_history_required_not_inserted() {
     let data = &events[1];
     let data = ApiItem::new_arced(data.key.clone(), data.value.clone());
 
-    let new =
-        ceramic_api::EventService::insert_many(&store, vec![data], NodeId::random().unwrap().0)
-            .await
-            .unwrap();
+    let new = ceramic_api::EventService::insert_many(&store, vec![data], NodeId::random().0)
+        .await
+        .unwrap();
     assert_eq!(0, new.iter().filter(|e| e.success()).count());
     assert_eq!(1, new.iter().filter(|e| !e.success()).count());
 }
@@ -134,7 +132,7 @@ async fn test_prev_in_same_write_history_required() {
             ApiItem::new_arced(init.key.to_owned(), init.value.clone()),
             ApiItem::new_arced(data.key.to_owned(), data.value.clone()),
         ],
-        NodeId::random().unwrap().0,
+        NodeId::random().0,
     )
     .await
     .unwrap();

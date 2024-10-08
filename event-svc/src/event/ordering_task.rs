@@ -436,7 +436,7 @@ impl OrderingState {
     /// Relies on `add_stream_event` to handle updating the internal state.
     fn add_inserted_events(&mut self, events: Vec<DiscoveredEvent>) {
         for ev in events {
-            let stream_cid = ev.stream_cid();
+            let stream_cid = ev.id;
             let event = ev.into();
             self.add_stream_event(stream_cid, event);
         }
@@ -545,7 +545,7 @@ impl OrderingState {
             }
 
             event_cnt += 1;
-            let stream_cid = parsed_event.id();
+            let stream_cid = parsed_event.stream_cid();
             let prev = parsed_event
                 .prev()
                 .expect("prev must exist for non-init events");
@@ -640,13 +640,25 @@ mod test {
             .unwrap();
 
         assert_eq!(9, new.inserted.len());
-        assert_eq!(0, new.inserted.iter().filter(|e| e.deliverable).count());
+        assert_eq!(
+            0,
+            new.inserted
+                .iter()
+                .filter(|e| e.inserted.deliverable())
+                .count()
+        );
 
         let new = CeramicOneEvent::insert_many(pool, [&init].into_iter())
             .await
             .unwrap();
         assert_eq!(1, new.inserted.len());
-        assert_eq!(1, new.inserted.iter().filter(|e| e.deliverable).count());
+        assert_eq!(
+            1,
+            new.inserted
+                .iter()
+                .filter(|e| e.inserted.deliverable())
+                .count()
+        );
         insertable
     }
 

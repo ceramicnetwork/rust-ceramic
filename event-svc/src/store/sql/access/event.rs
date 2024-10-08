@@ -5,6 +5,7 @@ use std::{
 };
 
 use anyhow::anyhow;
+use ceramic_anchor_service::AnchorRequest;
 use ceramic_core::{event_id::InvalidEventId, Cid, EventId, NodeId};
 use ceramic_event::unvalidated;
 use ceramic_sql::sqlite::{SqlitePool, SqliteTransaction};
@@ -24,44 +25,36 @@ use crate::store::{
 
 static GLOBAL_COUNTER: AtomicI64 = AtomicI64::new(0);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 /// An event that was inserted into the database
-pub struct InsertedEvent {
-    /// The event order key that was inserted
-    pub order_key: EventId,
-    /// Whether the event was marked as deliverable
-    pub deliverable: bool,
+pub struct InsertedEvent<'a> {
+    /// The event that was inserted
+    pub inserted: &'a EventInsertable,
     /// Whether the event was a new key
     pub new_key: bool,
 }
 
-impl InsertedEvent {
+impl<'a> InsertedEvent<'a> {
     /// Create a new delivered event
-    fn new(order_key: EventId, new_key: bool, deliverable: bool) -> Self {
-        Self {
-            order_key,
-            deliverable,
-            new_key,
-        }
+    fn new(new_key: bool, inserted: &'a EventInsertable) -> Self {
+        Self { inserted, new_key }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Default)]
 /// The result of inserting events into the database
-pub struct InsertResult {
+pub struct InsertResult<'a> {
     /// The events that were marked as delivered in this batch
-    pub inserted: Vec<InsertedEvent>,
+    pub inserted: Vec<InsertedEvent<'a>>,
 }
 
-impl InsertResult {
+impl<'a> InsertResult<'a> {
     /// The count of new keys added in this batch
     pub fn count_new_keys(&self) -> usize {
         self.inserted.iter().filter(|e| e.new_key).count()
     }
-}
 
-impl InsertResult {
-    fn new(inserted: Vec<InsertedEvent>) -> Self {
+    fn new(inserted: Vec<InsertedEvent<'a>>) -> Self {
         Self { inserted }
     }
 }
@@ -91,6 +84,7 @@ impl CeramicOneEvent {
         stream_cid: &Cid,
         informant: &Option<NodeId>,
         deliverable: bool,
+        is_time_event: bool,
     ) -> Result<bool> {
         let id = key.as_bytes();
         let cid = key
@@ -118,6 +112,7 @@ impl CeramicOneEvent {
             .bind(delivered)
             .bind(stream_cid.to_bytes())
             .bind(informant.as_ref().map(|n| n.did_key()))
+            .bind(is_time_event)
             .execute(&mut **tx.inner())
             .await;
 
@@ -175,7 +170,7 @@ impl CeramicOneEvent {
     ///     That is, events will be processed in the order they are given so earlier events are given a lower global ordering
     ///     and will be returned earlier in the feed. Events can be intereaved with different streams, but if two events
     ///     depend on each other, the `prev` must come first in the list to ensure the correct order for indexers and consumers.
-    pub async fn insert_many<'a, I>(pool: &SqlitePool, to_add: I) -> Result<InsertResult>
+    pub async fn insert_many<'a, I>(pool: &SqlitePool, to_add: I) -> Result<InsertResult<'a>>
     where
         I: Iterator<Item = &'a EventInsertable>,
     {
@@ -189,13 +184,10 @@ impl CeramicOneEvent {
                 item.stream_cid(),
                 item.informant(),
                 item.deliverable(),
+                item.event().is_time_event(),
             )
             .await?;
-            inserted.push(InsertedEvent::new(
-                item.order_key().clone(),
-                new_key,
-                item.deliverable(),
-            ));
+            inserted.push(InsertedEvent::new(new_key, item));
             if new_key {
                 for block in item.get_raw_blocks().await?.iter() {
                     CeramicOneBlock::insert(&mut tx, block.multihash.inner(), &block.bytes).await?;
@@ -467,5 +459,65 @@ impl CeramicOneEvent {
             .fetch_optional(pool.reader())
             .await?;
         Ok(exist.map_or((false, false), |row| (row.exists, row.delivered)))
+    }
+
+    /// Fetch data event CIDs from a specified source that are above the current anchoring high water mark
+    pub async fn data_events_by_informant(
+        pool: &SqlitePool,
+        informant: NodeId,
+        high_water_mark: i64,
+        limit: i64,
+    ) -> Result<Vec<AnchorRequest>> {
+        let limit = limit.try_into().unwrap_or(1_000_000_000); // Really large limit if none is provided
+
+        struct EventRow {
+            order_key: EventId,
+            init_cid: Cid,
+            cid: Cid,
+            row_id: i64,
+        }
+
+        use sqlx::Row as _;
+
+        impl sqlx::FromRow<'_, sqlx::sqlite::SqliteRow> for EventRow {
+            fn from_row(row: &sqlx::sqlite::SqliteRow) -> std::result::Result<Self, sqlx::Error> {
+                let order_key_bytes: Vec<u8> = row.try_get("order_key")?;
+                let order_key = EventId::try_from(order_key_bytes)
+                    .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+                let init_cid: Vec<u8> = row.try_get("init_cid")?;
+                let init_cid = Cid::try_from(init_cid.as_slice())
+                    .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+                let cid: Vec<u8> = row.try_get("cid")?;
+                let cid =
+                    Cid::try_from(cid.as_slice()).map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+                let row_id = row.try_get("rowid")?;
+                Ok(Self {
+                    order_key,
+                    init_cid,
+                    cid,
+                    row_id,
+                })
+            }
+        }
+
+        let rows: Vec<EventRow> = sqlx::query_as(EventQuery::data_events_by_informant())
+            .bind(informant.did_key())
+            .bind(high_water_mark)
+            .bind(limit)
+            .fetch_all(pool.reader())
+            .await
+            .map_err(Error::from)?;
+        let rows = rows
+            .into_iter()
+            .map(|row| {
+                Ok(AnchorRequest {
+                    id: row.init_cid,
+                    prev: row.cid,
+                    event_id: row.order_key,
+                    resume_token: row.row_id,
+                })
+            })
+            .collect::<Result<Vec<AnchorRequest>>>()?;
+        Ok(rows)
     }
 }

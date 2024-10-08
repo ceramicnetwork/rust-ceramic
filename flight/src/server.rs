@@ -10,7 +10,7 @@ use datafusion::catalog::{Session, TableProvider};
 use datafusion::common::exec_datafusion_err;
 use datafusion::datasource::TableType;
 use datafusion::execution::config::SessionConfig;
-use datafusion::execution::context::SessionContext;
+use datafusion::execution::context::{SQLOptions, SessionContext};
 use datafusion::logical_expr::{Expr, TableProviderFilterPushDown};
 use datafusion::physical_expr::EquivalenceProperties;
 use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
@@ -42,7 +42,15 @@ pub fn new_server(
         SessionConfig::new().with_default_catalog_and_schema("ceramic", "v0"),
     );
     ctx.register_table("conclusion_feed", Arc::new(FeedTable::new(feed)))?;
-    let svc = FlightServiceServer::new(FlightSqlService::new(ctx.state()));
+    let svc = FlightServiceServer::new(
+        FlightSqlService::new(ctx.state()).with_sql_options(Some(
+            // Disable all access except read only queries.
+            SQLOptions::new()
+                .with_allow_dml(false)
+                .with_allow_ddl(false)
+                .with_allow_statements(false),
+        )),
+    );
     Ok(Server::builder().add_service(svc))
 }
 
@@ -97,6 +105,8 @@ impl<T> FeedTable<T> {
                 Field::new("stream_type", DataType::UInt8, false),
                 Field::new("controller", DataType::Utf8, false),
                 Field::new(
+                    // NOTE: The entire dimensions map may be null or values for a given key may
+                    // be null. No other aspect of dimensions may be null.
                     "dimensions",
                     DataType::Map(
                         Field::new(
@@ -110,7 +120,7 @@ impl<T> FeedTable<T> {
                                             Box::new(DataType::Int32),
                                             Box::new(DataType::Binary),
                                         ),
-                                        false,
+                                        true,
                                     ),
                                 ]
                                 .into(),

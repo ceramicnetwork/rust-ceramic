@@ -3,7 +3,7 @@ use anyhow::{anyhow, Result};
 use ceramic_event::unvalidated::RawTimeEvent;
 
 use crate::{
-    anchor::{AnchorRequest, TimeEvents},
+    anchor::{AnchorRequest, RawTimeEvents},
     DetachedTimeEvent,
 };
 
@@ -11,25 +11,28 @@ pub fn build_time_events(
     anchor_requests: &[AnchorRequest],
     detached_time_event: &DetachedTimeEvent,
     count: u64,
-) -> Result<TimeEvents> {
+) -> Result<RawTimeEvents> {
     let events = anchor_requests
         .iter()
         .enumerate()
         .map(|(index, anchor_request)| {
             let local_path = index_to_path(index.try_into()?, count)?;
             let remote_path = detached_time_event.path.as_str();
-            Ok(RawTimeEvent::new(
-                anchor_request.id,
-                anchor_request.prev,
-                detached_time_event.proof,
-                format!("{}/{}", remote_path, local_path)
-                    .trim_matches('/')
-                    .to_owned(),
+            Ok((
+                anchor_request.clone(),
+                RawTimeEvent::new(
+                    anchor_request.id,
+                    anchor_request.prev,
+                    detached_time_event.proof,
+                    format!("{}/{}", remote_path, local_path)
+                        .trim_matches('/')
+                        .to_owned(),
+                ),
             ))
         })
         .collect::<Result<Vec<_>>>()?;
 
-    Ok(TimeEvents { events })
+    Ok(RawTimeEvents { events })
 }
 
 pub fn index_to_path(index: u64, count: u64) -> Result<String> {
@@ -100,7 +103,7 @@ pub fn index_to_path(index: u64, count: u64) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cid::Cid;
+    use ceramic_core::{Cid, EventId, Network, SerializeExt};
     use expect_test::expect;
 
     #[tokio::test]
@@ -115,10 +118,26 @@ mod tests {
             path: "".to_owned(),
             proof,
         };
-        let anchor_requests = vec![AnchorRequest { id, prev }];
+        let order_key = EventId::new(
+            &Network::Mainnet,
+            "model",
+            &multibase::decode("kh4q0ozorrgaq2mezktnrmdwleo1d")
+                .unwrap()
+                .1,
+            "did:key:z6MkgSV3tAuw7gUWqKCUY7ae6uWNxqYgdwPhUJbJhF9EFXm9",
+            &id,
+            &prev,
+        );
+
+        let anchor_requests = vec![AnchorRequest {
+            id,
+            prev,
+            event_id: order_key,
+            resume_token: 0,
+        }];
         let time_event = build_time_events(&anchor_requests, &detached_time_event, 1);
-        expect![[r#"{"events":[{"id":{"/":"baeabeifu7qd7bpy4z6vdo7jff6kg3uiwolqtofhut7nrhx6wuhpb2wqxtq"},"prev":{"/":"baeabeifu7qd7bpy4z6vdo7jff6kg3uiwolqtofhut7nrhx6wuhpb2wqxtq"},"proof":{"/":"bafyreidq247kfkizr3k6wlvx43lt7gro2dno7vzqepmnqt26agri4opzqu"},"path":""}]}"#]]
-            .assert_eq(&String::from_utf8(serde_ipld_dagjson::to_vec(&time_event.unwrap()).unwrap()).unwrap());
+        expect![[r#"{"events":[[{"id":{"/":"baeabeifu7qd7bpy4z6vdo7jff6kg3uiwolqtofhut7nrhx6wuhpb2wqxtq"},"prev":{"/":"baeabeifu7qd7bpy4z6vdo7jff6kg3uiwolqtofhut7nrhx6wuhpb2wqxtq"},"event_id":{"/":{"bytes":"zgEFALolB21zAkHnRcx8By/3KeodWhecAQASILT8B/C/HM+qN30lL5Rt0RZy4TcU9J/bE9/Wod4dWhec"}},"resume_token":0},{"id":{"/":"baeabeifu7qd7bpy4z6vdo7jff6kg3uiwolqtofhut7nrhx6wuhpb2wqxtq"},"prev":{"/":"baeabeifu7qd7bpy4z6vdo7jff6kg3uiwolqtofhut7nrhx6wuhpb2wqxtq"},"proof":{"/":"bafyreidq247kfkizr3k6wlvx43lt7gro2dno7vzqepmnqt26agri4opzqu"},"path":""}]]}"#]]
+            .assert_eq(core::str::from_utf8(time_event.unwrap().to_json().unwrap().as_bytes()).unwrap());
     }
 
     #[tokio::test]

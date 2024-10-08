@@ -1,5 +1,6 @@
 use std::str::FromStr;
 
+use alloy::hex;
 use anyhow::{bail, Result};
 use chrono::Utc;
 use k256::ecdsa::RecoveryId;
@@ -65,7 +66,7 @@ impl PkhEthereum {
     fn verify_message(msg: &str, signature: &str) -> Result<String> {
         // Create the prefixed message as per the Ethereum standard
         let digest = keccak::hash_personal_message(msg);
-        let signature_bytes = hex::decode(signature.strip_prefix("0x").unwrap_or(signature))?;
+        let signature_bytes = hex::decode(signature)?;
         if signature_bytes.len() != 65 {
             bail!(
                 "Ethereum signature should be 65 bytes not {}",

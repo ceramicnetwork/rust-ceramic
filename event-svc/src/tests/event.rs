@@ -25,7 +25,7 @@ macro_rules! test_with_sqlite {
             async fn [<$test_name _sqlite>]() {
 
                 let conn = $crate::store::SqlitePool::connect_in_memory().await.unwrap();
-                let store = $crate::EventService::try_new(conn, true, true).await.unwrap();
+                let store = $crate::EventService::try_new(conn, true, true, vec![]).await.unwrap();
                 $(
                     for stmt in $sql_stmts {
                         store.pool.run_statement(stmt).await.unwrap();
@@ -66,10 +66,10 @@ where
     let init_cid = one.key.cid().unwrap();
     let min_id = event_id_min(&init_cid, &model);
     let max_id = event_id_max(&init_cid, &model);
-    recon::Store::insert_many(&store, &[one.clone()], NodeId::random().unwrap().0)
+    recon::Store::insert_many(&store, &[one.clone()], NodeId::random().0)
         .await
         .unwrap();
-    recon::Store::insert_many(&store, &[two.clone()], NodeId::random().unwrap().0)
+    recon::Store::insert_many(&store, &[two.clone()], NodeId::random().0)
         .await
         .unwrap();
     let values: Vec<(EventId, Vec<u8>)> =
@@ -105,20 +105,16 @@ where
     let item = &[ReconItem::new(id, car)];
 
     // first insert reports its a new key
-    assert!(
-        recon::Store::insert_many(&store, item, NodeId::random().unwrap().0)
-            .await
-            .unwrap()
-            .included_new_key()
-    );
+    assert!(recon::Store::insert_many(&store, item, NodeId::random().0)
+        .await
+        .unwrap()
+        .included_new_key());
 
     // second insert of same key reports it already existed
-    assert!(
-        !recon::Store::insert_many(&store, item, NodeId::random().unwrap().0)
-            .await
-            .unwrap()
-            .included_new_key()
-    );
+    assert!(!recon::Store::insert_many(&store, item, NodeId::random().0)
+        .await
+        .unwrap()
+        .included_new_key());
 }
 
 test_with_dbs!(
@@ -145,7 +141,7 @@ where
     let actual = recon::Store::insert_many(
         &store,
         &[ReconItem::new(id.clone(), car1)],
-        NodeId::random().unwrap().0,
+        NodeId::random().0,
     )
     .await
     .unwrap();
@@ -154,7 +150,7 @@ where
     let res = recon::Store::insert_many(
         &store,
         &[ReconItem::new(id.clone(), car2)],
-        NodeId::random().unwrap().0,
+        NodeId::random().0,
     )
     .await
     .unwrap();
@@ -200,7 +196,7 @@ where
     recon::Store::insert_many(
         &store,
         &[ReconItem::new(key.clone(), store_value)],
-        NodeId::random().unwrap().0,
+        NodeId::random().0,
     )
     .await
     .unwrap();
@@ -234,7 +230,7 @@ where
     recon::Store::insert_many(
         &store,
         &[ReconItem::new(key.clone(), store_value)],
-        NodeId::random().unwrap().0,
+        NodeId::random().0,
     )
     .await
     .unwrap();
@@ -269,10 +265,7 @@ async fn prep_highwater_tests(store: &dyn ApiEventService) -> (Cid, Cid, Cid) {
         keys[1].key.cid().unwrap(),
         keys[2].key.cid().unwrap(),
     );
-    store
-        .insert_many(keys, NodeId::random().unwrap().0)
-        .await
-        .unwrap();
+    store.insert_many(keys, NodeId::random().0).await.unwrap();
     res
 }
 
@@ -470,7 +463,7 @@ where
     } = build_event().await;
     let item = ApiItem::new(key, store_value);
     store
-        .insert_many(vec![item.clone()], NodeId::random().unwrap().0)
+        .insert_many(vec![item.clone()], NodeId::random().0)
         .await
         .unwrap();
 
@@ -500,7 +493,7 @@ where
     let item = ApiItem::new(key, store_value);
 
     store
-        .insert_many(vec![item.clone()], NodeId::random().unwrap().0)
+        .insert_many(vec![item.clone()], NodeId::random().0)
         .await
         .unwrap();
 
@@ -614,11 +607,11 @@ where
 #[tokio::test]
 async fn test_conclusion_events_since() -> Result<(), Box<dyn std::error::Error>> {
     let pool = SqlitePool::connect_in_memory().await?;
-    let service = EventService::try_new(pool, false, false).await?;
+    let service = EventService::try_new(pool, false, false, vec![]).await?;
     let test_events = generate_chained_events().await;
 
-    for event in &test_events {
-        recon::Store::insert_many(&service, &[event.clone()], NodeId::random().unwrap().0).await?;
+    for event in test_events {
+        ceramic_api::EventService::insert_many(&service, vec![event], NodeId::random().0).await?;
     }
 
     // Fetch conclusion events

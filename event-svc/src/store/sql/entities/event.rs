@@ -57,12 +57,12 @@ pub struct EventInsertable {
 
 impl EventInsertable {
     /// EventInsertable constructor
-    pub fn new(
+    pub fn try_new(
         order_key: EventId,
         event_cid: Cid,
+        deliverable: bool,
         event: Arc<unvalidated::Event<Ipld>>,
         informant: Option<NodeId>,
-        deliverable: bool,
     ) -> Result<Self> {
         let cid = order_key.cid().ok_or_else(|| {
             Error::new_app(anyhow::anyhow!(
@@ -94,7 +94,7 @@ impl EventInsertable {
 
     /// Get the CID of the init event of the stream
     pub fn stream_cid(&self) -> &Cid {
-        self.event.id()
+        self.event.stream_cid()
     }
 
     /// Get the CID of the event

@@ -1,21 +1,23 @@
 use std::ops::Range;
+use std::sync::Arc;
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Context, Result};
+use async_trait::async_trait;
 use ceramic_core::{EventId, NodeId};
+use ceramic_event::unvalidated::Event;
 use cid::Cid;
 use iroh_bitswap::Block;
 use recon::{HashCount, ReconItem, Result as ReconResult, Sha256a};
 use tracing::info;
 
 use crate::event::{DeliverableRequirement, EventService};
-use crate::store::{CeramicOneBlock, CeramicOneEvent};
+use crate::store::{CeramicOneBlock, CeramicOneEvent, EventInsertable};
 use crate::Error;
 
 use super::service::{InsertResult, ValidationError, ValidationRequirement};
 
 impl From<InsertResult> for recon::InsertResult<EventId> {
     fn from(value: InsertResult) -> Self {
-        let mut pending = 0;
         let mut invalid = Vec::new();
         for ev in value.rejected {
             match ev {
@@ -27,12 +29,16 @@ impl From<InsertResult> for recon::InsertResult<EventId> {
                     info!(key=%key, %reason, "invalid signature for recon event");
                     invalid.push(recon::InvalidItem::InvalidSignature { key })
                 }
-                // once we implement enough validation to actually return these items,
-                // the service will need to track them and retry them when the required CIDs are discovered
-                ValidationError::RequiresHistory { .. } => pending += 1,
+                ValidationError::RequiresHistory { key } => {
+                    unreachable!("recon items should never require history: {:?}", key)
+                }
+                ValidationError::InvalidTimeProof { key, reason } => {
+                    info!(key=%key, %reason, "invalid time proof for recon event");
+                    invalid.push(recon::InvalidItem::InvalidSignature { key })
+                }
             };
         }
-        recon::InsertResult::new_err(value.store_result.count_new_keys(), invalid, pending)
+        recon::InsertResult::new_err(value.new.len(), invalid, value.pending_count)
     }
 }
 
@@ -143,9 +149,9 @@ impl iroh_bitswap::Store for EventService {
 
 impl From<InsertResult> for Vec<ceramic_api::EventInsertResult> {
     fn from(res: InsertResult) -> Self {
-        let mut api_res = Vec::with_capacity(res.store_result.inserted.len() + res.rejected.len());
-        for ev in res.store_result.inserted {
-            api_res.push(ceramic_api::EventInsertResult::new_ok(ev.order_key));
+        let mut api_res = Vec::with_capacity(res.new.len() + res.rejected.len());
+        for ev in res.new.into_iter().chain(res.existed.into_iter()) {
+            api_res.push(ceramic_api::EventInsertResult::new_ok(ev));
         }
 
         for ev in res.rejected {
@@ -159,6 +165,10 @@ impl From<InsertResult> for Vec<ceramic_api::EventInsertResult> {
                 ValidationError::RequiresHistory { key } => (
                     key,
                     "Failed to insert event as `prev` event was missing".to_owned(),
+                ),
+                ValidationError::InvalidTimeProof { key, reason } => (
+                    key,
+                    format!("Failed to validate time event inclusion proof: {reason}"),
                 ),
             };
             api_res.push(ceramic_api::EventInsertResult::new_failed(key, reason));
@@ -262,5 +272,51 @@ impl ceramic_api::EventService for EventService {
     async fn get_block(&self, cid: &Cid) -> anyhow::Result<Option<Vec<u8>>> {
         let block = CeramicOneBlock::get(&self.pool, cid).await?;
         Ok(block.map(|b| b.data.to_vec()))
+    }
+}
+
+#[async_trait]
+impl ceramic_anchor_service::Store for EventService {
+    async fn insert_many(
+        &self,
+        items: Vec<ceramic_anchor_service::TimeEventInsertable>,
+        informant: NodeId,
+    ) -> Result<()> {
+        let items = items
+            .into_iter()
+            .map(|insertable| {
+                EventInsertable::try_new(
+                    insertable.event_id,
+                    insertable.cid,
+                    true,
+                    Arc::new(Event::Time(Box::new(insertable.event))),
+                    Some(informant),
+                )
+                .map_err(|e| anyhow!("could not create EventInsertable: {}", e))
+            })
+            .collect::<Result<Vec<EventInsertable>>>()?;
+        CeramicOneEvent::insert_many(&self.pool, items.iter())
+            .await
+            .context("anchoring insert_many failed")?;
+        Ok(())
+    }
+
+    async fn events_since_high_water_mark(
+        &self,
+        informant: NodeId,
+        high_water_mark: i64,
+        limit: i64,
+    ) -> Result<Vec<ceramic_anchor_service::AnchorRequest>> {
+        // Fetch event CIDs from the events table using the previous high water mark
+        Ok(
+            CeramicOneEvent::data_events_by_informant(
+                &self.pool,
+                informant,
+                high_water_mark,
+                limit,
+            )
+            .await
+            .map_err(|e| Error::new_app(anyhow!("could not fetch events by informant: {}", e)))?,
+        )
     }
 }

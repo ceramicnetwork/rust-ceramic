@@ -2,6 +2,63 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.39.0] - 2024-10-07
+
+### 🐛 Bug Fixes
+
+- Allow local and inmemory networks to start up without an eth rpc url (#555)
+
+### ⚙️ Miscellaneous Tasks
+
+- Always log options at startup (#554)
+
+## [0.38.0] - 2024-10-07
+
+### 🚀 Features
+
+- Validate signed events (#503)
+- Self-anchoring (part 5) (#488)
+- Support non sharded IPFS block paths (#541)
+- Store doc_state table in object storage (#540)
+- Add logic to migration to count errors by model (#542)
+- Validate time event chain inclusion proofs (#539)
+- Process batches on the interval (#548)
+- Ethereum RPC provider configuration (#547)
+
+### 🐛 Bug Fixes
+
+- Make self-anchoring config experimental (#546)
+
+### 🚜 Refactor
+
+- Return reference to inserted item from event store and reduce unnecessary ordering work  (#530)
+- Teach event validator some more and store a copy on the service (#536)
+- Use alloy as ethereum RPC provider (#543)
+
+### ⚙️ Miscellaneous Tasks
+
+- Update ca-certificates so eth rpc connections (#549)
+- Version v0.38.0 (#552)
+
+## [0.37.0] - 2024-09-23
+
+### 🚀 Features
+
+- Add webauthn signature validation (#511)
+- Support dimensions in conclusion feed (#535)
+
+### 🐛 Bug Fixes
+
+- Spawn std task instead of tokio to avoid blocking runtime (#532)
+
+### 🚜 Refactor
+
+- Small logic change for readability (#534)
+
+### ⚙️ Miscellaneous Tasks
+
+- Version v0.37.0 (#537)
+
 ## [0.36.0] - 2024-09-18
 
 ### 🚀 Features
@@ -14,6 +71,7 @@ All notable changes to this project will be documented in this file.
 - Infer stream type from raw event model and add it to conclusion event + tests (#525)
 - Rpc client for eth blockchains (#520)
 - Verify time event proofs from eth rpc client and calculate time (#522)
+- Add olap aggregation function (#527)
 
 ### 🐛 Bug Fixes
 
@@ -23,6 +81,10 @@ All notable changes to this project will be documented in this file.
 ### 🚜 Refactor
 
 - More prep for signed event validation (#526)
+
+### ⚙️ Miscellaneous Tasks
+
+- Version v0.36.0 (#533)
 
 ## [0.35.0] - 2024-09-09
 

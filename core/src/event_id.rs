@@ -141,6 +141,24 @@ impl EventId {
             cid,
         })
     }
+
+    /// swap_cid replaces the event CID in the EventId with a new CID.
+    pub fn swap_cid(&self, cid: &Cid) -> Option<Self> {
+        // Strip the stream ID multiformat and stream type
+        let remainder = &self.0[3..];
+        // Strip and decode the network ID (variable length)
+        let (network_id, remainder) = de_varint(remainder).ok()?;
+
+        let mut bytes: Vec<u8> = Default::default();
+        // Add stream ID multiformat and the stream type as defined in the cip-124 EventID varint
+        bytes.extend(b"\xce\x01\x05");
+        // network_id varint
+        bytes.extend(varint(network_id, &mut [0_u8; 10]));
+        // separator 8 bytes, controller 8 bytes, stream_id 4 bytes
+        bytes.extend(&remainder[0..(8 + 8 + 4)]);
+        bytes.extend(cid.to_bytes());
+        Some(Self(bytes))
+    }
 }
 
 struct EventIdParts<'a> {
@@ -652,5 +670,34 @@ mod tests {
             }
         "#]]
         .assert_debug_eq(&event_id);
+    }
+
+    #[test]
+    fn test_swap_cid() {
+        let sep_key = "model".to_string();
+        let separator = "kh4q0ozorrgaq2mezktnrmdwleo1d".to_string(); // cspell:disable-line
+        let controller = "did:key:z6MkgSV3tAuw7gUWqKCUY7ae6uWNxqYgdwPhUJbJhF9EFXm9".to_string();
+        let init =
+            Cid::from_str("bagcqceraplay4erv6l32qrki522uhiz7rf46xccwniw7ypmvs3cvu2b3oulq").unwrap(); // cspell:disable-line
+        let event_cid =
+            Cid::from_str("bafyreihu557meceujusxajkaro3epfe6nnzjgbjaxsapgtml7ox5ezb5qy").unwrap(); // cspell:disable-line
+
+        let original = EventId::new(
+            &Network::Mainnet,
+            &sep_key,
+            &multibase::decode(separator).unwrap().1,
+            &controller,
+            &init,
+            &event_cid,
+        );
+
+        println!("original: {:?}", hex::encode(&original.0));
+        // Test replacing the CID in the EventId with one that is of a different length
+        let swapped = original.swap_cid(&init).unwrap();
+        assert_ne!(original, swapped);
+
+        // Test replacing the CID in the EventID with the original CID
+        let swapped_back = swapped.swap_cid(&event_cid).unwrap();
+        assert_eq!(original, swapped_back);
     }
 }

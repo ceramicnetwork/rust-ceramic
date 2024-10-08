@@ -11,6 +11,7 @@ use super::{
 };
 
 #[async_trait::async_trait]
+/// Trait to represeng verifying a signature.
 pub trait Verifier {
     /// Verify the JWS signature against the controller (issuer) if provided.
     /// Without issuer simply verifies the JWS and CACAO (if included) are valid, without following

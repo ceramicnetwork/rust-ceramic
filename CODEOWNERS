@@ -5,6 +5,7 @@
 # the owner and someone from the eng-reviewers team.
 /.github/           @smrz2001       @ceramicnetwork/eng-reviewers
 /anchor-service/    @AaronGoldman   @ceramicnetwork/eng-reviewers
+/anchor-remote/     @AaronGoldman   @ceramicnetwork/eng-reviewers
 /api-server/        @dav1do         @ceramicnetwork/eng-reviewers
 /api/               @dav1do         @ceramicnetwork/eng-reviewers
 /beetle/            @nathanielc     @ceramicnetwork/eng-reviewers

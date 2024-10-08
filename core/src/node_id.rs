@@ -192,13 +192,22 @@ impl NodeId {
         })
     }
     /// Create a NodeId using a random Ed25519 key pair
-    pub fn random() -> Result<(Self, String)> {
+    ///
+    /// Returns (NodeId, secret:public_key)
+    /// e.g. secret:public_key
+    ///   z3u2WLX8jeyN6sfbDowLGudoZHudxgVkNJfrw2TDTVx4tijd:z6MkueF19qChpGQJBJXcXjfoM1MYCwC167RMwUiNWXXvEm1M
+    ///   In this example, the DID will be did:key:z6MkueF19qChpGQJBJXcXjfoM1MYCwC167RMwUiNWXXvEm1M.
+    pub fn random() -> (Self, String) {
         // Generate random secret key and corresponding keypair
         let random_secret = rand::thread_rng().gen::<[u8; 32]>();
         let key_pair = Ed25519KeyPair::from_seed_unchecked(random_secret.as_ref())
-            .map_err(|e| anyhow!("failed to create new key pair: {}", e))?;
+            .expect("expect 32 bytes to be well-formed");
         // Encode the public key and secret key
-        let public_ed25519_key_bytes: [u8; 32] = key_pair.public_key().as_ref().try_into()?;
+        let public_ed25519_key_bytes: [u8; 32] = key_pair
+            .public_key()
+            .as_ref()
+            .try_into()
+            .expect("expect public key to be 32 bytes");
         let public_key_with_prefix = [
             ED25519_PUBLIC_KEY_MULTICODEC_PREFIX,
             public_ed25519_key_bytes.as_ref(),
@@ -213,12 +222,12 @@ impl NodeId {
         .concat();
         let private_key_multibase =
             multibase::encode(multibase::Base::Base58Btc, private_key_with_prefix);
-        Ok((
+        (
             Self {
                 public_ed25519_key_bytes,
             },
             format!("{}:{}", private_key_multibase, public_key_multibase),
-        ))
+        )
     }
 }
 

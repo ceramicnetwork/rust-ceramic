@@ -60,6 +60,7 @@ bytecheck = "0.6.7"
 bytes = "1.1"
 bytesize = "1.1"
 ceramic-anchor-service = { path = "./anchor-service" }
+ceramic-anchor-remote = { path = "./anchor-remote" }
 ceramic-api = { path = "./api" }
 ceramic-api-server = { path = "./api-server" }
 ceramic-arrow-test = { path = "./arrow-test" }
@@ -87,12 +88,11 @@ crossterm = "0.25"
 ctrlc = "3.2.2"
 dag-jose = "0.2"
 datafusion = "42"
-#datafusion-federation = "0.2"
-#datafusion-flight-sql-server = "0.2"
-#datafusion-flight-sql-table-provider = { git = "https://github.com/datafusion-contrib/datafusion-federation.git", branch = "main" }
-datafusion-federation = { git = "https://github.com/datafusion-contrib/datafusion-federation.git", branch = "main" }
-datafusion-flight-sql-server = { git = "https://github.com/datafusion-contrib/datafusion-federation.git", branch = "main" }
+datafusion-federation = { git = "https://github.com/datafusion-contrib/datafusion-federation.git", features = [
+    "sql",
+], branch = "main" }
 datafusion-flight-sql-table-provider = { git = "https://github.com/datafusion-contrib/datafusion-federation.git", branch = "main" }
+datafusion-flight-sql-server = { git = "https://github.com/datafusion-contrib/datafusion-federation.git", branch = "main" }
 deadqueue = "0.2.3"
 derivative = "2.2"
 derive_more = "0.99.17"
@@ -239,7 +239,7 @@ zeroize = "1.4"
 
 
 [workspace.package]
-version = "0.36.0"
+version = "0.39.0"
 edition = "2021"
 authors = [
     "Danny Browning <dbrowning@3box.io>",

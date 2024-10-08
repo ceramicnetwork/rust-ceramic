@@ -1,6 +1,6 @@
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 
-use anyhow::{anyhow, bail, Context as _, Result};
+use anyhow::{anyhow, bail, Result};
 use ceramic_core::ssi::caip2;
 use ceramic_core::Cid;
 use ceramic_event::unvalidated;
@@ -9,13 +9,13 @@ use multihash::Multihash;
 use once_cell::sync::Lazy;
 use tracing::warn;
 
-use ceramic_validation::eth_rpc::{ChainBlock, EthRpc, HttpEthRpc};
+use ceramic_validation::eth_rpc::{self, ChainBlock, EthRpc, HttpEthRpc};
 
 const V0_PROOF_TYPE: &str = "raw";
 const V1_PROOF_TYPE: &str = "f(bytes32)"; // See: https://namespaces.chainagnostic.org/eip155/caip168
 const DAG_CBOR_CODEC: u64 = 0x71;
 
-static BLOCK_THRESHHOLDS: Lazy<HashMap<&str, i64>> = Lazy::new(|| {
+static BLOCK_THRESHHOLDS: Lazy<HashMap<&str, u64>> = Lazy::new(|| {
     HashMap::from_iter(vec![
         ("eip155:1", 16688195),       //mainnet
         ("eip155:3", 1000000000),     //ropsten
@@ -26,42 +26,65 @@ static BLOCK_THRESHHOLDS: Lazy<HashMap<&str, i64>> = Lazy::new(|| {
     ])
 });
 
+#[derive(Debug)]
+pub enum ChainInclusionError {
+    /// Transaction hash not found
+    TxNotFound {
+        chain_id: caip2::ChainId,
+        tx_hash: String,
+    },
+    /// The transaction exists but has not been mined yet
+    TxNotMined {
+        chain_id: caip2::ChainId,
+        tx_hash: String,
+    },
+    /// The proof was invalid for the given reason
+    InvalidProof(String),
+    /// No chain provider configured for the event, whether that's an error is up to the caller
+    NoChainProvider(caip2::ChainId),
+    /// The transaction was invalid or could not be verified for some reason
+    /// This includes transient errors that need to be split out in the future.
+    /// Plan to handle than after switching to alloy as the eth RPC client.
+    Error(anyhow::Error),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Timestamp(i64);
+pub struct Timestamp(u64);
 
 impl Timestamp {
     /// A unix epoch timestamp
-    pub fn as_unix_ts(&self) -> i64 {
+    #[allow(dead_code)]
+    pub fn as_unix_ts(&self) -> u64 {
         self.0
     }
 }
 
-#[async_trait::async_trait]
-pub trait BlockchainVerifier {
-    /// Get the CAIP-2 chains that are supported for validating time events
-    fn supported_chains(&self) -> Vec<caip2::ChainId>;
-
-    /// Verify the time event anchor information
-    async fn validate_chain_inclusion(
-        &self,
-        event: &unvalidated::TimeEvent,
-    ) -> Result<Option<Timestamp>>;
-}
-
+/// Provider for a remote Ethereum RPC endpoint.
 pub type EthRpcProvider = Arc<dyn EthRpc + Send + Sync>;
 
-pub struct EventTimestamper<'a> {
-    // TODO: will be needed to persist transaction and proof information
-    _pool: &'a SqlitePool,
+pub struct TimeEventValidator {
     /// we could support multiple providers for each chain (to get around rate limits)
     /// but we'll just force people to run a light client if they really need the throughput
     chain_providers: HashMap<caip2::ChainId, EthRpcProvider>,
 }
 
-impl<'a> EventTimestamper<'a> {
-    pub async fn try_new(pool: &'a SqlitePool, urls: &[&str]) -> Result<Self> {
-        let mut chain_providers = HashMap::with_capacity(urls.len());
-        for url in urls {
+impl std::fmt::Debug for TimeEventValidator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EventTimestamper")
+            .field(
+                "chain_providers",
+                &format!("{:?}", &self.chain_providers.keys()),
+            )
+            .finish()
+    }
+}
+
+impl TimeEventValidator {
+    /// Try to construct the validator by looking building the etherum rpc providers from the given URLsƒsw
+    #[allow(dead_code)]
+    pub async fn try_new(rpc_urls: &[String]) -> Result<Self> {
+        let mut chain_providers = HashMap::with_capacity(rpc_urls.len());
+        for url in rpc_urls {
             match HttpEthRpc::try_new(url).await {
                 Ok(provider) => {
                     // use the first valid rpc client we find rather than replace one
@@ -72,27 +95,79 @@ impl<'a> EventTimestamper<'a> {
                         .or_insert_with(|| provider);
                 }
                 Err(err) => {
-                    warn!("failed to create RCP client with url: '{url}': {err}");
+                    warn!(?err, "failed to create RPC client with url: '{url}'");
                 }
             }
         }
         if chain_providers.is_empty() {
             bail!("failed to instantiate any RPC chain providers");
         }
-        Ok(Self {
-            _pool: pool,
-            chain_providers,
-        })
+        Ok(Self { chain_providers })
     }
 
     /// Create from known providers (e.g. inject mocks)
-    pub fn new_with_providers(pool: &'a SqlitePool, providers: Vec<EthRpcProvider>) -> Self {
+    /// Currently used in tests, may switch to this from service if we want to share RPC with anchoring.
+    pub fn new_with_providers(providers: Vec<EthRpcProvider>) -> Self {
         Self {
-            _pool: pool,
             chain_providers: HashMap::from_iter(
                 providers.into_iter().map(|p| (p.chain_id().to_owned(), p)),
             ),
         }
+    }
+
+    /// Get the CAIP2 Chain IDs that we can validate
+    fn _supported_chains(&self) -> Vec<caip2::ChainId> {
+        self.chain_providers.keys().cloned().collect()
+    }
+
+    /// Validate the chain inclusion proof for a time event, returning the block timestamp if found
+    pub async fn validate_chain_inclusion(
+        &self,
+        _pool: &SqlitePool,
+        event: &unvalidated::TimeEvent,
+    ) -> Result<Timestamp, ChainInclusionError> {
+        let chain_id = caip2::ChainId::from_str(event.proof().chain_id())
+            .map_err(|e| ChainInclusionError::Error(anyhow!("invalid chain ID: {}", e)))?;
+
+        let provider = self
+            .chain_providers
+            .get(&chain_id)
+            .ok_or_else(|| ChainInclusionError::NoChainProvider(chain_id.clone()))?;
+        let tx_hash = Self::expected_tx_hash(event.proof().tx_hash());
+
+        // TODO: check db or lru cache for transaction.
+        //     if known => return it
+        //     else if new => query it
+        //     else if we've tried before and it's been "long enough" => query it
+        // for now, we just use the rpc endpoint again which has a small internal LRU cache
+        let (root_cid, block) = match self
+            .get_block(provider, &tx_hash, event.proof())
+            .await
+            .map_err(ChainInclusionError::Error)?
+        {
+            Some(v) => match v.1 {
+                Some(block) => (v.0, block),
+                None => return Err(ChainInclusionError::TxNotMined { chain_id, tx_hash }), // block has not been mined yet so time information can't be determined
+            },
+            None => return Err(ChainInclusionError::TxNotFound { chain_id, tx_hash }),
+        };
+
+        if root_cid != event.proof().root() {
+            return Err(ChainInclusionError::InvalidProof(format!(
+                "the root CID is not in the transaction (root={})",
+                event.proof().root()
+            )));
+        }
+
+        if let Some(threshold) = BLOCK_THRESHHOLDS.get(event.proof().chain_id()) {
+            if block.number < *threshold {
+                return Err(ChainInclusionError::InvalidProof("V0 anchor proofs are not supported. Please report this error on the forum: https://forum.ceramic.network/".into()));
+            } else if event.proof().tx_type() != V1_PROOF_TYPE {
+                return Err(ChainInclusionError::InvalidProof(format!("Any anchor proofs created after block {threshold} for chain {} must include the txType field={V1_PROOF_TYPE}. Anchor txn blockNumber: {}", event.proof().chain_id(), block.number)));
+            }
+        }
+
+        Ok(Timestamp(block.timestamp))
     }
 
     /// Input is the data input to the contract for the transaction
@@ -100,15 +175,7 @@ impl<'a> EventTimestamper<'a> {
         let input = input.strip_prefix("0x").unwrap_or(input);
         match tx_type {
             V0_PROOF_TYPE => {
-                // A hex-encoded CID. The data value is a byte-friendly string.
-                // If its length is odd, a single '0' may be prepended to make its length even
-                let root_bytes = if input.as_bytes().len() % 2 != 0 {
-                    hex::decode([&[0_u8], input.as_bytes()].concat())?
-                } else {
-                    hex::decode(input.as_bytes())?
-                };
-
-                Ok(Cid::read_bytes(root_bytes.as_slice()).context("invalid v0 proof CID")?)
+                bail!("V0 anchor proofs are not supported. Tx input={input} Please report this error on the forum: https://forum.ceramic.network/");
             }
             V1_PROOF_TYPE => {
                 /*
@@ -142,8 +209,8 @@ impl<'a> EventTimestamper<'a> {
         tx_hash: &str,
         proof: &unvalidated::Proof,
     ) -> Result<Option<(Cid, Option<ChainBlock>)>> {
-        match provider.get_block_timestamp(tx_hash).await? {
-            Some(tx) => {
+        match provider.get_block_timestamp(tx_hash).await {
+            Ok(Some(tx)) => {
                 let root_cid = Self::get_root_cid_from_input(&tx.input, proof.tx_type())?;
 
                 // TODO: persist transaction and block information somewhere (lru cache, database)
@@ -151,10 +218,18 @@ impl<'a> EventTimestamper<'a> {
                 Ok(Some((root_cid, tx.block)))
             }
 
-            None => {
+            Ok(None) => {
                 // no transaction will be turned into an error at the next level.
                 // we should probably persist something so we know that it's bad and we don't keep trying
                 Ok(None)
+            }
+            Err(eth_rpc::Error::Application(error)) => bail!(error),
+            Err(eth_rpc::Error::InvalidArgument(reason)) => {
+                bail!(format!("Invalid ethereum rpc argument: {reason}"))
+            }
+            Err(eth_rpc::Error::Transient(error)) => {
+                // TODO: actually retry something
+                bail!(error);
             }
         }
     }
@@ -164,69 +239,17 @@ impl<'a> EventTimestamper<'a> {
     }
 }
 
-#[async_trait::async_trait]
-impl<'a> BlockchainVerifier for EventTimestamper<'a> {
-    fn supported_chains(&self) -> Vec<caip2::ChainId> {
-        self.chain_providers.keys().cloned().collect()
-    }
-
-    async fn validate_chain_inclusion(
-        &self,
-        event: &unvalidated::TimeEvent,
-    ) -> Result<Option<Timestamp>> {
-        let chain_id =
-            caip2::ChainId::from_str(event.proof().chain_id()).context("invalid proof chain ID")?;
-
-        let provider = self
-            .chain_providers
-            .get(&chain_id)
-            .ok_or_else(|| anyhow!("missing rpc verifier for chain ID"))?;
-        let tx_hash = Self::expected_tx_hash(event.proof().tx_hash());
-
-        // TODO: check db or lru cache for transaction.
-        //     if known => return it
-        //     else if new => query it
-        //     else if we've tried before and it's been "long enough" => query it
-        // for now, we just use the rpc endpoint again which has a small internal LRU cache
-        let (root_cid, block) = match self.get_block(provider, &tx_hash, event.proof()).await? {
-            Some(v) => match v.1 {
-                Some(block) => (v.0, block),
-                None => return Ok(None), // block has not been mined yet so time information can't be determined
-            },
-            None => {
-                bail!("transaction {tx_hash} not found");
-            }
-        };
-
-        if root_cid != event.proof().root() {
-            bail!(
-                "the root CID is not in the transaction (root={})",
-                event.proof().root()
-            )
-        }
-
-        if let Some(threshold) = BLOCK_THRESHHOLDS.get(event.proof().chain_id()) {
-            if block.number < *threshold {
-                return Ok(Some(Timestamp(block.timestamp)));
-            } else if event.proof().tx_type() != V1_PROOF_TYPE {
-                bail!("Any anchor proofs created after block {threshold} for chain {} must include the txType field={V1_PROOF_TYPE}. Anchor txn blockNumber: {}", event.proof().chain_id(), block.number);
-            }
-        }
-
-        Ok(Some(Timestamp(block.timestamp)))
-    }
-}
-
 #[cfg(test)]
 mod test {
     use ceramic_event::unvalidated;
+    use ceramic_validation::eth_rpc::TxHash;
     use ipld_core::ipld::Ipld;
     use mockall::{mock, predicate};
     use test_log::test;
 
     use super::*;
 
-    const BLOCK_TIMESTAMP: i64 = 1725913338;
+    const BLOCK_TIMESTAMP: u64 = 1725913338;
     const SINGLE_TX_HASH: &str =
         "0x1bfe594e9f2e7b32a39fe50d24c2fd3fb15255bde5bace0140c1c861c9cdb091";
     const MULTI_TX_HASH: &str =
@@ -361,15 +384,13 @@ mod test {
         #[async_trait::async_trait]
         impl EthRpc for EthRpcProviderTest {
             fn chain_id(&self) -> &caip2::ChainId;
-            async fn get_block_timestamp(&self, tx_hash: &str) -> Result<Option<ceramic_validation::eth_rpc::ChainTransaction>>;
+            fn url(&self) -> String;
+            async fn get_block_timestamp(&self, tx_hash: &str) -> Result<Option<ceramic_validation::eth_rpc::ChainTransaction>, eth_rpc::Error>;
         }
     }
 
-    async fn get_mock_provider(
-        pool: &SqlitePool,
-        tx_hash: String,
-        tx_input: String,
-    ) -> EventTimestamper<'_> {
+    async fn get_mock_provider(tx_hash: String, tx_input: String) -> TimeEventValidator {
+        let tx_hash_bytes = TxHash::from_str(&tx_hash).expect("invalid tx hash");
         let mut mock_provider = MockEthRpcProviderTest::new();
         let chain =
             caip2::ChainId::from_str("eip155:11155111").expect("eip155:11155111 is a valid chain");
@@ -381,18 +402,19 @@ mod test {
             .with(predicate::eq(tx_hash.clone()))
             .return_once(move |_| {
                 Ok(Some(ceramic_validation::eth_rpc::ChainTransaction {
-                    hash: tx_hash,
+                    hash: tx_hash_bytes,
                     input: tx_input,
                     block: Some(ChainBlock {
-                        hash: "0x783cd5a6febe13d08ac0d59fa7e666483d5e476542b29688a6f0bec3d15febd4"
-                            .into(),
+                        hash: TxHash::from_str(
+                            "0x783cd5a6febe13d08ac0d59fa7e666483d5e476542b29688a6f0bec3d15febd4",
+                        )
+                        .unwrap(),
                         number: 5558585,
                         timestamp: BLOCK_TIMESTAMP,
                     }),
                 }))
             });
-        let verifier = EventTimestamper::new_with_providers(pool, vec![Arc::new(mock_provider)]);
-        verifier
+        TimeEventValidator::new_with_providers(vec![Arc::new(mock_provider)])
     }
 
     #[test(tokio::test)]
@@ -400,18 +422,13 @@ mod test {
         let event = time_event_single_event_batch();
         let pool = SqlitePool::connect_in_memory().await.unwrap();
 
-        let verifier = get_mock_provider(
-            &pool,
-            SINGLE_TX_HASH.to_string(),
-            SINGLE_TX_HASH_INPUT.into(),
-        )
-        .await;
-        match verifier.validate_chain_inclusion(&event).await {
+        let verifier =
+            get_mock_provider(SINGLE_TX_HASH.to_string(), SINGLE_TX_HASH_INPUT.into()).await;
+        match verifier.validate_chain_inclusion(&pool, &event).await {
             Ok(ts) => {
-                let ts = ts.expect("should have timestamp");
                 assert_eq!(ts.as_unix_ts(), BLOCK_TIMESTAMP);
             }
-            Err(e) => panic!("should have passed: {:#}", e),
+            Err(e) => panic!("should have passed: {:?}", e),
         }
     }
 
@@ -420,22 +437,20 @@ mod test {
         let event = time_event_single_event_batch();
         let pool = SqlitePool::connect_in_memory().await.unwrap();
 
-        let verifier = get_mock_provider(
-            &pool,
-            SINGLE_TX_HASH.to_string(),
-            MULTI_TX_HASH_INPUT.to_string(),
-        )
-        .await;
-        match verifier.validate_chain_inclusion(&event).await {
+        let verifier =
+            get_mock_provider(SINGLE_TX_HASH.to_string(), MULTI_TX_HASH_INPUT.to_string()).await;
+        match verifier.validate_chain_inclusion(&pool, &event).await {
             Ok(v) => {
                 panic!("should have failed: {:?}", v)
             }
-            Err(e) => assert!(
-                e.to_string()
-                    .contains("the root CID is not in the transaction"),
-                "{:#}",
-                e
-            ),
+            Err(e) => match e {
+                ChainInclusionError::InvalidProof(e) => assert!(
+                    e.contains("the root CID is not in the transaction"),
+                    "{:#}",
+                    e
+                ),
+                err => panic!("got wrong error: {:?}", err),
+            },
         }
     }
 
@@ -444,18 +459,13 @@ mod test {
         let event = time_event_multi_event_batch();
         let pool = SqlitePool::connect_in_memory().await.unwrap();
 
-        let verifier = get_mock_provider(
-            &pool,
-            MULTI_TX_HASH.to_string(),
-            MULTI_TX_HASH_INPUT.to_string(),
-        )
-        .await;
-        match verifier.validate_chain_inclusion(&event).await {
+        let verifier =
+            get_mock_provider(MULTI_TX_HASH.to_string(), MULTI_TX_HASH_INPUT.to_string()).await;
+        match verifier.validate_chain_inclusion(&pool, &event).await {
             Ok(ts) => {
-                let ts = ts.expect("should have timestamp");
                 assert_eq!(ts.as_unix_ts(), BLOCK_TIMESTAMP);
             }
-            Err(e) => panic!("should have passed: {:#}", e),
+            Err(e) => panic!("should have passed: {:?}", e),
         }
     }
 
@@ -464,22 +474,20 @@ mod test {
         let event = time_event_multi_event_batch();
         let pool = SqlitePool::connect_in_memory().await.unwrap();
 
-        let verifier = get_mock_provider(
-            &pool,
-            MULTI_TX_HASH.to_string(),
-            SINGLE_TX_HASH_INPUT.to_string(),
-        )
-        .await;
-        match verifier.validate_chain_inclusion(&event).await {
+        let verifier =
+            get_mock_provider(MULTI_TX_HASH.to_string(), SINGLE_TX_HASH_INPUT.to_string()).await;
+        match verifier.validate_chain_inclusion(&pool, &event).await {
             Ok(v) => {
                 panic!("should have failed: {:?}", v)
             }
-            Err(e) => assert!(
-                e.to_string()
-                    .contains("the root CID is not in the transaction"),
-                "{:#}",
-                e
-            ),
+            Err(e) => match e {
+                ChainInclusionError::InvalidProof(e) => assert!(
+                    e.contains("the root CID is not in the transaction"),
+                    "{:#}",
+                    e
+                ),
+                err => panic!("got wrong error: {:?}", err),
+            },
         }
     }
 
@@ -487,7 +495,7 @@ mod test {
     fn parse_tx_input_data_v1() {
         assert_eq!(
             Cid::from_str("bafyreigs2yqh2olnwzrsykyt6gvgsabk7hu5e7gtmjrkobq25af5x3y7be").unwrap(),
-            EventTimestamper::get_root_cid_from_input(
+            TimeEventValidator::get_root_cid_from_input(
                 "0x97ad09ebd2d6207d396db6632c2b13f1aa69002af9e9d27cd36262a7061ae80bdbef1f09",
                 V1_PROOF_TYPE,
             )
@@ -496,14 +504,11 @@ mod test {
     }
 
     #[test]
-    fn parse_tx_input_data_v0() {
-        assert_eq!(
-            Cid::from_str("bafyreigs2yqh2olnwzrsykyt6gvgsabk7hu5e7gtmjrkobq25af5x3y7be").unwrap(),
-            EventTimestamper::get_root_cid_from_input(
-                "0x01711220d2d6207d396db6632c2b13f1aa69002af9e9d27cd36262a7061ae80bdbef1f09",
-                V0_PROOF_TYPE,
-            )
-            .unwrap()
-        );
+    fn parse_tx_input_data_v0_error() {
+        assert!(TimeEventValidator::get_root_cid_from_input(
+            "0x01711220d2d6207d396db6632c2b13f1aa69002af9e9d27cd36262a7061ae80bdbef1f09",
+            V0_PROOF_TYPE,
+        )
+        .is_err());
     }
 }
