@@ -267,13 +267,11 @@ impl CeramicPeer {
     }
 
     fn start_redial(&mut self) {
-        self.dial_backoff.reset();
         let next_backoff = self.dial_backoff.next_backoff();
         self.update_dial_future(next_backoff);
     }
 
     fn stop_redial(&mut self) {
-        self.dial_backoff.reset();
         self.update_dial_future(None);
     }
 
