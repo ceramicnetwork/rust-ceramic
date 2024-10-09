@@ -10,7 +10,8 @@ use cid::Cid;
 use clap::{Args, Subcommand};
 use futures::{stream::BoxStream, StreamExt};
 use multihash_codetable::{Code, Multihash, MultihashDigest};
-use tracing::{debug, info, trace};
+use tokio::io::AsyncBufReadExt;
+use tracing::{debug, info};
 
 use crate::{default_directory, DBOpts, Info, LogOpts};
 
@@ -38,7 +39,7 @@ pub struct FromIpfsOpts {
     #[clap(
         long,
         short,
-        default_value=default_directory().into_os_string(),
+        default_value = default_directory().into_os_string(),
         env = "CERAMIC_ONE_OUTPUT_STORE_PATH"
     )]
     output_store_path: PathBuf,
@@ -62,6 +63,47 @@ pub struct FromIpfsOpts {
 
     #[command(flatten)]
     log_opts: LogOpts,
+
+    /// Path of file containing list of newline-delimited file paths to migrate.
+    ///
+    /// See below for example usage when running a migration for a live IPFS node. Multiple migration runs using lists
+    /// of files that have changed between runs is useful for incremental migrations. This method can also be used for
+    /// a final migration after shutting down the IPFS node so that all inflight blocks are migrated to the new C1 node.
+    ///
+    /// # Get list of files in sorted order
+    ///
+    /// find ~/.ipfs/blocks -type f | sort > first_run_files.txt
+    ///
+    /// # Run the migration
+    ///
+    /// ceramic-one migrations from-ipfs --input-ipfs-path ~/.ipfs/blocks --input-file-list-path first_run_files.txt
+    ///
+    /// # Get updated list of files in sorted order
+    ///
+    /// find ~/.ipfs/blocks -type f | sort > second_run_files.txt
+    ///
+    /// # Use comm to get the list of new files
+    ///
+    /// comm -13 first_run_files.txt second_run_files.txt > new_files.txt
+    ///
+    /// # Re-run the migration
+    ///
+    /// ceramic-one migrations from-ipfs --input-ipfs-path ~/.ipfs/blocks --input-file-list-path new_files.txt
+    #[clap(long, short = 'f', env = "CERAMIC_ONE_INPUT_FILE_LIST_PATH")]
+    input_file_list_path: Option<PathBuf>,
+
+    /// Offset within the input files to start from
+    #[clap(
+        long,
+        short = 's',
+        default_value = "0",
+        env = "CERAMIC_ONE_MIGRATION_OFFSET"
+    )]
+    offset: u64,
+
+    /// Number of files to process
+    #[clap(long, short = 'l', env = "CERAMIC_ONE_MIGRATION_LIMIT")]
+    limit: Option<u64>,
 }
 
 impl From<&FromIpfsOpts> for DBOpts {
@@ -95,6 +137,12 @@ pub async fn migrate(cmd: EventsCommand) -> Result<()> {
 }
 
 async fn from_ipfs(opts: FromIpfsOpts) -> Result<()> {
+    // Limit and offset are only used when reading from a file list
+    if (opts.limit.is_some() || opts.offset > 0) && opts.input_file_list_path.is_none() {
+        return Err(anyhow!(
+            "File list path is required when using limit or offset"
+        ));
+    }
     let network = opts.network.to_network(&opts.local_network_id)?;
     let db_opts: DBOpts = (&opts).into();
     let sqlite_pool = db_opts.get_sqlite_pool().await?;
@@ -103,6 +151,9 @@ async fn from_ipfs(opts: FromIpfsOpts) -> Result<()> {
     let blocks = FSBlockStore {
         input_ipfs_path: opts.input_ipfs_path,
         sharded_paths: !opts.non_sharded_paths,
+        input_file_list_path: opts.input_file_list_path,
+        file_offset: opts.offset,
+        file_limit: opts.limit,
     };
     event_svc
         .migrate_from_ipfs(network, blocks, opts.log_tile_docs)
@@ -113,6 +164,9 @@ async fn from_ipfs(opts: FromIpfsOpts) -> Result<()> {
 struct FSBlockStore {
     input_ipfs_path: PathBuf,
     sharded_paths: bool,
+    input_file_list_path: Option<PathBuf>,
+    file_offset: u64,
+    file_limit: Option<u64>,
 }
 
 impl FSBlockStore {
@@ -145,32 +199,12 @@ impl FSBlockStore {
 #[async_trait]
 impl BlockStore for FSBlockStore {
     fn blocks(&self) -> BoxStream<'static, anyhow::Result<(Cid, Vec<u8>)>> {
-        // the block store is split in to 1024 directories and then the blocks stored as files.
-        // the dir structure is the penultimate two characters as dir then the b32 sha256 multihash of the block
-        // The leading "B" for the b32 sha256 multihash is left off
-        // ~/.ipfs/blocks/QV/CIQOHMGEIKMPYHAUTL57JSEZN64SIJ5OIHSGJG4TJSSJLGI3PBJLQVI.data // cspell:disable-line
-        info!(path = %self.input_ipfs_path.display(), "opening IPFS repo");
-
-        let mut dirs = Vec::new();
-        dirs.push(self.input_ipfs_path.clone());
-
-        try_stream! {
-            while let Some(dir) = dirs.pop() {
-                let mut entries = tokio::fs::read_dir(dir).await?;
-                while let Some(entry) = entries.next_entry().await? {
-                    if entry.metadata().await?.is_dir() {
-                        dirs.push(entry.path())
-                    } else if let Ok(Some(block)) = block_from_path(entry.path()).await{
-                        yield block
-                    } else {
-                        trace!(path = entry.path().display().to_string(), "skipping non-block file");
-                        continue;
-                    }
-                }
-            }
+        match &self.input_file_list_path {
+            Some(_) => self.blocks_from_list(),
+            None => self.blocks_from_dir(),
         }
-        .boxed()
     }
+
     async fn block_data(&self, cid: &Cid) -> Result<Option<Vec<u8>>> {
         let path = if self.sharded_paths {
             self.sharded_block_path(cid)?
@@ -183,6 +217,61 @@ impl BlockStore for FSBlockStore {
         } else {
             Ok(None)
         }
+    }
+}
+
+impl FSBlockStore {
+    fn blocks_from_dir(&self) -> BoxStream<'static, Result<(Cid, Vec<u8>)>> {
+        // the block store is split in to 1024 directories and then the blocks stored as files.
+        // the dir structure is the penultimate two characters as dir then the b32 sha256 multihash of the block
+        // The leading "B" for the b32 sha256 multihash is left off
+        // ~/.ipfs/blocks/QV/CIQOHMGEIKMPYHAUTL57JSEZN64SIJ5OIHSGJG4TJSSJLGI3PBJLQVI.data // cspell:disable-line
+        info!(path = %self.input_ipfs_path.display(), "opening IPFS repo");
+
+        let mut dirs = Vec::new();
+        dirs.push(self.input_ipfs_path.clone());
+
+        (try_stream! {
+            while let Some(dir) = dirs.pop() {
+                let mut entries = tokio::fs::read_dir(dir).await?;
+                while let Some(entry) = entries.next_entry().await? {
+                    if entry.metadata().await?.is_dir() {
+                        dirs.push(entry.path())
+                    } else if let Some(block) = block_from_path(entry.path()).await?{
+                        yield block
+                    }
+                }
+            }
+        })
+        .boxed()
+    }
+
+    fn blocks_from_list(&self) -> BoxStream<'static, Result<(Cid, Vec<u8>)>> {
+        let input_file_list_path = self
+            .input_file_list_path
+            .clone()
+            .expect("input_file_list_path should have been checked before calling this function");
+        info!(path = %input_file_list_path.display(), "reading IPFS file list");
+
+        let offset = self.file_offset;
+        let limit = self.file_limit;
+        (try_stream! {
+            let file = tokio::fs::File::open(input_file_list_path).await?;
+            let lines = tokio::io::BufReader::new(file).lines();
+            let lines = tokio_stream::wrappers::LinesStream::new(lines);
+            let mut lines = lines.skip(offset as usize).take(limit.unwrap_or(u64::MAX) as usize);
+            while let Some(line) = lines.next().await.transpose()? {
+                let path = PathBuf::from(line);
+                match block_from_path(path.clone()).await {
+                    Ok(Some(block)) => yield block,
+                    Ok(None) => {},
+                    Err(e) => {
+                        debug!(path = %path.display(), "error reading block: {:#}", e);
+                    },
+                }
+            }
+        })
+        .boxed()
     }
 }
 
@@ -204,7 +293,9 @@ async fn block_from_path(block_path: PathBuf) -> Result<Option<(Cid, Vec<u8>)>> 
     let blob = tokio::fs::read(&block_path).await?;
     let blob_hash = match hash.code() {
         0x12 => Code::Sha2_256.digest(&blob),
-        code => return Err(anyhow!("unsupported hash {code}")),
+        code => {
+            return Err(anyhow!("unsupported hash {code}"));
+        }
     };
     if blob_hash != hash {
         return Err(anyhow!(
