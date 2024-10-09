@@ -64,7 +64,7 @@ pub struct FromIpfsOpts {
     #[command(flatten)]
     log_opts: LogOpts,
 
-    /// Path of file containing list of newline-delimited absolute file paths to migrate.
+    /// Path of file containing list of newline-delimited file paths to migrate.
     ///
     /// See below for example usage when running a migration for a live IPFS node. Multiple migration runs using lists
     /// of files that have changed between runs is useful for incremental migrations. This method can also be used for
