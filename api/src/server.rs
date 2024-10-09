@@ -410,10 +410,10 @@ where
             let mut shutdown = false;
             loop {
                 let mut buf = Vec::with_capacity(EVENTS_TO_RECEIVE);
-                let mut process_early = false;
+                let mut process_interval = false;
                 tokio::select! {
                     _ = interval.tick() => {
-                        process_early = true;
+                        process_interval = true;
                     }
                     val = event_rx.recv_many(&mut buf, EVENTS_TO_RECEIVE) => {
                         if val > 0 {
@@ -429,6 +429,8 @@ where
                     tracing::info!("Shutting down insert task after processing current batch");
                     if !event_rx.is_empty() {
                         let remaining_event_cnt = event_rx.len();
+                        // the buffer above gets moved into the select! even though we don't
+                        // follow that branch in this case, so we create a new buffer here
                         let mut buf = Vec::with_capacity(remaining_event_cnt);
                         tracing::info!(
                             "Receiving {remaining_event_cnt} remaining events for insert task before exiting"
@@ -443,7 +445,7 @@ where
                 // process events at the interval or when we're under heavy load.
                 // we do it outside the select! to avoid any cancel safety issues
                 // even though we should be okay since we're using tokio channels/intervals
-                if events.len() >= EVENT_INSERT_QUEUE_SIZE || process_early {
+                if events.len() >= EVENT_INSERT_QUEUE_SIZE || process_interval {
                     Self::process_events(&mut events, &event_store, node_id).await;
                 }
             }
