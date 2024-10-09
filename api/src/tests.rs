@@ -166,6 +166,21 @@ pub fn mock_get_unsigned_init_event(mock_store: &mut MockEventStoreTest) {
         .return_once(move |_| Ok(Some(decode_multibase_str(UNSIGNED_INIT_EVENT_PAYLOAD))));
 }
 
+/// Wrapper around server initialization that handles creating the shutdown handler
+fn create_test_server<C, I, M>(
+    node_id: NodeId,
+    network: Network,
+    interest: I,
+    model: Arc<M>,
+) -> Server<C, I, M>
+where
+    I: InterestService,
+    M: EventService + 'static,
+{
+    let (_, rx) = tokio::sync::broadcast::channel(1);
+    Server::new(node_id, network, interest, model, rx)
+}
+
 #[test(tokio::test)]
 async fn create_event() {
     let node_id = NodeId::random().0;
@@ -195,7 +210,7 @@ async fn create_event() {
                 .map(|v| EventInsertResult::new_ok(v.key.clone()))
                 .collect())
         });
-    let server = Server::new(node_id, network, mock_interest, Arc::new(mock_event_store));
+    let server = create_test_server(node_id, network, mock_interest, Arc::new(mock_event_store));
     let resp = server
         .events_post(
             models::EventData {
@@ -241,7 +256,7 @@ async fn create_event_fails() {
                 })
                 .collect())
         });
-    let server = Server::new(node_id, network, mock_interest, Arc::new(mock_event_store));
+    let server = create_test_server(node_id, network, mock_interest, Arc::new(mock_event_store));
     let resp = server
         .events_post(
             models::EventData {
@@ -291,7 +306,7 @@ async fn register_interest_sort_value() {
         .times(1)
         .returning(|_| Ok(true));
     let mock_event_store = MockEventStoreTest::new();
-    let server = Server::new(node_id, network, mock_interest, Arc::new(mock_event_store));
+    let server = create_test_server(node_id, network, mock_interest, Arc::new(mock_event_store));
     let interest = models::Interest {
         sep: "model".to_string(),
         sep_value: model.to_owned(),
@@ -313,7 +328,7 @@ async fn register_interest_sort_value_bad_request() {
     // Setup mock expectations
     let mock_interest = MockAccessInterestStoreTest::new();
     let mock_event_store = MockEventStoreTest::new();
-    let server = Server::new(node_id, network, mock_interest, Arc::new(mock_event_store));
+    let server = create_test_server(node_id, network, mock_interest, Arc::new(mock_event_store));
     let interest = models::Interest {
         sep: "model".to_string(),
         sep_value: model.to_owned(),
@@ -361,7 +376,8 @@ async fn register_interest_sort_value_controller() {
         .times(1)
         .returning(|__| Ok(true));
     let mock_event_store = MockEventStoreTest::new();
-    let server = Server::new(node_id, network, mock_interest, Arc::new(mock_event_store));
+
+    let server = create_test_server(node_id, network, mock_interest, Arc::new(mock_event_store));
     let resp = server
         .interests_sort_key_sort_value_post(
             "model".to_string(),
@@ -413,7 +429,7 @@ async fn register_interest_value_controller_stream() {
         .times(1)
         .returning(|__| Ok(true));
     let mock_event_store = MockEventStoreTest::new();
-    let server = Server::new(node_id, network, mock_interest, Arc::new(mock_event_store));
+    let server = create_test_server(node_id, network, mock_interest, Arc::new(mock_event_store));
     let resp = server
         .interests_sort_key_sort_value_post(
             "model".to_string(),
@@ -481,7 +497,7 @@ async fn get_interests() {
         });
 
     let mock_event_store = MockEventStoreTest::new();
-    let server = Server::new(node_id, network, mock_interest, Arc::new(mock_event_store));
+    let server = create_test_server(node_id, network, mock_interest, Arc::new(mock_event_store));
     let resp = server
         .experimental_interests_get(None, &Context)
         .await
@@ -569,7 +585,7 @@ async fn get_interests_for_peer() {
         });
 
     let mock_event_store = MockEventStoreTest::new();
-    let server = Server::new(
+    let server = create_test_server(
         node_id_b,
         network,
         mock_interest,
@@ -635,7 +651,7 @@ async fn get_events_for_interest_range() {
         )
         .times(1)
         .returning(move |_, _, _| Ok(vec![(cid, vec![])]));
-    let server = Server::new(node_id, network, mock_interest, Arc::new(mock_event_store));
+    let server = create_test_server(node_id, network, mock_interest, Arc::new(mock_event_store));
     let resp = server
         .experimental_events_sep_sep_value_get(
             "model".to_string(),
@@ -684,7 +700,7 @@ async fn test_events_event_id_get_by_event_id_success() {
         .times(1)
         .returning(move |_| Ok(Some(event_data.clone())));
     let mock_interest = MockAccessInterestStoreTest::new();
-    let server = Server::new(node_id, network, mock_interest, Arc::new(mock_event_store));
+    let server = create_test_server(node_id, network, mock_interest, Arc::new(mock_event_store));
     let result = server.events_event_id_get(event_id_str, &Context).await;
     let EventsEventIdGetResponse::Success(event) = result.unwrap() else {
         panic!("Expected EventsEventIdGetResponse::Success but got another variant");
@@ -712,7 +728,7 @@ async fn test_events_event_id_get_by_cid_success() {
         .times(1)
         .returning(move |_| Ok(Some(event_data.clone())));
     let mock_interest = MockAccessInterestStoreTest::new();
-    let server = Server::new(node_id, network, mock_interest, Arc::new(mock_event_store));
+    let server = create_test_server(node_id, network, mock_interest, Arc::new(mock_event_store));
     let result = server
         .events_event_id_get(event_cid.to_string(), &Context)
         .await;
