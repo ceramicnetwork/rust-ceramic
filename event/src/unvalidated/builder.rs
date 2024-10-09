@@ -200,8 +200,8 @@ impl DataBuilder<DataBuilderWithPrev> {
 
 impl<D> DataBuilder<DataBuilderWithData<D>> {
     /// Specify should_index.
-    pub fn with_should_index(mut self, should_index: bool) -> Self {
-        self.state.should_index = Some(should_index);
+    pub fn with_should_index(mut self, should_index: Option<bool>) -> Self {
+        self.state.should_index = should_index;
         self
     }
 

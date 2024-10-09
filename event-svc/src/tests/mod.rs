@@ -157,11 +157,13 @@ async fn data_event(
     prev: Cid,
     data: Ipld,
     signer: &signed::JwkSigner,
+    should_index: Option<bool>,
 ) -> signed::Event<Ipld> {
     let commit = unvalidated::Builder::data()
         .with_id(init_id)
         .with_prev(prev)
         .with_data(data)
+        .with_should_index(should_index)
         .build();
 
     signed::Event::from_payload(unvalidated::Payload::Data(commit), signer.to_owned()).unwrap()
@@ -196,7 +198,7 @@ async fn get_init_plus_n_events_with_model(
             "raw": data.as_slice(),
         });
 
-        let data = data_event(init_cid, prev, data, &signer).await;
+        let data = data_event(init_cid, prev, data, &signer, None).await;
         let (data_id, data_car) = (
             build_event_id(data.envelope_cid(), &init_cid, model),
             data.encode_car().unwrap(),
@@ -264,6 +266,7 @@ pub(crate) async fn generate_chained_events() -> Vec<ApiItem> {
             "stream_1" : "data_1"
         }),
         &signer,
+        None,
     )
     .await;
     let (data_1_id, data_1_car) = (
@@ -278,6 +281,7 @@ pub(crate) async fn generate_chained_events() -> Vec<ApiItem> {
             "stream_1" : "data_2"
         }),
         &signer,
+        None,
     )
     .await;
 
@@ -301,6 +305,7 @@ pub(crate) async fn generate_chained_events() -> Vec<ApiItem> {
             "stream2" : "data_1"
         }),
         &signer,
+        Some(false),
     )
     .await;
     let (data_3_id, data_3_car) = (

@@ -82,10 +82,10 @@ pub struct ConclusionTime {
     //TODO Add temporal conclusions, i.e the block timestamp of this event
 }
 
-impl TryFrom<unvalidated::Event<Ipld>> for ConclusionInit {
+impl<'a> TryFrom<&'a unvalidated::Event<Ipld>> for ConclusionInit {
     type Error = anyhow::Error;
 
-    fn try_from(event: unvalidated::Event<Ipld>) -> Result<Self> {
+    fn try_from(event: &'a unvalidated::Event<Ipld>) -> Result<Self> {
         // Extract the init payload from the event
         let init_payload = event
             .init_payload()
