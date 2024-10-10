@@ -10,6 +10,7 @@ use ceramic_core::{event_id::InvalidEventId, Cid, EventId, NodeId};
 use ceramic_event::unvalidated;
 use ceramic_sql::sqlite::{SqlitePool, SqliteTransaction};
 use ipld_core::ipld::Ipld;
+use itertools::Itertools;
 use recon::{AssociativeHash, HashCount, Key, Sha256a};
 
 use crate::store::{
@@ -370,17 +371,30 @@ impl CeramicOneEvent {
             all_blocks.iter().map(|row| row.block.clone()).collect(),
         )
         .await?;
+
+        // We need to match up the delivered index with each event. However all_blocks contains an
+        // item for each block within each event. We need to chunk all_blocks by event and then
+        // find the max delivered for each event. This will create an iterator of a single
+        // delivered value for each event. With that iterator we can zip it with the parsed block
+        // car files as there is a 1:1 mapping.
+        let event_chunks = all_blocks
+            .into_iter()
+            .chunk_by(|block| block.block.order_key.clone());
+        let delivered_iter = event_chunks
+            .into_iter()
+            .map(|(_, event_chunk)| event_chunk.map(|block| block.delivered).max());
+
         let result: Result<Vec<EventRowDelivered>> = parsed
             .into_iter()
-            .zip(all_blocks.iter())
-            .map(|((_, carfile), block)| {
+            .zip(delivered_iter)
+            .map(|((_, carfile), delivered)| {
                 let (cid, event) =
                     unvalidated::Event::<Ipld>::decode_car(carfile.as_slice(), false)
                         .map_err(|_| Error::new_fatal(anyhow!("Error parsing event row")))?;
                 Ok(EventRowDelivered {
                     cid,
                     event,
-                    delivered: block.delivered,
+                    delivered: delivered.expect("should always be one block per event"),
                 })
             })
             .collect();
