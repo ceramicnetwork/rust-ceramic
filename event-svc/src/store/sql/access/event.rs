@@ -21,7 +21,7 @@ use crate::store::{
         },
         query::{EventQuery, ReconQuery, SqlBackend},
     },
-    CeramicOneBlock, CeramicOneEventBlock, Error, Result,
+    BlockAccess, Error, EventBlockAccess, Result,
 };
 
 #[derive(Debug)]
@@ -69,8 +69,7 @@ pub struct EventRowDelivered {
 }
 
 /// Access to the ceramic event table and related logic
-/// Unlike other access models the event access must maintain state about its current delivered
-/// counter.
+/// Unlike other access models the event access must maintain state.
 #[derive(Debug)]
 pub struct EventAccess {
     // The delivered count is tied to a specific sql db so we keep a reference to the pool here so
@@ -81,6 +80,8 @@ pub struct EventAccess {
 
 impl EventAccess {
     /// Gain access to the events table.
+    /// EventAccess is stateful and the state is tied to the give connection pool, as such a pool
+    /// must be provided so as to not accidentially mix connections to different dbs.
     pub async fn try_new(pool: SqlitePool) -> Result<Self> {
         let s = Self {
             pool,
@@ -215,8 +216,8 @@ impl EventAccess {
             inserted.push(InsertedEvent::new(new_key, item));
             if new_key {
                 for block in item.get_raw_blocks().await?.iter() {
-                    CeramicOneBlock::insert(&mut tx, block.multihash.inner(), &block.bytes).await?;
-                    CeramicOneEventBlock::insert(&mut tx, block).await?;
+                    BlockAccess::insert(&mut tx, block.multihash.inner(), &block.bytes).await?;
+                    EventBlockAccess::insert(&mut tx, block).await?;
                 }
             }
             // the item already existed so we didn't mark it as deliverable on insert

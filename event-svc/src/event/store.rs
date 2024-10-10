@@ -11,7 +11,7 @@ use recon::{HashCount, ReconItem, Result as ReconResult, Sha256a};
 use tracing::info;
 
 use crate::event::{DeliverableRequirement, EventService};
-use crate::store::{CeramicOneBlock, EventInsertable};
+use crate::store::{BlockAccess, EventInsertable};
 use crate::Error;
 
 use super::service::{InsertResult, ValidationError, ValidationRequirement};
@@ -137,17 +137,17 @@ impl recon::Store for EventService {
 #[async_trait::async_trait]
 impl iroh_bitswap::Store for EventService {
     async fn get_size(&self, cid: &Cid) -> anyhow::Result<usize> {
-        Ok(CeramicOneBlock::get_size(&self.pool, cid).await?)
+        Ok(BlockAccess::get_size(&self.pool, cid).await?)
     }
     async fn get(&self, cid: &Cid) -> anyhow::Result<Block> {
-        let maybe = CeramicOneBlock::get(&self.pool, cid).await?;
+        let maybe = BlockAccess::get(&self.pool, cid).await?;
         maybe.ok_or_else(|| anyhow!("block {} does not exist", cid))
     }
     async fn has(&self, cid: &Cid) -> anyhow::Result<bool> {
-        Ok(CeramicOneBlock::has(&self.pool, cid).await?)
+        Ok(BlockAccess::has(&self.pool, cid).await?)
     }
     async fn put(&self, block: &Block) -> anyhow::Result<bool> {
-        Ok(CeramicOneBlock::put(&self.pool, block).await?)
+        Ok(BlockAccess::put(&self.pool, block).await?)
     }
 }
 
@@ -278,7 +278,7 @@ impl ceramic_api::EventService for EventService {
     }
 
     async fn get_block(&self, cid: &Cid) -> anyhow::Result<Option<Vec<u8>>> {
-        let block = CeramicOneBlock::get(&self.pool, cid).await?;
+        let block = BlockAccess::get(&self.pool, cid).await?;
         Ok(block.map(|b| b.data.to_vec()))
     }
 }
