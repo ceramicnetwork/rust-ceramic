@@ -2,7 +2,7 @@ mod event;
 mod migration;
 mod ordering;
 
-use std::str::FromStr;
+use std::{str::FromStr, sync::Arc};
 
 use ceramic_core::{DidDocument, EventId, Network, StreamId};
 use ceramic_event::unvalidated::{self, signed};
@@ -12,6 +12,8 @@ use iroh_bitswap::Block;
 use multihash_codetable::{Code, MultihashDigest};
 use rand::{thread_rng, Rng};
 use recon::ReconItem;
+
+use crate::store::EventAccess;
 
 const CONTROLLER: &str = "did:key:z6Mkk3rtfoKDMMG4zyarNGwCQs44GSQ49pcYKQspHJPXSnVw";
 const SEP_KEY: &str = "model";
@@ -123,13 +125,11 @@ fn gen_rand_bytes<const SIZE: usize>() -> [u8; SIZE] {
 }
 
 pub(crate) async fn check_deliverable(
-    pool: &crate::store::SqlitePool,
+    event_access: Arc<EventAccess>,
     cid: &Cid,
     deliverable: bool,
 ) {
-    let (exists, delivered) = crate::store::CeramicOneEvent::deliverable_by_cid(pool, cid)
-        .await
-        .unwrap();
+    let (exists, delivered) = event_access.deliverable_by_cid(cid).await.unwrap();
     assert!(exists);
     if deliverable {
         assert!(delivered, "{} should be delivered", cid);

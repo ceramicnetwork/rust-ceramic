@@ -6,7 +6,7 @@ mod root;
 mod test;
 
 pub use access::{
-    CeramicOneBlock, CeramicOneEvent, CeramicOneEventBlock, CeramicOneVersion, EventRowDelivered,
+    CeramicOneBlock, CeramicOneEventBlock, CeramicOneVersion, EventAccess, EventRowDelivered,
     InsertResult, InsertedEvent,
 };
 pub use ceramic_sql::{sqlite::SqlitePool, Error, Result};

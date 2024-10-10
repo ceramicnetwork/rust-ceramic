@@ -21,7 +21,7 @@ use recon::ReconItem;
 use tracing::{trace, warn};
 
 use crate::event::validator::EthRpcProvider;
-use crate::store::{CeramicOneEvent, EventInsertable, EventRowDelivered};
+use crate::store::{EventAccess, EventInsertable, EventRowDelivered};
 use crate::{Error, Result};
 
 /// How many events to select at once to see if they've become deliverable when we have downtime
@@ -53,6 +53,7 @@ pub struct EventService {
     delivery_task: DeliverableTask,
     event_validator: EventValidator,
     pending_writes: Arc<Mutex<HashMap<Cid, Vec<UnvalidatedEvent>>>>,
+    pub(crate) event_access: Arc<EventAccess>,
 }
 /// An object that represents a set of blocks that can produce a stream of all blocks and lookup a
 /// block based on CID.
@@ -90,11 +91,13 @@ impl EventService {
         validate_events: bool,
         ethereum_rpc_providers: Vec<EthRpcProvider>,
     ) -> Result<Self> {
-        CeramicOneEvent::init_delivered_order(&pool).await?;
+        let event_access = Arc::new(EventAccess::try_new(pool.clone()).await?);
 
-        let delivery_task = OrderingTask::run(pool.clone(), PENDING_EVENTS_CHANNEL_DEPTH).await;
+        let delivery_task =
+            OrderingTask::run(Arc::clone(&event_access), PENDING_EVENTS_CHANNEL_DEPTH).await;
 
-        let event_validator = EventValidator::try_new(pool.clone(), ethereum_rpc_providers).await?;
+        let event_validator =
+            EventValidator::try_new(Arc::clone(&event_access), ethereum_rpc_providers).await?;
 
         let svc = Self {
             pool,
@@ -102,6 +105,7 @@ impl EventService {
             event_validator,
             delivery_task,
             pending_writes: Arc::new(Mutex::new(HashMap::default())),
+            event_access,
         };
         if process_undelivered_events {
             svc.process_all_undelivered_events().await?;
@@ -142,7 +146,7 @@ impl EventService {
     }
 
     /// Given the incoming events, see if any of them are the init event that events were
-    /// 'pending on' and return all previously pending events that can now be validated.  
+    /// 'pending on' and return all previously pending events that can now be validated.
     fn remove_unblocked_from_pending_q(&self, new: &[UnvalidatedEvent]) -> Vec<UnvalidatedEvent> {
         let new_init_cids = new
             .iter()
@@ -162,7 +166,7 @@ impl EventService {
     /// Returns the number of undelivered events that were updated
     async fn process_all_undelivered_events(&self) -> Result<usize> {
         OrderingTask::process_all_undelivered_events(
-            &self.pool,
+            Arc::clone(&self.event_access),
             MAX_ITERATIONS,
             DELIVERABLE_EVENTS_BATCH_SIZE,
         )
@@ -287,15 +291,18 @@ impl EventService {
     ) -> Result<(Vec<EventId>, Vec<EventId>)> {
         match deliverable_req {
             DeliverableRequirement::Immediate => {
-                let ordered =
-                    OrderEvents::find_currently_deliverable(&self.pool, to_insert).await?;
+                let ordered = OrderEvents::find_currently_deliverable(
+                    Arc::clone(&self.event_access),
+                    to_insert,
+                )
+                .await?;
                 let to_insert = ordered.deliverable().iter();
                 invalid.extend(ordered.missing_history().iter().map(|e| {
                     ValidationError::RequiresHistory {
                         key: e.order_key().clone(),
                     }
                 }));
-                let store_result = CeramicOneEvent::insert_many(&self.pool, to_insert).await?;
+                let store_result = self.event_access.insert_many(to_insert).await?;
                 Ok(Self::partition_store_result(store_result))
             }
             DeliverableRequirement::Asap => {
@@ -305,15 +312,14 @@ impl EventService {
                     .iter()
                     .chain(ordered.missing_history().iter());
 
-                let store_result = CeramicOneEvent::insert_many(&self.pool, to_insert).await?;
+                let store_result = self.event_access.insert_many(to_insert).await?;
 
                 self.notify_ordering_task(&store_result).await?;
 
                 Ok(Self::partition_store_result(store_result))
             }
             DeliverableRequirement::Lazy => {
-                let store_result =
-                    CeramicOneEvent::insert_many(&self.pool, to_insert.iter()).await?;
+                let store_result = self.event_access.insert_many(to_insert.iter()).await?;
 
                 Ok(Self::partition_store_result(store_result))
             }
@@ -411,9 +417,10 @@ impl EventService {
 
     // Helper method to get an event by its CID
     async fn get_event_by_cid(&self, cid: &Cid) -> Result<ceramic_event::unvalidated::Event<Ipld>> {
-        let data_bytes = CeramicOneEvent::value_by_cid(&self.pool, cid)
-            .await?
-            .ok_or_else(|| Error::new_fatal(anyhow::anyhow!("Event not found for CID: {}", cid)))?;
+        let data_bytes =
+            self.event_access.value_by_cid(cid).await?.ok_or_else(|| {
+                Error::new_fatal(anyhow::anyhow!("Event not found for CID: {}", cid))
+            })?;
 
         let (_, event) = ceramic_event::unvalidated::Event::<Ipld>::decode_car(
             std::io::Cursor::new(data_bytes),
@@ -429,9 +436,10 @@ impl EventService {
         highwater_mark: i64,
         limit: i64,
     ) -> Result<Vec<EventRowDelivered>> {
-        let (_, data) =
-            CeramicOneEvent::new_events_since_value_with_data(&self.pool, highwater_mark, limit)
-                .await?;
+        let (_, data) = self
+            .event_access
+            .new_events_since_value_with_data(highwater_mark, limit)
+            .await?;
         Ok(data)
     }
 

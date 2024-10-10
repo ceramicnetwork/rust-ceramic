@@ -14,7 +14,7 @@ use multihash_codetable::{Code, MultihashDigest};
 use serde_ipld_dagcbor::codec::DagCborCodec;
 use test_log::test;
 
-use crate::store::{CeramicOneEvent, EventInsertable, SqlitePool};
+use crate::store::{EventAccess, EventInsertable, SqlitePool};
 
 const MODEL_ID: &str = "k2t6wz4yhfp1r5pwi52gw89nzjbu53qk7m32o5iguw42c6knsaj0feuf927agb";
 const CONTROLLER: &str = "did:key:z6Mkqtw7Pj5Lv9xc4PgUYAnwfaVoMC6FRneGWVr5ekTEfKVL";
@@ -59,22 +59,25 @@ fn random_events(num: usize) -> Vec<EventInsertable> {
 #[test(tokio::test)]
 async fn hash_range_query() {
     let pool = SqlitePool::connect_in_memory().await.unwrap();
+    let event_access = Arc::new(EventAccess::try_new(pool).await.unwrap());
     let events = random_events(2);
     let first = &events[0];
     let second = &events[1];
 
-    let x = CeramicOneEvent::insert_many(&pool, [first, second].into_iter())
+    let x = event_access
+        .insert_many([first, second].into_iter())
         .await
         .unwrap();
 
     assert_eq!(x.count_new_keys(), 2);
 
-    let hash = CeramicOneEvent::hash_range(
-        &pool,
-        &event_id_builder().with_min_event().build()..&event_id_builder().with_max_event().build(),
-    )
-    .await
-    .unwrap();
+    let hash = event_access
+        .hash_range(
+            &event_id_builder().with_min_event().build()
+                ..&event_id_builder().with_max_event().build(),
+        )
+        .await
+        .unwrap();
     expect!["71F104AFD1BCDBB85C1548F59DFF2A5FB50E21A23F1A65CCB2F38EF6D92FA659#2"]
         .assert_eq(&format!("{hash}"));
 }
@@ -85,20 +88,24 @@ async fn range_query() {
     let first = &events[0];
     let second = &events[1];
     let pool = SqlitePool::connect_in_memory().await.unwrap();
-    let x = CeramicOneEvent::insert_many(&pool, [first, second].into_iter())
+    let event_access = Arc::new(EventAccess::try_new(pool).await.unwrap());
+
+    let x = event_access
+        .insert_many([first, second].into_iter())
         .await
         .unwrap();
 
     assert_eq!(x.count_new_keys(), 2);
 
-    let ids = CeramicOneEvent::range(
-        &pool,
-        &event_id_builder().with_min_event().build()..&event_id_builder().with_max_event().build(),
-        0,
-        usize::MAX,
-    )
-    .await
-    .unwrap();
+    let ids = event_access
+        .range(
+            &event_id_builder().with_min_event().build()
+                ..&event_id_builder().with_max_event().build(),
+            0,
+            usize::MAX,
+        )
+        .await
+        .unwrap();
 
     expect![[r#"
         [
@@ -146,7 +153,10 @@ async fn range_query() {
 #[test(tokio::test)]
 async fn undelivered_with_values() {
     let pool = SqlitePool::connect_in_memory().await.unwrap();
-    let (res, hw) = CeramicOneEvent::undelivered_with_values(&pool, 0, 10000)
+    let event_access = Arc::new(EventAccess::try_new(pool).await.unwrap());
+
+    let (res, hw) = event_access
+        .undelivered_with_values(0, 10000)
         .await
         .unwrap();
     assert_eq!(res.len(), 0);
@@ -156,14 +166,16 @@ async fn undelivered_with_values() {
 #[test(tokio::test)]
 async fn range_with_values() {
     let pool = SqlitePool::connect_in_memory().await.unwrap();
+    let event_access = Arc::new(EventAccess::try_new(pool).await.unwrap());
 
-    let res = CeramicOneEvent::range_with_values(
-        &pool,
-        &event_id_builder().with_min_event().build()..&event_id_builder().with_max_event().build(),
-        0,
-        100000,
-    )
-    .await
-    .unwrap();
+    let res = event_access
+        .range_with_values(
+            &event_id_builder().with_min_event().build()
+                ..&event_id_builder().with_max_event().build(),
+            0,
+            100000,
+        )
+        .await
+        .unwrap();
     assert_eq!(res.len(), 0);
 }
