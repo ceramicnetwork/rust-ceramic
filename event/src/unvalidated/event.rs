@@ -276,9 +276,20 @@ impl<D> From<Box<TimeEvent>> for Event<D> {
     }
 }
 
+impl<D> From<TimeEvent> for Event<D> {
+    fn from(value: TimeEvent) -> Self {
+        Self::Time(Box::new(value))
+    }
+}
+
 impl<D> From<Box<init::Event<D>>> for Event<D> {
     fn from(value: Box<init::Event<D>>) -> Self {
         Self::Unsigned(value)
+    }
+}
+impl<D> From<init::Event<D>> for Event<D> {
+    fn from(value: init::Event<D>) -> Self {
+        Self::Unsigned(Box::new(value))
     }
 }
 
@@ -356,6 +367,12 @@ impl TimeEvent {
     ///  Get the path
     pub fn path(&self) -> &str {
         self.event.path.as_ref()
+    }
+    /// Encode the event and report the CID
+    pub fn to_cid(
+        &self,
+    ) -> Result<Cid, serde_ipld_dagcbor::EncodeError<std::collections::TryReserveError>> {
+        self.event.to_cid()
     }
     /// Encode the event into CAR bytes including all relevant blocks.
     pub fn encode_car(&self) -> anyhow::Result<Vec<u8>> {

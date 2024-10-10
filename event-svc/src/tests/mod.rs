@@ -4,7 +4,6 @@ mod ordering;
 
 use std::str::FromStr;
 
-use ceramic_api::ApiItem;
 use ceramic_core::{DidDocument, EventId, Network, StreamId};
 use ceramic_event::unvalidated::{self, signed};
 use cid::Cid;
@@ -53,6 +52,10 @@ pub(crate) fn event_id_max(init: &Cid, model: &StreamId) -> EventId {
 pub(crate) fn random_cid() -> Cid {
     let mut data = [0u8; 8];
     rand::Rng::fill(&mut ::rand::thread_rng(), &mut data);
+    let hash = MultihashDigest::digest(&Code::Sha2_256, &data);
+    Cid::new_v1(0x00, hash)
+}
+pub(crate) fn deterministic_cid(data: &[u8]) -> Cid {
     let hash = MultihashDigest::digest(&Code::Sha2_256, &data);
     Cid::new_v1(0x00, hash)
 }
@@ -144,6 +147,13 @@ pub(crate) async fn signer() -> signed::JwkSigner {
     .unwrap()
 }
 
+async fn unsigned_init_event(model: &StreamId) -> unvalidated::init::Event<Ipld> {
+    let init = unvalidated::Builder::init()
+        .with_controller(CONTROLLER.to_string())
+        .with_sep("model".to_string(), model.to_vec())
+        .build();
+    unvalidated::init::Event::new(init)
+}
 async fn init_event(model: &StreamId, signer: &signed::JwkSigner) -> signed::Event<Ipld> {
     let init = unvalidated::Builder::init()
         .with_controller(CONTROLLER.to_string())
@@ -165,6 +175,20 @@ async fn data_event(
         .build();
 
     signed::Event::from_payload(unvalidated::Payload::Data(commit), signer.to_owned()).unwrap()
+}
+async fn time_event(
+    init_id: Cid,
+    prev: Cid,
+    chain_id: &str,
+    tx_hash: Cid,
+    tx_type: &str,
+) -> unvalidated::TimeEvent {
+    unvalidated::Builder::time()
+        .with_id(init_id)
+        .with_tx(chain_id.to_string(), tx_hash, tx_type.to_string())
+        .with_prev(prev)
+        .build()
+        .expect("test data should always build into time event")
 }
 
 // returns init + N events
@@ -235,45 +259,41 @@ pub(crate) async fn get_n_events(number: usize) -> Vec<ReconItem<EventId>> {
 ///
 /// A `Vec<ReconItem<EventId>>` containing 5 events:
 /// - 3 events for the first stream (1 init event and 2 data events)
-/// - 2 events for the second stream (1 init event and 1 data event)
+/// - 2 events for the second stream (1 unsigned init event, 1 data event, and 1 time event)
 ///
 /// # Example
 ///
 /// ```rust
 /// let chained_events = generate_chained_events().await;
-/// assert_eq!(chained_events.len(), 5);
+/// assert_eq!(chained_events.len(), 6);
 /// ```
-pub(crate) async fn generate_chained_events() -> Vec<ApiItem> {
-    let mut events: Vec<ApiItem> = Vec::with_capacity(5);
+pub(crate) async fn generate_chained_events() -> Vec<(EventId, unvalidated::Event<Ipld>)> {
+    let mut events = Vec::with_capacity(6);
+    events.extend(generate_signed_stream_data().await);
+    events.extend(generate_unsigned_stream_data_anchored().await);
+    events
+}
 
+// Generates a stream with a signed init event and two data events.
+pub(crate) async fn generate_signed_stream_data() -> Vec<(EventId, unvalidated::Event<Ipld>)> {
     let signer = Box::new(signer().await);
-    let stream_id_1 = create_deterministic_stream_id_model(&[0x01]);
-    let stream_id_2 = create_meta_model_stream_id();
-    let init_1 = init_event(&stream_id_1, &signer).await;
-    let init_1_cid = init_1.envelope_cid();
-    let (event_id_1, car_1) = (
-        build_event_id(init_1_cid, init_1_cid, &stream_id_1),
-        init_1.encode_car().unwrap(),
-    );
-    let init_1_cid = event_id_1.cid().unwrap();
+    let stream_id = create_deterministic_stream_id_model(&[0x01]);
+    let init = init_event(&stream_id, &signer).await;
+    let init_cid = *init.envelope_cid();
 
     let data_1 = data_event(
-        init_1_cid,
-        init_1_cid,
+        init_cid,
+        init_cid,
         ipld!({
             "stream_1" : "data_1"
         }),
         &signer,
     )
     .await;
-    let (data_1_id, data_1_car) = (
-        build_event_id(data_1.envelope_cid(), &init_1_cid, &stream_id_1),
-        data_1.encode_car().unwrap(),
-    );
 
     let data_2 = data_event(
-        init_1_cid,
-        data_1_id.cid().unwrap(),
+        init_cid,
+        *data_1.envelope_cid(),
         ipld!({
             "stream_1" : "data_2"
         }),
@@ -281,41 +301,66 @@ pub(crate) async fn generate_chained_events() -> Vec<ApiItem> {
     )
     .await;
 
-    let (data_2_id, data_2_car) = (
-        build_event_id(data_2.envelope_cid(), &init_1_cid, &stream_id_1),
-        data_2.encode_car().unwrap(),
-    );
+    vec![
+        (
+            build_event_id(&init_cid, &init_cid, &stream_id),
+            init.into(),
+        ),
+        (
+            build_event_id(data_1.envelope_cid(), &init_cid, &stream_id),
+            data_1.into(),
+        ),
+        (
+            build_event_id(data_2.envelope_cid(), &init_cid, &stream_id),
+            data_2.into(),
+        ),
+    ]
+}
 
-    let init_2 = init_event(&stream_id_2, &signer).await;
-    let init_2_cid = init_2.envelope_cid();
-    let (event_id_2, car_2) = (
-        build_event_id(init_2_cid, init_2_cid, &stream_id_2),
-        init_2.encode_car().unwrap(),
-    );
-    let init_2_cid = event_id_2.cid().unwrap();
+// Generates a stream with an unsigned init event, a data events, and a time event.
+pub(crate) async fn generate_unsigned_stream_data_anchored(
+) -> Vec<(EventId, unvalidated::Event<Ipld>)> {
+    let signer = Box::new(signer().await);
+    let stream_id = create_meta_model_stream_id();
+    let init = unsigned_init_event(&stream_id).await;
+    let init_cid = *init.cid();
 
-    let data_3 = data_event(
-        init_2_cid,
-        init_2_cid,
+    let data = data_event(
+        init_cid,
+        init_cid,
         ipld!({
             "stream2" : "data_1"
         }),
         &signer,
     )
     .await;
-    let (data_3_id, data_3_car) = (
-        build_event_id(data_3.envelope_cid(), &init_2_cid, &stream_id_2),
-        data_3.encode_car().unwrap(),
-    );
+    let time = time_event(
+        init_cid,
+        *data.envelope_cid(),
+        "test:chain",
+        deterministic_cid(b"root cid"),
+        "test",
+    )
+    .await;
 
-    // push the events in the order they should be inserted
-    events.push(ApiItem::new(event_id_1, car_1));
-    events.push(ApiItem::new(data_1_id, data_1_car));
-    events.push(ApiItem::new(data_2_id, data_2_car));
-    events.push(ApiItem::new(event_id_2, car_2));
-    events.push(ApiItem::new(data_3_id, data_3_car));
-
-    events
+    vec![
+        (
+            build_event_id(&init_cid, &init_cid, &stream_id),
+            init.into(),
+        ),
+        (
+            build_event_id(data.envelope_cid(), &init_cid, &stream_id),
+            data.into(),
+        ),
+        (
+            build_event_id(
+                &time.to_cid().expect("time event should always encode"),
+                &init_cid,
+                &stream_id,
+            ),
+            time.into(),
+        ),
+    ]
 }
 
 /// Creates a deterministic StreamId of type Model based on the provided initial data.
