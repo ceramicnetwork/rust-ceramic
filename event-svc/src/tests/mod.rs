@@ -144,11 +144,19 @@ pub(crate) async fn signer() -> signed::JwkSigner {
     .unwrap()
 }
 
-async fn init_event(model: &StreamId, signer: &signed::JwkSigner) -> signed::Event<Ipld> {
+async fn init_event(
+    model: &StreamId,
+    signer: &signed::JwkSigner,
+    unique: Option<Vec<u8>>,
+) -> signed::Event<Ipld> {
     let init = unvalidated::Builder::init()
         .with_controller(CONTROLLER.to_string())
-        .with_sep("model".to_string(), model.to_vec())
-        .build();
+        .with_sep("model".to_string(), model.to_vec());
+    let init = if let Some(unique) = unique {
+        init.with_unique(unique).build()
+    } else {
+        init.build()
+    };
     signed::Event::from_payload(unvalidated::Payload::Init(init), signer.to_owned()).unwrap()
 }
 
@@ -174,7 +182,7 @@ async fn get_init_plus_n_events_with_model(
 ) -> Vec<ReconItem<EventId>> {
     let signer = Box::new(signer().await);
 
-    let init = init_event(model, &signer).await;
+    let init = init_event(model, &signer, None).await;
     let init_cid = init.envelope_cid();
     let (event_id, car) = (
         build_event_id(init_cid, init_cid, model),
@@ -249,7 +257,7 @@ pub(crate) async fn generate_chained_events() -> Vec<ApiItem> {
     let signer = Box::new(signer().await);
     let stream_id_1 = create_deterministic_stream_id_model(&[0x01]);
     let stream_id_2 = create_meta_model_stream_id();
-    let init_1 = init_event(&stream_id_1, &signer).await;
+    let init_1 = init_event(&stream_id_1, &signer, Some(b"unique1".to_vec())).await;
     let init_1_cid = init_1.envelope_cid();
     let (event_id_1, car_1) = (
         build_event_id(init_1_cid, init_1_cid, &stream_id_1),
@@ -286,7 +294,7 @@ pub(crate) async fn generate_chained_events() -> Vec<ApiItem> {
         data_2.encode_car().unwrap(),
     );
 
-    let init_2 = init_event(&stream_id_2, &signer).await;
+    let init_2 = init_event(&stream_id_2, &signer, Some(b"unique2".to_vec())).await;
     let init_2_cid = init_2.envelope_cid();
     let (event_id_2, car_2) = (
         build_event_id(init_2_cid, init_2_cid, &stream_id_2),
