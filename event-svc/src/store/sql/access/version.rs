@@ -59,9 +59,9 @@ impl std::str::FromStr for SemVer {
 
 #[derive(Debug, Clone)]
 /// Access to ceramic version information
-pub struct CeramicOneVersion {}
+pub struct VersionAccess {}
 
-impl CeramicOneVersion {
+impl VersionAccess {
     /// Fetch the previous version from the database. May be None if no previous version exists.
     pub async fn fetch_previous(pool: &SqlitePool) -> Result<Option<VersionRow>> {
         let current = SemVer::from_str(env!("CARGO_PKG_VERSION"))?;
@@ -84,12 +84,12 @@ mod test {
     #[tokio::test]
     async fn insert_version() {
         let mem = SqlitePool::connect_in_memory().await.unwrap();
-        CeramicOneVersion::insert_current(&mem).await.unwrap();
+        VersionAccess::insert_current(&mem).await.unwrap();
     }
 
     #[tokio::test]
     async fn prev_version() {
         let mem = SqlitePool::connect_in_memory().await.unwrap();
-        CeramicOneVersion::fetch_previous(&mem).await.unwrap();
+        VersionAccess::fetch_previous(&mem).await.unwrap();
     }
 }

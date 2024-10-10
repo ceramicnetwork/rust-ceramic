@@ -7,6 +7,7 @@ use recon::ReconItem;
 use tokio::try_join;
 
 use crate::event::validator::EthRpcProvider;
+use crate::store::EventAccess;
 use crate::{
     event::{
         service::{ValidationError, ValidationRequirement},
@@ -16,7 +17,7 @@ use crate::{
             time::{ChainInclusionError, TimeEventValidator},
         },
     },
-    store::{EventInsertable, SqlitePool},
+    store::EventInsertable,
     Result,
 };
 
@@ -117,7 +118,7 @@ impl ValidatedEvents {
 
 #[derive(Debug)]
 pub struct EventValidator {
-    pool: SqlitePool,
+    event_access: Arc<EventAccess>,
     /// The validator to use for time events if enabled.
     /// It contains the ethereum RPC providers and lives for the live of the [`EventValidator`].
     /// The [`SignedEventValidator`] is currently constructed on a per validation request basis
@@ -128,13 +129,13 @@ pub struct EventValidator {
 impl EventValidator {
     /// Create a new event validator
     pub async fn try_new(
-        pool: SqlitePool,
+        event_access: Arc<EventAccess>,
         ethereum_rpc_providers: Vec<EthRpcProvider>,
     ) -> Result<Self> {
         let time_event_verifier = TimeEventValidator::new_with_providers(ethereum_rpc_providers);
 
         Ok(Self {
-            pool,
+            event_access,
             time_event_verifier,
         })
     }
@@ -192,7 +193,7 @@ impl EventValidator {
             }
         };
         SignedEventValidator::validate_events(
-            &self.pool,
+            Arc::clone(&self.event_access),
             &opts,
             events,
             validation_req.require_local_init,
@@ -206,7 +207,7 @@ impl EventValidator {
             // TODO: better transient error handling from RPC client
             match self
                 .time_event_verifier
-                .validate_chain_inclusion(&self.pool, time_event.as_time())
+                .validate_chain_inclusion(time_event.as_time())
                 .await
             {
                 Ok(_t) => {
@@ -262,6 +263,7 @@ impl EventValidator {
 
 #[cfg(test)]
 mod test {
+    use ceramic_sql::sqlite::SqlitePool;
     use test_log::test;
 
     use crate::tests::{build_recon_item_with_controller, get_n_events};
@@ -288,9 +290,10 @@ mod test {
     #[test(tokio::test)]
     async fn valid_invalid_pending_recon() {
         let pool = SqlitePool::connect_in_memory().await.unwrap();
+        let event_access = Arc::new(EventAccess::try_new(pool).await.unwrap());
         let events = get_validation_events().await;
 
-        let validated = EventValidator::try_new(pool, vec![])
+        let validated = EventValidator::try_new(event_access, vec![])
             .await
             .unwrap()
             .validate_events(Some(&ValidationRequirement::new_recon()), events)
@@ -312,9 +315,10 @@ mod test {
     #[test(tokio::test)]
     async fn valid_invalid_pending_local() {
         let pool = SqlitePool::connect_in_memory().await.unwrap();
+        let event_access = Arc::new(EventAccess::try_new(pool).await.unwrap());
         let events = get_validation_events().await;
 
-        let validated = EventValidator::try_new(pool, vec![])
+        let validated = EventValidator::try_new(event_access, vec![])
             .await
             .unwrap()
             .validate_events(Some(&ValidationRequirement::new_local()), events)
@@ -336,9 +340,10 @@ mod test {
     #[test(tokio::test)]
     async fn always_valid_when_none() {
         let pool = SqlitePool::connect_in_memory().await.unwrap();
+        let event_access = Arc::new(EventAccess::try_new(pool).await.unwrap());
         let events = get_validation_events().await;
 
-        let validated = EventValidator::try_new(pool, vec![])
+        let validated = EventValidator::try_new(event_access, vec![])
             .await
             .unwrap()
             .validate_events(None, events)

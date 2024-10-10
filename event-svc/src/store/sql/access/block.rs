@@ -11,9 +11,9 @@ use crate::store::{
 };
 
 /// Access to the block table and related logic
-pub struct CeramicOneBlock {}
+pub struct BlockAccess {}
 
-impl CeramicOneBlock {
+impl BlockAccess {
     /// Insert a block in a transaction (i.e. when creating an event)
     pub(crate) async fn insert(
         conn: &mut SqliteTransaction<'_>,
@@ -69,7 +69,7 @@ impl CeramicOneBlock {
     /// Add a block to the database
     pub async fn put(pool: &SqlitePool, block: &iroh_bitswap::Block) -> Result<bool> {
         let mut tx = pool.begin_tx().await?;
-        let new = CeramicOneBlock::insert(&mut tx, block.cid().hash(), block.data()).await?;
+        let new = BlockAccess::insert(&mut tx, block.cid().hash(), block.data()).await?;
         tx.commit().await?;
         Ok(new)
     }

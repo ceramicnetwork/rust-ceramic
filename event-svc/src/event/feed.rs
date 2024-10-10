@@ -33,7 +33,9 @@ impl ConclusionFeed for EventService {
         limit: i64,
     ) -> anyhow::Result<Vec<ConclusionEvent>> {
         let raw_events = self
-            .fetch_events_since_highwater_mark(highwater_mark, limit)
+            // TODO: Can we make highwater_marks zero based?
+            // highwater marks are 1 based, add one
+            .fetch_events_since_highwater_mark(highwater_mark + 1, limit)
             .await?;
 
         let conclusion_events_futures = raw_events

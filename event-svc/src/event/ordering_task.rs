@@ -1,13 +1,13 @@
 use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
 
 use anyhow::anyhow;
 use ceramic_event::unvalidated;
-use ceramic_sql::sqlite::SqlitePool;
 use cid::Cid;
 use ipld_core::ipld::Ipld;
 use tracing::{debug, error, info, trace, warn};
 
-use crate::store::CeramicOneEvent;
+use crate::store::EventAccess;
 use crate::{Error, Result};
 
 use super::service::DiscoveredEvent;
@@ -32,18 +32,19 @@ impl OrderingTask {
     /// Discover all undelivered events in the database and mark them deliverable if possible.
     /// Returns the number of events marked deliverable.
     pub async fn process_all_undelivered_events(
-        pool: &SqlitePool,
+        event_access: Arc<EventAccess>,
         max_iterations: usize,
         batch_size: u32,
     ) -> Result<usize> {
-        OrderingState::process_all_undelivered_events(pool, max_iterations, batch_size).await
+        OrderingState::process_all_undelivered_events(event_access, max_iterations, batch_size)
+            .await
     }
 
     /// Spawn a task to run the ordering task background process in a loop
-    pub async fn run(pool: SqlitePool, q_depth: usize) -> DeliverableTask {
+    pub async fn run(event_access: Arc<EventAccess>, q_depth: usize) -> DeliverableTask {
         let (tx_inserted, rx_inserted) = tokio::sync::mpsc::channel::<DiscoveredEvent>(q_depth);
 
-        let handle = tokio::spawn(async move { Self::run_loop(pool, rx_inserted).await });
+        let handle = tokio::spawn(async move { Self::run_loop(event_access, rx_inserted).await });
 
         DeliverableTask {
             _handle: handle,
@@ -52,7 +53,7 @@ impl OrderingTask {
     }
 
     async fn run_loop(
-        pool: SqlitePool,
+        event_access: Arc<EventAccess>,
         mut rx_inserted: tokio::sync::mpsc::Receiver<DiscoveredEvent>,
     ) {
         let mut state = OrderingState::new();
@@ -66,7 +67,7 @@ impl OrderingTask {
                 state.add_inserted_events(recon_events);
 
                 if state
-                    .process_streams(&pool)
+                    .process_streams(Arc::clone(&event_access))
                     .await
                     .map_err(Self::log_error)
                     .is_err()
@@ -76,7 +77,10 @@ impl OrderingTask {
             }
         }
 
-        let _ = state.process_streams(&pool).await.map_err(Self::log_error);
+        let _ = state
+            .process_streams(event_access)
+            .await
+            .map_err(Self::log_error);
     }
 
     /// Log an error and return a result that can be used to stop the task if it was fatal
@@ -116,18 +120,16 @@ impl StreamEvent {
     }
 
     /// Builds a stream event from the database if it exists.
-    async fn load_by_cid(pool: &SqlitePool, cid: EventCid) -> Result<Option<Self>> {
+    async fn load_by_cid(event_access: Arc<EventAccess>, cid: EventCid) -> Result<Option<Self>> {
         // TODO: Condense the multiple DB queries happening here into a single query
-        let (exists, deliverable) = CeramicOneEvent::deliverable_by_cid(pool, &cid).await?;
+        let (exists, deliverable) = event_access.deliverable_by_cid(&cid).await?;
         if exists {
-            let data = CeramicOneEvent::value_by_cid(pool, &cid)
-                .await?
-                .ok_or_else(|| {
-                    Error::new_app(anyhow!(
-                        "Missing event data for event that must exist: CID={}",
-                        cid
-                    ))
-                })?;
+            let data = event_access.value_by_cid(&cid).await?.ok_or_else(|| {
+                Error::new_app(anyhow!(
+                    "Missing event data for event that must exist: CID={}",
+                    cid
+                ))
+            })?;
             let (_cid, parsed) = unvalidated::Event::<Ipld>::decode_car(data.as_slice(), false)
                 .map_err(Error::new_app)?;
 
@@ -326,7 +328,7 @@ impl StreamEvents {
         }
     }
 
-    async fn order_events(&mut self, pool: &SqlitePool) -> Result<()> {
+    async fn order_events(&mut self, event_access: Arc<EventAccess>) -> Result<()> {
         // We collect everything we can into memory and then order things.
         // If our prev is deliverable then we can mark ourselves as deliverable. If our prev wasn't deliverable yet,
         // we track it and repeat (i.e. add it to our state and the set we're iterating to attempt to load its prev).
@@ -366,7 +368,7 @@ impl StreamEvents {
                     // nothing to do until it arrives on the channel
                 }
             } else if let Some(discovered_prev) =
-                StreamEvent::load_by_cid(pool, desired_prev).await?
+                StreamEvent::load_by_cid(Arc::clone(&event_access), desired_prev).await?
             {
                 match &discovered_prev {
                     // we found our prev in the database and it's deliverable, so we're deliverable now
@@ -456,16 +458,18 @@ impl OrderingState {
 
     /// Process every stream we know about that has undelivered events that should be "unlocked" now. This could be adjusted to commit things in batches,
     /// but for now it assumes it can process all the streams and events in one go. It should be idempotent, so if it fails, it can be retried.
-    async fn process_streams(&mut self, pool: &SqlitePool) -> Result<()> {
+    async fn process_streams(&mut self, event_access: Arc<EventAccess>) -> Result<()> {
         for (_stream_cid, stream_events) in self.pending_by_stream.iter_mut() {
             if stream_events.should_process {
-                stream_events.order_events(pool).await?;
+                stream_events
+                    .order_events(Arc::clone(&event_access))
+                    .await?;
                 self.deliverable
                     .extend(stream_events.new_deliverable.iter());
             }
         }
 
-        match self.persist_ready_events(pool).await {
+        match self.persist_ready_events(Arc::clone(&event_access)).await {
             Ok(_) => {}
             Err(err) => {
                 // Clear the queue as we'll rediscover it on the next run, rather than try to double update everything.
@@ -488,7 +492,7 @@ impl OrderingState {
     /// Process all undelivered events in the database. This is a blocking operation that could take a long time.
     /// It is intended to be run at startup but could be used on an interval or after some errors to recover.
     pub(crate) async fn process_all_undelivered_events(
-        pool: &SqlitePool,
+        event_access: Arc<EventAccess>,
         max_iterations: usize,
         batch_size: u32,
     ) -> Result<usize> {
@@ -499,9 +503,9 @@ impl OrderingState {
         let mut highwater = 0;
         while iter_cnt < max_iterations {
             iter_cnt += 1;
-            let (undelivered, new_hw) =
-                CeramicOneEvent::undelivered_with_values(pool, highwater, batch_size.into())
-                    .await?;
+            let (undelivered, new_hw) = event_access
+                .undelivered_with_values(highwater, batch_size.into())
+                .await?;
             highwater = new_hw;
             let found_something = !undelivered.is_empty();
             let found_everything = undelivered.len() < batch_size as usize;
@@ -512,7 +516,7 @@ impl OrderingState {
                 // In this case, we won't discover them until we start running recon with a peer, so maybe we should drop them
                 // or otherwise mark them ignored somehow. When this function ends, we do drop everything so for now it's probably okay.
                 let number_processed = state
-                    .process_undelivered_events_batch(pool, undelivered)
+                    .process_undelivered_events_batch(Arc::clone(&event_access), undelivered)
                     .await?;
                 event_cnt += number_processed;
                 if event_cnt % LOG_EVERY_N_ENTRIES < number_processed {
@@ -532,7 +536,7 @@ impl OrderingState {
 
     async fn process_undelivered_events_batch(
         &mut self,
-        pool: &SqlitePool,
+        event_access: Arc<EventAccess>,
         event_data: Vec<(Cid, unvalidated::Event<Ipld>)>,
     ) -> Result<usize> {
         trace!(cnt=%event_data.len(), "Processing undelivered events batch");
@@ -565,27 +569,27 @@ impl OrderingState {
                 "Found init events in undelivered batch. This should never happen.",
             );
             debug_assert!(false);
-            let mut tx = pool.begin_tx().await?;
+            let mut tx = event_access.begin_tx().await?;
             for cid in discovered_inits {
-                CeramicOneEvent::mark_ready_to_deliver(&mut tx, &cid).await?;
+                event_access.mark_ready_to_deliver(&mut tx, &cid).await?;
             }
             tx.commit().await?;
         }
-        self.process_streams(pool).await?;
+        self.process_streams(event_access).await?;
 
         Ok(event_cnt)
     }
 
     /// We should improve the error handling and likely add some batching if the number of ready events is very high.
     /// We copy the events up front to avoid losing any events if the task is cancelled.
-    async fn persist_ready_events(&mut self, pool: &SqlitePool) -> Result<()> {
+    async fn persist_ready_events(&mut self, event_access: Arc<EventAccess>) -> Result<()> {
         if !self.deliverable.is_empty() {
             tracing::debug!(count=%self.deliverable.len(), "Marking events as ready to deliver");
-            let mut tx = pool.begin_tx().await?;
+            let mut tx = event_access.begin_tx().await?;
             // We process the ready events as a FIFO queue so they are marked delivered before events that were added after and depend on them.
             // Could use `pop_front` but we want to make sure we commit and then clear everything at once.
             for cid in &self.deliverable {
-                CeramicOneEvent::mark_ready_to_deliver(&mut tx, cid).await?;
+                event_access.mark_ready_to_deliver(&mut tx, cid).await?;
             }
             tx.commit().await?;
             self.deliverable.clear();
@@ -597,6 +601,7 @@ impl OrderingState {
 #[cfg(test)]
 mod test {
     use crate::store::EventInsertable;
+    use ceramic_sql::sqlite::SqlitePool;
     use test_log::test;
 
     use crate::{
@@ -624,20 +629,19 @@ mod test {
     #[test(tokio::test)]
     async fn test_undelivered_batch_empty() {
         let pool = SqlitePool::connect_in_memory().await.unwrap();
-        let processed = OrderingState::process_all_undelivered_events(&pool, 10, 100)
+        let event_access = Arc::new(EventAccess::try_new(pool).await.unwrap());
+        let processed = OrderingState::process_all_undelivered_events(event_access, 10, 100)
             .await
             .unwrap();
         assert_eq!(0, processed);
     }
 
-    async fn insert_10_with_9_undelivered(pool: &SqlitePool) -> Vec<EventInsertable> {
+    async fn insert_10_with_9_undelivered(event_access: Arc<EventAccess>) -> Vec<EventInsertable> {
         let mut insertable = get_n_insertable_events(10).await;
         let mut init = insertable.remove(0);
         init.set_deliverable(true);
 
-        let new = CeramicOneEvent::insert_many(pool, insertable.iter())
-            .await
-            .unwrap();
+        let new = event_access.insert_many(insertable.iter()).await.unwrap();
 
         assert_eq!(9, new.inserted.len());
         assert_eq!(
@@ -648,9 +652,7 @@ mod test {
                 .count()
         );
 
-        let new = CeramicOneEvent::insert_many(pool, [&init].into_iter())
-            .await
-            .unwrap();
+        let new = event_access.insert_many([&init].into_iter()).await.unwrap();
         assert_eq!(1, new.inserted.len());
         assert_eq!(
             1,
@@ -665,35 +667,33 @@ mod test {
     #[test(tokio::test)]
     async fn test_undelivered_batch_offset() {
         let pool = SqlitePool::connect_in_memory().await.unwrap();
+        let event_access = Arc::new(EventAccess::try_new(pool).await.unwrap());
 
-        insert_10_with_9_undelivered(&pool).await;
-        let (_, events) = CeramicOneEvent::new_events_since_value(&pool, 0, 100)
-            .await
-            .unwrap();
+        insert_10_with_9_undelivered(Arc::clone(&event_access)).await;
+        let (_, events) = event_access.new_events_since_value(0, 100).await.unwrap();
         assert_eq!(1, events.len());
 
-        let processed = OrderingState::process_all_undelivered_events(&pool, 1, 5)
-            .await
-            .unwrap();
+        let processed =
+            OrderingState::process_all_undelivered_events(Arc::clone(&event_access), 1, 5)
+                .await
+                .unwrap();
         assert_eq!(5, processed);
-        let (_, events) = CeramicOneEvent::new_events_since_value(&pool, 0, 100)
-            .await
-            .unwrap();
+        let (_, events) = event_access.new_events_since_value(0, 100).await.unwrap();
         assert_eq!(6, events.len());
         // the last 5 are processed and we have 10 delivered
-        let processed = OrderingState::process_all_undelivered_events(&pool, 1, 5)
-            .await
-            .unwrap();
+        let processed =
+            OrderingState::process_all_undelivered_events(Arc::clone(&event_access), 1, 5)
+                .await
+                .unwrap();
         assert_eq!(4, processed);
-        let (_, events) = CeramicOneEvent::new_events_since_value(&pool, 0, 100)
-            .await
-            .unwrap();
+        let (_, events) = event_access.new_events_since_value(0, 100).await.unwrap();
         assert_eq!(10, events.len());
 
         // nothing left
-        let processed = OrderingState::process_all_undelivered_events(&pool, 1, 100)
-            .await
-            .unwrap();
+        let processed =
+            OrderingState::process_all_undelivered_events(Arc::clone(&event_access), 1, 100)
+                .await
+                .unwrap();
 
         assert_eq!(0, processed);
     }
@@ -701,97 +701,92 @@ mod test {
     #[test(tokio::test)]
     async fn test_undelivered_batch_iterations_ends_early() {
         let pool = SqlitePool::connect_in_memory().await.unwrap();
+        let event_access = Arc::new(EventAccess::try_new(pool).await.unwrap());
         // create 5 streams with 9 undelivered events each
-        insert_10_with_9_undelivered(&pool).await;
-        insert_10_with_9_undelivered(&pool).await;
-        insert_10_with_9_undelivered(&pool).await;
-        insert_10_with_9_undelivered(&pool).await;
-        insert_10_with_9_undelivered(&pool).await;
+        insert_10_with_9_undelivered(Arc::clone(&event_access)).await;
+        insert_10_with_9_undelivered(Arc::clone(&event_access)).await;
+        insert_10_with_9_undelivered(Arc::clone(&event_access)).await;
+        insert_10_with_9_undelivered(Arc::clone(&event_access)).await;
+        insert_10_with_9_undelivered(Arc::clone(&event_access)).await;
 
-        let (_hw, event) = CeramicOneEvent::new_events_since_value(&pool, 0, 1000)
-            .await
-            .unwrap();
+        let (_hw, event) = event_access.new_events_since_value(0, 1000).await.unwrap();
         assert_eq!(5, event.len());
-        let _res = OrderingState::process_all_undelivered_events(&pool, 4, 10)
+        let _res = OrderingState::process_all_undelivered_events(Arc::clone(&event_access), 4, 10)
             .await
             .unwrap();
 
-        let (_hw, event) = CeramicOneEvent::new_events_since_value(&pool, 0, 1000)
-            .await
-            .unwrap();
+        let (_hw, event) = event_access.new_events_since_value(0, 1000).await.unwrap();
         assert_eq!(45, event.len());
     }
 
     #[test(tokio::test)]
     async fn test_undelivered_batch_iterations_ends_when_all_found() {
         let pool = SqlitePool::connect_in_memory().await.unwrap();
+        let event_access = Arc::new(EventAccess::try_new(pool).await.unwrap());
         // create 5 streams with 9 undelivered events each
-        insert_10_with_9_undelivered(&pool).await;
-        insert_10_with_9_undelivered(&pool).await;
-        insert_10_with_9_undelivered(&pool).await;
-        insert_10_with_9_undelivered(&pool).await;
-        insert_10_with_9_undelivered(&pool).await;
+        insert_10_with_9_undelivered(Arc::clone(&event_access)).await;
+        insert_10_with_9_undelivered(Arc::clone(&event_access)).await;
+        insert_10_with_9_undelivered(Arc::clone(&event_access)).await;
+        insert_10_with_9_undelivered(Arc::clone(&event_access)).await;
+        insert_10_with_9_undelivered(Arc::clone(&event_access)).await;
 
-        let (_hw, event) = CeramicOneEvent::new_events_since_value(&pool, 0, 1000)
-            .await
-            .unwrap();
+        let (_hw, event) = event_access.new_events_since_value(0, 1000).await.unwrap();
         assert_eq!(5, event.len());
-        let _res = OrderingState::process_all_undelivered_events(&pool, 100_000_000, 5)
-            .await
-            .unwrap();
+        let _res = OrderingState::process_all_undelivered_events(
+            Arc::clone(&event_access),
+            100_000_000,
+            5,
+        )
+        .await
+        .unwrap();
 
-        let (_hw, event) = CeramicOneEvent::new_events_since_value(&pool, 0, 1000)
-            .await
-            .unwrap();
+        let (_hw, event) = event_access.new_events_since_value(0, 1000).await.unwrap();
         assert_eq!(50, event.len());
     }
 
     #[test(tokio::test)]
     async fn test_process_all_undelivered_one_batch() {
         let pool = SqlitePool::connect_in_memory().await.unwrap();
+        let event_access = Arc::new(EventAccess::try_new(pool).await.unwrap());
         // create 5 streams with 9 undelivered events each
         let expected_a = Vec::from_iter(
-            insert_10_with_9_undelivered(&pool)
+            insert_10_with_9_undelivered(Arc::clone(&event_access))
                 .await
                 .into_iter()
                 .map(|e| *e.cid()),
         );
         let expected_b = Vec::from_iter(
-            insert_10_with_9_undelivered(&pool)
+            insert_10_with_9_undelivered(Arc::clone(&event_access))
                 .await
                 .into_iter()
                 .map(|e| *e.cid()),
         );
         let expected_c = Vec::from_iter(
-            insert_10_with_9_undelivered(&pool)
+            insert_10_with_9_undelivered(Arc::clone(&event_access))
                 .await
                 .into_iter()
                 .map(|e| *e.cid()),
         );
         let expected_d = Vec::from_iter(
-            insert_10_with_9_undelivered(&pool)
+            insert_10_with_9_undelivered(Arc::clone(&event_access))
                 .await
                 .into_iter()
                 .map(|e| *e.cid()),
         );
         let expected_e = Vec::from_iter(
-            insert_10_with_9_undelivered(&pool)
+            insert_10_with_9_undelivered(Arc::clone(&event_access))
                 .await
                 .into_iter()
                 .map(|e| *e.cid()),
         );
 
-        let (_hw, event) = CeramicOneEvent::new_events_since_value(&pool, 0, 1000)
-            .await
-            .unwrap();
+        let (_hw, event) = event_access.new_events_since_value(0, 1000).await.unwrap();
         assert_eq!(5, event.len());
-        let _res = OrderingState::process_all_undelivered_events(&pool, 1, 100)
+        let _res = OrderingState::process_all_undelivered_events(Arc::clone(&event_access), 1, 100)
             .await
             .unwrap();
 
-        let (_hw, cids) = CeramicOneEvent::new_events_since_value(&pool, 0, 1000)
-            .await
-            .unwrap();
+        let (_hw, cids) = event_access.new_events_since_value(0, 1000).await.unwrap();
         assert_eq!(50, cids.len());
         assert_eq!(expected_a, build_expected(&cids, &expected_a));
         assert_eq!(expected_b, build_expected(&cids, &expected_b));

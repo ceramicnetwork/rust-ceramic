@@ -10,6 +10,7 @@ use ceramic_core::{event_id::InvalidEventId, Cid, EventId, NodeId};
 use ceramic_event::unvalidated;
 use ceramic_sql::sqlite::{SqlitePool, SqliteTransaction};
 use ipld_core::ipld::Ipld;
+use itertools::Itertools;
 use recon::{AssociativeHash, HashCount, Key, Sha256a};
 
 use crate::store::{
@@ -20,10 +21,8 @@ use crate::store::{
         },
         query::{EventQuery, ReconQuery, SqlBackend},
     },
-    CeramicOneBlock, CeramicOneEventBlock, Error, Result,
+    BlockAccess, Error, EventBlockAccess, Result,
 };
-
-static GLOBAL_COUNTER: AtomicI64 = AtomicI64::new(0);
 
 #[derive(Debug)]
 /// An event that was inserted into the database
@@ -70,15 +69,34 @@ pub struct EventRowDelivered {
 }
 
 /// Access to the ceramic event table and related logic
-pub struct CeramicOneEvent {}
+/// Unlike other access models the event access must maintain state.
+#[derive(Debug)]
+pub struct EventAccess {
+    // The delivered count is tied to a specific sql db so we keep a reference to the pool here so
+    // that we cannot mix delivered counts across dbs.
+    pool: SqlitePool,
+    delivered_counter: AtomicI64,
+}
 
-impl CeramicOneEvent {
-    fn next_deliverable() -> i64 {
-        GLOBAL_COUNTER.fetch_add(1, Ordering::SeqCst)
+impl EventAccess {
+    /// Gain access to the events table.
+    /// EventAccess is stateful and the state is tied to the give connection pool, as such a pool
+    /// must be provided so as to not accidentially mix connections to different dbs.
+    pub async fn try_new(pool: SqlitePool) -> Result<Self> {
+        let s = Self {
+            pool,
+            delivered_counter: Default::default(),
+        };
+        s.init_delivered_order().await?;
+        Ok(s)
+    }
+    fn next_deliverable(&self) -> i64 {
+        self.delivered_counter.fetch_add(1, Ordering::SeqCst)
     }
 
     /// Insert the event and its hash into the ceramic_one_event table
     async fn insert_event(
+        &self,
         tx: &mut SqliteTransaction<'_>,
         key: &EventId,
         stream_cid: &Cid,
@@ -93,7 +111,7 @@ impl CeramicOneEvent {
             .ok_or_else(|| Error::new_app(anyhow!("Event CID is required")))?;
         let hash = Sha256a::digest(key);
         let delivered: Option<i64> = if deliverable {
-            Some(Self::next_deliverable())
+            Some(self.next_deliverable())
         } else {
             None
         };
@@ -128,33 +146,40 @@ impl CeramicOneEvent {
             Err(err) => Err(err.into()),
         }
     }
-}
 
-impl CeramicOneEvent {
     /// Initialize the delivered event counter. Should be called on startup.
-    pub async fn init_delivered_order(pool: &SqlitePool) -> Result<()> {
+    async fn init_delivered_order(&self) -> Result<()> {
         let max_delivered: CountRow = sqlx::query_as(EventQuery::max_delivered())
-            .fetch_one(pool.reader())
+            .fetch_one(self.pool.reader())
             .await?;
         let max = max_delivered
             .res
             .checked_add(1)
             .ok_or_else(|| Error::new_fatal(anyhow!("More than i64::MAX delivered events!")))?;
-        GLOBAL_COUNTER.fetch_max(max, std::sync::atomic::Ordering::SeqCst);
+        self.delivered_counter
+            .fetch_max(max, std::sync::atomic::Ordering::SeqCst);
 
         Ok(())
     }
+    /// Start a new transaction
+    pub async fn begin_tx(&self) -> Result<SqliteTransaction<'_>> {
+        self.pool.begin_tx().await
+    }
 
     /// Get the current highwater mark for delivered events.
-    pub async fn get_highwater_mark(_pool: &SqlitePool) -> Result<i64> {
-        Ok(GLOBAL_COUNTER.load(Ordering::Relaxed))
+    pub async fn get_highwater_mark(&self) -> Result<i64> {
+        Ok(self.delivered_counter.load(Ordering::Relaxed))
     }
 
     /// Mark an event ready to deliver to js-ceramic or other clients. This implies it's valid and it's previous events are known.
-    pub async fn mark_ready_to_deliver(conn: &mut SqliteTransaction<'_>, key: &Cid) -> Result<()> {
+    pub async fn mark_ready_to_deliver(
+        &self,
+        conn: &mut SqliteTransaction<'_>,
+        key: &Cid,
+    ) -> Result<()> {
         // Fetch add happens with an open transaction (on one writer for the db) so we're guaranteed to get a unique value
         sqlx::query(EventQuery::mark_ready_to_deliver())
-            .bind(Self::next_deliverable())
+            .bind(self.next_deliverable())
             .bind(key.to_bytes())
             .execute(&mut **conn.inner())
             .await?;
@@ -170,33 +195,34 @@ impl CeramicOneEvent {
     ///     That is, events will be processed in the order they are given so earlier events are given a lower global ordering
     ///     and will be returned earlier in the feed. Events can be intereaved with different streams, but if two events
     ///     depend on each other, the `prev` must come first in the list to ensure the correct order for indexers and consumers.
-    pub async fn insert_many<'a, I>(pool: &SqlitePool, to_add: I) -> Result<InsertResult<'a>>
+    pub async fn insert_many<'a, I>(&self, to_add: I) -> Result<InsertResult<'a>>
     where
         I: Iterator<Item = &'a EventInsertable>,
     {
         let mut inserted = Vec::new();
-        let mut tx = pool.begin_tx().await.map_err(Error::from)?;
+        let mut tx = self.pool.begin_tx().await.map_err(Error::from)?;
 
         for item in to_add {
-            let new_key = Self::insert_event(
-                &mut tx,
-                item.order_key(),
-                item.stream_cid(),
-                item.informant(),
-                item.deliverable(),
-                item.event().is_time_event(),
-            )
-            .await?;
+            let new_key = self
+                .insert_event(
+                    &mut tx,
+                    item.order_key(),
+                    item.stream_cid(),
+                    item.informant(),
+                    item.deliverable(),
+                    item.event().is_time_event(),
+                )
+                .await?;
             inserted.push(InsertedEvent::new(new_key, item));
             if new_key {
                 for block in item.get_raw_blocks().await?.iter() {
-                    CeramicOneBlock::insert(&mut tx, block.multihash.inner(), &block.bytes).await?;
-                    CeramicOneEventBlock::insert(&mut tx, block).await?;
+                    BlockAccess::insert(&mut tx, block.multihash.inner(), &block.bytes).await?;
+                    EventBlockAccess::insert(&mut tx, block).await?;
                 }
             }
             // the item already existed so we didn't mark it as deliverable on insert
             if !new_key && item.deliverable() {
-                Self::mark_ready_to_deliver(&mut tx, item.cid()).await?;
+                self.mark_ready_to_deliver(&mut tx, item.cid()).await?;
             }
         }
         tx.commit().await.map_err(Error::from)?;
@@ -206,21 +232,18 @@ impl CeramicOneEvent {
     }
 
     /// Calculate the hash of a range of events
-    pub async fn hash_range(
-        pool: &SqlitePool,
-        range: Range<&EventId>,
-    ) -> Result<HashCount<Sha256a>> {
+    pub async fn hash_range(&self, range: Range<&EventId>) -> Result<HashCount<Sha256a>> {
         let row: ReconHash = sqlx::query_as(ReconQuery::hash_range(SqlBackend::Sqlite))
             .bind(range.start.as_bytes())
             .bind(range.end.as_bytes())
-            .fetch_one(pool.reader())
+            .fetch_one(self.pool.reader())
             .await?;
         Ok(HashCount::new(Sha256a::from(row.hash()), row.count()))
     }
 
     /// Find a range of event IDs
     pub async fn range(
-        pool: &SqlitePool,
+        &self,
         range: Range<&EventId>,
         offset: usize,
         limit: usize,
@@ -234,7 +257,7 @@ impl CeramicOneEvent {
             .bind(range.end.as_bytes())
             .bind(limit)
             .bind(offset)
-            .fetch_all(pool.reader())
+            .fetch_all(self.pool.reader())
             .await
             .map_err(Error::from)?;
         let rows = rows
@@ -246,7 +269,7 @@ impl CeramicOneEvent {
 
     /// Find a range of event IDs with their values. Should replace `range` when we move to discovering values and keys simultaneously.
     pub async fn range_with_values(
-        pool: &SqlitePool,
+        &self,
         range: Range<&EventId>,
         offset: usize,
         limit: usize,
@@ -260,7 +283,7 @@ impl CeramicOneEvent {
                 .bind(range.end.as_bytes())
                 .bind(limit)
                 .bind(offset)
-                .fetch_all(pool.reader())
+                .fetch_all(self.pool.reader())
                 .await?;
 
         let values = ReconEventBlockRaw::into_carfiles(all_blocks).await?;
@@ -268,18 +291,18 @@ impl CeramicOneEvent {
     }
 
     /// Count the number of events in a range
-    pub async fn count(pool: &SqlitePool, range: Range<&EventId>) -> Result<usize> {
+    pub async fn count(&self, range: Range<&EventId>) -> Result<usize> {
         let row: CountRow = sqlx::query_as(ReconQuery::count(SqlBackend::Sqlite))
             .bind(range.start.as_bytes())
             .bind(range.end.as_bytes())
-            .fetch_one(pool.reader())
+            .fetch_one(self.pool.reader())
             .await?;
         Ok(row.res as usize)
     }
 
     /// Returns the root CIDs of all the events found after the given delivered value.
     pub async fn new_events_since_value(
-        pool: &SqlitePool,
+        &self,
         delivered: i64,
         limit: i64,
     ) -> Result<(i64, Vec<Cid>)> {
@@ -293,7 +316,7 @@ impl CeramicOneEvent {
             sqlx::query_as(EventQuery::new_delivered_events_id_only())
                 .bind(delivered)
                 .bind(limit)
-                .fetch_all(pool.reader())
+                .fetch_all(self.pool.reader())
                 .await?;
 
         let max: i64 = rows.last().map_or(delivered, |r| r.new_highwater_mark + 1);
@@ -324,7 +347,7 @@ impl CeramicOneEvent {
     /// The events are returned in order of their delivered value. The number of events
     /// returned is limited by the `limit` parameter passed to the function.
     pub async fn new_events_since_value_with_data(
-        pool: &SqlitePool,
+        &self,
         highwater: i64,
         limit: i64,
     ) -> Result<(i64, Vec<EventRowDelivered>)> {
@@ -355,7 +378,7 @@ impl CeramicOneEvent {
             sqlx::query_as(EventQuery::new_delivered_events_with_data())
                 .bind(highwater)
                 .bind(limit)
-                .fetch_all(pool.reader())
+                .fetch_all(self.pool.reader())
                 .await?;
 
         // default to the passed in value if there are no new events to avoid the client going back to 0
@@ -370,17 +393,30 @@ impl CeramicOneEvent {
             all_blocks.iter().map(|row| row.block.clone()).collect(),
         )
         .await?;
+
+        // We need to match up the delivered index with each event. However all_blocks contains an
+        // item for each block within each event. We need to chunk all_blocks by event and then
+        // find the max delivered for each event. This will create an iterator of a single
+        // delivered value for each event. With that iterator we can zip it with the parsed block
+        // car files as there is a 1:1 mapping.
+        let event_chunks = all_blocks
+            .into_iter()
+            .chunk_by(|block| block.block.order_key.clone());
+        let delivered_iter = event_chunks
+            .into_iter()
+            .map(|(_, event_chunk)| event_chunk.map(|block| block.delivered).max());
+
         let result: Result<Vec<EventRowDelivered>> = parsed
             .into_iter()
-            .zip(all_blocks.iter())
-            .map(|((_, carfile), block)| {
+            .zip(delivered_iter)
+            .map(|((_, carfile), delivered)| {
                 let (cid, event) =
                     unvalidated::Event::<Ipld>::decode_car(carfile.as_slice(), false)
                         .map_err(|_| Error::new_fatal(anyhow!("Error parsing event row")))?;
                 Ok(EventRowDelivered {
                     cid,
                     event,
-                    delivered: block.delivered,
+                    delivered: delivered.expect("should always be one block per event"),
                 })
             })
             .collect();
@@ -395,7 +431,7 @@ impl CeramicOneEvent {
     /// Returns the events and their values, and the highwater mark of the last event.
     /// The highwater mark can be used on the next call to get the next batch of events and will be 0 when done.
     pub async fn undelivered_with_values(
-        pool: &SqlitePool,
+        &self,
         highwater_mark: i64,
         limit: i64,
     ) -> Result<(Vec<(Cid, unvalidated::Event<Ipld>)>, i64)> {
@@ -418,7 +454,7 @@ impl CeramicOneEvent {
             sqlx::query_as(EventQuery::undelivered_with_values())
                 .bind(highwater_mark)
                 .bind(limit)
-                .fetch_all(pool.reader())
+                .fetch_all(self.pool.reader())
                 .await?;
 
         let max_highwater = all_blocks.iter().map(|row| row.row_id).max().unwrap_or(0); // if there's nothing in the list we just return 0
@@ -428,19 +464,19 @@ impl CeramicOneEvent {
     }
 
     /// Finds the event data by a given EventId i.e. "order key".
-    pub async fn value_by_order_key(pool: &SqlitePool, key: &EventId) -> Result<Option<Vec<u8>>> {
+    pub async fn value_by_order_key(&self, key: &EventId) -> Result<Option<Vec<u8>>> {
         let blocks: Vec<BlockRow> = sqlx::query_as(EventQuery::value_blocks_by_order_key_one())
             .bind(key.as_bytes())
-            .fetch_all(pool.reader())
+            .fetch_all(self.pool.reader())
             .await?;
         rebuild_car(blocks).await
     }
 
     /// Finds the event data by a given CID i.e. the root CID in the carfile of the event.
-    pub async fn value_by_cid(pool: &SqlitePool, key: &Cid) -> Result<Option<Vec<u8>>> {
+    pub async fn value_by_cid(&self, key: &Cid) -> Result<Option<Vec<u8>>> {
         let blocks: Vec<BlockRow> = sqlx::query_as(EventQuery::value_blocks_by_cid_one())
             .bind(key.to_bytes())
-            .fetch_all(pool.reader())
+            .fetch_all(self.pool.reader())
             .await?;
         rebuild_car(blocks).await
     }
@@ -448,7 +484,7 @@ impl CeramicOneEvent {
     /// Finds if an event exists and has been previously delivered, meaning anything that depends on it can be delivered.
     ///     returns (bool, bool) = (exists, deliverable)
     /// We don't guarantee that a client has seen the event, just that it's been marked as deliverable and they could.
-    pub async fn deliverable_by_cid(pool: &SqlitePool, key: &Cid) -> Result<(bool, bool)> {
+    pub async fn deliverable_by_cid(&self, key: &Cid) -> Result<(bool, bool)> {
         #[derive(sqlx::FromRow)]
         struct CidExists {
             exists: bool,
@@ -456,14 +492,14 @@ impl CeramicOneEvent {
         }
         let exist: Option<CidExists> = sqlx::query_as(EventQuery::value_delivered_by_cid())
             .bind(key.to_bytes())
-            .fetch_optional(pool.reader())
+            .fetch_optional(self.pool.reader())
             .await?;
         Ok(exist.map_or((false, false), |row| (row.exists, row.delivered)))
     }
 
     /// Fetch data event CIDs from a specified source that are above the current anchoring high water mark
     pub async fn data_events_by_informant(
-        pool: &SqlitePool,
+        &self,
         informant: NodeId,
         high_water_mark: i64,
         limit: i64,
@@ -504,7 +540,7 @@ impl CeramicOneEvent {
             .bind(informant.did_key())
             .bind(high_water_mark)
             .bind(limit)
-            .fetch_all(pool.reader())
+            .fetch_all(self.pool.reader())
             .await
             .map_err(Error::from)?;
         let rows = rows

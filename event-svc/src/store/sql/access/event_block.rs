@@ -6,9 +6,9 @@ use crate::store::{
 };
 
 /// Access to the event_block table and related logic
-pub struct CeramicOneEventBlock {}
+pub struct EventBlockAccess {}
 
-impl CeramicOneEventBlock {
+impl EventBlockAccess {
     /// Insert an event block in a transaction i.e. when storing a new ceramic event
     pub(crate) async fn insert(
         conn: &mut SqliteTransaction<'_>,
