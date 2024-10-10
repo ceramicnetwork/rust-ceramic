@@ -1734,9 +1734,9 @@ dependencies = [
 
 [[package]]
 name = "aws-smithy-runtime"
-version = "1.7.1"
+version = "1.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d1ce695746394772e7000b39fe073095db6d45a862d0767dd5ad0ac0d7f8eb87"
+checksum = "a065c0fe6fdbdf9f11817eb68582b2ab4aff9e9c39e986ae48f7ec576c6322db"
 dependencies = [
  "aws-smithy-async",
  "aws-smithy-http",
@@ -2825,16 +2825,14 @@ version = "0.39.0"
 dependencies = [
  "anyhow",
  "arrow",
- "arrow-flight",
  "ceramic-arrow-test",
  "ceramic-core",
  "ceramic-flight",
  "ceramic-metrics",
+ "ceramic-pipeline",
  "cid 0.11.1",
  "clap 4.5.19",
  "datafusion",
- "datafusion-federation",
- "datafusion-flight-sql-table-provider",
  "expect-test",
  "futures",
  "git-version",
@@ -2853,9 +2851,7 @@ dependencies = [
  "signal-hook-tokio",
  "test-log",
  "tokio",
- "tonic 0.12.3",
  "tracing",
- "url",
 ]
 
 [[package]]
@@ -2878,10 +2874,10 @@ dependencies = [
  "ceramic-kubo-rpc-server",
  "ceramic-metrics",
  "ceramic-p2p",
+ "ceramic-pipeline",
  "ceramic-sql",
  "cid 0.11.1",
  "clap 4.5.19",
- "datafusion",
  "datafusion-cli",
  "datafusion-functions-json",
  "expect-test",
@@ -2899,6 +2895,7 @@ dependencies = [
  "multihash-codetable",
  "multihash-derive 0.9.0",
  "names",
+ "object_store",
  "prometheus-client",
  "recon",
  "serde_ipld_dagcbor",
@@ -2951,6 +2948,20 @@ dependencies = [
  "tracing-subscriber",
  "void",
  "zeroize",
+]
+
+[[package]]
+name = "ceramic-pipeline"
+version = "0.39.0"
+dependencies = [
+ "anyhow",
+ "arrow-flight",
+ "datafusion",
+ "datafusion-federation",
+ "datafusion-flight-sql-table-provider",
+ "object_store",
+ "tonic 0.12.3",
+ "url",
 ]
 
 [[package]]

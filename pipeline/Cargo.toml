@@ -1,0 +1,19 @@
+
+[package]
+name = "ceramic-pipeline"
+description = "Pipeline of transformations on Ceramic Events"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+arrow-flight.workspace = true
+datafusion-federation.workspace = true
+datafusion-flight-sql-table-provider.workspace = true
+datafusion.workspace = true
+object_store = { version = "0.11", features = ["aws"] }
+tonic.workspace = true
+url.workspace = true

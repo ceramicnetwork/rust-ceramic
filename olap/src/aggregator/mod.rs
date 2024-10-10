@@ -4,23 +4,13 @@
 //! event in the stream.
 mod ceramic_patch;
 
-use crate::Result;
 use anyhow::Context;
-use arrow::{
-    array::UInt64Array,
-    datatypes::{DataType, Field, Fields, SchemaBuilder},
-};
-use arrow_flight::sql::client::FlightSqlServiceClient;
+use arrow::{array::UInt64Array, datatypes::DataType};
 use ceramic_patch::CeramicPatch;
-use datafusion::datasource::MemTable;
 use datafusion::{
-    catalog::{CatalogProvider, SchemaProvider},
     common::JoinType,
     dataframe::{DataFrame, DataFrameWriteOptions},
-    datasource::{
-        file_format::parquet::ParquetFormat, listing::ListingOptions, provider_as_source,
-    },
-    error::DataFusionError,
+    datasource::{provider_as_source, MemTable},
     execution::context::SessionContext,
     functions_aggregate::min_max::max,
     functions_array::extract::array_element,
@@ -31,20 +21,24 @@ use datafusion::{
     physical_plan::collect_partitioned,
     sql::TableReference,
 };
-use datafusion_federation::sql::{SQLFederationProvider, SQLSchemaProvider};
-use std::any::Any;
-use std::{future::Future, sync::Arc};
-
-use datafusion_flight_sql_table_provider::FlightSQLExecutor;
 use object_store::aws::AmazonS3Builder;
-use tonic::transport::Endpoint;
-use tracing::debug;
-use tracing::error;
-use url::Url;
+use std::{future::Future, sync::Arc};
+use tracing::{debug, error};
+
+use crate::Result;
 
 pub struct Config {
     pub flight_sql_endpoint: String,
-    pub aws_bucket: String,
+    pub aws_s3_bucket: String,
+}
+
+impl From<Config> for ceramic_pipeline::Config {
+    fn from(value: Config) -> Self {
+        Self {
+            flight_sql_endpoint: value.flight_sql_endpoint,
+            aws_s3_builder: AmazonS3Builder::from_env().with_bucket_name(value.aws_s3_bucket),
+        }
+    }
 }
 
 pub async fn run(
@@ -52,85 +46,7 @@ pub async fn run(
     shutdown_signal: impl Future<Output = ()>,
 ) -> Result<()> {
     let config = config.into();
-
-    // Create federated datafusion state
-    let state = datafusion_federation::default_session_state();
-    let client = new_client(config.flight_sql_endpoint.clone()).await?;
-    let executor = Arc::new(FlightSQLExecutor::new(config.flight_sql_endpoint, client));
-    let provider = Arc::new(SQLFederationProvider::new(executor));
-    let schema_provider = Arc::new(
-        SQLSchemaProvider::new_with_tables(provider, vec!["conclusion_feed".to_string()]).await?,
-    );
-
-    // Create datafusion context
-    let ctx = SessionContext::new_with_state(state);
-
-    // Register s3 object store
-    let s3 = AmazonS3Builder::from_env()
-        .with_bucket_name(&config.aws_bucket)
-        .build()?;
-    let mut url = Url::parse("s3://")?;
-    url.set_host(Some(&config.aws_bucket))?;
-    ctx.register_object_store(&url, Arc::new(s3));
-
-    // Register federated catalog
-    ctx.register_catalog("ceramic", Arc::new(SQLCatalog { schema_provider }));
-
-    // Configure doc_state listing table
-    let file_format = ParquetFormat::default().with_enable_pruning(true);
-
-    let listing_options = ListingOptions::new(Arc::new(file_format))
-        .with_file_extension(".parquet")
-        .with_file_sort_order(vec![vec![col("index").sort(true, true)]]);
-
-    // Set the path within the bucket for the doc_state table
-    const DOC_STATE_OBJECT_STORE_PATH: &str = "/ceramic/v0/doc_state/";
-    url.set_path(DOC_STATE_OBJECT_STORE_PATH);
-    ctx.register_listing_table(
-        "doc_state",
-        url.to_string(),
-        listing_options,
-        Some(Arc::new(
-            SchemaBuilder::from(&Fields::from([
-                Arc::new(Field::new("index", DataType::UInt64, false)),
-                Arc::new(Field::new("stream_cid", DataType::Binary, false)),
-                Arc::new(Field::new("event_type", DataType::UInt8, false)),
-                Arc::new(Field::new("controller", DataType::Utf8, false)),
-                Arc::new(Field::new(
-                    "dimensions",
-                    DataType::Map(
-                        Field::new(
-                            "entries",
-                            DataType::Struct(
-                                vec![
-                                    Field::new("key", DataType::Utf8, false),
-                                    Field::new(
-                                        "value",
-                                        DataType::Dictionary(
-                                            Box::new(DataType::Int32),
-                                            Box::new(DataType::Binary),
-                                        ),
-                                        true,
-                                    ),
-                                ]
-                                .into(),
-                            ),
-                            false,
-                        )
-                        .into(),
-                        false,
-                    ),
-                    true,
-                )),
-                Arc::new(Field::new("event_cid", DataType::Binary, false)),
-                Arc::new(Field::new("state", DataType::Utf8, true)),
-            ]))
-            .finish(),
-        )),
-        None,
-    )
-    .await?;
-
+    let ctx = ceramic_pipeline::session_from_config(config).await?;
     run_continuous_stream(ctx, shutdown_signal, 10000).await?;
     Ok(())
 }
@@ -256,18 +172,6 @@ impl ContinuousStreamProcessor {
     }
 }
 
-/// Creates a new [FlightSqlServiceClient] for the passed endpoint. Completes the relevant auth configurations
-/// or handshake as appropriate for the passed [FlightSQLAuth] variant.
-async fn new_client(dsn: String) -> Result<FlightSqlServiceClient<tonic::transport::Channel>> {
-    let endpoint = Endpoint::new(dsn).map_err(tx_error_to_df)?;
-    let channel = endpoint.connect().await.map_err(tx_error_to_df)?;
-    Ok(FlightSqlServiceClient::new(channel))
-}
-
-fn tx_error_to_df(err: tonic::transport::Error) -> DataFusionError {
-    DataFusionError::External(format!("failed to connect: {err:?}").into())
-}
-
 // Process events from the conclusion feed, producing a new document state for each input event.
 // The session context must have a registered a `doc_state` table with stream_cid, event_cid, and
 // state columns.
@@ -345,24 +249,6 @@ async fn process_feed_batch(ctx: SessionContext, conclusion_feed: DataFrame) -> 
     Ok(())
 }
 
-struct SQLCatalog {
-    schema_provider: Arc<SQLSchemaProvider>,
-}
-
-impl CatalogProvider for SQLCatalog {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn schema_names(&self) -> Vec<String> {
-        vec!["v0".to_string()]
-    }
-
-    fn schema(&self, _name: &str) -> Option<Arc<dyn SchemaProvider>> {
-        Some(self.schema_provider.clone())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::str::FromStr as _;
@@ -378,7 +264,7 @@ mod tests {
     };
     use cid::Cid;
     use datafusion::{
-        catalog_common::{MemoryCatalogProvider, MemorySchemaProvider},
+        catalog_common::{CatalogProvider, MemoryCatalogProvider, MemorySchemaProvider},
         common::Constraints,
         datasource::{provider_as_source, MemTable},
         logical_expr::{
@@ -401,45 +287,7 @@ mod tests {
                 constraints: Constraints::empty(),
                 input: LogicalPlan::EmptyRelation(EmptyRelation {
                     produce_one_row: false,
-                    schema: Arc::new(
-                        SchemaBuilder::from(&Fields::from([
-                            Arc::new(Field::new("index", DataType::UInt64, false)),
-                            Arc::new(Field::new("stream_cid", DataType::Binary, false)),
-                            Arc::new(Field::new("event_type", DataType::UInt8, false)),
-                            Arc::new(Field::new("controller", DataType::Utf8, false)),
-                            Arc::new(Field::new(
-                                "dimensions",
-                                DataType::Map(
-                                    Field::new(
-                                        "entries",
-                                        DataType::Struct(
-                                            vec![
-                                                Field::new("key", DataType::Utf8, false),
-                                                Field::new(
-                                                    "value",
-                                                    DataType::Dictionary(
-                                                        Box::new(DataType::Int32),
-                                                        Box::new(DataType::Binary),
-                                                    ),
-                                                    true,
-                                                ),
-                                            ]
-                                            .into(),
-                                        ),
-                                        false,
-                                    )
-                                    .into(),
-                                    false,
-                                ),
-                                true,
-                            )),
-                            Arc::new(Field::new("event_cid", DataType::Binary, false)),
-                            Arc::new(Field::new("state", DataType::Utf8, false)),
-                        ]))
-                        .finish()
-                        .try_into()
-                        .unwrap(),
-                    ),
+                    schema: Arc::new(ceramic_pipeline::schemas::doc_state().try_into().unwrap()),
                 })
                 .into(),
                 if_not_exists: false,
@@ -464,45 +312,7 @@ mod tests {
                 constraints: Constraints::empty(),
                 input: LogicalPlan::EmptyRelation(EmptyRelation {
                     produce_one_row: false,
-                    schema: Arc::new(
-                        SchemaBuilder::from(&Fields::from([
-                            Arc::new(Field::new("index", DataType::UInt64, false)),
-                            Arc::new(Field::new("stream_cid", DataType::Binary, false)),
-                            Arc::new(Field::new("event_type", DataType::UInt8, false)),
-                            Arc::new(Field::new("controller", DataType::Utf8, false)),
-                            Arc::new(Field::new(
-                                "dimensions",
-                                DataType::Map(
-                                    Field::new(
-                                        "entries",
-                                        DataType::Struct(
-                                            vec![
-                                                Field::new("key", DataType::Utf8, false),
-                                                Field::new(
-                                                    "value",
-                                                    DataType::Dictionary(
-                                                        Box::new(DataType::Int32),
-                                                        Box::new(DataType::Binary),
-                                                    ),
-                                                    true,
-                                                ),
-                                            ]
-                                            .into(),
-                                        ),
-                                        false,
-                                    )
-                                    .into(),
-                                    false,
-                                ),
-                                true,
-                            )),
-                            Arc::new(Field::new("event_cid", DataType::Binary, false)),
-                            Arc::new(Field::new("state", DataType::Utf8, false)),
-                        ]))
-                        .finish()
-                        .try_into()
-                        .unwrap(),
-                    ),
+                    schema: Arc::new(ceramic_pipeline::schemas::doc_state().try_into().unwrap()),
                 })
                 .into(),
                 if_not_exists: false,

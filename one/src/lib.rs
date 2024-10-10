@@ -41,7 +41,7 @@ enum Command {
     #[command(subcommand)]
     Migrations(migrations::EventsCommand),
     /// Run an interactive SQL REPL to inspect local data.
-    Query,
+    Query(query::QueryOpts),
 }
 
 #[derive(ValueEnum, Debug, Clone, PartialEq, Eq)]
@@ -210,7 +210,7 @@ pub async fn run() -> Result<()> {
     match args.command {
         Command::Daemon(opts) => daemon::run(*opts).await,
         Command::Migrations(opts) => migrations::migrate(opts).await,
-        Command::Query => query::run().await,
+        Command::Query(opts) => query::run(opts).await,
     }
 }
 

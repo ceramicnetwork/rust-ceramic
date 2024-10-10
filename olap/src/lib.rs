@@ -109,7 +109,7 @@ impl From<&DaemonOpts> for aggregator::Config {
     fn from(value: &DaemonOpts) -> Self {
         Self {
             flight_sql_endpoint: value.flight_sql_endpoint.clone(),
-            aws_bucket: value.aws_bucket.clone(),
+            aws_s3_bucket: value.aws_bucket.clone(),
         }
     }
 }

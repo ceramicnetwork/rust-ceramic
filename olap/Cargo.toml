@@ -10,14 +10,12 @@ repository.workspace = true
 [dependencies]
 anyhow.workspace = true
 arrow.workspace = true
-arrow-flight.workspace = true
 ceramic-arrow-test.workspace = true
 ceramic-metrics.workspace = true
+ceramic-pipeline.workspace = true
 cid.workspace = true
 clap.workspace = true
 datafusion.workspace = true
-datafusion-federation.workspace = true
-datafusion-flight-sql-table-provider.workspace = true
 futures.workspace = true
 git-version = "0.3.9"
 hyper.workspace = true
@@ -34,9 +32,7 @@ serde.workspace = true
 signal-hook = "0.3.17"
 signal-hook-tokio = { version = "0.3.1", features = ["futures-v0_3"] }
 tokio = { workspace = true, features = ["fs", "rt-multi-thread"] }
-tonic.workspace = true
 tracing.workspace = true
-url.workspace = true
 
 [dev-dependencies]
 test-log.workspace = true
