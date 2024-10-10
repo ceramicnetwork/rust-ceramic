@@ -403,7 +403,7 @@ impl EventService {
                         .map_err(|e| {
                             Error::new_app(anyhow::anyhow!("Failed to serialize IPLD data: {}", e))
                         })?,
-                    index: 0,
+                    index: delivered as u64,
                 }))
             }
         }
