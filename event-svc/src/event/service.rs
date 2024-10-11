@@ -11,7 +11,6 @@ use super::{
 };
 use async_trait::async_trait;
 use ceramic_core::{EventId, Network, NodeId, SerializeExt};
-use ceramic_event::unvalidated::data::SHOULD_INDEX_DEFAULT;
 use ceramic_flight::{ConclusionData, ConclusionEvent, ConclusionInit, ConclusionTime};
 use ceramic_sql::sqlite::SqlitePool;
 use cid::Cid;
@@ -359,17 +358,23 @@ impl EventService {
 
         // Small wrapper container around the data field to hold other mutable metadata for the
         // event.
+        // This is Model Instance Document specific. When we have other generic types of ceramic events
+        // we will need to determine if/how to generalize this container.
         #[derive(Debug, serde::Serialize)]
         #[serde(rename_all = "camelCase")]
-        struct DataContainer<'a> {
+        struct MIDDataContainer<'a> {
             metadata: BTreeMap<String, Ipld>,
             data: Option<&'a Ipld>,
         }
 
-        impl<'a> DataContainer<'a> {
-            fn new_with_should_index(should_index: bool, data: Option<&'a Ipld>) -> Self {
+        impl<'a> MIDDataContainer<'a> {
+            fn new_with_should_index(should_index: Option<bool>, data: Option<&'a Ipld>) -> Self {
                 Self {
-                    metadata: BTreeMap::from([("shouldIndex".to_string(), should_index.into())]),
+                    metadata: should_index
+                        .map(|should_index| {
+                            BTreeMap::from([("shouldIndex".to_string(), should_index.into())])
+                        })
+                        .unwrap_or_default(),
                     data,
                 }
             }
@@ -391,10 +396,8 @@ impl EventService {
                             event_cid,
                             init,
                             previous: vec![*data.prev()],
-                            data: DataContainer::new_with_should_index(
-                                data.header()
-                                    .map(|header| header.should_index())
-                                    .unwrap_or(SHOULD_INDEX_DEFAULT),
+                            data: MIDDataContainer::new_with_should_index(
+                                data.header().and_then(|header| header.should_index()),
                                 Some(data.data()),
                             )
                             .to_json_bytes()
@@ -412,8 +415,8 @@ impl EventService {
                             event_cid,
                             init,
                             previous: vec![],
-                            data: DataContainer::new_with_should_index(
-                                init_event.header().should_index(),
+                            data: MIDDataContainer::new_with_should_index(
+                                Some(init_event.header().should_index()),
                                 init_event.data(),
                             )
                             .to_json_bytes()
@@ -433,8 +436,8 @@ impl EventService {
                     event_cid,
                     init,
                     previous: vec![],
-                    data: DataContainer::new_with_should_index(
-                        unsigned_event.payload().header().should_index(),
+                    data: MIDDataContainer::new_with_should_index(
+                        Some(unsigned_event.payload().header().should_index()),
                         unsigned_event.payload().data(),
                     )
                     .to_json_bytes()

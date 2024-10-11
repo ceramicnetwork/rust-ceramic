@@ -7,8 +7,6 @@ use ceramic_core::SerializeExt;
 
 use crate::bytes::Bytes;
 
-use super::data::SHOULD_INDEX_DEFAULT;
-
 /// Represents an event with a payload and its corresponding CID
 #[derive(Debug)]
 pub struct Event<D> {
@@ -153,7 +151,7 @@ impl Header {
 
     /// Signal to indexers whether this stream should be indexed
     pub fn should_index(&self) -> bool {
-        self.should_index.unwrap_or(SHOULD_INDEX_DEFAULT)
+        self.should_index.unwrap_or(true)
     }
 
     /// The unique value for the stream

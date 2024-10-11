@@ -63,9 +63,14 @@ impl WindowUDFImpl for CeramicPatch {
 }
 // Small wrapper container around the data/state fields to hold
 // other mutable metadata for the event.
+// This is specific to Model Instance Documents.
+// Metadata is considered to be mutable from event to event and a overriting merge is performed
+// with the previous metadata to the current metadata.
+// This means if a metadata key is missing it is propogated forward until a new data event changes
+// its value.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct DataContainer<D> {
+struct MIDDataContainer<D> {
     metadata: BTreeMap<String, serde_json::Value>,
     data: D,
 }
@@ -75,15 +80,16 @@ struct CeramicPatchEvaluator;
 
 impl CeramicPatchEvaluator {
     fn apply_patch(patch: &str, previous_state: &str) -> Result<String> {
-        let patch: DataContainer<Vec<PatchOperation>> = serde_json::from_str(patch)
+        let patch: MIDDataContainer<Vec<PatchOperation>> = serde_json::from_str(patch)
             .map_err(|err| exec_datafusion_err!("Error parsing patch: {err}"))?;
-        let mut state: DataContainer<serde_json::Value> = serde_json::from_str(previous_state)
-            .map_err(|err| exec_datafusion_err!("Error parsing previous state: {err}"))?;
+        let mut state: MIDDataContainer<serde_json::Value> =
+            serde_json::from_str(previous_state)
+                .map_err(|err| exec_datafusion_err!("Error parsing previous state: {err}"))?;
         // If the state is null use an empty object in order to apply the patch to a valid object.
         if serde_json::Value::Null == state.data {
             state.data = serde_json::Value::Object(serde_json::Map::default());
         }
-        state.metadata = patch.metadata;
+        state.metadata.extend(patch.metadata);
         json_patch::patch(&mut state.data, &patch.data)
             .map_err(|err| exec_datafusion_err!("Error applying JSON patch: {err}"))?;
         serde_json::to_string(&state)

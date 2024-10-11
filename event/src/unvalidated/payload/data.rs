@@ -56,9 +56,6 @@ impl<D> Payload<D> {
     }
 }
 
-/// Assumed default value if the should_index field is not present in an init or data header.
-pub const SHOULD_INDEX_DEFAULT: bool = true;
-
 /// Headers for a data event
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -74,7 +71,7 @@ impl Header {
     }
 
     /// Signal to indexers whether this stream should be indexed
-    pub fn should_index(&self) -> bool {
-        self.should_index.unwrap_or(SHOULD_INDEX_DEFAULT)
+    pub fn should_index(&self) -> Option<bool> {
+        self.should_index
     }
 }
