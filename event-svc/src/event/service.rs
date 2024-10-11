@@ -356,30 +356,6 @@ impl EventService {
             ))
         })?;
 
-        // Small wrapper container around the data field to hold other mutable metadata for the
-        // event.
-        // This is Model Instance Document specific. When we have other generic types of ceramic events
-        // we will need to determine if/how to generalize this container.
-        #[derive(Debug, serde::Serialize)]
-        #[serde(rename_all = "camelCase")]
-        struct MIDDataContainer<'a> {
-            metadata: BTreeMap<String, Ipld>,
-            data: Option<&'a Ipld>,
-        }
-
-        impl<'a> MIDDataContainer<'a> {
-            fn new_with_should_index(should_index: Option<bool>, data: Option<&'a Ipld>) -> Self {
-                Self {
-                    metadata: should_index
-                        .map(|should_index| {
-                            BTreeMap::from([("shouldIndex".to_string(), should_index.into())])
-                        })
-                        .unwrap_or_default(),
-                    data,
-                }
-            }
-        }
-
         match event {
             ceramic_event::unvalidated::Event::Time(time_event) => {
                 Ok(ConclusionEvent::Time(ConclusionTime {
@@ -502,6 +478,30 @@ impl EventService {
             Err(Error::new_fatal(anyhow::anyhow!("Delivery task closed")))
         } else {
             Ok(())
+        }
+    }
+}
+
+// Small wrapper container around the data field to hold other mutable metadata for the
+// event.
+// This is Model Instance Document specific. When we have other generic types of ceramic events
+// we will need to determine if/how to generalize this container.
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MIDDataContainer<'a> {
+    metadata: BTreeMap<String, Ipld>,
+    data: Option<&'a Ipld>,
+}
+
+impl<'a> MIDDataContainer<'a> {
+    fn new_with_should_index(should_index: Option<bool>, data: Option<&'a Ipld>) -> Self {
+        Self {
+            metadata: should_index
+                .map(|should_index| {
+                    BTreeMap::from([("shouldIndex".to_string(), should_index.into())])
+                })
+                .unwrap_or_default(),
+            data,
         }
     }
 }

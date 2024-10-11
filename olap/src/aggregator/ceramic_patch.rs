@@ -75,16 +75,18 @@ struct MIDDataContainer<D> {
     data: D,
 }
 
+type MIDDataContainerPatch = MIDDataContainer<Vec<PatchOperation>>;
+type MIDDataContainerState = MIDDataContainer<serde_json::Value>;
+
 #[derive(Debug)]
 struct CeramicPatchEvaluator;
 
 impl CeramicPatchEvaluator {
     fn apply_patch(patch: &str, previous_state: &str) -> Result<String> {
-        let patch: MIDDataContainer<Vec<PatchOperation>> = serde_json::from_str(patch)
+        let patch: MIDDataContainerPatch = serde_json::from_str(patch)
             .map_err(|err| exec_datafusion_err!("Error parsing patch: {err}"))?;
-        let mut state: MIDDataContainer<serde_json::Value> =
-            serde_json::from_str(previous_state)
-                .map_err(|err| exec_datafusion_err!("Error parsing previous state: {err}"))?;
+        let mut state: MIDDataContainerState = serde_json::from_str(previous_state)
+            .map_err(|err| exec_datafusion_err!("Error parsing previous state: {err}"))?;
         // If the state is null use an empty object in order to apply the patch to a valid object.
         if serde_json::Value::Null == state.data {
             state.data = serde_json::Value::Object(serde_json::Map::default());
