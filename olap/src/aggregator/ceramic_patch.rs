@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 use arrow::{
     array::{Array as _, ArrayBuilder as _, ArrayRef, StringBuilder},
@@ -13,6 +13,7 @@ use datafusion::{
         PartitionEvaluator, Signature, TypeSignature, Volatility, WindowUDF, WindowUDFImpl,
     },
 };
+use json_patch::PatchOperation;
 
 /// Applies a Ceramic data event to a document state returning the new document state.
 #[derive(Debug)]
@@ -60,19 +61,40 @@ impl WindowUDFImpl for CeramicPatch {
         Ok(Box::new(CeramicPatchEvaluator))
     }
 }
+// Small wrapper container around the data/state fields to hold
+// other mutable metadata for the event.
+// This is specific to Model Instance Documents.
+// Metadata is considered to be mutable from event to event and a overriting merge is performed
+// with the previous metadata to the current metadata.
+// This means if a metadata key is missing it is propogated forward until a new data event changes
+// its value.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MIDDataContainer<D> {
+    metadata: BTreeMap<String, serde_json::Value>,
+    data: D,
+}
+
+type MIDDataContainerPatch = MIDDataContainer<Vec<PatchOperation>>;
+type MIDDataContainerState = MIDDataContainer<serde_json::Value>;
 
 #[derive(Debug)]
 struct CeramicPatchEvaluator;
 
 impl CeramicPatchEvaluator {
     fn apply_patch(patch: &str, previous_state: &str) -> Result<String> {
-        let patch: Vec<json_patch::PatchOperation> = serde_json::from_str(patch)
+        let patch: MIDDataContainerPatch = serde_json::from_str(patch)
             .map_err(|err| exec_datafusion_err!("Error parsing patch: {err}"))?;
-        let mut new_state: serde_json::Value = serde_json::from_str(previous_state)
+        let mut state: MIDDataContainerState = serde_json::from_str(previous_state)
             .map_err(|err| exec_datafusion_err!("Error parsing previous state: {err}"))?;
-        json_patch::patch(&mut new_state, &patch)
+        // If the state is null use an empty object in order to apply the patch to a valid object.
+        if serde_json::Value::Null == state.data {
+            state.data = serde_json::Value::Object(serde_json::Map::default());
+        }
+        state.metadata.extend(patch.metadata);
+        json_patch::patch(&mut state.data, &patch.data)
             .map_err(|err| exec_datafusion_err!("Error applying JSON patch: {err}"))?;
-        serde_json::to_string(&new_state)
+        serde_json::to_string(&state)
             .map_err(|err| exec_datafusion_err!("Error JSON encoding: {err}"))
     }
 }
@@ -143,10 +165,8 @@ impl PartitionEvaluator for CeramicPatchEvaluator {
             } else {
                 //Init event, patch value is the initial state
                 if patches.is_null(i) {
-                    // If we have an init event without data use an empty object as the initial
-                    // state. This feels like a leaky abstraction is this expected based on the
-                    // Ceramic spec?
-                    new_states.append_value("{}");
+                    // We have an init event without data
+                    new_states.append_null();
                 } else {
                     new_states.append_value(patches.value(i));
                 }

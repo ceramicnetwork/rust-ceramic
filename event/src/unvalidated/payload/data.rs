@@ -71,7 +71,7 @@ impl Header {
     }
 
     /// Signal to indexers whether this stream should be indexed
-    pub fn should_index(&self) -> bool {
-        self.should_index.unwrap_or(true)
+    pub fn should_index(&self) -> Option<bool> {
+        self.should_index
     }
 }

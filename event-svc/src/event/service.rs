@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     sync::{Arc, Mutex, MutexGuard},
 };
 
@@ -349,7 +349,7 @@ impl EventService {
         } = event;
         let stream_cid = event.stream_cid();
         let init_event = self.get_event_by_cid(stream_cid).await?;
-        let init = ConclusionInit::try_from(init_event).map_err(|e| {
+        let init = ConclusionInit::try_from(&init_event).map_err(|e| {
             Error::new_app(anyhow::anyhow!(
                 "Malformed event found in the database: {}",
                 e
@@ -372,7 +372,12 @@ impl EventService {
                             event_cid,
                             init,
                             previous: vec![*data.prev()],
-                            data: data.data().to_json_bytes().map_err(|e| {
+                            data: MIDDataContainer::new_with_should_index(
+                                data.header().and_then(|header| header.should_index()),
+                                Some(data.data()),
+                            )
+                            .to_json_bytes()
+                            .map_err(|e| {
                                 Error::new_app(anyhow::anyhow!(
                                     "Failed to serialize IPLD data: {}",
                                     e
@@ -386,7 +391,12 @@ impl EventService {
                             event_cid,
                             init,
                             previous: vec![],
-                            data: init_event.data().to_json_bytes().map_err(|e| {
+                            data: MIDDataContainer::new_with_should_index(
+                                Some(init_event.header().should_index()),
+                                init_event.data(),
+                            )
+                            .to_json_bytes()
+                            .map_err(|e| {
                                 Error::new_app(anyhow::anyhow!(
                                     "Failed to serialize IPLD data: {}",
                                     e
@@ -402,13 +412,14 @@ impl EventService {
                     event_cid,
                     init,
                     previous: vec![],
-                    data: unsigned_event
-                        .payload()
-                        .data()
-                        .to_json_bytes()
-                        .map_err(|e| {
-                            Error::new_app(anyhow::anyhow!("Failed to serialize IPLD data: {}", e))
-                        })?,
+                    data: MIDDataContainer::new_with_should_index(
+                        Some(unsigned_event.payload().header().should_index()),
+                        unsigned_event.payload().data(),
+                    )
+                    .to_json_bytes()
+                    .map_err(|e| {
+                        Error::new_app(anyhow::anyhow!("Failed to serialize IPLD data: {}", e))
+                    })?,
                     index: delivered as u64,
                 }))
             }
@@ -467,6 +478,30 @@ impl EventService {
             Err(Error::new_fatal(anyhow::anyhow!("Delivery task closed")))
         } else {
             Ok(())
+        }
+    }
+}
+
+// Small wrapper container around the data field to hold other mutable metadata for the
+// event.
+// This is Model Instance Document specific. When we have other generic types of ceramic events
+// we will need to determine if/how to generalize this container.
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MIDDataContainer<'a> {
+    metadata: BTreeMap<String, Ipld>,
+    data: Option<&'a Ipld>,
+}
+
+impl<'a> MIDDataContainer<'a> {
+    fn new_with_should_index(should_index: Option<bool>, data: Option<&'a Ipld>) -> Self {
+        Self {
+            metadata: should_index
+                .map(|should_index| {
+                    BTreeMap::from([("shouldIndex".to_string(), should_index.into())])
+                })
+                .unwrap_or_default(),
+            data,
         }
     }
 }
