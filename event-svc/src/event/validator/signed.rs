@@ -10,11 +10,7 @@ use cid::Cid;
 use ipld_core::ipld::Ipld;
 use tracing::warn;
 
-use crate::{
-    event::service::ValidationError,
-    store::{CeramicOneEvent, SqlitePool},
-    Result,
-};
+use crate::{event::service::ValidationError, store::EventAccess, Result};
 
 use super::{
     event::{ValidatedEvent, ValidatedEvents},
@@ -82,7 +78,7 @@ impl SignedEventValidator {
     }
 
     pub async fn validate_events(
-        pool: &SqlitePool,
+        event_access: Arc<EventAccess>,
         opts: &VerifyJwsOpts,
         events: SignedValidationBatch,
         require_init_event: bool,
@@ -102,14 +98,14 @@ impl SignedEventValidator {
 
         for event in events.init {
             let status = validator
-                .validate_signed(pool, opts, event.as_signed())
+                .validate_signed(Arc::clone(&event_access), opts, event.as_signed())
                 .await?;
             validator.process_result(status, event.into_inner());
         }
 
         for event in events.data {
             let status = validator
-                .validate_signed(pool, opts, event.as_signed())
+                .validate_signed(Arc::clone(&event_access), opts, event.as_signed())
                 .await?;
             validator.process_result(status, event.into_inner());
         }
@@ -152,7 +148,7 @@ impl SignedEventValidator {
     /// Returns an enum representing the validation status and what type of event it was
     async fn validate_signed(
         &mut self,
-        pool: &SqlitePool,
+        event_access: Arc<EventAccess>,
         opts: &VerifyJwsOpts,
         signed: &signed::Event<Ipld>,
     ) -> Result<ValidationStatus> {
@@ -161,7 +157,7 @@ impl SignedEventValidator {
                 let init = if let Some(init) = self.init_map.get(d.id()) {
                     init.to_owned()
                 } else {
-                    match CeramicOneEvent::value_by_cid(pool, d.id()).await? {
+                    match event_access.value_by_cid(d.id()).await? {
                         Some(init) => {
                             let (init_cid, init) =
                                             unvalidated::Event::<Ipld>::decode_car(

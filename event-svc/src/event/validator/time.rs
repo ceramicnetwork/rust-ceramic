@@ -4,7 +4,6 @@ use anyhow::{anyhow, bail, Result};
 use ceramic_core::ssi::caip2;
 use ceramic_core::Cid;
 use ceramic_event::unvalidated;
-use ceramic_sql::sqlite::SqlitePool;
 use multihash::Multihash;
 use once_cell::sync::Lazy;
 use tracing::warn;
@@ -123,7 +122,6 @@ impl TimeEventValidator {
     /// Validate the chain inclusion proof for a time event, returning the block timestamp if found
     pub async fn validate_chain_inclusion(
         &self,
-        _pool: &SqlitePool,
         event: &unvalidated::TimeEvent,
     ) -> Result<Timestamp, ChainInclusionError> {
         let chain_id = caip2::ChainId::from_str(event.proof().chain_id())
@@ -420,11 +418,10 @@ mod test {
     #[test(tokio::test)]
     async fn valid_proof_single() {
         let event = time_event_single_event_batch();
-        let pool = SqlitePool::connect_in_memory().await.unwrap();
 
         let verifier =
             get_mock_provider(SINGLE_TX_HASH.to_string(), SINGLE_TX_HASH_INPUT.into()).await;
-        match verifier.validate_chain_inclusion(&pool, &event).await {
+        match verifier.validate_chain_inclusion(&event).await {
             Ok(ts) => {
                 assert_eq!(ts.as_unix_ts(), BLOCK_TIMESTAMP);
             }
@@ -435,11 +432,10 @@ mod test {
     #[test(tokio::test)]
     async fn invalid_proof_single() {
         let event = time_event_single_event_batch();
-        let pool = SqlitePool::connect_in_memory().await.unwrap();
 
         let verifier =
             get_mock_provider(SINGLE_TX_HASH.to_string(), MULTI_TX_HASH_INPUT.to_string()).await;
-        match verifier.validate_chain_inclusion(&pool, &event).await {
+        match verifier.validate_chain_inclusion(&event).await {
             Ok(v) => {
                 panic!("should have failed: {:?}", v)
             }
@@ -457,11 +453,10 @@ mod test {
     #[test(tokio::test)]
     async fn valid_proof_multi() {
         let event = time_event_multi_event_batch();
-        let pool = SqlitePool::connect_in_memory().await.unwrap();
 
         let verifier =
             get_mock_provider(MULTI_TX_HASH.to_string(), MULTI_TX_HASH_INPUT.to_string()).await;
-        match verifier.validate_chain_inclusion(&pool, &event).await {
+        match verifier.validate_chain_inclusion(&event).await {
             Ok(ts) => {
                 assert_eq!(ts.as_unix_ts(), BLOCK_TIMESTAMP);
             }
@@ -472,11 +467,10 @@ mod test {
     #[test(tokio::test)]
     async fn invalid_root_tx_proof_cid_multi() {
         let event = time_event_multi_event_batch();
-        let pool = SqlitePool::connect_in_memory().await.unwrap();
 
         let verifier =
             get_mock_provider(MULTI_TX_HASH.to_string(), SINGLE_TX_HASH_INPUT.to_string()).await;
-        match verifier.validate_chain_inclusion(&pool, &event).await {
+        match verifier.validate_chain_inclusion(&event).await {
             Ok(v) => {
                 panic!("should have failed: {:?}", v)
             }

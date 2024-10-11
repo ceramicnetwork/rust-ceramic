@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use ceramic_api::{ApiItem, EventDataResult, EventService as ApiEventService, IncludeEventData};
 use ceramic_core::{EventId, NodeId};
@@ -75,7 +75,7 @@ async fn test_init_event_delivered() {
         ApiItem::new_arced(init.key.to_owned(), init.value.to_owned()),
     )
     .await;
-    check_deliverable(&store.pool, &init.key.cid().unwrap(), true).await;
+    check_deliverable(store.event_access, &init.key.cid().unwrap(), true).await;
 }
 
 #[test(tokio::test)]
@@ -104,14 +104,24 @@ async fn test_prev_exists_history_required() {
         ApiItem::new_arced(init.key.clone(), init.value.clone()),
     )
     .await;
-    check_deliverable(&store.pool, &init.key.cid().unwrap(), true).await;
+    check_deliverable(
+        Arc::clone(&store.event_access),
+        &init.key.cid().unwrap(),
+        true,
+    )
+    .await;
 
     add_and_assert_new_local_event(
         &store,
         ApiItem::new_arced(data.key.clone(), data.value.clone()),
     )
     .await;
-    check_deliverable(&store.pool, &data.key.cid().unwrap(), true).await;
+    check_deliverable(
+        Arc::clone(&store.event_access),
+        &data.key.cid().unwrap(),
+        true,
+    )
+    .await;
 
     let delivered = get_delivered_cids(&store).await;
     assert_eq!(2, delivered.len());
@@ -138,8 +148,18 @@ async fn test_prev_in_same_write_history_required() {
     .unwrap();
     let new = new.iter().filter(|v| v.success()).count();
     assert_eq!(2, new);
-    check_deliverable(&store.pool, &init.key.cid().unwrap(), true).await;
-    check_deliverable(&store.pool, &data.key.cid().unwrap(), true).await;
+    check_deliverable(
+        Arc::clone(&store.event_access),
+        &init.key.cid().unwrap(),
+        true,
+    )
+    .await;
+    check_deliverable(
+        Arc::clone(&store.event_access),
+        &data.key.cid().unwrap(),
+        true,
+    )
+    .await;
     let delivered = get_delivered_cids(&store).await;
 
     assert_eq!(2, delivered.len());
@@ -167,7 +187,12 @@ async fn test_missing_prev_pending_recon() {
     // now we add the init and we should see init, data 1 (first stored), data 2 (second stored) as highwater returns
     let data = &events[0];
     add_and_assert_new_recon_event(&store, data.to_owned()).await;
-    check_deliverable(&store.pool, &data.key.cid().unwrap(), true).await;
+    check_deliverable(
+        Arc::clone(&store.event_access),
+        &data.key.cid().unwrap(),
+        true,
+    )
+    .await;
 
     // This happens out of band, so give it a moment to make sure everything is updated
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -191,7 +216,12 @@ async fn missing_prev_pending_recon_should_deliver_without_stream_update() {
 
     let data = &events[0];
     add_and_assert_new_recon_event(&store, data.to_owned()).await;
-    check_deliverable(&store.pool, &data.key.cid().unwrap(), true).await;
+    check_deliverable(
+        Arc::clone(&store.event_access),
+        &data.key.cid().unwrap(),
+        true,
+    )
+    .await;
 
     // now we add the second event, it should quickly become deliverable
     let data = &events[1];
@@ -223,17 +253,37 @@ async fn multiple_streams_missing_prev_recon_should_deliver_without_stream_updat
     // store the first event in both streams.
     // we could do insert as a list, but to make sure we have the ordering we expect at the end we do them one by one
     add_and_assert_new_recon_event(&store, s1_init.to_owned()).await;
-    check_deliverable(&store.pool, &s1_init.key.cid().unwrap(), true).await;
+    check_deliverable(
+        Arc::clone(&store.event_access),
+        &s1_init.key.cid().unwrap(),
+        true,
+    )
+    .await;
 
     add_and_assert_new_recon_event(&store, s2_init.to_owned()).await;
-    check_deliverable(&store.pool, &s2_init.key.cid().unwrap(), true).await;
+    check_deliverable(
+        Arc::clone(&store.event_access),
+        &s2_init.key.cid().unwrap(),
+        true,
+    )
+    .await;
 
     // now we add the third event for both and they should be stuck in pending
     add_and_assert_new_recon_event(&store, s1_3.to_owned()).await;
-    check_deliverable(&store.pool, &s1_3.key.cid().unwrap(), false).await;
+    check_deliverable(
+        Arc::clone(&store.event_access),
+        &s1_3.key.cid().unwrap(),
+        false,
+    )
+    .await;
 
     add_and_assert_new_recon_event(&store, s2_3.to_owned()).await;
-    check_deliverable(&store.pool, &s2_3.key.cid().unwrap(), false).await;
+    check_deliverable(
+        Arc::clone(&store.event_access),
+        &s2_3.key.cid().unwrap(),
+        false,
+    )
+    .await;
 
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     let delivered = get_delivered_cids(&store).await;
@@ -348,10 +398,7 @@ async fn recon_lots_of_streams() {
     }
     // first just make sure they were all inserted (not delivered yet)
     for (i, cid) in all_cids.iter().enumerate() {
-        let (exists, _delivered) =
-            crate::store::CeramicOneEvent::deliverable_by_cid(&store.pool, cid)
-                .await
-                .unwrap();
+        let (exists, _delivered) = store.event_access.deliverable_by_cid(cid).await.unwrap();
         assert!(exists, "idx: {}. missing cid: {}", i, cid);
     }
 
@@ -380,7 +427,7 @@ async fn recon_lots_of_streams() {
     }
     // now we check that all the events are deliverable
     for cid in all_cids.iter() {
-        check_deliverable(&store.pool, cid, true).await;
+        check_deliverable(Arc::clone(&store.event_access), cid, true).await;
     }
     // and make sure the events were delivered for each stream streams in the same order as they were at the start
     for (i, stream) in expected_stream_order.iter().enumerate() {

@@ -6,7 +6,7 @@ use ceramic_event::unvalidated::{
     signed::{self, Signer},
     Builder,
 };
-use ceramic_event_svc::store::{CeramicOneEvent, EventInsertable};
+use ceramic_event_svc::store::{EventAccess, EventInsertable};
 use ceramic_sql::sqlite::SqlitePool;
 use criterion2::{criterion_group, criterion_main, BatchSize, Criterion};
 use ipld_core::ipld::Ipld;
@@ -91,7 +91,7 @@ async fn model_routine(input: ModelSetup) {
     let futs = futs.into_iter().map(|batch| {
         let store = input.pool.clone();
         let set = batch.into_iter().collect::<Vec<_>>();
-        async move { CeramicOneEvent::insert_many(&store, set.iter()).await }
+        async move { EventAccess::insert_many(&store, set.iter()).await }
     });
     futures::future::join_all(futs).await;
 }

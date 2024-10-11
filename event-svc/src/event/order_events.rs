@@ -1,9 +1,9 @@
 use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
 
-use crate::store::{CeramicOneEvent, EventInsertable};
+use crate::store::{EventAccess, EventInsertable};
 use crate::Result;
 use ceramic_core::Cid;
-use ceramic_sql::sqlite::SqlitePool;
 
 /// Groups the events into lists of those with a delivered prev and those without. This can be used to return an error if the event is required to have history.
 /// The events will be marked as deliverable so that they can be passed directly to the store to be persisted. It assumes init events have already been marked deliverable.
@@ -41,15 +41,15 @@ impl OrderEvents {
 
     /// Uses the in memory set and the database to try to follow prev chains and mark deliverable
     pub async fn find_currently_deliverable(
-        pool: &SqlitePool,
+        event_access: Arc<EventAccess>,
         candidate_events: Vec<EventInsertable>,
     ) -> Result<Self> {
-        Self::find_deliverable_internal(Some(pool), candidate_events).await
+        Self::find_deliverable_internal(Some(event_access), candidate_events).await
     }
 
     /// Builds deliverable events, using the db pool if provided
     async fn find_deliverable_internal(
-        pool: Option<&SqlitePool>,
+        event_access: Option<Arc<EventAccess>>,
         candidate_events: Vec<EventInsertable>,
     ) -> Result<Self> {
         let mut new_cids: HashMap<Cid, bool> = HashMap::with_capacity(candidate_events.len());
@@ -88,9 +88,9 @@ impl OrderEvents {
                         } else {
                             undelivered_prevs_in_memory.push_back(event);
                         }
-                    } else if let Some(pool) = pool {
+                    } else if let Some(event_access) = &event_access {
                         let (_exists, prev_deliverable) =
-                            CeramicOneEvent::deliverable_by_cid(pool, prev).await?;
+                            event_access.deliverable_by_cid(prev).await?;
                         if prev_deliverable {
                             event.set_deliverable(true);
                             *new_cids.get_mut(event.cid()).expect("CID must exist") = true;
@@ -145,7 +145,10 @@ impl OrderEvents {
 
 #[cfg(test)]
 mod test {
+    use std::sync::Arc;
+
     use ceramic_core::EventId;
+    use ceramic_sql::sqlite::SqlitePool;
     use rand::seq::SliceRandom;
     use rand::thread_rng;
     use recon::ReconItem;
@@ -225,11 +228,12 @@ mod test {
     #[test(tokio::test)]
     async fn out_of_order_streams_valid() {
         let pool = SqlitePool::connect_in_memory().await.unwrap();
+        let event_access = Arc::new(EventAccess::try_new(pool).await.unwrap());
 
         let (stream_1, stream_2, mut to_insert) = get_2_streams().await;
         to_insert.shuffle(&mut thread_rng());
 
-        let ordered = OrderEvents::find_currently_deliverable(&pool, to_insert)
+        let ordered = OrderEvents::find_currently_deliverable(event_access, to_insert)
             .await
             .unwrap();
         assert!(
@@ -254,13 +258,14 @@ mod test {
     #[test(tokio::test)]
     async fn missing_history_in_memory() {
         let pool = SqlitePool::connect_in_memory().await.unwrap();
+        let event_access = Arc::new(EventAccess::try_new(pool).await.unwrap());
 
         let (stream_1, stream_2, mut to_insert) = get_2_streams().await;
         // if event 2 is missing from stream_1, we will sort stream_2 but stream_1 will be "missing history" after the init event
         to_insert.remove(1);
         to_insert.shuffle(&mut thread_rng());
 
-        let ordered = OrderEvents::find_currently_deliverable(&pool, to_insert)
+        let ordered = OrderEvents::find_currently_deliverable(event_access, to_insert)
             .await
             .unwrap();
         assert_eq!(
@@ -285,16 +290,15 @@ mod test {
         // so that an API write that had never seen event 2, would not able to write event 3 or after
         // the recon ordering task would sort this and mark all deliverable
         let pool = SqlitePool::connect_in_memory().await.unwrap();
+        let event_access = Arc::new(EventAccess::try_new(pool).await.unwrap());
 
         let stream_1 = get_n_events(10).await;
         let (to_insert, mut remaining) = get_insertable_events(&stream_1, 3).await;
-        CeramicOneEvent::insert_many(&pool, to_insert.iter())
-            .await
-            .unwrap();
+        event_access.insert_many(to_insert.iter()).await.unwrap();
 
         remaining.shuffle(&mut thread_rng());
 
-        let ordered = OrderEvents::find_currently_deliverable(&pool, remaining)
+        let ordered = OrderEvents::find_currently_deliverable(event_access, remaining)
             .await
             .unwrap();
         assert_eq!(
@@ -310,6 +314,7 @@ mod test {
         // this test validates we can order in memory events with each other if one of them has a prev
         // in the database that is deliverable, in which case the entire chain is deliverable
         let pool = SqlitePool::connect_in_memory().await.unwrap();
+        let event_access = Arc::new(EventAccess::try_new(pool).await.unwrap());
 
         let stream_1 = get_n_events(10).await;
         let (mut to_insert, mut remaining) = get_insertable_events(&stream_1, 3).await;
@@ -317,9 +322,7 @@ mod test {
             item.set_deliverable(true)
         }
 
-        CeramicOneEvent::insert_many(&pool, to_insert.iter())
-            .await
-            .unwrap();
+        event_access.insert_many(to_insert.iter()).await.unwrap();
 
         let expected = remaining
             .iter()
@@ -327,7 +330,7 @@ mod test {
             .collect::<Vec<_>>();
         remaining.shuffle(&mut thread_rng());
 
-        let ordered = OrderEvents::find_currently_deliverable(&pool, remaining)
+        let ordered = OrderEvents::find_currently_deliverable(event_access, remaining)
             .await
             .unwrap();
         assert!(
