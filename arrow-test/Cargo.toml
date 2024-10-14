@@ -10,5 +10,4 @@ publish = false
 
 [dependencies]
 datafusion.workspace = true
-arrow.workspace = true
-cid.workspace = true
+ceramic-pipeline.workspace = true

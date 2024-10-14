@@ -2533,8 +2533,7 @@ dependencies = [
 name = "ceramic-arrow-test"
 version = "0.39.0"
 dependencies = [
- "arrow",
- "cid 0.11.1",
+ "ceramic-pipeline",
  "datafusion",
 ]
 
@@ -2676,6 +2675,7 @@ dependencies = [
  "ceramic-arrow-test",
  "ceramic-core",
  "ceramic-event",
+ "ceramic-pipeline",
  "cid 0.11.1",
  "datafusion",
  "datafusion-flight-sql-server",
@@ -2956,6 +2956,7 @@ version = "0.39.0"
 dependencies = [
  "anyhow",
  "arrow-flight",
+ "cid 0.11.1",
  "datafusion",
  "datafusion-federation",
  "datafusion-flight-sql-table-provider",

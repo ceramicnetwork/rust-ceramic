@@ -1,5 +1,6 @@
 //! Pipeline provides a set of tables of Ceramic events and transformations between them.
 
+pub mod cid_string;
 #[warn(missing_docs)]
 mod config;
 pub mod schemas;
@@ -8,12 +9,14 @@ use std::{any::Any, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use arrow_flight::sql::client::FlightSqlServiceClient;
+use cid_string::{CidString, CidStringList};
 use datafusion::{
     catalog::{CatalogProvider, SchemaProvider},
     datasource::{file_format::parquet::ParquetFormat, listing::ListingOptions},
     error::DataFusionError,
     execution::context::SessionContext,
-    logical_expr::col,
+    functions_aggregate::first_last::LastValue,
+    logical_expr::{col, AggregateUDF, ScalarUDF},
 };
 use datafusion_federation::sql::{SQLFederationProvider, SQLSchemaProvider};
 use datafusion_flight_sql_table_provider::FlightSQLExecutor;
@@ -38,6 +41,11 @@ pub async fn session_from_config(config: impl Into<Config>) -> Result<SessionCon
 
     // Create datafusion context
     let ctx = SessionContext::new_with_state(state);
+
+    // Register various UDxFs
+    ctx.register_udaf(AggregateUDF::new_from_impl(LastValue::default()));
+    ctx.register_udf(ScalarUDF::new_from_impl(CidString::new()));
+    ctx.register_udf(ScalarUDF::new_from_impl(CidStringList::new()));
 
     // Register s3 object store
     let bucket = config
