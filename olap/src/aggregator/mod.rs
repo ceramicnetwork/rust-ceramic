@@ -256,12 +256,12 @@ mod tests {
     use super::*;
 
     use arrow::{array::RecordBatch, util::pretty::pretty_format_batches};
-    use ceramic_arrow_test::CidString;
     use ceramic_core::StreamIdType;
     use ceramic_flight::{
         conclusion_events_to_record_batch, ConclusionData, ConclusionEvent, ConclusionInit,
         ConclusionTime,
     };
+    use ceramic_pipeline::cid_string::CidString;
     use cid::Cid;
     use datafusion::{
         catalog_common::{CatalogProvider, MemoryCatalogProvider, MemorySchemaProvider},

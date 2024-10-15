@@ -2825,7 +2825,6 @@ version = "0.39.0"
 dependencies = [
  "anyhow",
  "arrow",
- "ceramic-arrow-test",
  "ceramic-core",
  "ceramic-flight",
  "ceramic-metrics",

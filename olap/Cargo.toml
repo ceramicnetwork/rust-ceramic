@@ -10,7 +10,6 @@ repository.workspace = true
 [dependencies]
 anyhow.workspace = true
 arrow.workspace = true
-ceramic-arrow-test.workspace = true
 ceramic-metrics.workspace = true
 ceramic-pipeline.workspace = true
 cid.workspace = true
