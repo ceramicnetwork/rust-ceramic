@@ -3,12 +3,13 @@ use async_trait::async_trait;
 use ceramic_core::{Cid, NodeId};
 use ceramic_sql::sqlite::SqlitePool;
 use chrono::DurationRound;
-use chrono::{Duration as ChronoDuration, TimeDelta, Utc};
+use chrono::{TimeDelta, Utc};
 use futures::future::{select, Either, FutureExt};
 use futures::pin_mut;
 use indexmap::IndexMap;
 use std::future::Future;
 use std::{sync::Arc, time::Duration};
+use tokio::time::{interval_at, Instant, MissedTickBehavior};
 use tracing::{error, info};
 
 use crate::high_water_mark_store::HighWaterMarkStore;
@@ -76,28 +77,42 @@ impl AnchorService {
         pin_mut!(shutdown_signal);
 
         info!("anchor service started");
+        let period =
+            TimeDelta::from_std(self.anchor_interval).expect("anchor interval should be in range");
+        let buffer = TimeDelta::from_std(self.anchor_interval / 12)
+            .expect("anchor interval fraction should be in range");
+
+        // It is not possible to truncate a tokio::time::Instant as the time is opaque.
+        // Therefore we use the `chrono` crate to do the truncate logic and then compute the delay
+        // from now till the next tick. This way we can then simply add the delay to the
+        // Instant::now() to get the equivalent instant.
+        // Get both the chrono and Instant now times close together.
+        let instant_now = Instant::now();
+        let now = Utc::now();
+        let next_tick = now.duration_trunc(period).unwrap() + period - buffer;
+
+        let delay = next_tick - now;
+        // Durations in rust are always positive.
+        // If the delay is negative, it means the next tick is in the past, therefore we should set
+        // the delay to be plus one period.
+        let delay = if let Ok(delay) = delay.to_std() {
+            delay
+        } else {
+            (delay + period)
+                .to_std()
+                .expect("delay should be positive as its should be in the next interval")
+        };
+        // Start an interval at the next tick instant.
+        let mut interval = interval_at(instant_now + delay, self.anchor_interval);
+        interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
         loop {
-            let now = Utc::now();
-            let next_tick = now
-                .duration_trunc(TimeDelta::from_std(self.anchor_interval).unwrap())
-                .unwrap()
-                + TimeDelta::from_std(self.anchor_interval).unwrap()
-                - ChronoDuration::minutes(5);
-
-            let delay = next_tick - now;
-            // durations in rust are always positive.
-            // If the delay is negative, it means the next tick is in the past, therefore
-            // we should process the next batch immediately.
-            if let Ok(delay) = delay.to_std() {
-                tokio::time::sleep(delay).await;
-            }
-            let process_next_batch = self.process_next_batch();
-            pin_mut!(process_next_batch);
-            match select(process_next_batch, &mut shutdown_signal).await {
-                Either::Left((result, _)) => {
-                    if let Err(e) = result {
-                        error!("Error processing batch: {:?}", e);
+            let tick = interval.tick();
+            pin_mut!(tick);
+            match select(tick, &mut shutdown_signal).await {
+                Either::Left(_) => {
+                    if let Err(err) = self.process_next_batch().await {
+                        error!(%err, "error processing batch");
                     }
                 }
                 Either::Right((_, _)) => {
