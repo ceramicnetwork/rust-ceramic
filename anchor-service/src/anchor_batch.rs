@@ -9,7 +9,7 @@ use futures::pin_mut;
 use indexmap::IndexMap;
 use std::future::Future;
 use std::{sync::Arc, time::Duration};
-use tokio::time::{interval_at, Instant, MissedTickBehavior};
+use tokio::time::{interval_at, Instant, Interval, MissedTickBehavior};
 use tracing::{error, info};
 
 use crate::high_water_mark_store::HighWaterMarkStore;
@@ -77,8 +77,31 @@ impl AnchorService {
         pin_mut!(shutdown_signal);
 
         info!("anchor service started");
+        let interval = self.build_interval();
+
+        loop {
+            let tick = interval.tick();
+            pin_mut!(tick);
+            match select(tick, &mut shutdown_signal).await {
+                Either::Left(_) => {
+                    if let Err(err) = self.process_next_batch().await {
+                        error!(%err, "error processing batch");
+                    }
+                }
+                Either::Right((_, _)) => {
+                    break;
+                }
+            }
+        }
+        info!("anchor service stopped");
+    }
+
+    fn build_interval(&self) -> Interval {
         let period =
             TimeDelta::from_std(self.anchor_interval).expect("anchor interval should be in range");
+        // We want the interval to tick on the period with a buffer time before the period begins.
+        // Buffer is somewhat arbitrarily defined as 1/12th the period. For a period of one hour
+        // the buffer is 5 minutes, meaning we tick 5 minutes before each hour.
         let buffer = period / 12;
 
         // It is not possible to truncate a tokio::time::Instant as the time is opaque.
@@ -105,22 +128,7 @@ impl AnchorService {
         // Start an interval at the next tick instant.
         let mut interval = interval_at(instant_now + delay, self.anchor_interval);
         interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
-
-        loop {
-            let tick = interval.tick();
-            pin_mut!(tick);
-            match select(tick, &mut shutdown_signal).await {
-                Either::Left(_) => {
-                    if let Err(err) = self.process_next_batch().await {
-                        error!(%err, "error processing batch");
-                    }
-                }
-                Either::Right((_, _)) => {
-                    break;
-                }
-            }
-        }
-        info!("anchor service stopped");
+        interval
     }
 
     async fn process_next_batch(&mut self) -> Result<()> {
