@@ -79,8 +79,7 @@ impl AnchorService {
         info!("anchor service started");
         let period =
             TimeDelta::from_std(self.anchor_interval).expect("anchor interval should be in range");
-        let buffer = TimeDelta::from_std(self.anchor_interval / 12)
-            .expect("anchor interval fraction should be in range");
+        let buffer = period / 12;
 
         // It is not possible to truncate a tokio::time::Instant as the time is opaque.
         // Therefore we use the `chrono` crate to do the truncate logic and then compute the delay
