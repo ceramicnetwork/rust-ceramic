@@ -4,16 +4,16 @@ use object_store::aws::AmazonS3Builder;
 
 #[derive(Args, Debug)]
 pub struct QueryOpts {
-    /// Endpoint of a Flight SQL server for the conclusion feed.
+    /// Query endpoint of the ceramic one daemon.
     #[arg(
         short,
         long,
         default_value = "http://127.0.0.1:5102",
-        env = "CERAMIC_ONE_FLIGHT_SQL_ENDPOINT"
+        env = "CERAMIC_ONE_QUERY_ENDPOINT"
     )]
-    flight_sql_endpoint: String,
+    query_endpoint: String,
 
-    /// AWS S3 bucket name.
+    /// S3 bucket name.
     /// When configured the aggregator will support storing data in S3 compatible object stores.
     ///
     /// Credentials are read from the environment:
@@ -26,7 +26,7 @@ pub struct QueryOpts {
     ///   * AWS_ALLOW_HTTP -> set to "true" to permit HTTP connections without TLS
     ///
     #[arg(long, env = "CERAMIC_ONE_AWS_BUCKET")]
-    aws_bucket: String,
+    s3_bucket: String,
 }
 
 pub async fn run(opts: QueryOpts) -> anyhow::Result<()> {
@@ -49,8 +49,8 @@ pub async fn run(opts: QueryOpts) -> anyhow::Result<()> {
 impl From<QueryOpts> for ceramic_pipeline::Config {
     fn from(value: QueryOpts) -> Self {
         Self {
-            flight_sql_endpoint: value.flight_sql_endpoint,
-            aws_s3_builder: AmazonS3Builder::from_env().with_bucket_name(&value.aws_bucket),
+            flight_sql_endpoint: value.query_endpoint,
+            aws_s3_builder: AmazonS3Builder::from_env().with_bucket_name(&value.s3_bucket),
         }
     }
 }
