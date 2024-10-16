@@ -77,7 +77,7 @@ impl AnchorService {
         pin_mut!(shutdown_signal);
 
         info!("anchor service started");
-        let interval = self.build_interval();
+        let mut interval = self.build_interval();
 
         loop {
             let tick = interval.tick();
@@ -96,6 +96,8 @@ impl AnchorService {
         info!("anchor service stopped");
     }
 
+    // Construct an [`Interval`] that will tick just before each anchor interval period.
+    // Missed ticks will skip.
     fn build_interval(&self) -> Interval {
         let period =
             TimeDelta::from_std(self.anchor_interval).expect("anchor interval should be in range");
