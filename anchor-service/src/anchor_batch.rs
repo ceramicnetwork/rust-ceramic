@@ -3,12 +3,13 @@ use async_trait::async_trait;
 use ceramic_core::{Cid, NodeId};
 use ceramic_sql::sqlite::SqlitePool;
 use chrono::DurationRound;
-use chrono::{Duration as ChronoDuration, TimeDelta, Utc};
+use chrono::{TimeDelta, Utc};
 use futures::future::{select, Either, FutureExt};
 use futures::pin_mut;
 use indexmap::IndexMap;
 use std::future::Future;
 use std::{sync::Arc, time::Duration};
+use tokio::time::{interval_at, Instant, Interval, MissedTickBehavior};
 use tracing::{error, info};
 
 use crate::high_water_mark_store::HighWaterMarkStore;
@@ -76,28 +77,15 @@ impl AnchorService {
         pin_mut!(shutdown_signal);
 
         info!("anchor service started");
+        let mut interval = self.build_interval();
 
         loop {
-            let now = Utc::now();
-            let next_tick = now
-                .duration_trunc(TimeDelta::from_std(self.anchor_interval).unwrap())
-                .unwrap()
-                + TimeDelta::from_std(self.anchor_interval).unwrap()
-                - ChronoDuration::minutes(5);
-
-            let delay = next_tick - now;
-            // durations in rust are always positive.
-            // If the delay is negative, it means the next tick is in the past, therefore
-            // we should process the next batch immediately.
-            if let Ok(delay) = delay.to_std() {
-                tokio::time::sleep(delay).await;
-            }
-            let process_next_batch = self.process_next_batch();
-            pin_mut!(process_next_batch);
-            match select(process_next_batch, &mut shutdown_signal).await {
-                Either::Left((result, _)) => {
-                    if let Err(e) = result {
-                        error!("Error processing batch: {:?}", e);
+            let tick = interval.tick();
+            pin_mut!(tick);
+            match select(tick, &mut shutdown_signal).await {
+                Either::Left(_) => {
+                    if let Err(err) = self.process_next_batch().await {
+                        error!(%err, "error processing batch");
                     }
                 }
                 Either::Right((_, _)) => {
@@ -106,6 +94,43 @@ impl AnchorService {
             }
         }
         info!("anchor service stopped");
+    }
+
+    // Construct an [`Interval`] that will tick just before each anchor interval period.
+    // Missed ticks will skip.
+    fn build_interval(&self) -> Interval {
+        let period =
+            TimeDelta::from_std(self.anchor_interval).expect("anchor interval should be in range");
+        // We want the interval to tick on the period with a buffer time before the period begins.
+        // Buffer is somewhat arbitrarily defined as 1/12th the period. For a period of one hour
+        // the buffer is 5 minutes, meaning we tick 5 minutes before each hour.
+        let buffer = period / 12;
+
+        // It is not possible to truncate a tokio::time::Instant as the time is opaque.
+        // Therefore we use the `chrono` crate to do the truncate logic and then compute the delay
+        // from now till the next tick. This way we can then simply add the delay to the
+        // Instant::now() to get the equivalent instant.
+        // Get both the chrono and Instant now times close together.
+        let instant_now = Instant::now();
+        let now = Utc::now();
+        let next_tick = now
+            .duration_trunc(period)
+            .expect("truncated duration should be in range")
+            + period
+            - buffer;
+
+        // Ensure delay is always positive, in order to construct [`std::time::Duration`].
+        let delay = if next_tick > now {
+            next_tick - now
+        } else {
+            next_tick - now + period
+        };
+        let delay = delay.to_std().expect("delay should always be positive");
+
+        // Start an interval at the next tick instant.
+        let mut interval = interval_at(instant_now + delay, self.anchor_interval);
+        interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        interval
     }
 
     async fn process_next_batch(&mut self) -> Result<()> {
