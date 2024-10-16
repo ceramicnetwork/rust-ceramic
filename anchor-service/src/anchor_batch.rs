@@ -88,19 +88,20 @@ impl AnchorService {
         // Get both the chrono and Instant now times close together.
         let instant_now = Instant::now();
         let now = Utc::now();
-        let next_tick = now.duration_trunc(period).unwrap() + period - buffer;
+        let next_tick = now
+            .duration_trunc(period)
+            .expect("truncated duration should be in range")
+            + period
+            - buffer;
 
-        let delay = next_tick - now;
-        // Durations in rust are always positive.
-        // If the delay is negative, it means the next tick is in the past, therefore we should set
-        // the delay to be plus one period.
-        let delay = if let Ok(delay) = delay.to_std() {
-            delay
+        // Ensure delay is always positive, in order to construct [`std::time::Duration`].
+        let delay = if next_tick > now {
+            next_tick - now
         } else {
-            (delay + period)
-                .to_std()
-                .expect("delay should be positive as its should be in the next interval")
+            next_tick - now + period
         };
+        let delay = delay.to_std().expect("delay should always be positive");
+
         // Start an interval at the next tick instant.
         let mut interval = interval_at(instant_now + delay, self.anchor_interval);
         interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
