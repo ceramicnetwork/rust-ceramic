@@ -17,6 +17,7 @@ async-stream.workspace = true
 async-trait.workspace = true
 ceramic-event.workspace = true
 ceramic-core.workspace = true
+ceramic-pipeline.workspace = true
 cid.workspace = true
 datafusion-flight-sql-server.workspace = true
 datafusion.workspace = true

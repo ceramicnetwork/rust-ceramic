@@ -18,6 +18,7 @@ members = [
     "olap",
     "one",
     "p2p",
+    "pipeline",
     "recon",
     "sql",
     "validation",
@@ -75,6 +76,7 @@ ceramic-metadata = { path = "./metadata" }
 ceramic-metrics = { path = "./metrics" }
 ceramic-one = { path = "./one" }
 ceramic-p2p = { path = "./p2p" }
+ceramic-pipeline = { path = "./pipeline" }
 ceramic-sql = { path = "./sql" }
 ceramic-validation = { path = "./validation" }
 chrono = "0.4.31"
