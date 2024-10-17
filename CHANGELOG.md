@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.40.0] - 2024-10-17
+
+### 🚀 Features
+
+- Protect FlightSQL server with sql options. (#544)
+- Aes 291 continuous queries in olap aggregator (#538)
+- Migrate from file list (#501)
+- Use data container wrapper for mutable metadata (#559)
+- Add query command to ceramic-one (#545)
+
+### 🐛 Bug Fixes
+
+- Only write out error counts on errors (#560)
+- Use correct index for the conclusion feed. (#561)
+- Use tokio::time::Interval for scheduling anchor batches (#563)
+- Subscribe to server shutdown signal in insert task (#553)
+
+### ⚙️ Miscellaneous Tasks
+
+- Record the per item duration of an insert_many request (#551)
+
 ## [0.39.0] - 2024-10-07
 
 ### 🐛 Bug Fixes
@@ -11,6 +32,7 @@ All notable changes to this project will be documented in this file.
 ### ⚙️ Miscellaneous Tasks
 
 - Always log options at startup (#554)
+- Version v0.39.0 (#557)
 
 ## [0.38.0] - 2024-10-07
 
