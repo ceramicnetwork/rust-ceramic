@@ -75,7 +75,7 @@ impl Store for MockAnchorEventService {
         highwater: i64,
         limit: i64,
     ) -> Result<Vec<AnchorRequest>> {
-        let ints = ((highwater as u64)..self.anchor_req_count).take(limit as usize);
+        let ints = ((highwater as u64 + 1)..=self.anchor_req_count).take(limit as usize);
         Ok(ints.map(|n| AnchorRequest {
                 id: self.int64_cid(n),
                 prev: self.int64_cid(n),

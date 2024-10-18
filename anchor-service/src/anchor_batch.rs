@@ -246,7 +246,7 @@ mod tests {
         let event_service = Arc::new(MockAnchorEventService::new(10));
         let pool = SqlitePool::connect_in_memory().await.unwrap();
         let node_id = NodeId::random().0;
-        let anchor_interval = Duration::from_millis(1);
+        let anchor_interval = Duration::from_millis(5);
         let anchor_batch_size = 1000000;
         let mut anchor_service = AnchorService::new(
             tx_manager,
@@ -278,7 +278,7 @@ mod tests {
         let event_service = Arc::new(MockAnchorEventService::new(1));
         let pool = SqlitePool::connect_in_memory().await.unwrap();
         let node_id = NodeId::random().0;
-        let anchor_interval = Duration::from_millis(1);
+        let anchor_interval = Duration::from_millis(5);
         let anchor_batch_size = 1000000;
         let mut anchor_service = AnchorService::new(
             tx_manager,
