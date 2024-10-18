@@ -165,12 +165,7 @@ pub struct DaemonOpts {
     authentication: bool,
 
     /// Enable event validation; Requires using the experimental-features flag
-    #[arg(
-        long,
-        default_value_t = false,
-        env = "CERAMIC_ONE_EVENT_VALIDATION",
-        requires = "experimental_features"
-    )]
+    #[arg(long, default_value_t = true, env = "CERAMIC_ONE_EVENT_VALIDATION")]
     event_validation: bool,
 
     /// Flight SQL bind address; Requires using the experimental-features flag
