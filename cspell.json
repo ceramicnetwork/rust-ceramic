@@ -71,6 +71,7 @@
         "quic",
         "quickcheck",
         "reqwest",
+        "Sepolia",
         "serde",
         "softline",
         "sqliteblockstore",
