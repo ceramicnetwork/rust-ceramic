@@ -191,15 +191,17 @@ impl TimeEventBatch {
     ) -> Result<Vec<MerkleNode>> {
         let mut blocks = Vec::new();
         let mut current_node_cid = *root;
-        for part in path.split('/') {
-            let merkle_node = merkle_nodes
-                .get(&current_node_cid)
-                .ok_or_else(|| anyhow!("missing merkle node for CID: {}", current_node_cid))?;
-            blocks.push(merkle_node.clone());
-            current_node_cid = match part {
-                "0" => merkle_node[0].context("missing left node")?,
-                "1" => merkle_node[1].context("missing right node")?,
-                _ => return Err(anyhow!("invalid path part in time event path: {}", part)),
+        if !path.is_empty() {
+            for part in path.split('/') {
+                let merkle_node = merkle_nodes
+                    .get(&current_node_cid)
+                    .ok_or_else(|| anyhow!("missing merkle node for CID: {}", current_node_cid))?;
+                blocks.push(merkle_node.clone());
+                current_node_cid = match part {
+                    "0" => merkle_node[0].context("missing left node")?,
+                    "1" => merkle_node[1].context("missing right node")?,
+                    _ => return Err(anyhow!("invalid path part in time event path: {}", part)),
+                }
             }
         }
         if current_node_cid != *prev {
