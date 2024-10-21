@@ -22,6 +22,7 @@ All notable changes to this project will be documented in this file.
 ### ⚙️ Miscellaneous Tasks
 
 - Record the per item duration of an insert_many request (#551)
+- Version v0.40.0 (#564)
 
 ## [0.39.0] - 2024-10-07
 
