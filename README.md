@@ -22,7 +22,7 @@ Install a the latest release using dpkg:
 
 ```bash
 # get deb.tar.gz
-curl -LO https://github.com/ceramicnetwork/rust-ceramic/releases/download/latest/ceramic-one_x86_64-unknown-linux-gnu.tar.gz
+curl -LO https://github.com/ceramicnetwork/rust-ceramic/releases/latest/download/ceramic-one_x86_64-unknown-linux-gnu.tar.gz
 # untar the Debian software package file
 tar zxvf ceramic-one_x86_64-unknown-linux-gnu.tar.gz
 # install with dpkg - package manager for Debian
