@@ -14,7 +14,7 @@ use ceramic_interest_svc::InterestService;
 use ceramic_kubo_rpc::Multiaddr;
 use ceramic_metrics::{config::Config as MetricsConfig, MetricsHandle};
 use ceramic_p2p::{load_identity, DiskStorage, Keychain, Libp2pConfig};
-use clap::Args;
+use clap::{ArgAction, Args};
 use recon::{FullInterests, Recon, ReconInterestProvider};
 use signal_hook::consts::signal::*;
 use signal_hook_tokio::Signals;
@@ -164,8 +164,15 @@ pub struct DaemonOpts {
     )]
     authentication: bool,
 
-    /// Enable event validation; Requires using the experimental-features flag
-    #[arg(long, default_value_t = true, env = "CERAMIC_ONE_EVENT_VALIDATION")]
+    /// Enable event validation
+    #[arg(
+        long,
+        default_value = "true",
+        value_parser = clap::value_parser!(bool),
+        num_args = 0..=1,
+        action = ArgAction::Set,
+        env = "CERAMIC_ONE_EVENT_VALIDATION"
+    )]
     event_validation: bool,
 
     /// Flight SQL bind address; Requires using the experimental-features flag
@@ -335,14 +342,9 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
 
     // Construct services from pool
     let interest_svc = Arc::new(InterestService::new(sqlite_pool.clone()));
+    let event_validation = opts.event_validation;
     let event_svc = Arc::new(
-        EventService::try_new(
-            sqlite_pool.clone(),
-            true,
-            opts.event_validation,
-            rpc_providers,
-        )
-        .await?,
+        EventService::try_new(sqlite_pool.clone(), true, event_validation, rpc_providers).await?,
     );
 
     let network = opts.network.to_network(&opts.local_network_id)?;
