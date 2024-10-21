@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use multihash_codetable::{Code, MultihashDigest};
 
 use ceramic_core::{Cid, EventId, NodeId, SerializeExt};
-use ceramic_event::unvalidated::Proof;
+use ceramic_event::unvalidated::AnchorProof;
 
 use crate::{
     AnchorRequest, DetachedTimeEvent, RootTimeEvent, Store, TimeEventInsertable, TransactionManager,
@@ -17,7 +17,7 @@ pub struct MockCas;
 #[async_trait]
 impl TransactionManager for MockCas {
     async fn anchor_root(&self, root_cid: Cid) -> Result<RootTimeEvent> {
-        let mock_proof = Proof::new(
+        let mock_proof = AnchorProof::new(
             "mock chain id".to_string(),
             root_cid,
             root_cid,

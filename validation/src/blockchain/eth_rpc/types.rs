@@ -6,6 +6,7 @@ use ceramic_core::Cid;
 use ssi::caip2;
 
 pub use alloy::primitives::{BlockHash, TxHash};
+use ceramic_event::unvalidated::AnchorProof;
 
 #[derive(Debug)]
 /// The error variants expected from an Ethereum RPC request
@@ -58,15 +59,6 @@ impl From<RpcError<TransportErrorKind>> for Error {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-/// Input for an ethereum transaction proof for time events
-pub struct EthTxProofInput {
-    /// The transaction hash as a string (0x prefixed or not)
-    pub tx_hash: Cid,
-    /// The time event proof type
-    pub tx_type: EthProofType,
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 /// The format of the ethereum time event proof
 pub enum EthProofType {
@@ -101,36 +93,28 @@ impl FromStr for EthProofType {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-/// A proof of time on the blockchain
-pub struct TimeProof {
+/// A proof of time derived from state on the blockchain
+pub struct ChainInclusionProof {
     /// The timestamp the proof was recorded
     pub timestamp: u64,
     /// The root CID of the proof
     pub root_cid: Cid,
 }
 
-/*
-    Planning to implemented this trait for Hoku using something like:
-
-    #[derive(Clone, Debug, PartialEq, Eq)]
-    pub struct HokuTxProof {
-        cid: Cid,
-        index: u64,
-    }
-*/
 #[async_trait::async_trait]
-/// Ethereum RPC provider methods. This is a higher level type than the actual RPC calls neeed and
+/// Wrapper around blockchain RPC provider that can be used to query blockchain state for the
+/// relevant information (such as the timestamp) for the given transaction described by an
+/// `AnchorProof`. This is a higher level type than the actual RPC calls need and
 /// may wrap a multiple calls into a logical behavior of getting necessary information.
 pub trait ChainInclusion {
-    /// The input format needed to do the inclusion proof
-    type InclusionInput;
-
     /// Get the CAIP2 chain ID supported by this RPC provider
     fn chain_id(&self) -> &caip2::ChainId;
 
     /// Get the block chain transaction if it exists with the block timestamp information
-    async fn chain_inclusion_proof(&self, input: &Self::InclusionInput)
-        -> Result<TimeProof, Error>;
+    async fn get_chain_inclusion_proof(
+        &self,
+        input: &AnchorProof,
+    ) -> Result<ChainInclusionProof, Error>;
 }
 
 #[cfg(test)]

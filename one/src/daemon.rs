@@ -9,7 +9,7 @@ use ceramic_anchor_remote::RemoteCas;
 use ceramic_anchor_service::AnchorService;
 use ceramic_core::NodeId;
 use ceramic_event_svc::eth_rpc::HttpEthRpc;
-use ceramic_event_svc::{EthRpcProvider, EventService};
+use ceramic_event_svc::{ChainInclusionProvider, EventService};
 use ceramic_interest_svc::InterestService;
 use ceramic_kubo_rpc::Multiaddr;
 use ceramic_metrics::{config::Config as MetricsConfig, MetricsHandle};
@@ -245,7 +245,7 @@ pub struct DaemonOpts {
 async fn get_eth_rpc_providers(
     ethereum_rpc_urls: Vec<String>,
     network: &Network,
-) -> Result<Vec<EthRpcProvider>> {
+) -> Result<Vec<ChainInclusionProvider>> {
     let ethereum_rpc_urls = if ethereum_rpc_urls.is_empty() {
         network.default_rpc_urls()?
     } else {
@@ -266,7 +266,7 @@ async fn get_eth_rpc_providers(
                         provider.chain_id(),
                         provider.url()
                     );
-                    let provider: EthRpcProvider = Arc::new(provider);
+                    let provider: ChainInclusionProvider = Arc::new(provider);
                     providers.push(provider);
                 } else {
                     warn!("Eth RPC provider {} uses chainid {} which isn't supported by Ceramic network {:?}", url, provider_chain,network);

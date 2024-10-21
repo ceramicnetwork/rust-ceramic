@@ -316,7 +316,7 @@ impl TimeBuilderState for TimeBuilderWithPrev {}
 impl TimeBuilder<TimeBuilderWithPrev> {
     /// Build the [`unvalidated::TimeEvent`].
     pub fn build(self) -> anyhow::Result<unvalidated::TimeEvent> {
-        let proof = unvalidated::Proof::new(
+        let proof = unvalidated::AnchorProof::new(
             self.state.chain_id,
             self.state.prev,
             self.state.tx_hash,
@@ -381,7 +381,7 @@ impl TimeBuilder<TimeBuilderWithRoot> {
             Ipld::Link(prev) => *prev,
             _ => bail!("leaf indexed value should always be a Cid"),
         };
-        let proof = unvalidated::Proof::new(
+        let proof = unvalidated::AnchorProof::new(
             self.state.chain_id,
             root.to_cid()?,
             self.state.tx_hash,

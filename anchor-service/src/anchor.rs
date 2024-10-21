@@ -7,7 +7,7 @@ use std::fmt::Debug;
 use tracing::info;
 
 use ceramic_core::{EventId, SerializeExt};
-use ceramic_event::unvalidated::{Proof, ProofEdge, RawTimeEvent, TimeEvent};
+use ceramic_event::unvalidated::{AnchorProof, ProofEdge, RawTimeEvent, TimeEvent};
 
 /// AnchorRequest for a Data Event on a Stream
 #[derive(Clone, PartialEq, Eq, Serialize)]
@@ -98,7 +98,7 @@ pub struct TimeEventBatch {
     /// The intermediate Merkle Tree Nodes
     pub merkle_nodes: MerkleNodes,
     /// The anchor proof
-    pub proof: Proof,
+    pub proof: AnchorProof,
     /// The Time Events
     pub raw_time_events: RawTimeEvents,
 }
@@ -138,7 +138,7 @@ impl TimeEventBatch {
 
     /// Build a TimeEventInsertable from a RawTimeEvent and AnchorRequest
     fn build_time_event_insertable(
-        proof: &Proof,
+        proof: &AnchorProof,
         merkle_nodes: &MerkleNodes,
         time_event: RawTimeEvent,
         anchor_request: AnchorRequest,

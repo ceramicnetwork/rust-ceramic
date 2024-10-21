@@ -20,7 +20,7 @@ use itertools::Itertools;
 use recon::ReconItem;
 use tracing::{trace, warn};
 
-use crate::event::validator::EthRpcProvider;
+use crate::event::validator::ChainInclusionProvider;
 use crate::store::{EventAccess, EventInsertable, EventRowDelivered};
 use crate::{Error, Result};
 
@@ -89,7 +89,7 @@ impl EventService {
         pool: SqlitePool,
         process_undelivered_events: bool,
         validate_events: bool,
-        ethereum_rpc_providers: Vec<EthRpcProvider>,
+        ethereum_rpc_providers: Vec<ChainInclusionProvider>,
     ) -> Result<Self> {
         let event_access = Arc::new(EventAccess::try_new(pool.clone()).await?);
 

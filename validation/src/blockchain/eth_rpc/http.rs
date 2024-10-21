@@ -5,6 +5,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use crate::eth_rpc::{ChainInclusion, ChainInclusionProof, Error};
 use alloy::{
     hex,
     primitives::{BlockHash, TxHash},
@@ -14,13 +15,12 @@ use alloy::{
 };
 use anyhow::bail;
 use ceramic_core::Cid;
+use ceramic_event::unvalidated::AnchorProof;
 use lru::LruCache;
 use multihash_codetable::Multihash;
 use once_cell::sync::Lazy;
 use ssi::caip2;
 use tracing::trace;
-
-use crate::eth_rpc::{ChainInclusion, Error, EthTxProofInput, TimeProof};
 
 use super::EthProofType;
 
@@ -202,23 +202,21 @@ fn expected_tx_hash(cid: Cid) -> anyhow::Result<TxHash> {
 
 #[async_trait::async_trait]
 impl ChainInclusion for HttpEthRpc {
-    type InclusionInput = EthTxProofInput;
-
     fn chain_id(&self) -> &caip2::ChainId {
         &self.chain_id
     }
 
     /// Get the block chain transaction if it exists with the block timestamp information
-    async fn chain_inclusion_proof(&self, input: &Self::InclusionInput) -> Result<TimeProof> {
+    async fn get_chain_inclusion_proof(&self, input: &AnchorProof) -> Result<ChainInclusionProof> {
         // transaction to blockHash, blockNumber, input
-        let tx_hash = expected_tx_hash(input.tx_hash)
+        let tx_hash = expected_tx_hash(input.tx_hash())
             .map_err(|e| Error::InvalidArgument(format!("invalid transaction hash: {}", e)))?;
         let tx_hash_res = match self.eth_transaction_by_hash(tx_hash).await? {
             Some(tx) => tx,
             None => {
                 return Err(Error::TxNotFound {
                     chain_id: self.chain_id.clone(),
-                    tx_hash: input.tx_hash.to_string(),
+                    tx_hash: input.tx_hash().to_string(),
                 })
             }
         };
@@ -240,26 +238,28 @@ impl ChainInclusion for HttpEthRpc {
                 }
             };
             trace!(?blk_hash_res, "blockByHash response");
-            let root_cid = get_root_cid_from_input(&tx_hash_res.input.to_string(), input.tx_type)
+            let tx_type = EthProofType::from_str(input.tx_type())
+                .map_err(|e| Error::InvalidProof(e.to_string()))?;
+            let root_cid = get_root_cid_from_input(&tx_hash_res.input.to_string(), tx_type)
                 .map_err(|e| Error::InvalidProof(e.to_string()))?;
 
             if let Some(threshold) = BLOCK_THRESHHOLDS.get(self.chain_id()) {
                 if blk_hash_res.header.number < *threshold {
                     return Err(Error::InvalidProof("V0 anchor proofs are not supported. Please report this error on the forum: https://forum.ceramic.network/".into()));
-                } else if input.tx_type != EthProofType::V1 {
+                } else if tx_type != EthProofType::V1 {
                     return Err(Error::InvalidProof(format!("Any anchor proofs created after block {threshold} for chain {} must include the txType field={}. Anchor txn blockNumber: {}", 
                     self.chain_id(), EthProofType::V1, blk_hash_res.header.number)));
                 }
             }
 
-            Ok(TimeProof {
+            Ok(ChainInclusionProof {
                 timestamp: blk_hash_res.header.timestamp,
                 root_cid,
             })
         } else {
             Err(Error::TxNotMined {
                 chain_id: self.chain_id.clone(),
-                tx_hash: input.tx_hash.to_string(),
+                tx_hash: input.tx_hash().to_string(),
             })
         }
     }

@@ -7,7 +7,7 @@ use ipld_core::ipld::Ipld;
 use recon::ReconItem;
 use tokio::try_join;
 
-use crate::event::validator::EthRpcProvider;
+use crate::event::validator::ChainInclusionProvider;
 use crate::store::EventAccess;
 use crate::{
     event::{
@@ -131,7 +131,7 @@ impl EventValidator {
     /// Create a new event validator
     pub async fn try_new(
         event_access: Arc<EventAccess>,
-        ethereum_rpc_providers: Vec<EthRpcProvider>,
+        ethereum_rpc_providers: Vec<ChainInclusionProvider>,
     ) -> Result<Self> {
         let time_event_verifier = TimeEventValidator::new_with_providers(ethereum_rpc_providers);
 
@@ -226,7 +226,7 @@ impl EventValidator {
         Ok(validated_events)
     }
 
-    /// Transforms the [`ChainInclusionError`] into a [`ValidationError`] with an appropriate message
+    /// Transforms the [`eth_rpc::Error`] into a [`ValidationError`] with an appropriate message
     fn convert_inclusion_error(err: eth_rpc::Error, order_key: &EventId) -> ValidationError {
         match err {
             eth_rpc::Error::TxNotFound { chain_id, tx_hash } => {
