@@ -14,7 +14,7 @@ use ceramic_interest_svc::InterestService;
 use ceramic_kubo_rpc::Multiaddr;
 use ceramic_metrics::{config::Config as MetricsConfig, MetricsHandle};
 use ceramic_p2p::{load_identity, DiskStorage, Keychain, Libp2pConfig};
-use clap::{ArgAction, Args};
+use clap::Args;
 use recon::{FullInterests, Recon, ReconInterestProvider};
 use signal_hook::consts::signal::*;
 use signal_hook_tokio::Signals;
@@ -164,8 +164,9 @@ pub struct DaemonOpts {
     )]
     authentication: bool,
 
-    /// Enable event validation, default value if this is not set is true
-    #[arg(long, env = "CERAMIC_ONE_EVENT_VALIDATION")]
+    /// Enable event validation, true by default
+    /// default value in args is added here for readability, removal of this param does not change the behavior
+    #[arg(long, default_value = "true", env = "CERAMIC_ONE_EVENT_VALIDATION")]
     event_validation: Option<bool>,
 
     /// Flight SQL bind address; Requires using the experimental-features flag
