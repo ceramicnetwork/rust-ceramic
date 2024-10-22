@@ -18,7 +18,7 @@ use ceramic_anchor_service::{
 };
 use ceramic_car::CarReader;
 use ceramic_core::{Cid, NodeId, StreamId};
-use ceramic_event::unvalidated::Proof;
+use ceramic_event::unvalidated::AnchorProof;
 
 pub const AGENT_VERSION: &str = concat!("ceramic-one/", env!("CARGO_PKG_VERSION"));
 
@@ -200,11 +200,11 @@ async fn parse_anchor_response(anchor_response: String) -> Result<CasResponsePar
     let mut car_reader = CarReader::new(witness_car_bytes.as_ref()).await?;
     let mut remote_merkle_nodes = MerkleNodes::default();
     let mut detached_time_event: Option<DetachedTimeEvent> = None;
-    let mut proof: Option<Proof> = None;
+    let mut proof: Option<AnchorProof> = None;
     while let Some((cid, block)) = car_reader.next_block().await? {
         if let Ok(block) = serde_ipld_dagcbor::from_slice::<DetachedTimeEvent>(&block) {
             detached_time_event = Some(block);
-        } else if let Ok(block) = serde_ipld_dagcbor::from_slice::<Proof>(&block) {
+        } else if let Ok(block) = serde_ipld_dagcbor::from_slice::<AnchorProof>(&block) {
             proof = Some(block);
         } else if let Ok(block) = serde_ipld_dagcbor::from_slice::<MerkleNode>(&block) {
             remote_merkle_nodes.insert(cid, block);

@@ -390,7 +390,7 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
             .await
             .context("finding proof block")
             .with_model_context(&model)?;
-        let proof: unvalidated::Proof = serde_ipld_dagcbor::from_slice(&data)
+        let proof: unvalidated::AnchorProof = serde_ipld_dagcbor::from_slice(&data)
             .context("decoding proof block")
             .with_model_context(&model)?;
         let mut curr = proof.root();

@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use ceramic_core::Cid;
-use ceramic_event::unvalidated::Proof;
+use ceramic_event::unvalidated::AnchorProof;
 
 use crate::anchor::MerkleNodes;
 
@@ -11,7 +11,7 @@ use crate::anchor::MerkleNodes;
 /// corresponding Merkle tree nodes.
 pub struct RootTimeEvent {
     /// the proof data from the remote anchoring service
-    pub proof: Proof,
+    pub proof: AnchorProof,
     /// the path through the remote Merkle tree
     pub detached_time_event: DetachedTimeEvent,
     /// the Merkle tree nodes from the remote anchoring service

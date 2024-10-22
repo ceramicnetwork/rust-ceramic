@@ -7,4 +7,4 @@ mod store;
 mod validator;
 
 pub use service::{BlockStore, DeliverableRequirement, EventService};
-pub use validator::EthRpcProvider;
+pub use validator::ChainInclusionProvider;

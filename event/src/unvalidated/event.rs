@@ -16,7 +16,7 @@ use super::{init, signed, Payload};
 /// witness proof.
 fn get_time_event_witness_blocks(
     event: &RawTimeEvent,
-    proof: &Proof,
+    proof: &AnchorProof,
     car_blocks: HashMap<Cid, Vec<u8>>,
 ) -> anyhow::Result<Vec<Ipld>> {
     let mut blocks_in_path = Vec::new();
@@ -182,7 +182,7 @@ where
                 let proof_bytes = car_blocks
                     .get(&event.proof())
                     .ok_or_else(|| anyhow!("Time Event CAR data missing block for proof"))?;
-                let proof: Proof =
+                let proof: AnchorProof =
                     serde_ipld_dagcbor::from_slice(proof_bytes).context("decoding proof")?;
                 let blocks_in_path = get_time_event_witness_blocks(&event, &proof, car_blocks)?;
                 let blocks_in_path = blocks_in_path
@@ -335,13 +335,13 @@ impl<D> From<signed::Envelope> for RawEvent<D> {
 #[derive(Debug)]
 pub struct TimeEvent {
     event: RawTimeEvent,
-    proof: Proof,
+    proof: AnchorProof,
     blocks_in_path: Vec<ProofEdge>,
 }
 
 impl TimeEvent {
     /// Create a new time event from its parts
-    pub fn new(event: RawTimeEvent, proof: Proof, blocks_in_path: Vec<ProofEdge>) -> Self {
+    pub fn new(event: RawTimeEvent, proof: AnchorProof, blocks_in_path: Vec<ProofEdge>) -> Self {
         Self {
             event,
             proof,
@@ -360,7 +360,7 @@ impl TimeEvent {
     }
 
     ///  Get the proof
-    pub fn proof(&self) -> &Proof {
+    pub fn proof(&self) -> &AnchorProof {
         &self.proof
     }
 
@@ -449,10 +449,10 @@ impl RawTimeEvent {
         self.path.as_ref()
     }
 }
-/// Proof data
-#[derive(Serialize, Deserialize, Clone)]
+/// Proof data for a blockchain transaction used to anchor a merkle tree root onchain.
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub struct Proof {
+pub struct AnchorProof {
     /// eip-155 CHAIN_ID see https://chainid.network https://github.com/ethereum/EIPs/blob/master/EIPS/eip-155.md
     chain_id: String,
     /// the root node of the merkle tree
@@ -463,7 +463,7 @@ pub struct Proof {
     tx_type: String,
 }
 
-impl Debug for Proof {
+impl Debug for AnchorProof {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Proof")
             .field("chain_id", &self.chain_id)
@@ -474,7 +474,7 @@ impl Debug for Proof {
     }
 }
 
-impl Proof {
+impl AnchorProof {
     /// Create a proof from its parts.
     pub fn new(chain_id: String, root: Cid, tx_hash: Cid, tx_type: String) -> Self {
         Self {

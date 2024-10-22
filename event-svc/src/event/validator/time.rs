@@ -5,9 +5,7 @@ use ceramic_core::ssi::caip2;
 use ceramic_event::unvalidated;
 use tracing::warn;
 
-use ceramic_validation::eth_rpc::{
-    self, ChainInclusion, EthProofType, EthTxProofInput, HttpEthRpc,
-};
+use ceramic_validation::eth_rpc::{self, ChainInclusion, HttpEthRpc};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Timestamp(u64);
@@ -20,13 +18,13 @@ impl Timestamp {
     }
 }
 
-/// Provider for a remote Ethereum RPC endpoint.
-pub type EthRpcProvider = Arc<dyn ChainInclusion<InclusionInput = EthTxProofInput> + Send + Sync>;
+/// Provider for validating chain inclusion of an AnchorProof on a remote blockchain.
+pub type ChainInclusionProvider = Arc<dyn ChainInclusion + Send + Sync>;
 
 pub struct TimeEventValidator {
     /// we could support multiple providers for each chain (to get around rate limits)
     /// but we'll just force people to run a light client if they really need the throughput
-    chain_providers: HashMap<caip2::ChainId, EthRpcProvider>,
+    chain_providers: HashMap<caip2::ChainId, ChainInclusionProvider>,
 }
 
 impl std::fmt::Debug for TimeEventValidator {
@@ -50,7 +48,7 @@ impl TimeEventValidator {
                 Ok(provider) => {
                     // use the first valid rpc client we find rather than replace one
                     // could support an array of clients for a chain if desired
-                    let provider: EthRpcProvider = Arc::new(provider);
+                    let provider: ChainInclusionProvider = Arc::new(provider);
                     chain_providers
                         .entry(provider.chain_id().to_owned())
                         .or_insert_with(|| provider);
@@ -68,7 +66,7 @@ impl TimeEventValidator {
 
     /// Create from known providers (e.g. inject mocks)
     /// Currently used in tests, may switch to this from service if we want to share RPC with anchoring.
-    pub fn new_with_providers(providers: Vec<EthRpcProvider>) -> Self {
+    pub fn new_with_providers(providers: Vec<ChainInclusionProvider>) -> Self {
         Self {
             chain_providers: HashMap::from_iter(
                 providers.into_iter().map(|p| (p.chain_id().to_owned(), p)),
@@ -94,21 +92,19 @@ impl TimeEventValidator {
             .get(&chain_id)
             .ok_or_else(|| eth_rpc::Error::NoChainProvider(chain_id.clone()))?;
 
-        let input = EthTxProofInput {
-            tx_hash: event.proof().tx_hash(),
-            tx_type: EthProofType::from_str(event.proof().tx_type())
-                .map_err(|e| eth_rpc::Error::InvalidProof(e.to_string()))?,
-        };
-        let proof = provider.chain_inclusion_proof(&input).await?;
+        let chain_proof = provider.get_chain_inclusion_proof(event.proof()).await?;
 
-        if proof.root_cid != event.proof().root() {
+        // Compare the root CID in the TimeEvent's AnchorProof to the root CID that was actually
+        // included in the transaction onchain.
+        if chain_proof.root_cid != event.proof().root() {
             return Err(eth_rpc::Error::InvalidProof(format!(
-                "the root CID is not in the transaction (root={})",
-                event.proof().root()
+                "the root CID is not in the transaction (anchor proof root={}, blockchain transaction root={})",
+                event.proof().root(),
+                chain_proof.root_cid,
             )));
         }
 
-        Ok(Timestamp(proof.timestamp))
+        Ok(Timestamp(chain_proof.timestamp))
     }
 }
 
@@ -248,15 +244,14 @@ mod test {
         pub EthRpcProviderTest {}
         #[async_trait::async_trait]
         impl ChainInclusion for EthRpcProviderTest {
-            type InclusionInput = EthTxProofInput;
 
             fn chain_id(&self) -> &caip2::ChainId;
-            async fn chain_inclusion_proof(&self, input: &EthTxProofInput) -> Result<eth_rpc::TimeProof, eth_rpc::Error>;
+            async fn get_chain_inclusion_proof(&self, input: &unvalidated::AnchorProof) -> Result<eth_rpc::ChainInclusionProof, eth_rpc::Error>;
         }
     }
 
     async fn get_mock_provider(
-        input: eth_rpc::EthTxProofInput,
+        input: unvalidated::AnchorProof,
         root_cid: Cid,
     ) -> TimeEventValidator {
         let mut mock_provider = MockEthRpcProviderTest::new();
@@ -265,11 +260,11 @@ mod test {
 
         mock_provider.expect_chain_id().once().return_const(chain);
         mock_provider
-            .expect_chain_inclusion_proof()
+            .expect_get_chain_inclusion_proof()
             .once()
             .with(predicate::eq(input))
             .return_once(move |_| {
-                Ok(eth_rpc::TimeProof {
+                Ok(eth_rpc::ChainInclusionProof {
                     timestamp: BLOCK_TIMESTAMP,
                     root_cid,
                 })
@@ -280,12 +275,8 @@ mod test {
     #[test(tokio::test)]
     async fn valid_proof_single() {
         let event = time_event_single_event_batch();
-        let input = EthTxProofInput {
-            tx_hash: event.proof().tx_hash(),
-            tx_type: event.proof().tx_type().parse().unwrap(),
-        };
+        let verifier = get_mock_provider(event.proof().clone(), event.proof().root()).await;
 
-        let verifier = get_mock_provider(input, event.proof().root()).await;
         match verifier.validate_chain_inclusion(&event).await {
             Ok(ts) => {
                 assert_eq!(ts.as_unix_ts(), BLOCK_TIMESTAMP);
@@ -297,14 +288,10 @@ mod test {
     #[test(tokio::test)]
     async fn invalid_proof_single() {
         let event = time_event_single_event_batch();
-        let input = EthTxProofInput {
-            tx_hash: event.proof().tx_hash(),
-            tx_type: event.proof().tx_type().parse().unwrap(),
-        };
 
         let random_root =
             Cid::from_str("bagcqceraxr7s7s32wsashm6mm4fonhpkvfdky4rvw6sntlu2pxtl3fjhj2aa").unwrap();
-        let verifier = get_mock_provider(input, random_root).await;
+        let verifier = get_mock_provider(event.proof().clone(), random_root).await;
         match verifier.validate_chain_inclusion(&event).await {
             Ok(v) => {
                 panic!("should have failed: {:?}", v)
@@ -323,13 +310,7 @@ mod test {
     #[test(tokio::test)]
     async fn valid_proof_multi() {
         let event = time_event_multi_event_batch();
-
-        let input = EthTxProofInput {
-            tx_hash: event.proof().tx_hash(),
-            tx_type: event.proof().tx_type().parse().unwrap(),
-        };
-
-        let verifier = get_mock_provider(input, event.proof().root()).await;
+        let verifier = get_mock_provider(event.proof().clone(), event.proof().root()).await;
 
         match verifier.validate_chain_inclusion(&event).await {
             Ok(ts) => {
@@ -342,15 +323,10 @@ mod test {
     #[test(tokio::test)]
     async fn invalid_root_tx_proof_cid_multi() {
         let event = time_event_multi_event_batch();
-
-        let input = EthTxProofInput {
-            tx_hash: event.proof().tx_hash(),
-            tx_type: event.proof().tx_type().parse().unwrap(),
-        };
-
         let random_root =
             Cid::from_str("bagcqceraxr7s7s32wsashm6mm4fonhpkvfdky4rvw6sntlu2pxtl3fjhj2aa").unwrap();
-        let verifier = get_mock_provider(input, random_root).await;
+        let verifier = get_mock_provider(event.proof().clone(), random_root).await;
+
         match verifier.validate_chain_inclusion(&event).await {
             Ok(v) => {
                 panic!("should have failed: {:?}", v)

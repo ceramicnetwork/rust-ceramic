@@ -9,7 +9,7 @@ mod tests;
 
 pub use ceramic_validation::eth_rpc;
 pub use error::Error;
-pub use event::EthRpcProvider;
+pub use event::ChainInclusionProvider;
 pub use event::{BlockStore, EventService};
 
 pub(crate) type Result<T> = std::result::Result<T, Error>;
