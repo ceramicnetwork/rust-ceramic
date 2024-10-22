@@ -246,7 +246,7 @@ mod tests {
         let event_service = Arc::new(MockAnchorEventService::new(10));
         let pool = SqlitePool::connect_in_memory().await.unwrap();
         let node_id = NodeId::random().0;
-        let anchor_interval = Duration::from_millis(1);
+        let anchor_interval = Duration::from_millis(5);
         let anchor_batch_size = 1000000;
         let mut anchor_service = AnchorService::new(
             tx_manager,
@@ -268,6 +268,39 @@ mod tests {
             sleep(Duration::from_millis(1)).await;
         }
         expect_file!["./test-data/test_anchor_service_run.txt"]
+            .assert_debug_eq(&event_service.events.lock().unwrap());
+        shutdown_signal_tx.send(()).unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_anchor_service_run_1() {
+        let tx_manager = Arc::new(MockCas);
+        let event_service = Arc::new(MockAnchorEventService::new(1));
+        let pool = SqlitePool::connect_in_memory().await.unwrap();
+        let node_id = NodeId::random().0;
+        let anchor_interval = Duration::from_millis(5);
+        let anchor_batch_size = 1000000;
+        let mut anchor_service = AnchorService::new(
+            tx_manager,
+            event_service.clone(),
+            pool,
+            node_id,
+            anchor_interval,
+            anchor_batch_size,
+        );
+        let (shutdown_signal_tx, mut shutdown_signal) = broadcast::channel::<()>(1);
+        // let mut shutdown_signal = shutdown_signal_rx.resubscribe();
+        Some(tokio::spawn(async move {
+            anchor_service
+                .run(async move {
+                    let _ = shutdown_signal.recv().await;
+                })
+                .await
+        }));
+        while event_service.events.lock().unwrap().is_empty() {
+            sleep(Duration::from_millis(1)).await;
+        }
+        expect_file!["./test-data/test_anchor_service_run_1.txt"]
             .assert_debug_eq(&event_service.events.lock().unwrap());
         shutdown_signal_tx.send(()).unwrap();
     }

@@ -2,22 +2,22 @@ TimeEventBatch {
     merkle_nodes: {},
     proof: Proof {
         chain_id: "mock chain id",
-        root: "Cid(baeabeifpkvyplimbbn5ppdfpjpdquzqpbx2r4qv27eou3znsgkg6b2b57q)",
-        tx_hash: "Cid(baeabeifpkvyplimbbn5ppdfpjpdquzqpbx2r4qv27eou3znsgkg6b2b57q)",
+        root: "Cid(baeabeignezrbkttno2zlfojoodamvq6m6u2ptn2oww4jqgpmkciihuakka)",
+        tx_hash: "Cid(baeabeignezrbkttno2zlfojoodamvq6m6u2ptn2oww4jqgpmkciihuakka)",
         tx_type: "mock tx type",
     },
     raw_time_events: [
         (
             AnchorRequest {
-                id: "Cid(baeabeifpkvyplimbbn5ppdfpjpdquzqpbx2r4qv27eou3znsgkg6b2b57q)",
-                prev: "Cid(baeabeifpkvyplimbbn5ppdfpjpdquzqpbx2r4qv27eou3znsgkg6b2b57q)",
+                id: "Cid(baeabeignezrbkttno2zlfojoodamvq6m6u2ptn2oww4jqgpmkciihuakka)",
+                prev: "Cid(baeabeignezrbkttno2zlfojoodamvq6m6u2ptn2oww4jqgpmkciihuakka)",
                 event_id: "CE010500BA25076D730241E745CC7C072FF729EA683B751701711220F4EF7EC208944D257025408BB647949E6B72930520BC80F34D8BFBAFD2643D86",
-                resume_token: 0,
+                resume_token: 1,
             },
             RawTimeEvent {
-                id: "Cid(baeabeifpkvyplimbbn5ppdfpjpdquzqpbx2r4qv27eou3znsgkg6b2b57q)",
-                prev: "Cid(baeabeifpkvyplimbbn5ppdfpjpdquzqpbx2r4qv27eou3znsgkg6b2b57q)",
-                proof: "Cid(bafyreic73ihcidvfhqdqeys677ml2hco3y6k4kaycrgeobcnhzg63a65cu)",
+                id: "Cid(baeabeignezrbkttno2zlfojoodamvq6m6u2ptn2oww4jqgpmkciihuakka)",
+                prev: "Cid(baeabeignezrbkttno2zlfojoodamvq6m6u2ptn2oww4jqgpmkciihuakka)",
+                proof: "Cid(bafyreia4co3rs6lp44ovc2eqv4alolr2urjumiuqc4ntcbq3ugmwbfmkya)",
                 path: "",
             },
         ),

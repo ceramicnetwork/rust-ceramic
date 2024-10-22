@@ -1,0 +1,21 @@
+[
+    TimeEventInsertable {
+        event_id: "CE010500BA25076D730241E745CC7C072FF729EA683B7517017112207F5B23D7D5E74BA6BFC0908D9D29E8E109B248CB48134A1CB8E8A5CD4726626C",
+        cid: "bafyreid7lmr5pvphjotl7qeqrwost2hbbgzers2icnfbzohiuxguojtcnq",
+        event: TimeEvent {
+            event: RawTimeEvent {
+                id: "Cid(baeabeignezrbkttno2zlfojoodamvq6m6u2ptn2oww4jqgpmkciihuakka)",
+                prev: "Cid(baeabeignezrbkttno2zlfojoodamvq6m6u2ptn2oww4jqgpmkciihuakka)",
+                proof: "Cid(bafyreia4co3rs6lp44ovc2eqv4alolr2urjumiuqc4ntcbq3ugmwbfmkya)",
+                path: "",
+            },
+            proof: Proof {
+                chain_id: "mock chain id",
+                root: "Cid(baeabeignezrbkttno2zlfojoodamvq6m6u2ptn2oww4jqgpmkciihuakka)",
+                tx_hash: "Cid(baeabeignezrbkttno2zlfojoodamvq6m6u2ptn2oww4jqgpmkciihuakka)",
+                tx_type: "mock tx type",
+            },
+            blocks_in_path: [],
+        },
+    },
+]
