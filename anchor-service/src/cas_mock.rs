@@ -75,6 +75,9 @@ impl Store for MockAnchorEventService {
         highwater: i64,
         limit: i64,
     ) -> Result<Vec<AnchorRequest>> {
+        // The high water mark is the last row in the table.
+        // The call to events_since_high_water_mark generate the next event (n+1)
+        // to the anchor_req_count which is the last event in the mock data.
         let ints = ((highwater as u64 + 1)..=self.anchor_req_count).take(limit as usize);
         Ok(ints.map(|n| AnchorRequest {
                 id: self.int64_cid(n),
