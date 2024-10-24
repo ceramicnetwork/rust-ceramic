@@ -164,14 +164,10 @@ pub struct DaemonOpts {
     )]
     authentication: bool,
 
-    /// Enable event validation; Requires using the experimental-features flag
-    #[arg(
-        long,
-        default_value_t = false,
-        env = "CERAMIC_ONE_EVENT_VALIDATION",
-        requires = "experimental_features"
-    )]
-    event_validation: bool,
+    /// Enable event validation, true by default
+    /// default value in args is added here for readability, removal of this param does not change the behavior
+    #[arg(long, default_value = "true", env = "CERAMIC_ONE_EVENT_VALIDATION")]
+    event_validation: Option<bool>,
 
     /// Flight SQL bind address; Requires using the experimental-features flag
     #[arg(
@@ -337,16 +333,10 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
 
     // Construct services from pool
     let interest_svc = Arc::new(InterestService::new(sqlite_pool.clone()));
+    let event_validation = opts.event_validation.unwrap_or(true);
     let event_svc = Arc::new(
-        EventService::try_new(
-            sqlite_pool.clone(),
-            true,
-            opts.event_validation,
-            rpc_providers,
-        )
-        .await?,
+        EventService::try_new(sqlite_pool.clone(), true, event_validation, rpc_providers).await?,
     );
-
     let network = opts.network.to_network(&opts.local_network_id)?;
 
     // Setup tokio-metrics
