@@ -1,10 +1,15 @@
-use object_store::aws::AmazonS3Builder;
+use std::sync::Arc;
+
+use object_store::ObjectStore;
 
 /// Configuration for pipeline session.
-pub struct Config {
-    /// Endpoint of a Flight SQL server for the conclusion feed.
-    pub flight_sql_endpoint: String,
+pub struct Config<F> {
+    /// Define how the conclusion feed will be accessed.
+    pub conclusion_feed: Arc<F>,
 
-    /// AWS S3 configuration
-    pub aws_s3_builder: AmazonS3Builder,
+    /// Bucket name in which to store objects.
+    pub object_store_bucket_name: String,
+
+    /// Access to an object store.
+    pub object_store: Arc<dyn ObjectStore>,
 }

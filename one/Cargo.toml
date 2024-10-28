@@ -12,6 +12,7 @@ publish = false
 anyhow.workspace = true
 async-stream.workspace = true
 async-trait.workspace = true
+arrow-flight.workspace = true
 ceramic-anchor-remote.workspace = true
 ceramic-anchor-service.workspace = true
 ceramic-api-server.workspace = true
@@ -30,7 +31,10 @@ ceramic-sql.workspace = true
 cid.workspace = true
 clap.workspace = true
 datafusion-cli = "42.0.0"
+datafusion.workspace = true
 datafusion-functions-json = "0.42.0"
+datafusion-federation.workspace = true
+datafusion-flight-sql-table-provider.workspace = true
 futures.workspace = true
 git-version = "0.3"
 home = "0.5"
@@ -45,7 +49,7 @@ multihash-codetable.workspace = true
 multihash-derive.workspace = true
 multihash.workspace = true
 names.workspace = true
-object_store = { version = "0.11", features = ["aws"] }
+object_store.workspace = true
 prometheus-client.workspace = true
 recon.workspace = true
 serde_ipld_dagcbor.workspace = true
@@ -56,6 +60,7 @@ tokio-metrics = { version = "0.3.1", features = ["rt"] }
 tokio-prometheus-client = "0.1"
 tokio-stream = { workspace = true, features = ["io-util"] }
 tokio.workspace = true
+tonic.workspace = true
 tracing.workspace = true
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]

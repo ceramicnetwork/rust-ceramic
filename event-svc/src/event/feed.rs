@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use ceramic_flight::{server::ConclusionFeed, ConclusionEvent};
+use ceramic_pipeline::{ConclusionEvent, ConclusionFeed};
 use futures::future::try_join_all;
 
 use crate::EventService;

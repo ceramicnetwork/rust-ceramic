@@ -15,6 +15,7 @@ use ceramic_kubo_rpc::Multiaddr;
 use ceramic_metrics::{config::Config as MetricsConfig, MetricsHandle};
 use ceramic_p2p::{load_identity, DiskStorage, Keychain, Libp2pConfig};
 use clap::Args;
+use object_store::aws::AmazonS3Builder;
 use recon::{FullInterests, Recon, ReconInterestProvider};
 use signal_hook::consts::signal::*;
 use signal_hook_tokio::Signals;
@@ -236,6 +237,21 @@ pub struct DaemonOpts {
         env = "CERAMIC_ONE_ETHEREUM_RPC_URLS"
     )]
     ethereum_rpc_urls: Vec<String>,
+
+    /// S3 bucket name.
+    /// When configured the aggregator will support storing data in S3 compatible object stores.
+    ///
+    /// Credentials are read from the environment:
+    ///
+    ///   * AWS_ACCESS_KEY_ID -> access_key_id
+    ///   * AWS_SECRET_ACCESS_KEY -> secret_access_key
+    ///   * AWS_DEFAULT_REGION -> region
+    ///   * AWS_ENDPOINT -> endpoint
+    ///   * AWS_SESSION_TOKEN -> token
+    ///   * AWS_ALLOW_HTTP -> set to "true" to permit HTTP connections without TLS
+    ///
+    #[arg(long, env = "CERAMIC_ONE_AWS_BUCKET")]
+    s3_bucket: String,
 }
 
 async fn get_eth_rpc_providers(
@@ -469,7 +485,7 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
         .await
         .map_err(|e| {
             anyhow!(
-                "Failed to start libp2p server using addresses: {}. {}",
+                "Failed to start linebp2p server using addresses: {}. {}",
                 opts.swarm_addresses.join(", "),
                 e
             )
@@ -499,8 +515,18 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
         let addr = addr.parse()?;
         let feed = event_svc.clone();
         let mut shutdown_signal = shutdown_signal.resubscribe();
+        let ctx = ceramic_pipeline::session_from_config(ceramic_pipeline::Config {
+            conclusion_feed: feed,
+            object_store: Arc::new(
+                AmazonS3Builder::from_env()
+                    .with_bucket_name(&opts.s3_bucket)
+                    .build()?,
+            ),
+            object_store_bucket_name: opts.s3_bucket,
+        })
+        .await?;
         Some(tokio::spawn(async move {
-            ceramic_flight::server::run(feed, addr, async move {
+            ceramic_flight::server::run(ctx, addr, async move {
                 let _ = shutdown_signal.recv().await;
             })
             .await
