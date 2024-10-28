@@ -11,7 +11,7 @@ use super::{
 };
 use async_trait::async_trait;
 use ceramic_core::{EventId, Network, NodeId, SerializeExt};
-use ceramic_flight::{ConclusionData, ConclusionEvent, ConclusionInit, ConclusionTime};
+use ceramic_pipeline::{ConclusionData, ConclusionEvent, ConclusionInit, ConclusionTime};
 use ceramic_sql::sqlite::SqlitePool;
 use cid::Cid;
 use futures::stream::BoxStream;

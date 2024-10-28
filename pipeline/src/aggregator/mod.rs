@@ -21,32 +21,12 @@ use datafusion::{
     physical_plan::collect_partitioned,
     sql::TableReference,
 };
-use object_store::aws::AmazonS3Builder;
 use std::{future::Future, sync::Arc};
 use tracing::{debug, error};
 
 use crate::Result;
 
-pub struct Config {
-    pub flight_sql_endpoint: String,
-    pub aws_s3_bucket: String,
-}
-
-impl From<Config> for ceramic_pipeline::Config {
-    fn from(value: Config) -> Self {
-        Self {
-            flight_sql_endpoint: value.flight_sql_endpoint,
-            aws_s3_builder: AmazonS3Builder::from_env().with_bucket_name(value.aws_s3_bucket),
-        }
-    }
-}
-
-pub async fn run(
-    config: impl Into<Config>,
-    shutdown_signal: impl Future<Output = ()>,
-) -> Result<()> {
-    let config = config.into();
-    let ctx = ceramic_pipeline::session_from_config(config).await?;
+pub async fn run(ctx: SessionContext, shutdown_signal: impl Future<Output = ()>) -> Result<()> {
     run_continuous_stream(ctx, shutdown_signal, 10000).await?;
     Ok(())
 }
@@ -257,11 +237,6 @@ mod tests {
 
     use arrow::{array::RecordBatch, util::pretty::pretty_format_batches};
     use ceramic_core::StreamIdType;
-    use ceramic_flight::{
-        conclusion_events_to_record_batch, ConclusionData, ConclusionEvent, ConclusionInit,
-        ConclusionTime,
-    };
-    use ceramic_pipeline::cid_string::CidString;
     use cid::Cid;
     use datafusion::{
         catalog_common::{CatalogProvider, MemoryCatalogProvider, MemorySchemaProvider},
@@ -275,6 +250,11 @@ mod tests {
     use expect_test::expect;
     use test_log::test;
 
+    use crate::{
+        cid_string::CidString, conclusion_events_to_record_batch, schemas, ConclusionData,
+        ConclusionEvent, ConclusionInit, ConclusionTime,
+    };
+
     async fn do_test(conclusion_feed: RecordBatch) -> anyhow::Result<impl std::fmt::Display> {
         do_pass(init_ctx().await?, conclusion_feed).await
     }
@@ -287,7 +267,7 @@ mod tests {
                 constraints: Constraints::empty(),
                 input: LogicalPlan::EmptyRelation(EmptyRelation {
                     produce_one_row: false,
-                    schema: Arc::new(ceramic_pipeline::schemas::doc_state().try_into().unwrap()),
+                    schema: Arc::new(schemas::doc_state().try_into().unwrap()),
                 })
                 .into(),
                 if_not_exists: false,
@@ -312,7 +292,7 @@ mod tests {
                 constraints: Constraints::empty(),
                 input: LogicalPlan::EmptyRelation(EmptyRelation {
                     produce_one_row: false,
-                    schema: Arc::new(ceramic_pipeline::schemas::doc_state().try_into().unwrap()),
+                    schema: Arc::new(schemas::doc_state().try_into().unwrap()),
                 })
                 .into(),
                 if_not_exists: false,
