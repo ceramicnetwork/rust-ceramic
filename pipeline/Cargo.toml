@@ -18,6 +18,7 @@ ceramic-core.workspace = true
 ceramic-event.workspace = true
 cid.workspace = true
 datafusion.workspace = true
+datafusion-functions-json = "0.42.0"
 expect-test.workspace = true
 futures.workspace = true
 int-enum.workspace = true

@@ -26,15 +26,21 @@ pub use conclusion::{
 };
 pub use config::Config;
 
+/// Report the list of tables in the pipeline
+pub fn tables() -> Vec<String> {
+    vec!["conclusion_feed".to_string(), "doc_state".to_string()]
+}
 /// Constructs a [`SessionContext`] configured with all tables in the pipeline.
 pub async fn session_from_config<F: ConclusionFeed + 'static>(
     config: impl Into<Config<F>>,
 ) -> Result<SessionContext> {
     let config: Config<F> = config.into();
 
-    let session_config = SessionConfig::new().with_default_catalog_and_schema("ceramic", "v0");
+    let session_config = SessionConfig::new()
+        .with_default_catalog_and_schema("ceramic", "v0")
+        .with_information_schema(true);
 
-    let ctx = SessionContext::new_with_config(session_config);
+    let mut ctx = SessionContext::new_with_config(session_config);
     ctx.register_table(
         "conclusion_feed",
         Arc::new(conclusion::FeedTable::new(config.conclusion_feed)),
@@ -44,6 +50,9 @@ pub async fn session_from_config<F: ConclusionFeed + 'static>(
     ctx.register_udaf(AggregateUDF::new_from_impl(LastValue::default()));
     ctx.register_udf(ScalarUDF::new_from_impl(CidString::new()));
     ctx.register_udf(ScalarUDF::new_from_impl(CidStringList::new()));
+
+    // Register JSON functions
+    datafusion_functions_json::register_all(&mut ctx)?;
 
     // Register s3 object store
     let mut url = Url::parse("s3://")?;

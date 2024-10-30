@@ -42,6 +42,7 @@ ahash = "0.8"
 anyhow = { version = "1" }
 arrow = { version = "53", features = ["prettyprint"] }
 arrow-array = "53"
+arrow-cast = "53"
 arrow-flight = { version = "53", features = ["flight-sql-experimental"] }
 arrow-ipc = "53"
 arrow-schema = "53"
@@ -258,3 +259,25 @@ repository = "https://github.com/3box/rust-ceramic"
 inherits = "release"
 debug = true
 strip = "none"
+
+#[patch.crates-io]
+#arrow-flight = { git = "https://github.com/nathanielc/arrow-rs", branch = "fix/flight-dict-map" }
+#arrow-schema = { git = "https://github.com/nathanielc/arrow-rs", branch = "fix/flight-dict-map" }
+#arrow-ipc = { git = "https://github.com/nathanielc/arrow-rs", branch = "fix/flight-dict-map" }
+#arrow-array = { git = "https://github.com/nathanielc/arrow-rs", branch = "fix/flight-dict-map" }
+#arrow-data = { git = "https://github.com/nathanielc/arrow-rs", branch = "fix/flight-dict-map" }
+#arrow-buffer = { git = "https://github.com/nathanielc/arrow-rs", branch = "fix/flight-dict-map" }
+#arrow-cast = { git = "https://github.com/nathanielc/arrow-rs", branch = "fix/flight-dict-map" }
+
+#[patch.crates-io]
+#arrow-flight = { path = "../arrow-rs/arrow-flight" }
+#arrow-schema = { path = "../arrow-rs/arrow-schema" }
+#arrow-ipc = { path = "../arrow-rs/arrow-ipc" }
+#arrow-array = { path = "../arrow-rs/arrow-array" }
+#arrow-data = { path = "../arrow-rs/arrow-data" }
+#arrow-buffer = { path = "../arrow-rs/arrow-buffer" }
+#arrow-cast = { path = "../arrow-rs/arrow-cast" }
+
+[patch."https://github.com/datafusion-contrib/datafusion-federation.git"]
+datafusion-federation = { path = "../datafusion-federation/datafusion-federation" }
+datafusion-flight-sql-table-provider = { path = "../datafusion-federation/datafusion-flight-sql-table-provider" }

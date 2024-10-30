@@ -22,7 +22,7 @@ use signal_hook_tokio::Signals;
 use std::sync::Arc;
 use swagger::{auth::MakeAllowAllAuthenticator, EmptyContext};
 use tokio::sync::broadcast;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 #[derive(Args, Debug)]
 pub struct DaemonOpts {
@@ -238,6 +238,14 @@ pub struct DaemonOpts {
     )]
     ethereum_rpc_urls: Vec<String>,
 
+    /// Enable the aggregator, requires Flight SQL to be enabled
+    #[arg(
+        long,
+        requires = "flight_sql_bind_address",
+        env = "CERAMIC_ONE_AGGREGATOR"
+    )]
+    aggregator: Option<bool>,
+
     /// S3 bucket name.
     /// When configured the aggregator will support storing data in S3 compatible object stores.
     ///
@@ -250,8 +258,12 @@ pub struct DaemonOpts {
     ///   * AWS_SESSION_TOKEN -> token
     ///   * AWS_ALLOW_HTTP -> set to "true" to permit HTTP connections without TLS
     ///
-    #[arg(long, env = "CERAMIC_ONE_AWS_BUCKET")]
-    s3_bucket: String,
+    #[arg(
+        long,
+        requires = "experimental_features",
+        env = "CERAMIC_ONE_S3_BUCKET"
+    )]
+    s3_bucket: Option<String>,
 }
 
 async fn get_eth_rpc_providers(
@@ -511,28 +523,50 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
     let handle = signals.handle();
 
     // Start Flight server
-    let flight_handle = if let Some(addr) = opts.flight_sql_bind_address {
+    let (flight_handle, aggregator_handle) = if let Some(addr) = opts.flight_sql_bind_address {
         let addr = addr.parse()?;
         let feed = event_svc.clone();
-        let mut shutdown_signal = shutdown_signal.resubscribe();
+        let bucket = opts
+            .s3_bucket
+            .ok_or_else(|| anyhow!("s3_bucket option is required when exposing flight sql"))?;
         let ctx = ceramic_pipeline::session_from_config(ceramic_pipeline::Config {
             conclusion_feed: feed,
             object_store: Arc::new(
                 AmazonS3Builder::from_env()
-                    .with_bucket_name(&opts.s3_bucket)
+                    .with_bucket_name(&bucket)
                     .build()?,
             ),
-            object_store_bucket_name: opts.s3_bucket,
+            object_store_bucket_name: bucket,
         })
         .await?;
-        Some(tokio::spawn(async move {
+
+        // Start aggregator
+        let aggregator_handle = if opts.aggregator.unwrap_or_default() {
+            let mut ss = shutdown_signal.resubscribe();
+            let ctx = ctx.clone();
+            Some(tokio::spawn(async move {
+                if let Err(err) = ceramic_pipeline::aggregator::run(ctx, async move {
+                    let _ = ss.recv().await;
+                })
+                .await
+                {
+                    error!(%err, "aggregator task failed");
+                }
+            }))
+        } else {
+            None
+        };
+
+        let mut ss = shutdown_signal.resubscribe();
+        let flight_handle = tokio::spawn(async move {
             ceramic_flight::server::run(ctx, addr, async move {
-                let _ = shutdown_signal.recv().await;
+                let _ = ss.recv().await;
             })
             .await
-        }))
+        });
+        (aggregator_handle, Some(flight_handle))
     } else {
-        None
+        (None, None)
     };
 
     // Start anchoring if remote anchor service URL is provided
@@ -643,6 +677,10 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
 
     if let Some(flight_handle) = flight_handle {
         let _ = flight_handle.await;
+    }
+
+    if let Some(aggregator_handle) = aggregator_handle {
+        let _ = aggregator_handle.await;
     }
 
     if let Some(anchor_service_handle) = anchor_service_handle {
