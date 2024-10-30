@@ -10,9 +10,10 @@ publish = false
 
 [dependencies]
 anyhow.workspace = true
+arrow-cast.workspace = true
+arrow-flight.workspace = true
 async-stream.workspace = true
 async-trait.workspace = true
-arrow-flight.workspace = true
 ceramic-anchor-remote.workspace = true
 ceramic-anchor-service.workspace = true
 ceramic-api-server.workspace = true
