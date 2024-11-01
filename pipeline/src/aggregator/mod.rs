@@ -5,7 +5,10 @@
 mod ceramic_patch;
 
 use anyhow::Context;
-use arrow::{array::UInt64Array, datatypes::DataType};
+use arrow::{
+    array::{RecordBatch, UInt64Array},
+    datatypes::DataType,
+};
 use ceramic_patch::CeramicPatch;
 use datafusion::{
     common::JoinType,
@@ -22,12 +25,16 @@ use datafusion::{
     sql::TableReference,
 };
 use std::{future::Future, sync::Arc};
-use tracing::{debug, error};
+use tracing::{debug, error, instrument, Level};
 
-use crate::Result;
+use crate::{schemas, Result, DOC_STATE_MEM_TABLE, DOC_STATE_PERSISTENT_TABLE};
+
+// Maximum number of rows to fetch per pass of the aggregator.
+// Minimum number of rows to have proccessed before writing a batch to object store.
+const BATCH_SIZE: usize = 10_000;
 
 pub async fn run(ctx: SessionContext, shutdown_signal: impl Future<Output = ()>) -> Result<()> {
-    run_continuous_stream(ctx, shutdown_signal, 10000).await?;
+    run_continuous_stream(ctx, shutdown_signal, BATCH_SIZE).await?;
     Ok(())
 }
 
@@ -94,6 +101,7 @@ impl ContinuousStreamProcessor {
         })
     }
 
+    #[instrument(skip(self), ret ( level = Level::DEBUG ))]
     async fn process_batch(&mut self, limit: usize) -> Result<()> {
         // Fetch the conclusion feed DataFrame
         let mut conclusion_feed = self
@@ -131,7 +139,7 @@ impl ContinuousStreamProcessor {
             )?
             .build()?,
         );
-        process_feed_batch(self.ctx.clone(), df.clone()).await?;
+        process_feed_batch(self.ctx.clone(), df.clone(), limit).await?;
 
         // Fetch the highest index from the cached DataFrame
         let highest_index = df
@@ -162,7 +170,12 @@ impl ContinuousStreamProcessor {
 //  current conclusion_feed batch,
 //  * be valid JSON patch data documents.
 //  * use a qualified table name of `conclusion_feed`.
-async fn process_feed_batch(ctx: SessionContext, conclusion_feed: DataFrame) -> Result<()> {
+#[instrument(skip(ctx, conclusion_feed), ret ( level = Level::DEBUG ))]
+async fn process_feed_batch(
+    ctx: SessionContext,
+    conclusion_feed: DataFrame,
+    max_cached_rows: usize,
+) -> Result<()> {
     let doc_state = ctx
         .table("doc_state")
         .await?
@@ -222,16 +235,32 @@ async fn process_feed_batch(ctx: SessionContext, conclusion_feed: DataFrame) -> 
             "new_state",
         ])?
         .with_column_renamed("new_state", "state")?
-        // Write states to the doc_state table
-        .write_table("doc_state", DataFrameWriteOptions::new())
+        // Write states to the in memory doc_state table
+        .write_table(DOC_STATE_MEM_TABLE, DataFrameWriteOptions::new())
         .await
         .context("computing states")?;
+
+    let count = ctx.table(DOC_STATE_MEM_TABLE).await?.count().await?;
+    // If we have enough data cached in memory write it out to persistent store
+    if count >= max_cached_rows {
+        ctx.table(DOC_STATE_MEM_TABLE)
+            .await?
+            .write_table(DOC_STATE_PERSISTENT_TABLE, DataFrameWriteOptions::new())
+            .await?;
+        // Clear all data in the memory batch, by writing an empty batch
+        ctx.read_batch(RecordBatch::new_empty(schemas::doc_state()))?
+            .write_table(
+                DOC_STATE_MEM_TABLE,
+                DataFrameWriteOptions::new().with_overwrite(true),
+            )
+            .await?;
+    }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr as _;
+    use std::{str::FromStr as _, time::Duration};
 
     use super::*;
 
@@ -239,96 +268,61 @@ mod tests {
     use ceramic_core::StreamIdType;
     use cid::Cid;
     use datafusion::{
-        catalog_common::{CatalogProvider, MemoryCatalogProvider, MemorySchemaProvider},
-        common::Constraints,
         datasource::{provider_as_source, MemTable},
-        logical_expr::{
-            expr::ScalarFunction, CreateMemoryTable, DdlStatement, EmptyRelation, LogicalPlan,
-            LogicalPlanBuilder, ScalarUDF,
-        },
+        logical_expr::{expr::ScalarFunction, LogicalPlanBuilder, ScalarUDF},
     };
-    use expect_test::expect;
+    use expect_test::{expect, Expect};
+    use object_store::memory::InMemory;
     use test_log::test;
+    use tokio::sync::oneshot;
 
     use crate::{
-        cid_string::CidString, conclusion_events_to_record_batch, schemas, ConclusionData,
-        ConclusionEvent, ConclusionInit, ConclusionTime,
+        cid_string::CidString, conclusion_events_to_record_batch, schemas, session_from_config,
+        tests::MockConclusionFeed, ConclusionData, ConclusionEvent, ConclusionFeedSource,
+        ConclusionInit, ConclusionTime, Config, CONCLUSION_FEED_TABLE,
     };
 
     async fn do_test(conclusion_feed: RecordBatch) -> anyhow::Result<impl std::fmt::Display> {
-        do_pass(init_ctx().await?, conclusion_feed).await
+        do_pass(init_ctx().await?, conclusion_feed, 1_000).await
     }
 
     async fn init_ctx() -> anyhow::Result<SessionContext> {
-        let ctx = SessionContext::new();
-        ctx.execute_logical_plan(LogicalPlan::Ddl(DdlStatement::CreateMemoryTable(
-            CreateMemoryTable {
-                name: "doc_state".into(),
-                constraints: Constraints::empty(),
-                input: LogicalPlan::EmptyRelation(EmptyRelation {
-                    produce_one_row: false,
-                    schema: Arc::new(schemas::doc_state().try_into().unwrap()),
-                })
-                .into(),
-                if_not_exists: false,
-                or_replace: false,
-                column_defaults: vec![],
-            },
-        )))
-        .await?;
-        Ok(ctx)
+        session_from_config(Config {
+            conclusion_feed: MockConclusionFeed::new().into(),
+            object_store_bucket_name: "test_bucket".to_string(),
+            object_store: Arc::new(InMemory::new()),
+        })
+        .await
     }
 
     async fn init_ctx_cont(conclusion_feed: RecordBatch) -> anyhow::Result<SessionContext> {
-        let ctx = SessionContext::new();
-        // Register the "ceramic" catalog
-        let schema_provider = Arc::new(MemorySchemaProvider::new());
-        let catalog_provider = Arc::new(MemoryCatalogProvider::new());
-        let _ = catalog_provider.register_schema("v0", schema_provider.clone());
-        ctx.register_catalog("ceramic", catalog_provider);
-        ctx.execute_logical_plan(LogicalPlan::Ddl(DdlStatement::CreateMemoryTable(
-            CreateMemoryTable {
-                name: "doc_state".into(),
-                constraints: Constraints::empty(),
-                input: LogicalPlan::EmptyRelation(EmptyRelation {
-                    produce_one_row: false,
-                    schema: Arc::new(schemas::doc_state().try_into().unwrap()),
-                })
-                .into(),
-                if_not_exists: false,
-                or_replace: false,
-                column_defaults: vec![],
-            },
-        )))
-        .await?;
-        let table = MemTable::try_new(conclusion_feed.schema(), vec![vec![conclusion_feed]])?;
-        let _ = ctx.register_table(
-            TableReference::Full {
-                catalog: "ceramic".into(),
-                schema: "v0".into(),
-                table: "conclusion_feed".into(),
-            },
-            Arc::new(table),
-        );
-        Ok(ctx)
+        session_from_config(Config {
+            conclusion_feed: ConclusionFeedSource::<MockConclusionFeed>::InMemory(
+                MemTable::try_new(schemas::conclusion_feed(), vec![vec![conclusion_feed]])?,
+            ),
+            object_store_bucket_name: "test_bucket".to_string(),
+            object_store: Arc::new(InMemory::new()),
+        })
+        .await
     }
 
     async fn do_pass(
         ctx: SessionContext,
         conclusion_feed: RecordBatch,
+        max_cached_rows: usize,
     ) -> anyhow::Result<impl std::fmt::Display> {
         // Setup conclusion_feed table from RecordBatch
         let provider = MemTable::try_new(conclusion_feed.schema(), vec![vec![conclusion_feed]])?;
         let conclusion_feed = DataFrame::new(
             ctx.state(),
             LogicalPlanBuilder::scan(
-                "conclusion_feed",
+                CONCLUSION_FEED_TABLE,
                 provider_as_source(Arc::new(provider)),
                 None,
             )?
             .build()?,
         );
-        process_feed_batch(ctx.clone(), conclusion_feed).await?;
+        process_feed_batch(ctx.clone(), conclusion_feed, max_cached_rows).await?;
         let cid_string = Arc::new(ScalarUDF::from(CidString::new()));
         let doc_state = ctx
             .table("doc_state")
@@ -347,6 +341,7 @@ mod tests {
                     .alias("event_cid"),
                 col("state"),
             ])?
+            .sort(vec![col("index").sort(true, true)])?
             .collect()
             .await?;
         Ok(pretty_format_batches(&doc_state)?)
@@ -354,34 +349,54 @@ mod tests {
 
     async fn do_run_continuous(
         conclusion_feed: RecordBatch,
-    ) -> anyhow::Result<impl std::fmt::Display> {
+        expected_batches: Expect,
+    ) -> anyhow::Result<()> {
         let ctx = init_ctx_cont(conclusion_feed).await?;
-        let shutdown_signal = tokio::time::sleep(tokio::time::Duration::from_millis(100));
-        run_continuous_stream(ctx.clone(), shutdown_signal, 1).await?;
-        let cid_string = Arc::new(ScalarUDF::from(CidString::new()));
-        let doc_state = ctx
-            .table("doc_state")
-            .await?
-            .select(vec![
-                col("index"),
-                Expr::ScalarFunction(ScalarFunction::new_udf(
-                    cid_string.clone(),
-                    vec![col("stream_cid")],
-                ))
-                .alias("stream_cid"),
-                col("event_type"),
-                col("controller"),
-                col("dimensions"),
-                Expr::ScalarFunction(ScalarFunction::new_udf(
-                    cid_string,
-                    vec![col("doc_state.event_cid")],
-                ))
-                .alias("event_cid"),
-                col("state"),
-            ])?
-            .collect()
-            .await?;
-        Ok(pretty_format_batches(&doc_state)?)
+        let (shutdown_signal_tx, shutdown_signal_rx) = oneshot::channel::<()>();
+        let handle = tokio::spawn(run_continuous_stream(
+            ctx.clone(),
+            async move {
+                let _ = shutdown_signal_rx.await;
+            },
+            1,
+        ));
+        let mut retries = 5;
+        let mut batches = String::new();
+        while retries > 0 {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            retries -= 1;
+            let cid_string = Arc::new(ScalarUDF::from(CidString::new()));
+            let doc_state = ctx
+                .table("doc_state")
+                .await?
+                .select(vec![
+                    col("index"),
+                    Expr::ScalarFunction(ScalarFunction::new_udf(
+                        cid_string.clone(),
+                        vec![col("stream_cid")],
+                    ))
+                    .alias("stream_cid"),
+                    col("event_type"),
+                    col("controller"),
+                    col("dimensions"),
+                    Expr::ScalarFunction(ScalarFunction::new_udf(
+                        cid_string,
+                        vec![col("doc_state.event_cid")],
+                    ))
+                    .alias("event_cid"),
+                    col("state"),
+                ])?
+                .sort(vec![col("index").sort(true, true)])?
+                .collect()
+                .await?;
+            batches = pretty_format_batches(&doc_state)?.to_string();
+            if expected_batches.data() == batches {
+                break;
+            }
+        }
+        expected_batches.assert_eq(&batches);
+        let _ = shutdown_signal_tx.send(());
+        handle.await?
     }
 
     #[tokio::test]
@@ -575,6 +590,7 @@ mod tests {
                 previous: vec![],
                 data: r#"{"metadata":{"foo":1,"shouldIndex":true},"data":{"a":0}}"#.into(),
             })])?,
+            1_000,
         )
         .await?;
         expect![[r#"
@@ -605,6 +621,7 @@ mod tests {
                     "baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi",
                 )?],
             })])?,
+            1_000,
         )
         .await?;
         expect![[r#"
@@ -637,6 +654,7 @@ mod tests {
                 )?],
                 data: r#"{"metadata":{"shouldIndex":false},"data":[{"op":"replace", "path": "/a", "value":1}]}"#.into(),
             })])?,
+            1_000,
         )
         .await?;
         expect![[r#"
@@ -673,6 +691,7 @@ mod tests {
                 previous: vec![],
                 data: r#"{"metadata":{"foo":1,"shouldIndex":true},"data":{"a":0}}"#.into(),
             })])?,
+            1_000,
         )
         .await?;
         expect![[r#"
@@ -726,6 +745,7 @@ mod tests {
                     data: r#"{"metadata":{"shouldIndex":false},"data":[{"op":"replace", "path": "/a", "value":1}]}"#.into(),
                 }),
             ])?,
+            1_000,
         )
         .await?;
         expect![[r#"
@@ -740,7 +760,7 @@ mod tests {
     }
     #[test(tokio::test)]
     async fn multiple_data_events_continuous() -> anyhow::Result<()> {
-        let doc_state = do_run_continuous(conclusion_events_to_record_batch(&[
+        do_run_continuous(conclusion_events_to_record_batch(&[
             ConclusionEvent::Data(ConclusionData {
                 index: 1,
                 event_cid: Cid::from_str(
@@ -781,16 +801,37 @@ mod tests {
                 )?],
                 data: r#"{"metadata":{"shouldIndex":false},"data":[{"op":"replace", "path": "/a", "value":1}]}"#.into(),
             }),
-        ])?)
-        .await?;
-
+            ConclusionEvent::Data(ConclusionData {
+                index: 3,
+                event_cid: Cid::from_str(
+                    "baeabeic2caccyfigwadnncpyko7hcdbr66dkf4jyzeoh4dbhfebp77hchu",
+                )?,
+                init: ConclusionInit {
+                    stream_cid: Cid::from_str(
+                        "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
+                    )?,
+                    stream_type: StreamIdType::Model as u8,
+                    controller: "did:key:bob".to_string(),
+                    dimensions: vec![
+                        ("controller".to_string(), b"did:key:bob".to_vec()),
+                        ("model".to_string(), b"model".to_vec()),
+                    ],
+                },
+                previous: vec![Cid::from_str(
+                    "baeabeifwi4ddwafoqe6htkx3g5gtjz5adapj366w6mraut4imk2ljwu3du",
+                )?],
+                data: r#"{"metadata":{},"data":[{"op":"replace", "path": "/a", "value":2}]}"#.into(),
+            }),
+        ])?,
         expect![[r#"
             +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+-----------------------------------------------------------+
             | index | stream_cid                                                  | event_type | controller  | dimensions                                              | event_cid                                                   | state                                                     |
             +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+-----------------------------------------------------------+
             | 1     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | {"metadata":{"foo":1,"shouldIndex":true},"data":{"a":0}}  |
             | 2     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeifwi4ddwafoqe6htkx3g5gtjz5adapj366w6mraut4imk2ljwu3du | {"metadata":{"foo":1,"shouldIndex":false},"data":{"a":1}} |
-            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+-----------------------------------------------------------+"#]].assert_eq(&doc_state.to_string());
-        Ok(())
+            | 3     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeic2caccyfigwadnncpyko7hcdbr66dkf4jyzeoh4dbhfebp77hchu | {"metadata":{"foo":1,"shouldIndex":false},"data":{"a":2}} |
+            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+-----------------------------------------------------------+"#]],
+            )
+        .await
     }
 }

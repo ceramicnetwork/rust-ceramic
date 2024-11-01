@@ -19,9 +19,7 @@ use test_log::test;
 use tokio::net::TcpListener;
 use tonic::{async_trait, transport::Channel};
 
-/// Return a [`Channel`] connected to the TestServer
-#[allow(dead_code)]
-pub async fn channel(addr: &SocketAddr) -> Channel {
+async fn channel(addr: &SocketAddr) -> Channel {
     let url = format!("http://{addr}");
     let uri: Uri = url.parse().expect("Valid URI");
     Channel::builder(uri)
@@ -72,7 +70,7 @@ async fn execute_flight(
         batches.append(&mut endpoint_batches);
     }
 
-    Ok(concat_batches(&schema, &batches)?)
+    Ok(concat_batches(&schema, &batches).context("concat_batches for output")?)
 }
 
 mock! {
