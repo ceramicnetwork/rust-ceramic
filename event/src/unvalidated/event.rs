@@ -515,7 +515,7 @@ mod tests {
 
     use cid::Cid;
     use ipld_core::ipld::Ipld;
-    use test_log::test;
+    use test_pretty_log::test;
 
     use crate::unvalidated::tests::{
         SIGNED_INIT_EVENT_CID, TIME_EVENT_CAR_MULTI_EVENT_BATCH, UNSIGNED_INIT_NO_SEP_CAR,

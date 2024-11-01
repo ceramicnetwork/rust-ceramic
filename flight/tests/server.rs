@@ -15,7 +15,7 @@ use expect_test::expect;
 use futures::TryStreamExt as _;
 use http::Uri;
 use mockall::{mock, predicate};
-use test_log::test;
+use test_pretty_log::test;
 use tokio::net::TcpListener;
 use tonic::{async_trait, transport::Channel};
 

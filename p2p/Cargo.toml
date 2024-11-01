@@ -72,7 +72,7 @@ features = [
 ceramic-event-svc.workspace = true
 criterion2.workspace = true
 rand_chacha.workspace = true
-test-log.workspace = true
+test-pretty-log.workspace = true
 
 [[bench]]
 name = "lru_cache"

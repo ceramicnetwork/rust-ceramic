@@ -33,5 +33,5 @@ serde_ipld_dagjson.workspace = true
 tokio = { workspace = true, features = ["fs", "macros", "rt"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
-test-log.workspace = true
+test-pretty-log.workspace = true
 expect-test.workspace = true

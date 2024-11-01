@@ -602,7 +602,7 @@ impl OrderingState {
 mod test {
     use crate::store::EventInsertable;
     use ceramic_sql::sqlite::SqlitePool;
-    use test_log::test;
+    use test_pretty_log::test;
 
     use crate::{
         event::validator::{UnvalidatedEvent, ValidatedEvent},

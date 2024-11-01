@@ -38,7 +38,7 @@ unsigned-varint.workspace = true
 tokio = { workspace = true, features = ["macros", "rt"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
-test-log.workspace = true
+test-pretty-log.workspace = true
 expect-test.workspace = true
 
 [package.metadata.cargo-machete]

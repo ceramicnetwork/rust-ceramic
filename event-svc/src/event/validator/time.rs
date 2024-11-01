@@ -115,7 +115,7 @@ mod test {
     use cid::Cid;
     use ipld_core::ipld::Ipld;
     use mockall::{mock, predicate};
-    use test_log::test;
+    use test_pretty_log::test;
 
     use super::*;
 

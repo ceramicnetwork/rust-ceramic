@@ -363,7 +363,7 @@ mod tests {
     use ipld_core::codec::Codec;
     use ipld_dagpb::DagPbCodec;
     use mockall::predicate;
-    use test_log::test;
+    use test_pretty_log::test;
 
     use expect_test::expect;
 

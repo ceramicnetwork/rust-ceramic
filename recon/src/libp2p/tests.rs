@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use ceramic_core::NodeId;
 use libp2p::{metrics::Registry, PeerId, Swarm};
 use libp2p_swarm_test::SwarmExt;
-use test_log::test;
+use test_pretty_log::test;
 use tracing::info;
 
 /// An implementation of a Store that stores keys in an in-memory BTree and throws errors if desired.

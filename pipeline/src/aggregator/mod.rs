@@ -248,7 +248,8 @@ mod tests {
         },
     };
     use expect_test::expect;
-    use test_log::test;
+    use object_store::memory::InMemory;
+    use test_pretty_log::test;
 
     use crate::{
         cid_string::CidString, conclusion_events_to_record_batch, schemas, ConclusionData,

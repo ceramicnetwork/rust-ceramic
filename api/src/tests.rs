@@ -21,7 +21,7 @@ use expect_test::expect;
 use mockall::{mock, predicate};
 use multibase::Base;
 use recon::Key;
-use test_log::test;
+use test_pretty_log::test;
 
 struct Context;
 

@@ -101,7 +101,7 @@ mod test {
 
     use ceramic_event::unvalidated;
     use ipld_core::ipld::Ipld;
-    use test_log::test;
+    use test_pretty_log::test;
 
     use crate::{
         cacao_verifier::Verifier,

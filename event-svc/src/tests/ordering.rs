@@ -5,7 +5,7 @@ use ceramic_core::{EventId, NodeId};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use recon::ReconItem;
-use test_log::test;
+use test_pretty_log::test;
 
 use crate::{
     tests::{check_deliverable, get_events},

@@ -24,7 +24,7 @@ use futures::{ready, Future, Sink, Stream};
 use pin_project::pin_project;
 use prometheus_client::registry::Registry;
 use serde::{Deserialize, Serialize};
-use test_log::test;
+use test_pretty_log::test;
 use tokio::sync::mpsc::channel;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::PollSender;

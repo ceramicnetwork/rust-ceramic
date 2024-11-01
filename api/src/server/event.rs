@@ -131,7 +131,7 @@ mod tests {
     use async_trait::async_trait;
     use expect_test::{expect, Expect};
     use mockall::{mock, predicate};
-    use test_log::test;
+    use test_pretty_log::test;
 
     async fn test_event_id_from_car(
         event_data: &str,

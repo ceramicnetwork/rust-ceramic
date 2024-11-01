@@ -277,7 +277,7 @@ impl EventValidator {
 #[cfg(test)]
 mod test {
     use ceramic_sql::sqlite::SqlitePool;
-    use test_log::test;
+    use test_pretty_log::test;
 
     use crate::tests::{build_recon_item_with_controller, get_n_events};
 

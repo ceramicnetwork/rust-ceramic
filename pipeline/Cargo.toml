@@ -32,5 +32,5 @@ tracing.workspace = true
 url.workspace = true
 
 [dev-dependencies]
-test-log = "0.2.16"
+test-pretty-log.workspace = true
 ceramic-arrow-test.workspace = true

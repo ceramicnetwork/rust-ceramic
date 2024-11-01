@@ -224,7 +224,7 @@ mod test {
     use base64::Engine as _;
     use ceramic_event::unvalidated;
     use ipld_core::ipld::Ipld;
-    use test_log::test;
+    use test_pretty_log::test;
 
     #[test]
     fn test_siwx_messages() {

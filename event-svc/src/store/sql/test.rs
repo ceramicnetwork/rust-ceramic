@@ -12,7 +12,7 @@ use ipld_core::codec::Codec;
 use ipld_core::ipld::Ipld;
 use multihash_codetable::{Code, MultihashDigest};
 use serde_ipld_dagcbor::codec::DagCborCodec;
-use test_log::test;
+use test_pretty_log::test;
 
 use crate::store::{EventAccess, EventInsertable, SqlitePool};
 

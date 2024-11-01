@@ -2141,7 +2141,7 @@ dependencies = [
  "serde",
  "serde_ipld_dagcbor",
  "swagger",
- "test-log",
+ "test-pretty-log",
  "tikv-jemalloc-ctl",
  "tokio",
  "tracing",
@@ -2227,7 +2227,7 @@ dependencies = [
  "serde_json",
  "ssh-key",
  "ssi",
- "test-log",
+ "test-pretty-log",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -2254,7 +2254,7 @@ dependencies = [
  "serde_ipld_dagjson",
  "serde_json",
  "ssi",
- "test-log",
+ "test-pretty-log",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -2297,7 +2297,7 @@ dependencies = [
  "serde",
  "serde_ipld_dagcbor",
  "sqlx",
- "test-log",
+ "test-pretty-log",
  "thiserror",
  "tmpdir",
  "tokio",
@@ -2325,7 +2325,7 @@ dependencies = [
  "http 1.1.0",
  "mockall",
  "object_store",
- "test-log",
+ "test-pretty-log",
  "tokio",
  "tokio-stream",
  "tonic 0.12.3",
@@ -2355,7 +2355,7 @@ dependencies = [
  "serde",
  "serde_ipld_dagcbor",
  "sqlx",
- "test-log",
+ "test-pretty-log",
  "thiserror",
  "tmpdir",
  "tokio",
@@ -2395,7 +2395,7 @@ dependencies = [
  "serde_ipld_dagjson",
  "serde_json",
  "swagger",
- "test-log",
+ "test-pretty-log",
  "thiserror",
  "tokio",
  "tracing",
@@ -2507,7 +2507,7 @@ dependencies = [
  "signal-hook",
  "signal-hook-tokio",
  "swagger",
- "test-log",
+ "test-pretty-log",
  "tikv-jemallocator",
  "tokio",
  "tokio-metrics",
@@ -2547,7 +2547,7 @@ dependencies = [
  "serde",
  "ssh-key",
  "tempfile",
- "test-log",
+ "test-pretty-log",
  "tokio",
  "tokio-stream",
  "tracing",
@@ -2579,7 +2579,7 @@ dependencies = [
  "object_store",
  "serde",
  "serde_json",
- "test-log",
+ "test-pretty-log",
  "tokio",
  "tracing",
  "url",
@@ -2620,7 +2620,7 @@ dependencies = [
  "serde_json",
  "sha3",
  "ssi",
- "test-log",
+ "test-pretty-log",
  "tokio",
  "tracing",
  "unsigned-varint 0.8.0",
@@ -4276,15 +4276,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "env_filter"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4f2c92ceda6ceec50f43169f9ee8424fe2db276791afde7b2cd8bc084cb376ab"
-dependencies = [
- "log",
-]
-
-[[package]]
 name = "env_logger"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4305,18 +4296,6 @@ checksum = "a19187fea3ac7e84da7dacf48de0c45d63c6a76f9490dae389aead16c243fce3"
 dependencies = [
  "log",
  "regex",
-]
-
-[[package]]
-name = "env_logger"
-version = "0.11.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e13fa619b91fb2381732789fc5de83b45675e882f66623b7d8cb4f643017018d"
-dependencies = [
- "anstream",
- "anstyle",
- "env_filter",
- "log",
 ]
 
 [[package]]
@@ -5730,7 +5709,7 @@ dependencies = [
  "prost-build",
  "rand 0.8.5",
  "smallvec",
- "test-log",
+ "test-pretty-log",
  "thiserror",
  "tokio",
  "tokio-context",
@@ -9198,7 +9177,7 @@ dependencies = [
  "serde",
  "serde_cbor",
  "serde_json",
- "test-log",
+ "test-pretty-log",
  "thiserror",
  "tokio",
  "tokio-stream",
@@ -11371,21 +11350,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3369f5ac52d5eb6ab48c6b4ffdc8efbcad6b89c765749064ba298f2c68a16a76"
 
 [[package]]
-name = "test-log"
-version = "0.2.16"
+name = "test-pretty-log"
+version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3dffced63c2b5c7be278154d76b479f9f9920ed34e7574201407f0b14e2bbb93"
+checksum = "16c76dcd6c0458b617334d2a25b740f3db84e5fcce17e5b20c2dab3a51b03cbe"
 dependencies = [
- "env_logger 0.11.5",
- "test-log-macros",
+ "test-pretty-log-macros",
+ "tracing",
  "tracing-subscriber",
 ]
 
 [[package]]
-name = "test-log-macros"
-version = "0.2.16"
+name = "test-pretty-log-macros"
+version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5999e24eaa32083191ba4e425deb75cdf25efefabe5aaccb7446dd0d4122a3f5"
+checksum = "341db2aae8ed42d9e0d2722b46d36d9beafdb564f7b916df24766ab27f0eded4"
 dependencies = [
  "proc-macro2",
  "quote",

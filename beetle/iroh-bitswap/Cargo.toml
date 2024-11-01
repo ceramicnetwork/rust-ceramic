@@ -48,7 +48,7 @@ libp2p = { workspace = true, features = ["yamux", "noise", "tcp", "tokio"] }
 tokio = { workspace = true, features = ["macros", "net", "rt"] }
 tokio-util = { workspace = true, features = ["compat"] }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
-test-log.workspace = true
+test-pretty-log.workspace = true
 
 
 [[bench]]

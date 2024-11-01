@@ -637,7 +637,7 @@ mod tests {
     use libp2p::yamux;
     use libp2p::{core::muxing::StreamMuxerBox, swarm};
     use libp2p::{noise, PeerId, Swarm, Transport};
-    use test_log::test;
+    use test_pretty_log::test;
     use tokio::sync::{mpsc, RwLock};
     use tracing::{info, trace};
 

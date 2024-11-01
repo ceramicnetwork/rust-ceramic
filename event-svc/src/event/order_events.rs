@@ -152,7 +152,7 @@ mod test {
     use rand::seq::SliceRandom;
     use rand::thread_rng;
     use recon::ReconItem;
-    use test_log::test;
+    use test_pretty_log::test;
 
     use super::*;
 

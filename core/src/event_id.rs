@@ -461,7 +461,7 @@ mod tests {
     use cid::multibase::{self, Base};
     use expect_test::expect;
     use std::str::FromStr;
-    use test_log::test;
+    use test_pretty_log::test;
 
     #[test]
     fn blessing() {

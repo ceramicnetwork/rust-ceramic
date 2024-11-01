@@ -39,4 +39,4 @@ alloy = { version = "0.4", features = ["k256", "provider-http", "rpc-types"] }
 [dev-dependencies]
 ceramic-car.workspace = true
 tracing.workspace = true
-test-log.workspace = true
+test-pretty-log.workspace = true

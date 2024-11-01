@@ -11,7 +11,7 @@ use futures::{pin_mut, stream::BoxStream, StreamExt as _, TryStreamExt as _};
 use ipld_core::{ipld, ipld::Ipld};
 use rand::{thread_rng, Rng, RngCore};
 use recon::Key;
-use test_log::test;
+use test_pretty_log::test;
 
 use ceramic_car::CarReader;
 use ceramic_core::{DidDocument, EventId, Network, SerializeExt, StreamId};

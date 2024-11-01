@@ -412,7 +412,7 @@ mod tests {
     use ipld_core::ipld;
     use ipld_core::ipld::Ipld;
     use multibase;
-    use test_log::test;
+    use test_pretty_log::test;
 
     use super::*;
     use crate::unvalidated::signed;

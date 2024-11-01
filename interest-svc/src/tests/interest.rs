@@ -8,7 +8,7 @@ use ceramic_core::{
 use expect_test::expect;
 use rand::{thread_rng, Rng};
 use recon::{AssociativeHash, ReconItem, Sha256a};
-use test_log::test;
+use test_pretty_log::test;
 
 const SEP_KEY: &str = "model";
 const PEER_ID: &str = "1AdgHpWeBKTU3F2tUkAQqL2Y2Geh4QgHJwcWMPuiY1qiRQ";

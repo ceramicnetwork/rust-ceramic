@@ -339,7 +339,7 @@ mod tests {
     use ceramic_event::StreamIdType;
     use cid::Cid;
     use expect_test::expect;
-    use test_log::test;
+    use test_pretty_log::test;
 
     // Tests the conversion of ConclusionEvents to Arrow RecordBatch.
     //

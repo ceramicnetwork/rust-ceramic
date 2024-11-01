@@ -14,7 +14,7 @@ use itertools::Itertools;
 use prettytable::{Cell, Row, Table};
 use recon::Sha256a;
 use recon::{InsertResult, ReconItem};
-use test_log::test;
+use test_pretty_log::test;
 
 use super::*;
 

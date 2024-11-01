@@ -27,7 +27,7 @@ ceramic-arrow-test.workspace = true
 ceramic-pipeline.workspace = true
 expect-test.workspace = true
 tokio = { workspace = true, features = ["macros", "rt"] }
-test-log.workspace = true
+test-pretty-log.workspace = true
 http.workspace = true
 tokio-stream = { workspace = true, features = ["net"] }
 mockall.workspace = true

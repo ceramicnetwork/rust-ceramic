@@ -133,7 +133,7 @@ fn issuer_equals(did_a: &str, did_b: &str) -> bool {
 #[cfg(test)]
 mod test {
     use ceramic_event::unvalidated;
-    use test_log::test;
+    use test_pretty_log::test;
 
     use super::*;
 

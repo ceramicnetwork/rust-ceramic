@@ -47,7 +47,7 @@ impl PkhSolana {
 
 #[cfg(test)]
 mod test {
-    use test_log::test;
+    use test_pretty_log::test;
 
     use crate::{
         test::{get_test_event, verify_event_cacao},

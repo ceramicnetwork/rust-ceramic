@@ -154,7 +154,7 @@ mod tests {
     use super::*;
     use ssi::did::DIDMethod;
     use ssi::did::VerificationMethod;
-    use test_log::test;
+    use test_pretty_log::test;
 
     #[test(tokio::test)]
     async fn should_convert_did_key_generated_without_vm() {
