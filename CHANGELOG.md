@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.41.0] - 2024-11-04
+
+### 🚀 Features
+
+- Turn on event validation by default (#562)
+
+### 🐛 Bug Fixes
+
+- Correct path to latest tarball (#566)
+- Size 1 anchor trees (#565)
+
+### 🚜 Refactor
+
+- Modify ethereum rpc trait for hoku support (#550)
+- Make ChainInclusion trait fully generic and change input to the raw AnchorProof (#570)
+
 ## [0.40.0] - 2024-10-17
 
 ### 🚀 Features
@@ -22,6 +38,7 @@ All notable changes to this project will be documented in this file.
 ### ⚙️ Miscellaneous Tasks
 
 - Record the per item duration of an insert_many request (#551)
+- Version v0.40.0 (#564)
 
 ## [0.39.0] - 2024-10-07
 
