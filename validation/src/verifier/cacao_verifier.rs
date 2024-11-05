@@ -129,7 +129,7 @@ impl Verifier for Capability {
         {
             Ok(())
         } else {
-            bail!("capability does not have appropriate permissions to update this stream");
+            bail!("Capability does not have appropriate permissions to update this stream");
         }
     }
 }
