@@ -26,6 +26,8 @@ Method | HTTP request | Description
 ****](default_api.md#) | **POST** /interests/{sort_key}/{sort_value} | Register interest for a sort key
 ****](default_api.md#) | **GET** /liveness | Test the liveness of the Ceramic node
 ****](default_api.md#) | **OPTIONS** /liveness | cors
+****](default_api.md#) | **GET** /streams/{stream_id} | Get stream state
+****](default_api.md#) | **OPTIONS** /streams/{stream_id} | cors
 ****](default_api.md#) | **GET** /version | Get the version of the Ceramic node
 ****](default_api.md#) | **OPTIONS** /version | cors
 ****](default_api.md#) | **POST** /version | Get the version of the Ceramic node
@@ -583,6 +585,56 @@ cors
 
 ### Required Parameters
 This endpoint does not need any parameter.
+
+### Return type
+
+ (empty response body)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: Not defined
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# ****
+> models::StreamState (stream_id)
+Get stream state
+
+### Required Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+  **stream_id** | **String**| Multibase encoded stream ID | 
+
+### Return type
+
+[**models::StreamState**](StreamState.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: application/json, text/plain
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# ****
+> (stream_id)
+cors
+
+### Required Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+  **stream_id** | **String**| Multibase encoded stream ID | 
 
 ### Return type
 

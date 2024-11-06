@@ -10,7 +10,8 @@ use ceramic_api_server::{
     FeedEventsOptionsResponse, FeedResumeTokenGetResponse, FeedResumeTokenOptionsResponse,
     InterestsOptionsResponse, InterestsPostResponse, InterestsSortKeySortValueOptionsResponse,
     InterestsSortKeySortValuePostResponse, LivenessGetResponse, LivenessOptionsResponse,
-    VersionGetResponse, VersionOptionsResponse, VersionPostResponse,
+    StreamsStreamIdGetResponse, StreamsStreamIdOptionsResponse, VersionGetResponse,
+    VersionOptionsResponse, VersionPostResponse,
 };
 use clap::{App, Arg};
 #[allow(unused_imports)]
@@ -60,6 +61,8 @@ fn main() {
                     "InterestsSortKeySortValuePost",
                     "LivenessGet",
                     "LivenessOptions",
+                    "StreamsStreamIdGet",
+                    "StreamsStreamIdOptions",
                     "VersionGet",
                     "VersionOptions",
                     "VersionPost",
@@ -314,6 +317,23 @@ fn main() {
         }
         Some("LivenessOptions") => {
             let result = rt.block_on(client.liveness_options());
+            info!(
+                "{:?} (X-Span-ID: {:?})",
+                result,
+                (client.context() as &dyn Has<XSpanIdString>).get().clone()
+            );
+        }
+        Some("StreamsStreamIdGet") => {
+            let result = rt.block_on(client.streams_stream_id_get("stream_id_example".to_string()));
+            info!(
+                "{:?} (X-Span-ID: {:?})",
+                result,
+                (client.context() as &dyn Has<XSpanIdString>).get().clone()
+            );
+        }
+        Some("StreamsStreamIdOptions") => {
+            let result =
+                rt.block_on(client.streams_stream_id_options("stream_id_example".to_string()));
             info!(
                 "{:?} (X-Span-ID: {:?})",
                 result,

@@ -1612,6 +1612,217 @@ impl std::convert::TryFrom<hyper::header::HeaderValue> for header::IntoHeaderVal
     }
 }
 
+/// The state of a Ceramic stream as defined by the stream type aggregation and conflict resolution rules.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, validator::Validate)]
+#[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]
+pub struct StreamState {
+    /// Multibase encoding of the stream id
+    #[serde(rename = "id")]
+    pub id: String,
+
+    /// CID of the event that produced this state
+    #[serde(rename = "event_cid")]
+    pub event_cid: String,
+
+    /// Controller of the stream
+    #[serde(rename = "controller")]
+    pub controller: String,
+
+    /// Dimensions of the stream, each value is multibase encoded.
+    #[serde(rename = "dimensions")]
+    pub dimensions: serde_json::Value,
+
+    /// Multibase encoding of the data of the stream. Content is stream type specific.
+    #[serde(rename = "data")]
+    pub data: String,
+}
+
+impl StreamState {
+    #[allow(clippy::new_without_default)]
+    pub fn new(
+        id: String,
+        event_cid: String,
+        controller: String,
+        dimensions: serde_json::Value,
+        data: String,
+    ) -> StreamState {
+        StreamState {
+            id,
+            event_cid,
+            controller,
+            dimensions,
+            data,
+        }
+    }
+}
+
+/// Converts the StreamState value to the Query Parameters representation (style=form, explode=false)
+/// specified in https://swagger.io/docs/specification/serialization/
+/// Should be implemented in a serde serializer
+impl std::string::ToString for StreamState {
+    fn to_string(&self) -> String {
+        let params: Vec<Option<String>> = vec![
+            Some("id".to_string()),
+            Some(self.id.to_string()),
+            Some("event_cid".to_string()),
+            Some(self.event_cid.to_string()),
+            Some("controller".to_string()),
+            Some(self.controller.to_string()),
+            // Skipping dimensions in query parameter serialization
+            Some("data".to_string()),
+            Some(self.data.to_string()),
+        ];
+
+        params.into_iter().flatten().collect::<Vec<_>>().join(",")
+    }
+}
+
+/// Converts Query Parameters representation (style=form, explode=false) to a StreamState value
+/// as specified in https://swagger.io/docs/specification/serialization/
+/// Should be implemented in a serde deserializer
+impl std::str::FromStr for StreamState {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        /// An intermediate representation of the struct to use for parsing.
+        #[derive(Default)]
+        #[allow(dead_code)]
+        struct IntermediateRep {
+            pub id: Vec<String>,
+            pub event_cid: Vec<String>,
+            pub controller: Vec<String>,
+            pub dimensions: Vec<serde_json::Value>,
+            pub data: Vec<String>,
+        }
+
+        let mut intermediate_rep = IntermediateRep::default();
+
+        // Parse into intermediate representation
+        let mut string_iter = s.split(',');
+        let mut key_result = string_iter.next();
+
+        while key_result.is_some() {
+            let val = match string_iter.next() {
+                Some(x) => x,
+                None => {
+                    return std::result::Result::Err(
+                        "Missing value while parsing StreamState".to_string(),
+                    )
+                }
+            };
+
+            if let Some(key) = key_result {
+                #[allow(clippy::match_single_binding)]
+                match key {
+                    #[allow(clippy::redundant_clone)]
+                    "id" => intermediate_rep.id.push(
+                        <String as std::str::FromStr>::from_str(val).map_err(|x| x.to_string())?,
+                    ),
+                    #[allow(clippy::redundant_clone)]
+                    "event_cid" => intermediate_rep.event_cid.push(
+                        <String as std::str::FromStr>::from_str(val).map_err(|x| x.to_string())?,
+                    ),
+                    #[allow(clippy::redundant_clone)]
+                    "controller" => intermediate_rep.controller.push(
+                        <String as std::str::FromStr>::from_str(val).map_err(|x| x.to_string())?,
+                    ),
+                    #[allow(clippy::redundant_clone)]
+                    "dimensions" => intermediate_rep.dimensions.push(
+                        <serde_json::Value as std::str::FromStr>::from_str(val)
+                            .map_err(|x| x.to_string())?,
+                    ),
+                    #[allow(clippy::redundant_clone)]
+                    "data" => intermediate_rep.data.push(
+                        <String as std::str::FromStr>::from_str(val).map_err(|x| x.to_string())?,
+                    ),
+                    _ => {
+                        return std::result::Result::Err(
+                            "Unexpected key while parsing StreamState".to_string(),
+                        )
+                    }
+                }
+            }
+
+            // Get the next key
+            key_result = string_iter.next();
+        }
+
+        // Use the intermediate representation to return the struct
+        std::result::Result::Ok(StreamState {
+            id: intermediate_rep
+                .id
+                .into_iter()
+                .next()
+                .ok_or_else(|| "id missing in StreamState".to_string())?,
+            event_cid: intermediate_rep
+                .event_cid
+                .into_iter()
+                .next()
+                .ok_or_else(|| "event_cid missing in StreamState".to_string())?,
+            controller: intermediate_rep
+                .controller
+                .into_iter()
+                .next()
+                .ok_or_else(|| "controller missing in StreamState".to_string())?,
+            dimensions: intermediate_rep
+                .dimensions
+                .into_iter()
+                .next()
+                .ok_or_else(|| "dimensions missing in StreamState".to_string())?,
+            data: intermediate_rep
+                .data
+                .into_iter()
+                .next()
+                .ok_or_else(|| "data missing in StreamState".to_string())?,
+        })
+    }
+}
+
+// Methods for converting between header::IntoHeaderValue<StreamState> and hyper::header::HeaderValue
+
+#[cfg(any(feature = "client", feature = "server"))]
+impl std::convert::TryFrom<header::IntoHeaderValue<StreamState>> for hyper::header::HeaderValue {
+    type Error = String;
+
+    fn try_from(
+        hdr_value: header::IntoHeaderValue<StreamState>,
+    ) -> std::result::Result<Self, Self::Error> {
+        let hdr_value = hdr_value.to_string();
+        match hyper::header::HeaderValue::from_str(&hdr_value) {
+            std::result::Result::Ok(value) => std::result::Result::Ok(value),
+            std::result::Result::Err(e) => std::result::Result::Err(format!(
+                "Invalid header value for StreamState - value: {} is invalid {}",
+                hdr_value, e
+            )),
+        }
+    }
+}
+
+#[cfg(any(feature = "client", feature = "server"))]
+impl std::convert::TryFrom<hyper::header::HeaderValue> for header::IntoHeaderValue<StreamState> {
+    type Error = String;
+
+    fn try_from(hdr_value: hyper::header::HeaderValue) -> std::result::Result<Self, Self::Error> {
+        match hdr_value.to_str() {
+            std::result::Result::Ok(value) => {
+                match <StreamState as std::str::FromStr>::from_str(value) {
+                    std::result::Result::Ok(value) => {
+                        std::result::Result::Ok(header::IntoHeaderValue(value))
+                    }
+                    std::result::Result::Err(err) => std::result::Result::Err(format!(
+                        "Unable to convert header value '{}' into StreamState - {}",
+                        value, err
+                    )),
+                }
+            }
+            std::result::Result::Err(e) => std::result::Result::Err(format!(
+                "Unable to convert header: {:?} to string: {}",
+                hdr_value, e
+            )),
+        }
+    }
+}
+
 /// Version of the Ceramic node in semver format, e.g. 2.1.0
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, validator::Validate)]
 #[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]

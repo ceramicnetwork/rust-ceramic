@@ -9,14 +9,23 @@ use crate::{
 
 use anyhow::Result;
 use async_trait::async_trait;
-use ceramic_api_server::Api;
 use ceramic_api_server::{
     models::{self},
     EventsEventIdGetResponse, EventsPostResponse, ExperimentalEventsSepSepValueGetResponse,
     InterestsPostResponse, InterestsSortKeySortValuePostResponse,
 };
+use ceramic_api_server::{Api, StreamsStreamIdGetResponse};
 use ceramic_core::{Cid, Interest};
 use ceramic_core::{EventId, Network, NodeId, PeerId, StreamId};
+use ceramic_pipeline::EVENT_STATES_TABLE;
+use datafusion::arrow::array::{
+    BinaryBuilder, BinaryDictionaryBuilder, MapBuilder, MapFieldNames, RecordBatch, StringArray,
+    StringBuilder, UInt64Array, UInt8Array,
+};
+use datafusion::arrow::datatypes::Int32Type;
+use datafusion::datasource::MemTable;
+use datafusion::execution::config::SessionConfig;
+use datafusion::execution::context::SessionContext;
 use expect_test::expect;
 use mockall::{mock, predicate};
 use multibase::Base;
@@ -172,13 +181,14 @@ fn create_test_server<C, I, M>(
     network: Network,
     interest: I,
     model: Arc<M>,
+    pipeline: Option<SessionContext>,
 ) -> Server<C, I, M>
 where
     I: InterestService,
     M: EventService + 'static,
 {
     let (_, rx) = tokio::sync::broadcast::channel(1);
-    Server::new(node_id, network, interest, model, rx)
+    Server::new(node_id, network, interest, model, pipeline, rx)
 }
 
 #[test(tokio::test)]
@@ -210,7 +220,13 @@ async fn create_event() {
                 .map(|v| EventInsertResult::new_ok(v.key.clone()))
                 .collect())
         });
-    let server = create_test_server(node_id, network, mock_interest, Arc::new(mock_event_store));
+    let server = create_test_server(
+        node_id,
+        network,
+        mock_interest,
+        Arc::new(mock_event_store),
+        None,
+    );
     let resp = server
         .events_post(
             models::EventData {
@@ -256,7 +272,13 @@ async fn create_event_fails() {
                 })
                 .collect())
         });
-    let server = create_test_server(node_id, network, mock_interest, Arc::new(mock_event_store));
+    let server = create_test_server(
+        node_id,
+        network,
+        mock_interest,
+        Arc::new(mock_event_store),
+        None,
+    );
     let resp = server
         .events_post(
             models::EventData {
@@ -306,7 +328,13 @@ async fn register_interest_sort_value() {
         .times(1)
         .returning(|_| Ok(true));
     let mock_event_store = MockEventStoreTest::new();
-    let server = create_test_server(node_id, network, mock_interest, Arc::new(mock_event_store));
+    let server = create_test_server(
+        node_id,
+        network,
+        mock_interest,
+        Arc::new(mock_event_store),
+        None,
+    );
     let interest = models::Interest {
         sep: "model".to_string(),
         sep_value: model.to_owned(),
@@ -328,7 +356,13 @@ async fn register_interest_sort_value_bad_request() {
     // Setup mock expectations
     let mock_interest = MockAccessInterestStoreTest::new();
     let mock_event_store = MockEventStoreTest::new();
-    let server = create_test_server(node_id, network, mock_interest, Arc::new(mock_event_store));
+    let server = create_test_server(
+        node_id,
+        network,
+        mock_interest,
+        Arc::new(mock_event_store),
+        None,
+    );
     let interest = models::Interest {
         sep: "model".to_string(),
         sep_value: model.to_owned(),
@@ -377,7 +411,13 @@ async fn register_interest_sort_value_controller() {
         .returning(|__| Ok(true));
     let mock_event_store = MockEventStoreTest::new();
 
-    let server = create_test_server(node_id, network, mock_interest, Arc::new(mock_event_store));
+    let server = create_test_server(
+        node_id,
+        network,
+        mock_interest,
+        Arc::new(mock_event_store),
+        None,
+    );
     let resp = server
         .interests_sort_key_sort_value_post(
             "model".to_string(),
@@ -429,7 +469,13 @@ async fn register_interest_value_controller_stream() {
         .times(1)
         .returning(|__| Ok(true));
     let mock_event_store = MockEventStoreTest::new();
-    let server = create_test_server(node_id, network, mock_interest, Arc::new(mock_event_store));
+    let server = create_test_server(
+        node_id,
+        network,
+        mock_interest,
+        Arc::new(mock_event_store),
+        None,
+    );
     let resp = server
         .interests_sort_key_sort_value_post(
             "model".to_string(),
@@ -497,7 +543,13 @@ async fn get_interests() {
         });
 
     let mock_event_store = MockEventStoreTest::new();
-    let server = create_test_server(node_id, network, mock_interest, Arc::new(mock_event_store));
+    let server = create_test_server(
+        node_id,
+        network,
+        mock_interest,
+        Arc::new(mock_event_store),
+        None,
+    );
     let resp = server
         .experimental_interests_get(None, &Context)
         .await
@@ -590,6 +642,7 @@ async fn get_interests_for_peer() {
         network,
         mock_interest,
         Arc::new(mock_event_store),
+        None,
     );
     let resp = server
         .experimental_interests_get(Some(peer_id_a.to_string()), &Context)
@@ -651,7 +704,13 @@ async fn get_events_for_interest_range() {
         )
         .times(1)
         .returning(move |_, _, _| Ok(vec![(cid, vec![])]));
-    let server = create_test_server(node_id, network, mock_interest, Arc::new(mock_event_store));
+    let server = create_test_server(
+        node_id,
+        network,
+        mock_interest,
+        Arc::new(mock_event_store),
+        None,
+    );
     let resp = server
         .experimental_events_sep_sep_value_get(
             "model".to_string(),
@@ -675,7 +734,7 @@ async fn get_events_for_interest_range() {
 }
 
 #[test(tokio::test)]
-async fn test_events_event_id_get_by_event_id_success() {
+async fn events_event_id_get_by_event_id_success() {
     let node_id = NodeId::random().0;
     let network = Network::InMemory;
     let event_cid =
@@ -700,7 +759,13 @@ async fn test_events_event_id_get_by_event_id_success() {
         .times(1)
         .returning(move |_| Ok(Some(event_data.clone())));
     let mock_interest = MockAccessInterestStoreTest::new();
-    let server = create_test_server(node_id, network, mock_interest, Arc::new(mock_event_store));
+    let server = create_test_server(
+        node_id,
+        network,
+        mock_interest,
+        Arc::new(mock_event_store),
+        None,
+    );
     let result = server.events_event_id_get(event_id_str, &Context).await;
     let EventsEventIdGetResponse::Success(event) = result.unwrap() else {
         panic!("Expected EventsEventIdGetResponse::Success but got another variant");
@@ -713,8 +778,7 @@ async fn test_events_event_id_get_by_event_id_success() {
 }
 
 #[test(tokio::test)]
-
-async fn test_events_event_id_get_by_cid_success() {
+async fn events_event_id_get_by_cid_success() {
     let node_id = NodeId::random().0;
     let network = Network::InMemory;
     let event_cid =
@@ -728,7 +792,13 @@ async fn test_events_event_id_get_by_cid_success() {
         .times(1)
         .returning(move |_| Ok(Some(event_data.clone())));
     let mock_interest = MockAccessInterestStoreTest::new();
-    let server = create_test_server(node_id, network, mock_interest, Arc::new(mock_event_store));
+    let server = create_test_server(
+        node_id,
+        network,
+        mock_interest,
+        Arc::new(mock_event_store),
+        None,
+    );
     let result = server
         .events_event_id_get(event_cid.to_string(), &Context)
         .await;
@@ -740,4 +810,151 @@ async fn test_events_event_id_get_by_cid_success() {
         multibase::encode(multibase::Base::Base32Lower, event_cid.to_bytes())
     );
     assert_eq!(event.data.unwrap(), event_data_base64);
+}
+
+#[test(tokio::test)]
+async fn stream_state() {
+    let node_id = NodeId::random().0;
+    let network = Network::InMemory;
+    let mock_event_store = MockEventStoreTest::new();
+    let mock_interest = MockAccessInterestStoreTest::new();
+    let session_config = SessionConfig::new().with_default_catalog_and_schema("ceramic", "v0");
+    let pipeline = SessionContext::new_with_config(session_config);
+    pipeline
+        .register_table(
+            EVENT_STATES_TABLE,
+            Arc::new(
+                MemTable::try_new(
+                    ceramic_pipeline::schemas::event_states(),
+                    vec![vec![states()]],
+                )
+                .unwrap(),
+            ),
+        )
+        .unwrap();
+    let server = create_test_server(
+        node_id,
+        network,
+        mock_interest,
+        Arc::new(mock_event_store),
+        Some(pipeline),
+    );
+    let result = server
+        .streams_stream_id_get(
+            "k2t6wzhjp5kk3zrbu5tyfjqdrhxyvwnzmxv8htviiganzacva34pfedi5g72tp".to_string(),
+            &Context,
+        )
+        .await;
+    expect![[r#"
+        Ok(
+            Success(
+                StreamState {
+                    id: "k2t6wzhjp5kk3zrbu5tyfjqdrhxyvwnzmxv8htviiganzacva34pfedi5g72tp",
+                    event_cid: "baeabeibisehf2y3f6wgyltbs27mg4qcw75vzhunpgzorzgdklzioliwtba",
+                    controller: "did:itwasntme",
+                    dimensions: Object {
+                        "x": String("uAAEC"),
+                    },
+                    data: "ueyJtZXRhZGF0YSI6eyJzaG91bGRJbmRleCI6dHJ1ZX0sImRhdGEiOnsiYSI6M319",
+                },
+            ),
+        )
+    "#]]
+    .assert_debug_eq(&result);
+    let StreamsStreamIdGetResponse::Success(state) = result.unwrap() else {
+        unreachable!()
+    };
+    expect![[r#"
+        Ok(
+            "{\"metadata\":{\"shouldIndex\":true},\"data\":{\"a\":3}}",
+        )
+    "#]]
+    .assert_debug_eq(&String::from_utf8(multibase::decode(state.data).unwrap().1));
+}
+// helper function to generate some stream states
+fn states() -> RecordBatch {
+    let mut stream_cids = BinaryBuilder::new();
+    [
+        "k2t6wzhjp5kk3zrbu5tyfjqdrhxyvwnzmxv8htviiganzacva34pfedi5g72tp",
+        "k2t6wzhjp5kk3zrbu5tyfjqdrhxyvwnzmxv8htviiganzacva34pfedi5g72tp",
+        "k2t6wzhjp5kk3zrbu5tyfjqdrhxyvwnzmxv8htviiganzacva34pfedi5g72tp",
+        "k2t6wzhjp5kk3zrbu5tyfjqdrhxyvwnzmxv8htviiganzacva34pfedi5g72tp",
+        "k2t6wzhjp5kk0j99x8e3r4sg3r0i0n5cnwj05abi4lgya6tloq34acq6p61kbm",
+    ]
+    .iter()
+    .map(|stream_id| StreamId::from_str(stream_id).unwrap().cid.to_bytes())
+    .for_each(|bytes| stream_cids.append_value(bytes));
+    let mut event_cids = BinaryBuilder::new();
+    [
+        "baeabeifx7j2fdp4l3bziupzfaz3cbzazgooe6u2d4ksurqemjcalr6tn5m",
+        "baeabeihqh76cewevzdyex6icih26nzqmhonivuiijvr2sez25vnhv2p34i",
+        "baeabeihswjwx6plfsnlj6cpstjsfkyoftvpdl3yii4tsfyzw2kgeu7kld4",
+        "baeabeibisehf2y3f6wgyltbs27mg4qcw75vzhunpgzorzgdklzioliwtba",
+        "baeabeiep6guangcu6qqvhahmj5v2fl33wqwt7caxe3zdwse6i3v6igel6a",
+    ]
+    .iter()
+    .map(|cid| Cid::from_str(cid).unwrap().to_bytes())
+    .for_each(|bytes| event_cids.append_value(bytes));
+    let mut dimensions = MapBuilder::new(
+        Some(MapFieldNames {
+            entry: "entries".to_string(),
+            key: "key".to_string(),
+            value: "value".to_string(),
+        }),
+        StringBuilder::new(),
+        BinaryDictionaryBuilder::<Int32Type>::new(),
+    );
+    dimensions.keys().append_value("x");
+    dimensions.values().append_value([0, 1, 2]);
+    dimensions.append(true).unwrap();
+    dimensions.keys().append_value("x");
+    dimensions.values().append_value([0, 1, 2]);
+    dimensions.append(true).unwrap();
+    dimensions.keys().append_value("x");
+    dimensions.values().append_value([0, 1, 2]);
+    dimensions.append(true).unwrap();
+    dimensions.keys().append_value("x");
+    dimensions.values().append_value([0, 1, 2]);
+    dimensions.append(true).unwrap();
+    dimensions.append(false).unwrap();
+
+    let mut data = BinaryBuilder::new();
+    [
+        r#"{"metadata":{"shouldIndex":true},"data":{"a":0}}"#,
+        r#"{"metadata":{"shouldIndex":true},"data":{"a":1}}"#,
+        r#"{"metadata":{"shouldIndex":true},"data":{"a":2}}"#,
+        r#"{"metadata":{"shouldIndex":true},"data":{"a":3}}"#,
+        r#"{"metadata":null,"data":{"b":4}}"#,
+    ]
+    .iter()
+    .for_each(|s| data.append_value(s.as_bytes()));
+    RecordBatch::try_from_iter(vec![
+        (
+            "index",
+            Arc::new(UInt64Array::from_iter([0, 1, 2, 3, 4])) as _,
+        ),
+        ("stream_cid", Arc::new(stream_cids.finish()) as _),
+        (
+            "stream_type",
+            Arc::new(UInt8Array::from_iter([3, 3, 3, 3, 3])) as _,
+        ),
+        (
+            "controller",
+            Arc::new(StringArray::from(vec![
+                "did:itwasntme",
+                "did:itwasntme",
+                "did:itwasntme",
+                "did:itwasntme",
+                "did:itwasjulie",
+            ])) as _,
+        ),
+        ("dimensions", Arc::new(dimensions.finish()) as _),
+        ("event_cid", Arc::new(event_cids.finish()) as _),
+        (
+            "event_type",
+            Arc::new(UInt8Array::from_iter([0, 0, 1, 0, 0])) as _,
+        ),
+        ("data", Arc::new(data.finish()) as _),
+    ])
+    .unwrap()
 }

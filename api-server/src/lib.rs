@@ -207,6 +207,25 @@ pub enum LivenessOptionsResponse {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[must_use]
+pub enum StreamsStreamIdGetResponse {
+    /// success
+    Success(models::StreamState),
+    /// bad request
+    BadRequest(models::BadRequestResponse),
+    /// Stream not found
+    StreamNotFound(String),
+    /// Internal server error
+    InternalServerError(models::ErrorResponse),
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub enum StreamsStreamIdOptionsResponse {
+    /// cors
+    Cors,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[must_use]
 pub enum VersionGetResponse {
     /// success
     Success(models::Version),
@@ -372,6 +391,20 @@ pub trait Api<C: Send + Sync> {
     /// cors
     async fn liveness_options(&self, context: &C) -> Result<LivenessOptionsResponse, ApiError>;
 
+    /// Get stream state
+    async fn streams_stream_id_get(
+        &self,
+        stream_id: String,
+        context: &C,
+    ) -> Result<StreamsStreamIdGetResponse, ApiError>;
+
+    /// cors
+    async fn streams_stream_id_options(
+        &self,
+        stream_id: String,
+        context: &C,
+    ) -> Result<StreamsStreamIdOptionsResponse, ApiError>;
+
     /// Get the version of the Ceramic node
     async fn version_get(&self, context: &C) -> Result<VersionGetResponse, ApiError>;
 
@@ -503,6 +536,18 @@ pub trait ApiNoContext<C: Send + Sync> {
 
     /// cors
     async fn liveness_options(&self) -> Result<LivenessOptionsResponse, ApiError>;
+
+    /// Get stream state
+    async fn streams_stream_id_get(
+        &self,
+        stream_id: String,
+    ) -> Result<StreamsStreamIdGetResponse, ApiError>;
+
+    /// cors
+    async fn streams_stream_id_options(
+        &self,
+        stream_id: String,
+    ) -> Result<StreamsStreamIdOptionsResponse, ApiError>;
 
     /// Get the version of the Ceramic node
     async fn version_get(&self) -> Result<VersionGetResponse, ApiError>;
@@ -732,6 +777,26 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
     async fn liveness_options(&self) -> Result<LivenessOptionsResponse, ApiError> {
         let context = self.context().clone();
         self.api().liveness_options(&context).await
+    }
+
+    /// Get stream state
+    async fn streams_stream_id_get(
+        &self,
+        stream_id: String,
+    ) -> Result<StreamsStreamIdGetResponse, ApiError> {
+        let context = self.context().clone();
+        self.api().streams_stream_id_get(stream_id, &context).await
+    }
+
+    /// cors
+    async fn streams_stream_id_options(
+        &self,
+        stream_id: String,
+    ) -> Result<StreamsStreamIdOptionsResponse, ApiError> {
+        let context = self.context().clone();
+        self.api()
+            .streams_stream_id_options(stream_id, &context)
+            .await
     }
 
     /// Get the version of the Ceramic node

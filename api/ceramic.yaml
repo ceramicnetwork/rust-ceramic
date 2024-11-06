@@ -168,6 +168,53 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /streams/{stream_id}:
+    options:
+      summary: cors
+      parameters:
+        - name: stream_id
+          in: path
+          required: true
+          description: Multibase encoded stream ID
+          schema:
+            type: string
+      responses:
+        "200":
+          description: cors
+    get:
+      summary: Get stream state
+      parameters:
+        - name: stream_id
+          in: path
+          description: Multibase encoded stream ID
+          schema:
+            type: string
+          required: true
+      responses:
+        "200":
+          description: success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StreamState"
+        "400":
+          description: bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BadRequestResponse"
+        "404":
+          description: Stream not found
+          content:
+            text/plain:
+              schema:
+                type: string
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   "/interests/{sort_key}/{sort_value}":
     options:
       summary: cors
@@ -632,3 +679,29 @@ components:
         name:
           type: string
           description: Name of the Ceramic network
+    StreamState:
+      title: State of a Ceramic stream
+      description: The state of a Ceramic stream as defined by the stream type aggregation and conflict resolution rules.
+      type: object
+      required:
+        - id
+        - event_cid
+        - controller
+        - dimensions
+        - data
+      properties:
+        id:
+          type: string
+          description: Multibase encoding of the stream id
+        event_cid:
+          type: string
+          description: CID of the event that produced this state
+        controller:
+          type: string
+          description: Controller of the stream
+        dimensions:
+          type: object
+          description: Dimensions of the stream, each value is multibase encoded.
+        data:
+          type: string
+          description: Multibase encoding of the data of the stream. Content is stream type specific.

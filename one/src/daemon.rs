@@ -524,51 +524,53 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
     let handle = signals.handle();
 
     // Start Flight server
-    let (flight_handle, aggregator_handle) = if let Some(addr) = opts.flight_sql_bind_address {
-        let addr = addr.parse()?;
-        let feed = event_svc.clone();
-        let bucket = opts
-            .s3_bucket
-            .ok_or_else(|| anyhow!("s3_bucket option is required when exposing flight sql"))?;
-        let ctx = ceramic_pipeline::session_from_config(ceramic_pipeline::Config {
-            conclusion_feed: feed.into(),
-            object_store: Arc::new(
-                AmazonS3Builder::from_env()
-                    .with_bucket_name(&bucket)
-                    .build()?,
-            ),
-            object_store_bucket_name: bucket,
-        })
-        .await?;
+    let (pipeline_ctx, flight_handle, aggregator_handle) =
+        if let Some(addr) = opts.flight_sql_bind_address {
+            let addr = addr.parse()?;
+            let feed = event_svc.clone();
+            let bucket = opts
+                .s3_bucket
+                .ok_or_else(|| anyhow!("s3_bucket option is required when exposing flight sql"))?;
+            let ctx = ceramic_pipeline::session_from_config(ceramic_pipeline::Config {
+                conclusion_feed: feed.into(),
+                object_store: Arc::new(
+                    AmazonS3Builder::from_env()
+                        .with_bucket_name(&bucket)
+                        .build()?,
+                ),
+                object_store_bucket_name: bucket,
+            })
+            .await?;
 
-        // Start aggregator
-        let aggregator_handle = if opts.aggregator.unwrap_or_default() {
+            // Start aggregator
+            let aggregator_handle = if opts.aggregator.unwrap_or_default() {
+                let mut ss = shutdown_signal.resubscribe();
+                let ctx = ctx.clone();
+                Some(tokio::spawn(async move {
+                    if let Err(err) = ceramic_pipeline::aggregator::run(ctx, async move {
+                        let _ = ss.recv().await;
+                    })
+                    .await
+                    {
+                        error!(%err, "aggregator task failed");
+                    }
+                }))
+            } else {
+                None
+            };
+
             let mut ss = shutdown_signal.resubscribe();
-            let ctx = ctx.clone();
-            Some(tokio::spawn(async move {
-                if let Err(err) = ceramic_pipeline::aggregator::run(ctx, async move {
+            let pipeline_ctx = ctx.clone();
+            let flight_handle = tokio::spawn(async move {
+                ceramic_flight::server::run(ctx, addr, async move {
                     let _ = ss.recv().await;
                 })
                 .await
-                {
-                    error!(%err, "aggregator task failed");
-                }
-            }))
+            });
+            (Some(pipeline_ctx), aggregator_handle, Some(flight_handle))
         } else {
-            None
+            (None, None, None)
         };
-
-        let mut ss = shutdown_signal.resubscribe();
-        let flight_handle = tokio::spawn(async move {
-            ceramic_flight::server::run(ctx, addr, async move {
-                let _ = ss.recv().await;
-            })
-            .await
-        });
-        (aggregator_handle, Some(flight_handle))
-    } else {
-        (None, None)
-    };
 
     // Start anchoring if remote anchor service URL is provided
     let anchor_service_handle =
@@ -614,6 +616,7 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
         network,
         interest_api_store,
         Arc::new(model_api_store),
+        pipeline_ctx,
         shutdown_signal.resubscribe(),
     );
     if opts.authentication {
