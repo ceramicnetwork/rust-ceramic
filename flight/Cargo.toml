@@ -13,30 +13,25 @@ arrow.workspace = true
 arrow-array.workspace = true
 arrow-flight.workspace = true
 arrow-schema.workspace = true
-async-stream.workspace = true
-async-trait.workspace = true
-ceramic-event.workspace = true
-ceramic-core.workspace = true
 ceramic-pipeline.workspace = true
 cid.workspace = true
 datafusion-flight-sql-server.workspace = true
 datafusion.workspace = true
 expect-test.workspace = true
 futures.workspace = true
-int-enum.workspace = true
-ipld-core.workspace = true
-serde.workspace = true
 tonic.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
 ceramic-arrow-test.workspace = true
+ceramic-pipeline.workspace = true
 expect-test.workspace = true
 tokio = { workspace = true, features = ["macros", "rt"] }
 test-log.workspace = true
 http.workspace = true
 tokio-stream = { workspace = true, features = ["net"] }
 mockall.workspace = true
+object_store.workspace = true
 
 [package.metadata.cargo-machete]
 ignored = [

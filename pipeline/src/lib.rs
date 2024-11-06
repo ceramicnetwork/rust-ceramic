@@ -1,64 +1,63 @@
 //! Pipeline provides a set of tables of Ceramic events and transformations between them.
 
+pub mod aggregator;
 pub mod cid_string;
+mod conclusion;
 #[warn(missing_docs)]
 mod config;
 pub mod schemas;
 
-use std::{any::Any, sync::Arc};
+use std::sync::Arc;
 
-use anyhow::{anyhow, Result};
-use arrow_flight::sql::client::FlightSqlServiceClient;
-use cid_string::{CidString, CidStringList};
+use anyhow::Result;
 use datafusion::{
-    catalog::{CatalogProvider, SchemaProvider},
     datasource::{file_format::parquet::ParquetFormat, listing::ListingOptions},
-    error::DataFusionError,
-    execution::context::SessionContext,
+    execution::{config::SessionConfig, context::SessionContext},
     functions_aggregate::first_last::LastValue,
     logical_expr::{col, AggregateUDF, ScalarUDF},
 };
-use datafusion_federation::sql::{SQLFederationProvider, SQLSchemaProvider};
-use datafusion_flight_sql_table_provider::FlightSQLExecutor;
-use object_store::aws::AmazonS3ConfigKey;
-use tonic::transport::Endpoint;
 use url::Url;
 
+use cid_string::{CidString, CidStringList};
+
+pub use conclusion::{
+    conclusion_events_to_record_batch, ConclusionData, ConclusionEvent, ConclusionFeed,
+    ConclusionInit, ConclusionTime,
+};
 pub use config::Config;
 
+/// Report the list of tables in the pipeline
+pub fn tables() -> Vec<String> {
+    vec!["conclusion_feed".to_string(), "doc_state".to_string()]
+}
 /// Constructs a [`SessionContext`] configured with all tables in the pipeline.
-pub async fn session_from_config(config: impl Into<Config>) -> Result<SessionContext> {
-    let config: Config = config.into();
+pub async fn session_from_config<F: ConclusionFeed + 'static>(
+    config: impl Into<Config<F>>,
+) -> Result<SessionContext> {
+    let config: Config<F> = config.into();
 
-    // Create federated datafusion state
-    let state = datafusion_federation::default_session_state();
-    let client = new_client(config.flight_sql_endpoint.clone()).await?;
-    let executor = Arc::new(FlightSQLExecutor::new(config.flight_sql_endpoint, client));
-    let provider = Arc::new(SQLFederationProvider::new(executor));
-    let schema_provider = Arc::new(
-        SQLSchemaProvider::new_with_tables(provider, vec!["conclusion_feed".to_string()]).await?,
-    );
+    let session_config = SessionConfig::new()
+        .with_default_catalog_and_schema("ceramic", "v0")
+        .with_information_schema(true);
 
-    // Create datafusion context
-    let ctx = SessionContext::new_with_state(state);
+    let mut ctx = SessionContext::new_with_config(session_config);
+    ctx.register_table(
+        "conclusion_feed",
+        Arc::new(conclusion::FeedTable::new(config.conclusion_feed)),
+    )?;
 
     // Register various UDxFs
     ctx.register_udaf(AggregateUDF::new_from_impl(LastValue::default()));
     ctx.register_udf(ScalarUDF::new_from_impl(CidString::new()));
     ctx.register_udf(ScalarUDF::new_from_impl(CidStringList::new()));
 
-    // Register s3 object store
-    let bucket = config
-        .aws_s3_builder
-        .get_config_value(&AmazonS3ConfigKey::Bucket)
-        .ok_or_else(|| anyhow!("AWS S3 bucket must be specified"))?;
-    let s3 = config.aws_s3_builder.build()?;
-    let mut url = Url::parse("s3://")?;
-    url.set_host(Some(&bucket))?;
-    ctx.register_object_store(&url, Arc::new(s3));
+    // Register JSON functions
+    datafusion_functions_json::register_all(&mut ctx)?;
 
-    // Register federated catalog
-    ctx.register_catalog("ceramic", Arc::new(SQLCatalog { schema_provider }));
+    // Register s3 object store
+    let mut url = Url::parse("s3://")?;
+    url.set_host(Some(&config.object_store_bucket_name))?;
+    ctx.register_object_store(&url, config.object_store);
 
     // Configure doc_state listing table
     let file_format = ParquetFormat::default().with_enable_pruning(true);
@@ -79,32 +78,4 @@ pub async fn session_from_config(config: impl Into<Config>) -> Result<SessionCon
     )
     .await?;
     Ok(ctx)
-}
-/// Creates a new [FlightSqlServiceClient] for the passed endpoint. Completes the relevant auth configurations
-/// or handshake as appropriate for the passed [FlightSQLAuth] variant.
-async fn new_client(dsn: String) -> Result<FlightSqlServiceClient<tonic::transport::Channel>> {
-    let endpoint = Endpoint::new(dsn).map_err(tx_error_to_df)?;
-    let channel = endpoint.connect().await.map_err(tx_error_to_df)?;
-    Ok(FlightSqlServiceClient::new(channel))
-}
-
-fn tx_error_to_df(err: tonic::transport::Error) -> DataFusionError {
-    DataFusionError::External(format!("failed to connect: {err:?}").into())
-}
-struct SQLCatalog {
-    schema_provider: Arc<SQLSchemaProvider>,
-}
-
-impl CatalogProvider for SQLCatalog {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn schema_names(&self) -> Vec<String> {
-        vec!["v0".to_string()]
-    }
-
-    fn schema(&self, _name: &str) -> Option<Arc<dyn SchemaProvider>> {
-        Some(self.schema_provider.clone())
-    }
 }

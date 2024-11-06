@@ -6,9 +6,9 @@ use arrow_array::RecordBatch;
 use arrow_flight::{sql::client::FlightSqlServiceClient, FlightInfo};
 use arrow_schema::Schema;
 use ceramic_arrow_test::pretty_feed_from_batch;
-use ceramic_flight::{
-    server::{new_server, ConclusionFeed},
-    ConclusionData, ConclusionEvent, ConclusionInit, ConclusionTime,
+use ceramic_flight::server::new_server;
+use ceramic_pipeline::{
+    ConclusionData, ConclusionEvent, ConclusionFeed, ConclusionInit, ConclusionTime,
 };
 use cid::Cid;
 use expect_test::expect;
@@ -32,7 +32,14 @@ pub async fn channel(addr: &SocketAddr) -> Channel {
 }
 
 async fn start_server(feed: MockFeed) -> FlightSqlServiceClient<Channel> {
-    let server = new_server(Arc::new(feed)).unwrap();
+    let ctx = ceramic_pipeline::session_from_config(ceramic_pipeline::Config {
+        conclusion_feed: feed.into(),
+        object_store: Arc::new(object_store::memory::InMemory::new()),
+        object_store_bucket_name: "test_bucket".to_string(),
+    })
+    .await
+    .unwrap();
+    let server = new_server(ctx).unwrap();
     // let OS choose a free port
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();

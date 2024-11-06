@@ -15,7 +15,6 @@ members = [
     "kubo-rpc-server",
     "metadata",
     "metrics",
-    "olap",
     "one",
     "p2p",
     "pipeline",
@@ -43,6 +42,7 @@ ahash = "0.8"
 anyhow = { version = "1" }
 arrow = { version = "53", features = ["prettyprint"] }
 arrow-array = "53"
+arrow-cast = "53"
 arrow-flight = { version = "53", features = ["flight-sql-experimental"] }
 arrow-ipc = "53"
 arrow-schema = "53"
@@ -90,10 +90,6 @@ crossterm = "0.25"
 ctrlc = "3.2.2"
 dag-jose = "0.2"
 datafusion = "42"
-datafusion-federation = { git = "https://github.com/datafusion-contrib/datafusion-federation.git", features = [
-    "sql",
-], branch = "main" }
-datafusion-flight-sql-table-provider = { git = "https://github.com/datafusion-contrib/datafusion-federation.git", branch = "main" }
 datafusion-flight-sql-server = { git = "https://github.com/datafusion-contrib/datafusion-federation.git", branch = "main" }
 deadqueue = "0.2.3"
 derivative = "2.2"
@@ -148,6 +144,7 @@ multihash-derive = { version = "0.9" }
 names = { version = "0.14.0", default-features = false }
 nix = "0.26"
 num_enum = "0.5.7"
+object_store = { version = "0.11", features = ["aws"] }
 once_cell = "1.17.1"
 opentelemetry = "0.22"
 opentelemetry-otlp = "0.15"
