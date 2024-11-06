@@ -238,16 +238,17 @@ pub struct DaemonOpts {
     )]
     ethereum_rpc_urls: Vec<String>,
 
-    /// Enable the aggregator, requires Flight SQL to be enabled
+    /// Enable the aggregator, requires Flight SQL and S3 bucket to be defined.
     #[arg(
         long,
         requires = "flight_sql_bind_address",
+        requires = "s3_bucket",
         env = "CERAMIC_ONE_AGGREGATOR"
     )]
     aggregator: Option<bool>,
 
-    /// S3 bucket name.
-    /// When configured the aggregator will support storing data in S3 compatible object stores.
+    /// Name of the S3 bucket where Ceramic stores published data tables.
+    /// Requires using the experimental-features flag
     ///
     /// Credentials are read from the environment:
     ///
@@ -497,7 +498,7 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
         .await
         .map_err(|e| {
             anyhow!(
-                "Failed to start linebp2p server using addresses: {}. {}",
+                "Failed to start libp2p server using addresses: {}. {}",
                 opts.swarm_addresses.join(", "),
                 e
             )
