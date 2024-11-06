@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.41.1] - 2024-11-06
+
+### 🐛 Bug Fixes
+
+- Remove superflous $ in cacao model auth check (#573)
+- Make error message match the js-ceramic version (#574)
+
 ## [0.41.0] - 2024-11-04
 
 ### 🚀 Features
@@ -17,6 +24,10 @@ All notable changes to this project will be documented in this file.
 
 - Modify ethereum rpc trait for hoku support (#550)
 - Make ChainInclusion trait fully generic and change input to the raw AnchorProof (#570)
+
+### ⚙️ Miscellaneous Tasks
+
+- Version v0.41.0 (#572)
 
 ## [0.40.0] - 2024-10-17
 
