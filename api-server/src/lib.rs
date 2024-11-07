@@ -21,7 +21,7 @@ use swagger::{ApiError, ContextWrapper};
 type ServiceError = Box<dyn Error + Send + Sync + 'static>;
 
 pub const BASE_PATH: &str = "/ceramic";
-pub const API_VERSION: &str = "0.41.1";
+pub const API_VERSION: &str = "0.42.0";
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub enum ConfigNetworkGetResponse {
