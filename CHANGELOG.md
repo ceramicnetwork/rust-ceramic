@@ -2,12 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.42.0] - 2024-11-07
+
+### 🚀 Features
+
+- Expose all tables via flight sql (#571)
+
+### ⚙️ Miscellaneous Tasks
+
+- Use larger github runner for image builds (#577)
+
 ## [0.41.1] - 2024-11-06
 
 ### 🐛 Bug Fixes
 
 - Remove superflous $ in cacao model auth check (#573)
 - Make error message match the js-ceramic version (#574)
+
+### ⚙️ Miscellaneous Tasks
+
+- Version v0.41.1 (#575)
 
 ## [0.41.0] - 2024-11-04
 
