@@ -6,7 +6,7 @@ info:
     name: MIT
     url: https://mit-license.org/
   title: Kubo RPC API
-  version: 0.41.1
+  version: 0.41.2
 servers:
 - url: /api/v0
 paths:
