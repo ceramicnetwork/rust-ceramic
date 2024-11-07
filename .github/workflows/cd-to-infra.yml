@@ -16,7 +16,7 @@ env:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-m
     outputs:
       deploy_tag: ${{ steps.build.outputs.deploy_tag }}
     steps:
