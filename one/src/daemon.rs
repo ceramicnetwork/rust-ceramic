@@ -531,7 +531,7 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
             .s3_bucket
             .ok_or_else(|| anyhow!("s3_bucket option is required when exposing flight sql"))?;
         let ctx = ceramic_pipeline::session_from_config(ceramic_pipeline::Config {
-            conclusion_feed: feed,
+            conclusion_feed: feed.into(),
             object_store: Arc::new(
                 AmazonS3Builder::from_env()
                     .with_bucket_name(&bucket)

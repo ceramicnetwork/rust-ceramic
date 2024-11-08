@@ -1,6 +1,6 @@
 use std::{any::Any, sync::Arc};
 
-use arrow_schema::{DataType, Field, Schema, SchemaRef};
+use arrow_schema::SchemaRef;
 use async_stream::try_stream;
 use datafusion::{
     catalog::{Session, TableProvider},
@@ -14,9 +14,9 @@ use datafusion::{
     scalar::ScalarValue,
 };
 use futures::TryStreamExt as _;
-use tracing::{debug, instrument, Level};
+use tracing::{instrument, Level};
 
-use crate::conclusion::conclusion_events_to_record_batch;
+use crate::{conclusion::conclusion_events_to_record_batch, schemas::conclusion_feed};
 
 use super::ConclusionEvent;
 
@@ -55,48 +55,7 @@ impl<T> FeedTable<T> {
     pub fn new(feed: Arc<T>) -> Self {
         Self {
             feed,
-            schema: Arc::new(Schema::new(vec![
-                Field::new("index", DataType::UInt64, false),
-                Field::new("event_type", DataType::UInt8, false),
-                Field::new("stream_cid", DataType::Binary, false),
-                Field::new("stream_type", DataType::UInt8, false),
-                Field::new("controller", DataType::Utf8, false),
-                Field::new(
-                    // NOTE: The entire dimensions map may be null or values for a given key may
-                    // be null. No other aspect of dimensions may be null.
-                    "dimensions",
-                    DataType::Map(
-                        Field::new(
-                            "entries",
-                            DataType::Struct(
-                                vec![
-                                    Field::new("key", DataType::Utf8, false),
-                                    Field::new(
-                                        "value",
-                                        DataType::Dictionary(
-                                            Box::new(DataType::Int32),
-                                            Box::new(DataType::Binary),
-                                        ),
-                                        true,
-                                    ),
-                                ]
-                                .into(),
-                            ),
-                            false,
-                        )
-                        .into(),
-                        false,
-                    ),
-                    true,
-                ),
-                Field::new("event_cid", DataType::Binary, false),
-                Field::new("data", DataType::Binary, true),
-                Field::new(
-                    "previous",
-                    DataType::List(Arc::new(Field::new("item", DataType::Binary, false))),
-                    true,
-                ),
-            ])),
+            schema: conclusion_feed(),
         }
     }
     fn highwater_mark_from_expr(expr: &Expr) -> Option<u64> {
@@ -152,7 +111,6 @@ impl<T: ConclusionFeed + std::fmt::Debug + 'static> TableProvider for FeedTable<
             .transpose()?
             .map(Arc::new)
             .unwrap_or_else(|| self.schema.clone());
-        debug!(?schema, "projected schema");
         Ok(Arc::new(FeedExec {
             feed: self.feed.clone(),
             schema: schema.clone(),

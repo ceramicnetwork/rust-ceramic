@@ -255,3 +255,18 @@ repository = "https://github.com/3box/rust-ceramic"
 inherits = "release"
 debug = true
 strip = "none"
+
+[patch.crates-io]
+# We need the pre-released code until this fix is part of a release https://github.com/apache/arrow-rs/pull/6645
+arrow-arith = { git = "https://github.com/apache/arrow-rs.git", branch = "master" }
+arrow-array = { git = "https://github.com/apache/arrow-rs.git", branch = "master" }
+arrow-buffer = { git = "https://github.com/apache/arrow-rs.git", branch = "master" }
+arrow-cast = { git = "https://github.com/apache/arrow-rs.git", branch = "master" }
+arrow-data = { git = "https://github.com/apache/arrow-rs.git", branch = "master" }
+arrow-flight = { git = "https://github.com/apache/arrow-rs.git", branch = "master" }
+arrow-ipc = { git = "https://github.com/apache/arrow-rs.git", branch = "master" }
+arrow-ord = { git = "https://github.com/apache/arrow-rs.git", branch = "master" }
+arrow-row = { git = "https://github.com/apache/arrow-rs.git", branch = "master" }
+arrow-schema = { git = "https://github.com/apache/arrow-rs.git", branch = "master" }
+arrow-select = { git = "https://github.com/apache/arrow-rs.git", branch = "master" }
+arrow-string = { git = "https://github.com/apache/arrow-rs.git", branch = "master" }

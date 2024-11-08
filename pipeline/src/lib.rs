@@ -1,21 +1,32 @@
 //! Pipeline provides a set of tables of Ceramic events and transformations between them.
 
 pub mod aggregator;
+mod cache_table;
 pub mod cid_string;
 mod conclusion;
 #[warn(missing_docs)]
 mod config;
 pub mod schemas;
 
+#[cfg(test)]
+pub mod tests;
+
 use std::sync::Arc;
 
 use anyhow::Result;
+use arrow::array::RecordBatch;
+use cache_table::CacheTable;
 use datafusion::{
-    datasource::{file_format::parquet::ParquetFormat, listing::ListingOptions},
+    catalog_common::MemorySchemaProvider,
+    datasource::{
+        file_format::parquet::ParquetFormat,
+        listing::{ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl},
+    },
     execution::{config::SessionConfig, context::SessionContext},
     functions_aggregate::first_last::LastValue,
     logical_expr::{col, AggregateUDF, ScalarUDF},
 };
+use schemas::doc_state;
 use url::Url;
 
 use cid_string::{CidString, CidStringList};
@@ -24,12 +35,13 @@ pub use conclusion::{
     conclusion_events_to_record_batch, ConclusionData, ConclusionEvent, ConclusionFeed,
     ConclusionInit, ConclusionTime,
 };
-pub use config::Config;
+pub use config::{ConclusionFeedSource, Config};
 
-/// Report the list of tables in the pipeline
-pub fn tables() -> Vec<String> {
-    vec!["conclusion_feed".to_string(), "doc_state".to_string()]
-}
+pub const CONCLUSION_FEED_TABLE: &str = "ceramic.v0.conclusion_feed";
+pub const DOC_STATE_TABLE: &str = "ceramic.v0.doc_state";
+pub const DOC_STATE_MEM_TABLE: &str = "ceramic._internal.doc_state_mem";
+pub const DOC_STATE_PERSISTENT_TABLE: &str = "ceramic._internal.doc_state_persistent";
+
 /// Constructs a [`SessionContext`] configured with all tables in the pipeline.
 pub async fn session_from_config<F: ConclusionFeed + 'static>(
     config: impl Into<Config<F>>,
@@ -41,10 +53,26 @@ pub async fn session_from_config<F: ConclusionFeed + 'static>(
         .with_information_schema(true);
 
     let mut ctx = SessionContext::new_with_config(session_config);
-    ctx.register_table(
-        "conclusion_feed",
-        Arc::new(conclusion::FeedTable::new(config.conclusion_feed)),
-    )?;
+    match config.conclusion_feed {
+        ConclusionFeedSource::Direct(conclusion_feed) => {
+            ctx.register_table(
+                CONCLUSION_FEED_TABLE,
+                Arc::new(conclusion::FeedTable::new(conclusion_feed)),
+            )?;
+        }
+        #[cfg(test)]
+        ConclusionFeedSource::InMemory(table) => {
+            assert_eq!(
+                schemas::conclusion_feed(),
+                datafusion::catalog::TableProvider::schema(&table)
+            );
+            ctx.register_table("conclusion_feed", Arc::new(table))?;
+        }
+    };
+    // Register the _internal schema
+    ctx.catalog("ceramic")
+        .expect("ceramic catalog should always exist")
+        .register_schema("_internal", Arc::new(MemorySchemaProvider::default()))?;
 
     // Register various UDxFs
     ctx.register_udaf(AggregateUDF::new_from_impl(LastValue::default()));
@@ -67,15 +95,33 @@ pub async fn session_from_config<F: ConclusionFeed + 'static>(
         .with_file_sort_order(vec![vec![col("index").sort(true, true)]]);
 
     // Set the path within the bucket for the doc_state table
-    const DOC_STATE_OBJECT_STORE_PATH: &str = "/ceramic/v0/doc_state/";
-    url.set_path(DOC_STATE_OBJECT_STORE_PATH);
-    ctx.register_listing_table(
-        "doc_state",
-        url.to_string(),
-        listing_options,
-        Some(schemas::doc_state()),
-        None,
-    )
-    .await?;
+    let doc_state_object_store_path = DOC_STATE_TABLE.replace('.', "/") + "/";
+    url.set_path(&doc_state_object_store_path);
+    // Register doc_state_persistent as a listing table
+    ctx.register_table(
+        DOC_STATE_PERSISTENT_TABLE,
+        Arc::new(ListingTable::try_new(
+            ListingTableConfig::new(ListingTableUrl::parse(url)?)
+                .with_listing_options(listing_options)
+                .with_schema(schemas::doc_state()),
+        )?),
+    )?;
+
+    ctx.register_table(
+        DOC_STATE_MEM_TABLE,
+        Arc::new(CacheTable::try_new(
+            doc_state(),
+            vec![vec![RecordBatch::new_empty(doc_state())]],
+        )?),
+    )?;
+
+    ctx.register_table(
+        DOC_STATE_TABLE,
+        ctx.table(DOC_STATE_MEM_TABLE)
+            .await?
+            .union(ctx.table(DOC_STATE_PERSISTENT_TABLE).await?)?
+            .into_view(),
+    )?;
+
     Ok(ctx)
 }
