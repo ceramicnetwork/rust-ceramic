@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.43.0] - 2024-11-11
+
+### 🚀 Features
+
+- Use cache table to make queries faster and writes to object store (#576)
+
 ## [0.42.0] - 2024-11-07
 
 ### 🚀 Features
@@ -11,6 +17,7 @@ All notable changes to this project will be documented in this file.
 ### ⚙️ Miscellaneous Tasks
 
 - Use larger github runner for image builds (#577)
+- Version v0.42.0 (#579)
 
 ## [0.41.1] - 2024-11-06
 
