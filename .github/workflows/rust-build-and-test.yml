@@ -103,7 +103,7 @@ jobs:
 
   correctness-tests:
     runs-on: ubuntu-latest
-    environment: github-tests-2024
+    environment: dev-qa-2024
     needs:
       - build
     steps:
