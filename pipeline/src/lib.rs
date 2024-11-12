@@ -26,7 +26,7 @@ use datafusion::{
     functions_aggregate::first_last::LastValue,
     logical_expr::{col, AggregateUDF, ScalarUDF},
 };
-use schemas::doc_state;
+use schemas::event_states;
 use url::Url;
 
 use cid_string::{CidString, CidStringList};
@@ -37,10 +37,10 @@ pub use conclusion::{
 };
 pub use config::{ConclusionFeedSource, Config};
 
-pub const CONCLUSION_FEED_TABLE: &str = "ceramic.v0.conclusion_feed";
-pub const DOC_STATE_TABLE: &str = "ceramic.v0.doc_state";
-pub const DOC_STATE_MEM_TABLE: &str = "ceramic._internal.doc_state_mem";
-pub const DOC_STATE_PERSISTENT_TABLE: &str = "ceramic._internal.doc_state_persistent";
+pub const CONCLUSION_EVENTS_TABLE: &str = "ceramic.v0.conclusion_events";
+pub const EVENT_STATES_TABLE: &str = "ceramic.v0.event_states";
+pub const EVENT_STATES_MEM_TABLE: &str = "ceramic._internal.event_states_mem";
+pub const EVENT_STATES_PERSISTENT_TABLE: &str = "ceramic._internal.event_states_persistent";
 
 /// Constructs a [`SessionContext`] configured with all tables in the pipeline.
 pub async fn session_from_config<F: ConclusionFeed + 'static>(
@@ -56,17 +56,17 @@ pub async fn session_from_config<F: ConclusionFeed + 'static>(
     match config.conclusion_feed {
         ConclusionFeedSource::Direct(conclusion_feed) => {
             ctx.register_table(
-                CONCLUSION_FEED_TABLE,
+                CONCLUSION_EVENTS_TABLE,
                 Arc::new(conclusion::FeedTable::new(conclusion_feed)),
             )?;
         }
         #[cfg(test)]
         ConclusionFeedSource::InMemory(table) => {
             assert_eq!(
-                schemas::conclusion_feed(),
+                schemas::conclusion_events(),
                 datafusion::catalog::TableProvider::schema(&table)
             );
-            ctx.register_table("conclusion_feed", Arc::new(table))?;
+            ctx.register_table(CONCLUSION_EVENTS_TABLE, Arc::new(table))?;
         }
     };
     // Register the _internal schema
@@ -87,39 +87,39 @@ pub async fn session_from_config<F: ConclusionFeed + 'static>(
     url.set_host(Some(&config.object_store_bucket_name))?;
     ctx.register_object_store(&url, config.object_store);
 
-    // Configure doc_state listing table
+    // Configure event_states listing table
     let file_format = ParquetFormat::default().with_enable_pruning(true);
 
     let listing_options = ListingOptions::new(Arc::new(file_format))
         .with_file_extension(".parquet")
         .with_file_sort_order(vec![vec![col("index").sort(true, true)]]);
 
-    // Set the path within the bucket for the doc_state table
-    let doc_state_object_store_path = DOC_STATE_TABLE.replace('.', "/") + "/";
-    url.set_path(&doc_state_object_store_path);
-    // Register doc_state_persistent as a listing table
+    // Set the path within the bucket for the event_states table
+    let event_states_object_store_path = EVENT_STATES_TABLE.replace('.', "/") + "/";
+    url.set_path(&event_states_object_store_path);
+    // Register event_states_persistent as a listing table
     ctx.register_table(
-        DOC_STATE_PERSISTENT_TABLE,
+        EVENT_STATES_PERSISTENT_TABLE,
         Arc::new(ListingTable::try_new(
             ListingTableConfig::new(ListingTableUrl::parse(url)?)
                 .with_listing_options(listing_options)
-                .with_schema(schemas::doc_state()),
+                .with_schema(schemas::event_states()),
         )?),
     )?;
 
     ctx.register_table(
-        DOC_STATE_MEM_TABLE,
+        EVENT_STATES_MEM_TABLE,
         Arc::new(CacheTable::try_new(
-            doc_state(),
-            vec![vec![RecordBatch::new_empty(doc_state())]],
+            event_states(),
+            vec![vec![RecordBatch::new_empty(event_states())]],
         )?),
     )?;
 
     ctx.register_table(
-        DOC_STATE_TABLE,
-        ctx.table(DOC_STATE_MEM_TABLE)
+        EVENT_STATES_TABLE,
+        ctx.table(EVENT_STATES_MEM_TABLE)
             .await?
-            .union(ctx.table(DOC_STATE_PERSISTENT_TABLE).await?)?
+            .union(ctx.table(EVENT_STATES_PERSISTENT_TABLE).await?)?
             .into_view(),
     )?;
 

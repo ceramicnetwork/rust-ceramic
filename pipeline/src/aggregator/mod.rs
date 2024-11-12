@@ -22,15 +22,17 @@ use datafusion::{
         WindowFunctionDefinition,
     },
     physical_plan::collect_partitioned,
-    sql::TableReference,
 };
 use std::{future::Future, sync::Arc};
 use tracing::{debug, error, instrument, Level};
 
-use crate::{schemas, Result, DOC_STATE_MEM_TABLE, DOC_STATE_PERSISTENT_TABLE};
+use crate::{
+    schemas, Result, CONCLUSION_EVENTS_TABLE, EVENT_STATES_MEM_TABLE,
+    EVENT_STATES_PERSISTENT_TABLE, EVENT_STATES_TABLE,
+};
 
 // Maximum number of rows to fetch per pass of the aggregator.
-// Minimum number of rows to have proccessed before writing a batch to object store.
+// Minimum number of rows to have processed before writing a batch to object store.
 const BATCH_SIZE: usize = 10_000;
 
 pub async fn run(ctx: SessionContext, shutdown_signal: impl Future<Output = ()>) -> Result<()> {
@@ -48,20 +50,20 @@ async fn run_continuous_stream(
 
     loop {
         tokio::select! {
-        _ = &mut shutdown_signal => {
-            debug!("Received shutdown signal, stopping continuous stream processing");
-            break;
-        }
-        result = processor.process_batch(limit) => {
-            match result {
-                Ok(()) => {
-                    // Batch processed successfully, continue to next iteration
-                    continue;
-                }
-                Err(e) => {
-                    error!("Error processing batch: {:?}", e);
-                    return Err(e);
-                }
+            _ = &mut shutdown_signal => {
+                debug!("Received shutdown signal, stopping continuous stream processing");
+                break;
+            }
+            result = processor.process_batch(limit) => {
+                match result {
+                    Ok(()) => {
+                        // Batch processed successfully, continue to next iteration
+                        continue;
+                    }
+                    Err(err) => {
+                        error!(%err, "error processing batch");
+                        return Err(err);
+                    }
                 }
             }
         }
@@ -69,7 +71,7 @@ async fn run_continuous_stream(
     Ok(())
 }
 
-/// Represents a processor for continuous stream processing of conclusion feed data.
+/// Represents a processor for continuous stream processing of conclusion event data.
 struct ContinuousStreamProcessor {
     ctx: SessionContext,
     last_processed_index: Option<u64>,
@@ -78,7 +80,7 @@ struct ContinuousStreamProcessor {
 impl ContinuousStreamProcessor {
     async fn new(ctx: SessionContext) -> Result<Self> {
         let max_index = ctx
-            .table("doc_state")
+            .table(EVENT_STATES_TABLE)
             .await?
             .select_columns(&["index"])?
             .aggregate(vec![], vec![max(col("index"))])?
@@ -103,28 +105,25 @@ impl ContinuousStreamProcessor {
 
     #[instrument(skip(self), ret ( level = Level::DEBUG ))]
     async fn process_batch(&mut self, limit: usize) -> Result<()> {
-        // Fetch the conclusion feed DataFrame
-        let mut conclusion_feed = self
-            .ctx
-            .table(TableReference::full("ceramic", "v0", "conclusion_feed"))
-            .await?
-            .select(vec![
-                col("index"),
-                col("event_type"),
-                col("stream_cid"),
-                col("controller"),
-                col("conclusion_feed.event_cid"),
-                col("dimensions"),
-                Expr::Cast(Cast::new(Box::new(col("data")), DataType::Utf8)).alias("data"),
-                col("previous"),
-            ])?;
+        // Fetch the conclusion events DataFrame
+        let mut conclusion_events = self.ctx.table(CONCLUSION_EVENTS_TABLE).await?.select(vec![
+            col("index"),
+            col("stream_cid"),
+            col("stream_type"),
+            col("controller"),
+            col("dimensions"),
+            col("event_cid"),
+            col("event_type"),
+            Expr::Cast(Cast::new(Box::new(col("data")), DataType::Utf8)).alias("data"),
+            col("previous"),
+        ])?;
         if let Some(last_index) = self.last_processed_index {
-            conclusion_feed = conclusion_feed.filter(col("index").gt(lit(last_index)))?;
+            conclusion_events = conclusion_events.filter(col("index").gt(lit(last_index)))?;
         }
-        let batch = conclusion_feed.limit(0, Some(limit))?;
+        let batch = conclusion_events.limit(0, Some(limit))?;
 
-        // Caching the data frame to use it to caluclate the max index
-        // We need to cache it because we do 2 passes over the data frame, once for process feed batch and once for calculating the max index
+        // Caching the data frame to use it to calculate the max index
+        // We need to cache it because we do 2 passes over the data frame, once for process_conclusion_events_batch and once for calculating the max index
         // We are not using batch.cache() because this loses table name information
         let batch_plan = batch.clone().create_physical_plan().await?;
         let task_ctx = Arc::new(batch.task_ctx());
@@ -133,13 +132,13 @@ impl ContinuousStreamProcessor {
         let df = DataFrame::new(
             self.ctx.state(),
             LogicalPlanBuilder::scan(
-                "conclusion_feed",
+                CONCLUSION_EVENTS_TABLE,
                 provider_as_source(Arc::new(cached_memtable)),
                 None,
             )?
             .build()?,
         );
-        process_feed_batch(self.ctx.clone(), df.clone(), limit).await?;
+        process_conclusion_events_batch(self.ctx.clone(), df.clone(), limit).await?;
 
         // Fetch the highest index from the cached DataFrame
         let highest_index = df
@@ -160,35 +159,30 @@ impl ContinuousStreamProcessor {
     }
 }
 
-// Process events from the conclusion feed, producing a new document state for each input event.
-// The session context must have a registered a `doc_state` table with stream_cid, event_cid, and
-// state columns.
+// Process a batch of conclusion events, producing a new document state for each input event.
+// The session context must have a registered a `event_states` table with appropriate schema.
 //
-// The events in the conclusion feed must:
-//  * have stream_cid, event_cid, previous, and data columns,
-//  * have previous CIDs that either already exist in `doc_state` or be contained within the
-//  current conclusion_feed batch,
-//  * be valid JSON patch data documents.
-//  * use a qualified table name of `conclusion_feed`.
-#[instrument(skip(ctx, conclusion_feed), ret ( level = Level::DEBUG ))]
-async fn process_feed_batch(
+// The events in the conclusion_events batch have a schema of the conclusion_events table.
+#[instrument(skip(ctx, conclusion_events), ret ( level = Level::DEBUG ))]
+async fn process_conclusion_events_batch(
     ctx: SessionContext,
-    conclusion_feed: DataFrame,
+    conclusion_events: DataFrame,
     max_cached_rows: usize,
 ) -> Result<()> {
-    let doc_state = ctx
-        .table("doc_state")
+    let event_states = ctx
+        .table(EVENT_STATES_TABLE)
         .await?
         .select_columns(&["stream_cid", "event_cid", "state"])
-        .context("reading doc_state")?;
+        .context("reading event_states")?;
 
-    conclusion_feed
+    conclusion_events
         // MID only ever use the first previous, so we can optimize the join by selecting the
         // first element of the previous array.
         .select(vec![
             col("index"),
             col("event_type"),
             col("stream_cid"),
+            col("stream_type"),
             col("controller"),
             col("dimensions"),
             col("event_cid"),
@@ -196,19 +190,20 @@ async fn process_feed_batch(
             array_element(col("previous"), lit(1)).alias("previous"),
         ])?
         .join_on(
-            doc_state,
+            event_states,
             JoinType::Left,
-            [col("previous").eq(col("doc_state.event_cid"))],
+            [col("previous").eq(col(EVENT_STATES_TABLE.to_string() + ".event_cid"))],
         )?
         .select(vec![
-            col("conclusion_feed.index").alias("index"),
-            col("conclusion_feed.event_type").alias("event_type"),
-            col("conclusion_feed.stream_cid").alias("stream_cid"),
-            col("conclusion_feed.controller").alias("controller"),
-            col("conclusion_feed.dimensions").alias("dimensions"),
-            col("conclusion_feed.event_cid").alias("event_cid"),
+            col(CONCLUSION_EVENTS_TABLE.to_string() + ".index").alias("index"),
+            col(CONCLUSION_EVENTS_TABLE.to_string() + ".event_type").alias("event_type"),
+            col(CONCLUSION_EVENTS_TABLE.to_string() + ".stream_cid").alias("stream_cid"),
+            col(CONCLUSION_EVENTS_TABLE.to_string() + ".stream_type").alias("stream_type"),
+            col(CONCLUSION_EVENTS_TABLE.to_string() + ".controller").alias("controller"),
+            col(CONCLUSION_EVENTS_TABLE.to_string() + ".dimensions").alias("dimensions"),
+            col(CONCLUSION_EVENTS_TABLE.to_string() + ".event_cid").alias("event_cid"),
             col("previous"),
-            col("doc_state.state").alias("previous_state"),
+            col(EVENT_STATES_TABLE.to_string() + ".state").alias("previous_state"),
             col("data"),
         ])?
         .window(vec![Expr::WindowFunction(WindowFunction::new(
@@ -224,33 +219,34 @@ async fn process_feed_batch(
         .order_by(vec![col("index").sort(true, true)])
         .build()?
         .alias("new_state")])?
-        // Rename columns to match doc_state table schema
+        // Rename columns to match event_states table schema
         .select_columns(&[
             "index",
             "stream_cid",
-            "event_type",
+            "stream_type",
             "controller",
             "dimensions",
             "event_cid",
+            "event_type",
             "new_state",
         ])?
         .with_column_renamed("new_state", "state")?
-        // Write states to the in memory doc_state table
-        .write_table(DOC_STATE_MEM_TABLE, DataFrameWriteOptions::new())
+        // Write states to the in memory event_states table
+        .write_table(EVENT_STATES_MEM_TABLE, DataFrameWriteOptions::new())
         .await
         .context("computing states")?;
 
-    let count = ctx.table(DOC_STATE_MEM_TABLE).await?.count().await?;
+    let count = ctx.table(EVENT_STATES_MEM_TABLE).await?.count().await?;
     // If we have enough data cached in memory write it out to persistent store
     if count >= max_cached_rows {
-        ctx.table(DOC_STATE_MEM_TABLE)
+        ctx.table(EVENT_STATES_MEM_TABLE)
             .await?
-            .write_table(DOC_STATE_PERSISTENT_TABLE, DataFrameWriteOptions::new())
+            .write_table(EVENT_STATES_PERSISTENT_TABLE, DataFrameWriteOptions::new())
             .await?;
         // Clear all data in the memory batch, by writing an empty batch
-        ctx.read_batch(RecordBatch::new_empty(schemas::doc_state()))?
+        ctx.read_batch(RecordBatch::new_empty(schemas::event_states()))?
             .write_table(
-                DOC_STATE_MEM_TABLE,
+                EVENT_STATES_MEM_TABLE,
                 DataFrameWriteOptions::new().with_overwrite(true),
             )
             .await?;
@@ -279,11 +275,11 @@ mod tests {
     use crate::{
         cid_string::CidString, conclusion_events_to_record_batch, schemas, session_from_config,
         tests::MockConclusionFeed, ConclusionData, ConclusionEvent, ConclusionFeedSource,
-        ConclusionInit, ConclusionTime, Config, CONCLUSION_FEED_TABLE,
+        ConclusionInit, ConclusionTime, Config, CONCLUSION_EVENTS_TABLE,
     };
 
-    async fn do_test(conclusion_feed: RecordBatch) -> anyhow::Result<impl std::fmt::Display> {
-        do_pass(init_ctx().await?, conclusion_feed, 1_000).await
+    async fn do_test(conclusion_events: RecordBatch) -> anyhow::Result<impl std::fmt::Display> {
+        do_pass(init_ctx().await?, conclusion_events, 1_000).await
     }
 
     async fn init_ctx() -> anyhow::Result<SessionContext> {
@@ -295,10 +291,10 @@ mod tests {
         .await
     }
 
-    async fn init_ctx_cont(conclusion_feed: RecordBatch) -> anyhow::Result<SessionContext> {
+    async fn init_ctx_cont(conclusion_events: RecordBatch) -> anyhow::Result<SessionContext> {
         session_from_config(Config {
             conclusion_feed: ConclusionFeedSource::<MockConclusionFeed>::InMemory(
-                MemTable::try_new(schemas::conclusion_feed(), vec![vec![conclusion_feed]])?,
+                MemTable::try_new(schemas::conclusion_events(), vec![vec![conclusion_events]])?,
             ),
             object_store_bucket_name: "test_bucket".to_string(),
             object_store: Arc::new(InMemory::new()),
@@ -308,24 +304,25 @@ mod tests {
 
     async fn do_pass(
         ctx: SessionContext,
-        conclusion_feed: RecordBatch,
+        conclusion_events: RecordBatch,
         max_cached_rows: usize,
     ) -> anyhow::Result<impl std::fmt::Display> {
-        // Setup conclusion_feed table from RecordBatch
-        let provider = MemTable::try_new(conclusion_feed.schema(), vec![vec![conclusion_feed]])?;
-        let conclusion_feed = DataFrame::new(
+        // Setup conclusion_events table from RecordBatch
+        let provider =
+            MemTable::try_new(conclusion_events.schema(), vec![vec![conclusion_events]])?;
+        let conclusion_events = DataFrame::new(
             ctx.state(),
             LogicalPlanBuilder::scan(
-                CONCLUSION_FEED_TABLE,
+                CONCLUSION_EVENTS_TABLE,
                 provider_as_source(Arc::new(provider)),
                 None,
             )?
             .build()?,
         );
-        process_feed_batch(ctx.clone(), conclusion_feed, max_cached_rows).await?;
+        process_conclusion_events_batch(ctx.clone(), conclusion_events, max_cached_rows).await?;
         let cid_string = Arc::new(ScalarUDF::from(CidString::new()));
-        let doc_state = ctx
-            .table("doc_state")
+        let event_states = ctx
+            .table(EVENT_STATES_TABLE)
             .await?
             .select(vec![
                 col("index"),
@@ -334,24 +331,25 @@ mod tests {
                     vec![col("stream_cid")],
                 ))
                 .alias("stream_cid"),
-                col("event_type"),
+                col("stream_type"),
                 col("controller"),
                 col("dimensions"),
                 Expr::ScalarFunction(ScalarFunction::new_udf(cid_string, vec![col("event_cid")]))
                     .alias("event_cid"),
+                col("event_type"),
                 col("state"),
             ])?
             .sort(vec![col("index").sort(true, true)])?
             .collect()
             .await?;
-        Ok(pretty_format_batches(&doc_state)?)
+        Ok(pretty_format_batches(&event_states)?)
     }
 
     async fn do_run_continuous(
-        conclusion_feed: RecordBatch,
+        conclusion_events: RecordBatch,
         expected_batches: Expect,
     ) -> anyhow::Result<()> {
-        let ctx = init_ctx_cont(conclusion_feed).await?;
+        let ctx = init_ctx_cont(conclusion_events).await?;
         let (shutdown_signal_tx, shutdown_signal_rx) = oneshot::channel::<()>();
         let handle = tokio::spawn(run_continuous_stream(
             ctx.clone(),
@@ -366,8 +364,8 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(100)).await;
             retries -= 1;
             let cid_string = Arc::new(ScalarUDF::from(CidString::new()));
-            let doc_state = ctx
-                .table("doc_state")
+            let event_states = ctx
+                .table(EVENT_STATES_TABLE)
                 .await?
                 .select(vec![
                     col("index"),
@@ -376,20 +374,21 @@ mod tests {
                         vec![col("stream_cid")],
                     ))
                     .alias("stream_cid"),
-                    col("event_type"),
+                    col("stream_type"),
                     col("controller"),
                     col("dimensions"),
                     Expr::ScalarFunction(ScalarFunction::new_udf(
                         cid_string,
-                        vec![col("doc_state.event_cid")],
+                        vec![col(EVENT_STATES_TABLE.to_string() + ".event_cid")],
                     ))
                     .alias("event_cid"),
+                    col("event_type"),
                     col("state"),
                 ])?
                 .sort(vec![col("index").sort(true, true)])?
                 .collect()
                 .await?;
-            batches = pretty_format_batches(&doc_state)?.to_string();
+            batches = pretty_format_batches(&event_states)?.to_string();
             if expected_batches.data() == batches {
                 break;
             }
@@ -401,7 +400,7 @@ mod tests {
 
     #[tokio::test]
     async fn single_init_event() -> anyhow::Result<()> {
-        let doc_state = do_test(conclusion_events_to_record_batch(&[
+        let event_states = do_test(conclusion_events_to_record_batch(&[
             ConclusionEvent::Data(ConclusionData {
                 index: 0,
                 event_cid: Cid::from_str(
@@ -424,16 +423,16 @@ mod tests {
         ])?)
         .await?;
         expect![[r#"
-            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+----------------------------------------------------------+
-            | index | stream_cid                                                  | event_type | controller  | dimensions                                              | event_cid                                                   | state                                                    |
-            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+----------------------------------------------------------+
-            | 0     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | {"metadata":{"foo":1,"shouldIndex":true},"data":{"a":0}} |
-            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+----------------------------------------------------------+"#]].assert_eq(&doc_state.to_string());
+            +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+----------------------------------------------------------+
+            | index | stream_cid                                                  | stream_type | controller  | dimensions                                              | event_cid                                                   | event_type | state                                                    |
+            +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+----------------------------------------------------------+
+            | 0     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | {"metadata":{"foo":1,"shouldIndex":true},"data":{"a":0}} |
+            +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+----------------------------------------------------------+"#]].assert_eq(&event_states.to_string());
         Ok(())
     }
     #[test(tokio::test)]
     async fn multiple_data_events() -> anyhow::Result<()> {
-        let doc_state = do_test(conclusion_events_to_record_batch(&[
+        let event_states = do_test(conclusion_events_to_record_batch(&[
             ConclusionEvent::Data(ConclusionData {
                 index: 1,
                 event_cid: Cid::from_str(
@@ -480,17 +479,17 @@ mod tests {
         .await?;
 
         expect![[r#"
-            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+----------------------------------------------------------+
-            | index | stream_cid                                                  | event_type | controller  | dimensions                                              | event_cid                                                   | state                                                    |
-            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+----------------------------------------------------------+
-            | 1     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | {"metadata":{"foo":1,"shouldIndex":true},"data":{"a":0}} |
-            | 2     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeifwi4ddwafoqe6htkx3g5gtjz5adapj366w6mraut4imk2ljwu3du | {"metadata":{"foo":2,"shouldIndex":true},"data":{"a":1}} |
-            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+----------------------------------------------------------+"#]].assert_eq(&doc_state.to_string());
+            +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+----------------------------------------------------------+
+            | index | stream_cid                                                  | stream_type | controller  | dimensions                                              | event_cid                                                   | event_type | state                                                    |
+            +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+----------------------------------------------------------+
+            | 1     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | {"metadata":{"foo":1,"shouldIndex":true},"data":{"a":0}} |
+            | 2     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeifwi4ddwafoqe6htkx3g5gtjz5adapj366w6mraut4imk2ljwu3du | 0          | {"metadata":{"foo":2,"shouldIndex":true},"data":{"a":1}} |
+            +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+----------------------------------------------------------+"#]].assert_eq(&event_states.to_string());
         Ok(())
     }
     #[test(tokio::test)]
     async fn multiple_data_and_time_events() -> anyhow::Result<()> {
-        let doc_state = do_test(conclusion_events_to_record_batch(&[
+        let event_states = do_test(conclusion_events_to_record_batch(&[
             ConclusionEvent::Data(ConclusionData {
                 index: 0,
                 event_cid: Cid::from_str(
@@ -554,22 +553,22 @@ mod tests {
         ])?)
         .await?;
         expect![[r#"
-            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+-----------------------------------------------------------+
-            | index | stream_cid                                                  | event_type | controller  | dimensions                                              | event_cid                                                   | state                                                     |
-            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+-----------------------------------------------------------+
-            | 0     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | {"metadata":{"foo":1,"shouldIndex":true},"data":{"a":0}}  |
-            | 1     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 1          | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | {"metadata":{"foo":1,"shouldIndex":true},"data":{"a":0}}  |
-            | 2     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeifwi4ddwafoqe6htkx3g5gtjz5adapj366w6mraut4imk2ljwu3du | {"metadata":{"foo":1,"shouldIndex":false},"data":{"a":1}} |
-            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+-----------------------------------------------------------+"#]].assert_eq(&doc_state.to_string());
+            +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------+
+            | index | stream_cid                                                  | stream_type | controller  | dimensions                                              | event_cid                                                   | event_type | state                                                     |
+            +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------+
+            | 0     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | {"metadata":{"foo":1,"shouldIndex":true},"data":{"a":0}}  |
+            | 1     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | 1          | {"metadata":{"foo":1,"shouldIndex":true},"data":{"a":0}}  |
+            | 2     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeifwi4ddwafoqe6htkx3g5gtjz5adapj366w6mraut4imk2ljwu3du | 0          | {"metadata":{"foo":1,"shouldIndex":false},"data":{"a":1}} |
+            +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------+"#]].assert_eq(&event_states.to_string());
         Ok(())
     }
 
     #[test(tokio::test)]
     async fn multiple_single_event_passes() -> anyhow::Result<()> {
         // Test multiple passes where a single event for the stream is present in the conclusion
-        // feed for each pass.
+        // events for each pass.
         let ctx = init_ctx().await?;
-        let doc_state = do_pass(
+        let event_states = do_pass(
             ctx.clone(),
             conclusion_events_to_record_batch(&[ConclusionEvent::Data(ConclusionData {
                 index: 0,
@@ -594,12 +593,12 @@ mod tests {
         )
         .await?;
         expect![[r#"
-            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+----------------------------------------------------------+
-            | index | stream_cid                                                  | event_type | controller  | dimensions                                              | event_cid                                                   | state                                                    |
-            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+----------------------------------------------------------+
-            | 0     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | {"metadata":{"foo":1,"shouldIndex":true},"data":{"a":0}} |
-            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+----------------------------------------------------------+"#]].assert_eq(&doc_state.to_string());
-        let doc_state = do_pass(
+            +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+----------------------------------------------------------+
+            | index | stream_cid                                                  | stream_type | controller  | dimensions                                              | event_cid                                                   | event_type | state                                                    |
+            +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+----------------------------------------------------------+
+            | 0     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | {"metadata":{"foo":1,"shouldIndex":true},"data":{"a":0}} |
+            +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+----------------------------------------------------------+"#]].assert_eq(&event_states.to_string());
+        let event_states = do_pass(
             ctx.clone(),
             conclusion_events_to_record_batch(&[ConclusionEvent::Time(ConclusionTime {
                 index: 1,
@@ -625,13 +624,13 @@ mod tests {
         )
         .await?;
         expect![[r#"
-            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+----------------------------------------------------------+
-            | index | stream_cid                                                  | event_type | controller  | dimensions                                              | event_cid                                                   | state                                                    |
-            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+----------------------------------------------------------+
-            | 0     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | {"metadata":{"foo":1,"shouldIndex":true},"data":{"a":0}} |
-            | 1     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 1          | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | {"metadata":{"foo":1,"shouldIndex":true},"data":{"a":0}} |
-            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+----------------------------------------------------------+"#]].assert_eq(&doc_state.to_string());
-        let doc_state = do_pass(
+            +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+----------------------------------------------------------+
+            | index | stream_cid                                                  | stream_type | controller  | dimensions                                              | event_cid                                                   | event_type | state                                                    |
+            +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+----------------------------------------------------------+
+            | 0     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | {"metadata":{"foo":1,"shouldIndex":true},"data":{"a":0}} |
+            | 1     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | 1          | {"metadata":{"foo":1,"shouldIndex":true},"data":{"a":0}} |
+            +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+----------------------------------------------------------+"#]].assert_eq(&event_states.to_string());
+        let event_states = do_pass(
             ctx,
             conclusion_events_to_record_batch(&[ConclusionEvent::Data(ConclusionData {
                 index: 2,
@@ -658,19 +657,19 @@ mod tests {
         )
         .await?;
         expect![[r#"
-            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+-----------------------------------------------------------+
-            | index | stream_cid                                                  | event_type | controller  | dimensions                                              | event_cid                                                   | state                                                     |
-            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+-----------------------------------------------------------+
-            | 0     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | {"metadata":{"foo":1,"shouldIndex":true},"data":{"a":0}}  |
-            | 1     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 1          | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | {"metadata":{"foo":1,"shouldIndex":true},"data":{"a":0}}  |
-            | 2     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeifwi4ddwafoqe6htkx3g5gtjz5adapj366w6mraut4imk2ljwu3du | {"metadata":{"foo":1,"shouldIndex":false},"data":{"a":1}} |
-            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+-----------------------------------------------------------+"#]].assert_eq(&doc_state.to_string());
+            +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------+
+            | index | stream_cid                                                  | stream_type | controller  | dimensions                                              | event_cid                                                   | event_type | state                                                     |
+            +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------+
+            | 0     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | {"metadata":{"foo":1,"shouldIndex":true},"data":{"a":0}}  |
+            | 1     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | 1          | {"metadata":{"foo":1,"shouldIndex":true},"data":{"a":0}}  |
+            | 2     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeifwi4ddwafoqe6htkx3g5gtjz5adapj366w6mraut4imk2ljwu3du | 0          | {"metadata":{"foo":1,"shouldIndex":false},"data":{"a":1}} |
+            +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------+"#]].assert_eq(&event_states.to_string());
         Ok(())
     }
     #[test(tokio::test)]
     async fn multiple_passes() -> anyhow::Result<()> {
         let ctx = init_ctx().await?;
-        let doc_state = do_pass(
+        let event_states = do_pass(
             ctx.clone(),
             conclusion_events_to_record_batch(&[ConclusionEvent::Data(ConclusionData {
                 index: 0,
@@ -695,12 +694,12 @@ mod tests {
         )
         .await?;
         expect![[r#"
-            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+----------------------------------------------------------+
-            | index | stream_cid                                                  | event_type | controller  | dimensions                                              | event_cid                                                   | state                                                    |
-            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+----------------------------------------------------------+
-            | 0     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | {"metadata":{"foo":1,"shouldIndex":true},"data":{"a":0}} |
-            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+----------------------------------------------------------+"#]].assert_eq(&doc_state.to_string());
-        let doc_state = do_pass(
+            +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+----------------------------------------------------------+
+            | index | stream_cid                                                  | stream_type | controller  | dimensions                                              | event_cid                                                   | event_type | state                                                    |
+            +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+----------------------------------------------------------+
+            | 0     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | {"metadata":{"foo":1,"shouldIndex":true},"data":{"a":0}} |
+            +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+----------------------------------------------------------+"#]].assert_eq(&event_states.to_string());
+        let event_states = do_pass(
             ctx.clone(),
             conclusion_events_to_record_batch(&[
                 ConclusionEvent::Time(ConclusionTime {
@@ -749,13 +748,13 @@ mod tests {
         )
         .await?;
         expect![[r#"
-            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+-----------------------------------------------------------+
-            | index | stream_cid                                                  | event_type | controller  | dimensions                                              | event_cid                                                   | state                                                     |
-            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+-----------------------------------------------------------+
-            | 0     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | {"metadata":{"foo":1,"shouldIndex":true},"data":{"a":0}}  |
-            | 1     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 1          | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | {"metadata":{"foo":1,"shouldIndex":true},"data":{"a":0}}  |
-            | 2     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeifwi4ddwafoqe6htkx3g5gtjz5adapj366w6mraut4imk2ljwu3du | {"metadata":{"foo":1,"shouldIndex":false},"data":{"a":1}} |
-            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+-----------------------------------------------------------+"#]].assert_eq(&doc_state.to_string());
+            +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------+
+            | index | stream_cid                                                  | stream_type | controller  | dimensions                                              | event_cid                                                   | event_type | state                                                     |
+            +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------+
+            | 0     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | {"metadata":{"foo":1,"shouldIndex":true},"data":{"a":0}}  |
+            | 1     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | 1          | {"metadata":{"foo":1,"shouldIndex":true},"data":{"a":0}}  |
+            | 2     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeifwi4ddwafoqe6htkx3g5gtjz5adapj366w6mraut4imk2ljwu3du | 0          | {"metadata":{"foo":1,"shouldIndex":false},"data":{"a":1}} |
+            +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------+"#]].assert_eq(&event_states.to_string());
         Ok(())
     }
     #[test(tokio::test)]
@@ -824,13 +823,13 @@ mod tests {
             }),
         ])?,
         expect![[r#"
-            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+-----------------------------------------------------------+
-            | index | stream_cid                                                  | event_type | controller  | dimensions                                              | event_cid                                                   | state                                                     |
-            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+-----------------------------------------------------------+
-            | 1     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | {"metadata":{"foo":1,"shouldIndex":true},"data":{"a":0}}  |
-            | 2     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeifwi4ddwafoqe6htkx3g5gtjz5adapj366w6mraut4imk2ljwu3du | {"metadata":{"foo":1,"shouldIndex":false},"data":{"a":1}} |
-            | 3     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeic2caccyfigwadnncpyko7hcdbr66dkf4jyzeoh4dbhfebp77hchu | {"metadata":{"foo":1,"shouldIndex":false},"data":{"a":2}} |
-            +-------+-------------------------------------------------------------+------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+-----------------------------------------------------------+"#]],
+            +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------+
+            | index | stream_cid                                                  | stream_type | controller  | dimensions                                              | event_cid                                                   | event_type | state                                                     |
+            +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------+
+            | 1     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | {"metadata":{"foo":1,"shouldIndex":true},"data":{"a":0}}  |
+            | 2     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeifwi4ddwafoqe6htkx3g5gtjz5adapj366w6mraut4imk2ljwu3du | 0          | {"metadata":{"foo":1,"shouldIndex":false},"data":{"a":1}} |
+            | 3     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeic2caccyfigwadnncpyko7hcdbr66dkf4jyzeoh4dbhfebp77hchu | 0          | {"metadata":{"foo":1,"shouldIndex":false},"data":{"a":2}} |
+            +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------+"#]],
             )
         .await
     }

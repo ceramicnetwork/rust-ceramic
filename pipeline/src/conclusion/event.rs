@@ -198,7 +198,6 @@ impl Default for ConclusionEventBuilder {
 
 impl ConclusionEventBuilder {
     fn append(&mut self, event: &ConclusionEvent) {
-        self.event_type.append_value(event.event_type_as_int());
         let init = match event {
             ConclusionEvent::Data(data_event) => {
                 self.event_cid.append_value(data_event.event_cid.to_bytes());
@@ -221,6 +220,7 @@ impl ConclusionEventBuilder {
                 &time_event.init
             }
         };
+        self.event_type.append_value(event.event_type_as_int());
         self.stream_cid.append_value(init.stream_cid.to_bytes());
         self.controller.append_value(&init.controller);
         self.stream_type.append_value(init.stream_type);
@@ -234,7 +234,6 @@ impl ConclusionEventBuilder {
     fn finish(&mut self) -> StructArray {
         StructArray::try_from(vec![
             ("index", Arc::new(self.index.finish()) as ArrayRef),
-            ("event_type", Arc::new(self.event_type.finish()) as ArrayRef),
             ("stream_cid", Arc::new(self.stream_cid.finish()) as ArrayRef),
             (
                 "stream_type",
@@ -243,6 +242,7 @@ impl ConclusionEventBuilder {
             ("controller", Arc::new(self.controller.finish()) as ArrayRef),
             ("dimensions", Arc::new(self.dimensions.finish()) as ArrayRef),
             ("event_cid", Arc::new(self.event_cid.finish()) as ArrayRef),
+            ("event_type", Arc::new(self.event_type.finish()) as ArrayRef),
             ("data", Arc::new(self.data.finish()) as ArrayRef),
             ("previous", Arc::new(self.previous.finish()) as ArrayRef),
         ])
@@ -335,7 +335,7 @@ mod tests {
     use std::str::FromStr;
 
     use arrow::util::pretty::pretty_format_batches;
-    use ceramic_arrow_test::pretty_feed_from_batch;
+    use ceramic_arrow_test::pretty_conclusion_events_from_batch;
     use ceramic_event::StreamIdType;
     use cid::Cid;
     use expect_test::expect;
@@ -452,18 +452,18 @@ mod tests {
         ];
         // Convert events to RecordBatch
         let record_batch = conclusion_events_to_record_batch(&events).unwrap();
-        let record_batch = pretty_feed_from_batch(record_batch).await;
+        let record_batch = pretty_conclusion_events_from_batch(record_batch).await;
         let formatted = pretty_format_batches(&record_batch).unwrap().to_string();
 
         // Use expect_test to validate the output
         expect![[r#"
-            +-------+------------+-------------------------------------------------------------+-------------+---------------+-------------------------------------------------------------+-------------------------------------------------------------+------+----------------------------------------------------------------------------------------------------------------------------+
-            | index | event_type | stream_cid                                                  | stream_type | controller    | dimensions                                                  | event_cid                                                   | data | previous                                                                                                                   |
-            +-------+------------+-------------------------------------------------------------+-------------+---------------+-------------------------------------------------------------+-------------------------------------------------------------+------+----------------------------------------------------------------------------------------------------------------------------+
-            | 0     | 0          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | {controller: 6469643a6b65793a7465737431, model: 6d6f64656c} | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 123  |                                                                                                                            |
-            | 1     | 0          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | {controller: 6469643a6b65793a7465737431, model: 6d6f64656c} | baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q | 456  | [baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu]                                                              |
-            | 2     | 1          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | {controller: 6469643a6b65793a7465737431, model: 6d6f64656c} | baeabeidtub3bnbojbickf6d4pqscaw6xpt5ksgido7kcsg2jyftaj237di |      | [baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q]                                                              |
-            | 3     | 0          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | {controller: 6469643a6b65793a7465737431, model: 6d6f64656c} | baeabeiewqcj4bwhcssizv5kcyvsvm57bxghjpqshnbzkc6rijmwb4im4yq | 789  | [baeabeidtub3bnbojbickf6d4pqscaw6xpt5ksgido7kcsg2jyftaj237di, baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q] |
-            +-------+------------+-------------------------------------------------------------+-------------+---------------+-------------------------------------------------------------+-------------------------------------------------------------+------+----------------------------------------------------------------------------------------------------------------------------+"#]].assert_eq(&formatted);
+            +-------+-------------------------------------------------------------+-------------+---------------+-------------------------------------------------------------+-------------------------------------------------------------+------------+------+----------------------------------------------------------------------------------------------------------------------------+
+            | index | stream_cid                                                  | stream_type | controller    | dimensions                                                  | event_cid                                                   | event_type | data | previous                                                                                                                   |
+            +-------+-------------------------------------------------------------+-------------+---------------+-------------------------------------------------------------+-------------------------------------------------------------+------------+------+----------------------------------------------------------------------------------------------------------------------------+
+            | 0     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | {controller: 6469643a6b65793a7465737431, model: 6d6f64656c} | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | 123  |                                                                                                                            |
+            | 1     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | {controller: 6469643a6b65793a7465737431, model: 6d6f64656c} | baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q | 0          | 456  | [baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu]                                                              |
+            | 2     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | {controller: 6469643a6b65793a7465737431, model: 6d6f64656c} | baeabeidtub3bnbojbickf6d4pqscaw6xpt5ksgido7kcsg2jyftaj237di | 1          |      | [baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q]                                                              |
+            | 3     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | {controller: 6469643a6b65793a7465737431, model: 6d6f64656c} | baeabeiewqcj4bwhcssizv5kcyvsvm57bxghjpqshnbzkc6rijmwb4im4yq | 0          | 789  | [baeabeidtub3bnbojbickf6d4pqscaw6xpt5ksgido7kcsg2jyftaj237di, baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q] |
+            +-------+-------------------------------------------------------------+-------------+---------------+-------------------------------------------------------------+-------------------------------------------------------------+------------+------+----------------------------------------------------------------------------------------------------------------------------+"#]].assert_eq(&formatted);
     }
 }

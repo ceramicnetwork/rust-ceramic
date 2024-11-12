@@ -3,17 +3,16 @@ use std::sync::{Arc, OnceLock};
 
 use datafusion::arrow::datatypes::{DataType, Field, Fields, SchemaBuilder, SchemaRef};
 
-static CONCLUSION_FEED: OnceLock<SchemaRef> = OnceLock::new();
-static DOC_STATE: OnceLock<SchemaRef> = OnceLock::new();
+static CONCLUSION_EVENTS: OnceLock<SchemaRef> = OnceLock::new();
+static EVENT_STATES: OnceLock<SchemaRef> = OnceLock::new();
 
-/// The `conclusion_feed` table contains the raw events annotated with conclcusions about each
+/// The `conclusion_events` table contains the raw events annotated with conclusions about each
 /// event.
-pub fn conclusion_feed() -> SchemaRef {
-    Arc::clone(CONCLUSION_FEED.get_or_init(|| {
+pub fn conclusion_events() -> SchemaRef {
+    Arc::clone(CONCLUSION_EVENTS.get_or_init(|| {
         Arc::new(
             SchemaBuilder::from(&Fields::from(vec![
                 Field::new("index", DataType::UInt64, false),
-                Field::new("event_type", DataType::UInt8, false),
                 Field::new("stream_cid", DataType::Binary, false),
                 Field::new("stream_type", DataType::UInt8, false),
                 Field::new("controller", DataType::Utf8, false),
@@ -46,6 +45,7 @@ pub fn conclusion_feed() -> SchemaRef {
                     true,
                 ),
                 Field::new("event_cid", DataType::Binary, false),
+                Field::new("event_type", DataType::UInt8, false),
                 Field::new("data", DataType::Binary, true),
                 Field::new(
                     "previous",
@@ -58,14 +58,14 @@ pub fn conclusion_feed() -> SchemaRef {
     }))
 }
 
-/// The `doc_state` table contains the aggregated state for each event for each stream.
-pub fn doc_state() -> SchemaRef {
-    Arc::clone(DOC_STATE.get_or_init(|| {
+/// The `event_states` table contains the aggregated state for each event for each stream.
+pub fn event_states() -> SchemaRef {
+    Arc::clone(EVENT_STATES.get_or_init(|| {
         Arc::new(
             SchemaBuilder::from(&Fields::from([
                 Arc::new(Field::new("index", DataType::UInt64, false)),
                 Arc::new(Field::new("stream_cid", DataType::Binary, false)),
-                Arc::new(Field::new("event_type", DataType::UInt8, false)),
+                Arc::new(Field::new("stream_type", DataType::UInt8, false)),
                 Arc::new(Field::new("controller", DataType::Utf8, false)),
                 Arc::new(Field::new(
                     "dimensions",
@@ -94,6 +94,7 @@ pub fn doc_state() -> SchemaRef {
                     true,
                 )),
                 Arc::new(Field::new("event_cid", DataType::Binary, false)),
+                Arc::new(Field::new("event_type", DataType::UInt8, false)),
                 Arc::new(Field::new("state", DataType::Utf8, true)),
             ]))
             .finish(),

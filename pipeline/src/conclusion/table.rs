@@ -16,7 +16,7 @@ use datafusion::{
 use futures::TryStreamExt as _;
 use tracing::{instrument, Level};
 
-use crate::{conclusion::conclusion_events_to_record_batch, schemas::conclusion_feed};
+use crate::{conclusion::conclusion_events_to_record_batch, schemas::conclusion_events};
 
 use super::ConclusionEvent;
 
@@ -55,7 +55,7 @@ impl<T> FeedTable<T> {
     pub fn new(feed: Arc<T>) -> Self {
         Self {
             feed,
-            schema: conclusion_feed(),
+            schema: conclusion_events(),
         }
     }
     fn highwater_mark_from_expr(expr: &Expr) -> Option<u64> {
