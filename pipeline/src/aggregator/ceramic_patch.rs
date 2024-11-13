@@ -150,7 +150,7 @@ impl PartitionEvaluator for CeramicPatchEvaluator {
                         // So we need to copy the data to a new location before we can copy it back
                         // into the new_states.
                         #[allow(clippy::unnecessary_to_owned)]
-                        new_states.append_value(&previous_state.to_owned());
+                        new_states.append_value(previous_state.to_owned());
                     } else {
                         new_states.append_value(CeramicPatchEvaluator::apply_patch(
                             patches.value(i),
