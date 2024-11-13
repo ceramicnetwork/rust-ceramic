@@ -17,7 +17,7 @@ graph LR;
     conclusion_events;
     model_schemas;
     event_states;
-    stream_heads;
+    stream_tips;
     stream_states;
 
     raw_events --> conclusion_events;
@@ -25,8 +25,8 @@ graph LR;
     chain_proofs --> conclusion_events;
     conclusion_events --> event_states;
     model_schemas --> event_states;
-    event_states --> stream_heads;
-    stream_heads --> stream_states;
+    event_states --> stream_tips;
+    stream_tips --> stream_states;
 ```
 
 ## raw_events
@@ -55,12 +55,12 @@ The streams table contains a row for each stream and contains the dimensions and
 
 ### Schema
 
-| Column      | Type              | Description              |
-| ------      | ----              | -----------              |
-| stream_cid  | bytes             | Cid of the stream        |
-| stream_type | u8                | Cid of the stream        |
-| controller  | string            | Controller of the stream |
-| dimensions  | map(string,bytes) | Dimensions of the stream |
+| Column      | Type              | Description                                                 |
+| ------      | ----              | -----------                                                 |
+| stream_cid  | bytes             | Cid of the stream                                           |
+| stream_type | u8                | Type of the stream, see [stream type values](#stream-types) |
+| controller  | string            | Controller of the stream                                    |
+| dimensions  | map(string,bytes) | Dimensions of the stream                                    |
 
 ## chain_proofs
 
@@ -84,13 +84,13 @@ The conclusion_events table contains a row for each event in a stream and repres
 | ------      | ----              | -----------                                                                                     |
 | index       | u64               | Order of this event. Index is always greater than the index of any previous event in the stream |
 | stream_cid  | bytes             | Cid of the stream                                                                               |
-| stream_type | u8                | Stream type                                                                                     |
+| stream_type | u8                | Type of the stream, see [stream type values](#stream-types)                                     |
 | controller  | string            | Controller of the stream                                                                        |
 | dimensions  | map(string,bytes) | Set of key values dimension pairs of the stream                                                 |
 | event_cid   | bytes             | Cid of the event                                                                                |
-| event_type  | u8                | One of Data (0) or Time (1)                                                                     |
+| event_type  | u8                | Type of the event, see [event type values](#event-types)                                        |
 | data        | bytes             | DAG-JSON encoding of the event payload                                                          |
-| previous    | list(bytes)       | List of CID previous to this event                                                              |
+| previous    | list(bytes)       | Ordered list of CID previous to this event. Meaning of the order is stream type dependent       |
 
 
 ### Transformation
@@ -126,25 +126,25 @@ The event_states table contains a row for each event in a stream and the state o
 | ------      | ----              | -----------                                                                                     |
 | index       | u64               | Order of this event. Index is always greater than the index of any previous event in the stream |
 | stream_cid  | bytes             | Cid of the stream                                                                               |
-| stream_type | u8                | Stream type                                                                                     |
+| stream_type | u8                | Type of the stream, see [stream type values](#stream-types)                                     |
 | controller  | string            | Controller of the stream                                                                        |
 | dimensions  | map(string,bytes) | Set of key values dimension pairs of the stream                                                 |
 | event_cid   | bytes             | Cid of the event                                                                                |
-| event_type  | u8                | One of Data (0) or Time (1)                                                                     |
-| state       | string            | JSON encoding of the event state                                                                |
+| event_type  | u8                | Type of the event, see [event type values](#event-types)                                        |
+| state       | bytes             | JSON encoding of the event state                                                                |
 
 ### Transformation
 
 This table computes the aggregated state for each conclusion event.
 Additionally it validates the aggregated state matches the model schema of the stream.
 
-## stream_heads
+## stream_tips
 
-The stream_states table contains a row for head of each stream representing the canonical state of the stream heads.
+The stream_states table contains a row for head of each stream representing the canonical state of the stream tips.
 
 ### Features
 
-* Access to the multiple heads of streams for users building their on conflict resolution
+* Access to the multiple tips of streams for users building their on conflict resolution
 
 ### Schema
 
@@ -152,16 +152,16 @@ The stream_states table contains a row for head of each stream representing the 
 | ------      | ----              | -----------                                                                                     |
 | index       | u64               | Order of this event. Index is always greater than the index of any previous event in the stream |
 | stream_cid  | bytes             | Cid of the stream                                                                               |
-| stream_type | u8                | Stream type                                                                                     |
+| stream_type | u8                | Type of the stream, see [stream type values](#stream-types)                                     |
 | controller  | string            | Controller of the stream                                                                        |
 | dimensions  | map(string,bytes) | Set of key values dimension pairs of the stream                                                 |
 | event_cid   | bytes             | Cid of the event                                                                                |
-| event_type  | u8                | One of Data (0) or Time (1)                                                                     |
-| state       | string            | JSON encoding of the event state                                                                |
+| event_type  | u8                | Type of the event, see [event type values](#event-types)                                        |
+| state       | bytes             | JSON encoding of the event state                                                                |
 
 ### Transformation
 
-Computes the unique heads of a stream. Old heads are deleted or deprecated behind a version commit or similar.
+Computes the unique tips of a stream. Old tips are deleted or deprecated behind a version commit or similar.
 
 ## stream_states
 
@@ -177,14 +177,36 @@ The stream_states table contains a row for each stream representing the canonica
 | ------      | ----              | -----------                                                                                     |
 | index       | u64               | Order of this event. Index is always greater than the index of any previous event in the stream |
 | stream_cid  | bytes             | Cid of the stream                                                                               |
-| stream_type | u8                | Stream type                                                                                     |
+| stream_type | u8                | Type of the stream, see [stream type values](#stream-types)                                     |
 | controller  | string            | Controller of the stream                                                                        |
 | dimensions  | map(string,bytes) | Set of key values dimension pairs of the stream                                                 |
 | event_cid   | bytes             | Cid of the event                                                                                |
-| event_type  | u8                | One of Data (0) or Time (1)                                                                     |
-| state       | string            | JSON encoding of the event state                                                                |
+| event_type  | u8                | Type of the event, see [event type values](#event-types)                                        |
+| state       | bytes             | JSON encoding of the event state                                                                |
 
 ### Transformation
 
 Computes the singular head that is the canonical state of the stream.
 
+
+## Enumeration Values
+
+### Stream Types
+
+| name                    | code | description                                                | specification                                                                                       |
+| ----                    | ---- | -----------                                                | -------------                                                                                       |
+| Tile                    | 0x00 | A stream type representing a json document                 | https://cips.ceramic.network/CIPs/cip-8                                                             |
+| CAIP-10 Link            | 0x01 | Link blockchain accounts to DIDs                           | https://cips.ceramic.network/CIPs/cip-7                                                             |
+| Model                   | 0x02 | Defines a schema shared by group of documents in ComposeDB | https://github.com/ceramicnetwork/js-ceramic/tree/main/packages/stream-model                        |
+| Model Instance Document | 0x03 | Represents a json document in ComposeDB                    | https://github.com/ceramicnetwork/js-ceramic/tree/main/packages/stream-model-instance               |
+| UNLOADABLE              | 0x04 | A stream that is not meant to be loaded                    | https://github.com/ceramicnetwork/js-ceramic/blob/main/packages/stream-model/src/model.ts#L163-L165 |
+| EventId                 | 0x05 | An event id encoded as a cip-124 EventID                   | https://cips.ceramic.network/CIPs/cip-124                                                           |
+
+Source https://cips.ceramic.network/CIPs/cip-59#streamid-multicodec
+
+### Event Types
+
+| name | code | description                                      |
+| ---- | ---- | -----------                                      |
+| Data | 0x00 | An event containing data for the stream          |
+| Time | 0x01 | An event about the temporal status of the stream |

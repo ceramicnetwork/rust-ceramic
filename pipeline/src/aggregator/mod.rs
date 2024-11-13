@@ -5,10 +5,7 @@
 mod ceramic_patch;
 
 use anyhow::Context;
-use arrow::{
-    array::{RecordBatch, UInt64Array},
-    datatypes::DataType,
-};
+use arrow::array::{RecordBatch, UInt64Array};
 use ceramic_patch::CeramicPatch;
 use datafusion::{
     common::JoinType,
@@ -18,7 +15,7 @@ use datafusion::{
     functions_aggregate::min_max::max,
     functions_array::extract::array_element,
     logical_expr::{
-        col, expr::WindowFunction, lit, Cast, Expr, ExprFunctionExt as _, LogicalPlanBuilder,
+        col, expr::WindowFunction, lit, Expr, ExprFunctionExt as _, LogicalPlanBuilder,
         WindowFunctionDefinition,
     },
     physical_plan::collect_partitioned,
@@ -114,7 +111,7 @@ impl ContinuousStreamProcessor {
             col("dimensions"),
             col("event_cid"),
             col("event_type"),
-            Expr::Cast(Cast::new(Box::new(col("data")), DataType::Utf8)).alias("data"),
+            col("data"),
             col("previous"),
         ])?;
         if let Some(last_index) = self.last_processed_index {
@@ -186,7 +183,7 @@ async fn process_conclusion_events_batch(
             col("controller"),
             col("dimensions"),
             col("event_cid"),
-            Expr::Cast(Cast::new(Box::new(col("data")), DataType::Utf8)).alias("data"),
+            col("data"),
             array_element(col("previous"), lit(1)).alias("previous"),
         ])?
         .join_on(
@@ -265,7 +262,7 @@ mod tests {
     use cid::Cid;
     use datafusion::{
         datasource::{provider_as_source, MemTable},
-        logical_expr::{expr::ScalarFunction, LogicalPlanBuilder, ScalarUDF},
+        logical_expr::{cast, expr::ScalarFunction, LogicalPlanBuilder, ScalarUDF},
     };
     use expect_test::{expect, Expect};
     use object_store::memory::InMemory;
@@ -337,7 +334,7 @@ mod tests {
                 Expr::ScalarFunction(ScalarFunction::new_udf(cid_string, vec![col("event_cid")]))
                     .alias("event_cid"),
                 col("event_type"),
-                col("state"),
+                cast(col("state"), DataType::Utf8).alias("state"),
             ])?
             .sort(vec![col("index").sort(true, true)])?
             .collect()
@@ -383,7 +380,7 @@ mod tests {
                     ))
                     .alias("event_cid"),
                     col("event_type"),
-                    col("state"),
+                    cast(col("state"), DataType::Utf8).alias("state"),
                 ])?
                 .sort(vec![col("index").sort(true, true)])?
                 .collect()

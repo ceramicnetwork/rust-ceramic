@@ -1,14 +1,11 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use arrow::{
-    array::{Array as _, ArrayBuilder as _, ArrayRef, StringBuilder},
+    array::{Array as _, ArrayBuilder as _, ArrayRef, BinaryBuilder},
     datatypes::DataType,
 };
 use datafusion::{
-    common::{
-        cast::{as_binary_array, as_string_array},
-        exec_datafusion_err, Result,
-    },
+    common::{cast::as_binary_array, exec_datafusion_err, Result},
     logical_expr::{
         PartitionEvaluator, Signature, TypeSignature, Volatility, WindowUDF, WindowUDFImpl,
     },
@@ -29,10 +26,14 @@ impl CeramicPatch {
         Self {
             signature: Signature::new(
                 TypeSignature::Exact(vec![
+                    // Event CID
                     DataType::Binary,
+                    // Previous CID
                     DataType::Binary,
-                    DataType::Utf8,
-                    DataType::Utf8,
+                    // Previous State
+                    DataType::Binary,
+                    // State/Patch
+                    DataType::Binary,
                 ]),
                 Volatility::Immutable,
             ),
@@ -54,7 +55,7 @@ impl WindowUDFImpl for CeramicPatch {
     }
 
     fn return_type(&self, _arg_types: &[DataType]) -> Result<DataType> {
-        Ok(DataType::Utf8)
+        Ok(DataType::Binary)
     }
 
     fn partition_evaluator(&self) -> Result<Box<dyn PartitionEvaluator>> {
@@ -82,10 +83,10 @@ type MIDDataContainerState = MIDDataContainer<serde_json::Value>;
 struct CeramicPatchEvaluator;
 
 impl CeramicPatchEvaluator {
-    fn apply_patch(patch: &str, previous_state: &str) -> Result<String> {
-        let patch: MIDDataContainerPatch = serde_json::from_str(patch)
+    fn apply_patch(patch: &[u8], previous_state: &[u8]) -> Result<Vec<u8>> {
+        let patch: MIDDataContainerPatch = serde_json::from_slice(patch)
             .map_err(|err| exec_datafusion_err!("Error parsing patch: {err}"))?;
-        let mut state: MIDDataContainerState = serde_json::from_str(previous_state)
+        let mut state: MIDDataContainerState = serde_json::from_slice(previous_state)
             .map_err(|err| exec_datafusion_err!("Error parsing previous state: {err}"))?;
         // If the state is null use an empty object in order to apply the patch to a valid object.
         if serde_json::Value::Null == state.data {
@@ -94,8 +95,7 @@ impl CeramicPatchEvaluator {
         state.metadata.extend(patch.metadata);
         json_patch::patch(&mut state.data, &patch.data)
             .map_err(|err| exec_datafusion_err!("Error applying JSON patch: {err}"))?;
-        serde_json::to_string(&state)
-            .map_err(|err| exec_datafusion_err!("Error JSON encoding: {err}"))
+        serde_json::to_vec(&state).map_err(|err| exec_datafusion_err!("Error JSON encoding: {err}"))
     }
 }
 
@@ -121,9 +121,9 @@ impl PartitionEvaluator for CeramicPatchEvaluator {
     fn evaluate_all(&mut self, values: &[ArrayRef], num_rows: usize) -> Result<ArrayRef> {
         let event_cids = as_binary_array(&values[0])?;
         let previous_cids = as_binary_array(&values[1])?;
-        let previous_states = as_string_array(&values[2])?;
-        let patches = as_string_array(&values[3])?;
-        let mut new_states = StringBuilder::new();
+        let previous_states = as_binary_array(&values[2])?;
+        let patches = as_binary_array(&values[3])?;
+        let mut new_states = BinaryBuilder::new();
         for i in 0..num_rows {
             if previous_cids.is_valid(i) {
                 if let Some(previous_state) = if !previous_states.is_null(i) {
@@ -150,7 +150,7 @@ impl PartitionEvaluator for CeramicPatchEvaluator {
                         // So we need to copy the data to a new location before we can copy it back
                         // into the new_states.
                         #[allow(clippy::unnecessary_to_owned)]
-                        new_states.append_value(previous_state.to_string());
+                        new_states.append_value(&previous_state.to_owned());
                     } else {
                         new_states.append_value(CeramicPatchEvaluator::apply_patch(
                             patches.value(i),
@@ -176,13 +176,12 @@ impl PartitionEvaluator for CeramicPatchEvaluator {
     }
 }
 
-fn value_at(builder: &StringBuilder, idx: usize) -> &str {
+fn value_at(builder: &BinaryBuilder, idx: usize) -> &[u8] {
     let start = builder.offsets_slice()[idx] as usize;
     let stop = if idx < builder.len() {
         builder.offsets_slice()[idx + 1] as usize
     } else {
         builder.values_slice().len()
     };
-    std::str::from_utf8(&builder.values_slice()[start..stop])
-        .expect("new states should always be valid utf8")
+    &builder.values_slice()[start..stop]
 }
