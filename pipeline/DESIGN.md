@@ -144,7 +144,8 @@ Additionally it validates the aggregated state matches the model schema of the s
 
 ### stream_tips
 
-The stream_states table contains a row for head of each stream representing the canonical state of the stream tips.
+The stream_tips table contains a row for each tip of each stream representing the canonical state for each branch of the stream.
+The tip represents the most recent event in each branch of the stream, where _recent_ is a stream type specific definition.
 
 #### Features
 
@@ -167,30 +168,6 @@ The stream_states table contains a row for head of each stream representing the 
 
 This table computes the aggregated state for each conclusion event.
 Additionally it validates the aggregated state matches the model schema of the stream.
-
-### stream_tips
-
-The stream_states table contains a row for head of each stream representing the canonical state of the stream tips.
-
-#### Features
-
-* Access to the multiple tips of streams for users building their on conflict resolution
-
-#### Schema
-
-| Column      | Type              | Description                                                                                     |
-| ------      | ----              | -----------                                                                                     |
-| index       | u64               | Order of this event. Index is always greater than the index of any previous event in the stream |
-| stream_cid  | bytes             | Cid of the stream                                                                               |
-| stream_type | u8                | Type of the stream, see [stream type values](#stream-types)                                     |
-| controller  | string            | Controller of the stream                                                                        |
-| dimensions  | map(string,bytes) | Set of key values dimension pairs of the stream                                                 |
-| event_cid   | bytes             | Cid of the event                                                                                |
-| event_type  | u8                | Type of the event, see [event type values](#event-types)                                        |
-
-#### Transformation
-
-Computes the unique tips of a stream. Old tips are deleted or deprecated behind a version commit or similar.
 
 ### stream_states
 
@@ -215,7 +192,7 @@ The stream_states table contains a row for each stream representing the canonica
 
 #### Transformation
 
-Computes the singular head that is the canonical state of the stream.
+Computes the singular tip that is the canonical state of the stream.
 
 
 ## Stream Types
