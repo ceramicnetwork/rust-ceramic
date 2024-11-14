@@ -1,7 +1,7 @@
 # Pipeline Architecture
 
 The pipeline architecture allows for defining features over Ceramic data as a series of transformations over that data.
-What follows is a descriptions of each phase of the ceramic pipeline the features it enables and its dependencies.
+What follows is a descriptions of each phase of the ceramic pipeline, the features it enables, and its dependencies.
 
 ## Overview
 
@@ -148,7 +148,7 @@ The stream_states table contains a row for head of each stream representing the 
 
 #### Features
 
-* Access to the multiple tips of streams for users building their on conflict resolution
+* Access to the multiple tips of streams for users building their own conflict resolution
 
 #### Schema
 
