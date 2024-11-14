@@ -1,7 +1,7 @@
 # Pipeline Architecture
 
 The pipeline architecture allows for defining features over Ceramic data as a series of transformations over that data.
-What follows is a descriptions of each phase of the ceramic pipeline the features it enables and its dependencies.
+What follows is a descriptions of each phase of the ceramic pipeline, the features it enables, and its dependencies.
 
 ## Overview
 
