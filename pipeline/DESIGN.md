@@ -144,7 +144,7 @@ The stream_states table contains a row for head of each stream representing the 
 
 ### Features
 
-* Access to the multiple tips of streams for users building their on conflict resolution
+* Access to the multiple tips of streams for users building their own conflict resolution
 
 ### Schema
 
