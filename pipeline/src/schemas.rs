@@ -95,7 +95,7 @@ pub fn event_states() -> SchemaRef {
                 )),
                 Arc::new(Field::new("event_cid", DataType::Binary, false)),
                 Arc::new(Field::new("event_type", DataType::UInt8, false)),
-                Arc::new(Field::new("state", DataType::Binary, true)),
+                Arc::new(Field::new("data", DataType::Binary, true)),
             ]))
             .finish(),
         )

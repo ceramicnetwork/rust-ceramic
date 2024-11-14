@@ -73,7 +73,7 @@ impl WindowUDFImpl for CeramicPatch {
 #[serde(rename_all = "camelCase")]
 struct MIDDataContainer<D> {
     metadata: BTreeMap<String, serde_json::Value>,
-    data: D,
+    content: D,
 }
 
 type MIDDataContainerPatch = MIDDataContainer<Vec<PatchOperation>>;
@@ -89,11 +89,11 @@ impl CeramicPatchEvaluator {
         let mut state: MIDDataContainerState = serde_json::from_slice(previous_state)
             .map_err(|err| exec_datafusion_err!("Error parsing previous state: {err}"))?;
         // If the state is null use an empty object in order to apply the patch to a valid object.
-        if serde_json::Value::Null == state.data {
-            state.data = serde_json::Value::Object(serde_json::Map::default());
+        if serde_json::Value::Null == state.content {
+            state.content = serde_json::Value::Object(serde_json::Map::default());
         }
         state.metadata.extend(patch.metadata);
-        json_patch::patch(&mut state.data, &patch.data)
+        json_patch::patch(&mut state.content, &patch.content)
             .map_err(|err| exec_datafusion_err!("Error applying JSON patch: {err}"))?;
         serde_json::to_vec(&state).map_err(|err| exec_datafusion_err!("Error JSON encoding: {err}"))
     }

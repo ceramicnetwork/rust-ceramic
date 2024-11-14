@@ -490,7 +490,7 @@ impl EventService {
 #[serde(rename_all = "camelCase")]
 struct MIDDataContainer<'a> {
     metadata: BTreeMap<String, Ipld>,
-    data: Option<&'a Ipld>,
+    content: Option<&'a Ipld>,
 }
 
 impl<'a> MIDDataContainer<'a> {
@@ -501,7 +501,7 @@ impl<'a> MIDDataContainer<'a> {
                     BTreeMap::from([("shouldIndex".to_string(), should_index.into())])
                 })
                 .unwrap_or_default(),
-            data,
+            content: data,
         }
     }
 }

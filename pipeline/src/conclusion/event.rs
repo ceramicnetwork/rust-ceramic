@@ -70,7 +70,7 @@ pub struct ConclusionData {
     pub init: ConclusionInit,
     /// Ordered list of previous events this event references.
     pub previous: Vec<Cid>,
-    /// Raw bytes of the event data encoded as dag-json.
+    /// Raw bytes of the event payload.
     pub data: Vec<u8>,
 }
 
