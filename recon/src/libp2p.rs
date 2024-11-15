@@ -249,8 +249,7 @@ where
             // is now idle.
             FromHandler::Succeeded { stream_set } => {
                 if let Entry::Occupied(mut entry) = self.peers.entry(peer_id) {
-                    debug!(%peer_id, ?stream_set, "synchronization s
-                        ucceeded with peer");
+                    debug!(%peer_id, ?stream_set, "synchronization succeeded with peer");
                     let info = entry.get_mut();
                     let sync_delay = *info
                         .sync_delay
