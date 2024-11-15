@@ -7,7 +7,7 @@ What follows is a descriptions of each phase of the ceramic pipeline, the featur
 
 Data enters Ceramic via its API or is discovered over the network and is stored into the raw_events table.
 From there various transformations are applied producing various intermediate tables.
-Each table schema is considered public API and provides access to arbitray queries against the data.
+Each table schema is considered public API and provides access to arbitrary queries against the data.
 
 ```mermaid
 graph LR;
@@ -79,7 +79,7 @@ The conclusion_events table contains a row for each event in a stream and repres
 * Access to events allowing in order access to event within stream
 * Access to pre-aggregated data for users building their own aggregation system
 * Validation of the event signatures
-* Validation of timestamp inlcusion
+* Validation of timestamp inclusion
 
 #### Schema
 
@@ -202,7 +202,7 @@ Each loadable stream type defines:
 
 * the content of the event payload,
 * the rules for validating an event
-* the rules for determing a canonical tip for a stream
+* the rules for determining a canonical tip for a stream
 
 | Name                    | Code | Description                                                | Specification                                                                                       |
 | ----                    | ---- | -----------                                                | -------------                                                                                       |
@@ -228,7 +228,7 @@ Therefore the canonical tip for a model stream is always the init event.
 Model instance document streams represent an instance of a model defined via a model stream.
 An instance must conform to the schema definition of the model.
 
-The content of a model instance document stream payload is a DAG-JSON encoding of a JSON PATCH document.
+The content of a model instance document event payload is a DAG-JSON encoding of a JSON PATCH document.
 The stream state is determined by applying the JSON patches in sequence.
 
 The canonical tip for a stream follows these rules:
