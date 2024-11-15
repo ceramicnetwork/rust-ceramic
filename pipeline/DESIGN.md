@@ -228,7 +228,7 @@ Therefore the canonical tip for a model stream is always the init event.
 Model instance document streams represent an instance of a model defined via a model stream.
 An instance must conform to the schema definition of the model.
 
-The content of a model instance document stream payload is a DAG-JSON encoding of a JSON PATCH document.
+The content of a model instance document event payload is a DAG-JSON encoding of a JSON PATCH document.
 The stream state is determined by applying the JSON patches in sequence.
 
 The canonical tip for a stream follows these rules:
