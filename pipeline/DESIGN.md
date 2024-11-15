@@ -7,7 +7,7 @@ What follows is a descriptions of each phase of the ceramic pipeline, the featur
 
 Data enters Ceramic via its API or is discovered over the network and is stored into the raw_events table.
 From there various transformations are applied producing various intermediate tables.
-Each table schema is considered public API and provides access to arbitray queries against the data.
+Each table schema is considered public API and provides access to arbitrary queries against the data.
 
 ```mermaid
 graph LR;
