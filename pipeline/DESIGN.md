@@ -79,7 +79,7 @@ The conclusion_events table contains a row for each event in a stream and repres
 * Access to events allowing in order access to event within stream
 * Access to pre-aggregated data for users building their own aggregation system
 * Validation of the event signatures
-* Validation of timestamp inlcusion
+* Validation of timestamp inclusion
 
 #### Schema
 
