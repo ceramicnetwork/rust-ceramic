@@ -134,12 +134,17 @@ macro_rules! setup_test {
             Metrics::register(&mut Registry::default()),
         );
 
+        // Use shorter timings with large backoff for testing.
+        let config = crate::libp2p::Config {
+            per_peer_sync_delay: std::time::Duration::from_millis(10),
+            per_peer_sync_backoff: 100.0,
+            per_peer_maximum_sync_delay: std::time::Duration::from_millis(1000),
+        };
         let swarm1 = Swarm::new_ephemeral(|_| {
-            crate::libp2p::Behaviour::new(alice_interest, alice, crate::libp2p::Config::default())
+            crate::libp2p::Behaviour::new(alice_interest, alice, config.clone())
         });
-        let swarm2 = Swarm::new_ephemeral(|_| {
-            crate::libp2p::Behaviour::new(bob_interests, bob, crate::libp2p::Config::default())
-        });
+        let swarm2 =
+            Swarm::new_ephemeral(|_| crate::libp2p::Behaviour::new(bob_interests, bob, config));
 
         (swarm1, swarm2)
     }};
@@ -204,7 +209,9 @@ async fn initiator_model_error() {
             failed_peer,
             crate::libp2p::Event::PeerEvent(PeerEvent {
                 remote_peer_id: swarm2.local_peer_id().to_owned(),
-                status: PeerStatus::Failed
+                status: PeerStatus::Failed {
+                    stream_set: StreamSet::Model
+                }
             })
         );
     };
@@ -243,7 +250,120 @@ async fn responder_model_error() {
             p2_e4,
             crate::libp2p::Event::PeerEvent(PeerEvent {
                 remote_peer_id: swarm1.local_peer_id().to_owned(),
-                status: PeerStatus::Failed
+                status: PeerStatus::Failed {
+                    stream_set: StreamSet::Model
+                }
+            })
+        );
+    };
+
+    fut.await;
+}
+
+#[test(tokio::test(flavor = "multi_thread", worker_threads = 2))]
+async fn model_error_backoff() {
+    let mut bob_model_store = BTreeStoreErrors::default();
+    bob_model_store.set_error(Error::new_transient(anyhow::anyhow!(
+        "transient error should be handled"
+    )));
+    let (mut swarm1, mut swarm2) = setup_test!(
+        BTreeStoreErrors::default(),
+        BTreeStoreErrors::default(),
+        bob_model_store,
+        BTreeStoreErrors::default(),
+    );
+
+    let fut = async move {
+        swarm1.listen().with_memory_addr_external().await;
+        swarm2.connect(&mut swarm1).await;
+
+        // Expect interests to sync twice in a row since models fail to sync
+        let (
+            [p1_e1, p1_e2, p1_e3, p1_e4, p1_e5, p1_e6, p1_e7, p1_e8, p1_e9, p1_e10, p1_e11, p1_e12],
+            [p2_e1, p2_e2, p2_e3, p2_e4, p2_e5, p2_e6, p2_e7, p2_e8, p2_e9, p2_e10, p2_e11, p2_e12],
+        ): ([crate::libp2p::Event; 12], [crate::libp2p::Event; 12]) =
+            libp2p_swarm_test::drive(&mut swarm1, &mut swarm2).await;
+
+        let events = [
+            [
+                &p1_e1, &p1_e2, &p1_e3, &p1_e4, &p1_e5, &p1_e6, &p1_e7, &p1_e8, &p1_e9, &p1_e10,
+                &p1_e11, &p1_e12,
+            ],
+            [
+                &p2_e1, &p2_e2, &p2_e3, &p2_e4, &p2_e5, &p2_e6, &p2_e7, &p2_e8, &p2_e9, &p2_e10,
+                &p2_e11, &p2_e12,
+            ],
+        ];
+
+        for ev in events.iter().flatten() {
+            info!("{:?}", ev);
+        }
+        let stream_sets: Vec<_> = events
+            .iter()
+            .map(|peer_events| {
+                peer_events
+                    .iter()
+                    .map(|ev| {
+                        let crate::libp2p::Event::PeerEvent(PeerEvent { status, .. }) = ev;
+                        match status {
+                            PeerStatus::Waiting | PeerStatus::Stopped => None,
+                            PeerStatus::Synchronized { stream_set }
+                            | PeerStatus::Started { stream_set }
+                            | PeerStatus::Failed { stream_set } => Some(*stream_set),
+                        }
+                    })
+                    .collect::<Vec<Option<crate::libp2p::StreamSet>>>()
+            })
+            .collect();
+        let expected_stream_set_order = vec![
+            // First interests sync
+            Some(StreamSet::Interest),
+            Some(StreamSet::Interest),
+            // First model sync
+            Some(StreamSet::Model),
+            Some(StreamSet::Model),
+            // Second interests sync
+            Some(StreamSet::Interest),
+            Some(StreamSet::Interest),
+            // Second model sync with initial short backoff
+            Some(StreamSet::Model),
+            Some(StreamSet::Model),
+            // Third interests sync
+            Some(StreamSet::Interest),
+            Some(StreamSet::Interest),
+            // Third model sync is skipped because the backoff pushed it past the interests sync
+            Some(StreamSet::Interest),
+            Some(StreamSet::Interest),
+        ];
+        assert_eq!(
+            stream_sets,
+            vec![expected_stream_set_order.clone(), expected_stream_set_order]
+        );
+        assert_eq!(
+            p2_e4,
+            crate::libp2p::Event::PeerEvent(PeerEvent {
+                remote_peer_id: swarm1.local_peer_id().to_owned(),
+                status: PeerStatus::Failed {
+                    stream_set: StreamSet::Model
+                }
+            })
+        );
+        assert_eq!(
+            p1_e12,
+            crate::libp2p::Event::PeerEvent(PeerEvent {
+                remote_peer_id: swarm2.local_peer_id().to_owned(),
+                status: PeerStatus::Synchronized {
+                    stream_set: StreamSet::Interest
+                }
+            })
+        );
+        assert_eq!(
+            p2_e12,
+            crate::libp2p::Event::PeerEvent(PeerEvent {
+                remote_peer_id: swarm1.local_peer_id().to_owned(),
+                status: PeerStatus::Synchronized {
+                    stream_set: StreamSet::Interest
+                }
             })
         );
     };
