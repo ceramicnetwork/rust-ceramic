@@ -129,7 +129,7 @@ pub struct DaemonOpts {
     /// Specify idle connection timeout in milliseconds.
     #[arg(
         long,
-        default_value_t = 30_000,
+        default_value_t = 900_000,
         env = "CERAMIC_ONE_IDLE_CONNS_TIMEOUT_MS"
     )]
     idle_conns_timeout_ms: u64,
