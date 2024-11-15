@@ -5,7 +5,7 @@ use arrow::{compute::concat_batches, util::pretty::pretty_format_batches};
 use arrow_array::RecordBatch;
 use arrow_flight::{sql::client::FlightSqlServiceClient, FlightInfo};
 use arrow_schema::Schema;
-use ceramic_arrow_test::pretty_feed_from_batch;
+use ceramic_arrow_test::pretty_conclusion_events_from_batch;
 use ceramic_flight::server::new_server;
 use ceramic_pipeline::{
     ConclusionData, ConclusionEvent, ConclusionFeed, ConclusionInit, ConclusionTime,
@@ -164,19 +164,19 @@ async fn test_simple() -> Result<()> {
     let mut client = start_server(feed).await;
 
     let info = client
-        .execute("SELECT * FROM conclusion_feed".to_string(), None)
+        .execute("SELECT * FROM conclusion_events".to_string(), None)
         .await?;
     let batch = execute_flight(&mut client, info).await?;
-    let batches = pretty_feed_from_batch(batch).await;
+    let batches = pretty_conclusion_events_from_batch(batch).await;
     let formatted = pretty_format_batches(&batches).unwrap().to_string();
     expect![[r#"
-        +-------+------------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+---------------------------------------------+----------------------------------------------------------------------------------------------------------------------------+
-        | index | event_type | stream_cid                                                  | stream_type | controller  | dimensions                                              | event_cid                                                   | data                                        | previous                                                                                                                   |
-        +-------+------------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+---------------------------------------------+----------------------------------------------------------------------------------------------------------------------------+
-        | 0     | 0          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 3           | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | {"a":0}                                     |                                                                                                                            |
-        | 1     | 1          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 3           | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq |                                             | [baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi]                                                              |
-        | 2     | 0          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 3           | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeifwi4ddwafoqe6htkx3g5gtjz5adapj366w6mraut4imk2ljwu3du | [{"op":"replace", "path": "/a", "value":1}] | [baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq, baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi] |
-        +-------+------------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+---------------------------------------------+----------------------------------------------------------------------------------------------------------------------------+"#]].assert_eq(&formatted);
+        +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+---------------------------------------------+----------------------------------------------------------------------------------------------------------------------------+
+        | index | stream_cid                                                  | stream_type | controller  | dimensions                                              | event_cid                                                   | event_type | data                                        | previous                                                                                                                   |
+        +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+---------------------------------------------+----------------------------------------------------------------------------------------------------------------------------+
+        | 0     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 3           | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | {"a":0}                                     |                                                                                                                            |
+        | 1     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 3           | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | 1          |                                             | [baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi]                                                              |
+        | 2     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 3           | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeifwi4ddwafoqe6htkx3g5gtjz5adapj366w6mraut4imk2ljwu3du | 0          | [{"op":"replace", "path": "/a", "value":1}] | [baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq, baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi] |
+        +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+---------------------------------------------+----------------------------------------------------------------------------------------------------------------------------+"#]].assert_eq(&formatted);
     Ok(())
 }
 
@@ -191,19 +191,19 @@ async fn test_push_down_predicate() -> Result<()> {
 
     let info = client
         .execute(
-            "SELECT * FROM conclusion_feed WHERE index > 42 LIMIT 2".to_string(),
+            "SELECT * FROM conclusion_events WHERE index > 42 LIMIT 2".to_string(),
             None,
         )
         .await?;
     let batch = execute_flight(&mut client, info).await?;
-    let batches = pretty_feed_from_batch(batch).await;
+    let batches = pretty_conclusion_events_from_batch(batch).await;
     let formatted = pretty_format_batches(&batches).unwrap().to_string();
     expect![[r#"
-        +-------+------------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+---------+---------------------------------------------------------------+
-        | index | event_type | stream_cid                                                  | stream_type | controller  | dimensions                                              | event_cid                                                   | data    | previous                                                      |
-        +-------+------------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+---------+---------------------------------------------------------------+
-        | 42    | 0          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 3           | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | {"a":0} |                                                               |
-        | 43    | 1          | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 3           | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq |         | [baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi] |
-        +-------+------------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+---------+---------------------------------------------------------------+"#]].assert_eq(&formatted);
+        +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+---------+---------------------------------------------------------------+
+        | index | stream_cid                                                  | stream_type | controller  | dimensions                                              | event_cid                                                   | event_type | data    | previous                                                      |
+        +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+---------+---------------------------------------------------------------+
+        | 42    | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 3           | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | {"a":0} |                                                               |
+        | 43    | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 3           | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | 1          |         | [baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi] |
+        +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+---------+---------------------------------------------------------------+"#]].assert_eq(&formatted);
     Ok(())
 }
