@@ -202,7 +202,7 @@ Each loadable stream type defines:
 
 * the content of the event payload,
 * the rules for validating an event
-* the rules for determing a canonical tip for a stream
+* the rules for determining a canonical tip for a stream
 
 | Name                    | Code | Description                                                | Specification                                                                                       |
 | ----                    | ---- | -----------                                                | -------------                                                                                       |
