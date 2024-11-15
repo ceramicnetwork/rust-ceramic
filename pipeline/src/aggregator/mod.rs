@@ -15,8 +15,8 @@ use datafusion::{
     functions_aggregate::min_max::max,
     functions_array::extract::array_element,
     logical_expr::{
-        col, expr::WindowFunction, lit, Expr, ExprFunctionExt as _, LogicalPlanBuilder,
-        WindowFunctionDefinition,
+        col, dml::InsertOp, expr::WindowFunction, lit, Expr, ExprFunctionExt as _,
+        LogicalPlanBuilder, WindowFunctionDefinition,
     },
     physical_plan::collect_partitioned,
 };
@@ -244,7 +244,7 @@ async fn process_conclusion_events_batch(
         ctx.read_batch(RecordBatch::new_empty(schemas::event_states()))?
             .write_table(
                 EVENT_STATES_MEM_TABLE,
-                DataFrameWriteOptions::new().with_overwrite(true),
+                DataFrameWriteOptions::new().with_insert_operation(InsertOp::Overwrite),
             )
             .await?;
     }

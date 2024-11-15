@@ -46,6 +46,7 @@ impl<T: ConclusionFeed> ConclusionFeed for Arc<T> {
 
 // Implements the [`TableProvider`] trait producing a [`FeedExec`] instance when the table is
 // scanned, which in turn calls into the [`ConclusionFeed`] to get the actual events.
+#[derive(Debug)]
 pub struct FeedTable<T> {
     feed: Arc<T>,
     schema: SchemaRef,

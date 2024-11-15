@@ -4,10 +4,12 @@ use arrow::{
     array::{Array as _, ArrayBuilder as _, ArrayRef, BinaryBuilder},
     datatypes::DataType,
 };
+use arrow_schema::Field;
 use datafusion::{
     common::{cast::as_binary_array, exec_datafusion_err, Result},
     logical_expr::{
-        PartitionEvaluator, Signature, TypeSignature, Volatility, WindowUDF, WindowUDFImpl,
+        function::PartitionEvaluatorArgs, PartitionEvaluator, Signature, TypeSignature, Volatility,
+        WindowUDF, WindowUDFImpl,
     },
 };
 use json_patch::PatchOperation;
@@ -54,12 +56,18 @@ impl WindowUDFImpl for CeramicPatch {
         &self.signature
     }
 
-    fn return_type(&self, _arg_types: &[DataType]) -> Result<DataType> {
-        Ok(DataType::Binary)
+    fn partition_evaluator(
+        &self,
+        _partition_evaluator_args: PartitionEvaluatorArgs,
+    ) -> Result<Box<dyn PartitionEvaluator>> {
+        Ok(Box::new(CeramicPatchEvaluator))
     }
 
-    fn partition_evaluator(&self) -> Result<Box<dyn PartitionEvaluator>> {
-        Ok(Box::new(CeramicPatchEvaluator))
+    fn field(
+        &self,
+        field_args: datafusion::logical_expr::function::WindowUDFFieldArgs,
+    ) -> Result<arrow_schema::Field> {
+        Ok(Field::new(field_args.name(), DataType::Binary, false))
     }
 }
 // Small wrapper container around the data/state fields to hold
