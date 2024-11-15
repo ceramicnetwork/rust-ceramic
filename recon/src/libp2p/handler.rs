@@ -95,8 +95,8 @@ pub enum State {
     WaitingInbound,
     RequestOutbound { stream_set: StreamSet },
     WaitingOutbound,
-    Outbound(SyncFuture),
-    Inbound(SyncFuture),
+    Outbound(SyncFuture, StreamSet),
+    Inbound(SyncFuture, StreamSet),
 }
 
 impl std::fmt::Debug for State {
@@ -109,8 +109,16 @@ impl std::fmt::Debug for State {
                 .field("stream_set", stream_set)
                 .finish(),
             Self::WaitingOutbound => f.debug_struct("WaitingOutbound").finish(),
-            Self::Outbound(_) => f.debug_tuple("Outbound").field(&"_").finish(),
-            Self::Inbound(_) => f.debug_tuple("Inbound").field(&"_").finish(),
+            Self::Outbound(_, stream_set) => f
+                .debug_tuple("Outbound")
+                .field(&"_")
+                .field(&stream_set)
+                .finish(),
+            Self::Inbound(_, stream_set) => f
+                .debug_tuple("Inbound")
+                .field(&"_")
+                .field(&stream_set)
+                .finish(),
         }
     }
 }
@@ -121,10 +129,17 @@ pub enum FromBehaviour {
 }
 #[derive(Debug)]
 pub enum FromHandler {
-    Started { stream_set: StreamSet },
-    Succeeded { stream_set: StreamSet },
+    Started {
+        stream_set: StreamSet,
+    },
+    Succeeded {
+        stream_set: StreamSet,
+    },
     Stopped,
-    Failed(anyhow::Error),
+    Failed {
+        stream_set: StreamSet,
+        error: anyhow::Error,
+    },
 }
 
 impl<I, M> ConnectionHandler for Handler<I, M>
@@ -172,7 +187,8 @@ where
                 let protocol = SubstreamProtocol::new(MultiReadyUpgrade::new(vec![stream_set]), ());
                 return Poll::Ready(ConnectionHandlerEvent::OutboundSubstreamRequest { protocol });
             }
-            State::Outbound(stream) | State::Inbound(stream) => {
+            State::Outbound(stream, stream_set) | State::Inbound(stream, stream_set) => {
+                let stream_set = *stream_set;
                 if let Poll::Ready(result) = stream.poll_unpin(cx) {
                     self.transition_state(State::Idle);
                     match result {
@@ -183,7 +199,10 @@ where
                         }
                         Err(e) => {
                             return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
-                                FromHandler::Failed(e),
+                                FromHandler::Failed {
+                                    stream_set,
+                                    error: e,
+                                },
                             ));
                         }
                     }
@@ -201,8 +220,8 @@ where
                 State::RequestOutbound { .. }
                 | State::WaitingOutbound { .. }
                 | State::WaitingInbound
-                | State::Outbound(_)
-                | State::Inbound(_) => {}
+                | State::Outbound(_, _)
+                | State::Inbound(_, _) => {}
             },
         }
     }
@@ -245,13 +264,13 @@ where
                             )
                             .boxed(),
                         };
-                        self.transition_state(State::Inbound(stream));
+                        self.transition_state(State::Inbound(stream, stream_set));
                     }
                     // Ignore inbound connection when we are not expecting it
                     State::RequestOutbound { .. }
                     | State::WaitingOutbound { .. }
-                    | State::Inbound(_)
-                    | State::Outbound(_) => {}
+                    | State::Inbound(_, _)
+                    | State::Outbound(_, _) => {}
                 }
             }
             libp2p::swarm::handler::ConnectionEvent::FullyNegotiatedOutbound(
@@ -282,14 +301,14 @@ where
                             )
                             .boxed(),
                         };
-                        self.transition_state(State::Outbound(stream));
+                        self.transition_state(State::Outbound(stream, stream_set));
                     }
                     // Ignore outbound connection when we are not expecting it
                     State::Idle
                     | State::WaitingInbound
                     | State::RequestOutbound { .. }
-                    | State::Outbound(_)
-                    | State::Inbound(_) => {}
+                    | State::Outbound(_, _)
+                    | State::Inbound(_, _) => {}
                 }
             }
             libp2p::swarm::handler::ConnectionEvent::AddressChange(_) => {}
@@ -306,8 +325,8 @@ where
                     State::Idle
                     | State::WaitingOutbound { .. }
                     | State::RequestOutbound { .. }
-                    | State::Outbound(_)
-                    | State::Inbound(_) => {}
+                    | State::Outbound(_, _)
+                    | State::Inbound(_, _) => {}
                 }
             }
             // We failed to upgrade the outbound connection.
@@ -323,8 +342,8 @@ where
                     State::Idle
                     | State::WaitingInbound
                     | State::RequestOutbound { .. }
-                    | State::Outbound(_)
-                    | State::Inbound(_) => {}
+                    | State::Outbound(_, _)
+                    | State::Inbound(_, _) => {}
                 }
             }
             event => {

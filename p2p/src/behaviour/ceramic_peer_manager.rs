@@ -41,6 +41,7 @@ pub struct CeramicPeerManager {
 pub struct Info {
     pub last_rtt: Option<Duration>,
     pub last_info: Option<IdentifyInfo>,
+    pub connected_point: Option<Multiaddr>,
 }
 
 impl Info {
@@ -145,11 +146,16 @@ impl NetworkBehaviour for CeramicPeerManager {
                     self.handle_connection_established(&event.peer_id)
                 }
 
-                if let Some(info) = self.info.get_mut(&event.peer_id) {
-                    if let Some(ref mut info) = info.last_info {
-                        info.listen_addrs
-                            .retain(|addr| !event.failed_addresses.contains(addr))
+                let info = self.info.entry(event.peer_id).or_default();
+                info.connected_point = Some(match event.endpoint {
+                    libp2p::core::ConnectedPoint::Dialer { address, .. } => address.clone(),
+                    libp2p::core::ConnectedPoint::Listener { send_back_addr, .. } => {
+                        send_back_addr.clone()
                     }
+                });
+                if let Some(ref mut info) = info.last_info {
+                    info.listen_addrs
+                        .retain(|addr| !event.failed_addresses.contains(addr))
                 }
             }
             libp2p::swarm::FromSwarm::ConnectionClosed(event) => {

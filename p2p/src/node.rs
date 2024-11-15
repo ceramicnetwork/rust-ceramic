@@ -984,10 +984,16 @@ where
                                 .peer_manager
                                 .info_for_peer(&pid)
                                 .map(|info| {
-                                    info.last_info
-                                        .as_ref()
-                                        .map(|last_info| last_info.listen_addrs.clone())
-                                        .unwrap_or_default()
+                                    info.connected_point
+                                        .iter()
+                                        .chain(
+                                            info.last_info
+                                                .as_ref()
+                                                .map(|last_info| last_info.listen_addrs.iter())
+                                                .unwrap_or_default(),
+                                        )
+                                        .cloned()
+                                        .collect()
                                 })
                                 .unwrap_or_default(),
                         )

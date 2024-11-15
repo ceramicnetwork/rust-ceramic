@@ -24,6 +24,7 @@ use libp2p::{
 };
 use libp2p_identity::PeerId;
 use std::{
+    cmp::min,
     collections::{btree_map::Entry, BTreeMap},
     task::Poll,
     time::{Duration, Instant},
@@ -49,13 +50,20 @@ pub const PROTOCOL_NAME_MODEL: &str = "/ceramic/recon/0.1.0/model";
 pub struct Config {
     /// Start a new sync once the duration has past in the failed or synchronized state.
     /// Defaults to 1 second.
-    pub per_peer_sync_timeout: Duration,
+    pub per_peer_sync_delay: Duration,
+    /// Backoff sequential failures as multiples of delay.
+    pub per_peer_sync_backoff: f64,
+    /// Maximum delay between synchronization attempts.
+    /// Defaults to 10 minutes
+    pub per_peer_maximum_sync_delay: Duration,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            per_peer_sync_timeout: Duration::from_millis(1000),
+            per_peer_sync_delay: Duration::from_millis(1000),
+            per_peer_sync_backoff: 2.0,
+            per_peer_maximum_sync_delay: Duration::from_secs(60 * 10),
         }
     }
 }
@@ -80,7 +88,8 @@ pub struct Behaviour<I, M> {
 struct PeerInfo {
     status: PeerStatus,
     connections: Vec<ConnectionInfo>,
-    last_sync: Option<Instant>,
+    next_sync: Option<Instant>,
+    sync_delay: BTreeMap<StreamSet, Duration>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -162,7 +171,8 @@ where
                     .or_insert_with(|| PeerInfo {
                         status: PeerStatus::Waiting,
                         connections: vec![connection_info],
-                        last_sync: None,
+                        next_sync: None,
+                        sync_delay: BTreeMap::default(),
                     });
             }
             libp2p::swarm::FromSwarm::ConnectionClosed(info) => {
@@ -214,8 +224,16 @@ where
             // is now idle.
             FromHandler::Succeeded { stream_set } => {
                 if let Entry::Occupied(mut entry) = self.peers.entry(peer_id) {
+                    debug!(%peer_id, "synchronization succeeded with peer");
                     let info = entry.get_mut();
-                    info.last_sync = Some(Instant::now());
+                    let sync_delay = *info
+                        .sync_delay
+                        .get(&stream_set)
+                        .unwrap_or(&self.config.per_peer_sync_delay);
+                    info.next_sync = Some(Instant::now() + sync_delay);
+                    // On success reset delay
+                    info.sync_delay
+                        .insert(stream_set, self.config.per_peer_sync_delay);
                     info.status = PeerStatus::Synchronized { stream_set };
                     Some(ToSwarm::GenerateEvent(Event::PeerEvent(PeerEvent {
                         remote_peer_id: peer_id,
@@ -229,11 +247,23 @@ where
 
             // The peer has failed to synchronized with us, mark the time and record that the peer connection
             // is now failed.
-            FromHandler::Failed(error) => {
+            FromHandler::Failed { stream_set, error } => {
                 if let Entry::Occupied(mut entry) = self.peers.entry(peer_id) {
                     let info = entry.get_mut();
-                    warn!(%peer_id, %error, "synchronization failed with peer");
-                    info.last_sync = Some(Instant::now());
+                    let sync_delay = *info
+                        .sync_delay
+                        .get(&stream_set)
+                        .unwrap_or(&self.config.per_peer_sync_delay);
+                    warn!(%peer_id, %error, ?sync_delay, "synchronization failed with peer");
+                    info.next_sync = Some(Instant::now() + sync_delay);
+                    // On failure increase sync delay
+                    info.sync_delay.insert(
+                        stream_set,
+                        min(
+                            sync_delay.mul_f64(self.config.per_peer_sync_backoff),
+                            self.config.per_peer_maximum_sync_delay,
+                        ),
+                    );
                     info.status = PeerStatus::Failed;
                     Some(ToSwarm::GenerateEvent(Event::PeerEvent(PeerEvent {
                         remote_peer_id: peer_id,
@@ -269,8 +299,8 @@ where
                         PeerStatus::Waiting | PeerStatus::Started { .. } | PeerStatus::Stopped => {}
                         PeerStatus::Failed => {
                             // Sync if its been a while since we last synchronized
-                            let should_sync = if let Some(last_sync) = &info.last_sync {
-                                last_sync.elapsed() > self.config.per_peer_sync_timeout
+                            let should_sync = if let Some(next_sync) = &info.next_sync {
+                                next_sync < &Instant::now()
                             } else {
                                 false
                             };
@@ -289,8 +319,8 @@ where
                             // Sync if we just finished an interest sync or its been a while since we
                             // last synchronized.
                             let should_sync = stream_set == StreamSet::Interest
-                                || if let Some(last_sync) = &info.last_sync {
-                                    last_sync.elapsed() > self.config.per_peer_sync_timeout
+                                || if let Some(next_sync) = &info.next_sync {
+                                    next_sync < &Instant::now()
                                 } else {
                                     false
                                 };
