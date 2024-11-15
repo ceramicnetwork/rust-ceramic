@@ -352,6 +352,7 @@ where
                 }
             }
         }
+        // Ensure we are scheduled to be polled again when the next sync is ready
         if let Some(ref mut next_sync) = &mut self.next_sync {
             let _ = next_sync.poll_unpin(cx);
         }

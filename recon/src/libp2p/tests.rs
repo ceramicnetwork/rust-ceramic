@@ -134,7 +134,7 @@ macro_rules! setup_test {
             Metrics::register(&mut Registry::default()),
         );
 
-        // Use shorter timings for testing.
+        // Use shorter timings with large backoff for testing.
         let config = crate::libp2p::Config {
             per_peer_sync_delay: std::time::Duration::from_millis(10),
             per_peer_sync_backoff: 100.0,
