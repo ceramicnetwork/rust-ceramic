@@ -13,7 +13,7 @@ Each table schema is considered public API and provides access to arbitray queri
 graph LR;
     raw_events;
     streams;
-    chain_proofs;
+    time_conclusions;
     conclusion_events;
     model_schemas;
     event_states;
@@ -22,7 +22,7 @@ graph LR;
 
     raw_events --> conclusion_events;
     streams --> conclusion_events;
-    chain_proofs --> conclusion_events;
+    time_conclusions --> conclusion_events;
     conclusion_events --> event_states;
     model_schemas --> event_states;
     event_states --> stream_tips;
@@ -64,9 +64,9 @@ The streams table contains a row for each stream and contains the dimensions and
 | controller  | string            | Controller of the stream                                    |
 | dimensions  | map(string,bytes) | Dimensions of the stream                                    |
 
-### chain_proofs
+### time_conclusions
 
-The chain_proofs table contains a row for each on chain proof.
+The time_conclusions table contains a row for each conclusion about a CID existing on chain.
 
 TBD how this table is populated and its schema.
 
@@ -106,7 +106,7 @@ Conclusions include:
 * The dimensions and controller of the event
 * The timestamp of the event
 
-This table joins the raw_events, chain_proofs, and streams tables in order to make the conclusions about the raw events.
+This table joins the raw_events, time_conclusions, and streams tables in order to make the conclusions about the raw events.
 
 ### model_schemas
 
