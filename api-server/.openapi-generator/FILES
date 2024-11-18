@@ -14,6 +14,7 @@ docs/Interest.md
 docs/InterestsGet.md
 docs/InterestsGetInterestsInner.md
 docs/NetworkInfo.md
+docs/StreamState.md
 docs/Version.md
 docs/default_api.md
 examples/ca.pem

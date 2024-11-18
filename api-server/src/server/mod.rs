@@ -31,7 +31,8 @@ use crate::{
     FeedResumeTokenGetResponse, FeedResumeTokenOptionsResponse, InterestsOptionsResponse,
     InterestsPostResponse, InterestsSortKeySortValueOptionsResponse,
     InterestsSortKeySortValuePostResponse, LivenessGetResponse, LivenessOptionsResponse,
-    VersionGetResponse, VersionOptionsResponse, VersionPostResponse,
+    StreamsStreamIdGetResponse, StreamsStreamIdOptionsResponse, VersionGetResponse,
+    VersionOptionsResponse, VersionPostResponse,
 };
 
 mod paths {
@@ -50,6 +51,7 @@ mod paths {
             r"^/ceramic/interests$",
             r"^/ceramic/interests/(?P<sort_key>[^/?#]*)/(?P<sort_value>[^/?#]*)$",
             r"^/ceramic/liveness$",
+            r"^/ceramic/streams/(?P<stream_id>[^/?#]*)$",
             r"^/ceramic/version$"
         ])
         .expect("Unable to create global regex set");
@@ -87,7 +89,14 @@ mod paths {
             .expect("Unable to create regex for INTERESTS_SORT_KEY_SORT_VALUE");
     }
     pub(crate) static ID_LIVENESS: usize = 10;
-    pub(crate) static ID_VERSION: usize = 11;
+    pub(crate) static ID_STREAMS_STREAM_ID: usize = 11;
+    lazy_static! {
+        pub static ref REGEX_STREAMS_STREAM_ID: regex::Regex =
+            #[allow(clippy::invalid_regex)]
+            regex::Regex::new(r"^/ceramic/streams/(?P<stream_id>[^/?#]*)$")
+                .expect("Unable to create regex for STREAMS_STREAM_ID");
+    }
+    pub(crate) static ID_VERSION: usize = 12;
 }
 
 pub struct MakeService<T, C>
@@ -1758,6 +1767,163 @@ where
                     Ok(response)
                 }
 
+                // StreamsStreamIdGet - GET /streams/{stream_id}
+                hyper::Method::GET if path.matched(paths::ID_STREAMS_STREAM_ID) => {
+                    // Path parameters
+                    let path: &str = uri.path();
+                    let path_params =
+                    paths::REGEX_STREAMS_STREAM_ID
+                    .captures(path)
+                    .unwrap_or_else(||
+                        panic!("Path {} matched RE STREAMS_STREAM_ID in set but failed match against \"{}\"", path, paths::REGEX_STREAMS_STREAM_ID.as_str())
+                    );
+
+                    let param_stream_id = match percent_encoding::percent_decode(path_params["stream_id"].as_bytes()).decode_utf8() {
+                    Ok(param_stream_id) => match param_stream_id.parse::<String>() {
+                        Ok(param_stream_id) => param_stream_id,
+                        Err(e) => return Ok(Response::builder()
+                                        .status(StatusCode::BAD_REQUEST)
+                                        .body(Body::from(format!("Couldn't parse path parameter stream_id: {}", e)))
+                                        .expect("Unable to create Bad Request response for invalid path parameter")),
+                    },
+                    Err(_) => return Ok(Response::builder()
+                                        .status(StatusCode::BAD_REQUEST)
+                                        .body(Body::from(format!("Couldn't percent-decode path parameter as UTF-8: {}", &path_params["stream_id"])))
+                                        .expect("Unable to create Bad Request response for invalid percent decode"))
+                };
+
+                    let result = api_impl
+                        .streams_stream_id_get(param_stream_id, &context)
+                        .await;
+                    let mut response = Response::new(Body::empty());
+                    response.headers_mut().insert(
+                        HeaderName::from_static("x-span-id"),
+                        HeaderValue::from_str(
+                            (&context as &dyn Has<XSpanIdString>)
+                                .get()
+                                .0
+                                .clone()
+                                .as_str(),
+                        )
+                        .expect("Unable to create X-Span-ID header value"),
+                    );
+
+                    match result {
+                        Ok(rsp) => match rsp {
+                            StreamsStreamIdGetResponse::Success(body) => {
+                                *response.status_mut() = StatusCode::from_u16(200)
+                                    .expect("Unable to turn 200 into a StatusCode");
+                                response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for STREAMS_STREAM_ID_GET_SUCCESS"));
+                                let body_content = serde_json::to_string(&body)
+                                    .expect("impossible to fail to serialize");
+                                *response.body_mut() = Body::from(body_content);
+                            }
+                            StreamsStreamIdGetResponse::BadRequest(body) => {
+                                *response.status_mut() = StatusCode::from_u16(400)
+                                    .expect("Unable to turn 400 into a StatusCode");
+                                response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for STREAMS_STREAM_ID_GET_BAD_REQUEST"));
+                                let body_content = serde_json::to_string(&body)
+                                    .expect("impossible to fail to serialize");
+                                *response.body_mut() = Body::from(body_content);
+                            }
+                            StreamsStreamIdGetResponse::StreamNotFound(body) => {
+                                *response.status_mut() = StatusCode::from_u16(404)
+                                    .expect("Unable to turn 404 into a StatusCode");
+                                response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("text/plain")
+                                                            .expect("Unable to create Content-Type header for STREAMS_STREAM_ID_GET_STREAM_NOT_FOUND"));
+                                let body_content = body;
+                                *response.body_mut() = Body::from(body_content);
+                            }
+                            StreamsStreamIdGetResponse::InternalServerError(body) => {
+                                *response.status_mut() = StatusCode::from_u16(500)
+                                    .expect("Unable to turn 500 into a StatusCode");
+                                response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for STREAMS_STREAM_ID_GET_INTERNAL_SERVER_ERROR"));
+                                let body_content = serde_json::to_string(&body)
+                                    .expect("impossible to fail to serialize");
+                                *response.body_mut() = Body::from(body_content);
+                            }
+                        },
+                        Err(_) => {
+                            // Application code returned an error. This should not happen, as the implementation should
+                            // return a valid response.
+                            *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                            *response.body_mut() = Body::from("An internal error occurred");
+                        }
+                    }
+
+                    Ok(response)
+                }
+
+                // StreamsStreamIdOptions - OPTIONS /streams/{stream_id}
+                hyper::Method::OPTIONS if path.matched(paths::ID_STREAMS_STREAM_ID) => {
+                    // Path parameters
+                    let path: &str = uri.path();
+                    let path_params =
+                    paths::REGEX_STREAMS_STREAM_ID
+                    .captures(path)
+                    .unwrap_or_else(||
+                        panic!("Path {} matched RE STREAMS_STREAM_ID in set but failed match against \"{}\"", path, paths::REGEX_STREAMS_STREAM_ID.as_str())
+                    );
+
+                    let param_stream_id = match percent_encoding::percent_decode(path_params["stream_id"].as_bytes()).decode_utf8() {
+                    Ok(param_stream_id) => match param_stream_id.parse::<String>() {
+                        Ok(param_stream_id) => param_stream_id,
+                        Err(e) => return Ok(Response::builder()
+                                        .status(StatusCode::BAD_REQUEST)
+                                        .body(Body::from(format!("Couldn't parse path parameter stream_id: {}", e)))
+                                        .expect("Unable to create Bad Request response for invalid path parameter")),
+                    },
+                    Err(_) => return Ok(Response::builder()
+                                        .status(StatusCode::BAD_REQUEST)
+                                        .body(Body::from(format!("Couldn't percent-decode path parameter as UTF-8: {}", &path_params["stream_id"])))
+                                        .expect("Unable to create Bad Request response for invalid percent decode"))
+                };
+
+                    let result = api_impl
+                        .streams_stream_id_options(param_stream_id, &context)
+                        .await;
+                    let mut response = Response::new(Body::empty());
+                    response.headers_mut().insert(
+                        HeaderName::from_static("x-span-id"),
+                        HeaderValue::from_str(
+                            (&context as &dyn Has<XSpanIdString>)
+                                .get()
+                                .0
+                                .clone()
+                                .as_str(),
+                        )
+                        .expect("Unable to create X-Span-ID header value"),
+                    );
+
+                    match result {
+                        Ok(rsp) => match rsp {
+                            StreamsStreamIdOptionsResponse::Cors => {
+                                *response.status_mut() = StatusCode::from_u16(200)
+                                    .expect("Unable to turn 200 into a StatusCode");
+                            }
+                        },
+                        Err(_) => {
+                            // Application code returned an error. This should not happen, as the implementation should
+                            // return a valid response.
+                            *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                            *response.body_mut() = Body::from("An internal error occurred");
+                        }
+                    }
+
+                    Ok(response)
+                }
+
                 // VersionGet - GET /version
                 hyper::Method::GET if path.matched(paths::ID_VERSION) => {
                     let result = api_impl.version_get(&context).await;
@@ -1909,6 +2075,7 @@ where
                 _ if path.matched(paths::ID_INTERESTS) => method_not_allowed(),
                 _ if path.matched(paths::ID_INTERESTS_SORT_KEY_SORT_VALUE) => method_not_allowed(),
                 _ if path.matched(paths::ID_LIVENESS) => method_not_allowed(),
+                _ if path.matched(paths::ID_STREAMS_STREAM_ID) => method_not_allowed(),
                 _ if path.matched(paths::ID_VERSION) => method_not_allowed(),
                 _ => Ok(Response::builder()
                     .status(StatusCode::NOT_FOUND)
@@ -1998,6 +2165,14 @@ impl<T> RequestParser<T> for ApiRequestParser {
             hyper::Method::GET if path.matched(paths::ID_LIVENESS) => Some("LivenessGet"),
             // LivenessOptions - OPTIONS /liveness
             hyper::Method::OPTIONS if path.matched(paths::ID_LIVENESS) => Some("LivenessOptions"),
+            // StreamsStreamIdGet - GET /streams/{stream_id}
+            hyper::Method::GET if path.matched(paths::ID_STREAMS_STREAM_ID) => {
+                Some("StreamsStreamIdGet")
+            }
+            // StreamsStreamIdOptions - OPTIONS /streams/{stream_id}
+            hyper::Method::OPTIONS if path.matched(paths::ID_STREAMS_STREAM_ID) => {
+                Some("StreamsStreamIdOptions")
+            }
             // VersionGet - GET /version
             hyper::Method::GET if path.matched(paths::ID_VERSION) => Some("VersionGet"),
             // VersionOptions - OPTIONS /version

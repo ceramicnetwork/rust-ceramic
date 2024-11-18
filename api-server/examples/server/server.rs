@@ -109,7 +109,8 @@ use ceramic_api_server::{
     FeedResumeTokenGetResponse, FeedResumeTokenOptionsResponse, InterestsOptionsResponse,
     InterestsPostResponse, InterestsSortKeySortValueOptionsResponse,
     InterestsSortKeySortValuePostResponse, LivenessGetResponse, LivenessOptionsResponse,
-    VersionGetResponse, VersionOptionsResponse, VersionPostResponse,
+    StreamsStreamIdGetResponse, StreamsStreamIdOptionsResponse, VersionGetResponse,
+    VersionOptionsResponse, VersionPostResponse,
 };
 use std::error::Error;
 use swagger::ApiError;
@@ -391,6 +392,34 @@ where
     async fn liveness_options(&self, context: &C) -> Result<LivenessOptionsResponse, ApiError> {
         info!(
             "liveness_options() - X-Span-ID: {:?}",
+            context.get().0.clone()
+        );
+        Err(ApiError("Generic failure".into()))
+    }
+
+    /// Get stream state
+    async fn streams_stream_id_get(
+        &self,
+        stream_id: String,
+        context: &C,
+    ) -> Result<StreamsStreamIdGetResponse, ApiError> {
+        info!(
+            "streams_stream_id_get(\"{}\") - X-Span-ID: {:?}",
+            stream_id,
+            context.get().0.clone()
+        );
+        Err(ApiError("Generic failure".into()))
+    }
+
+    /// cors
+    async fn streams_stream_id_options(
+        &self,
+        stream_id: String,
+        context: &C,
+    ) -> Result<StreamsStreamIdOptionsResponse, ApiError> {
+        info!(
+            "streams_stream_id_options(\"{}\") - X-Span-ID: {:?}",
+            stream_id,
             context.get().0.clone()
         );
         Err(ApiError("Generic failure".into()))
