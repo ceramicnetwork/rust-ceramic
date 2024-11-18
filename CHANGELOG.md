@@ -2,7 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.43.0] - 2024-11-12
+## [0.44.0] - 2024-11-18
+
+### 🚀 Features
+
+- Backoff recon synchronization to peers with bad data (#597)
+
+### 🚜 Refactor
+
+- Consistent pipeline table names and schemas (#587)
+
+## [0.43.0] - 2024-11-14
 
 ### 🚀 Features
 
@@ -11,6 +21,7 @@ All notable changes to this project will be documented in this file.
 ### ⚙️ Miscellaneous Tasks
 
 - Update ci env to dev-qa cluster (#584)
+- Version v0.43.0 (#585)
 
 ## [0.42.0] - 2024-11-07
 
