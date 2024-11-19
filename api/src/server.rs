@@ -692,18 +692,26 @@ where
                 tx,
             }),
         )
-        .map_err(|_| {
-            ErrorResponse::new("Database service queue is too full to accept requests".to_owned())
+        .map_err(|e| {
+            ErrorResponse::new(format!(
+                "Database service queue is too full to accept requests, error: {e}"
+            ))
         })
         .await?
-        .map_err(|_| ErrorResponse::new("Database service not available".to_owned()))?;
+        .map_err(|e| ErrorResponse::new(format!("Database service not available, error: {e}")))?;
 
         let new = tokio::time::timeout(INSERT_REQUEST_TIMEOUT, rx)
             .await
-            .map_err(|_| {
-                ErrorResponse::new("Timeout waiting for database service response".to_owned())
+            .map_err(|e| {
+                ErrorResponse::new(format!(
+                    "Timeout waiting for database service response, error: {e}"
+                ))
             })?
-            .map_err(|_| ErrorResponse::new("No response. Database service crashed".to_owned()))?
+            .map_err(|e| {
+                ErrorResponse::new(format!(
+                    "No response. Database service crashed with error: {e}"
+                ))
+            })?
             .map_err(|e| ErrorResponse::new(format!("Failed to insert event: {e}")))?;
 
         match new {
