@@ -22,7 +22,7 @@ set -e
 cd $(git rev-parse --show-toplevel)
 
 # First determine the next release level
-level=$1
+level=$(./ci-scripts/release_level.sh)
 
 # Print commits since last tag
 cargo release changes

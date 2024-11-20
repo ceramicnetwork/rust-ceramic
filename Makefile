@@ -7,8 +7,6 @@
 RUSTFLAGS = -D warnings --cfg tokio_unstable
 CARGO = RUSTFLAGS='${RUSTFLAGS}' cargo
 
-RELEASE_LEVEL ?= minor
-
 # ECS environment to deploy image to
 DEPLOY_ENV ?= dev
 
@@ -81,7 +79,7 @@ debug:
 # Prepare a release PR.
 .PHONY: release-pr
 release-pr:
-	./ci-scripts/release_pr.sh ${RELEASE_LEVEL}
+	./ci-scripts/release_pr.sh
 
 .PHONY: test
 test:
