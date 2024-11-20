@@ -273,4 +273,4 @@ arrow-string = { git = "https://github.com/apache/arrow-rs.git", branch = "maste
 
 [patch."https://github.com/datafusion-contrib/datafusion-federation.git"]
 # Can remove once https://github.com/datafusion-contrib/datafusion-federation/pull/81 merges
-datafusion-flight-sql-server = { path = "../datafusion-federation/datafusion-flight-sql-server" }
+datafusion-flight-sql-server = { git = "https://github.com/nathanielc/datafusion-federation.git", branch = "feat/put-prepared" }

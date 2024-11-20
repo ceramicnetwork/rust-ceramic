@@ -3535,6 +3535,7 @@ dependencies = [
 [[package]]
 name = "datafusion-federation"
 version = "0.3.1"
+source = "git+https://github.com/nathanielc/datafusion-federation.git?branch=feat/put-prepared#7f48c8b0d4ac93cad547a496f844eed945f2c0a1"
 dependencies = [
  "arrow-json",
  "async-stream",
@@ -3546,6 +3547,7 @@ dependencies = [
 [[package]]
 name = "datafusion-flight-sql-server"
 version = "0.4.1"
+source = "git+https://github.com/nathanielc/datafusion-federation.git?branch=feat/put-prepared#7f48c8b0d4ac93cad547a496f844eed945f2c0a1"
 dependencies = [
  "arrow",
  "arrow-flight",
