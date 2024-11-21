@@ -1,21 +1,25 @@
 use std::fmt::Display;
 use std::{fs, path::PathBuf, str::FromStr};
 
-use crate::{StreamId, StreamIdType};
 use anyhow::{anyhow, Context, Ok, Result};
-use cid::multihash::Multihash;
-use cid::Cid;
+use cid::{multihash::Multihash, Cid};
 use libp2p_identity::PeerId;
 use rand::Rng;
-use ring::signature::{Ed25519KeyPair, KeyPair};
+use ring::signature::{Ed25519KeyPair, KeyPair, Signature};
+use serde::{Deserialize, Serialize};
+use ssi::jwk::{Algorithm, Base64urlUInt, OctetParams, Params, JWK};
+
+use crate::{signer::Signer, DidDocument, StreamId, StreamIdType};
 
 const ED25519_MULTICODEC: u64 = 0xed;
+const ED25519_CURVE_NAME: &str = "Ed25519";
 const ED25519_PUBLIC_KEY_MULTICODEC_PREFIX: &[u8; 2] = b"\xed\x01";
 const ED25519_PRIVATE_KEY_MULTICODEC_PREFIX: &[u8; 2] = b"\x80\x26";
 const ED25519_LIBP2P_PEER_ID_PREFIX: &[u8; 4] = b"\x08\x01\x12\x20";
 
 /// NodeId is the public_ed25519_key_bytes of the node
-#[derive(Clone, Eq, PartialEq, Copy)]
+/// See [`NodeKey`] for a structure that also contains the private key.
+#[derive(Clone, Eq, PartialEq, Copy, Serialize, Deserialize)]
 pub struct NodeId {
     public_ed25519_key_bytes: [u8; 32],
 }
@@ -27,6 +31,14 @@ impl std::fmt::Debug for NodeId {
 }
 
 impl NodeId {
+    fn public_multibase(&self) -> String {
+        let public_with_prefix = [
+            ED25519_PUBLIC_KEY_MULTICODEC_PREFIX,
+            self.public_ed25519_key_bytes.as_ref(),
+        ]
+        .concat();
+        multibase::encode(multibase::Base::Base58Btc, public_with_prefix)
+    }
     /// public_ed25519_key_bytes as a CID
     pub fn cid(&self) -> Cid {
         let hash = Multihash::<64>::wrap(0, self.public_ed25519_key_bytes.as_slice())
@@ -42,13 +54,28 @@ impl NodeId {
     }
     /// public_ed25519_key_bytes as a did:key
     pub fn did_key(&self) -> String {
-        let public_with_prefix = [
-            ED25519_PUBLIC_KEY_MULTICODEC_PREFIX,
-            self.public_ed25519_key_bytes.as_ref(),
-        ]
-        .concat();
-        let public_multibase = multibase::encode(multibase::Base::Base58Btc, public_with_prefix);
-        format!("did:key:{}", public_multibase)
+        format!("did:key:{}", self.public_multibase())
+    }
+    /// public_ed25519_key_bytes as a did:key document
+    pub fn did(&self) -> DidDocument {
+        DidDocument {
+            context: ssi::did::Contexts::One(ssi::did::Context::URI(
+                ssi::did::DEFAULT_CONTEXT.to_owned().into(),
+            )),
+            id: self.did_key(),
+            also_known_as: None,
+            controller: None,
+            verification_method: None,
+            authentication: None,
+            assertion_method: None,
+            key_agreement: None,
+            capability_invocation: None,
+            capability_delegation: None,
+            service: None,
+            proof: None,
+            property_set: None,
+            public_key: None,
+        }
     }
     /// public_ed25519_key_bytes as a PeerID
     pub fn peer_id(&self) -> PeerId {
@@ -62,6 +89,16 @@ impl NodeId {
             .expect("self.public_ed25519_key_bytes to be well formed");
         PeerId::from_multihash(libp2p_key_multihash)
             .expect("self.public_ed25519_key_bytes to be well formed")
+    }
+    /// json web key from this id.
+    pub fn jwk(&self) -> JWK {
+        let mut jwk = JWK::from(Params::OKP(OctetParams {
+            curve: ED25519_CURVE_NAME.to_string(),
+            public_key: Base64urlUInt(self.public_ed25519_key_bytes.to_vec()),
+            private_key: None,
+        }));
+        jwk.key_id = Some(self.public_multibase());
+        jwk
     }
     /// public_ed25519_key_bytes from a Cid
     pub fn try_from_cid(cid: Cid) -> Result<Self> {
@@ -93,8 +130,82 @@ impl NodeId {
             public_ed25519_key_bytes,
         })
     }
-    /// Read an Ed25519 key from a directory and return a NodeID with a key pair
-    pub fn try_from_dir(key_dir: PathBuf) -> Result<(Self, Ed25519KeyPair)> {
+    /// public_ed25519_key_bytes from a PeerId
+    pub fn try_from_peer_id(peer_id: &PeerId) -> Result<Self> {
+        let peer_id_mh = peer_id.as_ref();
+        if peer_id_mh.code() != 0x00 {
+            return Err(anyhow!("peer ID multihash is not identity"));
+        }
+        if peer_id_mh.size() != 36 {
+            return Err(anyhow!("peer ID multihash is not 36 bytes"));
+        }
+        let libp2p_key = peer_id_mh.digest();
+        let ed25519_public_key = libp2p_key
+            .strip_prefix(ED25519_LIBP2P_PEER_ID_PREFIX)
+            .context(
+                "libp2p peer ID must be 0x08011220 followed by 32 bytes of ed25519 public key",
+            )?;
+        let public_ed25519_key_bytes: [u8; 32] = ed25519_public_key.try_into()?;
+        Ok(Self {
+            public_ed25519_key_bytes,
+        })
+    }
+}
+
+impl Display for NodeId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.did_key())
+    }
+}
+
+/// A [`NodeId`] with its private key.
+#[derive(Debug)]
+pub struct NodeKey {
+    id: NodeId,
+    // It would be preferable to not store the private_key_bytes directly and instead use only the
+    // key_pair. However to use JWK we need to keep the private_key_bytes around.
+    // Maybe in future versions of ssi_jwk we can change this.
+    private_key_bytes: [u8; 32],
+    key_pair: Ed25519KeyPair,
+    did: DidDocument,
+}
+
+impl PartialEq for NodeKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id && self.private_key_bytes == other.private_key_bytes
+    }
+}
+impl Eq for NodeKey {}
+
+impl NodeKey {
+    /// Construct a new key with both private and public keys.
+    fn new(id: NodeId, private_key_bytes: [u8; 32], key_pair: Ed25519KeyPair) -> Self {
+        Self {
+            id,
+            private_key_bytes,
+            key_pair,
+            did: id.did(),
+        }
+    }
+
+    /// Construct a [`JWK`] with both the private and public keys.
+    pub fn jwk(&self) -> JWK {
+        let mut jwk = JWK::from(Params::OKP(OctetParams {
+            curve: ED25519_CURVE_NAME.to_string(),
+            public_key: Base64urlUInt(self.id.public_ed25519_key_bytes.to_vec()),
+            private_key: Some(Base64urlUInt(self.private_key_bytes.to_vec())),
+        }));
+        jwk.key_id = Some(self.public_multibase());
+        jwk
+    }
+
+    /// Report the [`NodeId`] of this key.
+    pub fn id(&self) -> NodeId {
+        self.id
+    }
+
+    /// Read an Ed25519 key from a directory
+    pub fn try_from_dir(key_dir: PathBuf) -> Result<NodeKey> {
         let key_path = key_dir.join("id_ed25519_0");
         let content = fs::read_to_string(key_path)?;
         let seed = ssh_key::private::PrivateKey::from_str(&content)
@@ -107,10 +218,11 @@ impl NodeId {
         let key_pair = Ed25519KeyPair::from_seed_unchecked(seed.as_ref())
             .map_err(|e| anyhow::anyhow!("failed to create key pair: {}", e))?;
         let public_ed25519_key_bytes = key_pair.public_key().as_ref().try_into()?;
-        Ok((
-            Self {
+        Ok(Self::new(
+            NodeId {
                 public_ed25519_key_bytes,
             },
+            seed,
             key_pair,
         ))
     }
@@ -121,7 +233,7 @@ impl NodeId {
     ///
     /// - Multibase of unchecked Secret (i.e. not matched against public key)
     ///   (e.g. z3u2WLX8jeyN6sfbDowLGudoZHudxgVkNJfrw2TDTVx4tijd)
-    pub fn try_from_secret(secret: &str) -> Result<(Self, Ed25519KeyPair)> {
+    pub fn try_from_secret(secret: &str) -> Result<NodeKey> {
         let mut parts = secret.split(':');
         let secret = parts.next().expect("split should never give zero parts");
         let secret_with_prefix: [u8; 34] = multibase::decode(secret)
@@ -164,41 +276,15 @@ impl NodeId {
             }
         };
         let public_ed25519_key_bytes = key_pair.public_key().as_ref().try_into()?;
-        Ok((
-            Self {
-                public_ed25519_key_bytes,
-            },
-            key_pair,
-        ))
-    }
-    /// public_ed25519_key_bytes from a PeerId
-    pub fn try_from_peer_id(peer_id: &PeerId) -> Result<Self> {
-        let peer_id_mh = peer_id.as_ref();
-        if peer_id_mh.code() != 0x00 {
-            return Err(anyhow!("peer ID multihash is not identity"));
-        }
-        if peer_id_mh.size() != 36 {
-            return Err(anyhow!("peer ID multihash is not 36 bytes"));
-        }
-        let libp2p_key = peer_id_mh.digest();
-        let ed25519_public_key = libp2p_key
-            .strip_prefix(ED25519_LIBP2P_PEER_ID_PREFIX)
-            .context(
-                "libp2p peer ID must be 0x08011220 followed by 32 bytes of ed25519 public key",
-            )?;
-        let public_ed25519_key_bytes: [u8; 32] = ed25519_public_key.try_into()?;
-        Ok(Self {
+        let id = NodeId {
             public_ed25519_key_bytes,
-        })
+        };
+        Ok(NodeKey::new(id, secret, key_pair))
     }
     /// Create a NodeId using a random Ed25519 key pair
     ///
-    /// Returns (NodeId, secret:public_key)
-    /// e.g. secret:public_key
-    ///   z3u2WLX8jeyN6sfbDowLGudoZHudxgVkNJfrw2TDTVx4tijd:z6MkueF19qChpGQJBJXcXjfoM1MYCwC167RMwUiNWXXvEm1M
-    ///   In this example, the DID will be did:key:z6MkueF19qChpGQJBJXcXjfoM1MYCwC167RMwUiNWXXvEm1M.
-    pub fn random() -> (Self, String) {
-        // Generate random secret key and corresponding keypair
+    pub fn random() -> NodeKey {
+        // Generate random secret key and corresponding key_pair
         let random_secret = rand::thread_rng().gen::<[u8; 32]>();
         let key_pair = Ed25519KeyPair::from_seed_unchecked(random_secret.as_ref())
             .expect("expect 32 bytes to be well-formed");
@@ -208,32 +294,45 @@ impl NodeId {
             .as_ref()
             .try_into()
             .expect("expect public key to be 32 bytes");
-        let public_key_with_prefix = [
-            ED25519_PUBLIC_KEY_MULTICODEC_PREFIX,
-            public_ed25519_key_bytes.as_ref(),
-        ]
-        .concat();
-        let public_key_multibase =
-            multibase::encode(multibase::Base::Base58Btc, public_key_with_prefix);
-        let private_key_with_prefix = [
-            ED25519_PRIVATE_KEY_MULTICODEC_PREFIX,
-            random_secret.as_ref(),
-        ]
-        .concat();
-        let private_key_multibase =
-            multibase::encode(multibase::Base::Base58Btc, private_key_with_prefix);
-        (
-            Self {
+        NodeKey::new(
+            NodeId {
                 public_ed25519_key_bytes,
             },
-            format!("{}:{}", private_key_multibase, public_key_multibase),
+            random_secret,
+            key_pair,
         )
+    }
+    /// Sign data with this key
+    pub fn sign(&self, data: &[u8]) -> Signature {
+        self.key_pair.sign(data)
     }
 }
 
-impl Display for NodeId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.did_key())
+impl std::ops::Deref for NodeKey {
+    type Target = NodeId;
+
+    fn deref(&self) -> &Self::Target {
+        &self.id
+    }
+}
+
+impl Signer for NodeKey {
+    fn algorithm(&self) -> ssi::jwk::Algorithm {
+        Algorithm::EdDSA
+    }
+
+    fn id(&self) -> &ssi::did::Document {
+        &self.did
+    }
+
+    fn sign_bytes(&self, bytes: &[u8]) -> anyhow::Result<Vec<u8>> {
+        let jwk = self.jwk();
+        Ok(ssi::jws::sign_bytes(self.algorithm(), bytes, &jwk)?)
+    }
+
+    fn sign_jws(&self, payload: &str) -> anyhow::Result<String> {
+        let jwk = self.jwk();
+        Ok(ssi::jws::encode_sign(self.algorithm(), payload, &jwk)?)
     }
 }
 
@@ -245,12 +344,12 @@ mod tests {
     #[test]
     fn test_ed25519_key_pair_from_secret() {
         let secret = "z3u2WLX8jeyN6sfbDowLGudoZHudxgVkNJfrw2TDTVx4tijd";
-        let (node_id_1, _) = NodeId::try_from_secret(secret).unwrap();
+        let node_key_1 = NodeKey::try_from_secret(secret).unwrap();
         let secret_and_public = "z3u2WLX8jeyN6sfbDowLGudoZHudxgVkNJfrw2TDTVx4tijd:z6MkueF19qChpGQJBJXcXjfoM1MYCwC167RMwUiNWXXvEm1M";
-        let (node_id_2, _) = NodeId::try_from_secret(secret_and_public).unwrap();
-        assert_eq!(node_id_1, node_id_2);
+        let node_key_2 = NodeKey::try_from_secret(secret_and_public).unwrap();
+        assert_eq!(node_key_1, node_key_2);
         expect![["did:key:z6MkueF19qChpGQJBJXcXjfoM1MYCwC167RMwUiNWXXvEm1M"]]
-            .assert_eq(&node_id_1.did_key());
+            .assert_eq(&node_key_1.did_key());
     }
 
     #[test]

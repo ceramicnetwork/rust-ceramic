@@ -3,7 +3,7 @@ use std::{collections::BTreeSet, str::FromStr};
 use ceramic_api::InterestService;
 use ceramic_core::{
     interest::{Builder, WithPeerId},
-    Interest, NodeId, PeerId,
+    Interest, NodeKey, PeerId,
 };
 use expect_test::expect;
 use rand::{thread_rng, Rng};
@@ -116,7 +116,7 @@ where
             random_interest(Some((&[0], &[1])), Some(42)),
             vec![],
         )],
-        NodeId::random().0,
+        NodeKey::random().id(),
     )
     .await
     .unwrap();
@@ -127,7 +127,7 @@ where
             random_interest(Some((&[0], &[1])), Some(24)),
             vec![],
         )],
-        NodeId::random().0,
+        NodeKey::random().id(),
     )
     .await
     .unwrap();
@@ -155,14 +155,14 @@ where
     recon::Store::insert_many(
         &store,
         &[ReconItem::new(interest_0.clone(), Vec::new())],
-        NodeId::random().0,
+        NodeKey::random().id(),
     )
     .await
     .unwrap();
     recon::Store::insert_many(
         &store,
         &[ReconItem::new(interest_1.clone(), Vec::new())],
-        NodeId::random().0,
+        NodeKey::random().id(),
     )
     .await
     .unwrap();
@@ -194,14 +194,14 @@ where
     store
         .insert_many(
             &[ReconItem::new(interest_0.clone(), Vec::new())],
-            NodeId::random().0,
+            NodeKey::random().id(),
         )
         .await
         .unwrap();
     store
         .insert_many(
             &[ReconItem::new(interest_1.clone(), Vec::new())],
-            NodeId::random().0,
+            NodeKey::random().id(),
         )
         .await
         .unwrap();
@@ -235,7 +235,7 @@ where
     assert!(&recon::Store::insert_many(
         &store,
         &[ReconItem::new(interest.clone(), Vec::new())],
-        NodeId::random().0,
+        NodeKey::random().id(),
     )
     .await
     .unwrap()
@@ -245,7 +245,7 @@ where
     assert!(!recon::Store::insert_many(
         &store,
         &[ReconItem::new(interest.clone(), Vec::new())],
-        NodeId::random().0,
+        NodeKey::random().id(),
     )
     .await
     .unwrap()
@@ -266,7 +266,7 @@ where
     recon::Store::insert_many(
         &store,
         &[ReconItem::new(key.clone(), Vec::new())],
-        NodeId::random().0,
+        NodeKey::random().id(),
     )
     .await
     .unwrap();

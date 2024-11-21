@@ -17,6 +17,7 @@ hex.workspace = true
 int-enum.workspace = true
 libp2p-identity.workspace = true
 minicbor.workspace = true
+multiaddr.workspace = true
 multibase.workspace = true
 multihash-codetable.workspace = true
 multihash-derive.workspace = true

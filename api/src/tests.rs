@@ -15,7 +15,7 @@ use ceramic_api_server::{
     InterestsPostResponse, InterestsSortKeySortValuePostResponse,
 };
 use ceramic_api_server::{Api, StreamsStreamIdGetResponse};
-use ceramic_core::{Cid, Interest};
+use ceramic_core::{Cid, Interest, NodeKey};
 use ceramic_core::{EventId, Network, NodeId, PeerId, StreamId};
 use ceramic_pipeline::EVENT_STATES_TABLE;
 use datafusion::arrow::array::{
@@ -197,7 +197,7 @@ where
 
 #[test(tokio::test)]
 async fn create_event() {
-    let node_id = NodeId::random().0;
+    let node_id = NodeKey::random().id();
     let network = Network::Mainnet;
     let expected_event_id = EventId::try_from(hex::decode(DATA_EVENT_ID).unwrap()).unwrap();
 
@@ -299,7 +299,7 @@ async fn create_event_twice() {
 }
 #[test(tokio::test)]
 async fn create_event_fails() {
-    let node_id = NodeId::random().0;
+    let node_id = NodeKey::random().id();
     let network = Network::Mainnet;
     let expected_event_id = EventId::try_from(hex::decode(DATA_EVENT_ID).unwrap()).unwrap();
 
@@ -352,7 +352,7 @@ async fn create_event_fails() {
 
 #[test(tokio::test)]
 async fn register_interest_sort_value() {
-    let node_id = NodeId::random().0;
+    let node_id = NodeKey::random().id();
     let network = Network::InMemory;
     let model = "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9"; // cspell:disable-line
 
@@ -407,7 +407,7 @@ async fn register_interest_sort_value() {
 #[test(tokio::test)]
 
 async fn register_interest_sort_value_bad_request() {
-    let node_id = NodeId::random().0;
+    let node_id = NodeKey::random().id();
     let network = Network::InMemory;
 
     let model = "2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9"; //missing 'k' cspell:disable-line
@@ -435,7 +435,7 @@ async fn register_interest_sort_value_bad_request() {
 #[test(tokio::test)]
 
 async fn register_interest_sort_value_controller() {
-    let node_id = NodeId::random().0;
+    let node_id = NodeKey::random().id();
     let network = Network::InMemory;
     let model = "z3KWHw5Efh2qLou2FEdz3wB8ZvLgURJP94HeijLVurxtF1Ntv6fkg2G"; // base58 encoded should work cspell:disable-line
                                                                            // we convert to base36 before storing
@@ -493,7 +493,7 @@ async fn register_interest_sort_value_controller() {
 #[test(tokio::test)]
 
 async fn register_interest_value_controller_stream() {
-    let node_id = NodeId::random().0;
+    let node_id = NodeKey::random().id();
     let network = Network::InMemory;
     let model = "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9"; // cspell:disable-line
     let controller = "did:key:zGs1Det7LHNeu7DXT4nvoYrPfj3n6g7d6bj2K4AMXEvg1";
@@ -725,7 +725,7 @@ async fn get_interests_for_peer() {
 
 #[test(tokio::test)]
 async fn get_events_for_interest_range() {
-    let node_id = NodeId::random().0;
+    let node_id = NodeKey::random().id();
     let network = Network::InMemory;
     let model = "k2t6wz4ylx0qr6v7dvbczbxqy7pqjb0879qx930c1e27gacg3r8sllonqt4xx9"; // cspell:disable-line
     let controller = "did:key:zGs1Det7LHNeu7DXT4nvoYrPfj3n6g7d6bj2K4AMXEvg1";
@@ -794,7 +794,7 @@ async fn get_events_for_interest_range() {
 
 #[test(tokio::test)]
 async fn events_event_id_get_by_event_id_success() {
-    let node_id = NodeId::random().0;
+    let node_id = NodeKey::random().id();
     let network = Network::InMemory;
     let event_cid =
         Cid::from_str("baejbeicqtpe5si4qvbffs2s7vtbk5ccbsfg6owmpidfj3zeluqz4hlnz6m").unwrap(); // cspell:disable-line
@@ -838,7 +838,7 @@ async fn events_event_id_get_by_event_id_success() {
 
 #[test(tokio::test)]
 async fn events_event_id_get_by_cid_success() {
-    let node_id = NodeId::random().0;
+    let node_id = NodeKey::random().id();
     let network = Network::InMemory;
     let event_cid =
         Cid::from_str("baejbeihyr3kf77etqdccjfoc33dmko2ijyugn6qk6yucfkioasjssz3bbu").unwrap(); // cspell:disable-line
@@ -873,7 +873,7 @@ async fn events_event_id_get_by_cid_success() {
 
 #[test(tokio::test)]
 async fn stream_state() {
-    let node_id = NodeId::random().0;
+    let node_id = NodeKey::random().id();
     let network = Network::InMemory;
     let mock_event_store = MockEventStoreTest::new();
     let mock_interest = MockAccessInterestStoreTest::new();

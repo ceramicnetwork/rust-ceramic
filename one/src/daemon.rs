@@ -7,7 +7,7 @@ use crate::{
 use anyhow::{anyhow, bail, Context, Result};
 use ceramic_anchor_remote::RemoteCas;
 use ceramic_anchor_service::AnchorService;
-use ceramic_core::NodeId;
+use ceramic_core::NodeKey;
 use ceramic_event_svc::eth_rpc::HttpEthRpc;
 use ceramic_event_svc::{ChainInclusionProvider, EventService};
 use ceramic_interest_svc::InterestService;
@@ -431,8 +431,9 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
     // Load node ID from key directory. Libp2p has their own wrapper around ed25519 keys (╯°□°)╯︵ ┻━┻
     // So, we need to load the key from the key directory for libp2p to use, and then again for evaluating the Node ID
     // using a generic ed25519 processing library (ring). We'll assert that the keys are the same.
-    let (node_id, keypair) = NodeId::try_from_dir(opts.p2p_key_dir.clone())?;
-    assert_eq!(node_id.peer_id(), peer_id);
+    let node_key = NodeKey::try_from_dir(opts.p2p_key_dir.clone())?;
+    assert_eq!(node_key.peer_id(), peer_id);
+    let node_id = node_key.id();
 
     // Register metrics for all components
     let recon_metrics = MetricsHandle::register(recon::Metrics::register);
@@ -576,14 +577,13 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
     let anchor_service_handle =
         if let Some(remote_anchor_service_url) = opts.remote_anchor_service_url {
             info!(
-                node_did = node_id.did_key(),
+                node_did = node_key.did_key(),
                 url = remote_anchor_service_url,
                 poll_interval = opts.anchor_poll_interval,
                 "starting remote cas anchor service"
             );
             let remote_cas = RemoteCas::new(
-                node_id,
-                keypair,
+                node_key,
                 remote_anchor_service_url,
                 Duration::from_secs(opts.anchor_poll_interval),
                 opts.anchor_poll_retry_count,
@@ -610,7 +610,6 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
         };
 
     // Build HTTP server
-    let (node_id, _) = NodeId::try_from_dir(opts.p2p_key_dir.clone())?;
     let mut ceramic_server = ceramic_api::Server::new(
         node_id,
         network,

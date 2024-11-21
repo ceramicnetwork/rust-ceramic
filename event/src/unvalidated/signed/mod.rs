@@ -9,10 +9,10 @@ use cid::Cid;
 use ipld_core::ipld::Ipld;
 use multihash_codetable::{Code, MultihashDigest};
 use serde::{Deserialize, Serialize};
-use ssi::jwk::Algorithm;
 
 use ceramic_car::sync::{CarHeader, CarWriter};
-use ceramic_core::{DidDocument, Jwk, SerializeExt};
+use ceramic_core::{signer::Signer, DidDocument, Jwk, SerializeExt};
+use ssi::jwk::Algorithm;
 
 use crate::{bytes::Bytes, unvalidated::Payload};
 
@@ -94,7 +94,7 @@ impl<D: serde::Serialize> Event<D> {
         let header_bytes = serde_json::to_vec(&header)?;
         let header_str = base64::engine::general_purpose::STANDARD_NO_PAD.encode(&header_bytes);
         let signing_input = format!("{}.{}", header_str, payload_cid_str);
-        let signed = signer.sign(signing_input.as_bytes())?;
+        let signed = signer.sign_bytes(signing_input.as_bytes())?;
 
         let envelope = Envelope {
             payload: payload_cid.to_bytes().into(),
@@ -261,28 +261,6 @@ struct Protected {
     cap: Option<String>,
 }
 
-/// Sign bytes for an id and algorithm
-pub trait Signer {
-    /// Algorithm used by signer
-    fn algorithm(&self) -> Algorithm;
-    /// Id of signer
-    fn id(&self) -> &DidDocument;
-    /// Sign bytes
-    fn sign(&self, bytes: &[u8]) -> anyhow::Result<Vec<u8>>;
-}
-
-impl<'a, S: Signer + Sync> Signer for &'a S {
-    fn algorithm(&self) -> Algorithm {
-        (*self).algorithm()
-    }
-    fn id(&self) -> &DidDocument {
-        (*self).id()
-    }
-    fn sign(&self, bytes: &[u8]) -> anyhow::Result<Vec<u8>> {
-        (*self).sign(bytes)
-    }
-}
-
 /// Did and jwk based signer
 #[derive(Clone, Debug)]
 pub struct JwkSigner {
@@ -311,7 +289,10 @@ impl Signer for JwkSigner {
         &self.did
     }
 
-    fn sign(&self, bytes: &[u8]) -> anyhow::Result<Vec<u8>> {
+    fn sign_bytes(&self, bytes: &[u8]) -> anyhow::Result<Vec<u8>> {
         Ok(ssi::jws::sign_bytes(self.algorithm(), bytes, &self.jwk)?)
+    }
+    fn sign_jws(&self, payload: &str) -> anyhow::Result<String> {
+        Ok(ssi::jws::encode_sign(self.algorithm(), payload, &self.jwk)?)
     }
 }

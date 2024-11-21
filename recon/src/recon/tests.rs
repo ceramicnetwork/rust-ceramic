@@ -19,7 +19,7 @@ use std::{collections::BTreeSet, sync::Arc};
 
 use anyhow::Result;
 use async_trait::async_trait;
-use ceramic_core::{NodeId, RangeOpen};
+use ceramic_core::{NodeKey, RangeOpen};
 use futures::{ready, Future, Sink, Stream};
 use pin_project::pin_project;
 use prometheus_client::registry::Registry;
@@ -515,7 +515,7 @@ async fn word_lists() {
                         key.as_bytes().into(),
                         key.to_uppercase().as_bytes().to_vec(),
                     )],
-                    NodeId::random().0,
+                    NodeKey::random().id(),
                 )
                 .await
                 .unwrap();
@@ -570,12 +570,12 @@ async fn word_lists() {
         let local_handle = tokio::spawn(protocol::initiate_synchronize(
             local,
             local_channel,
-            ProtocolConfig::new(100, NodeId::random().0),
+            ProtocolConfig::new(100, NodeKey::random().id()),
         ));
         let remote_handle = tokio::spawn(protocol::respond_synchronize(
             remote,
             remote_channel,
-            ProtocolConfig::new(100, NodeId::random().0),
+            ProtocolConfig::new(100, NodeKey::random().id()),
         ));
         // Error if either synchronize method errors
         let (local, remote) = tokio::join!(local_handle, remote_handle);
@@ -1141,12 +1141,12 @@ async fn recon_do_batch_size(
     let cat_fut = protocol::initiate_synchronize(
         cat.clone(),
         cat_channel,
-        ProtocolConfig::new(batch_size, NodeId::random().0),
+        ProtocolConfig::new(batch_size, NodeKey::random().id()),
     );
     let dog_fut = protocol::respond_synchronize(
         dog.clone(),
         dog_channel,
-        ProtocolConfig::new(batch_size, NodeId::random().0),
+        ProtocolConfig::new(batch_size, NodeKey::random().id()),
     );
     // Drive both synchronize futures on the same thread
     // This is to ensure a deterministic behavior.

@@ -232,7 +232,7 @@ impl AnchorService {
 mod tests {
     use std::{sync::Arc, time::Duration};
 
-    use ceramic_core::NodeId;
+    use ceramic_core::NodeKey;
     use ceramic_sql::sqlite::SqlitePool;
     use expect_test::expect_file;
     use tokio::{sync::broadcast, time::sleep};
@@ -245,7 +245,7 @@ mod tests {
         let tx_manager = Arc::new(MockCas);
         let event_service = Arc::new(MockAnchorEventService::new(10));
         let pool = SqlitePool::connect_in_memory().await.unwrap();
-        let node_id = NodeId::random().0;
+        let node_id = NodeKey::random().id();
         let anchor_interval = Duration::from_millis(5);
         let anchor_batch_size = 1000000;
         let mut anchor_service = AnchorService::new(
@@ -277,7 +277,7 @@ mod tests {
         let tx_manager = Arc::new(MockCas);
         let event_service = Arc::new(MockAnchorEventService::new(1));
         let pool = SqlitePool::connect_in_memory().await.unwrap();
-        let node_id = NodeId::random().0;
+        let node_id = NodeKey::random().id();
         let anchor_interval = Duration::from_millis(5);
         let anchor_batch_size = 1000000;
         let mut anchor_service = AnchorService::new(
