@@ -31,6 +31,7 @@ use mockall::{mock, predicate};
 use multibase::Base;
 use recon::Key;
 use test_log::test;
+use tokio::join;
 
 struct Context;
 
@@ -60,6 +61,9 @@ pub const SIGNED_INIT_EVENT_PAYLOAD: &str = "uomRkYXRhoWVzdGVwaBkBTWZoZWFkZXKkY3
 
 pub const UNSIGNED_INIT_EVENT_CID: &str =
     "bafyreiakimdaub7m6inx2nljypdhvhu5vozjhylqukif4hjxt65qnkv6my";
+
+// Assumes mainnet network
+pub const UNSIGNED_INIT_EVENT_ID: &str = "CE010500C703887C2B8374ED63A8EB5B47190F4706AABE66017112200A43060A07ECF21B7D3569C3C67A9E9DABB293E170A2905E1D379FBB06AABE66";
 
 pub const UNSIGNED_INIT_EVENT_CAR: &str = "
         uOqJlcm9vdHOB2CpYJQABcRIgCkMGCgfs8ht9NWnDxnqenauyk-FwopBeHTefuwaqvmZndmVyc2lvbgHDAQFxEiAKQwYKB-zyG301acPGep6dq7KT4XCikF4dN5-7Bqq-ZqJkZGF0YfZmaGVhZGVypGNzZXBlbW9kZWxlbW9kZWxYKM4BAgGFARIghHTHRYxxeQXgc9Q6LUJVelzW5bnrw9TWgoBJlBIOVtdmdW5pcXVlR2Zvb3xiYXJrY29udHJvbGxlcnOBeDhkaWQ6a2V5Ono2TWt0Q0ZSY3dMUkZRQTlXYmVEUk03VzdrYkJkWlRIUTJ4blBneXhaTHExZ0NwSw";
@@ -237,6 +241,61 @@ async fn create_event() {
         .await
         .unwrap();
     assert!(matches!(resp, EventsPostResponse::Success));
+}
+
+#[test(tokio::test)]
+async fn create_event_twice() {
+    let node_id = NodeId::random().0;
+    let network = Network::Mainnet;
+    let expected_event_id =
+        EventId::try_from(hex::decode(UNSIGNED_INIT_EVENT_ID).unwrap()).unwrap();
+
+    // Remove whitespace from event CAR file
+    let event_data = UNSIGNED_INIT_EVENT_CAR
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect::<String>();
+    let mock_interest = MockAccessInterestStoreTest::new();
+    let mut mock_event_store = MockEventStoreTest::new();
+    let item = ApiItem::new(
+        expected_event_id,
+        decode_multibase_data(&event_data).unwrap(),
+    );
+    let args = vec![item.clone(), item];
+
+    mock_event_store
+        .expect_insert_many()
+        .with(predicate::eq(args), predicate::eq(node_id))
+        .times(1)
+        .returning(|input, _| {
+            Ok(input
+                .into_iter()
+                .map(|v| EventInsertResult::new_ok(v.key.clone()))
+                .collect())
+        });
+    let server = create_test_server(
+        node_id,
+        network,
+        mock_interest,
+        Arc::new(mock_event_store),
+        None,
+    );
+    let (resp1, resp2) = join!(
+        server.events_post(
+            models::EventData {
+                data: event_data.to_string(),
+            },
+            &Context,
+        ),
+        server.events_post(
+            models::EventData {
+                data: event_data.to_string(),
+            },
+            &Context,
+        ),
+    );
+    assert_eq!(resp1.unwrap(), EventsPostResponse::Success);
+    assert_eq!(resp2.unwrap(), EventsPostResponse::Success);
 }
 #[test(tokio::test)]
 async fn create_event_fails() {

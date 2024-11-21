@@ -469,13 +469,17 @@ where
     }
 
     async fn process_events(events: &mut Vec<EventInsert>, event_store: &Arc<M>, node_id: NodeId) {
+        tracing::debug!(count = events.len(), "process_events");
         if events.is_empty() {
             return;
         }
         let mut oneshots = HashMap::with_capacity(events.len());
         let mut items = Vec::with_capacity(events.len());
         events.drain(..).for_each(|req: EventInsert| {
-            oneshots.insert(req.id.to_bytes(), req.tx);
+            oneshots
+                .entry(req.id.clone())
+                .or_insert(vec![])
+                .push(req.tx);
             items.push(ApiItem::new(req.id, req.data));
         });
         tracing::trace!("calling insert many with {} items.", items.len());
@@ -484,12 +488,20 @@ where
                 tracing::debug!("insert many returned {} results.", results.len());
                 for result in results {
                     let id = result.id();
-                    if let Some(tx) = oneshots.remove(&id.to_bytes()) {
-                        if let Err(e) = tx.send(Ok(result)) {
+                    if let Some(txs) = oneshots.get_mut(id) {
+                        // Expect one result per oneshot channel
+                        if let Some(tx) = txs.pop() {
+                            if let Err(e) = tx.send(Ok(result.clone())) {
+                                tracing::warn!(
+                                    "failed to send success response to api listener: {:?}",
+                                    e
+                                );
+                            }
+                        } else {
                             tracing::warn!(
-                                "failed to send success response to api listener: {:?}",
-                                e
-                            );
+                                    "no more channels to respond to API listener for duplicate event ID: {:?}",
+                                    id
+                                );
                         }
                     } else {
                         tracing::warn!(
@@ -501,9 +513,15 @@ where
             }
             Err(e) => {
                 tracing::warn!("failed to insert events: {e}");
-                for tx in oneshots.into_values() {
-                    if let Err(e) = tx.send(Err(anyhow::anyhow!("Failed to insert event: {e}"))) {
-                        tracing::warn!("failed to send failed response to api listener: {:?}", e);
+                for txs in oneshots.into_values() {
+                    for tx in txs {
+                        if let Err(e) = tx.send(Err(anyhow::anyhow!("Failed to insert event: {e}")))
+                        {
+                            tracing::warn!(
+                                "failed to send failed response to api listener: {:?}",
+                                e
+                            );
+                        }
                     }
                 }
             }
