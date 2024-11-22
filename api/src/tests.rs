@@ -245,7 +245,7 @@ async fn create_event() {
 
 #[test(tokio::test)]
 async fn create_event_twice() {
-    let node_id = NodeId::random().0;
+    let node_id = NodeKey::random().id();
     let network = Network::Mainnet;
     let expected_event_id =
         EventId::try_from(hex::decode(UNSIGNED_INIT_EVENT_ID).unwrap()).unwrap();
