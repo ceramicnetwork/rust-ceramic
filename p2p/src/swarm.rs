@@ -1,5 +1,5 @@
 use anyhow::Result;
-use ceramic_core::{EventId, Interest};
+use ceramic_core::{EventId, Interest, PeerKey};
 use libp2p::{dns, noise, relay, tcp, tls, yamux, Swarm, SwarmBuilder};
 use libp2p_identity::Keypair;
 use recon::{libp2p::Recon, Sha256a};
@@ -28,14 +28,15 @@ fn get_dns_config() -> (dns::ResolverConfig, dns::ResolverOpts) {
     }
 }
 
-pub(crate) async fn build_swarm<I, M, S>(
+pub(crate) async fn build_swarm<P, I, M, S>(
     config: &Libp2pConfig,
     keypair: Keypair,
-    recons: Option<(I, M)>,
+    recons: Option<(P, I, M)>,
     block_store: Arc<S>,
     metrics: Metrics,
-) -> Result<Swarm<NodeBehaviour<I, M, S>>>
+) -> Result<Swarm<NodeBehaviour<P, I, M, S>>>
 where
+    P: Recon<Key = PeerKey, Hash = Sha256a>,
     I: Recon<Key = Interest, Hash = Sha256a>,
     M: Recon<Key = EventId, Hash = Sha256a>,
     S: iroh_bitswap::Store,
@@ -94,15 +95,16 @@ where
     }
 }
 
-fn new_behavior<I, M, S>(
+fn new_behavior<P, I, M, S>(
     config: &Libp2pConfig,
     keypair: &Keypair,
     relay_client: Option<relay::client::Behaviour>,
-    recons: Option<(I, M)>,
+    recons: Option<(P, I, M)>,
     block_store: Arc<S>,
     metrics: Metrics,
-) -> Result<NodeBehaviour<I, M, S>>
+) -> Result<NodeBehaviour<P, I, M, S>>
 where
+    P: Recon<Key = PeerKey, Hash = Sha256a> + Send,
     I: Recon<Key = Interest, Hash = Sha256a> + Send,
     M: Recon<Key = EventId, Hash = Sha256a> + Send,
     S: iroh_bitswap::Store,

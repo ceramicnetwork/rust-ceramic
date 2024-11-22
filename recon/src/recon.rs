@@ -11,7 +11,7 @@ use std::{
 
 use anyhow::anyhow;
 use async_trait::async_trait;
-use ceramic_core::{EventId, Interest, NodeId, RangeOpen};
+use ceramic_core::{EventId, Interest, NodeId, PeerKey, RangeOpen};
 use serde::{Deserialize, Serialize};
 use tracing::{instrument, trace, Level};
 
@@ -224,7 +224,7 @@ where
     ///
     /// Reports any new keys and what the range indicates about how the local and remote node are
     /// synchronized.
-    #[instrument(skip(self), ret(level = Level::DEBUG))]
+    #[instrument(skip(self), ret(level = Level::TRACE))]
     async fn process_range(&self, range: RangeHash<K, H>) -> Result<SyncState<K, H>> {
         let calculated_hash = self.store.hash_range(&range.first..&range.last).await?;
         if calculated_hash == range.hash {
@@ -404,7 +404,7 @@ impl<K> ReconItem<K>
 where
     K: Key,
 {
-    /// Construct a new item with a key and optional value
+    /// Construct a new item with a key and value
     pub fn new(key: K, value: Vec<u8>) -> Self {
         Self {
             key,
@@ -602,14 +602,6 @@ where
         self.as_ref().value_for_key(key).await
     }
 }
-
-/// Store for Interests
-#[async_trait::async_trait]
-pub trait InterestStore: Store<Key = Interest, Hash = Sha256a> {}
-
-/// Store for EventId
-#[async_trait::async_trait]
-pub trait EventIdStore: Store<Key = EventId, Hash = Sha256a> {}
 
 /// Represents a key that can be reconciled via Recon.
 pub trait Key:
@@ -878,6 +870,24 @@ pub enum SyncState<K, H> {
         /// Often these are a split of the previous range or a zero if no local data was found.
         ranges: Vec<RangeHash<K, H>>,
     },
+}
+
+impl Key for PeerKey {
+    fn min_value() -> Self {
+        PeerKey::builder().with_min_expiration().build_fencepost()
+    }
+
+    fn max_value() -> Self {
+        PeerKey::builder().with_max_expiration().build_fencepost()
+    }
+
+    fn as_bytes(&self) -> &[u8] {
+        self.as_slice()
+    }
+
+    fn is_fencepost(&self) -> bool {
+        !self.has_jws()
+    }
 }
 
 impl Key for EventId {

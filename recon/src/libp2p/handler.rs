@@ -5,7 +5,7 @@
 use std::{collections::VecDeque, task::Poll};
 
 use anyhow::Result;
-use ceramic_core::{EventId, Interest};
+use ceramic_core::{EventId, Interest, PeerKey};
 use libp2p::{
     futures::FutureExt,
     swarm::{
@@ -22,17 +22,19 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct Handler<I, M> {
+pub struct Handler<P, I, M> {
     remote_peer_id: PeerId,
     connection_id: ConnectionId,
+    peer: P,
     interest: I,
     model: M,
     state: State,
     behavior_events_queue: VecDeque<FromHandler>,
 }
 
-impl<I, M> Handler<I, M>
+impl<P, I, M> Handler<P, I, M>
 where
+    P: Recon<Key = PeerKey, Hash = Sha256a>,
     I: Recon<Key = Interest, Hash = Sha256a>,
     M: Recon<Key = EventId, Hash = Sha256a>,
 {
@@ -40,12 +42,14 @@ where
         peer_id: PeerId,
         connection_id: ConnectionId,
         state: State,
+        peer: P,
         interest: I,
         model: M,
     ) -> Self {
         Self {
             remote_peer_id: peer_id,
             connection_id,
+            peer,
             interest,
             model,
             state,
@@ -94,7 +98,7 @@ pub enum State {
     Idle,
     WaitingInbound,
     RequestOutbound { stream_set: StreamSet },
-    WaitingOutbound,
+    WaitingOutbound { stream_set: StreamSet },
     Outbound(SyncFuture, StreamSet),
     Inbound(SyncFuture, StreamSet),
 }
@@ -108,7 +112,10 @@ impl std::fmt::Debug for State {
                 .debug_struct("RequestOutbound")
                 .field("stream_set", stream_set)
                 .finish(),
-            Self::WaitingOutbound => f.debug_struct("WaitingOutbound").finish(),
+            Self::WaitingOutbound { stream_set } => f
+                .debug_struct("WaitingOutbound")
+                .field("stream_set", stream_set)
+                .finish(),
             Self::Outbound(_, stream_set) => f
                 .debug_tuple("Outbound")
                 .field(&"_")
@@ -142,8 +149,9 @@ pub enum FromHandler {
     },
 }
 
-impl<I, M> ConnectionHandler for Handler<I, M>
+impl<P, I, M> ConnectionHandler for Handler<P, I, M>
 where
+    P: Recon<Key = PeerKey, Hash = Sha256a> + Clone + Send + 'static,
     I: Recon<Key = Interest, Hash = Sha256a> + Clone + Send + 'static,
     M: Recon<Key = EventId, Hash = Sha256a> + Clone + Send + 'static,
 {
@@ -158,7 +166,7 @@ where
         &self,
     ) -> libp2p::swarm::SubstreamProtocol<Self::InboundProtocol, Self::InboundOpenInfo> {
         SubstreamProtocol::new(
-            MultiReadyUpgrade::new(vec![StreamSet::Interest, StreamSet::Model]),
+            MultiReadyUpgrade::new(vec![StreamSet::Peer, StreamSet::Interest, StreamSet::Model]),
             (),
         )
     }
@@ -181,7 +189,7 @@ where
             State::Idle | State::WaitingOutbound { .. } | State::WaitingInbound => {}
             State::RequestOutbound { stream_set } => {
                 let stream_set = *stream_set;
-                self.transition_state(State::WaitingOutbound);
+                self.transition_state(State::WaitingOutbound { stream_set });
 
                 // Start outbound connection
                 let protocol = SubstreamProtocol::new(MultiReadyUpgrade::new(vec![stream_set]), ());
@@ -247,6 +255,14 @@ where
                         self.behavior_events_queue
                             .push_front(FromHandler::Started { stream_set });
                         let stream = match stream_set {
+                            StreamSet::Peer => protocol::respond_synchronize(
+                                self.remote_peer_id,
+                                self.connection_id,
+                                stream_set,
+                                self.peer.clone(),
+                                stream,
+                            )
+                            .boxed(),
                             StreamSet::Interest => protocol::respond_synchronize(
                                 self.remote_peer_id,
                                 self.connection_id,
@@ -280,10 +296,18 @@ where
                 },
             ) => {
                 match &self.state {
-                    State::WaitingOutbound => {
+                    State::WaitingOutbound { .. } => {
                         self.behavior_events_queue
                             .push_front(FromHandler::Started { stream_set });
                         let stream = match stream_set {
+                            StreamSet::Peer => protocol::initiate_synchronize(
+                                self.remote_peer_id,
+                                self.connection_id,
+                                stream_set,
+                                self.peer.clone(),
+                                stream,
+                            )
+                            .boxed(),
                             StreamSet::Interest => protocol::initiate_synchronize(
                                 self.remote_peer_id,
                                 self.connection_id,
@@ -311,14 +335,15 @@ where
                     | State::Inbound(_, _) => {}
                 }
             }
-            libp2p::swarm::handler::ConnectionEvent::AddressChange(_) => {}
             // We failed to upgrade the inbound connection.
             libp2p::swarm::handler::ConnectionEvent::ListenUpgradeError(_err) => {
                 match self.state {
                     State::WaitingInbound => {
-                        // We have stopped synchronization and cannot attempt again as we are unable to
-                        // negotiate a protocol.
-                        // This is expected if we connected to a node that does not speak Recon
+                        // We were unable to negotiate a protocol with the remote peer.
+                        // This is expected if we connected to a node that does not speak any
+                        // shared Recon/StreamSet protocol.
+                        // The remote may try to connect again with a different protocol that we do
+                        // speak, however until then we are Stopped.
                         self.behavior_events_queue.push_front(FromHandler::Stopped);
                         self.transition_state(State::Idle)
                     }
@@ -332,11 +357,16 @@ where
             // We failed to upgrade the outbound connection.
             libp2p::swarm::handler::ConnectionEvent::DialUpgradeError(_err) => {
                 match self.state {
-                    State::WaitingOutbound { .. } => {
-                        // We have stopped synchronization and cannot attempt again as we are unable to
-                        // negotiate a protocol.
-                        // This is expected if we connected to a node that does not speak Recon
-                        self.behavior_events_queue.push_front(FromHandler::Stopped);
+                    State::WaitingOutbound { stream_set } => {
+                        // We have failed to negotiate a protocol for this Recon/StreamSet.
+                        // We can report that this stream_set has failed and try again on another
+                        // StreamSet.
+                        self.behavior_events_queue.push_front(FromHandler::Failed {
+                            stream_set,
+                            error: anyhow::anyhow!(
+                                "failed to negotiate recon protocol for stream set: {stream_set:?}"
+                            ),
+                        });
                         self.transition_state(State::Idle)
                     }
                     State::Idle

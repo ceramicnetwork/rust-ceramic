@@ -17,6 +17,7 @@ members = [
     "metrics",
     "one",
     "p2p",
+    "peer-svc",
     "pipeline",
     "recon",
     "sql",
@@ -76,6 +77,7 @@ ceramic-metadata = { path = "./metadata" }
 ceramic-metrics = { path = "./metrics" }
 ceramic-one = { path = "./one" }
 ceramic-p2p = { path = "./p2p" }
+ceramic-peer-svc = { path = "./peer-svc" }
 ceramic-pipeline = { path = "./pipeline" }
 ceramic-sql = { path = "./sql" }
 ceramic-validation = { path = "./validation" }

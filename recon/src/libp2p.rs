@@ -17,7 +17,7 @@ mod stream_set;
 mod tests;
 mod upgrade;
 
-use ceramic_core::{EventId, Interest};
+use ceramic_core::{EventId, Interest, PeerKey};
 use futures::{future::BoxFuture, FutureExt};
 use libp2p::{
     core::ConnectedPoint,
@@ -42,6 +42,8 @@ use crate::{
     Sha256a,
 };
 
+/// Name of the Recon protocol for synchronizing peers
+pub const PROTOCOL_NAME_PEER: &str = "/ceramic/recon/0.1.0/peer";
 /// Name of the Recon protocol for synchronizing interests
 pub const PROTOCOL_NAME_INTEREST: &str = "/ceramic/recon/0.1.0/interest";
 /// Name of the Recon protocol for synchronizing models
@@ -75,7 +77,8 @@ impl Default for Config {
 /// The Behavior tracks all peers on the network that speak the Recon protocol.
 /// It is responsible for starting and stopping syncs with various peers depending on the needs of
 /// the application.
-pub struct Behaviour<I, M> {
+pub struct Behaviour<P, I, M> {
+    peer: P,
     interest: I,
     model: M,
     config: Config,
@@ -85,7 +88,12 @@ pub struct Behaviour<I, M> {
     next_sync: Option<BoxFuture<'static, ()>>,
 }
 
-impl<I: std::fmt::Debug, M: std::fmt::Debug> std::fmt::Debug for Behaviour<I, M> {
+impl<P, I, M> std::fmt::Debug for Behaviour<P, I, M>
+where
+    P: std::fmt::Debug,
+    I: std::fmt::Debug,
+    M: std::fmt::Debug,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Behaviour")
             .field("interest", &self.interest)
@@ -135,20 +143,21 @@ pub enum PeerStatus {
         /// The stream_set that has failed synchronizing.
         stream_set: StreamSet,
     },
-    /// Local peer has stopped synchronizing with the remote peer and will not attempt to
-    /// synchronize again.
+    /// Local peer was unable to negotiate a protocol with the remote peer.
     Stopped,
 }
 
-impl<I, M> Behaviour<I, M> {
+impl<P, I, M> Behaviour<P, I, M> {
     /// Create a new Behavior with the provided Recon implementation.
-    pub fn new(interest: I, model: M, config: Config) -> Self
+    pub fn new(peer: P, interest: I, model: M, config: Config) -> Self
     where
+        P: Recon<Key = PeerKey, Hash = Sha256a>,
         I: Recon<Key = Interest, Hash = Sha256a>,
         M: Recon<Key = EventId, Hash = Sha256a>,
     {
         let (tx, rx) = tokio::sync::mpsc::channel(1000);
         Self {
+            peer,
             interest,
             model,
             config,
@@ -168,12 +177,13 @@ impl<I, M> Behaviour<I, M> {
     }
 }
 
-impl<I, M> NetworkBehaviour for Behaviour<I, M>
+impl<P, I, M> NetworkBehaviour for Behaviour<P, I, M>
 where
+    P: Recon<Key = PeerKey, Hash = Sha256a>,
     I: Recon<Key = Interest, Hash = Sha256a>,
     M: Recon<Key = EventId, Hash = Sha256a>,
 {
-    type ConnectionHandler = Handler<I, M>;
+    type ConnectionHandler = Handler<P, I, M>;
 
     type ToSwarm = Event;
 
@@ -193,9 +203,14 @@ where
                         connections: vec![connection_info],
                         next_sync: BTreeMap::from_iter([
                             // Schedule all stream_sets initially
-                            (StreamSet::Interest, Instant::now()),
+                            (StreamSet::Peer, Instant::now()),
+                            // Schedule interests after peers
+                            (
+                                StreamSet::Interest,
+                                Instant::now() + Duration::from_millis(1),
+                            ),
                             // Schedule models after interests
-                            (StreamSet::Model, Instant::now() + Duration::from_millis(1)),
+                            (StreamSet::Model, Instant::now() + Duration::from_millis(2)),
                         ]),
                         sync_delay: Default::default(),
                     });
@@ -226,11 +241,12 @@ where
                         status: info.status,
                     })))
                 } else {
-                    tracing::warn!(%peer_id, "peer not found in peers map when started syncronizing?");
+                    tracing::warn!(%peer_id, "peer not found in peers map when started synchronizing?");
                     None
                 }
             }
-            // The peer has stopped synchronization and will never be able to resume.
+
+            // The peer failed to negotiate a protocol with the local peer.
             FromHandler::Stopped => {
                 if let Entry::Occupied(mut entry) = self.peers.entry(peer_id) {
                     let info = entry.get_mut();
@@ -240,7 +256,7 @@ where
                         status: info.status,
                     })))
                 } else {
-                    tracing::warn!(%peer_id, "peer not found in peers map when stopped syncronizing?");
+                    tracing::warn!(%peer_id, "peer not found in peers map when stopped synchronizing?");
                     None
                 }
             }
@@ -266,7 +282,7 @@ where
                         status: info.status,
                     })))
                 } else {
-                    tracing::warn!(%peer_id, "peer not found in peers map when succeeded syncronizing?");
+                    tracing::warn!(%peer_id, "peer not found in peers map when succeeded synchronizing?");
                     None
                 }
             }
@@ -297,7 +313,7 @@ where
                         status: info.status,
                     })))
                 } else {
-                    tracing::warn!(%peer_id, "peer not found in peers map when failed syncronizing?");
+                    tracing::warn!(%peer_id, "peer not found in peers map when failed synchronizing?");
                     None
                 }
             }
@@ -313,7 +329,7 @@ where
         cx: &mut std::task::Context<'_>,
     ) -> Poll<ToSwarm<Self::ToSwarm, libp2p::swarm::THandlerInEvent<Self>>> {
         if let Poll::Ready(Some(event)) = self.swarm_events_receiver.poll_recv(cx) {
-            debug!(?event, "swarm event");
+            trace!(?event, "swarm event");
             return Poll::Ready(event);
         }
         // Check each peer and start synchronization as needed.
@@ -330,7 +346,7 @@ where
                                 info.next_sync.iter().min_by_key(|(_, t)| *t).expect(
                                     "next_sync should always be initialized with stream sets",
                                 );
-                            debug!(?next_stream_set,?next_sync, now=?Instant::now(), "polling");
+                            trace!(?next_stream_set,?next_sync, now=?Instant::now(), "polling");
                             // Sync if enough time has passed since we synced the stream set.
                             if *next_sync < Instant::now() {
                                 self.next_sync = None;
@@ -371,6 +387,7 @@ where
             peer,
             connection_id,
             handler::State::WaitingInbound,
+            self.peer.clone(),
             self.interest.clone(),
             self.model.clone(),
         ))
@@ -387,10 +404,11 @@ where
         Ok(Handler::new(
             peer,
             connection_id,
-            // Start synchronizing interests
+            // Start synchronizing peers
             handler::State::RequestOutbound {
-                stream_set: StreamSet::Interest,
+                stream_set: StreamSet::Peer,
             },
+            self.peer.clone(),
             self.interest.clone(),
             self.model.clone(),
         ))

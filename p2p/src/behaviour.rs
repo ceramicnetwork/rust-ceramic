@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use anyhow::Result;
-use ceramic_core::{EventId, Interest};
+use ceramic_core::{EventId, Interest, PeerKey};
 use iroh_bitswap::{Bitswap, Block, Config as BitswapConfig};
 use libp2p::{
     autonat,
@@ -36,7 +36,7 @@ pub const AGENT_VERSION: &str = concat!("ceramic-one/", env!("CARGO_PKG_VERSION"
 /// Libp2p behaviour for the node.
 #[derive(NetworkBehaviour)]
 #[behaviour(to_swarm = "Event")]
-pub(crate) struct NodeBehaviour<I, M, S>
+pub(crate) struct NodeBehaviour<P, I, M, S>
 where
     S: iroh_bitswap::Store + Send + Sync,
 {
@@ -56,11 +56,12 @@ where
     relay: Toggle<relay::Behaviour>,
     relay_client: Toggle<relay::client::Behaviour>,
     dcutr: Toggle<dcutr::Behaviour>,
-    recon: Toggle<recon::libp2p::Behaviour<I, M>>,
+    recon: Toggle<recon::libp2p::Behaviour<P, I, M>>,
 }
 
-impl<I, M, S> NodeBehaviour<I, M, S>
+impl<P, I, M, S> NodeBehaviour<P, I, M, S>
 where
+    P: Recon<Key = PeerKey, Hash = Sha256a> + Send + Sync,
     I: Recon<Key = Interest, Hash = Sha256a> + Send + Sync,
     M: Recon<Key = EventId, Hash = Sha256a> + Send + Sync,
     S: iroh_bitswap::Store + Send + Sync,
@@ -69,7 +70,7 @@ where
         local_key: &Keypair,
         config: &Libp2pConfig,
         relay_client: Option<relay::client::Behaviour>,
-        recons: Option<(I, M)>,
+        recons: Option<(P, I, M)>,
         block_store: Arc<S>,
         metrics: Metrics,
     ) -> Result<Self> {
@@ -184,8 +185,8 @@ where
                 .with_max_pending_incoming(Some(config.max_conns_pending_in))
                 .with_max_established_per_peer(Some(config.max_conns_per_peer)),
         );
-        let recon = recons.map(|(interest, model)| {
-            recon::libp2p::Behaviour::new(interest, model, recon::libp2p::Config::default())
+        let recon = recons.map(|(peer, interest, model)| {
+            recon::libp2p::Behaviour::new(peer, interest, model, recon::libp2p::Config::default())
         });
         Ok(NodeBehaviour {
             ping: Ping::default(),
