@@ -238,7 +238,7 @@ zeroize = "1.4"
 
 
 [workspace.package]
-version = "0.44.0"
+version = "0.45.0"
 edition = "2021"
 authors = [
     "Danny Browning <dbrowning@3box.io>",
