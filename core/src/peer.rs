@@ -102,12 +102,11 @@ impl PeerKey {
     }
     /// Decode and verify key as a [`PeerEntry`].
     pub fn to_entry(&self) -> anyhow::Result<PeerEntry> {
-        let idx = self
+        let (expiration, jws) = self
             .0
-            .find('.')
+            .split_once('.')
             .ok_or_else(|| anyhow!("peer key must contain a '.'"))?;
-        let expiration: u32 = self.0[0..idx].parse()?;
-        let jws = &self.0[idx + 1..];
+        let expiration: u32 = expiration.parse()?;
         let peer = PeerEntry::from_jws(jws)?;
         if expiration != peer.expiration {
             Err(anyhow!(
