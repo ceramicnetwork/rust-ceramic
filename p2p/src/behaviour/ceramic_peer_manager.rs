@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     fmt::{self, Debug, Formatter},
     future,
     task::{Context, Poll},
@@ -8,23 +9,32 @@ use std::{
 use ahash::AHashMap;
 use anyhow::{anyhow, Result};
 use backoff::{backoff::Backoff, ExponentialBackoff, ExponentialBackoffBuilder};
+use ceramic_core::PeerEntry;
 #[allow(deprecated)]
 use ceramic_metrics::Recorder;
 use futures_util::{future::BoxFuture, FutureExt};
-use libp2p::swarm::{
-    dial_opts::{DialOpts, PeerCondition},
-    ToSwarm,
-};
 use libp2p::{
     identify::Info as IdentifyInfo,
-    multiaddr::Protocol,
     swarm::{dummy, ConnectionId, DialError, NetworkBehaviour},
     Multiaddr, PeerId,
 };
-use tokio::time;
+use libp2p::{
+    multiaddr::Protocol,
+    swarm::{
+        dial_opts::{DialOpts, PeerCondition},
+        ToSwarm,
+    },
+};
+use tokio::{
+    sync::{mpsc::Sender, oneshot},
+    time,
+};
 use tracing::{info, warn};
 
-use crate::metrics::{self, Metrics};
+use crate::{
+    metrics::{self, Metrics},
+    peers,
+};
 
 /// Manages state for Ceramic peers.
 /// Ceramic peers are peers that participate in the Ceramic network.
@@ -35,6 +45,10 @@ pub struct CeramicPeerManager {
     metrics: Metrics,
     info: AHashMap<PeerId, Info>,
     ceramic_peers: AHashMap<PeerId, CeramicPeer>,
+    // Use a message passing technique to get peers so that we do not use the current task to do
+    // DB/IO work.
+    peers_tx: Sender<peers::Message>,
+    peers_fut: Option<BoxFuture<'static, Result<Vec<PeerEntry>>>>,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -60,14 +74,18 @@ const PEERING_DIAL_JITTER: f64 = 0.1;
 pub enum PeerManagerEvent {}
 
 impl CeramicPeerManager {
-    pub fn new(ceramic_peers: &[Multiaddr], metrics: Metrics) -> Result<Self> {
+    pub fn new(
+        peers_tx: Sender<peers::Message>,
+        ceramic_peers: &[Multiaddr],
+        metrics: Metrics,
+    ) -> Result<Self> {
         let ceramic_peers = ceramic_peers
             .iter()
             // Extract peer id from multiaddr
             .map(|multiaddr| {
                 if let Some(peer) = multiaddr.iter().find_map(|proto| match proto {
                     Protocol::P2p(peer_id) => {
-                        Some((peer_id, CeramicPeer::new(multiaddr.to_owned())))
+                        Some((peer_id, CeramicPeer::new(vec![multiaddr.to_owned()])))
                     }
                     _ => None,
                 }) {
@@ -81,6 +99,8 @@ impl CeramicPeerManager {
             metrics,
             info: Default::default(),
             ceramic_peers,
+            peers_tx,
+            peers_fut: None,
         })
     }
 
@@ -99,11 +119,30 @@ impl CeramicPeerManager {
     pub fn is_ceramic_peer(&self, peer_id: &PeerId) -> bool {
         self.ceramic_peers.contains_key(peer_id)
     }
+    pub fn new_peers(&mut self) {
+        if self.peers_fut.is_none() {
+            let (tx, rx) = oneshot::channel();
+            // Construct future that will resolve to the set of all known remote peers
+            let peers_tx = self.peers_tx.clone();
+            self.peers_fut = Some(
+                async move {
+                    futures::future::join(peers_tx.send(peers::Message::AllRemotePeers(tx)), rx)
+                        .map(|(send, peers)| {
+                            send.map_err(anyhow::Error::from)
+                                .and(peers.map_err(anyhow::Error::from).and_then(|inner| inner))
+                        })
+                        .await
+                }
+                .boxed(),
+            )
+        } // else do nothing because we will get all peers anyways
+    }
 
     fn handle_connection_established(&mut self, peer_id: &PeerId) {
         if let Some(peer) = self.ceramic_peers.get_mut(peer_id) {
             info!(
-                multiaddr = %peer.multiaddr,
+               %peer_id,
+                multiaddr = ?peer.addrs,
                 "connection established, stop dialing ceramic peer",
             );
             peer.stop_redial();
@@ -114,7 +153,8 @@ impl CeramicPeerManager {
     fn handle_connection_closed(&mut self, peer_id: &PeerId) {
         if let Some(peer) = self.ceramic_peers.get_mut(peer_id) {
             warn!(
-                multiaddr = %peer.multiaddr,
+               %peer_id,
+                multiaddr = ?peer.addrs,
                 "connection closed, redial ceramic peer",
             );
             peer.start_redial();
@@ -125,7 +165,8 @@ impl CeramicPeerManager {
     fn handle_dial_failure(&mut self, peer_id: &PeerId) {
         if let Some(peer) = self.ceramic_peers.get_mut(peer_id) {
             warn!(
-                multiaddr = %peer.multiaddr,
+               %peer_id,
+                multiaddr = ?peer.addrs,
                 "dial failed, redial ceramic peer"
             );
             peer.backoff_redial();
@@ -195,13 +236,37 @@ impl NetworkBehaviour for CeramicPeerManager {
         &mut self,
         cx: &mut Context<'_>,
     ) -> Poll<libp2p::swarm::ToSwarm<Self::ToSwarm, libp2p::swarm::THandlerInEvent<Self>>> {
+        if let Some(mut peers) = self.peers_fut.take() {
+            match peers.poll_unpin(cx) {
+                Poll::Ready(peers) => match peers {
+                    Ok(peers) => {
+                        for peer_entry in peers {
+                            self.ceramic_peers
+                                .entry(peer_entry.id().peer_id())
+                                .and_modify(|peer| {
+                                    let count = peer.addrs.len();
+                                    peer.addrs.extend(peer_entry.addresses().iter().cloned());
+                                    if count != peer.addrs.len() {
+                                        peer.start_redial()
+                                    }
+                                })
+                                .or_insert(CeramicPeer::new(peer_entry.addresses().to_vec()));
+                        }
+                    }
+                    Err(err) => warn!(%err,"failed to get set of remote peers"),
+                },
+                Poll::Pending => {
+                    self.peers_fut.replace(peers);
+                }
+            }
+        }
         for (peer_id, peer) in self.ceramic_peers.iter_mut() {
             if let Some(mut dial_future) = peer.dial_future.take() {
                 match dial_future.as_mut().poll_unpin(cx) {
                     Poll::Ready(()) => {
                         return Poll::Ready(ToSwarm::Dial {
                             opts: DialOpts::peer_id(*peer_id)
-                                .addresses(vec![peer.multiaddr.clone()])
+                                .addresses(peer.addrs.iter().cloned().collect())
                                 .condition(PeerCondition::Disconnected)
                                 .build(),
                         })
@@ -239,7 +304,7 @@ impl NetworkBehaviour for CeramicPeerManager {
 
 // State of Ceramic peer.
 struct CeramicPeer {
-    multiaddr: Multiaddr,
+    addrs: HashSet<Multiaddr>,
     dial_backoff: ExponentialBackoff,
     dial_future: Option<BoxFuture<'static, ()>>,
 }
@@ -247,7 +312,7 @@ struct CeramicPeer {
 impl Debug for CeramicPeer {
     fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         f.debug_struct("BootstrapPeer")
-            .field("multiaddr", &self.multiaddr)
+            .field("multiaddr", &self.addrs)
             .field("dial_backoff", &self.dial_backoff)
             .field("dial_future", &self.dial_future.is_some())
             .finish()
@@ -255,7 +320,7 @@ impl Debug for CeramicPeer {
 }
 
 impl CeramicPeer {
-    fn new(multiaddr: Multiaddr) -> Self {
+    fn new(addrs: Vec<Multiaddr>) -> Self {
         let dial_backoff = ExponentialBackoffBuilder::new()
             .with_initial_interval(PEERING_MIN_DIAL_SECS)
             .with_multiplier(PEERING_DIAL_BACKOFF)
@@ -266,7 +331,7 @@ impl CeramicPeer {
         // Expire initial future so that we dial peers immediately
         let dial_future = Some(future::ready(()).boxed());
         Self {
-            multiaddr,
+            addrs: addrs.into_iter().collect(),
             dial_backoff,
             dial_future,
         }
