@@ -520,7 +520,7 @@ impl OrderingState {
                     .await?;
                 event_cnt += number_processed;
                 if event_cnt % LOG_EVERY_N_ENTRIES < number_processed {
-                    info!(count=%event_cnt, "Processed undelivered events");
+                    info!(count=%event_cnt, highwater=%new_hw, "Processed undelivered events");
                 }
             }
             if !found_something || found_everything {
