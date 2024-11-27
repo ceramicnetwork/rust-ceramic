@@ -5,6 +5,7 @@ use anyhow::anyhow;
 use ceramic_event::unvalidated;
 use cid::Cid;
 use ipld_core::ipld::Ipld;
+use tokio::sync::mpsc::Sender;
 use tracing::{debug, error, info, trace, warn};
 
 use crate::store::EventAccess;
@@ -36,8 +37,34 @@ impl OrderingTask {
         max_iterations: usize,
         batch_size: u32,
     ) -> Result<usize> {
-        OrderingState::process_all_undelivered_events(event_access, max_iterations, batch_size)
-            .await
+        let (tx, rx_inserted) = tokio::sync::mpsc::channel::<DiscoveredEvent>(10_000);
+
+        let event_access_cln = event_access.clone();
+        let writer_handle =
+            tokio::task::spawn(async move { Self::run_loop(event_access_cln, rx_inserted).await });
+        let cnt = match OrderingState::process_all_undelivered_events(
+            event_access,
+            max_iterations,
+            batch_size,
+            tx,
+        )
+        .await
+        {
+            Ok(cnt) => cnt,
+            Err(e) => {
+                error!("encountered error processing undelivered events: {}", e);
+                writer_handle.abort();
+                return Err(Error::new_fatal(anyhow!(
+                    "failed to process undelivered events: {}",
+                    e
+                )));
+            }
+        };
+        info!("Waiting for {cnt} undelivered events to finish ordering...");
+        if let Err(e) = writer_handle.await {
+            error!("event ordering task failed to complete: {}", e);
+        }
+        Ok(cnt)
     }
 
     /// Spawn a task to run the ordering task background process in a loop
@@ -77,6 +104,13 @@ impl OrderingTask {
                     }
                 }
             }
+        }
+        if !rx_inserted.is_empty() {
+            let mut remaining = Vec::with_capacity(rx_inserted.len());
+            rx_inserted
+                .recv_many(&mut remaining, rx_inserted.len())
+                .await;
+            state.add_inserted_events(remaining);
         }
 
         let _ = state
@@ -497,6 +531,7 @@ impl OrderingState {
         event_access: Arc<EventAccess>,
         max_iterations: usize,
         batch_size: u32,
+        tx: Sender<DiscoveredEvent>,
     ) -> Result<usize> {
         info!("Attempting to process all undelivered events. This could take some time.");
         let mut state = Self::new();
@@ -518,7 +553,7 @@ impl OrderingState {
                 // In this case, we won't discover them until we start running recon with a peer, so maybe we should drop them
                 // or otherwise mark them ignored somehow. When this function ends, we do drop everything so for now it's probably okay.
                 let number_processed = state
-                    .process_undelivered_events_batch(Arc::clone(&event_access), undelivered)
+                    .process_undelivered_events_batch(&event_access, undelivered, &tx)
                     .await?;
                 event_cnt += number_processed;
                 if event_cnt % LOG_EVERY_N_ENTRIES < number_processed {
@@ -538,28 +573,48 @@ impl OrderingState {
 
     async fn process_undelivered_events_batch(
         &mut self,
-        event_access: Arc<EventAccess>,
+        event_access: &EventAccess,
         event_data: Vec<(Cid, unvalidated::Event<Ipld>)>,
+        tx: &Sender<DiscoveredEvent>,
     ) -> Result<usize> {
         trace!(cnt=%event_data.len(), "Processing undelivered events batch");
         let mut event_cnt = 0;
         let mut discovered_inits = Vec::new();
         for (cid, parsed_event) in event_data {
+            event_cnt += 1;
             if parsed_event.is_init() {
-                discovered_inits.push(cid);
+                discovered_inits.push((
+                    cid,
+                    DiscoveredEvent {
+                        cid,
+                        prev: None,
+                        id: cid,
+                        known_deliverable: true,
+                    },
+                ));
+
                 continue;
             }
 
-            event_cnt += 1;
             let stream_cid = parsed_event.stream_cid();
             let prev = parsed_event
                 .prev()
                 .expect("prev must exist for non-init events");
 
-            self.add_stream_event(
-                *stream_cid,
-                StreamEvent::Undelivered(StreamEventMetadata::new(cid, *prev)),
-            );
+            if let Err(_e) = tx
+                .send(DiscoveredEvent {
+                    cid,
+                    prev: Some(*prev),
+                    id: *stream_cid,
+                    known_deliverable: false,
+                })
+                .await
+            {
+                error!("task managing undelivered event insertion exited... unable to continue");
+                return Err(Error::new_fatal(anyhow!(
+                    "undelivered event insertion task exited"
+                )));
+            }
         }
         // while undelivered init events should be unreachable, we can fix the state if it happens so we won't panic in release mode
         // and simply correct things in the database. We could make this fatal in the future, but for now it's just a warning to
@@ -571,13 +626,24 @@ impl OrderingState {
                 "Found init events in undelivered batch. This should never happen.",
             );
             debug_assert!(false);
-            let mut tx = event_access.begin_tx().await?;
-            for cid in discovered_inits {
-                event_access.mark_ready_to_deliver(&mut tx, &cid).await?;
+            // first update the deliverable flag and then tell the task as it expects all init events to have been properly
+            // handled during the original insertion
+            let mut db_tx = event_access.begin_tx().await?;
+            for (cid, _) in &discovered_inits {
+                event_access.mark_ready_to_deliver(&mut db_tx, cid).await?;
             }
-            tx.commit().await?;
+            db_tx.commit().await?;
+            for (_, discovered_init) in discovered_inits {
+                if let Err(_e) = tx.send(discovered_init).await {
+                    error!(
+                        "task managing undelivered event insertion exited... unable to continue"
+                    );
+                    return Err(Error::new_fatal(anyhow!(
+                        "undelivered event insertion task exited"
+                    )));
+                }
+            }
         }
-        self.process_streams(event_access).await?;
 
         Ok(event_cnt)
     }
@@ -632,7 +698,7 @@ mod test {
     async fn test_undelivered_batch_empty() {
         let pool = SqlitePool::connect_in_memory().await.unwrap();
         let event_access = Arc::new(EventAccess::try_new(pool).await.unwrap());
-        let processed = OrderingState::process_all_undelivered_events(event_access, 10, 100)
+        let processed = OrderingTask::process_all_undelivered_events(event_access, 1, 5)
             .await
             .unwrap();
         assert_eq!(0, processed);
@@ -675,28 +741,21 @@ mod test {
         let (_, events) = event_access.new_events_since_value(0, 100).await.unwrap();
         assert_eq!(1, events.len());
 
-        let processed =
-            OrderingState::process_all_undelivered_events(Arc::clone(&event_access), 1, 5)
-                .await
-                .unwrap();
+        let processed = OrderingTask::process_all_undelivered_events(event_access.clone(), 1, 5)
+            .await
+            .unwrap();
         assert_eq!(5, processed);
         let (_, events) = event_access.new_events_since_value(0, 100).await.unwrap();
         assert_eq!(6, events.len());
-        // the last 5 are processed and we have 10 delivered
-        let processed =
-            OrderingState::process_all_undelivered_events(Arc::clone(&event_access), 1, 5)
-                .await
-                .unwrap();
+        let processed = OrderingTask::process_all_undelivered_events(event_access.clone(), 1, 5)
+            .await
+            .unwrap();
         assert_eq!(4, processed);
         let (_, events) = event_access.new_events_since_value(0, 100).await.unwrap();
         assert_eq!(10, events.len());
-
-        // nothing left
-        let processed =
-            OrderingState::process_all_undelivered_events(Arc::clone(&event_access), 1, 100)
-                .await
-                .unwrap();
-
+        let processed = OrderingTask::process_all_undelivered_events(event_access.clone(), 1, 5)
+            .await
+            .unwrap();
         assert_eq!(0, processed);
     }
 
@@ -713,12 +772,13 @@ mod test {
 
         let (_hw, event) = event_access.new_events_since_value(0, 1000).await.unwrap();
         assert_eq!(5, event.len());
-        let _res = OrderingState::process_all_undelivered_events(Arc::clone(&event_access), 4, 10)
+        let processed = OrderingTask::process_all_undelivered_events(event_access.clone(), 4, 10)
             .await
             .unwrap();
 
         let (_hw, event) = event_access.new_events_since_value(0, 1000).await.unwrap();
         assert_eq!(45, event.len());
+        assert_eq!(40, processed);
     }
 
     #[test(tokio::test)]
@@ -753,16 +813,15 @@ mod test {
 
         let (_hw, event) = event_access.new_events_since_value(0, 1000).await.unwrap();
         assert_eq!(5, event.len());
-        let _res = OrderingState::process_all_undelivered_events(
-            Arc::clone(&event_access),
-            100_000_000,
-            5,
-        )
-        .await
-        .unwrap();
+
+        let processed =
+            OrderingTask::process_all_undelivered_events(event_access.clone(), 100_000_000, 5)
+                .await
+                .unwrap();
 
         let (_hw, event) = event_access.new_events_since_value(0, 1000).await.unwrap();
         assert_eq!(50, event.len());
+        assert_eq!(45, processed);
     }
 
     #[test(tokio::test)]
@@ -803,12 +862,13 @@ mod test {
 
         let (_hw, event) = event_access.new_events_since_value(0, 1000).await.unwrap();
         assert_eq!(5, event.len());
-        let _res = OrderingState::process_all_undelivered_events(Arc::clone(&event_access), 1, 100)
+        let processed = OrderingTask::process_all_undelivered_events(event_access.clone(), 1, 100)
             .await
             .unwrap();
 
         let (_hw, cids) = event_access.new_events_since_value(0, 1000).await.unwrap();
         assert_eq!(50, cids.len());
+        assert_eq!(45, processed);
         assert_eq!(expected_a, build_expected(&cids, &expected_a));
         assert_eq!(expected_b, build_expected(&cids, &expected_b));
         assert_eq!(expected_c, build_expected(&cids, &expected_c));
