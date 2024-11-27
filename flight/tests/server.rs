@@ -69,7 +69,7 @@ async fn execute_flight(
         batches.append(&mut endpoint_batches);
     }
 
-    Ok(concat_batches(&schema, &batches).context("concat_batches for output")?)
+    concat_batches(&schema, &batches).context("concat_batches for output")
 }
 
 mock! {

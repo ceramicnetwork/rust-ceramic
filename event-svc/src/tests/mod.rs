@@ -58,7 +58,7 @@ pub(crate) fn random_cid() -> Cid {
     Cid::new_v1(0x00, hash)
 }
 pub(crate) fn deterministic_cid(data: &[u8]) -> Cid {
-    let hash = MultihashDigest::digest(&Code::Sha2_256, &data);
+    let hash = MultihashDigest::digest(&Code::Sha2_256, data);
     Cid::new_v1(0x00, hash)
 }
 
