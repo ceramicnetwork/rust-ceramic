@@ -30,7 +30,7 @@ impl SqlitePool {
     /// Uses WAL journal mode.
     pub async fn connect(path: &str, migrate: Migrations) -> Result<Self> {
         // As we benchmark, we will likely adjust settings and make things configurable.
-        // A few ideas: number of RO connections, synchronize = NORMAL, mmap_size, temp_store = memory
+        // A few ideas: number of RO connections, mmap_size, temp_store = memory
         let conn_opts = SqliteConnectOptions::from_str(path)?
             .journal_mode(SqliteJournalMode::Wal)
             .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
@@ -39,12 +39,17 @@ impl SqlitePool {
             .foreign_keys(true);
 
         let ro_opts = conn_opts.clone().read_only(true);
+        let write_opts = conn_opts
+            // Recommended practice is that applications with long-lived database connections should run "PRAGMA optimize=0x10002"
+            // when the database connection first opens, then run "PRAGMA optimize" again at periodic intervals - perhaps once per day
+            // https://www.sqlite.org/pragma.html#pragma_optimize
+            .pragma("optimize", "0x10002");
 
         let writer = SqlitePoolOptions::new()
             .min_connections(1)
             .max_connections(1)
             .acquire_timeout(std::time::Duration::from_secs(5))
-            .connect_with(conn_opts)
+            .connect_with(write_opts)
             .await?;
         let reader = SqlitePoolOptions::new()
             .min_connections(1)
@@ -67,6 +72,12 @@ impl SqlitePool {
     /// and are not shared between connections.
     pub async fn connect_in_memory() -> Result<Self> {
         SqlitePool::connect(":memory:", Migrations::Apply).await
+    }
+
+    /// run pragma optimize. recommended once per day for long running applications
+    pub async fn optimize(&self) -> Result<()> {
+        sqlx::query("pragma optimize").execute(&self.writer).await?;
+        Ok(())
     }
 
     /// Merge the blocks from one sqlite database into this one.

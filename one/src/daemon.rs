@@ -14,6 +14,7 @@ use ceramic_interest_svc::InterestService;
 use ceramic_kubo_rpc::Multiaddr;
 use ceramic_metrics::{config::Config as MetricsConfig, MetricsHandle};
 use ceramic_p2p::{load_identity, DiskStorage, Keychain, Libp2pConfig};
+use ceramic_sql::sqlite::SqlitePool;
 use clap::Args;
 use object_store::aws::AmazonS3Builder;
 use recon::{FullInterests, Recon, ReconInterestProvider};
@@ -317,6 +318,39 @@ async fn get_eth_rpc_providers(
     Ok(providers)
 }
 
+fn spawn_database_optimizer(
+    sqlite_pool: SqlitePool,
+    mut shutdown: tokio::sync::broadcast::Receiver<()>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        loop {
+            let mut duration = std::time::Duration::from_secs(60 * 60 * 24); // once daily
+            match sqlite_pool.optimize().await {
+                Ok(_) => {
+                    info!("successfully executed database optimize");
+                }
+                Err(e) => {
+                    duration = std::time::Duration::from_secs(60 * 5); // try again in 5 minutes
+                    warn!(
+                        "failed to execute database optimize. trying again in {:?}: {e}",
+                        duration
+                    );
+                }
+            }
+            let mut interval = tokio::time::interval(duration);
+            interval.tick().await; // first tick is immediate
+            tokio::select! {
+                _ = shutdown.recv() => {
+                    break;
+                }
+                _ = interval.tick() => {
+                    // start the loop over
+                }
+            }
+        }
+    })
+}
+
 // Start the daemon process
 pub async fn run(opts: DaemonOpts) -> Result<()> {
     let info = Info::new().await?;
@@ -355,8 +389,17 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
     debug!(dir = %store_dir.display(), "using store directory");
     debug!(dir = %opts.p2p_key_dir.display(), "using p2p key directory");
 
+    // Setup shutdown signal
+    let (shutdown_signal_tx, mut shutdown_signal) = broadcast::channel::<()>(1);
+    let signals = Signals::new([SIGHUP, SIGTERM, SIGINT, SIGQUIT])?;
+    let handle = signals.handle();
+
     // Construct sqlite_pool
     let sqlite_pool = opts.db_opts.get_sqlite_pool().await?;
+
+    // spawn (and run) optimize right before we start using the database (e.g. ordering events)
+    let ss = shutdown_signal.resubscribe();
+    let db_optimizer_handle = spawn_database_optimizer(sqlite_pool.clone(), ss);
 
     let rpc_providers = get_eth_rpc_providers(opts.ethereum_rpc_urls, &opts.network).await?;
 
@@ -517,11 +560,6 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
                 e
             )
         })?;
-
-    // Setup shutdown signal
-    let (shutdown_signal_tx, mut shutdown_signal) = broadcast::channel::<()>(1);
-    let signals = Signals::new([SIGHUP, SIGTERM, SIGINT, SIGQUIT])?;
-    let handle = signals.handle();
 
     // Start Flight server
     let (pipeline_ctx, flight_handle, aggregator_handle) =
@@ -690,6 +728,7 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
     if let Some(anchor_service_handle) = anchor_service_handle {
         let _ = anchor_service_handle.await;
     }
+    let _ = db_optimizer_handle.await;
 
     Ok(())
 }
