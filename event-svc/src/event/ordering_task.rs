@@ -105,6 +105,7 @@ impl OrderingTask {
                 }
             }
         }
+        // read and process everything that's still in the channel
         if !rx_inserted.is_empty() {
             let mut remaining = Vec::with_capacity(rx_inserted.len());
             rx_inserted
@@ -670,6 +671,7 @@ impl OrderingState {
 mod test {
     use crate::store::EventInsertable;
     use ceramic_sql::sqlite::SqlitePool;
+    use rand::{seq::SliceRandom as _, thread_rng};
     use test_log::test;
 
     use crate::{
@@ -694,7 +696,7 @@ mod test {
         res
     }
 
-    #[test(tokio::test)]
+    #[test(tokio::test(flavor = "multi_thread", worker_threads = 4))]
     async fn test_undelivered_batch_empty() {
         let pool = SqlitePool::connect_in_memory().await.unwrap();
         let event_access = Arc::new(EventAccess::try_new(pool).await.unwrap());
@@ -732,7 +734,7 @@ mod test {
         insertable
     }
 
-    #[test(tokio::test)]
+    #[test(tokio::test(flavor = "multi_thread", worker_threads = 4))]
     async fn test_undelivered_batch_offset() {
         let pool = SqlitePool::connect_in_memory().await.unwrap();
         let event_access = Arc::new(EventAccess::try_new(pool).await.unwrap());
@@ -759,7 +761,7 @@ mod test {
         assert_eq!(0, processed);
     }
 
-    #[test(tokio::test)]
+    #[test(tokio::test(flavor = "multi_thread", worker_threads = 4))]
     async fn test_undelivered_batch_iterations_ends_early() {
         let pool = SqlitePool::connect_in_memory().await.unwrap();
         let event_access = Arc::new(EventAccess::try_new(pool).await.unwrap());
@@ -781,7 +783,7 @@ mod test {
         assert_eq!(40, processed);
     }
 
-    #[test(tokio::test)]
+    #[test(tokio::test(flavor = "multi_thread", worker_threads = 4))]
     async fn test_undelivered_batch_iterations_ends_when_cant_order() {
         let pool = SqlitePool::connect_in_memory().await.unwrap();
         let event_access = Arc::new(EventAccess::try_new(pool).await.unwrap());
@@ -791,7 +793,7 @@ mod test {
         let _new = event_access.insert_many(insertable.iter()).await.unwrap();
         let (_hw, event) = event_access.new_events_since_value(0, 1000).await.unwrap();
         assert_eq!(0, event.len());
-        let res = OrderingState::process_all_undelivered_events(Arc::clone(&event_access), 4, 3)
+        let res = OrderingTask::process_all_undelivered_events(Arc::clone(&event_access), 4, 3)
             .await
             .unwrap();
         assert_eq!(res, 9);
@@ -800,7 +802,7 @@ mod test {
         assert_eq!(0, event.len());
     }
 
-    #[test(tokio::test)]
+    #[test(tokio::test(flavor = "multi_thread", worker_threads = 4))]
     async fn test_undelivered_batch_iterations_ends_when_all_found() {
         let pool = SqlitePool::connect_in_memory().await.unwrap();
         let event_access = Arc::new(EventAccess::try_new(pool).await.unwrap());
@@ -824,7 +826,82 @@ mod test {
         assert_eq!(45, processed);
     }
 
-    #[test(tokio::test)]
+    #[test(tokio::test(flavor = "multi_thread", worker_threads = 4))]
+    async fn test_undelivered_batch_iterations_ends_when_all_found_many_events() {
+        let pool = SqlitePool::connect_in_memory().await.unwrap();
+        let event_access = Arc::new(EventAccess::try_new(pool).await.unwrap());
+        // 1000 sets of 10 (1000 init events delivered)
+        for _ in 0..1000 {
+            insert_10_with_9_undelivered(Arc::clone(&event_access)).await;
+        }
+
+        let (_hw, event) = event_access
+            .new_events_since_value(0, 100_000)
+            .await
+            .unwrap();
+        assert_eq!(1000, event.len());
+        let _res =
+            OrderingTask::process_all_undelivered_events(Arc::clone(&event_access), 100_000_000, 5)
+                .await
+                .unwrap();
+
+        let (_hw, event) = event_access
+            .new_events_since_value(0, 100_000)
+            .await
+            .unwrap();
+        assert_eq!(10000, event.len());
+    }
+
+    #[test(tokio::test(flavor = "multi_thread", worker_threads = 4))]
+    async fn test_undelivered_batch_iterations_ends_when_all_found_many_events_out_of_order() {
+        // adds `per_stream` events to `num_streams` streams, mixes up the event order for each stream, inserts half
+        // the events for each stream before mixing up the stream order and inserting the rest
+        // took like a minute on my machine to run 100 streams with 1000 events each, mostly inserting :( since ordering only gets 5 seconds
+        let per_stream = 100;
+        let num_streams = 10;
+        let pool = SqlitePool::connect_in_memory().await.unwrap();
+        let event_access = Arc::new(EventAccess::try_new(pool).await.unwrap());
+        let expected = per_stream * num_streams;
+
+        let mut unsorted_events = Vec::with_capacity(expected);
+        for _ in 0..num_streams {
+            let mut events = get_n_insertable_events(per_stream).await;
+            events.get_mut(0).unwrap().set_deliverable(true); // init events must be deliverable since we're skipping service logic
+            events.shuffle(&mut thread_rng());
+            unsorted_events.extend(events);
+        }
+        unsorted_events.shuffle(&mut thread_rng());
+
+        let new = event_access
+            .insert_many(unsorted_events.iter())
+            .await
+            .unwrap()
+            .inserted
+            .len();
+
+        assert_eq!(expected, new);
+
+        let (_hw, delivered) = event_access
+            .new_events_since_value(0, 100_000)
+            .await
+            .unwrap();
+
+        assert_eq!(num_streams, delivered.len()); // 1 per stream
+        let _res = OrderingTask::process_all_undelivered_events(
+            Arc::clone(&event_access),
+            100_000_000,
+            100,
+        )
+        .await
+        .unwrap();
+        let (_hw, delivered) = event_access
+            .new_events_since_value(0, 100_000)
+            .await
+            .unwrap();
+        assert_eq!(expected, delivered.len());
+    }
+
+    #[test(tokio::test(flavor = "multi_thread", worker_threads = 4))]
     async fn test_process_all_undelivered_one_batch() {
         let pool = SqlitePool::connect_in_memory().await.unwrap();
         let event_access = Arc::new(EventAccess::try_new(pool).await.unwrap());
