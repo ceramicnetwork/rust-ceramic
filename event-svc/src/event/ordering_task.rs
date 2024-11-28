@@ -720,6 +720,25 @@ mod test {
     }
 
     #[test(tokio::test)]
+    async fn test_undelivered_batch_iterations_ends_when_cant_order() {
+        let pool = SqlitePool::connect_in_memory().await.unwrap();
+        let event_access = Arc::new(EventAccess::try_new(pool).await.unwrap());
+        let mut insertable = get_n_insertable_events(10).await;
+        let _missing_init = insertable.remove(0);
+
+        let _new = event_access.insert_many(insertable.iter()).await.unwrap();
+        let (_hw, event) = event_access.new_events_since_value(0, 1000).await.unwrap();
+        assert_eq!(0, event.len());
+        let res = OrderingState::process_all_undelivered_events(Arc::clone(&event_access), 4, 3)
+            .await
+            .unwrap();
+        assert_eq!(res, 9);
+
+        let (_hw, event) = event_access.new_events_since_value(0, 1000).await.unwrap();
+        assert_eq!(0, event.len());
+    }
+
+    #[test(tokio::test)]
     async fn test_undelivered_batch_iterations_ends_when_all_found() {
         let pool = SqlitePool::connect_in_memory().await.unwrap();
         let event_access = Arc::new(EventAccess::try_new(pool).await.unwrap());
