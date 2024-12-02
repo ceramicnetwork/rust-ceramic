@@ -43,13 +43,11 @@ impl SqlitePool {
         let writer = SqlitePoolOptions::new()
             .min_connections(1)
             .max_connections(1)
-            .acquire_timeout(std::time::Duration::from_secs(5))
             .connect_with(conn_opts)
             .await?;
         let reader = SqlitePoolOptions::new()
             .min_connections(1)
             .max_connections(8)
-            .acquire_timeout(std::time::Duration::from_secs(5))
             .connect_with(ro_opts)
             .await?;
 
