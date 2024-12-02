@@ -39,17 +39,12 @@ impl SqlitePool {
             .foreign_keys(true);
 
         let ro_opts = conn_opts.clone().read_only(true);
-        let write_opts = conn_opts
-            // Recommended practice is that applications with long-lived database connections should run "PRAGMA optimize=0x10002"
-            // when the database connection first opens, then run "PRAGMA optimize" again at periodic intervals - perhaps once per day
-            // https://www.sqlite.org/pragma.html#pragma_optimize
-            .pragma("optimize", "0x10002");
 
         let writer = SqlitePoolOptions::new()
             .min_connections(1)
             .max_connections(1)
             .acquire_timeout(std::time::Duration::from_secs(5))
-            .connect_with(write_opts)
+            .connect_with(conn_opts)
             .await?;
         let reader = SqlitePoolOptions::new()
             .min_connections(1)

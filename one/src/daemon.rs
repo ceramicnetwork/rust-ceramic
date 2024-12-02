@@ -323,20 +323,19 @@ fn spawn_database_optimizer(
     mut shutdown: tokio::sync::broadcast::Receiver<()>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        loop {
-            let mut duration = std::time::Duration::from_secs(60 * 60 * 24); // once daily
-            match sqlite_pool.optimize().await {
-                Ok(_) => {
-                    info!("successfully executed database optimize");
-                }
-                Err(e) => {
-                    duration = std::time::Duration::from_secs(60 * 5); // try again in 5 minutes
-                    warn!(
-                        "failed to execute database optimize. trying again in {:?}: {e}",
-                        duration
-                    );
-                }
+        // Recommended practice is that applications with long-lived database connections should run "PRAGMA optimize=0x10002"
+        // when the database connection first opens, then run "PRAGMA optimize" again at periodic intervals - perhaps once per day
+        // https://www.sqlite.org/pragma.html#pragma_optimize
+        match sqlite_pool.run_statement("PRAGMA optimize=0x10002").await {
+            Ok(_) => {
+                info!("successfully ran sqlite optimize=0x10002");
             }
+            Err(e) => {
+                warn!(error=?e, "failed to run initial database optimize statement");
+            }
+        }
+        let mut duration = std::time::Duration::from_secs(60 * 60 * 24); // once daily
+        loop {
             let mut interval = tokio::time::interval(duration);
             interval.tick().await; // first tick is immediate
             tokio::select! {
@@ -345,6 +344,19 @@ fn spawn_database_optimizer(
                 }
                 _ = interval.tick() => {
                     // start the loop over
+                }
+            }
+            match sqlite_pool.optimize().await {
+                Ok(_) => {
+                    info!("successfully executed database optimize");
+                    duration = std::time::Duration::from_secs(60 * 60 * 24);
+                }
+                Err(e) => {
+                    duration = std::time::Duration::from_secs(60 * 5); // try again in 5 minutes
+                    warn!(
+                        "failed to execute database optimize. trying again in {:?}: {e}",
+                        duration
+                    );
                 }
             }
         }
