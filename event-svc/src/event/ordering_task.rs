@@ -97,7 +97,7 @@ impl OrderingTask {
                 true
             }
             Error::Transient { error } | Error::InvalidArgument { error } => {
-                info!("Encountered error: {:?}", error);
+                warn!("Encountered error: {:?}", error);
                 false
             }
         }
