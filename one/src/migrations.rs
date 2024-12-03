@@ -110,10 +110,10 @@ impl From<&FromIpfsOpts> for DBOpts {
     fn from(value: &FromIpfsOpts) -> Self {
         Self {
             store_dir: value.output_store_path.clone(),
-            mmap_size: None,
-            cache_size: None,
-            max_connections: 8,
-            temp_store: None,
+            db_mmap_size: None,
+            db_cache_size: None,
+            db_max_connections: 8,
+            db_temp_store: None,
         }
     }
 }

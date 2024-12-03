@@ -198,20 +198,20 @@ struct DBOpts {
     /// Use the negative version, which represents Kib e.g. 20000 = 20 Mb
     /// Or the postive version, representing pages
     /// None means the default is used.
-    cache_size: Option<i64>,
+    db_cache_size: Option<i64>,
     /// Used for pragma mmap_size
     /// 10737418240: 10 GB of memory mapped IO
     /// if this is slightly bigger than your db file it can improve read performance
     /// Set to 0 to disable. None is the default
     #[arg(long, env = "CERAMIC_ONE_DB_MMAP_SIZE")]
-    mmap_size: Option<u64>,
+    db_mmap_size: Option<u64>,
     /// The maximum number of read only connections in the pool
     #[arg(long, default_value = "8", env = "CERAMIC_ONE_DB_MAX_CONNECTIONS")]
-    max_connections: u32,
+    db_max_connections: u32,
     /// The sqlite temp_store value to use
     /// 0 = default, 1 = file, 2 = memory
-    #[arg(long, env = "CERAMIC_ONE_TEMP_STORE")]
-    temp_store: Option<SqliteTempStore>,
+    #[arg(long, env = "CERAMIC_ONE_DB_TEMP_STORE")]
+    db_temp_store: Option<SqliteTempStore>,
 }
 
 // Shared options for how logging is configured.
@@ -274,10 +274,10 @@ impl DBOpts {
         Ok(ceramic_sql::sqlite::SqlitePool::connect(
             &sql_db_path,
             SqliteOpts {
-                mmap_size: self.mmap_size,
-                cache_size: self.cache_size,
-                max_ro_connections: self.max_connections,
-                temp_store: self.temp_store.map(|t| t.into()),
+                mmap_size: self.db_mmap_size,
+                cache_size: self.db_cache_size,
+                max_ro_connections: self.db_max_connections,
+                temp_store: self.db_temp_store.map(|t| t.into()),
             },
             ceramic_sql::sqlite::Migrations::Apply,
         )
