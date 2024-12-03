@@ -323,19 +323,9 @@ fn spawn_database_optimizer(
     mut shutdown: tokio::sync::broadcast::Receiver<()>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        // Recommended practice is that applications with long-lived database connections should run "PRAGMA optimize=0x10002"
-        // when the database connection first opens, then run "PRAGMA optimize" again at periodic intervals - perhaps once per day
-        // https://www.sqlite.org/pragma.html#pragma_optimize
-        match sqlite_pool.run_statement("PRAGMA optimize=0x10002").await {
-            Ok(_) => {
-                info!("successfully ran sqlite optimize=0x10002");
-            }
-            Err(e) => {
-                warn!(error=?e, "failed to run initial database optimize statement");
-            }
-        }
         let mut duration = std::time::Duration::from_secs(60 * 60 * 24); // once daily
         loop {
+            // recreate interval in case it's been shortened due to error
             let mut interval = tokio::time::interval(duration);
             interval.tick().await; // first tick is immediate
             tokio::select! {
@@ -343,10 +333,10 @@ fn spawn_database_optimizer(
                     break;
                 }
                 _ = interval.tick() => {
-                    // start the loop over
+                    // optimize and start the loop over
                 }
             }
-            match sqlite_pool.optimize().await {
+            match sqlite_pool.optimize(false).await {
                 Ok(_) => {
                     info!("successfully executed database optimize");
                     duration = std::time::Duration::from_secs(60 * 60 * 24);
@@ -409,9 +399,15 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
     // Construct sqlite_pool
     let sqlite_pool = opts.db_opts.get_sqlite_pool().await?;
 
-    // spawn (and run) optimize right before we start using the database (e.g. ordering events)
-    let ss = shutdown_signal.resubscribe();
-    let db_optimizer_handle = spawn_database_optimizer(sqlite_pool.clone(), ss);
+    let db_optimizer_handle = if sqlite_pool.optimize_requested() {
+        // spawn (and run) optimize right before we start using the database (e.g. ordering events)
+        info!("running initial sqlite database optimize, this may take quite a while on large databases.");
+        sqlite_pool.optimize(true).await?;
+        let ss = shutdown_signal.resubscribe();
+        Some(spawn_database_optimizer(sqlite_pool.clone(), ss))
+    } else {
+        None
+    };
 
     let rpc_providers = get_eth_rpc_providers(opts.ethereum_rpc_urls, &opts.network).await?;
 
@@ -740,7 +736,9 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
     if let Some(anchor_service_handle) = anchor_service_handle {
         let _ = anchor_service_handle.await;
     }
-    let _ = db_optimizer_handle.await;
+    if let Some(db_optimizer_handle) = db_optimizer_handle {
+        let _ = db_optimizer_handle.await;
+    };
 
     Ok(())
 }

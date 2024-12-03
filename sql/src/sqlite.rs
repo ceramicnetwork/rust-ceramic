@@ -23,6 +23,7 @@ pub enum Migrations {
 pub struct SqlitePool {
     writer: sqlx::SqlitePool,
     reader: sqlx::SqlitePool,
+    optimize_requested: bool,
 }
 
 #[derive(Clone, Debug, Copy, PartialEq, Eq)]
@@ -56,6 +57,11 @@ pub struct SqliteOpts {
     /// Number of connections in the read only pool (default 8)
     pub max_ro_connections: u32,
     pub temp_store: Option<SqliteTempStore>,
+    /// The analysis limit to use for optimize/analysis.
+    /// None means do not optimize, 0 means no limit.
+    /// Recommended values are 100-1000 (higher meaning do more work).
+    /// Defaults to 1000
+    pub analysis_limit: Option<u32>,
 }
 
 impl Default for SqliteOpts {
@@ -65,6 +71,7 @@ impl Default for SqliteOpts {
             cache_size: None,
             max_ro_connections: 8,
             temp_store: None,
+            analysis_limit: Some(1000),
         }
     }
 }
@@ -77,7 +84,6 @@ impl SqlitePool {
             .journal_mode(SqliteJournalMode::Wal)
             .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
             .create_if_missing(true)
-            .optimize_on_close(true, None)
             .foreign_keys(true);
 
         let conn_opts = if let Some(cache) = opts.cache_size {
@@ -98,10 +104,20 @@ impl SqlitePool {
 
         let ro_opts = conn_opts.clone().read_only(true);
 
+        // optimize can only be used on connections with write access
+        // make sure the initial limit is set and we use the limit when closing as well
+        let write_opts = if let Some(limit) = opts.analysis_limit {
+            conn_opts
+                .optimize_on_close(true, limit)
+                .analysis_limit(limit)
+        } else {
+            conn_opts
+        };
+
         let writer = SqlitePoolOptions::new()
             .min_connections(1)
             .max_connections(1)
-            .connect_with(conn_opts)
+            .connect_with(write_opts)
             .await?;
         let reader = SqlitePoolOptions::new()
             .min_connections(1)
@@ -116,7 +132,11 @@ impl SqlitePool {
                 .map_err(sqlx::Error::from)?;
         }
 
-        Ok(Self { writer, reader })
+        Ok(Self {
+            writer,
+            reader,
+            optimize_requested: opts.analysis_limit.is_some(),
+        })
     }
 
     /// Creates an in-memory database. Useful for testing. Automatically applies migrations since all memory databases start empty
@@ -125,9 +145,22 @@ impl SqlitePool {
         SqlitePool::connect(":memory:", SqliteOpts::default(), Migrations::Apply).await
     }
 
+    pub fn optimize_requested(&self) -> bool {
+        self.optimize_requested
+    }
+
     /// run pragma optimize. recommended once per day for long running applications
-    pub async fn optimize(&self) -> Result<()> {
-        sqlx::query("pragma optimize").execute(&self.writer).await?;
+    /// if startup is true, will use recommended `0x10002` (Run ANALYZE on tables that might benefit)
+    /// Recommended practice is that applications with long-lived database connections should run "PRAGMA optimize=0x10002"
+    /// when the database connection first opens, then run "PRAGMA optimize" again at periodic intervals - perhaps once per day
+    /// https://www.sqlite.org/pragma.html#pragma_optimize
+    pub async fn optimize(&self, startup: bool) -> Result<()> {
+        let stmt = if startup {
+            "PRAGMA optimize=0x10002"
+        } else {
+            "PRAGMA optimize"
+        };
+        sqlx::query(stmt).execute(&self.writer).await?;
         Ok(())
     }
 

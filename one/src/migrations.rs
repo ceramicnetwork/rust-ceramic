@@ -114,6 +114,7 @@ impl From<&FromIpfsOpts> for DBOpts {
             db_cache_size: None,
             db_max_connections: 8,
             db_temp_store: None,
+            db_analysis_limit: 100,
         }
     }
 }

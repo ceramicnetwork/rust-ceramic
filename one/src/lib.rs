@@ -195,7 +195,7 @@ struct DBOpts {
     store_dir: PathBuf,
     #[arg(long, env = "CERAMIC_ONE_DB_CACHE_SIZE")]
     /// Value to use for the sqlite cache_size pragma
-    /// Use the negative version, which represents Kib e.g. 20000 = 20 Mb
+    /// Use the negative version, which represents Kib e.g. -20000 = 20 Mb
     /// Or the postive version, representing pages
     /// None means the default is used.
     db_cache_size: Option<i64>,
@@ -209,9 +209,15 @@ struct DBOpts {
     #[arg(long, default_value = "8", env = "CERAMIC_ONE_DB_MAX_CONNECTIONS")]
     db_max_connections: u32,
     /// The sqlite temp_store value to use
-    /// 0 = default, 1 = file, 2 = memory
     #[arg(long, env = "CERAMIC_ONE_DB_TEMP_STORE")]
     db_temp_store: Option<SqliteTempStore>,
+    /// The sqlite analysis_limit to use for optimize. If <0, optimize is not run.
+    /// If it's set, optimize is run immediately and daily in the background.
+    /// Values between 100 and 1000 are recommended, with lower values doing less work.
+    /// Or, to disable the analysis limit, causing ANALYZE to do a complete scan of each index, set the analysis limit to 0.
+    /// This MAY take extemely long (minutes to hours) on very large databases.
+    #[arg(long, default_value = "1000", env = "CERAMIC_ONE_DB_ANALYSIS_LIMIT")]
+    db_analysis_limit: i32,
 }
 
 // Shared options for how logging is configured.
@@ -278,6 +284,7 @@ impl DBOpts {
                 cache_size: self.db_cache_size,
                 max_ro_connections: self.db_max_connections,
                 temp_store: self.db_temp_store.map(|t| t.into()),
+                analysis_limit: self.db_analysis_limit.try_into().ok(), // negative means off (None)
             },
             ceramic_sql::sqlite::Migrations::Apply,
         )
