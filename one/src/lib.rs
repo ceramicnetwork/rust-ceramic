@@ -44,6 +44,27 @@ enum Command {
     Query(query::QueryOpts),
 }
 
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+/// Value for Sqlite `pragma temp_store`
+enum SqliteTempStore {
+    /// Default database was compiled with
+    Default,
+    /// Use the filesystem
+    File,
+    /// Temporary tables and indices are kept as if they were in pure in-memory databases
+    Memory,
+}
+
+impl From<SqliteTempStore> for ceramic_sql::sqlite::SqliteTempStore {
+    fn from(value: SqliteTempStore) -> Self {
+        match value {
+            SqliteTempStore::Default => Self::Default,
+            SqliteTempStore::File => Self::File,
+            SqliteTempStore::Memory => Self::Memory,
+        }
+    }
+}
+
 #[derive(ValueEnum, Debug, Clone, PartialEq, Eq)]
 enum Network {
     /// Production network
@@ -187,6 +208,10 @@ struct DBOpts {
     /// The maximum number of read only connections in the pool
     #[arg(long, default_value = "8", env = "CERAMIC_ONE_DB_MAX_CONNECTIONS")]
     max_connections: u32,
+    /// The sqlite temp_store value to use
+    /// 0 = default, 1 = file, 2 = memory
+    #[arg(long, env = "CERAMIC_ONE_TEMP_STORE")]
+    temp_store: Option<SqliteTempStore>,
 }
 
 // Shared options for how logging is configured.
@@ -252,6 +277,7 @@ impl DBOpts {
                 mmap_size: self.mmap_size,
                 cache_size: self.cache_size,
                 max_ro_connections: self.max_connections,
+                temp_store: self.temp_store.map(|t| t.into()),
             },
             ceramic_sql::sqlite::Migrations::Apply,
         )

@@ -25,6 +25,23 @@ pub struct SqlitePool {
     reader: sqlx::SqlitePool,
 }
 
+#[derive(Clone, Debug, Copy, PartialEq, Eq)]
+pub enum SqliteTempStore {
+    Default,
+    File,
+    Memory,
+}
+
+impl SqliteTempStore {
+    fn pragma_value(self) -> String {
+        match self {
+            SqliteTempStore::Default => 0.to_string(),
+            SqliteTempStore::File => 1.to_string(),
+            SqliteTempStore::Memory => 2.to_string(),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct SqliteOpts {
     /// Value to use for the sqlite cache_size pragma
@@ -38,6 +55,7 @@ pub struct SqliteOpts {
     pub mmap_size: Option<u64>,
     /// Number of connections in the read only pool (default 8)
     pub max_ro_connections: u32,
+    pub temp_store: Option<SqliteTempStore>,
 }
 
 impl Default for SqliteOpts {
@@ -46,6 +64,7 @@ impl Default for SqliteOpts {
             mmap_size: None,
             cache_size: None,
             max_ro_connections: 8,
+            temp_store: None,
         }
     }
 }
@@ -54,8 +73,6 @@ impl SqlitePool {
     /// Connect to the sqlite database at the given path. Creates the database if it does not exist.
     /// Uses WAL journal mode.
     pub async fn connect(path: &str, opts: SqliteOpts, migrate: Migrations) -> Result<Self> {
-        // As we benchmark, we will likely adjust settings and make things configurable.
-        // A few ideas: number of RO connections, mmap_size, temp_store = memory
         let conn_opts = SqliteConnectOptions::from_str(path)?
             .journal_mode(SqliteJournalMode::Wal)
             .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
@@ -70,6 +87,11 @@ impl SqlitePool {
         };
         let conn_opts = if let Some(mmap) = opts.mmap_size {
             conn_opts.pragma("mmap_size", mmap.to_string())
+        } else {
+            conn_opts
+        };
+        let conn_opts = if let Some(temp) = opts.temp_store {
+            conn_opts.pragma("temp_store", temp.pragma_value())
         } else {
             conn_opts
         };

@@ -113,6 +113,7 @@ impl From<&FromIpfsOpts> for DBOpts {
             mmap_size: None,
             cache_size: None,
             max_connections: 8,
+            temp_store: None,
         }
     }
 }
