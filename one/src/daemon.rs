@@ -256,9 +256,11 @@ pub struct DaemonOpts {
     ///   * file:///absolute/path/to/object_store/directory
     ///   * file://./relative/path/from/store_dir
     ///
+    /// When an file:// URL is used it must be either an absolute path or a relative path.
+    /// When relative, the path is relative to the `store_dir` directory.
     ///
     /// When an s3:// URL is used the following environment variables are used
-    /// to configure the s3 API access:
+    /// to configure access to s3 API:
     ///
     ///   * AWS_ACCESS_KEY_ID -> access_key_id
     ///   * AWS_SECRET_ACCESS_KEY -> secret_access_key
