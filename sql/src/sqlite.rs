@@ -25,10 +25,35 @@ pub struct SqlitePool {
     reader: sqlx::SqlitePool,
 }
 
+#[derive(Clone, Debug)]
+pub struct SqliteOpts {
+    /// Value to use for the sqlite cache_size pragma
+    /// Use the negative version, which represents Kib e.g. 20000 = 20 Mb
+    /// Or the postive version, representing pages
+    /// None means the default is used.
+    pub cache_size: Option<i64>,
+    /// Used for pragma mmap_size
+    /// 10737418240: 10 GB of memory mapped IO
+    /// Set to 0 to disable. None is the default
+    pub mmap_size: Option<u64>,
+    /// Number of connections in the read only pool (default 8)
+    pub max_ro_connections: u32,
+}
+
+impl Default for SqliteOpts {
+    fn default() -> Self {
+        Self {
+            mmap_size: None,
+            cache_size: None,
+            max_ro_connections: 8,
+        }
+    }
+}
+
 impl SqlitePool {
     /// Connect to the sqlite database at the given path. Creates the database if it does not exist.
     /// Uses WAL journal mode.
-    pub async fn connect(path: &str, migrate: Migrations) -> Result<Self> {
+    pub async fn connect(path: &str, opts: SqliteOpts, migrate: Migrations) -> Result<Self> {
         // As we benchmark, we will likely adjust settings and make things configurable.
         // A few ideas: number of RO connections, mmap_size, temp_store = memory
         let conn_opts = SqliteConnectOptions::from_str(path)?
@@ -37,6 +62,17 @@ impl SqlitePool {
             .create_if_missing(true)
             .optimize_on_close(true, None)
             .foreign_keys(true);
+
+        let conn_opts = if let Some(cache) = opts.cache_size {
+            conn_opts.pragma("cache_size", cache.to_string())
+        } else {
+            conn_opts
+        };
+        let conn_opts = if let Some(mmap) = opts.mmap_size {
+            conn_opts.pragma("mmap_size", mmap.to_string())
+        } else {
+            conn_opts
+        };
 
         let ro_opts = conn_opts.clone().read_only(true);
 
@@ -47,7 +83,7 @@ impl SqlitePool {
             .await?;
         let reader = SqlitePoolOptions::new()
             .min_connections(1)
-            .max_connections(8)
+            .max_connections(opts.max_ro_connections)
             .connect_with(ro_opts)
             .await?;
 
@@ -64,7 +100,7 @@ impl SqlitePool {
     /// Creates an in-memory database. Useful for testing. Automatically applies migrations since all memory databases start empty
     /// and are not shared between connections.
     pub async fn connect_in_memory() -> Result<Self> {
-        SqlitePool::connect(":memory:", Migrations::Apply).await
+        SqlitePool::connect(":memory:", SqliteOpts::default(), Migrations::Apply).await
     }
 
     /// run pragma optimize. recommended once per day for long running applications

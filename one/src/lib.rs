@@ -12,7 +12,7 @@ mod query;
 use anyhow::{anyhow, Result};
 use ceramic_core::ssi::caip2::ChainId;
 use ceramic_metrics::config::Config as MetricsConfig;
-use ceramic_sql::sqlite::SqlitePool;
+use ceramic_sql::sqlite::{SqliteOpts, SqlitePool};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use futures::StreamExt;
 use libp2p::Multiaddr;
@@ -172,6 +172,21 @@ struct DBOpts {
     /// Path to storage directory.
     #[arg(short, long, default_value=default_directory().into_os_string(), env = "CERAMIC_ONE_STORE_DIR")]
     store_dir: PathBuf,
+    #[arg(long, env = "CERAMIC_ONE_DB_CACHE_SIZE")]
+    /// Value to use for the sqlite cache_size pragma
+    /// Use the negative version, which represents Kib e.g. 20000 = 20 Mb
+    /// Or the postive version, representing pages
+    /// None means the default is used.
+    cache_size: Option<i64>,
+    /// Used for pragma mmap_size
+    /// 10737418240: 10 GB of memory mapped IO
+    /// if this is slightly bigger than your db file it can improve read performance
+    /// Set to 0 to disable. None is the default
+    #[arg(long, env = "CERAMIC_ONE_DB_MMAP_SIZE")]
+    mmap_size: Option<u64>,
+    /// The maximum number of read only connections in the pool
+    #[arg(long, default_value = "8", env = "CERAMIC_ONE_DB_MAX_CONNECTIONS")]
+    max_connections: u32,
 }
 
 // Shared options for how logging is configured.
@@ -233,6 +248,11 @@ impl DBOpts {
         let sql_db_path = self.store_dir.join("db.sqlite3").display().to_string();
         Ok(ceramic_sql::sqlite::SqlitePool::connect(
             &sql_db_path,
+            SqliteOpts {
+                mmap_size: self.mmap_size,
+                cache_size: self.cache_size,
+                max_ro_connections: self.max_connections,
+            },
             ceramic_sql::sqlite::Migrations::Apply,
         )
         .await?)
