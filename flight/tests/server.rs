@@ -33,7 +33,6 @@ async fn start_server(feed: MockFeed) -> FlightSqlServiceClient<Channel> {
     let ctx = ceramic_pipeline::session_from_config(ceramic_pipeline::Config {
         conclusion_feed: feed.into(),
         object_store: Arc::new(object_store::memory::InMemory::new()),
-        object_store_bucket_name: "test_bucket".to_string(),
     })
     .await
     .unwrap();

@@ -82,9 +82,9 @@ pub async fn session_from_config<F: ConclusionFeed + 'static>(
     // Register JSON functions
     datafusion_functions_json::register_all(&mut ctx)?;
 
-    // Register s3 object store
-    let mut url = Url::parse("s3://")?;
-    url.set_host(Some(&config.object_store_bucket_name))?;
+    // Register s3 object store, use hardcoded bucket name `pipeline` as the actual bucket name is
+    // already known by the object store.
+    let mut url = Url::parse("s3://pipeline")?;
     ctx.register_object_store(&url, config.object_store);
 
     // Configure event_states listing table

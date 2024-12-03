@@ -17,6 +17,7 @@ use ceramic_p2p::{load_identity, DiskStorage, Keychain, Libp2pConfig};
 use ceramic_sql::sqlite::SqlitePool;
 use clap::Args;
 use object_store::aws::AmazonS3Builder;
+use object_store::local::LocalFileSystem;
 use recon::{FullInterests, Recon, ReconInterestProvider};
 use signal_hook::consts::signal::*;
 use signal_hook_tokio::Signals;
@@ -175,7 +176,8 @@ pub struct DaemonOpts {
     #[arg(
         long,
         env = "CERAMIC_ONE_FLIGHT_SQL_BIND_ADDRESS",
-        requires = "experimental_features"
+        requires = "experimental_features",
+        requires = "object_store_url"
     )]
     flight_sql_bind_address: Option<String>,
 
@@ -239,19 +241,24 @@ pub struct DaemonOpts {
     )]
     ethereum_rpc_urls: Vec<String>,
 
-    /// Enable the aggregator, requires Flight SQL and S3 bucket to be defined.
+    /// Enable the aggregator, requires Flight SQL and object store to be defined.
     #[arg(
         long,
         requires = "flight_sql_bind_address",
-        requires = "s3_bucket",
+        requires = "object_store_url",
         env = "CERAMIC_ONE_AGGREGATOR"
     )]
     aggregator: Option<bool>,
 
-    /// Name of the S3 bucket where Ceramic stores published data tables.
-    /// Requires using the experimental-features flag
+    /// Location of the object store bucket, of the form:
     ///
-    /// Credentials are read from the environment:
+    ///   * s3://<bucket_name>
+    ///   * file:///absolute/path/to/object_store/directory
+    ///   * file://./relative/path/from/store_dir
+    ///
+    ///
+    /// When an s3:// URL is used the following environment variables are used
+    /// to configure the s3 API access:
     ///
     ///   * AWS_ACCESS_KEY_ID -> access_key_id
     ///   * AWS_SECRET_ACCESS_KEY -> secret_access_key
@@ -260,12 +267,13 @@ pub struct DaemonOpts {
     ///   * AWS_SESSION_TOKEN -> token
     ///   * AWS_ALLOW_HTTP -> set to "true" to permit HTTP connections without TLS
     ///
+    /// Requires using the experimental-features flag
     #[arg(
         long,
         requires = "experimental_features",
-        env = "CERAMIC_ONE_S3_BUCKET"
+        env = "CERAMIC_ONE_OBJECT_STORE_URL"
     )]
-    s3_bucket: Option<String>,
+    object_store_url: Option<url::Url>,
 }
 
 async fn get_eth_rpc_providers(
@@ -562,53 +570,79 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
         })?;
 
     // Start Flight server
-    let (pipeline_ctx, flight_handle, aggregator_handle) =
-        if let Some(addr) = opts.flight_sql_bind_address {
-            let addr = addr.parse()?;
-            let feed = event_svc.clone();
-            let bucket = opts
-                .s3_bucket
-                .ok_or_else(|| anyhow!("s3_bucket option is required when exposing flight sql"))?;
-            let ctx = ceramic_pipeline::session_from_config(ceramic_pipeline::Config {
-                conclusion_feed: feed.into(),
-                object_store: Arc::new(
-                    AmazonS3Builder::from_env()
-                        .with_bucket_name(&bucket)
-                        .build()?,
-                ),
-                object_store_bucket_name: bucket,
-            })
-            .await?;
-
-            // Start aggregator
-            let aggregator_handle = if opts.aggregator.unwrap_or_default() {
-                let mut ss = shutdown_signal.resubscribe();
-                let ctx = ctx.clone();
-                Some(tokio::spawn(async move {
-                    if let Err(err) = ceramic_pipeline::aggregator::run(ctx, async move {
-                        let _ = ss.recv().await;
-                    })
-                    .await
-                    {
-                        error!(%err, "aggregator task failed");
+    let (pipeline_ctx, flight_handle, aggregator_handle) = if let Some(addr) =
+        opts.flight_sql_bind_address
+    {
+        let addr = addr.parse()?;
+        let feed = event_svc.clone();
+        let object_store_url = opts.object_store_url.ok_or_else(|| {
+            anyhow!("object_store_url option is required when exposing flight sql")
+        })?;
+        let object_store: Arc<dyn object_store::ObjectStore> = match object_store_url.scheme() {
+            "s3" => Arc::new(
+                AmazonS3Builder::from_env()
+                    .with_bucket_name(object_store_url.host_str().ok_or_else(|| {
+                        anyhow!("object_store_url must have a bucket name in the host position")
+                    })?)
+                    .build()?,
+            ),
+            "file" => {
+                debug!(url=?object_store_url, host=?object_store_url.host_str(), path=?object_store_url.path(), "object_store_url");
+                let path = if let Some(host) = object_store_url.host_str() {
+                    debug!(store_dir=%store_dir.display(),host, "is relative");
+                    if host == "." {
+                        store_dir.join(object_store_url.path().trim_start_matches('/'))
+                    } else {
+                        bail!("object_store_url must have a relative or absolute path");
                     }
-                }))
-            } else {
-                None
-            };
+                } else {
+                    object_store_url.path().into()
+                };
+                // Create object_store dir if it does not exist.
+                if !tokio::fs::try_exists(&path).await? {
+                    tokio::fs::create_dir(&path).await?;
+                }
+                debug!(path = %path.display(), "object store path");
+                Arc::new(LocalFileSystem::new_with_prefix(path)?)
+            }
+            scheme => bail!("unsupported object_store_url scheme {scheme}"),
+        };
 
+        let ctx = ceramic_pipeline::session_from_config(ceramic_pipeline::Config {
+            conclusion_feed: feed.into(),
+            object_store,
+        })
+        .await?;
+
+        // Start aggregator
+        let aggregator_handle = if opts.aggregator.unwrap_or_default() {
             let mut ss = shutdown_signal.resubscribe();
-            let pipeline_ctx = ctx.clone();
-            let flight_handle = tokio::spawn(async move {
-                ceramic_flight::server::run(ctx, addr, async move {
+            let ctx = ctx.clone();
+            Some(tokio::spawn(async move {
+                if let Err(err) = ceramic_pipeline::aggregator::run(ctx, async move {
                     let _ = ss.recv().await;
                 })
                 .await
-            });
-            (Some(pipeline_ctx), aggregator_handle, Some(flight_handle))
+                {
+                    error!(%err, "aggregator task failed");
+                }
+            }))
         } else {
-            (None, None, None)
+            None
         };
+
+        let mut ss = shutdown_signal.resubscribe();
+        let pipeline_ctx = ctx.clone();
+        let flight_handle = tokio::spawn(async move {
+            ceramic_flight::server::run(ctx, addr, async move {
+                let _ = ss.recv().await;
+            })
+            .await
+        });
+        (Some(pipeline_ctx), aggregator_handle, Some(flight_handle))
+    } else {
+        (None, None, None)
+    };
 
     // Start anchoring if remote anchor service URL is provided
     let anchor_service_handle =
