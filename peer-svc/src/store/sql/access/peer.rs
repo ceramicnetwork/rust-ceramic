@@ -103,18 +103,11 @@ impl PeerDB {
     }
 
     /// Find the keys in the range
-    pub async fn range(
-        pool: &SqlitePool,
-        range: Range<&PeerKey>,
-        offset: usize,
-        limit: usize,
-    ) -> Result<Vec<PeerKey>> {
+    pub async fn range(pool: &SqlitePool, range: Range<&PeerKey>) -> Result<Vec<PeerKey>> {
         let query = sqlx::query(ReconQuery::range());
         let rows = query
             .bind(range.start.as_bytes())
             .bind(range.end.as_bytes())
-            .bind(limit as i64)
-            .bind(offset as i64)
             .fetch_all(pool.reader())
             .await?;
         let rows = rows
@@ -126,6 +119,41 @@ impl PeerDB {
             .collect::<std::result::Result<Vec<PeerKey>, PeerKeyError>>()
             .map_err(|e| Error::new_app(anyhow!(e)))?;
         Ok(rows)
+    }
+
+    /// Find the first key in the range
+    pub async fn first(pool: &SqlitePool, range: Range<&PeerKey>) -> Result<Option<PeerKey>> {
+        sqlx::query(ReconQuery::first())
+            .bind(range.start.as_bytes())
+            .bind(range.end.as_bytes())
+            .fetch_optional(pool.reader())
+            .await?
+            .map(|row| {
+                let bytes: Vec<u8> = row.get(0);
+                PeerKey::try_from(bytes)
+            })
+            .transpose()
+            .map_err(|e| Error::new_app(anyhow!(e)))
+    }
+
+    /// Find the approximate middle key in the range
+    pub async fn middle(pool: &SqlitePool, range: Range<&PeerKey>) -> Result<Option<PeerKey>> {
+        let count = Self::count(pool, range.clone()).await?;
+        // (usize::MAX / 2) == i64::MAX, meaning it should always fit inside an i64.
+        // However to be safe we default to i64::MAX.
+        let half: i64 = (count / 2).try_into().unwrap_or(i64::MAX);
+        sqlx::query(ReconQuery::middle())
+            .bind(range.start.as_bytes())
+            .bind(range.end.as_bytes())
+            .bind(half)
+            .fetch_optional(pool.reader())
+            .await?
+            .map(|row| {
+                let bytes: Vec<u8> = row.get(0);
+                PeerKey::try_from(bytes)
+            })
+            .transpose()
+            .map_err(|e| Error::new_app(anyhow!(e)))
     }
 
     pub(crate) async fn delete_range(pool: &SqlitePool, range: Range<&PeerKey>) -> Result<()> {

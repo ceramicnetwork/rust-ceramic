@@ -34,8 +34,26 @@ impl ReconQuery {
             }
         }
     }
-    /// Requires binding 4 parameters
+    /// Requires binding 2 parameters
     pub fn range() -> &'static str {
+        r#"SELECT
+                order_key
+            FROM
+                ceramic_one_peer
+            WHERE
+                order_key >= $1 AND order_key < $2
+            ORDER BY
+                order_key ASC;"#
+    }
+    /// Requires binding 2 parameters
+    pub fn delete_range() -> &'static str {
+        r#" DELETE FROM
+                ceramic_one_peer
+            WHERE
+                order_key >= $1 AND order_key < $2;"#
+    }
+    /// Requires binding 2 parameters
+    pub fn first() -> &'static str {
         r#"SELECT
                 order_key
             FROM
@@ -45,16 +63,22 @@ impl ReconQuery {
             ORDER BY
                 order_key ASC
             LIMIT
-                $3
-            OFFSET
-                $4;"#
+                1;"#
     }
-    /// Requires binding 2 parameters
-    pub fn delete_range() -> &'static str {
-        r#" DELETE FROM
+    /// Requires binding 3 parameters
+    pub fn middle() -> &'static str {
+        r#"SELECT
+                order_key
+            FROM
                 ceramic_one_peer
             WHERE
-                order_key >= $1 AND order_key < $2;"#
+                order_key >= $1 AND order_key < $2
+            ORDER BY
+                order_key ASC
+            LIMIT
+                1
+            OFFSET
+                $3;"#
     }
 
     pub fn count(db: SqlBackend) -> &'static str {

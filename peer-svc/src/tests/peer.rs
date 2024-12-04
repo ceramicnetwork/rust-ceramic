@@ -1,5 +1,3 @@
-use std::collections::BTreeSet;
-
 use ceramic_core::{
     peer::{Builder, Init},
     NodeKey, PeerKey,
@@ -58,21 +56,21 @@ pub(crate) fn random_peer_key<'a>(expiration: Option<u64>) -> PeerKey {
         .build()
 }
 // The EventId that is the minumum of all possible random event ids
-pub(crate) fn random_peer_min() -> PeerKey {
+pub(crate) fn random_peer_key_min() -> PeerKey {
     peer_key_builder().with_min_expiration().build_fencepost()
 }
 // The EventId that is the maximum of all possible random event ids
-pub(crate) fn random_peer_max() -> PeerKey {
+pub(crate) fn random_peer_key_max() -> PeerKey {
     peer_key_builder().with_max_expiration().build_fencepost()
 }
 
 test_with_dbs!(
-    test_hash_range_query,
-    test_hash_range_query,
-    ["delete from ceramic_one_interest"]
+    hash_range_query,
+    hash_range_query,
+    ["delete from ceramic_one_peer"]
 );
 
-async fn test_hash_range_query<S>(store: &S)
+async fn hash_range_query<S>(store: &S)
 where
     S: recon::Store<Key = PeerKey, Hash = Sha256a>,
 {
@@ -85,7 +83,7 @@ where
     .unwrap();
 
     let hash_cnt = store
-        .hash_range(&random_peer_min()..&random_peer_max())
+        .hash_range(&random_peer_key_min()..&random_peer_key_max())
         .await
         .unwrap();
     assert_eq!(1, hash_cnt.count());
@@ -99,91 +97,90 @@ where
     .unwrap();
 
     let hash_cnt = store
-        .hash_range(&random_peer_min()..&random_peer_max())
+        .hash_range(&random_peer_key_min()..&random_peer_key_max())
         .await
         .unwrap();
     assert_eq!(2, hash_cnt.count());
 }
 
-test_with_dbs!(
-    test_range_query,
-    test_range_query,
-    ["delete from ceramic_one_interest"]
-);
+test_with_dbs!(range_query, range_query, ["delete from ceramic_one_peer"]);
 
-async fn test_range_query<S>(store: &S)
+async fn range_query<S>(store: &S)
 where
     S: recon::Store<Key = PeerKey, Hash = Sha256a>,
 {
-    let interest_0 = random_peer_key(None);
-    let interest_1 = random_peer_key(None);
+    let mut peers: Vec<_> = (0..10).map(|_| random_peer_key(None)).collect();
 
-    recon::Store::insert_many(
-        store,
-        &[ReconItem::new(interest_0.clone(), Vec::new())],
-        NodeKey::random().id(),
-    )
-    .await
-    .unwrap();
-    recon::Store::insert_many(
-        store,
-        &[ReconItem::new(interest_1.clone(), Vec::new())],
-        NodeKey::random().id(),
-    )
-    .await
-    .unwrap();
-    let ids = recon::Store::range(store, &random_peer_min()..&random_peer_max(), 0, usize::MAX)
+    let items: Vec<_> = peers
+        .iter()
+        .map(|peer| ReconItem::new(peer.clone(), Vec::new()))
+        .collect();
+
+    recon::Store::insert_many(store, &items, NodeKey::random().id())
         .await
         .unwrap();
-    let interests = ids.collect::<BTreeSet<PeerKey>>();
-    assert_eq!(BTreeSet::from_iter([interest_0, interest_1]), interests);
+    let keys = recon::Store::range(store, &random_peer_key_min()..&random_peer_key_max())
+        .await
+        .unwrap();
+    let mut keys: Vec<PeerKey> = keys.collect();
+    peers.sort();
+    keys.sort();
+    assert_eq!(peers, keys);
 }
 
-test_with_dbs!(
-    test_range_with_values_query,
-    test_range_with_values_query,
-    ["delete from ceramic_one_interest"]
-);
+test_with_dbs!(first_query, first_query, ["delete from ceramic_one_peer"]);
 
-async fn test_range_with_values_query<S>(store: &S)
+async fn first_query<S>(store: &S)
 where
-    S: recon::Store<Key = PeerKey, Hash = Sha256a>,
+    S: recon::Store<Key = PeerKey, Hash = Sha256a> + Sync,
 {
-    let interest_0 = random_peer_key(None);
-    let interest_1 = random_peer_key(None);
+    let mut peers: Vec<_> = (0..10).map(|_| random_peer_key(None)).collect();
 
-    store
-        .insert_many(
-            &[ReconItem::new(interest_0.clone(), Vec::new())],
-            NodeKey::random().id(),
-        )
+    let items: Vec<_> = peers
+        .iter()
+        .map(|peer| ReconItem::new(peer.clone(), Vec::new()))
+        .collect();
+
+    recon::Store::insert_many(store, &items, NodeKey::random().id())
         .await
         .unwrap();
-    store
-        .insert_many(
-            &[ReconItem::new(interest_1.clone(), Vec::new())],
-            NodeKey::random().id(),
-        )
+    let first = recon::Store::first(store, &random_peer_key_min()..&random_peer_key_max())
         .await
         .unwrap();
-    let ids = store
-        .range_with_values(&random_peer_min()..&random_peer_max(), 0, usize::MAX)
+    peers.sort();
+    assert_eq!(Some(peers[0].clone()), first);
+}
+
+test_with_dbs!(middle_query, middle_query, ["delete from ceramic_one_peer"]);
+
+async fn middle_query<S>(store: &S)
+where
+    S: recon::Store<Key = PeerKey, Hash = Sha256a> + Sync,
+{
+    let mut peers: Vec<_> = (0..10).map(|_| random_peer_key(None)).collect();
+
+    let items: Vec<_> = peers
+        .iter()
+        .map(|peer| ReconItem::new(peer.clone(), Vec::new()))
+        .collect();
+
+    recon::Store::insert_many(store, &items, NodeKey::random().id())
         .await
         .unwrap();
-    let interests = ids
-        .into_iter()
-        .map(|(i, _v)| i)
-        .collect::<BTreeSet<PeerKey>>();
-    assert_eq!(BTreeSet::from_iter([interest_0, interest_1]), interests);
+    let middle = recon::Store::middle(store, &random_peer_key_min()..&random_peer_key_max())
+        .await
+        .unwrap();
+    peers.sort();
+    assert_eq!(Some(peers[peers.len() / 2].clone()), middle);
 }
 
 test_with_dbs!(
-    test_double_insert,
-    test_double_insert,
-    ["delete from ceramic_one_interest"]
+    double_insert,
+    double_insert,
+    ["delete from ceramic_one_peer"]
 );
 
-async fn test_double_insert<S>(store: &S)
+async fn double_insert<S>(store: &S)
 where
     S: recon::Store<Key = PeerKey, Hash = Sha256a>,
 {
@@ -210,12 +207,12 @@ where
 }
 
 test_with_dbs!(
-    test_value_for_key,
-    test_value_for_key,
-    ["delete from ceramic_one_interest"]
+    value_for_key,
+    value_for_key,
+    ["delete from ceramic_one_peer"]
 );
 
-async fn test_value_for_key<S>(store: &S)
+async fn value_for_key<S>(store: &S)
 where
     S: recon::Store<Key = PeerKey, Hash = Sha256a>,
 {
@@ -233,13 +230,9 @@ where
     assert_eq!(empty, val);
 }
 
-test_with_dbs!(
-    test_insert,
-    test_insert,
-    ["delete from ceramic_one_interest"]
-);
+test_with_dbs!(insert, insert, ["delete from ceramic_one_peer"]);
 
-async fn test_insert<S>(service: &S)
+async fn insert<S>(service: &S)
 where
     S: ceramic_p2p::PeerService,
 {
@@ -254,12 +247,12 @@ where
 }
 
 test_with_dbs!(
-    test_insert_delete,
-    test_insert_delete,
-    ["delete from ceramic_one_interest"]
+    insert_delete,
+    insert_delete,
+    ["delete from ceramic_one_peer"]
 );
 
-async fn test_insert_delete<S>(service: &S)
+async fn insert_delete<S>(service: &S)
 where
     S: ceramic_p2p::PeerService,
 {
@@ -273,7 +266,7 @@ where
     assert_eq!(vec![key_0.clone(), key_1.clone()], peers);
     // Delete key_0
     service
-        .delete_range(&random_peer_min()..&key_1)
+        .delete_range(&random_peer_key_min()..&key_1)
         .await
         .unwrap();
     let peers = service.all_peers().await.unwrap();

@@ -26,9 +26,6 @@ impl recon::Store for PeerService {
     type Key = PeerKey;
     type Hash = Sha256a;
 
-    /// Insert new keys into the key space.
-    /// Returns true for each key if it did not previously exist, in the
-    /// same order as the input iterator.
     #[instrument(skip(self))]
     async fn insert_many(
         &self,
@@ -41,9 +38,6 @@ impl recon::Store for PeerService {
             .map_err(Error::from)?)
     }
 
-    /// Return the hash of all keys in the range between left_fencepost and right_fencepost.
-    /// Both range bounds are exclusive.
-    /// Returns ReconResult<(Hash, count), Err>
     #[instrument(skip(self))]
     async fn hash_range(&self, range: Range<&Self::Key>) -> ReconResult<HashCount<Self::Hash>> {
         Ok(PeerDB::hash_range(&self.pool, range)
@@ -51,43 +45,31 @@ impl recon::Store for PeerService {
             .map_err(Error::from)?)
     }
 
-    /// Return all keys in the range between left_fencepost and right_fencepost.
-    /// Both range bounds are exclusive.
-    ///
-    /// Offset and limit values are applied within the range of keys.
     #[instrument(skip(self))]
     async fn range(
         &self,
         range: Range<&Self::Key>,
-
-        offset: usize,
-        limit: usize,
     ) -> ReconResult<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
         Ok(Box::new(
-            PeerDB::range(&self.pool, range, offset, limit)
+            PeerDB::range(&self.pool, range)
                 .await
                 .map_err(Error::from)?
                 .into_iter(),
         ))
     }
-
-    /// Return all keys and values in the range between left_fencepost and right_fencepost.
-    /// Both range bounds are exclusive.
-    ///
-    /// Offset and limit values are applied within the range of keys.
     #[instrument(skip(self))]
-    async fn range_with_values(
-        &self,
-        range: Range<&Self::Key>,
-        offset: usize,
-        limit: usize,
-    ) -> ReconResult<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>> {
-        let res = PeerDB::range(&self.pool, range, offset, limit)
+    async fn first(&self, range: Range<&Self::Key>) -> ReconResult<Option<Self::Key>> {
+        Ok(PeerDB::first(&self.pool, range)
             .await
-            .map_err(Error::from)?;
-        Ok(Box::new(res.into_iter().map(|key| (key, vec![]))))
+            .map_err(Error::from)?)
     }
-    /// Return the number of keys within the range.
+    #[instrument(skip(self))]
+    async fn middle(&self, range: Range<&Self::Key>) -> ReconResult<Option<Self::Key>> {
+        Ok(PeerDB::middle(&self.pool, range)
+            .await
+            .map_err(Error::from)?)
+    }
+
     #[instrument(skip(self))]
     async fn count(&self, range: Range<&Self::Key>) -> ReconResult<usize> {
         Ok(PeerDB::count(&self.pool, range)
@@ -95,10 +77,6 @@ impl recon::Store for PeerService {
             .map_err(Error::from)?)
     }
 
-    /// value_for_key returns
-    /// Ok(Some(value)) if stored,
-    /// Ok(None) if not stored, and
-    /// Err(e) if retrieving failed.
     #[instrument(skip(self))]
     async fn value_for_key(&self, _key: &Self::Key) -> ReconResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
@@ -124,8 +102,6 @@ impl ceramic_p2p::PeerService for PeerService {
             &self.pool,
             &PeerKey::builder().with_min_expiration().build_fencepost()
                 ..&PeerKey::builder().with_max_expiration().build_fencepost(),
-            0,
-            usize::MAX,
         )
         .await
         .map_err(Error::from)?)
