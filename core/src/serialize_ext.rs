@@ -2,7 +2,8 @@ use cid::Cid;
 use serde::Serialize;
 use std::collections::TryReserveError;
 
-/// SerializeExt is a trait for serialization, deserialization, CID calculation assuming dag-cbor.
+/// SerializeExt extends [`Serialize`] with methods specific to dag-json and dag-cbor
+/// serialization.
 pub trait SerializeExt: Serialize {
     /// Serialize to dag-json string
     fn to_json(&self) -> Result<String, serde_ipld_dagjson::EncodeError> {

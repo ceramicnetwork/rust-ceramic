@@ -21,7 +21,6 @@ expect-test.workspace = true
 hex.workspace = true
 multihash-codetable.workspace = true
 reqwest.workspace = true
-ring.workspace = true
 serde.workspace = true
 serde_ipld_dagcbor.workspace = true
 serde_json.workspace = true

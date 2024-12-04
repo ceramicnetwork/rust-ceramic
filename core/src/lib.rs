@@ -2,21 +2,26 @@
 //! Core functionality for ceramic, including the StreamId, Cid, and Jws types.
 #![warn(missing_docs)]
 mod bytes;
+mod deserialize_ext;
 pub mod event_id;
 pub mod interest;
 mod jwk;
 mod network;
 mod node_id;
+mod peer;
 mod range;
 mod serialize_ext;
+pub mod signer;
 mod stream_id;
 
 pub use bytes::Bytes;
+pub use deserialize_ext::DeserializeExt;
 pub use event_id::EventId;
 pub use interest::{Interest, PeerId};
 pub use jwk::Jwk;
 pub use network::Network;
-pub use node_id::NodeId;
+pub use node_id::{NodeId, NodeKey};
+pub use peer::{PeerEntry, PeerKey};
 pub use range::RangeOpen;
 pub use serialize_ext::SerializeExt;
 pub use stream_id::{StreamId, StreamIdType, METAMODEL_STREAM_ID};

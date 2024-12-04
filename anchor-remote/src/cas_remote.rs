@@ -7,7 +7,6 @@ use base64::{
     Engine as _,
 };
 use multihash_codetable::{Code, MultihashDigest};
-use ring::signature::Ed25519KeyPair;
 use serde::{Deserialize, Serialize};
 use tokio::time::interval;
 use tracing::{debug, info, warn};
@@ -17,7 +16,7 @@ use ceramic_anchor_service::{
     DetachedTimeEvent, MerkleNode, MerkleNodes, RootTimeEvent, TransactionManager,
 };
 use ceramic_car::CarReader;
-use ceramic_core::{Cid, NodeId, StreamId};
+use ceramic_core::{Cid, NodeKey, StreamId};
 use ceramic_event::unvalidated::AnchorProof;
 
 pub const AGENT_VERSION: &str = concat!("ceramic-one/", env!("CARGO_PKG_VERSION"));
@@ -63,8 +62,7 @@ struct CasAnchorResponse {
 
 /// Remote CAS transaction manager
 pub struct RemoteCas {
-    node_id: NodeId,
-    signing_key: Ed25519KeyPair,
+    node_key: NodeKey,
     url: String,
     poll_interval: Duration,
     poll_retry_count: u64,
@@ -112,13 +110,12 @@ impl TransactionManager for RemoteCas {
 impl RemoteCas {
     /// Create a new RemoteCas instance
     pub fn new(
-        node_id: NodeId,
-        keypair: Ed25519KeyPair,
+        node_key: NodeKey,
         remote_anchor_service_url: String,
         anchor_poll_interval: Duration,
         anchor_poll_retry_count: u64,
     ) -> Self {
-        let controller = node_id.did_key();
+        let controller = node_key.did_key();
         let jws_header = Header {
             kid: format!(
                 "{}#{}",
@@ -133,8 +130,7 @@ impl RemoteCas {
         let jws_header_b64 =
             b64.encode(serde_json::to_vec(&jws_header).expect("invalid jws header"));
         Self {
-            node_id,
-            signing_key: keypair,
+            node_key,
             url: format!("{}/api/v0/requests", remote_anchor_service_url),
             poll_interval: anchor_poll_interval,
             poll_retry_count: anchor_poll_retry_count,
@@ -146,7 +142,7 @@ impl RemoteCas {
     /// Create an anchor request on the remote CAS
     pub async fn create_anchor_request(&self, root_cid: Cid) -> Result<String> {
         let cas_request_body = serde_json::to_string(&CasAnchorRequest {
-            stream_id: self.node_id.stream_id(),
+            stream_id: self.node_key.stream_id(),
             cid: root_cid.to_string(),
             timestamp: chrono::Utc::now().to_rfc3339(),
             ceramic_one_version: AGENT_VERSION.to_owned(),
@@ -175,7 +171,7 @@ impl RemoteCas {
         };
         let body_b64 = b64.encode(serde_json::to_vec(&body)?);
         let message = [self.jws_header_b64.clone(), body_b64].join(".");
-        let sig_b64 = b64.encode(self.signing_key.sign(message.as_bytes()));
+        let sig_b64 = b64.encode(self.node_key.sign(message.as_bytes()));
         Ok([message.clone(), sig_b64].join("."))
     }
 }
@@ -237,16 +233,15 @@ mod tests {
 
     use expect_test::expect_file;
     use multihash_codetable::{Code, MultihashDigest};
-    use ring::signature::Ed25519KeyPair;
 
     use ceramic_anchor_service::{
         AnchorService, MockAnchorEventService, Store, TransactionManager,
     };
-    use ceramic_core::Cid;
+    use ceramic_core::{Cid, NodeKey};
     use ceramic_sql::sqlite::SqlitePool;
 
-    fn node_id_and_private_key() -> (NodeId, Ed25519KeyPair) {
-        NodeId::try_from_secret(
+    fn node_key() -> NodeKey {
+        NodeKey::try_from_secret(
             std::env::var("NODE_PRIVATE_KEY")
                 // The following secret is NOT authenticated with CAS, it is only used for testing.
                 .unwrap_or(
@@ -263,13 +258,11 @@ mod tests {
     async fn test_anchor_batch_with_cas() {
         let anchor_client = Arc::new(MockAnchorEventService::new(10));
         let anchor_requests = anchor_client
-            .events_since_high_water_mark(NodeId::random().0, 0, 1_000_000)
+            .events_since_high_water_mark(NodeKey::random().id(), 0, 1_000_000)
             .await
             .unwrap();
-        let (node_id, keypair) = node_id_and_private_key();
         let remote_cas = Arc::new(RemoteCas::new(
-            node_id,
-            keypair,
+            node_key(),
             "https://cas-dev.3boxlabs.com".to_owned(),
             Duration::from_secs(1),
             1,
@@ -278,7 +271,7 @@ mod tests {
             remote_cas,
             anchor_client,
             SqlitePool::connect_in_memory().await.unwrap(),
-            NodeId::random().0,
+            NodeKey::random().id(),
             Duration::from_secs(1),
             10,
         );
@@ -295,11 +288,9 @@ mod tests {
     async fn test_create_anchor_request_with_cas() {
         let mock_root_cid =
             Cid::from_str("bafyreia776z4jdg5zgycivcpr3q6lcu6llfowkrljkmq3bex2k5hkzat54").unwrap();
-        let (node_id, keypair) = node_id_and_private_key();
 
         let remote_cas = RemoteCas::new(
-            node_id,
-            keypair,
+            node_key(),
             "https://cas-dev.3boxlabs.com".to_owned(),
             Duration::from_secs(1),
             1,
@@ -323,10 +314,8 @@ mod tests {
     async fn test_jwt() {
         let mock_data = serde_ipld_dagcbor::to_vec(b"mock root").unwrap();
         let mock_hash = MultihashDigest::digest(&Code::Sha2_256, &mock_data);
-        let (node_id, keypair) = node_id_and_private_key();
         let remote_cas = Arc::new(RemoteCas::new(
-            node_id,
-            keypair,
+            node_key(),
             "https://cas-dev.3boxlabs.com".to_owned(),
             Duration::from_secs(1),
             1,
