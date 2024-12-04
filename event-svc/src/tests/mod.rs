@@ -30,27 +30,6 @@ pub(crate) fn build_event_id(cid: &Cid, init: &Cid, model: &StreamId) -> EventId
         .build()
 }
 
-// The EventId that is the minumum of all possible random event ids for that stream
-pub(crate) fn event_id_min(init: &Cid, model: &StreamId) -> EventId {
-    EventId::builder()
-        .with_network(&Network::DevUnstable)
-        .with_sep(SEP_KEY, &model.to_vec())
-        .with_controller(CONTROLLER)
-        .with_init(init)
-        .with_min_event()
-        .build_fencepost()
-}
-// The EventId that is the maximum of all possible random event ids for that stream
-pub(crate) fn event_id_max(init: &Cid, model: &StreamId) -> EventId {
-    EventId::builder()
-        .with_network(&Network::DevUnstable)
-        .with_sep(SEP_KEY, &model.to_vec())
-        .with_controller(CONTROLLER)
-        .with_init(init)
-        .with_max_event()
-        .build_fencepost()
-}
-
 pub(crate) fn random_cid() -> Cid {
     let mut data = [0u8; 8];
     rand::Rng::fill(&mut ::rand::thread_rng(), &mut data);
@@ -231,12 +210,6 @@ async fn get_init_plus_n_events_with_model(
         events.push(ReconItem::new(data_id, data_car));
     }
     events
-}
-
-pub(crate) async fn get_events_return_model() -> (StreamId, Vec<ReconItem<EventId>>) {
-    let model = StreamId::document(random_cid());
-    let events = get_init_plus_n_events_with_model(&model, 3).await;
-    (model, events)
 }
 
 // builds init -> data -> data that are a stream (will be a different stream each call)

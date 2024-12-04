@@ -150,13 +150,7 @@ impl TryFrom<models::Interest> for ValidatedInterest {
 pub trait InterestService: Send + Sync {
     /// Returns true if the key was newly inserted, false if it already existed.
     async fn insert(&self, key: Interest) -> Result<bool>;
-    async fn range(
-        &self,
-        start: &Interest,
-        end: &Interest,
-        offset: usize,
-        limit: usize,
-    ) -> Result<Vec<Interest>>;
+    async fn range(&self, start: &Interest, end: &Interest) -> Result<Vec<Interest>>;
 }
 
 #[async_trait]
@@ -165,14 +159,8 @@ impl<S: InterestService> InterestService for Arc<S> {
         self.as_ref().insert(key).await
     }
 
-    async fn range(
-        &self,
-        start: &Interest,
-        end: &Interest,
-        offset: usize,
-        limit: usize,
-    ) -> Result<Vec<Interest>> {
-        self.as_ref().range(start, end, offset, limit).await
+    async fn range(&self, start: &Interest, end: &Interest) -> Result<Vec<Interest>> {
+        self.as_ref().range(start, end).await
     }
 }
 
@@ -271,8 +259,8 @@ pub trait EventService: Send + Sync {
     async fn range_with_values(
         &self,
         range: Range<EventId>,
-        offset: usize,
-        limit: usize,
+        offset: u32,
+        limit: u32,
     ) -> Result<Vec<(Cid, Vec<u8>)>>;
 
     /**
@@ -313,8 +301,8 @@ impl<S: EventService> EventService for Arc<S> {
     async fn range_with_values(
         &self,
         range: Range<EventId>,
-        offset: usize,
-        limit: usize,
+        offset: u32,
+        limit: u32,
     ) -> Result<Vec<(Cid, Vec<u8>)>> {
         self.as_ref().range_with_values(range, offset, limit).await
     }
@@ -605,12 +593,7 @@ where
     ) -> Result<ExperimentalInterestsGetResponse, ErrorResponse> {
         let interests = self
             .interest
-            .range(
-                &Interest::min_value(),
-                &Interest::max_value(),
-                0,
-                usize::MAX,
-            )
+            .range(&Interest::min_value(), &Interest::max_value())
             .await
             .map_err(|e| ErrorResponse::new(format!("failed to get interests: {e}")))?;
 
@@ -654,9 +637,8 @@ where
         offset: Option<i32>,
         limit: Option<i32>,
     ) -> Result<ExperimentalEventsSepSepValueGetResponse, ErrorResponse> {
-        let limit: usize =
-            limit.map_or(10000, |l| if l.is_negative() { 10000 } else { l }) as usize;
-        let offset = offset.map_or(0, |o| if o.is_negative() { 0 } else { o }) as usize;
+        let limit = limit.map_or(10000, |l| if l.is_negative() { 10000 } else { l }) as u32;
+        let offset = offset.map_or(0, |o| if o.is_negative() { 0 } else { o }) as u32;
         let sep_value = match decode_multibase_data(&sep_value) {
             Ok(v) => v,
             Err(e) => return Ok(ExperimentalEventsSepSepValueGetResponse::BadRequest(e)),
@@ -674,7 +656,7 @@ where
             .map(|(id, data)| BuildResponse::event(id, Some(data)))
             .collect::<Vec<_>>();
 
-        let event_cnt = events.len();
+        let event_cnt = events.len() as u32;
         Ok(ExperimentalEventsSepSepValueGetResponse::Success(
             models::EventsGet {
                 resume_offset: (offset + event_cnt) as i32,

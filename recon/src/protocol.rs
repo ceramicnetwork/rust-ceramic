@@ -11,6 +11,8 @@
 //! Encoding and framing of messages is outside the scope of this crate.
 //! However the message types do implement serde::Serialize and serde::Deserialize.
 
+use std::ops::Range;
+
 use anyhow::{anyhow, bail, Context, Result};
 use async_stream::try_stream;
 use async_trait::async_trait;
@@ -747,7 +749,7 @@ where
                 // TODO this holds all keys in memory
                 // Paginate or otherwise stream the keys and values back out
                 let keys = recon
-                    .range(range.first, range.last, 0, usize::MAX)
+                    .range(&range.first..&range.last)
                     .await?;
                 for key in keys {
                     let value = recon.value_for_key(key.clone()).await?.ok_or_else(|| anyhow!("recon key does not have a value: key={}", key))?;
@@ -824,13 +826,7 @@ pub trait Recon: Clone + Send + Sync + 'static {
     ) -> ReconResult<InsertResult<Self::Key>>;
 
     /// Get all keys in the specified range
-    async fn range(
-        &self,
-        left_fencepost: Self::Key,
-        right_fencepost: Self::Key,
-        offset: usize,
-        limit: usize,
-    ) -> ReconResult<Vec<Self::Key>>;
+    async fn range(&self, range: Range<&Self::Key>) -> ReconResult<Vec<Self::Key>>;
 
     /// Reports total number of keys
     async fn len(&self) -> ReconResult<usize>;

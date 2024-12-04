@@ -82,22 +82,20 @@ where
     async fn range(
         &self,
         range: Range<&Self::Key>,
-        offset: usize,
-        limit: usize,
     ) -> ReconResult<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
         self.as_error()?;
 
-        self.inner.range(range, offset, limit).await
+        self.inner.range(range).await
     }
-    async fn range_with_values(
-        &self,
-        range: Range<&Self::Key>,
-        offset: usize,
-        limit: usize,
-    ) -> ReconResult<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>> {
+    async fn first(&self, range: Range<&Self::Key>) -> ReconResult<Option<Self::Key>> {
         self.as_error()?;
 
-        self.inner.range_with_values(range, offset, limit).await
+        self.inner.first(range).await
+    }
+    async fn middle(&self, range: Range<&Self::Key>) -> ReconResult<Option<Self::Key>> {
+        self.as_error()?;
+
+        self.inner.middle(range).await
     }
 
     async fn value_for_key(&self, key: &Self::Key) -> ReconResult<Option<Vec<u8>>> {

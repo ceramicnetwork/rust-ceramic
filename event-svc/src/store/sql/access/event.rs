@@ -1,5 +1,4 @@
 use std::{
-    num::TryFromIntError,
     ops::Range,
     sync::atomic::{AtomicI64, Ordering},
 };
@@ -242,21 +241,10 @@ impl EventAccess {
     }
 
     /// Find a range of event IDs
-    pub async fn range(
-        &self,
-        range: Range<&EventId>,
-        offset: usize,
-        limit: usize,
-    ) -> Result<Vec<EventId>> {
-        let offset: i64 = offset.try_into().map_err(|_e: TryFromIntError| {
-            Error::new_app(anyhow!("Offset too large to fit into i64"))
-        })?;
-        let limit = limit.try_into().unwrap_or(100000); // 100k is still a huge limit
+    pub async fn range(&self, range: Range<&EventId>) -> Result<Vec<EventId>> {
         let rows: Vec<OrderKey> = sqlx::query_as(ReconQuery::range())
             .bind(range.start.as_bytes())
             .bind(range.end.as_bytes())
-            .bind(limit)
-            .bind(offset)
             .fetch_all(self.pool.reader())
             .await
             .map_err(Error::from)?;
@@ -267,16 +255,40 @@ impl EventAccess {
         Ok(rows)
     }
 
+    /// Find first event id within the range
+    pub async fn first(&self, range: Range<&EventId>) -> Result<Option<EventId>> {
+        let key: Option<OrderKey> = sqlx::query_as(ReconQuery::first())
+            .bind(range.start.as_bytes())
+            .bind(range.end.as_bytes())
+            .fetch_optional(self.pool.reader())
+            .await
+            .map_err(Error::from)?;
+        key.map(|k| EventId::try_from(k).map_err(|e: InvalidEventId| Error::new_app(anyhow!(e))))
+            .transpose()
+    }
+    /// Find an approximate middle event id within the range
+    pub async fn middle(&self, range: Range<&EventId>) -> Result<Option<EventId>> {
+        let count = self.count(range.clone()).await?;
+        // (usize::MAX / 2) == i64::MAX, meaning it should always fit inside an i64.
+        // However to be safe we default to i64::MAX.
+        let half: i64 = (count / 2).try_into().unwrap_or(i64::MAX);
+        let key: Option<OrderKey> = sqlx::query_as(ReconQuery::middle())
+            .bind(range.start.as_bytes())
+            .bind(range.end.as_bytes())
+            .bind(half)
+            .fetch_optional(self.pool.reader())
+            .await
+            .map_err(Error::from)?;
+        key.map(|k| EventId::try_from(k).map_err(|e: InvalidEventId| Error::new_app(anyhow!(e))))
+            .transpose()
+    }
     /// Find a range of event IDs with their values. Should replace `range` when we move to discovering values and keys simultaneously.
     pub async fn range_with_values(
         &self,
         range: Range<&EventId>,
-        offset: usize,
-        limit: usize,
+        offset: u32,
+        limit: u32,
     ) -> Result<Vec<(EventId, Vec<u8>)>> {
-        let offset = offset.try_into().unwrap_or(i64::MAX);
-        let limit: i64 = limit.try_into().unwrap_or(i64::MAX);
-
         let all_blocks: Vec<ReconEventBlockRaw> =
             sqlx::query_as(EventQuery::value_blocks_by_order_key_many())
                 .bind(range.start.as_bytes())

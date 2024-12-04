@@ -47,46 +47,6 @@ macro_rules! test_with_dbs {
 }
 
 test_with_dbs!(
-    range_query_with_values,
-    range_query_with_values,
-    [
-        "delete from ceramic_one_event_block",
-        "delete from ceramic_one_event",
-        "delete from ceramic_one_block",
-    ]
-);
-
-async fn range_query_with_values<S>(store: S)
-where
-    S: recon::Store<Key = EventId, Hash = Sha256a>,
-{
-    let (model, events) = get_events_return_model().await;
-    let one = &events[0];
-    let two = &events[1];
-    let init_cid = one.key.cid().unwrap();
-    let min_id = event_id_min(&init_cid, &model);
-    let max_id = event_id_max(&init_cid, &model);
-    recon::Store::insert_many(&store, &[one.clone()], NodeKey::random().id())
-        .await
-        .unwrap();
-    recon::Store::insert_many(&store, &[two.clone()], NodeKey::random().id())
-        .await
-        .unwrap();
-    let values: Vec<(EventId, Vec<u8>)> =
-        recon::Store::range_with_values(&store, &min_id..&max_id, 0, usize::MAX)
-            .await
-            .unwrap()
-            .collect();
-
-    let mut expected = vec![
-        (one.key.to_owned(), one.value.to_vec()),
-        (two.key.to_owned(), two.value.to_vec()),
-    ];
-    expected.sort();
-    assert_eq!(expected, values);
-}
-
-test_with_dbs!(
     double_insert,
     double_insert,
     [

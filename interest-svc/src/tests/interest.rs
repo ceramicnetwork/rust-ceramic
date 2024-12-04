@@ -85,15 +85,9 @@ async fn access_interest_model(store: impl InterestService) {
     InterestService::insert(&store, interest_1.clone())
         .await
         .unwrap();
-    let interests = InterestService::range(
-        &store,
-        &random_interest_min(),
-        &random_interest_max(),
-        0,
-        usize::MAX,
-    )
-    .await
-    .unwrap();
+    let interests = InterestService::range(&store, &random_interest_min(), &random_interest_max())
+        .await
+        .unwrap();
     assert_eq!(
         BTreeSet::from_iter([interest_0, interest_1]),
         BTreeSet::from_iter(interests)
@@ -166,57 +160,10 @@ where
     )
     .await
     .unwrap();
-    let ids = recon::Store::range(
-        &store,
-        &random_interest_min()..&random_interest_max(),
-        0,
-        usize::MAX,
-    )
-    .await
-    .unwrap();
+    let ids = recon::Store::range(&store, &random_interest_min()..&random_interest_max())
+        .await
+        .unwrap();
     let interests = ids.collect::<BTreeSet<Interest>>();
-    assert_eq!(BTreeSet::from_iter([interest_0, interest_1]), interests);
-}
-
-test_with_dbs!(
-    test_range_with_values_query,
-    test_range_with_values_query,
-    ["delete from ceramic_one_interest"]
-);
-
-async fn test_range_with_values_query<S>(store: S)
-where
-    S: recon::Store<Key = Interest, Hash = Sha256a>,
-{
-    let interest_0 = random_interest(None, None);
-    let interest_1 = random_interest(None, None);
-
-    store
-        .insert_many(
-            &[ReconItem::new(interest_0.clone(), Vec::new())],
-            NodeKey::random().id(),
-        )
-        .await
-        .unwrap();
-    store
-        .insert_many(
-            &[ReconItem::new(interest_1.clone(), Vec::new())],
-            NodeKey::random().id(),
-        )
-        .await
-        .unwrap();
-    let ids = store
-        .range_with_values(
-            &random_interest_min()..&random_interest_max(),
-            0,
-            usize::MAX,
-        )
-        .await
-        .unwrap();
-    let interests = ids
-        .into_iter()
-        .map(|(i, _v)| i)
-        .collect::<BTreeSet<Interest>>();
     assert_eq!(BTreeSet::from_iter([interest_0, interest_1]), interests);
 }
 

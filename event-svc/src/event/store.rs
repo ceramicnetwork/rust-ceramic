@@ -47,9 +47,6 @@ impl recon::Store for EventService {
     type Key = EventId;
     type Hash = Sha256a;
 
-    /// Insert new keys into the key space.
-    /// Returns true for each key if it did not previously exist, in the
-    /// same order as the input iterator.
     async fn insert_many(
         &self,
         items: &[ReconItem<Self::Key>],
@@ -67,9 +64,6 @@ impl recon::Store for EventService {
         Ok(res.into())
     }
 
-    /// Return the hash of all keys in the range between left_fencepost and right_fencepost.
-    /// Both range bounds are exclusive.
-    /// Returns ReconResult<(Hash, count), Err>
     async fn hash_range(&self, range: Range<&Self::Key>) -> ReconResult<HashCount<Self::Hash>> {
         let res = self
             .event_access
@@ -79,52 +73,28 @@ impl recon::Store for EventService {
         Ok(res)
     }
 
-    /// Return all keys in the range between left_fencepost and right_fencepost.
-    /// Both range bounds are exclusive.
-    ///
-    /// Offset and limit values are applied within the range of keys.
     async fn range(
         &self,
         range: Range<&Self::Key>,
-        offset: usize,
-        limit: usize,
     ) -> ReconResult<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
         Ok(Box::new(
             self.event_access
-                .range(range, offset, limit)
+                .range(range)
                 .await
                 .map_err(Error::from)?
                 .into_iter(),
         ))
+    }
+    async fn first(&self, range: Range<&Self::Key>) -> ReconResult<Option<Self::Key>> {
+        Ok(self.event_access.first(range).await.map_err(Error::from)?)
+    }
+    async fn middle(&self, range: Range<&Self::Key>) -> ReconResult<Option<Self::Key>> {
+        Ok(self.event_access.middle(range).await.map_err(Error::from)?)
     }
 
-    /// Return all keys and values in the range between left_fencepost and right_fencepost.
-    /// Both range bounds are exclusive.
-    ///
-    /// Offset and limit values are applied within the range of keys.
-    async fn range_with_values(
-        &self,
-        range: Range<&Self::Key>,
-        offset: usize,
-        limit: usize,
-    ) -> ReconResult<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>> {
-        Ok(Box::new(
-            self.event_access
-                .range_with_values(range, offset, limit)
-                .await
-                .map_err(Error::from)?
-                .into_iter(),
-        ))
-    }
-    /// Return the number of keys within the range.
     async fn count(&self, range: Range<&Self::Key>) -> ReconResult<usize> {
         Ok(self.event_access.count(range).await.map_err(Error::from)?)
     }
-
-    /// value_for_key returns
-    /// Ok(Some(value)) if stored,
-    /// Ok(None) if not stored, and
-    /// Err(e) if retrieving failed.
     async fn value_for_key(&self, key: &Self::Key) -> ReconResult<Option<Vec<u8>>> {
         Ok(self
             .event_access
@@ -210,8 +180,8 @@ impl ceramic_api::EventService for EventService {
     async fn range_with_values(
         &self,
         range: Range<EventId>,
-        offset: usize,
-        limit: usize,
+        offset: u32,
+        limit: u32,
     ) -> anyhow::Result<Vec<(Cid, Vec<u8>)>> {
         self.event_access
             .range_with_values(&range.start..&range.end, offset, limit)

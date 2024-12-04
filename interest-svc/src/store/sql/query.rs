@@ -43,11 +43,35 @@ impl ReconQuery {
             WHERE
                 order_key >= $1 AND order_key < $2
             ORDER BY
+                order_key ASC;"#
+    }
+    /// Requires binding 2 parameters
+    pub fn first() -> &'static str {
+        r#"SELECT
+                order_key
+            FROM
+                ceramic_one_interest
+            WHERE
+                order_key >= $1 AND order_key < $2
+            ORDER BY
                 order_key ASC
             LIMIT
-                $3
+                1;"#
+    }
+    /// Requires binding 3 parameters
+    pub fn middle() -> &'static str {
+        r#"SELECT
+                order_key
+            FROM
+                ceramic_one_interest
+            WHERE
+                order_key >= $1 AND order_key < $2
+            ORDER BY
+                order_key ASC
             OFFSET
-                $4;"#
+                $3
+            LIMIT
+                1;"#
     }
 
     pub fn count(db: SqlBackend) -> &'static str {
