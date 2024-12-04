@@ -68,10 +68,10 @@ impl ReconQuery {
                 order_key >= $1 AND order_key < $2
             ORDER BY
                 order_key ASC
-            OFFSET
-                $3
             LIMIT
-                1;"#
+                1
+            OFFSET
+                $3;"#
     }
 
     pub fn count(db: SqlBackend) -> &'static str {
