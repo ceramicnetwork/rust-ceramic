@@ -10,7 +10,7 @@ use sqlx::Row;
 
 use crate::store::{
     sql::{
-        entities::ReconHash,
+        entities::{OrderKey, ReconHash},
         query::{ReconQuery, SqlBackend},
         SqliteTransaction,
     },
@@ -104,19 +104,12 @@ impl CeramicOneInterest {
         Ok(HashCount::new(Sha256a::from(bytes), res.count()))
     }
 
-    /// Find the interestsin the range between left_fencepost and right_fencepost.
-    pub async fn range(
-        pool: &SqlitePool,
-        range: Range<&Interest>,
-        offset: usize,
-        limit: usize,
-    ) -> Result<Vec<Interest>> {
+    /// Find the interests in the range
+    pub async fn range(pool: &SqlitePool, range: Range<&Interest>) -> Result<Vec<Interest>> {
         let query = sqlx::query(ReconQuery::range());
         let rows = query
             .bind(range.start.as_bytes())
             .bind(range.end.as_bytes())
-            .bind(limit as i64)
-            .bind(offset as i64)
             .fetch_all(pool.reader())
             .await?;
         let rows = rows
@@ -130,6 +123,35 @@ impl CeramicOneInterest {
         Ok(rows)
     }
 
+    /// Find the first interest in the range
+    pub async fn first(pool: &SqlitePool, range: Range<&Interest>) -> Result<Option<Interest>> {
+        sqlx::query_as(ReconQuery::first())
+            .bind(range.start.as_bytes())
+            .bind(range.end.as_bytes())
+            .fetch_optional(pool.reader())
+            .await
+            .map_err(Error::from)?
+            .map(|key: OrderKey| Interest::try_from(key))
+            .transpose()
+            .map_err(Error::new_fatal)
+    }
+    /// Find the approximate middle interest in the range
+    pub async fn middle(pool: &SqlitePool, range: Range<&Interest>) -> Result<Option<Interest>> {
+        let count = Self::count(pool, range.clone()).await?;
+        // (usize::MAX / 2) == i64::MAX, meaning it should always fit inside an i64.
+        // However to be safe we default to i64::MAX.
+        let half: i64 = (count / 2).try_into().unwrap_or(i64::MAX);
+        sqlx::query_as(ReconQuery::middle())
+            .bind(range.start.as_bytes())
+            .bind(range.end.as_bytes())
+            .bind(half)
+            .fetch_optional(pool.reader())
+            .await
+            .map_err(Error::from)?
+            .map(|key: OrderKey| Interest::try_from(key))
+            .transpose()
+            .map_err(Error::new_fatal)
+    }
     /// Count the number of keys in a given range
     pub async fn count(pool: &SqlitePool, range: Range<&Interest>) -> Result<usize> {
         let row = sqlx::query(ReconQuery::count(SqlBackend::Sqlite))

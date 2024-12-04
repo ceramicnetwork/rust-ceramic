@@ -114,8 +114,6 @@ mock! {
             &self,
             start: &Interest,
             end: &Interest,
-            offset: usize,
-            limit: usize,
         ) -> Result<Vec<Interest>>;
     }
 }
@@ -128,8 +126,8 @@ mock! {
         async fn range_with_values(
             &self,
             range: Range<EventId>,
-            offset: usize,
-            limit: usize,
+            offset: u32,
+            limit: u32,
         ) -> Result<Vec<(Cid, Vec<u8>)>>;
         async fn value_for_order_key(&self, key: &EventId) -> Result<Option<Vec<u8>>>;
         async fn value_for_cid(&self, key: &Cid) -> Result<Option<Vec<u8>>>;
@@ -580,11 +578,9 @@ async fn get_interests() {
         .with(
             predicate::eq(Interest::min_value()),
             predicate::eq(Interest::max_value()),
-            predicate::eq(0),
-            predicate::eq(usize::MAX),
         )
         .once()
-        .return_once(move |_, _, _, _| {
+        .return_once(move |_, _| {
             Ok(vec![
                 Interest::builder()
                     .with_sep_key("model")
@@ -662,11 +658,9 @@ async fn get_interests_for_peer() {
         .with(
             predicate::eq(Interest::min_value()),
             predicate::eq(Interest::max_value()),
-            predicate::eq(0),
-            predicate::eq(usize::MAX),
         )
         .once()
-        .return_once(move |_, _, _, _| {
+        .return_once(move |_, _| {
             Ok(vec![
                 Interest::builder()
                     .with_sep_key("model")

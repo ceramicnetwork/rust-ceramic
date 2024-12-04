@@ -51,9 +51,7 @@ where
         r
     }
 
-    /// Return the hash of all keys in the range between left_fencepost and right_fencepost.
-    /// Both range bounds are exclusive.
-    pub async fn hash_range(&self, range: Range<&K>) -> Result<HashCount<H>> {
+    async fn hash_range(&self, range: Range<&K>) -> Result<HashCount<H>> {
         if range.start >= range.end {
             return Ok(HashCount {
                 hash: H::identity(),
@@ -74,15 +72,9 @@ where
         })
     }
 
-    /// Return all keys in the range between left_fencepost and right_fencepost.
-    /// Both range bounds are exclusive.
-    ///
-    /// Offset and limit values are applied within the range of keys.
-    pub async fn range(
+    async fn range(
         &self,
         range: Range<&K>,
-        offset: usize,
-        limit: usize,
     ) -> Result<Box<dyn Iterator<Item = K> + Send + 'static>> {
         let keys: Vec<K> = self
             .inner
@@ -90,38 +82,30 @@ where
             .await
             .keys
             .range(range)
-            .skip(offset)
-            .take(limit)
             .map(|(key, _hash)| key)
             .cloned()
             .collect();
         Ok(Box::new(keys.into_iter()))
     }
-    /// Return all keys and values in the range between left_fencepost and right_fencepost.
-    /// Both range bounds are exclusive.
-    ///
-    /// Offset and limit values are applied within the range of keys.
-    pub async fn range_with_values(
-        &self,
-        range: Range<&K>,
-        offset: usize,
-        limit: usize,
-    ) -> Result<Box<dyn Iterator<Item = (K, Vec<u8>)> + Send + 'static>> {
-        let inner = self.inner.lock().await;
-
-        let keys: Vec<(K, Vec<u8>)> = inner
+    async fn first(&self, range: Range<&K>) -> Result<Option<K>> {
+        Ok(self
+            .inner
+            .lock()
+            .await
             .keys
             .range(range)
-            .skip(offset)
-            .take(limit)
-            .filter_map(|(key, _hash)| {
-                inner
-                    .values
-                    .get(key)
-                    .map(|value| (key.clone(), value.clone()))
-            })
-            .collect();
-        Ok(Box::new(keys.into_iter()))
+            .next()
+            .map(|(k, _)| k.clone()))
+    }
+
+    async fn middle(&self, range: Range<&K>) -> Result<Option<K>> {
+        let inner = self.inner.lock().await;
+        let count = inner.keys.range(range.clone()).count();
+        Ok(inner
+            .keys
+            .range(range)
+            .nth(count / 2)
+            .map(|(k, _)| k.clone()))
     }
 
     async fn insert(&self, item: &ReconItem<K>, _informant: NodeId) -> Result<bool> {
@@ -160,28 +144,21 @@ where
     }
 
     async fn hash_range(&self, range: Range<&Self::Key>) -> Result<HashCount<Self::Hash>> {
-        // Self does not need async to implement hash_range, so it exposes a pub non async hash_range function
-        // and we delegate to its implementation here.
         BTreeStore::hash_range(self, range).await
     }
 
     async fn range(
         &self,
         range: Range<&Self::Key>,
-        offset: usize,
-        limit: usize,
     ) -> Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
-        // Self does not need async to implement range, so it exposes a pub non async range function
-        // and we delegate to its implementation here.
-        BTreeStore::range(self, range, offset, limit).await
+        BTreeStore::range(self, range).await
     }
-    async fn range_with_values(
-        &self,
-        range: Range<&Self::Key>,
-        offset: usize,
-        limit: usize,
-    ) -> Result<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>> {
-        BTreeStore::range_with_values(self, range, offset, limit).await
+    async fn first(&self, range: Range<&Self::Key>) -> Result<Option<Self::Key>> {
+        BTreeStore::first(self, range).await
+    }
+
+    async fn middle(&self, range: Range<&Self::Key>) -> Result<Option<Self::Key>> {
+        BTreeStore::middle(self, range).await
     }
 
     async fn value_for_key(&self, key: &Self::Key) -> Result<Option<Vec<u8>>> {

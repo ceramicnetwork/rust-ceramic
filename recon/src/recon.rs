@@ -72,11 +72,7 @@ where
             trace!(count, ?range, "small split sending all keys");
             // We have only a few keys in the range. Let's short circuit the roundtrips and
             // send the keys directly.
-            let keys: Vec<K> = self
-                .store
-                .range(&range.first..&range.last, 0, usize::MAX)
-                .await?
-                .collect();
+            let keys: Vec<K> = self.store.range(&range.first..&range.last).await?.collect();
 
             let mut ranges = Vec::with_capacity(keys.len() + 1);
             let mut prev: Option<K> = None;
@@ -147,22 +143,6 @@ where
         self.store.is_empty().await
     }
 
-    /// Return all keys and values in the range between left_fencepost and right_fencepost.
-    /// The upper range bound is exclusive.
-    ///
-    /// Offset and limit values are applied within the range of keys.
-    pub async fn range_with_values(
-        &self,
-        left_fencepost: &K,
-        right_fencepost: &K,
-        offset: usize,
-        limit: usize,
-    ) -> Result<Box<dyn Iterator<Item = (K, Vec<u8>)> + Send + 'static>> {
-        self.store
-            .range_with_values(left_fencepost..right_fencepost, offset, limit)
-            .await
-    }
-
     /// Return all keys.
     pub async fn full_range(&self) -> Result<Box<dyn Iterator<Item = K> + Send + 'static>> {
         self.store.full_range().await
@@ -185,22 +165,11 @@ where
         self.store.insert_many(&items, informant).await
     }
 
-    /// Return all keys in the range between left_fencepost and right_fencepost.
-    /// The upper range bound is exclusive.
+    /// Return all keys in the range.
     ///
     /// Offset and limit values are applied within the range of keys.
-    async fn range(
-        &self,
-        left_fencepost: Self::Key,
-        right_fencepost: Self::Key,
-        offset: usize,
-        limit: usize,
-    ) -> Result<Vec<Self::Key>> {
-        Ok(self
-            .store
-            .range(&left_fencepost..&right_fencepost, offset, limit)
-            .await?
-            .collect())
+    async fn range(&self, range: Range<&Self::Key>) -> Result<Vec<Self::Key>> {
+        Ok(self.store.range(range).await?.collect())
     }
 
     async fn len(&self) -> Result<usize> {
@@ -296,9 +265,8 @@ where
                 // in the range already.
                 let split_key = self
                     .store
-                    .range(&range.first..&range.last, 0, 1)
+                    .first(&range.first..&range.last,)
                     .await?
-                    .next()
                     .ok_or_else(|| {
                         Error::new_fatal(anyhow!(
                             "unreachable, at least one key should exist in range given the conditional guard above"
@@ -543,80 +511,31 @@ pub trait Store {
     async fn hash_range(&self, range: Range<&Self::Key>) -> Result<HashCount<Self::Hash>>;
 
     /// Return all keys in the range.
-    /// The upper range bound is exclusive.
-    ///
-    /// Offset and limit values are applied within the range of keys.
     async fn range(
         &self,
         range: Range<&Self::Key>,
-        offset: usize,
-        limit: usize,
     ) -> Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>>;
 
-    /// Return all keys and values in the range between left_fencepost and right_fencepost.
-    /// The upper range bound is exclusive.
+    /// Return the first key in the range.
     ///
-    /// Offset and limit values are applied within the range of keys.
-    async fn range_with_values(
-        &self,
-        range: Range<&Self::Key>,
-        offset: usize,
-        limit: usize,
-    ) -> Result<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>>;
+    /// Default implementation uses range and reports only the first key
+    async fn first(&self, range: Range<&Self::Key>) -> Result<Option<Self::Key>> {
+        self.range(range).await.map(|mut keys| keys.next())
+    }
 
     /// Return all keys.
     async fn full_range(&self) -> Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
-        self.range(
-            &Self::Key::min_value()..&Self::Key::max_value(),
-            0,
-            usize::MAX,
-        )
-        .await
+        self.range(&Self::Key::min_value()..&Self::Key::max_value())
+            .await
     }
 
     /// Return a key that is approximately in the middle of the range.
     /// An exact middle is not necessary but performance will be better with a better approximation.
-    ///
-    /// The default implementation will count all elements and then find the middle.
-    async fn middle(&self, range: Range<&Self::Key>) -> Result<Option<Self::Key>> {
-        let count = self.count(range.clone()).await?;
-        if count == 0 {
-            Ok(None)
-        } else {
-            Ok(self.range(range, count / 2, 1).await?.next())
-        }
-    }
-
-    /// Return any number of splits of the range.
-    /// An exact split is not necessary but performance will be better with a better approximation.
-    ///
-    /// The input range bounds are not part of the returned split as they are the
-    /// implicit outermost bounds of the split.
-    ///
-    /// The default implementation uses middle to split the range approximately in two.
-    async fn split(&self, range: Range<&Self::Key>) -> Result<Split<Self::Key, Self::Hash>> {
-        if let Some(middle) = self.middle(range.clone()).await? {
-            let left = self.hash_range(range.start..&middle).await?;
-            let right = self.hash_range(&middle..range.end).await?;
-            Ok(Split {
-                keys: vec![middle],
-                hashes: vec![left, right],
-            })
-        } else {
-            // No keys in range return empty split
-            Ok(Split {
-                keys: vec![],
-                hashes: vec![HashCount {
-                    hash: Self::Hash::identity(),
-                    count: 0,
-                }],
-            })
-        }
-    }
+    async fn middle(&self, range: Range<&Self::Key>) -> Result<Option<Self::Key>>;
 
     /// Return the number of keys within the range.
     async fn count(&self, range: Range<&Self::Key>) -> Result<usize> {
-        Ok(self.range(range, 0, usize::MAX).await?.count())
+        Ok(self.range(range).await?.count())
     }
 
     /// Reports total number of keys
@@ -633,6 +552,8 @@ pub trait Store {
     async fn value_for_key(&self, key: &Self::Key) -> Result<Option<Vec<u8>>>;
 }
 
+// Explicitly implement every member of the trait so we do not mask any non default implementations
+// on the S instance.
 #[async_trait::async_trait]
 impl<K, H, S> Store for std::sync::Arc<S>
 where
@@ -650,29 +571,33 @@ where
     ) -> Result<InsertResult<Self::Key>> {
         self.as_ref().insert_many(items, informant).await
     }
-
     async fn hash_range(&self, range: Range<&Self::Key>) -> Result<HashCount<Self::Hash>> {
         self.as_ref().hash_range(range).await
     }
-
     async fn range(
         &self,
         range: Range<&Self::Key>,
-        offset: usize,
-        limit: usize,
     ) -> Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
-        self.as_ref().range(range, offset, limit).await
+        self.as_ref().range(range).await
     }
-
-    async fn range_with_values(
-        &self,
-        range: Range<&Self::Key>,
-        offset: usize,
-        limit: usize,
-    ) -> Result<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>> {
-        self.as_ref().range_with_values(range, offset, limit).await
+    async fn first(&self, range: Range<&Self::Key>) -> Result<Option<Self::Key>> {
+        self.as_ref().first(range).await
     }
-
+    async fn full_range(&self) -> Result<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
+        self.as_ref().full_range().await
+    }
+    async fn middle(&self, range: Range<&Self::Key>) -> Result<Option<Self::Key>> {
+        self.as_ref().middle(range).await
+    }
+    async fn count(&self, range: Range<&Self::Key>) -> Result<usize> {
+        self.as_ref().count(range).await
+    }
+    async fn len(&self) -> Result<usize> {
+        self.as_ref().len().await
+    }
+    async fn is_empty(&self) -> Result<bool> {
+        self.as_ref().is_empty().await
+    }
     async fn value_for_key(&self, key: &Self::Key) -> Result<Option<Vec<u8>>> {
         self.as_ref().value_for_key(key).await
     }
@@ -859,7 +784,7 @@ where
 
     async fn interests(&self) -> Result<Vec<RangeOpen<EventId>>> {
         self.store
-            .range(&self.start..&self.end, 0, usize::MAX)
+            .range(&self.start..&self.end)
             .await?
             .map(|interest| {
                 if let Some(RangeOpen { start, end }) = interest.range() {

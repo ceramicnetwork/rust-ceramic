@@ -26,9 +26,9 @@ impl EventQuery {
     /// Requires binding 1 parameter. Finds the `BlockRow` values needed to rebuild the event
     /// Looks up the event by the EventID (ie order_key).
     pub fn value_blocks_by_order_key_one() -> &'static str {
-        r#"SELECT 
+        r#"SELECT
                 eb.codec, eb.root, b.multihash, b.bytes
-        FROM ceramic_one_event_block eb 
+        FROM ceramic_one_event_block eb
             JOIN ceramic_one_block b on b.multihash = eb.block_multihash
             JOIN ceramic_one_event e on e.cid = eb.event_cid
         WHERE e.order_key = $1
@@ -129,7 +129,7 @@ impl EventQuery {
     }
 
     pub fn new_delivered_events_id_only() -> &'static str {
-        r#"SELECT 
+        r#"SELECT
                 cid, COALESCE(delivered, 0) as "new_highwater_mark"
             FROM ceramic_one_event
             WHERE delivered >= $1 -- we return delivered+1 so we must match it next search
@@ -139,8 +139,8 @@ impl EventQuery {
 
     /// Returns the max delivered value in the event table
     pub fn max_delivered() -> &'static str {
-        r#"SELECT 
-            COALESCE(MAX(delivered), 0) as res 
+        r#"SELECT
+            COALESCE(MAX(delivered), 0) as res
         FROM ceramic_one_event;"#
     }
 
@@ -214,7 +214,7 @@ impl ReconQuery {
                     TOTAL(ahash_4) & 0xFFFFFFFF as ahash_4, TOTAL(ahash_5) & 0xFFFFFFFF as ahash_5,
                     TOTAL(ahash_6) & 0xFFFFFFFF as ahash_6, TOTAL(ahash_7) & 0xFFFFFFFF as ahash_7,
                     COUNT(1) as count
-                FROM ceramic_one_event 
+                FROM ceramic_one_event
                 WHERE order_key >= $1 AND order_key < $2;"#
             }
         }
@@ -228,11 +228,34 @@ impl ReconQuery {
             WHERE
                 order_key >= $1 AND order_key < $2
             ORDER BY
+                order_key ASC;"#
+    }
+    /// Requires binding 2 parameters
+    pub fn first() -> &'static str {
+        r#"SELECT
+                order_key
+            FROM
+            ceramic_one_event
+            WHERE
+                order_key >= $1 AND order_key < $2
+            ORDER BY
+                order_key ASC
+            LIMIT 1;"#
+    }
+    /// Requires binding 3 parameters
+    pub fn middle() -> &'static str {
+        r#"SELECT
+                order_key
+            FROM
+            ceramic_one_event
+            WHERE
+                order_key >= $1 AND order_key < $2
+            ORDER BY
                 order_key ASC
             LIMIT
-                $3
+                1
             OFFSET
-                $4;"#
+                $3;"#
     }
 
     pub fn count(db: SqlBackend) -> &'static str {

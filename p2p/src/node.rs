@@ -1269,13 +1269,7 @@ mod tests {
             unreachable!()
         }
 
-        async fn range(
-            &self,
-            _left_fencepost: Self::Key,
-            _right_fencepost: Self::Key,
-            _offset: usize,
-            _limit: usize,
-        ) -> ReconResult<Vec<Self::Key>> {
+        async fn range(&self, _range: std::ops::Range<&Self::Key>) -> ReconResult<Vec<Self::Key>> {
             unreachable!()
         }
 

@@ -47,8 +47,8 @@ macro_rules! test_with_dbs {
 }
 
 test_with_dbs!(
-    range_query_with_values,
-    range_query_with_values,
+    range_query,
+    range_query,
     [
         "delete from ceramic_one_event_block",
         "delete from ceramic_one_event",
@@ -56,34 +56,84 @@ test_with_dbs!(
     ]
 );
 
-async fn range_query_with_values<S>(store: S)
+async fn range_query<S>(store: S)
 where
     S: recon::Store<Key = EventId, Hash = Sha256a>,
 {
     let (model, events) = get_events_return_model().await;
-    let one = &events[0];
-    let two = &events[1];
-    let init_cid = one.key.cid().unwrap();
+    let init_cid = events[0].key.cid().unwrap();
     let min_id = event_id_min(&init_cid, &model);
     let max_id = event_id_max(&init_cid, &model);
-    recon::Store::insert_many(&store, &[one.clone()], NodeKey::random().id())
+    recon::Store::insert_many(&store, &events, NodeKey::random().id())
         .await
         .unwrap();
-    recon::Store::insert_many(&store, &[two.clone()], NodeKey::random().id())
+    let values: Vec<EventId> = recon::Store::range(&store, &min_id..&max_id)
         .await
-        .unwrap();
-    let values: Vec<(EventId, Vec<u8>)> =
-        recon::Store::range_with_values(&store, &min_id..&max_id, 0, usize::MAX)
-            .await
-            .unwrap()
-            .collect();
+        .unwrap()
+        .collect();
 
-    let mut expected = vec![
-        (one.key.to_owned(), one.value.to_vec()),
-        (two.key.to_owned(), two.value.to_vec()),
-    ];
+    let mut expected: Vec<_> = events.into_iter().map(|item| item.key).collect();
     expected.sort();
     assert_eq!(expected, values);
+}
+
+test_with_dbs!(
+    first_query,
+    first_query,
+    [
+        "delete from ceramic_one_event_block",
+        "delete from ceramic_one_event",
+        "delete from ceramic_one_block",
+    ]
+);
+
+async fn first_query<S>(store: S)
+where
+    S: recon::Store<Key = EventId, Hash = Sha256a> + std::marker::Sync,
+{
+    let (model, events) = get_events_return_model().await;
+    let init_cid = events[0].key.cid().unwrap();
+    let min_id = event_id_min(&init_cid, &model);
+    let max_id = event_id_max(&init_cid, &model);
+    recon::Store::insert_many(&store, &events, NodeKey::random().id())
+        .await
+        .unwrap();
+    let first = recon::Store::first(&store, &min_id..&max_id).await.unwrap();
+
+    // Sort events into expected because event ids are not sorted in log order
+    let mut expected: Vec<_> = events.into_iter().map(|item| item.key).collect();
+    expected.sort();
+    assert_eq!(Some(expected[0].clone()), first);
+}
+test_with_dbs!(
+    middle_query,
+    middle_query,
+    [
+        "delete from ceramic_one_event_block",
+        "delete from ceramic_one_event",
+        "delete from ceramic_one_block",
+    ]
+);
+
+async fn middle_query<S>(store: S)
+where
+    S: recon::Store<Key = EventId, Hash = Sha256a>,
+{
+    let (model, events) = get_events_return_model().await;
+    let init_cid = events[0].key.cid().unwrap();
+    let min_id = event_id_min(&init_cid, &model);
+    let max_id = event_id_max(&init_cid, &model);
+    recon::Store::insert_many(&store, &events, NodeKey::random().id())
+        .await
+        .unwrap();
+    let middle = recon::Store::middle(&store, &min_id..&max_id)
+        .await
+        .unwrap();
+
+    // Sort events into expected because event ids are not sorted in log order
+    let mut expected: Vec<_> = events.into_iter().map(|item| item.key).collect();
+    expected.sort();
+    assert_eq!(Some(expected[expected.len() / 2].clone()), middle);
 }
 
 test_with_dbs!(

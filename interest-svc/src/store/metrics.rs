@@ -137,17 +137,11 @@ where
         self.record_key_insert(new);
         Ok(new)
     }
-    async fn range(
-        &self,
-        start: &Interest,
-        end: &Interest,
-        offset: usize,
-        limit: usize,
-    ) -> anyhow::Result<Vec<Interest>> {
+    async fn range(&self, start: &Interest, end: &Interest) -> anyhow::Result<Vec<Interest>> {
         StoreMetricsMiddleware::<S>::record(
             &self.metrics,
             "api_interest_range",
-            self.store.range(start, end, offset, limit),
+            self.store.range(start, end),
         )
         .await
     }
@@ -194,28 +188,14 @@ where
     async fn range(
         &self,
         range: Range<&Self::Key>,
-        offset: usize,
-        limit: usize,
     ) -> ReconResult<Box<dyn Iterator<Item = Self::Key> + Send + 'static>> {
-        StoreMetricsMiddleware::<S>::record(
-            &self.metrics,
-            "range",
-            self.store.range(range, offset, limit),
-        )
-        .await
+        StoreMetricsMiddleware::<S>::record(&self.metrics, "range", self.store.range(range)).await
     }
-    async fn range_with_values(
-        &self,
-        range: Range<&Self::Key>,
-        offset: usize,
-        limit: usize,
-    ) -> ReconResult<Box<dyn Iterator<Item = (Self::Key, Vec<u8>)> + Send + 'static>> {
-        StoreMetricsMiddleware::<S>::record(
-            &self.metrics,
-            "range_with_values",
-            self.store.range_with_values(range, offset, limit),
-        )
-        .await
+    async fn first(&self, range: Range<&Self::Key>) -> ReconResult<Option<Self::Key>> {
+        StoreMetricsMiddleware::<S>::record(&self.metrics, "first", self.store.first(range)).await
+    }
+    async fn middle(&self, range: Range<&Self::Key>) -> ReconResult<Option<Self::Key>> {
+        StoreMetricsMiddleware::<S>::record(&self.metrics, "middle", self.store.middle(range)).await
     }
 
     async fn full_range(
@@ -225,9 +205,6 @@ where
             .await
     }
 
-    async fn middle(&self, range: Range<&Self::Key>) -> ReconResult<Option<Self::Key>> {
-        StoreMetricsMiddleware::<S>::record(&self.metrics, "middle", self.store.middle(range)).await
-    }
     async fn count(&self, range: Range<&Self::Key>) -> ReconResult<usize> {
         StoreMetricsMiddleware::<S>::record(&self.metrics, "count", self.store.count(range)).await
     }

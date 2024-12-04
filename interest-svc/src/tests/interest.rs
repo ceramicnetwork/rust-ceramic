@@ -85,15 +85,9 @@ async fn access_interest_model(store: impl InterestService) {
     InterestService::insert(&store, interest_1.clone())
         .await
         .unwrap();
-    let interests = InterestService::range(
-        &store,
-        &random_interest_min(),
-        &random_interest_max(),
-        0,
-        usize::MAX,
-    )
-    .await
-    .unwrap();
+    let interests = InterestService::range(&store, &random_interest_min(), &random_interest_max())
+        .await
+        .unwrap();
     assert_eq!(
         BTreeSet::from_iter([interest_0, interest_1]),
         BTreeSet::from_iter(interests)
@@ -101,12 +95,12 @@ async fn access_interest_model(store: impl InterestService) {
 }
 
 test_with_dbs!(
-    test_hash_range_query,
-    test_hash_range_query,
+    hash_range_query,
+    hash_range_query,
     ["delete from ceramic_one_interest"]
 );
 
-async fn test_hash_range_query<S>(store: S)
+async fn hash_range_query<S>(store: S)
 where
     S: recon::Store<Key = Interest, Hash = Sha256a>,
 {
@@ -140,93 +134,92 @@ where
 }
 
 test_with_dbs!(
-    test_range_query,
-    test_range_query,
+    range_query,
+    range_query,
     ["delete from ceramic_one_interest"]
 );
 
-async fn test_range_query<S>(store: S)
+async fn range_query<S>(store: S)
 where
     S: recon::Store<Key = Interest, Hash = Sha256a>,
 {
-    let interest_0 = random_interest(None, None);
-    let interest_1 = random_interest(None, None);
+    let mut interests: Vec<_> = (0..10).map(|_| random_interest(None, None)).collect();
+    let items: Vec<_> = interests
+        .iter()
+        .map(|interest| ReconItem::new(interest.clone(), Vec::new()))
+        .collect();
 
-    recon::Store::insert_many(
-        &store,
-        &[ReconItem::new(interest_0.clone(), Vec::new())],
-        NodeKey::random().id(),
-    )
-    .await
-    .unwrap();
-    recon::Store::insert_many(
-        &store,
-        &[ReconItem::new(interest_1.clone(), Vec::new())],
-        NodeKey::random().id(),
-    )
-    .await
-    .unwrap();
-    let ids = recon::Store::range(
-        &store,
-        &random_interest_min()..&random_interest_max(),
-        0,
-        usize::MAX,
-    )
-    .await
-    .unwrap();
-    let interests = ids.collect::<BTreeSet<Interest>>();
-    assert_eq!(BTreeSet::from_iter([interest_0, interest_1]), interests);
+    recon::Store::insert_many(&store, &items, NodeKey::random().id())
+        .await
+        .unwrap();
+    let ids = recon::Store::range(&store, &random_interest_min()..&random_interest_max())
+        .await
+        .unwrap();
+    let mut ids: Vec<Interest> = ids.collect();
+    interests.sort();
+    ids.sort();
+    assert_eq!(interests, ids);
 }
 
 test_with_dbs!(
-    test_range_with_values_query,
-    test_range_with_values_query,
+    first_query,
+    first_query,
     ["delete from ceramic_one_interest"]
 );
 
-async fn test_range_with_values_query<S>(store: S)
+async fn first_query<S>(store: S)
 where
-    S: recon::Store<Key = Interest, Hash = Sha256a>,
+    S: recon::Store<Key = Interest, Hash = Sha256a> + Sync,
 {
-    let interest_0 = random_interest(None, None);
-    let interest_1 = random_interest(None, None);
+    let mut interests: Vec<_> = (0..10).map(|_| random_interest(None, None)).collect();
+    let items: Vec<_> = interests
+        .iter()
+        .map(|interest| ReconItem::new(interest.clone(), Vec::new()))
+        .collect();
 
-    store
-        .insert_many(
-            &[ReconItem::new(interest_0.clone(), Vec::new())],
-            NodeKey::random().id(),
-        )
+    recon::Store::insert_many(&store, &items, NodeKey::random().id())
         .await
         .unwrap();
-    store
-        .insert_many(
-            &[ReconItem::new(interest_1.clone(), Vec::new())],
-            NodeKey::random().id(),
-        )
+    let first = recon::Store::first(&store, &random_interest_min()..&random_interest_max())
         .await
         .unwrap();
-    let ids = store
-        .range_with_values(
-            &random_interest_min()..&random_interest_max(),
-            0,
-            usize::MAX,
-        )
-        .await
-        .unwrap();
-    let interests = ids
-        .into_iter()
-        .map(|(i, _v)| i)
-        .collect::<BTreeSet<Interest>>();
-    assert_eq!(BTreeSet::from_iter([interest_0, interest_1]), interests);
+    interests.sort();
+    assert_eq!(Some(interests[0].clone()), first);
 }
 
 test_with_dbs!(
-    test_double_insert,
-    test_double_insert,
+    middle_query,
+    middle_query,
     ["delete from ceramic_one_interest"]
 );
 
-async fn test_double_insert<S>(store: S)
+async fn middle_query<S>(store: S)
+where
+    S: recon::Store<Key = Interest, Hash = Sha256a> + Sync,
+{
+    let mut interests: Vec<_> = (0..10).map(|_| random_interest(None, None)).collect();
+    let items: Vec<_> = interests
+        .iter()
+        .map(|interest| ReconItem::new(interest.clone(), Vec::new()))
+        .collect();
+
+    recon::Store::insert_many(&store, &items, NodeKey::random().id())
+        .await
+        .unwrap();
+    let middle = recon::Store::middle(&store, &random_interest_min()..&random_interest_max())
+        .await
+        .unwrap();
+    interests.sort();
+    assert_eq!(Some(interests[interests.len() / 2].clone()), middle);
+}
+
+test_with_dbs!(
+    double_insert,
+    double_insert,
+    ["delete from ceramic_one_interest"]
+);
+
+async fn double_insert<S>(store: S)
 where
     S: recon::Store<Key = Interest, Hash = Sha256a>,
 {
@@ -253,12 +246,12 @@ where
 }
 
 test_with_dbs!(
-    test_value_for_key,
-    test_value_for_key,
+    value_for_key,
+    value_for_key,
     ["delete from ceramic_one_interest"]
 );
 
-async fn test_value_for_key<S>(store: S)
+async fn value_for_key<S>(store: S)
 where
     S: recon::Store<Key = Interest, Hash = Sha256a>,
 {

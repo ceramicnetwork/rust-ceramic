@@ -101,8 +101,6 @@ async fn range_query() {
         .range(
             &event_id_builder().with_min_event().build()
                 ..&event_id_builder().with_max_event().build(),
-            0,
-            usize::MAX,
         )
         .await
         .unwrap();

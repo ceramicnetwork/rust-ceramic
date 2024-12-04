@@ -59,14 +59,15 @@ async fn test_migration(cars: Vec<Vec<u8>>) {
         .migrate_from_ipfs(Network::Local(42), blocks, false)
         .await
         .unwrap();
-    let actual_events: BTreeSet<_> = recon::Store::range_with_values(
+    let actual_events: BTreeSet<_> = ceramic_api::EventService::range_with_values(
         &service,
-        &EventId::min_value()..&EventId::max_value(),
+        EventId::min_value()..EventId::max_value(),
         0,
-        usize::MAX,
+        u32::MAX,
     )
     .await
     .unwrap()
+    .into_iter()
     .map(|(_event_id, car)| multibase::encode(multibase::Base::Base64Url, car))
     .collect();
     assert_eq!(expected_events, actual_events)
