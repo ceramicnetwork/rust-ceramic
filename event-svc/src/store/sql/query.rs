@@ -84,6 +84,8 @@ impl EventQuery {
     /// Requires binding two parameters:
     ///     $1: limit (i64)
     ///     $2: rowid (i64)
+    ///     $3: number_of_tasks/partitions (i32)
+    ///     $4: task_id (i32)
     pub fn undelivered_with_values() -> &'static str {
         r#"SELECT
                 key.order_key, key.event_cid, eb.codec, eb.root, eb.idx, b.multihash, b.bytes, key.rowid
@@ -94,6 +96,7 @@ impl EventQuery {
                 WHERE
                     EXISTS (SELECT 1 FROM ceramic_one_event_block where event_cid = e.cid)
                     AND e.delivered IS NULL and e.rowid > $1
+                    AND (e.rowid % $3) = $4
                 LIMIT
                     $2
             ) key

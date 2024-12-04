@@ -154,7 +154,7 @@ async fn undelivered_with_values() {
     let event_access = Arc::new(EventAccess::try_new(pool).await.unwrap());
 
     let (res, hw) = event_access
-        .undelivered_with_values(0, 10000)
+        .undelivered_with_values(0, 10000, 1, 0)
         .await
         .unwrap();
     assert_eq!(res.len(), 0);

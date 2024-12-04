@@ -8,6 +8,7 @@ use ipld_core::ipld::Ipld;
 use tokio::sync::mpsc::Sender;
 use tracing::{debug, error, info, trace, warn};
 
+use crate::event::service::PENDING_EVENTS_CHANNEL_DEPTH;
 use crate::store::EventAccess;
 use crate::{Error, Result};
 
@@ -18,6 +19,13 @@ type EventCid = Cid;
 type PrevCid = Cid;
 
 const LOG_EVERY_N_ENTRIES: usize = 10_000;
+/// The number of events we initially pull from the channel when doing startup undelivered batch processing.
+/// Being larger was measured to go faster when processing millions of events, however there's no need to
+/// allocate such a large array when normally processing events in the background as we tend to keep up.
+const EVENTS_TO_RECV_STARTUP: usize = 1000;
+const EVENTS_TO_RECV_BACKGROUND: usize = 100;
+/// The number of tasks to spawn at startup to read undelivered events from the database.
+const UNDELIVERED_EVENTS_STARTUP_TASKS: u32 = 16;
 
 #[derive(Debug)]
 pub struct DeliverableTask {
@@ -31,22 +39,42 @@ pub struct OrderingTask {}
 
 impl OrderingTask {
     /// Discover all undelivered events in the database and mark them deliverable if possible.
-    /// Returns the number of events marked deliverable.
+    /// Returns the number of events marked deliverable. Will spawn `UNDELIVERED_EVENTS_STARTUP_TASKS`
+    /// to read events from the database simultaneously.
     pub async fn process_all_undelivered_events(
         event_access: Arc<EventAccess>,
         max_iterations: usize,
         batch_size: u32,
     ) -> Result<usize> {
-        let (tx, rx_inserted) = tokio::sync::mpsc::channel::<DiscoveredEvent>(10_000);
+        Self::process_all_undelivered_events_with_tasks(
+            event_access,
+            max_iterations,
+            batch_size,
+            UNDELIVERED_EVENTS_STARTUP_TASKS,
+        )
+        .await
+    }
+
+    /// Internal function to allow specifying the number of tasks for better control in tests
+    async fn process_all_undelivered_events_with_tasks(
+        event_access: Arc<EventAccess>,
+        max_iterations: usize,
+        batch_size: u32,
+        num_tasks: u32,
+    ) -> Result<usize> {
+        let (tx, rx_inserted) =
+            tokio::sync::mpsc::channel::<DiscoveredEvent>(PENDING_EVENTS_CHANNEL_DEPTH);
 
         let event_access_cln = event_access.clone();
-        let writer_handle =
-            tokio::task::spawn(async move { Self::run_loop(event_access_cln, rx_inserted).await });
+        let writer_handle = tokio::task::spawn(async move {
+            Self::run_loop(event_access_cln, rx_inserted, EVENTS_TO_RECV_STARTUP).await
+        });
         let cnt = match OrderingState::process_all_undelivered_events(
             event_access,
             max_iterations,
             batch_size,
             tx,
+            num_tasks,
         )
         .await
         {
@@ -62,16 +90,18 @@ impl OrderingTask {
         };
         info!("Waiting for {cnt} undelivered events to finish ordering...");
         if let Err(e) = writer_handle.await {
-            error!("event ordering task failed to complete: {}", e);
+            error!(error=?e, "event ordering task failed to complete");
         }
         Ok(cnt)
     }
 
     /// Spawn a task to run the ordering task background process in a loop
-    pub async fn run(event_access: Arc<EventAccess>, q_depth: usize) -> DeliverableTask {
+    pub(crate) async fn run(event_access: Arc<EventAccess>, q_depth: usize) -> DeliverableTask {
         let (tx_inserted, rx_inserted) = tokio::sync::mpsc::channel::<DiscoveredEvent>(q_depth);
 
-        let handle = tokio::spawn(async move { Self::run_loop(event_access, rx_inserted).await });
+        let handle = tokio::spawn(async move {
+            Self::run_loop(event_access, rx_inserted, EVENTS_TO_RECV_BACKGROUND).await
+        });
 
         DeliverableTask {
             _handle: handle,
@@ -82,14 +112,17 @@ impl OrderingTask {
     async fn run_loop(
         event_access: Arc<EventAccess>,
         mut rx_inserted: tokio::sync::mpsc::Receiver<DiscoveredEvent>,
+        events_to_recv: usize,
     ) {
         let mut state = OrderingState::new();
 
         while !rx_inserted.is_closed() {
-            let mut recon_events = Vec::with_capacity(100);
-            // consider trying to recv in a loop until X or 10ms whatever comes first and then process
-            // the more events we get in memory, the fewer queries we need to run.
-            if rx_inserted.recv_many(&mut recon_events, 100).await > 0 {
+            let mut recon_events = Vec::with_capacity(events_to_recv);
+            if rx_inserted
+                .recv_many(&mut recon_events, events_to_recv)
+                .await
+                > 0
+            {
                 trace!(?recon_events, "new events discovered!");
                 state.add_inserted_events(recon_events);
 
@@ -381,7 +414,7 @@ impl StreamEvents {
                 _ => None,
             }));
 
-        debug!(count=%undelivered_q.len(), "undelivered events to process");
+        trace!(count=%undelivered_q.len(), "undelivered events to process");
 
         while let Some(StreamEventMetadata {
             cid: undelivered_cid,
@@ -452,7 +485,7 @@ impl StreamEvents {
                 }
             }
         }
-        debug!(count=%self.new_deliverable.len(), "deliverable events discovered");
+        trace!(count=%self.new_deliverable.len(), "deliverable events discovered");
         Ok(())
     }
 }
@@ -533,47 +566,89 @@ impl OrderingState {
         max_iterations: usize,
         batch_size: u32,
         tx: Sender<DiscoveredEvent>,
+        partition_size: u32,
     ) -> Result<usize> {
         info!("Attempting to process all undelivered events. This could take some time.");
-        let mut state = Self::new();
-        let mut iter_cnt = 0;
+
+        let mut tasks: tokio::task::JoinSet<Result<()>> = tokio::task::JoinSet::new();
+        let (cnt_tx, mut rx) = tokio::sync::mpsc::channel(8);
+        for task_id in 0..partition_size {
+            info!("starting task {task_id} of {partition_size} to process undelivered events");
+            let tx = tx.clone();
+            let cnt_tx = cnt_tx.clone();
+            let event_access = event_access.clone();
+            tasks.spawn(async move {
+                let mut iter_cnt = 0;
+                let mut highwater = 0;
+                while iter_cnt < max_iterations {
+                    iter_cnt += 1;
+                    let (undelivered, new_hw) = event_access
+                        .undelivered_with_values(highwater, batch_size.into(), partition_size, task_id)
+                        .await?;
+                    highwater = new_hw;
+                    let found_something = !undelivered.is_empty();
+                    let found_everything = undelivered.len() < batch_size as usize;
+                    if found_something {
+                        trace!(new_batch_count=%undelivered.len(), %task_id, "Found undelivered events in the database to process.");
+                        // We can start processing and we'll follow the stream history if we have it. In that case, we either arrive
+                        // at the beginning and mark them all delivered, or we find a gap and stop processing and leave them in memory.
+                        // In this case, we won't discover them until we start running recon with a peer, so maybe we should drop them
+                        // or otherwise mark them ignored somehow. When this function ends, we do drop everything so for now it's probably okay.
+                        let number_processed = OrderingState::process_undelivered_events_batch(
+                            &event_access,
+                            undelivered,
+                            &tx,
+                        )
+                        .await?;
+                        if cnt_tx.send((number_processed, new_hw, task_id)).await.is_err() {
+                            warn!("undelivered task manager not available... exiting task_id={task_id}");
+                            return Err(crate::Error::new_fatal(anyhow!("delivered task manager not available... exiting task_id={task_id}")));
+                        }
+                    }
+                    if !found_something || found_everything {
+                        break;
+                    }
+                }
+                if iter_cnt > max_iterations {
+                    warn!(%batch_size, iterations=%iter_cnt, %task_id, "Exceeded max iterations for finding undelivered events!");
+                }
+                info!(%task_id, "Finished processing undelivered events");
+                Ok(())
+            });
+        }
+        // drop our senders so the background tasks exit without waiting on us
+        drop(cnt_tx);
+        drop(tx);
+
         let mut event_cnt = 0;
-        let mut highwater = 0;
-        while iter_cnt < max_iterations {
-            iter_cnt += 1;
-            let (undelivered, new_hw) = event_access
-                .undelivered_with_values(highwater, batch_size.into())
-                .await?;
-            highwater = new_hw;
-            let found_something = !undelivered.is_empty();
-            let found_everything = undelivered.len() < batch_size as usize;
-            if found_something {
-                debug!(new_batch_count=%undelivered.len(), "Found undelivered events in the database to process.");
-                // We can start processing and we'll follow the stream history if we have it. In that case, we either arrive
-                // at the beginning and mark them all delivered, or we find a gap and stop processing and leave them in memory.
-                // In this case, we won't discover them until we start running recon with a peer, so maybe we should drop them
-                // or otherwise mark them ignored somehow. When this function ends, we do drop everything so for now it's probably okay.
-                let number_processed = state
-                    .process_undelivered_events_batch(&event_access, undelivered, &tx)
-                    .await?;
-                event_cnt += number_processed;
-                if event_cnt % LOG_EVERY_N_ENTRIES < number_processed {
-                    info!(count=%event_cnt, highwater=%new_hw, "Processed undelivered events");
+        while let Some((number_processed, new_hw, task_id)) = rx.recv().await {
+            event_cnt += number_processed;
+            if event_cnt % LOG_EVERY_N_ENTRIES < number_processed {
+                // these values are useful but can be slightly misleading. the highwater mark will move forward/backward
+                // based on the task reporting, and we're counting the number discovered and sent by the task, even though
+                // the task doing the ordering may discover and order additional events while reviewing the events sent
+                info!(count=%event_cnt, highwater=%new_hw, %task_id, "Processed undelivered events");
+            }
+        }
+        while let Some(res) = tasks.join_next().await {
+            match res {
+                Ok(v) => match v {
+                    Ok(_) => {
+                        // task finished so nothing to do
+                    }
+                    Err(error) => {
+                        warn!(?error, "event ordering task failed while processing");
+                    }
+                },
+                Err(error) => {
+                    warn!(?error, "event ordering task failed with JoinError");
                 }
             }
-            if !found_something || found_everything {
-                break;
-            }
         }
-        if iter_cnt > max_iterations {
-            warn!(%batch_size, iterations=%iter_cnt, "Exceeded max iterations for finding undelivered events!");
-        }
-
         Ok(event_cnt)
     }
 
     async fn process_undelivered_events_batch(
-        &mut self,
         event_access: &EventAccess,
         event_data: Vec<(Cid, unvalidated::Event<Ipld>)>,
         tx: &Sender<DiscoveredEvent>,
@@ -743,21 +818,25 @@ mod test {
         let (_, events) = event_access.new_events_since_value(0, 100).await.unwrap();
         assert_eq!(1, events.len());
 
-        let processed = OrderingTask::process_all_undelivered_events(event_access.clone(), 1, 5)
-            .await
-            .unwrap();
+        // we make sure to use 1 task in this test as we want to measure the progress of each iteration
+        let processed =
+            OrderingTask::process_all_undelivered_events_with_tasks(event_access.clone(), 1, 5, 1)
+                .await
+                .unwrap();
         assert_eq!(5, processed);
         let (_, events) = event_access.new_events_since_value(0, 100).await.unwrap();
         assert_eq!(6, events.len());
-        let processed = OrderingTask::process_all_undelivered_events(event_access.clone(), 1, 5)
-            .await
-            .unwrap();
+        let processed =
+            OrderingTask::process_all_undelivered_events_with_tasks(event_access.clone(), 1, 5, 1)
+                .await
+                .unwrap();
         assert_eq!(4, processed);
         let (_, events) = event_access.new_events_since_value(0, 100).await.unwrap();
         assert_eq!(10, events.len());
-        let processed = OrderingTask::process_all_undelivered_events(event_access.clone(), 1, 5)
-            .await
-            .unwrap();
+        let processed =
+            OrderingTask::process_all_undelivered_events_with_tasks(event_access.clone(), 1, 5, 1)
+                .await
+                .unwrap();
         assert_eq!(0, processed);
     }
 
@@ -774,9 +853,11 @@ mod test {
 
         let (_hw, event) = event_access.new_events_since_value(0, 1000).await.unwrap();
         assert_eq!(5, event.len());
-        let processed = OrderingTask::process_all_undelivered_events(event_access.clone(), 4, 10)
-            .await
-            .unwrap();
+        // we specify 1 task so we can easily expect how far it gets each run, rather than doing math against the number of spawned tasks
+        let processed =
+            OrderingTask::process_all_undelivered_events_with_tasks(event_access.clone(), 4, 10, 1)
+                .await
+                .unwrap();
 
         let (_hw, event) = event_access.new_events_since_value(0, 1000).await.unwrap();
         assert_eq!(45, event.len());
