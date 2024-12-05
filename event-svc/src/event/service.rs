@@ -27,15 +27,16 @@ use crate::{Error, Result};
 /// How many events to select at once to see if they've become deliverable when we have downtime
 /// Used at startup and occasionally in case we ever dropped something
 /// We keep the number small for now as we may need to traverse many prevs for each one of these and load them into memory.
-const DELIVERABLE_EVENTS_BATCH_SIZE: u32 = 1000;
+const DELIVERABLE_EVENTS_BATCH_SIZE: u32 = 250;
 
 /// How many batches of undelivered events are we willing to process on start up?
 /// To avoid an infinite loop. It's going to take a long time to process `DELIVERABLE_EVENTS_BATCH_SIZE * MAX_ITERATIONS` events
 const MAX_ITERATIONS: usize = 100_000_000;
 
-/// The max number of events we can have pending for delivery in the channel before we start dropping them.
-/// This is currently 304 bytes per event, so this is 3 MB of data
-const PENDING_EVENTS_CHANNEL_DEPTH: usize = 1_000_000;
+/// The max number of events we can have pending for delivery in the channel.
+/// This is currently 304 bytes per event, but the task may have more in memory so to avoid growing indefinitely we apply backpressure
+/// as we no longer use `try_send` and will wait for room to be available before accepting data.
+pub(crate) const PENDING_EVENTS_CHANNEL_DEPTH: usize = 10_000;
 
 /// The max number of events that can be waiting on a previous event before we can validate them
 /// that are allowed to live in memory. This is possible during recon conversations where we discover things out of order,

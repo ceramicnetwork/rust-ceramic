@@ -446,7 +446,10 @@ impl EventAccess {
         &self,
         highwater_mark: i64,
         limit: i64,
+        num_tasks: u32,
+        task_id: u32,
     ) -> Result<(Vec<(Cid, unvalidated::Event<Ipld>)>, i64)> {
+        debug_assert!(task_id < num_tasks, "task_id must be in 0..num_tasks");
         struct UndeliveredEventBlockRow {
             block: ReconEventBlockRaw,
             row_id: i64,
@@ -466,6 +469,8 @@ impl EventAccess {
             sqlx::query_as(EventQuery::undelivered_with_values())
                 .bind(highwater_mark)
                 .bind(limit)
+                .bind(num_tasks)
+                .bind(task_id)
                 .fetch_all(self.pool.reader())
                 .await?;
 

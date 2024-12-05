@@ -786,7 +786,7 @@ fn events_to_table(conclusion_events: &[ConclusionEvent]) -> String {
                     .join(", ")
             )),
             Cell::new(&event_cid.to_string()),
-            Cell::new(&data),
+            Cell::new(data),
             Cell::new(&previous),
         ]));
     }
