@@ -4,7 +4,7 @@ use crate::{
     default_directory, handle_signals, http, http_metrics, metrics, network::Ipfs, DBOpts,
     DBOptsExperimental, Info, LogOpts, Network,
 };
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, bail, Result};
 use ceramic_anchor_remote::RemoteCas;
 use ceramic_anchor_service::AnchorService;
 use ceramic_core::NodeKey;
@@ -13,7 +13,8 @@ use ceramic_event_svc::{ChainInclusionProvider, EventService};
 use ceramic_interest_svc::InterestService;
 use ceramic_kubo_rpc::Multiaddr;
 use ceramic_metrics::{config::Config as MetricsConfig, MetricsHandle};
-use ceramic_p2p::{load_identity, DiskStorage, Keychain, Libp2pConfig};
+use ceramic_p2p::{Libp2pConfig, PeerKeyInterests};
+use ceramic_peer_svc::PeerService;
 use ceramic_sql::sqlite::SqlitePool;
 use clap::Args;
 use object_store::aws::AmazonS3Builder;
@@ -430,6 +431,7 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
     let rpc_providers = get_eth_rpc_providers(opts.ethereum_rpc_urls, &opts.network).await?;
 
     // Construct services from pool
+    let peer_svc = Arc::new(PeerService::new(sqlite_pool.clone()));
     let interest_svc = Arc::new(InterestService::new(sqlite_pool.clone()));
     let event_validation = opts.event_validation.unwrap_or(true);
     let event_svc = Arc::new(
@@ -487,25 +489,13 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
     };
     debug!(?p2p_config, "using p2p config");
 
-    // Load p2p identity
-    let mut kc = Keychain::<DiskStorage>::new(opts.p2p_key_dir.clone())
-        .await
-        .context(format!(
-            "initializing p2p key: using p2p_key_dir={}",
-            opts.p2p_key_dir.display()
-        ))?;
-    let libp2p_keypair = load_identity(&mut kc).await?;
-    let peer_id = libp2p_keypair.public().to_peer_id();
-
-    // Load node ID from key directory. Libp2p has their own wrapper around ed25519 keys (╯°□°)╯︵ ┻━┻
-    // So, we need to load the key from the key directory for libp2p to use, and then again for evaluating the Node ID
-    // using a generic ed25519 processing library (ring). We'll assert that the keys are the same.
-    let node_key = NodeKey::try_from_dir(opts.p2p_key_dir.clone())?;
-    assert_eq!(node_key.peer_id(), peer_id);
+    let node_key = NodeKey::try_from_dir(opts.p2p_key_dir).await?;
     let node_id = node_key.id();
 
     // Register metrics for all components
     let recon_metrics = MetricsHandle::register(recon::Metrics::register);
+    let peer_svc_store_metrics =
+        MetricsHandle::register(ceramic_peer_svc::store::Metrics::register);
     let interest_svc_store_metrics =
         MetricsHandle::register(ceramic_interest_svc::store::Metrics::register);
     let event_svc_store_metrics =
@@ -514,51 +504,56 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
         http_metrics::Metrics::register,
     ));
 
+    // Create recon store for peers.
+    let peer_svc = ceramic_peer_svc::store::StoreMetricsMiddleware::new(
+        peer_svc,
+        peer_svc_store_metrics.clone(),
+    );
+
     // Create recon store for interests.
-    let interest_store = ceramic_interest_svc::store::StoreMetricsMiddleware::new(
+    let interest_svc = ceramic_interest_svc::store::StoreMetricsMiddleware::new(
         interest_svc.clone(),
         interest_svc_store_metrics.clone(),
     );
 
-    let interest_api_store = ceramic_interest_svc::store::StoreMetricsMiddleware::new(
+    let interest_api_svc = ceramic_interest_svc::store::StoreMetricsMiddleware::new(
         interest_svc.clone(),
         interest_svc_store_metrics.clone(),
     );
 
-    // Create second recon store for models.
-    let model_store = ceramic_event_svc::store::StoreMetricsMiddleware::new(
-        event_svc.clone(),
-        event_svc_store_metrics.clone(),
-    );
-
-    let model_api_store = ceramic_event_svc::store::StoreMetricsMiddleware::new(
+    // Create recon store for models.
+    let model_svc = ceramic_event_svc::store::StoreMetricsMiddleware::new(
         event_svc.clone(),
         event_svc_store_metrics,
     );
 
+    // Construct a recon implementation for peers.
+    let recon_peer = Recon::new(peer_svc.clone(), PeerKeyInterests, recon_metrics.clone());
+
     // Construct a recon implementation for interests.
-    let recon_interest_svr = Recon::new(
-        interest_store.clone(),
+    let recon_interest = Recon::new(
+        interest_svc.clone(),
         FullInterests::default(),
         recon_metrics.clone(),
     );
 
     // Construct a recon implementation for models.
-    let recon_model_svr = Recon::new(
-        model_store.clone(),
+    let recon_model = Recon::new(
+        model_svc.clone(),
         // Use recon interests as the InterestProvider for recon_model
-        ReconInterestProvider::new(node_id, interest_store.clone()),
+        ReconInterestProvider::new(node_id, interest_svc.clone()),
         recon_metrics,
     );
 
-    let recons = Some((recon_interest_svr, recon_model_svr));
+    let recons = Some((recon_peer, recon_interest, recon_model));
     let ipfs_metrics =
         ceramic_metrics::MetricsHandle::register(ceramic_kubo_rpc::IpfsMetrics::register);
     let p2p_metrics = MetricsHandle::register(ceramic_p2p::Metrics::register);
     let ipfs = Ipfs::<EventService>::builder()
         .with_p2p(
             p2p_config,
-            libp2p_keypair,
+            node_key.clone(),
+            peer_svc,
             recons,
             event_svc.clone(),
             p2p_metrics,
@@ -703,8 +698,8 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
     let mut ceramic_server = ceramic_api::Server::new(
         node_id,
         network,
-        interest_api_store,
-        Arc::new(model_api_store),
+        interest_api_svc,
+        Arc::new(model_svc),
         pipeline_ctx,
         shutdown_signal.resubscribe(),
     );

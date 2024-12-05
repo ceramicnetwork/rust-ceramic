@@ -7,7 +7,7 @@ use std::{sync::atomic::Ordering, time::Duration};
 
 use ahash::AHashMap;
 use anyhow::{anyhow, bail, Context, Result};
-use ceramic_core::{EventId, Interest};
+use ceramic_core::{EventId, Interest, NodeKey, PeerKey};
 use ceramic_metrics::{libp2p_metrics, Recorder};
 use cid::Cid;
 use futures_util::stream::StreamExt;
@@ -19,7 +19,6 @@ use libp2p::{
     autonat::{self, OutboundProbeEvent},
     core::Multiaddr,
     identify,
-    identity::Keypair,
     kad::{
         self, BootstrapOk, GetClosestPeersError, GetClosestPeersOk, GetProvidersOk, QueryId,
         QueryResult,
@@ -40,11 +39,10 @@ use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::{
     behaviour::{Event, NodeBehaviour},
-    keys::{Keychain, Storage},
     metrics::{LoopEvent, Metrics},
+    peers::{self, PeerService},
     providers::Providers,
-    rpc::{self, RpcMessage},
-    rpc::{P2p, ProviderRequestKey},
+    rpc::{self, P2p, ProviderRequestKey, RpcMessage},
     swarm::build_swarm,
     Config,
 };
@@ -61,14 +59,15 @@ pub enum NetworkEvent {
 /// Node implements a peer to peer node that participates on the Ceramic network.
 ///
 /// Node provides an external API via RpcMessages.
-pub struct Node<I, M, S>
+pub struct Node<P, I, M, S>
 where
+    P: Recon<Key = PeerKey, Hash = Sha256a>,
     I: Recon<Key = Interest, Hash = Sha256a>,
     M: Recon<Key = EventId, Hash = Sha256a>,
     S: iroh_bitswap::Store,
 {
     metrics: Metrics,
-    swarm: Swarm<NodeBehaviour<I, M, S>>,
+    swarm: Swarm<NodeBehaviour<P, I, M, S>>,
     supported_protocols: HashSet<String>,
     net_receiver_in: Receiver<RpcMessage>,
     dial_queries: AHashMap<PeerId, Vec<OneShotSender<Result<()>>>>,
@@ -79,6 +78,8 @@ where
     #[allow(dead_code)]
     rpc_client: RpcClient,
     rpc_task: JoinHandle<()>,
+    peers_tx: Sender<peers::Message>,
+    peers_task: JoinHandle<()>,
     use_dht: bool,
     bitswap_sessions: BitswapSessions,
     providers: Providers,
@@ -88,8 +89,9 @@ where
     active_address_probe: Option<Multiaddr>,
 }
 
-impl<I, M, S> fmt::Debug for Node<I, M, S>
+impl<P, I, M, S> fmt::Debug for Node<P, I, M, S>
 where
+    P: Recon<Key = PeerKey, Hash = Sha256a>,
     I: Recon<Key = Interest, Hash = Sha256a>,
     M: Recon<Key = EventId, Hash = Sha256a>,
     S: iroh_bitswap::Store,
@@ -104,6 +106,8 @@ where
             .field("network_events", &self.network_events)
             .field("rpc_client", &self.rpc_client)
             .field("rpc_task", &self.rpc_task)
+            .field("peers_tx", &self.peers_tx)
+            .field("peers_task", &self.peers_task)
             .field("use_dht", &self.use_dht)
             .field("bitswap_sessions", &self.bitswap_sessions)
             .field("providers", &self.providers)
@@ -121,22 +125,26 @@ const NICE_INTERVAL: Duration = Duration::from_secs(6);
 const BOOTSTRAP_INTERVAL: Duration = Duration::from_secs(5 * 60);
 const EXPIRY_INTERVAL: Duration = Duration::from_secs(1);
 
-impl<I, M, S> Drop for Node<I, M, S>
+impl<P, I, M, S> Drop for Node<P, I, M, S>
 where
+    P: Recon<Key = PeerKey, Hash = Sha256a>,
     I: Recon<Key = Interest, Hash = Sha256a>,
     M: Recon<Key = EventId, Hash = Sha256a>,
     S: iroh_bitswap::Store,
 {
     fn drop(&mut self) {
         self.rpc_task.abort();
+        self.peers_task.abort();
     }
 }
 
 // Allow IntoConnectionHandler deprecated associated type.
 // We are not using IntoConnectionHandler directly only referencing the type as part of this event signature.
-type NodeSwarmEvent<I, M, S> = SwarmEvent<<NodeBehaviour<I, M, S> as NetworkBehaviour>::ToSwarm>;
-impl<I, M, S> Node<I, M, S>
+type NodeSwarmEvent<P, I, M, S> =
+    SwarmEvent<<NodeBehaviour<P, I, M, S> as NetworkBehaviour>::ToSwarm>;
+impl<P, I, M, S> Node<P, I, M, S>
 where
+    P: Recon<Key = PeerKey, Hash = Sha256a> + Send + Sync,
     I: Recon<Key = Interest, Hash = Sha256a> + Send + Sync,
     M: Recon<Key = EventId, Hash = Sha256a> + Send + Sync,
     S: iroh_bitswap::Store + Send + Sync,
@@ -144,8 +152,9 @@ where
     pub async fn new(
         config: Config,
         rpc_addr: P2pAddr,
-        keypair: Keypair,
-        recons: Option<(I, M)>,
+        node_key: NodeKey,
+        peer_svc: impl PeerService + 'static,
+        recons: Option<(P, I, M)>,
         block_store: Arc<S>,
         metrics: Metrics,
     ) -> Result<Self> {
@@ -159,7 +168,7 @@ where
 
         let mut swarm = build_swarm(
             &libp2p_config,
-            keypair,
+            node_key.p2p_keypair(),
             recons,
             block_store,
             metrics.clone(),
@@ -190,6 +199,17 @@ where
                     e
                 })
                 .unwrap()
+        });
+
+        let (peers_tx, peers_rx) = channel(1_000);
+        let peers_task = tokio::task::spawn(async move {
+            peers::run(
+                Duration::from_secs(24 * 60 * 60),
+                node_key,
+                peer_svc,
+                peers_rx,
+            )
+            .await
         });
 
         let rpc_client = RpcClient::new(rpc_client)
@@ -229,6 +249,8 @@ where
             network_events: Vec::new(),
             rpc_client,
             rpc_task,
+            peers_tx,
+            peers_task,
             use_dht: libp2p_config.kademlia,
             bitswap_sessions: Default::default(),
             providers: Providers::new(4),
@@ -456,7 +478,7 @@ where
     #[tracing::instrument(skip_all)]
     async fn handle_swarm_event(
         &mut self,
-        event: NodeSwarmEvent<I, M, S>,
+        event: NodeSwarmEvent<P, I, M, S>,
     ) -> Result<Option<SwarmEventResult>> {
         libp2p_metrics().record(&event);
         match event {
@@ -502,6 +524,32 @@ where
                                 .ok();
                         }
                     }
+                }
+                Ok(None)
+            }
+            SwarmEvent::ExternalAddrConfirmed { address } => {
+                if let Err(err) = self
+                    .peers_tx
+                    .send(peers::Message::NewLocalAddress(address))
+                    .await
+                {
+                    warn!(
+                        address = ?err.0,
+                        "failed to notifiy peers task about a new local address"
+                    );
+                }
+                Ok(None)
+            }
+            SwarmEvent::ExternalAddrExpired { address } => {
+                if let Err(err) = self
+                    .peers_tx
+                    .send(peers::Message::RemoveLocalAddress(address))
+                    .await
+                {
+                    warn!(
+                        address = ?err.0,
+                        "failed to notifiy peers task about an expired local address"
+                    );
                 }
                 Ok(None)
             }
@@ -1150,28 +1198,9 @@ enum SwarmEventResult {
     KademliaBoostrapSuccess,
 }
 
-pub async fn load_identity<S: Storage>(kc: &mut Keychain<S>) -> Result<Keypair> {
-    if kc.is_empty().await? {
-        info!("no identity found, creating",);
-        kc.create_ed25519_key().await?;
-    }
-
-    // for now we just use the first key
-    let first_key = kc.keys().next().await;
-    if let Some(keypair) = first_key {
-        let keypair: Keypair = keypair?.into();
-        info!("identity loaded: {}", PeerId::from(keypair.public()));
-        return Ok(keypair);
-    }
-
-    Err(anyhow!("inconsistent key state"))
-}
-
 #[cfg(test)]
 mod tests {
     use std::marker::PhantomData;
-
-    use crate::keys::Keypair;
 
     use async_trait::async_trait;
     use ceramic_core::{NodeId, RangeOpen};
@@ -1180,9 +1209,8 @@ mod tests {
     use rand::prelude::*;
     use rand_chacha::ChaCha8Rng;
     use recon::{InsertResult, RangeHash, ReconItem, Result as ReconResult, Sha256a, SyncState};
-    use ssh_key::private::Ed25519Keypair;
 
-    use libp2p::{identity::Keypair as Libp2pKeypair, kad::RecordKey};
+    use libp2p::kad::RecordKey;
 
     use super::*;
     use anyhow::Result;
@@ -1236,7 +1264,6 @@ mod tests {
         /// Otherwise, don't provide any addresses from which to bootstrap.
         bootstrap: bool,
         /// An optional seed to use when building a peer_id.
-        /// When `None`, it will use a previously derived peer_id `12D3KooWFma2D63TG9ToSiRsjFkoNm2tTihScTBAEdXxinYk5rwE`. // cspell:disable-line
         seed: Option<ChaCha8Rng>,
         /// Optional `Keys` the node should provide to the DHT on start up.
         keys: Option<Vec<RecordKey>>,
@@ -1309,6 +1336,21 @@ mod tests {
             unreachable!()
         }
     }
+    #[derive(Clone)]
+    struct DummyPeers;
+
+    #[async_trait]
+    impl PeerService for DummyPeers {
+        async fn insert(&self, _peer: &PeerKey) -> anyhow::Result<()> {
+            unreachable!()
+        }
+        async fn delete_range(&self, _range: std::ops::Range<&PeerKey>) -> anyhow::Result<()> {
+            unreachable!()
+        }
+        async fn all_peers(&self) -> anyhow::Result<Vec<PeerKey>> {
+            unreachable!()
+        }
+    }
 
     impl TestRunnerBuilder {
         fn new() -> Self {
@@ -1367,21 +1409,8 @@ mod tests {
             if !self.bootstrap {
                 network_config.libp2p.ceramic_peers = vec![];
             }
-            let keypair = if let Some(seed) = self.seed {
-                Ed25519Keypair::random(seed)
-            } else {
-                // public key 12D3KooWFma2D63TG9ToSiRsjFkoNm2tTihScTBAEdXxinYk5rwE
-                Ed25519Keypair::from_bytes(&[
-                    76, 8, 66, 244, 198, 186, 191, 7, 108, 12, 45, 193, 111, 155, 197, 0, 2, 9, 43,
-                    174, 135, 222, 200, 126, 94, 73, 205, 84, 201, 4, 70, 60, 88, 110, 199, 251,
-                    116, 51, 223, 7, 47, 24, 92, 233, 253, 5, 82, 72, 156, 214, 211, 143, 182, 206,
-                    76, 207, 121, 235, 48, 31, 50, 60, 219, 157,
-                ])
-                .unwrap()
-            };
-            let keypair = Keypair::Ed25519(keypair);
-            let libp2p_keypair: Libp2pKeypair = keypair.clone().into();
-            let peer_id = PeerId::from(libp2p_keypair.public());
+            let node_key = NodeKey::random();
+            let peer_id = node_key.id().peer_id();
 
             // Using an in memory DB for the tests for realistic benchmark disk DB is needed.
             let sql_pool = SqlitePool::connect_in_memory().await.unwrap();
@@ -1391,8 +1420,13 @@ mod tests {
             let mut p2p = Node::new(
                 network_config,
                 rpc_server_addr,
-                keypair.into(),
-                None::<(DummyRecon<Interest>, DummyRecon<EventId>)>,
+                node_key,
+                DummyPeers,
+                None::<(
+                    DummyRecon<PeerKey>,
+                    DummyRecon<Interest>,
+                    DummyRecon<EventId>,
+                )>,
                 store,
                 metrics,
             )
@@ -1517,10 +1551,7 @@ mod tests {
     async fn test_local_peer_id() -> Result<()> {
         let test_runner = TestRunnerBuilder::new().no_bootstrap().build().await?;
         let got_peer_id = test_runner.client.local_peer_id().await?;
-        let expect_peer_id: PeerId = "12D3KooWFma2D63TG9ToSiRsjFkoNm2tTihScTBAEdXxinYk5rwE"
-            .parse()
-            .unwrap();
-        assert_eq!(expect_peer_id, got_peer_id);
+        assert_eq!(test_runner.peer_id, got_peer_id);
         Ok(())
     }
 
@@ -1662,7 +1693,6 @@ mod tests {
             .await?;
         println!("peer_a: {:?}", test_runner_a.peer_id);
 
-        // peer_id 12D3KooWLo6JTNKXfjkZtKf8ooLQoXVXUEeuu4YDY3CYqK6rxHXt
         let mut test_runner_b = TestRunnerBuilder::new()
             .no_bootstrap()
             .with_trust_observed_addrs(true)

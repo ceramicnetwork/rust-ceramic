@@ -2472,6 +2472,7 @@ dependencies = [
  "ceramic-kubo-rpc-server",
  "ceramic-metrics",
  "ceramic-p2p",
+ "ceramic-peer-svc",
  "ceramic-pipeline",
  "ceramic-sql",
  "cid 0.11.1",
@@ -2522,6 +2523,7 @@ dependencies = [
  "ceramic-core",
  "ceramic-event-svc",
  "ceramic-metrics",
+ "chrono",
  "cid 0.11.1",
  "criterion2",
  "futures",
@@ -2547,6 +2549,38 @@ dependencies = [
  "tracing-subscriber",
  "void",
  "zeroize",
+]
+
+[[package]]
+name = "ceramic-peer-svc"
+version = "0.45.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "ceramic-core",
+ "ceramic-event",
+ "ceramic-metrics",
+ "ceramic-p2p",
+ "ceramic-sql",
+ "criterion2",
+ "expect-test",
+ "futures",
+ "ipld-core",
+ "multibase 0.9.1",
+ "paste",
+ "prometheus-client",
+ "rand 0.8.5",
+ "recon",
+ "serde",
+ "serde_ipld_dagcbor",
+ "sqlx",
+ "test-log",
+ "thiserror",
+ "tmpdir",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid 1.10.0",
 ]
 
 [[package]]

@@ -8,7 +8,7 @@ pub mod interest;
 mod jwk;
 mod network;
 mod node_id;
-mod peer;
+pub mod peer;
 mod range;
 mod serialize_ext;
 pub mod signer;

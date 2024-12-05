@@ -1,7 +1,6 @@
-use std::fmt::Display;
-use std::{fs, path::PathBuf, str::FromStr};
+use std::{fmt::Display, path::Path, str::FromStr};
 
-use anyhow::{anyhow, Context, Ok, Result};
+use anyhow::{anyhow, Context, Result};
 use cid::{multihash::Multihash, Cid};
 use libp2p_identity::PeerId;
 use rand::Rng;
@@ -159,14 +158,10 @@ impl Display for NodeId {
 }
 
 /// A [`NodeId`] with its private key.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct NodeKey {
     id: NodeId,
-    // It would be preferable to not store the private_key_bytes directly and instead use only the
-    // key_pair. However to use JWK we need to keep the private_key_bytes around.
-    // Maybe in future versions of ssi_jwk we can change this.
     private_key_bytes: [u8; 32],
-    key_pair: Ed25519KeyPair,
     did: DidDocument,
 }
 
@@ -179,11 +174,10 @@ impl Eq for NodeKey {}
 
 impl NodeKey {
     /// Construct a new key with both private and public keys.
-    fn new(id: NodeId, private_key_bytes: [u8; 32], key_pair: Ed25519KeyPair) -> Self {
+    fn new(id: NodeId, private_key_bytes: [u8; 32]) -> Self {
         Self {
             id,
             private_key_bytes,
-            key_pair,
             did: id.did(),
         }
     }
@@ -204,12 +198,24 @@ impl NodeKey {
         self.id
     }
 
-    /// Read an Ed25519 key from a directory
-    pub fn try_from_dir(key_dir: PathBuf) -> Result<NodeKey> {
-        let key_path = key_dir.join("id_ed25519_0");
-        let content = fs::read_to_string(key_path)?;
-        let seed = ssh_key::private::PrivateKey::from_str(&content)
-            .map_err(|e| anyhow::anyhow!("failed to parse private key: {}", e))?
+    /// Read an Ed25519 key from a directory or create a new key if not found in the directory.
+    pub async fn try_from_dir(key_dir: impl AsRef<Path>) -> Result<NodeKey> {
+        let key_path = key_dir.as_ref().join("id_ed25519_0");
+        let private_key = match tokio::fs::read_to_string(&key_path).await {
+            Ok(content) => ssh_key::private::PrivateKey::from_str(&content)
+                .map_err(|e| anyhow::anyhow!("failed to parse private key: {}", e))?,
+            Err(_) => {
+                let key = ssh_key::private::PrivateKey::random(
+                    &mut rand::rngs::OsRng,
+                    ssh_key::Algorithm::Ed25519,
+                )?;
+                // Write out contents to file for next time
+                let content = key.to_openssh(ssh_key::LineEnding::default())?;
+                tokio::fs::write(&key_path, content).await?;
+                key
+            }
+        };
+        let seed = private_key
             .key_data()
             .ed25519()
             .map_or(Err(anyhow::anyhow!("failed to parse ed25519 key")), |key| {
@@ -223,7 +229,6 @@ impl NodeKey {
                 public_ed25519_key_bytes,
             },
             seed,
-            key_pair,
         ))
     }
     /// Create an Ed25519 key pair from a secret. The secret can be formatted in two ways:
@@ -279,7 +284,7 @@ impl NodeKey {
         let id = NodeId {
             public_ed25519_key_bytes,
         };
-        Ok(NodeKey::new(id, secret, key_pair))
+        Ok(NodeKey::new(id, secret))
     }
     /// Create a NodeId using a random Ed25519 key pair
     ///
@@ -299,12 +304,19 @@ impl NodeKey {
                 public_ed25519_key_bytes,
             },
             random_secret,
-            key_pair,
         )
     }
     /// Sign data with this key
     pub fn sign(&self, data: &[u8]) -> Signature {
-        self.key_pair.sign(data)
+        let key_pair = Ed25519KeyPair::from_seed_unchecked(&self.private_key_bytes)
+            .expect("private key bytes should already be validated");
+        key_pair.sign(data)
+    }
+
+    /// Construct a [`libp2p_identity::Keypair`] from this node key.
+    pub fn p2p_keypair(&self) -> libp2p_identity::Keypair {
+        libp2p_identity::Keypair::ed25519_from_bytes(self.private_key_bytes)
+            .expect("private key bytes should already be validated")
     }
 }
 

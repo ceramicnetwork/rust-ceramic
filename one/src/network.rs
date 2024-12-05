@@ -3,12 +3,11 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use ceramic_core::{EventId, Interest};
+use ceramic_core::{EventId, Interest, NodeKey, PeerKey};
 use ceramic_kubo_rpc::{IpfsMetrics, IpfsMetricsMiddleware, IpfsService};
-use ceramic_p2p::{Config as P2pConfig, Libp2pConfig, Node};
+use ceramic_p2p::{Config as P2pConfig, Libp2pConfig, Node, PeerService};
 use iroh_rpc_client::P2pClient;
 use iroh_rpc_types::{p2p::P2pAddr, Addr};
-use libp2p::identity::Keypair;
 use recon::{libp2p::Recon, Sha256a};
 use tokio::task::{self, JoinHandle};
 use tracing::{debug, error};
@@ -33,15 +32,17 @@ impl BuilderState for WithP2p {}
 
 /// Configure the p2p service
 impl Builder<Init> {
-    pub async fn with_p2p<I, M, S>(
+    pub async fn with_p2p<P, I, M, S>(
         self,
         libp2p_config: Libp2pConfig,
-        keypair: Keypair,
-        recons: Option<(I, M)>,
+        node_key: NodeKey,
+        peer_svc: impl PeerService + 'static,
+        recons: Option<(P, I, M)>,
         block_store: Arc<S>,
         metrics: ceramic_p2p::Metrics,
     ) -> anyhow::Result<Builder<WithP2p>>
     where
+        P: Recon<Key = PeerKey, Hash = Sha256a>,
         I: Recon<Key = Interest, Hash = Sha256a>,
         M: Recon<Key = EventId, Hash = Sha256a>,
         S: iroh_bitswap::Store,
@@ -52,8 +53,16 @@ impl Builder<Init> {
 
         config.libp2p = libp2p_config;
 
-        let mut p2p =
-            Node::new(config, addr.clone(), keypair, recons, block_store, metrics).await?;
+        let mut p2p = Node::new(
+            config,
+            addr.clone(),
+            node_key,
+            peer_svc,
+            recons,
+            block_store,
+            metrics,
+        )
+        .await?;
 
         let task = task::spawn(async move {
             if let Err(err) = p2p.run().await {

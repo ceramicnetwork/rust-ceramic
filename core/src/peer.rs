@@ -1,3 +1,7 @@
+//! Peer structures for managing known peers the network.
+//! [`PeerEntry`] is be signed by the peer such that [`PeerEntry`] structs can be gossipped around
+//! the network safely.
+
 use anyhow::{anyhow, bail};
 use multiaddr::{Multiaddr, PeerId};
 use serde::{Deserialize, Serialize};
@@ -5,19 +9,23 @@ use ssi::jws::DecodedJWS;
 
 use crate::{node_id::NodeKey, signer::Signer, DeserializeExt as _, NodeId, SerializeExt as _};
 
+const MIN_EXPIRATION: u64 = 0;
+// 11 9s is the maximum value we can encode into the string representation of a PeerKey.
+const MAX_EXPIRATION: u64 = 99_999_999_999;
+
 /// Peer entry that is signed and can be shared.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PeerEntry {
     id: NodeId,
     // Number of seconds after UNIX epoch when this entry is no longer valid.
-    expiration: u32,
+    expiration: u64,
     addresses: Vec<Multiaddr>,
 }
 
 impl PeerEntry {
     /// Construct an entry about a peer with address that is no longer valid after expiration seconds after the
     /// UNIX epoch.
-    pub fn new(local_id: NodeId, expiration: u32, addresses: Vec<Multiaddr>) -> Self {
+    pub fn new(local_id: NodeId, expiration: u64, addresses: Vec<Multiaddr>) -> Self {
         let peer_id = local_id.peer_id();
         Self {
             id: local_id,
@@ -59,7 +67,7 @@ impl PeerEntry {
     }
 
     /// Report the number of seconds after the UNIX epoch when this entry is no longer valid.
-    pub fn expiration(&self) -> u32 {
+    pub fn expiration(&self) -> u64 {
         self.expiration
     }
 
@@ -84,10 +92,38 @@ fn ensure_multiaddr_has_p2p(addr: Multiaddr, peer_id: PeerId) -> Multiaddr {
 /// Encoded [`PeerEntry`] prefixed with its expiration.
 /// The sort order matters as its used in a Recon ring.
 /// The key is valid utf-8 of the form `<expiration>.<jws>`;
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialOrd, Ord, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PeerKey(String);
 
+impl std::fmt::Display for PeerKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl TryFrom<Vec<u8>> for PeerKey {
+    type Error = anyhow::Error;
+
+    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+        let key = Self(String::from_utf8(value)?);
+        let _ = key.to_entry()?;
+        Ok(key)
+    }
+}
+
 impl PeerKey {
+    /// Return a builder for constructing a PeerKey from its parts.
+    pub fn builder() -> Builder<Init> {
+        Builder { state: Init }
+    }
+    /// Return the raw bytes of the peer key.
+    pub fn as_slice(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
+    /// Report if this key contains an jws section.
+    pub fn has_jws(&self) -> bool {
+        self.0.contains('.')
+    }
     /// Construct a signed key from a [`PeerEntry`].
     pub fn from_entry(entry: &PeerEntry, node_key: &NodeKey) -> anyhow::Result<Self> {
         if entry.id() != node_key.id() {
@@ -102,11 +138,7 @@ impl PeerKey {
     }
     /// Decode and verify key as a [`PeerEntry`].
     pub fn to_entry(&self) -> anyhow::Result<PeerEntry> {
-        let (expiration, jws) = self
-            .0
-            .split_once('.')
-            .ok_or_else(|| anyhow!("peer key must contain a '.'"))?;
-        let expiration: u32 = expiration.parse()?;
+        let (expiration, jws) = self.split_expiration()?;
         let peer = PeerEntry::from_jws(jws)?;
         if expiration != peer.expiration {
             Err(anyhow!(
@@ -116,6 +148,112 @@ impl PeerKey {
         } else {
             Ok(peer)
         }
+    }
+    fn split_expiration(&self) -> anyhow::Result<(u64, &str)> {
+        let (expiration, jws) = self
+            .0
+            .split_once('.')
+            .ok_or_else(|| anyhow!("peer key must contain a '.'"))?;
+        let expiration = expiration.parse()?;
+        Ok((expiration, jws))
+    }
+}
+
+/// Builder provides an ordered API for constructing a PeerKey
+#[derive(Debug)]
+pub struct Builder<S: BuilderState> {
+    state: S,
+}
+/// The state of the builder
+pub trait BuilderState {}
+
+/// Initial state of the builder.
+#[derive(Debug)]
+pub struct Init;
+impl BuilderState for Init {}
+
+/// Build state where the expiration is known.
+pub struct WithExpiration {
+    expiration: u64,
+}
+impl BuilderState for WithExpiration {}
+
+/// Build state where the peer id is known.
+pub struct WithId<'a> {
+    node_key: &'a NodeKey,
+    expiration: u64,
+}
+impl<'a> BuilderState for WithId<'a> {}
+
+/// Build state where the addresses are known.
+pub struct WithAddresses<'a> {
+    node_key: &'a NodeKey,
+    expiration: u64,
+    addresses: Vec<Multiaddr>,
+}
+impl<'a> BuilderState for WithAddresses<'a> {}
+
+impl Builder<Init> {
+    /// Set the expiration to earliest possible value.
+    pub fn with_min_expiration(self) -> Builder<WithExpiration> {
+        Builder {
+            state: WithExpiration {
+                expiration: MIN_EXPIRATION,
+            },
+        }
+    }
+    /// Set the expiration to the latest possible value.
+    pub fn with_max_expiration(self) -> Builder<WithExpiration> {
+        Builder {
+            state: WithExpiration {
+                expiration: MAX_EXPIRATION,
+            },
+        }
+    }
+    /// Set the expiration as the number of seconds since the UNIX epoch.
+    pub fn with_expiration(self, expiration: u64) -> Builder<WithExpiration> {
+        Builder {
+            state: WithExpiration { expiration },
+        }
+    }
+}
+impl Builder<WithExpiration> {
+    /// Finish the build producing a partial [`PeerKey`].
+    pub fn build_fencepost(self) -> PeerKey {
+        PeerKey(format!("{:0>11}", self.state.expiration))
+    }
+    /// Set the peer id. Note, a NodeKey is required so the [`PeerEntry`] can be signed.
+    pub fn with_id(self, id: &NodeKey) -> Builder<WithId> {
+        Builder {
+            state: WithId {
+                node_key: id,
+                expiration: self.state.expiration,
+            },
+        }
+    }
+}
+impl<'a> Builder<WithId<'a>> {
+    /// Set the addresses where the peer can be reached.
+    pub fn with_addresses(self, addresses: Vec<Multiaddr>) -> Builder<WithAddresses<'a>> {
+        Builder {
+            state: WithAddresses {
+                node_key: self.state.node_key,
+                expiration: self.state.expiration,
+                addresses,
+            },
+        }
+    }
+}
+impl<'a> Builder<WithAddresses<'a>> {
+    /// Finish the build producing a [`PeerKey`].
+    pub fn build(self) -> PeerKey {
+        let entry = PeerEntry::new(
+            self.state.node_key.id(),
+            self.state.expiration,
+            self.state.addresses,
+        );
+        PeerKey::from_entry(&entry, self.state.node_key)
+            .expect("builder should not build invalid peer key")
     }
 }
 
