@@ -659,7 +659,7 @@ impl OrderingState {
         let mut tasks: tokio::task::JoinSet<Result<()>> = tokio::task::JoinSet::new();
         let (cnt_tx, mut rx) = tokio::sync::mpsc::channel(8);
         for task_id in 0..partition_size {
-            info!("starting task {task_id} of {partition_size} to process undelivered events");
+            debug!("starting task {task_id} of {partition_size} to process undelivered events");
             let tx = tx.clone();
             let cnt_tx = cnt_tx.clone();
             let event_access = event_access.clone();
