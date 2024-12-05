@@ -89,7 +89,7 @@ criterion2 = "0.7.0"
 crossterm = "0.25"
 ctrlc = "3.2.2"
 dag-jose = "0.2"
-datafusion = "42"
+datafusion = "43"
 datafusion-flight-sql-server = { git = "https://github.com/datafusion-contrib/datafusion-federation.git", branch = "main" }
 deadqueue = "0.2.3"
 derivative = "2.2"
@@ -271,3 +271,7 @@ arrow-row = { git = "https://github.com/apache/arrow-rs.git", branch = "master" 
 arrow-schema = { git = "https://github.com/apache/arrow-rs.git", branch = "master" }
 arrow-select = { git = "https://github.com/apache/arrow-rs.git", branch = "master" }
 arrow-string = { git = "https://github.com/apache/arrow-rs.git", branch = "master" }
+
+[patch."https://github.com/datafusion-contrib/datafusion-federation.git"]
+# Can remove once https://github.com/datafusion-contrib/datafusion-federation/pull/81 merges
+datafusion-flight-sql-server = { git = "https://github.com/nathanielc/datafusion-federation.git", branch = "feat/put-prepared" }

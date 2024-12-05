@@ -22,13 +22,13 @@ pub async fn run(
 /// Constructs a new server and can be started.
 pub fn new_server(ctx: SessionContext) -> anyhow::Result<Router> {
     let svc = FlightServiceServer::new(
-        FlightSqlService::new(ctx.state()).with_sql_options(Some(
+        FlightSqlService::new(ctx.state()).with_sql_options(
             // Disable all access except read only queries.
             SQLOptions::new()
                 .with_allow_dml(false)
                 .with_allow_ddl(false)
                 .with_allow_statements(false),
-        )),
+        ),
     );
     Ok(Server::builder().add_service(svc))
 }

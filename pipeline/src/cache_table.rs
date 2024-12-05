@@ -31,6 +31,8 @@ use std::sync::Arc;
 use arrow::array::RecordBatch;
 use arrow_schema::SchemaRef;
 use async_trait::async_trait;
+use datafusion::common::not_impl_err;
+use datafusion::logical_expr::dml::InsertOp;
 use datafusion::logical_expr::SortExpr;
 use datafusion::{
     catalog::Session,
@@ -156,7 +158,7 @@ impl TableProvider for CacheTable {
                     create_physical_sort_exprs(sort_exprs, &df_schema, state.execution_props())
                 })
                 .collect::<Result<Vec<_>>>()?;
-            exec = exec.with_sort_information(file_sort_order);
+            exec = exec.try_with_sort_information(file_sort_order)?;
         }
 
         Ok(Arc::new(exec))
@@ -178,7 +180,7 @@ impl TableProvider for CacheTable {
         &self,
         _state: &dyn Session,
         input: Arc<dyn ExecutionPlan>,
-        overwrite: bool,
+        insert_op: InsertOp,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         // If we are inserting into the table, any sort order may be messed up so reset it here
         *self.sort_order.lock() = vec![];
@@ -191,9 +193,15 @@ impl TableProvider for CacheTable {
         {
             return plan_err!("Inserting query must have the same schema with the table.");
         }
-        if overwrite {
-            self.clear().await;
-        }
+        match insert_op {
+            InsertOp::Append => {}
+            InsertOp::Overwrite => {
+                self.clear().await;
+            }
+            InsertOp::Replace => {
+                return not_impl_err!("replace not implemented for CacheTable yet");
+            }
+        };
         let sink = Arc::new(CacheSink::new(self.batches.clone()));
         Ok(Arc::new(DataSinkExec::new(
             input,
@@ -540,7 +548,7 @@ mod tests {
         let scan_plan = LogicalPlanBuilder::scan("source", source, None)?.build()?;
         // Create an insert plan to insert the source data into the initial table
         let insert_into_table =
-            LogicalPlanBuilder::insert_into(scan_plan, "t", &schema, false)?.build()?;
+            LogicalPlanBuilder::insert_into(scan_plan, "t", &schema, InsertOp::Append)?.build()?;
         // Create a physical plan from the insert plan
         let plan = session_ctx
             .state()
