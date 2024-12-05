@@ -58,10 +58,13 @@ pub struct SqliteOpts {
     pub max_ro_connections: u32,
     pub temp_store: Option<SqliteTempStore>,
     /// The analysis limit to use for optimize/analysis.
-    /// None means do not optimize, 0 means no limit.
+    /// 0 means no limit.
     /// Recommended values are 100-1000 (higher meaning do more work).
-    /// Defaults to 1000
-    pub analysis_limit: Option<u32>,
+    /// Defaults to 1000.
+    pub analysis_limit: u32,
+    /// Whether or not optimize should be run. Uses `analysis_limit`
+    /// if set to adjust how much work is done.
+    pub optimize: bool,
 }
 
 impl Default for SqliteOpts {
@@ -71,7 +74,8 @@ impl Default for SqliteOpts {
             cache_size: None,
             max_ro_connections: 8,
             temp_store: None,
-            analysis_limit: Some(1000),
+            analysis_limit: 1000,
+            optimize: true,
         }
     }
 }
@@ -84,7 +88,8 @@ impl SqlitePool {
             .journal_mode(SqliteJournalMode::Wal)
             .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
             .create_if_missing(true)
-            .foreign_keys(true);
+            .foreign_keys(true)
+            .analysis_limit(opts.analysis_limit);
 
         let conn_opts = if let Some(cache) = opts.cache_size {
             conn_opts.pragma("cache_size", cache.to_string())
@@ -105,11 +110,9 @@ impl SqlitePool {
         let ro_opts = conn_opts.clone().read_only(true);
 
         // optimize can only be used on connections with write access
-        // make sure the initial limit is set and we use the limit when closing as well
-        let write_opts = if let Some(limit) = opts.analysis_limit {
-            conn_opts
-                .optimize_on_close(true, limit)
-                .analysis_limit(limit)
+        // make sure the initial limit is set above always and use the limit when closing as well
+        let write_opts = if opts.optimize {
+            conn_opts.optimize_on_close(true, opts.analysis_limit)
         } else {
             conn_opts
         };
@@ -135,7 +138,7 @@ impl SqlitePool {
         Ok(Self {
             writer,
             reader,
-            optimize_requested: opts.analysis_limit.is_some(),
+            optimize_requested: opts.optimize,
         })
     }
 

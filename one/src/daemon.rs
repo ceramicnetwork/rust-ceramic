@@ -1,8 +1,8 @@
 use std::{path::PathBuf, time::Duration};
 
 use crate::{
-    default_directory, handle_signals, http, http_metrics, metrics, network::Ipfs, DBOpts, Info,
-    LogOpts, Network,
+    default_directory, handle_signals, http, http_metrics, metrics, network::Ipfs, DBOpts,
+    DBOptsExperimental, Info, LogOpts, Network,
 };
 use anyhow::{anyhow, bail, Context, Result};
 use ceramic_anchor_remote::RemoteCas;
@@ -29,6 +29,9 @@ use tracing::{debug, error, info, warn};
 pub struct DaemonOpts {
     #[command(flatten)]
     db_opts: DBOpts,
+
+    #[command(flatten)]
+    db_experimental_opts: DBOptsExperimental,
 
     /// Path to libp2p private key directory
     #[arg(short, long, default_value=default_directory().into_os_string(), env = "CERAMIC_ONE_P2P_KEY_DIR")]
@@ -397,7 +400,10 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
     let handle = signals.handle();
 
     // Construct sqlite_pool
-    let sqlite_pool = opts.db_opts.get_sqlite_pool().await?;
+    let sqlite_pool = opts
+        .db_opts
+        .get_sqlite_pool(opts.db_experimental_opts.into())
+        .await?;
 
     let db_optimizer_handle = if sqlite_pool.optimize_requested() {
         // spawn (and run) optimize right before we start using the database (e.g. ordering events)

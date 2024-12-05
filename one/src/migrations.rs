@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use ceramic_event::unvalidated;
 use ceramic_event_svc::{BlockStore, EventService};
 use ceramic_metrics::config::Config as MetricsConfig;
+use ceramic_sql::sqlite::SqliteOpts;
 use cid::Cid;
 use clap::{Args, Subcommand};
 use futures::{stream::BoxStream, StreamExt};
@@ -110,11 +111,6 @@ impl From<&FromIpfsOpts> for DBOpts {
     fn from(value: &FromIpfsOpts) -> Self {
         Self {
             store_dir: value.output_store_path.clone(),
-            db_mmap_size: None,
-            db_cache_size: None,
-            db_max_connections: 8,
-            db_temp_store: None,
-            db_analysis_limit: 100,
         }
     }
 }
@@ -150,7 +146,7 @@ async fn from_ipfs(opts: FromIpfsOpts) -> Result<()> {
     }
     let network = opts.network.to_network(&opts.local_network_id)?;
     let db_opts: DBOpts = (&opts).into();
-    let sqlite_pool = db_opts.get_sqlite_pool().await?;
+    let sqlite_pool = db_opts.get_sqlite_pool(SqliteOpts::default()).await?;
     // TODO: feature flags here? or just remove this entirely when enabling
     let event_svc = Arc::new(EventService::try_new(sqlite_pool, false, false, vec![]).await?);
     let blocks = FSBlockStore {
