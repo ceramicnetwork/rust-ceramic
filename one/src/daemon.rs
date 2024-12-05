@@ -329,13 +329,11 @@ fn spawn_database_optimizer(
         let mut duration = std::time::Duration::from_secs(60 * 60 * 24); // once daily
         loop {
             // recreate interval in case it's been shortened due to error
-            let mut interval = tokio::time::interval(duration);
-            interval.tick().await; // first tick is immediate
             tokio::select! {
                 _ = shutdown.recv() => {
                     break;
                 }
-                _ = interval.tick() => {
+                _ = tokio::time::sleep(duration) => {
                     // optimize and start the loop over
                 }
             }
