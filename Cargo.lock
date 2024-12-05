@@ -374,7 +374,7 @@ checksum = "4d0f2d905ebd295e7effec65e5f6868d153936130ae718352771de3e7d03c75c"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -466,7 +466,7 @@ dependencies = [
  "proc-macro-error2",
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -482,7 +482,7 @@ dependencies = [
  "proc-macro-error2",
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
  "syn-solidity",
  "tiny-keccak",
 ]
@@ -498,7 +498,7 @@ dependencies = [
  "heck 0.5.0",
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
  "syn-solidity",
 ]
 
@@ -788,9 +788,9 @@ checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
 
 [[package]]
 name = "arrow"
-version = "53.2.0"
+version = "53.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4caf25cdc4a985f91df42ed9e9308e1adbcd341a31a72605c697033fcef163e3"
+checksum = "c91839b07e474b3995035fd8ac33ee54f9c9ccbbb1ea33d9909c71bffdf1259d"
 dependencies = [
  "arrow-arith",
  "arrow-array",
@@ -809,8 +809,9 @@ dependencies = [
 
 [[package]]
 name = "arrow-arith"
-version = "53.2.0"
-source = "git+https://github.com/apache/arrow-rs.git?branch=master#e907bf8e3df5cd8cba8b5f761f9291f2ec0c2730"
+version = "53.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "855c57c4efd26722b044dcd3e348252560e3e0333087fb9f6479dc0bf744054f"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -823,8 +824,9 @@ dependencies = [
 
 [[package]]
 name = "arrow-array"
-version = "53.2.0"
-source = "git+https://github.com/apache/arrow-rs.git?branch=master#e907bf8e3df5cd8cba8b5f761f9291f2ec0c2730"
+version = "53.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bd03279cea46569acf9295f6224fbc370c5df184b4d2ecfe97ccb131d5615a7f"
 dependencies = [
  "ahash 0.8.11",
  "arrow-buffer",
@@ -839,8 +841,9 @@ dependencies = [
 
 [[package]]
 name = "arrow-buffer"
-version = "53.2.0"
-source = "git+https://github.com/apache/arrow-rs.git?branch=master#e907bf8e3df5cd8cba8b5f761f9291f2ec0c2730"
+version = "53.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e4a9b9b1d6d7117f6138e13bc4dd5daa7f94e671b70e8c9c4dc37b4f5ecfc16"
 dependencies = [
  "bytes 1.7.2",
  "half 2.4.1",
@@ -849,8 +852,9 @@ dependencies = [
 
 [[package]]
 name = "arrow-cast"
-version = "53.2.0"
-source = "git+https://github.com/apache/arrow-rs.git?branch=master#e907bf8e3df5cd8cba8b5f761f9291f2ec0c2730"
+version = "53.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc70e39916e60c5b7af7a8e2719e3ae589326039e1e863675a008bee5ffe90fd"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -869,9 +873,9 @@ dependencies = [
 
 [[package]]
 name = "arrow-csv"
-version = "53.2.0"
+version = "53.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c07b5232be87d115fde73e32f2ca7f1b353bff1b44ac422d3c6fc6ae38f11f0d"
+checksum = "789b2af43c1049b03a8d088ff6b2257cdcea1756cd76b174b1f2600356771b97"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -888,8 +892,9 @@ dependencies = [
 
 [[package]]
 name = "arrow-data"
-version = "53.2.0"
-source = "git+https://github.com/apache/arrow-rs.git?branch=master#e907bf8e3df5cd8cba8b5f761f9291f2ec0c2730"
+version = "53.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e4e75edf21ffd53744a9b8e3ed11101f610e7ceb1a29860432824f1834a1f623"
 dependencies = [
  "arrow-buffer",
  "arrow-schema",
@@ -899,8 +904,9 @@ dependencies = [
 
 [[package]]
 name = "arrow-flight"
-version = "53.2.0"
-source = "git+https://github.com/apache/arrow-rs.git?branch=master#e907bf8e3df5cd8cba8b5f761f9291f2ec0c2730"
+version = "53.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c09b331887a526f203f2123444792aee924632bd08b9940435070901075832e"
 dependencies = [
  "arrow-arith",
  "arrow-array",
@@ -926,8 +932,9 @@ dependencies = [
 
 [[package]]
 name = "arrow-ipc"
-version = "53.2.0"
-source = "git+https://github.com/apache/arrow-rs.git?branch=master#e907bf8e3df5cd8cba8b5f761f9291f2ec0c2730"
+version = "53.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d186a909dece9160bf8312f5124d797884f608ef5435a36d9d608e0b2a9bcbf8"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -940,9 +947,9 @@ dependencies = [
 
 [[package]]
 name = "arrow-json"
-version = "53.2.0"
+version = "53.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0471f51260a5309307e5d409c9dc70aede1cd9cf1d4ff0f0a1e8e1a2dd0e0d3c"
+checksum = "b66ff2fedc1222942d0bd2fd391cb14a85baa3857be95c9373179bd616753b85"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -960,8 +967,9 @@ dependencies = [
 
 [[package]]
 name = "arrow-ord"
-version = "53.2.0"
-source = "git+https://github.com/apache/arrow-rs.git?branch=master#e907bf8e3df5cd8cba8b5f761f9291f2ec0c2730"
+version = "53.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ece7b5bc1180e6d82d1a60e1688c199829e8842e38497563c3ab6ea813e527fd"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -974,8 +982,9 @@ dependencies = [
 
 [[package]]
 name = "arrow-row"
-version = "53.2.0"
-source = "git+https://github.com/apache/arrow-rs.git?branch=master#e907bf8e3df5cd8cba8b5f761f9291f2ec0c2730"
+version = "53.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "745c114c8f0e8ce211c83389270de6fbe96a9088a7b32c2a041258a443fe83ff"
 dependencies = [
  "ahash 0.8.11",
  "arrow-array",
@@ -987,13 +996,15 @@ dependencies = [
 
 [[package]]
 name = "arrow-schema"
-version = "53.2.0"
-source = "git+https://github.com/apache/arrow-rs.git?branch=master#e907bf8e3df5cd8cba8b5f761f9291f2ec0c2730"
+version = "53.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b95513080e728e4cec37f1ff5af4f12c9688d47795d17cda80b6ec2cf74d4678"
 
 [[package]]
 name = "arrow-select"
-version = "53.2.0"
-source = "git+https://github.com/apache/arrow-rs.git?branch=master#e907bf8e3df5cd8cba8b5f761f9291f2ec0c2730"
+version = "53.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e415279094ea70323c032c6e739c48ad8d80e78a09bef7117b8718ad5bf3722"
 dependencies = [
  "ahash 0.8.11",
  "arrow-array",
@@ -1005,8 +1016,9 @@ dependencies = [
 
 [[package]]
 name = "arrow-string"
-version = "53.2.0"
-source = "git+https://github.com/apache/arrow-rs.git?branch=master#e907bf8e3df5cd8cba8b5f761f9291f2ec0c2730"
+version = "53.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11d956cae7002eb8d83a27dbd34daaea1cf5b75852f0b84deb4d93a276e92bbf"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -1080,7 +1092,7 @@ checksum = "965c2d33e53cb6b267e148a4cb0760bc01f4904c1cd4bb4002a085bb016d1490"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
  "synstructure 0.13.1",
 ]
 
@@ -1103,7 +1115,7 @@ checksum = "7b18050c2cd6fe86c3a76584ef5e0baf286d038cda203eb6223df2cc413565f7"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -1309,7 +1321,7 @@ checksum = "3b43422f69d8ff38f95f1b2bb76517c91589a924d1559a0e935d7c8ce0274c11"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -1376,7 +1388,7 @@ checksum = "16e62a023e7c117e27523144c5d2459f4397fcc3cab0085af8e2224f643a0193"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -1393,7 +1405,7 @@ checksum = "721cae7de5c34fbb2acd27e21e6d2cf7b886dce0c27388d46c4e6c47ea4318dd"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -1470,7 +1482,7 @@ checksum = "3c87f3f15e7794432337fc718554eaa4dc8f04c9677a950ffe366f20a162ae42"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -2799,7 +2811,7 @@ dependencies = [
  "heck 0.5.0",
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -3210,7 +3222,7 @@ checksum = "f46882e17999c6cc590af592290432be3bce0428cb0d5f8b6715e4dc7b383eb3"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -3297,7 +3309,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "strsim 0.11.1",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -3330,7 +3342,7 @@ checksum = "d336a2a514f6ccccaa3e09b02d41d35330c07ddf03a62165fcec10bb561c7806"
 dependencies = [
  "darling_core 0.20.10",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -3540,7 +3552,7 @@ dependencies = [
 [[package]]
 name = "datafusion-federation"
 version = "0.3.1"
-source = "git+https://github.com/nathanielc/datafusion-federation.git?branch=feat/put-prepared#7f48c8b0d4ac93cad547a496f844eed945f2c0a1"
+source = "git+https://github.com/datafusion-contrib/datafusion-federation.git?branch=main#c50ad3dc955b2a3008b24e87c4bcefcb7050260b"
 dependencies = [
  "arrow-json",
  "async-stream",
@@ -3551,8 +3563,8 @@ dependencies = [
 
 [[package]]
 name = "datafusion-flight-sql-server"
-version = "0.4.1"
-source = "git+https://github.com/nathanielc/datafusion-federation.git?branch=feat/put-prepared#7f48c8b0d4ac93cad547a496f844eed945f2c0a1"
+version = "0.4.2"
+source = "git+https://github.com/datafusion-contrib/datafusion-federation.git?branch=main#c50ad3dc955b2a3008b24e87c4bcefcb7050260b"
 dependencies = [
  "arrow",
  "arrow-flight",
@@ -3971,7 +3983,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "rustc_version 0.4.1",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -3991,7 +4003,7 @@ checksum = "cb7330aeadfbe296029522e6c40f315320aba36fc43a5b3632f3795348f3bd22"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
  "unicode-xid",
 ]
 
@@ -4089,7 +4101,7 @@ checksum = "97369cbbc041bc366949bc74d34658d6cda5621039731c6310521892a3a20ae0"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -4283,7 +4295,7 @@ dependencies = [
  "heck 0.5.0",
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -4691,7 +4703,7 @@ checksum = "162ee34ebcb7c64a8abebc059ce0fee27c2262618d7b60ed8faf72fef13c3650"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -4836,7 +4848,7 @@ checksum = "53010ccb100b96a67bc32c0175f0ed1426b31b655d562898e57325f81c023ac0"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -5269,7 +5281,7 @@ dependencies = [
  "httpdate",
  "itoa",
  "pin-project-lite",
- "socket2 0.5.7",
+ "socket2 0.4.10",
  "tokio",
  "tower-service",
  "tracing",
@@ -6926,7 +6938,7 @@ dependencies = [
  "heck 0.5.0",
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -7471,7 +7483,7 @@ dependencies = [
  "proc-macro-error",
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
  "synstructure 0.13.1",
 ]
 
@@ -7824,7 +7836,7 @@ checksum = "af1844ef2428cc3e1cb900be36181049ef3d3193c63e43026cfe202983b27a56"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -7928,7 +7940,7 @@ checksum = "a948666b637a0f465e8564c73e89d4dde00d72d4d473cc972f390fc3dcee7d9c"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -8138,9 +8150,9 @@ dependencies = [
 
 [[package]]
 name = "parquet"
-version = "53.2.0"
+version = "53.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dea02606ba6f5e856561d8d507dba8bac060aefca2a6c0f1aa1d361fed91ff3e"
+checksum = "2b449890367085eb65d7d3321540abc3d7babbd179ce31df0016e90719114191"
 dependencies = [
  "ahash 0.8.11",
  "arrow-array",
@@ -8157,7 +8169,7 @@ dependencies = [
  "flate2",
  "futures",
  "half 2.4.1",
- "hashbrown 0.14.5",
+ "hashbrown 0.15.1",
  "lz4_flex",
  "num",
  "num-bigint",
@@ -8379,7 +8391,7 @@ checksum = "2f38a4412a78282e09a2cf38d195ea5420d15ba0602cb375210efbc877243965"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -8642,7 +8654,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "64d1ec885c64d0457d564db4ec299b2dae3f9c02808b8ad9c3a089c591b18033"
 dependencies = [
  "proc-macro2",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -8752,14 +8764,14 @@ dependencies = [
  "proc-macro-error-attr2",
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.86"
+version = "1.0.92"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e719e8df665df0d1c8fbfd238015744736151d4445ec0836b8e628aae103b77"
+checksum = "37d3544b3f2748c54e147655edb5025752e2303145b5aefb3c3ea2c78b973bb0"
 dependencies = [
  "unicode-ident",
 ]
@@ -8790,7 +8802,7 @@ checksum = "440f724eba9f6996b75d63681b0a92b06947f1457076d503a4d2e2c8f56442b8"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -8851,7 +8863,7 @@ checksum = "0c1318b19085f08681016926435853bbf7858f9c082d0999b80550ff5d9abe15"
 dependencies = [
  "bytes 1.7.2",
  "heck 0.5.0",
- "itertools 0.13.0",
+ "itertools 0.11.0",
  "log",
  "multimap",
  "once_cell",
@@ -8860,7 +8872,7 @@ dependencies = [
  "prost 0.13.3",
  "prost-types",
  "regex",
- "syn 2.0.87",
+ "syn 2.0.90",
  "tempfile",
 ]
 
@@ -8887,7 +8899,7 @@ dependencies = [
  "itertools 0.12.1",
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -8897,10 +8909,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e9552f850d5f0964a4e4d0bf306459ac29323ddfbae05e35a7c0d35cb0803cc5"
 dependencies = [
  "anyhow",
- "itertools 0.13.0",
+ "itertools 0.11.0",
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -9836,7 +9848,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "serde_derive_internals",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -9993,7 +10005,7 @@ checksum = "ad1e866f866923f252f05c889987993144fb74e722403468a4ebd70c3cd756c0"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -10004,7 +10016,7 @@ checksum = "18d26a20a969b9e3fdf2fc2d9f21eda6c40e2de84c9408bb5d3b05d499aae711"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -10080,7 +10092,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "serde",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -10143,7 +10155,7 @@ dependencies = [
  "darling 0.20.10",
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -10393,7 +10405,7 @@ dependencies = [
  "heck 0.5.0",
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -10527,7 +10539,7 @@ checksum = "01b2e185515564f15375f593fb966b5718bc624ba77fe49fa4616ad619690554"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -11173,7 +11185,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "rustversion",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -11196,7 +11208,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
- "syn 2.0.87",
+ "syn 2.0.90",
  "typify",
  "walkdir",
 ]
@@ -11240,9 +11252,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "2.0.87"
+version = "2.0.90"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25aa4ce346d03a6dcd68dd8b4010bcb74e54e62c90c573f394c46eae99aba32d"
+checksum = "919d3b74a5dd0ccd15aeb8f93e7006bd9e14c295087c9896a110f490752bcf31"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -11258,7 +11270,7 @@ dependencies = [
  "paste",
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -11296,7 +11308,7 @@ checksum = "c8af7666ab7b6390ab78131fb5b0fce11d6b7a6951602017c35fa82800708971"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -11407,7 +11419,7 @@ checksum = "5999e24eaa32083191ba4e425deb75cdf25efefabe5aaccb7446dd0d4122a3f5"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -11450,7 +11462,7 @@ checksum = "08904e7672f5eb876eaaf87e0ce17857500934f4981c4a0ab2b4aa98baac7fc3"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -11647,7 +11659,7 @@ checksum = "693d596312e88961bc67d7f1f97af8a70227d9f90c31bba5806eec004978d752"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -11913,7 +11925,7 @@ checksum = "34704c8d6ebcbc939824180af020566b01a7c01f80641264eba0999f6c2b6be7"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -12039,7 +12051,7 @@ dependencies = [
  "semver 1.0.23",
  "serde",
  "serde_json",
- "syn 2.0.87",
+ "syn 2.0.90",
  "thiserror",
  "unicode-ident",
 ]
@@ -12057,7 +12069,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_tokenstream",
- "syn 2.0.87",
+ "syn 2.0.90",
  "typify-impl",
 ]
 
@@ -12399,7 +12411,7 @@ dependencies = [
  "once_cell",
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
  "wasm-bindgen-shared",
 ]
 
@@ -12433,7 +12445,7 @@ checksum = "afc340c74d9005395cf9dd098506f7f44e38f2b4a21c6aaacf9a105ea5e1e836"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
  "wasm-bindgen-backend",
  "wasm-bindgen-shared",
 ]
@@ -12522,7 +12534,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -12899,7 +12911,7 @@ checksum = "fa4f8080344d4671fb4e831a13ad1e68092748387dfc4f55e356242fae12ce3e"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -12919,7 +12931,7 @@ checksum = "ce36e65b0d2999d2aafac989fb249189a141aee1f53c612c1f37d72631959f69"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 2.0.90",
 ]
 
 [[package]]
