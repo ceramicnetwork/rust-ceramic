@@ -698,7 +698,7 @@ impl OrderingState {
                 if iter_cnt > max_iterations {
                     warn!(%batch_size, iterations=%iter_cnt, %task_id, "Exceeded max iterations for finding undelivered events!");
                 }
-                info!(%task_id, "Finished processing undelivered events");
+                debug!(%task_id, "Finished processing undelivered events");
                 Ok(())
             });
         }
