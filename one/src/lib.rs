@@ -207,11 +207,13 @@ struct DBOptsExperimental {
     /// Use the negative version, which represents Kib e.g. -20000 = 20 Mb
     /// Or the postive version, representing pages
     /// None means the default is used.
+    /// Requires using the experimental-features flag
     db_cache_size: Option<i64>,
     /// Used for pragma mmap_size
     /// 10737418240: 10 GB of memory mapped IO
     /// if this is slightly bigger than your db file it can improve read performance
     /// Set to 0 to disable. None is the default
+    /// Requires using the experimental-features flag
     #[arg(
         long,
         env = "CERAMIC_ONE_DB_MMAP_SIZE",
@@ -219,6 +221,7 @@ struct DBOptsExperimental {
     )]
     db_mmap_size: Option<u64>,
     /// The maximum number of read only connections in the pool
+    /// Requires using the experimental-features flag
     #[arg(
         long,
         default_value = "8",
@@ -227,6 +230,7 @@ struct DBOptsExperimental {
     )]
     db_max_connections: u32,
     /// The sqlite temp_store value to use
+    /// Requires using the experimental-features flag
     #[arg(
         long,
         env = "CERAMIC_ONE_DB_TEMP_STORE",
@@ -237,6 +241,7 @@ struct DBOptsExperimental {
     /// Values between 100 and 1000 are recommended, with lower values doing less work.
     /// Or, to disable the analysis limit, causing ANALYZE to do a complete scan of each index, set the analysis limit to 0.
     /// This MAY take extemely long (minutes to hours) on very large databases.
+    /// Requires using the experimental-features flag
     #[arg(
         long,
         default_value = "1000",
@@ -249,6 +254,7 @@ struct DBOptsExperimental {
     /// If it's set, optimize is run immediately and daily in the background.
     /// Will use the `analysis_limit` to control how much work is done.
     /// It shouldn't, but it's possible this may take a long time on very large databases.
+    /// Requires using the experimental-features flag
     #[arg(
         long,
         default_value = "true",
@@ -263,8 +269,7 @@ impl From<DBOptsExperimental> for SqliteOpts {
         Self {
             cache_size: value.db_cache_size,
             mmap_size: value.db_mmap_size,
-            max_ro_connections: value
-                .db_max_connections,
+            max_ro_connections: value.db_max_connections,
             temp_store: value.db_temp_store.map(|v| v.into()),
             analysis_limit: value.db_analysis_limit,
             optimize: value.db_optimize,

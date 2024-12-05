@@ -182,7 +182,7 @@ pub struct DaemonOpts {
     )]
     flight_sql_bind_address: Option<String>,
 
-    /// Remote anchor service URL
+    /// Remote anchor service URL. Requires using the experimental-features flag
     #[arg(
         long,
         env = "CERAMIC_ONE_REMOTE_ANCHOR_SERVICE_URL",
@@ -193,6 +193,7 @@ pub struct DaemonOpts {
     /// Ceramic One anchor interval in seconds
     ///
     /// The interval between building a tree for all unanchored events and sending to a CAS
+    /// Requires using the experimental-features flag
     #[arg(
         long,
         default_value_t = 3600,
@@ -202,6 +203,7 @@ pub struct DaemonOpts {
     anchor_interval: u64,
 
     /// Ceramic One anchor batch size
+    /// Requires using the experimental-features flag
     #[arg(
         long,
         default_value_t = 1_000_000,
@@ -214,6 +216,7 @@ pub struct DaemonOpts {
     /// Ceramic One anchor polling interval in seconds
     ///
     /// The interval between requests to cas to determine if the chain transaction is completed.
+    /// Requires using the experimental-features flag
     #[arg(
         long,
         default_value_t = 300,
@@ -224,6 +227,7 @@ pub struct DaemonOpts {
     anchor_poll_interval: u64,
 
     /// Ceramic One anchor polling retry count
+    /// Requires using the experimental-features flag
     #[arg(
         long,
         default_value_t = 12,
