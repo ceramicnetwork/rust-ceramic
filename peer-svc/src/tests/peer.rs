@@ -184,11 +184,11 @@ async fn double_insert<S>(store: &S)
 where
     S: recon::Store<Key = PeerKey, Hash = Sha256a>,
 {
-    let interest = random_peer_key(None);
+    let peer = random_peer_key(None);
     // do take the first one
     assert!(&recon::Store::insert_many(
         store,
-        &[ReconItem::new(interest.clone(), Vec::new())],
+        &[ReconItem::new(peer.clone(), Vec::new())],
         NodeKey::random().id(),
     )
     .await
@@ -198,7 +198,7 @@ where
     // reject the second insert of same key
     assert!(!recon::Store::insert_many(
         store,
-        &[ReconItem::new(interest.clone(), Vec::new())],
+        &[ReconItem::new(peer.clone(), Vec::new())],
         NodeKey::random().id(),
     )
     .await
