@@ -207,6 +207,32 @@ pub enum LivenessOptionsResponse {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[must_use]
+pub enum PeersGetResponse {
+    /// success
+    Success(models::Peers),
+    /// Internal server error
+    InternalServerError(models::ErrorResponse),
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub enum PeersOptionsResponse {
+    /// cors
+    Cors,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[must_use]
+pub enum PeersPostResponse {
+    /// success
+    Success,
+    /// bad request
+    BadRequest(models::BadRequestResponse),
+    /// Internal server error
+    InternalServerError(models::ErrorResponse),
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[must_use]
 pub enum StreamsStreamIdGetResponse {
     /// success
     Success(models::StreamState),
@@ -391,6 +417,23 @@ pub trait Api<C: Send + Sync> {
     /// cors
     async fn liveness_options(&self, context: &C) -> Result<LivenessOptionsResponse, ApiError>;
 
+    /// Get list of connected peers
+    async fn peers_get(&self, context: &C) -> Result<PeersGetResponse, ApiError>;
+
+    /// cors
+    async fn peers_options(
+        &self,
+        addresses: &Vec<String>,
+        context: &C,
+    ) -> Result<PeersOptionsResponse, ApiError>;
+
+    /// Connect to a peer
+    async fn peers_post(
+        &self,
+        addresses: &Vec<String>,
+        context: &C,
+    ) -> Result<PeersPostResponse, ApiError>;
+
     /// Get stream state
     async fn streams_stream_id_get(
         &self,
@@ -536,6 +579,18 @@ pub trait ApiNoContext<C: Send + Sync> {
 
     /// cors
     async fn liveness_options(&self) -> Result<LivenessOptionsResponse, ApiError>;
+
+    /// Get list of connected peers
+    async fn peers_get(&self) -> Result<PeersGetResponse, ApiError>;
+
+    /// cors
+    async fn peers_options(
+        &self,
+        addresses: &Vec<String>,
+    ) -> Result<PeersOptionsResponse, ApiError>;
+
+    /// Connect to a peer
+    async fn peers_post(&self, addresses: &Vec<String>) -> Result<PeersPostResponse, ApiError>;
 
     /// Get stream state
     async fn streams_stream_id_get(
@@ -777,6 +832,27 @@ impl<T: Api<C> + Send + Sync, C: Clone + Send + Sync> ApiNoContext<C> for Contex
     async fn liveness_options(&self) -> Result<LivenessOptionsResponse, ApiError> {
         let context = self.context().clone();
         self.api().liveness_options(&context).await
+    }
+
+    /// Get list of connected peers
+    async fn peers_get(&self) -> Result<PeersGetResponse, ApiError> {
+        let context = self.context().clone();
+        self.api().peers_get(&context).await
+    }
+
+    /// cors
+    async fn peers_options(
+        &self,
+        addresses: &Vec<String>,
+    ) -> Result<PeersOptionsResponse, ApiError> {
+        let context = self.context().clone();
+        self.api().peers_options(addresses, &context).await
+    }
+
+    /// Connect to a peer
+    async fn peers_post(&self, addresses: &Vec<String>) -> Result<PeersPostResponse, ApiError> {
+        let context = self.context().clone();
+        self.api().peers_post(addresses, &context).await
     }
 
     /// Get stream state

@@ -2137,6 +2137,7 @@ dependencies = [
  "ipld-core",
  "jemalloc_pprof",
  "mockall",
+ "multiaddr",
  "multibase 0.9.1",
  "object_store",
  "recon",
