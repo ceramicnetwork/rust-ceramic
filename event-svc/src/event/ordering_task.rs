@@ -66,13 +66,15 @@ impl OrderingTask {
                 trace!(?recon_events, "new events discovered!");
                 state.add_inserted_events(recon_events);
 
-                if state
+                if let Err(should_exit) = state
                     .process_streams(Arc::clone(&event_access))
                     .await
                     .map_err(Self::log_error)
-                    .is_err()
                 {
-                    return;
+                    if should_exit {
+                        error!("Ordering task exiting due to fatal error");
+                        return;
+                    }
                 }
             }
         }
@@ -83,20 +85,20 @@ impl OrderingTask {
             .map_err(Self::log_error);
     }
 
-    /// Log an error and return a result that can be used to stop the task if it was fatal
-    fn log_error(err: Error) -> std::result::Result<(), ()> {
+    /// Log an error and return a true if it was fatal
+    fn log_error(err: Error) -> bool {
         match err {
             Error::Application { error } => {
                 warn!("Encountered application error: {:?}", error);
-                Ok(())
+                false
             }
             Error::Fatal { error } => {
                 error!("Encountered fatal error: {:?}", error);
-                Err(())
+                true
             }
             Error::Transient { error } | Error::InvalidArgument { error } => {
-                info!("Encountered error: {:?}", error);
-                Ok(())
+                warn!("Encountered error: {:?}", error);
+                false
             }
         }
     }

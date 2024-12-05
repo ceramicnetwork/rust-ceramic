@@ -1,8 +1,8 @@
 use std::{path::PathBuf, time::Duration};
 
 use crate::{
-    default_directory, handle_signals, http, http_metrics, metrics, network::Ipfs, DBOpts, Info,
-    LogOpts, Network,
+    default_directory, handle_signals, http, http_metrics, metrics, network::Ipfs, DBOpts,
+    DBOptsExperimental, Info, LogOpts, Network,
 };
 use anyhow::{anyhow, bail, Context, Result};
 use ceramic_anchor_remote::RemoteCas;
@@ -30,6 +30,9 @@ use tracing::{debug, error, info, warn};
 pub struct DaemonOpts {
     #[command(flatten)]
     db_opts: DBOpts,
+
+    #[command(flatten)]
+    db_experimental_opts: DBOptsExperimental,
 
     /// Path to libp2p private key directory
     #[arg(short, long, default_value=default_directory().into_os_string(), env = "CERAMIC_ONE_P2P_KEY_DIR")]
@@ -181,7 +184,7 @@ pub struct DaemonOpts {
     )]
     flight_sql_bind_address: Option<String>,
 
-    /// Remote anchor service URL
+    /// Remote anchor service URL. Requires using the experimental-features flag
     #[arg(
         long,
         env = "CERAMIC_ONE_REMOTE_ANCHOR_SERVICE_URL",
@@ -192,6 +195,7 @@ pub struct DaemonOpts {
     /// Ceramic One anchor interval in seconds
     ///
     /// The interval between building a tree for all unanchored events and sending to a CAS
+    /// Requires using the experimental-features flag
     #[arg(
         long,
         default_value_t = 3600,
@@ -201,6 +205,7 @@ pub struct DaemonOpts {
     anchor_interval: u64,
 
     /// Ceramic One anchor batch size
+    /// Requires using the experimental-features flag
     #[arg(
         long,
         default_value_t = 1_000_000,
@@ -213,6 +218,7 @@ pub struct DaemonOpts {
     /// Ceramic One anchor polling interval in seconds
     ///
     /// The interval between requests to cas to determine if the chain transaction is completed.
+    /// Requires using the experimental-features flag
     #[arg(
         long,
         default_value_t = 300,
@@ -223,6 +229,7 @@ pub struct DaemonOpts {
     anchor_poll_interval: u64,
 
     /// Ceramic One anchor polling retry count
+    /// Requires using the experimental-features flag
     #[arg(
         long,
         default_value_t = 12,
@@ -333,11 +340,21 @@ fn spawn_database_optimizer(
     mut shutdown: tokio::sync::broadcast::Receiver<()>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
+        let mut duration = std::time::Duration::from_secs(60 * 60 * 24); // once daily
         loop {
-            let mut duration = std::time::Duration::from_secs(60 * 60 * 24); // once daily
-            match sqlite_pool.optimize().await {
+            // recreate interval in case it's been shortened due to error
+            tokio::select! {
+                _ = shutdown.recv() => {
+                    break;
+                }
+                _ = tokio::time::sleep(duration) => {
+                    // optimize and start the loop over
+                }
+            }
+            match sqlite_pool.optimize(false).await {
                 Ok(_) => {
                     info!("successfully executed database optimize");
+                    duration = std::time::Duration::from_secs(60 * 60 * 24);
                 }
                 Err(e) => {
                     duration = std::time::Duration::from_secs(60 * 5); // try again in 5 minutes
@@ -345,16 +362,6 @@ fn spawn_database_optimizer(
                         "failed to execute database optimize. trying again in {:?}: {e}",
                         duration
                     );
-                }
-            }
-            let mut interval = tokio::time::interval(duration);
-            interval.tick().await; // first tick is immediate
-            tokio::select! {
-                _ = shutdown.recv() => {
-                    break;
-                }
-                _ = interval.tick() => {
-                    // start the loop over
                 }
             }
         }
@@ -405,11 +412,20 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
     let handle = signals.handle();
 
     // Construct sqlite_pool
-    let sqlite_pool = opts.db_opts.get_sqlite_pool().await?;
+    let sqlite_pool = opts
+        .db_opts
+        .get_sqlite_pool(opts.db_experimental_opts.into())
+        .await?;
 
-    // spawn (and run) optimize right before we start using the database (e.g. ordering events)
-    let ss = shutdown_signal.resubscribe();
-    let db_optimizer_handle = spawn_database_optimizer(sqlite_pool.clone(), ss);
+    let db_optimizer_handle = if sqlite_pool.optimize_requested() {
+        // spawn (and run) optimize right before we start using the database (e.g. ordering events)
+        info!("running initial sqlite database optimize, this may take quite a while on large databases.");
+        sqlite_pool.optimize(true).await?;
+        let ss = shutdown_signal.resubscribe();
+        Some(spawn_database_optimizer(sqlite_pool.clone(), ss))
+    } else {
+        None
+    };
 
     let rpc_providers = get_eth_rpc_providers(opts.ethereum_rpc_urls, &opts.network).await?;
 
@@ -763,7 +779,9 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
     if let Some(anchor_service_handle) = anchor_service_handle {
         let _ = anchor_service_handle.await;
     }
-    let _ = db_optimizer_handle.await;
+    if let Some(db_optimizer_handle) = db_optimizer_handle {
+        let _ = db_optimizer_handle.await;
+    };
 
     Ok(())
 }

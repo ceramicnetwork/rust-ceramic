@@ -23,38 +23,108 @@ pub enum Migrations {
 pub struct SqlitePool {
     writer: sqlx::SqlitePool,
     reader: sqlx::SqlitePool,
+    optimize_requested: bool,
+}
+
+#[derive(Clone, Debug, Copy, PartialEq, Eq)]
+pub enum SqliteTempStore {
+    Default,
+    File,
+    Memory,
+}
+
+impl SqliteTempStore {
+    fn pragma_value(self) -> String {
+        match self {
+            SqliteTempStore::Default => 0.to_string(),
+            SqliteTempStore::File => 1.to_string(),
+            SqliteTempStore::Memory => 2.to_string(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct SqliteOpts {
+    /// Value to use for the sqlite cache_size pragma
+    /// Use the negative version, which represents Kib e.g. 20000 = 20 Mb
+    /// Or the postive version, representing pages
+    /// None means the default is used.
+    pub cache_size: Option<i64>,
+    /// Used for pragma mmap_size
+    /// 10737418240: 10 GB of memory mapped IO
+    /// Set to 0 to disable. None is the default
+    pub mmap_size: Option<u64>,
+    /// Number of connections in the read only pool (default 8)
+    pub max_ro_connections: u32,
+    pub temp_store: Option<SqliteTempStore>,
+    /// The analysis limit to use for optimize/analysis.
+    /// 0 means no limit.
+    /// Recommended values are 100-1000 (higher meaning do more work).
+    /// Defaults to 1000.
+    pub analysis_limit: u32,
+    /// Whether or not optimize should be run. Uses `analysis_limit`
+    /// if set to adjust how much work is done.
+    pub optimize: bool,
+}
+
+impl Default for SqliteOpts {
+    fn default() -> Self {
+        Self {
+            mmap_size: None,
+            cache_size: None,
+            max_ro_connections: 8,
+            temp_store: None,
+            analysis_limit: 1000,
+            optimize: true,
+        }
+    }
 }
 
 impl SqlitePool {
     /// Connect to the sqlite database at the given path. Creates the database if it does not exist.
     /// Uses WAL journal mode.
-    pub async fn connect(path: &str, migrate: Migrations) -> Result<Self> {
-        // As we benchmark, we will likely adjust settings and make things configurable.
-        // A few ideas: number of RO connections, mmap_size, temp_store = memory
+    pub async fn connect(path: &str, opts: SqliteOpts, migrate: Migrations) -> Result<Self> {
         let conn_opts = SqliteConnectOptions::from_str(path)?
             .journal_mode(SqliteJournalMode::Wal)
             .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
             .create_if_missing(true)
-            .optimize_on_close(true, None)
-            .foreign_keys(true);
+            .foreign_keys(true)
+            .analysis_limit(opts.analysis_limit);
+
+        let conn_opts = if let Some(cache) = opts.cache_size {
+            conn_opts.pragma("cache_size", cache.to_string())
+        } else {
+            conn_opts
+        };
+        let conn_opts = if let Some(mmap) = opts.mmap_size {
+            conn_opts.pragma("mmap_size", mmap.to_string())
+        } else {
+            conn_opts
+        };
+        let conn_opts = if let Some(temp) = opts.temp_store {
+            conn_opts.pragma("temp_store", temp.pragma_value())
+        } else {
+            conn_opts
+        };
 
         let ro_opts = conn_opts.clone().read_only(true);
-        let write_opts = conn_opts
-            // Recommended practice is that applications with long-lived database connections should run "PRAGMA optimize=0x10002"
-            // when the database connection first opens, then run "PRAGMA optimize" again at periodic intervals - perhaps once per day
-            // https://www.sqlite.org/pragma.html#pragma_optimize
-            .pragma("optimize", "0x10002");
+
+        // optimize can only be used on connections with write access
+        // make sure the initial limit is set above always and use the limit when closing as well
+        let write_opts = if opts.optimize {
+            conn_opts.optimize_on_close(true, opts.analysis_limit)
+        } else {
+            conn_opts
+        };
 
         let writer = SqlitePoolOptions::new()
             .min_connections(1)
             .max_connections(1)
-            .acquire_timeout(std::time::Duration::from_secs(5))
             .connect_with(write_opts)
             .await?;
         let reader = SqlitePoolOptions::new()
             .min_connections(1)
-            .max_connections(8)
-            .acquire_timeout(std::time::Duration::from_secs(5))
+            .max_connections(opts.max_ro_connections)
             .connect_with(ro_opts)
             .await?;
 
@@ -65,18 +135,35 @@ impl SqlitePool {
                 .map_err(sqlx::Error::from)?;
         }
 
-        Ok(Self { writer, reader })
+        Ok(Self {
+            writer,
+            reader,
+            optimize_requested: opts.optimize,
+        })
     }
 
     /// Creates an in-memory database. Useful for testing. Automatically applies migrations since all memory databases start empty
     /// and are not shared between connections.
     pub async fn connect_in_memory() -> Result<Self> {
-        SqlitePool::connect(":memory:", Migrations::Apply).await
+        SqlitePool::connect(":memory:", SqliteOpts::default(), Migrations::Apply).await
+    }
+
+    pub fn optimize_requested(&self) -> bool {
+        self.optimize_requested
     }
 
     /// run pragma optimize. recommended once per day for long running applications
-    pub async fn optimize(&self) -> Result<()> {
-        sqlx::query("pragma optimize").execute(&self.writer).await?;
+    /// if startup is true, will use recommended `0x10002` (Run ANALYZE on tables that might benefit)
+    /// Recommended practice is that applications with long-lived database connections should run "PRAGMA optimize=0x10002"
+    /// when the database connection first opens, then run "PRAGMA optimize" again at periodic intervals - perhaps once per day
+    /// https://www.sqlite.org/pragma.html#pragma_optimize
+    pub async fn optimize(&self, startup: bool) -> Result<()> {
+        let stmt = if startup {
+            "PRAGMA optimize=0x10002"
+        } else {
+            "PRAGMA optimize"
+        };
+        sqlx::query(stmt).execute(&self.writer).await?;
         Ok(())
     }
 

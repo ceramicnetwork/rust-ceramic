@@ -12,7 +12,7 @@ mod query;
 use anyhow::{anyhow, Result};
 use ceramic_core::ssi::caip2::ChainId;
 use ceramic_metrics::config::Config as MetricsConfig;
-use ceramic_sql::sqlite::SqlitePool;
+use ceramic_sql::sqlite::{SqliteOpts, SqlitePool};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use futures::StreamExt;
 use libp2p::Multiaddr;
@@ -42,6 +42,27 @@ enum Command {
     Migrations(migrations::EventsCommand),
     /// Run an interactive SQL REPL to inspect local data.
     Query(query::QueryOpts),
+}
+
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+/// Value for Sqlite `pragma temp_store`
+enum SqliteTempStore {
+    /// Default database was compiled with
+    Default,
+    /// Use the filesystem
+    File,
+    /// Temporary tables and indices are kept as if they were in pure in-memory databases
+    Memory,
+}
+
+impl From<SqliteTempStore> for ceramic_sql::sqlite::SqliteTempStore {
+    fn from(value: SqliteTempStore) -> Self {
+        match value {
+            SqliteTempStore::Default => Self::Default,
+            SqliteTempStore::File => Self::File,
+            SqliteTempStore::Memory => Self::Memory,
+        }
+    }
 }
 
 #[derive(ValueEnum, Debug, Clone, PartialEq, Eq)]
@@ -174,6 +195,88 @@ struct DBOpts {
     store_dir: PathBuf,
 }
 
+#[derive(Args, Debug)]
+/// Experimental options related to tuning database performance
+struct DBOptsExperimental {
+    #[arg(
+        long,
+        env = "CERAMIC_ONE_DB_CACHE_SIZE",
+        requires = "experimental_features"
+    )]
+    /// Value to use for the sqlite cache_size pragma
+    /// Use the negative version, which represents Kib e.g. -20000 = 20 Mb
+    /// Or the postive version, representing pages
+    /// None means the default is used.
+    /// Requires using the experimental-features flag
+    db_cache_size: Option<i64>,
+    /// Used for pragma mmap_size
+    /// 10737418240: 10 GB of memory mapped IO
+    /// if this is slightly bigger than your db file it can improve read performance
+    /// Set to 0 to disable. None is the default
+    /// Requires using the experimental-features flag
+    #[arg(
+        long,
+        env = "CERAMIC_ONE_DB_MMAP_SIZE",
+        requires = "experimental_features"
+    )]
+    db_mmap_size: Option<u64>,
+    /// The maximum number of read only connections in the pool
+    /// Requires using the experimental-features flag
+    #[arg(
+        long,
+        default_value = "8",
+        env = "CERAMIC_ONE_DB_MAX_CONNECTIONS",
+        requires = "experimental_features"
+    )]
+    db_max_connections: u32,
+    /// The sqlite temp_store value to use
+    /// Requires using the experimental-features flag
+    #[arg(
+        long,
+        env = "CERAMIC_ONE_DB_TEMP_STORE",
+        requires = "experimental_features"
+    )]
+    db_temp_store: Option<SqliteTempStore>,
+    /// The sqlite analysis_limit to use for optimize.
+    /// Values between 100 and 1000 are recommended, with lower values doing less work.
+    /// Or, to disable the analysis limit, causing ANALYZE to do a complete scan of each index, set the analysis limit to 0.
+    /// This MAY take extemely long (minutes to hours) on very large databases.
+    /// Requires using the experimental-features flag
+    #[arg(
+        long,
+        default_value = "1000",
+        env = "CERAMIC_ONE_DB_ANALYSIS_LIMIT",
+        requires = "experimental_features"
+    )]
+    db_analysis_limit: u32,
+
+    /// Whether or not `pragma optimize` should be run.
+    /// If it's set, optimize is run immediately and daily in the background.
+    /// Will use the `analysis_limit` to control how much work is done.
+    /// It shouldn't, but it's possible this may take a long time on very large databases.
+    /// Requires using the experimental-features flag
+    #[arg(
+        long,
+        default_value = "true",
+        env = "CERAMIC_ONE_DB_OPTIMIZE",
+        requires = "experimental_features"
+    )]
+    db_optimize: bool,
+}
+
+impl From<DBOptsExperimental> for SqliteOpts {
+    fn from(value: DBOptsExperimental) -> Self {
+        Self {
+            cache_size: value.db_cache_size,
+            mmap_size: value.db_mmap_size,
+            max_ro_connections: value.db_max_connections,
+            temp_store: value.db_temp_store.map(|v| v.into()),
+            analysis_limit: value.db_analysis_limit,
+            optimize: value.db_optimize,
+        }
+    }
+}
+
 // Shared options for how logging is configured.
 #[derive(Args, Debug)]
 struct LogOpts {
@@ -216,7 +319,7 @@ pub async fn run() -> Result<()> {
 
 impl DBOpts {
     /// This function will create the database directory if it does not exist.
-    async fn get_sqlite_pool(&self) -> Result<SqlitePool> {
+    async fn get_sqlite_pool(&self, opts: SqliteOpts) -> Result<SqlitePool> {
         match tokio::fs::create_dir_all(&self.store_dir).await {
             Ok(_) => {}
             Err(err) => match err.kind() {
@@ -233,6 +336,7 @@ impl DBOpts {
         let sql_db_path = self.store_dir.join("db.sqlite3").display().to_string();
         Ok(ceramic_sql::sqlite::SqlitePool::connect(
             &sql_db_path,
+            opts,
             ceramic_sql::sqlite::Migrations::Apply,
         )
         .await?)
