@@ -185,7 +185,10 @@ sha3 = "0.10"
 smallvec = "1.10"
 # pragma optimize hangs forver on 0.8, possibly due to libsqlite-sys upgrade
 sqlx = { version = "0.7", features = ["sqlite", "runtime-tokio", "chrono"] }
-ssh-key = { version = "0.5.1", default-features = false }
+ssh-key = { version = "0.5.1", default-features = false, features = [
+    "std",
+    "rand_core",
+] }
 ssi = { version = "0.7", features = ["ed25519"] }
 swagger = { version = "6.1", features = [
     "serdejson",

@@ -5,7 +5,7 @@ pub use resume_token::ResumeToken;
 
 pub use server::{
     ApiItem, EventDataResult, EventInsertResult, EventService, IncludeEventData, InterestService,
-    Server,
+    Multiaddr, P2PService, PeerInfo, Server,
 };
 
 #[cfg(test)]

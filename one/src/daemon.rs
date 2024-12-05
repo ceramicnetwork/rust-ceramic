@@ -700,6 +700,7 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
         network,
         interest_api_svc,
         Arc::new(model_svc),
+        ipfs.client(),
         pipeline_ctx,
         shutdown_signal.resubscribe(),
     );

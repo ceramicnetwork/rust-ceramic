@@ -566,6 +566,68 @@ paths:
         "200":
           description: cors
       summary: cors
+  /peers:
+    get:
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Peers'
+          description: success
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Internal server error
+      summary: Get list of connected peers
+    options:
+      parameters:
+      - description: "Multiaddress of peer to connect to, at least one address must\
+          \ contain the peer id."
+        explode: true
+        in: query
+        name: addresses
+        required: true
+        schema:
+          items:
+            type: string
+          type: array
+        style: form
+      responses:
+        "200":
+          description: cors
+      summary: cors
+    post:
+      parameters:
+      - description: "Multiaddress of peer to connect to, at least one address must\
+          \ contain the peer id."
+        explode: true
+        in: query
+        name: addresses
+        required: true
+        schema:
+          items:
+            type: string
+          type: array
+        style: form
+      responses:
+        "204":
+          description: success
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: bad request
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Internal server error
+      summary: Connect to a peer
 components:
   requestBodies:
     EventData:
@@ -788,6 +850,49 @@ components:
       - event_cid
       - id
       title: State of a Ceramic stream
+      type: object
+    Peers:
+      example:
+        peers:
+        - addresses:
+          - addresses
+          - addresses
+          id: id
+        - addresses:
+          - addresses
+          - addresses
+          id: id
+      properties:
+        peers:
+          items:
+            $ref: '#/components/schemas/Peer'
+          type: array
+      required:
+      - peers
+      title: List of Peers
+      type: object
+    Peer:
+      description: Information about a connected peer
+      example:
+        addresses:
+        - addresses
+        - addresses
+        id: id
+      properties:
+        id:
+          description: DID of peer
+          type: string
+        addresses:
+          description: "List of known multiaddress of peer, will always include the\
+            \ peer id"
+          items:
+            description: Multiaddress where peer may be dialed
+            type: string
+          type: array
+      required:
+      - addresses
+      - id
+      title: Information about a connected peer
       type: object
     _feed_resumeToken_get_200_response:
       example:
