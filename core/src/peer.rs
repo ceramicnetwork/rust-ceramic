@@ -78,7 +78,8 @@ impl PeerEntry {
     }
 }
 
-fn ensure_multiaddr_has_p2p(addr: Multiaddr, peer_id: PeerId) -> Multiaddr {
+/// Returns a the provided multiaddr ensuring it contains the specified peer id.
+pub fn ensure_multiaddr_has_p2p(addr: Multiaddr, peer_id: PeerId) -> Multiaddr {
     if !addr.iter().any(|protocol| match protocol {
         multiaddr::Protocol::P2p(id) => id == peer_id,
         _ => false,

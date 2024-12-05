@@ -22,7 +22,7 @@ use std::{
 
 use anyhow::Result;
 use async_trait::async_trait;
-use ceramic_api_server::models::{BadRequestResponse, ErrorResponse, EventData};
+use ceramic_api_server::models::{BadRequestResponse, ErrorResponse, EventData, Peer, Peers};
 use ceramic_api_server::{
     models::{self, Event},
     DebugHeapGetResponse, EventsEventIdGetResponse, EventsPostResponse,
@@ -32,9 +32,11 @@ use ceramic_api_server::{
 use ceramic_api_server::{
     Api, ConfigNetworkGetResponse, ExperimentalEventsSepSepValueGetResponse,
     ExperimentalInterestsGetResponse, FeedEventsGetResponse, FeedResumeTokenGetResponse,
-    InterestsPostResponse,
+    InterestsPostResponse, PeersGetResponse, PeersOptionsResponse, PeersPostResponse,
 };
-use ceramic_core::{Cid, EventId, Interest, Network, NodeId, PeerId, StreamId};
+use ceramic_core::{
+    ensure_multiaddr_has_p2p, Cid, EventId, Interest, Network, NodeId, PeerId, StreamId,
+};
 use ceramic_pipeline::EVENT_STATES_TABLE;
 use datafusion::arrow::array::{
     as_dictionary_array, as_map_array, Array as _, ArrayAccessor as _, BinaryArray,
@@ -48,15 +50,18 @@ use datafusion::functions_aggregate::expr_fn::last_value;
 use datafusion::logical_expr::expr::WindowFunction;
 use datafusion::logical_expr::{col, lit, BuiltInWindowFunction, Expr, ExprFunctionExt};
 use futures::TryFutureExt;
+use multiaddr::Protocol;
 use recon::Key;
 use swagger::{ApiError, ByteArray};
 #[cfg(not(target_env = "msvc"))]
 use tikv_jemalloc_ctl::epoch;
 use tokio::sync::broadcast;
-use tracing::{instrument, Level};
+use tracing::{instrument, trace, Level};
 
 use crate::server::event::event_id_from_car;
 use crate::ResumeToken;
+
+pub use multiaddr::Multiaddr;
 
 /// How many events to try to process at once i.e. read from the channel in batches.
 const EVENTS_TO_RECEIVE: usize = 10;
@@ -145,7 +150,7 @@ impl TryFrom<models::Interest> for ValidatedInterest {
     }
 }
 
-/// Trait for accessing persistent storage of Interests
+/// InterestService must provide access to interests
 #[async_trait]
 pub trait InterestService: Send + Sync {
     /// Returns true if the key was newly inserted, false if it already existed.
@@ -162,6 +167,28 @@ impl<S: InterestService> InterestService for Arc<S> {
     async fn range(&self, start: &Interest, end: &Interest) -> Result<Vec<Interest>> {
         self.as_ref().range(start, end).await
     }
+}
+
+#[async_trait]
+pub trait P2PService: Send + Sync {
+    async fn peers(&self) -> Result<Vec<PeerInfo>>;
+    async fn peer_connect(&self, addrs: &[Multiaddr]) -> Result<()>;
+}
+
+#[async_trait]
+impl<S: P2PService> P2PService for Arc<S> {
+    async fn peers(&self) -> Result<Vec<PeerInfo>> {
+        self.as_ref().peers().await
+    }
+    async fn peer_connect(&self, addrs: &[Multiaddr]) -> Result<()> {
+        self.as_ref().peer_connect(addrs).await
+    }
+}
+
+/// Information about connected peers
+pub struct PeerInfo {
+    pub id: NodeId,
+    pub addresses: Vec<Multiaddr>,
 }
 
 #[derive(Debug, Clone)]
@@ -346,11 +373,12 @@ struct InsertTask {
 }
 
 #[derive(Clone)]
-pub struct Server<C, I, M> {
+pub struct Server<C, I, M, P> {
     node_id: NodeId,
     network: Network,
     interest: I,
     model: Arc<M>,
+    p2p: P,
     // If we need to restart this ever, we'll need a mutex. For now we want to avoid locking the channel
     // so we just keep track to gracefully shutdown, but if the task dies, the server is in a fatal error state.
     insert_task: Arc<InsertTask>,
@@ -360,16 +388,18 @@ pub struct Server<C, I, M> {
     pipeline: Option<SessionContext>,
 }
 
-impl<C, I, M> Server<C, I, M>
+impl<C, I, M, P> Server<C, I, M, P>
 where
     I: InterestService,
     M: EventService + 'static,
+    P: P2PService,
 {
     pub fn new(
         node_id: NodeId,
         network: Network,
         interest: I,
         model: Arc<M>,
+        p2p: P,
         pipeline: Option<SessionContext>,
         shutdown_signal: broadcast::Receiver<()>,
     ) -> Self {
@@ -386,6 +416,7 @@ where
             network,
             interest,
             model,
+            p2p,
             insert_task,
             marker: PhantomData,
             authentication: false,
@@ -457,7 +488,7 @@ where
     }
 
     async fn process_events(events: &mut Vec<EventInsert>, event_store: &Arc<M>, node_id: NodeId) {
-        tracing::debug!(count = events.len(), "process_events");
+        trace!(count = events.len(), "process_events");
         if events.is_empty() {
             return;
         }
@@ -969,6 +1000,38 @@ where
             },
         ))
     }
+    async fn get_peers(&self) -> Result<PeersGetResponse, ErrorResponse> {
+        let peers =
+            self.p2p.peers().await.map_err(|err| {
+                ErrorResponse::new(format!("failed to get peer information: {err}"))
+            })?;
+        Ok(PeersGetResponse::Success(Peers {
+            peers: peers
+                .into_iter()
+                .map(|peer| {
+                    let peer_id = peer.id.peer_id();
+                    Peer {
+                        id: peer.id.did_key(),
+                        addresses: peer
+                            .addresses
+                            .into_iter()
+                            .map(|addr| ensure_multiaddr_has_p2p(addr, peer_id).to_string())
+                            .collect(),
+                    }
+                })
+                .collect(),
+        }))
+    }
+    async fn peer_connect(
+        &self,
+        addrs: Vec<Multiaddr>,
+    ) -> Result<PeersPostResponse, ErrorResponse> {
+        self.p2p
+            .peer_connect(&addrs)
+            .await
+            .map_err(|err| ErrorResponse::new(format!("failed to get peer information: {err}")))?;
+        Ok(PeersPostResponse::Success)
+    }
 }
 
 pub(crate) fn decode_event_id(value: &str) -> Result<EventId, BadRequestResponse> {
@@ -998,11 +1061,12 @@ pub(crate) fn decode_multibase_data(value: &str) -> Result<Vec<u8>, BadRequestRe
 }
 
 #[async_trait]
-impl<C, I, M> Api<C> for Server<C, I, M>
+impl<C, I, M, P> Api<C> for Server<C, I, M, P>
 where
     C: Send + Sync,
     I: InterestService + Sync,
     M: EventService + Sync + 'static,
+    P: P2PService,
 {
     #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn liveness_get(
@@ -1080,6 +1144,7 @@ where
             .or_else(|err| Ok(FeedResumeTokenGetResponse::InternalServerError(err)))
     }
 
+    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn experimental_interests_get(
         &self,
         peer_id: Option<String>,
@@ -1178,6 +1243,7 @@ where
         }))
     }
 
+    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn streams_stream_id_get(
         &self,
         stream_id: String,
@@ -1206,6 +1272,44 @@ where
                 },
             ))
         }
+    }
+
+    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
+    async fn peers_get(&self, _context: &C) -> Result<PeersGetResponse, ApiError> {
+        self.get_peers()
+            .await
+            .or_else(|err| Ok(PeersGetResponse::InternalServerError(err)))
+    }
+
+    #[instrument(skip(self, _context), ret(level = Level::DEBUG), err(level = Level::ERROR))]
+    async fn peers_post(
+        &self,
+        addresses: &Vec<String>,
+        _context: &C,
+    ) -> Result<PeersPostResponse, ApiError> {
+        let mut addrs: Vec<Multiaddr> = Vec::new();
+        for address in addresses {
+            match address.parse() {
+                Ok(a) => addrs.push(a),
+                Err(err) => {
+                    return Ok(PeersPostResponse::BadRequest(BadRequestResponse::new(
+                        format!("address is not a well formed multiaddr: {err}"),
+                    )))
+                }
+            }
+        }
+        if !addrs.iter().any(|addr| {
+            !addr
+                .iter()
+                .any(|protocol| matches!(protocol, Protocol::P2p(_)))
+        }) {
+            return Ok(PeersPostResponse::BadRequest(BadRequestResponse::new(
+                format!("at least one address must contain a peer id"),
+            )));
+        };
+        self.peer_connect(addrs)
+            .await
+            .or_else(|err| Ok(PeersPostResponse::InternalServerError(err)))
     }
 
     /// cors
@@ -1293,8 +1397,14 @@ where
     ) -> Result<ceramic_api_server::InterestsSortKeySortValueOptionsResponse, ApiError> {
         Ok(ceramic_api_server::InterestsSortKeySortValueOptionsResponse::Cors)
     }
-
-    /// Test the liveness of the Ceramic node
+    /// cors
+    async fn peers_options(
+        &self,
+        _addresses: &Vec<String>,
+        _context: &C,
+    ) -> Result<PeersOptionsResponse, ApiError> {
+        Ok(PeersOptionsResponse::Cors)
+    }
 
     /// cors
     async fn liveness_options(
@@ -1312,6 +1422,7 @@ where
         Ok(ceramic_api_server::VersionOptionsResponse::Cors)
     }
 
+    /// cors
     async fn streams_stream_id_options(
         &self,
         _stream_id: String,

@@ -21,7 +21,7 @@ pub use interest::{Interest, PeerId};
 pub use jwk::Jwk;
 pub use network::Network;
 pub use node_id::{NodeId, NodeKey};
-pub use peer::{PeerEntry, PeerKey};
+pub use peer::{ensure_multiaddr_has_p2p, PeerEntry, PeerKey};
 pub use range::RangeOpen;
 pub use serialize_ext::SerializeExt;
 pub use stream_id::{StreamId, StreamIdType, METAMODEL_STREAM_ID};

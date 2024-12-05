@@ -109,8 +109,9 @@ use ceramic_api_server::{
     FeedResumeTokenGetResponse, FeedResumeTokenOptionsResponse, InterestsOptionsResponse,
     InterestsPostResponse, InterestsSortKeySortValueOptionsResponse,
     InterestsSortKeySortValuePostResponse, LivenessGetResponse, LivenessOptionsResponse,
-    StreamsStreamIdGetResponse, StreamsStreamIdOptionsResponse, VersionGetResponse,
-    VersionOptionsResponse, VersionPostResponse,
+    PeersGetResponse, PeersOptionsResponse, PeersPostResponse, StreamsStreamIdGetResponse,
+    StreamsStreamIdOptionsResponse, VersionGetResponse, VersionOptionsResponse,
+    VersionPostResponse,
 };
 use std::error::Error;
 use swagger::ApiError;
@@ -392,6 +393,40 @@ where
     async fn liveness_options(&self, context: &C) -> Result<LivenessOptionsResponse, ApiError> {
         info!(
             "liveness_options() - X-Span-ID: {:?}",
+            context.get().0.clone()
+        );
+        Err(ApiError("Generic failure".into()))
+    }
+
+    /// Get list of connected peers
+    async fn peers_get(&self, context: &C) -> Result<PeersGetResponse, ApiError> {
+        info!("peers_get() - X-Span-ID: {:?}", context.get().0.clone());
+        Err(ApiError("Generic failure".into()))
+    }
+
+    /// cors
+    async fn peers_options(
+        &self,
+        addresses: &Vec<String>,
+        context: &C,
+    ) -> Result<PeersOptionsResponse, ApiError> {
+        info!(
+            "peers_options({:?}) - X-Span-ID: {:?}",
+            addresses,
+            context.get().0.clone()
+        );
+        Err(ApiError("Generic failure".into()))
+    }
+
+    /// Connect to a peer
+    async fn peers_post(
+        &self,
+        addresses: &Vec<String>,
+        context: &C,
+    ) -> Result<PeersPostResponse, ApiError> {
+        info!(
+            "peers_post({:?}) - X-Span-ID: {:?}",
+            addresses,
             context.get().0.clone()
         );
         Err(ApiError("Generic failure".into()))
