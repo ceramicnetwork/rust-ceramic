@@ -283,7 +283,6 @@ mod tests {
     async fn init_ctx() -> anyhow::Result<SessionContext> {
         session_from_config(Config {
             conclusion_feed: MockConclusionFeed::new().into(),
-            object_store_bucket_name: "test_bucket".to_string(),
             object_store: Arc::new(InMemory::new()),
         })
         .await
@@ -294,7 +293,6 @@ mod tests {
             conclusion_feed: ConclusionFeedSource::<MockConclusionFeed>::InMemory(
                 MemTable::try_new(schemas::conclusion_events(), vec![vec![conclusion_events]])?,
             ),
-            object_store_bucket_name: "test_bucket".to_string(),
             object_store: Arc::new(InMemory::new()),
         })
         .await
