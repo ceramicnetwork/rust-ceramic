@@ -24,8 +24,8 @@ const LOG_EVERY_N_ENTRIES: usize = 10_000;
 /// The max number of tasks we'll spawn when ordering events.
 /// Each stask is given a chunk of streams and wil order them
 const MAX_STREAM_PROCESSING_TASKS: usize = 16;
-/// The minimim number of streams each task will process. If there are many streams, we'll spawn
-/// STREAM_NUM / MAX_STREAM_PROCESSING_TASKS.
+/// The minimum number of streams each task will process to ensure we don't spawn tasks when we don't have much work. 
+/// If there are many streams, each batch will be the size of `(num_streams_to_process) / MAX_STREAM_PROCESSING_TASKS`.
 const MIN_NUM_STREAMS_PER_BATCH: usize = 25;
 /// The number of events we initially pull from the channel when doing startup undelivered batch processing.
 /// Being larger was measured to go faster when processing millions of events, however there's no need to
