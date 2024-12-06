@@ -76,7 +76,7 @@ async fn build_event_fixed_model(model: StreamId, controller: String) -> TestEve
         .with_sep("model".to_string(), model.to_vec())
         .with_unique(unique.to_vec())
         .with_data(ipld!({"radius": 1, "red": 2, "green": 3, "blue": 4}))
-        .build();
+        .build_payload();
 
     let signer = crate::tests::signer().await;
     let signed =
@@ -151,14 +151,14 @@ async fn unsigned_init_event(model: &StreamId) -> unvalidated::init::Event<Ipld>
     let init = unvalidated::Builder::init()
         .with_controller(CONTROLLER.to_string())
         .with_sep("model".to_string(), model.to_vec())
-        .build();
+        .build_payload();
     unvalidated::init::Event::new(init)
 }
 async fn init_event(model: &StreamId, signer: &signed::JwkSigner) -> signed::Event<Ipld> {
     let init = unvalidated::Builder::init()
         .with_controller(CONTROLLER.to_string())
         .with_sep("model".to_string(), model.to_vec())
-        .build();
+        .build_payload();
     signed::Event::from_payload(unvalidated::Payload::Init(init), signer.to_owned()).unwrap()
 }
 
@@ -174,7 +174,7 @@ async fn data_event(
         .with_prev(prev)
         .with_data(data)
         .with_should_index(should_index)
-        .build();
+        .build_payload();
 
     signed::Event::from_payload(unvalidated::Payload::Data(commit), signer.to_owned()).unwrap()
 }

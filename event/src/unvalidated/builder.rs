@@ -2,11 +2,11 @@ use anyhow::{anyhow, bail};
 use cid::Cid;
 use ipld_core::ipld::Ipld;
 
-use ceramic_core::SerializeExt;
+use ceramic_core::{signer::Signer, SerializeExt};
 
 use crate::unvalidated;
 
-use super::ProofEdge;
+use super::{signed, ProofEdge};
 
 /// Builder for constructing events.
 pub struct Builder;
@@ -92,7 +92,7 @@ impl InitBuilder<InitBuilderWithController> {
     }
 }
 
-impl<D> InitBuilder<InitBuilderWithSep<D>> {
+impl<D: serde::Serialize> InitBuilder<InitBuilderWithSep<D>> {
     /// Specify the unique bytes.
     pub fn with_unique(mut self, unique: Vec<u8>) -> Self {
         self.state.unique = Some(unique);
@@ -116,8 +116,8 @@ impl<D> InitBuilder<InitBuilderWithSep<D>> {
         self.state.data = Some(data);
         self
     }
-    /// Build the event.
-    pub fn build(self) -> unvalidated::init::Payload<D> {
+    /// Build the event payload
+    pub fn build_payload(self) -> unvalidated::init::Payload<D> {
         let header = unvalidated::init::Header::new(
             vec![self.state.controller],
             self.state.sep.key,
@@ -127,6 +127,14 @@ impl<D> InitBuilder<InitBuilderWithSep<D>> {
             self.state.context,
         );
         unvalidated::init::Payload::new(header, self.state.data)
+    }
+    /// Build and sign the event
+    pub fn build_and_sign(
+        self,
+        signer: impl Signer,
+    ) -> anyhow::Result<unvalidated::signed::Event<D>> {
+        let payload = self.build_payload();
+        signed::Event::from_payload(payload.into(), signer)
     }
 }
 
@@ -198,20 +206,28 @@ impl DataBuilder<DataBuilderWithPrev> {
     }
 }
 
-impl<D> DataBuilder<DataBuilderWithData<D>> {
+impl<D: serde::Serialize> DataBuilder<DataBuilderWithData<D>> {
     /// Specify should_index.
     pub fn with_should_index(mut self, should_index: Option<bool>) -> Self {
         self.state.should_index = should_index;
         self
     }
 
-    /// Build the event.
-    pub fn build(self) -> unvalidated::data::Payload<D> {
+    /// Build the event payload.
+    pub fn build_payload(self) -> unvalidated::data::Payload<D> {
         let header = self
             .state
             .should_index
             .map(|si| unvalidated::data::Header::new(Some(si)));
         unvalidated::data::Payload::new(self.state.id, self.state.prev, header, self.state.data)
+    }
+    /// Build and sign the event
+    pub fn build_and_sign(
+        self,
+        signer: impl Signer,
+    ) -> anyhow::Result<unvalidated::signed::Event<D>> {
+        let payload = self.build_payload();
+        signed::Event::from_payload(payload.into(), signer)
     }
 }
 
@@ -437,7 +453,7 @@ mod tests {
             .with_sep("model".to_string(), model)
             .with_unique(unique)
             .with_data(data)
-            .build();
+            .build_payload();
 
         let dagcbor_str = multibase::encode(multibase::Base::Base64Url, event.to_cbor().unwrap());
         assert_eq!(SIGNED_INIT_EVENT_PAYLOAD, dagcbor_str);
@@ -453,7 +469,7 @@ mod tests {
             .with_id(id)
             .with_prev(prev)
             .with_data(data)
-            .build();
+            .build_payload();
 
         let dagcbor_str = multibase::encode(multibase::Base::Base64Url, event.to_cbor().unwrap());
         assert_eq!(DATA_EVENT_PAYLOAD, dagcbor_str);
@@ -473,7 +489,7 @@ mod tests {
             .with_sep("model".to_string(), model)
             .with_unique(unique)
             .with_data(data)
-            .build();
+            .build_payload();
 
         let signer = JwkSigner::new(
             DidDocument::new("did:key:z6MktBynAPLrEyeS7pVthbiyScmfu8n5V7boXgxyo5q3SZRR#z6MktBynAPLrEyeS7pVthbiyScmfu8n5V7boXgxyo5q3SZRR"),

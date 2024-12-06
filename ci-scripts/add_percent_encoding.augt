@@ -1,0 +1,8 @@
+# Augtool commands to delete the conversion feature from Cargo.toml
+
+# Load Cargo.toml
+set /augeas/load/Toml/lens "Toml.lns"
+set /augeas/load/Toml/incl "Cargo.toml"
+load
+
+set /files/Cargo.toml/table[. = "features"]/entry[. = "client"]/array/string[last()+1] "percent-encoding"

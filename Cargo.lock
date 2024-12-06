@@ -2057,6 +2057,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "ceramic-actor"
+version = "0.47.3"
+dependencies = [
+ "async-trait",
+ "ceramic-actor-macros",
+ "shutdown",
+ "snafu",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "ceramic-actor-macros"
+version = "0.47.3"
+dependencies = [
+ "quote",
+ "syn 2.0.90",
+]
+
+[[package]]
 name = "ceramic-anchor-remote"
 version = "0.47.3"
 dependencies = [
@@ -2112,6 +2133,7 @@ version = "0.47.3"
 dependencies = [
  "anyhow",
  "async-trait",
+ "ceramic-actor",
  "ceramic-api-server",
  "ceramic-car",
  "ceramic-core",
@@ -2166,14 +2188,6 @@ dependencies = [
  "tokio-openssl",
  "url",
  "validator",
-]
-
-[[package]]
-name = "ceramic-arrow-test"
-version = "0.47.3"
-dependencies = [
- "ceramic-pipeline",
- "datafusion",
 ]
 
 [[package]]
@@ -2309,7 +2323,7 @@ dependencies = [
  "arrow-array",
  "arrow-flight",
  "arrow-schema",
- "ceramic-arrow-test",
+ "ceramic-actor",
  "ceramic-pipeline",
  "cid 0.11.1",
  "datafusion",
@@ -2598,7 +2612,7 @@ dependencies = [
  "arrow-schema",
  "async-stream",
  "async-trait",
- "ceramic-arrow-test",
+ "ceramic-actor",
  "ceramic-core",
  "ceramic-event",
  "cid 0.11.1",
@@ -2614,9 +2628,12 @@ dependencies = [
  "parking_lot",
  "serde",
  "serde_json",
+ "shutdown",
  "test-log",
  "tokio",
+ "tokio-stream",
  "tracing",
+ "tracing-subscriber",
  "url",
 ]
 
@@ -4327,15 +4344,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "env_filter"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4f2c92ceda6ceec50f43169f9ee8424fe2db276791afde7b2cd8bc084cb376ab"
-dependencies = [
- "log",
-]
-
-[[package]]
 name = "env_logger"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4356,18 +4364,6 @@ checksum = "a19187fea3ac7e84da7dacf48de0c45d63c6a76f9490dae389aead16c243fce3"
 dependencies = [
  "log",
  "regex",
-]
-
-[[package]]
-name = "env_logger"
-version = "0.11.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e13fa619b91fb2381732789fc5de83b45675e882f66623b7d8cb4f643017018d"
-dependencies = [
- "anstream",
- "anstyle",
- "env_filter",
- "log",
 ]
 
 [[package]]
@@ -11427,7 +11423,6 @@ version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3dffced63c2b5c7be278154d76b479f9f9920ed34e7574201407f0b14e2bbb93"
 dependencies = [
- "env_logger 0.11.5",
  "test-log-macros",
  "tracing-subscriber",
 ]

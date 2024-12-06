@@ -11,6 +11,7 @@ publish = false
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
+ceramic-actor.workspace = true
 ceramic-api-server.workspace = true
 ceramic-core.workspace = true
 ceramic-event.workspace = true
@@ -43,3 +44,4 @@ expect-test.workspace = true
 test-log.workspace = true
 mockall.workspace = true
 object_store.workspace = true
+ceramic-pipeline = { workspace = true, features = ["mock"] }
