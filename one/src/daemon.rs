@@ -25,7 +25,7 @@ use signal_hook::consts::signal::*;
 use signal_hook_tokio::Signals;
 use std::sync::Arc;
 use swagger::{auth::MakeAllowAllAuthenticator, EmptyContext};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 #[derive(Args, Debug)]
 pub struct DaemonOpts {
@@ -589,9 +589,7 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
         })?;
 
     // Start Flight server
-    let (pipeline_ctx, flight_handle, aggregator_handle) = if let Some(addr) =
-        opts.flight_sql_bind_address
-    {
+    let (flight_handle, pipeline) = if let Some(addr) = opts.flight_sql_bind_address {
         let addr = addr.parse()?;
         let feed = event_svc.clone();
         let object_store_url = opts.object_store_url.ok_or_else(|| {
@@ -627,31 +625,23 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
             scheme => bail!("unsupported object_store_url scheme {scheme}"),
         };
 
-        let ctx = ceramic_pipeline::session_from_config(ceramic_pipeline::Config {
+        let pipeline = ceramic_pipeline::spawn_actors(ceramic_pipeline::Config {
+            aggregator: opts.aggregator.unwrap_or(false),
             conclusion_feed: feed.into(),
             object_store,
+            shutdown: shutdown.clone(),
         })
         .await?;
 
-        // Start aggregator
-        let aggregator_handle = if opts.aggregator.unwrap_or_default() {
-            let ctx = ctx.clone();
-            let s = shutdown.wait_fut();
-            Some(tokio::spawn(async move {
-                if let Err(err) = ceramic_pipeline::aggregator::run(ctx, s).await {
-                    error!(%err, "aggregator task failed");
-                }
-            }))
-        } else {
-            None
-        };
-
-        let pipeline_ctx = ctx.clone();
-        let flight_handle =
-            tokio::spawn(ceramic_flight::server::run(ctx, addr, shutdown.wait_fut()));
-        (Some(pipeline_ctx), aggregator_handle, Some(flight_handle))
+        let session_ctx = pipeline.pipeline_ctx().session();
+        let flight_handle = tokio::spawn(ceramic_flight::server::run(
+            session_ctx,
+            addr,
+            shutdown.wait_fut(),
+        ));
+        (Some(flight_handle), Some(pipeline))
     } else {
-        (None, None, None)
+        (None, None)
     };
 
     // Start anchoring if remote anchor service URL is provided
@@ -683,6 +673,12 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
             None
         };
 
+    let (pipeline_handle, pipeline_waiter) = if let Some(pipeline) = pipeline {
+        let (h, w) = pipeline.into_parts();
+        (Some(h), Some(w))
+    } else {
+        (None, None)
+    };
     // Build HTTP server
     let mut ceramic_server = ceramic_api::Server::new(
         node_id,
@@ -690,7 +686,7 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
         interest_api_svc,
         Arc::new(model_svc),
         ipfs.client(),
-        pipeline_ctx,
+        pipeline_handle,
         shutdown.clone(),
     );
     if opts.authentication {
@@ -751,17 +747,22 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
     if let Some(flight_handle) = flight_handle {
         let _ = flight_handle.await;
     }
+    debug!("flight sql server stopped");
 
-    if let Some(aggregator_handle) = aggregator_handle {
-        let _ = aggregator_handle.await;
+    if let Some(pipeline_waiter) = pipeline_waiter {
+        let _ = pipeline_waiter.wait().await;
     }
+    debug!("pipeline actors stopped");
 
     if let Some(anchor_service_handle) = anchor_service_handle {
         let _ = anchor_service_handle.await;
     }
+    debug!("anchor service stopped");
+
     if let Some(db_optimizer_handle) = db_optimizer_handle {
         let _ = db_optimizer_handle.await;
     };
+    debug!("db optimizer stopped");
 
     Ok(())
 }

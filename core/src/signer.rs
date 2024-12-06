@@ -29,3 +29,17 @@ impl<S: Signer + Sync> Signer for &'_ S {
         (*self).sign_jws(payload)
     }
 }
+impl<S: Signer + ?Sized> Signer for Box<S> {
+    fn algorithm(&self) -> Algorithm {
+        self.as_ref().algorithm()
+    }
+    fn id(&self) -> &DidDocument {
+        self.as_ref().id()
+    }
+    fn sign_bytes(&self, bytes: &[u8]) -> anyhow::Result<Vec<u8>> {
+        self.as_ref().sign_bytes(bytes)
+    }
+    fn sign_jws(&self, payload: &str) -> anyhow::Result<String> {
+        self.as_ref().sign_jws(payload)
+    }
+}

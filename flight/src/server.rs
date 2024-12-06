@@ -2,7 +2,8 @@
 use std::net::SocketAddr;
 
 use arrow_flight::flight_service_server::FlightServiceServer;
-use datafusion::execution::context::{SQLOptions, SessionContext};
+use ceramic_pipeline::SessionContextRef;
+use datafusion::execution::context::SQLOptions;
 use datafusion_flight_sql_server::service::FlightSqlService;
 use futures::Future;
 use tonic::transport::server::Router;
@@ -11,7 +12,7 @@ use tracing::info;
 
 /// Start FlightSQL server, blocks until server has shutdown
 pub async fn run(
-    ctx: SessionContext,
+    ctx: SessionContextRef,
     addr: SocketAddr,
     shutdown_signal: impl Future<Output = ()>,
 ) -> anyhow::Result<()> {
@@ -20,7 +21,7 @@ pub async fn run(
 }
 
 /// Constructs a new server and can be started.
-pub fn new_server(ctx: SessionContext) -> anyhow::Result<Router> {
+pub fn new_server(ctx: SessionContextRef) -> anyhow::Result<Router> {
     let svc = FlightServiceServer::new(
         FlightSqlService::new(ctx.state()).with_sql_options(
             // Disable all access except read only queries.

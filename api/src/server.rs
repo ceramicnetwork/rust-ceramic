@@ -22,6 +22,7 @@ use std::{
 
 use anyhow::Result;
 use async_trait::async_trait;
+use ceramic_actor::ActorHandle as _;
 use ceramic_api_server::models::{BadRequestResponse, ErrorResponse, EventData, Peer, Peers};
 use ceramic_api_server::{
     models::{self, Event},
@@ -37,7 +38,8 @@ use ceramic_api_server::{
 use ceramic_core::{
     ensure_multiaddr_has_p2p, Cid, EventId, Interest, Network, NodeId, PeerId, StreamId,
 };
-use ceramic_pipeline::EVENT_STATES_TABLE;
+use ceramic_pipeline::aggregator::{AggregatorHandle, StreamStateMsg};
+use ceramic_pipeline::PipelineHandle;
 use datafusion::arrow::array::{
     as_dictionary_array, as_map_array, Array as _, ArrayAccessor as _, BinaryArray,
 };
@@ -386,7 +388,7 @@ pub struct Server<C, I, M, P> {
     marker: PhantomData<C>,
     authentication: bool,
 
-    pipeline: Option<SessionContext>,
+    pipeline: Option<PipelineHandle>,
 }
 
 impl<C, I, M, P> Server<C, I, M, P>
@@ -401,7 +403,7 @@ where
         interest: I,
         model: Arc<M>,
         p2p: P,
-        pipeline: Option<SessionContext>,
+        pipeline: Option<PipelineHandle>,
         shutdown_signal: Shutdown,
     ) -> Self {
         let (tx, event_rx) = tokio::sync::mpsc::channel::<EventInsert>(1024);
@@ -876,130 +878,47 @@ where
 
     async fn get_stream_state(
         &self,
-        pipeline: &SessionContext,
+        aggregator: AggregatorHandle,
         stream_id: StreamId,
     ) -> Result<ceramic_api_server::StreamsStreamIdGetResponse, ErrorResponse> {
-        let state_batch = pipeline
-            .table(EVENT_STATES_TABLE)
+        let state = aggregator
+            .send(StreamStateMsg {
+                id: stream_id.clone(),
+            })
             .await
-            .map_err(|err| {
-                ErrorResponse::new(format!("{} table not found: {err}", EVENT_STATES_TABLE))
-            })?
-            .select(vec![
-                col("stream_cid"),
-                col("event_cid"),
-                col("dimensions"),
-                col("controller"),
-                col("data"),
-                col("index"),
-            ])
-            .map_err(|err| ErrorResponse::new(format!("failed to select: {err}")))?
-            .filter(col("stream_cid").eq(lit(stream_id.cid.to_bytes())))
-            .map_err(|err| ErrorResponse::new(format!("failed to filter: {err}")))?
-            .aggregate(
-                vec![col("stream_cid"), col("controller")],
-                vec![
-                    last_value(vec![col("data")])
-                        .order_by(vec![col("index").sort(true, true)])
-                        .build()
-                        .map_err(|err| {
-                            ErrorResponse::new(format!(
-                                "failed to define last_value state query: {err}"
-                            ))
-                        })?
-                        .alias("data"),
-                    last_value(vec![col("event_cid")])
-                        .order_by(vec![col("index").sort(true, true)])
-                        .build()
-                        .map_err(|err| {
-                            ErrorResponse::new(format!(
-                                "failed to define last_value event_cid query: {err}"
-                            ))
-                        })?
-                        .alias("event_cid"),
-                    last_value(vec![col("dimensions")])
-                        .order_by(vec![col("index").sort(true, true)])
-                        .build()
-                        .map_err(|err| {
-                            ErrorResponse::new(format!(
-                                "failed to define last_value event_cid dimensions: {err}"
-                            ))
-                        })?
-                        .alias("dimensions"),
-                ],
-            )
-            .map_err(|err| ErrorResponse::new(format!("failed to define window: {err}")))?
-            .collect()
-            .await
-            .map_err(|err| {
-                ErrorResponse::new(format!("failed to execute pipeline query: {err}"))
-            })?;
-
-        if state_batch.is_empty() {
-            return Ok(
+            .map_err(|err| ErrorResponse::new(err.to_string()))?
+            .map_err(|err| ErrorResponse::new(err.to_string()))?;
+        if let Some(state) = state {
+            Ok(ceramic_api_server::StreamsStreamIdGetResponse::Success(
+                models::StreamState {
+                    id: state.id.to_string(),
+                    event_cid: state.event_cid.to_string(),
+                    controller: state.controller,
+                    dimensions: serde_json::Value::Object(
+                        state
+                            .dimensions
+                            .into_iter()
+                            .map(|(k, v)| {
+                                (
+                                    k,
+                                    serde_json::Value::String(multibase::encode(
+                                        multibase::Base::Base64Url,
+                                        v,
+                                    )),
+                                )
+                            })
+                            .collect(),
+                    ),
+                    data: multibase::encode(multibase::Base::Base64Url, state.data),
+                },
+            ))
+        } else {
+            Ok(
                 ceramic_api_server::StreamsStreamIdGetResponse::StreamNotFound(
                     stream_id.to_string(),
                 ),
-            );
+            )
         }
-
-        let batch = concat_batches(&state_batch[0].schema(), state_batch.iter())
-            .map_err(|err| ErrorResponse::new(format!("failed to concat batches: {err}")))?;
-        let data = as_binary_array(
-            batch
-                .column_by_name("data")
-                .ok_or_else(|| ErrorResponse::new("state column should exist".to_string()))?,
-        )
-        .map_err(|err| ErrorResponse::new(format!("state should be a string column: {err}")))?
-        .value(0);
-        let event_cid = as_binary_array(
-            batch
-                .column_by_name("event_cid")
-                .ok_or_else(|| ErrorResponse::new("event_cid column should exist".to_string()))?,
-        )
-        .map_err(|err| ErrorResponse::new(format!("event_cid should be a binary column: {err}")))?;
-        let controller = as_string_array(
-            batch
-                .column_by_name("controller")
-                .ok_or_else(|| ErrorResponse::new("controller column should exist".to_string()))?,
-        )
-        .map_err(|err| {
-            ErrorResponse::new(format!("controller should be a string column: {err}"))
-        })?;
-        let dimensions = as_map_array(
-            batch
-                .column_by_name("dimensions")
-                .ok_or_else(|| ErrorResponse::new("dimensions column should exist".to_string()))?,
-        );
-        let keys = as_string_array(dimensions.keys()).map_err(|err| {
-            ErrorResponse::new(format!("dimensions keys should be strings: {err}"))
-        })?;
-        let values = as_dictionary_array::<Int32Type>(dimensions.values())
-            .downcast_dict::<BinaryArray>()
-            .ok_or_else(|| ErrorResponse::new("dimensions values should be binary".to_string()))?;
-        let mut dimensions = serde_json::Map::with_capacity(keys.len());
-        for i in 0..keys.len() {
-            let key = keys.value(i);
-            let value = values.value(i);
-            dimensions.insert(
-                key.to_string(),
-                serde_json::Value::String(multibase::encode(multibase::Base::Base64Url, value)),
-            );
-        }
-
-        Ok(ceramic_api_server::StreamsStreamIdGetResponse::Success(
-            models::StreamState {
-                id: stream_id.to_string(),
-                event_cid: Cid::read_bytes(event_cid.value(0))
-                    .map_err(|err| {
-                        ErrorResponse::new(format!("event_cid should be valid cid: {err}"))
-                    })?
-                    .to_string(),
-                controller: controller.value(0).to_string(),
-                dimensions: serde_json::Value::Object(dimensions),
-                data: multibase::encode(multibase::Base::Base64Url, data),
-            },
-        ))
     }
     async fn get_peers(&self) -> Result<PeersGetResponse, ErrorResponse> {
         let peers =
@@ -1260,8 +1179,8 @@ where
                 ))
             }
         };
-        if let Some(pipeline) = &self.pipeline {
-            self.get_stream_state(pipeline, stream_id)
+        if let Some(aggregator) = self.pipeline.as_ref().and_then(|p| p.aggregator()) {
+            self.get_stream_state(aggregator, stream_id)
                 .await
                 .or_else(|err| {
                     Ok(ceramic_api_server::StreamsStreamIdGetResponse::InternalServerError(err))

@@ -37,7 +37,7 @@ async fn generate_init_event(
         .with_controller("controller".to_string())
         .with_sep("sep".to_string(), model.to_vec())
         .with_data(data)
-        .build();
+        .build_payload();
     let signed = signed::Event::from_payload(unvalidated::Payload::Init(init), signer).unwrap();
     let cid = signed.envelope_cid();
     let id = EventId::new(

@@ -1,74 +1,141 @@
 //! Pipeline provides a set of tables of Ceramic events and transformations between them.
+//!
+//! Transformations are implemented as actors where each actor communicates with other actors via
+//! message passing. Each actor owns its tables, meaning its is the only code allowed to query its
+//! tables directly. However all actors share the same datafusion [`SessionContext`] so that all
+//! tables can be exposed via a FlightSQL server.
+#![warn(missing_docs)]
 
 pub mod aggregator;
 mod cache_table;
 pub mod cid_string;
-mod conclusion;
-#[warn(missing_docs)]
+pub mod concluder;
 mod config;
 pub mod schemas;
-
+mod since;
 #[cfg(test)]
-pub mod tests;
+mod tests;
 
 use std::sync::Arc;
 
+use aggregator::{Aggregator, AggregatorHandle};
 use anyhow::Result;
-use arrow::array::RecordBatch;
-use cache_table::CacheTable;
+use concluder::{Concluder, ConcluderHandle};
 use datafusion::{
     catalog_common::MemorySchemaProvider,
-    datasource::{
-        file_format::parquet::ParquetFormat,
-        listing::{ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl},
-    },
     execution::{config::SessionConfig, context::SessionContext},
     functions_aggregate::first_last::LastValue,
-    logical_expr::{col, AggregateUDF, ScalarUDF},
+    logical_expr::{AggregateUDF, ScalarUDF},
 };
-use schemas::event_states;
+use object_store::ObjectStore;
+use tokio::task::JoinHandle;
 use url::Url;
 
 use cid_string::{CidString, CidStringList};
 
-pub use conclusion::{
+pub use concluder::{
     conclusion_events_to_record_batch, ConclusionData, ConclusionEvent, ConclusionFeed,
     ConclusionInit, ConclusionTime,
 };
 pub use config::{ConclusionFeedSource, Config};
 
-pub const CONCLUSION_EVENTS_TABLE: &str = "ceramic.v0.conclusion_events";
-pub const EVENT_STATES_TABLE: &str = "ceramic.v0.event_states";
-pub const EVENT_STATES_MEM_TABLE: &str = "ceramic._internal.event_states_mem";
-pub const EVENT_STATES_PERSISTENT_TABLE: &str = "ceramic._internal.event_states_persistent";
+/// A reference to a shared [`SessionContext`].
+///
+pub type SessionContextRef = Arc<SessionContext>;
 
-/// Constructs a [`SessionContext`] configured with all tables in the pipeline.
-pub async fn session_from_config<F: ConclusionFeed + 'static>(
-    config: impl Into<Config<F>>,
-) -> Result<SessionContext> {
-    let config: Config<F> = config.into();
+/// Shared context between all pipeline actors.
+#[derive(Clone)]
+pub struct PipelineContext {
+    session: SessionContextRef,
+    object_store_url: Url,
+}
 
+impl PipelineContext {
+    /// Returns a [`SessionContext`] configured with all tables in the pipeline.
+    pub fn session(&self) -> SessionContextRef {
+        self.session.clone()
+    }
+}
+
+/// A pipeline
+pub struct Pipeline {
+    handle: PipelineHandle,
+    waiter: PipelineWaiter,
+}
+impl Pipeline {
+    /// Returns the shared context for the pipeline.
+    pub fn pipeline_ctx(&self) -> &PipelineContext {
+        self.handle.pipeline_ctx()
+    }
+    /// Deconstruct the pipeline into its handle and waiter.
+    pub fn into_parts(self) -> (PipelineHandle, PipelineWaiter) {
+        (self.handle, self.waiter)
+    }
+}
+
+/// Provides method to wait for all pipeline tasks and actors to finish.
+pub struct PipelineWaiter {
+    task_handles: Vec<JoinHandle<()>>,
+}
+impl PipelineWaiter {
+    /// Wait for all pipeline actors to shutdown.
+    /// Does not cause actors to stop, simply waits for them to do so.
+    /// All outstanding handles must be dropped before this will complete.
+    pub async fn wait(self) {
+        for h in self.task_handles.into_iter() {
+            let _ = h.await;
+        }
+    }
+}
+
+/// Handle to the pipeline.
+/// Can be used to get handles to actors in order to send them messages.
+/// Can be waited to ensure a gracefull shutdown of all actors.
+#[derive(Clone)]
+pub struct PipelineHandle {
+    ctx: PipelineContext,
+    concluder: Option<ConcluderHandle>,
+    aggregator: Option<AggregatorHandle>,
+}
+
+impl PipelineHandle {
+    /// Construct a pipline handle from its parts.
+    pub fn new(
+        ctx: PipelineContext,
+        concluder: Option<ConcluderHandle>,
+        aggregator: Option<AggregatorHandle>,
+    ) -> Self {
+        Self {
+            ctx,
+            concluder,
+            aggregator,
+        }
+    }
+
+    /// Returns a handle to the Concluder actor when it is enabled.
+    pub fn concluder(&self) -> Option<ConcluderHandle> {
+        self.concluder.clone()
+    }
+
+    /// Returns a handle to the Aggregator actor when it is enabled.
+    pub fn aggregator(&self) -> Option<AggregatorHandle> {
+        self.aggregator.clone()
+    }
+
+    /// Returns the shared context for the pipeline.
+    pub fn pipeline_ctx(&self) -> &PipelineContext {
+        &self.ctx
+    }
+}
+
+/// Construct a shared pipeline context for all pipeline actors.
+pub async fn pipeline_ctx(object_store: Arc<dyn ObjectStore>) -> Result<PipelineContext> {
     let session_config = SessionConfig::new()
         .with_default_catalog_and_schema("ceramic", "v0")
         .with_information_schema(true);
 
     let mut ctx = SessionContext::new_with_config(session_config);
-    match config.conclusion_feed {
-        ConclusionFeedSource::Direct(conclusion_feed) => {
-            ctx.register_table(
-                CONCLUSION_EVENTS_TABLE,
-                Arc::new(conclusion::FeedTable::new(conclusion_feed)),
-            )?;
-        }
-        #[cfg(test)]
-        ConclusionFeedSource::InMemory(table) => {
-            assert_eq!(
-                schemas::conclusion_events(),
-                datafusion::catalog::TableProvider::schema(&table)
-            );
-            ctx.register_table(CONCLUSION_EVENTS_TABLE, Arc::new(table))?;
-        }
-    };
+
     // Register the _internal schema
     ctx.catalog("ceramic")
         .expect("ceramic catalog should always exist")
@@ -84,44 +151,56 @@ pub async fn session_from_config<F: ConclusionFeed + 'static>(
 
     // Register s3 object store, use hardcoded bucket name `pipeline` as the actual bucket name is
     // already known by the object store.
-    let mut url = Url::parse("s3://pipeline")?;
-    ctx.register_object_store(&url, config.object_store);
+    let url = Url::parse("s3://pipeline")?;
+    ctx.register_object_store(&url, object_store);
 
-    // Configure event_states listing table
-    let file_format = ParquetFormat::default().with_enable_pruning(true);
+    Ok(PipelineContext {
+        session: Arc::new(ctx),
+        object_store_url: url,
+    })
+}
 
-    let listing_options = ListingOptions::new(Arc::new(file_format))
-        .with_file_extension(".parquet")
-        .with_file_sort_order(vec![vec![col("index").sort(true, true)]]);
+/// Starts various actors that process the pipeline.
+pub async fn spawn_actors<F: ConclusionFeed + 'static>(
+    config: impl Into<Config<F>>,
+) -> Result<Pipeline> {
+    let config: Config<F> = config.into();
 
-    // Set the path within the bucket for the event_states table
-    let event_states_object_store_path = EVENT_STATES_TABLE.replace('.', "/") + "/";
-    url.set_path(&event_states_object_store_path);
-    // Register event_states_persistent as a listing table
-    ctx.register_table(
-        EVENT_STATES_PERSISTENT_TABLE,
-        Arc::new(ListingTable::try_new(
-            ListingTableConfig::new(ListingTableUrl::parse(url)?)
-                .with_listing_options(listing_options)
-                .with_schema(schemas::event_states()),
-        )?),
-    )?;
+    let pipeline_ctx = pipeline_ctx(config.object_store).await?;
 
-    ctx.register_table(
-        EVENT_STATES_MEM_TABLE,
-        Arc::new(CacheTable::try_new(
-            event_states(),
-            vec![vec![RecordBatch::new_empty(event_states())]],
-        )?),
-    )?;
+    // Spawn the various actors
+    let mut task_handles = Vec::new();
 
-    ctx.register_table(
-        EVENT_STATES_TABLE,
-        ctx.table(EVENT_STATES_MEM_TABLE)
-            .await?
-            .union(ctx.table(EVENT_STATES_PERSISTENT_TABLE).await?)?
-            .into_view(),
-    )?;
+    let (concluder, mut tasks) = Concluder::spawn_new(
+        100,
+        &pipeline_ctx,
+        config.conclusion_feed,
+        config.shutdown.clone(),
+    )
+    .await?;
+    task_handles.append(&mut tasks);
 
-    Ok(ctx)
+    let aggregator = if config.aggregator {
+        let (aggregator, mut tasks) = Aggregator::spawn_new(
+            1_000,
+            &pipeline_ctx,
+            None,
+            concluder.clone(),
+            config.shutdown.clone(),
+        )
+        .await?;
+        task_handles.append(&mut tasks);
+        Some(aggregator)
+    } else {
+        None
+    };
+
+    Ok(Pipeline {
+        handle: PipelineHandle {
+            ctx: pipeline_ctx,
+            concluder: Some(concluder),
+            aggregator,
+        },
+        waiter: PipelineWaiter { task_handles },
+    })
 }

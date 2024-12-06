@@ -8,6 +8,7 @@ mock! {
     pub ConclusionFeed {}
     #[async_trait]
     impl crate::ConclusionFeed for ConclusionFeed {
+        async fn max_highwater_mark(&self) -> anyhow::Result<Option<u64>>;
         async fn conclusion_events_since(
             &self,
             highwater_mark: i64,
