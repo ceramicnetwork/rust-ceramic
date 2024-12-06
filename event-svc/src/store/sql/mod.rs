@@ -7,7 +7,6 @@ mod test;
 
 pub use access::{
     BlockAccess, EventAccess, EventBlockAccess, EventRowDelivered, InsertResult, InsertedEvent,
-    VersionAccess,
 };
 pub use ceramic_sql::{sqlite::SqlitePool, Error, Result};
 pub use root::SqliteRootStore;

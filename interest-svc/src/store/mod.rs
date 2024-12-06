@@ -4,6 +4,4 @@ mod metrics;
 mod sql;
 
 pub use metrics::{Metrics, StoreMetricsMiddleware};
-pub use sql::{
-    CeramicOneInterest, CeramicOneVersion, Error, Result, SqlitePool, SqliteTransaction,
-};
+pub use sql::{CeramicOneInterest, Error, Result, SqlitePool, SqliteTransaction};
