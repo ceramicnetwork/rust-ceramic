@@ -31,8 +31,9 @@ use crate::{
     FeedResumeTokenGetResponse, FeedResumeTokenOptionsResponse, InterestsOptionsResponse,
     InterestsPostResponse, InterestsSortKeySortValueOptionsResponse,
     InterestsSortKeySortValuePostResponse, LivenessGetResponse, LivenessOptionsResponse,
-    StreamsStreamIdGetResponse, StreamsStreamIdOptionsResponse, VersionGetResponse,
-    VersionOptionsResponse, VersionPostResponse,
+    PeersGetResponse, PeersOptionsResponse, PeersPostResponse, StreamsStreamIdGetResponse,
+    StreamsStreamIdOptionsResponse, VersionGetResponse, VersionOptionsResponse,
+    VersionPostResponse,
 };
 
 mod paths {
@@ -51,6 +52,7 @@ mod paths {
             r"^/ceramic/interests$",
             r"^/ceramic/interests/(?P<sort_key>[^/?#]*)/(?P<sort_value>[^/?#]*)$",
             r"^/ceramic/liveness$",
+            r"^/ceramic/peers$",
             r"^/ceramic/streams/(?P<stream_id>[^/?#]*)$",
             r"^/ceramic/version$"
         ])
@@ -89,14 +91,15 @@ mod paths {
             .expect("Unable to create regex for INTERESTS_SORT_KEY_SORT_VALUE");
     }
     pub(crate) static ID_LIVENESS: usize = 10;
-    pub(crate) static ID_STREAMS_STREAM_ID: usize = 11;
+    pub(crate) static ID_PEERS: usize = 11;
+    pub(crate) static ID_STREAMS_STREAM_ID: usize = 12;
     lazy_static! {
         pub static ref REGEX_STREAMS_STREAM_ID: regex::Regex =
             #[allow(clippy::invalid_regex)]
             regex::Regex::new(r"^/ceramic/streams/(?P<stream_id>[^/?#]*)$")
                 .expect("Unable to create regex for STREAMS_STREAM_ID");
     }
-    pub(crate) static ID_VERSION: usize = 12;
+    pub(crate) static ID_VERSION: usize = 13;
 }
 
 pub struct MakeService<T, C>
@@ -1767,6 +1770,174 @@ where
                     Ok(response)
                 }
 
+                // PeersGet - GET /peers
+                hyper::Method::GET if path.matched(paths::ID_PEERS) => {
+                    let result = api_impl.peers_get(&context).await;
+                    let mut response = Response::new(Body::empty());
+                    response.headers_mut().insert(
+                        HeaderName::from_static("x-span-id"),
+                        HeaderValue::from_str(
+                            (&context as &dyn Has<XSpanIdString>)
+                                .get()
+                                .0
+                                .clone()
+                                .as_str(),
+                        )
+                        .expect("Unable to create X-Span-ID header value"),
+                    );
+
+                    match result {
+                        Ok(rsp) => match rsp {
+                            PeersGetResponse::Success(body) => {
+                                *response.status_mut() = StatusCode::from_u16(200)
+                                    .expect("Unable to turn 200 into a StatusCode");
+                                response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for PEERS_GET_SUCCESS"));
+                                let body_content = serde_json::to_string(&body)
+                                    .expect("impossible to fail to serialize");
+                                *response.body_mut() = Body::from(body_content);
+                            }
+                            PeersGetResponse::InternalServerError(body) => {
+                                *response.status_mut() = StatusCode::from_u16(500)
+                                    .expect("Unable to turn 500 into a StatusCode");
+                                response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for PEERS_GET_INTERNAL_SERVER_ERROR"));
+                                let body_content = serde_json::to_string(&body)
+                                    .expect("impossible to fail to serialize");
+                                *response.body_mut() = Body::from(body_content);
+                            }
+                        },
+                        Err(_) => {
+                            // Application code returned an error. This should not happen, as the implementation should
+                            // return a valid response.
+                            *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                            *response.body_mut() = Body::from("An internal error occurred");
+                        }
+                    }
+
+                    Ok(response)
+                }
+
+                // PeersOptions - OPTIONS /peers
+                hyper::Method::OPTIONS if path.matched(paths::ID_PEERS) => {
+                    // Query parameters (note that non-required or collection query parameters will ignore garbage values, rather than causing a 400 response)
+                    let query_params =
+                        form_urlencoded::parse(uri.query().unwrap_or_default().as_bytes())
+                            .collect::<Vec<_>>();
+                    let param_addresses = query_params
+                        .iter()
+                        .filter(|e| e.0 == "addresses")
+                        .map(|e| e.1.clone())
+                        .filter_map(|param_addresses| param_addresses.parse().ok())
+                        .collect::<Vec<_>>();
+
+                    let result = api_impl
+                        .peers_options(param_addresses.as_ref(), &context)
+                        .await;
+                    let mut response = Response::new(Body::empty());
+                    response.headers_mut().insert(
+                        HeaderName::from_static("x-span-id"),
+                        HeaderValue::from_str(
+                            (&context as &dyn Has<XSpanIdString>)
+                                .get()
+                                .0
+                                .clone()
+                                .as_str(),
+                        )
+                        .expect("Unable to create X-Span-ID header value"),
+                    );
+
+                    match result {
+                        Ok(rsp) => match rsp {
+                            PeersOptionsResponse::Cors => {
+                                *response.status_mut() = StatusCode::from_u16(200)
+                                    .expect("Unable to turn 200 into a StatusCode");
+                            }
+                        },
+                        Err(_) => {
+                            // Application code returned an error. This should not happen, as the implementation should
+                            // return a valid response.
+                            *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                            *response.body_mut() = Body::from("An internal error occurred");
+                        }
+                    }
+
+                    Ok(response)
+                }
+
+                // PeersPost - POST /peers
+                hyper::Method::POST if path.matched(paths::ID_PEERS) => {
+                    // Query parameters (note that non-required or collection query parameters will ignore garbage values, rather than causing a 400 response)
+                    let query_params =
+                        form_urlencoded::parse(uri.query().unwrap_or_default().as_bytes())
+                            .collect::<Vec<_>>();
+                    let param_addresses = query_params
+                        .iter()
+                        .filter(|e| e.0 == "addresses")
+                        .map(|e| e.1.clone())
+                        .filter_map(|param_addresses| param_addresses.parse().ok())
+                        .collect::<Vec<_>>();
+
+                    let result = api_impl
+                        .peers_post(param_addresses.as_ref(), &context)
+                        .await;
+                    let mut response = Response::new(Body::empty());
+                    response.headers_mut().insert(
+                        HeaderName::from_static("x-span-id"),
+                        HeaderValue::from_str(
+                            (&context as &dyn Has<XSpanIdString>)
+                                .get()
+                                .0
+                                .clone()
+                                .as_str(),
+                        )
+                        .expect("Unable to create X-Span-ID header value"),
+                    );
+
+                    match result {
+                        Ok(rsp) => match rsp {
+                            PeersPostResponse::Success => {
+                                *response.status_mut() = StatusCode::from_u16(204)
+                                    .expect("Unable to turn 204 into a StatusCode");
+                            }
+                            PeersPostResponse::BadRequest(body) => {
+                                *response.status_mut() = StatusCode::from_u16(400)
+                                    .expect("Unable to turn 400 into a StatusCode");
+                                response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for PEERS_POST_BAD_REQUEST"));
+                                let body_content = serde_json::to_string(&body)
+                                    .expect("impossible to fail to serialize");
+                                *response.body_mut() = Body::from(body_content);
+                            }
+                            PeersPostResponse::InternalServerError(body) => {
+                                *response.status_mut() = StatusCode::from_u16(500)
+                                    .expect("Unable to turn 500 into a StatusCode");
+                                response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for PEERS_POST_INTERNAL_SERVER_ERROR"));
+                                let body_content = serde_json::to_string(&body)
+                                    .expect("impossible to fail to serialize");
+                                *response.body_mut() = Body::from(body_content);
+                            }
+                        },
+                        Err(_) => {
+                            // Application code returned an error. This should not happen, as the implementation should
+                            // return a valid response.
+                            *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                            *response.body_mut() = Body::from("An internal error occurred");
+                        }
+                    }
+
+                    Ok(response)
+                }
+
                 // StreamsStreamIdGet - GET /streams/{stream_id}
                 hyper::Method::GET if path.matched(paths::ID_STREAMS_STREAM_ID) => {
                     // Path parameters
@@ -2075,6 +2246,7 @@ where
                 _ if path.matched(paths::ID_INTERESTS) => method_not_allowed(),
                 _ if path.matched(paths::ID_INTERESTS_SORT_KEY_SORT_VALUE) => method_not_allowed(),
                 _ if path.matched(paths::ID_LIVENESS) => method_not_allowed(),
+                _ if path.matched(paths::ID_PEERS) => method_not_allowed(),
                 _ if path.matched(paths::ID_STREAMS_STREAM_ID) => method_not_allowed(),
                 _ if path.matched(paths::ID_VERSION) => method_not_allowed(),
                 _ => Ok(Response::builder()
@@ -2165,6 +2337,12 @@ impl<T> RequestParser<T> for ApiRequestParser {
             hyper::Method::GET if path.matched(paths::ID_LIVENESS) => Some("LivenessGet"),
             // LivenessOptions - OPTIONS /liveness
             hyper::Method::OPTIONS if path.matched(paths::ID_LIVENESS) => Some("LivenessOptions"),
+            // PeersGet - GET /peers
+            hyper::Method::GET if path.matched(paths::ID_PEERS) => Some("PeersGet"),
+            // PeersOptions - OPTIONS /peers
+            hyper::Method::OPTIONS if path.matched(paths::ID_PEERS) => Some("PeersOptions"),
+            // PeersPost - POST /peers
+            hyper::Method::POST if path.matched(paths::ID_PEERS) => Some("PeersPost"),
             // StreamsStreamIdGet - GET /streams/{stream_id}
             hyper::Method::GET if path.matched(paths::ID_STREAMS_STREAM_ID) => {
                 Some("StreamsStreamIdGet")

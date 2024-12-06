@@ -2,9 +2,10 @@
 
 use std::{ops::Range, str::FromStr, sync::Arc};
 
-use crate::server::{decode_multibase_data, BuildResponse, Server};
+use crate::server::{decode_multibase_data, BuildResponse, P2PService, Server};
 use crate::{
     ApiItem, EventDataResult, EventInsertResult, EventService, IncludeEventData, InterestService,
+    PeerInfo,
 };
 
 use anyhow::Result;
@@ -28,6 +29,7 @@ use datafusion::execution::config::SessionConfig;
 use datafusion::execution::context::SessionContext;
 use expect_test::expect;
 use mockall::{mock, predicate};
+use multiaddr::Multiaddr;
 use multibase::Base;
 use recon::Key;
 use test_log::test;
@@ -144,6 +146,15 @@ mock! {
     }
 }
 
+mock! {
+    pub P2PService {}
+    #[async_trait]
+    impl crate::P2PService for P2PService {
+        async fn peers(&self) -> Result<Vec<crate::PeerInfo>>;
+        async fn peer_connect(&self, addrs: &[Multiaddr]) -> Result<()>;
+    }
+}
+
 /// Given a mock of the EventStore, prepare it to expect calls to load the init event.
 pub fn mock_get_init_event(mock_store: &mut MockEventStoreTest) {
     // Expect two get_block calls
@@ -178,19 +189,21 @@ pub fn mock_get_unsigned_init_event(mock_store: &mut MockEventStoreTest) {
 }
 
 /// Wrapper around server initialization that handles creating the shutdown handler
-fn create_test_server<C, I, M>(
+fn create_test_server<C, I, M, P>(
     node_id: NodeId,
     network: Network,
     interest: I,
     model: Arc<M>,
+    p2p: P,
     pipeline: Option<SessionContext>,
-) -> Server<C, I, M>
+) -> Server<C, I, M, P>
 where
     I: InterestService,
     M: EventService + 'static,
+    P: P2PService,
 {
     let (_, rx) = tokio::sync::broadcast::channel(1);
-    Server::new(node_id, network, interest, model, pipeline, rx)
+    Server::new(node_id, network, interest, model, p2p, pipeline, rx)
 }
 
 #[test(tokio::test)]
@@ -227,6 +240,7 @@ async fn create_event() {
         network,
         mock_interest,
         Arc::new(mock_event_store),
+        MockP2PService::new(),
         None,
     );
     let resp = server
@@ -276,6 +290,7 @@ async fn create_event_twice() {
         network,
         mock_interest,
         Arc::new(mock_event_store),
+        MockP2PService::new(),
         None,
     );
     let (resp1, resp2) = join!(
@@ -334,6 +349,7 @@ async fn create_event_fails() {
         network,
         mock_interest,
         Arc::new(mock_event_store),
+        MockP2PService::new(),
         None,
     );
     let resp = server
@@ -390,6 +406,7 @@ async fn register_interest_sort_value() {
         network,
         mock_interest,
         Arc::new(mock_event_store),
+        MockP2PService::new(),
         None,
     );
     let interest = models::Interest {
@@ -418,6 +435,7 @@ async fn register_interest_sort_value_bad_request() {
         network,
         mock_interest,
         Arc::new(mock_event_store),
+        MockP2PService::new(),
         None,
     );
     let interest = models::Interest {
@@ -473,6 +491,7 @@ async fn register_interest_sort_value_controller() {
         network,
         mock_interest,
         Arc::new(mock_event_store),
+        MockP2PService::new(),
         None,
     );
     let resp = server
@@ -531,6 +550,7 @@ async fn register_interest_value_controller_stream() {
         network,
         mock_interest,
         Arc::new(mock_event_store),
+        MockP2PService::new(),
         None,
     );
     let resp = server
@@ -603,6 +623,7 @@ async fn get_interests() {
         network,
         mock_interest,
         Arc::new(mock_event_store),
+        MockP2PService::new(),
         None,
     );
     let resp = server
@@ -695,6 +716,7 @@ async fn get_interests_for_peer() {
         network,
         mock_interest,
         Arc::new(mock_event_store),
+        MockP2PService::new(),
         None,
     );
     let resp = server
@@ -762,6 +784,7 @@ async fn get_events_for_interest_range() {
         network,
         mock_interest,
         Arc::new(mock_event_store),
+        MockP2PService::new(),
         None,
     );
     let resp = server
@@ -817,6 +840,7 @@ async fn events_event_id_get_by_event_id_success() {
         network,
         mock_interest,
         Arc::new(mock_event_store),
+        MockP2PService::new(),
         None,
     );
     let result = server.events_event_id_get(event_id_str, &Context).await;
@@ -850,6 +874,7 @@ async fn events_event_id_get_by_cid_success() {
         network,
         mock_interest,
         Arc::new(mock_event_store),
+        MockP2PService::new(),
         None,
     );
     let result = server
@@ -863,6 +888,170 @@ async fn events_event_id_get_by_cid_success() {
         multibase::encode(multibase::Base::Base32Lower, event_cid.to_bytes())
     );
     assert_eq!(event.data.unwrap(), event_data_base64);
+}
+
+#[test(tokio::test)]
+async fn peers() {
+    let node_id = NodeKey::random().id();
+    let network = Network::InMemory;
+    let mut mock_p2p_svc = MockP2PService::new();
+    mock_p2p_svc.expect_peers().once().returning(|| {
+        Ok(vec![
+            PeerInfo {
+                id: NodeId::try_from_did_key(
+                    "did:key:z6MktxbrtQY3yx8Wue2hNS1eA3mEXXVb5n8FDL6a7bHkdZqJ",
+                )
+                .unwrap(),
+                addresses: vec!["/ip4/127.0.0.1/tcp/4111", "/ip4/127.0.0.1/udp/4111/quic-v1"]
+                    .into_iter()
+                    .map(Multiaddr::from_str)
+                    .collect::<Result<Vec<_>, _>>()
+                    .unwrap(),
+            },
+            PeerInfo {
+                id: NodeId::try_from_did_key(
+                    "did:key:z6Mkr5oAhjqJc2sedxmaiUQUdQGkdtNkDNpmc9M1gxopvkfP",
+                )
+                .unwrap(),
+                addresses: vec!["/ip4/127.0.0.1/tcp/4112"]
+                    .into_iter()
+                    .map(Multiaddr::from_str)
+                    .collect::<Result<Vec<_>, _>>()
+                    .unwrap(),
+            },
+        ])
+    });
+    let server = create_test_server(
+        node_id,
+        network,
+        MockAccessInterestStoreTest::new(),
+        Arc::new(MockEventStoreTest::new()),
+        mock_p2p_svc,
+        None,
+    );
+    let peers = server.peers_get(&Context).await.unwrap();
+    expect![[r#"
+        Success(
+            Peers {
+                peers: [
+                    Peer {
+                        id: "did:key:z6MktxbrtQY3yx8Wue2hNS1eA3mEXXVb5n8FDL6a7bHkdZqJ",
+                        addresses: [
+                            "/ip4/127.0.0.1/tcp/4111/p2p/12D3KooWQKhz3HsKqJuYD2hRKTo95kJ5CHGNhaxNUuYffJUdcHmr",
+                            "/ip4/127.0.0.1/udp/4111/quic-v1/p2p/12D3KooWQKhz3HsKqJuYD2hRKTo95kJ5CHGNhaxNUuYffJUdcHmr",
+                        ],
+                    },
+                    Peer {
+                        id: "did:key:z6Mkr5oAhjqJc2sedxmaiUQUdQGkdtNkDNpmc9M1gxopvkfP",
+                        addresses: [
+                            "/ip4/127.0.0.1/tcp/4112/p2p/12D3KooWMSuHrdAaTPefwMSJfWByZ6obJe9XqBetsio7EfzhuUbw",
+                        ],
+                    },
+                ],
+            },
+        )
+    "#]].assert_debug_eq(&peers)
+}
+
+#[test(tokio::test)]
+async fn peer_connect() {
+    let node_id = NodeKey::random().id();
+    let network = Network::InMemory;
+    let mut mock_p2p_svc = MockP2PService::new();
+    let addresses = vec![
+        "/ip4/127.0.0.1/tcp/4101/p2p/12D3KooWPFGbRHWfDaWt5MFFeqAHBBq3v5BqeJ4X7pmn2V1t6uNs",
+        "/ip4/127.0.0.1/udp/4111/quic-v1",
+    ];
+    let addrs = addresses
+        .iter()
+        .map(|addr| addr.parse())
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    mock_p2p_svc
+        .expect_peer_connect()
+        .once()
+        .with(predicate::eq(addrs))
+        .returning(|_| Ok(()));
+    let server = create_test_server(
+        node_id,
+        network,
+        MockAccessInterestStoreTest::new(),
+        Arc::new(MockEventStoreTest::new()),
+        mock_p2p_svc,
+        None,
+    );
+    let result = server
+        .peers_post(
+            &addresses.into_iter().map(ToOwned::to_owned).collect(),
+            &Context,
+        )
+        .await
+        .unwrap();
+    expect![[r#"
+        Success
+    "#]]
+    .assert_debug_eq(&result);
+}
+#[test(tokio::test)]
+async fn peer_connect_no_peer_id() {
+    let node_id = NodeKey::random().id();
+    let network = Network::InMemory;
+    let addresses = vec!["/ip4/127.0.0.1/tcp/4101", "/ip4/127.0.0.1/udp/4111/quic-v1"];
+    let server = create_test_server(
+        node_id,
+        network,
+        MockAccessInterestStoreTest::new(),
+        Arc::new(MockEventStoreTest::new()),
+        MockP2PService::new(),
+        None,
+    );
+    let result = server
+        .peers_post(
+            &addresses.into_iter().map(ToOwned::to_owned).collect(),
+            &Context,
+        )
+        .await
+        .unwrap();
+    expect![[r#"
+        BadRequest(
+            BadRequestResponse {
+                message: "at least one address must contain a peer id",
+            },
+        )
+    "#]]
+    .assert_debug_eq(&result);
+}
+#[test(tokio::test)]
+async fn peer_connect_conflicting_peer_ids() {
+    let node_id = NodeKey::random().id();
+    let network = Network::InMemory;
+    let addresses = vec![
+        "/ip4/127.0.0.1/tcp/4101/p2p/12D3KooWPFGbRHWfDaWt5MFFeqAHBBq3v5BqeJ4X7pmn2V1t6uNs",
+        "/ip4/127.0.0.1/udp/4111/quic-v1/p2p/12D3KooWFpSKYLQ6bKLnjrXN5CkGyDsQzAron9UvtHq9yLEKETVQ",
+    ];
+    let server = create_test_server(
+        node_id,
+        network,
+        MockAccessInterestStoreTest::new(),
+        Arc::new(MockEventStoreTest::new()),
+        MockP2PService::new(),
+        None,
+    );
+    let result = server
+        .peers_post(
+            &addresses.into_iter().map(ToOwned::to_owned).collect(),
+            &Context,
+        )
+        .await
+        .unwrap();
+    expect![[r#"
+        BadRequest(
+            BadRequestResponse {
+                message: "more than one unique peer id found in the addresses",
+            },
+        )
+    "#]]
+    .assert_debug_eq(&result);
 }
 
 #[test(tokio::test)]
@@ -890,6 +1079,7 @@ async fn stream_state() {
         network,
         mock_interest,
         Arc::new(mock_event_store),
+        MockP2PService::new(),
         Some(pipeline),
     );
     let result = server
