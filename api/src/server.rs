@@ -6,7 +6,7 @@
 
 mod event;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 use std::{future::Future, ops::Range};
 use std::{marker::PhantomData, ops::RangeBounds};
@@ -1298,13 +1298,26 @@ where
                 }
             }
         }
-        if !addrs.iter().any(|addr| {
-            !addr
-                .iter()
-                .any(|protocol| matches!(protocol, Protocol::P2p(_)))
-        }) {
+        let peer_ids: HashSet<_> = addrs
+            .iter()
+            .flat_map(|addr| {
+                addr.iter().filter_map(|protocol| {
+                    if let Protocol::P2p(peer_id) = protocol {
+                        Some(peer_id)
+                    } else {
+                        None
+                    }
+                })
+            })
+            .collect();
+        if peer_ids.is_empty() {
             return Ok(PeersPostResponse::BadRequest(BadRequestResponse::new(
                 "at least one address must contain a peer id".to_string(),
+            )));
+        };
+        if peer_ids.len() > 1 {
+            return Ok(PeersPostResponse::BadRequest(BadRequestResponse::new(
+                "more than one unique peer id found in the addresses".to_string(),
             )));
         };
         self.peer_connect(addrs)

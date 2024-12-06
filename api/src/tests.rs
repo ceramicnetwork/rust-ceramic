@@ -992,6 +992,67 @@ async fn peer_connect() {
     "#]]
     .assert_debug_eq(&result);
 }
+#[test(tokio::test)]
+async fn peer_connect_no_peer_id() {
+    let node_id = NodeKey::random().id();
+    let network = Network::InMemory;
+    let addresses = vec!["/ip4/127.0.0.1/tcp/4101", "/ip4/127.0.0.1/udp/4111/quic-v1"];
+    let server = create_test_server(
+        node_id,
+        network,
+        MockAccessInterestStoreTest::new(),
+        Arc::new(MockEventStoreTest::new()),
+        MockP2PService::new(),
+        None,
+    );
+    let result = server
+        .peers_post(
+            &addresses.into_iter().map(ToOwned::to_owned).collect(),
+            &Context,
+        )
+        .await
+        .unwrap();
+    expect![[r#"
+        BadRequest(
+            BadRequestResponse {
+                message: "at least one address must contain a peer id",
+            },
+        )
+    "#]]
+    .assert_debug_eq(&result);
+}
+#[test(tokio::test)]
+async fn peer_connect_conflicting_peer_ids() {
+    let node_id = NodeKey::random().id();
+    let network = Network::InMemory;
+    let addresses = vec![
+        "/ip4/127.0.0.1/tcp/4101/p2p/12D3KooWPFGbRHWfDaWt5MFFeqAHBBq3v5BqeJ4X7pmn2V1t6uNs",
+        "/ip4/127.0.0.1/udp/4111/quic-v1/p2p/12D3KooWFpSKYLQ6bKLnjrXN5CkGyDsQzAron9UvtHq9yLEKETVQ",
+    ];
+    let server = create_test_server(
+        node_id,
+        network,
+        MockAccessInterestStoreTest::new(),
+        Arc::new(MockEventStoreTest::new()),
+        MockP2PService::new(),
+        None,
+    );
+    let result = server
+        .peers_post(
+            &addresses.into_iter().map(ToOwned::to_owned).collect(),
+            &Context,
+        )
+        .await
+        .unwrap();
+    expect![[r#"
+        BadRequest(
+            BadRequestResponse {
+                message: "more than one unique peer id found in the addresses",
+            },
+        )
+    "#]]
+    .assert_debug_eq(&result);
+}
 
 #[test(tokio::test)]
 async fn stream_state() {
