@@ -1,33 +1,26 @@
-use std::{marker::PhantomData, ops::AddAssign, time::Duration};
+use std::{marker::PhantomData, ops::AddAssign};
 
 use async_trait::async_trait;
-use ceramic_actor::{actor_message, Actor, ActorRef, Handler, Message, TracedMessage};
-use tokio::sync::mpsc;
+use ceramic_actor::{actor_envelope, Actor, ActorRef, Handler, Message, Receiver, Sender};
 use tracing::{instrument, Instrument, Level};
 
 struct Game {
     scores: Scores,
-    receiver: Option<mpsc::Receiver<TracedMessage<GameMessage>>>,
+    receiver: Option<Receiver<<Game as Actor>::Envelope>>,
 }
 
 impl Actor for Game {
-    type Envelope = GameMessage;
+    type Envelope = GameEnvelope;
 
-    fn receiver(&mut self) -> mpsc::Receiver<TracedMessage<Self::Envelope>> {
+    fn receiver(&mut self) -> Receiver<Self::Envelope> {
         self.receiver.take().unwrap()
     }
 }
 
-actor_message! {
-    GameMessage,
-    notify Score => ScoreMessage,
-    send GetScore => GetScoreMessage,
-}
-
-impl Game {
-    async fn run(self) {
-        GameMessage::run(self).await
-    }
+actor_envelope! {
+    GameEnvelope,
+    GetScore => GetScoreMessage,
+    Score => ScoreMessage,
 }
 
 #[derive(Debug)]
@@ -72,23 +65,24 @@ impl Handler<GetScoreMessage> for Game {
 
 #[derive(Clone)]
 struct GameRef {
-    sender: mpsc::Sender<TracedMessage<GameMessage>>,
+    sender: Sender<<Game as Actor>::Envelope>,
 }
 
+#[async_trait]
 impl ActorRef<Game> for GameRef {
-    fn sender(&self) -> mpsc::Sender<TracedMessage<<Game as Actor>::Envelope>> {
+    fn sender(&self) -> Sender<<Game as Actor>::Envelope> {
         self.sender.clone()
     }
 }
 
 impl GameRef {
     pub fn new() -> Self {
-        let (sender, receiver) = mpsc::channel(8);
+        let (sender, receiver) = ceramic_actor::channel(8);
         let actor = Game {
             scores: Scores { home: 0, away: 0 },
             receiver: Some(receiver),
         };
-        tokio::spawn(async move { actor.run().await });
+        tokio::spawn(async move { <Game as Actor>::Envelope::run(actor).await });
 
         Self { sender }
     }
@@ -97,24 +91,19 @@ impl GameRef {
 struct Player<G> {
     is_home: bool,
     game: G,
-    receiver: Option<mpsc::Receiver<TracedMessage<PlayerMessage>>>,
+    receiver: Option<Receiver<PlayerEnvelop>>,
 }
 impl<G: ActorRef<Game>> Actor for Player<G> {
-    type Envelope = PlayerMessage;
+    type Envelope = PlayerEnvelop;
 
-    fn receiver(&mut self) -> mpsc::Receiver<TracedMessage<Self::Envelope>> {
+    fn receiver(&mut self) -> Receiver<Self::Envelope> {
         self.receiver.take().unwrap()
     }
 }
-impl<G: ActorRef<Game>> Player<G> {
-    async fn run(self) {
-        PlayerMessage::run(self).await
-    }
-}
 
-actor_message! {
-    PlayerMessage,
-    notify Shoot => ShootMessage,
+actor_envelope! {
+    PlayerEnvelop,
+    Shoot => ShootMessage,
 }
 
 #[derive(Debug)]
@@ -145,18 +134,18 @@ where
 }
 
 struct PlayerRef<G> {
-    sender: mpsc::Sender<TracedMessage<PlayerMessage>>,
+    sender: Sender<PlayerEnvelop>,
     marker: PhantomData<G>,
 }
 impl<G: ActorRef<Game>> PlayerRef<G> {
     pub fn new(is_home: bool, game: G) -> Self {
-        let (sender, receiver) = mpsc::channel(8);
+        let (sender, receiver) = ceramic_actor::channel(8);
         let actor = Player {
             is_home,
             game,
             receiver: Some(receiver),
         };
-        tokio::spawn(async move { actor.run().await });
+        tokio::spawn(async move { <Player<G> as Actor>::Envelope::run(actor).await });
 
         Self {
             sender,
@@ -165,8 +154,9 @@ impl<G: ActorRef<Game>> PlayerRef<G> {
     }
 }
 
+#[async_trait]
 impl<G: ActorRef<Game>> ActorRef<Player<G>> for PlayerRef<G> {
-    fn sender(&self) -> mpsc::Sender<TracedMessage<<Player<G> as Actor>::Envelope>> {
+    fn sender(&self) -> Sender<<Player<G> as Actor>::Envelope> {
         self.sender.clone()
     }
 }
@@ -181,9 +171,8 @@ async fn main() {
     let player_home = PlayerRef::new(true, game.clone());
     let player_away = PlayerRef::new(false, game.clone());
     player_home.notify(ShootMessage).await.unwrap();
-    player_away.notify(ShootMessage).await.unwrap();
-    player_home.notify(ShootMessage).await.unwrap();
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    player_away.send(ShootMessage).await.unwrap();
+    player_home.send(ShootMessage).await.unwrap();
     println!(
         "Game score is: {:?}",
         game.send(GetScoreMessage).await.unwrap()

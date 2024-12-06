@@ -1,6 +1,7 @@
 //! Actor provides a lightweight actor framework based on tokio.
 //!
-#![warn(missing_docs)]
+//#![warn(missing_docs)]
+
 pub mod macros;
 
 use std::{future::Future, pin::Pin};
@@ -30,7 +31,7 @@ where
 pub trait Actor: 'static + Send + Sync {
     type Envelope: Send + Sync + 'static;
 
-    fn receiver(&mut self) -> mpsc::Receiver<TracedMessage<Self::Envelope>>;
+    fn receiver(&mut self) -> Receiver<Self::Envelope>;
 
     /// Returns the actor's type name string
     fn type_name() -> &'static str
@@ -77,79 +78,95 @@ where
     }
 }
 
-// TODO hide behind mailbox type
-pub struct TracedMessage<M> {
-    pub msg: M,
+pub struct Traced<T> {
+    pub value: T,
     pub span: Span,
 }
 
-type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
-
+#[async_trait]
 pub trait ActorRef<A>: Send + Sync + 'static
 where
     A: Actor,
 {
-    fn sender(&self) -> mpsc::Sender<TracedMessage<A::Envelope>>;
+    fn sender(&self) -> Sender<A::Envelope>;
 
-    fn notify<Msg>(&self, msg: Msg) -> BoxFuture<Result<(), ()>>
-    where
-        Msg: Message + Send + 'static,
-        Msg: Into<A::Envelope>,
-        A: Handler<Msg>,
-    {
-        let sender = self.sender();
-        let span = self.notify_span::<Msg>();
-        Box::pin(async move {
-            sender
-                .send(TracedMessage {
-                    msg: msg.into(),
-                    span,
-                })
-                .await
-                .unwrap();
-            Ok(())
-        })
-    }
-
-    fn send<Msg>(&self, msg: Msg) -> BoxFuture<Result<Msg::Result, ()>>
+    async fn notify<Msg>(&self, msg: Msg) -> Result<(), ()>
     where
         Msg: Message + Send + 'static,
         A::Envelope: From<(Msg, oneshot::Sender<Msg::Result>)>,
         A: Handler<Msg>,
     {
+        let span = debug_span!(
+            "notify",
+            actor_type = A::type_name(),
+            message_type = Msg::type_name()
+        );
         let sender = self.sender();
-        let span = self.send_span::<Msg>();
-        Box::pin(async move {
-            let (tx, rx) = oneshot::channel();
-            sender
-                .send(TracedMessage {
-                    msg: (msg, tx).into(),
-                    span,
-                })
-                .await
-                .unwrap();
-            Ok(rx.await.unwrap())
-        })
+        //TODO can we avoid creating this at all?
+        let (tx, rx) = oneshot::channel();
+        sender
+            .send(DeliverOp::Notify(Traced {
+                value: (msg, tx).into(),
+                span,
+            }))
+            .await
+            .unwrap();
+        Ok(())
     }
 
-    fn notify_span<Msg>(&self) -> Span
+    async fn send<Msg>(&self, msg: Msg) -> Result<Msg::Result, ()>
     where
-        Msg: Message,
+        Msg: Message + Send + 'static,
+        A::Envelope: From<(Msg, oneshot::Sender<Msg::Result>)>,
+        A: Handler<Msg>,
     {
-        debug_span!(
-            "notify",
+        let span = debug_span!(
+            "send",
             actor_type = A::type_name(),
             message_type = Msg::type_name()
-        )
+        );
+        let sender = self.sender();
+        let (tx, rx) = oneshot::channel();
+        sender
+            .send(DeliverOp::Send(Traced {
+                value: (msg, tx).into(),
+                span,
+            }))
+            .await
+            .unwrap();
+        Ok(rx.await.unwrap())
     }
-    fn send_span<Msg>(&self) -> Span
-    where
-        Msg: Message,
-    {
-        debug_span!(
-            "notify",
-            actor_type = A::type_name(),
-            message_type = Msg::type_name()
-        )
+}
+
+pub enum DeliverOp<E> {
+    Send(E),
+    Notify(E),
+}
+
+pub struct Receiver<E>(mpsc::Receiver<DeliverOp<Traced<E>>>);
+pub struct Sender<E>(mpsc::Sender<DeliverOp<Traced<E>>>);
+
+pub fn channel<E>(buffer: usize) -> (Sender<E>, Receiver<E>) {
+    let (tx, rx) = mpsc::channel(buffer);
+    (Sender(tx), Receiver(rx))
+}
+
+impl<E> Clone for Sender<E> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl<E> Receiver<E> {
+    pub async fn recv(&mut self) -> Option<DeliverOp<Traced<E>>> {
+        self.0.recv().await
+    }
+}
+impl<E> Sender<E> {
+    async fn send(
+        &self,
+        value: DeliverOp<Traced<E>>,
+    ) -> Result<(), mpsc::error::SendError<DeliverOp<Traced<E>>>> {
+        self.0.send(value).await
     }
 }
