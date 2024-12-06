@@ -148,7 +148,15 @@ async fn from_ipfs(opts: FromIpfsOpts) -> Result<()> {
     let db_opts: DBOpts = (&opts).into();
     let sqlite_pool = db_opts.get_sqlite_pool(SqliteOpts::default()).await?;
     // TODO: feature flags here? or just remove this entirely when enabling
-    let event_svc = Arc::new(EventService::try_new(sqlite_pool, false, false, vec![]).await?);
+    let event_svc = Arc::new(
+        EventService::try_new(
+            sqlite_pool,
+            ceramic_event_svc::UndeliveredEventReview::Skip,
+            false,
+            vec![],
+        )
+        .await?,
+    );
     let blocks = FSBlockStore {
         input_ipfs_path: opts.input_ipfs_path,
         sharded_paths: !opts.non_sharded_paths,

@@ -1204,7 +1204,7 @@ mod tests {
 
     use async_trait::async_trait;
     use ceramic_core::{NodeId, RangeOpen};
-    use ceramic_event_svc::{store::SqlitePool, EventService};
+    use ceramic_event_svc::{store::SqlitePool, EventService, UndeliveredEventReview};
     use futures::TryStreamExt;
     use rand::prelude::*;
     use rand_chacha::ChaCha8Rng;
@@ -1416,7 +1416,9 @@ mod tests {
             let sql_pool = SqlitePool::connect_in_memory().await.unwrap();
 
             let metrics = Metrics::register(&mut prometheus_client::registry::Registry::default());
-            let store = Arc::new(EventService::try_new(sql_pool, true, true, vec![]).await?);
+            let store = Arc::new(
+                EventService::try_new(sql_pool, UndeliveredEventReview::Skip, true, vec![]).await?,
+            );
             let mut p2p = Node::new(
                 network_config,
                 rpc_server_addr,
