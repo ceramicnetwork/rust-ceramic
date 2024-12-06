@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use crate::EventService;
+use crate::{EventService, UndeliveredEventReview};
 use anyhow::Error;
 use bytes::Bytes;
 use ceramic_api::{ApiItem, EventService as ApiEventService};
@@ -25,7 +25,7 @@ macro_rules! test_with_sqlite {
             async fn [<$test_name _sqlite>]() {
 
                 let conn = $crate::store::SqlitePool::connect_in_memory().await.unwrap();
-                let store = $crate::EventService::try_new(conn, true, true, vec![]).await.unwrap();
+                let store = $crate::EventService::try_new(conn, UndeliveredEventReview::Skip, true, vec![]).await.unwrap();
                 $(
                     for stmt in $sql_stmts {
                         store.pool.run_statement(stmt).await.unwrap();
@@ -664,7 +664,7 @@ where
 #[test(tokio::test)]
 async fn test_conclusion_events_since() -> Result<(), Box<dyn std::error::Error>> {
     let pool = SqlitePool::connect_in_memory().await?;
-    let service = EventService::try_new(pool, false, false, vec![]).await?;
+    let service = EventService::try_new(pool, UndeliveredEventReview::Skip, false, vec![]).await?;
     let test_events = generate_chained_events().await;
 
     ceramic_api::EventService::insert_many(
