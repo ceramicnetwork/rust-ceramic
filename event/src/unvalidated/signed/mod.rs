@@ -5,13 +5,12 @@ use std::{collections::BTreeMap, fmt::Debug, str::FromStr as _};
 
 use anyhow::Context;
 use base64::Engine;
+use ceramic_car::sync::{CarHeader, CarWriter};
+use ceramic_core::{signer::Signer, DidDocument, Jwk, SerializeExt};
 use cid::Cid;
 use ipld_core::ipld::Ipld;
 use multihash_codetable::{Code, MultihashDigest};
 use serde::{Deserialize, Serialize};
-
-use ceramic_car::sync::{CarHeader, CarWriter};
-use ceramic_core::{signer::Signer, DidDocument, Jwk, SerializeExt};
 use ssi::{jwk::Algorithm, jws::Header};
 
 use crate::{bytes::Bytes, unvalidated::Payload};

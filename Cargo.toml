@@ -7,7 +7,6 @@ members = [
     "anchor-service",
     "api",
     "api-server",
-    "arrow-test",
     "core",
     "event",
     "event-svc",
@@ -69,8 +68,7 @@ ceramic-actor-macros = { path = "./actor-macros" }
 ceramic-anchor-service = { path = "./anchor-service" }
 ceramic-anchor-remote = { path = "./anchor-remote" }
 ceramic-api = { path = "./api" }
-ceramic-api-server = { path = "./api-server" }
-ceramic-arrow-test = { path = "./arrow-test" }
+ceramic-api-server = { path = "./api-server", default-features = false }
 ceramic-car = { path = "./car" }
 ceramic-core = { path = "./core" }
 ceramic-event = { path = "./event" }
@@ -176,6 +174,7 @@ ring = "0.17.8"
 rkyv = "0.7.37"
 rlimit = "0.9.0"
 ruzstd = "0.3"
+schemars = "0.8"
 serde = { version = "1.0", features = ["derive"] }
 serde-error = "0.1.2"
 serde_bytes = "0.11"
@@ -187,9 +186,9 @@ serde_qs = "0.10.1"
 serde_with = "2.1"
 sha2 = { version = "0.10", default-features = false }
 sha3 = "0.10"
-snafu = "0.8.5"
 shutdown = { path = "./shutdown/" }
 smallvec = "1.10"
+snafu = "0.8.5"
 # pragma optimize hangs forver on 0.8, possibly due to libsqlite-sys upgrade
 sqlx = { version = "0.7", features = ["sqlite", "runtime-tokio", "chrono"] }
 ssh-key = { version = "0.5.1", default-features = false, features = [
@@ -268,3 +267,6 @@ repository = "https://github.com/3box/rust-ceramic"
 inherits = "release"
 debug = true
 strip = "none"
+
+[patch.crates-io]
+#datafusion = { path = "../datafusion/datafusion/core" }

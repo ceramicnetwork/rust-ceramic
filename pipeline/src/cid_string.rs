@@ -1,3 +1,5 @@
+//! Provides a scalar udf implementation that converts CID bytes to a utf8 string.
+
 use std::{any::Any, sync::Arc};
 
 use cid::Cid;
