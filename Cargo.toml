@@ -25,7 +25,7 @@ members = [
     "beetle/iroh-bitswap",
     "beetle/iroh-rpc-client",
     "beetle/iroh-rpc-types",
-    "beetle/iroh-util",
+    "beetle/iroh-util", "actor",
 ]
 
 [workspace.dependencies]
