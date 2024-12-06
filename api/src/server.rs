@@ -1304,7 +1304,7 @@ where
                 .any(|protocol| matches!(protocol, Protocol::P2p(_)))
         }) {
             return Ok(PeersPostResponse::BadRequest(BadRequestResponse::new(
-                format!("at least one address must contain a peer id"),
+                "at least one address must contain a peer id".to_string(),
             )));
         };
         self.peer_connect(addrs)
