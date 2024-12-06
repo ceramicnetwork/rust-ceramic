@@ -41,7 +41,7 @@ pub(crate) fn peer_key_builder() -> Builder<Init> {
 
 // Generate an event for the same network,model,controller,stream
 // The event and height are random when when its None.
-pub(crate) fn random_peer_key<'a>(expiration: Option<u64>) -> PeerKey {
+pub(crate) fn random_peer_key(expiration: Option<u64>) -> PeerKey {
     peer_key_builder()
         .with_expiration(expiration.unwrap_or_else(|| thread_rng().gen()))
         .with_id(&NodeKey::random())
