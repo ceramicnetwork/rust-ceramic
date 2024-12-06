@@ -2070,6 +2070,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "ceramic-actor"
+version = "0.45.0"
+dependencies = [
+ "async-trait",
+ "ceramic-actor-macros",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "ceramic-actor-macros"
+version = "0.45.0"
+dependencies = [
+ "quote",
+ "syn 2.0.90",
+]
+
+[[package]]
 name = "ceramic-anchor-remote"
 version = "0.46.0"
 dependencies = [
