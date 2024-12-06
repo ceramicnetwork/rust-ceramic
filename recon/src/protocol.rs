@@ -92,7 +92,7 @@ pub async fn initiate_synchronize<S, R, E>(
     recon: R,
     stream: S,
     config: ProtocolConfig,
-) -> Result<()>
+) -> Result<usize>
 where
     R: Recon,
     S: Stream<Item = Result<RM<R::Key, R::Hash>, E>>
@@ -103,12 +103,15 @@ where
 {
     let metrics = recon.metrics();
     let sync_id = Some(Uuid::new_v4().to_string());
-    protocol(sync_id, Initiator::new(recon, config), stream, metrics).await?;
-    Ok(())
+    protocol(sync_id, Initiator::new(recon, config), stream, metrics).await
 }
 /// Respond to an initiated Recon synchronization with a peer over a stream.
 #[tracing::instrument(skip(recon, stream), ret(level = Level::DEBUG))]
-pub async fn respond_synchronize<S, R, E>(recon: R, stream: S, config: ProtocolConfig) -> Result<()>
+pub async fn respond_synchronize<S, R, E>(
+    recon: R,
+    stream: S,
+    config: ProtocolConfig,
+) -> Result<usize>
 where
     R: Recon,
     S: Stream<Item = std::result::Result<IM<R::Key, R::Hash>, E>>
@@ -118,8 +121,7 @@ where
     E: std::error::Error + Send + Sync + 'static,
 {
     let metrics = recon.metrics();
-    protocol(None, Responder::new(recon, config), stream, metrics).await?;
-    Ok(())
+    protocol(None, Responder::new(recon, config), stream, metrics).await
 }
 
 /// Recon message envelope
@@ -206,7 +208,7 @@ async fn protocol<R, S, E>(
     mut role: R,
     stream: S,
     metrics: Metrics,
-) -> Result<()>
+) -> Result<usize>
 where
     R: Role,
     R::Out: std::fmt::Debug + Send + 'static,
@@ -234,7 +236,7 @@ where
         metrics.clone(),
     );
 
-    let read = read(sync_id, stream, role, to_writer_tx, metrics.clone());
+    let read = read(sync_id, stream, &mut role, to_writer_tx, metrics.clone());
 
     // In a recon conversation there are 4 futures being polled:
     //
@@ -262,15 +264,15 @@ where
     let _res = tokio::try_join!(write, read)
         .map_err(|e: anyhow::Error| anyhow!("protocol error: {}", e))?;
 
-    metrics.record(&ProtocolRun(start.elapsed()));
-    Ok(())
+    metrics.record(&ProtocolRun(start.elapsed(), role.new_count() as f64));
+    Ok(role.new_count())
 }
 
 #[instrument(skip_all, fields(sync_id))]
 async fn read<R, S, E>(
     mut sync_id: Option<String>,
     stream: S,
-    mut role: R,
+    role: &mut R,
     mut to_writer_tx: mpsc::Sender<ToWriter<R::Out>>,
     metrics: Metrics,
 ) -> Result<()>
@@ -444,6 +446,9 @@ trait Role {
         to_writer: &mut ToWriterSender<Self::Out>,
         message: Self::In,
     ) -> Result<RemoteStatus>;
+
+    // Report the number of new keys inserted
+    fn new_count(&self) -> usize;
 }
 
 // Initiator implements the Role that starts the synchronize conversation.
@@ -590,6 +595,10 @@ where
         };
         Ok(RemoteStatus::Active)
     }
+
+    fn new_count(&self) -> usize {
+        self.common.new_count
+    }
 }
 
 // Responder implements the [`Role`] where it responds to incoming requests.
@@ -707,6 +716,9 @@ where
             }
         }
     }
+    fn new_count(&self) -> usize {
+        self.common.new_count
+    }
 }
 
 // Common implements common behaviors to both [`Initiator`] and [`Responder`].
@@ -714,6 +726,7 @@ struct Common<R: Recon> {
     recon: R,
     event_q: Vec<ReconItem<R::Key>>,
     config: ProtocolConfig,
+    new_count: usize,
 }
 
 impl<R> Common<R>
@@ -725,6 +738,7 @@ where
             recon,
             event_q: Vec::with_capacity(config.insert_batch_size.saturating_add(1)),
             config,
+            new_count: 0,
         }
     }
 
@@ -788,6 +802,7 @@ where
                 self.config.node_id.peer_id()
             );
         }
+        self.new_count += batch.count_inserted();
 
         // for now, we record the metrics from recon but the service is the one that will track and try to store them
         // this may get more sophisticated as we want to tie reputation into this, or make recon more aware of the meaning of

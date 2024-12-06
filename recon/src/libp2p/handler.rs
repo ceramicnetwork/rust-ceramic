@@ -73,7 +73,13 @@ where
     }
 }
 
-type SyncFuture = libp2p::futures::future::BoxFuture<'static, Result<StreamSet>>;
+#[derive(Debug)]
+pub struct SyncResult {
+    pub stream_set: StreamSet,
+    pub new_count: usize,
+}
+
+type SyncFuture = libp2p::futures::future::BoxFuture<'static, Result<SyncResult>>;
 
 /// Current state of the handler.
 ///
@@ -141,6 +147,7 @@ pub enum FromHandler {
     },
     Succeeded {
         stream_set: StreamSet,
+        new_count: usize,
     },
     Stopped,
     Failed {
@@ -200,9 +207,15 @@ where
                 if let Poll::Ready(result) = stream.poll_unpin(cx) {
                     self.transition_state(State::Idle);
                     match result {
-                        Ok(stream_set) => {
+                        Ok(SyncResult {
+                            stream_set,
+                            new_count,
+                        }) => {
                             return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
-                                FromHandler::Succeeded { stream_set },
+                                FromHandler::Succeeded {
+                                    stream_set,
+                                    new_count,
+                                },
                             ));
                         }
                         Err(e) => {

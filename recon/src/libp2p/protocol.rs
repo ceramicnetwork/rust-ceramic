@@ -7,6 +7,7 @@ use tracing::Level;
 
 use ceramic_core::NodeId;
 
+use crate::libp2p::handler::SyncResult;
 use crate::{
     libp2p::stream_set::StreamSet,
     protocol::{self, ProtocolConfig, Recon},
@@ -20,7 +21,7 @@ pub async fn initiate_synchronize<S, R>(
     stream_set: StreamSet,
     recon: R,
     stream: S,
-) -> Result<StreamSet>
+) -> Result<SyncResult>
 where
     R: Recon,
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
@@ -28,9 +29,13 @@ where
     let codec = CborCodec::new();
     let stream = Framed::new(stream, codec);
     let remote_node_id = NodeId::try_from_peer_id(&remote_peer_id)?;
-    protocol::initiate_synchronize(recon, stream, ProtocolConfig::new_node_id(remote_node_id))
-        .await?;
-    Ok(stream_set)
+    let new_count =
+        protocol::initiate_synchronize(recon, stream, ProtocolConfig::new_node_id(remote_node_id))
+            .await?;
+    Ok(SyncResult {
+        stream_set,
+        new_count,
+    })
 }
 // Intiate Recon synchronization with a peer over a stream.
 #[tracing::instrument(skip(recon, stream, ), ret(level = Level::DEBUG))]
@@ -40,7 +45,7 @@ pub async fn respond_synchronize<S, R>(
     stream_set: StreamSet,
     recon: R,
     stream: S,
-) -> Result<StreamSet>
+) -> Result<SyncResult>
 where
     R: Recon,
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
@@ -48,7 +53,11 @@ where
     let codec = CborCodec::new();
     let stream = Framed::new(stream, codec);
     let remote_node_id = NodeId::try_from_peer_id(&remote_peer_id)?;
-    protocol::respond_synchronize(recon, stream, ProtocolConfig::new_node_id(remote_node_id))
-        .await?;
-    Ok(stream_set)
+    let new_count =
+        protocol::respond_synchronize(recon, stream, ProtocolConfig::new_node_id(remote_node_id))
+            .await?;
+    Ok(SyncResult {
+        stream_set,
+        new_count,
+    })
 }

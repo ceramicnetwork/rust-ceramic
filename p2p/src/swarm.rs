@@ -5,7 +5,7 @@ use libp2p_identity::Keypair;
 use recon::{libp2p::Recon, Sha256a};
 use std::sync::Arc;
 
-use crate::{behaviour::NodeBehaviour, Libp2pConfig, Metrics};
+use crate::{behaviour::NodeBehaviour, peers, Libp2pConfig, Metrics};
 
 fn get_dns_config() -> (dns::ResolverConfig, dns::ResolverOpts) {
     match hickory_resolver::system_conf::read_system_conf() {
@@ -33,6 +33,7 @@ pub(crate) async fn build_swarm<P, I, M, S>(
     keypair: Keypair,
     recons: Option<(P, I, M)>,
     block_store: Arc<S>,
+    peers_tx: tokio::sync::mpsc::Sender<peers::Message>,
     metrics: Metrics,
 ) -> Result<Swarm<NodeBehaviour<P, I, M, S>>>
 where
@@ -78,6 +79,7 @@ where
                     Some(relay_client),
                     recons,
                     block_store,
+                    peers_tx,
                     metrics.clone(),
                 )
                 .map_err(|err| err.into())
@@ -87,8 +89,16 @@ where
     } else {
         Ok(builder
             .with_behaviour(|keypair| {
-                new_behavior(config, keypair, None, recons, block_store, metrics.clone())
-                    .map_err(|err| err.into())
+                new_behavior(
+                    config,
+                    keypair,
+                    None,
+                    recons,
+                    block_store,
+                    peers_tx,
+                    metrics.clone(),
+                )
+                .map_err(|err| err.into())
             })?
             .with_swarm_config(with_config)
             .build())
@@ -101,6 +111,7 @@ fn new_behavior<P, I, M, S>(
     relay_client: Option<relay::client::Behaviour>,
     recons: Option<(P, I, M)>,
     block_store: Arc<S>,
+    peers_tx: tokio::sync::mpsc::Sender<peers::Message>,
     metrics: Metrics,
 ) -> Result<NodeBehaviour<P, I, M, S>>
 where
@@ -119,6 +130,7 @@ where
             relay_client,
             recons,
             block_store,
+            peers_tx,
             metrics,
         ))
     })

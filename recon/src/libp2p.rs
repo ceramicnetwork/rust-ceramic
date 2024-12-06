@@ -17,6 +17,9 @@ mod stream_set;
 mod tests;
 mod upgrade;
 
+pub use crate::protocol::Recon;
+pub use stream_set::StreamSet;
+
 use ceramic_core::{EventId, Interest, PeerKey};
 use futures::{future::BoxFuture, FutureExt};
 use libp2p::{
@@ -33,12 +36,8 @@ use std::{
 use tokio::time::Instant;
 use tracing::{debug, trace, warn};
 
-pub use crate::protocol::Recon;
 use crate::{
-    libp2p::{
-        handler::{FromBehaviour, FromHandler, Handler},
-        stream_set::StreamSet,
-    },
+    libp2p::handler::{FromBehaviour, FromHandler, Handler},
     Sha256a,
 };
 
@@ -132,6 +131,8 @@ pub enum PeerStatus {
     Synchronized {
         /// The stream_set that was synchronized
         stream_set: StreamSet,
+        /// The number of new keys inserted during the synchronization.
+        new_count: usize,
     },
     /// Local peer has started to synchronize with the remote peer.
     Started {
@@ -263,9 +264,12 @@ where
 
             // The peer has synchronized with us, mark the time and record that the peer connection
             // is now idle.
-            FromHandler::Succeeded { stream_set } => {
+            FromHandler::Succeeded {
+                stream_set,
+                new_count,
+            } => {
                 if let Entry::Occupied(mut entry) = self.peers.entry(peer_id) {
-                    debug!(%peer_id, ?stream_set, "synchronization succeeded with peer");
+                    debug!(%peer_id, ?stream_set, new_count, "synchronization succeeded with peer");
                     let info = entry.get_mut();
                     let sync_delay = *info
                         .sync_delay
@@ -276,7 +280,10 @@ where
                     // On success reset delay
                     info.sync_delay
                         .insert(stream_set, self.config.per_peer_sync_delay);
-                    info.status = PeerStatus::Synchronized { stream_set };
+                    info.status = PeerStatus::Synchronized {
+                        stream_set,
+                        new_count,
+                    };
                     Some(ToSwarm::GenerateEvent(Event::PeerEvent(PeerEvent {
                         remote_peer_id: peer_id,
                         status: info.status,

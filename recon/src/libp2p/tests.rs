@@ -305,7 +305,7 @@ async fn model_error_backoff() {
                         let crate::libp2p::Event::PeerEvent(PeerEvent { status, .. }) = ev;
                         match status {
                             PeerStatus::Waiting | PeerStatus::Stopped => None,
-                            PeerStatus::Synchronized { stream_set }
+                            PeerStatus::Synchronized { stream_set, .. }
                             | PeerStatus::Started { stream_set }
                             | PeerStatus::Failed { stream_set } => Some(*stream_set),
                         }
@@ -391,7 +391,8 @@ fn assert_in_sync(id: PeerId, events: [crate::libp2p::Event; 6]) {
         PeerEvent {
             remote_peer_id: id,
             status: PeerStatus::Synchronized {
-                stream_set: StreamSet::Peer
+                stream_set: StreamSet::Peer,
+                new_count: 0,
             }
         }
     );
@@ -409,7 +410,8 @@ fn assert_in_sync(id: PeerId, events: [crate::libp2p::Event; 6]) {
         PeerEvent {
             remote_peer_id: id,
             status: PeerStatus::Synchronized {
-                stream_set: StreamSet::Interest
+                stream_set: StreamSet::Interest,
+                new_count: 0,
             }
         }
     );
@@ -427,7 +429,8 @@ fn assert_in_sync(id: PeerId, events: [crate::libp2p::Event; 6]) {
         PeerEvent {
             remote_peer_id: id,
             status: PeerStatus::Synchronized {
-                stream_set: StreamSet::Model
+                stream_set: StreamSet::Model,
+                new_count: 0,
             }
         }
     );
