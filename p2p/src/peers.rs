@@ -8,7 +8,7 @@ use tokio::{
     select,
     sync::{mpsc, oneshot},
 };
-use tracing::warn;
+use tracing::{debug, warn};
 
 /// [`InterestProvider`] that is interested in [`PeerKey`]s that have not expired.
 #[derive(Debug, Clone)]
@@ -50,8 +50,8 @@ impl<S: PeerService> PeerService for Arc<S> {
 
 #[derive(Debug)]
 pub enum Message {
-    /// Inform the peers loop about a new local address.
-    NewLocalAddress(Multiaddr),
+    /// Inform the peers loop about new local addresses.
+    NewLocalAddresses(Vec<Multiaddr>),
     /// Inform the peers loop about a local address that is no longer valid.
     RemoveLocalAddress(Multiaddr),
     /// Report a list of all remote peers.
@@ -60,6 +60,8 @@ pub enum Message {
 }
 
 /// Run a loop handling messages and publishing the local node into the Peer recon ring.
+/// The local node its expiration time will be set `expiration` duration in the future
+/// and published at twice the frequency that it expires.
 pub async fn run(
     expiration: Duration,
     node_key: NodeKey,
@@ -74,7 +76,9 @@ pub async fn run(
                 do_tick(expiration, &node_key, addresses.iter().cloned().collect(), &svc).await
             }
             Some(m) = messages.recv() => {
-                handle_message(node_key.id(), m, &mut addresses,&svc).await
+                if handle_message(node_key.id(), m, &mut addresses,&svc).await{
+                    do_tick(expiration, &node_key, addresses.iter().cloned().collect(), &svc).await
+                }
             }
         }
     }
@@ -113,13 +117,16 @@ async fn handle_message(
     message: Message,
     addressess: &mut BTreeSet<Multiaddr>,
     svc: &impl PeerService,
-) {
+) -> bool {
+    debug!(%node_id, ?message, "handle_message");
     match message {
-        Message::NewLocalAddress(address) => {
-            addressess.insert(address);
+        Message::NewLocalAddresses(address) => {
+            addressess.extend(address.into_iter());
+            true
         }
         Message::RemoveLocalAddress(address) => {
             addressess.remove(&address);
+            true
         }
         Message::AllRemotePeers(tx) => {
             let r = match svc.all_peers().await {
@@ -142,6 +149,7 @@ async fn handle_message(
             if tx.send(r).is_err() {
                 warn!("failed to send all peers response");
             }
+            false
         }
     }
 }

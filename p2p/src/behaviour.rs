@@ -24,8 +24,8 @@ use tracing::{info, warn};
 
 use self::ceramic_peer_manager::CeramicPeerManager;
 pub use self::event::Event;
-use crate::config::Libp2pConfig;
 use crate::Metrics;
+use crate::{config::Libp2pConfig, peers};
 
 mod ceramic_peer_manager;
 mod event;
@@ -72,6 +72,7 @@ where
         relay_client: Option<relay::client::Behaviour>,
         recons: Option<(P, I, M)>,
         block_store: Arc<S>,
+        peers_tx: tokio::sync::mpsc::Sender<peers::Message>,
         metrics: Metrics,
     ) -> Result<Self> {
         let pub_key = local_key.public();
@@ -198,7 +199,7 @@ where
             relay,
             dcutr: dcutr.into(),
             relay_client: relay_client.into(),
-            peer_manager: CeramicPeerManager::new(&config.ceramic_peers, metrics)?,
+            peer_manager: CeramicPeerManager::new(peers_tx, &config.ceramic_peers, metrics)?,
             limits,
             recon: recon.into(),
         })

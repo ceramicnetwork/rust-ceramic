@@ -24,6 +24,7 @@ pub struct Metrics {
 
     protocol_write_loop_count: Counter,
     protocol_run_duration: Histogram,
+    protocol_run_new_keys: Histogram,
 
     protocol_pending_items: Counter,
     protocol_invalid_items: Family<InvalidItemLabels, Counter>,
@@ -99,6 +100,12 @@ impl Metrics {
             Histogram::new(exponential_buckets(0.005, 2.0, 20)),
             sub_registry
         );
+        register!(
+            protocol_run_new_keys,
+            "Number of new keys discovered for each protocol run",
+            Histogram::new(exponential_buckets(1.0, 2.0, 20)),
+            sub_registry
+        );
 
         register!(
             protocol_pending_items,
@@ -119,6 +126,7 @@ impl Metrics {
             protocol_message_sent_count,
             protocol_write_loop_count,
             protocol_run_duration,
+            protocol_run_new_keys,
             protocol_pending_items,
             protocol_invalid_items,
         }
@@ -158,10 +166,11 @@ impl Recorder<ProtocolWriteLoop> for Metrics {
     }
 }
 
-pub(crate) struct ProtocolRun(pub Duration);
+pub(crate) struct ProtocolRun(pub Duration, pub f64);
 impl Recorder<ProtocolRun> for Metrics {
     fn record(&self, event: &ProtocolRun) {
         self.protocol_run_duration.observe(event.0.as_secs_f64());
+        self.protocol_run_new_keys.observe(event.1);
     }
 }
 
