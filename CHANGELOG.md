@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.46.0] - 2024-12-09
+
+### 🚀 Features
+
+- Add peer entry and peer key structs ([#615](https://github.com/ceramicnetwork/rust-ceramic/issues/615))
+- Add support for local file object store ([#623](https://github.com/ceramicnetwork/rust-ceramic/issues/623))
+- Add support for prepared statements ([#600](https://github.com/ceramicnetwork/rust-ceramic/issues/600))
+- Add peer recon ring ([#616](https://github.com/ceramicnetwork/rust-ceramic/issues/616))
+- Use many tasks to order streams and discover undelivered events at startup ([#620](https://github.com/ceramicnetwork/rust-ceramic/issues/620))
+- Adds transitive sharing of peer information ([#618](https://github.com/ceramicnetwork/rust-ceramic/issues/618))
+- Adds /peers endpoint ([#628](https://github.com/ceramicnetwork/rust-ceramic/issues/628))
+
+### 🐛 Bug Fixes
+
+- Sqlite optimize during connect could timeout and allow specifying db options ([#622](https://github.com/ceramicnetwork/rust-ceramic/issues/622))
+
+### 🚜 Refactor
+
+- Remove offset/limit where too generic ([#624](https://github.com/ceramicnetwork/rust-ceramic/issues/624))
+- Remove unused version code ([#627](https://github.com/ceramicnetwork/rust-ceramic/issues/627))
+
+### ⚙️ Miscellaneous Tasks
+
+- Log current highwater mark when processing events ([#619](https://github.com/ceramicnetwork/rust-ceramic/issues/619))
+- Run sqlite optimize at startup and interval ([#621](https://github.com/ceramicnetwork/rust-ceramic/issues/621))
+- Use arrow release 53.3 ([#625](https://github.com/ceramicnetwork/rust-ceramic/issues/625))
+
 ## [0.45.0] - 2024-11-25
 
 ### 🚀 Features
@@ -16,6 +43,7 @@ All notable changes to this project will be documented in this file.
 ### ⚙️ Miscellaneous Tasks
 
 - Automatically select release level ([#612](https://github.com/ceramicnetwork/rust-ceramic/issues/612))
+- Version v0.45.0 ([#617](https://github.com/ceramicnetwork/rust-ceramic/issues/617))
 
 ## [0.44.0] - 2024-11-18
 
