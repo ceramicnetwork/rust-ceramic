@@ -519,6 +519,62 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  "/peers":
+    options:
+      summary: cors
+      parameters:
+        - name: addresses
+          in: query
+          description: Multiaddress of peer to connect to, at least one address must contain the peer id.
+          schema:
+            type: array
+            items:
+              type: string
+          required: true
+      responses:
+        "200":
+          description: cors
+    get:
+      summary: Get list of connected peers
+      responses:
+        "200":
+          description: success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Peers"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      summary: Connect to a peer
+      parameters:
+        - name: addresses
+          in: query
+          description: Multiaddress of peer to connect to, at least one address must contain the peer id.
+          schema:
+            type: array
+            items:
+              type: string
+          required: true
+      responses:
+        "204":
+          description: success
+        "400":
+          description: bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BadRequestResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 components:
   requestBodies:
     EventData:
@@ -705,3 +761,31 @@ components:
         data:
           type: string
           description: Multibase encoding of the data of the stream. Content is stream type specific.
+    Peers:
+      title: List of Peers
+      type: object
+      required:
+        - peers
+      properties:
+        peers:
+          type: array
+          items:
+            schema:
+            $ref: "#/components/schemas/Peer"
+    Peer:
+      title: Information about a connected peer
+      description: Information about a connected peer
+      type: object
+      required:
+        - id
+        - addresses
+      properties:
+        id:
+          type: string
+          description: DID of peer
+        addresses:
+          type: array
+          description: List of known multiaddress of peer, will always include the peer id
+          items:
+            type: string
+            description: Multiaddress where peer may be dialed

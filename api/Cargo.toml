@@ -21,6 +21,7 @@ futures.workspace = true
 ipld-core.workspace = true
 ceramic-car.workspace = true
 multibase.workspace = true
+multiaddr.workspace = true
 recon.workspace = true
 serde.workspace = true
 serde_ipld_dagcbor.workspace = true

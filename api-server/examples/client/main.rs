@@ -10,8 +10,9 @@ use ceramic_api_server::{
     FeedEventsOptionsResponse, FeedResumeTokenGetResponse, FeedResumeTokenOptionsResponse,
     InterestsOptionsResponse, InterestsPostResponse, InterestsSortKeySortValueOptionsResponse,
     InterestsSortKeySortValuePostResponse, LivenessGetResponse, LivenessOptionsResponse,
-    StreamsStreamIdGetResponse, StreamsStreamIdOptionsResponse, VersionGetResponse,
-    VersionOptionsResponse, VersionPostResponse,
+    PeersGetResponse, PeersOptionsResponse, PeersPostResponse, StreamsStreamIdGetResponse,
+    StreamsStreamIdOptionsResponse, VersionGetResponse, VersionOptionsResponse,
+    VersionPostResponse,
 };
 use clap::{App, Arg};
 #[allow(unused_imports)]
@@ -61,6 +62,9 @@ fn main() {
                     "InterestsSortKeySortValuePost",
                     "LivenessGet",
                     "LivenessOptions",
+                    "PeersGet",
+                    "PeersOptions",
+                    "PeersPost",
                     "StreamsStreamIdGet",
                     "StreamsStreamIdOptions",
                     "VersionGet",
@@ -317,6 +321,30 @@ fn main() {
         }
         Some("LivenessOptions") => {
             let result = rt.block_on(client.liveness_options());
+            info!(
+                "{:?} (X-Span-ID: {:?})",
+                result,
+                (client.context() as &dyn Has<XSpanIdString>).get().clone()
+            );
+        }
+        Some("PeersGet") => {
+            let result = rt.block_on(client.peers_get());
+            info!(
+                "{:?} (X-Span-ID: {:?})",
+                result,
+                (client.context() as &dyn Has<XSpanIdString>).get().clone()
+            );
+        }
+        Some("PeersOptions") => {
+            let result = rt.block_on(client.peers_options(&Vec::new()));
+            info!(
+                "{:?} (X-Span-ID: {:?})",
+                result,
+                (client.context() as &dyn Has<XSpanIdString>).get().clone()
+            );
+        }
+        Some("PeersPost") => {
+            let result = rt.block_on(client.peers_post(&Vec::new()));
             info!(
                 "{:?} (X-Span-ID: {:?})",
                 result,

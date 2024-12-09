@@ -26,6 +26,9 @@ Method | HTTP request | Description
 ****](default_api.md#) | **POST** /interests/{sort_key}/{sort_value} | Register interest for a sort key
 ****](default_api.md#) | **GET** /liveness | Test the liveness of the Ceramic node
 ****](default_api.md#) | **OPTIONS** /liveness | cors
+****](default_api.md#) | **GET** /peers | Get list of connected peers
+****](default_api.md#) | **OPTIONS** /peers | cors
+****](default_api.md#) | **POST** /peers | Connect to a peer
 ****](default_api.md#) | **GET** /streams/{stream_id} | Get stream state
 ****](default_api.md#) | **OPTIONS** /streams/{stream_id} | cors
 ****](default_api.md#) | **GET** /version | Get the version of the Ceramic node
@@ -598,6 +601,78 @@ No authorization required
 
  - **Content-Type**: Not defined
  - **Accept**: Not defined
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# ****
+> models::Peers ()
+Get list of connected peers
+
+### Required Parameters
+This endpoint does not need any parameter.
+
+### Return type
+
+[**models::Peers**](Peers.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# ****
+> (addresses)
+cors
+
+### Required Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+  **addresses** | [**String**](String.md)| Multiaddress of peer to connect to, at least one address must contain the peer id. | 
+
+### Return type
+
+ (empty response body)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: Not defined
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# ****
+> (addresses)
+Connect to a peer
+
+### Required Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+  **addresses** | [**String**](String.md)| Multiaddress of peer to connect to, at least one address must contain the peer id. | 
+
+### Return type
+
+ (empty response body)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: application/json
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
