@@ -1,6 +1,8 @@
 [workspace]
 resolver = "2"
 members = [
+    "actor",
+    "actor-macros",
     "anchor-remote",
     "anchor-service",
     "api",
@@ -25,7 +27,7 @@ members = [
     "beetle/iroh-bitswap",
     "beetle/iroh-rpc-client",
     "beetle/iroh-rpc-types",
-    "beetle/iroh-util", "actor",
+    "beetle/iroh-util",
 ]
 
 [workspace.dependencies]
@@ -61,6 +63,8 @@ bs58 = "0.4"
 bytecheck = "0.6.7"
 bytes = "1.1"
 bytesize = "1.1"
+ceramic-actor = { path = "./actor" }
+ceramic-actor-macros = { path = "./actor-macros" }
 ceramic-anchor-service = { path = "./anchor-service" }
 ceramic-anchor-remote = { path = "./anchor-remote" }
 ceramic-api = { path = "./api" }

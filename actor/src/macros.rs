@@ -1,3 +1,5 @@
+/// Constructs an envlope enumeration that contains all messages for an actor.
+/// The first identifier is the name of the enum and the remaing pairs are the variants.
 #[macro_export]
 macro_rules! actor_envelope {
     (
@@ -17,19 +19,19 @@ macro_rules! actor_envelope {
         }
         impl $enum_name {
             /// Runs the actor handling messages as they arive.
-            pub async fn run<A>(mut actor: A )
+            pub async fn run<A>(mut actor: A, mut receiver: $crate::Receiver<A::Envelope>)
                 where A: $crate::Actor<Envelope = $enum_name> $(+ $crate::Handler<$message_type>)* $(+ $crate::Handler<$message_type>)*
             {
-                let mut receiver = actor.receiver();
                 while let Some(delivery) = receiver.recv().await {
                     match delivery {
                         $crate::DeliverOp::Send(traced) => {
                             match traced.value {
                                 $(
                                     $enum_name::$variant_name(m, respond_to) => {
-                                        respond_to
-                                            .send(actor.handle(m).instrument(traced.span).await)
-                                            .unwrap();
+                                        respond_to.send($crate::tracing::Instrument::instrument(
+                                            actor.handle(m),
+                                            traced.span,
+                                        ).await).unwrap();
                                     }
                                 )*
                             }
@@ -38,7 +40,10 @@ macro_rules! actor_envelope {
                             match traced.value {
                                 $(
                                     $enum_name::$variant_name(m, _respond_to) => {
-                                        actor.handle(m).instrument(traced.span).await;
+                                        $crate::tracing::Instrument::instrument(
+                                            actor.handle(m),
+                                            traced.span,
+                                        ).await;
                                     }
                                 )*
                             }
