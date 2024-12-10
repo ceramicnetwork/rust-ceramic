@@ -29,7 +29,7 @@ use tokio::{
     sync::{mpsc::Sender, oneshot},
     time,
 };
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::{
     metrics::{self, Metrics},
@@ -164,7 +164,9 @@ impl CeramicPeerManager {
 
     fn handle_dial_failure(&mut self, peer_id: &PeerId) {
         if let Some(peer) = self.ceramic_peers.get_mut(peer_id) {
-            warn!(
+            // Nodes discover each other, its common for peers to be unaccessible,
+            // use debug to inform operators of this failure.
+            debug!(
                %peer_id,
                 multiaddr = ?peer.addrs,
                 "dial failed, redial ceramic peer"
