@@ -947,10 +947,10 @@ where
         let data = as_binary_array(
             batch
                 .column_by_name("data")
-                .ok_or_else(|| ErrorResponse::new("state column should exist".to_string()))?,
+                .ok_or_else(|| ErrorResponse::new("data column should exist".to_string()))?,
         )
-        .map_err(|err| ErrorResponse::new(format!("state should be a string column: {err}")))?
-        .value(0);
+        .map_err(|err| ErrorResponse::new(format!("state should be a string column: {err}")))?;
+        let data = if data.is_empty() { &[] } else { data.value(0) };
         let event_cid = as_binary_array(
             batch
                 .column_by_name("event_cid")
