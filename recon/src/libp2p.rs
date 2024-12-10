@@ -20,7 +20,7 @@ mod upgrade;
 pub use crate::protocol::Recon;
 pub use stream_set::StreamSet;
 
-use ceramic_core::{EventId, Interest, PeerKey};
+use ceramic_core::{EventId, PeerKey};
 use futures::{future::BoxFuture, FutureExt};
 use libp2p::{
     core::ConnectedPoint,
@@ -43,8 +43,6 @@ use crate::{
 
 /// Name of the Recon protocol for synchronizing peers
 pub const PROTOCOL_NAME_PEER: &str = "/ceramic/recon/0.1.0/peer";
-/// Name of the Recon protocol for synchronizing interests
-pub const PROTOCOL_NAME_INTEREST: &str = "/ceramic/recon/0.1.0/interest";
 /// Name of the Recon protocol for synchronizing models
 pub const PROTOCOL_NAME_MODEL: &str = "/ceramic/recon/0.1.0/model";
 
@@ -76,9 +74,8 @@ impl Default for Config {
 /// The Behavior tracks all peers on the network that speak the Recon protocol.
 /// It is responsible for starting and stopping syncs with various peers depending on the needs of
 /// the application.
-pub struct Behaviour<P, I, M> {
+pub struct Behaviour<P, M> {
     peer: P,
-    interest: I,
     model: M,
     config: Config,
     peers: BTreeMap<PeerId, PeerInfo>,
@@ -87,15 +84,13 @@ pub struct Behaviour<P, I, M> {
     next_sync: Option<BoxFuture<'static, ()>>,
 }
 
-impl<P, I, M> std::fmt::Debug for Behaviour<P, I, M>
+impl<P, M> std::fmt::Debug for Behaviour<P, M>
 where
     P: std::fmt::Debug,
-    I: std::fmt::Debug,
     M: std::fmt::Debug,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Behaviour")
-            .field("interest", &self.interest)
             .field("model", &self.model)
             .field("config", &self.config)
             .field("peers", &self.peers)
@@ -148,18 +143,16 @@ pub enum PeerStatus {
     Stopped,
 }
 
-impl<P, I, M> Behaviour<P, I, M> {
+impl<P, M> Behaviour<P, M> {
     /// Create a new Behavior with the provided Recon implementation.
-    pub fn new(peer: P, interest: I, model: M, config: Config) -> Self
+    pub fn new(peer: P, model: M, config: Config) -> Self
     where
         P: Recon<Key = PeerKey, Hash = Sha256a>,
-        I: Recon<Key = Interest, Hash = Sha256a>,
         M: Recon<Key = EventId, Hash = Sha256a>,
     {
         let (tx, rx) = tokio::sync::mpsc::channel(1000);
         Self {
             peer,
-            interest,
             model,
             config,
             peers: BTreeMap::new(),
@@ -178,13 +171,12 @@ impl<P, I, M> Behaviour<P, I, M> {
     }
 }
 
-impl<P, I, M> NetworkBehaviour for Behaviour<P, I, M>
+impl<P, M> NetworkBehaviour for Behaviour<P, M>
 where
     P: Recon<Key = PeerKey, Hash = Sha256a>,
-    I: Recon<Key = Interest, Hash = Sha256a>,
     M: Recon<Key = EventId, Hash = Sha256a>,
 {
-    type ConnectionHandler = Handler<P, I, M>;
+    type ConnectionHandler = Handler<P, M>;
 
     type ToSwarm = Event;
 
@@ -205,13 +197,8 @@ where
                         next_sync: BTreeMap::from_iter([
                             // Schedule all stream_sets initially
                             (StreamSet::Peer, Instant::now()),
-                            // Schedule interests after peers
-                            (
-                                StreamSet::Interest,
-                                Instant::now() + Duration::from_millis(1),
-                            ),
-                            // Schedule models after interests
-                            (StreamSet::Model, Instant::now() + Duration::from_millis(2)),
+                            // Schedule models after peers
+                            (StreamSet::Model, Instant::now() + Duration::from_millis(1)),
                         ]),
                         sync_delay: Default::default(),
                     });
@@ -395,7 +382,6 @@ where
             connection_id,
             handler::State::WaitingInbound,
             self.peer.clone(),
-            self.interest.clone(),
             self.model.clone(),
         ))
     }
@@ -416,7 +402,6 @@ where
                 stream_set: StreamSet::Peer,
             },
             self.peer.clone(),
-            self.interest.clone(),
             self.model.clone(),
         ))
     }

@@ -19,7 +19,7 @@ use ceramic_sql::sqlite::SqlitePool;
 use clap::Args;
 use object_store::aws::AmazonS3Builder;
 use object_store::local::LocalFileSystem;
-use recon::{FullInterests, Recon, ReconInterestProvider};
+use recon::{Recon, ReconInterestProvider};
 use signal_hook::consts::signal::*;
 use signal_hook_tokio::Signals;
 use std::sync::Arc;
@@ -530,13 +530,6 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
     // Construct a recon implementation for peers.
     let recon_peer = Recon::new(peer_svc.clone(), PeerKeyInterests, recon_metrics.clone());
 
-    // Construct a recon implementation for interests.
-    let recon_interest = Recon::new(
-        interest_svc.clone(),
-        FullInterests::default(),
-        recon_metrics.clone(),
-    );
-
     // Construct a recon implementation for models.
     let recon_model = Recon::new(
         model_svc.clone(),
@@ -545,7 +538,7 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
         recon_metrics,
     );
 
-    let recons = Some((recon_peer, recon_interest, recon_model));
+    let recons = Some((recon_peer, recon_model));
     let ipfs_metrics =
         ceramic_metrics::MetricsHandle::register(ceramic_kubo_rpc::IpfsMetrics::register);
     let p2p_metrics = MetricsHandle::register(ceramic_p2p::Metrics::register);

@@ -5,7 +5,7 @@
 use std::{collections::VecDeque, task::Poll};
 
 use anyhow::Result;
-use ceramic_core::{EventId, Interest, PeerKey};
+use ceramic_core::{EventId, PeerKey};
 use libp2p::{
     futures::FutureExt,
     swarm::{
@@ -22,20 +22,18 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct Handler<P, I, M> {
+pub struct Handler<P, M> {
     remote_peer_id: PeerId,
     connection_id: ConnectionId,
     peer: P,
-    interest: I,
     model: M,
     state: State,
     behavior_events_queue: VecDeque<FromHandler>,
 }
 
-impl<P, I, M> Handler<P, I, M>
+impl<P, M> Handler<P, M>
 where
     P: Recon<Key = PeerKey, Hash = Sha256a>,
-    I: Recon<Key = Interest, Hash = Sha256a>,
     M: Recon<Key = EventId, Hash = Sha256a>,
 {
     pub fn new(
@@ -43,14 +41,12 @@ where
         connection_id: ConnectionId,
         state: State,
         peer: P,
-        interest: I,
         model: M,
     ) -> Self {
         Self {
             remote_peer_id: peer_id,
             connection_id,
             peer,
-            interest,
             model,
             state,
             behavior_events_queue: VecDeque::new(),
@@ -156,10 +152,9 @@ pub enum FromHandler {
     },
 }
 
-impl<P, I, M> ConnectionHandler for Handler<P, I, M>
+impl<P, M> ConnectionHandler for Handler<P, M>
 where
     P: Recon<Key = PeerKey, Hash = Sha256a> + Clone + Send + 'static,
-    I: Recon<Key = Interest, Hash = Sha256a> + Clone + Send + 'static,
     M: Recon<Key = EventId, Hash = Sha256a> + Clone + Send + 'static,
 {
     type FromBehaviour = FromBehaviour;
@@ -173,7 +168,7 @@ where
         &self,
     ) -> libp2p::swarm::SubstreamProtocol<Self::InboundProtocol, Self::InboundOpenInfo> {
         SubstreamProtocol::new(
-            MultiReadyUpgrade::new(vec![StreamSet::Peer, StreamSet::Interest, StreamSet::Model]),
+            MultiReadyUpgrade::new(vec![StreamSet::Peer, StreamSet::Model]),
             (),
         )
     }
@@ -276,14 +271,6 @@ where
                                 stream,
                             )
                             .boxed(),
-                            StreamSet::Interest => protocol::respond_synchronize(
-                                self.remote_peer_id,
-                                self.connection_id,
-                                stream_set,
-                                self.interest.clone(),
-                                stream,
-                            )
-                            .boxed(),
                             StreamSet::Model => protocol::respond_synchronize(
                                 self.remote_peer_id,
                                 self.connection_id,
@@ -318,14 +305,6 @@ where
                                 self.connection_id,
                                 stream_set,
                                 self.peer.clone(),
-                                stream,
-                            )
-                            .boxed(),
-                            StreamSet::Interest => protocol::initiate_synchronize(
-                                self.remote_peer_id,
-                                self.connection_id,
-                                stream_set,
-                                self.interest.clone(),
                                 stream,
                             )
                             .boxed(),

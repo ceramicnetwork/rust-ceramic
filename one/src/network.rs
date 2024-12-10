@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use ceramic_core::{EventId, Interest, NodeId, NodeKey, PeerKey};
+use ceramic_core::{EventId, NodeId, NodeKey, PeerKey};
 use ceramic_kubo_rpc::{IpfsMetrics, IpfsMetricsMiddleware, IpfsService};
 use ceramic_p2p::{Config as P2pConfig, Libp2pConfig, Node, PeerService};
 use iroh_rpc_client::P2pClient;
@@ -34,18 +34,17 @@ impl BuilderState for WithP2p {}
 
 /// Configure the p2p service
 impl Builder<Init> {
-    pub async fn with_p2p<P, I, M, S>(
+    pub async fn with_p2p<P, M, S>(
         self,
         libp2p_config: Libp2pConfig,
         node_key: NodeKey,
         peer_svc: impl PeerService + 'static,
-        recons: Option<(P, I, M)>,
+        recons: Option<(P, M)>,
         block_store: Arc<S>,
         metrics: ceramic_p2p::Metrics,
     ) -> anyhow::Result<Builder<WithP2p>>
     where
         P: Recon<Key = PeerKey, Hash = Sha256a>,
-        I: Recon<Key = Interest, Hash = Sha256a>,
         M: Recon<Key = EventId, Hash = Sha256a>,
         S: iroh_bitswap::Store,
     {
