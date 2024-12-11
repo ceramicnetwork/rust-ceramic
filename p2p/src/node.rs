@@ -7,7 +7,7 @@ use std::{sync::atomic::Ordering, time::Duration};
 
 use ahash::AHashMap;
 use anyhow::{anyhow, bail, Context, Result};
-use ceramic_core::{EventId, Interest, NodeKey, PeerKey};
+use ceramic_core::{EventId, NodeKey, PeerKey};
 use ceramic_metrics::{libp2p_metrics, Recorder};
 use cid::Cid;
 use futures_util::stream::StreamExt;
@@ -62,15 +62,14 @@ pub enum NetworkEvent {
 /// Node implements a peer to peer node that participates on the Ceramic network.
 ///
 /// Node provides an external API via RpcMessages.
-pub struct Node<P, I, M, S>
+pub struct Node<P, M, S>
 where
     P: Recon<Key = PeerKey, Hash = Sha256a>,
-    I: Recon<Key = Interest, Hash = Sha256a>,
     M: Recon<Key = EventId, Hash = Sha256a>,
     S: iroh_bitswap::Store,
 {
     metrics: Metrics,
-    swarm: Swarm<NodeBehaviour<P, I, M, S>>,
+    swarm: Swarm<NodeBehaviour<P, M, S>>,
     supported_protocols: HashSet<String>,
     net_receiver_in: Receiver<RpcMessage>,
     dial_queries: AHashMap<PeerId, Vec<OneShotSender<Result<()>>>>,
@@ -92,10 +91,9 @@ where
     active_address_probe: Option<Multiaddr>,
 }
 
-impl<P, I, M, S> fmt::Debug for Node<P, I, M, S>
+impl<P, M, S> fmt::Debug for Node<P, M, S>
 where
     P: Recon<Key = PeerKey, Hash = Sha256a>,
-    I: Recon<Key = Interest, Hash = Sha256a>,
     M: Recon<Key = EventId, Hash = Sha256a>,
     S: iroh_bitswap::Store,
 {
@@ -128,10 +126,9 @@ const NICE_INTERVAL: Duration = Duration::from_secs(6);
 const BOOTSTRAP_INTERVAL: Duration = Duration::from_secs(5 * 60);
 const EXPIRY_INTERVAL: Duration = Duration::from_secs(1);
 
-impl<P, I, M, S> Drop for Node<P, I, M, S>
+impl<P, M, S> Drop for Node<P, M, S>
 where
     P: Recon<Key = PeerKey, Hash = Sha256a>,
-    I: Recon<Key = Interest, Hash = Sha256a>,
     M: Recon<Key = EventId, Hash = Sha256a>,
     S: iroh_bitswap::Store,
 {
@@ -143,12 +140,10 @@ where
 
 // Allow IntoConnectionHandler deprecated associated type.
 // We are not using IntoConnectionHandler directly only referencing the type as part of this event signature.
-type NodeSwarmEvent<P, I, M, S> =
-    SwarmEvent<<NodeBehaviour<P, I, M, S> as NetworkBehaviour>::ToSwarm>;
-impl<P, I, M, S> Node<P, I, M, S>
+type NodeSwarmEvent<P, M, S> = SwarmEvent<<NodeBehaviour<P, M, S> as NetworkBehaviour>::ToSwarm>;
+impl<P, M, S> Node<P, M, S>
 where
     P: Recon<Key = PeerKey, Hash = Sha256a> + Send + Sync,
-    I: Recon<Key = Interest, Hash = Sha256a> + Send + Sync,
     M: Recon<Key = EventId, Hash = Sha256a> + Send + Sync,
     S: iroh_bitswap::Store + Send + Sync,
 {
@@ -157,7 +152,7 @@ where
         rpc_addr: P2pAddr,
         node_key: NodeKey,
         peer_svc: impl PeerService + 'static,
-        recons: Option<(P, I, M)>,
+        recons: Option<(P, M)>,
         block_store: Arc<S>,
         metrics: Metrics,
     ) -> Result<Self> {
@@ -494,7 +489,7 @@ where
     #[tracing::instrument(skip_all)]
     async fn handle_swarm_event(
         &mut self,
-        event: NodeSwarmEvent<P, I, M, S>,
+        event: NodeSwarmEvent<P, M, S>,
     ) -> Result<Option<SwarmEventResult>> {
         libp2p_metrics().record(&event);
         match event {

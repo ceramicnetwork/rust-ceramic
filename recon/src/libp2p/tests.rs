@@ -120,20 +120,8 @@ macro_rules! setup_test {
             Metrics::register(&mut Registry::default()),
         );
 
-        let alice_interest = Recon::new(
-            $alice_interest,
-            FullInterests::default(),
-            Metrics::register(&mut Registry::default()),
-        );
-
         let bob_peer = Recon::new(
             $bob_peer,
-            FullInterests::default(),
-            Metrics::register(&mut Registry::default()),
-        );
-
-        let bob_interest = Recon::new(
-            $bob_interest,
             FullInterests::default(),
             Metrics::register(&mut Registry::default()),
         );
@@ -151,11 +139,9 @@ macro_rules! setup_test {
             per_peer_maximum_sync_delay: std::time::Duration::from_millis(1000),
         };
         let swarm1 = Swarm::new_ephemeral(|_| {
-            crate::libp2p::Behaviour::new(alice_peer, alice_interest, alice, config.clone())
+            crate::libp2p::Behaviour::new(alice_peer, alice, config.clone())
         });
-        let swarm2 = Swarm::new_ephemeral(|_| {
-            crate::libp2p::Behaviour::new(bob_peer, bob_interest, bob, config)
-        });
+        let swarm2 = Swarm::new_ephemeral(|_| crate::libp2p::Behaviour::new(bob_peer, bob, config));
 
         (swarm1, swarm2)
     }};
@@ -179,7 +165,7 @@ async fn in_sync_no_overlap() {
         swarm1.listen().with_memory_addr_external().await;
         swarm2.connect(&mut swarm1).await;
 
-        let (p1_events, p2_events): ([crate::libp2p::Event; 6], [crate::libp2p::Event; 6]) =
+        let (p1_events, p2_events): ([crate::libp2p::Event; 4], [crate::libp2p::Event; 4]) =
             libp2p_swarm_test::drive(&mut swarm1, &mut swarm2).await;
 
         assert_in_sync(p2, p1_events);
@@ -208,7 +194,7 @@ async fn initiator_model_error() {
         swarm1.listen().with_memory_addr_external().await;
         swarm2.connect(&mut swarm1).await;
 
-        let (p1_events, p2_events): ([crate::libp2p::Event; 6], [crate::libp2p::Event; 5]) =
+        let (p1_events, p2_events): ([crate::libp2p::Event; 4], [crate::libp2p::Event; 3]) =
             libp2p_swarm_test::drive(&mut swarm1, &mut swarm2).await;
 
         for ev in p1_events.iter().chain(p2_events.iter()) {
@@ -216,7 +202,7 @@ async fn initiator_model_error() {
         }
 
         assert_eq!(
-            p1_events[5],
+            p1_events[3],
             crate::libp2p::Event::PeerEvent(PeerEvent {
                 remote_peer_id: swarm2.local_peer_id().to_owned(),
                 status: PeerStatus::Failed {
@@ -248,14 +234,14 @@ async fn responder_model_error() {
         swarm1.listen().with_memory_addr_external().await;
         swarm2.connect(&mut swarm1).await;
 
-        let (p1_events, p2_events): ([crate::libp2p::Event; 6], [crate::libp2p::Event; 6]) =
+        let (p1_events, p2_events): ([crate::libp2p::Event; 4], [crate::libp2p::Event; 4]) =
             libp2p_swarm_test::drive(&mut swarm1, &mut swarm2).await;
 
         for ev in p1_events.iter().chain(p2_events.iter()) {
             info!("{:?}", ev);
         }
         assert_eq!(
-            p2_events[5],
+            p2_events[3],
             crate::libp2p::Event::PeerEvent(PeerEvent {
                 remote_peer_id: swarm1.local_peer_id().to_owned(),
                 status: PeerStatus::Failed {
@@ -288,7 +274,7 @@ async fn model_error_backoff() {
         swarm2.connect(&mut swarm1).await;
 
         // Expect interests to sync twice in a row since models fail to sync
-        let (p1_events, p2_events): ([crate::libp2p::Event; 18], [crate::libp2p::Event; 18]) =
+        let (p1_events, p2_events): ([crate::libp2p::Event; 12], [crate::libp2p::Event; 12]) =
             libp2p_swarm_test::drive(&mut swarm1, &mut swarm2).await;
 
         let events = [p1_events, p2_events];
@@ -317,27 +303,18 @@ async fn model_error_backoff() {
             // First peers sync
             Some(StreamSet::Peer),
             Some(StreamSet::Peer),
-            // First interests sync
-            Some(StreamSet::Interest),
-            Some(StreamSet::Interest),
             // First model sync
             Some(StreamSet::Model),
             Some(StreamSet::Model),
             // Second peers sync
             Some(StreamSet::Peer),
             Some(StreamSet::Peer),
-            // Second interests sync
-            Some(StreamSet::Interest),
-            Some(StreamSet::Interest),
             // Second model sync with initial short backoff
             Some(StreamSet::Model),
             Some(StreamSet::Model),
             // Third peers sync
             Some(StreamSet::Peer),
             Some(StreamSet::Peer),
-            // Third interests sync
-            Some(StreamSet::Interest),
-            Some(StreamSet::Interest),
             // Third model sync is skipped because the backoff pushed it past the peer sync
             Some(StreamSet::Peer),
             Some(StreamSet::Peer),
@@ -348,7 +325,7 @@ async fn model_error_backoff() {
         );
         // Assert we saw the errors
         assert_eq!(
-            events[1][5],
+            events[1][3],
             crate::libp2p::Event::PeerEvent(PeerEvent {
                 remote_peer_id: swarm1.local_peer_id().to_owned(),
                 status: PeerStatus::Failed {
@@ -357,7 +334,7 @@ async fn model_error_backoff() {
             })
         );
         assert_eq!(
-            events[1][11],
+            events[1][7],
             crate::libp2p::Event::PeerEvent(PeerEvent {
                 remote_peer_id: swarm1.local_peer_id().to_owned(),
                 status: PeerStatus::Failed {
@@ -376,7 +353,7 @@ fn into_peer_event(ev: crate::libp2p::Event) -> PeerEvent {
     }
 }
 
-fn assert_in_sync(id: PeerId, events: [crate::libp2p::Event; 6]) {
+fn assert_in_sync(id: PeerId, events: [crate::libp2p::Event; 4]) {
     assert_eq!(
         into_peer_event(events[0].clone()),
         PeerEvent {
@@ -401,31 +378,12 @@ fn assert_in_sync(id: PeerId, events: [crate::libp2p::Event; 6]) {
         PeerEvent {
             remote_peer_id: id,
             status: PeerStatus::Started {
-                stream_set: StreamSet::Interest
-            }
-        }
-    );
-    assert_eq!(
-        into_peer_event(events[3].clone()),
-        PeerEvent {
-            remote_peer_id: id,
-            status: PeerStatus::Synchronized {
-                stream_set: StreamSet::Interest,
-                new_count: 0,
-            }
-        }
-    );
-    assert_eq!(
-        into_peer_event(events[4].clone()),
-        PeerEvent {
-            remote_peer_id: id,
-            status: PeerStatus::Started {
                 stream_set: StreamSet::Model
             }
         }
     );
     assert_eq!(
-        into_peer_event(events[5].clone()),
+        into_peer_event(events[3].clone()),
         PeerEvent {
             remote_peer_id: id,
             status: PeerStatus::Synchronized {

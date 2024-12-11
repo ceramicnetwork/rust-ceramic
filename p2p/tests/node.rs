@@ -6,7 +6,7 @@ use ceramic_event_svc::store::SqlitePool;
 use iroh_rpc_client::P2pClient;
 use iroh_rpc_types::Addr;
 use libp2p::{Multiaddr, PeerId};
-use recon::{FullInterests, Recon, ReconInterestProvider};
+use recon::{Recon, ReconInterestProvider};
 use test_log::test;
 
 use ceramic_p2p::{Config, Metrics, NetworkEvent, Node, PeerKeyInterests};
@@ -50,11 +50,6 @@ impl TestRunnerBuilder {
             Arc::clone(&peer_svc),
             Some((
                 Recon::new(peer_svc, PeerKeyInterests, recon_metrics.clone()),
-                Recon::new(
-                    Arc::clone(&interest_svc),
-                    FullInterests::default(),
-                    recon_metrics.clone(),
-                ),
                 Recon::new(
                     Arc::clone(&event_svc),
                     ReconInterestProvider::new(node_key.id(), interest_svc),
