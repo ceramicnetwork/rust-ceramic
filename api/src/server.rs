@@ -20,7 +20,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use async_trait::async_trait;
 use ceramic_api_server::models::{BadRequestResponse, ErrorResponse, EventData, Peer, Peers};
 use ceramic_api_server::{
@@ -903,7 +903,7 @@ where
                         .build()
                         .map_err(|err| {
                             ErrorResponse::new(format!(
-                                "failed to define last_value state query: {err}"
+                                "failed to define last_value data query: {err}"
                             ))
                         })?
                         .alias("data"),
@@ -949,8 +949,13 @@ where
                 .column_by_name("data")
                 .ok_or_else(|| ErrorResponse::new("data column should exist".to_string()))?,
         )
-        .map_err(|err| ErrorResponse::new(format!("state should be a string column: {err}")))?;
-        let data = if data.is_empty() { &[] } else { data.value(0) };
+        .map_err(|err| ErrorResponse::new(format!("data should be a binary column: {err}")))?;
+        let data = data.value(0);
+        //let data = if data.is_empty() {
+        //    return Err(ErrorResponse::new("no data found for stream".to_string()));
+        //} else {
+        //    data.value(0)
+        //};
         let event_cid = as_binary_array(
             batch
                 .column_by_name("event_cid")
