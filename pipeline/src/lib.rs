@@ -8,6 +8,7 @@ mod conclusion;
 mod config;
 pub mod schemas;
 
+mod stream;
 #[cfg(test)]
 pub mod tests;
 
@@ -27,6 +28,7 @@ use datafusion::{
     logical_expr::{col, AggregateUDF, ScalarUDF},
 };
 use schemas::event_states;
+use stream::stream_tbl;
 use url::Url;
 
 use cid_string::{CidString, CidStringList};
@@ -39,6 +41,8 @@ pub use config::{ConclusionFeedSource, Config};
 
 pub const CONCLUSION_EVENTS_TABLE: &str = "ceramic.v0.conclusion_events";
 pub const EVENT_STATES_TABLE: &str = "ceramic.v0.event_states";
+pub const CE_STREAM_TABLE: &str = "ceramic.v0.conclusion_events_stream";
+pub const CE_INTERNAL_STREAM_TABLE: &str = "ceramic._internal.conclusion_events_stream";
 pub const EVENT_STATES_MEM_TABLE: &str = "ceramic._internal.event_states_mem";
 pub const EVENT_STATES_PERSISTENT_TABLE: &str = "ceramic._internal.event_states_persistent";
 
@@ -120,6 +124,16 @@ pub async fn session_from_config<F: ConclusionFeed + 'static>(
         ctx.table(EVENT_STATES_MEM_TABLE)
             .await?
             .union(ctx.table(EVENT_STATES_PERSISTENT_TABLE).await?)?
+            .into_view(),
+    )?;
+
+    ctx.register_table(CE_INTERNAL_STREAM_TABLE, Arc::new(stream_tbl()))?;
+
+    ctx.register_table(
+        CE_STREAM_TABLE,
+        ctx.table(CONCLUSION_EVENTS_TABLE)
+            .await?
+            .union(ctx.table(CE_INTERNAL_STREAM_TABLE).await?)?
             .into_view(),
     )?;
 
