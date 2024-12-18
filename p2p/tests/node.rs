@@ -35,8 +35,15 @@ impl TestRunnerBuilder {
         let sql_pool = SqlitePool::connect_in_memory().await.unwrap();
         let peer_svc = Arc::new(ceramic_peer_svc::PeerService::new(sql_pool.clone()));
         let interest_svc = Arc::new(ceramic_interest_svc::InterestService::new(sql_pool.clone()));
-        let event_svc =
-            Arc::new(ceramic_event_svc::EventService::try_new(sql_pool, true, true, vec![]).await?);
+        let event_svc = Arc::new(
+            ceramic_event_svc::EventService::try_new(
+                sql_pool,
+                ceramic_event_svc::UndeliveredEventReview::Skip,
+                true,
+                vec![],
+            )
+            .await?,
+        );
 
         let mut registry = prometheus_client::registry::Registry::default();
         let metrics = Metrics::register(&mut registry);

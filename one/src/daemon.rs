@@ -411,6 +411,8 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
     let (shutdown_signal_tx, mut shutdown_signal) = broadcast::channel::<()>(1);
     let signals = Signals::new([SIGHUP, SIGTERM, SIGINT, SIGQUIT])?;
     let handle = signals.handle();
+    debug!("starting signal handler task");
+    let signals_handle = tokio::spawn(handle_signals(signals, shutdown_signal_tx));
 
     // Construct sqlite_pool
     let sqlite_pool = opts
@@ -434,8 +436,19 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
     let peer_svc = Arc::new(PeerService::new(sqlite_pool.clone()));
     let interest_svc = Arc::new(InterestService::new(sqlite_pool.clone()));
     let event_validation = opts.event_validation.unwrap_or(true);
+    let mut ss = shutdown_signal.resubscribe();
     let event_svc = Arc::new(
-        EventService::try_new(sqlite_pool.clone(), true, event_validation, rpc_providers).await?,
+        EventService::try_new(
+            sqlite_pool.clone(),
+            ceramic_event_svc::UndeliveredEventReview::Process {
+                shutdown_signal: Box::new(async move {
+                    let _ = ss.recv().await;
+                }),
+            },
+            event_validation,
+            rpc_providers,
+        )
+        .await?,
     );
     let network = opts.network.to_network(&opts.local_network_id)?;
 
@@ -721,9 +734,6 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
         ("/ceramic/".to_string(), ceramic_service),
         ("/api/v0/".to_string(), kubo_rpc_service),
     );
-
-    debug!("starting signal handler task");
-    let signals_handle = tokio::spawn(handle_signals(signals, shutdown_signal_tx));
 
     // The server task blocks until we are ready to start shutdown
     info!("starting api server at address {}", opts.bind_address);

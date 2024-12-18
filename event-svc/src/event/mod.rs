@@ -6,5 +6,5 @@ mod service;
 mod store;
 mod validator;
 
-pub use service::{BlockStore, DeliverableRequirement, EventService};
+pub use service::{BlockStore, DeliverableRequirement, EventService, UndeliveredEventReview};
 pub use validator::ChainInclusionProvider;

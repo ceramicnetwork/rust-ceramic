@@ -1,5 +1,6 @@
 use std::{
     collections::{BTreeMap, HashMap},
+    future::Future,
     sync::{Arc, Mutex, MutexGuard},
 };
 
@@ -81,6 +82,18 @@ pub enum DeliverableRequirement {
     Lazy,
 }
 
+/// Input to determine behvaior related to startup event ordering.
+/// Used at service creating to block until processing completes if requested, or skip doing any processing.
+pub enum UndeliveredEventReview {
+    /// Do not review all undelivered events in the database when creating the service
+    Skip,
+    /// Review and order all undelivered events before returning. May block for a long time.
+    Process {
+        /// A future that can be used to signal the tasks to stop before they complete
+        shutdown_signal: Box<dyn Future<Output = ()>>,
+    },
+}
+
 impl EventService {
     /// Create a new CeramicEventStore.
     ///
@@ -88,7 +101,7 @@ impl EventService {
     /// processed.
     pub async fn try_new(
         pool: SqlitePool,
-        process_undelivered_events: bool,
+        process_undelivered_events: UndeliveredEventReview,
         validate_events: bool,
         ethereum_rpc_providers: Vec<ChainInclusionProvider>,
     ) -> Result<Self> {
@@ -108,9 +121,13 @@ impl EventService {
             pending_writes: Arc::new(Mutex::new(HashMap::default())),
             event_access,
         };
-        if process_undelivered_events {
-            svc.process_all_undelivered_events().await?;
+        match process_undelivered_events {
+            UndeliveredEventReview::Skip => {}
+            UndeliveredEventReview::Process { shutdown_signal } => {
+                let _num_processed = svc.process_all_undelivered_events(shutdown_signal).await?;
+            }
         }
+
         Ok(svc)
     }
 
@@ -119,7 +136,7 @@ impl EventService {
     /// in the next pass.. but it's basically same same but different.
     #[allow(dead_code)]
     pub(crate) async fn new_with_event_validation(pool: SqlitePool) -> Result<Self> {
-        Self::try_new(pool, false, true, vec![]).await
+        Self::try_new(pool, UndeliveredEventReview::Skip, true, vec![]).await
     }
 
     /// Currently, we track events when the [`ValidationRequirement`] allows. Right now, this applies to
@@ -165,11 +182,15 @@ impl EventService {
     }
 
     /// Returns the number of undelivered events that were updated
-    async fn process_all_undelivered_events(&self) -> Result<usize> {
+    async fn process_all_undelivered_events(
+        &self,
+        shutdown_signal: Box<dyn Future<Output = ()>>,
+    ) -> Result<usize> {
         OrderingTask::process_all_undelivered_events(
             Arc::clone(&self.event_access),
             MAX_ITERATIONS,
             DELIVERABLE_EVENTS_BATCH_SIZE,
+            shutdown_signal,
         )
         .await
     }
