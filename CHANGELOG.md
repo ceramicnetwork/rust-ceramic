@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.47.0] - 2024-12-16
+
+### 🚀 Features
+
+- Stop synchronizing interests ([#632](https://github.com/ceramicnetwork/rust-ceramic/issues/632))
+
+### 🐛 Bug Fixes
+
+- Use debug for peer dial failures ([#631](https://github.com/ceramicnetwork/rust-ceramic/issues/631))
+
 ## [0.46.0] - 2024-12-09
 
 ### 🚀 Features
@@ -28,6 +38,7 @@ All notable changes to this project will be documented in this file.
 - Log current highwater mark when processing events ([#619](https://github.com/ceramicnetwork/rust-ceramic/issues/619))
 - Run sqlite optimize at startup and interval ([#621](https://github.com/ceramicnetwork/rust-ceramic/issues/621))
 - Use arrow release 53.3 ([#625](https://github.com/ceramicnetwork/rust-ceramic/issues/625))
+- Version v0.46.0 ([#630](https://github.com/ceramicnetwork/rust-ceramic/issues/630))
 
 ## [0.45.0] - 2024-11-25
 
