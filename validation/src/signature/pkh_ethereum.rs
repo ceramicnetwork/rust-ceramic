@@ -23,12 +23,8 @@ static LEGACY_CHAIN_ID_REORG_DATE: Lazy<chrono::DateTime<Utc>> = Lazy::new(|| {
 pub struct PkhEthereum {}
 
 impl PkhEthereum {
-    /// Verify a cacao generated using SIWE (did:pkh:eip155 with eip4361 capability)
+    /// Verify a cacao generated using SIWE (did:pkh:eip155 with eip4361 capability and eip191 signature type)
     pub fn verify(cacao: &Capability) -> anyhow::Result<()> {
-        Self::verify_eip191_signature(cacao)
-    }
-
-    fn verify_eip191_signature(cacao: &Capability) -> anyhow::Result<()> {
         let issuer = BlockchainAccountId::from_str(&cacao.payload.issuer.replace("did:pkh:", ""))?
             .account_address
             .to_lowercase();
@@ -58,7 +54,7 @@ impl PkhEthereum {
             .unwrap_or_default();
         }
         if recovered != issuer {
-            anyhow::bail!("Signature does not belong to the issuer");
+            anyhow::bail!("Signature by {recovered} does not belong to the issuer {issuer}");
         }
         Ok(())
     }
