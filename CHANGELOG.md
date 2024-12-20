@@ -2,7 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.47.0] - 2024-12-16
+## [0.47.1] - 2024-12-20
+
+### 🐛 Bug Fixes
+
+- Shutdown ordering tasks with sigint ([#629](https://github.com/ceramicnetwork/rust-ceramic/issues/629))
+
+### ⚙️ Miscellaneous Tasks
+
+- Use explicit os versions ([#634](https://github.com/ceramicnetwork/rust-ceramic/issues/634))
+
+## [0.47.0] - 2024-12-18
 
 ### 🚀 Features
 
@@ -11,6 +21,10 @@ All notable changes to this project will be documented in this file.
 ### 🐛 Bug Fixes
 
 - Use debug for peer dial failures ([#631](https://github.com/ceramicnetwork/rust-ceramic/issues/631))
+
+### ⚙️ Miscellaneous Tasks
+
+- Version v0.47.0 ([#633](https://github.com/ceramicnetwork/rust-ceramic/issues/633))
 
 ## [0.46.0] - 2024-12-09
 
