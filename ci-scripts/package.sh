@@ -30,7 +30,7 @@ fi
 
 echo "Evaluating program arguments '$@'"
 
-while getopts "f:e:d:i:a:v" opt
+while getopts "f:e:d:i:a:v:" opt
 do
   case "$opt" in
     f)
