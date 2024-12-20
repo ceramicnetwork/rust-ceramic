@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.47.1] - 2024-12-20
+## [0.47.2] - 2024-12-20
 
 ### 🐛 Bug Fixes
 
@@ -11,6 +11,8 @@ All notable changes to this project will be documented in this file.
 ### ⚙️ Miscellaneous Tasks
 
 - Use explicit os versions ([#634](https://github.com/ceramicnetwork/rust-ceramic/issues/634))
+- Version v0.47.1 ([#635](https://github.com/ceramicnetwork/rust-ceramic/issues/635))
+- Fix issue in package script
 
 ## [0.47.0] - 2024-12-18
 
