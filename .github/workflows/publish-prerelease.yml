@@ -20,23 +20,26 @@ jobs:
         # For these target platforms
         include:
           - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
+            os: ubuntu-24.04
+            arch: x86_64
+            ext: deb
+            protoc-arch: linux-x86_64
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-22.04
             arch: x86_64
             ext: deb
             protoc-arch: linux-x86_64
           - target: x86_64-apple-darwin
-            os: macos-latest
+            os: macos-14
             arch: x86_64
             ext: bin
             protoc-arch: osx-x86_64
           - target: aarch64-apple-darwin
-            os: macos-latest
+            os: macos-14
             config-file: fpm/osx.fpm
             arch: aarch64
             ext: bin
             protoc-arch: osx-aarch_64
-        #- target: x86_64-pc-windows-msvc
-        #  os: windows-latest
     runs-on: ${{ matrix.os }}
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -69,18 +72,18 @@ jobs:
           gem install fpm
       - name: Run package script
         run: |
-          ./ci-scripts/package.sh -a ${{ matrix.arch }} -e ${{ matrix.ext }}
+          ./ci-scripts/package.sh -a ${{ matrix.arch }} -e ${{ matrix.ext }} -v ${{ matrix.os }}
       - name: Archive Binary
         uses: actions/upload-artifact@v3
         with:
-          name: ceramic-one_${{ matrix.target }}
-          path: ceramic-one_${{ matrix.target }}.bin.tar.gz
+          name: ceramic-one_${{ matrix.target }}-${{ matrix.os }}
+          path: ceramic-one_${{ matrix.target }}-${{ matrix.os }}.bin.tar.gz
       - name: Archive Debian Package
         uses: actions/upload-artifact@v3
         if: ${{ matrix.ext == 'deb' }}
         with:
-          name: ceramic-one_${{ matrix.target }}
-          path: ceramic-one_${{ matrix.target }}.tar.gz
+          name: ceramic-one_${{ matrix.target }}-${{ matrix.os }}
+          path: ceramic-one_${{ matrix.target }}-${{ matrix.os }}.tar.gz
 
   release:
     needs: [build-binaries]

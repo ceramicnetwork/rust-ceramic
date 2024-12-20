@@ -10,6 +10,7 @@ INSTALL_DIR="/usr/local/bin"
 
 OS="unknown-linux-gnu"
 ARCH=""
+OS_VERSION=""
 case $(uname -m) in
   x86_64) ARCH="x86_64" ;;
   arm64) ARCH="aarch64" ;;
@@ -29,7 +30,7 @@ fi
 
 echo "Evaluating program arguments '$@'"
 
-while getopts "f:e:d:i:a:" opt
+while getopts "f:e:d:i:a:v" opt
 do
   case "$opt" in
     f)
@@ -51,6 +52,10 @@ do
     a)
       echo "Setting architecture to "$OPTARG
       ARCH=$OPTARG
+      ;;
+    v)
+      echo "Setting os version to "$OPTARG
+      OS_VERSION="-${OPTARG}"
       ;;
     \? )
       echo "Invalid option: -$OPTARG" 1>&2
@@ -83,12 +88,12 @@ echo "Building artifacts for "$TARGET
 cargo build --release --locked --target $TARGET
 
 echo "Compressing binary package for $TARGET"
-tar -cvzf ceramic-one_$TARGET.bin.tar.gz -C $BIN_DIR ceramic-one
+tar -cvzf ceramic-one_${TARGET}${OS_VERSION}.bin.tar.gz -C $BIN_DIR ceramic-one
 
 if [ "$EXT" != "bin" ]; then
     echo "Building package for $TARGET"
     fpm --fpm-options-file $CONFIG_FILE -C $BIN_DIR -v $PKG_VERSION -p $OUT_PATH ceramic-one=$INSTALL_DIR/ceramic-one
 
     echo "Compressing package for $TARGET"
-    tar -cvzf ceramic-one_$TARGET.tar.gz -C $ARTIFACTS_DIR $OUT_FILE
+    tar -cvzf ceramic-one_${TARGET}${OS_VERSION}.tar.gz -C $ARTIFACTS_DIR $OUT_FILE
 fi
