@@ -72,7 +72,7 @@ jobs:
           gem install fpm
       - name: Run package script
         run: |
-          ./ci-scripts/package.sh -a ${{ matrix.arch }} -e ${{ matrix.ext }}
+          ./ci-scripts/package.sh -a ${{ matrix.arch }} -e ${{ matrix.ext }} -v ${{ matrix.os }}
       - name: Archive Binary
         uses: actions/upload-artifact@v3
         with:
