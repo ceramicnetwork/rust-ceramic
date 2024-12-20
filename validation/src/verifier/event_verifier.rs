@@ -1,12 +1,12 @@
 use anyhow::{anyhow, bail, Context as _, Result};
 use ceramic_core::Jwk;
-use ceramic_event::unvalidated::signed;
+use ceramic_event::unvalidated::signed::{self, cacao::Capability};
 use ipld_core::ipld::Ipld;
-use ssi::did_resolve::ResolutionInputMetadata;
+use ssi::{did_resolve::ResolutionInputMetadata, jws::Header};
 
 use super::{
     cacao_verifier::Verifier as _,
-    jws::{verify_jws, VerifyJwsInput},
+    jws::{jws_digest, verify_jws, VerifyJwsInput},
     opts::{AtTime, VerifyJwsOpts},
 };
 
@@ -19,30 +19,33 @@ pub trait Verifier {
     async fn verify_signature(&self, controller: Option<&str>, opts: &VerifyJwsOpts) -> Result<()>;
 }
 
-#[async_trait::async_trait]
-impl Verifier for signed::Event<Ipld> {
+/// Struct to wrap pieces needed from the Ceramic event being validated that makes testing easier.
+/// We don't have to build events from the carfile, but can build the parts from json and construct this.
+pub(crate) struct SignatureData<'a> {
+    jws_header: Header,
+    /// The event signature bytes
+    signature: &'a [u8],
+    /// The protected header bytes (the i.e. the `jws_header` field before being deserialized).
+    /// We could compute this by serializing the data but the caller already has it.
+    /// Using `ceramic_event::unvalidated::signed::Signature` would be nicer but is harder for testing
+    /// as we can't easily construct one from the bytes since things are private, and getting the
+    /// deserialization right is currently eluding me without reading the dag-jose bytes directly.
+    protected: &'a [u8],
+    /// The payload being signed over
+    payload: &'a [u8],
+    /// The CACAO used to delegate signing permission
+    capability: Option<&'a Capability>,
+}
+
+impl<'a> SignatureData<'a> {
     async fn verify_signature(&self, controller: Option<&str>, opts: &VerifyJwsOpts) -> Result<()> {
-        let signature = self
-            .envelope()
-            .signature()
-            .first()
-            .ok_or_else(|| anyhow!("missing signature on signed event"))?;
-
-        let jws_header = self
-            .envelope()
-            .jws_header()
-            .context("event envelope is not a jws")?;
-
-        let protected = signature
-            .protected()
-            .ok_or_else(|| anyhow!("missing protected field"))?;
-
-        let signature = signature.signature();
-
-        let did = &jws_header
+        let did = self
+            .jws_header
             .key_id
+            .as_ref()
             .ok_or_else(|| anyhow!("missing jws kid"))?;
 
+        // Should add time checks for revoked DID key and if it was signed in the valid window
         let signer_did = Jwk::resolve_did(did, &ResolutionInputMetadata::default())
             .await
             .context("failed to resolve did")?;
@@ -53,7 +56,7 @@ impl Verifier for signed::Event<Ipld> {
 
         let signer_did = &signer_did.id;
 
-        if let Some(cacao) = self.capability().map(|(_, ref c)| c) {
+        if let Some(cacao) = self.capability {
             if cacao.payload.audience != *signer_did {
                 bail!("signer '{signer_did}' was not granted permission by capability")
             }
@@ -66,7 +69,7 @@ impl Verifier for signed::Event<Ipld> {
                     resolve_did_verify_delegated(issuer, &cacao.payload.issuer, &opts.at_time)
                         .await?;
                 } else {
-                    // if the controller is the signer, a valid CACAO is sufficient since
+                    // if the issuer (controller) is the signer, a valid CACAO is sufficient since
                     // we delegated to them as audience
                 }
             }
@@ -82,14 +85,42 @@ impl Verifier for signed::Event<Ipld> {
 
         verify_jws(VerifyJwsInput {
             jwk: &jwk,
-            header: protected.as_slice(),
-            payload: self.envelope().payload().as_slice(),
-            alg: jws_header.algorithm,
-            signature: signature.as_slice(),
+            jws_digest: &jws_digest(self.protected, self.payload),
+            alg: self.jws_header.algorithm,
+            signature: self.signature,
         })
         .await?;
 
         Ok(())
+    }
+}
+
+#[async_trait::async_trait]
+impl Verifier for signed::Event<Ipld> {
+    async fn verify_signature(&self, controller: Option<&str>, opts: &VerifyJwsOpts) -> Result<()> {
+        let signature = self
+            .envelope()
+            .signature()
+            .first()
+            .ok_or_else(|| anyhow!("missing signature on signed event"))?;
+
+        let protected = signature
+            .protected()
+            .ok_or_else(|| anyhow!("missing protected field"))?
+            .as_slice();
+
+        let jws_header = signature.jws_header().context("signature is not jws")?;
+        let payload = self.envelope().payload().as_slice();
+        let signature = signature.signature().as_slice();
+        let to_verify = SignatureData {
+            jws_header,
+            protected,
+            payload,
+            signature,
+            capability: self.capability().map(|(_, ref c)| c),
+        };
+
+        to_verify.verify_signature(controller, opts).await
     }
 }
 
@@ -115,7 +146,7 @@ async fn resolve_did_verify_delegated(issuer: &str, delegated: &str, time: &AtTi
         .as_ref()
         .map_or(true, |c| !c.any(|c| c == delegated))
     {
-        bail!("invalid_jws: '{delegated}' not in controllers list for issuer: {issuer}")
+        bail!("invalid_jws: '{delegated}' not in controllers list for issuer: '{issuer}'")
     }
     Ok(())
 }
