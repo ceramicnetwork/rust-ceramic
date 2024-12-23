@@ -380,8 +380,16 @@ mod test {
                     controller,
                     "did:pkh:eip155:1:0xc1e722551c7eac8675903f95f1330a2fe6ad34ea"
                 );
+                let opts = VerifyJwsOpts {
+                    at_time: AtTime::At(Some(
+                        chrono::DateTime::parse_from_rfc3339("2024-12-20T20:27:13.330Z")
+                            .unwrap()
+                            .to_utc(),
+                    )),
+                    revocation_phaseout_secs: chrono::Duration::seconds(0),
+                };
                 event
-                    .verify_signature(Some(controller), &VerifyJwsOpts::default())
+                    .verify_signature(Some(controller), &opts)
                     .await
                     .expect("event should be valid");
             }
@@ -429,6 +437,15 @@ mod test {
               "t": "eip191"
             }
           }"#;
+
+        let opts = VerifyJwsOpts {
+            at_time: AtTime::At(Some(
+                chrono::DateTime::parse_from_rfc3339("2024-12-20T20:27:13.330Z")
+                    .unwrap()
+                    .to_utc(),
+            )),
+            revocation_phaseout_secs: chrono::Duration::seconds(0),
+        };
 
         let payload = event
             .get("payload")
@@ -485,7 +502,7 @@ mod test {
         to_verify
             .verify_signature(
                 Some("did:pkh:eip155:1:0xeeec6dcedfe42e5ff150d0165c816106c4633ac2"),
-                &VerifyJwsOpts::default(),
+                &opts,
             )
             .await
             .unwrap()
