@@ -55,7 +55,7 @@ static BLOCK_THRESHHOLDS: Lazy<HashMap<caip2::ChainId, u64>> = Lazy::new(|| {
     ])
 });
 
-const TRANSACTION_CACHE_SIZE: usize = 50;
+const TRANSACTION_CACHE_SIZE: usize = 1_000;
 const BLOCK_CACHE_SIZE: usize = 50;
 
 type Result<T> = std::result::Result<T, Error>;
