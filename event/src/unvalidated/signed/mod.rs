@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use ceramic_car::sync::{CarHeader, CarWriter};
 use ceramic_core::{signer::Signer, DidDocument, Jwk, SerializeExt};
-use ssi::jwk::Algorithm;
+use ssi::{jwk::Algorithm, jws::Header};
 
 use crate::{bytes::Bytes, unvalidated::Payload};
 
@@ -211,20 +211,12 @@ impl Envelope {
 
     /// Construct the jws header from the signature protected bytes
     pub fn jws_header(&self) -> Result<ssi::jws::Header, anyhow::Error> {
-        let (protected, _signature) = match self.signatures.first() {
-            Some(sig) => (
-                sig.protected
-                    .as_ref()
-                    .ok_or_else(|| anyhow::anyhow!("Missing protected field"))?
-                    .as_slice(),
-                sig.signature.as_ref(),
-            ),
+        match self.signatures.first() {
+            Some(sig) => sig.jws_header(),
             None => {
                 anyhow::bail!("signature is missing")
             }
-        };
-        let header: ssi::jws::Header = serde_json::from_slice(protected)?;
-        Ok(header)
+        }
     }
 }
 
@@ -252,6 +244,16 @@ impl Signature {
     /// Get the signature data
     pub fn signature(&self) -> &Bytes {
         &self.signature
+    }
+
+    /// Get the protected data as a JWS header
+    pub fn jws_header(&self) -> anyhow::Result<Header> {
+        let protected = self
+            .protected
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Missing protected field"))?
+            .as_slice();
+        Ok(serde_json::from_slice(protected)?)
     }
 }
 

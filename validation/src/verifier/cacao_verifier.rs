@@ -5,7 +5,7 @@ use ceramic_event::unvalidated::signed::cacao::{Capability, HeaderType, Signatur
 use ssi::did_resolve::ResolutionInputMetadata;
 
 use super::{
-    jws::{verify_jws, SortedJwsMetadata, VerifyJwsInput},
+    jws::{jws_digest, verify_jws, SortedJwsMetadata, VerifyJwsInput},
     opts::VerifyCacaoOpts,
 };
 
@@ -73,8 +73,7 @@ impl Verifier for Capability {
                         .map_err(|e| anyhow::anyhow!("invalid signature: {}", e))?;
                     verify_jws(VerifyJwsInput {
                         jwk: &jwk,
-                        header: header.as_slice(),
-                        payload: payload.as_slice(),
+                        jws_digest: &jws_digest(header.as_slice(), payload.as_slice()),
                         alg: self.signature.r#type.algorithm(),
                         signature: &sig,
                     })
