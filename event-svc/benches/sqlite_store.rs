@@ -1,11 +1,7 @@
-use std::str::FromStr;
+use std::{str::FromStr, sync::Arc};
 
-use ceramic_core::{Cid, DidDocument, EventId, Network, NodeId, StreamId};
-use ceramic_event::unvalidated::{
-    self,
-    signed::{self, Signer},
-    Builder,
-};
+use ceramic_core::{signer::Signer, Cid, DidDocument, EventId, Network, NodeKey, StreamId};
+use ceramic_event::unvalidated::{self, signed, Builder};
 use ceramic_event_svc::store::{EventAccess, EventInsertable};
 use ceramic_sql::sqlite::SqlitePool;
 use criterion2::{criterion_group, criterion_main, BatchSize, Criterion};
@@ -55,7 +51,7 @@ async fn generate_init_event(
 const INSERTION_COUNT: usize = 10_000;
 
 async fn model_setup(tpe: ModelType, cnt: usize) -> ModelSetup {
-    let informant = NodeId::random().0;
+    let informant = NodeKey::random().id();
     let mut events = Vec::with_capacity(cnt);
     let signer = signed::JwkSigner::new(
         DidDocument::new("did:key:z6Mkk3rtfoKDMMG4zyarNGwCQs44GSQ49pcYKQspHJPXSnVw"),
@@ -78,8 +74,10 @@ async fn model_setup(tpe: ModelType, cnt: usize) -> ModelSetup {
         rand::thread_rng().fill_bytes(&mut data);
 
         let (order_key, cid, event) = generate_init_event(&model, &data, signer.clone()).await;
-        events
-            .push(EventInsertable::try_new(order_key, cid, true, event, Some(informant)).unwrap());
+        events.push(
+            EventInsertable::try_new(order_key, cid, true, Arc::new(event), Some(informant))
+                .unwrap(),
+        );
     }
 
     let pool = SqlitePool::connect_in_memory().await.unwrap();
@@ -91,7 +89,10 @@ async fn model_routine(input: ModelSetup) {
     let futs = futs.into_iter().map(|batch| {
         let store = input.pool.clone();
         let set = batch.into_iter().collect::<Vec<_>>();
-        async move { EventAccess::insert_many(&store, set.iter()).await }
+        async move {
+            let event_svc = EventAccess::try_new(store).await.unwrap();
+            let _res = event_svc.insert_many(set.iter()).await.unwrap();
+        }
     });
     futures::future::join_all(futs).await;
 }
