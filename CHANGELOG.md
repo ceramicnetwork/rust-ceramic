@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.47.3] - 2025-01-13
+
+### 🐛 Bug Fixes
+
+- Use new default testnet eth rpc url ([#638](https://github.com/ceramicnetwork/rust-ceramic/issues/638))
+
+### ⚙️ Miscellaneous Tasks
+
+- Add tests for eip55 cacaos ([#636](https://github.com/ceramicnetwork/rust-ceramic/issues/636))
+
 ## [0.47.2] - 2024-12-20
 
 ### 🐛 Bug Fixes
@@ -13,6 +23,7 @@ All notable changes to this project will be documented in this file.
 - Use explicit os versions ([#634](https://github.com/ceramicnetwork/rust-ceramic/issues/634))
 - Version v0.47.1 ([#635](https://github.com/ceramicnetwork/rust-ceramic/issues/635))
 - Fix issue in package script
+- Version v0.47.2 ([#637](https://github.com/ceramicnetwork/rust-ceramic/issues/637))
 
 ## [0.47.0] - 2024-12-18
 
