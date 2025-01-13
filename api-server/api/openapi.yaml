@@ -6,7 +6,7 @@ info:
     name: MIT
     url: https://mit-license.org/
   title: Ceramic API
-  version: 0.47.2
+  version: 0.47.3
 servers:
 - url: /ceramic
 paths:
