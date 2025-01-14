@@ -1,7 +1,26 @@
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, Attribute, DeriveInput, GenericParam, Lit};
-
+/// Derive the `Actor` trait for the struct.
+/// The struct must be a field struct, not a tuple struct.
+///
+/// The struct may have generic parameters, in which case the derived `ActorHandle` will have the
+/// same generic parameters.
+///
+/// Lifetimes on the struct are not supported.
+///
+/// The `actor` attribute may be added with the following optional key value pairs:
+///     - envelope: The name of the envelope type.
+///     - handle: The name of the derived `ActorHandle` implementation.
+///     - actor_trait: The name of the actor specific trait. This is the same as the second
+///     argument to the actor_envelope! macro.
+///
+/// # Example
+/// ```
+/// #[derive(Actor)]
+/// #[actor(envelope = "PlayerEnv", handle = "PlayerH", actor_trait = "PlayerI")]
+/// pub struct Player { }
+/// ```
 #[proc_macro_derive(Actor, attributes(actor))]
 pub fn actor(item: TokenStream) -> TokenStream {
     let item = parse_macro_input!(item as DeriveInput);

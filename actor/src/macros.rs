@@ -17,6 +17,9 @@ macro_rules! actor_envelope {
         /// Wrapping envelope for all messages of the actor.
         pub enum $enum_name {
             $(
+                // TODO: The stringify pattern in doc comments does not work, we need to figure out
+                // how to fix it or do something else.
+                // For now it's at least a doc comment to keep clippy happy.
                 #[doc = stringify!($variant_name)]
                 #[doc = " contains messages of type [`"]
                 #[doc = stringify!($message_type)]
@@ -107,9 +110,6 @@ macro_rules! actor_envelope {
         impl std::convert::TryFrom<$enum_name> for $message_type {
             type Error = ();
             /// Extracts the message from the envelope.
-            ///
-            /// # Panics
-            /// Panics if the envelope does not contain a message of the expected type.
             fn try_from(value: $enum_name) -> ::std::result::Result<Self,Self::Error> {
                 match value {
                     $enum_name::$variant_name(msg, _) => Ok(msg),
