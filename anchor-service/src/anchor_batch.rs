@@ -72,7 +72,7 @@ impl AnchorService {
     /// - Store the TimeEvents using the AnchorClient
     ///
     /// This function will run indefinitely, or until the process is shutdown.
-    pub async fn run(&mut self, shutdown_signal: impl Future<Output = ()>) {
+    pub async fn run(mut self, shutdown_signal: impl Future<Output = ()>) {
         let shutdown_signal = shutdown_signal.fuse();
         pin_mut!(shutdown_signal);
 
@@ -235,7 +235,8 @@ mod tests {
     use ceramic_core::NodeKey;
     use ceramic_sql::sqlite::SqlitePool;
     use expect_test::expect_file;
-    use tokio::{sync::broadcast, time::sleep};
+    use shutdown::Shutdown;
+    use tokio::time::sleep;
 
     use super::AnchorService;
     use crate::{MockAnchorEventService, MockCas};
@@ -248,7 +249,7 @@ mod tests {
         let node_id = NodeKey::random().id();
         let anchor_interval = Duration::from_millis(5);
         let anchor_batch_size = 1000000;
-        let mut anchor_service = AnchorService::new(
+        let anchor_service = AnchorService::new(
             tx_manager,
             event_service.clone(),
             pool,
@@ -256,20 +257,14 @@ mod tests {
             anchor_interval,
             anchor_batch_size,
         );
-        let (shutdown_signal_tx, mut shutdown_signal) = broadcast::channel::<()>(1);
-        tokio::spawn(async move {
-            anchor_service
-                .run(async move {
-                    let _ = shutdown_signal.recv().await;
-                })
-                .await
-        });
+        let shutdown = Shutdown::new();
+        tokio::spawn(anchor_service.run(shutdown.wait_fut()));
         while event_service.events.lock().unwrap().is_empty() {
             sleep(Duration::from_millis(1)).await;
         }
         expect_file!["./test-data/test_anchor_service_run.txt"]
             .assert_debug_eq(&event_service.events.lock().unwrap());
-        shutdown_signal_tx.send(()).unwrap();
+        shutdown.shutdown();
     }
 
     #[tokio::test]
@@ -280,7 +275,7 @@ mod tests {
         let node_id = NodeKey::random().id();
         let anchor_interval = Duration::from_millis(5);
         let anchor_batch_size = 1000000;
-        let mut anchor_service = AnchorService::new(
+        let anchor_service = AnchorService::new(
             tx_manager,
             event_service.clone(),
             pool,
@@ -288,20 +283,13 @@ mod tests {
             anchor_interval,
             anchor_batch_size,
         );
-        let (shutdown_signal_tx, mut shutdown_signal) = broadcast::channel::<()>(1);
-        // let mut shutdown_signal = shutdown_signal_rx.resubscribe();
-        tokio::spawn(async move {
-            anchor_service
-                .run(async move {
-                    let _ = shutdown_signal.recv().await;
-                })
-                .await
-        });
+        let shutdown = Shutdown::new();
+        tokio::spawn(anchor_service.run(shutdown.wait_fut()));
         while event_service.events.lock().unwrap().is_empty() {
             sleep(Duration::from_millis(1)).await;
         }
         expect_file!["./test-data/test_anchor_service_run_1.txt"]
             .assert_debug_eq(&event_service.events.lock().unwrap());
-        shutdown_signal_tx.send(()).unwrap();
+        shutdown.shutdown();
     }
 }

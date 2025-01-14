@@ -20,10 +20,11 @@ use multibase::Base;
 use multihash::Multihash;
 use multihash_codetable::Code;
 use multihash_derive::Hasher;
+use shutdown::Shutdown;
 use signal_hook_tokio::Signals;
 use std::str::FromStr;
 use std::{env, path::PathBuf};
-use tokio::{io::AsyncReadExt, sync::broadcast};
+use tokio::io::AsyncReadExt;
 use tracing::{debug, error, info, warn};
 
 #[derive(Parser, Debug)]
@@ -343,15 +344,13 @@ impl DBOpts {
     }
 }
 
-async fn handle_signals(mut signals: Signals, shutdown: broadcast::Sender<()>) {
+async fn handle_signals(mut signals: Signals, shutdown: Shutdown) {
     let mut shutdown = Some(shutdown);
     while let Some(signal) = signals.next().await {
         debug!(?signal, "signal received");
         if let Some(shutdown) = shutdown.take() {
             info!("sending shutdown message");
-            shutdown
-                .send(())
-                .expect("should be able to send shutdown message");
+            shutdown.shutdown();
         }
     }
 }

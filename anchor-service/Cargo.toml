@@ -29,3 +29,6 @@ chrono.workspace = true
 
 [features]
 test-network = []
+
+[dev-dependencies]
+shutdown.workspace = true
