@@ -184,7 +184,7 @@ pub struct WithId<'a> {
     node_key: &'a NodeKey,
     expiration: u64,
 }
-impl<'a> BuilderState for WithId<'a> {}
+impl BuilderState for WithId<'_> {}
 
 /// Build state where the addresses are known.
 pub struct WithAddresses<'a> {
@@ -192,7 +192,7 @@ pub struct WithAddresses<'a> {
     expiration: u64,
     addresses: Vec<Multiaddr>,
 }
-impl<'a> BuilderState for WithAddresses<'a> {}
+impl BuilderState for WithAddresses<'_> {}
 
 impl Builder<Init> {
     /// Set the expiration to earliest possible value.
@@ -245,7 +245,7 @@ impl<'a> Builder<WithId<'a>> {
         }
     }
 }
-impl<'a> Builder<WithAddresses<'a>> {
+impl Builder<WithAddresses<'_>> {
     /// Finish the build producing a [`PeerKey`].
     pub fn build(self) -> PeerKey {
         let entry = PeerEntry::new(

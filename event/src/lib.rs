@@ -8,12 +8,14 @@ pub mod unvalidated;
 
 pub use ceramic_core::*;
 
+/// Shared testing logic with the crate.
 #[cfg(test)]
 pub mod tests {
     use ceramic_core::DidDocument;
 
     use crate::unvalidated::signed::JwkSigner;
 
+    /// Pretty print json
     pub fn to_pretty_json(json_data: &[u8]) -> String {
         let json: serde_json::Value = match serde_json::from_slice(json_data) {
             Ok(r) => r,
@@ -27,10 +29,12 @@ pub mod tests {
         serde_json::to_string_pretty(&json).unwrap()
     }
 
+    /// Serialize to pretty json
     pub fn serialize_to_pretty_json<T: serde::Serialize>(data: &T) -> String {
         serde_json::to_string_pretty(data).unwrap()
     }
 
+    /// Construct a signer with a hardcoded private key
     pub async fn signer() -> JwkSigner {
         JwkSigner::new(
             DidDocument::new("did:key:z6Mkk3rtfoKDMMG4zyarNGwCQs44GSQ49pcYKQspHJPXSnVw"),
