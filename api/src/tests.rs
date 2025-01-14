@@ -32,6 +32,7 @@ use mockall::{mock, predicate};
 use multiaddr::Multiaddr;
 use multibase::Base;
 use recon::Key;
+use shutdown::Shutdown;
 use test_log::test;
 use tokio::join;
 
@@ -202,8 +203,8 @@ where
     M: EventService + 'static,
     P: P2PService,
 {
-    let (_, rx) = tokio::sync::broadcast::channel(1);
-    Server::new(node_id, network, interest, model, p2p, pipeline, rx)
+    let shutdown = Shutdown::new();
+    Server::new(node_id, network, interest, model, p2p, pipeline, shutdown)
 }
 
 #[test(tokio::test)]

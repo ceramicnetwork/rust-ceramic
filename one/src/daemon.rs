@@ -20,11 +20,11 @@ use clap::Args;
 use object_store::aws::AmazonS3Builder;
 use object_store::local::LocalFileSystem;
 use recon::{Recon, ReconInterestProvider};
+use shutdown::{Shutdown, ShutdownSignal};
 use signal_hook::consts::signal::*;
 use signal_hook_tokio::Signals;
 use std::sync::Arc;
 use swagger::{auth::MakeAllowAllAuthenticator, EmptyContext};
-use tokio::sync::broadcast;
 use tracing::{debug, error, info, warn};
 
 #[derive(Args, Debug)]
@@ -338,14 +338,14 @@ async fn get_eth_rpc_providers(
 
 fn spawn_database_optimizer(
     sqlite_pool: SqlitePool,
-    mut shutdown: tokio::sync::broadcast::Receiver<()>,
+    mut shutdown: ShutdownSignal,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut duration = std::time::Duration::from_secs(60 * 60 * 24); // once daily
         loop {
             // recreate interval in case it's been shortened due to error
             tokio::select! {
-                _ = shutdown.recv() => {
+                _ = &mut shutdown => {
                     break;
                 }
                 _ = tokio::time::sleep(duration) => {
@@ -408,11 +408,11 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
     debug!(dir = %opts.p2p_key_dir.display(), "using p2p key directory");
 
     // Setup shutdown signal
-    let (shutdown_signal_tx, mut shutdown_signal) = broadcast::channel::<()>(1);
+    let shutdown = Shutdown::new();
     let signals = Signals::new([SIGHUP, SIGTERM, SIGINT, SIGQUIT])?;
     let handle = signals.handle();
     debug!("starting signal handler task");
-    let signals_handle = tokio::spawn(handle_signals(signals, shutdown_signal_tx));
+    let signals_handle = tokio::spawn(handle_signals(signals, shutdown.clone()));
 
     // Construct sqlite_pool
     let sqlite_pool = opts
@@ -424,8 +424,10 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
         // spawn (and run) optimize right before we start using the database (e.g. ordering events)
         info!("running initial sqlite database optimize, this may take quite a while on large databases.");
         sqlite_pool.optimize(true).await?;
-        let ss = shutdown_signal.resubscribe();
-        Some(spawn_database_optimizer(sqlite_pool.clone(), ss))
+        Some(spawn_database_optimizer(
+            sqlite_pool.clone(),
+            shutdown.wait_fut(),
+        ))
     } else {
         None
     };
@@ -436,14 +438,11 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
     let peer_svc = Arc::new(PeerService::new(sqlite_pool.clone()));
     let interest_svc = Arc::new(InterestService::new(sqlite_pool.clone()));
     let event_validation = opts.event_validation.unwrap_or(true);
-    let mut ss = shutdown_signal.resubscribe();
     let event_svc = Arc::new(
         EventService::try_new(
             sqlite_pool.clone(),
             ceramic_event_svc::UndeliveredEventReview::Process {
-                shutdown_signal: Box::new(async move {
-                    let _ = ss.recv().await;
-                }),
+                shutdown_signal: Box::new(shutdown.wait_fut()),
             },
             event_validation,
             rpc_providers,
@@ -636,14 +635,10 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
 
         // Start aggregator
         let aggregator_handle = if opts.aggregator.unwrap_or_default() {
-            let mut ss = shutdown_signal.resubscribe();
             let ctx = ctx.clone();
+            let s = shutdown.wait_fut();
             Some(tokio::spawn(async move {
-                if let Err(err) = ceramic_pipeline::aggregator::run(ctx, async move {
-                    let _ = ss.recv().await;
-                })
-                .await
-                {
+                if let Err(err) = ceramic_pipeline::aggregator::run(ctx, s).await {
                     error!(%err, "aggregator task failed");
                 }
             }))
@@ -651,14 +646,9 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
             None
         };
 
-        let mut ss = shutdown_signal.resubscribe();
         let pipeline_ctx = ctx.clone();
-        let flight_handle = tokio::spawn(async move {
-            ceramic_flight::server::run(ctx, addr, async move {
-                let _ = ss.recv().await;
-            })
-            .await
-        });
+        let flight_handle =
+            tokio::spawn(ceramic_flight::server::run(ctx, addr, shutdown.wait_fut()));
         (Some(pipeline_ctx), aggregator_handle, Some(flight_handle))
     } else {
         (None, None, None)
@@ -679,7 +669,7 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
                 Duration::from_secs(opts.anchor_poll_interval),
                 opts.anchor_poll_retry_count,
             );
-            let mut anchor_service = AnchorService::new(
+            let anchor_service = AnchorService::new(
                 Arc::new(remote_cas),
                 event_svc.clone(),
                 sqlite_pool.clone(),
@@ -688,14 +678,7 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
                 opts.anchor_batch_size,
             );
 
-            let mut shutdown_signal = shutdown_signal.resubscribe();
-            Some(tokio::spawn(async move {
-                anchor_service
-                    .run(async move {
-                        let _ = shutdown_signal.recv().await;
-                    })
-                    .await
-            }))
+            Some(tokio::spawn(anchor_service.run(shutdown.wait_fut())))
         } else {
             None
         };
@@ -708,7 +691,7 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
         Arc::new(model_svc),
         ipfs.client(),
         pipeline_ctx,
-        shutdown_signal.resubscribe(),
+        shutdown.clone(),
     );
     if opts.authentication {
         ceramic_server.with_authentication(true);
@@ -740,9 +723,7 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
     hyper::server::Server::try_bind(&opts.bind_address.parse()?)
         .map_err(|e| anyhow!("Failed to bind address: {}. {}", opts.bind_address, e))?
         .serve(service)
-        .with_graceful_shutdown(async move {
-            let _ = shutdown_signal.recv().await;
-        })
+        .with_graceful_shutdown(shutdown.wait_fut())
         .await?;
     debug!("api server finished, starting shutdown...");
 

@@ -26,12 +26,14 @@ tracing.workspace = true
 ceramic-arrow-test.workspace = true
 ceramic-pipeline.workspace = true
 expect-test.workspace = true
-tokio = { workspace = true, features = ["macros", "rt"] }
-test-log.workspace = true
 http.workspace = true
-tokio-stream = { workspace = true, features = ["net"] }
 mockall.workspace = true
 object_store.workspace = true
+shutdown.workspace = true
+test-log.workspace = true
+tokio = { workspace = true, features = ["macros", "rt"] }
+tokio-stream = { workspace = true, features = ["net"] }
+tracing-subscriber.workspace = true
 
 [package.metadata.cargo-machete]
 ignored = [

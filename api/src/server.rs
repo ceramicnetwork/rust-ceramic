@@ -52,6 +52,7 @@ use datafusion::logical_expr::{col, lit, BuiltInWindowFunction, Expr, ExprFuncti
 use futures::TryFutureExt;
 use multiaddr::Protocol;
 use recon::Key;
+use shutdown::Shutdown;
 use swagger::{ApiError, ByteArray};
 #[cfg(not(target_env = "msvc"))]
 use tikv_jemalloc_ctl::epoch;
@@ -401,7 +402,7 @@ where
         model: Arc<M>,
         p2p: P,
         pipeline: Option<SessionContext>,
-        shutdown_signal: broadcast::Receiver<()>,
+        shutdown_signal: Shutdown,
     ) -> Self {
         let (tx, event_rx) = tokio::sync::mpsc::channel::<EventInsert>(1024);
         let event_store = model.clone();
@@ -433,7 +434,7 @@ where
         event_store: Arc<M>,
         mut event_rx: tokio::sync::mpsc::Receiver<EventInsert>,
         node_id: NodeId,
-        mut shutdown_signal: broadcast::Receiver<()>,
+        shutdown_signal: Shutdown,
     ) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_millis(FLUSH_INTERVAL_MS));
@@ -455,7 +456,7 @@ where
                             events.extend(buf);
                         }
                     }
-                    _ = shutdown_signal.recv() => {
+                    _ = shutdown_signal.wait_fut() => {
                         tracing::debug!("Insert many task got shutdown signal");
                         shutdown = true;
                     }
