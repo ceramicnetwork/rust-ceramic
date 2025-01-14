@@ -226,7 +226,7 @@ impl<'de> Deserialize<'de> for StreamId {
 
 struct StreamIdVisitor;
 
-impl<'de> serde::de::Visitor<'de> for StreamIdVisitor {
+impl serde::de::Visitor<'_> for StreamIdVisitor {
     type Value = StreamId;
 
     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {

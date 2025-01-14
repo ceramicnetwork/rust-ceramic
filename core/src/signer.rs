@@ -15,7 +15,7 @@ pub trait Signer {
     fn sign_jws(&self, payload: &str) -> anyhow::Result<String>;
 }
 
-impl<'a, S: Signer + Sync> Signer for &'a S {
+impl<S: Signer + Sync> Signer for &'_ S {
     fn algorithm(&self) -> Algorithm {
         (*self).algorithm()
     }
