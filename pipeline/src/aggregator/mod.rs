@@ -184,7 +184,7 @@ async fn concluder_subscription(
         )?
         .collect()
         .await?;
-    let offset = batches.get(0).and_then(|batch| {
+    let offset = batches.first().and_then(|batch| {
         batch.column_by_name("max_index").and_then(|index_col| {
             as_uint64_array(&index_col)
                 .ok()
@@ -240,7 +240,7 @@ impl Handler<SubscribeSinceMsg> for Aggregator {
         rows_since(
             schemas::conclusion_events(),
             message.projection,
-            message.offset.clone(),
+            message.offset,
             message.limit,
             Box::pin(RecordBatchStreamAdapter::new(
                 schemas::conclusion_events(),

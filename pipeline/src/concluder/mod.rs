@@ -170,7 +170,7 @@ impl Handler<SubscribeSinceMsg> for Concluder {
         rows_since(
             schemas::conclusion_events(),
             message.projection,
-            message.offset.clone(),
+            message.offset,
             message.limit,
             Box::pin(RecordBatchStreamAdapter::new(
                 schemas::conclusion_events(),

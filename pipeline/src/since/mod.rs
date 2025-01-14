@@ -120,7 +120,7 @@ fn project_limit_batch(
 ) -> anyhow::Result<RecordBatch> {
     tracing::debug!(?limit, rows = batch.num_rows(), "project_limit_batch");
     let batch = if let Some(projection) = projection {
-        batch.project(&projection)?
+        batch.project(projection)?
     } else {
         batch
     };
