@@ -94,7 +94,7 @@ async fn random_unsigned_init_event() -> unvalidated::init::Payload<Ipld> {
         .with_sep("model".to_string(), model)
         .with_unique(unique)
         .with_data(data)
-        .build()
+        .build_payload()
 }
 async fn random_signed_init_event() -> unvalidated::signed::Event<Ipld> {
     let model =
@@ -110,7 +110,7 @@ async fn random_signed_init_event() -> unvalidated::signed::Event<Ipld> {
         .with_sep("model".to_string(), model)
         .with_unique(unique)
         .with_data(data)
-        .build();
+        .build_payload();
 
     unvalidated::signed::Event::from_payload(unvalidated::Payload::Init(payload), signer().await)
         .unwrap()
@@ -129,7 +129,7 @@ async fn random_signed_data_event() -> Vec<unvalidated::Event<Ipld>> {
         .with_id(*init.envelope_cid())
         .with_prev(*init.envelope_cid())
         .with_data(data)
-        .build();
+        .build_payload();
     vec![
         init.into(),
         unvalidated::signed::Event::from_payload(

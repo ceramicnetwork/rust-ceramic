@@ -1,0 +1,75 @@
+//! Provides a mock implmentation of the aggregator actor.
+use async_trait::async_trait;
+use ceramic_actor::{Actor, Handler, Message};
+use mockall::mock;
+
+use super::{
+    Aggregator, AggregatorActor, AggregatorEnvelope, AggregatorHandle, NewConclusionEventsMsg,
+    StreamStateMsg, SubscribeSinceMsg,
+};
+
+mock! {
+    // mockall does not support multiple methods on the struct with the same name.
+    // This arises when implementing multiple traits that have methods with the same name as is
+    // the case with the [`ceramic_actor::Handler`] trait.
+    //
+    // We add a layer of indirection to get around this limitation.
+    pub Aggregator {
+        #[allow(missing_docs)]
+        pub fn handle_subscribe_since(
+            &mut self,
+            message: SubscribeSinceMsg,
+        ) -> <SubscribeSinceMsg as Message>::Result;
+        #[allow(missing_docs)]
+        pub fn handle_new_conclusion_events(
+            &mut self,
+            message: NewConclusionEventsMsg,
+        ) -> <NewConclusionEventsMsg as Message>::Result;
+        #[allow(missing_docs)]
+        pub fn handle_stream_state(
+            &mut self,
+            message: StreamStateMsg,
+        ) -> <StreamStateMsg
+            as Message>::Result;
+    }
+}
+
+#[async_trait]
+impl Handler<SubscribeSinceMsg> for MockAggregator {
+    async fn handle(
+        &mut self,
+        message: SubscribeSinceMsg,
+    ) -> <SubscribeSinceMsg as Message>::Result {
+        self.handle_subscribe_since(message)
+    }
+}
+
+#[async_trait]
+impl Handler<NewConclusionEventsMsg> for MockAggregator {
+    async fn handle(
+        &mut self,
+        message: NewConclusionEventsMsg,
+    ) -> <NewConclusionEventsMsg as Message>::Result {
+        self.handle_new_conclusion_events(message)
+    }
+}
+
+#[async_trait]
+impl Handler<StreamStateMsg> for MockAggregator {
+    async fn handle(&mut self, message: StreamStateMsg) -> <StreamStateMsg as Message>::Result {
+        self.handle_stream_state(message)
+    }
+}
+
+impl Actor for MockAggregator {
+    type Envelope = AggregatorEnvelope;
+}
+impl AggregatorActor for MockAggregator {}
+
+impl MockAggregator {
+    /// Spawn a mock aggregator actor.
+    pub fn spawn(mock_actor: MockAggregator) -> AggregatorHandle {
+        let (handle, _task_handle) = Aggregator::spawn(1_000, mock_actor, std::future::pending());
+        handle
+    }
+}

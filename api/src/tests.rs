@@ -1,5 +1,6 @@
-// Tests for server.rs api implementations
+//! Tests for server.rs api implementations
 
+use std::collections::HashMap;
 use std::{ops::Range, str::FromStr, sync::Arc};
 
 use crate::server::{decode_multibase_data, BuildResponse, P2PService, Server};
@@ -12,25 +13,19 @@ use anyhow::Result;
 use async_trait::async_trait;
 use ceramic_api_server::{
     models::{self},
-    EventsEventIdGetResponse, EventsPostResponse, ExperimentalEventsSepSepValueGetResponse,
-    InterestsPostResponse, InterestsSortKeySortValuePostResponse,
+    Api, EventsEventIdGetResponse, EventsPostResponse, ExperimentalEventsSepSepValueGetResponse,
+    InterestsPostResponse, InterestsSortKeySortValuePostResponse, StreamsStreamIdGetResponse,
 };
-use ceramic_api_server::{Api, StreamsStreamIdGetResponse};
-use ceramic_core::{Cid, Interest, NodeKey};
-use ceramic_core::{EventId, Network, NodeId, PeerId, StreamId};
-use ceramic_pipeline::EVENT_STATES_TABLE;
-use datafusion::arrow::array::{
-    BinaryBuilder, BinaryDictionaryBuilder, MapBuilder, MapFieldNames, RecordBatch, StringArray,
-    StringBuilder, UInt64Array, UInt8Array,
+use ceramic_core::{Cid, EventId, Interest, Network, NodeId, NodeKey, PeerId, StreamId};
+use ceramic_pipeline::{
+    aggregator::{mock::MockAggregator, StreamState},
+    PipelineHandle,
 };
-use datafusion::arrow::datatypes::Int32Type;
-use datafusion::datasource::MemTable;
-use datafusion::execution::config::SessionConfig;
-use datafusion::execution::context::SessionContext;
 use expect_test::expect;
 use mockall::{mock, predicate};
 use multiaddr::Multiaddr;
 use multibase::Base;
+use object_store::memory::InMemory;
 use recon::Key;
 use shutdown::Shutdown;
 use test_log::test;
@@ -196,7 +191,7 @@ fn create_test_server<C, I, M, P>(
     interest: I,
     model: Arc<M>,
     p2p: P,
-    pipeline: Option<SessionContext>,
+    pipeline: Option<PipelineHandle>,
 ) -> Server<C, I, M, P>
 where
     I: InterestService,
@@ -1061,20 +1056,32 @@ async fn stream_state() {
     let network = Network::InMemory;
     let mock_event_store = MockEventStoreTest::new();
     let mock_interest = MockAccessInterestStoreTest::new();
-    let session_config = SessionConfig::new().with_default_catalog_and_schema("ceramic", "v0");
-    let pipeline = SessionContext::new_with_config(session_config);
-    pipeline
-        .register_table(
-            EVENT_STATES_TABLE,
-            Arc::new(
-                MemTable::try_new(
-                    ceramic_pipeline::schemas::event_states(),
-                    vec![vec![states()]],
-                )
-                .unwrap(),
-            ),
-        )
-        .unwrap();
+
+    let mut aggregator = MockAggregator::new();
+    aggregator
+        .expect_handle_stream_state()
+        .once()
+        .return_once(|_msg| {
+            Ok(Some(StreamState {
+                id: "k2t6wzhjp5kk3zrbu5tyfjqdrhxyvwnzmxv8htviiganzacva34pfedi5g72tp"
+                    .parse()
+                    .unwrap(),
+                event_cid: "baeabeibisehf2y3f6wgyltbs27mg4qcw75vzhunpgzorzgdklzioliwtba"
+                    .parse()
+                    .unwrap(),
+                controller: "did:itwasntme".to_string(),
+                dimensions: HashMap::from_iter([("x".to_string(), vec![0, 1, 2])]),
+                data: b"some utf8 data".to_vec(),
+            }))
+        });
+    let pipeline = PipelineHandle::new(
+        ceramic_pipeline::pipeline_ctx(Arc::new(InMemory::new()))
+            .await
+            .unwrap(),
+        None,
+        Some(MockAggregator::spawn(aggregator)),
+    );
+
     let server = create_test_server(
         node_id,
         network,
@@ -1099,7 +1106,7 @@ async fn stream_state() {
                     dimensions: Object {
                         "x": String("uAAEC"),
                     },
-                    data: "ueyJtZXRhZGF0YSI6eyJzaG91bGRJbmRleCI6dHJ1ZX0sImRhdGEiOnsiYSI6M319",
+                    data: "uc29tZSB1dGY4IGRhdGE",
                 },
             ),
         )
@@ -1110,95 +1117,8 @@ async fn stream_state() {
     };
     expect![[r#"
         Ok(
-            "{\"metadata\":{\"shouldIndex\":true},\"data\":{\"a\":3}}",
+            "some utf8 data",
         )
     "#]]
     .assert_debug_eq(&String::from_utf8(multibase::decode(state.data).unwrap().1));
-}
-// helper function to generate some stream states
-fn states() -> RecordBatch {
-    let mut stream_cids = BinaryBuilder::new();
-    [
-        "k2t6wzhjp5kk3zrbu5tyfjqdrhxyvwnzmxv8htviiganzacva34pfedi5g72tp",
-        "k2t6wzhjp5kk3zrbu5tyfjqdrhxyvwnzmxv8htviiganzacva34pfedi5g72tp",
-        "k2t6wzhjp5kk3zrbu5tyfjqdrhxyvwnzmxv8htviiganzacva34pfedi5g72tp",
-        "k2t6wzhjp5kk3zrbu5tyfjqdrhxyvwnzmxv8htviiganzacva34pfedi5g72tp",
-        "k2t6wzhjp5kk0j99x8e3r4sg3r0i0n5cnwj05abi4lgya6tloq34acq6p61kbm",
-    ]
-    .iter()
-    .map(|stream_id| StreamId::from_str(stream_id).unwrap().cid.to_bytes())
-    .for_each(|bytes| stream_cids.append_value(bytes));
-    let mut event_cids = BinaryBuilder::new();
-    [
-        "baeabeifx7j2fdp4l3bziupzfaz3cbzazgooe6u2d4ksurqemjcalr6tn5m",
-        "baeabeihqh76cewevzdyex6icih26nzqmhonivuiijvr2sez25vnhv2p34i",
-        "baeabeihswjwx6plfsnlj6cpstjsfkyoftvpdl3yii4tsfyzw2kgeu7kld4",
-        "baeabeibisehf2y3f6wgyltbs27mg4qcw75vzhunpgzorzgdklzioliwtba",
-        "baeabeiep6guangcu6qqvhahmj5v2fl33wqwt7caxe3zdwse6i3v6igel6a",
-    ]
-    .iter()
-    .map(|cid| Cid::from_str(cid).unwrap().to_bytes())
-    .for_each(|bytes| event_cids.append_value(bytes));
-    let mut dimensions = MapBuilder::new(
-        Some(MapFieldNames {
-            entry: "entries".to_string(),
-            key: "key".to_string(),
-            value: "value".to_string(),
-        }),
-        StringBuilder::new(),
-        BinaryDictionaryBuilder::<Int32Type>::new(),
-    );
-    dimensions.keys().append_value("x");
-    dimensions.values().append_value([0, 1, 2]);
-    dimensions.append(true).unwrap();
-    dimensions.keys().append_value("x");
-    dimensions.values().append_value([0, 1, 2]);
-    dimensions.append(true).unwrap();
-    dimensions.keys().append_value("x");
-    dimensions.values().append_value([0, 1, 2]);
-    dimensions.append(true).unwrap();
-    dimensions.keys().append_value("x");
-    dimensions.values().append_value([0, 1, 2]);
-    dimensions.append(true).unwrap();
-    dimensions.append(false).unwrap();
-
-    let mut data = BinaryBuilder::new();
-    [
-        r#"{"metadata":{"shouldIndex":true},"data":{"a":0}}"#,
-        r#"{"metadata":{"shouldIndex":true},"data":{"a":1}}"#,
-        r#"{"metadata":{"shouldIndex":true},"data":{"a":2}}"#,
-        r#"{"metadata":{"shouldIndex":true},"data":{"a":3}}"#,
-        r#"{"metadata":null,"data":{"b":4}}"#,
-    ]
-    .iter()
-    .for_each(|s| data.append_value(s.as_bytes()));
-    RecordBatch::try_from_iter(vec![
-        (
-            "index",
-            Arc::new(UInt64Array::from_iter([0, 1, 2, 3, 4])) as _,
-        ),
-        ("stream_cid", Arc::new(stream_cids.finish()) as _),
-        (
-            "stream_type",
-            Arc::new(UInt8Array::from_iter([3, 3, 3, 3, 3])) as _,
-        ),
-        (
-            "controller",
-            Arc::new(StringArray::from(vec![
-                "did:itwasntme",
-                "did:itwasntme",
-                "did:itwasntme",
-                "did:itwasntme",
-                "did:itwasjulie",
-            ])) as _,
-        ),
-        ("dimensions", Arc::new(dimensions.finish()) as _),
-        ("event_cid", Arc::new(event_cids.finish()) as _),
-        (
-            "event_type",
-            Arc::new(UInt8Array::from_iter([0, 0, 1, 0, 0])) as _,
-        ),
-        ("data", Arc::new(data.finish()) as _),
-    ])
-    .unwrap()
 }

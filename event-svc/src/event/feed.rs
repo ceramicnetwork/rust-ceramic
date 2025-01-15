@@ -6,6 +6,13 @@ use crate::EventService;
 
 #[async_trait]
 impl ConclusionFeed for EventService {
+    async fn max_highwater_mark(&self) -> anyhow::Result<Option<u64>> {
+        Ok(self
+            .event_access
+            .get_highwater_mark()
+            .await
+            .map(|h| Some(h as u64))?)
+    }
     /// Fetches Conclusion Events that have occurred since a given highwater mark.
     ///
     /// This function retrieves events that have been processed after the specified highwater mark,
