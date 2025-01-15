@@ -17,9 +17,31 @@ use syn::{parse_macro_input, Attribute, DeriveInput, GenericParam, Lit};
 ///
 /// # Example
 /// ```
+/// # use ceramic_actor::{Handler, Message};
+/// use ceramic_actor::{Actor, actor_envelope};
+///
 /// #[derive(Actor)]
 /// #[actor(envelope = "PlayerEnv", handle = "PlayerH", actor_trait = "PlayerI")]
 /// pub struct Player { }
+///
+/// actor_envelope!{
+///     PlayerEnv,
+///     PlayerI,
+///     Score => ScoreMessage,
+/// }
+///
+/// # #[async_trait::async_trait]
+/// # impl Handler<ScoreMessage> for Player {
+/// #     async fn handle(&mut self, message: ScoreMessage) -> <ScoreMessage as Message>::Result {
+/// #       todo!()
+/// #     }
+/// # }
+///
+/// # #[derive(Debug)]
+/// # struct ScoreMessage { }
+/// # impl Message for ScoreMessage {
+/// #     type Result = ();
+/// # }
 /// ```
 #[proc_macro_derive(Actor, attributes(actor))]
 pub fn actor(item: TokenStream) -> TokenStream {

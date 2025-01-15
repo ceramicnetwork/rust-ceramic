@@ -77,7 +77,7 @@ macro_rules! actor_envelope {
                                             actor.handle(m),
                                             traced.span,
                                         ).await).is_err() {
-                                            ::tracing::warn!("failed to send message to actor");
+                                            $crate::tracing::warn!("failed to send message to actor");
                                         }
                                     }
                                 )*

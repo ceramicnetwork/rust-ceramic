@@ -2073,8 +2073,11 @@ dependencies = [
 name = "ceramic-actor-macros"
 version = "0.47.3"
 dependencies = [
+ "async-trait",
+ "ceramic-actor",
  "quote",
  "syn 2.0.90",
+ "tokio",
 ]
 
 [[package]]
