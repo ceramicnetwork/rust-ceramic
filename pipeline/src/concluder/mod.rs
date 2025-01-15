@@ -90,7 +90,7 @@ impl Concluder {
                     )?
                     .collect()
                     .await?;
-                batches.get(0).and_then(|batch| {
+                batches.first().and_then(|batch| {
                     batch.column_by_name("max_index").and_then(|index_col| {
                         as_uint64_array(&index_col).ok().and_then(|index_col| {
                             arrow::array::Array::is_valid(&index_col, 0).then(|| index_col.value(0))
