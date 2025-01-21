@@ -32,6 +32,10 @@ mv ./api-server/src/lib.rs.tmp ./api-server/src/lib.rs
 augtool -s -L \
     -r ./api-server/ \
     -f ./ci-scripts/remove_conversion.augt
+# Add percent-encoding as client dependency
+augtool -s -L \
+    -r ./api-server/ \
+    -f ./ci-scripts/add_percent_encoding.augt
 
 # Format the generated code
 cargo fmt -p ceramic-api-server

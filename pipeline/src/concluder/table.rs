@@ -16,13 +16,15 @@ use datafusion::{
 use futures::TryStreamExt as _;
 use tracing::{instrument, Level};
 
-use crate::{conclusion::conclusion_events_to_record_batch, schemas::conclusion_events};
+use crate::{concluder::conclusion_events_to_record_batch, schemas::conclusion_events};
 
 use super::ConclusionEvent;
 
 /// A ConclusionFeed provides access to [`ConclusionEvent`]s.
 #[async_trait::async_trait]
 pub trait ConclusionFeed: std::fmt::Debug + Send + Sync {
+    /// Report the maximum highwater_mark.
+    async fn max_highwater_mark(&self) -> anyhow::Result<Option<u64>>;
     /// Produce a set of conclusion events up to the limit with an index greater than the highwater_mark
     /// Event must be returned in index order.
     async fn conclusion_events_since(
@@ -33,6 +35,9 @@ pub trait ConclusionFeed: std::fmt::Debug + Send + Sync {
 }
 #[async_trait::async_trait]
 impl<T: ConclusionFeed> ConclusionFeed for Arc<T> {
+    async fn max_highwater_mark(&self) -> anyhow::Result<Option<u64>> {
+        self.as_ref().max_highwater_mark().await
+    }
     async fn conclusion_events_since(
         &self,
         highwater_mark: i64,
@@ -195,6 +200,9 @@ impl<T: ConclusionFeed + std::fmt::Debug + 'static> ExecutionPlan for FeedExec<T
         _children: Vec<Arc<dyn ExecutionPlan>>,
     ) -> datafusion::error::Result<Arc<dyn ExecutionPlan>> {
         Ok(self)
+    }
+    fn schema(&self) -> SchemaRef {
+        self.schema.clone()
     }
 
     fn execute(
