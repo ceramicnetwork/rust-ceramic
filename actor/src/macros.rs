@@ -2,14 +2,18 @@
 ///
 /// The first identifier is the name of the enum.
 /// The second identifier is the name of a trait specific to the actor.
+/// The third identifier is the name of a trait for recording message events.
 /// The remaining pairs are the variants of the envelope indicating the messages the actor handles.
 ///
-/// The constructed trait is a union of the [`crate::Handler`] traits for each message along with the [`crate::Actor`] trait.
+/// The constructed actor trait is a union of the [`crate::Handler`] traits for each message along with the [`crate::Actor`] trait.
+///
+/// The constructed recorder trait is a union of the [`ceramic_metrics::Recorder`] traits for each message.
 #[macro_export]
 macro_rules! actor_envelope {
     (
         $enum_name:ident,
-        $trait_name:ident,
+        $actor_trait:ident,
+        $recorder_trait:ident,
         $(
             $variant_name:ident => $message_type:ty,
         )*
@@ -47,15 +51,23 @@ macro_rules! actor_envelope {
                 }
             }
         }
-        #[doc = std::stringify!($trait_name)]
+        #[doc = std::stringify!($actor_trait)]
         #[doc = " is an [`crate::Actor`] and [`crate::Handler`] for each message type in the actor envelope "]
         #[doc = stringify!($enum_name)]
         #[doc = "."]
-        pub trait $trait_name : $crate::Actor<Envelope = $enum_name> $( + $crate::Handler<$message_type> )* { }
+        pub trait $actor_trait : $crate::Actor<Envelope = $enum_name> $( + $crate::Handler<$message_type> )* + ::std::marker::Send + 'static { }
+
+        #[doc = std::stringify!($actor_trait)]
+        #[doc = " is an [`ceramic_metrics::Recorder`] for each message type in the actor envelope "]
+        #[doc = stringify!($enum_name)]
+        #[doc = "."]
+        pub trait $recorder_trait : $(::ceramic_metrics::Recorder<$crate::MessageEvent<$message_type>> +)*
+            ::std::fmt::Debug + ::std::marker::Send + ::std::marker::Sync + 'static { }
+
         impl $enum_name {
             /// Runs the actor handling messages as they arrive.
             pub async fn run<A>(mut actor: A, mut receiver: $crate::Receiver<A::Envelope>, mut shutdown: impl ::std::future::Future<Output=()> + ::std::marker::Send + 'static)
-                where A: $trait_name
+                where A: $actor_trait
             {
                 let mut shutdown = Box::pin(shutdown);
                 loop {

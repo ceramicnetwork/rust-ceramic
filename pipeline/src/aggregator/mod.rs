@@ -3,6 +3,7 @@
 //! Applies each new event to the previous state of the stream producing the stream state at each
 //! event in the stream.
 mod ceramic_patch;
+mod metrics;
 #[cfg(any(test, feature = "mock"))]
 pub mod mock;
 
@@ -16,7 +17,7 @@ use arrow::{
 };
 use arrow_schema::SchemaRef;
 use async_trait::async_trait;
-use ceramic_actor::{actor_envelope, Actor, ActorHandle, Handler, Message};
+use ceramic_actor::{actor_envelope, Actor, Handler, Message};
 use ceramic_core::StreamId;
 use ceramic_patch::CeramicPatch;
 use cid::Cid;
@@ -51,6 +52,7 @@ use tracing::{error, instrument};
 use crate::{
     cache_table::CacheTable,
     concluder::ConcluderHandle,
+    metrics::Metrics,
     schemas,
     since::{rows_since, StreamTable, StreamTableSource},
     PipelineContext, Result, SessionContextRef,
@@ -91,6 +93,7 @@ impl Aggregator {
         ctx: &PipelineContext,
         max_cached_rows: Option<usize>,
         concluder: ConcluderHandle,
+        metrics: Metrics,
         shutdown: Shutdown,
     ) -> Result<(AggregatorHandle, Vec<JoinHandle<()>>)> {
         let (broadcast_tx, _broadcast_rx) = broadcast::channel(1_000);
@@ -99,17 +102,18 @@ impl Aggregator {
             broadcast_tx,
             max_cached_rows: max_cached_rows.unwrap_or(DEFAULT_MAX_CACHED_ROWS),
         };
-        Self::spawn_with(size, ctx, aggregator, concluder, shutdown).await
+        Self::spawn_with(size, ctx, aggregator, concluder, metrics, shutdown).await
     }
     /// Spawn the actor given an implementation of the aggregator.
     pub async fn spawn_with(
         size: usize,
         ctx: &PipelineContext,
-        aggregator: impl AggregatorActor + Send + 'static,
+        aggregator: impl AggregatorActor,
         concluder: ConcluderHandle,
+        metrics: Metrics,
         shutdown: Shutdown,
     ) -> Result<(AggregatorHandle, Vec<JoinHandle<()>>)> {
-        let (handle, task_handle) = Self::spawn(size, aggregator, shutdown.wait_fut());
+        let (handle, task_handle) = Self::spawn(size, aggregator, metrics, shutdown.wait_fut());
         // Register aggregator tables
         let file_format = ParquetFormat::default().with_enable_pruning(true);
 
@@ -224,6 +228,7 @@ async fn concluder_subscription(
 actor_envelope! {
     AggregatorEnvelope,
     AggregatorActor,
+    AggregatorRecorder,
     SubscribeSince => SubscribeSinceMsg,
     NewConclusionEvents => NewConclusionEventsMsg,
     StreamState => StreamStateMsg,
@@ -576,6 +581,7 @@ mod tests {
     use futures::stream;
     use mockall::predicate;
     use object_store::memory::InMemory;
+    use prometheus_client::registry::Registry;
     use test_log::test;
 
     use crate::{
@@ -647,6 +653,7 @@ mod tests {
         object_store: Arc<dyn ObjectStore>,
         max_cached_rows: Option<usize>,
     ) -> anyhow::Result<TestContext> {
+        let metrics = Metrics::register(&mut Registry::default());
         let shutdown = Shutdown::new();
         let pipeline_ctx = pipeline_ctx(object_store.clone()).await?;
         let (aggregator, handles) = Aggregator::spawn_new(
@@ -654,6 +661,7 @@ mod tests {
             &pipeline_ctx,
             max_cached_rows,
             MockConcluder::spawn(mock_concluder),
+            metrics,
             shutdown.clone(),
         )
         .await?;
@@ -667,13 +675,13 @@ mod tests {
 
     async fn do_test(conclusion_events: RecordBatch) -> anyhow::Result<impl std::fmt::Display> {
         let ctx = init().await?;
-        let r = do_pass(&ctx.aggregator, None, Some(conclusion_events)).await;
+        let r = do_pass(ctx.aggregator.clone(), None, Some(conclusion_events)).await;
         ctx.shutdown().await?;
         r
     }
 
     async fn do_pass(
-        aggregator: &impl ActorHandle<Actor = Aggregator>,
+        aggregator: AggregatorHandle,
         offset: Option<u64>,
         conclusion_events: Option<RecordBatch>,
     ) -> anyhow::Result<impl std::fmt::Display> {
@@ -960,7 +968,7 @@ mod tests {
         // events for each pass.
         let ctx = init().await.unwrap();
         let event_states = do_pass(
-            &ctx.aggregator,
+            ctx.aggregator.clone(),
             None,
             Some(
                 conclusion_events_to_record_batch(&[ConclusionEvent::Data(ConclusionData {
@@ -996,7 +1004,7 @@ mod tests {
             | 0     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | {"metadata":{"foo":1,"shouldIndex":true},"content":{"a":0}} |
             +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+-------------------------------------------------------------+"#]].assert_eq(&event_states.to_string());
         let event_states = do_pass(
-            &ctx.aggregator,
+            ctx.aggregator.clone(),
             Some(0),
             Some(
                 conclusion_events_to_record_batch(&[ConclusionEvent::Time(ConclusionTime {
@@ -1034,7 +1042,7 @@ mod tests {
             | 1     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | 1          | {"metadata":{"foo":1,"shouldIndex":true},"content":{"a":0}} |
             +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+-------------------------------------------------------------+"#]].assert_eq(&event_states.to_string());
         let event_states = do_pass(
-            &ctx.aggregator,
+            ctx.aggregator.clone(),
             Some(1),
             Some(conclusion_events_to_record_batch(&[ConclusionEvent::Data(ConclusionData {
                 index: 2,
@@ -1071,7 +1079,7 @@ mod tests {
     async fn multiple_passes() {
         let ctx = init().await.unwrap();
         let event_states = do_pass(
-            &ctx.aggregator,
+            ctx.aggregator.clone(),
             None,
             Some(
                 conclusion_events_to_record_batch(&[ConclusionEvent::Data(ConclusionData {
@@ -1107,7 +1115,7 @@ mod tests {
             | 0     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | {"metadata":{"foo":1,"shouldIndex":true},"content":{"a":0}} |
             +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+-------------------------------------------------------------+"#]].assert_eq(&event_states.to_string());
         let event_states = do_pass(
-            &ctx.aggregator,
+            ctx.aggregator.clone(),
             Some(0),
             Some(conclusion_events_to_record_batch(&[
                 ConclusionEvent::Time(ConclusionTime {
@@ -1244,7 +1252,7 @@ mod tests {
             });
 
         let ctx = init_with_concluder(mock_concluder).await.unwrap();
-        let event_states = do_pass(&ctx.aggregator, None, None).await.unwrap();
+        let event_states = do_pass(ctx.aggregator.clone(), None, None).await.unwrap();
         expect![[r#"
             +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+--------------------------------------------------------------+
             | index | stream_cid                                                  | stream_type | controller  | dimensions                                              | event_cid                                                   | event_type | data                                                         |
@@ -1333,7 +1341,7 @@ mod tests {
             )
             .await
             .unwrap();
-            let event_states = do_pass(&ctx.aggregator, None, None).await.unwrap();
+            let event_states = do_pass(ctx.aggregator.clone(), None, None).await.unwrap();
             expect![[r#"
             +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+--------------------------------------------------------------+
             | index | stream_cid                                                  | stream_type | controller  | dimensions                                              | event_cid                                                   | event_type | data                                                         |

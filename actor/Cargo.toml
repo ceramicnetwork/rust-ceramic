@@ -11,6 +11,7 @@ async-trait.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 ceramic-actor-macros.workspace = true
+ceramic-metrics.workspace = true
 snafu.workspace = true
 
 [dev-dependencies]

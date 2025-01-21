@@ -2,6 +2,9 @@
 use async_trait::async_trait;
 use ceramic_actor::{Actor, Handler, Message};
 use mockall::mock;
+use prometheus_client::registry::Registry;
+
+use crate::metrics::Metrics;
 
 use super::{
     Aggregator, AggregatorActor, AggregatorEnvelope, AggregatorHandle, NewConclusionEventsMsg,
@@ -69,7 +72,9 @@ impl AggregatorActor for MockAggregator {}
 impl MockAggregator {
     /// Spawn a mock aggregator actor.
     pub fn spawn(mock_actor: MockAggregator) -> AggregatorHandle {
-        let (handle, _task_handle) = Aggregator::spawn(1_000, mock_actor, std::future::pending());
+        let metrics = Metrics::register(&mut Registry::default());
+        let (handle, _task_handle) =
+            Aggregator::spawn(1_000, mock_actor, metrics, std::future::pending());
         handle
     }
 }

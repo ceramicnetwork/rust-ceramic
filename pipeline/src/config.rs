@@ -3,6 +3,8 @@ use std::sync::Arc;
 use object_store::ObjectStore;
 use shutdown::Shutdown;
 
+use crate::Metrics;
+
 /// Configuration for pipeline session.
 pub struct Config<F> {
     /// When true the aggregator actor is enabled.
@@ -11,6 +13,8 @@ pub struct Config<F> {
     pub conclusion_feed: ConclusionFeedSource<F>,
     /// Access to an object store.
     pub object_store: Arc<dyn ObjectStore>,
+    /// Metrics object for recording statistics about pipeline actors.
+    pub metrics: Metrics,
     /// A shutdown signal channel.
     pub shutdown: Shutdown,
 }

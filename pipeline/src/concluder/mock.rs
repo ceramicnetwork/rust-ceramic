@@ -2,6 +2,9 @@
 use async_trait::async_trait;
 use ceramic_actor::{Actor, Handler, Message};
 use mockall::mock;
+use prometheus_client::registry::Registry;
+
+use crate::metrics::Metrics;
 
 use super::{
     Concluder, ConcluderActor, ConcluderEnvelope, ConcluderHandle, EventsSinceMsg, NewEventsMsg,
@@ -65,7 +68,9 @@ impl ConcluderActor for MockConcluder {}
 impl MockConcluder {
     /// Spawn a mock concluder actor.
     pub fn spawn(mock_actor: MockConcluder) -> ConcluderHandle {
-        let (handle, _task_handle) = Concluder::spawn(1_000, mock_actor, std::future::pending());
+        let metrics = Metrics::register(&mut Registry::default());
+        let (handle, _task_handle) =
+            Concluder::spawn(1_000, mock_actor, metrics, std::future::pending());
         handle
     }
 }

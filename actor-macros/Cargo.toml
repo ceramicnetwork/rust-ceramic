@@ -15,5 +15,6 @@ quote = "1.0"
 
 [dev-dependencies]
 ceramic-actor.workspace = true
+ceramic-metrics.workspace = true
 async-trait.workspace = true
 tokio.workspace = true
