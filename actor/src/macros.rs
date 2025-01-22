@@ -52,12 +52,12 @@ macro_rules! actor_envelope {
             }
         }
         #[doc = std::stringify!($actor_trait)]
-        #[doc = " is an [`crate::Actor`] and [`crate::Handler`] for each message type in the actor envelope "]
+        #[doc = " is an [`ceramic_actor::Actor`] and [`ceramic_actor::Handler`] for each message type in the actor envelope "]
         #[doc = stringify!($enum_name)]
         #[doc = "."]
         pub trait $actor_trait : $crate::Actor<Envelope = $enum_name> $( + $crate::Handler<$message_type> )* + ::std::marker::Send + 'static { }
 
-        #[doc = std::stringify!($actor_trait)]
+        #[doc = std::stringify!($recorder_trait)]
         #[doc = " is an [`ceramic_metrics::Recorder`] for each message type in the actor envelope "]
         #[doc = stringify!($enum_name)]
         #[doc = "."]

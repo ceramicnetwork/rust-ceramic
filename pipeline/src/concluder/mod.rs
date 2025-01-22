@@ -151,7 +151,7 @@ actor_envelope! {
 /// Notify actor of new events
 #[derive(Debug)]
 pub struct NewEventsMsg {
-    /// Events as a record batch, must have the schema of the [`CONCLUSION_EVENTS_TABLE`].
+    /// Events as a record batch, must have the schema of the [`crate::schemas::conclusion_events`] table.
     pub events: RecordBatch,
 }
 impl Message for NewEventsMsg {

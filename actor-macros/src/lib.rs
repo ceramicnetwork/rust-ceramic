@@ -114,7 +114,7 @@ pub fn actor(item: TokenStream) -> TokenStream {
             }
         }
 
-        /// Handle for [`#struct_name`].
+        #[doc = concat!("Handle for [`", stringify!(#actor_trait), "`].")]
         #[derive(Debug)]
         pub struct #handle_name #generics {
             sender: ceramic_actor::Sender<#envelope_name>,
