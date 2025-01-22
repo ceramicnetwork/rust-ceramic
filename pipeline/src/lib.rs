@@ -11,6 +11,7 @@ mod cache_table;
 pub mod cid_string;
 pub mod concluder;
 mod config;
+mod metrics;
 pub mod schemas;
 mod since;
 #[cfg(test)]
@@ -38,6 +39,7 @@ pub use concluder::{
     ConclusionInit, ConclusionTime,
 };
 pub use config::{ConclusionFeedSource, Config};
+pub use metrics::Metrics;
 
 /// A reference to a shared [`SessionContext`].
 ///
@@ -175,6 +177,7 @@ pub async fn spawn_actors<F: ConclusionFeed + 'static>(
         100,
         &pipeline_ctx,
         config.conclusion_feed,
+        config.metrics.clone(),
         config.shutdown.clone(),
     )
     .await?;
@@ -186,6 +189,7 @@ pub async fn spawn_actors<F: ConclusionFeed + 'static>(
             &pipeline_ctx,
             None,
             concluder.clone(),
+            config.metrics.clone(),
             config.shutdown.clone(),
         )
         .await?;

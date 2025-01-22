@@ -1,7 +1,8 @@
 use std::ops::AddAssign;
 
 use async_trait::async_trait;
-use ceramic_actor::{actor_envelope, Actor, ActorHandle, Error, Handler, Message};
+use ceramic_actor::{actor_envelope, Actor, Error, Handler, Message, MessageEvent};
+use ceramic_metrics::Recorder;
 use shutdown::Shutdown;
 use tracing::{instrument, Level};
 
@@ -20,6 +21,7 @@ impl Game {
 actor_envelope! {
     GameEnvelope,
     GameActor,
+    GameRecorder,
     GetScore => GetScoreMessage,
     Score => ScoreMessage,
 }
@@ -67,7 +69,12 @@ impl Handler<GetScoreMessage> for Game {
 
 #[derive(Actor)]
 // The envelope and handle types names can be explicitly named.
-#[actor(envelope = "PlayerEnv", handle = "PlayerH", actor_trait = "PlayerI")]
+#[actor(
+    envelope = "PlayerEnv",
+    handle = "PlayerH",
+    actor_trait = "PlayerI",
+    recorder_trait = "PlayerR"
+)]
 pub struct Player {
     is_home: bool,
     game: GameHandle,
@@ -82,6 +89,7 @@ impl Player {
 actor_envelope! {
     PlayerEnv,
     PlayerI,
+    PlayerR,
     Shoot => ShootMessage,
 }
 
@@ -109,6 +117,22 @@ impl Handler<ShootMessage> for Player {
     }
 }
 
+#[derive(Debug)]
+struct NoOpRecorder;
+
+impl Recorder<MessageEvent<GetScoreMessage>> for NoOpRecorder {
+    fn record(&self, _event: &MessageEvent<GetScoreMessage>) {}
+}
+impl Recorder<MessageEvent<ScoreMessage>> for NoOpRecorder {
+    fn record(&self, _event: &MessageEvent<ScoreMessage>) {}
+}
+impl GameRecorder for NoOpRecorder {}
+
+impl Recorder<MessageEvent<ShootMessage>> for NoOpRecorder {
+    fn record(&self, _event: &MessageEvent<ShootMessage>) {}
+}
+impl PlayerR for NoOpRecorder {}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
@@ -116,11 +140,19 @@ async fn main() {
         .pretty()
         .init();
     let shutdown = Shutdown::new();
-    let (game, _) = Game::spawn(1_000, Game::new(), shutdown.wait_fut());
-    let (player_home, _) =
-        Player::spawn(1_000, Player::new(true, game.clone()), shutdown.wait_fut());
-    let (player_away, _) =
-        Player::spawn(1_000, Player::new(false, game.clone()), shutdown.wait_fut());
+    let (game, _) = Game::spawn(1_000, Game::new(), NoOpRecorder, shutdown.wait_fut());
+    let (player_home, _) = Player::spawn(
+        1_000,
+        Player::new(true, game.clone()),
+        NoOpRecorder,
+        shutdown.wait_fut(),
+    );
+    let (player_away, _) = Player::spawn(
+        1_000,
+        Player::new(false, game.clone()),
+        NoOpRecorder,
+        shutdown.wait_fut(),
+    );
     player_home.notify(ShootMessage).await.unwrap();
     player_away.send(ShootMessage).await.unwrap();
     // Send with retry without cloning the message to be sent.

@@ -2,6 +2,7 @@
 //! In its current form its is just a wrapper over the sqlite tables in order to expose them as
 //! datafusion tables.
 mod event;
+mod metrics;
 #[cfg(any(test, feature = "mock"))]
 pub mod mock;
 mod table;
@@ -11,7 +12,7 @@ use std::{sync::Arc, time::Duration};
 use arrow::{array::RecordBatch, compute::kernels::aggregate};
 use arrow_schema::SchemaRef;
 use async_trait::async_trait;
-use ceramic_actor::{actor_envelope, Actor, ActorHandle, Handler, Message};
+use ceramic_actor::{actor_envelope, Actor, Handler, Message};
 use datafusion::{
     common::{cast::as_uint64_array, exec_datafusion_err},
     execution::SendableRecordBatchStream,
@@ -21,10 +22,16 @@ use datafusion::{
 use futures::TryStreamExt as _;
 use shutdown::{Shutdown, ShutdownSignal};
 use table::FeedTable;
-use tokio::{select, sync::broadcast, task::JoinHandle, time::interval};
+use tokio::{
+    select,
+    sync::broadcast,
+    task::JoinHandle,
+    time::{interval, MissedTickBehavior},
+};
 use tracing::{debug, error, warn};
 
 use crate::{
+    metrics::Metrics,
     schemas,
     since::{rows_since, StreamTable, StreamTableSource},
     ConclusionFeedSource, PipelineContext, Result, SessionContextRef,
@@ -54,6 +61,7 @@ impl Concluder {
         size: usize,
         ctx: &PipelineContext,
         feed: ConclusionFeedSource<F>,
+        metrics: Metrics,
         shutdown: Shutdown,
     ) -> Result<(ConcluderHandle, Vec<JoinHandle<()>>)> {
         let (broadcast_tx, _broadcast_rx) = broadcast::channel(1_000);
@@ -61,7 +69,7 @@ impl Concluder {
             ctx: ctx.session(),
             broadcast_tx,
         };
-        let (handle, task_handle) = Self::spawn(size, actor, shutdown.wait_fut());
+        let (handle, task_handle) = Self::spawn(size, actor, metrics.clone(), shutdown.wait_fut());
         // Register tables
         let last_processed_index = match feed {
             ConclusionFeedSource::Direct(conclusion_feed) => {
@@ -116,13 +124,14 @@ impl Concluder {
                 poll_handle,
                 session,
                 last_processed_index,
+                metrics,
                 shutdown.wait_fut(),
             )
             .await
             {
                 error!(%err, "poll_new_events loop failed")
             } else {
-                debug!("poll_new_events task finished");
+                error!("poll_new_events task finished");
             }
         });
 
@@ -133,16 +142,16 @@ impl Concluder {
 actor_envelope! {
     ConcluderEnvelope,
     ConcluderActor,
+    ConcluderRecorder,
     NewEvents => NewEventsMsg,
     SubscribeSince => SubscribeSinceMsg,
     EventsSince => EventsSinceMsg,
-
 }
 
 /// Notify actor of new events
 #[derive(Debug)]
 pub struct NewEventsMsg {
-    /// Events as a record batch, must have the schema of the [`CONCLUSION_EVENTS_TABLE`].
+    /// Events as a record batch, must have the schema of the [`crate::schemas::conclusion_events`] table.
     pub events: RecordBatch,
 }
 impl Message for NewEventsMsg {
@@ -187,12 +196,15 @@ async fn poll_new_events(
     handle: ConcluderHandle,
     ctx: SessionContextRef,
     mut last_processed_index: Option<u64>,
+    metrics: Metrics,
     mut shutdown: ShutdownSignal,
 ) -> anyhow::Result<()> {
     let mut interval = interval(Duration::from_millis(1_000));
+    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
     // Poll for new events until shutdown
     loop {
+        metrics.concluder_poll_new_events_loop_count.inc();
         select! {
             _ = &mut shutdown => {
                 break Ok(());

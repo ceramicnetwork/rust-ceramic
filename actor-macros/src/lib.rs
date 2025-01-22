@@ -14,6 +14,8 @@ use syn::{parse_macro_input, Attribute, DeriveInput, GenericParam, Lit};
 ///     - handle: The name of the derived `ActorHandle` implementation.
 ///     - actor_trait: The name of the actor specific trait. This is the same as the second
 ///     argument to the actor_envelope! macro.
+///     - recorder_trait: The name of the recorder trait. This is the thrid arugment to the
+///     actor_envelope! macro.
 ///
 /// # Example
 /// ```
@@ -21,12 +23,13 @@ use syn::{parse_macro_input, Attribute, DeriveInput, GenericParam, Lit};
 /// use ceramic_actor::{Actor, actor_envelope};
 ///
 /// #[derive(Actor)]
-/// #[actor(envelope = "PlayerEnv", handle = "PlayerH", actor_trait = "PlayerI")]
+/// #[actor(envelope = "PlayerEnv", handle = "PlayerH", actor_trait = "PlayerI", recorder_trait = "PlayerR")]
 /// pub struct Player { }
 ///
 /// actor_envelope!{
 ///     PlayerEnv,
 ///     PlayerI,
+///     PlayerR,
 ///     Score => ScoreMessage,
 /// }
 ///
@@ -50,7 +53,8 @@ pub fn actor(item: TokenStream) -> TokenStream {
     let struct_name = item.ident;
 
     let Config {
-        trait_name,
+        actor_trait,
+        recorder_trait,
         envelope_name,
         handle_name,
     } = Config::from_attributes(&struct_name, &item.attrs);
@@ -85,18 +89,24 @@ pub fn actor(item: TokenStream) -> TokenStream {
         impl #generics ceramic_actor::Actor for #struct_name < #(#generic_types,)*> {
             type Envelope = #envelope_name;
         }
-        impl #generics #trait_name for #struct_name < #(#generic_types,)*> { }
+        impl #generics #actor_trait for #struct_name < #(#generic_types,)*> { }
 
         impl #generics #struct_name < #(#generic_types,)*> {
             /// Start the actor returning a handle that can be easily cloned and shared.
             /// The actor stops once all handles are dropped.
-            pub fn spawn(size: usize, actor: impl #trait_name + ::std::marker::Send + 'static, shutdown: impl ::std::future::Future<Output=()> + ::std::marker::Send + 'static) -> (#handle_name < #(#generic_types,)*>, tokio::task::JoinHandle<()>) {
+            pub fn spawn(
+                size: usize,
+                actor: impl #actor_trait,
+                recorder: impl #recorder_trait,
+                shutdown: impl ::std::future::Future<Output=()> + ::std::marker::Send + 'static) -> (#handle_name < #(#generic_types,)*>, tokio::task::JoinHandle<()>,
+            ) {
                 let (sender, receiver) = ceramic_actor::channel(size);
                 let task_handle = tokio::spawn(async move { #envelope_name::run(actor, receiver, shutdown).await });
 
                 (
                     #handle_name {
                         sender,
+                        recorder: ::std::sync::Arc::new(recorder),
                         #(#phantom_values,)*
                     },
                     task_handle,
@@ -104,16 +114,18 @@ pub fn actor(item: TokenStream) -> TokenStream {
             }
         }
 
-        /// Handle for [`#struct_name`].
+        #[doc = concat!("Handle for [`", stringify!(#actor_trait), "`].")]
         #[derive(Debug)]
         pub struct #handle_name #generics {
             sender: ceramic_actor::Sender<#envelope_name>,
+            recorder: ::std::sync::Arc<dyn #recorder_trait>,
             #(#phantom_fields,)*
         }
         impl #generics ::core::clone::Clone for #handle_name < #(#generic_types,)*> {
             fn clone(&self) -> Self {
                 Self{
-                    sender:self.sender.clone(),
+                    sender: self.sender.clone(),
+                    recorder: self.recorder.clone(),
                     #(#phantom_values,)*
                 }
             }
@@ -126,6 +138,40 @@ pub fn actor(item: TokenStream) -> TokenStream {
                 self.sender.clone()
             }
         }
+        impl #handle_name {
+            /// Notify the actor of the message. Do not wait for the response.
+            /// Record the messsage event using the recorder provided to the handler at spawn.
+            pub async fn notify<Msg>(&self, msg: Msg) -> ::std::result::Result<(), ::ceramic_actor::Error<Msg>>
+            where
+                Msg: ::ceramic_actor::Message
+                    + ::std::convert::TryFrom<#envelope_name>
+                    + ::std::fmt::Debug
+                    + ::std::marker::Send
+                    + 'static,
+                <Msg as ::std::convert::TryFrom<#envelope_name>>::Error: ::std::fmt::Debug,
+                #envelope_name:
+                    ::std::convert::From<(Msg, ::tokio::sync::oneshot::Sender<Msg::Result>)>,
+                dyn #recorder_trait: ::ceramic_metrics::Recorder<::ceramic_actor::MessageEvent<Msg>> + Send + 'static,
+            {
+                ::ceramic_actor::ActorHandle::notify(self, msg, self.recorder.clone()).await
+            }
+            /// Send a message to the actor waiting for the response.
+            /// Record the messsage event using the recorder provided to the handler at spawn.
+            pub async fn send<Msg>(&self, msg: Msg) -> ::std::result::Result<Msg::Result, ::ceramic_actor::Error<Msg>>
+            where
+                Msg: ::ceramic_actor::Message
+                    + ::std::convert::TryFrom<#envelope_name>
+                    + ::std::fmt::Debug
+                    + ::std::marker::Send
+                    + 'static,
+                <Msg as ::std::convert::TryFrom<#envelope_name>>::Error: ::std::fmt::Debug,
+                #envelope_name:
+                    ::std::convert::From<(Msg, ::tokio::sync::oneshot::Sender<Msg::Result>)>,
+                dyn #recorder_trait: ::ceramic_metrics::Recorder<::ceramic_actor::MessageEvent<Msg>> + Send + 'static,
+            {
+                ::ceramic_actor::ActorHandle::send(self, msg, self.recorder.clone()).await
+            }
+        }
 
     };
 
@@ -133,14 +179,17 @@ pub fn actor(item: TokenStream) -> TokenStream {
 }
 
 struct Config {
-    trait_name: syn::Ident,
+    actor_trait: syn::Ident,
+    recorder_trait: syn::Ident,
     envelope_name: syn::Ident,
     handle_name: syn::Ident,
 }
 
 impl Config {
     fn from_attributes(struct_name: &syn::Ident, attrs: &[Attribute]) -> Self {
-        let mut trait_name = syn::Ident::new(&format!("{}Actor", struct_name), struct_name.span());
+        let mut actor_trait = syn::Ident::new(&format!("{}Actor", struct_name), struct_name.span());
+        let mut recorder_trait =
+            syn::Ident::new(&format!("{}Recorder", struct_name), struct_name.span());
         let mut envelope_name =
             syn::Ident::new(&format!("{}Envelope", struct_name), struct_name.span());
         let mut handle_name =
@@ -161,7 +210,12 @@ impl Config {
                     } else if meta.path.is_ident("actor_trait") {
                         let value: Lit = meta.value()?.parse()?;
                         if let Lit::Str(lit_str) = value {
-                            trait_name = syn::Ident::new(&lit_str.value(), lit_str.span())
+                            actor_trait = syn::Ident::new(&lit_str.value(), lit_str.span())
+                        }
+                    } else if meta.path.is_ident("recorder_trait") {
+                        let value: Lit = meta.value()?.parse()?;
+                        if let Lit::Str(lit_str) = value {
+                            recorder_trait = syn::Ident::new(&lit_str.value(), lit_str.span())
                         }
                     }
                     Ok(())
@@ -170,7 +224,8 @@ impl Config {
             }
         }
         Self {
-            trait_name,
+            actor_trait,
+            recorder_trait,
             envelope_name,
             handle_name,
         }

@@ -4,6 +4,7 @@
 //!  - In memory message passing
 //!  - Strongly typed
 //!  - tracing spans are preserved from caller to actor
+//!  - first class support for recording metrics about messages
 //!
 //! # Example
 //! ```
@@ -12,8 +13,11 @@
 #![warn(missing_docs)]
 
 mod macros;
+use std::sync::Arc;
+
 pub use ceramic_actor_macros::*;
 
+use ceramic_metrics::Recorder;
 pub use tracing;
 
 use snafu::prelude::*;
@@ -83,13 +87,19 @@ pub trait ActorHandle: Clone + Send + Sync + 'static {
     fn sender(&self) -> Sender<<Self::Actor as Actor>::Envelope>;
 
     /// Notify the actor of the message. Do not wait for result of the message.
-    async fn notify<Msg>(&self, msg: Msg) -> Result<(), Error<Msg>>
+    async fn notify<Msg, R>(&self, msg: Msg, recorder: Arc<R>) -> Result<(), Error<Msg>>
     where
-        Msg: Message + Send + std::fmt::Debug + 'static,
-        <Self::Actor as Actor>::Envelope: TryInto<Msg>,
-        <<<Self as ActorHandle>::Actor as Actor>::Envelope as TryInto<Msg>>::Error: std::fmt::Debug,
-        (Msg, oneshot::Sender<Msg::Result>): Into<<Self::Actor as Actor>::Envelope>,
+        Msg: Message + TryFrom<<Self::Actor as Actor>::Envelope> + std::fmt::Debug + Send + 'static,
+        <Msg as TryFrom<<Self::Actor as Actor>::Envelope>>::Error: std::fmt::Debug,
+        <Self::Actor as Actor>::Envelope: From<(Msg, oneshot::Sender<Msg::Result>)>,
+        R: Recorder<MessageEvent<Msg>> + Send + Sync + ?Sized + 'static,
     {
+        let event = MessageEvent {
+            message: msg,
+            actor_type: Self::Actor::type_name(),
+            message_type: Msg::type_name(),
+        };
+        recorder.record(&event);
         let span = debug_span!(
             "notify",
             actor_type = Self::Actor::type_name(),
@@ -99,16 +109,13 @@ pub trait ActorHandle: Clone + Send + Sync + 'static {
         let (tx, _rx) = oneshot::channel();
         sender
             .send(DeliverOp::Notify(Traced {
-                value: (msg, tx).into(),
+                value: <Self::Actor as Actor>::Envelope::from((event.message, tx)),
                 span,
             }))
             .await
             .map_err(|err| {
                 mpsc::error::SendError(
-                    err.0
-                        .into_inner()
-                        .into_inner()
-                        .try_into()
+                    Msg::try_from(err.0.into_inner().into_inner())
                         .expect("should be able to extract the message from the envelope"),
                 )
             })
@@ -117,13 +124,20 @@ pub trait ActorHandle: Clone + Send + Sync + 'static {
     }
 
     /// Send the actor a message waiting for the result.
-    async fn send<Msg>(&self, msg: Msg) -> Result<Msg::Result, Error<Msg>>
+    /// Additionally record the message event.
+    async fn send<Msg, R>(&self, msg: Msg, recorder: Arc<R>) -> Result<Msg::Result, Error<Msg>>
     where
-        Msg: Message + Send + std::fmt::Debug + 'static,
-        <Self::Actor as Actor>::Envelope: TryInto<Msg>,
-        <<<Self as ActorHandle>::Actor as Actor>::Envelope as TryInto<Msg>>::Error: std::fmt::Debug,
-        (Msg, oneshot::Sender<Msg::Result>): Into<<Self::Actor as Actor>::Envelope>,
+        Msg: Message + TryFrom<<Self::Actor as Actor>::Envelope> + std::fmt::Debug + Send + 'static,
+        <Msg as TryFrom<<Self::Actor as Actor>::Envelope>>::Error: std::fmt::Debug,
+        <Self::Actor as Actor>::Envelope: From<(Msg, oneshot::Sender<Msg::Result>)>,
+        R: Recorder<MessageEvent<Msg>> + Send + Sync + ?Sized + 'static,
     {
+        let event = MessageEvent {
+            message: msg,
+            actor_type: Self::Actor::type_name(),
+            message_type: Msg::type_name(),
+        };
+        recorder.record(&event);
         let span = debug_span!(
             "send",
             actor_type = Self::Actor::type_name(),
@@ -133,16 +147,13 @@ pub trait ActorHandle: Clone + Send + Sync + 'static {
         let (tx, rx) = oneshot::channel();
         sender
             .send(DeliverOp::Send(Traced {
-                value: (msg, tx).into(),
+                value: <Self::Actor as Actor>::Envelope::from((event.message, tx)),
                 span,
             }))
             .await
             .map_err(|err| {
                 mpsc::error::SendError(
-                    err.0
-                        .into_inner()
-                        .into_inner()
-                        .try_into()
+                    Msg::try_from(err.0.into_inner().into_inner())
                         .expect("should be able to extract message from the envelope"),
                 )
             })
@@ -219,4 +230,14 @@ pub enum Error<T: 'static> {
         /// The underlying receive error
         source: oneshot::error::RecvError,
     },
+}
+
+/// Metadata about a message used in recording metrics about the occurrence of a message.
+pub struct MessageEvent<M> {
+    /// The message itself.
+    pub message: M,
+    /// The name of the type actor handling the message.
+    pub actor_type: &'static str,
+    /// The type of the message.
+    pub message_type: &'static str,
 }

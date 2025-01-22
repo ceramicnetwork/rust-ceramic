@@ -5,7 +5,6 @@ use arrow::{compute::concat_batches, util::pretty::pretty_format_batches};
 use arrow_array::RecordBatch;
 use arrow_flight::{sql::client::FlightSqlServiceClient, FlightInfo};
 use arrow_schema::Schema;
-use ceramic_actor::ActorHandle as _;
 use ceramic_flight::server::new_server;
 use ceramic_pipeline::{
     aggregator::SubscribeSinceMsg, ConclusionData, ConclusionEvent, ConclusionFeed, ConclusionInit,
@@ -16,6 +15,7 @@ use expect_test::expect;
 use futures::TryStreamExt as _;
 use http::Uri;
 use mockall::{mock, predicate};
+use prometheus_client::registry::Registry;
 use shutdown::Shutdown;
 use test_log::test;
 use tokio::net::TcpListener;
@@ -33,10 +33,12 @@ async fn channel(addr: &SocketAddr) -> Channel {
 
 async fn start_server(feed: MockFeed) -> (FlightSqlServiceClient<Channel>, PipelineHandle) {
     let shutdown = Shutdown::new();
+    let metrics = ceramic_pipeline::Metrics::register(&mut Registry::default());
     let (ctx, _) = ceramic_pipeline::spawn_actors(ceramic_pipeline::Config {
         aggregator: true,
         conclusion_feed: feed.into(),
         object_store: Arc::new(object_store::memory::InMemory::new()),
+        metrics,
         shutdown,
     })
     .await

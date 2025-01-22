@@ -515,6 +515,7 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
     let http_metrics = Arc::new(ceramic_metrics::MetricsHandle::register(
         http_metrics::Metrics::register,
     ));
+    let pipeline_metrics = MetricsHandle::register(ceramic_pipeline::Metrics::register);
 
     // Create recon store for peers.
     let peer_svc = ceramic_peer_svc::store::StoreMetricsMiddleware::new(
@@ -629,6 +630,7 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
             aggregator: opts.aggregator.unwrap_or(false),
             conclusion_feed: feed.into(),
             object_store,
+            metrics: pipeline_metrics,
             shutdown: shutdown.clone(),
         })
         .await?;
