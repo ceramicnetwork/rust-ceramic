@@ -8,6 +8,7 @@
 
 pub mod aggregator;
 mod cache_table;
+pub mod cid_part;
 pub mod cid_string;
 pub mod concluder;
 mod config;
