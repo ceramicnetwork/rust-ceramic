@@ -62,12 +62,12 @@ pub fn conclusion_events() -> SchemaRef {
 pub fn event_states() -> SchemaRef {
     Arc::clone(EVENT_STATES.get_or_init(|| {
         Arc::new(
-            SchemaBuilder::from(&Fields::from([
-                Arc::new(Field::new("index", DataType::UInt64, false)),
-                Arc::new(Field::new("stream_cid", DataType::Binary, false)),
-                Arc::new(Field::new("stream_type", DataType::UInt8, false)),
-                Arc::new(Field::new("controller", DataType::Utf8, false)),
-                Arc::new(Field::new(
+            SchemaBuilder::from(&Fields::from(vec![
+                Field::new("index", DataType::UInt64, false),
+                Field::new("stream_cid", DataType::Binary, false),
+                Field::new("stream_type", DataType::UInt8, false),
+                Field::new("controller", DataType::Utf8, false),
+                Field::new(
                     "dimensions",
                     DataType::Map(
                         Field::new(
@@ -92,10 +92,10 @@ pub fn event_states() -> SchemaRef {
                         false,
                     ),
                     true,
-                )),
-                Arc::new(Field::new("event_cid", DataType::Binary, false)),
-                Arc::new(Field::new("event_type", DataType::UInt8, false)),
-                Arc::new(Field::new("data", DataType::Binary, true)),
+                ),
+                Field::new("event_cid", DataType::Binary, false),
+                Field::new("event_type", DataType::UInt8, false),
+                Field::new("data", DataType::Binary, true),
             ]))
             .finish(),
         )
