@@ -52,7 +52,7 @@ use datafusion::{
 use futures::StreamExt as _;
 use parking_lot::Mutex;
 use tokio::sync::RwLock;
-use tracing::debug;
+use tracing::{debug, instrument, Level};
 
 /// Type alias for partition data
 pub type PartitionData = Arc<RwLock<Vec<RecordBatch>>>;
@@ -224,7 +224,7 @@ struct CacheSink {
 
 impl Debug for CacheSink {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("MemSink")
+        f.debug_struct("CacheSink")
             .field("num_partitions", &self.batches.len())
             .finish()
     }
@@ -257,6 +257,7 @@ impl DataSink for CacheSink {
         None
     }
 
+    #[instrument(skip_all, ret(level = Level::DEBUG), err(level = Level::ERROR))]
     async fn write_all(
         &self,
         mut data: SendableRecordBatchStream,
