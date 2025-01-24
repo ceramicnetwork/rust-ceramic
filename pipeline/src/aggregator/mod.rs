@@ -28,7 +28,7 @@ use datafusion::{
         },
         exec_datafusion_err, Column, JoinType,
     },
-    dataframe::{DataFrame, DataFrameWriteOptions},
+    dataframe::DataFrameWriteOptions,
     datasource::{
         file_format::parquet::ParquetFormat,
         listing::{ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl},
@@ -47,7 +47,7 @@ use datafusion::{
 use futures::TryStreamExt as _;
 use shutdown::{Shutdown, ShutdownSignal};
 use tokio::{select, sync::broadcast, task::JoinHandle};
-use tracing::{error, instrument};
+use tracing::{debug, error, instrument};
 
 use crate::{
     cache_table::CacheTable,
@@ -196,6 +196,7 @@ async fn concluder_subscription(
         })
     });
 
+    debug!(?offset, "starting concluder subscription");
     let mut rx = concluder
         .send(SubscribeSinceMsg {
             projection: None,
@@ -293,9 +294,13 @@ impl Handler<NewConclusionEventsMsg> for Aggregator {
         &mut self,
         message: NewConclusionEventsMsg,
     ) -> <NewConclusionEventsMsg as Message>::Result {
-        let df = self.ctx.read_batch(message.events)?;
+        debug!(
+            event_count = message.events.num_rows(),
+            "new conclusion events"
+        );
         let batch =
-            process_conclusion_events_batch(self.ctx.clone(), df, self.max_cached_rows).await?;
+            process_conclusion_events_batch(self.ctx.clone(), message.events, self.max_cached_rows)
+                .await?;
         if batch.num_rows() > 0 {
             let _ = self.broadcast_tx.send(batch);
         }
@@ -314,7 +319,6 @@ impl Message for StreamStateMsg {
 }
 
 /// State of a single stream
-#[derive(Debug)]
 pub struct StreamState {
     /// Multibase encoding of the stream id
     pub id: StreamId,
@@ -332,8 +336,41 @@ pub struct StreamState {
     pub data: Vec<u8>,
 }
 
+impl std::fmt::Debug for StreamState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if !f.alternate() {
+            f.debug_struct("StreamState")
+                .field("id", &self.id)
+                .field("event_cid", &self.event_cid)
+                .field("controller", &self.controller)
+                .field("dimensions", &self.dimensions)
+                .field("data", &self.data)
+                .finish()
+        } else {
+            f.debug_struct("StreamState")
+                .field("id", &self.id.to_string())
+                .field("event_cid", &self.event_cid.to_string())
+                .field("controller", &self.controller)
+                .field(
+                    "dimensions",
+                    &self
+                        .dimensions
+                        .iter()
+                        .map(|(k, v)| (k, multibase::encode(multibase::Base::Base64Url, v)))
+                        .collect::<std::collections::BTreeMap<_, _>>(),
+                )
+                .field(
+                    "data",
+                    &multibase::encode(multibase::Base::Base64Url, &self.data),
+                )
+                .finish()
+        }
+    }
+}
+
 #[async_trait]
 impl Handler<StreamStateMsg> for Aggregator {
+    #[instrument(skip(self), ret, err)]
     async fn handle(&mut self, message: StreamStateMsg) -> <StreamStateMsg as Message>::Result {
         let id = message.id;
         let state_batch = self
@@ -377,12 +414,14 @@ impl Handler<StreamStateMsg> for Aggregator {
             .await
             .context("invalid query")?;
 
-        if state_batch.is_empty() {
+        let batch = concat_batches(&state_batch[0].schema(), state_batch.iter())
+            .context("concat batches")?;
+
+        if batch.num_rows() == 0 {
+            // No state for the stream id found
             return Ok(None);
         }
 
-        let batch = concat_batches(&state_batch[0].schema(), state_batch.iter())
-            .context("concat batches")?;
         let data = as_binary_array(
             batch
                 .column_by_name("data")
@@ -434,7 +473,7 @@ impl Handler<StreamStateMsg> for Aggregator {
 #[instrument(skip(ctx, conclusion_events))]
 async fn process_conclusion_events_batch(
     ctx: SessionContextRef,
-    conclusion_events: DataFrame,
+    conclusion_events: RecordBatch,
     max_cached_rows: usize,
 ) -> Result<RecordBatch> {
     let event_states = ctx
@@ -453,7 +492,8 @@ async fn process_conclusion_events_batch(
         })
     }
 
-    let new_event_states = conclusion_events
+    let new_event_states = ctx
+        .read_batch(conclusion_events)?
         // MID only ever use the first previous, so we can optimize the join by selecting the
         // first element of the previous array.
         .select(vec![
@@ -544,7 +584,7 @@ async fn process_conclusion_events_batch(
 #[async_trait]
 impl StreamTableSource for AggregatorHandle {
     fn schema(&self) -> SchemaRef {
-        crate::schemas::event_states()
+        schemas::event_states()
     }
     async fn subscribe_since(
         &self,
@@ -1534,6 +1574,134 @@ mod tests {
             | 0     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | {"metadata":{"foo":1,"shouldIndex":true},"content":{"a":0}} |
             | 1     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:bob | {controller: 6469643a6b65793a626f62, model: 6d6f64656c} | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | 1          | {"metadata":{"foo":1,"shouldIndex":true},"content":{"a":0}} |
             +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+-------------------------------------------------------------+"#]].assert_eq(&event_states.to_string());
+        ctx.shutdown().await.unwrap();
+    }
+
+    #[test(tokio::test)]
+    async fn stream_state() {
+        let ctx = init().await.unwrap();
+
+        ctx.aggregator
+            .send(NewConclusionEventsMsg {
+                events: conclusion_events_to_record_batch(&[
+                    ConclusionEvent::Data(ConclusionData {
+                        index: 0,
+                        event_cid: Cid::from_str(
+                            "baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi",
+                        ).unwrap(),
+                        init: ConclusionInit {
+                            stream_cid: Cid::from_str(
+                                "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
+                            ).unwrap(),
+                            stream_type: StreamIdType::Model as u8,
+                            controller: "did:key:bob".to_string(),
+                            dimensions: vec![
+                                ("controller".to_string(), b"did:key:bob".to_vec()),
+                                ("model".to_string(), b"model".to_vec()),
+                            ],
+                        },
+                        previous: vec![],
+                        data: r#"{"metadata":{"foo":1,"shouldIndex":true},"content":{"a":0}}"#.into(),
+                    }),
+                    ConclusionEvent::Time(ConclusionTime {
+                        index: 1,
+                        event_cid: Cid::from_str(
+                            "baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq",
+                        ).unwrap(),
+                        init: ConclusionInit {
+                            stream_cid: Cid::from_str(
+                                "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
+                            ).unwrap(),
+                            stream_type: StreamIdType::Model as u8,
+                            controller: "did:key:bob".to_string(),
+                            dimensions: vec![
+                                ("controller".to_string(), b"did:key:bob".to_vec()),
+                                ("model".to_string(), b"model".to_vec()),
+                            ],
+                        },
+                        previous: vec![Cid::from_str(
+                            "baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi",
+                        ).unwrap()],
+                    }),
+                    ConclusionEvent::Data(ConclusionData {
+                        index: 2,
+                        event_cid: Cid::from_str(
+                            "baeabeifwi4ddwafoqe6htkx3g5gtjz5adapj366w6mraut4imk2ljwu3du",
+                        ).unwrap(),
+                        init: ConclusionInit {
+                            stream_cid: Cid::from_str(
+                                "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
+                            ).unwrap(),
+                            stream_type: StreamIdType::Model as u8,
+                            controller: "did:key:bob".to_string(),
+                            dimensions: vec![
+                                ("controller".to_string(), b"did:key:bob".to_vec()),
+                                ("model".to_string(), b"model".to_vec()),
+                            ],
+                        },
+                        previous: vec![Cid::from_str(
+                            "baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq",
+                        ).unwrap()],
+                        data: r#"{"metadata":{"shouldIndex":false},"content":[{"op":"replace", "path": "/a", "value":1}]}"#.into(),
+                    }),
+                ]).unwrap(),
+            })
+        .await
+        .unwrap()
+        .unwrap();
+
+        let state = ctx
+            .aggregator
+            .send(StreamStateMsg {
+                id: StreamId {
+                    r#type: StreamIdType::Model,
+                    cid: Cid::from_str(
+                        "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
+                    )
+                    .unwrap(),
+                },
+            })
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        expect![[r#"
+            StreamState {
+                id: "k2t6wz4yhfp1qrwhmopv1j2nctz0n36uj4ufi9fd9otwfvdgg2nbcn9hdcokjx",
+                event_cid: "baeabeifwi4ddwafoqe6htkx3g5gtjz5adapj366w6mraut4imk2ljwu3du",
+                controller: "did:key:bob",
+                dimensions: {
+                    "controller": "uZGlkOmtleTpib2I",
+                    "model": "ubW9kZWw",
+                },
+                data: "ueyJtZXRhZGF0YSI6eyJmb28iOjEsInNob3VsZEluZGV4IjpmYWxzZX0sImNvbnRlbnQiOnsiYSI6MX19",
+            }
+        "#]].assert_debug_eq(&state);
+        expect![[r#"{"metadata":{"foo":1,"shouldIndex":false},"content":{"a":1}}"#]]
+            .assert_eq(std::str::from_utf8(&state.data).unwrap());
+
+        ctx.shutdown().await.unwrap();
+    }
+
+    #[test(tokio::test)]
+    async fn stream_state_not_found() {
+        let ctx = init().await.unwrap();
+
+        let state = ctx
+            .aggregator
+            .send(StreamStateMsg {
+                id: StreamId {
+                    r#type: StreamIdType::Model,
+                    cid: Cid::from_str(
+                        "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
+                    )
+                    .unwrap(),
+                },
+            })
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(state.is_none());
         ctx.shutdown().await.unwrap();
     }
 }

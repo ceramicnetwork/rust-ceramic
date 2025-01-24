@@ -2631,6 +2631,7 @@ dependencies = [
  "ipld-core",
  "json-patch",
  "mockall",
+ "multibase 0.9.1",
  "object_store",
  "parking_lot",
  "prometheus-client",

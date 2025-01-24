@@ -191,7 +191,8 @@ impl<S: StreamTableSource> ExecutionPlan for StreamExec<S> {
             }
         };
         Ok(Box::pin(RecordBatchStreamAdapter::new(
-            self.source.schema(),
+            // Use the projected schema
+            self.schema(),
             stream.map_err(|err: anyhow::Error| exec_datafusion_err!("{err}")),
         )))
     }

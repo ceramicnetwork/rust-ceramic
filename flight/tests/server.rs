@@ -391,3 +391,42 @@ async fn event_states_stream() -> Result<()> {
         +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+---------------------------------------------+"#]].assert_eq(&formatted);
     Ok(())
 }
+
+#[test(tokio::test)]
+async fn event_states_stream_projection() -> Result<()> {
+    // This ensures that a simple projection of the stream table works.
+    // Any extra functions or casts should not be used so we ensure we are excersicing the schema
+    // of the stream table directly.
+
+    let mut feed = MockFeed::new();
+    feed.expect_max_highwater_mark()
+        .once()
+        .return_once(|| Ok(None));
+    feed.expect_conclusion_events_since()
+        .returning(|h, l| Ok(events(1, h as u64, l as usize)));
+
+    let (mut client, _ctx) = start_server(feed).await;
+
+    let info = client
+        .execute(
+            r#"
+            SELECT
+                event_type
+            FROM event_states_stream LIMIT 3"#
+                .to_string(),
+            None,
+        )
+        .await?;
+    let batch = execute_flight(&mut client, info).await?;
+    let formatted = pretty_format_batches(&[batch]).unwrap().to_string();
+    expect![[r#"
+        +------------+
+        | event_type |
+        +------------+
+        | 0          |
+        | 1          |
+        | 0          |
+        +------------+"#]]
+    .assert_eq(&formatted);
+    Ok(())
+}
