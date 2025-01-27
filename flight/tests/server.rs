@@ -257,7 +257,7 @@ async fn conclusion_push_down_predicate() -> Result<()> {
 }
 
 #[test(tokio::test)]
-async fn conclusion_events_stream() -> Result<()> {
+async fn conclusion_events_feed() -> Result<()> {
     let mut feed = MockFeed::new();
     feed.expect_max_highwater_mark()
         .once()
@@ -280,7 +280,7 @@ async fn conclusion_events_stream() -> Result<()> {
                 event_type,
                 data::varchar as data,
                 array_cid_string(previous) as previous
-            FROM conclusion_events_stream LIMIT 2"#
+            FROM conclusion_events_feed LIMIT 2"#
                 .to_string(),
             None,
         )
@@ -352,7 +352,7 @@ async fn event_states_simple() -> Result<()> {
     Ok(())
 }
 #[test(tokio::test)]
-async fn event_states_stream() -> Result<()> {
+async fn event_states_feed() -> Result<()> {
     let mut feed = MockFeed::new();
     feed.expect_max_highwater_mark()
         .once()
@@ -374,7 +374,7 @@ async fn event_states_stream() -> Result<()> {
                 cid_string(event_cid) as event_cid,
                 event_type,
                 data::varchar as data
-            FROM event_states_stream LIMIT 3"#
+            FROM event_states_feed LIMIT 3"#
                 .to_string(),
             None,
         )
@@ -393,7 +393,7 @@ async fn event_states_stream() -> Result<()> {
 }
 
 #[test(tokio::test)]
-async fn event_states_stream_projection() -> Result<()> {
+async fn event_states_feed_projection() -> Result<()> {
     // This ensures that a simple projection of the stream table works.
     // Any extra functions or casts should not be used so we ensure we are excersicing the schema
     // of the stream table directly.
@@ -412,7 +412,7 @@ async fn event_states_stream_projection() -> Result<()> {
             r#"
             SELECT
                 event_type
-            FROM event_states_stream LIMIT 3"#
+            FROM event_states_feed LIMIT 3"#
                 .to_string(),
             None,
         )

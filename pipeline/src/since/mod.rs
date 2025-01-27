@@ -4,10 +4,10 @@
 //!
 //! Actor handles may implement [`StreamTableSource`] and register a [`StreamTable`] on the [`datafusion::execution::context::SessionContext`] in order to provide query access to the stream.
 
+mod feed;
 mod metrics;
-mod stream;
 
-pub use stream::{StreamTable, StreamTableSource};
+pub use feed::{FeedTable, FeedTableSource};
 
 use arrow::{
     array::{RecordBatch, UInt64Array},
