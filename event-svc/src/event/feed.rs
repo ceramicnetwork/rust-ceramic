@@ -11,7 +11,8 @@ impl ConclusionFeed for EventService {
             .event_access
             .get_highwater_mark()
             .await
-            .map(|h| Some(h as u64))?)
+            // highwater marks are 1 based, subtract one to get zero based index
+            .map(|h| (h - 1).try_into().ok())?)
     }
     /// Fetches Conclusion Events that have occurred since a given highwater mark.
     ///

@@ -9,6 +9,7 @@ mod table;
 
 use std::{sync::Arc, time::Duration};
 
+use anyhow::Context as _;
 use arrow::{array::RecordBatch, compute::kernels::aggregate};
 use arrow_schema::SchemaRef;
 use async_trait::async_trait;
@@ -211,6 +212,7 @@ async fn poll_new_events(
             }
             _ = interval.tick() => {}
         };
+        debug!(last_processed_index, "events since");
         let mut events = select! {
             _ = &mut shutdown => {
                 return Ok(());
@@ -229,11 +231,12 @@ async fn poll_new_events(
                 Ok(Some(batch)) => {
                     if batch.num_rows() > 0 {
                         // Fetch the highest index from the batch
-                        let highest_index = aggregate::max(as_uint64_array(
-                            batch.column_by_name("index").ok_or_else(|| {
+                        let highest_index = aggregate::max(
+                            as_uint64_array(batch.column_by_name("index").ok_or_else(|| {
                                 anyhow::anyhow!("index column should exist on events record batch")
-                            })?,
-                        )?);
+                            })?)
+                            .context("index column should be a uint64")?,
+                        );
                         if let Some(highest_index) = highest_index {
                             last_processed_index = Some(highest_index);
                         }
