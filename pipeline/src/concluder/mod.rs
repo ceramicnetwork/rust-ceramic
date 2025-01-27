@@ -29,7 +29,7 @@ use tokio::{
     task::JoinHandle,
     time::{interval, MissedTickBehavior},
 };
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::{
     metrics::Metrics,
@@ -65,12 +65,31 @@ impl Concluder {
         metrics: Metrics,
         shutdown: Shutdown,
     ) -> Result<(ConcluderHandle, Vec<JoinHandle<()>>)> {
-        let (broadcast_tx, _broadcast_rx) = broadcast::channel(1_000);
-        let actor = Concluder {
-            ctx: ctx.session(),
-            broadcast_tx,
-        };
-        let (handle, task_handle) = Self::spawn(size, actor, metrics.clone(), shutdown.wait_fut());
+        let (broadcast_tx, _broadcast_rx) = broadcast::channel(size);
+        Self::spawn_with(
+            size,
+            ctx,
+            Concluder {
+                ctx: ctx.session(),
+                broadcast_tx,
+            },
+            feed,
+            metrics,
+            shutdown,
+        )
+        .await
+    }
+    /// Spawn the concluder with the given actor.
+    pub async fn spawn_with<F: ConclusionFeed + 'static>(
+        size: usize,
+        ctx: &PipelineContext,
+        concluder: impl ConcluderActor,
+        feed: ConclusionFeedSource<F>,
+        metrics: Metrics,
+        shutdown: Shutdown,
+    ) -> Result<(ConcluderHandle, Vec<JoinHandle<()>>)> {
+        let (handle, task_handle) =
+            Self::spawn(size, concluder, metrics.clone(), shutdown.wait_fut());
         // Register tables
         let last_processed_index = match feed {
             ConclusionFeedSource::Direct(conclusion_feed) => {
@@ -132,7 +151,7 @@ impl Concluder {
             {
                 error!(%err, "poll_new_events loop failed")
             } else {
-                error!("poll_new_events task finished");
+                info!("poll_new_events task finished");
             }
         });
 
@@ -208,7 +227,7 @@ async fn poll_new_events(
         metrics.concluder_poll_new_events_loop_count.inc();
         select! {
             _ = &mut shutdown => {
-                break Ok(());
+                return Ok(());
             }
             _ = interval.tick() => {}
         };
@@ -246,8 +265,10 @@ async fn poll_new_events(
                             _ = &mut shutdown => {
                                 return Ok(());
                             },
-                            Err(err) = handle.notify(NewEventsMsg { events: batch }) => {
-                                warn!(?err,"failed to notify concluder about new events");
+                            r = handle.notify(NewEventsMsg { events: batch }) => {
+                                if let Err(err) = r {
+                                    warn!(?err, "failed to notify concluder about new events");
+                                }
                             }
                         };
                     }
@@ -318,5 +339,159 @@ impl StreamTableSource for ConcluderHandle {
                 limit,
             })
             .await??)
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::{Concluder, ConcluderHandle, ConclusionEvent, SubscribeSinceMsg};
+
+    use std::{str::FromStr as _, sync::Arc};
+
+    use cid::Cid;
+    use futures::TryStreamExt as _;
+    use mockall::predicate;
+    use object_store::memory::InMemory;
+    use prometheus_client::registry::Registry;
+    use shutdown::Shutdown;
+    use test_log::test;
+
+    use crate::{
+        pipeline_ctx,
+        tests::{MockConclusionFeed, TestContext},
+        ConclusionData, ConclusionFeedSource, ConclusionInit, ConclusionTime, Metrics,
+    };
+
+    async fn init(feed: MockConclusionFeed) -> anyhow::Result<TestContext<ConcluderHandle>> {
+        let metrics = Metrics::register(&mut Registry::default());
+        let shutdown = Shutdown::new();
+        let pipeline_ctx = pipeline_ctx(Arc::new(InMemory::new())).await?;
+        let (concluder, handles) = Concluder::spawn_new(
+            1_000,
+            &pipeline_ctx,
+            ConclusionFeedSource::Direct(Arc::new(feed)),
+            metrics,
+            shutdown.clone(),
+        )
+        .await?;
+        Ok(TestContext::new(shutdown, handles, concluder))
+    }
+
+    #[test(tokio::test)]
+    async fn poll_new_events() {
+        // Test that the spawn method setups of polling loop of the conclusion feed that delivers
+        // new events to the concluder.
+        let mut mock_feed = MockConclusionFeed::new();
+        mock_feed
+            .expect_max_highwater_mark()
+            .once()
+            .return_once(|| Ok(None));
+        // Return one event at a time so we test that multiple batches can be processed
+        mock_feed
+            .expect_conclusion_events_since()
+            .with(predicate::eq(0), predicate::always())
+            // We get two calls from the beginning: One for the poll_new_events loop and
+            // one for the subscription call below
+            .times(2)
+            .returning(|_h, _l| {
+                Ok(vec![ConclusionEvent::Data(ConclusionData {
+                    index: 1,
+                    event_cid: Cid::from_str(
+                        "baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi",
+                    )
+                    .unwrap(),
+                    init: ConclusionInit {
+                        stream_cid: Cid::from_str(
+                            "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
+                        )
+                        .unwrap(),
+                        stream_type: 3,
+                        controller: "did:key:bob".to_string(),
+                        dimensions: vec![
+                            ("controller".to_string(), b"did:key:bob".to_vec()),
+                            ("model".to_string(), b"model".to_vec()),
+                        ],
+                    },
+                    previous: vec![],
+                    data: r#"{"metadata":{},"content":{"a":0}}"#.bytes().collect(),
+                })])
+            });
+        mock_feed
+            .expect_conclusion_events_since()
+            .with(predicate::eq(1), predicate::always())
+            .return_once(|_h, _l| {
+                Ok(vec![ConclusionEvent::Time(ConclusionTime {
+                    index: 2,
+                    event_cid: Cid::from_str(
+                        "baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq",
+                    )
+                    .unwrap(),
+                    init: ConclusionInit {
+                        stream_cid: Cid::from_str(
+                            "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
+                        )
+                        .unwrap(),
+                        stream_type: 3,
+                        controller: "did:key:bob".to_string(),
+                        dimensions: vec![
+                            ("controller".to_string(), b"did:key:bob".to_vec()),
+                            ("model".to_string(), b"model".to_vec()),
+                        ],
+                    },
+                    previous: vec![Cid::from_str(
+                        "baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi",
+                    )
+                    .unwrap()],
+                })])
+            });
+        mock_feed
+            .expect_conclusion_events_since()
+            .with(predicate::eq(2), predicate::always())
+            .return_once(|_h, _l| {
+                Ok(vec! [
+                    ConclusionEvent::Data(ConclusionData {
+                        index: 3,
+                        event_cid: Cid::from_str("baeabeifwi4ddwafoqe6htkx3g5gtjz5adapj366w6mraut4imk2ljwu3du")
+                            .unwrap(),
+                        init: ConclusionInit {
+                            stream_cid: Cid::from_str(
+                                "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
+                            )
+                            .unwrap(),
+                            stream_type: 3,
+                            controller: "did:key:bob".to_string(),
+                            dimensions: vec![
+                                ("controller".to_string(), b"did:key:bob".to_vec()),
+                                ("model".to_string(), b"model".to_vec()),
+                            ],
+                        },
+                        previous: vec![
+                            Cid::from_str("baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq")
+                                .unwrap(),
+                            Cid::from_str("baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi")
+                                .unwrap(),
+                        ],
+                        data:
+                            r#"{"metadata":{"foo":true},"content":[{"op":"replace", "path": "/a", "value":1}]}"#
+                                .bytes()
+                                .collect(),
+                    }),
+                ])
+
+            });
+        let ctx = init(mock_feed).await.unwrap();
+        let mut subscription = ctx
+            .actor_handle
+            .send(SubscribeSinceMsg {
+                projection: None,
+                offset: None,
+                limit: Some(3),
+            })
+            .await
+            .unwrap()
+            .unwrap();
+        // Read subscription so we know when the events have been processed
+        while let Some(_) = subscription.try_next().await.unwrap() {}
+        // Shutdown ensures the mock expectations have been met
+        ctx.shutdown().await.unwrap();
     }
 }
