@@ -1244,7 +1244,7 @@ mod tests {
             .return_once(|_msg| {
                 Ok(Box::pin(RecordBatchStreamAdapter::new(
                     schemas::conclusion_events(),
-                    stream::iter(conclusion_events.into_iter().map(|e| Ok(e))),
+                    stream::iter(conclusion_events.into_iter().map(Ok)),
                 )))
             });
 
@@ -1326,7 +1326,7 @@ mod tests {
                 .return_once(|_msg| {
                     Ok(Box::pin(RecordBatchStreamAdapter::new(
                         schemas::conclusion_events(),
-                        stream::iter(first_events.into_iter().map(|e| Ok(e))),
+                        stream::iter(first_events.into_iter().map(Ok)),
                     )))
                 });
 
@@ -1390,7 +1390,7 @@ mod tests {
             .return_once(|_msg| {
                 Ok(Box::pin(RecordBatchStreamAdapter::new(
                     schemas::conclusion_events(),
-                    stream::iter(second_events.into_iter().map(|e| Ok(e))),
+                    stream::iter(second_events.into_iter().map(Ok)),
                 )))
             });
 
