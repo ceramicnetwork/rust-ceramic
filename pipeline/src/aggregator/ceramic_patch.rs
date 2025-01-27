@@ -73,7 +73,7 @@ impl WindowUDFImpl for CeramicPatch {
 // Small wrapper container around the data/state fields to hold
 // other mutable metadata for the event.
 // This is specific to Model Instance Documents.
-// Metadata is considered to be mutable from event to event and a overriting merge is performed
+// Metadata is considered to be mutable from event to event and an overrwriting merge is performed
 // with the previous metadata to the current metadata.
 // This means if a metadata key is missing it is propogated forward until a new data event changes
 // its value.

@@ -88,7 +88,7 @@ impl BuildResponse {
     pub fn event(id: Cid, data: Option<Vec<u8>>) -> models::Event {
         let id = id.to_string();
         let mut res = models::Event::new(id);
-        if data.as_ref().map_or(false, |e| !e.is_empty()) {
+        if data.as_ref().is_some_and(|e| !e.is_empty()) {
             res.data = Some(multibase::encode(multibase::Base::Base64, data.unwrap()));
         }
         res
