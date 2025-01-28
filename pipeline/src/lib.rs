@@ -14,6 +14,7 @@ mod config;
 mod metrics;
 pub mod schemas;
 mod since;
+pub mod stream_id_string;
 #[cfg(test)]
 mod tests;
 
@@ -33,6 +34,7 @@ use tokio::task::JoinHandle;
 use url::Url;
 
 use cid_string::{CidString, CidStringList};
+use stream_id_string::{StreamIdString, StreamIdStringList};
 
 pub use concluder::{
     conclusion_events_to_record_batch, ConclusionData, ConclusionEvent, ConclusionFeed,
@@ -147,6 +149,8 @@ pub async fn pipeline_ctx(object_store: Arc<dyn ObjectStore>) -> Result<Pipeline
     ctx.register_udaf(AggregateUDF::new_from_impl(LastValue::default()));
     ctx.register_udf(ScalarUDF::new_from_impl(CidString::new()));
     ctx.register_udf(ScalarUDF::new_from_impl(CidStringList::new()));
+    ctx.register_udf(ScalarUDF::new_from_impl(StreamIdString::new()));
+    ctx.register_udf(ScalarUDF::new_from_impl(StreamIdStringList::new()));
 
     // Register JSON functions
     datafusion_functions_json::register_all(&mut ctx)?;
