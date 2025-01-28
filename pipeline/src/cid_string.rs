@@ -15,7 +15,7 @@ use datafusion::{
     logical_expr::{ColumnarValue, ScalarUDFImpl, Signature, TypeSignature, Volatility},
 };
 
-/// ScalarUDF to convert a binary CID into a string for easier inspection. #[derive(Debug)]
+/// ScalarUDF to convert a binary CID into a string for easier inspection.
 #[derive(Debug)]
 pub struct CidString {
     signature: Signature,
@@ -71,7 +71,7 @@ impl ScalarUDFImpl for CidString {
     }
 }
 
-/// ScalarUDF to convert a binary CID into a string for easier inspection.
+/// ScalarUDF to convert a a list of binary CIDs into a list of strings for easier inspection.
 #[derive(Debug)]
 pub struct CidStringList {
     signature: Signature,
