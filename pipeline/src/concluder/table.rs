@@ -52,12 +52,12 @@ impl<T: ConclusionFeed> ConclusionFeed for Arc<T> {
 // Implements the [`TableProvider`] trait producing a [`FeedExec`] instance when the table is
 // scanned, which in turn calls into the [`ConclusionFeed`] to get the actual events.
 #[derive(Debug)]
-pub struct FeedTable<T> {
+pub struct ConclusionFeedTable<T> {
     feed: Arc<T>,
     schema: SchemaRef,
 }
 
-impl<T> FeedTable<T> {
+impl<T> ConclusionFeedTable<T> {
     pub fn new(feed: Arc<T>) -> Self {
         Self {
             feed,
@@ -92,7 +92,7 @@ impl<T> FeedTable<T> {
     }
 }
 #[async_trait::async_trait]
-impl<T: ConclusionFeed + std::fmt::Debug + 'static> TableProvider for FeedTable<T> {
+impl<T: ConclusionFeed + std::fmt::Debug + 'static> TableProvider for ConclusionFeedTable<T> {
     fn as_any(&self) -> &dyn Any {
         self
     }

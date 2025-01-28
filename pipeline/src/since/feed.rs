@@ -29,7 +29,7 @@ use futures::TryStreamExt as _;
 //
 // TODO add error handling
 #[async_trait]
-pub trait StreamTableSource: Clone + std::fmt::Debug + Sync + Send + 'static {
+pub trait FeedTableSource: Clone + std::fmt::Debug + Sync + Send + 'static {
     fn schema(&self) -> SchemaRef;
     // Subscribe to all new data for this table in increasing "index" order since offset.
     // All received RecordBatches must contain and be ordered by an "index" u64 column.
@@ -46,10 +46,10 @@ pub trait StreamTableSource: Clone + std::fmt::Debug + Sync + Send + 'static {
 /// It is assumed that the table contains an "index" column and new data arrives in increasing
 /// "index" order.
 #[derive(Debug)]
-pub struct StreamTable<S> {
+pub struct FeedTable<S> {
     source: S,
 }
-impl<S> StreamTable<S> {
+impl<S> FeedTable<S> {
     pub fn new(source: S) -> Self {
         Self { source }
     }
@@ -82,7 +82,7 @@ impl<S> StreamTable<S> {
 }
 
 #[async_trait]
-impl<S: StreamTableSource> TableProvider for StreamTable<S> {
+impl<S: FeedTableSource> TableProvider for FeedTable<S> {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -151,7 +151,7 @@ pub struct StreamExec<S> {
     properties: PlanProperties,
 }
 
-impl<S: StreamTableSource> ExecutionPlan for StreamExec<S> {
+impl<S: FeedTableSource> ExecutionPlan for StreamExec<S> {
     fn name(&self) -> &str {
         "StreamExec"
     }

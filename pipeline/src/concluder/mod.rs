@@ -22,7 +22,7 @@ use datafusion::{
 };
 use futures::TryStreamExt as _;
 use shutdown::{Shutdown, ShutdownSignal};
-use table::FeedTable;
+use table::ConclusionFeedTable;
 use tokio::{
     select,
     sync::broadcast,
@@ -34,7 +34,7 @@ use tracing::{debug, error, info, warn};
 use crate::{
     metrics::Metrics,
     schemas,
-    since::{rows_since, StreamTable, StreamTableSource},
+    since::{rows_since, FeedTable, FeedTableSource},
     ConclusionFeedSource, PipelineContext, Result, SessionContextRef,
 };
 
@@ -47,7 +47,7 @@ pub use event::{
 pub use table::ConclusionFeed;
 
 const CONCLUSION_EVENTS_TABLE: &str = "ceramic.v0.conclusion_events";
-const CONCLUSION_EVENTS_STREAM_TABLE: &str = "ceramic.v0.conclusion_events_stream";
+const CONCLUSION_EVENTS_FEED_TABLE: &str = "ceramic.v0.conclusion_events_feed";
 
 /// Concluder is responsible for making conclusions about raw events and publishing
 /// conclusion_events.
@@ -95,7 +95,7 @@ impl Concluder {
             ConclusionFeedSource::Direct(conclusion_feed) => {
                 ctx.session().register_table(
                     CONCLUSION_EVENTS_TABLE,
-                    Arc::new(FeedTable::new(conclusion_feed.clone())),
+                    Arc::new(ConclusionFeedTable::new(conclusion_feed.clone())),
                 )?;
                 conclusion_feed.max_highwater_mark().await?
             }
@@ -129,8 +129,8 @@ impl Concluder {
         };
         ctx.session()
             .register_table(
-                CONCLUSION_EVENTS_STREAM_TABLE,
-                Arc::new(StreamTable::new(handle.clone())),
+                CONCLUSION_EVENTS_FEED_TABLE,
+                Arc::new(FeedTable::new(handle.clone())),
             )
             .expect("should be able to register table");
 
@@ -322,7 +322,7 @@ impl Handler<EventsSinceMsg> for Concluder {
 }
 
 #[async_trait]
-impl StreamTableSource for ConcluderHandle {
+impl FeedTableSource for ConcluderHandle {
     fn schema(&self) -> SchemaRef {
         crate::schemas::conclusion_events()
     }

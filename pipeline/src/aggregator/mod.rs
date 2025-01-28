@@ -54,14 +54,14 @@ use crate::{
     concluder::ConcluderHandle,
     metrics::Metrics,
     schemas,
-    since::{rows_since, StreamTable, StreamTableSource},
+    since::{rows_since, FeedTable, FeedTableSource},
     PipelineContext, Result, SessionContextRef,
 };
 // Use the SubscribeSinceMsg so its clear its a message for this actor
 pub use crate::since::SubscribeSinceMsg;
 
 const EVENT_STATES_TABLE: &str = "ceramic.v0.event_states";
-const EVENT_STATES_STREAM_TABLE: &str = "ceramic.v0.event_states_stream";
+const EVENT_STATES_FEED_TABLE: &str = "ceramic.v0.event_states_feed";
 const EVENT_STATES_MEM_TABLE: &str = "ceramic._internal.event_states_mem";
 const EVENT_STATES_PERSISTENT_TABLE: &str = "ceramic._internal.event_states_persistent";
 
@@ -154,8 +154,8 @@ impl Aggregator {
 
         ctx.session()
             .register_table(
-                EVENT_STATES_STREAM_TABLE,
-                Arc::new(StreamTable::new(handle.clone())),
+                EVENT_STATES_FEED_TABLE,
+                Arc::new(FeedTable::new(handle.clone())),
             )
             .expect("should be able to register table");
 
@@ -582,7 +582,7 @@ async fn process_conclusion_events_batch(
 }
 
 #[async_trait]
-impl StreamTableSource for AggregatorHandle {
+impl FeedTableSource for AggregatorHandle {
     fn schema(&self) -> SchemaRef {
         schemas::event_states()
     }
