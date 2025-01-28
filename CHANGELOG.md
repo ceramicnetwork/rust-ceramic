@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.48.0] - 2025-01-28
+
+### 🚀 Features
+
+- Adds actor framework ([#644](https://github.com/ceramicnetwork/rust-ceramic/issues/644))
+- Stream flight sql queries ([#645](https://github.com/ceramicnetwork/rust-ceramic/issues/645))
+- Add pipeline metrics ([#646](https://github.com/ceramicnetwork/rust-ceramic/issues/646))
+
+### 🐛 Bug Fixes
+
+- Update built dep ([#641](https://github.com/ceramicnetwork/rust-ceramic/issues/641))
+- Fix off by one, projection and not found bugs ([#647](https://github.com/ceramicnetwork/rust-ceramic/issues/647))
+- Conclusion poll loop no longer stops ([#648](https://github.com/ceramicnetwork/rust-ceramic/issues/648))
+
+### 🚜 Refactor
+
+- Add simpler shutdown handling ([#643](https://github.com/ceramicnetwork/rust-ceramic/issues/643))
+- Rename _stream tables to _feed ([#649](https://github.com/ceramicnetwork/rust-ceramic/issues/649))
+
+### ⚙️ Miscellaneous Tasks
+
+- Make clippy happy about lifetimes ([#642](https://github.com/ceramicnetwork/rust-ceramic/issues/642))
+- Fix event-svc bench ([#639](https://github.com/ceramicnetwork/rust-ceramic/issues/639))
+
 ## [0.47.3] - 2025-01-13
 
 ### 🐛 Bug Fixes
@@ -11,6 +35,7 @@ All notable changes to this project will be documented in this file.
 ### ⚙️ Miscellaneous Tasks
 
 - Add tests for eip55 cacaos ([#636](https://github.com/ceramicnetwork/rust-ceramic/issues/636))
+- Version v0.47.3 ([#640](https://github.com/ceramicnetwork/rust-ceramic/issues/640))
 
 ## [0.47.2] - 2024-12-20
 
