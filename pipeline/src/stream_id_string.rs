@@ -201,7 +201,8 @@ mod tests {
             | k2t6wzhjp5kk1fuyrvdp2ednbfeawsdr1agd6qsoaim5vyliu5rex69dfyvr13 |
             | k2t6wzhjp5kk2g9iztfm7ol8lrbxoabkh3rn1u3nzm7mffdri2a1gpg5kcuge6 |
             | k2t6wzhjp5kk2efsq5cvws7s0nrcdn1de9h0rfemmz5d6vcavm340yv2sxxd9m |
-            +----------------------------------------------------------------+"#]].assert_eq(&output.to_string());
+            +----------------------------------------------------------------+"#]]
+        .assert_eq(&output.to_string());
         Ok(())
     }
     #[test(tokio::test)]
