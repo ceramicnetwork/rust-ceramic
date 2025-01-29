@@ -11,6 +11,7 @@ mod cache_table;
 pub mod cid_string;
 pub mod concluder;
 mod config;
+pub mod dimension_extract;
 mod metrics;
 pub mod schemas;
 mod since;
@@ -34,6 +35,7 @@ use tokio::task::JoinHandle;
 use url::Url;
 
 use cid_string::{CidString, CidStringList};
+use dimension_extract::DimensionExtract;
 use stream_id_string::{StreamIdString, StreamIdStringList};
 
 pub use concluder::{
@@ -151,6 +153,7 @@ pub async fn pipeline_ctx(object_store: Arc<dyn ObjectStore>) -> Result<Pipeline
     ctx.register_udf(ScalarUDF::new_from_impl(CidStringList::new()));
     ctx.register_udf(ScalarUDF::new_from_impl(StreamIdString::new()));
     ctx.register_udf(ScalarUDF::new_from_impl(StreamIdStringList::new()));
+    ctx.register_udf(ScalarUDF::new_from_impl(DimensionExtract::new()));
 
     // Register JSON functions
     datafusion_functions_json::register_all(&mut ctx)?;
