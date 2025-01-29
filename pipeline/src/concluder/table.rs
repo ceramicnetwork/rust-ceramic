@@ -1,4 +1,4 @@
-use std::{any::Any, sync::Arc};
+use std::{any::Any, cmp::min, sync::Arc};
 
 use arrow_schema::SchemaRef;
 use async_stream::try_stream;
@@ -19,6 +19,9 @@ use tracing::{instrument, Level};
 use crate::{concluder::conclusion_events_to_record_batch, schemas::conclusion_events};
 
 use super::ConclusionEvent;
+
+// Default number of rows to query from sqlite table each batch.
+const DEFAULT_BATCH_SIZE: i64 = 10_000;
 
 /// A ConclusionFeed provides access to [`ConclusionEvent`]s.
 #[async_trait::async_trait]
@@ -55,6 +58,7 @@ impl<T: ConclusionFeed> ConclusionFeed for Arc<T> {
 pub struct ConclusionFeedTable<T> {
     feed: Arc<T>,
     schema: SchemaRef,
+    batch_size: i64,
 }
 
 impl<T> ConclusionFeedTable<T> {
@@ -62,7 +66,12 @@ impl<T> ConclusionFeedTable<T> {
         Self {
             feed,
             schema: conclusion_events(),
+            batch_size: DEFAULT_BATCH_SIZE,
         }
+    }
+    #[cfg(test)]
+    fn with_batch_size(self, batch_size: i64) -> Self {
+        Self { batch_size, ..self }
     }
     fn highwater_mark_from_expr(expr: &Expr) -> Option<u64> {
         let find_highwater_mark = |col: &Expr, lit: &Expr| {
@@ -133,6 +142,7 @@ impl<T: ConclusionFeed + std::fmt::Debug + 'static> TableProvider for Conclusion
                 .map(|hm| hm as i64)
                 .unwrap_or(0),
             limit: limit.map(|l| l as i64),
+            batch_size: self.batch_size,
         }))
     }
     #[instrument(skip(self), ret(level = Level::DEBUG))]
@@ -165,6 +175,7 @@ struct FeedExec<T> {
     properties: PlanProperties,
     highwater_mark: i64,
     limit: Option<i64>,
+    batch_size: i64,
 }
 
 impl<T> datafusion::physical_plan::DisplayAs for FeedExec<T> {
@@ -210,25 +221,245 @@ impl<T: ConclusionFeed + std::fmt::Debug + 'static> ExecutionPlan for FeedExec<T
         _partition: usize,
         _context: Arc<datafusion::execution::TaskContext>,
     ) -> datafusion::error::Result<datafusion::execution::SendableRecordBatchStream> {
-        // Set a reasonable default limit
-        const DEFAULT_LIMIT: i64 = 10_000;
         let feed = self.feed.clone();
         let projection = self.projection.clone();
-        let highwater_mark = self.highwater_mark;
-        let limit = self.limit.unwrap_or(DEFAULT_LIMIT);
+        let mut highwater_mark = self.highwater_mark;
+        let mut remaining = self.limit;
+        let batch_size = self.batch_size;
         let stream = try_stream! {
-            let events = feed.conclusion_events_since(highwater_mark,limit).await?;
-            let batch = conclusion_events_to_record_batch(&events)?;
-            let batch = projection
-                .map(|projection| batch.project(&projection))
-                .transpose()?
-                .unwrap_or_else(|| batch);
-            yield batch;
+            loop {
+                let limit = remaining.map(|r| min(r, batch_size)).unwrap_or(batch_size);
+                if limit == 0 {
+                    break
+                }
+                let events = feed.conclusion_events_since(highwater_mark, limit).await?;
+                let count = events.len() as i64;
+                let batch = conclusion_events_to_record_batch(&events)?;
+                let batch = projection
+                    .as_ref()
+                    .map(|projection| batch.project(projection))
+                    .transpose()?
+                    .unwrap_or_else(|| batch);
+
+                yield batch;
+
+                if count < limit {
+                    break
+                }
+                remaining = remaining.map(|r| r - count);
+                highwater_mark = events[events.len()-1].index() as i64;
+            }
         };
         let stream = stream.map_err(|err: anyhow::Error| exec_datafusion_err!("{err}"));
         Ok(Box::pin(RecordBatchStreamAdapter::new(
             self.schema.clone(),
             stream,
         )))
+    }
+
+    fn supports_limit_pushdown(&self) -> bool {
+        true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{str::FromStr as _, sync::Arc};
+
+    use arrow::util::pretty::pretty_format_batches;
+    use cid::Cid;
+    use datafusion::prelude::SessionContext;
+    use expect_test::expect;
+    use mockall::predicate;
+    use test_log::test;
+
+    use crate::{
+        concluder::table::ConclusionFeedTable, tests::MockConclusionFeed, ConclusionData,
+        ConclusionEvent, ConclusionInit,
+    };
+    #[test(tokio::test)]
+    async fn batching_no_limit() {
+        const BATCH_SIZE: i64 = 3;
+        let mut mock_feed = MockConclusionFeed::new();
+        mock_feed
+            .expect_conclusion_events_since()
+            .once()
+            .with(predicate::eq(0), predicate::eq(BATCH_SIZE))
+            .return_once(|_, _| Ok(events(1, BATCH_SIZE)));
+        mock_feed
+            .expect_conclusion_events_since()
+            .once()
+            .with(predicate::eq(3), predicate::eq(BATCH_SIZE))
+            .return_once(|_, _| Ok(events(4, BATCH_SIZE)));
+        mock_feed
+            .expect_conclusion_events_since()
+            .once()
+            .with(predicate::eq(6), predicate::eq(BATCH_SIZE))
+            .return_once(|_, _| Ok(events(7, BATCH_SIZE - 1)));
+        let table = ConclusionFeedTable::new(Arc::new(mock_feed)).with_batch_size(BATCH_SIZE);
+        let ctx = SessionContext::new();
+        let data = pretty_format_batches(
+            &ctx.read_table(Arc::new(table))
+                .unwrap()
+                .select_columns(&["index"])
+                .unwrap()
+                .collect()
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        expect![[r#"
+            +-------+
+            | index |
+            +-------+
+            | 1     |
+            | 2     |
+            | 3     |
+            | 4     |
+            | 5     |
+            | 6     |
+            | 7     |
+            | 8     |
+            +-------+"#]]
+        .assert_eq(&data.to_string());
+    }
+
+    #[test(tokio::test)]
+    async fn batching_with_gt_limit() {
+        const BATCH_SIZE: i64 = 3;
+        const LIMIT: usize = 5;
+        let mut mock_feed = MockConclusionFeed::new();
+        mock_feed
+            .expect_conclusion_events_since()
+            .once()
+            .with(predicate::eq(0), predicate::eq(BATCH_SIZE))
+            .return_once(|_, _| Ok(events(1, BATCH_SIZE)));
+        mock_feed
+            .expect_conclusion_events_since()
+            .once()
+            .with(predicate::eq(3), predicate::eq(LIMIT as i64 - BATCH_SIZE))
+            .return_once(|_, _| Ok(events(4, LIMIT as i64 - BATCH_SIZE)));
+        let table = ConclusionFeedTable::new(Arc::new(mock_feed)).with_batch_size(BATCH_SIZE);
+        let ctx = SessionContext::new();
+        let data = pretty_format_batches(
+            &ctx.read_table(Arc::new(table))
+                .unwrap()
+                .select_columns(&["index"])
+                .unwrap()
+                .limit(0, Some(LIMIT))
+                .unwrap()
+                .collect()
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        expect![[r#"
+            +-------+
+            | index |
+            +-------+
+            | 1     |
+            | 2     |
+            | 3     |
+            | 4     |
+            | 5     |
+            +-------+"#]]
+        .assert_eq(&data.to_string());
+    }
+    #[test(tokio::test)]
+    async fn batching_with_lt_limit() {
+        const BATCH_SIZE: i64 = 5;
+        const LIMIT: usize = 3;
+        let mut mock_feed = MockConclusionFeed::new();
+        mock_feed
+            .expect_conclusion_events_since()
+            .once()
+            .with(predicate::eq(0), predicate::eq(LIMIT as i64))
+            .return_once(|_, _| Ok(events(1, LIMIT as i64)));
+        let table = ConclusionFeedTable::new(Arc::new(mock_feed)).with_batch_size(BATCH_SIZE);
+        let ctx = SessionContext::new();
+        let data = pretty_format_batches(
+            &ctx.read_table(Arc::new(table))
+                .unwrap()
+                .select_columns(&["index"])
+                .unwrap()
+                .limit(0, Some(LIMIT))
+                .unwrap()
+                .collect()
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        expect![[r#"
+            +-------+
+            | index |
+            +-------+
+            | 1     |
+            | 2     |
+            | 3     |
+            +-------+"#]]
+        .assert_eq(&data.to_string());
+    }
+    #[test(tokio::test)]
+    async fn batching_with_eq_limit() {
+        const BATCH_SIZE: i64 = 3;
+        let mut mock_feed = MockConclusionFeed::new();
+        mock_feed
+            .expect_conclusion_events_since()
+            .once()
+            .with(predicate::eq(0), predicate::eq(BATCH_SIZE))
+            .return_once(|_, _| Ok(events(1, BATCH_SIZE)));
+        let table = ConclusionFeedTable::new(Arc::new(mock_feed)).with_batch_size(BATCH_SIZE);
+        let ctx = SessionContext::new();
+        let data = pretty_format_batches(
+            &ctx.read_table(Arc::new(table))
+                .unwrap()
+                .select_columns(&["index"])
+                .unwrap()
+                .limit(0, Some(BATCH_SIZE as usize))
+                .unwrap()
+                .collect()
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        expect![[r#"
+            +-------+
+            | index |
+            +-------+
+            | 1     |
+            | 2     |
+            | 3     |
+            +-------+"#]]
+        .assert_eq(&data.to_string());
+    }
+
+    fn events(start_index: u64, count: i64) -> Vec<ConclusionEvent> {
+        (0..count)
+            .into_iter()
+            .map(|i| {
+                // Use the same event data as all we care about is the count and index
+                ConclusionEvent::Data(ConclusionData {
+                    index: start_index + i as u64,
+                    event_cid: Cid::from_str(
+                        "baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi",
+                    )
+                    .unwrap(),
+                    init: ConclusionInit {
+                        stream_cid: Cid::from_str(
+                            "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
+                        )
+                        .unwrap(),
+                        stream_type: 3,
+                        controller: "did:key:bob".to_string(),
+                        dimensions: vec![
+                            ("controller".to_string(), b"did:key:bob".to_vec()),
+                            ("model".to_string(), b"model".to_vec()),
+                        ],
+                    },
+                    previous: vec![],
+                    data: r#"{"metadata":{},"content":{"a":0}}"#.bytes().collect(),
+                })
+            })
+            .collect()
     }
 }
