@@ -3,15 +3,13 @@
 use std::{any::Any, sync::Arc};
 
 use arrow::{
-    array::{AsArray as _, GenericByteArray},
+    array::{Array, ArrayRef, AsArray as _, GenericByteArray, GenericListArray},
     datatypes::{GenericBinaryType, GenericStringType},
 };
+use arrow_schema::Field;
 use ceramic_core::StreamId;
 use datafusion::{
-    arrow::{
-        array::{ArrayIter, ListBuilder, StringBuilder},
-        datatypes::DataType,
-    },
+    arrow::{array::StringBuilder, datatypes::DataType},
     common::{
         cast::{as_binary_array, as_list_array},
         exec_datafusion_err,
@@ -182,36 +180,36 @@ impl ScalarUDFImpl for StreamIdStringList {
     fn invoke_batch(
         &self,
         args: &[ColumnarValue],
-        number_rows: usize,
+        _number_rows: usize,
     ) -> datafusion::common::Result<ColumnarValue> {
         let args = ColumnarValue::values_to_arrays(args)?;
         let all_stream_ids = as_list_array(&args[0])?;
-        // Count the number of stream ids before allocating.
-        let stream_id_count = all_stream_ids.values().len();
-        let mut strs = ListBuilder::with_capacity(
-            StringBuilder::with_capacity(stream_id_count, STREAM_ID_STRING_BYTES * stream_id_count),
-            number_rows,
-        );
-        for stream_ids in ArrayIter::new(all_stream_ids) {
-            if let Some(stream_ids) = stream_ids {
-                let stream_ids = as_binary_array(&stream_ids)?;
-                for stream_id in stream_ids {
-                    if let Some(stream_id) = stream_id {
-                        strs.values().append_value(
-                            StreamId::try_from(stream_id)
-                                .map_err(|err| exec_datafusion_err!("Error {err}"))?
-                                .to_string(),
-                        );
-                    } else {
-                        strs.values().append_null()
-                    }
-                }
-                strs.append(true)
+        // The list structure is not modified.
+        // We can map over the values array and reuse the list offsets.
+        let values = all_stream_ids.values();
+        let stream_id_count = values.len();
+        let mut new_values =
+            StringBuilder::with_capacity(stream_id_count, STREAM_ID_STRING_BYTES * stream_id_count);
+        let stream_ids = as_binary_array(&values)?;
+        for stream_id in stream_ids {
+            if let Some(stream_id) = stream_id {
+                new_values.append_value(
+                    StreamId::try_from(stream_id)
+                        .map_err(|err| exec_datafusion_err!("Error {err}"))?
+                        .to_string(),
+                );
             } else {
-                strs.append_null()
+                new_values.append_null()
             }
         }
-        Ok(ColumnarValue::Array(Arc::new(strs.finish())))
+        let new_list = GenericListArray::try_new(
+            Arc::new(Field::new_list_field(DataType::Utf8, true)),
+            all_stream_ids.offsets().to_owned(),
+            Arc::new(new_values.finish()),
+            all_stream_ids.nulls().cloned(),
+        )?;
+
+        Ok(ColumnarValue::Array(Arc::new(new_list)))
     }
 }
 
