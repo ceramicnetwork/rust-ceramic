@@ -41,7 +41,7 @@ impl ScalarUDFImpl for DimensionExtract {
         "dimension_extract"
     }
     fn signature(&self) -> &Signature {
-        &self.map_extract.signature()
+        self.map_extract.signature()
     }
     fn coerce_types(&self, arg_types: &[DataType]) -> datafusion::error::Result<Vec<DataType>> {
         self.map_extract.coerce_types(arg_types)
