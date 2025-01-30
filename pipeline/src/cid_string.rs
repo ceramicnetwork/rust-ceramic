@@ -78,7 +78,7 @@ impl ScalarUDFImpl for CidString {
     }
 }
 
-/// ScalarUDF to convert a binary CID into a string for easier inspection.
+/// ScalarUDF to convert a a list of binary CIDs into a list of strings for easier inspection.
 #[derive(Debug)]
 pub struct CidStringList {
     signature: Signature,
