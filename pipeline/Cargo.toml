@@ -30,20 +30,26 @@ futures.workspace = true
 int-enum.workspace = true
 ipld-core.workspace = true
 json-patch = "3.0.1"
+jsonschema.workspace = true
+lru.workspace = true
 mockall = { workspace = true, optional = true }
 multibase.workspace = true
 object_store.workspace = true
 parking_lot = "0.12.3"
 prometheus-client.workspace = true
-serde.workspace = true
 serde_json.workspace = true
+serde.workspace = true
 shutdown.workspace = true
 tokio-stream = { workspace = true, features = ["sync"] }
 tokio.workspace = true
 tracing.workspace = true
 url.workspace = true
+# TODO: 1.0 stable or 0.8
+schemars = "1.0.0-alpha.17"
+paste.workspace = true
+json-schema-diff = "0.1.7"
 
 [dev-dependencies]
+mockall.workspace = true
 test-log.workspace = true
 tracing-subscriber.workspace = true
-mockall.workspace = true

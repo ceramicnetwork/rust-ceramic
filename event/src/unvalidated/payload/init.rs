@@ -109,6 +109,8 @@ pub struct Header {
     unique: Option<Bytes>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     context: Option<Bytes>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    model_version: Option<Cid>,
 }
 
 impl Header {
@@ -120,6 +122,7 @@ impl Header {
         should_index: Option<bool>,
         unique: Option<Vec<u8>>,
         context: Option<Vec<u8>>,
+        model_version: Option<Cid>,
     ) -> Self {
         Self {
             controllers,
@@ -128,6 +131,7 @@ impl Header {
             should_index,
             unique: unique.map(Bytes::from),
             context: context.map(Bytes::from),
+            model_version,
         }
     }
 
@@ -152,6 +156,10 @@ impl Header {
     /// Signal to indexers whether this stream should be indexed
     pub fn should_index(&self) -> bool {
         self.should_index.unwrap_or(true)
+    }
+    /// Explicit model version to validate against.
+    pub fn model_version(&self) -> Option<Cid> {
+        self.model_version
     }
 
     /// The unique value for the stream

@@ -319,7 +319,7 @@ async fn event_states_simple() -> Result<()> {
                 limit: Some(3),
             })
             .await??;
-        while let Some(_) = sub.try_next().await? {}
+        while sub.try_next().await?.is_some() {}
     }
 
     let info = client

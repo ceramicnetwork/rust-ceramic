@@ -6,8 +6,12 @@
 //! tables can be exposed via a FlightSQL server.
 #![warn(missing_docs)]
 
+#[macro_use]
+pub(crate) mod macros;
+
 pub mod aggregator;
 mod cache_table;
+mod ceramic_stream;
 pub mod cid_part;
 pub mod cid_string;
 pub mod concluder;
@@ -17,6 +21,7 @@ mod metrics;
 pub mod schemas;
 mod since;
 pub mod stream_id_string;
+pub mod stream_id_to_cid;
 #[cfg(test)]
 mod tests;
 

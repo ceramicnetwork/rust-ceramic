@@ -17,6 +17,21 @@ use datafusion::{
     logical_expr::{ColumnarValue, ScalarUDFImpl, Signature, TypeSignature, Volatility},
 };
 
+make_udf_expr_and_func!(
+    StreamIdString,
+    stream_id_string,
+    stream_ids,
+    "transforms a binary stream id to utf8 string.",
+    stream_id_string_udf
+);
+make_udf_expr_and_func!(
+    StreamIdStringList,
+    array_stream_id_string,
+    stream_ids,
+    "transforms a list of binary stream ids to a list of utf8 strings.",
+    stream_id_string_list_udf
+);
+
 // Number of bytes in a typical Ceramic Stream ID as a UTF8 string.
 const STREAM_ID_STRING_BYTES: usize = 63;
 
@@ -215,7 +230,6 @@ impl ScalarUDFImpl for StreamIdStringList {
 
 #[cfg(test)]
 mod tests {
-    use super::{StreamIdString, StreamIdStringList};
 
     use std::{str::FromStr as _, sync::Arc};
 
@@ -227,8 +241,7 @@ mod tests {
     use ceramic_core::StreamId;
     use datafusion::{
         arrow::array::{BinaryBuilder, StructArray},
-        logical_expr::{expr::ScalarFunction, ScalarUDF},
-        prelude::{col, Expr, SessionContext},
+        prelude::{col, SessionContext},
     };
     use expect_test::expect;
     use test_log::test;
@@ -260,14 +273,10 @@ mod tests {
             "stream_id",
             Arc::new(stream_ids.finish()) as ArrayRef,
         )])?;
-        let stream_id_string = Arc::new(ScalarUDF::from(StreamIdString::new()));
         let ctx = SessionContext::new();
         let output = ctx
             .read_batch(batch.into())?
-            .select(vec![Expr::ScalarFunction(ScalarFunction::new_udf(
-                stream_id_string,
-                vec![col("stream_id")],
-            ))])?
+            .select(vec![super::stream_id_string(col("stream_id"))])?
             .collect()
             .await?;
         let output = pretty_format_batches(&output)?;
@@ -308,14 +317,10 @@ mod tests {
             "stream_id",
             Arc::new(stream_ids.finish()) as ArrayRef,
         )])?;
-        let stream_id_string = Arc::new(ScalarUDF::from(StreamIdString::new()));
         let ctx = SessionContext::new();
         let output = ctx
             .read_batch(batch.into())?
-            .select(vec![Expr::ScalarFunction(ScalarFunction::new_udf(
-                stream_id_string,
-                vec![col("stream_id")],
-            ))])?
+            .select(vec![super::stream_id_string(col("stream_id"))])?
             .collect()
             .await?;
         let output = pretty_format_batches(&output)?;
@@ -362,14 +367,10 @@ mod tests {
             "stream_ids",
             Arc::new(stream_ids.finish()) as ArrayRef,
         )])?;
-        let stream_id_string_list = Arc::new(ScalarUDF::from(StreamIdStringList::new()));
         let ctx = SessionContext::new();
         let output = ctx
             .read_batch(batch.into())?
-            .select(vec![Expr::ScalarFunction(ScalarFunction::new_udf(
-                stream_id_string_list,
-                vec![col("stream_ids")],
-            ))])?
+            .select(vec![super::array_stream_id_string(col("stream_ids"))])?
             .collect()
             .await?;
         let output = pretty_format_batches(&output)?;

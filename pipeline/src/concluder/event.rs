@@ -47,6 +47,20 @@ impl ConclusionEvent {
             ConclusionEvent::Time(_) => 1,
         }
     }
+    /// Report the CID of this event
+    pub fn event_cid(&self) -> Cid {
+        match self {
+            ConclusionEvent::Data(event) => event.event_cid,
+            ConclusionEvent::Time(event) => event.event_cid,
+        }
+    }
+    /// Report the init data of this event
+    pub fn init(&self) -> &ConclusionInit {
+        match self {
+            ConclusionEvent::Data(event) => &event.init,
+            ConclusionEvent::Time(event) => &event.init,
+        }
+    }
 }
 
 /// ConclusionInit is static metadata about a stream.
@@ -57,6 +71,7 @@ pub struct ConclusionInit {
     /// This is not the StreamId as it does not contain the StreamType.
     pub stream_cid: Cid,
     /// The type of the stream.
+    /// TODO use StreamIdType
     pub stream_type: u8,
     /// DID controller of the stream.
     pub controller: String,

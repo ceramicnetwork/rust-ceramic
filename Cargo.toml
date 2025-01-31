@@ -130,6 +130,7 @@ iroh-rpc-client = { path = "./beetle/iroh-rpc-client" }
 iroh-rpc-types = { path = "./beetle/iroh-rpc-types" }
 iroh-util = { path = "./beetle/iroh-util" }
 itertools = "0.13.0"
+jsonschema = "0.28.3"
 k256 = "0.13"
 keyed_priority_queue = "0.4.1"
 lazy_static = "1.4"

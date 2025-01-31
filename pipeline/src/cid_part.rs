@@ -3,16 +3,27 @@
 
 use std::{any::Any, sync::Arc};
 
-use arrow::array::Int32Builder;
+use arrow::{
+    array::{AsArray as _, GenericByteArray, Int32Builder, PrimitiveArray},
+    datatypes::{GenericBinaryType, Int32Type},
+};
 use datafusion::{
     arrow::datatypes::DataType,
     common::cast::as_binary_array,
     logical_expr::{ColumnarValue, ScalarUDFImpl, Signature, TypeSignature, Volatility},
 };
 
-/// Scalar UDF that computes the a partition value from CID bytes.
+make_udf_expr_and_func!(
+    CidPart,
+    cid_part,
+    cids,
+    "compute a partition value from a cid.",
+    cid_part_udf
+);
+
+/// Scalar UDF that computes a partition value from CID bytes.
 ///
-/// The current implementation retruns the last bytes of the CID.
+/// The current implementation returns the last bytes of the CID.
 #[derive(Debug)]
 pub struct CidPart {
     signature: Signature,
@@ -28,11 +39,64 @@ impl CidPart {
     /// Construct new instance
     pub fn new() -> Self {
         Self {
-            signature: Signature::new(
-                TypeSignature::Exact(vec![DataType::Binary]),
+            signature: Signature::one_of(
+                vec![
+                    TypeSignature::Exact(vec![DataType::Binary]),
+                    // Enumerate all possible dictionary key types.
+                    // We handle dictionary types explicitly because we can transform the
+                    // dictionary values directly.
+                    //
+                    TypeSignature::Exact(vec![DataType::Dictionary(
+                        Box::new(DataType::Int8),
+                        Box::new(DataType::Binary),
+                    )]),
+                    TypeSignature::Exact(vec![DataType::Dictionary(
+                        Box::new(DataType::Int16),
+                        Box::new(DataType::Binary),
+                    )]),
+                    TypeSignature::Exact(vec![DataType::Dictionary(
+                        Box::new(DataType::Int32),
+                        Box::new(DataType::Binary),
+                    )]),
+                    TypeSignature::Exact(vec![DataType::Dictionary(
+                        Box::new(DataType::Int64),
+                        Box::new(DataType::Binary),
+                    )]),
+                    TypeSignature::Exact(vec![DataType::Dictionary(
+                        Box::new(DataType::UInt8),
+                        Box::new(DataType::Binary),
+                    )]),
+                    TypeSignature::Exact(vec![DataType::Dictionary(
+                        Box::new(DataType::UInt16),
+                        Box::new(DataType::Binary),
+                    )]),
+                    TypeSignature::Exact(vec![DataType::Dictionary(
+                        Box::new(DataType::UInt32),
+                        Box::new(DataType::Binary),
+                    )]),
+                    TypeSignature::Exact(vec![DataType::Dictionary(
+                        Box::new(DataType::UInt64),
+                        Box::new(DataType::Binary),
+                    )]),
+                ],
                 Volatility::Immutable,
             ),
         }
+    }
+    fn map_cids(
+        &self,
+        cids: &GenericByteArray<GenericBinaryType<i32>>,
+        number_rows: usize,
+    ) -> datafusion::common::Result<PrimitiveArray<Int32Type>> {
+        let mut parts = Int32Builder::with_capacity(number_rows);
+        for cid in cids {
+            if let Some(cid) = cid {
+                parts.append_value(cid[cid.len() - 1] as i32);
+            } else {
+                parts.append_null()
+            }
+        }
+        Ok(parts.finish())
     }
 }
 
@@ -46,8 +110,15 @@ impl ScalarUDFImpl for CidPart {
     fn signature(&self) -> &Signature {
         &self.signature
     }
-    fn return_type(&self, _args: &[DataType]) -> datafusion::common::Result<DataType> {
-        Ok(DataType::Int32)
+    fn return_type(&self, args: &[DataType]) -> datafusion::common::Result<DataType> {
+        if let DataType::Dictionary(key, _value) = &args[0] {
+            Ok(DataType::Dictionary(
+                key.to_owned(),
+                Box::new(DataType::Int32),
+            ))
+        } else {
+            Ok(DataType::Int32)
+        }
     }
     fn invoke_batch(
         &self,
@@ -55,15 +126,21 @@ impl ScalarUDFImpl for CidPart {
         number_rows: usize,
     ) -> datafusion::common::Result<ColumnarValue> {
         let args = ColumnarValue::values_to_arrays(args)?;
-        let cids = as_binary_array(&args[0])?;
-        let mut parts = Int32Builder::with_capacity(number_rows);
-        for cid in cids {
-            if let Some(cid) = cid {
-                parts.append_value(cid[cid.len() - 1] as i32);
-            } else {
-                parts.append_null()
-            }
+        if let Some(dict) = args[0].as_any_dictionary_opt() {
+            // Map over the dictionary values
+            //
+            // We could also construct a new dictionary with new keys as its likely that
+            // many cids map to the same partition value.
+            // However its generally assumed that if a dictionary is being used it is
+            // already low cardinality. Therefore any potential gains are likely not
+            // significant.
+            let cids = as_binary_array(dict.values())?;
+            let ids = self.map_cids(cids, number_rows)?;
+            Ok(ColumnarValue::Array(dict.with_values(Arc::new(ids))))
+        } else {
+            let cids = as_binary_array(&args[0])?;
+            let ids = self.map_cids(cids, number_rows)?;
+            Ok(ColumnarValue::Array(Arc::new(ids)))
         }
-        Ok(ColumnarValue::Array(Arc::new(parts.finish())))
     }
 }
