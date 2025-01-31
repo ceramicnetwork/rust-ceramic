@@ -74,6 +74,7 @@ pub struct InitBuilderWithSep<D> {
     data: Option<D>,
     should_index: Option<bool>,
     context: Option<Vec<u8>>,
+    model_version: Option<Cid>,
 }
 impl<D> InitBuilderState for InitBuilderWithSep<D> {}
 impl InitBuilder<InitBuilderWithController> {
@@ -87,6 +88,7 @@ impl InitBuilder<InitBuilderWithController> {
                 data: None,
                 should_index: None,
                 context: None,
+                model_version: None,
             },
         }
     }
@@ -110,6 +112,11 @@ impl<D: serde::Serialize> InitBuilder<InitBuilderWithSep<D>> {
         self.state.should_index = Some(should_index);
         self
     }
+    /// Specify the model version value.
+    pub fn with_model_version(mut self, model_version: Cid) -> Self {
+        self.state.model_version = Some(model_version);
+        self
+    }
 
     /// Specify the data.
     pub fn with_data(mut self, data: D) -> Self {
@@ -125,7 +132,9 @@ impl<D: serde::Serialize> InitBuilder<InitBuilderWithSep<D>> {
             self.state.should_index,
             self.state.unique,
             self.state.context,
+            self.state.model_version,
         );
+
         unvalidated::init::Payload::new(header, self.state.data)
     }
     /// Build and sign the event
@@ -190,6 +199,7 @@ pub struct DataBuilderWithData<D> {
     prev: Cid,
     data: D,
     should_index: Option<bool>,
+    model_version: Option<Cid>,
 }
 impl<D> DataBuilderState for DataBuilderWithData<D> {}
 impl DataBuilder<DataBuilderWithPrev> {
@@ -201,6 +211,7 @@ impl DataBuilder<DataBuilderWithPrev> {
                 prev: self.state.prev,
                 data,
                 should_index: None,
+                model_version: None,
             },
         }
     }
@@ -212,13 +223,27 @@ impl<D: serde::Serialize> DataBuilder<DataBuilderWithData<D>> {
         self.state.should_index = should_index;
         self
     }
+    /// Specify model_version.
+    pub fn with_model_version(mut self, model_version: Option<Cid>) -> Self {
+        self.state.model_version = model_version;
+        self
+    }
 
     /// Build the event payload.
     pub fn build_payload(self) -> unvalidated::data::Payload<D> {
-        let header = self
-            .state
-            .should_index
-            .map(|si| unvalidated::data::Header::new(Some(si)));
+        let header = match (self.state.should_index, self.state.model_version) {
+            (None, None) => None,
+            (None, Some(model_version)) => {
+                Some(unvalidated::data::Header::new(None, Some(model_version)))
+            }
+            (Some(should_index), None) => {
+                Some(unvalidated::data::Header::new(Some(should_index), None))
+            }
+            (Some(should_index), Some(model_version)) => Some(unvalidated::data::Header::new(
+                Some(should_index),
+                Some(model_version),
+            )),
+        };
         unvalidated::data::Payload::new(self.state.id, self.state.prev, header, self.state.data)
     }
     /// Build and sign the event
@@ -425,6 +450,7 @@ mod tests {
     use std::str::FromStr as _;
 
     use ceramic_core::StreamId;
+    use expect_test::expect;
     use ipld_core::ipld;
     use ipld_core::ipld::Ipld;
     use multibase;
@@ -539,5 +565,92 @@ mod tests {
         let event_car_str =
             multibase::encode(multibase::Base::Base64Url, event.encode_car().unwrap());
         assert_eq!(TIME_EVENT_CAR_SINGLE_EVENT_BATCH, event_car_str);
+    }
+    #[test]
+    fn build_data_payload_with_model_version() {
+        let data = ipld_core::ipld!([{"op":"replace","path":"/steph","value":334}]);
+        let id = Cid::from_str(SIGNED_INIT_EVENT_CID).unwrap();
+        let prev = Cid::from_str(SIGNED_INIT_EVENT_CID).unwrap();
+        let model_version =
+            Cid::from_str("baeabeifpda7hyhcuzhzzsxifnroke6fto3dz5vjjrnhfz323fz52oyh4um").unwrap();
+
+        let event = Builder::data()
+            .with_id(id)
+            .with_prev(prev)
+            .with_data(data)
+            .with_model_version(Some(model_version))
+            .build_payload();
+
+        expect![[r#"
+            Payload {
+                id: "bagcqcerar2aga7747dm6fota3iipogz4q55gkaamcx2weebs6emvtvie2oha",
+                prev: "bagcqcerar2aga7747dm6fota3iipogz4q55gkaamcx2weebs6emvtvie2oha",
+                header: Some(
+                    Header {
+                        should_index: None,
+                        model_version: Some(
+                            "baeabeifpda7hyhcuzhzzsxifnroke6fto3dz5vjjrnhfz323fz52oyh4um",
+                        ),
+                    },
+                ),
+                data: List([
+                    Map({
+                        "op": String("replace"),
+                        "path": String("/steph"),
+                        "value": Integer(334),
+                    }),
+                ]),
+            }
+        "#]]
+        .assert_debug_eq(&event);
+    }
+    #[test]
+    fn build_init_payload_with_model_version() {
+        let unique = vec![68, 166, 241, 58, 178, 65, 11, 187, 106, 133, 104, 222];
+        let data = ipld_core::ipld!({"steph": 333});
+        let model =
+            StreamId::from_str("kjzl6hvfrbw6c90uwoyz8j519gxma787qbsfjtrarkr1huq1g1s224k7hopvsyg")
+                .unwrap();
+        let model_version =
+            Cid::from_str("baeabeifpda7hyhcuzhzzsxifnroke6fto3dz5vjjrnhfz323fz52oyh4um").unwrap();
+
+        let payload = Builder::init()
+            .with_controller("did:key:z6MktBynAPLrEyeS7pVthbiyScmfu8n5V7boXgxyo5q3SZRR".to_string())
+            .with_sep("model".to_string(), model.to_vec())
+            .with_unique(unique)
+            .with_data(data)
+            .with_model_version(model_version)
+            .build_payload();
+        expect![[r#"
+            Payload {
+                header: Header {
+                    controllers: [
+                        "did:key:z6MktBynAPLrEyeS7pVthbiyScmfu8n5V7boXgxyo5q3SZRR",
+                    ],
+                    sep: Some(
+                        "model",
+                    ),
+                    model: Bytes(
+                        "fce01020185011220a0e832a335e38bd340b43a0f0299bf3c515a0fc33de4cd7910a43e8b931e8d58",
+                    ),
+                    should_index: None,
+                    unique: Some(
+                        Bytes(
+                            "f44a6f13ab2410bbb6a8568de",
+                        ),
+                    ),
+                    context: None,
+                    model_version: Some(
+                        "baeabeifpda7hyhcuzhzzsxifnroke6fto3dz5vjjrnhfz323fz52oyh4um",
+                    ),
+                },
+                data: Some(
+                    Map({
+                        "steph": Integer(333),
+                    }),
+                ),
+            }
+        "#]]
+        .assert_debug_eq(&payload);
     }
 }
