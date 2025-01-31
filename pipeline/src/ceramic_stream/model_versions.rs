@@ -1,0 +1,214 @@
+use std::collections::HashMap;
+
+use anyhow::{bail, Result};
+use ceramic_core::StreamId;
+use serde::{Deserialize, Serialize};
+
+use crate::ceramic_stream::InterfaceUtil;
+
+use super::model::ModelDefinition;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelDefinitionV1 {
+    pub(crate) name: String,
+    #[serde(skip)]
+    pub(crate) description: Option<String>,
+    pub(crate) schema: schemars::Schema,
+    #[serde(rename = "accountRelation")]
+    pub(crate) account_relation: ModelAccountRelationV1,
+    #[serde(default)]
+    pub(crate) relations: ModelRelationsDefinitionV1,
+    #[serde(default)]
+    pub(crate) views: ModelViewsDefinitionV1,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelDefinitionV2 {
+    pub(crate) name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) description: Option<String>,
+    pub(crate) interface: bool,
+    pub(crate) implements: Vec<StreamId>,
+    pub(crate) schema: schemars::Schema,
+    #[serde(rename = "immutableFields")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) immutable_fields: Option<Vec<String>>,
+    #[serde(rename = "accountRelation")]
+    pub(crate) account_relation: ModelAccountRelationV2,
+    // TODO: could use an option/skip serializing if empty but it looks like js-ceramic serializes these to the default value
+    // although it also has checks assuming it could be undefined, so not sure the best way to deal with it
+    #[serde(default)]
+    pub(crate) relations: ModelRelationsDefinitionV2,
+    #[serde(default)]
+    pub(crate) views: ModelViewsDefinitionV2,
+}
+
+impl ModelDefinitionV2 {
+    /// Validates that this model correctly implements the expected interfaces
+    /// Does NOT yet correctly verify the JSON schema is a truly correct implementation.
+    /// Does validate that the other fields (relations, accountRelations, views) do, however,
+    /// there are is an open question about what happens when the interface includes a `Document {None}`
+    /// relation and what the implementor includes (e.g. None, anything)
+    pub fn validate_implementated_interfaces(&self, interfaces: &[ModelDefinition]) -> Result<()> {
+        for interface_model in interfaces {
+            self.validate_interface_impl(interface_model)?;
+        }
+
+        Ok(())
+    }
+
+    fn validate_interface_impl(&self, interface: &ModelDefinition) -> Result<()> {
+        // This function is currently trivially implemented
+        InterfaceUtil::validate_schema_implementation(interface.schema(), &self.schema)?;
+
+        let mut errors = Vec::new();
+        let interface_id = "TODO";
+        match interface {
+            // v1 only checks schema conformance AFAICT
+            ModelDefinition::V1(_) => Ok(()),
+            ModelDefinition::V2(expected) => {
+                // todo
+                if !InterfaceUtil::is_valid_relations_implementation(
+                    &expected.relations,
+                    &self.relations,
+                ) {
+                    errors.push(format!(
+                        "Invalid relations implementation of interface {interface_id}"
+                    ))
+                }
+
+                if !InterfaceUtil::is_valid_views_implementation(&expected.views, &self.views) {
+                    errors.push(format!(
+                        "Invalid views implementation of interface {interface_id}"
+                    ))
+                }
+
+                if !InterfaceUtil::is_valid_immutability_implementation(expected, self) {
+                    errors.push(format!(
+                        "Invalid immutable fields implementation of interface {interface_id}"
+                    ))
+                }
+
+                if !errors.is_empty() {
+                    // js-ceramic throws aggregate error, do we care or can we just return the first one?
+                    bail!("failed with all the errors")
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum ModelAccountRelationV1 {
+    Single,
+    List,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum ModelAccountRelationV2 {
+    Single,
+    List,
+    None,
+    #[serde(deserialize_with = "deserialize_set")]
+    Set {
+        fields: Vec<String>,
+    },
+}
+
+fn deserialize_set<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let fields = Vec::<String>::deserialize(deserializer)?;
+    if fields.is_empty() {
+        return Err(serde::de::Error::custom(
+            "Relation of type Set must include at least one field",
+        ));
+    }
+    Ok(fields)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum ModelRelationDefinitionV1 {
+    Account,
+    Document { model: StreamId },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum ModelRelationDefinitionV2 {
+    Account,
+    Document { model: Option<StreamId> },
+}
+
+// The inteface validation code is all implemented in js-ceramic as V1 and we can trivially convert, so we do
+impl From<ModelRelationDefinitionV1> for ModelRelationDefinitionV2 {
+    fn from(value: ModelRelationDefinitionV1) -> Self {
+        match value {
+            ModelRelationDefinitionV1::Account => Self::Account,
+            ModelRelationDefinitionV1::Document { model } => Self::Document { model: Some(model) },
+        }
+    }
+}
+
+pub type ModelRelationsDefinitionV1 = HashMap<String, ModelRelationDefinitionV1>;
+pub type ModelRelationsDefinitionV2 = HashMap<String, ModelRelationDefinitionV2>;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum ModelDocumentMetadataViewDefinition {
+    #[serde(rename = "documentAccount")]
+    Account,
+    #[serde(rename = "documentVersion")]
+    Version,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ModelViewDefinitionV1 {
+    Metadata(ModelDocumentMetadataViewDefinition),
+    Relation(ModelRelationViewDefinitionV1),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged, rename_all = "camelCase")]
+pub enum ModelViewDefinitionV2 {
+    Metadata(ModelDocumentMetadataViewDefinition),
+    Relation(ModelRelationViewDefinitionV2),
+}
+
+pub type ModelViewsDefinitionV1 = HashMap<String, ModelViewDefinitionV1>;
+pub type ModelViewsDefinitionV2 = HashMap<String, ModelViewDefinitionV2>;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum ModelRelationViewDefinitionV1 {
+    #[serde(rename = "relationDocument")]
+    Document { model: StreamId, property: String },
+    #[serde(rename = "relationFrom")]
+    From { model: StreamId, property: String },
+    #[serde(rename = "relationCountFrom")]
+    CountFrom { model: StreamId, property: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum ModelRelationViewDefinitionV2 {
+    #[serde(rename = "relationDocument")]
+    Document {
+        model: Option<StreamId>,
+        property: String,
+    },
+    #[serde(rename = "relationFrom")]
+    From { model: StreamId, property: String },
+    #[serde(rename = "relationCountFrom")]
+    CountFrom { model: StreamId, property: String },
+    #[serde(rename = "relationSetFrom")]
+    SetFrom { model: StreamId, property: String },
+}

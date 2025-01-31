@@ -1,0 +1,57 @@
+{
+    "streamId": "kjzl6hvfrbw6ca5ea8vya01k59zeeyetyqbl5ke2xwj83ztl1h0smyq5jkjzb7j",
+    "state": {
+        "type": 2,
+        "content": {
+            "name": "GitcoinPassportStampWrapper",
+            "views": {
+                "vc": {
+                    "type": "relationDocument",
+                    "model": "kjzl6hvfrbw6c9rm2lhkk2mv5v8ytatv6br7uy4ugewmf0zivk8xle3qmpbkzgd",
+                    "property": "vcID"
+                }
+            },
+            "schema": {
+                "type": "object",
+                "$defs": {
+                    "CeramicStreamID": {
+                        "type": "string",
+                        "title": "CeramicStreamID",
+                        "maxLength": 100
+                    }
+                },
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "required": [
+                    "vcID"
+                ],
+                "properties": {
+                    "vcID": {
+                        "$ref": "#/$defs/CeramicStreamID"
+                    },
+                    "isDeleted": {
+                        "type": "boolean"
+                    },
+                    "isRevoked": {
+                        "type": "boolean"
+                    }
+                },
+                "additionalProperties": false
+            },
+            "version": "2.0",
+            "interface": false,
+            "relations": {
+                "vcID": {
+                    "type": "document",
+                    "model": "kjzl6hvfrbw6c9rm2lhkk2mv5v8ytatv6br7uy4ugewmf0zivk8xle3qmpbkzgd"
+                }
+            },
+            "implements": [
+                "kjzl6hvfrbw6c7f142kob3ps523tpf5dk49qwuritwwkinmqm5hk05lcmqm4zpz"
+            ],
+            "description": "GitcoinPassportStampWrapper",
+            "accountRelation": {
+                "type": "list"
+            }
+        }
+    }
+}

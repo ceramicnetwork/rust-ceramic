@@ -494,6 +494,7 @@ async fn process_conclusion_events_batch(
 
     let new_event_states = ctx
         .read_batch(conclusion_events)?
+        // .filter("stream_type = 3")
         // MID only ever use the first previous, so we can optimize the join by selecting the
         // first element of the previous array.
         .select(vec![
