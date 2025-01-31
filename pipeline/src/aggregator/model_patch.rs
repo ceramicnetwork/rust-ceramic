@@ -1,12 +1,15 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::sync::Arc;
 
 use arrow::{
-    array::{Array as _, ArrayBuilder as _, ArrayRef, BinaryBuilder},
+    array::{Array as _, ArrayRef, BinaryBuilder, StructArray, UInt32Builder},
     datatypes::DataType,
 };
 use arrow_schema::Field;
 use datafusion::{
-    common::{cast::as_binary_array, exec_datafusion_err, Result},
+    common::{
+        cast::{as_binary_array, as_uint32_array},
+        exec_datafusion_err, Result,
+    },
     logical_expr::{
         function::PartitionEvaluatorArgs, PartitionEvaluator, Signature, TypeSignature, Volatility,
         WindowUDF, WindowUDFImpl,
@@ -14,13 +17,15 @@ use datafusion::{
 };
 use json_patch::PatchOperation;
 
+use super::{bytes_value_at, u32_value_at, EventDataContainer};
+
 /// Applies a Ceramic data event to a document state returning the new document state.
 #[derive(Debug)]
-pub struct CeramicPatch {
+pub struct ModelPatch {
     signature: Signature,
 }
 
-impl CeramicPatch {
+impl ModelPatch {
     pub fn new_udwf() -> WindowUDF {
         WindowUDF::new_from_impl(Self::new())
     }
@@ -34,6 +39,8 @@ impl CeramicPatch {
                     DataType::Binary,
                     // Previous State
                     DataType::Binary,
+                    // Previous event height
+                    DataType::UInt32,
                     // State/Patch
                     DataType::Binary,
                 ]),
@@ -43,13 +50,13 @@ impl CeramicPatch {
     }
 }
 
-impl WindowUDFImpl for CeramicPatch {
+impl WindowUDFImpl for ModelPatch {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
 
     fn name(&self) -> &str {
-        "ceramic_patch"
+        "model_patch"
     }
 
     fn signature(&self) -> &datafusion::logical_expr::Signature {
@@ -67,34 +74,29 @@ impl WindowUDFImpl for CeramicPatch {
         &self,
         field_args: datafusion::logical_expr::function::WindowUDFFieldArgs,
     ) -> Result<arrow_schema::Field> {
-        Ok(Field::new(field_args.name(), DataType::Binary, false))
+        Ok(Field::new_struct(
+            field_args.name(),
+            vec![
+                Field::new("previous_data", DataType::Binary, true),
+                Field::new("data", DataType::Binary, true),
+                Field::new("event_height", DataType::UInt32, true),
+            ],
+            true,
+        ))
     }
 }
-// Small wrapper container around the data/state fields to hold
-// other mutable metadata for the event.
-// This is specific to Model Instance Documents.
-// Metadata is considered to be mutable from event to event and a overriting merge is performed
-// with the previous metadata to the current metadata.
-// This means if a metadata key is missing it is propogated forward until a new data event changes
-// its value.
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct MIDDataContainer<D> {
-    metadata: BTreeMap<String, serde_json::Value>,
-    content: D,
-}
 
-type MIDDataContainerPatch = MIDDataContainer<Vec<PatchOperation>>;
-type MIDDataContainerState = MIDDataContainer<serde_json::Value>;
+type DataContainerPatch = EventDataContainer<Vec<PatchOperation>>;
+type DataContainerState = EventDataContainer<serde_json::Value>;
 
 #[derive(Debug)]
 struct CeramicPatchEvaluator;
 
 impl CeramicPatchEvaluator {
     fn apply_patch(patch: &[u8], previous_state: &[u8]) -> Result<Vec<u8>> {
-        let patch: MIDDataContainerPatch = serde_json::from_slice(patch)
+        let patch: DataContainerPatch = serde_json::from_slice(patch)
             .map_err(|err| exec_datafusion_err!("Error parsing patch: {err}"))?;
-        let mut state: MIDDataContainerState = serde_json::from_slice(previous_state)
+        let mut state: DataContainerState = serde_json::from_slice(previous_state)
             .map_err(|err| exec_datafusion_err!("Error parsing previous state: {err}"))?;
         // If the state is null use an empty object in order to apply the patch to a valid object.
         if serde_json::Value::Null == state.content {
@@ -130,13 +132,17 @@ impl PartitionEvaluator for CeramicPatchEvaluator {
         let event_cids = as_binary_array(&values[0])?;
         let previous_cids = as_binary_array(&values[1])?;
         let previous_states = as_binary_array(&values[2])?;
-        let patches = as_binary_array(&values[3])?;
+        let previous_heights = as_uint32_array(&values[3])?;
+        let patches = as_binary_array(&values[4])?;
         let mut new_states = BinaryBuilder::new();
+        let mut new_heights = UInt32Builder::new();
+        // We need to return the matched previous state so later we can do direct comparisons.
+        let mut resolved_previous_states = BinaryBuilder::new();
         for i in 0..num_rows {
             if previous_cids.is_valid(i) {
-                if let Some(previous_state) = if !previous_states.is_null(i) {
+                if let Some((previous_state, previous_height)) = if !previous_states.is_null(i) {
                     // We know the previous state already
-                    Some(previous_states.value(i))
+                    Some((previous_states.value(i), previous_heights.value(i)))
                 } else {
                     // Iterator backwards till we find the previous state among the new states.
                     let previous_cid = previous_cids.value(i);
@@ -147,19 +153,21 @@ impl PartitionEvaluator for CeramicPatchEvaluator {
                         }
                         j -= 1;
                         if event_cids.value(j) == previous_cid {
-                            break Some(value_at(&new_states, j));
+                            break Some((
+                                bytes_value_at(&new_states, j),
+                                u32_value_at(&new_heights, j),
+                            ));
                         }
                     }
                 } {
+                    new_heights.append_value(previous_height + 1);
                     if patches.is_null(i) {
                         // We have a time event, new state is just the previous state
-                        //
-                        // Allow clippy warning as previous_state is a reference back into new_states.
-                        // So we need to copy the data to a new location before we can copy it back
-                        // into the new_states.
-                        #[allow(clippy::unnecessary_to_owned)]
-                        new_states.append_value(previous_state.to_owned());
+                        let state = previous_state.to_owned();
+                        new_states.append_value(&state);
+                        resolved_previous_states.append_value(&state);
                     } else {
+                        resolved_previous_states.append_value(previous_state);
                         new_states.append_value(CeramicPatchEvaluator::apply_patch(
                             patches.value(i),
                             previous_state,
@@ -169,27 +177,36 @@ impl PartitionEvaluator for CeramicPatchEvaluator {
                     // Unreachable when data is well formed.
                     // Appending null means well formed documents can continue to be aggregated.
                     new_states.append_null();
+                    resolved_previous_states.append_null();
+                    new_heights.append_null();
                 }
             } else {
                 //Init event, patch value is the initial state
+                new_heights.append_value(0);
                 if patches.is_null(i) {
                     // We have an init event without data
                     new_states.append_null();
+                    resolved_previous_states.append_null();
                 } else {
                     new_states.append_value(patches.value(i));
+                    resolved_previous_states.append_null();
                 }
             }
         }
-        Ok(Arc::new(new_states.finish()))
-    }
-}
 
-fn value_at(builder: &BinaryBuilder, idx: usize) -> &[u8] {
-    let start = builder.offsets_slice()[idx] as usize;
-    let stop = if idx < builder.len() {
-        builder.offsets_slice()[idx + 1] as usize
-    } else {
-        builder.values_slice().len()
-    };
-    &builder.values_slice()[start..stop]
+        Ok(Arc::new(StructArray::from(vec![
+            (
+                Arc::new(Field::new("previous_data", DataType::Binary, true)),
+                Arc::new(resolved_previous_states.finish()) as ArrayRef,
+            ),
+            (
+                Arc::new(Field::new("data", DataType::Binary, true)),
+                Arc::new(new_states.finish()) as ArrayRef,
+            ),
+            (
+                Arc::new(Field::new("event_height", DataType::UInt32, true)),
+                Arc::new(new_heights.finish()) as ArrayRef,
+            ),
+        ])))
+    }
 }

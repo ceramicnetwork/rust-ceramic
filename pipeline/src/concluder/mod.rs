@@ -18,7 +18,7 @@ use datafusion::{
     common::{cast::as_uint64_array, exec_datafusion_err},
     execution::SendableRecordBatchStream,
     physical_plan::stream::RecordBatchStreamAdapter,
-    prelude::{col, lit, SessionContext},
+    prelude::{col, lit, wildcard, SessionContext},
 };
 use futures::TryStreamExt as _;
 use shutdown::{Shutdown, ShutdownSignal};
@@ -287,17 +287,10 @@ async fn events_since(
     offset: Option<u64>,
 ) -> Result<SendableRecordBatchStream> {
     // Fetch the conclusion events DataFrame
-    let mut conclusion_events = ctx.table(CONCLUSION_EVENTS_TABLE).await?.select(vec![
-        col("index"),
-        col("stream_cid"),
-        col("stream_type"),
-        col("controller"),
-        col("dimensions"),
-        col("event_cid"),
-        col("event_type"),
-        col("data"),
-        col("previous"),
-    ])?;
+    let mut conclusion_events = ctx
+        .table(CONCLUSION_EVENTS_TABLE)
+        .await?
+        .select(vec![wildcard()])?;
     if let Some(offset) = offset {
         conclusion_events = conclusion_events.filter(col("index").gt(lit(offset)))?;
     }

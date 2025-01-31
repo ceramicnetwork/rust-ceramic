@@ -57,21 +57,48 @@ impl<D> Payload<D> {
 }
 
 /// Headers for a data event
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Header {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     should_index: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    model_version: Option<Cid>,
 }
 
 impl Header {
     /// Construct a header for a data event payload
-    pub fn new(should_index: Option<bool>) -> Self {
-        Self { should_index }
+    pub fn new(should_index: Option<bool>, model_version: Option<Cid>) -> Self {
+        Self {
+            should_index,
+            model_version,
+        }
     }
 
     /// Signal to indexers whether this stream should be indexed
     pub fn should_index(&self) -> Option<bool> {
         self.should_index
+    }
+    /// Explicit model version to validate against.
+    pub fn model_version(&self) -> Option<Cid> {
+        self.model_version
+    }
+}
+impl std::fmt::Debug for Header {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if f.alternate() {
+            f.debug_struct("Header")
+                .field("should_index", &self.should_index)
+                .field(
+                    "model_version",
+                    &self.model_version.as_ref().map(|m| m.to_string()),
+                )
+                .finish()
+        } else {
+            f.debug_struct("Header")
+                .field("should_index", &self.should_index)
+                .field("model_version", &self.model_version)
+                .finish()
+        }
     }
 }

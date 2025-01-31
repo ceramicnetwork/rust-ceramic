@@ -41,6 +41,7 @@ fn random_events(num: usize) -> Vec<EventInsertable> {
             None,
             None,
             None,
+            None,
         );
         let payload = unvalidated::init::Payload::new(header, None);
         let cid = Cid::new_v1(

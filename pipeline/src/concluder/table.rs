@@ -76,7 +76,7 @@ impl<T> ConclusionFeedTable<T> {
     fn highwater_mark_from_expr(expr: &Expr) -> Option<u64> {
         let find_highwater_mark = |col: &Expr, lit: &Expr| {
             col.try_as_col()
-                .map_or(false, |column| column.name == "index")
+                .is_some_and(|column| column.name == "index")
                 .then(|| {
                     if let Expr::Literal(ScalarValue::UInt64(highwater_mark)) = lit {
                         highwater_mark.to_owned()

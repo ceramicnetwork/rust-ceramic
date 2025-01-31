@@ -24,7 +24,7 @@ pub struct PeerDB {}
 type PeerKeyError = <PeerKey as TryFrom<Vec<u8>>>::Error;
 
 impl PeerDB {
-    async fn insert_tx<'a>(conn: &mut SqliteTransaction<'a>, key: &PeerKey) -> Result<bool> {
+    async fn insert_tx(conn: &mut SqliteTransaction<'_>, key: &PeerKey) -> Result<bool> {
         let key_insert = sqlx::query(ReconQuery::insert_peer());
 
         let hash = Sha256a::digest(key);
