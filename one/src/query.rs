@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{io::Cursor, sync::Arc, time::Duration};
 
 use anyhow::{bail, Context, Result};
 use arrow_cast::{cast_with_options, CastOptions};
@@ -6,8 +6,8 @@ use arrow_flight::{
     sql::{client::FlightSqlServiceClient, CommandGetDbSchemas, CommandGetTables},
     FlightInfo,
 };
-use clap::Args;
 use clap::Subcommand;
+use clap::{Args, ValueEnum};
 use core::str;
 use datafusion::arrow::{
     array::{ArrayRef, Datum as _, RecordBatch, StringArray},
@@ -15,6 +15,7 @@ use datafusion::arrow::{
     util::pretty::pretty_format_batches,
 };
 use futures::TryStreamExt;
+use tokio::io::AsyncWriteExt as _;
 use tonic::transport::{Channel, Endpoint};
 
 #[derive(Args, Debug)]
@@ -30,6 +31,20 @@ pub struct QueryOpts {
 
     #[clap(subcommand)]
     cmd: Command,
+
+    /// Output format of the results.
+    #[arg(short, long, default_value = "table", env = "CERAMIC_ONE_QUERY_OUTPUT")]
+    output: Output,
+}
+
+#[derive(ValueEnum, Clone, Debug)]
+enum Output {
+    /// Output results in a human readable tabular form
+    Table,
+    /// Output results as a csv file with headers.
+    Csv,
+    /// Output results as new line delimited json objects.
+    Json,
 }
 
 /// Different available commands.
@@ -181,8 +196,42 @@ pub async fn run(opts: QueryOpts) -> Result<()> {
         .await
         .context("read flight data")?;
 
-    let res = pretty_format_batches(batches.as_slice()).context("format results")?;
-    println!("{res}");
+    match opts.output {
+        Output::Table => {
+            let res = pretty_format_batches(batches.as_slice()).context("format results")?;
+            println!("{res}");
+        }
+        Output::Csv => {
+            let mut buffer = Vec::new();
+            let mut header = true;
+            for batch in &batches {
+                {
+                    let mut writer = arrow::csv::WriterBuilder::new()
+                        .with_header(header)
+                        .build(Cursor::new(&mut buffer));
+                    writer.write(batch)?;
+                    // Write the header only once
+                    header = false;
+                }
+                tokio::io::stdout().write_all(&buffer).await?;
+                buffer.clear();
+            }
+        }
+        Output::Json => {
+            let mut buffer = Vec::new();
+            for batch in &batches {
+                {
+                    let mut writer =
+                        arrow::json::Writer::<_, arrow::json::writer::LineDelimited>::new(
+                            Cursor::new(&mut buffer),
+                        );
+                    writer.write(batch)?;
+                }
+                tokio::io::stdout().write_all(&buffer).await?;
+                buffer.clear();
+            }
+        }
+    }
 
     Ok(())
 }
