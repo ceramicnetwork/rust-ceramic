@@ -3,7 +3,7 @@
 use std::{any::Any, sync::Arc};
 
 use arrow::{
-    array::{Array, ArrayRef, AsArray as _, GenericByteArray, GenericListArray},
+    array::{Array, AsArray as _, GenericByteArray, GenericListArray},
     datatypes::{GenericBinaryType, GenericStringType},
 };
 use arrow_schema::Field;
