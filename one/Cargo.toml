@@ -10,6 +10,7 @@ publish = false
 
 [dependencies]
 anyhow.workspace = true
+arrow.workspace = true
 arrow-cast.workspace = true
 arrow-flight.workspace = true
 async-stream.workspace = true

@@ -2478,6 +2478,7 @@ name = "ceramic-one"
 version = "0.48.0"
 dependencies = [
  "anyhow",
+ "arrow",
  "arrow-cast",
  "arrow-flight",
  "async-stream",
