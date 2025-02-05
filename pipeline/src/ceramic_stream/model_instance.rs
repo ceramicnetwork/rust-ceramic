@@ -2,7 +2,9 @@ use std::str::FromStr;
 
 use anyhow::{anyhow, bail, Context as _, Result};
 use ceramic_core::StreamId;
+use cid::Cid;
 use serde::{Deserialize, Serialize};
+use tracing::{instrument, Level};
 
 use super::{
     model::{ModelAccountRelation, ModelDefinition, ModelRelationDefinitionV2},
@@ -14,7 +16,7 @@ use super::{
 pub struct ModelInstance {
     /// JSON payload after the patch has been applied.
     /// It will be validated to conform to the schema of the associated Model and more.
-    payload: Option<serde_json::Value>,
+    content: Option<serde_json::Value>,
 }
 
 impl ModelInstance {
@@ -30,16 +32,15 @@ impl ModelInstance {
     /// these checks do different things for init/data events as headers (other than shouldIndex) are fixed
     /// for the life of the stream currently. For now, we ignore those checks here but still need to know
     /// if it's an init event
+    #[instrument(skip(validator),err(level = Level::DEBUG))]
     pub fn validate(
         &self,
         validator: &SchemaValidator,
-        patch_op: Option<&json_patch::Patch>,
-        model_stream_id: &StreamId,
+        previous: Option<&ModelInstance>,
+        model_version: &Cid,
         model: &ModelDefinition,
-        stream_event_number: usize, // init vs first data event for locked fields
     ) -> Result<()> {
-        // stream_event_number == 0 means init, 1 is first data event, etc
-        let is_init = stream_event_number == 0;
+        let is_init = previous.is_none();
 
         if is_init {
             if model.is_interface() {
@@ -52,44 +53,47 @@ impl ModelInstance {
             self.validate_unique(model)?;
         }
 
-        if is_init && self.payload.is_some() && model.is_deterministic_account_relation() {
+        if is_init && self.content.is_some() && model.is_deterministic_account_relation() {
             bail!("Deterministic init events for ModelInstanceDocuments must not have content")
         }
         // skip content length check (16_000_000 bytes in js-ceramic)
 
         // content/data must conform to schema -> validate_schema
-        if let Some(mid_data) = &self.payload {
-            validator.validate_mid_conforms_to_model(mid_data, model_stream_id, model)?;
+        if let Some(mid_data) = &self.content {
+            validator.validate_mid_conforms_to_model(mid_data, model_version, model)?;
         }
 
         self.validate_relations(model)?;
 
-        let event_may_modify_locked_fields =
-            is_init || (stream_event_number == 1 && model.is_deterministic_account_relation());
-
-        if let Some(patch_op) = patch_op {
-            if !event_may_modify_locked_fields {
-                Self::validate_locked_fields_update(model, patch_op)?;
-            }
-        }
+        self.validate_locked_fields_update(model, previous)?;
 
         Ok(())
     }
 
     /// This uses the updated fields (via JSON Patch) to validate the locked fields were not modified
     fn validate_locked_fields_update(
+        &self,
         model: &ModelDefinition,
-        op: &json_patch::Patch,
+        previous: Option<&ModelInstance>,
     ) -> Result<()> {
         match model {
             ModelDefinition::V1(_) => Ok(()),
             ModelDefinition::V2(v2) => {
                 if let Some(immutable) = &v2.immutable_fields {
-                    // use a loop for a better error
-                    for modified in op.0.iter().flat_map(|p| p.path().front()) {
-                        // can't use contains with &String and &str https://github.com/rust-lang/rust/issues/42671
-                        if immutable.iter().any(|i| i == modified.decoded().as_ref()) {
-                            bail!("Immutable field {modified} cannot be updated")
+                    if let Some(current) = &self.content {
+                        // If we do not have a previous there then locked fields can be set the
+                        // first time.
+                        // Is this true? Or is setting the locked fields the first time considered
+                        // a patch to the empty object.
+                        if let Some(previous) = previous.and_then(|p| p.content.as_ref()) {
+                            let patch = json_patch::diff(previous, current);
+                            // use a loop for a better error
+                            for modified in patch.0.iter().flat_map(|p| p.path().front()) {
+                                // can't use contains with &String and &str https://github.com/rust-lang/rust/issues/42671
+                                if immutable.iter().any(|i| i == modified.decoded().as_ref()) {
+                                    bail!("Immutable field {modified} cannot be updated")
+                                }
+                            }
                         }
                     }
                 }
@@ -140,7 +144,7 @@ impl ModelInstance {
                     }
                 }
                 if let Some(target_mid) = self
-                    .payload
+                    .content
                     .as_ref()
                     .and_then(|c| c.as_object().and_then(|c| c.get(field_name)))
                 {
@@ -229,7 +233,7 @@ impl ModelInstance {
         let account_relation = model.account_relation();
         if matches!(account_relation, ModelAccountRelation::Set) {
             // if metadata.unique.is_none() => bail!("Missing unique metadata value")
-            if self.payload.is_none() {
+            if self.content.is_none() {
                 bail!("Missing content")
             }
 

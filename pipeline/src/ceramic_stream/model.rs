@@ -1,4 +1,6 @@
 use anyhow::{anyhow, bail, Result};
+use ceramic_core::StreamId;
+use schemars::{JsonSchema, Schema};
 use serde::{Deserialize, Serialize};
 
 pub use super::model_versions::*;
@@ -14,6 +16,41 @@ pub enum ModelDefinition {
     V1(ModelDefinitionV1),
     #[serde(rename = "2.0")]
     V2(ModelDefinitionV2),
+}
+
+impl ModelDefinition {
+    fn schema_for<T: JsonSchema>() -> Schema {
+        let settings = schemars::generate::SchemaSettings::default().with(|s| {
+            s.meta_schema = Some("https://json-schema.org/draft/2020-12/schema".to_string());
+            s.option_nullable = true;
+            s.option_add_null_type = false;
+        });
+        let gen = settings.into_generator();
+        gen.into_root_schema_for::<T>()
+    }
+    /// Create a new definition for a type that implements `GetSchema`
+    pub fn new_v2<T: JsonSchema>(
+        name: String,
+        description: Option<String>,
+        interface: bool,
+        implements: Option<Vec<StreamId>>,
+        immutable_fields: Option<Vec<String>>,
+        account_relation: ModelAccountRelationV2,
+    ) -> anyhow::Result<Self> {
+        let schema = Self::schema_for::<T>();
+        Ok(Self::V2(ModelDefinitionV2 {
+            name,
+            description,
+            interface,
+            implements: implements.unwrap_or_default(),
+            schema,
+            immutable_fields,
+            account_relation,
+            //TODO expose these features
+            relations: Default::default(),
+            views: Default::default(),
+        }))
+    }
 }
 
 impl ModelDefinition {
@@ -53,7 +90,11 @@ impl ModelDefinition {
     /// Make sure the model conforms to all the rules before it's persisted
     /// Requires the schemas of all interfaces implemented in order to verify its schema against them
     /// This is the model-handler validation in js-ceramic
-    pub fn validate(&self, interfaces: Option<&[ModelDefinition]>) -> Result<()> {
+    pub fn validate(
+        &self,
+        previous: Option<&ModelDefinition>,
+        interfaces: Option<&[ModelDefinition]>,
+    ) -> Result<()> {
         // TODO: some applyGenesis/applySigned checks in js-ceramic require the header and are not validated in c1 currently
         // these checks should maybe be included in a stream type validation in the event validation code, as it currently
         // only validates envelope structure, validity to stream/event log and signatures. examples:
@@ -218,7 +259,7 @@ mod test {
         parsed
             .state
             .content
-            .validate(None)
+            .validate(None, None)
             .expect("ModelDefinition should validate");
         let back = serde_json::to_value(parsed)
             .map_err(|e| format!("to_value {e} for {:?}", m))
@@ -296,7 +337,7 @@ mod test {
         model
             .state
             .content
-            .validate(Some(&[interface1, interface2]))
+            .validate(None, Some(&[interface1, interface2]))
             .unwrap()
     }
 }

@@ -13,6 +13,9 @@ use datafusion::{
     },
 };
 use json_patch::PatchOperation;
+use tracing::instrument;
+
+use super::EventDataContainer;
 
 /// Applies a Ceramic data event to a document state returning the new document state.
 #[derive(Debug)]
@@ -67,25 +70,12 @@ impl WindowUDFImpl for CeramicPatch {
         &self,
         field_args: datafusion::logical_expr::function::WindowUDFFieldArgs,
     ) -> Result<arrow_schema::Field> {
-        Ok(Field::new(field_args.name(), DataType::Binary, false))
+        Ok(Field::new(field_args.name(), DataType::Binary, true))
     }
 }
-// Small wrapper container around the data/state fields to hold
-// other mutable metadata for the event.
-// This is specific to Model Instance Documents.
-// Metadata is considered to be mutable from event to event and an overwriting merge is performed
-// with the previous metadata to the current metadata.
-// This means if a metadata key is missing it is propogated forward until a new data event changes
-// its value.
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct MIDDataContainer<D> {
-    metadata: BTreeMap<String, serde_json::Value>,
-    content: D,
-}
 
-type MIDDataContainerPatch = MIDDataContainer<Vec<PatchOperation>>;
-type MIDDataContainerState = MIDDataContainer<serde_json::Value>;
+type MIDDataContainerPatch = EventDataContainer<Vec<PatchOperation>>;
+type MIDDataContainerState = EventDataContainer<serde_json::Value>;
 
 #[derive(Debug)]
 struct CeramicPatchEvaluator;

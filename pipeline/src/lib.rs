@@ -6,6 +6,9 @@
 //! tables can be exposed via a FlightSQL server.
 #![warn(missing_docs)]
 
+#[macro_use]
+pub(crate) mod macros;
+
 pub mod aggregator;
 mod cache_table;
 mod ceramic_stream;

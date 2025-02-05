@@ -4,7 +4,6 @@ use std::{
 };
 
 use anyhow::{bail, Result};
-use ceramic_core::StreamId;
 use cid::Cid;
 use jsonschema::Validator;
 use lru::LruCache;
@@ -33,10 +32,10 @@ impl SchemaValidator {
     pub fn validate_mid_conforms_to_model(
         &self,
         mid_data: &serde_json::Value,
-        model_stream_id: &StreamId,
+        model_version: &Cid,
         model: &ModelDefinition,
     ) -> anyhow::Result<()> {
-        let validator = self.get_schema_validator(model_stream_id, model)?;
+        let validator = self.get_schema_validator(model_version, model)?;
         if validator.is_valid(mid_data) {
             Ok(())
         } else {
@@ -55,16 +54,16 @@ impl SchemaValidator {
 
     fn get_schema_validator(
         &self,
-        model_stream_id: &StreamId,
+        model_version: &Cid,
         model: &ModelDefinition,
     ) -> Result<Arc<Validator>> {
         let mut cached_validators = self.schemas.lock().unwrap();
-        let validator = if let Some(v) = cached_validators.get(&model_stream_id.cid) {
+        let validator = if let Some(v) = cached_validators.get(&model_version) {
             v.clone()
         } else {
             let schema = model.schema();
             let validator = Arc::new(jsonschema::validator_for(schema.as_value())?);
-            cached_validators.push(model_stream_id.cid, validator.clone());
+            cached_validators.push(*model_version, validator.clone());
             validator
         };
         Ok(validator)
@@ -91,7 +90,7 @@ mod test {
                     }
                     ceramic_event::unvalidated::Payload::Init(p) => p.data().unwrap(),
                 };
-                data.validate(None).unwrap();
+                data.validate(None, None).unwrap();
             }
             Event::Unsigned(_) => unreachable!(),
         }

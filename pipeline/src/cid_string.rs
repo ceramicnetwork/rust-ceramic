@@ -14,6 +14,21 @@ use datafusion::{
     logical_expr::{ColumnarValue, ScalarUDFImpl, Signature, TypeSignature, Volatility},
 };
 
+make_udf_expr_and_func!(
+    CidString,
+    cid_string,
+    cids,
+    "transforms a binary cid to utf8 string.",
+    cid_string_udf
+);
+make_udf_expr_and_func!(
+    CidStringList,
+    array_cid_string,
+    cids,
+    "transforms a list of binary cids to a list of utf8 strings.",
+    cid_string_list_udf
+);
+
 // Length of a typical Ceramic CID as a UTF8 string in bytes.
 const CID_STRING_BYTES: usize = 60;
 
