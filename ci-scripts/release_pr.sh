@@ -14,6 +14,7 @@
 # * gh is installed
 # * jq is installed
 # * GITHUB_TOKEN is set or gh is authenticated
+# * envsubst is installed
 
 # Fail script if any command fails
 set -e
@@ -70,6 +71,9 @@ msg="chore: version v${version}"
 git commit -am "$msg"
 git push --set-upstream origin "$pr_branch"
 
+# Update docs with the new version
+envsubst < ./book/src/docker.md-template > ./book/src/docker.md
+
 # Create a PR against the branch this workflow is running on
 gh pr create \
     --base "$current_branch" \
@@ -77,3 +81,4 @@ gh pr create \
     --label release \
     --title "$msg" \
     --body "$release_notes"
+
