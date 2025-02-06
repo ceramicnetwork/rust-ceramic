@@ -15,7 +15,7 @@ use arrow::{
     compute::concat_batches,
     datatypes::Int32Type,
 };
-use arrow_schema::SchemaRef;
+use arrow_schema::{DataType, SchemaRef};
 use async_trait::async_trait;
 use ceramic_actor::{actor_envelope, Actor, Handler, Message};
 use ceramic_core::StreamId;
@@ -37,8 +37,10 @@ use datafusion::{
     functions_aggregate::expr_fn::last_value,
     functions_array::extract::array_element,
     logical_expr::{
-        col, dml::InsertOp, expr::WindowFunction, lit, Expr, ExprFunctionExt as _,
-        WindowFunctionDefinition, UNNAMED_TABLE,
+        col,
+        dml::InsertOp,
+        expr::{ScalarFunction, WindowFunction},
+        lit, Expr, ExprFunctionExt as _, ScalarUDF, WindowFunctionDefinition, UNNAMED_TABLE,
     },
     physical_plan::stream::RecordBatchStreamAdapter,
     prelude::SessionContext,
@@ -51,6 +53,7 @@ use tracing::{debug, error, instrument};
 
 use crate::{
     cache_table::CacheTable,
+    cid_part::CidPart,
     concluder::ConcluderHandle,
     metrics::Metrics,
     schemas,
@@ -64,6 +67,12 @@ const EVENT_STATES_TABLE: &str = "ceramic.v0.event_states";
 const EVENT_STATES_FEED_TABLE: &str = "ceramic.v0.event_states_feed";
 const EVENT_STATES_MEM_TABLE: &str = "ceramic._internal.event_states_mem";
 const EVENT_STATES_PERSISTENT_TABLE: &str = "ceramic._internal.event_states_persistent";
+// Path within the object store where the event states table is stored
+// This path should be updated when the underlying storage structure changes. (i.e. the parition
+// columns change). The revision is a physical versioning number and not directly associated with
+// the logical schema version of the table. There are many cases where the physical revision may
+// need to change while the logical version remains the same.
+const EVENT_STATES_TABLE_OBJECT_STORE_PATH: &str = "ceramic/rev1/event_states/";
 
 // Maximum number of rows to cache in memory before writing to object store.
 const DEFAULT_MAX_CACHED_ROWS: usize = 10_000;
@@ -75,6 +84,7 @@ pub struct Aggregator {
     ctx: SessionContextRef,
     broadcast_tx: broadcast::Sender<RecordBatch>,
     max_cached_rows: usize,
+    cid_part: Arc<ScalarUDF>,
 }
 
 impl std::fmt::Debug for Aggregator {
@@ -101,6 +111,7 @@ impl Aggregator {
             ctx: ctx.session(),
             broadcast_tx,
             max_cached_rows: max_cached_rows.unwrap_or(DEFAULT_MAX_CACHED_ROWS),
+            cid_part: Arc::new(ScalarUDF::from(CidPart::new())),
         };
         Self::spawn_with(size, ctx, aggregator, concluder, metrics, shutdown).await
     }
@@ -119,27 +130,39 @@ impl Aggregator {
 
         let listing_options = ListingOptions::new(Arc::new(file_format))
             .with_file_extension(".parquet")
-            .with_file_sort_order(vec![vec![col("index").sort(true, true)]]);
+            .with_table_partition_cols(vec![("event_cid_partition".to_owned(), DataType::Int32)])
+            .with_file_sort_order(vec![vec![col("event_cid").sort(true, true)]]);
 
         // Set the path within the bucket for the event_states table
-        let event_states_object_store_path = EVENT_STATES_TABLE.replace('.', "/") + "/";
         let mut url = ctx.object_store_url.clone();
-        url.set_path(&event_states_object_store_path);
+        url.set_path(EVENT_STATES_TABLE_OBJECT_STORE_PATH);
         // Register event_states_persistent as a listing table
         ctx.session().register_table(
             EVENT_STATES_PERSISTENT_TABLE,
             Arc::new(ListingTable::try_new(
                 ListingTableConfig::new(ListingTableUrl::parse(url)?)
                     .with_listing_options(listing_options)
+                    // Use the non partitioned schema as the parquet files themselves do not
+                    // contain the partition columns.
                     .with_schema(schemas::event_states()),
             )?),
         )?;
+        tracing::debug!(
+            schema = ?ctx
+                .session()
+                .table(EVENT_STATES_PERSISTENT_TABLE)
+                .await?
+                .schema(),
+            "schema"
+        );
 
         ctx.session().register_table(
             EVENT_STATES_MEM_TABLE,
             Arc::new(CacheTable::try_new(
-                schemas::event_states(),
-                vec![vec![RecordBatch::new_empty(schemas::event_states())]],
+                schemas::event_states_partitioned(),
+                vec![vec![RecordBatch::new_empty(
+                    schemas::event_states_partitioned(),
+                )]],
             )?),
         )?;
 
@@ -168,6 +191,163 @@ impl Aggregator {
         });
 
         Ok((handle, vec![task_handle, sub_handle]))
+    }
+
+    // Process a batch of conclusion events, producing a new document state for each input event.
+    // The conclusion event must be ordered by "index".
+    // The output event states are ordered by "index".
+    #[instrument(skip(self, conclusion_events))]
+    async fn process_conclusion_events_batch(
+        &self,
+        conclusion_events: RecordBatch,
+    ) -> Result<RecordBatch> {
+        let event_states = self
+            .ctx
+            .table(EVENT_STATES_TABLE)
+            .await?
+            .select(vec![
+                col("event_cid_partition").alias("ecp"),
+                col("stream_cid"),
+                col("event_cid"),
+                col("data"),
+            ])
+            .context("reading event_states")?;
+
+        // Construct a column for the field in the UNNAMED_TABLE.
+        fn anon_col(field: &str) -> Expr {
+            Expr::Column(Column {
+                relation: Some(TableReference::Bare {
+                    table: UNNAMED_TABLE.into(),
+                }),
+                name: field.into(),
+            })
+        }
+
+        // TODO place on struct and reuse
+        let new_event_states = self
+            .ctx
+            .read_batch(conclusion_events)?
+            // MID only ever use the first previous, so we can optimize the join by selecting the
+            // first element of the previous array.
+            .select(vec![
+                col("index"),
+                col("event_type"),
+                col("stream_cid"),
+                col("stream_type"),
+                col("controller"),
+                col("dimensions"),
+                col("event_cid"),
+                col("data"),
+                array_element(col("previous"), lit(1)).alias("previous"),
+                Expr::ScalarFunction(ScalarFunction::new_udf(
+                    self.cid_part.clone(),
+                    vec![array_element(col("previous"), lit(1))],
+                ))
+                .alias("previous_event_cid_partition"),
+                Expr::ScalarFunction(ScalarFunction::new_udf(
+                    self.cid_part.clone(),
+                    vec![col("event_cid")],
+                ))
+                .alias("event_cid_partition"),
+            ])?
+            .join_on(
+                event_states,
+                JoinType::Left,
+                [
+                    col("previous_event_cid_partition").eq(col("ecp")),
+                    col("previous").eq(col(EVENT_STATES_TABLE.to_string() + ".event_cid")),
+                ],
+            )
+            .context("setup join")?
+            .select(vec![
+                anon_col("index").alias("index"),
+                anon_col("event_type").alias("event_type"),
+                anon_col("stream_cid").alias("stream_cid"),
+                anon_col("stream_type").alias("stream_type"),
+                anon_col("controller").alias("controller"),
+                anon_col("dimensions").alias("dimensions"),
+                anon_col("event_cid").alias("event_cid"),
+                col("previous"),
+                col(EVENT_STATES_TABLE.to_string() + ".data").alias("previous_data"),
+                anon_col("data").alias("data"),
+                col("event_cid_partition"),
+            ])?
+            .window(vec![Expr::WindowFunction(WindowFunction::new(
+                WindowFunctionDefinition::WindowUDF(Arc::new(CeramicPatch::new_udwf())),
+                vec![
+                    col("event_cid"),
+                    col("previous"),
+                    col("previous_data"),
+                    col("data"),
+                ],
+            ))
+            .partition_by(vec![col("stream_cid")])
+            .order_by(vec![col("index").sort(true, true)])
+            .build()?
+            .alias("new_data")])?
+            // Rename columns to match event_states table schema
+            .select_columns(&[
+                "index",
+                "stream_cid",
+                "stream_type",
+                "controller",
+                "dimensions",
+                "event_cid",
+                "event_type",
+                "new_data",
+                "event_cid_partition",
+            ])?
+            .with_column_renamed("new_data", "data")?
+            .sort(vec![col("index").sort(true, true)])?;
+        let new_event_states = new_event_states.collect().await?;
+
+        // Concatenating batches requires allocating a new batch, so we do this now so we can reuse the
+        // vector of batches for writing to the table and only have to copy the data once.
+        // NOTE: this drops the event_cid_partition column and that is expected because it is an
+        // implementation detail of the aggregator queries.
+        let new_event_states_batch = concat_batches(&schemas::event_states(), &new_event_states)?;
+
+        // Write states to the in memory event_states table
+        self.ctx
+            .read_batches(new_event_states)?
+            .write_table(
+                EVENT_STATES_MEM_TABLE,
+                DataFrameWriteOptions::new()
+                    .with_partition_by(vec!["event_cid_partition".to_owned()]),
+            )
+            .await
+            .context("writing to mem table data")?;
+
+        let count = self
+            .ctx
+            .table(EVENT_STATES_MEM_TABLE)
+            .await?
+            .count()
+            .await?;
+        // If we have enough data cached in memory write it out to persistent store
+        if count >= self.max_cached_rows {
+            self.ctx
+                .table(EVENT_STATES_MEM_TABLE)
+                .await?
+                .write_table(
+                    EVENT_STATES_PERSISTENT_TABLE,
+                    DataFrameWriteOptions::new()
+                        .with_partition_by(vec!["event_cid_partition".to_owned()]),
+                )
+                .await
+                .context("writing to persistent table")?;
+            // Clear all data in the memory batch, by writing an empty batch
+            self.ctx
+                .read_batch(RecordBatch::new_empty(schemas::event_states_partitioned()))?
+                .write_table(
+                    EVENT_STATES_MEM_TABLE,
+                    DataFrameWriteOptions::new().with_insert_operation(InsertOp::Overwrite),
+                )
+                .await
+                .context("clearing mem table")
+                .unwrap();
+        }
+        Ok(new_event_states_batch)
     }
 }
 
@@ -211,7 +391,7 @@ async fn concluder_subscription(
                 match r {
                     Ok(Some(batch)) => {
                         if let Err(err) = aggregator.send(NewConclusionEventsMsg { events: batch }).await? {
-                            error!(%err, "concluder subscription loop failed to process new conclusion events");
+                            error!(?err, "concluder subscription loop failed to process new conclusion events");
                         }
                     }
                     // Subscription has finished, this means we are shutting down.
@@ -298,9 +478,7 @@ impl Handler<NewConclusionEventsMsg> for Aggregator {
             event_count = message.events.num_rows(),
             "new conclusion events"
         );
-        let batch =
-            process_conclusion_events_batch(self.ctx.clone(), message.events, self.max_cached_rows)
-                .await?;
+        let batch = self.process_conclusion_events_batch(message.events).await?;
         if batch.num_rows() > 0 {
             let _ = self.broadcast_tx.send(batch);
         }
@@ -465,120 +643,6 @@ impl Handler<StreamStateMsg> for Aggregator {
             data: data.to_vec(),
         }))
     }
-}
-
-// Process a batch of conclusion events, producing a new document state for each input event.
-// The conclusion event must be ordered by "index".
-// The output event states are ordered by "index".
-#[instrument(skip(ctx, conclusion_events))]
-async fn process_conclusion_events_batch(
-    ctx: SessionContextRef,
-    conclusion_events: RecordBatch,
-    max_cached_rows: usize,
-) -> Result<RecordBatch> {
-    let event_states = ctx
-        .table(EVENT_STATES_TABLE)
-        .await?
-        .select_columns(&["stream_cid", "event_cid", "data"])
-        .context("reading event_states")?;
-
-    // Construct a column for the field in the UNNAMED_TABLE.
-    fn anon_col(field: &str) -> Expr {
-        Expr::Column(Column {
-            relation: Some(TableReference::Bare {
-                table: UNNAMED_TABLE.into(),
-            }),
-            name: field.into(),
-        })
-    }
-
-    let new_event_states = ctx
-        .read_batch(conclusion_events)?
-        // MID only ever use the first previous, so we can optimize the join by selecting the
-        // first element of the previous array.
-        .select(vec![
-            col("index"),
-            col("event_type"),
-            col("stream_cid"),
-            col("stream_type"),
-            col("controller"),
-            col("dimensions"),
-            col("event_cid"),
-            col("data"),
-            array_element(col("previous"), lit(1)).alias("previous"),
-        ])?
-        .join_on(
-            event_states,
-            JoinType::Left,
-            [col("previous").eq(col(EVENT_STATES_TABLE.to_string() + ".event_cid"))],
-        )?
-        .select(vec![
-            anon_col("index").alias("index"),
-            anon_col("event_type").alias("event_type"),
-            anon_col("stream_cid").alias("stream_cid"),
-            anon_col("stream_type").alias("stream_type"),
-            anon_col("controller").alias("controller"),
-            anon_col("dimensions").alias("dimensions"),
-            anon_col("event_cid").alias("event_cid"),
-            col("previous"),
-            col(EVENT_STATES_TABLE.to_string() + ".data").alias("previous_data"),
-            anon_col("data").alias("data"),
-        ])?
-        .window(vec![Expr::WindowFunction(WindowFunction::new(
-            WindowFunctionDefinition::WindowUDF(Arc::new(CeramicPatch::new_udwf())),
-            vec![
-                col("event_cid"),
-                col("previous"),
-                col("previous_data"),
-                col("data"),
-            ],
-        ))
-        .partition_by(vec![col("stream_cid")])
-        .order_by(vec![col("index").sort(true, true)])
-        .build()?
-        .alias("new_data")])?
-        // Rename columns to match event_states table schema
-        .select_columns(&[
-            "index",
-            "stream_cid",
-            "stream_type",
-            "controller",
-            "dimensions",
-            "event_cid",
-            "event_type",
-            "new_data",
-        ])?
-        .with_column_renamed("new_data", "data")?
-        .sort(vec![col("index").sort(true, true)])?
-        .collect()
-        .await?;
-
-    // Concatenating batches requires allocating a new batch, so we do this now so we can reuse the
-    // vector of batches for writing to the table and only have to copy the data once.
-    let new_event_states_batch = concat_batches(&schemas::event_states(), &new_event_states)?;
-
-    // Write states to the in memory event_states table
-    ctx.read_batches(new_event_states)?
-        .write_table(EVENT_STATES_MEM_TABLE, DataFrameWriteOptions::new())
-        .await
-        .context("computing data")?;
-
-    let count = ctx.table(EVENT_STATES_MEM_TABLE).await?.count().await?;
-    // If we have enough data cached in memory write it out to persistent store
-    if count >= max_cached_rows {
-        ctx.table(EVENT_STATES_MEM_TABLE)
-            .await?
-            .write_table(EVENT_STATES_PERSISTENT_TABLE, DataFrameWriteOptions::new())
-            .await?;
-        // Clear all data in the memory batch, by writing an empty batch
-        ctx.read_batch(RecordBatch::new_empty(schemas::event_states()))?
-            .write_table(
-                EVENT_STATES_MEM_TABLE,
-                DataFrameWriteOptions::new().with_insert_operation(InsertOp::Overwrite),
-            )
-            .await?;
-    }
-    Ok(new_event_states_batch)
 }
 
 #[async_trait]
@@ -1403,29 +1467,16 @@ mod tests {
             .send(SubscribeSinceMsg {
                 projection: None,
                 offset: None,
-                limit: None,
+                limit: Some(3),
             })
             .await
             .unwrap()
             .unwrap();
-        // The fact there are two batches is an implementation detail.
-        // Unfortunately we need to poll the stream for the exact number of batches we expect
-        // becuase the stream is unbounded.
-        let first_batch = subscription
-            .try_next()
-            .await
-            .unwrap()
-            .ok_or_else(|| anyhow::anyhow!("no events found"))
-            .unwrap();
-        let second_batch = subscription
-            .try_next()
-            .await
-            .unwrap()
-            .ok_or_else(|| anyhow::anyhow!("no events found"))
-            .unwrap();
-        let event_states = pretty_event_states(vec![first_batch, second_batch])
-            .await
-            .unwrap();
+        let mut batches = Vec::new();
+        while let Some(batch) = subscription.try_next().await.unwrap() {
+            batches.push(batch)
+        }
+        let event_states = pretty_event_states(batches).await.unwrap();
         expect![[r#"
             +-------+-------------------------------------------------------------+-------------+-------------+---------------------------------------------------------+-------------------------------------------------------------+------------+--------------------------------------------------------------+
             | index | stream_cid                                                  | stream_type | controller  | dimensions                                              | event_cid                                                   | event_type | data                                                         |
