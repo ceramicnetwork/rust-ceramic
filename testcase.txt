@@ -1,0 +1,10 @@
+new instance new schema new model pass
+new instance old schema new model pass
+new instance new schema old model fail
+new instance old schema old model pass
+
+old old init
+update instance new schema new model pass
+update instance old schema new model pass
+update instance new schema old model fail
+update instance old schema old model pass

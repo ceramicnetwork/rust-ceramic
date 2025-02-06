@@ -74,6 +74,7 @@ pub struct InitBuilderWithSep<D> {
     data: Option<D>,
     should_index: Option<bool>,
     context: Option<Vec<u8>>,
+    model_version: Option<Cid>,
 }
 impl<D> InitBuilderState for InitBuilderWithSep<D> {}
 impl InitBuilder<InitBuilderWithController> {
@@ -87,6 +88,7 @@ impl InitBuilder<InitBuilderWithController> {
                 data: None,
                 should_index: None,
                 context: None,
+                model_version: None,
             },
         }
     }
@@ -110,6 +112,11 @@ impl<D: serde::Serialize> InitBuilder<InitBuilderWithSep<D>> {
         self.state.should_index = Some(should_index);
         self
     }
+    /// Specify the model version value.
+    pub fn with_model_version(mut self, model_version: Cid) -> Self {
+        self.state.model_version = Some(model_version);
+        self
+    }
 
     /// Specify the data.
     pub fn with_data(mut self, data: D) -> Self {
@@ -125,7 +132,9 @@ impl<D: serde::Serialize> InitBuilder<InitBuilderWithSep<D>> {
             self.state.should_index,
             self.state.unique,
             self.state.context,
+            self.state.model_version,
         );
+
         unvalidated::init::Payload::new(header, self.state.data)
     }
     /// Build and sign the event
@@ -190,6 +199,7 @@ pub struct DataBuilderWithData<D> {
     prev: Cid,
     data: D,
     should_index: Option<bool>,
+    model_version: Option<Cid>,
 }
 impl<D> DataBuilderState for DataBuilderWithData<D> {}
 impl DataBuilder<DataBuilderWithPrev> {
@@ -201,6 +211,7 @@ impl DataBuilder<DataBuilderWithPrev> {
                 prev: self.state.prev,
                 data,
                 should_index: None,
+                model_version: None,
             },
         }
     }
@@ -212,13 +223,27 @@ impl<D: serde::Serialize> DataBuilder<DataBuilderWithData<D>> {
         self.state.should_index = should_index;
         self
     }
+    /// Specify model_version.
+    pub fn with_model_version(mut self, model_version: Option<Cid>) -> Self {
+        self.state.model_version = model_version;
+        self
+    }
 
     /// Build the event payload.
     pub fn build_payload(self) -> unvalidated::data::Payload<D> {
-        let header = self
-            .state
-            .should_index
-            .map(|si| unvalidated::data::Header::new(Some(si)));
+        let header = match (self.state.should_index, self.state.model_version) {
+            (None, None) => None,
+            (None, Some(model_version)) => {
+                Some(unvalidated::data::Header::new(None, Some(model_version)))
+            }
+            (Some(should_index), None) => {
+                Some(unvalidated::data::Header::new(Some(should_index), None))
+            }
+            (Some(should_index), Some(model_version)) => Some(unvalidated::data::Header::new(
+                Some(should_index),
+                Some(model_version),
+            )),
+        };
         unvalidated::data::Payload::new(self.state.id, self.state.prev, header, self.state.data)
     }
     /// Build and sign the event

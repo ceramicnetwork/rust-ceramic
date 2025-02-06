@@ -21,6 +21,7 @@ mod metrics;
 pub mod schemas;
 mod since;
 pub mod stream_id_string;
+pub mod stream_id_to_cid;
 #[cfg(test)]
 mod tests;
 

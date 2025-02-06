@@ -71,6 +71,7 @@ pub struct ConclusionInit {
     /// This is not the StreamId as it does not contain the StreamType.
     pub stream_cid: Cid,
     /// The type of the stream.
+    /// TODO use StreamIdType
     pub stream_type: u8,
     /// DID controller of the stream.
     pub controller: String,

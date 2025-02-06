@@ -1,10 +1,12 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use arrow::{
-    array::{Array as _, ArrayBuilder as _, ArrayRef, BinaryBuilder},
+    array::{Array as _, ArrayBuilder as _, ArrayRef, BinaryBuilder, StructArray, StructBuilder},
     datatypes::DataType,
 };
 use arrow_schema::Field;
+use ceramic_core::SerializeExt;
+use cid::Cid;
 use datafusion::{
     common::{cast::as_binary_array, exec_datafusion_err, Result},
     logical_expr::{
@@ -19,11 +21,11 @@ use super::EventDataContainer;
 
 /// Applies a Ceramic data event to a document state returning the new document state.
 #[derive(Debug)]
-pub struct CeramicPatch {
+pub struct ModelInstancePatch {
     signature: Signature,
 }
 
-impl CeramicPatch {
+impl ModelInstancePatch {
     pub fn new_udwf() -> WindowUDF {
         WindowUDF::new_from_impl(Self::new())
     }
@@ -46,13 +48,13 @@ impl CeramicPatch {
     }
 }
 
-impl WindowUDFImpl for CeramicPatch {
+impl WindowUDFImpl for ModelInstancePatch {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
 
     fn name(&self) -> &str {
-        "ceramic_patch"
+        "model_instance_patch"
     }
 
     fn signature(&self) -> &datafusion::logical_expr::Signature {
@@ -70,18 +72,31 @@ impl WindowUDFImpl for CeramicPatch {
         &self,
         field_args: datafusion::logical_expr::function::WindowUDFFieldArgs,
     ) -> Result<arrow_schema::Field> {
-        Ok(Field::new(field_args.name(), DataType::Binary, true))
+        Ok(Field::new_struct(
+            field_args.name(),
+            vec![
+                Field::new("model_version", DataType::Binary, true),
+                Field::new("data", DataType::Binary, true),
+            ],
+            true,
+        ))
     }
 }
 
 type MIDDataContainerPatch = EventDataContainer<Vec<PatchOperation>>;
 type MIDDataContainerState = EventDataContainer<serde_json::Value>;
+/// EventDataContainer with only the metadata.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MetadataContainer {
+    metadata: BTreeMap<String, serde_json::Value>,
+}
 
 #[derive(Debug)]
 struct CeramicPatchEvaluator;
 
 impl CeramicPatchEvaluator {
-    fn apply_patch(patch: &[u8], previous_state: &[u8]) -> Result<Vec<u8>> {
+    fn apply_patch(patch: &[u8], previous_state: &[u8]) -> Result<(Vec<u8>, Option<Cid>)> {
         let patch: MIDDataContainerPatch = serde_json::from_slice(patch)
             .map_err(|err| exec_datafusion_err!("Error parsing patch: {err}"))?;
         let mut state: MIDDataContainerState = serde_json::from_slice(previous_state)
@@ -93,7 +108,39 @@ impl CeramicPatchEvaluator {
         state.metadata.extend(patch.metadata);
         json_patch::patch(&mut state.content, &patch.content)
             .map_err(|err| exec_datafusion_err!("Error applying JSON patch: {err}"))?;
-        serde_json::to_vec(&state).map_err(|err| exec_datafusion_err!("Error JSON encoding: {err}"))
+        let model_version = state
+            .metadata
+            .get("modelVersion")
+            .map(|mv| {
+                mv.as_str().map(|mv| -> Result<_> {
+                    Ok(mv.parse().map_err(|err| {
+                        exec_datafusion_err!("modelVersion must be a valid CID: {err}")
+                    })?)
+                })
+            })
+            .flatten()
+            .transpose()?;
+        Ok((
+            serde_json::to_vec(&state)
+                .map_err(|err| exec_datafusion_err!("Error JSON encoding: {err}"))?,
+            model_version,
+        ))
+    }
+    fn parse_model_version(data: &[u8]) -> Result<Option<Cid>> {
+        let patch: MetadataContainer = serde_json::from_slice(data)
+            .map_err(|err| exec_datafusion_err!("Error parsing model version from data: {err}"))?;
+        Ok(patch
+            .metadata
+            .get("modelVersion")
+            .map(|mv| {
+                mv.as_str().map(|mv| -> Result<_> {
+                    Ok(mv.parse().map_err(|err| {
+                        exec_datafusion_err!("modelVersion must be a valid CID: {err}")
+                    })?)
+                })
+            })
+            .flatten()
+            .transpose()?)
     }
 }
 
@@ -122,6 +169,7 @@ impl PartitionEvaluator for CeramicPatchEvaluator {
         let previous_states = as_binary_array(&values[2])?;
         let patches = as_binary_array(&values[3])?;
         let mut new_states = BinaryBuilder::new();
+        let mut model_versions = BinaryBuilder::new();
         for i in 0..num_rows {
             if previous_cids.is_valid(i) {
                 if let Some(previous_state) = if !previous_states.is_null(i) {
@@ -143,35 +191,51 @@ impl PartitionEvaluator for CeramicPatchEvaluator {
                 } {
                     if patches.is_null(i) {
                         // We have a time event, new state is just the previous state
-                        //
+                        model_versions.append_option(
+                            Self::parse_model_version(previous_state)?.map(|mv| mv.to_bytes()),
+                        );
                         // Allow clippy warning as previous_state is a reference back into new_states.
                         // So we need to copy the data to a new location before we can copy it back
                         // into the new_states.
                         #[allow(clippy::unnecessary_to_owned)]
                         new_states.append_value(previous_state.to_owned());
                     } else {
-                        new_states.append_value(CeramicPatchEvaluator::apply_patch(
-                            patches.value(i),
-                            previous_state,
-                        )?);
+                        let (data, model_version) =
+                            Self::apply_patch(patches.value(i), previous_state)?;
+                        new_states.append_value(data);
+                        model_versions.append_option(model_version.map(|mv| mv.to_bytes()));
                         // MID validate(new, model)
                     }
                 } else {
                     // Unreachable when data is well formed.
                     // Appending null means well formed documents can continue to be aggregated.
                     new_states.append_null();
+                    model_versions.append_null();
                 }
             } else {
                 //Init event, patch value is the initial state
                 if patches.is_null(i) {
                     // We have an init event without data
                     new_states.append_null();
+                    model_versions.append_null();
                 } else {
-                    new_states.append_value(patches.value(i));
+                    let data = patches.value(i);
+                    new_states.append_value(data);
+                    model_versions
+                        .append_option(Self::parse_model_version(data)?.map(|mv| mv.to_bytes()));
                 }
             }
         }
-        Ok(Arc::new(new_states.finish()))
+        Ok(Arc::new(StructArray::from(vec![
+            (
+                Arc::new(Field::new("model_version", DataType::Binary, true)),
+                Arc::new(model_versions.finish()) as ArrayRef,
+            ),
+            (
+                Arc::new(Field::new("data", DataType::Binary, true)),
+                Arc::new(new_states.finish()) as ArrayRef,
+            ),
+        ])))
     }
 }
 
