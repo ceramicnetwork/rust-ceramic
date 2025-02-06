@@ -47,6 +47,7 @@ url.workspace = true
 # TODO: 1.0 stable or 0.8
 schemars = "1.0.0-alpha.17"
 paste.workspace = true
+json-schema-diff = "0.1.7"
 
 [dev-dependencies]
 mockall.workspace = true

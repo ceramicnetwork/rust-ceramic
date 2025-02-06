@@ -234,7 +234,6 @@ impl Aggregator {
             .read_batches(events_with_previous)?
             .filter(col("stream_type").eq(lit(StreamIdType::ModelInstanceDocument as u8)))?;
         let mids = self.patch_model_instances(mids).await?;
-        tracing::debug!(schema=?mids.schema(),"patched schema");
         let mids = self
             .validate_model_instances(mids)
             .await
@@ -283,15 +282,11 @@ impl Aggregator {
             .ctx
             .table(EVENT_STATES_TABLE)
             .await?
-            .select(vec![
-                // Alias column so it does not conflict with the column from conclusion_events
-                // in the join.
-                col("event_cid_partition").alias("ecp"),
-                col("stream_cid"),
-                col("event_cid"),
-                col("data"),
-            ])
-            .context("reading event_states")?;
+            .select_columns(&["event_cid_partition", "stream_cid", "event_cid", "data"])?
+            // Alias column so it does not conflict with the column from conclusion_events
+            // in the join.
+            .with_column_renamed("event_cid_partition", "ecp")?
+            .with_column_renamed("data", "previous_data")?;
 
         Ok(conclusion_events
             // MID only ever use the first previous, so we can optimize the join by selecting the
@@ -328,7 +323,7 @@ impl Aggregator {
                 anon_col("dimensions").alias("dimensions"),
                 anon_col("event_cid").alias("event_cid"),
                 col("previous"),
-                table_col(EVENT_STATES_TABLE, "data").alias("previous_data"),
+                col("previous_data"),
                 anon_col("data").alias("data"),
                 col("event_cid_partition"),
             ])?
@@ -352,21 +347,29 @@ impl Aggregator {
             .partition_by(vec![col("stream_cid")])
             .order_by(vec![col("index").sort(true, true)])
             .build()?
-            .alias("new_data")])?
+            .alias("patched")])?
+            .unnest_columns(&["patched"])?
             // Rename columns to match event_states table schema
-            .select_columns(&[
-                "index",
-                "stream_cid",
-                "stream_type",
-                "controller",
-                "dimensions",
-                "event_cid",
-                "event_type",
-                "previous_data",
-                "new_data",
-                "event_cid_partition",
-            ])?
-            .with_column_renamed("new_data", "data")?)
+            .select(vec![
+                col("index"),
+                col("stream_cid"),
+                col("stream_type"),
+                col("controller"),
+                col("dimensions"),
+                col("event_cid"),
+                col("event_type"),
+                Expr::Column(Column {
+                    relation: None,
+                    name: "patched.previous_data".to_owned(),
+                })
+                .alias("previous_data"),
+                Expr::Column(Column {
+                    relation: None,
+                    name: "patched.data".to_owned(),
+                })
+                .alias("data"),
+                col("event_cid_partition"),
+            ])?)
     }
     // Applies patches to model instances
     #[instrument(skip_all)]
@@ -384,9 +387,9 @@ impl Aggregator {
             .partition_by(vec![col("stream_cid")])
             .order_by(vec![col("index").sort(true, true)])
             .build()?
-            .alias("new_data")])?
+            .alias("patched")])?
             // Flatten struct from model_instance_patch
-            .unnest_columns(&["new_data"])
+            .unnest_columns(&["patched"])
             .context("unnest_columns")?
             .select(vec![
                 col("index"),
@@ -401,12 +404,12 @@ impl Aggregator {
                 when(
                     Expr::Column(Column {
                         relation: None,
-                        name: "new_data.model_version".to_owned(),
+                        name: "patched.model_version".to_owned(),
                     })
                     .is_not_null(),
                     Expr::Column(Column {
                         relation: None,
-                        name: "new_data.model_version".to_owned(),
+                        name: "patched.model_version".to_owned(),
                     }),
                 )
                 .otherwise(stream_id_to_cid(cast(
@@ -416,15 +419,21 @@ impl Aggregator {
                 .alias("model_version"),
                 Expr::Column(Column {
                     relation: None,
-                    name: "new_data.data".to_owned(),
+                    name: "patched.data".to_owned(),
                 })
                 .alias("data"),
+                Expr::Column(Column {
+                    relation: None,
+                    name: "patched.patch".to_owned(),
+                })
+                .alias("patch"),
                 col("event_cid_partition"),
             ])
             .context("select")?)
     }
     #[instrument(skip_all)]
     fn validate_models(&self, models: DataFrame) -> Result<DataFrame> {
+        tracing::debug!(schema=?models.schema(),"validate_models");
         Ok(models.select(vec![
             col("index"),
             col("stream_cid"),
@@ -469,7 +478,7 @@ impl Aggregator {
                 col("data"),
                 model_instance_validate::model_instance_validate(
                     col("data"),
-                    anon_col("previous_data"),
+                    col("patch"),
                     col("model_version"),
                     col("model_definition"),
                 )
@@ -1741,19 +1750,36 @@ mod tests {
             &mut events,
             Cid::from_str("baeabeiavjadi73bzahaao2wqs4nffvkwbgpsyphcwue3wgsj457sb7eymm").unwrap(),
             // Adds alpha property to model
-            r#"{"metadata":{"foo":2},"content":[{"op":"add", "path": "/schema/properties/alpha", "value":{"type":"integer","format":"int32"}},{"op":"replace","path":"/schema/required","value":["creator","red","green","blue","alpha"]}]}"#,
+            &serde_json::to_string(&json!({
+                "metadata":{
+                    "foo":2
+                },
+                "content":[
+                    {
+                        "op":"add",
+                        "path": "/schema/properties/alpha",
+                        "value":{"type":"integer","format":"int32"}
+                    },
+                    {
+                        "op":"replace",
+                        "path":"/schema/required",
+                        "value":["creator","red","green","blue","alpha"]
+                    }
+                ]
+            }))
+            .unwrap(),
         );
         let event_states = do_test(conclusion_events_to_record_batch(&events).unwrap())
             .await
             .unwrap();
 
         expect![[r#"
-            +-------+-------------------------------------------------------------+-------------+-------------+--------------------------------------+-------------------------------------------------------------+------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
-            | index | stream_cid                                                  | stream_type | controller  | dimensions                           | event_cid                                                   | event_type | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | validation_errors |
-            +-------+-------------------------------------------------------------+-------------+-------------+--------------------------------------+-------------------------------------------------------------+------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
-            | 0     | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob | {controller: 6469643a6b65793a626f62} | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 0          | {"metadata":{"foo":1,"shouldIndex":true},"content":{"version":"2.0","name":"TestSmallModel","interface":false,"implements":[],"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"SmallModel","type":"object","properties":{"blue":{"type":"integer","format":"int32"},"creator":{"type":"string"},"green":{"type":"integer","format":"int32"},"red":{"type":"integer","format":"int32"}},"additionalProperties":false,"required":["creator","red","green","blue"]},"accountRelation":{"type":"list"},"relations":{},"views":{}}}                                                     |                   |
-            | 1     | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob | {controller: 6469643a6b65793a626f62} | baeabeiavjadi73bzahaao2wqs4nffvkwbgpsyphcwue3wgsj457sb7eymm | 0          | {"metadata":{"foo":2,"shouldIndex":true},"content":{"accountRelation":{"type":"list"},"implements":[],"interface":false,"name":"TestSmallModel","relations":{},"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"alpha":{"format":"int32","type":"integer"},"blue":{"format":"int32","type":"integer"},"creator":{"type":"string"},"green":{"format":"int32","type":"integer"},"red":{"format":"int32","type":"integer"}},"required":["creator","red","green","blue","alpha"],"title":"SmallModel","type":"object"},"version":"2.0","views":{}}} |                   |
-            +-------+-------------------------------------------------------------+-------------+-------------+--------------------------------------+-------------------------------------------------------------+------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
+            +-------+-------------------------------------------------------------+-------------+-------------+--------------------------------------+-------------------------------------------------------------+------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+----------------------------------------+
+            | index | stream_cid                                                  | stream_type | controller  | dimensions                           | event_cid                                                   | event_type | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | validation_errors                      |
+            +-------+-------------------------------------------------------------+-------------+-------------+--------------------------------------+-------------------------------------------------------------+------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+----------------------------------------+
+            | 0     | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob | {controller: 6469643a6b65793a626f62} | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 0          | {"metadata":{"foo":1,"shouldIndex":true},"content":{"version":"2.0","name":"TestSmallModel","interface":false,"implements":[],"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"SmallModel","type":"object","properties":{"blue":{"type":"integer","format":"int32"},"creator":{"type":"string"},"green":{"type":"integer","format":"int32"},"red":{"type":"integer","format":"int32"}},"additionalProperties":false,"required":["creator","red","green","blue"]},"accountRelation":{"type":"list"},"relations":{},"views":{}}}                                                     |                                        |
+            | 1     | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob | {controller: 6469643a6b65793a626f62} | baeabeiavjadi73bzahaao2wqs4nffvkwbgpsyphcwue3wgsj457sb7eymm | 0          | {"metadata":{"foo":2,"shouldIndex":true},"content":{"accountRelation":{"type":"list"},"implements":[],"interface":false,"name":"TestSmallModel","relations":{},"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"alpha":{"format":"int32","type":"integer"},"blue":{"format":"int32","type":"integer"},"creator":{"type":"string"},"green":{"format":"int32","type":"integer"},"red":{"format":"int32","type":"integer"}},"required":["creator","red","green","blue","alpha"],"title":"SmallModel","type":"object"},"version":"2.0","views":{}}} | [breaking change made to model schema] |
+            +-------+-------------------------------------------------------------+-------------+-------------+--------------------------------------+-------------------------------------------------------------+------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+----------------------------------------+"#]].assert_eq(&event_states.to_string());
     }
     #[test(tokio::test)]
     async fn update_model_new_instance_new_schema_new_model() {

@@ -3,6 +3,7 @@ use std::str::FromStr;
 use anyhow::{anyhow, bail, Context as _, Result};
 use ceramic_core::StreamId;
 use cid::Cid;
+use json_patch::Patch;
 use serde::{Deserialize, Serialize};
 use tracing::{instrument, Level};
 
@@ -36,11 +37,11 @@ impl ModelInstance {
     pub fn validate(
         &self,
         validator: &SchemaValidator,
-        previous: Option<&ModelInstance>,
+        patch: Option<&Patch>,
         model_version: &Cid,
         model: &ModelDefinition,
     ) -> Result<()> {
-        let is_init = previous.is_none();
+        let is_init = patch.is_none();
 
         if is_init {
             if model.is_interface() {
@@ -65,7 +66,7 @@ impl ModelInstance {
 
         self.validate_relations(model)?;
 
-        self.validate_locked_fields_update(model, previous)?;
+        self.validate_locked_fields_update(model, patch)?;
 
         Ok(())
     }
@@ -74,25 +75,22 @@ impl ModelInstance {
     fn validate_locked_fields_update(
         &self,
         model: &ModelDefinition,
-        previous: Option<&ModelInstance>,
+        patch: Option<&Patch>,
     ) -> Result<()> {
         match model {
             ModelDefinition::V1(_) => Ok(()),
             ModelDefinition::V2(v2) => {
                 if let Some(immutable) = &v2.immutable_fields {
-                    if let Some(current) = &self.content {
-                        // If we do not have a previous there then locked fields can be set the
-                        // first time.
-                        // Is this true? Or is setting the locked fields the first time considered
-                        // a patch to the empty object.
-                        if let Some(previous) = previous.and_then(|p| p.content.as_ref()) {
-                            let patch = json_patch::diff(previous, current);
-                            // use a loop for a better error
-                            for modified in patch.0.iter().flat_map(|p| p.path().front()) {
-                                // can't use contains with &String and &str https://github.com/rust-lang/rust/issues/42671
-                                if immutable.iter().any(|i| i == modified.decoded().as_ref()) {
-                                    bail!("Immutable field {modified} cannot be updated")
-                                }
+                    // If we do not have a previous there then locked fields can be set the
+                    // first time.
+                    // Is this true? Or is setting the locked fields the first time considered
+                    // a patch to the empty object.
+                    if let Some(patch) = patch {
+                        // use a loop for a better error
+                        for modified in patch.0.iter().flat_map(|p| p.path().front()) {
+                            // can't use contains with &String and &str https://github.com/rust-lang/rust/issues/42671
+                            if immutable.iter().any(|i| i == modified.decoded().as_ref()) {
+                                bail!("Immutable field {modified} cannot be updated")
                             }
                         }
                     }

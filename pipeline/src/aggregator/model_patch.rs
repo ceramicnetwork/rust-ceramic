@@ -1,7 +1,7 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::sync::Arc;
 
 use arrow::{
-    array::{Array as _, ArrayBuilder as _, ArrayRef, BinaryBuilder},
+    array::{Array as _, ArrayBuilder as _, ArrayRef, BinaryBuilder, StructArray},
     datatypes::DataType,
 };
 use arrow_schema::Field;
@@ -13,7 +13,6 @@ use datafusion::{
     },
 };
 use json_patch::PatchOperation;
-use tracing::instrument;
 
 use super::EventDataContainer;
 
@@ -70,7 +69,14 @@ impl WindowUDFImpl for ModelPatch {
         &self,
         field_args: datafusion::logical_expr::function::WindowUDFFieldArgs,
     ) -> Result<arrow_schema::Field> {
-        Ok(Field::new(field_args.name(), DataType::Binary, true))
+        Ok(Field::new_struct(
+            field_args.name(),
+            vec![
+                Field::new("previous_data", DataType::Binary, true),
+                Field::new("data", DataType::Binary, true),
+            ],
+            true,
+        ))
     }
 }
 
@@ -122,6 +128,8 @@ impl PartitionEvaluator for CeramicPatchEvaluator {
         let previous_states = as_binary_array(&values[2])?;
         let patches = as_binary_array(&values[3])?;
         let mut new_states = BinaryBuilder::new();
+        // We need to return the matched previous state so later we can do direct comparisons.
+        let mut resolved_previous_states = BinaryBuilder::new();
         for i in 0..num_rows {
             if previous_cids.is_valid(i) {
                 if let Some(previous_state) = if !previous_states.is_null(i) {
@@ -143,35 +151,45 @@ impl PartitionEvaluator for CeramicPatchEvaluator {
                 } {
                     if patches.is_null(i) {
                         // We have a time event, new state is just the previous state
-                        //
-                        // Allow clippy warning as previous_state is a reference back into new_states.
-                        // So we need to copy the data to a new location before we can copy it back
-                        // into the new_states.
-                        #[allow(clippy::unnecessary_to_owned)]
-                        new_states.append_value(previous_state.to_owned());
+                        let state = previous_state.to_owned();
+                        new_states.append_value(&state);
+                        resolved_previous_states.append_value(&state);
                     } else {
+                        resolved_previous_states.append_value(previous_state);
                         new_states.append_value(CeramicPatchEvaluator::apply_patch(
                             patches.value(i),
                             previous_state,
                         )?);
-                        // MID validate(new, model)
                     }
                 } else {
                     // Unreachable when data is well formed.
                     // Appending null means well formed documents can continue to be aggregated.
                     new_states.append_null();
+                    resolved_previous_states.append_null();
                 }
             } else {
                 //Init event, patch value is the initial state
                 if patches.is_null(i) {
                     // We have an init event without data
                     new_states.append_null();
+                    resolved_previous_states.append_null();
                 } else {
                     new_states.append_value(patches.value(i));
+                    resolved_previous_states.append_null();
                 }
             }
         }
-        Ok(Arc::new(new_states.finish()))
+
+        Ok(Arc::new(StructArray::from(vec![
+            (
+                Arc::new(Field::new("previous_data", DataType::Binary, true)),
+                Arc::new(resolved_previous_states.finish()) as ArrayRef,
+            ),
+            (
+                Arc::new(Field::new("data", DataType::Binary, true)),
+                Arc::new(new_states.finish()) as ArrayRef,
+            ),
+        ])))
     }
 }
 

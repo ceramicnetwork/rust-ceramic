@@ -77,6 +77,7 @@ impl WindowUDFImpl for ModelInstancePatch {
             vec![
                 Field::new("model_version", DataType::Binary, true),
                 Field::new("data", DataType::Binary, true),
+                Field::new("patch", DataType::Binary, true),
             ],
             true,
         ))
@@ -170,6 +171,8 @@ impl PartitionEvaluator for CeramicPatchEvaluator {
         let patches = as_binary_array(&values[3])?;
         let mut new_states = BinaryBuilder::new();
         let mut model_versions = BinaryBuilder::new();
+        // We need to keep the patch around for validation.
+        let mut resolved_patches = BinaryBuilder::new();
         for i in 0..num_rows {
             if previous_cids.is_valid(i) {
                 if let Some(previous_state) = if !previous_states.is_null(i) {
@@ -194,14 +197,17 @@ impl PartitionEvaluator for CeramicPatchEvaluator {
                         model_versions.append_option(
                             Self::parse_model_version(previous_state)?.map(|mv| mv.to_bytes()),
                         );
+                        // Time events do not change data, no patch
+                        resolved_patches.append_null();
                         // Allow clippy warning as previous_state is a reference back into new_states.
                         // So we need to copy the data to a new location before we can copy it back
                         // into the new_states.
                         #[allow(clippy::unnecessary_to_owned)]
                         new_states.append_value(previous_state.to_owned());
                     } else {
-                        let (data, model_version) =
-                            Self::apply_patch(patches.value(i), previous_state)?;
+                        let patch = patches.value(i);
+                        resolved_patches.append_value(patch);
+                        let (data, model_version) = Self::apply_patch(patch, previous_state)?;
                         new_states.append_value(data);
                         model_versions.append_option(model_version.map(|mv| mv.to_bytes()));
                         // MID validate(new, model)
@@ -211,6 +217,7 @@ impl PartitionEvaluator for CeramicPatchEvaluator {
                     // Appending null means well formed documents can continue to be aggregated.
                     new_states.append_null();
                     model_versions.append_null();
+                    resolved_patches.append_null();
                 }
             } else {
                 //Init event, patch value is the initial state
@@ -218,11 +225,14 @@ impl PartitionEvaluator for CeramicPatchEvaluator {
                     // We have an init event without data
                     new_states.append_null();
                     model_versions.append_null();
+                    resolved_patches.append_null();
                 } else {
                     let data = patches.value(i);
                     new_states.append_value(data);
                     model_versions
                         .append_option(Self::parse_model_version(data)?.map(|mv| mv.to_bytes()));
+                    // An init event's initial data is not a patch.
+                    resolved_patches.append_null();
                 }
             }
         }
@@ -234,6 +244,10 @@ impl PartitionEvaluator for CeramicPatchEvaluator {
             (
                 Arc::new(Field::new("data", DataType::Binary, true)),
                 Arc::new(new_states.finish()) as ArrayRef,
+            ),
+            (
+                Arc::new(Field::new("patch", DataType::Binary, true)),
+                Arc::new(resolved_patches.finish()) as ArrayRef,
             ),
         ])))
     }

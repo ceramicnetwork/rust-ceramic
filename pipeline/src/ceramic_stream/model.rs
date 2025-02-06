@@ -2,6 +2,7 @@ use anyhow::{anyhow, bail, Result};
 use ceramic_core::StreamId;
 use schemars::{JsonSchema, Schema};
 use serde::{Deserialize, Serialize};
+use tracing::instrument;
 
 pub use super::model_versions::*;
 
@@ -90,6 +91,7 @@ impl ModelDefinition {
     /// Make sure the model conforms to all the rules before it's persisted
     /// Requires the schemas of all interfaces implemented in order to verify its schema against them
     /// This is the model-handler validation in js-ceramic
+    #[instrument(skip_all)]
     pub fn validate(
         &self,
         previous: Option<&ModelDefinition>,
@@ -110,6 +112,9 @@ impl ModelDefinition {
                 Self::validate_schema(schema)?;
                 if !views.is_empty() {
                     Self::validate_views(views.keys(), schema)?;
+                }
+                if previous.is_some() {
+                    bail!("cannot update version 1 models")
                 }
             }
             ModelDefinition::V2(v2) => {
@@ -137,6 +142,42 @@ impl ModelDefinition {
                 if let Some(interfaces) = interfaces {
                     v2.validate_implementated_interfaces(interfaces)?;
                 }
+                if let Some(previous) = previous {
+                    if let ModelDefinition::V2(previous) = previous {
+                        if v2.interface {
+                            bail!("cannot update interface models")
+                        }
+                        if previous.interface != v2.interface {
+                            bail!("cannot change model to an interface")
+                        }
+                        if previous.immutable_fields != v2.immutable_fields {
+                            bail!("cannot change a model's immutable fields")
+                        }
+                        if previous.account_relation != v2.account_relation {
+                            bail!("cannot change a model's account relation")
+                        }
+                        if previous.relations != v2.relations {
+                            bail!("cannot change a model's relations")
+                        }
+                        if previous.views != v2.views {
+                            bail!("cannot change a model's views")
+                        }
+                        // Validate schema changes
+                        let changes = json_schema_diff::diff(
+                            previous.schema.as_value().clone(),
+                            v2.schema.as_value().clone(),
+                        )?;
+                        // TODO validate is_breaking is the correct logic we want.
+                        if changes.iter().any(|change| change.change.is_breaking()) {
+                            // TODO include information about the change
+                            bail!("breaking change made to model schema")
+                        }
+                        // NOTE: This leaves changing the name, description, implements, and
+                        // schema fields as the only valid changes.
+                    } else {
+                        bail!("cannot change model version from 1 to 2")
+                    }
+                }
             }
         }
         Ok(())
@@ -148,7 +189,6 @@ impl ModelDefinition {
             .as_object()
             .ok_or_else(|| anyhow!("schema should be an object"))?;
         Self::verify_schema_objects_disable_additional_properites(s)?;
-
         Ok(())
     }
 

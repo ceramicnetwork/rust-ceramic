@@ -14,6 +14,7 @@ use datafusion::{
     common::cast::{as_binary_array, as_int32_array},
     logical_expr::{ColumnarValue, ScalarUDFImpl, Signature, TypeSignature, Volatility},
 };
+use json_patch::{Patch, PatchOperation};
 
 use crate::ceramic_stream::{
     model::ModelDefinition, model_instance::ModelInstance, schema_validator::SchemaValidator,
@@ -24,7 +25,7 @@ use super::EventDataContainer;
 make_udf_expr_and_func!(
     ModelInstanceValidate,
     model_instance_validate,
-    instance previous model_version model_definition,
+    instance patch model_version model_definition,
     "computes a list of validation errors for the model instance.",
     model_instance_validate_udf
 );
@@ -91,7 +92,7 @@ impl ScalarUDFImpl for ModelInstanceValidate {
     ) -> datafusion::common::Result<ColumnarValue> {
         let args = ColumnarValue::values_to_arrays(args)?;
         let model_instance = as_binary_array(&args[0])?;
-        let previous = as_binary_array(&args[1])?;
+        let patch = as_binary_array(&args[1])?;
 
         let model_version_cid =
             if let Some(model_versions) = args[2].as_dictionary_opt::<Int32Type>() {
@@ -115,9 +116,9 @@ impl ScalarUDFImpl for ModelInstanceValidate {
         let mut validation_errors = ListBuilder::new(StringBuilder::new());
         for (i, instance) in model_instance.into_iter().enumerate() {
             let instance = instance.map(|m| serde_json::from_slice::<ModelInstance>(m));
-            let previous = previous
+            let patch = patch
                 .is_valid(i)
-                .then(|| serde_json::from_slice::<ModelInstance>(previous.value(i)))
+                .then(|| serde_json::from_slice::<Patch>(patch.value(i)))
                 .transpose()
                 // TODO do we need an explicit error condition here?
                 .ok()
@@ -147,7 +148,7 @@ impl ScalarUDFImpl for ModelInstanceValidate {
                 Some(Ok(instance)) => {
                     if let Err(err) = instance.validate(
                         &self.validator,
-                        previous.as_ref(),
+                        patch.as_ref(),
                         &model_version,
                         &model_definition.content,
                     ) {
