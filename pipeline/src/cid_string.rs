@@ -2,12 +2,11 @@
 
 use std::{any::Any, sync::Arc};
 
+use arrow::array::{Array as _, GenericListArray};
+use arrow_schema::Field;
 use cid::Cid;
 use datafusion::{
-    arrow::{
-        array::{ListBuilder, StringBuilder},
-        datatypes::DataType,
-    },
+    arrow::{array::StringBuilder, datatypes::DataType},
     common::{
         cast::{as_binary_array, as_list_array},
         exec_datafusion_err,
@@ -118,39 +117,35 @@ impl ScalarUDFImpl for CidStringList {
     fn invoke_batch(
         &self,
         args: &[ColumnarValue],
-        number_rows: usize,
+        _number_rows: usize,
     ) -> datafusion::error::Result<ColumnarValue> {
         let args = ColumnarValue::values_to_arrays(args)?;
         let all_cids = as_list_array(&args[0])?;
-        // Count the number of cids before allocating.
-        let cid_count = all_cids
-            .iter()
-            .map(|list| list.map(|l| l.len()).unwrap_or(0))
-            .sum();
-        let mut strs = ListBuilder::with_capacity(
-            StringBuilder::with_capacity(cid_count, CID_STRING_BYTES * cid_count),
-            number_rows,
-        );
-        for cids in all_cids.iter() {
-            if let Some(cids) = cids {
-                let cids = as_binary_array(&cids)?;
-                for cid in cids {
-                    if let Some(cid) = cid {
-                        strs.values().append_value(
-                            Cid::read_bytes(cid)
-                                .map_err(|err| exec_datafusion_err!("Error {err}"))?
-                                .to_string(),
-                        );
-                    } else {
-                        strs.values().append_null()
-                    }
-                }
-                strs.append(true)
+        // The list structure is not modified.
+        // We can map over the values array and reuse the list offsets.
+        let values = all_cids.values();
+        let cid_count = values.len();
+        let mut new_values = StringBuilder::with_capacity(cid_count, CID_STRING_BYTES * cid_count);
+        let cids = as_binary_array(&values)?;
+        for cid in cids {
+            if let Some(cid) = cid {
+                new_values.append_value(
+                    Cid::read_bytes(cid)
+                        .map_err(|err| exec_datafusion_err!("Error {err}"))?
+                        .to_string(),
+                );
             } else {
-                strs.append_null()
+                new_values.append_null()
             }
         }
-        Ok(ColumnarValue::Array(Arc::new(strs.finish())))
+        let new_list = GenericListArray::try_new(
+            Arc::new(Field::new_list_field(DataType::Utf8, true)),
+            all_cids.offsets().to_owned(),
+            Arc::new(new_values.finish()),
+            all_cids.nulls().cloned(),
+        )?;
+
+        Ok(ColumnarValue::Array(Arc::new(new_list)))
     }
 }
 
