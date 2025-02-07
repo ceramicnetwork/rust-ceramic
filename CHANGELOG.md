@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.49.0] - 2025-02-07
+
+### 🚀 Features
+
+- Adds stream_id_string udf ([#653](https://github.com/ceramicnetwork/rust-ceramic/issues/653))
+- Add dimension_extract udf ([#654](https://github.com/ceramicnetwork/rust-ceramic/issues/654))
+- Adds output format options to query command ([#659](https://github.com/ceramicnetwork/rust-ceramic/issues/659))
+- [**breaking**] Partition event states by event cid ([#658](https://github.com/ceramicnetwork/rust-ceramic/issues/658))
+
+### 🐛 Bug Fixes
+
+- Use invoke_batch on UDFs as invoke is deprecated ([#652](https://github.com/ceramicnetwork/rust-ceramic/issues/652))
+- Adds batching logic to conclusion-feed-table ([#656](https://github.com/ceramicnetwork/rust-ceramic/issues/656))
+
+### 🚜 Refactor
+
+- More efficient list udf impls ([#657](https://github.com/ceramicnetwork/rust-ceramic/issues/657))
+
 ## [0.48.0] - 2025-01-28
 
 ### 🚀 Features
@@ -25,6 +43,7 @@ All notable changes to this project will be documented in this file.
 
 - Make clippy happy about lifetimes ([#642](https://github.com/ceramicnetwork/rust-ceramic/issues/642))
 - Fix event-svc bench ([#639](https://github.com/ceramicnetwork/rust-ceramic/issues/639))
+- Version v0.48.0 ([#650](https://github.com/ceramicnetwork/rust-ceramic/issues/650))
 
 ## [0.47.3] - 2025-01-13
 
