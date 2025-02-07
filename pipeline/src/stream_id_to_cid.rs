@@ -96,10 +96,6 @@ impl StreamIdToCid {
         let mut cids = BinaryBuilder::with_capacity(number_rows, CID_BYTES * number_rows);
         for stream_id in stream_ids {
             if let Some(stream_id) = stream_id {
-                tracing::debug!(
-                    stream_id = multibase::encode(multibase::Base::Base16Lower, &stream_id),
-                    "stream_id_to_cid"
-                );
                 cids.append_value(
                     StreamId::try_from(stream_id)
                         .map_err(|err| exec_datafusion_err!("Error {err}"))?

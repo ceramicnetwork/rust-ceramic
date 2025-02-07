@@ -11,7 +11,7 @@ use arrow_schema::Field;
 use cid::Cid;
 use datafusion::{
     arrow::datatypes::DataType,
-    common::cast::{as_binary_array, as_int32_array},
+    common::cast::{as_binary_array, as_int32_array, as_uint32_array},
     logical_expr::{ColumnarValue, ScalarUDFImpl, Signature, TypeSignature, Volatility},
 };
 use json_patch::{Patch, PatchOperation};
@@ -25,7 +25,7 @@ use super::EventDataContainer;
 make_udf_expr_and_func!(
     ModelInstanceValidate,
     model_instance_validate,
-    instance patch model_version model_definition,
+    instance patch model_version model_definition event_height,
     "computes a list of validation errors for the model instance.",
     model_instance_validate_udf
 );
@@ -53,6 +53,7 @@ impl ModelInstanceValidate {
                         DataType::Binary,
                         DataType::Binary,
                         DataType::Binary,
+                        DataType::UInt32,
                     ]),
                     // Special case the model_version parameter as its common for be dictionary
                     // encoded.
@@ -61,6 +62,7 @@ impl ModelInstanceValidate {
                         DataType::Binary,
                         DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Binary)),
                         DataType::Binary,
+                        DataType::UInt32,
                     ]),
                 ],
                 Volatility::Immutable,
@@ -96,7 +98,6 @@ impl ScalarUDFImpl for ModelInstanceValidate {
 
         let model_version_cid =
             if let Some(model_versions) = args[2].as_dictionary_opt::<Int32Type>() {
-                tracing::debug!("dictionary binary model_version");
                 let keys = as_int32_array(model_versions.keys())?;
                 let values = as_binary_array(model_versions.values())?;
                 Box::new(|idx| {
@@ -105,7 +106,6 @@ impl ScalarUDFImpl for ModelInstanceValidate {
                 }) as Box<dyn Fn(usize) -> Option<cid::Result<Cid>>>
             } else {
                 let model_versions = as_binary_array(&args[2])?;
-                tracing::debug!("binary model_version");
                 Box::new(|idx| {
                     model_versions
                         .is_valid(idx)
@@ -113,12 +113,13 @@ impl ScalarUDFImpl for ModelInstanceValidate {
                 }) as Box<dyn Fn(usize) -> Option<cid::Result<Cid>>>
             };
         let model_definitions = as_binary_array(&args[3])?;
+        let event_heights = as_uint32_array(&args[4])?;
         let mut validation_errors = ListBuilder::new(StringBuilder::new());
         for (i, instance) in model_instance.into_iter().enumerate() {
             let instance = instance.map(|m| serde_json::from_slice::<ModelInstance>(m));
             let patch = patch
                 .is_valid(i)
-                .then(|| serde_json::from_slice::<Patch>(patch.value(i)))
+                .then(|| serde_json::from_slice::<EventDataContainer<Patch>>(patch.value(i)))
                 .transpose()
                 // TODO do we need an explicit error condition here?
                 .ok()
@@ -143,14 +144,20 @@ impl ScalarUDFImpl for ModelInstanceValidate {
                 .flatten()
                 //TODO: must have model definition
                 .unwrap();
+            let event_height = event_heights
+                .is_valid(i)
+                .then(|| event_heights.value(i))
+                //TODO: must have event height
+                .unwrap();
             let is_valid = match instance {
                 None => false,
                 Some(Ok(instance)) => {
                     if let Err(err) = instance.validate(
                         &self.validator,
-                        patch.as_ref(),
+                        patch.as_ref().map(|p| &p.content),
                         &model_version,
                         &model_definition.content,
+                        event_height,
                     ) {
                         validation_errors.values().append_value(err.to_string());
                         true

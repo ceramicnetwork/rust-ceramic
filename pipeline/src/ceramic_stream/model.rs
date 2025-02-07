@@ -247,6 +247,17 @@ pub enum ModelAccountRelation {
     Set,
 }
 
+impl std::fmt::Display for ModelAccountRelation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ModelAccountRelation::Single => write!(f, "Single"),
+            ModelAccountRelation::List => write!(f, "List"),
+            ModelAccountRelation::None => write!(f, "None"),
+            ModelAccountRelation::Set => write!(f, "Set"),
+        }
+    }
+}
+
 impl ModelAccountRelation {
     fn is_deterministic(&self) -> bool {
         matches!(self, Self::Single | Self::Set)

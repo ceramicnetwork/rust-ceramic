@@ -40,22 +40,20 @@ impl ModelInstance {
         patch: Option<&Patch>,
         model_version: &Cid,
         model: &ModelDefinition,
+        event_height: u32,
     ) -> Result<()> {
         let is_init = patch.is_none();
 
-        if is_init {
-            if model.is_interface() {
-                bail!("ModelInstanceDocument Streams cannot be created on interface Models. Use a different model than {}", "TODO: model stream ID?")
-            }
-            // can't do this because we don't have header
-            // self.validate_header(model, unique)?;
-        } else {
-            // in js code, header is validated that only shouldIndex can change here
-            self.validate_unique(model)?;
+        if model.is_interface() {
+            bail!("ModelInstanceDocument Streams cannot be created on interface Models. Use a different model than {}", "TODO: model stream ID?")
         }
+        self.validate_unique(model)?;
 
         if is_init && self.content.is_some() && model.is_deterministic_account_relation() {
-            bail!("Deterministic init events for ModelInstanceDocuments must not have content")
+            bail!(
+                "ModelInstanceDocuments with an account relation {}  must not have content",
+                model.account_relation()
+            )
         }
         // skip content length check (16_000_000 bytes in js-ceramic)
 
@@ -66,7 +64,7 @@ impl ModelInstance {
 
         self.validate_relations(model)?;
 
-        self.validate_locked_fields_update(model, patch)?;
+        self.validate_locked_fields_update(model, patch, event_height)?;
 
         Ok(())
     }
@@ -76,21 +74,21 @@ impl ModelInstance {
         &self,
         model: &ModelDefinition,
         patch: Option<&Patch>,
+        event_height: u32,
     ) -> Result<()> {
+        tracing::debug!(?patch, "locked validation");
         match model {
             ModelDefinition::V1(_) => Ok(()),
             ModelDefinition::V2(v2) => {
                 if let Some(immutable) = &v2.immutable_fields {
-                    // If we do not have a previous there then locked fields can be set the
-                    // first time.
-                    // Is this true? Or is setting the locked fields the first time considered
-                    // a patch to the empty object.
-                    if let Some(patch) = patch {
-                        // use a loop for a better error
-                        for modified in patch.0.iter().flat_map(|p| p.path().front()) {
-                            // can't use contains with &String and &str https://github.com/rust-lang/rust/issues/42671
-                            if immutable.iter().any(|i| i == modified.decoded().as_ref()) {
-                                bail!("Immutable field {modified} cannot be updated")
+                    if event_height > v2.locked_height() {
+                        if let Some(patch) = patch {
+                            // use a loop for a better error
+                            for modified in patch.0.iter().flat_map(|p| p.path().front()) {
+                                // can't use contains with &String and &str https://github.com/rust-lang/rust/issues/42671
+                                if immutable.iter().any(|i| i == modified.decoded().as_ref()) {
+                                    bail!("Immutable field '{modified}' cannot be updated")
+                                }
                             }
                         }
                     }

@@ -47,7 +47,7 @@ use datafusion::{
         WindowFunctionDefinition, UNNAMED_TABLE,
     },
     physical_plan::stream::RecordBatchStreamAdapter,
-    prelude::{case, cast, when, DataFrame, SessionContext},
+    prelude::{case, cast, when, wildcard, DataFrame, SessionContext},
     sql::TableReference,
 };
 use futures::TryStreamExt as _;
@@ -219,7 +219,7 @@ impl Aggregator {
         // Completely process models first for the case when mids may reference a newly
         // created/updated model.
         let models = self.patch_models(models).await?;
-        let models = self
+        let mut models = self
             .validate_models(models)
             .context("validating models")?
             .collect()
@@ -234,7 +234,7 @@ impl Aggregator {
             .read_batches(events_with_previous)?
             .filter(col("stream_type").eq(lit(StreamIdType::ModelInstanceDocument as u8)))?;
         let mids = self.patch_model_instances(mids).await?;
-        let mids = self
+        let mut mids = self
             .validate_model_instances(mids)
             .await
             .context("validating mids")?
@@ -244,35 +244,21 @@ impl Aggregator {
         self.store_event_states(mids.clone())
             .await
             .context("storing mids")?;
-        // TODO: Can we make this do less copying of the data?
-        let num_models = batches_num_rows(&models);
-        let num_mids = batches_num_rows(&mids);
-        if num_models > 0 && num_mids > 0 {
-            let ordered_events = self
-                .ctx
-                .read_batches(models)?
-                .union(self.ctx.read_batches(mids)?)?
-                .sort(vec![col("index").sort(true, true)])?
-                .collect()
-                .await?;
-            Ok(concat_batches(&schemas::event_states(), &ordered_events)?)
-        } else if num_models > 0 {
-            let ordered_events = self
-                .ctx
-                .read_batches(models)?
-                .sort(vec![col("index").sort(true, true)])?
-                .collect()
-                .await?;
-            Ok(concat_batches(&schemas::event_states(), &ordered_events)?)
-        } else {
-            let ordered_events = self
-                .ctx
-                .read_batches(mids)?
-                .sort(vec![col("index").sort(true, true)])?
-                .collect()
-                .await?;
-            Ok(concat_batches(&schemas::event_states(), &ordered_events)?)
-        }
+        let mut batches = Vec::with_capacity(models.len() + mids.len());
+        batches.append(&mut models);
+        batches.append(&mut mids);
+        println!("RAW {}", pretty_format_batches(&batches).unwrap());
+        let ordered_events = self
+            .ctx
+            .read_batches(batches)?
+            .sort(vec![col("index").sort(true, true)])?
+            .collect()
+            .await?;
+        println!(
+            "ORDERED {}",
+            pretty_format_batches(&ordered_events).unwrap()
+        );
+        Ok(concat_batches(&schemas::event_states(), &ordered_events)?)
     }
 
     // Joins events with their previous state if any
@@ -282,11 +268,18 @@ impl Aggregator {
             .ctx
             .table(EVENT_STATES_TABLE)
             .await?
-            .select_columns(&["event_cid_partition", "stream_cid", "event_cid", "data"])?
+            .select_columns(&[
+                "event_cid_partition",
+                "stream_cid",
+                "event_cid",
+                "event_height",
+                "data",
+            ])?
             // Alias column so it does not conflict with the column from conclusion_events
             // in the join.
             .with_column_renamed("event_cid_partition", "ecp")?
-            .with_column_renamed("data", "previous_data")?;
+            .with_column_renamed("data", "previous_data")?
+            .with_column_renamed("event_height", "previous_height")?;
 
         Ok(conclusion_events
             // MID only ever use the first previous, so we can optimize the join by selecting the
@@ -316,14 +309,15 @@ impl Aggregator {
             .context("setup join")?
             .select(vec![
                 anon_col("index").alias("index"),
-                anon_col("event_type").alias("event_type"),
                 anon_col("stream_cid").alias("stream_cid"),
                 anon_col("stream_type").alias("stream_type"),
                 anon_col("controller").alias("controller"),
                 anon_col("dimensions").alias("dimensions"),
                 anon_col("event_cid").alias("event_cid"),
+                anon_col("event_type").alias("event_type"),
                 col("previous"),
                 col("previous_data"),
+                col("previous_height"),
                 anon_col("data").alias("data"),
                 col("event_cid_partition"),
             ])?
@@ -341,6 +335,7 @@ impl Aggregator {
                     col("event_cid"),
                     col("previous"),
                     col("previous_data"),
+                    col("previous_height"),
                     col("data"),
                 ],
             ))
@@ -360,6 +355,11 @@ impl Aggregator {
                 col("event_type"),
                 Expr::Column(Column {
                     relation: None,
+                    name: "patched.event_height".to_owned(),
+                })
+                .alias("event_height"),
+                Expr::Column(Column {
+                    relation: None,
                     name: "patched.previous_data".to_owned(),
                 })
                 .alias("previous_data"),
@@ -371,6 +371,24 @@ impl Aggregator {
                 col("event_cid_partition"),
             ])?)
     }
+    #[instrument(skip_all)]
+    fn validate_models(&self, models: DataFrame) -> Result<DataFrame> {
+        tracing::debug!(schema=?models.schema(),"validate_models");
+        Ok(models.select(vec![
+            col("index"),
+            col("stream_cid"),
+            col("stream_type"),
+            col("controller"),
+            col("dimensions"),
+            col("event_cid"),
+            col("event_type"),
+            col("event_height"),
+            col("data"),
+            model_validate::model_validate(col("data"), col("previous_data"))
+                .alias("validation_errors"),
+            col("event_cid_partition"),
+        ])?)
+    }
     // Applies patches to model instances
     #[instrument(skip_all)]
     async fn patch_model_instances(&self, events_with_previous: DataFrame) -> Result<DataFrame> {
@@ -381,6 +399,7 @@ impl Aggregator {
                     col("event_cid"),
                     col("previous"),
                     col("previous_data"),
+                    col("previous_height"),
                     col("data"),
                 ],
             ))
@@ -399,7 +418,11 @@ impl Aggregator {
                 col("dimensions"),
                 col("event_cid"),
                 col("event_type"),
-                col("previous_data"),
+                Expr::Column(Column {
+                    relation: None,
+                    name: "patched.event_height".to_owned(),
+                })
+                .alias("event_height"),
                 // Determine model version from either the new metadata or from the dimensions.
                 when(
                     Expr::Column(Column {
@@ -432,23 +455,6 @@ impl Aggregator {
             .context("select")?)
     }
     #[instrument(skip_all)]
-    fn validate_models(&self, models: DataFrame) -> Result<DataFrame> {
-        tracing::debug!(schema=?models.schema(),"validate_models");
-        Ok(models.select(vec![
-            col("index"),
-            col("stream_cid"),
-            col("stream_type"),
-            col("controller"),
-            col("dimensions"),
-            col("event_cid"),
-            col("event_type"),
-            col("data"),
-            model_validate::model_validate(col("data"), col("previous_data"))
-                .alias("validation_errors"),
-            col("event_cid_partition"),
-        ])?)
-    }
-    #[instrument(skip_all)]
     async fn validate_model_instances(&self, model_instances: DataFrame) -> Result<DataFrame> {
         let states = self
             .ctx
@@ -475,12 +481,14 @@ impl Aggregator {
                 anon_col("dimensions"),
                 anon_col("event_cid"),
                 anon_col("event_type"),
+                col("event_height"),
                 col("data"),
                 model_instance_validate::model_instance_validate(
                     col("data"),
                     col("patch"),
                     col("model_version"),
                     col("model_definition"),
+                    col("event_height"),
                 )
                 .alias("validation_errors"),
                 anon_col("event_cid_partition"),
@@ -649,17 +657,12 @@ async fn events_since(
     ctx: &SessionContext,
     offset: Option<u64>,
 ) -> Result<SendableRecordBatchStream> {
-    let mut event_states = ctx.table(EVENT_STATES_TABLE).await?.select(vec![
-        col("index"),
-        col("stream_cid"),
-        col("stream_type"),
-        col("controller"),
-        col("dimensions"),
-        col("event_cid"),
-        col("event_type"),
-        col("data"),
-        col("validation_errors"),
-    ])?;
+    let mut event_states = ctx
+        .table(EVENT_STATES_TABLE)
+        .await?
+        .select(vec![wildcard()])?
+        // Do not return the partition columns
+        .drop_columns(&["event_cid_partition"])?;
     if let Some(offset) = offset {
         event_states = event_states.filter(col("index").gt(lit(offset)))?;
     }
@@ -1022,6 +1025,7 @@ mod tests {
                 col("dimensions"),
                 cid_string(col("event_cid")).alias("event_cid"),
                 col("event_type"),
+                col("event_height"),
                 cast(col("data"), DataType::Utf8).alias("data"),
                 col("validation_errors"),
             ])
@@ -1049,7 +1053,6 @@ mod tests {
             ModelAccountRelationV2::List,
         )
         .unwrap();
-        let model_def_json = serde_json::to_string(&model_def).unwrap();
 
         // NOTE: These CIDs and StreamIDs are fake and do not represent the actual hash of the data.
         // This makes testing easier as changing the contents does not mean you need to update all of
@@ -1060,6 +1063,15 @@ mod tests {
         let instance_stream_id =
             StreamId::from_str("k2t6wzhjp5kk11gmt3clbfsplu6dnug4gxix1mj86w9p0ddwv3hdehc9mjawx7")
                 .unwrap();
+        let stream_init = ConclusionInit {
+            stream_cid: instance_stream_id.cid,
+            stream_type: StreamIdType::ModelInstanceDocument as u8,
+            controller: "did:key:alice".to_string(),
+            dimensions: vec![
+                ("controller".to_string(), b"did:key:alice".to_vec()),
+                ("model".to_string(), model_stream_id.to_vec()),
+            ],
+        };
         vec![
             ConclusionEvent::Data(ConclusionData {
                 index: 0,
@@ -1071,9 +1083,14 @@ mod tests {
                     dimensions: vec![("controller".to_string(), b"did:key:bob".to_vec())],
                 },
                 previous: vec![],
-                data: format!(
-                    r#"{{"metadata":{{"foo":1,"shouldIndex":true}},"content":{model_def_json}}}"#
-                )
+                data: serde_json::to_string(&json!({
+                    "metadata":{
+                        "foo":1,
+                        "shouldIndex":true
+                    },
+                    "content": model_def,
+                }))
+                .unwrap()
                 .into(),
             }),
             ConclusionEvent::Data(ConclusionData {
@@ -1082,35 +1099,33 @@ mod tests {
                     "baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi",
                 )
                 .unwrap(),
-                init: ConclusionInit {
-                    stream_cid: instance_stream_id.cid,
-                    stream_type: StreamIdType::ModelInstanceDocument as u8,
-                    controller: "did:key:alice".to_string(),
-                    dimensions: vec![
-                        ("controller".to_string(), b"did:key:alice".to_vec()),
-                        ("model".to_string(), model_stream_id.to_vec()),
-                    ],
-                },
+                init: stream_init.clone(),
                 previous: vec![],
-                data: r#"{"metadata":{"foo":1,"shouldIndex":true},"content":{"creator":"alice","red":255,"green":255,"blue":255}}"#.into(),
+                data: serde_json::to_string(&json!({
+                "metadata":{
+                    "foo":1,
+                    "shouldIndex":true
+                },
+                "content":{
+                    "creator":"alice",
+                    "red":255,
+                    "green":255,
+                    "blue":255
+                }}))
+                .unwrap()
+                .into(),
             }),
             ConclusionEvent::Time(ConclusionTime {
                 index: 2,
                 event_cid: Cid::from_str(
                     "baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq",
-                ).unwrap(),
-                init: ConclusionInit {
-                    stream_cid: instance_stream_id.cid,
-                    stream_type: StreamIdType::ModelInstanceDocument as u8,
-                    controller: "did:key:alice".to_string(),
-                    dimensions: vec![
-                        ("controller".to_string(), b"did:key:alice".to_vec()),
-                        ("model".to_string(), model_stream_id.to_vec()),
-                    ],
-                },
+                )
+                .unwrap(),
+                init: stream_init.clone(),
                 previous: vec![Cid::from_str(
                     "baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi",
-                ).unwrap()],
+                )
+                .unwrap()],
             }),
             ConclusionEvent::Data(ConclusionData {
                 index: 3,
@@ -1118,22 +1133,20 @@ mod tests {
                     "baeabeibrtuyyqwd6y4aa62qxaimjhafielf7fc22fa5b7i7vptcu5263em",
                 )
                 .unwrap(),
-                init: ConclusionInit {
-                    stream_cid: instance_stream_id.cid,
-                    stream_type: StreamIdType::ModelInstanceDocument as u8,
-                    controller: "did:key:alice".to_string(),
-                    dimensions: vec![
-                        ("controller".to_string(), b"did:key:alice".to_vec()),
-                        ("model".to_string(), model_stream_id.to_vec()),
-                    ],
-                },
-                previous: vec![
-                 Cid::from_str(
+                init: stream_init.clone(),
+                previous: vec![Cid::from_str(
                     "baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq",
                 )
-                .unwrap(),
-                ],
-                    data:r#"{"metadata":{"foo":2},"content":[{"op":"replace", "path": "/red", "value":0}]}"#.into(),
+                .unwrap()],
+                data: serde_json::to_string(&json!({
+                "metadata":{"foo":2},
+                "content":[{
+                    "op":"replace",
+                    "path": "/red",
+                    "value":0
+                }]}))
+                .unwrap()
+                .into(),
             }),
         ]
     }
@@ -1179,7 +1192,14 @@ mod tests {
             &mut events,
             model_update,
             // Adds alpha property to model
-            r#"{"metadata":{"foo":2},"content":[{"op":"add", "path": "/schema/properties/alpha", "value":{"type":"number"}}]}"#,
+            &serde_json::to_string(&json!({
+            "metadata":{"foo":2},
+            "content":[{
+                "op":"add",
+                "path": "/schema/properties/alpha",
+                "value":{"type":"number"}
+            }]}))
+            .unwrap(),
         );
         (
             StreamId {
@@ -1201,7 +1221,14 @@ mod tests {
             &events[0],
             model_update,
             // Adds alpha property to model
-            r#"{"metadata":{"foo":2},"content":[{"op":"add", "path": "/schema/properties/alpha", "value":{"type":"number"}}]}"#,
+            &serde_json::to_string(&json!({
+            "metadata":{"foo":2},
+            "content":[{
+                "op":"add",
+                "path": "/schema/properties/alpha",
+                "value":{"type":"number"}
+            }]}))
+            .unwrap(),
         ));
         (
             StreamId {
@@ -1213,6 +1240,10 @@ mod tests {
         )
     }
 
+    //---------------------------------------------------------------
+    // Tests about updating mids with a list account relation
+    //---------------------------------------------------------------
+
     #[test(tokio::test)]
     async fn single_init_event_simple() {
         let event_states = do_test(
@@ -1221,13 +1252,12 @@ mod tests {
         .await
         .unwrap();
         expect![[r#"
-            +-------+-------------------------------------------------------------+-------------+-------------+--------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
-            | index | stream_cid                                                  | stream_type | controller  | dimensions                           | event_cid                                                   | event_type | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | validation_errors |
-            +-------+-------------------------------------------------------------+-------------+-------------+--------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
-            | 0     | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob | {controller: 6469643a6b65793a626f62} | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 0          | {"metadata":{"foo":1,"shouldIndex":true},"content":{"version":"2.0","name":"TestSmallModel","interface":false,"implements":[],"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"SmallModel","type":"object","properties":{"blue":{"type":"integer","format":"int32"},"creator":{"type":"string"},"green":{"type":"integer","format":"int32"},"red":{"type":"integer","format":"int32"}},"additionalProperties":false,"required":["creator","red","green","blue"]},"accountRelation":{"type":"list"},"relations":{},"views":{}}} |                   |
-            +-------+-------------------------------------------------------------+-------------+-------------+--------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
+            +-------+-------------------------------------------------------------+-------------+-------------+--------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
+            | index | stream_cid                                                  | stream_type | controller  | dimensions                           | event_cid                                                   | event_type | event_height | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | validation_errors |
+            +-------+-------------------------------------------------------------+-------------+-------------+--------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
+            | 0     | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob | {controller: 6469643a6b65793a626f62} | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 0          | 0            | {"content":{"accountRelation":{"type":"list"},"implements":[],"interface":false,"name":"TestSmallModel","relations":{},"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"blue":{"format":"int32","type":"integer"},"creator":{"type":"string"},"green":{"format":"int32","type":"integer"},"red":{"format":"int32","type":"integer"}},"required":["creator","red","green","blue"],"title":"SmallModel","type":"object"},"version":"2.0","views":{}},"metadata":{"foo":1,"shouldIndex":true}} |                   |
+            +-------+-------------------------------------------------------------+-------------+-------------+--------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
     }
-
     #[test(tokio::test)]
     async fn single_init_event_projection() {
         let ctx = init().await.unwrap();
@@ -1251,7 +1281,14 @@ mod tests {
                     ],
                 },
                 previous: vec![],
-                data: r#"{"metadata":{"foo":1,"shouldIndex":true},"content":{"a":0}}"#.into(),
+                data: serde_json::to_string(&json!({
+                    "metadata":{
+                        "foo":1,"shouldIndex":true
+                    },
+                    "content":{"a":0}
+                }))
+                .unwrap()
+                .into(),
             })])
             .unwrap();
 
@@ -1288,7 +1325,6 @@ mod tests {
         .assert_eq(&event_states.to_string());
         ctx.shutdown().await.unwrap();
     }
-
     #[test(tokio::test)]
     async fn multiple_data_and_time_events() {
         let event_states =
@@ -1297,16 +1333,15 @@ mod tests {
                 .unwrap();
 
         expect![[r#"
-            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
-            | index | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                      | event_cid                                                   | event_type | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | validation_errors |
-            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
-            | 0     | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob   | {controller: 6469643a6b65793a626f62}                                                                                            | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 0          | {"metadata":{"foo":1,"shouldIndex":true},"content":{"version":"2.0","name":"TestSmallModel","interface":false,"implements":[],"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"SmallModel","type":"object","properties":{"blue":{"type":"integer","format":"int32"},"creator":{"type":"string"},"green":{"type":"integer","format":"int32"},"red":{"type":"integer","format":"int32"}},"additionalProperties":false,"required":["creator","red","green","blue"]},"accountRelation":{"type":"list"},"relations":{},"views":{}}} |                   |
-            | 1     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | {"metadata":{"foo":1,"shouldIndex":true},"content":{"creator":"alice","red":255,"green":255,"blue":255}}                                                                                                                                                                                                                                                                                                                                                                                                                                                  |                   |
-            | 2     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | 1          | {"metadata":{"foo":1,"shouldIndex":true},"content":{"creator":"alice","red":255,"green":255,"blue":255}}                                                                                                                                                                                                                                                                                                                                                                                                                                                  |                   |
-            | 3     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeibrtuyyqwd6y4aa62qxaimjhafielf7fc22fa5b7i7vptcu5263em | 0          | {"metadata":{"foo":2,"shouldIndex":true},"content":{"blue":255,"creator":"alice","green":255,"red":0}}                                                                                                                                                                                                                                                                                                                                                                                                                                                    |                   |
-            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
+            | index | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                      | event_cid                                                   | event_type | event_height | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | validation_errors |
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
+            | 0     | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob   | {controller: 6469643a6b65793a626f62}                                                                                            | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 0          | 0            | {"content":{"accountRelation":{"type":"list"},"implements":[],"interface":false,"name":"TestSmallModel","relations":{},"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"blue":{"format":"int32","type":"integer"},"creator":{"type":"string"},"green":{"format":"int32","type":"integer"},"red":{"format":"int32","type":"integer"}},"required":["creator","red","green","blue"],"title":"SmallModel","type":"object"},"version":"2.0","views":{}},"metadata":{"foo":1,"shouldIndex":true}} |                   |
+            | 1     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | 0            | {"content":{"blue":255,"creator":"alice","green":255,"red":255},"metadata":{"foo":1,"shouldIndex":true}}                                                                                                                                                                                                                                                                                                                                                                                                                                                  |                   |
+            | 2     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | 1          | 1            | {"content":{"blue":255,"creator":"alice","green":255,"red":255},"metadata":{"foo":1,"shouldIndex":true}}                                                                                                                                                                                                                                                                                                                                                                                                                                                  |                   |
+            | 3     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeibrtuyyqwd6y4aa62qxaimjhafielf7fc22fa5b7i7vptcu5263em | 0          | 2            | {"metadata":{"foo":2,"shouldIndex":true},"content":{"blue":255,"creator":"alice","green":255,"red":0}}                                                                                                                                                                                                                                                                                                                                                                                                                                                    |                   |
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
     }
-
     #[test(tokio::test)]
     async fn multiple_single_event_passes() {
         let events = model_and_mids_events();
@@ -1321,11 +1356,11 @@ mod tests {
         .await
         .unwrap();
         expect![[r#"
-            +-------+-------------------------------------------------------------+-------------+-------------+--------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
-            | index | stream_cid                                                  | stream_type | controller  | dimensions                           | event_cid                                                   | event_type | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | validation_errors |
-            +-------+-------------------------------------------------------------+-------------+-------------+--------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
-            | 0     | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob | {controller: 6469643a6b65793a626f62} | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 0          | {"metadata":{"foo":1,"shouldIndex":true},"content":{"version":"2.0","name":"TestSmallModel","interface":false,"implements":[],"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"SmallModel","type":"object","properties":{"blue":{"type":"integer","format":"int32"},"creator":{"type":"string"},"green":{"type":"integer","format":"int32"},"red":{"type":"integer","format":"int32"}},"additionalProperties":false,"required":["creator","red","green","blue"]},"accountRelation":{"type":"list"},"relations":{},"views":{}}} |                   |
-            +-------+-------------------------------------------------------------+-------------+-------------+--------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
+            +-------+-------------------------------------------------------------+-------------+-------------+--------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
+            | index | stream_cid                                                  | stream_type | controller  | dimensions                           | event_cid                                                   | event_type | event_height | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | validation_errors |
+            +-------+-------------------------------------------------------------+-------------+-------------+--------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
+            | 0     | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob | {controller: 6469643a6b65793a626f62} | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 0          | 0            | {"content":{"accountRelation":{"type":"list"},"implements":[],"interface":false,"name":"TestSmallModel","relations":{},"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"blue":{"format":"int32","type":"integer"},"creator":{"type":"string"},"green":{"format":"int32","type":"integer"},"red":{"format":"int32","type":"integer"}},"required":["creator","red","green","blue"],"title":"SmallModel","type":"object"},"version":"2.0","views":{}},"metadata":{"foo":1,"shouldIndex":true}} |                   |
+            +-------+-------------------------------------------------------------+-------------+-------------+--------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
         let event_states = do_pass(
             ctx.actor_handle.clone(),
             Some(0),
@@ -1334,11 +1369,11 @@ mod tests {
         .await
         .unwrap();
         expect![[r#"
-            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+----------------------------------------------------------------------------------------------------------+-------------------+
-            | index | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                      | event_cid                                                   | event_type | data                                                                                                     | validation_errors |
-            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+----------------------------------------------------------------------------------------------------------+-------------------+
-            | 1     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | {"metadata":{"foo":1,"shouldIndex":true},"content":{"creator":"alice","red":255,"green":255,"blue":255}} |                   |
-            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+----------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+----------------------------------------------------------------------------------------------------------+-------------------+
+            | index | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                      | event_cid                                                   | event_type | event_height | data                                                                                                     | validation_errors |
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+----------------------------------------------------------------------------------------------------------+-------------------+
+            | 1     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | 0            | {"content":{"blue":255,"creator":"alice","green":255,"red":255},"metadata":{"foo":1,"shouldIndex":true}} |                   |
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+----------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
         let event_states = do_pass(
             ctx.actor_handle.clone(),
             Some(1),
@@ -1347,11 +1382,11 @@ mod tests {
         .await
         .unwrap();
         expect![[r#"
-            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+----------------------------------------------------------------------------------------------------------+-------------------+
-            | index | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                      | event_cid                                                   | event_type | data                                                                                                     | validation_errors |
-            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+----------------------------------------------------------------------------------------------------------+-------------------+
-            | 2     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | 1          | {"metadata":{"foo":1,"shouldIndex":true},"content":{"creator":"alice","red":255,"green":255,"blue":255}} |                   |
-            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+----------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+----------------------------------------------------------------------------------------------------------+-------------------+
+            | index | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                      | event_cid                                                   | event_type | event_height | data                                                                                                     | validation_errors |
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+----------------------------------------------------------------------------------------------------------+-------------------+
+            | 2     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | 1          | 1            | {"content":{"blue":255,"creator":"alice","green":255,"red":255},"metadata":{"foo":1,"shouldIndex":true}} |                   |
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+----------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
         let event_states = do_pass(
             ctx.actor_handle.clone(),
             Some(2),
@@ -1360,11 +1395,11 @@ mod tests {
         .await
         .unwrap();
         expect![[r#"
-            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------------------------------------------------------------------------------------------------+-------------------+
-            | index | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                      | event_cid                                                   | event_type | data                                                                                                   | validation_errors |
-            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------------------------------------------------------------------------------------------------+-------------------+
-            | 3     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeibrtuyyqwd6y4aa62qxaimjhafielf7fc22fa5b7i7vptcu5263em | 0          | {"metadata":{"foo":2,"shouldIndex":true},"content":{"blue":255,"creator":"alice","green":255,"red":0}} |                   |
-            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+--------------------------------------------------------------------------------------------------------+-------------------+
+            | index | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                      | event_cid                                                   | event_type | event_height | data                                                                                                   | validation_errors |
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+--------------------------------------------------------------------------------------------------------+-------------------+
+            | 3     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeibrtuyyqwd6y4aa62qxaimjhafielf7fc22fa5b7i7vptcu5263em | 0          | 2            | {"metadata":{"foo":2,"shouldIndex":true},"content":{"blue":255,"creator":"alice","green":255,"red":0}} |                   |
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+--------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
         ctx.shutdown().await.unwrap();
     }
     #[test(tokio::test)]
@@ -1379,11 +1414,11 @@ mod tests {
         .await
         .unwrap();
         expect![[r#"
-            +-------+-------------------------------------------------------------+-------------+-------------+--------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
-            | index | stream_cid                                                  | stream_type | controller  | dimensions                           | event_cid                                                   | event_type | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | validation_errors |
-            +-------+-------------------------------------------------------------+-------------+-------------+--------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
-            | 0     | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob | {controller: 6469643a6b65793a626f62} | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 0          | {"metadata":{"foo":1,"shouldIndex":true},"content":{"version":"2.0","name":"TestSmallModel","interface":false,"implements":[],"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"SmallModel","type":"object","properties":{"blue":{"type":"integer","format":"int32"},"creator":{"type":"string"},"green":{"type":"integer","format":"int32"},"red":{"type":"integer","format":"int32"}},"additionalProperties":false,"required":["creator","red","green","blue"]},"accountRelation":{"type":"list"},"relations":{},"views":{}}} |                   |
-            +-------+-------------------------------------------------------------+-------------+-------------+--------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
+            +-------+-------------------------------------------------------------+-------------+-------------+--------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
+            | index | stream_cid                                                  | stream_type | controller  | dimensions                           | event_cid                                                   | event_type | event_height | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | validation_errors |
+            +-------+-------------------------------------------------------------+-------------+-------------+--------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
+            | 0     | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob | {controller: 6469643a6b65793a626f62} | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 0          | 0            | {"content":{"accountRelation":{"type":"list"},"implements":[],"interface":false,"name":"TestSmallModel","relations":{},"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"blue":{"format":"int32","type":"integer"},"creator":{"type":"string"},"green":{"format":"int32","type":"integer"},"red":{"format":"int32","type":"integer"}},"required":["creator","red","green","blue"],"title":"SmallModel","type":"object"},"version":"2.0","views":{}},"metadata":{"foo":1,"shouldIndex":true}} |                   |
+            +-------+-------------------------------------------------------------+-------------+-------------+--------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
         let event_states = do_pass(
             ctx.actor_handle.clone(),
             Some(0),
@@ -1392,15 +1427,99 @@ mod tests {
         .await
         .unwrap();
         expect![[r#"
-            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+----------------------------------------------------------------------------------------------------------+-------------------+
-            | index | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                      | event_cid                                                   | event_type | data                                                                                                     | validation_errors |
-            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+----------------------------------------------------------------------------------------------------------+-------------------+
-            | 1     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | {"metadata":{"foo":1,"shouldIndex":true},"content":{"creator":"alice","red":255,"green":255,"blue":255}} |                   |
-            | 2     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | 1          | {"metadata":{"foo":1,"shouldIndex":true},"content":{"creator":"alice","red":255,"green":255,"blue":255}} |                   |
-            | 3     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeibrtuyyqwd6y4aa62qxaimjhafielf7fc22fa5b7i7vptcu5263em | 0          | {"metadata":{"foo":2,"shouldIndex":true},"content":{"blue":255,"creator":"alice","green":255,"red":0}}   |                   |
-            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+----------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+----------------------------------------------------------------------------------------------------------+-------------------+
+            | index | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                      | event_cid                                                   | event_type | event_height | data                                                                                                     | validation_errors |
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+----------------------------------------------------------------------------------------------------------+-------------------+
+            | 1     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | 0            | {"content":{"blue":255,"creator":"alice","green":255,"red":255},"metadata":{"foo":1,"shouldIndex":true}} |                   |
+            | 2     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | 1          | 1            | {"content":{"blue":255,"creator":"alice","green":255,"red":255},"metadata":{"foo":1,"shouldIndex":true}} |                   |
+            | 3     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeibrtuyyqwd6y4aa62qxaimjhafielf7fc22fa5b7i7vptcu5263em | 0          | 2            | {"metadata":{"foo":2,"shouldIndex":true},"content":{"blue":255,"creator":"alice","green":255,"red":0}}   |                   |
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+----------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
         ctx.shutdown().await.unwrap();
     }
+    #[test(tokio::test)]
+    async fn invalid_instance_data() {
+        let mut events = model_and_mids_events();
+        append_data(
+            &mut events,
+            Cid::from_str("baeabeicklrck72l22zzc324b7ordbhq2amnhhivabosngfkbhk2nmuyqom").unwrap(),
+            &serde_json::to_string(&json!({
+            "metadata":{"foo":2},
+            "content":[{
+                "op":"add",
+                "path": "/color",
+                "value":"00FFFF"
+            }]}))
+            .unwrap(),
+        );
+        let event_states = do_test(conclusion_events_to_record_batch(&events).unwrap())
+            .await
+            .unwrap();
+
+        expect![[r#"
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+----------------------------------------------------------------------------------------------------+
+            | index | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                      | event_cid                                                   | event_type | event_height | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | validation_errors                                                                                  |
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+----------------------------------------------------------------------------------------------------+
+            | 0     | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob   | {controller: 6469643a6b65793a626f62}                                                                                            | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 0          | 0            | {"content":{"accountRelation":{"type":"list"},"implements":[],"interface":false,"name":"TestSmallModel","relations":{},"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"blue":{"format":"int32","type":"integer"},"creator":{"type":"string"},"green":{"format":"int32","type":"integer"},"red":{"format":"int32","type":"integer"}},"required":["creator","red","green","blue"],"title":"SmallModel","type":"object"},"version":"2.0","views":{}},"metadata":{"foo":1,"shouldIndex":true}} |                                                                                                    |
+            | 1     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | 0            | {"content":{"blue":255,"creator":"alice","green":255,"red":255},"metadata":{"foo":1,"shouldIndex":true}}                                                                                                                                                                                                                                                                                                                                                                                                                                                  |                                                                                                    |
+            | 2     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | 1          | 1            | {"content":{"blue":255,"creator":"alice","green":255,"red":255},"metadata":{"foo":1,"shouldIndex":true}}                                                                                                                                                                                                                                                                                                                                                                                                                                                  |                                                                                                    |
+            | 3     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeibrtuyyqwd6y4aa62qxaimjhafielf7fc22fa5b7i7vptcu5263em | 0          | 2            | {"metadata":{"foo":2,"shouldIndex":true},"content":{"blue":255,"creator":"alice","green":255,"red":0}}                                                                                                                                                                                                                                                                                                                                                                                                                                                    |                                                                                                    |
+            | 4     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeicklrck72l22zzc324b7ordbhq2amnhhivabosngfkbhk2nmuyqom | 0          | 3            | {"metadata":{"foo":2,"shouldIndex":true},"content":{"blue":255,"color":"00FFFF","creator":"alice","green":255,"red":0}}                                                                                                                                                                                                                                                                                                                                                                                                                                   | [Failed to validate schema:  'Additional properties are not allowed ('color' was unexpected)' at ] |
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+----------------------------------------------------------------------------------------------------+"#]].assert_eq(&event_states.to_string());
+    }
+
+    #[test(tokio::test)]
+    async fn event_height_branches() {
+        //Test that event height is computed correctly with branches
+        let mut events = model_and_mids_events();
+        events.push(chain_data_event(
+            &events,
+            &events[1],
+            Cid::from_str("baeabeifiqq7nc3ok6wvvvoruf6ednyhwc5jjmbn7ks5kglc6dtchqai6vu").unwrap(),
+            &serde_json::to_string(&json!( {
+                "metadata": { },
+                "content": [{
+                    "op":"replace",
+                    "path":"/blue",
+                    "value":127,
+                }]
+            }))
+            .unwrap(),
+        ));
+        events.push(chain_data_event(
+            &events,
+            &events[3],
+            Cid::from_str("baeabeic5wirrpbvrghm4icaoezllghar5v4z6usf6zqepfwj7hxznvwh3e").unwrap(),
+            &serde_json::to_string(&json!( {
+                "metadata": { },
+                "content": [{
+                    "op":"replace",
+                    "path":"/blue",
+                    "value":0,
+                }]
+            }))
+            .unwrap(),
+        ));
+        let event_states = do_test(conclusion_events_to_record_batch(&events).unwrap())
+            .await
+            .unwrap();
+
+        expect![[r#"
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
+            | index | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                      | event_cid                                                   | event_type | event_height | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | validation_errors |
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
+            | 0     | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob   | {controller: 6469643a6b65793a626f62}                                                                                            | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 0          | 0            | {"content":{"accountRelation":{"type":"list"},"implements":[],"interface":false,"name":"TestSmallModel","relations":{},"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"blue":{"format":"int32","type":"integer"},"creator":{"type":"string"},"green":{"format":"int32","type":"integer"},"red":{"format":"int32","type":"integer"}},"required":["creator","red","green","blue"],"title":"SmallModel","type":"object"},"version":"2.0","views":{}},"metadata":{"foo":1,"shouldIndex":true}} |                   |
+            | 1     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | 0            | {"content":{"blue":255,"creator":"alice","green":255,"red":255},"metadata":{"foo":1,"shouldIndex":true}}                                                                                                                                                                                                                                                                                                                                                                                                                                                  |                   |
+            | 2     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | 1          | 1            | {"content":{"blue":255,"creator":"alice","green":255,"red":255},"metadata":{"foo":1,"shouldIndex":true}}                                                                                                                                                                                                                                                                                                                                                                                                                                                  |                   |
+            | 3     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeibrtuyyqwd6y4aa62qxaimjhafielf7fc22fa5b7i7vptcu5263em | 0          | 2            | {"metadata":{"foo":2,"shouldIndex":true},"content":{"blue":255,"creator":"alice","green":255,"red":0}}                                                                                                                                                                                                                                                                                                                                                                                                                                                    |                   |
+            | 4     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeifiqq7nc3ok6wvvvoruf6ednyhwc5jjmbn7ks5kglc6dtchqai6vu | 0          | 1            | {"metadata":{"foo":1,"shouldIndex":true},"content":{"blue":127,"creator":"alice","green":255,"red":255}}                                                                                                                                                                                                                                                                                                                                                                                                                                                  |                   |
+            | 5     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeic5wirrpbvrghm4icaoezllghar5v4z6usf6zqepfwj7hxznvwh3e | 0          | 3            | {"metadata":{"foo":2,"shouldIndex":true},"content":{"blue":0,"creator":"alice","green":255,"red":0}}                                                                                                                                                                                                                                                                                                                                                                                                                                                      |                   |
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
+    }
+
+    //---------------------------------------------------------------
+    // Tests about the mechanisms of the aggregator that keep data flowing
+    //---------------------------------------------------------------
+
     #[test(tokio::test)]
     async fn sub_concluder() {
         // This test ensures that the logic that polls the concluder actor to check for new events
@@ -1422,14 +1541,14 @@ mod tests {
         let ctx = init_with_concluder(mock_concluder).await.unwrap();
         let event_states = do_pass(ctx.actor_handle.clone(), None, None).await.unwrap();
         expect![[r#"
-            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
-            | index | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                      | event_cid                                                   | event_type | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | validation_errors |
-            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
-            | 0     | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob   | {controller: 6469643a6b65793a626f62}                                                                                            | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 0          | {"metadata":{"foo":1,"shouldIndex":true},"content":{"version":"2.0","name":"TestSmallModel","interface":false,"implements":[],"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"SmallModel","type":"object","properties":{"blue":{"type":"integer","format":"int32"},"creator":{"type":"string"},"green":{"type":"integer","format":"int32"},"red":{"type":"integer","format":"int32"}},"additionalProperties":false,"required":["creator","red","green","blue"]},"accountRelation":{"type":"list"},"relations":{},"views":{}}} |                   |
-            | 1     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | {"metadata":{"foo":1,"shouldIndex":true},"content":{"creator":"alice","red":255,"green":255,"blue":255}}                                                                                                                                                                                                                                                                                                                                                                                                                                                  |                   |
-            | 2     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | 1          | {"metadata":{"foo":1,"shouldIndex":true},"content":{"creator":"alice","red":255,"green":255,"blue":255}}                                                                                                                                                                                                                                                                                                                                                                                                                                                  |                   |
-            | 3     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeibrtuyyqwd6y4aa62qxaimjhafielf7fc22fa5b7i7vptcu5263em | 0          | {"metadata":{"foo":2,"shouldIndex":true},"content":{"blue":255,"creator":"alice","green":255,"red":0}}                                                                                                                                                                                                                                                                                                                                                                                                                                                    |                   |
-            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
+            | index | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                      | event_cid                                                   | event_type | event_height | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | validation_errors |
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
+            | 0     | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob   | {controller: 6469643a6b65793a626f62}                                                                                            | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 0          | 0            | {"content":{"accountRelation":{"type":"list"},"implements":[],"interface":false,"name":"TestSmallModel","relations":{},"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"blue":{"format":"int32","type":"integer"},"creator":{"type":"string"},"green":{"format":"int32","type":"integer"},"red":{"format":"int32","type":"integer"}},"required":["creator","red","green","blue"],"title":"SmallModel","type":"object"},"version":"2.0","views":{}},"metadata":{"foo":1,"shouldIndex":true}} |                   |
+            | 1     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | 0            | {"content":{"blue":255,"creator":"alice","green":255,"red":255},"metadata":{"foo":1,"shouldIndex":true}}                                                                                                                                                                                                                                                                                                                                                                                                                                                  |                   |
+            | 2     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | 1          | 1            | {"content":{"blue":255,"creator":"alice","green":255,"red":255},"metadata":{"foo":1,"shouldIndex":true}}                                                                                                                                                                                                                                                                                                                                                                                                                                                  |                   |
+            | 3     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeibrtuyyqwd6y4aa62qxaimjhafielf7fc22fa5b7i7vptcu5263em | 0          | 2            | {"metadata":{"foo":2,"shouldIndex":true},"content":{"blue":255,"creator":"alice","green":255,"red":0}}                                                                                                                                                                                                                                                                                                                                                                                                                                                    |                   |
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
         ctx.shutdown().await.unwrap();
     }
 
@@ -1472,12 +1591,12 @@ mod tests {
             .unwrap();
             let event_states = do_pass(ctx.actor_handle.clone(), None, None).await.unwrap();
             expect![[r#"
-                +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
-                | index | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                      | event_cid                                                   | event_type | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | validation_errors |
-                +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
-                | 0     | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob   | {controller: 6469643a6b65793a626f62}                                                                                            | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 0          | {"metadata":{"foo":1,"shouldIndex":true},"content":{"version":"2.0","name":"TestSmallModel","interface":false,"implements":[],"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"SmallModel","type":"object","properties":{"blue":{"type":"integer","format":"int32"},"creator":{"type":"string"},"green":{"type":"integer","format":"int32"},"red":{"type":"integer","format":"int32"}},"additionalProperties":false,"required":["creator","red","green","blue"]},"accountRelation":{"type":"list"},"relations":{},"views":{}}} |                   |
-                | 1     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | {"metadata":{"foo":1,"shouldIndex":true},"content":{"creator":"alice","red":255,"green":255,"blue":255}}                                                                                                                                                                                                                                                                                                                                                                                                                                                  |                   |
-                +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
+                +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
+                | index | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                      | event_cid                                                   | event_type | event_height | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | validation_errors |
+                +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
+                | 0     | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob   | {controller: 6469643a6b65793a626f62}                                                                                            | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 0          | 0            | {"content":{"accountRelation":{"type":"list"},"implements":[],"interface":false,"name":"TestSmallModel","relations":{},"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"blue":{"format":"int32","type":"integer"},"creator":{"type":"string"},"green":{"format":"int32","type":"integer"},"red":{"format":"int32","type":"integer"}},"required":["creator","red","green","blue"],"title":"SmallModel","type":"object"},"version":"2.0","views":{}},"metadata":{"foo":1,"shouldIndex":true}} |                   |
+                | 1     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | 0            | {"content":{"blue":255,"creator":"alice","green":255,"red":255},"metadata":{"foo":1,"shouldIndex":true}}                                                                                                                                                                                                                                                                                                                                                                                                                                                  |                   |
+                +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
             ctx.shutdown().await.unwrap();
         }
 
@@ -1517,19 +1636,20 @@ mod tests {
             .unwrap();
         let mut batches = Vec::new();
         while let Some(batch) = subscription.try_next().await.unwrap() {
+            println!("SCHMEA {:?}", batch.schema());
             batches.push(batch)
         }
-        println!("{}", pretty_format_batches(&batches).unwrap());
+        //println!("BATCH  {}", pretty_format_batches(&batches).unwrap());
         let event_states = pretty_event_states(batches).await.unwrap();
         expect![[r#"
-            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
-            | index | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                      | event_cid                                                   | event_type | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | validation_errors |
-            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
-            | 0     | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob   | {controller: 6469643a6b65793a626f62}                                                                                            | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 0          | {"metadata":{"foo":1,"shouldIndex":true},"content":{"version":"2.0","name":"TestSmallModel","interface":false,"implements":[],"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"SmallModel","type":"object","properties":{"blue":{"type":"integer","format":"int32"},"creator":{"type":"string"},"green":{"type":"integer","format":"int32"},"red":{"type":"integer","format":"int32"}},"additionalProperties":false,"required":["creator","red","green","blue"]},"accountRelation":{"type":"list"},"relations":{},"views":{}}} |                   |
-            | 1     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | {"metadata":{"foo":1,"shouldIndex":true},"content":{"creator":"alice","red":255,"green":255,"blue":255}}                                                                                                                                                                                                                                                                                                                                                                                                                                                  |                   |
-            | 2     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | 1          | {"metadata":{"foo":1,"shouldIndex":true},"content":{"creator":"alice","red":255,"green":255,"blue":255}}                                                                                                                                                                                                                                                                                                                                                                                                                                                  |                   |
-            | 3     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeibrtuyyqwd6y4aa62qxaimjhafielf7fc22fa5b7i7vptcu5263em | 0          | {"metadata":{"foo":2,"shouldIndex":true},"content":{"blue":255,"creator":"alice","green":255,"red":0}}                                                                                                                                                                                                                                                                                                                                                                                                                                                    |                   |
-            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
+            | index | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                      | event_cid                                                   | event_type | event_height | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | validation_errors |
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
+            | 0     | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob   | {controller: 6469643a6b65793a626f62}                                                                                            | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 0          | 0            | {"content":{"accountRelation":{"type":"list"},"implements":[],"interface":false,"name":"TestSmallModel","relations":{},"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"blue":{"format":"int32","type":"integer"},"creator":{"type":"string"},"green":{"format":"int32","type":"integer"},"red":{"format":"int32","type":"integer"}},"required":["creator","red","green","blue"],"title":"SmallModel","type":"object"},"version":"2.0","views":{}},"metadata":{"foo":1,"shouldIndex":true}} |                   |
+            | 1     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | 0            | {"content":{"blue":255,"creator":"alice","green":255,"red":255},"metadata":{"foo":1,"shouldIndex":true}}                                                                                                                                                                                                                                                                                                                                                                                                                                                  |                   |
+            | 2     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | 1          | 1            | {"content":{"blue":255,"creator":"alice","green":255,"red":255},"metadata":{"foo":1,"shouldIndex":true}}                                                                                                                                                                                                                                                                                                                                                                                                                                                  |                   |
+            | 3     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeibrtuyyqwd6y4aa62qxaimjhafielf7fc22fa5b7i7vptcu5263em | 0          | 2            | {"metadata":{"foo":2,"shouldIndex":true},"content":{"blue":255,"creator":"alice","green":255,"red":0}}                                                                                                                                                                                                                                                                                                                                                                                                                                                    |                   |
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
         ctx.shutdown().await.unwrap();
     }
 
@@ -1561,14 +1681,18 @@ mod tests {
         let event_states = pretty_event_states(vec![batch]).await.unwrap();
 
         expect![[r#"
-            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
-            | index | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                      | event_cid                                                   | event_type | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | validation_errors |
-            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
-            | 0     | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob   | {controller: 6469643a6b65793a626f62}                                                                                            | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 0          | {"metadata":{"foo":1,"shouldIndex":true},"content":{"version":"2.0","name":"TestSmallModel","interface":false,"implements":[],"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"SmallModel","type":"object","properties":{"blue":{"type":"integer","format":"int32"},"creator":{"type":"string"},"green":{"type":"integer","format":"int32"},"red":{"type":"integer","format":"int32"}},"additionalProperties":false,"required":["creator","red","green","blue"]},"accountRelation":{"type":"list"},"relations":{},"views":{}}} |                   |
-            | 1     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | {"metadata":{"foo":1,"shouldIndex":true},"content":{"creator":"alice","red":255,"green":255,"blue":255}}                                                                                                                                                                                                                                                                                                                                                                                                                                                  |                   |
-            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
+            | index | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                      | event_cid                                                   | event_type | event_height | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | validation_errors |
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
+            | 0     | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob   | {controller: 6469643a6b65793a626f62}                                                                                            | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 0          | 0            | {"content":{"accountRelation":{"type":"list"},"implements":[],"interface":false,"name":"TestSmallModel","relations":{},"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"blue":{"format":"int32","type":"integer"},"creator":{"type":"string"},"green":{"format":"int32","type":"integer"},"red":{"format":"int32","type":"integer"}},"required":["creator","red","green","blue"],"title":"SmallModel","type":"object"},"version":"2.0","views":{}},"metadata":{"foo":1,"shouldIndex":true}} |                   |
+            | 1     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | 0            | {"content":{"blue":255,"creator":"alice","green":255,"red":255},"metadata":{"foo":1,"shouldIndex":true}}                                                                                                                                                                                                                                                                                                                                                                                                                                                  |                   |
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
         ctx.shutdown().await.unwrap();
     }
+
+    //---------------------------------------------------------------
+    // Tests about the StreamState message for the aggregator
+    //---------------------------------------------------------------
 
     #[test(tokio::test)]
     async fn stream_state() {
@@ -1581,11 +1705,13 @@ mod tests {
                         index: 0,
                         event_cid: Cid::from_str(
                             "baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi",
-                        ).unwrap(),
+                        )
+                        .unwrap(),
                         init: ConclusionInit {
                             stream_cid: Cid::from_str(
                                 "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
-                            ).unwrap(),
+                            )
+                            .unwrap(),
                             stream_type: StreamIdType::Model as u8,
                             controller: "did:key:bob".to_string(),
                             dimensions: vec![
@@ -1594,17 +1720,27 @@ mod tests {
                             ],
                         },
                         previous: vec![],
-                        data: r#"{"metadata":{"foo":1,"shouldIndex":true},"content":{"a":0}}"#.into(),
+
+                        data: serde_json::to_string(&json!({
+                            "metadata":{
+                                "foo":1,
+                                "shouldIndex":true
+                            },"content":{"a":0}
+                        }))
+                        .unwrap()
+                        .into(),
                     }),
                     ConclusionEvent::Time(ConclusionTime {
                         index: 1,
                         event_cid: Cid::from_str(
                             "baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq",
-                        ).unwrap(),
+                        )
+                        .unwrap(),
                         init: ConclusionInit {
                             stream_cid: Cid::from_str(
                                 "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
-                            ).unwrap(),
+                            )
+                            .unwrap(),
                             stream_type: StreamIdType::Model as u8,
                             controller: "did:key:bob".to_string(),
                             dimensions: vec![
@@ -1614,17 +1750,20 @@ mod tests {
                         },
                         previous: vec![Cid::from_str(
                             "baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi",
-                        ).unwrap()],
+                        )
+                        .unwrap()],
                     }),
                     ConclusionEvent::Data(ConclusionData {
                         index: 2,
                         event_cid: Cid::from_str(
                             "baeabeifwi4ddwafoqe6htkx3g5gtjz5adapj366w6mraut4imk2ljwu3du",
-                        ).unwrap(),
+                        )
+                        .unwrap(),
                         init: ConclusionInit {
                             stream_cid: Cid::from_str(
                                 "baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu",
-                            ).unwrap(),
+                            )
+                            .unwrap(),
                             stream_type: StreamIdType::Model as u8,
                             controller: "did:key:bob".to_string(),
                             dimensions: vec![
@@ -1634,14 +1773,26 @@ mod tests {
                         },
                         previous: vec![Cid::from_str(
                             "baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq",
-                        ).unwrap()],
-                        data: r#"{"metadata":{"shouldIndex":false},"content":[{"op":"replace", "path": "/a", "value":1}]}"#.into(),
+                        )
+                        .unwrap()],
+
+                        data: serde_json::to_string(&json!({
+                        "metadata":{
+                            "shouldIndex":false},
+                            "content":[{
+                                "op":"replace",
+                                "path": "/a",
+                                "value":1
+                            }]}))
+                        .unwrap()
+                        .into(),
                     }),
-                ]).unwrap(),
+                ])
+                .unwrap(),
             })
-        .await
-        .unwrap()
-        .unwrap();
+            .await
+            .unwrap()
+            .unwrap();
 
         let state = ctx
             .actor_handle
@@ -1698,29 +1849,9 @@ mod tests {
         ctx.shutdown().await.unwrap();
     }
 
-    #[test(tokio::test)]
-    async fn invalid_instance_data() {
-        let mut events = model_and_mids_events();
-        append_data(
-            &mut events,
-            Cid::from_str("baeabeicklrck72l22zzc324b7ordbhq2amnhhivabosngfkbhk2nmuyqom").unwrap(),
-            r#"{"metadata":{"foo":2},"content":[{"op":"add", "path": "/color", "value":"00FFFF"}]}"#,
-        );
-        let event_states = do_test(conclusion_events_to_record_batch(&events).unwrap())
-            .await
-            .unwrap();
-
-        expect![[r#"
-            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+----------------------------------------------------------------------------------------------------+
-            | index | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                      | event_cid                                                   | event_type | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | validation_errors                                                                                  |
-            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+----------------------------------------------------------------------------------------------------+
-            | 0     | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob   | {controller: 6469643a6b65793a626f62}                                                                                            | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 0          | {"metadata":{"foo":1,"shouldIndex":true},"content":{"version":"2.0","name":"TestSmallModel","interface":false,"implements":[],"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"SmallModel","type":"object","properties":{"blue":{"type":"integer","format":"int32"},"creator":{"type":"string"},"green":{"type":"integer","format":"int32"},"red":{"type":"integer","format":"int32"}},"additionalProperties":false,"required":["creator","red","green","blue"]},"accountRelation":{"type":"list"},"relations":{},"views":{}}} |                                                                                                    |
-            | 1     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | {"metadata":{"foo":1,"shouldIndex":true},"content":{"creator":"alice","red":255,"green":255,"blue":255}}                                                                                                                                                                                                                                                                                                                                                                                                                                                  |                                                                                                    |
-            | 2     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | 1          | {"metadata":{"foo":1,"shouldIndex":true},"content":{"creator":"alice","red":255,"green":255,"blue":255}}                                                                                                                                                                                                                                                                                                                                                                                                                                                  |                                                                                                    |
-            | 3     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeibrtuyyqwd6y4aa62qxaimjhafielf7fc22fa5b7i7vptcu5263em | 0          | {"metadata":{"foo":2,"shouldIndex":true},"content":{"blue":255,"creator":"alice","green":255,"red":0}}                                                                                                                                                                                                                                                                                                                                                                                                                                                    |                                                                                                    |
-            | 4     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeicklrck72l22zzc324b7ordbhq2amnhhivabosngfkbhk2nmuyqom | 0          | {"metadata":{"foo":2,"shouldIndex":true},"content":{"blue":255,"color":"00FFFF","creator":"alice","green":255,"red":0}}                                                                                                                                                                                                                                                                                                                                                                                                                                   | [Failed to validate schema:  'Additional properties are not allowed ('color' was unexpected)' at ] |
-            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+----------------------------------------------------------------------------------------------------+"#]].assert_eq(&event_states.to_string());
-    }
+    //---------------------------------------------------------------
+    // Tests about updating model schemas
+    //---------------------------------------------------------------
 
     #[test(tokio::test)]
     async fn update_model() {
@@ -1729,19 +1860,26 @@ mod tests {
             &mut events,
             Cid::from_str("baeabeiavjadi73bzahaao2wqs4nffvkwbgpsyphcwue3wgsj457sb7eymm").unwrap(),
             // Adds alpha property to model
-            r#"{"metadata":{"foo":2},"content":[{"op":"add", "path": "/schema/properties/alpha", "value":{"type":"integer","format":"int32"}}]}"#,
+            &serde_json::to_string(&json!({
+            "metadata":{"foo":2},
+            "content":[{
+                "op":"add",
+                "path": "/schema/properties/alpha",
+                "value":{"type":"integer","format":"int32"}
+            }]}))
+            .unwrap(),
         );
         let event_states = do_test(conclusion_events_to_record_batch(&events).unwrap())
             .await
             .unwrap();
 
         expect![[r#"
-            +-------+-------------------------------------------------------------+-------------+-------------+--------------------------------------+-------------------------------------------------------------+------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
-            | index | stream_cid                                                  | stream_type | controller  | dimensions                           | event_cid                                                   | event_type | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | validation_errors |
-            +-------+-------------------------------------------------------------+-------------+-------------+--------------------------------------+-------------------------------------------------------------+------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
-            | 0     | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob | {controller: 6469643a6b65793a626f62} | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 0          | {"metadata":{"foo":1,"shouldIndex":true},"content":{"version":"2.0","name":"TestSmallModel","interface":false,"implements":[],"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"SmallModel","type":"object","properties":{"blue":{"type":"integer","format":"int32"},"creator":{"type":"string"},"green":{"type":"integer","format":"int32"},"red":{"type":"integer","format":"int32"}},"additionalProperties":false,"required":["creator","red","green","blue"]},"accountRelation":{"type":"list"},"relations":{},"views":{}}}                                             |                   |
-            | 1     | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob | {controller: 6469643a6b65793a626f62} | baeabeiavjadi73bzahaao2wqs4nffvkwbgpsyphcwue3wgsj457sb7eymm | 0          | {"metadata":{"foo":2,"shouldIndex":true},"content":{"accountRelation":{"type":"list"},"implements":[],"interface":false,"name":"TestSmallModel","relations":{},"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"alpha":{"format":"int32","type":"integer"},"blue":{"format":"int32","type":"integer"},"creator":{"type":"string"},"green":{"format":"int32","type":"integer"},"red":{"format":"int32","type":"integer"}},"required":["creator","red","green","blue"],"title":"SmallModel","type":"object"},"version":"2.0","views":{}}} |                   |
-            +-------+-------------------------------------------------------------+-------------+-------------+--------------------------------------+-------------------------------------------------------------+------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
+            +-------+-------------------------------------------------------------+-------------+-------------+--------------------------------------+-------------------------------------------------------------+------------+--------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
+            | index | stream_cid                                                  | stream_type | controller  | dimensions                           | event_cid                                                   | event_type | event_height | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | validation_errors |
+            +-------+-------------------------------------------------------------+-------------+-------------+--------------------------------------+-------------------------------------------------------------+------------+--------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
+            | 0     | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob | {controller: 6469643a6b65793a626f62} | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 0          | 0            | {"content":{"accountRelation":{"type":"list"},"implements":[],"interface":false,"name":"TestSmallModel","relations":{},"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"blue":{"format":"int32","type":"integer"},"creator":{"type":"string"},"green":{"format":"int32","type":"integer"},"red":{"format":"int32","type":"integer"}},"required":["creator","red","green","blue"],"title":"SmallModel","type":"object"},"version":"2.0","views":{}},"metadata":{"foo":1,"shouldIndex":true}}                                             |                   |
+            | 1     | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob | {controller: 6469643a6b65793a626f62} | baeabeiavjadi73bzahaao2wqs4nffvkwbgpsyphcwue3wgsj457sb7eymm | 0          | 1            | {"metadata":{"foo":2,"shouldIndex":true},"content":{"accountRelation":{"type":"list"},"implements":[],"interface":false,"name":"TestSmallModel","relations":{},"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"alpha":{"format":"int32","type":"integer"},"blue":{"format":"int32","type":"integer"},"creator":{"type":"string"},"green":{"format":"int32","type":"integer"},"red":{"format":"int32","type":"integer"}},"required":["creator","red","green","blue"],"title":"SmallModel","type":"object"},"version":"2.0","views":{}}} |                   |
+            +-------+-------------------------------------------------------------+-------------+-------------+--------------------------------------+-------------------------------------------------------------+------------+--------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
     }
     #[test(tokio::test)]
     async fn invalid_update_model_new_required() {
@@ -1751,9 +1889,7 @@ mod tests {
             Cid::from_str("baeabeiavjadi73bzahaao2wqs4nffvkwbgpsyphcwue3wgsj457sb7eymm").unwrap(),
             // Adds alpha property to model
             &serde_json::to_string(&json!({
-                "metadata":{
-                    "foo":2
-                },
+                "metadata":{ "foo":2 },
                 "content":[
                     {
                         "op":"add",
@@ -1774,12 +1910,12 @@ mod tests {
             .unwrap();
 
         expect![[r#"
-            +-------+-------------------------------------------------------------+-------------+-------------+--------------------------------------+-------------------------------------------------------------+------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+----------------------------------------+
-            | index | stream_cid                                                  | stream_type | controller  | dimensions                           | event_cid                                                   | event_type | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | validation_errors                      |
-            +-------+-------------------------------------------------------------+-------------+-------------+--------------------------------------+-------------------------------------------------------------+------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+----------------------------------------+
-            | 0     | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob | {controller: 6469643a6b65793a626f62} | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 0          | {"metadata":{"foo":1,"shouldIndex":true},"content":{"version":"2.0","name":"TestSmallModel","interface":false,"implements":[],"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"SmallModel","type":"object","properties":{"blue":{"type":"integer","format":"int32"},"creator":{"type":"string"},"green":{"type":"integer","format":"int32"},"red":{"type":"integer","format":"int32"}},"additionalProperties":false,"required":["creator","red","green","blue"]},"accountRelation":{"type":"list"},"relations":{},"views":{}}}                                                     |                                        |
-            | 1     | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob | {controller: 6469643a6b65793a626f62} | baeabeiavjadi73bzahaao2wqs4nffvkwbgpsyphcwue3wgsj457sb7eymm | 0          | {"metadata":{"foo":2,"shouldIndex":true},"content":{"accountRelation":{"type":"list"},"implements":[],"interface":false,"name":"TestSmallModel","relations":{},"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"alpha":{"format":"int32","type":"integer"},"blue":{"format":"int32","type":"integer"},"creator":{"type":"string"},"green":{"format":"int32","type":"integer"},"red":{"format":"int32","type":"integer"}},"required":["creator","red","green","blue","alpha"],"title":"SmallModel","type":"object"},"version":"2.0","views":{}}} | [breaking change made to model schema] |
-            +-------+-------------------------------------------------------------+-------------+-------------+--------------------------------------+-------------------------------------------------------------+------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+----------------------------------------+"#]].assert_eq(&event_states.to_string());
+            +-------+-------------------------------------------------------------+-------------+-------------+--------------------------------------+-------------------------------------------------------------+------------+--------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+----------------------------------------+
+            | index | stream_cid                                                  | stream_type | controller  | dimensions                           | event_cid                                                   | event_type | event_height | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | validation_errors                      |
+            +-------+-------------------------------------------------------------+-------------+-------------+--------------------------------------+-------------------------------------------------------------+------------+--------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+----------------------------------------+
+            | 0     | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob | {controller: 6469643a6b65793a626f62} | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 0          | 0            | {"content":{"accountRelation":{"type":"list"},"implements":[],"interface":false,"name":"TestSmallModel","relations":{},"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"blue":{"format":"int32","type":"integer"},"creator":{"type":"string"},"green":{"format":"int32","type":"integer"},"red":{"format":"int32","type":"integer"}},"required":["creator","red","green","blue"],"title":"SmallModel","type":"object"},"version":"2.0","views":{}},"metadata":{"foo":1,"shouldIndex":true}}                                                     |                                        |
+            | 1     | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob | {controller: 6469643a6b65793a626f62} | baeabeiavjadi73bzahaao2wqs4nffvkwbgpsyphcwue3wgsj457sb7eymm | 0          | 1            | {"metadata":{"foo":2,"shouldIndex":true},"content":{"accountRelation":{"type":"list"},"implements":[],"interface":false,"name":"TestSmallModel","relations":{},"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"alpha":{"format":"int32","type":"integer"},"blue":{"format":"int32","type":"integer"},"creator":{"type":"string"},"green":{"format":"int32","type":"integer"},"red":{"format":"int32","type":"integer"}},"required":["creator","red","green","blue","alpha"],"title":"SmallModel","type":"object"},"version":"2.0","views":{}}} | [breaking change made to model schema] |
+            +-------+-------------------------------------------------------------+-------------+-------------+--------------------------------------+-------------------------------------------------------------+------------+--------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+----------------------------------------+"#]].assert_eq(&event_states.to_string());
     }
     #[test(tokio::test)]
     async fn update_model_new_instance_new_schema_new_model() {
@@ -1798,9 +1934,7 @@ mod tests {
                 ],
             },
             &serde_json::to_string(&json!( {
-                "metadata": {
-                    "modelVersion": model_update.to_string(),
-                },
+                "metadata": { "modelVersion": model_update.to_string(), },
                 "content": {
                     "creator":"jim",
                     "red":0,
@@ -1821,11 +1955,11 @@ mod tests {
                 .unwrap();
 
         expect![[r#"
-            +-------+-------------------------------------------------------------+-------------+-------------+-----------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
-            | index | stream_cid                                                  | stream_type | controller  | dimensions                                                                                                                  | event_cid                                                   | event_type | data                                                                                                                                                              | validation_errors |
-            +-------+-------------------------------------------------------------+-------------+-------------+-----------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
-            | 2     | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 3           | did:key:jim | {controller: 6469643a6b65793a6a696d, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeify7qxwjujhkxhui4atl3a6r5bo6ggx7ehwuajnzh4ohcnqumtvoe | 0          | {"content":{"alpha":0.75,"blue":255,"creator":"jim","green":0,"red":0},"metadata":{"modelVersion":"baeabeiavjadi73bzahaao2wqs4nffvkwbgpsyphcwue3wgsj457sb7eymm"}} |                   |
-            +-------+-------------------------------------------------------------+-------------+-------------+-----------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
+            +-------+-------------------------------------------------------------+-------------+-------------+-----------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
+            | index | stream_cid                                                  | stream_type | controller  | dimensions                                                                                                                  | event_cid                                                   | event_type | event_height | data                                                                                                                                                              | validation_errors |
+            +-------+-------------------------------------------------------------+-------------+-------------+-----------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
+            | 2     | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 3           | did:key:jim | {controller: 6469643a6b65793a6a696d, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeify7qxwjujhkxhui4atl3a6r5bo6ggx7ehwuajnzh4ohcnqumtvoe | 0          | 0            | {"content":{"alpha":0.75,"blue":255,"creator":"jim","green":0,"red":0},"metadata":{"modelVersion":"baeabeiavjadi73bzahaao2wqs4nffvkwbgpsyphcwue3wgsj457sb7eymm"}} |                   |
+            +-------+-------------------------------------------------------------+-------------+-------------+-----------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
     }
     #[test(tokio::test)]
     async fn update_model_new_instance_old_schema_new_model() {
@@ -1844,9 +1978,7 @@ mod tests {
                 ],
             },
             &serde_json::to_string(&json!( {
-                "metadata": {
-                    "modelVersion": model_update.to_string(),
-                },
+                "metadata": { "modelVersion": model_update.to_string(), },
                 "content": {
                     "creator":"jim",
                     "red":0,
@@ -1862,11 +1994,11 @@ mod tests {
                 .unwrap();
 
         expect![[r#"
-            +-------+-------------------------------------------------------------+-------------+-------------+-----------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
-            | index | stream_cid                                                  | stream_type | controller  | dimensions                                                                                                                  | event_cid                                                   | event_type | data                                                                                                                                                 | validation_errors |
-            +-------+-------------------------------------------------------------+-------------+-------------+-----------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
-            | 2     | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 3           | did:key:jim | {controller: 6469643a6b65793a6a696d, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeify7qxwjujhkxhui4atl3a6r5bo6ggx7ehwuajnzh4ohcnqumtvoe | 0          | {"content":{"blue":255,"creator":"jim","green":0,"red":0},"metadata":{"modelVersion":"baeabeiavjadi73bzahaao2wqs4nffvkwbgpsyphcwue3wgsj457sb7eymm"}} |                   |
-            +-------+-------------------------------------------------------------+-------------+-------------+-----------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
+            +-------+-------------------------------------------------------------+-------------+-------------+-----------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
+            | index | stream_cid                                                  | stream_type | controller  | dimensions                                                                                                                  | event_cid                                                   | event_type | event_height | data                                                                                                                                                 | validation_errors |
+            +-------+-------------------------------------------------------------+-------------+-------------+-----------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
+            | 2     | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 3           | did:key:jim | {controller: 6469643a6b65793a6a696d, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeify7qxwjujhkxhui4atl3a6r5bo6ggx7ehwuajnzh4ohcnqumtvoe | 0          | 0            | {"content":{"blue":255,"creator":"jim","green":0,"red":0},"metadata":{"modelVersion":"baeabeiavjadi73bzahaao2wqs4nffvkwbgpsyphcwue3wgsj457sb7eymm"}} |                   |
+            +-------+-------------------------------------------------------------+-------------+-------------+-----------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
     }
     #[test(tokio::test)]
     async fn update_model_new_instance_new_schema_old_model() {
@@ -1902,11 +2034,11 @@ mod tests {
                 .unwrap();
 
         expect![[r#"
-            +-------+-------------------------------------------------------------+-------------+-------------+-----------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+---------------------------------------------------------------------------------------+----------------------------------------------------------------------------------------------------+
-            | index | stream_cid                                                  | stream_type | controller  | dimensions                                                                                                                  | event_cid                                                   | event_type | data                                                                                  | validation_errors                                                                                  |
-            +-------+-------------------------------------------------------------+-------------+-------------+-----------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+---------------------------------------------------------------------------------------+----------------------------------------------------------------------------------------------------+
-            | 2     | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 3           | did:key:jim | {controller: 6469643a6b65793a6a696d, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeify7qxwjujhkxhui4atl3a6r5bo6ggx7ehwuajnzh4ohcnqumtvoe | 0          | {"content":{"alpha":0.75,"blue":255,"creator":"jim","green":0,"red":0},"metadata":{}} | [Failed to validate schema:  'Additional properties are not allowed ('alpha' was unexpected)' at ] |
-            +-------+-------------------------------------------------------------+-------------+-------------+-----------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+---------------------------------------------------------------------------------------+----------------------------------------------------------------------------------------------------+"#]].assert_eq(&event_states.to_string());
+            +-------+-------------------------------------------------------------+-------------+-------------+-----------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+---------------------------------------------------------------------------------------+----------------------------------------------------------------------------------------------------+
+            | index | stream_cid                                                  | stream_type | controller  | dimensions                                                                                                                  | event_cid                                                   | event_type | event_height | data                                                                                  | validation_errors                                                                                  |
+            +-------+-------------------------------------------------------------+-------------+-------------+-----------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+---------------------------------------------------------------------------------------+----------------------------------------------------------------------------------------------------+
+            | 2     | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 3           | did:key:jim | {controller: 6469643a6b65793a6a696d, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeify7qxwjujhkxhui4atl3a6r5bo6ggx7ehwuajnzh4ohcnqumtvoe | 0          | 0            | {"content":{"alpha":0.75,"blue":255,"creator":"jim","green":0,"red":0},"metadata":{}} | [Failed to validate schema:  'Additional properties are not allowed ('alpha' was unexpected)' at ] |
+            +-------+-------------------------------------------------------------+-------------+-------------+-----------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+---------------------------------------------------------------------------------------+----------------------------------------------------------------------------------------------------+"#]].assert_eq(&event_states.to_string());
     }
     #[test(tokio::test)]
     async fn update_model_new_instance_old_schema_old_model() {
@@ -1941,11 +2073,11 @@ mod tests {
                 .unwrap();
 
         expect![[r#"
-            +-------+-------------------------------------------------------------+-------------+-------------+-----------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------------------------------------------------------------------+-------------------+
-            | index | stream_cid                                                  | stream_type | controller  | dimensions                                                                                                                  | event_cid                                                   | event_type | data                                                                     | validation_errors |
-            +-------+-------------------------------------------------------------+-------------+-------------+-----------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------------------------------------------------------------------+-------------------+
-            | 2     | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 3           | did:key:jim | {controller: 6469643a6b65793a6a696d, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeify7qxwjujhkxhui4atl3a6r5bo6ggx7ehwuajnzh4ohcnqumtvoe | 0          | {"content":{"blue":255,"creator":"jim","green":0,"red":0},"metadata":{}} |                   |
-            +-------+-------------------------------------------------------------+-------------+-------------+-----------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
+            +-------+-------------------------------------------------------------+-------------+-------------+-----------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+--------------------------------------------------------------------------+-------------------+
+            | index | stream_cid                                                  | stream_type | controller  | dimensions                                                                                                                  | event_cid                                                   | event_type | event_height | data                                                                     | validation_errors |
+            +-------+-------------------------------------------------------------+-------------+-------------+-----------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+--------------------------------------------------------------------------+-------------------+
+            | 2     | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 3           | did:key:jim | {controller: 6469643a6b65793a6a696d, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeify7qxwjujhkxhui4atl3a6r5bo6ggx7ehwuajnzh4ohcnqumtvoe | 0          | 0            | {"content":{"blue":255,"creator":"jim","green":0,"red":0},"metadata":{}} |                   |
+            +-------+-------------------------------------------------------------+-------------+-------------+-----------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+--------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
     }
     #[test(tokio::test)]
     async fn update_model_update_instance_new_schema_new_model() {
@@ -1956,9 +2088,7 @@ mod tests {
             &events[1],
             Cid::from_str("baeabeify7qxwjujhkxhui4atl3a6r5bo6ggx7ehwuajnzh4ohcnqumtvoe").unwrap(),
             &serde_json::to_string(&json!( {
-                "metadata": {
-                    "modelVersion": model_update.to_string(),
-                },
+                "metadata": { "modelVersion": model_update.to_string(), },
                 "content": [{
                     "op":"add",
                     "path":"/alpha",
@@ -1973,11 +2103,11 @@ mod tests {
                 .unwrap();
 
         expect![[r#"
-            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
-            | index | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                      | event_cid                                                   | event_type | data                                                                                                                                                                                               | validation_errors |
-            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
-            | 3     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeify7qxwjujhkxhui4atl3a6r5bo6ggx7ehwuajnzh4ohcnqumtvoe | 0          | {"metadata":{"foo":1,"modelVersion":"baeabeiavjadi73bzahaao2wqs4nffvkwbgpsyphcwue3wgsj457sb7eymm","shouldIndex":true},"content":{"alpha":0.75,"blue":255,"creator":"alice","green":255,"red":255}} |                   |
-            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
+            | index | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                      | event_cid                                                   | event_type | event_height | data                                                                                                                                                                                               | validation_errors |
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
+            | 3     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeify7qxwjujhkxhui4atl3a6r5bo6ggx7ehwuajnzh4ohcnqumtvoe | 0          | 1            | {"metadata":{"foo":1,"modelVersion":"baeabeiavjadi73bzahaao2wqs4nffvkwbgpsyphcwue3wgsj457sb7eymm","shouldIndex":true},"content":{"alpha":0.75,"blue":255,"creator":"alice","green":255,"red":255}} |                   |
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
     }
     #[test(tokio::test)]
     async fn update_model_update_instance_old_schema_new_model() {
@@ -1988,9 +2118,7 @@ mod tests {
             &events[1],
             Cid::from_str("baeabeify7qxwjujhkxhui4atl3a6r5bo6ggx7ehwuajnzh4ohcnqumtvoe").unwrap(),
             &serde_json::to_string(&json!( {
-                "metadata": {
-                    "modelVersion": model_update.to_string(),
-                },
+                "metadata": { "modelVersion": model_update.to_string(), },
                 "content": [{
                     "op":"add",
                     "path":"/green",
@@ -2005,11 +2133,11 @@ mod tests {
                 .unwrap();
 
         expect![[r#"
-            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
-            | index | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                      | event_cid                                                   | event_type | data                                                                                                                                                                                | validation_errors |
-            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
-            | 3     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeify7qxwjujhkxhui4atl3a6r5bo6ggx7ehwuajnzh4ohcnqumtvoe | 0          | {"metadata":{"foo":1,"modelVersion":"baeabeiavjadi73bzahaao2wqs4nffvkwbgpsyphcwue3wgsj457sb7eymm","shouldIndex":true},"content":{"blue":255,"creator":"alice","green":0,"red":255}} |                   |
-            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
+            | index | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                      | event_cid                                                   | event_type | event_height | data                                                                                                                                                                                | validation_errors |
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
+            | 3     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeify7qxwjujhkxhui4atl3a6r5bo6ggx7ehwuajnzh4ohcnqumtvoe | 0          | 1            | {"metadata":{"foo":1,"modelVersion":"baeabeiavjadi73bzahaao2wqs4nffvkwbgpsyphcwue3wgsj457sb7eymm","shouldIndex":true},"content":{"blue":255,"creator":"alice","green":0,"red":255}} |                   |
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
     }
     #[test(tokio::test)]
     async fn update_model_update_instance_new_schema_old_model() {
@@ -2035,11 +2163,11 @@ mod tests {
                 .unwrap();
 
         expect![[r#"
-            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------------------------------------------------------------------+----------------------------------------------------------------------------------------------------+
-            | index | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                      | event_cid                                                   | event_type | data                                                                                                                  | validation_errors                                                                                  |
-            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------------------------------------------------------------------+----------------------------------------------------------------------------------------------------+
-            | 3     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeify7qxwjujhkxhui4atl3a6r5bo6ggx7ehwuajnzh4ohcnqumtvoe | 0          | {"metadata":{"foo":1,"shouldIndex":true},"content":{"alpha":0.75,"blue":255,"creator":"alice","green":255,"red":255}} | [Failed to validate schema:  'Additional properties are not allowed ('alpha' was unexpected)' at ] |
-            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+-----------------------------------------------------------------------------------------------------------------------+----------------------------------------------------------------------------------------------------+"#]].assert_eq(&event_states.to_string());
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------+----------------------------------------------------------------------------------------------------+
+            | index | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                      | event_cid                                                   | event_type | event_height | data                                                                                                                  | validation_errors                                                                                  |
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------+----------------------------------------------------------------------------------------------------+
+            | 3     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeify7qxwjujhkxhui4atl3a6r5bo6ggx7ehwuajnzh4ohcnqumtvoe | 0          | 1            | {"metadata":{"foo":1,"shouldIndex":true},"content":{"alpha":0.75,"blue":255,"creator":"alice","green":255,"red":255}} | [Failed to validate schema:  'Additional properties are not allowed ('alpha' was unexpected)' at ] |
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------+----------------------------------------------------------------------------------------------------+"#]].assert_eq(&event_states.to_string());
     }
     #[test(tokio::test)]
     async fn update_model_update_instance_old_schema_old_model() {
@@ -2065,10 +2193,479 @@ mod tests {
                 .unwrap();
 
         expect![[r#"
-            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------------------------------------------------------------------------------------------------+-------------------+
-            | index | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                      | event_cid                                                   | event_type | data                                                                                                   | validation_errors |
-            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------------------------------------------------------------------------------------------------+-------------------+
-            | 3     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeify7qxwjujhkxhui4atl3a6r5bo6ggx7ehwuajnzh4ohcnqumtvoe | 0          | {"metadata":{"foo":1,"shouldIndex":true},"content":{"blue":255,"creator":"alice","green":0,"red":255}} |                   |
-            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+--------------------------------------------------------------------------------------------------------+-------------------+
+            | index | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                      | event_cid                                                   | event_type | event_height | data                                                                                                   | validation_errors |
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+--------------------------------------------------------------------------------------------------------+-------------------+
+            | 3     | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd} | baeabeify7qxwjujhkxhui4atl3a6r5bo6ggx7ehwuajnzh4ohcnqumtvoe | 0          | 1            | {"metadata":{"foo":1,"shouldIndex":true},"content":{"blue":255,"creator":"alice","green":0,"red":255}} |                   |
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+--------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
+    }
+
+    //---------------------------------------------------------------
+    // Tests about updating mids with different account relations
+    //---------------------------------------------------------------
+
+    #[test(tokio::test)]
+    async fn update_single_relation_init_without_content() {
+        let model_def = ModelDefinition::new_v2::<SmallModel>(
+            "TestSmallModel".to_owned(),
+            None,
+            false,
+            None,
+            None,
+            ModelAccountRelationV2::Single,
+        )
+        .unwrap();
+
+        // NOTE: These CIDs and StreamIDs are fake and do not represent the actual hash of the data.
+        // This makes testing easier as changing the contents does not mean you need to update all of
+        // the cids.
+        let model_stream_id =
+            StreamId::from_str("k2t6wz4yhfp1ndie7o9o4en4qc6jic9d4p9vggb0bpjt41sxl905ak2ff4h6pk")
+                .unwrap();
+        let instance_stream_id =
+            StreamId::from_str("k2t6wz4yhfp1s5jhjhtelcqvwaomcgretwvdx7gz3cp66i9z8fsm8m743k1vue")
+                .unwrap();
+        let stream_init = ConclusionInit {
+            stream_cid: instance_stream_id.cid,
+            stream_type: StreamIdType::ModelInstanceDocument as u8,
+            controller: "did:key:alice".to_string(),
+            dimensions: vec![
+                ("controller".to_string(), b"did:key:alice".to_vec()),
+                ("model".to_string(), model_stream_id.to_vec()),
+            ],
+        };
+        let event_states = do_test(
+            conclusion_events_to_record_batch(&vec![
+                ConclusionEvent::Data(ConclusionData {
+                    index: 0,
+                    event_cid: model_stream_id.cid,
+                    init: ConclusionInit {
+                        stream_cid: model_stream_id.cid,
+                        stream_type: StreamIdType::Model as u8,
+                        controller: "did:key:bob".to_string(),
+                        dimensions: vec![("controller".to_string(), b"did:key:bob".to_vec())],
+                    },
+                    previous: vec![],
+                    data: serde_json::to_string(&json!({
+                        "metadata":{ },
+                        "content": model_def,
+                    }))
+                    .unwrap()
+                    .into(),
+                }),
+                ConclusionEvent::Data(ConclusionData {
+                    index: 1,
+                    event_cid: Cid::from_str(
+                        "baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi",
+                    )
+                    .unwrap(),
+                    init: stream_init.clone(),
+                    previous: vec![],
+                    data: serde_json::to_string(&json!({
+                    "metadata":{ },
+                    "content": serde_json::Value::Null,
+                    }))
+                    .unwrap()
+                    .into(),
+                }),
+                ConclusionEvent::Data(ConclusionData {
+                    index: 2,
+                    event_cid: Cid::from_str(
+                        "baeabeibrtuyyqwd6y4aa62qxaimjhafielf7fc22fa5b7i7vptcu5263em",
+                    )
+                    .unwrap(),
+                    init: stream_init.clone(),
+                    previous: vec![Cid::from_str(
+                        "baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi",
+                    )
+                    .unwrap()],
+                    data: serde_json::to_string(&json!({
+                    "metadata":{},
+                    "content":[
+                        {
+                            "op":"add",
+                            "path": "/creator",
+                            "value":"sally"
+                        },
+                        {
+                            "op":"add",
+                            "path": "/red",
+                            "value": 255,
+                        },
+                        {
+                            "op":"add",
+                            "path": "/green",
+                            "value": 255,
+                        },
+                        {
+                            "op":"add",
+                            "path": "/blue",
+                            "value": 255,
+                        },
+                    ]}))
+                    .unwrap()
+                    .into(),
+                }),
+            ])
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+
+        expect![[r#"
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
+            | index | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                      | event_cid                                                   | event_type | event_height | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | validation_errors |
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
+            | 0     | baeabeibrydyefwuzizf6s32lbuu27rpjibrbtsziqukscbnuo3y52pgmha | 2           | did:key:bob   | {controller: 6469643a6b65793a626f62}                                                                                            | baeabeibrydyefwuzizf6s32lbuu27rpjibrbtsziqukscbnuo3y52pgmha | 0          | 0            | {"content":{"accountRelation":{"type":"single"},"implements":[],"interface":false,"name":"TestSmallModel","relations":{},"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"blue":{"format":"int32","type":"integer"},"creator":{"type":"string"},"green":{"format":"int32","type":"integer"},"red":{"format":"int32","type":"integer"}},"required":["creator","red","green","blue"],"title":"SmallModel","type":"object"},"version":"2.0","views":{}},"metadata":{}} |                   |
+            | 1     | baeabeihrpnqmppjqdohl2stvfevu7jn57zjqzqb4dflbl4ettogmt56xoy | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce01020100122031c0f042da99464be96f4b0d29afc5e9406219cb2885152105b476f1dd3ccc38} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | 0            | {"content":null,"metadata":{}}                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |                   |
+            | 2     | baeabeihrpnqmppjqdohl2stvfevu7jn57zjqzqb4dflbl4ettogmt56xoy | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce01020100122031c0f042da99464be96f4b0d29afc5e9406219cb2885152105b476f1dd3ccc38} | baeabeibrtuyyqwd6y4aa62qxaimjhafielf7fc22fa5b7i7vptcu5263em | 0          | 1            | {"metadata":{},"content":{"blue":255,"creator":"sally","green":255,"red":255}}                                                                                                                                                                                                                                                                                                                                                                                                                                                    |                   |
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
+    }
+    #[test(tokio::test)]
+    async fn update_single_relation_init_with_content() {
+        let model_def = ModelDefinition::new_v2::<SmallModel>(
+            "TestSmallModel".to_owned(),
+            None,
+            false,
+            None,
+            None,
+            ModelAccountRelationV2::Single,
+        )
+        .unwrap();
+
+        // NOTE: These CIDs and StreamIDs are fake and do not represent the actual hash of the data.
+        // This makes testing easier as changing the contents does not mean you need to update all of
+        // the cids.
+        let model_stream_id =
+            StreamId::from_str("k2t6wz4yhfp1ndie7o9o4en4qc6jic9d4p9vggb0bpjt41sxl905ak2ff4h6pk")
+                .unwrap();
+        let instance_stream_id =
+            StreamId::from_str("k2t6wz4yhfp1s5jhjhtelcqvwaomcgretwvdx7gz3cp66i9z8fsm8m743k1vue")
+                .unwrap();
+        let stream_init = ConclusionInit {
+            stream_cid: instance_stream_id.cid,
+            stream_type: StreamIdType::ModelInstanceDocument as u8,
+            controller: "did:key:alice".to_string(),
+            dimensions: vec![
+                ("controller".to_string(), b"did:key:alice".to_vec()),
+                ("model".to_string(), model_stream_id.to_vec()),
+            ],
+        };
+        let event_states = do_test(
+            conclusion_events_to_record_batch(&vec![
+                ConclusionEvent::Data(ConclusionData {
+                    index: 0,
+                    event_cid: model_stream_id.cid,
+                    init: ConclusionInit {
+                        stream_cid: model_stream_id.cid,
+                        stream_type: StreamIdType::Model as u8,
+                        controller: "did:key:bob".to_string(),
+                        dimensions: vec![("controller".to_string(), b"did:key:bob".to_vec())],
+                    },
+                    previous: vec![],
+                    data: serde_json::to_string(&json!({
+                        "metadata":{ },
+                        "content": model_def,
+                    }))
+                    .unwrap()
+                    .into(),
+                }),
+                ConclusionEvent::Data(ConclusionData {
+                    index: 1,
+                    event_cid: Cid::from_str(
+                        "baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi",
+                    )
+                    .unwrap(),
+                    init: stream_init.clone(),
+                    previous: vec![],
+                    data: serde_json::to_string(&json!({
+                    "metadata":{ },
+                    "content":{
+                        "creator":"alice",
+                        "red":255,
+                        "green":255,
+                        "blue":255
+                    }}))
+                    .unwrap()
+                    .into(),
+                }),
+                ConclusionEvent::Data(ConclusionData {
+                    index: 2,
+                    event_cid: Cid::from_str(
+                        "baeabeibrtuyyqwd6y4aa62qxaimjhafielf7fc22fa5b7i7vptcu5263em",
+                    )
+                    .unwrap(),
+                    init: stream_init.clone(),
+                    previous: vec![Cid::from_str(
+                        "baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi",
+                    )
+                    .unwrap()],
+                    data: serde_json::to_string(&json!({
+                    "metadata":{},
+                    "content":[{
+                        "op":"replace",
+                        "path": "/creator",
+                        "value":"sally"
+                    }]}))
+                    .unwrap()
+                    .into(),
+                }),
+            ])
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+
+        expect![[r#"
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------------------------------------------------------------------------+
+            | index | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                      | event_cid                                                   | event_type | event_height | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | validation_errors                                                               |
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------------------------------------------------------------------------+
+            | 0     | baeabeibrydyefwuzizf6s32lbuu27rpjibrbtsziqukscbnuo3y52pgmha | 2           | did:key:bob   | {controller: 6469643a6b65793a626f62}                                                                                            | baeabeibrydyefwuzizf6s32lbuu27rpjibrbtsziqukscbnuo3y52pgmha | 0          | 0            | {"content":{"accountRelation":{"type":"single"},"implements":[],"interface":false,"name":"TestSmallModel","relations":{},"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"blue":{"format":"int32","type":"integer"},"creator":{"type":"string"},"green":{"format":"int32","type":"integer"},"red":{"format":"int32","type":"integer"}},"required":["creator","red","green","blue"],"title":"SmallModel","type":"object"},"version":"2.0","views":{}},"metadata":{}} |                                                                                 |
+            | 1     | baeabeihrpnqmppjqdohl2stvfevu7jn57zjqzqb4dflbl4ettogmt56xoy | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce01020100122031c0f042da99464be96f4b0d29afc5e9406219cb2885152105b476f1dd3ccc38} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | 0            | {"content":{"blue":255,"creator":"alice","green":255,"red":255},"metadata":{}}                                                                                                                                                                                                                                                                                                                                                                                                                                                    | [ModelInstanceDocuments with an account relation Single  must not have content] |
+            | 2     | baeabeihrpnqmppjqdohl2stvfevu7jn57zjqzqb4dflbl4ettogmt56xoy | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce01020100122031c0f042da99464be96f4b0d29afc5e9406219cb2885152105b476f1dd3ccc38} | baeabeibrtuyyqwd6y4aa62qxaimjhafielf7fc22fa5b7i7vptcu5263em | 0          | 1            | {"metadata":{},"content":{"blue":255,"creator":"sally","green":255,"red":255}}                                                                                                                                                                                                                                                                                                                                                                                                                                                    |                                                                                 |
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------------------------------------------------------------------------+"#]].assert_eq(&event_states.to_string());
+    }
+    #[test(tokio::test)]
+    async fn update_list_relation_locked_fields() {
+        let model_def = ModelDefinition::new_v2::<SmallModel>(
+            "TestSmallModel".to_owned(),
+            None,
+            false,
+            None,
+            Some(vec!["creator".to_owned()]),
+            ModelAccountRelationV2::List,
+        )
+        .unwrap();
+
+        // NOTE: These CIDs and StreamIDs are fake and do not represent the actual hash of the data.
+        // This makes testing easier as changing the contents does not mean you need to update all of
+        // the cids.
+        let model_stream_id =
+            StreamId::from_str("k2t6wz4yhfp1ndie7o9o4en4qc6jic9d4p9vggb0bpjt41sxl905ak2ff4h6pk")
+                .unwrap();
+        let instance_stream_id =
+            StreamId::from_str("k2t6wz4yhfp1s5jhjhtelcqvwaomcgretwvdx7gz3cp66i9z8fsm8m743k1vue")
+                .unwrap();
+        let stream_init = ConclusionInit {
+            stream_cid: instance_stream_id.cid,
+            stream_type: StreamIdType::ModelInstanceDocument as u8,
+            controller: "did:key:alice".to_string(),
+            dimensions: vec![
+                ("controller".to_string(), b"did:key:alice".to_vec()),
+                ("model".to_string(), model_stream_id.to_vec()),
+            ],
+        };
+        let event_states = do_test(
+            conclusion_events_to_record_batch(&vec![
+                ConclusionEvent::Data(ConclusionData {
+                    index: 0,
+                    event_cid: model_stream_id.cid,
+                    init: ConclusionInit {
+                        stream_cid: model_stream_id.cid,
+                        stream_type: StreamIdType::Model as u8,
+                        controller: "did:key:bob".to_string(),
+                        dimensions: vec![("controller".to_string(), b"did:key:bob".to_vec())],
+                    },
+                    previous: vec![],
+                    data: serde_json::to_string(&json!({
+                        "metadata":{ },
+                        "content": model_def,
+                    }))
+                    .unwrap()
+                    .into(),
+                }),
+                ConclusionEvent::Data(ConclusionData {
+                    index: 1,
+                    event_cid: Cid::from_str(
+                        "baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi",
+                    )
+                    .unwrap(),
+                    init: stream_init.clone(),
+                    previous: vec![],
+                    data: serde_json::to_string(&json!({
+                    "metadata":{ },
+                    "content":{
+                        "creator":"alice",
+                        "red":255,
+                        "green":255,
+                        "blue":255
+                    }}))
+                    .unwrap()
+                    .into(),
+                }),
+                ConclusionEvent::Data(ConclusionData {
+                    index: 2,
+                    event_cid: Cid::from_str(
+                        "baeabeibrtuyyqwd6y4aa62qxaimjhafielf7fc22fa5b7i7vptcu5263em",
+                    )
+                    .unwrap(),
+                    init: stream_init.clone(),
+                    previous: vec![Cid::from_str(
+                        "baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi",
+                    )
+                    .unwrap()],
+                    data: serde_json::to_string(&json!({
+                    "metadata":{},
+                    "content":[{
+                        "op":"replace",
+                        "path": "/creator",
+                        "value":"sally"
+                    }]}))
+                    .unwrap()
+                    .into(),
+                }),
+            ])
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+
+        expect![[r#"
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-----------------------------------------------+
+            | index | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                      | event_cid                                                   | event_type | event_height | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | validation_errors                             |
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-----------------------------------------------+
+            | 0     | baeabeibrydyefwuzizf6s32lbuu27rpjibrbtsziqukscbnuo3y52pgmha | 2           | did:key:bob   | {controller: 6469643a6b65793a626f62}                                                                                            | baeabeibrydyefwuzizf6s32lbuu27rpjibrbtsziqukscbnuo3y52pgmha | 0          | 0            | {"content":{"accountRelation":{"type":"list"},"immutableFields":["creator"],"implements":[],"interface":false,"name":"TestSmallModel","relations":{},"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"blue":{"format":"int32","type":"integer"},"creator":{"type":"string"},"green":{"format":"int32","type":"integer"},"red":{"format":"int32","type":"integer"}},"required":["creator","red","green","blue"],"title":"SmallModel","type":"object"},"version":"2.0","views":{}},"metadata":{}} |                                               |
+            | 1     | baeabeihrpnqmppjqdohl2stvfevu7jn57zjqzqb4dflbl4ettogmt56xoy | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce01020100122031c0f042da99464be96f4b0d29afc5e9406219cb2885152105b476f1dd3ccc38} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | 0            | {"content":{"blue":255,"creator":"alice","green":255,"red":255},"metadata":{}}                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |                                               |
+            | 2     | baeabeihrpnqmppjqdohl2stvfevu7jn57zjqzqb4dflbl4ettogmt56xoy | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce01020100122031c0f042da99464be96f4b0d29afc5e9406219cb2885152105b476f1dd3ccc38} | baeabeibrtuyyqwd6y4aa62qxaimjhafielf7fc22fa5b7i7vptcu5263em | 0          | 1            | {"metadata":{},"content":{"blue":255,"creator":"sally","green":255,"red":255}}                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | [Immutable field 'creator' cannot be updated] |
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-----------------------------------------------+"#]].assert_eq(&event_states.to_string());
+    }
+    #[test(tokio::test)]
+    async fn update_single_relation_locked_fields() {
+        let model_def = ModelDefinition::new_v2::<SmallModel>(
+            "TestSmallModel".to_owned(),
+            None,
+            false,
+            None,
+            Some(vec!["creator".to_owned()]),
+            ModelAccountRelationV2::Single,
+        )
+        .unwrap();
+
+        // NOTE: These CIDs and StreamIDs are fake and do not represent the actual hash of the data.
+        // This makes testing easier as changing the contents does not mean you need to update all of
+        // the cids.
+        let model_stream_id =
+            StreamId::from_str("k2t6wz4yhfp1ndie7o9o4en4qc6jic9d4p9vggb0bpjt41sxl905ak2ff4h6pk")
+                .unwrap();
+        let instance_stream_id =
+            StreamId::from_str("k2t6wz4yhfp1s5jhjhtelcqvwaomcgretwvdx7gz3cp66i9z8fsm8m743k1vue")
+                .unwrap();
+        let stream_init = ConclusionInit {
+            stream_cid: instance_stream_id.cid,
+            stream_type: StreamIdType::ModelInstanceDocument as u8,
+            controller: "did:key:alice".to_string(),
+            dimensions: vec![
+                ("controller".to_string(), b"did:key:alice".to_vec()),
+                ("model".to_string(), model_stream_id.to_vec()),
+            ],
+        };
+        let event_states = do_test(
+            conclusion_events_to_record_batch(&vec![
+                ConclusionEvent::Data(ConclusionData {
+                    index: 0,
+                    event_cid: model_stream_id.cid,
+                    init: ConclusionInit {
+                        stream_cid: model_stream_id.cid,
+                        stream_type: StreamIdType::Model as u8,
+                        controller: "did:key:bob".to_string(),
+                        dimensions: vec![("controller".to_string(), b"did:key:bob".to_vec())],
+                    },
+                    previous: vec![],
+                    data: serde_json::to_string(&json!({
+                        "metadata":{ },
+                        "content": model_def,
+                    }))
+                    .unwrap()
+                    .into(),
+                }),
+                ConclusionEvent::Data(ConclusionData {
+                    index: 1,
+                    event_cid: Cid::from_str(
+                        "baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi",
+                    )
+                    .unwrap(),
+                    init: stream_init.clone(),
+                    previous: vec![],
+                    data: serde_json::to_string(&json!({
+                        "metadata":{ },
+                        "content": serde_json::Value::Null,
+                    }))
+                    .unwrap()
+                    .into(),
+                }),
+                ConclusionEvent::Data(ConclusionData {
+                    index: 2,
+                    event_cid: Cid::from_str(
+                        "baeabeigbuxpmhj2fkwe2oeqflwz6xair5i3sxnoyqzeh5rly25l3g5rlzy",
+                    )
+                    .unwrap(),
+                    init: stream_init.clone(),
+                    previous: vec![Cid::from_str(
+                        "baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi",
+                    )
+                    .unwrap()],
+                    data: serde_json::to_string(&json!({
+                    "metadata": {},
+                    "content":[
+                        {
+                            "op":"add",
+                            "path": "/creator",
+                            "value":"sally"
+                        },
+                        {
+                            "op":"add",
+                            "path": "/red",
+                            "value": 255,
+                        },
+                        {
+                            "op":"add",
+                            "path": "/green",
+                            "value": 255,
+                        },
+                        {
+                            "op":"add",
+                            "path": "/blue",
+                            "value": 255,
+                        },
+                    ]}))
+                    .unwrap()
+                    .into(),
+                }),
+                ConclusionEvent::Data(ConclusionData {
+                    index: 3,
+                    event_cid: Cid::from_str(
+                        "baeabeigyxnmgyi6mekyqbx3rpp5fi7chvl5tp6vjxaumsqgaa5ggqbq4lm",
+                    )
+                    .unwrap(),
+                    init: stream_init.clone(),
+                    previous: vec![Cid::from_str(
+                        "baeabeigbuxpmhj2fkwe2oeqflwz6xair5i3sxnoyqzeh5rly25l3g5rlzy",
+                    )
+                    .unwrap()],
+                    data: serde_json::to_string(&json!({
+                    "metadata":{"foo":2},
+                    "content":[{
+                        "op":"replace",
+                        "path": "/creator",
+                        "value":"sally"
+                    }]}))
+                    .unwrap()
+                    .into(),
+                }),
+            ])
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+
+        expect![[r#"
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-----------------------------------------------+
+            | index | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                      | event_cid                                                   | event_type | event_height | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | validation_errors                             |
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-----------------------------------------------+
+            | 0     | baeabeibrydyefwuzizf6s32lbuu27rpjibrbtsziqukscbnuo3y52pgmha | 2           | did:key:bob   | {controller: 6469643a6b65793a626f62}                                                                                            | baeabeibrydyefwuzizf6s32lbuu27rpjibrbtsziqukscbnuo3y52pgmha | 0          | 0            | {"content":{"accountRelation":{"type":"single"},"immutableFields":["creator"],"implements":[],"interface":false,"name":"TestSmallModel","relations":{},"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"blue":{"format":"int32","type":"integer"},"creator":{"type":"string"},"green":{"format":"int32","type":"integer"},"red":{"format":"int32","type":"integer"}},"required":["creator","red","green","blue"],"title":"SmallModel","type":"object"},"version":"2.0","views":{}},"metadata":{}} |                                               |
+            | 1     | baeabeihrpnqmppjqdohl2stvfevu7jn57zjqzqb4dflbl4ettogmt56xoy | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce01020100122031c0f042da99464be96f4b0d29afc5e9406219cb2885152105b476f1dd3ccc38} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | 0            | {"content":null,"metadata":{}}                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |                                               |
+            | 2     | baeabeihrpnqmppjqdohl2stvfevu7jn57zjqzqb4dflbl4ettogmt56xoy | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce01020100122031c0f042da99464be96f4b0d29afc5e9406219cb2885152105b476f1dd3ccc38} | baeabeigbuxpmhj2fkwe2oeqflwz6xair5i3sxnoyqzeh5rly25l3g5rlzy | 0          | 1            | {"metadata":{},"content":{"blue":255,"creator":"sally","green":255,"red":255}}                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |                                               |
+            | 3     | baeabeihrpnqmppjqdohl2stvfevu7jn57zjqzqb4dflbl4ettogmt56xoy | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce01020100122031c0f042da99464be96f4b0d29afc5e9406219cb2885152105b476f1dd3ccc38} | baeabeigyxnmgyi6mekyqbx3rpp5fi7chvl5tp6vjxaumsqgaa5ggqbq4lm | 0          | 2            | {"metadata":{"foo":2},"content":{"blue":255,"creator":"sally","green":255,"red":255}}                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | [Immutable field 'creator' cannot be updated] |
+            +-------+-------------------------------------------------------------+-------------+---------------+---------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-----------------------------------------------+"#]].assert_eq(&event_states.to_string());
     }
 }

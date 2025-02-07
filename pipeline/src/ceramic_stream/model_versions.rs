@@ -99,6 +99,17 @@ impl ModelDefinitionV2 {
             }
         }
     }
+
+    // Event height after which fields are locked.
+    pub(crate) fn locked_height(&self) -> u32 {
+        match self.account_relation {
+            // These relations need to allow a single data event after the init event that can set
+            // the initial data.
+            ModelAccountRelationV2::Single | ModelAccountRelationV2::Set { .. } => 1,
+            // These relations lock the fields after the init event.
+            ModelAccountRelationV2::List | ModelAccountRelationV2::None => 0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

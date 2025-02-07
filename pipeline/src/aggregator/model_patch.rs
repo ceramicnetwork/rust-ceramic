@@ -1,12 +1,15 @@
 use std::sync::Arc;
 
 use arrow::{
-    array::{Array as _, ArrayBuilder as _, ArrayRef, BinaryBuilder, StructArray},
+    array::{Array as _, ArrayBuilder as _, ArrayRef, BinaryBuilder, StructArray, UInt32Builder},
     datatypes::DataType,
 };
 use arrow_schema::Field;
 use datafusion::{
-    common::{cast::as_binary_array, exec_datafusion_err, Result},
+    common::{
+        cast::{as_binary_array, as_uint32_array},
+        exec_datafusion_err, Result,
+    },
     logical_expr::{
         function::PartitionEvaluatorArgs, PartitionEvaluator, Signature, TypeSignature, Volatility,
         WindowUDF, WindowUDFImpl,
@@ -36,6 +39,8 @@ impl ModelPatch {
                     DataType::Binary,
                     // Previous State
                     DataType::Binary,
+                    // Previous event height
+                    DataType::UInt32,
                     // State/Patch
                     DataType::Binary,
                 ]),
@@ -74,6 +79,7 @@ impl WindowUDFImpl for ModelPatch {
             vec![
                 Field::new("previous_data", DataType::Binary, true),
                 Field::new("data", DataType::Binary, true),
+                Field::new("event_height", DataType::UInt32, true),
             ],
             true,
         ))
@@ -126,15 +132,17 @@ impl PartitionEvaluator for CeramicPatchEvaluator {
         let event_cids = as_binary_array(&values[0])?;
         let previous_cids = as_binary_array(&values[1])?;
         let previous_states = as_binary_array(&values[2])?;
-        let patches = as_binary_array(&values[3])?;
+        let previous_heights = as_uint32_array(&values[3])?;
+        let patches = as_binary_array(&values[4])?;
         let mut new_states = BinaryBuilder::new();
+        let mut new_heights = UInt32Builder::new();
         // We need to return the matched previous state so later we can do direct comparisons.
         let mut resolved_previous_states = BinaryBuilder::new();
         for i in 0..num_rows {
             if previous_cids.is_valid(i) {
-                if let Some(previous_state) = if !previous_states.is_null(i) {
+                if let Some((previous_state, previous_height)) = if !previous_states.is_null(i) {
                     // We know the previous state already
-                    Some(previous_states.value(i))
+                    Some((previous_states.value(i), previous_heights.value(i)))
                 } else {
                     // Iterator backwards till we find the previous state among the new states.
                     let previous_cid = previous_cids.value(i);
@@ -145,10 +153,14 @@ impl PartitionEvaluator for CeramicPatchEvaluator {
                         }
                         j -= 1;
                         if event_cids.value(j) == previous_cid {
-                            break Some(value_at(&new_states, j));
+                            break Some((
+                                bytes_value_at(&new_states, j),
+                                u32_value_at(&new_heights, j),
+                            ));
                         }
                     }
                 } {
+                    new_heights.append_value(previous_height + 1);
                     if patches.is_null(i) {
                         // We have a time event, new state is just the previous state
                         let state = previous_state.to_owned();
@@ -166,9 +178,11 @@ impl PartitionEvaluator for CeramicPatchEvaluator {
                     // Appending null means well formed documents can continue to be aggregated.
                     new_states.append_null();
                     resolved_previous_states.append_null();
+                    new_heights.append_null();
                 }
             } else {
                 //Init event, patch value is the initial state
+                new_heights.append_value(0);
                 if patches.is_null(i) {
                     // We have an init event without data
                     new_states.append_null();
@@ -189,11 +203,16 @@ impl PartitionEvaluator for CeramicPatchEvaluator {
                 Arc::new(Field::new("data", DataType::Binary, true)),
                 Arc::new(new_states.finish()) as ArrayRef,
             ),
+            (
+                Arc::new(Field::new("event_height", DataType::UInt32, true)),
+                Arc::new(new_heights.finish()) as ArrayRef,
+            ),
         ])))
     }
 }
 
-fn value_at(builder: &BinaryBuilder, idx: usize) -> &[u8] {
+//TODO this is duplicated with model_instance
+fn bytes_value_at(builder: &BinaryBuilder, idx: usize) -> &[u8] {
     let start = builder.offsets_slice()[idx] as usize;
     let stop = if idx < builder.len() {
         builder.offsets_slice()[idx + 1] as usize
@@ -201,4 +220,7 @@ fn value_at(builder: &BinaryBuilder, idx: usize) -> &[u8] {
         builder.values_slice().len()
     };
     &builder.values_slice()[start..stop]
+}
+fn u32_value_at(builder: &UInt32Builder, idx: usize) -> u32 {
+    builder.values_slice()[idx]
 }
