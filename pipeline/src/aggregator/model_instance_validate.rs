@@ -25,7 +25,7 @@ use super::EventDataContainer;
 make_udf_expr_and_func!(
     ModelInstanceValidate,
     model_instance_validate,
-    instance patch model_version model_definition event_height,
+    instance patch model_version model_definition event_height unique,
     "computes a list of validation errors for the model instance.",
     model_instance_validate_udf
 );
@@ -54,15 +54,17 @@ impl ModelInstanceValidate {
                         DataType::Binary,
                         DataType::Binary,
                         DataType::UInt32,
+                        DataType::Binary,
                     ]),
-                    // Special case the model_version parameter as its common for be dictionary
-                    // encoded.
+                    // Special case the unique parameter as its common
+                    // for it to be dictionary encoded.
                     TypeSignature::Exact(vec![
                         DataType::Binary,
                         DataType::Binary,
-                        DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Binary)),
+                        DataType::Binary,
                         DataType::Binary,
                         DataType::UInt32,
+                        DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Binary)),
                     ]),
                 ],
                 Volatility::Immutable,
@@ -87,7 +89,7 @@ impl ScalarUDFImpl for ModelInstanceValidate {
             Field::new_list_field(DataType::Utf8, true).into(),
         ))
     }
-    fn invoke_batch(
+    fn invoke_batch<'b>(
         &self,
         args: &[ColumnarValue],
         number_rows: usize,
@@ -95,23 +97,7 @@ impl ScalarUDFImpl for ModelInstanceValidate {
         let args = ColumnarValue::values_to_arrays(args)?;
         let model_instance = as_binary_array(&args[0])?;
         let patch = as_binary_array(&args[1])?;
-
-        let model_version_cid =
-            if let Some(model_versions) = args[2].as_dictionary_opt::<Int32Type>() {
-                let keys = as_int32_array(model_versions.keys())?;
-                let values = as_binary_array(model_versions.values())?;
-                Box::new(|idx| {
-                    keys.is_valid(idx)
-                        .then(|| Cid::read_bytes(values.value(keys.value(idx) as usize)))
-                }) as Box<dyn Fn(usize) -> Option<cid::Result<Cid>>>
-            } else {
-                let model_versions = as_binary_array(&args[2])?;
-                Box::new(|idx| {
-                    model_versions
-                        .is_valid(idx)
-                        .then(|| Cid::read_bytes(model_versions.value(idx)))
-                }) as Box<dyn Fn(usize) -> Option<cid::Result<Cid>>>
-            };
+        let model_versions = as_binary_array(&args[2])?;
         let model_definitions = as_binary_array(&args[3])?;
         let event_heights = as_uint32_array(&args[4])?;
         let mut validation_errors = ListBuilder::new(StringBuilder::new());
@@ -124,7 +110,9 @@ impl ScalarUDFImpl for ModelInstanceValidate {
                 // TODO do we need an explicit error condition here?
                 .ok()
                 .flatten();
-            let model_version = model_version_cid(i)
+            let model_version = model_versions
+                .is_valid(i)
+                .then(|| Cid::read_bytes(model_versions.value(i)))
                 .transpose()
                 // TODO do we need an explicit error condition here?
                 .ok()
@@ -140,8 +128,7 @@ impl ScalarUDFImpl for ModelInstanceValidate {
                 })
                 .transpose()
                 // TODO do we need an explicit error condition here?
-                .ok()
-                .flatten()
+                .expect("can parse md")
                 //TODO: must have model definition
                 .unwrap();
             let event_height = event_heights
@@ -149,6 +136,15 @@ impl ScalarUDFImpl for ModelInstanceValidate {
                 .then(|| event_heights.value(i))
                 //TODO: must have event height
                 .unwrap();
+            let unique = if let Some(uniques) = args[5].as_dictionary_opt::<Int32Type>() {
+                let keys = as_int32_array(uniques.keys())?;
+                let values = as_binary_array(uniques.values())?;
+                keys.is_valid(i)
+                    .then(|| values.value(keys.value(i) as usize))
+            } else {
+                let uniques = as_binary_array(&args[5])?;
+                uniques.is_valid(i).then(|| uniques.value(i))
+            };
             let is_valid = match instance {
                 None => false,
                 Some(Ok(instance)) => {
@@ -158,6 +154,7 @@ impl ScalarUDFImpl for ModelInstanceValidate {
                         &model_version,
                         &model_definition.content,
                         event_height,
+                        unique.as_deref(),
                     ) {
                         validation_errors.values().append_value(err.to_string());
                         true

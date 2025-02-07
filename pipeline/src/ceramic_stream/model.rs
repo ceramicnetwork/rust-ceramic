@@ -122,9 +122,11 @@ impl ModelDefinition {
                     interface,
                     views,
                     schema,
+                    account_relation,
                     ..
                 } = v2;
                 Self::validate_schema(schema)?;
+                Self::validate_account_relation(account_relation)?;
 
                 if !views.is_empty() {
                     Self::validate_views(views.keys(), schema)?;
@@ -189,6 +191,19 @@ impl ModelDefinition {
             .as_object()
             .ok_or_else(|| anyhow!("schema should be an object"))?;
         Self::verify_schema_objects_disable_additional_properites(s)?;
+        Ok(())
+    }
+    fn validate_account_relation(account_relation: &ModelAccountRelationV2) -> Result<()> {
+        match account_relation {
+            ModelAccountRelationV2::Single
+            | ModelAccountRelationV2::List
+            | ModelAccountRelationV2::None => {}
+            ModelAccountRelationV2::Set { fields } => {
+                if fields.is_empty() {
+                    bail!("Account relation of type Set must include at least one field")
+                }
+            }
+        }
         Ok(())
     }
 

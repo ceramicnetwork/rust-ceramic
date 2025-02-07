@@ -125,23 +125,7 @@ pub enum ModelAccountRelationV2 {
     Single,
     List,
     None,
-    #[serde(deserialize_with = "deserialize_set")]
-    Set {
-        fields: Vec<String>,
-    },
-}
-
-fn deserialize_set<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let fields = Vec::<String>::deserialize(deserializer)?;
-    if fields.is_empty() {
-        return Err(serde::de::Error::custom(
-            "Relation of type Set must include at least one field",
-        ));
-    }
-    Ok(fields)
+    Set { fields: Vec<String> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

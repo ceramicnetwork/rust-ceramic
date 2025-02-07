@@ -164,6 +164,14 @@ impl<'a> TryFrom<&'a unvalidated::Event<Ipld>> for ConclusionInit {
                     init_payload
                         .header()
                         .context()
+                        .map(|context| context.to_vec())
+                        .unwrap_or_default(),
+                ),
+                (
+                    "unique".to_string(),
+                    init_payload
+                        .header()
+                        .unique()
                         .map(|unique| unique.to_vec())
                         .unwrap_or_default(),
                 ),
