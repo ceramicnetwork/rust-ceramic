@@ -74,12 +74,12 @@ jobs:
         run: |
           ./ci-scripts/package.sh -a ${{ matrix.arch }} -e ${{ matrix.ext }} -v ${{ matrix.os }}
       - name: Archive Binary
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ceramic-one_${{ matrix.target }}-${{ matrix.os }}
           path: ceramic-one_${{ matrix.target }}-${{ matrix.os }}.bin.tar.gz
       - name: Archive Debian Package
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: ${{ matrix.ext == 'deb' }}
         with:
           name: ceramic-one_${{ matrix.target }}-${{ matrix.os }}
@@ -96,7 +96,7 @@ jobs:
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4
         with:
           path: artifacts
       - name: check artifacts
