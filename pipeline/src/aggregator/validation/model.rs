@@ -117,8 +117,10 @@ impl ModelDefinition {
                 if !views.is_empty() {
                     maybe_fail!(Self::validate_views(views.keys(), schema));
                 }
-                if previous.is_some() {
-                    fail!("cannot update version 1 models")
+                if let Some(previous) = previous {
+                    if previous != self {
+                        fail!("cannot update version 1 models")
+                    } // else, we likely have a time event that did not change the model
                 }
             }
             ModelDefinition::V2(v2) => {
@@ -149,41 +151,43 @@ impl ModelDefinition {
                     maybe_fail!(v2.validate_implementated_interfaces(interfaces));
                 }
                 if let Some(previous) = previous {
-                    if let ModelDefinition::V2(previous) = previous {
-                        // NOTE: This leaves changing the name, description, implements, and
-                        // schema fields as the only valid changes.
-                        if v2.interface {
-                            fail!("cannot update interface models")
+                    if previous != self {
+                        if let ModelDefinition::V2(previous) = previous {
+                            // NOTE: This leaves changing the name, description, implements, and
+                            // schema fields as the only valid changes.
+                            if v2.interface {
+                                fail!("cannot update interface models")
+                            }
+                            if previous.interface != v2.interface {
+                                fail!("cannot change model to an interface")
+                            }
+                            if previous.immutable_fields != v2.immutable_fields {
+                                fail!("cannot change a model's immutable fields")
+                            }
+                            if previous.account_relation != v2.account_relation {
+                                fail!("cannot change a model's account relation")
+                            }
+                            if previous.relations != v2.relations {
+                                fail!("cannot change a model's relations")
+                            }
+                            if previous.views != v2.views {
+                                fail!("cannot change a model's views")
+                            }
+                            // Validate schema changes
+                            let changes = maybe_fail!(json_schema_diff::diff(
+                                previous.schema.as_value().clone(),
+                                v2.schema.as_value().clone(),
+                            )
+                            .map_to_validation_internal_err());
+                            let breaking_changes: Vec<_> = changes
+                                .iter()
+                                .filter_map(|change| Self::describe_breaking_change(&change.change))
+                                .collect();
+                            return breaking_changes.into();
+                        } else {
+                            fail!("cannot change model version from 1 to 2")
                         }
-                        if previous.interface != v2.interface {
-                            fail!("cannot change model to an interface")
-                        }
-                        if previous.immutable_fields != v2.immutable_fields {
-                            fail!("cannot change a model's immutable fields")
-                        }
-                        if previous.account_relation != v2.account_relation {
-                            fail!("cannot change a model's account relation")
-                        }
-                        if previous.relations != v2.relations {
-                            fail!("cannot change a model's relations")
-                        }
-                        if previous.views != v2.views {
-                            fail!("cannot change a model's views")
-                        }
-                        // Validate schema changes
-                        let changes = maybe_fail!(json_schema_diff::diff(
-                            previous.schema.as_value().clone(),
-                            v2.schema.as_value().clone(),
-                        )
-                        .map_to_validation_internal_err());
-                        let breaking_changes: Vec<_> = changes
-                            .iter()
-                            .filter_map(|change| Self::describe_breaking_change(&change.change))
-                            .collect();
-                        return breaking_changes.into();
-                    } else {
-                        fail!("cannot change model version from 1 to 2")
-                    }
+                    } // else, we likely have a time event that does not change the model
                 }
             }
         }
@@ -471,5 +475,13 @@ mod test {
                 Some(METAMODEL_STREAM_ID),
             )
             .unwrap();
+    }
+    #[test]
+    fn material_passport() {
+        let model = serde_json::from_str::<serde_json::Value>(include_str!(
+            "./test_models/material_passport.json"
+        ))
+        .unwrap();
+        assert_model_roundtrips(model);
     }
 }

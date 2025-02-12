@@ -173,7 +173,7 @@ pub enum ModelDocumentMetadataViewDefinition {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(untagged, rename_all = "camelCase")]
 pub enum ModelViewDefinitionV1 {
     Metadata(ModelDocumentMetadataViewDefinition),
     Relation(ModelRelationViewDefinitionV1),
