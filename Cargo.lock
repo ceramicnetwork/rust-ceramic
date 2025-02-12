@@ -2635,6 +2635,7 @@ dependencies = [
  "multibase 0.9.1",
  "object_store",
  "parking_lot",
+ "paste",
  "prometheus-client",
  "serde",
  "serde_json",
