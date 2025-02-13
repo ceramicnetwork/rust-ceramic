@@ -14,7 +14,6 @@ use datafusion::{
     scalar::ScalarValue,
 };
 use futures::TryStreamExt as _;
-use tracing::{instrument, Level};
 
 use crate::{concluder::conclusion_events_to_record_batch, schemas::conclusion_events};
 
@@ -113,7 +112,6 @@ impl<T: ConclusionFeed + std::fmt::Debug + 'static> TableProvider for Conclusion
     fn table_type(&self) -> TableType {
         TableType::Base
     }
-    #[instrument(skip(self,_state), ret(level = Level::DEBUG))]
     async fn scan(
         &self,
         _state: &dyn Session,
@@ -145,7 +143,6 @@ impl<T: ConclusionFeed + std::fmt::Debug + 'static> TableProvider for Conclusion
             batch_size: self.batch_size,
         }))
     }
-    #[instrument(skip(self), ret(level = Level::DEBUG))]
     fn supports_filters_pushdown(
         &self,
         filters: &[&Expr],

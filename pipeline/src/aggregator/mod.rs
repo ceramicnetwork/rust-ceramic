@@ -212,7 +212,7 @@ impl Aggregator {
     //
     // Computing states and validation are stream type specific operations. So these phases are
     // repeated for each stream type.
-    #[instrument(skip(self, conclusion_events))]
+    #[instrument(skip(self, conclusion_events), err)]
     async fn process_conclusion_events_batch(
         &self,
         conclusion_events: RecordBatch,

@@ -28,7 +28,7 @@ pub struct ModelInstance {
 impl ModelInstance {
     /// Validate that a ModelInstanceDocument payload (after patch applied) is valid for the stream.
     /// Patch must be the patch that produced the current state or None for an init or time event.
-    #[instrument(skip(validator), ret(level = Level::DEBUG))]
+    #[instrument(skip(self,validator), ret(level = Level::DEBUG))]
     pub fn validate(
         &self,
         validator: &SchemaValidator,
