@@ -100,7 +100,7 @@ impl ModelValidate {
 
         let model = maybe_fail!(models
             .value(i)
-            .map(|m| StreamId::try_from(m))
+            .map(StreamId::try_from)
             .transpose()
             .context("failed to parse model as stream id")
             .map_to_validation_failure());
