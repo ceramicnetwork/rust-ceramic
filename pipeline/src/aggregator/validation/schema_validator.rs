@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::Result;
 use cid::Cid;
-use jsonschema::Validator;
+use jsonschema::{error::ValidationErrorKind, Validator};
 use lru::LruCache;
 
 use crate::aggregator::result::{ResultValidation as _, ValidationResult};
