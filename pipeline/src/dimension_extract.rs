@@ -10,6 +10,14 @@ use datafusion::{
     scalar::ScalarValue,
 };
 
+make_udf_expr_and_func!(
+    DimensionExtract,
+    dimension_extract,
+    dimensions_map dimension,
+    "extracts the named dimensions from a dimensions map.",
+    dimension_extract_udf
+);
+
 /// ScalarUDF to convert a binary CID into a string for easier inspection.
 #[derive(Debug)]
 pub struct DimensionExtract {
