@@ -20,6 +20,7 @@ pub struct ModelDefinitionV1 {
     pub(crate) relations: ModelRelationsDefinitionV1,
     #[serde(default)]
     pub(crate) views: ModelViewsDefinitionV1,
+    pub(crate) version: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -40,6 +41,7 @@ pub struct ModelDefinitionV2 {
     pub(crate) relations: ModelRelationsDefinitionV2,
     #[serde(default)]
     pub(crate) views: ModelViewsDefinitionV2,
+    pub(crate) version: String,
 }
 
 impl ModelDefinitionV2 {

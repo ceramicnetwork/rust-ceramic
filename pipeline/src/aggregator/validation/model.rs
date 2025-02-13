@@ -11,17 +11,23 @@ pub use super::model_versions::*;
 // In the future we will expose these types as part of rust SDK.
 // For now they are only used in tests.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "version")]
+// Treat model definitions as untagged because its possible that v1 definitions do not contain
+// version field. We then include the version field in each definition and validate it matches the
+// parsed version.
+#[serde(untagged)]
 #[serde(rename_all = "camelCase")]
 /// This is the payload of an event with stream type 2 (Model)
 pub enum ModelDefinition {
-    /// Version 1 of model definitions.
-    #[serde(rename = "1.0")]
-    V1(ModelDefinitionV1),
     /// Version 2 of a model definition. All new model definitions should use this version.
-    #[serde(rename = "2.0")]
+    // Parse v2 first because its has new fields compared to v1, otherwise we might accidentally
+    // think a v2 is a v1.
     V2(ModelDefinitionV2),
+    /// Version 1 of model definitions.
+    V1(ModelDefinitionV1),
 }
+
+const V1_VERSION: &str = "1.0";
+const V2_VERSION: &str = "2.0";
 
 impl ModelDefinition {
     fn schema_for<T: schemars::JsonSchema>() -> schemars::Schema {
@@ -54,6 +60,7 @@ impl ModelDefinition {
             //TODO expose these features
             relations: Default::default(),
             views: Default::default(),
+            version: V2_VERSION.to_owned(),
         }))
     }
 }
@@ -112,7 +119,17 @@ impl ModelDefinition {
 
         match self {
             ModelDefinition::V1(v1) => {
-                let ModelDefinitionV1 { views, schema, .. } = v1;
+                let ModelDefinitionV1 {
+                    views,
+                    schema,
+                    version,
+                    ..
+                } = v1;
+                if let Some(version) = version {
+                    if version != V1_VERSION {
+                        return ValidationResult::Fail(vec![format!("failed to determine correct version of model definition, parsed as version 1.0 found version {version}")].into());
+                    }
+                }
                 maybe_fail!(Self::validate_schema(schema));
                 if !views.is_empty() {
                     maybe_fail!(Self::validate_views(views.keys(), schema));
@@ -129,8 +146,25 @@ impl ModelDefinition {
                     views,
                     schema,
                     account_relation,
+                    version,
                     ..
                 } = v2;
+                if version != V2_VERSION {
+                    // So there are 48 models on testnet that have v2 fields (i.e.
+                    // implements/interface) but explicitly state that they are a version 1 model
+                    // definition. However all of those models do not use those features they just
+                    // have the fields.
+                    // That leaves us with a few choices.
+                    //  Completely ignore the version field as its not reliable,
+                    //  Leave this error in place that will mark the model as invalid,
+                    //  Use tagged union and explicitly parse as v1 since they state they are v1.
+                    //
+                    // The last option has the opposite problem that there are 210 otherwise valid
+                    // v1 models that do not specify a version at all.
+                    //
+                    // As such I am leaning towards just ignoring the version entirely.
+                    return ValidationResult::Fail(vec![format!("failed to determine correct version of model definition, parsed as version 2.0 found version {version}")].into());
+                }
                 maybe_fail!(Self::validate_schema(schema));
                 maybe_fail!(Self::validate_account_relation(account_relation));
 
