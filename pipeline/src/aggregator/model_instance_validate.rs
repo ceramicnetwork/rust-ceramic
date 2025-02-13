@@ -114,11 +114,11 @@ impl ModelInstanceValidate {
                     columns.model_definitions.value(i),
                 )
             })
-            .ok_or_validation_internal_err(
+            .ok_or_validation_failure(
                 "cannot validate instance against an unknown model definition"
             ))
         .context("model definition is not a valid model definition")
-        .map_to_validation_internal_err());
+        .map_to_validation_failure());
         let event_height = maybe_fail!(columns
             .event_heights
             .is_valid(i)

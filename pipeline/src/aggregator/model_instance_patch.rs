@@ -131,6 +131,9 @@ impl CeramicPatchEvaluator {
         ))
     }
     fn parse_model_version(data: &[u8]) -> Result<Option<Cid>> {
+        if data.is_empty() {
+            return Ok(None);
+        }
         let patch: MetadataContainer = serde_json::from_slice(data)
             .map_err(|err| exec_datafusion_err!("Error parsing model version from data: {err}"))?;
         patch
@@ -179,7 +182,7 @@ impl PartitionEvaluator for CeramicPatchEvaluator {
         let mut resolved_patches = BinaryBuilder::new();
         for i in 0..num_rows {
             if previous_cids.is_valid(i) {
-                if let Some((previous_state, previous_height)) = if !previous_states.is_null(i) {
+                if let Some((previous_state, previous_height)) = if previous_states.is_valid(i) {
                     // We know the previous state already
                     Some((previous_states.value(i), previous_heights.value(i)))
                 } else {
