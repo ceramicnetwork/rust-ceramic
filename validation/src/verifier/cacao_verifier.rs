@@ -90,7 +90,7 @@ impl Verifier for Capability {
             || self
                 .payload
                 .not_before()?
-                .map_or(false, |nb| nb > at_time + opts.clock_skew)
+                .is_some_and(|nb| nb > at_time + opts.clock_skew)
         {
             anyhow::bail!("CACAO is not valid yet")
         }
@@ -119,12 +119,10 @@ impl Verifier for Capability {
 
         if resources.contains(&"ceramic://*".to_owned())
             || resources.contains(&format!("ceramic://{stream_id}"))
-            || payload_cid.map_or(false, |payload_cid| {
+            || payload_cid.is_some_and(|payload_cid| {
                 resources.contains(&format!("ceramic://{stream_id}?payload={payload_cid}"))
             })
-            || model.map_or(false, |model| {
-                resources.contains(&format!("ceramic://*?model={model}"))
-            })
+            || model.is_some_and(|model| resources.contains(&format!("ceramic://*?model={model}")))
         {
             Ok(())
         } else {

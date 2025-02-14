@@ -24,12 +24,16 @@ tracing.workspace = true
 
 [dev-dependencies]
 ceramic-actor.workspace = true
+ceramic-core.workspace = true
 ceramic-pipeline.workspace = true
 expect-test.workspace = true
 http.workspace = true
 mockall.workspace = true
-prometheus-client.workspace = true
 object_store.workspace = true
+prometheus-client.workspace = true
+schemars.workspace = true
+serde_json.workspace = true
+serde.workspace = true
 shutdown.workspace = true
 test-log.workspace = true
 tokio = { workspace = true, features = ["macros", "rt"] }
