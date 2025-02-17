@@ -96,7 +96,13 @@ pub fn event_states() -> SchemaRef {
                 ),
                 Field::new("event_cid", DataType::Binary, false),
                 Field::new("event_type", DataType::UInt8, false),
+                Field::new("event_height", DataType::UInt32, true),
                 Field::new("data", DataType::Binary, true),
+                Field::new(
+                    "validation_errors",
+                    DataType::List(Field::new_list_field(DataType::Utf8, true).into()),
+                    true,
+                ),
             ]))
             .finish(),
         )

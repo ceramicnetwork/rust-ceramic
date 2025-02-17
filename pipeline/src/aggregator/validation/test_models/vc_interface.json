@@ -1,0 +1,60 @@
+{
+    "streamId": "kjzl6hvfrbw6c9rm2lhkk2mv5v8ytatv6br7uy4ugewmf0zivk8xle3qmpbkzgd",
+    "state": {
+        "type": 2,
+        "content": {
+            "name": "VerifiableCredential",
+            "views": {},
+            "schema": {
+                "type": "object",
+                "$defs": {
+                    "GraphQLDateTime": {
+                        "type": "string",
+                        "title": "GraphQLDateTime",
+                        "format": "date-time",
+                        "maxLength": 100
+                    }
+                },
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "required": [
+                    "type",
+                    "issuer",
+                    "issuanceDate"
+                ],
+                "properties": {
+                    "type": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "maxLength": 1024,
+                            "minLength": 1
+                        },
+                        "maxItems": 1024
+                    },
+                    "issuer": {
+                        "type": "string",
+                        "maxLength": 1024,
+                        "minLength": 1
+                    },
+                    "issuanceDate": {
+                        "$ref": "#/$defs/GraphQLDateTime"
+                    },
+                    "expirationDate": {
+                        "$ref": "#/$defs/GraphQLDateTime"
+                    }
+                },
+                "additionalProperties": false
+            },
+            "version": "2.0",
+            "interface": true,
+            "relations": {},
+            "implements": [
+                "kjzl6hvfrbw6c5nawcon8xmqyh270olex7ggbdrpam6w0rpewkn5jyybmkyc5rw"
+            ],
+            "description": "A verifiable credential interface",
+            "accountRelation": {
+                "type": "none"
+            }
+        }
+    }
+}
