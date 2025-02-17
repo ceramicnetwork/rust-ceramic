@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.49.0] - 2025-02-07
+## [0.50.0] - 2025-02-17
 
 ### 🚀 Features
 
@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 - Add dimension_extract udf ([#654](https://github.com/ceramicnetwork/rust-ceramic/issues/654))
 - Adds output format options to query command ([#659](https://github.com/ceramicnetwork/rust-ceramic/issues/659))
 - [**breaking**] Partition event states by event cid ([#658](https://github.com/ceramicnetwork/rust-ceramic/issues/658))
+- Add/update UDFs for the ceramic pipeline ([#662](https://github.com/ceramicnetwork/rust-ceramic/issues/662))
 
 ### 🐛 Bug Fixes
 
@@ -19,6 +20,11 @@ All notable changes to this project will be documented in this file.
 ### 🚜 Refactor
 
 - More efficient list udf impls ([#657](https://github.com/ceramicnetwork/rust-ceramic/issues/657))
+
+### ⚙️ Miscellaneous Tasks
+
+- Version v0.49.0 ([#660](https://github.com/ceramicnetwork/rust-ceramic/issues/660))
+- Use artifacts v4 as v3 is deprecated ([#661](https://github.com/ceramicnetwork/rust-ceramic/issues/661))
 
 ## [0.48.0] - 2025-01-28
 
